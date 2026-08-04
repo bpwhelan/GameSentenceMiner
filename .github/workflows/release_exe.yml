@@ -181,7 +181,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: recursive
           fetch-depth: 1
 
       - name: Set up Python
@@ -216,6 +216,13 @@ jobs:
           New-Item -ItemType Directory -Force -Path GSM_Overlay/input_server/bin/win32 | Out-Null
           gh release download overlay-server --repo ${{ github.repository }} --pattern gsm_overlay_server-win32.exe --output GSM_Overlay/input_server/bin/win32/gsm_overlay_server.exe --clobber
 
+      - name: Fetch verified HoshiDicts host (Windows)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/generate_hoshidicts_fixture.py build/gsm-hoshi-fixture.zip
+          node scripts/fetch-hoshidicts-host.mjs --repo ${{ github.repository }} --smoke-fixture build/gsm-hoshi-fixture.zip
+
       - name: Convert Handlebar files to LF line endings
         run: |
           Get-ChildItem -Path ./GSM_Overlay/yomitan/data/templates -Recurse -Include *.handlebars | ForEach-Object {
@@ -238,7 +245,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify packaged overlay
-        run: npm run verify:overlay-package
+        run: npm run verify:overlay-package -- --require-trusted --smoke-fixture build/gsm-hoshi-fixture.zip
 
       - name: Upload unsigned Windows installer for SignPath
         id: upload-unsigned-windows
@@ -357,6 +364,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          submodules: recursive
           fetch-depth: 1
 
       - name: Set up Node.js
@@ -365,6 +373,11 @@ jobs:
           node-version: 22.12.0
           cache: npm
           cache-dependency-path: package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
       - name: Install dependencies for release metadata
         run: npm ci --prefer-offline --no-audit --fund=false
@@ -380,6 +393,28 @@ jobs:
         with:
           name: signed-windows-unpacked-${{ needs.prepare-release.outputs.PACKAGE_VERSION }}
           path: dist
+
+      - name: Verify signed nested HoshiDicts host
+        shell: pwsh
+        run: |
+          $archive = Get-ChildItem -Path dist -File -Filter "GameSentenceMiner-*-win-unpacked.zip" | Select-Object -First 1
+          if (-not $archive) {
+            throw "Signed unpacked Windows archive was not found."
+          }
+          $destination = Join-Path (Resolve-Path dist).Path "signed-unpacked-inspection"
+          if (Test-Path $destination) {
+            Remove-Item -LiteralPath $destination -Recurse -Force
+          }
+          Expand-Archive -LiteralPath $archive.FullName -DestinationPath $destination
+          $overlayRelativePath = "GSM_Overlay\gsm_overlay-win32-x64\resources"
+          $resourcesDirectory = Get-ChildItem -LiteralPath $destination -Recurse -Directory -Filter resources |
+            Where-Object { Test-Path (Join-Path $_.FullName $overlayRelativePath) } |
+            Select-Object -First 1
+          if (-not $resourcesDirectory) {
+            throw "Signed unpacked Windows archive does not contain packaged overlay resources."
+          }
+          python scripts/generate_hoshidicts_fixture.py build/gsm-hoshi-fixture.zip
+          node scripts/verify-overlay-package.mjs --resources-root "$($resourcesDirectory.FullName)" --require-trusted --allow-resigned-host --smoke-fixture build/gsm-hoshi-fixture.zip
 
       - name: Stage signed installer and recreate update metadata
         shell: pwsh
@@ -468,6 +503,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          submodules: recursive
           fetch-depth: 1
 
       - name: Set up Python
@@ -502,6 +538,13 @@ jobs:
           gh release download overlay-server --repo ${{ github.repository }} --pattern gsm_overlay_server-linux --output GSM_Overlay/input_server/bin/linux/gsm_overlay_server --clobber
           chmod +x GSM_Overlay/input_server/bin/linux/gsm_overlay_server
 
+      - name: Fetch verified HoshiDicts host (Linux)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/generate_hoshidicts_fixture.py build/gsm-hoshi-fixture.zip
+          node scripts/fetch-hoshidicts-host.mjs --repo ${{ github.repository }} --smoke-fixture build/gsm-hoshi-fixture.zip
+
       - name: Build Overlay
         working-directory: ./GSM_Overlay
         run: |
@@ -517,7 +560,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify packaged overlay
-        run: npm run verify:overlay-package
+        run: npm run verify:overlay-package -- --require-trusted --smoke-fixture build/gsm-hoshi-fixture.zip
 
       - name: Upload Linux release assets
         uses: softprops/action-gh-release@v2
@@ -549,6 +592,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          submodules: recursive
           fetch-depth: 1
 
       - name: Set up Python
@@ -583,6 +627,29 @@ jobs:
           gh release download overlay-server --repo ${{ github.repository }} --pattern gsm_overlay_server-darwin --output GSM_Overlay/input_server/bin/darwin/gsm_overlay_server --clobber
           chmod +x GSM_Overlay/input_server/bin/darwin/gsm_overlay_server
 
+      - name: Fetch verified HoshiDicts host (macOS)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/generate_hoshidicts_fixture.py build/gsm-hoshi-fixture.zip
+          node scripts/fetch-hoshidicts-host.mjs --repo ${{ github.repository }} --smoke-fixture build/gsm-hoshi-fixture.zip
+
+      - name: Require macOS signing and notarization credentials
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          for name in MACOS_CERTIFICATE_BASE64 MACOS_CERTIFICATE_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!name:-}" ]; then
+              echo "Required stable macOS secret is missing: $name" >&2
+              exit 1
+            fi
+          done
+
       - name: Build Overlay
         working-directory: ./GSM_Overlay
         run: |
@@ -596,9 +663,27 @@ jobs:
         run: npm run app:dist -- --mac --arm64 -c.mac.artifactName='${productName}-${version}-${arch}.${ext}'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Verify packaged overlay
-        run: npm run verify:overlay-package
+        run: npm run verify:overlay-package -- --require-trusted --smoke-fixture build/gsm-hoshi-fixture.zip
+
+      - name: Verify macOS signing, notarization, and Gatekeeper
+        run: |
+          set -euo pipefail
+          APP_PATH="dist/mac-arm64/GameSentenceMiner.app"
+          DMG_PATH=$(find dist -maxdepth 1 -type f -name '*-arm64.dmg' -print -quit)
+          test -d "$APP_PATH"
+          test -n "$DMG_PATH"
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          spctl --assess --type execute --verbose=2 "$APP_PATH"
+          xcrun stapler validate "$APP_PATH"
+          codesign --verify --verbose=2 "$DMG_PATH"
+          spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG_PATH"
 
       - name: Copy arm64 update manifest
         run: cp dist/latest-mac.yml dist/latest-mac-arm64.yml

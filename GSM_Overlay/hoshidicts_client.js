@@ -63,7 +63,9 @@ class HoshiDictsHostExitedError extends HoshiDictsClientError {
 }
 
 function hostExecutableName(platform = process.platform) {
-  return platform === "win32" ? "hoshidicts-host.exe" : "hoshidicts-host";
+  return platform === "win32"
+    ? "gsm_hoshidicts_host.exe"
+    : "gsm_hoshidicts_host";
 }
 
 function isExecutableFile(candidate, platform, statSync = fs.statSync) {

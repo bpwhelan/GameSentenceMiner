@@ -28,10 +28,10 @@ int runSelfTest() {
   if (hello.find(R"("ok":true)") == std::string::npos ||
       hello.find(GSM_HOSHIDICTS_COMMIT) == std::string::npos ||
       health.find(R"("status":"ok")") == std::string::npos) {
-    std::cerr << "hoshidicts-host self-test failed\n";
+    std::cerr << "gsm_hoshidicts_host self-test failed\n";
     return 1;
   }
-  std::cout << "hoshidicts-host self-test ok\n";
+  std::cout << "gsm_hoshidicts_host self-test ok\n";
   return 0;
 }
 
@@ -110,7 +110,7 @@ int main(int argc, char* argv[]) {
 
   const std::string_view command(argv[1]);
   if (command == "--version") {
-    std::cout << "hoshidicts-host " << GSM_HOSHIDICTS_HOST_VERSION
+    std::cout << "gsm_hoshidicts_host " << GSM_HOSHIDICTS_HOST_VERSION
               << " hoshidicts " << GSM_HOSHIDICTS_COMMIT << '\n';
     return 0;
   }

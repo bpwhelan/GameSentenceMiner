@@ -16,6 +16,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -66,6 +69,13 @@ jobs:
           cp GSM_Overlay/input_server/target/release/gsm_overlay_server GSM_Overlay/input_server/bin/linux/gsm_overlay_server
           chmod +x GSM_Overlay/input_server/bin/linux/gsm_overlay_server
 
+      - name: Fetch verified development HoshiDicts host
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/generate_hoshidicts_fixture.py build/gsm-hoshi-fixture.zip
+          node scripts/fetch-hoshidicts-host.mjs --repo ${{ github.repository }} --allow-unsigned-development --smoke-fixture build/gsm-hoshi-fixture.zip
+
       - name: Build Overlay
         id: build_overlay_linux
         working-directory: ./GSM_Overlay
@@ -93,6 +103,9 @@ jobs:
           npm run app:dist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify packaged overlay
+        run: npm run verify:overlay-package -- --smoke-fixture build/gsm-hoshi-fixture.zip
 
       - name: Upload to release
         uses: actions/upload-artifact@v4

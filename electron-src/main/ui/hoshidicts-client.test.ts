@@ -116,7 +116,7 @@ function createHarness(
   const child = new FakeChild(handler);
   const spawn = vi.fn(() => child);
   const client = new HoshiDictsClient({
-    executablePath: "/test/hoshidicts-host",
+    executablePath: "/test/gsm_hoshidicts_host",
     spawn,
     clientVersion: "test",
     ...options,
@@ -153,7 +153,7 @@ describe("HoshiDictsClient", () => {
     });
 
     expect(spawn).toHaveBeenCalledWith(
-      "/test/hoshidicts-host",
+      "/test/gsm_hoshidicts_host",
       [],
       expect.objectContaining({ shell: false, windowsHide: true }),
     );
@@ -304,7 +304,7 @@ describe("HoshiDictsClient", () => {
     });
     const spawn = vi.fn().mockReturnValueOnce(first).mockReturnValueOnce(second);
     const client = new HoshiDictsClient({
-      executablePath: "/test/hoshidicts-host",
+      executablePath: "/test/gsm_hoshidicts_host",
       spawn,
       clientVersion: "test",
     });
@@ -366,12 +366,73 @@ describe("resolveHoshiDictsExecutable", () => {
       }),
     ).toThrowError(/does not point to an executable file/);
   });
+
+  it("resolves the canonical host from packaged resources with a Unicode path", () => {
+    const resourcesPath = path.join(
+      path.sep,
+      "Applications",
+      "Game Sentence Miner \u65e5\u672c\u8a9e",
+      "resources",
+    );
+    const expected = path.join(resourcesPath, "gsm_hoshidicts_host");
+    const statSync = vi.fn((candidate: fs.PathLike) => {
+      if (candidate !== expected) {
+        throw new Error("missing");
+      }
+      return {
+        isFile: () => true,
+        mode: 0o100755,
+      };
+    });
+
+    expect(
+      resolveHoshiDictsExecutable({
+        platform: "linux",
+        arch: "x64",
+        resourcesPath,
+        moduleDir: "/unused",
+        env: {},
+        statSync,
+      }),
+    ).toBe(expected);
+  });
+
+  it("resolves a development bundle by platform and architecture", () => {
+    const moduleDir = path.join(path.sep, "repo with spaces", "GSM_Overlay");
+    const expected = path.join(
+      moduleDir,
+      "hoshidicts_host",
+      "bin",
+      "darwin-arm64",
+      "gsm_hoshidicts_host",
+    );
+    const statSync = vi.fn((candidate: fs.PathLike) => {
+      if (candidate !== expected) {
+        throw new Error("missing");
+      }
+      return {
+        isFile: () => true,
+        mode: 0o100755,
+      };
+    });
+
+    expect(
+      resolveHoshiDictsExecutable({
+        platform: "darwin",
+        arch: "arm64",
+        resourcesPath: "/missing",
+        moduleDir,
+        env: {},
+        statSync,
+      }),
+    ).toBe(expected);
+  });
 });
 
 const realHostCandidates = [
   process.env.GSM_HOSHIDICTS_HOST_PATH,
-  path.resolve("build/hoshidicts-goal2/hoshidicts-host"),
-  path.resolve("build/hoshidicts-provenance/hoshidicts-host"),
+  path.resolve("build/hoshidicts-goal2/gsm_hoshidicts_host"),
+  path.resolve("build/hoshidicts-provenance/gsm_hoshidicts_host"),
 ].filter((candidate): candidate is string => Boolean(candidate));
 const realHostPath = realHostCandidates.find((candidate) => fs.existsSync(candidate));
 

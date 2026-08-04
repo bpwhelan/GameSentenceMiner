@@ -51,6 +51,12 @@ function ignorePackagerFile(filePath) {
   }
 
   const topLevelEntry = relativePath.split('/')[0];
+  if (topLevelEntry === 'hoshidicts_host') {
+    return (
+      relativePath !== 'hoshidicts_host' &&
+      relativePath !== 'hoshidicts_host/provenance.json'
+    );
+  }
   return ignoredPackagerEntries.has(topLevelEntry) || ignoredPackagerFiles.has(relativePath);
 }
 
@@ -70,12 +76,48 @@ function resolveInputServerExtraResource() {
   return candidates[0];
 }
 
+function resolveHoshiDictsBundleDir() {
+  const candidates = [
+    path.join('hoshidicts_host', 'bin', `${process.platform}-${process.arch}`),
+    path.join('hoshidicts_host', 'bin', process.platform),
+    path.join('hoshidicts_host', 'bin'),
+  ];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.join(__dirname, candidate, 'hoshidicts-host-manifest.json'))) {
+      return candidate;
+    }
+  }
+
+  return candidates[0];
+}
+
+function resolveHoshiDictsExtraResources() {
+  const bundleDir = resolveHoshiDictsBundleDir();
+  const executableName = isWindows
+    ? 'gsm_hoshidicts_host.exe'
+    : 'gsm_hoshidicts_host';
+  return [
+    path.join(bundleDir, executableName),
+    path.join(bundleDir, 'hoshidicts-host-manifest.json'),
+    path.join(bundleDir, 'hoshidicts-provenance.json'),
+    path.join(bundleDir, 'THIRD_PARTY_NOTICES.md'),
+    path.join(bundleDir, 'licenses'),
+  ];
+}
+
 module.exports = {
   packagerConfig: {
     asar: true,
     icon: isWindows ? './overlay.ico' : (isMac ? undefined : './overlay-256.png'),
     ignore: ignorePackagerFile,
-    "extraResource": ["yomitan", "jiten.reader", resolveInputServerExtraResource(), "input_server/mecab_bridge.py"],
+    extraResource: [
+      'yomitan',
+      'jiten.reader',
+      resolveInputServerExtraResource(),
+      'input_server/mecab_bridge.py',
+      ...resolveHoshiDictsExtraResources(),
+    ],
   },
   rebuildConfig: {},
   makers: [

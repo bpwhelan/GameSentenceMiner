@@ -76,7 +76,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: recursive
           fetch-depth: 1
 
       - uses: actions/setup-python@v5
@@ -112,6 +112,13 @@ jobs:
           New-Item -ItemType Directory -Force -Path GSM_Overlay/input_server/bin/win32 | Out-Null
           gh release download overlay-server --repo ${{ github.repository }} --pattern gsm_overlay_server-win32.exe --output GSM_Overlay/input_server/bin/win32/gsm_overlay_server.exe --clobber
 
+      - name: Fetch verified development HoshiDicts host (Windows)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/generate_hoshidicts_fixture.py build/gsm-hoshi-fixture.zip
+          node scripts/fetch-hoshidicts-host.mjs --repo ${{ github.repository }} --release-tag hoshidicts-host-dev --allow-unsigned-development --smoke-fixture build/gsm-hoshi-fixture.zip
+
       - name: Write prerelease metadata
         run: |
           node -e "const fs=require('fs');const path=require('path');const branch=(process.env.GITHUB_HEAD_REF||process.env.GITHUB_REF_NAME||'unknown').trim()||'unknown';const payload={branch,generatedAt:new Date().toISOString()};const out=path.join('electron-src','assets','prerelease.json');fs.writeFileSync(out, JSON.stringify(payload, null, 2)+'\n');console.log('Wrote prerelease metadata to', out, 'for branch', branch);"
@@ -138,7 +145,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify packaged overlay
-        run: npm run verify:overlay-package
+        run: npm run verify:overlay-package -- --smoke-fixture build/gsm-hoshi-fixture.zip
 
       # --- Test signing (SignPath) disabled ---
       # - name: Upload unsigned Windows installer for SignPath
@@ -326,6 +333,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          submodules: recursive
           fetch-depth: 1
 
       - uses: actions/setup-python@v5
@@ -361,6 +369,13 @@ jobs:
           gh release download overlay-server --repo ${{ github.repository }} --pattern gsm_overlay_server-linux --output GSM_Overlay/input_server/bin/linux/gsm_overlay_server --clobber
           chmod +x GSM_Overlay/input_server/bin/linux/gsm_overlay_server
 
+      - name: Fetch verified development HoshiDicts host (Linux)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/generate_hoshidicts_fixture.py build/gsm-hoshi-fixture.zip
+          node scripts/fetch-hoshidicts-host.mjs --repo ${{ github.repository }} --release-tag hoshidicts-host-dev --allow-unsigned-development --smoke-fixture build/gsm-hoshi-fixture.zip
+
       - name: Write prerelease metadata
         run: |
           node -e "const fs=require('fs');const path=require('path');const branch=(process.env.GITHUB_HEAD_REF||process.env.GITHUB_REF_NAME||'unknown').trim()||'unknown';const payload={branch,generatedAt:new Date().toISOString()};const out=path.join('electron-src','assets','prerelease.json');fs.writeFileSync(out, JSON.stringify(payload, null, 2)+'\n');console.log('Wrote prerelease metadata to', out, 'for branch', branch);"
@@ -380,7 +395,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify packaged overlay
-        run: npm run verify:overlay-package
+        run: npm run verify:overlay-package -- --smoke-fixture build/gsm-hoshi-fixture.zip
 
       - name: Upload to pre-release
         env:
@@ -400,6 +415,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          submodules: recursive
           fetch-depth: 1
 
       - uses: actions/setup-python@v5
@@ -435,6 +451,13 @@ jobs:
           gh release download overlay-server --repo ${{ github.repository }} --pattern gsm_overlay_server-darwin --output GSM_Overlay/input_server/bin/darwin/gsm_overlay_server --clobber
           chmod +x GSM_Overlay/input_server/bin/darwin/gsm_overlay_server
 
+      - name: Fetch verified development HoshiDicts host (macOS)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/generate_hoshidicts_fixture.py build/gsm-hoshi-fixture.zip
+          node scripts/fetch-hoshidicts-host.mjs --repo ${{ github.repository }} --release-tag hoshidicts-host-dev --allow-unsigned-development --smoke-fixture build/gsm-hoshi-fixture.zip
+
       - name: Write prerelease metadata
         run: |
           node -e "const fs=require('fs');const path=require('path');const branch=(process.env.GITHUB_HEAD_REF||process.env.GITHUB_REF_NAME||'unknown').trim()||'unknown';const payload={branch,generatedAt:new Date().toISOString()};const out=path.join('electron-src','assets','prerelease.json');fs.writeFileSync(out, JSON.stringify(payload, null, 2)+'\n');console.log('Wrote prerelease metadata to', out, 'for branch', branch);"
@@ -454,7 +477,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify packaged overlay
-        run: npm run verify:overlay-package
+        run: npm run verify:overlay-package -- --smoke-fixture build/gsm-hoshi-fixture.zip
 
       - name: Copy arm64 update manifest
         run: cp dist/latest-mac.yml dist/latest-mac-arm64.yml

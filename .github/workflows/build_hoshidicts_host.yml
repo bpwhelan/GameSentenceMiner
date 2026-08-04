@@ -1,0 +1,299 @@
+name: Build HoshiDicts Host
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - "feat/optional-hoshidicts"
+    paths:
+      - .gitmodules
+      - .github/workflows/build_hoshidicts_host.yml
+      - GSM_Overlay/hoshidicts_client.js
+      - GSM_Overlay/hoshidicts_host/**
+      - LICENSE
+      - THIRD_PARTY_NOTICES.md
+      - scripts/fetch-hoshidicts-host.mjs
+      - scripts/generate_hoshidicts_fixture.py
+      - scripts/hoshidicts-host-artifact.mjs
+      - scripts/verify-hoshidicts-provenance.mjs
+  workflow_dispatch:
+    inputs:
+      publish_rolling:
+        description: Publish the verified bundles to the rolling hoshidicts-host release
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: build-hoshidicts-host-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-latest
+            platform: win32
+            arch: x64
+            executable: build/hoshidicts-host/Release/gsm_hoshidicts_host.exe
+            asset: gsm-hoshidicts-host-win32-x64.tar.gz
+          - name: Linux x64
+            os: ubuntu-22.04
+            platform: linux
+            arch: x64
+            executable: build/hoshidicts-host/gsm_hoshidicts_host
+            asset: gsm-hoshidicts-host-linux-x64.tar.gz
+          - name: macOS arm64
+            os: macos-15
+            platform: darwin
+            arch: arm64
+            executable: build/hoshidicts-host/gsm_hoshidicts_host
+            asset: gsm-hoshidicts-host-darwin-arm64.tar.gz
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+
+    steps:
+      - name: Checkout recursive source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+
+      - name: Install pinned CMake
+        run: python -m pip install --disable-pip-version-check cmake==3.31.6
+
+      - name: Install Linux baseline compiler
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils g++-12
+
+      - name: Verify source and licenses
+        run: node scripts/verify-hoshidicts-provenance.mjs
+
+      - name: Configure HoshiDicts on Windows
+        if: runner.os == 'Windows'
+        run: >-
+          cmake
+          -S GSM_Overlay/hoshidicts_host
+          -B build/hoshidicts-host
+          -A x64
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+
+      - name: Configure HoshiDicts on Linux
+        if: runner.os == 'Linux'
+        env:
+          CC: gcc-12
+          CXX: g++-12
+        run: >-
+          cmake
+          -S GSM_Overlay/hoshidicts_host
+          -B build/hoshidicts-host
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+
+      - name: Configure HoshiDicts on macOS
+        if: runner.os == 'macOS'
+        run: >-
+          cmake
+          -S GSM_Overlay/hoshidicts_host
+          -B build/hoshidicts-host
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+
+      - name: Build HoshiDicts host
+        run: cmake --build build/hoshidicts-host --config Release --parallel 4
+
+      - name: Test native host
+        run: >-
+          ctest
+          --test-dir build/hoshidicts-host
+          --build-config Release
+          --label-exclude performance
+          --output-on-failure
+
+      - name: Run native performance and process smoke tests
+        run: >-
+          ctest
+          --test-dir build/hoshidicts-host
+          --build-config Release
+          --label-regex performance
+          --output-on-failure
+
+      - name: Generate public fixture
+        run: python scripts/generate_hoshidicts_fixture.py build/gsm-hoshi-fixture.zip
+
+      - name: Test installed-path import and lookup
+        run: >-
+          node
+          GSM_Overlay/hoshidicts_host/tests/packaged_smoke.cjs
+          "${{ matrix.executable }}"
+          build/gsm-hoshi-fixture.zip
+
+      - name: Upload unsigned Windows host for SignPath
+        if: runner.os == 'Windows'
+        id: upload-unsigned-windows
+        uses: actions/upload-artifact@v4
+        with:
+          name: gsm-hoshidicts-host-unsigned-windows-${{ github.run_id }}
+          path: ${{ matrix.executable }}
+          if-no-files-found: error
+
+      - name: Request Windows host signing
+        if: runner.os == 'Windows'
+        id: sign-windows-host
+        continue-on-error: true
+        uses: signpath/github-action-submit-signing-request@b9d91eadd323de506c0c81cf0c7fe7438f3360fd
+        with:
+          api-token: ${{ secrets.SIGNPATH_APITOKEN }}
+          organization-id: c677c167-9f3e-4577-b967-5d7730bf742d
+          project-slug: GameSentenceMiner
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: gsm_hoshidicts_host
+          github-artifact-id: ${{ steps.upload-unsigned-windows.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed-host
+
+      - name: Prefer signed Windows host
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $signed = Get-ChildItem -Path signed-host -Recurse -File -Filter gsm_hoshidicts_host.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($signed) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $signed.FullName
+            if ($signature.Status -ne "Valid") {
+              throw "SignPath returned a host with Authenticode status $($signature.Status)."
+            }
+            Copy-Item -LiteralPath $signed.FullName -Destination "${{ matrix.executable }}" -Force
+            Write-Host "Using signed HoshiDicts host."
+          } else {
+            Write-Warning "No signed host is available. Publishing an unsigned development bundle; stable releases will reject it."
+          }
+
+      - name: Sign macOS host when a certificate is configured
+        if: runner.os == 'macOS'
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MACOS_CERTIFICATE_BASE64:-}" ] || [ -z "${MACOS_CERTIFICATE_PASSWORD:-}" ]; then
+            echo "::warning::macOS signing secrets are absent. Publishing an unsigned development bundle; stable releases will reject it."
+            exit 0
+          fi
+
+          CERTIFICATE_PATH="$RUNNER_TEMP/hoshidicts-host.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/hoshidicts-host.keychain-db"
+          KEYCHAIN_PASSWORD="hoshidicts-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          printf '%s' "$MACOS_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          IDENTITY="${MACOS_SIGNING_IDENTITY:-}"
+          if [ -z "$IDENTITY" ]; then
+            IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | awk '/Developer ID Application/ {sub(/^.*"/, ""); sub(/".*$/, ""); print; exit}')
+          fi
+          if [ -z "$IDENTITY" ]; then
+            echo "No Developer ID Application identity was found." >&2
+            exit 1
+          fi
+          codesign --force --options runtime --timestamp --sign "$IDENTITY" "${{ matrix.executable }}"
+          codesign --verify --strict --verbose=2 "${{ matrix.executable }}"
+
+      - name: Create verified host bundle
+        run: >-
+          node
+          scripts/hoshidicts-host-artifact.mjs
+          create
+          --executable "${{ matrix.executable }}"
+          --bundle-dir staging/bundle
+          --platform "${{ matrix.platform }}"
+          --arch "${{ matrix.arch }}"
+          --smoke-fixture build/gsm-hoshi-fixture.zip
+
+      - name: Archive host bundle
+        run: tar -czf "staging/${{ matrix.asset }}" -C staging/bundle .
+
+      - name: Verify archive through release fetch path
+        run: >-
+          node
+          scripts/fetch-hoshidicts-host.mjs
+          --archive "staging/${{ matrix.asset }}"
+          --destination build/fetched-hoshidicts-host
+          --platform "${{ matrix.platform }}"
+          --arch "${{ matrix.arch }}"
+          --allow-unsigned-development
+          --smoke-fixture build/gsm-hoshi-fixture.zip
+
+      - name: Upload verified host bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: hoshidicts-host-${{ matrix.platform }}-${{ matrix.arch }}
+          path: staging/${{ matrix.asset }}
+          if-no-files-found: error
+
+  publish:
+    name: Publish rolling host bundles
+    runs-on: ubuntu-latest
+    needs:
+      - build
+    if: >-
+      github.ref == 'refs/heads/main' ||
+      github.ref == 'refs/heads/develop' ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish_rolling == true)
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download platform bundles
+        uses: actions/download-artifact@v4
+        with:
+          pattern: hoshidicts-host-*
+          path: staging
+          merge-multiple: true
+
+      - name: Publish rolling HoshiDicts host release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref == 'refs/heads/main' && 'hoshidicts-host' || 'hoshidicts-host-dev' }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ github.ref == 'refs/heads/main' && 'HoshiDicts Host Binaries' || 'HoshiDicts Host Development Binaries' }}
+          body: |
+            Provenance-checked native HoshiDicts host bundles consumed by the
+            GameSentenceMiner app release workflows.
+
+            Source commit: `${{ github.sha }}`
+
+            Windows and macOS bundles are marked `signed` only after platform
+            signature validation. Missing signing credentials produce explicit
+            unsigned development bundles that stable app releases reject.
+          prerelease: true
+          make_latest: false
+          fail_on_unmatched_files: true
+          files: staging/gsm-hoshidicts-host-*.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -24,6 +24,8 @@
     "stage:overlay": "node scripts/stage-overlay-build.mjs",
     "verify:overlay-package": "node scripts/verify-overlay-package.mjs",
     "verify:hoshidicts-provenance": "node scripts/verify-hoshidicts-provenance.mjs",
+    "fetch:hoshidicts-host": "node scripts/fetch-hoshidicts-host.mjs",
+    "verify:hoshidicts-host": "node scripts/hoshidicts-host-artifact.mjs verify",
     "app:dist": "npm run build && npm run stage:overlay && electron-builder --publish=never",
     "app:deploy": "npm run build && npm run stage:overlay && electron-builder --publish=always"
   },
@@ -84,7 +86,9 @@
     },
     "mac": {
       "target": "dmg",
-      "icon": "assets/gsm.png"
+      "icon": "assets/gsm.png",
+      "notarize": true,
+      "signIgnore": "gsm_hoshidicts_host$"
     },
     "linux": {
       "target": "AppImage"

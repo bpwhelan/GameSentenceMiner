@@ -40,7 +40,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: recursive
           fetch-depth: 1
 
       - uses: actions/setup-python@v5
@@ -83,6 +83,13 @@ jobs:
           New-Item -ItemType Directory -Force -Path GSM_Overlay/input_server/bin/win32 | Out-Null
           Copy-Item GSM_Overlay/input_server/target/release/gsm_overlay_server.exe GSM_Overlay/input_server/bin/win32/gsm_overlay_server.exe -Force
 
+      - name: Fetch verified development HoshiDicts host
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/generate_hoshidicts_fixture.py build/gsm-hoshi-fixture.zip
+          node scripts/fetch-hoshidicts-host.mjs --repo ${{ github.repository }} --release-tag hoshidicts-host-dev --allow-unsigned-development --smoke-fixture build/gsm-hoshi-fixture.zip
+
       - name: Write prerelease metadata
         run: |
           node -e "const fs=require('fs');const path=require('path');const branch=(process.env.GITHUB_HEAD_REF||process.env.GITHUB_REF_NAME||'unknown').trim()||'unknown';const payload={branch,generatedAt:new Date().toISOString()};const out=path.join('electron-src','assets','prerelease.json');fs.writeFileSync(out, JSON.stringify(payload, null, 2)+'\n');console.log('Wrote prerelease metadata to', out, 'for branch', branch);"
@@ -107,6 +114,9 @@ jobs:
         run: |
           npm run build
           npm run app:dir -- --win
+
+      - name: Verify packaged overlay
+        run: npm run verify:overlay-package -- --smoke-fixture build/gsm-hoshi-fixture.zip
 
       - name: Upload unpacked Windows build
         uses: actions/upload-artifact@v4

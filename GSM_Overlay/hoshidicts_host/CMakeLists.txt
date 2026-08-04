@@ -33,15 +33,19 @@ target_compile_definitions(gsm_hoshidicts_host_core PUBLIC
   GSM_HOSHIDICTS_HOST_VERSION="0.1.0"
 )
 
-add_executable(hoshidicts-host src/main.cpp)
-target_link_libraries(hoshidicts-host PRIVATE gsm_hoshidicts_host_core)
+add_executable(gsm_hoshidicts_host src/main.cpp)
+target_link_libraries(gsm_hoshidicts_host PRIVATE gsm_hoshidicts_host_core)
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_link_options(gsm_hoshidicts_host PRIVATE -static-libgcc -static-libstdc++)
+endif()
 
 if(MSVC)
   target_compile_options(gsm_hoshidicts_host_core PRIVATE /W4 /permissive-)
-  target_compile_options(hoshidicts-host PRIVATE /W4 /permissive-)
+  target_compile_options(gsm_hoshidicts_host PRIVATE /W4 /permissive-)
 else()
   target_compile_options(gsm_hoshidicts_host_core PRIVATE -Wall -Wextra -Wpedantic)
-  target_compile_options(hoshidicts-host PRIVATE -Wall -Wextra -Wpedantic)
+  target_compile_options(gsm_hoshidicts_host PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 include(CTest)
@@ -82,8 +86,14 @@ if(BUILD_TESTING)
     NAME hoshidicts-host-tests
     COMMAND hoshidicts-host-tests "${HOSHIDICTS_FIXTURE_ZIP}"
   )
-  add_test(NAME hoshidicts-host-self-test COMMAND hoshidicts-host --self-test)
-  add_test(NAME hoshidicts-host-version COMMAND hoshidicts-host --version)
+  add_test(
+    NAME hoshidicts-host-self-test
+    COMMAND gsm_hoshidicts_host --self-test
+  )
+  add_test(
+    NAME hoshidicts-host-version
+    COMMAND gsm_hoshidicts_host --version
+  )
   set_tests_properties(hoshidicts-host-version PROPERTIES
     PASS_REGULAR_EXPRESSION "${HOSHIDICTS_COMMIT}"
   )
@@ -94,7 +104,7 @@ if(BUILD_TESTING)
     COMMAND
       "${NODE_EXECUTABLE}"
       "${CMAKE_CURRENT_SOURCE_DIR}/tests/client_smoke.cjs"
-      "$<TARGET_FILE:hoshidicts-host>"
+      "$<TARGET_FILE:gsm_hoshidicts_host>"
   )
 
   add_executable(

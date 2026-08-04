@@ -324,8 +324,8 @@ describe("HoshiDictsImportManager", () => {
 
 const realHostCandidates = [
   process.env.GSM_HOSHIDICTS_HOST_PATH,
-  path.resolve("build/hoshidicts-goal2/hoshidicts-host"),
-  path.resolve("build/hoshidicts-provenance/hoshidicts-host"),
+  path.resolve("build/hoshidicts-goal2/gsm_hoshidicts_host"),
+  path.resolve("build/hoshidicts-provenance/gsm_hoshidicts_host"),
 ].filter((candidate): candidate is string => Boolean(candidate));
 const realHostPath = realHostCandidates.find((candidate) => fs.existsSync(candidate));
 const fixtureCandidates = [

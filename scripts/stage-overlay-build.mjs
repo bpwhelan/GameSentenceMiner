@@ -2,6 +2,14 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 
+import {
+  HOSHIDICTS_HOST_MANIFEST,
+  HOSHIDICTS_HOST_PROVENANCE,
+  hoshidictsHostBundleRelativePath,
+  hoshidictsHostExecutableName,
+  verifyHoshiDictsHostBundle,
+} from './hoshidicts-host-artifact.mjs';
+
 const repoRoot = process.cwd();
 const platform = process.platform;
 const arch = process.arch;
@@ -12,6 +20,7 @@ const stagedOverlayDir = path.join(stagedOverlayRoot, overlayDirName);
 const stagedResourcesDir = path.join(stagedOverlayDir, 'resources');
 const overlaySourceDir = path.join(repoRoot, 'GSM_Overlay');
 const serverExecutableName = platform === 'win32' ? 'gsm_overlay_server.exe' : 'gsm_overlay_server';
+const hostExecutableName = hoshidictsHostExecutableName(platform);
 
 function overlayResourcesCandidates() {
   return [
@@ -72,6 +81,46 @@ async function stageInputServerBinary() {
   throw new Error(`Overlay input server binary was not found.\nSearched:\n${searched}`);
 }
 
+async function stageHoshiDictsHostBundle() {
+  const sourceBundle = path.join(
+    repoRoot,
+    hoshidictsHostBundleRelativePath(platform, arch),
+  );
+  await verifyHoshiDictsHostBundle({
+    repoRoot,
+    bundleRoot: sourceBundle,
+    platform,
+    arch,
+  });
+
+  const entries = [
+    hostExecutableName,
+    HOSHIDICTS_HOST_MANIFEST,
+    HOSHIDICTS_HOST_PROVENANCE,
+    'THIRD_PARTY_NOTICES.md',
+    'licenses',
+  ];
+  for (const entry of entries) {
+    const source = path.join(sourceBundle, entry);
+    const destination = path.join(stagedResourcesDir, entry);
+    await fs.rm(destination, { recursive: true, force: true });
+    await fs.cp(source, destination, { recursive: true });
+  }
+  if (platform !== 'win32') {
+    await fs.chmod(path.join(stagedResourcesDir, hostExecutableName), 0o755);
+  }
+
+  await verifyHoshiDictsHostBundle({
+    repoRoot,
+    bundleRoot: stagedResourcesDir,
+    platform,
+    arch,
+  });
+  console.log(
+    `[stage-overlay-build] Staged verified HoshiDicts host ${sourceBundle} -> ${stagedResourcesDir}`,
+  );
+}
+
 async function main() {
   const resourcesDir = await findOverlayResourcesDir();
 
@@ -79,6 +128,7 @@ async function main() {
   await fs.mkdir(stagedOverlayDir, { recursive: true });
   await fs.cp(resourcesDir, stagedResourcesDir, { recursive: true });
   await stageInputServerBinary();
+  await stageHoshiDictsHostBundle();
 
   console.log(`[stage-overlay-build] Staged ${resourcesDir} -> ${stagedResourcesDir}`);
 }

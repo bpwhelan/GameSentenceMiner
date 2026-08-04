@@ -387,7 +387,7 @@ describe("HoshiDictsSettingsService", () => {
       importManager,
       createClient,
       storeExists: () => false,
-      resolveExecutable: () => "/test/hoshidicts-host",
+      resolveExecutable: () => "/test/gsm_hoshidicts_host",
     });
 
     const state = await service.getState({
@@ -422,7 +422,7 @@ describe("HoshiDictsSettingsService", () => {
       importManager,
       createClient: () => client,
       storeExists: () => true,
-      resolveExecutable: () => "/test/hoshidicts-host",
+      resolveExecutable: () => "/test/gsm_hoshidicts_host",
     });
     const settings = {
       dictionaryBackend: "hoshidicts",
@@ -503,7 +503,7 @@ describe("HoshiDictsSettingsService", () => {
         shutdown: async () => {},
       }),
       storeExists: () => true,
-      resolveExecutable: () => "/test/hoshidicts-host",
+      resolveExecutable: () => "/test/gsm_hoshidicts_host",
     });
 
     await service.importDictionary("/tmp/dictionary.zip");

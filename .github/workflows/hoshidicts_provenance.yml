@@ -114,4 +114,4 @@ jobs:
 
       - name: Verify macOS architecture
         if: runner.os == 'macOS'
-        run: file build/hoshidicts-provenance/hoshidicts-host | grep arm64
+        run: file build/hoshidicts-provenance/gsm_hoshidicts_host | grep arm64
