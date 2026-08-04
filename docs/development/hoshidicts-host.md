@@ -41,9 +41,10 @@ ctest --test-dir build/hoshidicts-host --build-config Release \
   --output-on-failure
 ```
 
-The Linux release build uses Ubuntu 22.04 and GCC 14. `libstdc++` and `libgcc`
-are linked into the host. Artifact verification rejects newer than
-`GLIBC_2.35` or unexpected dynamic dependencies.
+The Windows release build uses the pinned `windows-2022` runner and Visual
+Studio 2022. The Linux release build uses Ubuntu 22.04 and GCC 14. `libstdc++`
+and `libgcc` are linked into the host. Artifact verification rejects newer
+than `GLIBC_2.35` or unexpected dynamic dependencies.
 
 Create and verify a bundle from a clean checkout:
 
