@@ -56,6 +56,14 @@ export type OCRStartSource = 'user' | 'auto-launcher';
 type OCRRunMode = 'auto' | 'manual';
 type OCRProcessPriority = 'low' | 'below_normal' | 'normal' | 'above_normal' | 'high';
 type OCRConfigChanges = Record<string, [unknown, unknown]>;
+interface OCRStartOptions {
+    source?: OCRStartSource;
+    restartReason?: string;
+}
+interface OCRStopOptions {
+    reason: string;
+    onlyIfSource?: OCRStartSource;
+}
 let activeOcrSource: OCRStartSource | null = null;
 let activeOcrRunMode: OCRRunMode | null = null;
 const OCR_GRACEFUL_STOP_TIMEOUT_MS = 2000;
@@ -246,11 +254,23 @@ async function restartActiveOcrSessionForConfigChange(reason: string) {
     );
 
     if (activeOcrRunMode === 'manual') {
-        startManualOCR({ source });
+        startManualOCR({ source, restartReason: `ocr-config-change: ${reason}` });
         return;
     }
 
-    await startOCR({ promptForAreaSelection: false, source });
+    await startOCR({
+        promptForAreaSelection: false,
+        source,
+        restartReason: `ocr-config-change: ${reason}`,
+    });
+}
+
+function buildOcrStopCommand(reason: string): Record<string, unknown> {
+    const normalizedReason = reason.trim() || 'unspecified-electron-stop';
+    return {
+        command: 'stop',
+        data: { reason: normalizedReason },
+    };
 }
 
 function shouldHideOcrConsole(options?: { source?: OCRStartSource; mode?: OCRRunMode }): boolean {
@@ -366,7 +386,7 @@ function ensureOcrSupervisorWired(): void {
         priority: () => normalizeOcrProcessPriority(getOCRConfig().processPriority),
         gracefulStop: {
             topic: 'ocr.command',
-            data: { command: 'stop' },
+            data: buildOcrStopCommand('process-manager-default-stop'),
             timeoutMs: OCR_GRACEFUL_STOP_TIMEOUT_MS,
         },
         matchTokens: ['gsm_ocr'],
@@ -494,7 +514,10 @@ async function runScreenSelector(options?: { live?: boolean }) {
  * @param command - An array where the first element is the executable
  *                  and the rest are its arguments (e.g., ['tesseract', 'image.png', 'stdout']).
  */
-function runOCR(command: string[], options?: { source?: OCRStartSource; mode?: OCRRunMode }) {
+function runOCR(
+    command: string[],
+    options?: OCRStartOptions & { mode?: OCRRunMode }
+) {
     if (blockOcrStartDuringUpdate('OCR process launch')) {
         sendToMainWindowFrames('ocr-stopped');
         return;
@@ -508,6 +531,8 @@ function runOCR(command: string[], options?: { source?: OCRStartSource; mode?: O
 
     const startSource = options?.source ?? 'user';
     const runMode = options?.mode ?? 'auto';
+    const restartReason = options?.restartReason
+        ?? `ocr-session-replaced: source=${startSource}, mode=${runMode}`;
 
     // The ProcessManager owns spawn/kill/restart; we just stage the launch and
     // let restart() gracefully replace any existing OCR process. Lifecycle and
@@ -523,7 +548,9 @@ function runOCR(command: string[], options?: { source?: OCRStartSource; mode?: O
 
     console.log(`Starting OCR process (source=${startSource}, mode=${runMode}).`);
     void getProcessManager()
-        .restart(OCR_CLIENT_ID)
+        .restart(OCR_CLIENT_ID, {
+            gracefulStopData: buildOcrStopCommand(restartReason),
+        })
         .catch((err) => {
             console.error('[OCR] Failed to (re)start process:', err);
             sendToMainWindowFrames('ocr-stopped');
@@ -577,7 +604,7 @@ async function runCommandAndLog(command: string[]): Promise<void> {
 }
 
 export async function startOCR(
-    options?: { scene?: ObsScene; promptForAreaSelection?: boolean; source?: OCRStartSource }
+    options?: OCRStartOptions & { scene?: ObsScene; promptForAreaSelection?: boolean }
 ) {
     if (blockOcrStartDuringUpdate('OCR start request')) {
         return;
@@ -632,11 +659,15 @@ export async function startOCR(
         if (ocr_config.optimize_second_scan || !ocr_config.advancedMode) command.push('--optimize_second_scan');
         if (shouldEnableLegacyKeepNewlineFlag(ocr_config)) command.push('--keep_newline');
 
-        runOCR(command, { source: options?.source ?? 'user', mode: 'auto' });
+        runOCR(command, {
+            source: options?.source ?? 'user',
+            mode: 'auto',
+            restartReason: options?.restartReason,
+        });
     }
 }
 
-export function stopOCR(options?: { onlyIfSource?: OCRStartSource }): boolean {
+export function stopOCR(options: OCRStopOptions): boolean {
     if (
         options?.onlyIfSource &&
         (!activeOcrSource || activeOcrSource !== options.onlyIfSource)
@@ -646,14 +677,16 @@ export function stopOCR(options?: { onlyIfSource?: OCRStartSource }): boolean {
 
     if (getProcessManager().isRunning(OCR_CLIENT_ID)) {
         ocrStopRequested = true;
-        void getProcessManager().stop(OCR_CLIENT_ID);
+        void getProcessManager().stop(OCR_CLIENT_ID, {
+            gracefulStopData: buildOcrStopCommand(options.reason),
+        });
         return true;
     }
 
     return false;
 }
 
-export function startManualOCR(options?: { source?: OCRStartSource }) {
+export function startManualOCR(options?: OCRStartOptions) {
     if (blockOcrStartDuringUpdate('manual OCR start request')) {
         return;
     }
@@ -683,7 +716,11 @@ export function startManualOCR(options?: { source?: OCRStartSource }) {
             );
         appendHotkeyArgs(command, ocr_config);
         if (shouldEnableLegacyKeepNewlineFlag(ocr_config)) command.push('--keep_newline');
-        runOCR(command, { source: options?.source ?? 'user', mode: 'manual' });
+        runOCR(command, {
+            source: options?.source ?? 'user',
+            mode: 'manual',
+            restartReason: options?.restartReason,
+        });
     }
 }
 
@@ -978,7 +1015,7 @@ export function registerOCRUtilsIPC() {
     ipcMain.on('ocr.kill-ocr', () => {
         if (getProcessManager().isRunning(OCR_CLIENT_ID)) {
             sendToMainWindowFrames('ocr-log', 'Stopping OCR process...');
-            stopOCR();
+            stopOCR({ reason: 'user-stop-request' });
         }
     });
 
@@ -988,9 +1025,11 @@ export function registerOCRUtilsIPC() {
     });
 
     ipcMain.on('ocr.restart-ocr', () => {
-        // runOCR()/ProcessManager.restart() replaces any running instance.
         sendToMainWindowFrames('ocr-log', `Restarting OCR Process...`);
-        ipcMain.emit('ocr.start-ocr');
+        void startOCR({
+            source: 'user',
+            restartReason: 'user-restart-request',
+        });
     });
 
     ipcMain.on('ocr.save-ocr-config', async (_, config: any) => {

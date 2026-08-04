@@ -122,6 +122,10 @@ import {
     restoreBackupArchive,
     type SettingsBackupProgressEvent,
 } from '../services/settings_backup.js';
+import {
+    normalizeSettingsBackupCategories,
+    type SettingsBackupCategoryId,
+} from '../../shared/settings_backup.js';
 
 export let window_transparency_process: any = null; // Process for the Window Transparency Tool
 type DownloadableTool = 'agent' | 'textractor';
@@ -361,6 +365,16 @@ function emitSettingsBackupProgress(
     const fileText = progress.fileName ? ` ${progress.fileName}` : '';
     console.log(
         `[Settings Backup] ${progress.operation}:${progress.phase}${countText}${fileText}`
+    );
+}
+
+function getRequestedBackupCategories(payload: unknown): SettingsBackupCategoryId[] {
+    if (!payload || typeof payload !== 'object' || !Object.hasOwn(payload, 'categories')) {
+        return normalizeSettingsBackupCategories(undefined);
+    }
+    return normalizeSettingsBackupCategories(
+        (payload as { categories?: unknown }).categories,
+        false,
     );
 }
 
@@ -1219,12 +1233,16 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
         };
     });
 
-    ipcMain.handle('settings.createBackup', async (event) => {
+    ipcMain.handle('settings.createBackup', async (event, payload) => {
         const reportProgress = (progress: SettingsBackupProgressEvent) => {
             emitSettingsBackupProgress(event, progress);
         };
 
         try {
+            const categories = getRequestedBackupCategories(payload);
+            if (categories.length === 0) {
+                throw new Error('Select at least one item to include in the backup.');
+            }
             const saveResult = await showSaveDialog({
                 title: 'Save GSM Settings Backup',
                 defaultPath: path.join(app.getPath('downloads'), getDefaultBackupFileName()),
@@ -1239,7 +1257,11 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
                 path.extname(saveResult.filePath).toLowerCase() === '.zip'
                     ? saveResult.filePath
                     : `${saveResult.filePath}.zip`;
-            const backup = await createBackupArchive({ outputPath, onProgress: reportProgress });
+            const backup = await createBackupArchive({
+                outputPath,
+                categories,
+                onProgress: reportProgress,
+            });
 
             const response = await showMessageBox({
                 type: 'info',
@@ -1268,13 +1290,17 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
         }
     });
 
-    ipcMain.handle('settings.restoreBackup', async (event) => {
+    ipcMain.handle('settings.restoreBackup', async (event, payload) => {
         const reportProgress = (progress: SettingsBackupProgressEvent) => {
             emitSettingsBackupProgress(event, progress);
         };
         let stoppedPythonProcesses = false;
 
         try {
+            const categories = getRequestedBackupCategories(payload);
+            if (categories.length === 0) {
+                throw new Error('Select at least one item to restore.');
+            }
             const openResult = await showOpenDialog({
                 title: 'Restore GSM Settings Backup',
                 properties: ['openFile'],
@@ -1290,7 +1316,7 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
                 title: 'Restore GSM Settings Backup',
                 message: 'Restore this GSM settings backup?',
                 detail:
-                    'This overwrites GSM settings, overlay/Yomitan storage, OCR configs, OBS config, and the GSM database from the selected backup. GSM Python processes, the overlay, and Electron-managed OBS will be stopped automatically.',
+                    `This overwrites the ${categories.length} selected backup categories when they are present in the archive. GSM Python processes, the overlay, and Electron-managed OBS will be stopped automatically.`,
                 buttons: ['Restore', 'Cancel'],
                 defaultId: 1,
                 cancelId: 1,
@@ -1332,6 +1358,7 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
 
             const restored = await restoreBackupArchive({
                 archivePath: openResult.filePaths[0],
+                categories,
                 onProgress: reportProgress,
             });
 

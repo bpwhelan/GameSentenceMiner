@@ -206,13 +206,16 @@ describe('AutoLauncher OCR scene activity fallback', () => {
 
         await launcher.runOcrAutomation(nextScene);
 
-        expect(stopOCRMock).toHaveBeenCalledWith({ onlyIfSource: 'auto-launcher' });
+        expect(stopOCRMock).toHaveBeenCalledWith({
+            onlyIfSource: 'auto-launcher',
+            reason: 'auto-launcher-scene-changed',
+        });
         expect(startOCRMock).not.toHaveBeenCalled();
         expect(launcher.activeOcrMode).toBe('none');
         expect(launcher.activeOcrSceneId).toBe('');
     });
 
-    it('falls back to OBS scene output when executable detection is unavailable', async () => {
+    it('starts OCR from visible OBS output when executable detection is unavailable', async () => {
         const { AutoLauncher } = await loadAutoLauncherModule();
         const launcher = new AutoLauncher() as any;
         const scene = { id: 'scene-1', name: 'Octopath Traveler 0' };
@@ -240,6 +243,53 @@ describe('AutoLauncher OCR scene activity fallback', () => {
         });
     });
 
+    it('stops auto-launched OCR only after OBS output is black or empty for 180 seconds', async () => {
+        const { AutoLauncher } = await loadAutoLauncherModule();
+        const launcher = new AutoLauncher() as any;
+        const scene = { id: 'scene-1', name: 'Capture Card' };
+        const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+
+        launcher.activeOcrMode = 'auto';
+        launcher.activeOcrSceneId = scene.id;
+        getSceneLaunchProfileForSceneMock.mockReturnValue({
+            sceneId: scene.id,
+            sceneName: scene.name,
+            textHookMode: 'none',
+            ocrMode: 'auto',
+            launchOverlay: false,
+            agentScriptPath: '',
+            launchDelaySeconds: 0,
+        });
+        getOCRRuntimeStateMock.mockReturnValue({
+            isRunning: true,
+            source: 'auto-launcher',
+            mode: 'auto',
+        });
+        getExecutableNameFromSourceMock.mockResolvedValue(null);
+        sceneHasVisibleOutputMock.mockResolvedValue(false);
+
+        try {
+            await launcher.runOcrAutomation(scene);
+            expect(stopOCRMock).not.toHaveBeenCalled();
+
+            nowSpy.mockReturnValue(1_000_000 + 179_999);
+            await launcher.runOcrAutomation(scene);
+            expect(stopOCRMock).not.toHaveBeenCalled();
+
+            nowSpy.mockReturnValue(1_000_000 + 180_000);
+            await launcher.runOcrAutomation(scene);
+
+            expect(sceneHasVisibleOutputMock).toHaveBeenCalledTimes(3);
+            expect(stopOCRMock).toHaveBeenCalledWith({
+                onlyIfSource: 'auto-launcher',
+                reason: 'auto-launcher-scene-inactive',
+            });
+            expect(startOCRMock).not.toHaveBeenCalled();
+        } finally {
+            nowSpy.mockRestore();
+        }
+    });
+
     it('starts overlay when the scene enables overlay automation and the game/session is active', async () => {
         const { AutoLauncher } = await loadAutoLauncherModule();
         const launcher = new AutoLauncher() as any;
@@ -261,6 +311,59 @@ describe('AutoLauncher OCR scene activity fallback', () => {
 
         expect(runOverlayWithSourceMock).toHaveBeenCalledWith('auto-launcher');
         expect(stopOverlayMock).not.toHaveBeenCalled();
+    });
+
+    it('requires 180 continuous seconds of empty output before reporting a scene inactive', async () => {
+        const { AutoLauncher } = await loadAutoLauncherModule();
+        const launcher = new AutoLauncher() as any;
+        const scene = { id: 'scene-1', name: 'Capture Card' };
+        const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+
+        getExecutableNameFromSourceMock.mockResolvedValue(null);
+        sceneHasVisibleOutputMock.mockResolvedValue(false);
+
+        try {
+            await expect(launcher.isSceneSessionActive(scene)).resolves.toBeNull();
+
+            nowSpy.mockReturnValue(1_000_000 + 179_999);
+            await expect(launcher.isSceneSessionActive(scene)).resolves.toBeNull();
+
+            nowSpy.mockReturnValue(1_000_000 + 180_000);
+            await expect(launcher.isSceneSessionActive(scene)).resolves.toBe(false);
+
+            sceneHasVisibleOutputMock.mockResolvedValue(true);
+            await expect(launcher.isSceneSessionActive(scene)).resolves.toBe(true);
+
+            sceneHasVisibleOutputMock.mockResolvedValue(false);
+            nowSpy.mockReturnValue(1_000_000 + 360_000);
+            await expect(launcher.isSceneSessionActive(scene)).resolves.toBeNull();
+        } finally {
+            nowSpy.mockRestore();
+        }
+    });
+
+    it('resets output inactivity timing when the probe becomes unavailable', async () => {
+        const { AutoLauncher } = await loadAutoLauncherModule();
+        const launcher = new AutoLauncher() as any;
+        const scene = { id: 'scene-1', name: 'Capture Card' };
+        const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+
+        getExecutableNameFromSourceMock.mockResolvedValue(null);
+        sceneHasVisibleOutputMock.mockResolvedValue(false);
+
+        try {
+            await expect(launcher.isSceneSessionActive(scene)).resolves.toBeNull();
+
+            nowSpy.mockReturnValue(1_000_000 + 120_000);
+            sceneHasVisibleOutputMock.mockResolvedValue(null);
+            await expect(launcher.isSceneSessionActive(scene)).resolves.toBeNull();
+
+            nowSpy.mockReturnValue(1_000_000 + 180_000);
+            sceneHasVisibleOutputMock.mockResolvedValue(false);
+            await expect(launcher.isSceneSessionActive(scene)).resolves.toBeNull();
+        } finally {
+            nowSpy.mockRestore();
+        }
     });
 
     it('keeps an auto-launched overlay running regardless of scene inactivity', async () => {

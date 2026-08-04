@@ -144,4 +144,46 @@ describe("SettingsTab data folder controls", () => {
       "Return to the original AppData folder cancelled."
     );
   });
+
+  it("uses the checkbox tree selection for backup and restore", async () => {
+    await act(async () => {
+      root.render(
+        <I18nProvider>
+          <SettingsTab active />
+        </I18nProvider>
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Python Settings");
+    expect(container.textContent).toContain("OBS Scenes and Config");
+    expect(container.textContent).toContain("Yomitan Data");
+
+    const checkboxFor = (label: string): HTMLInputElement | undefined =>
+      Array.from(container.querySelectorAll("label")).find((entry) =>
+        entry.textContent?.includes(label)
+      )?.querySelector("input[type=checkbox]") as HTMLInputElement | undefined;
+
+    await act(async () => {
+      checkboxFor("All")?.click();
+      checkboxFor("Database")?.click();
+    });
+
+    expect(checkboxFor("Database")?.checked).toBe(true);
+    expect(checkboxFor("Python Settings")?.checked).toBe(false);
+
+    const createButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Create Backup..."
+    );
+    await act(async () => {
+      createButton?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("settings.createBackup", {
+      categories: ["database"]
+    });
+  });
 });

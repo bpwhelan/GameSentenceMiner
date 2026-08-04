@@ -931,6 +931,55 @@ button:disabled {
   margin-top: 12px;
 }
 
+.settings-backup-selection-hint {
+  margin: 12px 0 8px;
+  color: var(--gsm-text-secondary, #b8b8b8);
+  font-size: 0.92rem;
+}
+
+.settings-backup-tree {
+  max-width: 620px;
+  padding: 10px 12px;
+  border: 1px solid var(--gsm-surface-2, #3e3e3e);
+  border-radius: 8px;
+  background: var(--gsm-surface-1, #202020);
+}
+
+.settings-backup-tree-node {
+  min-width: 0;
+}
+
+.settings-backup-tree-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  color: var(--gsm-text-primary, #f4f4f4);
+  cursor: pointer;
+}
+
+.settings-backup-tree-label input {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.settings-backup-tree-label:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.settings-backup-tree-children {
+  margin-left: 7px;
+  padding-left: 18px;
+  border-left: 1px solid var(--gsm-surface-2, #3e3e3e);
+}
+
+.settings-backup-selection-error {
+  margin: 8px 0 0;
+  color: var(--gsm-error, #ff7b7b);
+  font-size: 0.88rem;
+}
+
 .settings-backup-progress {
   margin-top: 14px;
   padding: 12px;

@@ -11,14 +11,14 @@ import type { BrokerStartInfo } from './message_bus.js';
 /** Stand-in for the broker that lets the test drive connect/disconnect events. */
 class FakeBus extends EventEmitter {
     private connected = new Set<string>();
-    readonly published: Array<{ dst: string; topic: string }> = [];
+    readonly published: Array<{ dst: string; topic: string; data?: unknown }> = [];
 
     isClientConnected(id: string): boolean {
         return this.connected.has(id);
     }
 
-    publish(dst: string, topic: string): void {
-        this.published.push({ dst, topic });
+    publish(dst: string, topic: string, data?: unknown): void {
+        this.published.push({ dst, topic, data });
     }
 
     connect(id: string): void {
@@ -130,6 +130,34 @@ describe('ProcessManager', () => {
         expect(pm.getState('alive')).toBe('stopped');
         expect(bus.published.some((p) => p.dst === 'alive' && p.topic === 'alive.stop')).toBe(true);
         expect(pm.isRunning('alive')).toBe(false);
+    });
+
+    it('uses a per-stop graceful command payload when provided', async () => {
+        pm.register({
+            id: 'alive',
+            buildCommand: () => ({ command: process.execPath, args: ['-e', ALIVE_SCRIPT] }),
+            gracefulStop: {
+                topic: 'alive.stop',
+                data: { command: 'stop', data: { reason: 'default' } },
+                timeoutMs: 150,
+            },
+        });
+        pm.start('alive');
+        await waitForState('alive', 'starting');
+        bus.connect('alive');
+        await waitForState('alive', 'ready');
+
+        const gracefulStopData = {
+            command: 'stop',
+            data: { reason: 'test-request' },
+        };
+        await pm.stop('alive', { gracefulStopData });
+
+        expect(bus.published).toContainEqual({
+            dst: 'alive',
+            topic: 'alive.stop',
+            data: gracefulStopData,
+        });
     });
 
     it('marks a process crashed and auto-restarts with backoff', async () => {

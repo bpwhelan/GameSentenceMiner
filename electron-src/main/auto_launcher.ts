@@ -52,6 +52,7 @@ export class AutoLauncher {
     private readonly defaultPollingInterval: number = 5000;
     private readonly fastPollingInterval: number = 500;
     private readonly ocrPollingInterval: number = 5000;
+    private readonly outputInactivityDelayMs: number = 180_000;
     private readonly minLoopDelayMs: number = 500;
     private readonly backoffStep: number = 50;
     private currentPollingInterval: number = this.defaultPollingInterval;
@@ -73,6 +74,8 @@ export class AutoLauncher {
     private suppressedAutoTextHookReason: string = "";
     private lastTextHookAutomationSceneId: string = "";
     private lastTextHookSuppressionSkipSceneId: string = "";
+    private outputProbeSceneId: string = "";
+    private outputInactiveSince: number | null = null;
 
     constructor() {
         setTextHookUserStopListener(() => {
@@ -142,10 +145,12 @@ export class AutoLauncher {
             this.logInternal("Stopped AutoLauncher polling.");
         }
         this.resetAgentTracking();
-        this.stopOcrAutomation();
+        this.stopOcrAutomation("auto-launcher-polling-stopped");
         this.stopOverlayAutomation();
         this.expectedAutoLauncherOcrStop = false;
         this.lastObservedAutoLauncherOcrRunning = false;
+        this.outputProbeSceneId = "";
+        this.outputInactiveSince = null;
         this.clearOcrSuppression("polling-stopped");
         this.clearTextHookSuppression("polling-stopped");
     }
@@ -171,8 +176,8 @@ export class AutoLauncher {
         this.lastHookedGameId = "";
     }
 
-    private stopOcrAutomation() {
-        this.stopAutoLauncherOwnedOcr("stop-ocr-automation");
+    private stopOcrAutomation(reason: string) {
+        this.stopAutoLauncherOwnedOcr(reason);
         this.activeOcrMode = "none";
         this.activeOcrSceneId = "";
     }
@@ -185,7 +190,10 @@ export class AutoLauncher {
     }
 
     private stopAutoLauncherOwnedOcr(reason: string) {
-        const stopRequested = stopOCR({ onlyIfSource: "auto-launcher" });
+        const stopRequested = stopOCR({
+            onlyIfSource: "auto-launcher",
+            reason,
+        });
         this.expectedAutoLauncherOcrStop = stopRequested;
         if (stopRequested) {
             this.logInternal(`AutoLauncher: Requested OCR stop (${reason}).`);
@@ -291,7 +299,7 @@ export class AutoLauncher {
             this.logInternal(
                 `AutoLauncher: Scene changed (${this.activeOcrSceneId} -> ${currentScene.id}). Stopping OCR before applying new scene mode.`
             );
-            this.stopAutoLauncherOwnedOcr("scene-changed");
+            this.stopAutoLauncherOwnedOcr("auto-launcher-scene-changed");
         }
 
         this.activeOcrMode = "none";
@@ -313,7 +321,10 @@ export class AutoLauncher {
 
         if (mode === "none") {
             if (isAutoLauncherOwned) {
-                stopOCR({ onlyIfSource: "auto-launcher" });
+                stopOCR({
+                    onlyIfSource: "auto-launcher",
+                    reason: "auto-launcher-mode-disabled",
+                });
             }
             this.activeOcrMode = "none";
             this.activeOcrSceneId = "";
@@ -334,7 +345,7 @@ export class AutoLauncher {
         }
 
         if (isAutoLauncherOwned) {
-            this.stopAutoLauncherOwnedOcr("restart-with-new-mode");
+            this.stopAutoLauncherOwnedOcr("auto-launcher-mode-restart");
         }
 
         try {
@@ -371,14 +382,47 @@ export class AutoLauncher {
         }
     }
 
-    private async isSceneSessionActive(scene: ObsScene): Promise<boolean> {
+    private syncOutputProbeScene(scene: ObsScene) {
+        if (this.outputProbeSceneId === scene.id) {
+            return;
+        }
+
+        this.outputProbeSceneId = scene.id;
+        this.outputInactiveSince = null;
+    }
+
+    private async isSceneSessionActive(scene: ObsScene): Promise<boolean | null> {
+        this.syncOutputProbeScene(scene);
+
         const executableName = await this.resolveSceneExecutableName(scene);
         if (executableName) {
+            this.outputInactiveSince = null;
             return this.isProcessRunningByName(executableName);
         }
 
         const hasVisibleOutput = await sceneHasVisibleOutput(scene);
-        return hasVisibleOutput === true;
+        if (hasVisibleOutput === true) {
+            this.outputInactiveSince = null;
+            return true;
+        }
+
+        if (hasVisibleOutput !== false) {
+            // An unavailable probe cannot establish continuous inactivity.
+            this.outputInactiveSince = null;
+            return null;
+        }
+
+        const now = Date.now();
+        if (this.outputInactiveSince === null) {
+            this.outputInactiveSince = now;
+            return null;
+        }
+
+        if (now - this.outputInactiveSince < this.outputInactivityDelayMs) {
+            return null;
+        }
+
+        return false;
     }
 
     private toObsScene(value: unknown): ObsScene | null {
@@ -487,7 +531,7 @@ export class AutoLauncher {
             }
 
             const isSceneActive = await this.isSceneSessionActive(currentScene);
-            if (!isSceneActive && !forcedManualOcr && !ignoreActiveScene) {
+            if (isSceneActive === false && !forcedManualOcr && !ignoreActiveScene) {
                 if (this.isAutoOcrSuppressedForScene(currentScene.id)) {
                     this.clearOcrSuppression("scene-inactive");
                 }
@@ -497,7 +541,7 @@ export class AutoLauncher {
                         `AutoLauncher: Scene "${currentScene.name}" has no detectable active game/session. Stopping OCR automation.`
                     );
                 }
-                this.stopOcrAutomation();
+                this.stopOcrAutomation("auto-launcher-scene-inactive");
                 return;
             }
 
@@ -513,6 +557,7 @@ export class AutoLauncher {
 
     private async runOverlayAutomation(currentScene: ObsScene) {
         try {
+            this.syncOutputProbeScene(currentScene);
             const sceneProfile = getSceneLaunchProfileForScene(currentScene);
             const shouldLaunchOverlay = sceneProfile?.launchOverlay === true;
 

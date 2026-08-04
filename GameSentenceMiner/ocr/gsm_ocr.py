@@ -2213,11 +2213,16 @@ def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
                 ocr_ipc.announce_status(_build_status_payload())
 
         elif command == ocr_ipc.OCRCommand.STOP.value:
-            logger.info("IPC: Stop command received")
+            raw_reason = data.get("reason")
+            if isinstance(raw_reason, str) and raw_reason.strip():
+                stop_reason = " ".join(raw_reason.split())[:200]
+            else:
+                stop_reason = "unspecified"
+            logger.info(f"IPC: Stop command received (reason={stop_reason})")
             response["success"] = True
             if announce_ipc:
                 ocr_ipc.announce_stopped()
-            request_clean_shutdown("ipc-stop-command")
+            request_clean_shutdown(f"ipc-stop-command: {stop_reason}")
 
         else:
             response["error"] = f"Unknown command: {command}"

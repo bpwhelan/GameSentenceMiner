@@ -24,6 +24,10 @@ import {
 import { SUPPORTED_LOCALES, useLocale, useTranslation } from "../../i18n";
 import type { SettingsCatalogOwner } from "../../types/settings";
 import { applyTheme, DEFAULT_THEME, THEME_GROUPS } from "../../lib/theme";
+import {
+  SETTINGS_BACKUP_CATEGORY_IDS,
+  type SettingsBackupCategoryId
+} from "../../../../shared/settings_backup";
 
 const CATALOG_I18N_KEYS: Record<string, string> = {
   "desktop-appearance-startup": "desktopAppearance",
@@ -192,6 +196,173 @@ const BACKUP_PROGRESS_PHASE_I18N_KEYS: Record<SettingsBackupProgressPhase, strin
   error: "settings.backup.progress.error"
 };
 
+interface BackupSelectionNode {
+  id: string;
+  labelKey: string;
+  category?: SettingsBackupCategoryId;
+  children?: BackupSelectionNode[];
+}
+
+function getBackupSelectionTree(isWindows: boolean): BackupSelectionNode[] {
+  const settingsChildren: BackupSelectionNode[] = [
+    {
+      id: "python-settings",
+      category: "python-settings",
+      labelKey: "settings.backup.categories.pythonSettings"
+    },
+    {
+      id: "desktop-settings",
+      category: "desktop-settings",
+      labelKey: "settings.backup.categories.desktopSettings"
+    },
+    {
+      id: "overlay-settings",
+      category: "overlay-settings",
+      labelKey: "settings.backup.categories.overlaySettings"
+    },
+    {
+      id: "scene-config",
+      category: "scene-config",
+      labelKey: "settings.backup.categories.sceneConfig"
+    },
+    {
+      id: "ocr-configs",
+      category: "ocr-configs",
+      labelKey: "settings.backup.categories.ocrConfigs"
+    },
+    ...(isWindows
+      ? [
+          {
+            id: "obs-config",
+            category: "obs-config" as const,
+            labelKey: "settings.backup.categories.obsConfig"
+          }
+        ]
+      : []),
+    {
+      id: "text-hook-settings",
+      category: "text-hook-settings",
+      labelKey: "settings.backup.categories.textHookSettings"
+    },
+    {
+      id: "window-layouts",
+      category: "window-layouts",
+      labelKey: "settings.backup.categories.windowLayouts"
+    }
+  ];
+
+  return [
+    {
+      id: "all",
+      labelKey: "settings.backup.categories.all",
+      children: [
+        {
+          id: "database",
+          category: "database",
+          labelKey: "settings.backup.categories.database"
+        },
+        {
+          id: "settings",
+          labelKey: "settings.backup.categories.settings",
+          children: settingsChildren
+        },
+        {
+          id: "yomitan",
+          category: "yomitan",
+          labelKey: "settings.backup.categories.yomitan"
+        },
+        {
+          id: "customizations",
+          labelKey: "settings.backup.categories.customizations",
+          children: [
+            {
+              id: "plugins",
+              category: "plugins",
+              labelKey: "settings.backup.categories.plugins"
+            },
+            {
+              id: "agent-scripts",
+              category: "agent-scripts",
+              labelKey: "settings.backup.categories.agentScripts"
+            },
+            {
+              id: "user-scripts",
+              category: "user-scripts",
+              labelKey: "settings.backup.categories.userScripts"
+            }
+          ]
+        }
+      ]
+    }
+  ];
+}
+
+function getBackupNodeCategories(node: BackupSelectionNode): SettingsBackupCategoryId[] {
+  if (node.category) {
+    return [node.category];
+  }
+  return (node.children ?? []).flatMap(getBackupNodeCategories);
+}
+
+interface BackupSelectionTreeNodeProps {
+  node: BackupSelectionNode;
+  selected: ReadonlySet<SettingsBackupCategoryId>;
+  disabled: boolean;
+  onToggle: (categories: SettingsBackupCategoryId[], checked: boolean) => void;
+}
+
+function BackupSelectionTreeNode({
+  node,
+  selected,
+  disabled,
+  onToggle
+}: BackupSelectionTreeNodeProps) {
+  const t = useTranslation();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const categories = getBackupNodeCategories(node);
+  const selectedCount = categories.filter((category) => selected.has(category)).length;
+  const checked = categories.length > 0 && selectedCount === categories.length;
+  const indeterminate = selectedCount > 0 && !checked;
+
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.indeterminate = indeterminate;
+    }
+  }, [indeterminate]);
+
+  return (
+    <div
+      className="settings-backup-tree-node"
+      role="treeitem"
+      aria-checked={indeterminate ? "mixed" : checked}
+    >
+      <label className="settings-backup-tree-label">
+        <input
+          ref={inputRef}
+          type="checkbox"
+          checked={checked}
+          disabled={disabled}
+          onChange={(event) => onToggle(categories, event.currentTarget.checked)}
+        />
+        <span>{t(node.labelKey)}</span>
+      </label>
+      {node.children?.length ? (
+        <div className="settings-backup-tree-children" role="group">
+          {node.children.map((child) => (
+            <BackupSelectionTreeNode
+              key={child.id}
+              node={child}
+              selected={selected}
+              disabled={disabled}
+              onToggle={onToggle}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function normalizeSettings(value: Partial<AppSettings> | null | undefined): AppSettings {
   if (!value) {
     return { ...DEFAULT_SETTINGS };
@@ -333,6 +504,10 @@ export function SettingsTab({ active }: SettingsTabProps) {
   const t = useTranslation();
   const platform = window.gsmEnv?.platform ?? "win32";
   const isWindows = platform === "win32";
+  const backupSelectionTree = useMemo(
+    () => getBackupSelectionTree(isWindows),
+    [isWindows]
+  );
   const [currentLocale, setCurrentLocale] = useLocale();
 
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
@@ -355,6 +530,9 @@ export function SettingsTab({ active }: SettingsTabProps) {
   const [backupBusy, setBackupBusy] = useState<"create" | "restore" | null>(null);
   const [backupProgress, setBackupProgress] =
     useState<SettingsBackupProgressEvent | null>(null);
+  const [selectedBackupCategories, setSelectedBackupCategories] = useState<
+    Set<SettingsBackupCategoryId>
+  >(() => new Set(getBackupNodeCategories(getBackupSelectionTree(isWindows)[0])));
   const [dataDir, setDataDir] = useState<string | null>(null);
   const [defaultDataDir, setDefaultDataDir] = useState<string | null>(null);
   const [dataRelocationBusy, setDataRelocationBusy] = useState<
@@ -365,6 +543,23 @@ export function SettingsTab({ active }: SettingsTabProps) {
     useState<DataRelocateProgressPhase | null>(null);
 
   const isInitializedRef = useRef(false);
+
+  const toggleBackupCategories = useCallback(
+    (categories: SettingsBackupCategoryId[], checked: boolean) => {
+      setSelectedBackupCategories((current) => {
+        const next = new Set(current);
+        for (const category of categories) {
+          if (checked) {
+            next.add(category);
+          } else {
+            next.delete(category);
+          }
+        }
+        return next;
+      });
+    },
+    []
+  );
 
   const persistSettings = useCallback(
     async (nextSettings: AppSettings, iconStyleChanged = false) => {
@@ -709,7 +904,12 @@ export function SettingsTab({ active }: SettingsTabProps) {
     setBackupMessage(null);
     setBackupProgress(null);
     try {
-      const result = await invokeIpc<SettingsBackupResult>("settings.createBackup");
+      const categories = SETTINGS_BACKUP_CATEGORY_IDS.filter((category) =>
+        selectedBackupCategories.has(category)
+      );
+      const result = await invokeIpc<SettingsBackupResult>("settings.createBackup", {
+        categories
+      });
       if (result?.canceled) {
         setBackupMessage(t("settings.backup.cancelled"));
         setBackupProgress(null);
@@ -742,14 +942,19 @@ export function SettingsTab({ active }: SettingsTabProps) {
     } finally {
       setBackupBusy(null);
     }
-  }, [t]);
+  }, [selectedBackupCategories, t]);
 
   const restoreSettingsBackup = useCallback(async () => {
     setBackupBusy("restore");
     setBackupMessage(null);
     setBackupProgress(null);
     try {
-      const result = await invokeIpc<SettingsBackupResult>("settings.restoreBackup");
+      const categories = SETTINGS_BACKUP_CATEGORY_IDS.filter((category) =>
+        selectedBackupCategories.has(category)
+      );
+      const result = await invokeIpc<SettingsBackupResult>("settings.restoreBackup", {
+        categories
+      });
       if (result?.canceled) {
         setBackupMessage(t("settings.backup.cancelled"));
         setBackupProgress(null);
@@ -781,7 +986,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
     } finally {
       setBackupBusy(null);
     }
-  }, [t]);
+  }, [selectedBackupCategories, t]);
 
   const hasPendingUpdates =
     updateStatus.backend.updateAvailable || updateStatus.app.updateAvailable;
@@ -844,6 +1049,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
     : null;
   const usingCustomDataDir =
     dataDir !== null && defaultDataDir !== null && dataDir !== defaultDataDir;
+  const hasBackupSelection = selectedBackupCategories.size > 0;
 
   return (
     <div className={`tab-panel ${active ? "active" : ""}`}>
@@ -1376,6 +1582,25 @@ export function SettingsTab({ active }: SettingsTabProps) {
             <h2>{t("settings.backup.title")}</h2>
             <div className="settings-update-panel">
               <p className="muted">{t("settings.backup.description")}</p>
+              <p className="settings-backup-selection-hint">
+                {t("settings.backup.selectionHint")}
+              </p>
+              <div className="settings-backup-tree" role="tree">
+                {backupSelectionTree.map((node) => (
+                  <BackupSelectionTreeNode
+                    key={node.id}
+                    node={node}
+                    selected={selectedBackupCategories}
+                    disabled={backupBusy !== null}
+                    onToggle={toggleBackupCategories}
+                  />
+                ))}
+              </div>
+              {!hasBackupSelection ? (
+                <p className="settings-backup-selection-error" role="alert">
+                  {t("settings.backup.selectAtLeastOne")}
+                </p>
+              ) : null}
               <div className="input-group wrap settings-update-actions">
                 <button
                   type="button"
@@ -1383,7 +1608,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
                   onClick={() => {
                     void createSettingsBackup();
                   }}
-                  disabled={backupBusy !== null}
+                  disabled={backupBusy !== null || !hasBackupSelection}
                 >
                   {backupBusy === "create"
                     ? t("settings.backup.creating")
@@ -1395,7 +1620,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
                   onClick={() => {
                     void restoreSettingsBackup();
                   }}
-                  disabled={backupBusy !== null}
+                  disabled={backupBusy !== null || !hasBackupSelection}
                 >
                   {backupBusy === "restore"
                     ? t("settings.backup.restoring")

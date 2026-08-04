@@ -1299,7 +1299,7 @@ async function showOcrHookRedundantDialog(): Promise<void> {
             ? await dialog.showMessageBox(parent, options)
             : await dialog.showMessageBox(options);
         if (result.response === 0) {
-            stopOCR();
+            stopOCR({ reason: 'text-hook-redundancy-confirmed' });
         }
     } catch (e) {
         console.error('Failed to show OCR/hook redundancy dialog:', e);
@@ -2728,7 +2728,7 @@ async function closeAllPythonProcesses(closeGSMFlag: boolean = true): Promise<vo
     }
     stopOverlay();
     await waitForOverlayShutdown();
-    await stopOCR();
+    await stopOCR({ reason: 'python-process-group-shutdown' });
     await stopWindowTransparencyTool();
     try {
         const { shutdownTextHook } = await import('./ui/texthook.js');
