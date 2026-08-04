@@ -2,10 +2,12 @@
 
 ## Optional HoshiDicts native host
 
-The optional HoshiDicts host is built from the MIT `main-mit` source line:
+The optional HoshiDicts host is built from a minimal fork of the MIT
+`main-mit` source line:
 
-- source: https://github.com/Manhhao/hoshidicts
-- commit: `af99b554cd4ab289aa65e16fd2a4eea0d3870d3b`
+- source: https://github.com/bee-san/hoshidicts
+- commit: `1aba291c2b9ef6e8465b9c18fd963cffd223d090`
+- upstream base: `Manhhao/hoshidicts@af99b554cd4ab289aa65e16fd2a4eea0d3870d3b`
 - license: MIT
 
 It includes or links the following pinned permissive dependencies:

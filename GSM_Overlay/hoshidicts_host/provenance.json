@@ -1,17 +1,19 @@
 {
   "schemaVersion": 1,
   "selection": {
-    "path": "mit-main-mit",
+    "path": "mit-minimal-fork",
     "status": "selected-for-fork-implementation",
     "decisionDate": "2026-08-04",
-    "rationale": "The MIT line is license-compatible with the LGPL-3.0-only GameSentenceMiner package and provides the required core dictionary capabilities without linking GPL HoshiDicts code."
+    "rationale": "The MIT line is license-compatible with the LGPL-3.0-only GameSentenceMiner package and provides the required core dictionary capabilities without linking GPL HoshiDicts code. The minimal bee-san fork removes sanitizer-confirmed unaligned access and decompressor leaks while preserving the upstream index format and capabilities."
   },
   "source": {
     "name": "HoshiDicts",
-    "repository": "https://github.com/Manhhao/hoshidicts.git",
-    "branch": "main-mit",
+    "repository": "https://github.com/bee-san/hoshidicts.git",
+    "branch": "gsm-sanitizer-fixes",
     "path": "GSM_Overlay/hoshidicts_host/vendor/hoshidicts",
-    "commit": "af99b554cd4ab289aa65e16fd2a4eea0d3870d3b",
+    "commit": "1aba291c2b9ef6e8465b9c18fd963cffd223d090",
+    "upstreamRepository": "https://github.com/Manhhao/hoshidicts.git",
+    "upstreamCommit": "af99b554cd4ab289aa65e16fd2a4eea0d3870d3b",
     "license": "MIT",
     "files": {
       ".gitmodules": "288f6529eb44b9c54bb6b1ffdc45a0012afb2a3a48ebefd1fbd5bf902a2fae9c",

@@ -2,12 +2,19 @@
 
 ## Decision
 
-GameSentenceMiner's optional HoshiDicts host uses **Path A**, the MIT-licensed
-`main-mit` line from `Manhhao/hoshidicts`, pinned at:
+GameSentenceMiner's optional HoshiDicts host uses **Path A**, a minimal fork of
+the MIT-licensed `Manhhao/hoshidicts` `main-mit` line, pinned at:
 
 ```text
-af99b554cd4ab289aa65e16fd2a4eea0d3870d3b
+bee-san/hoshidicts@1aba291c2b9ef6e8465b9c18fd963cffd223d090
 ```
+
+The fork is based directly on
+`Manhhao/hoshidicts@af99b554cd4ab289aa65e16fd2a4eea0d3870d3b`.
+It contains one focused commit that preserves the index format while replacing
+unaligned mapped hash-slot access with `memcpy` and giving thread-local
+libdeflate decompressors deterministic ownership. ASan/UBSan found both issues,
+and the host fixture suite passes with leak detection enabled after the fixes.
 
 This is the dependency selected for implementation in the `bee-san` fork on
 2026-08-04. It is a project licensing decision, not legal advice. The GPL
@@ -40,7 +47,7 @@ The Apache-2.0 text is retained at `external/Jiten/LICENSE`.
 
 | Dependency | Commit | License |
 | --- | --- | --- |
-| HoshiDicts | `af99b554cd4ab289aa65e16fd2a4eea0d3870d3b` | MIT |
+| HoshiDicts | `1aba291c2b9ef6e8465b9c18fd963cffd223d090` | MIT |
 | Jiten rules | `0146ce2f83548d81c3ec9557a4f123d30242e1d7` | Apache-2.0 |
 | glaze | `be5159d80c480ec0d97db40f685983e2f7ade2d3` | MIT |
 | libdeflate | `4b6db597a58a92cf7f1e171211d718ac1faea845` | MIT |
