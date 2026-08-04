@@ -68,7 +68,7 @@ jobs:
         if: runner.os != 'Linux'
         run: >-
           cmake
-          -S GSM_Overlay/hoshidicts_host/vendor/hoshidicts
+          -S GSM_Overlay/hoshidicts_host
           -B build/hoshidicts-provenance
           -DCMAKE_BUILD_TYPE=Release
 
@@ -79,7 +79,7 @@ jobs:
           CXX: g++-14
         run: >-
           cmake
-          -S GSM_Overlay/hoshidicts_host/vendor/hoshidicts
+          -S GSM_Overlay/hoshidicts_host
           -B build/hoshidicts-provenance
           -DCMAKE_BUILD_TYPE=Release
 
@@ -91,4 +91,4 @@ jobs:
 
       - name: Verify macOS architecture
         if: runner.os == 'macOS'
-        run: file build/hoshidicts-provenance/hoshidicts-cli | grep arm64
+        run: file build/hoshidicts-provenance/vendor/hoshidicts/hoshidicts-cli | grep arm64
