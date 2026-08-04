@@ -2,6 +2,7 @@
 
 #include <glaze/base64/base64.hpp>
 #include <hoshidicts/deconjugator.hpp>
+#include <hoshidicts/importer.hpp>
 #include <hoshidicts/lookup.hpp>
 #include <hoshidicts/query.hpp>
 #include <utf8.h>
@@ -23,6 +24,7 @@ constexpr std::size_t kMaxScanLength = 64;
 constexpr int kMaxLookupResults = 64;
 constexpr std::size_t kMaxStyleBytes = 2 * 1024 * 1024;
 constexpr std::size_t kMaxMediaBytes = 11 * 1024 * 1024;
+constexpr int kSupportedDictionaryFormatRevision = 3;
 
 std::int64_t elapsedMilliseconds(const std::chrono::steady_clock::time_point start) {
   return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -74,6 +76,57 @@ void validateDictionary(const DictionarySpec& spec) {
     if (!uniqueTypes.insert(type).second) {
       throw HostError("INVALID_CATALOG", "dictionary types must be unique");
     }
+  }
+}
+
+bool hasType(const std::vector<std::string>& types, std::string_view expected) {
+  return std::ranges::find(types, expected) != types.end();
+}
+
+void validateImportJobId(std::string_view jobId) {
+  if (jobId.empty() || jobId.size() > 128 ||
+      !std::ranges::all_of(jobId, [](unsigned char character) {
+        return std::isalnum(character) != 0 || character == '-';
+      })) {
+    throw HostError("INVALID_PARAMS", "import job id is invalid");
+  }
+}
+
+void validateImportPaths(const DictionaryImportParams& params) {
+  const std::filesystem::path zipPath(params.zipPath);
+  const std::filesystem::path outputPath(params.outputPath);
+  if (!zipPath.is_absolute() || !outputPath.is_absolute() ||
+      zipPath.filename() != "source.zip" || outputPath.filename() != "index" ||
+      zipPath.parent_path() != outputPath.parent_path()) {
+    throw HostError(
+        "PATH_OUTSIDE_STORE",
+        "import paths must use one store-local staging directory");
+  }
+
+  std::error_code error;
+  const auto zipStatus = std::filesystem::symlink_status(zipPath, error);
+  if (error || !std::filesystem::is_regular_file(zipStatus) ||
+      std::filesystem::is_symlink(zipStatus)) {
+    throw HostError("INVALID_DICTIONARY_ARCHIVE", "staged dictionary ZIP is invalid");
+  }
+  const auto parentStatus =
+      std::filesystem::symlink_status(outputPath.parent_path(), error);
+  if (error || !std::filesystem::is_directory(parentStatus) ||
+      std::filesystem::is_symlink(parentStatus)) {
+    throw HostError("PATH_OUTSIDE_STORE", "import staging directory is invalid");
+  }
+  if (std::filesystem::exists(outputPath, error) || error) {
+    throw HostError("INVALID_PARAMS", "import output path must not exist");
+  }
+
+  const auto canonicalZip = std::filesystem::canonical(zipPath, error);
+  if (error) {
+    throw HostError("INVALID_DICTIONARY_ARCHIVE", "staged dictionary ZIP is unreadable");
+  }
+  const auto canonicalParent =
+      std::filesystem::canonical(outputPath.parent_path(), error);
+  if (error || canonicalZip.parent_path() != canonicalParent) {
+    throw HostError("PATH_OUTSIDE_STORE", "import path escaped its staging directory");
   }
 }
 
@@ -345,6 +398,110 @@ MediaGetResult Session::getMedia(const MediaGetParams& params) const {
       .encoding = "base64",
       .size = media.size,
       .data = glz::write_base64(std::string_view(media.data, media.size)),
+  };
+}
+
+DictionaryImportResult Session::importDictionary(
+    const DictionaryImportParams& params) {
+  validateImportJobId(params.jobId);
+  validateUtf8(params.jobId, "import job id");
+  validateImportPaths(params);
+
+  const auto imported = dictionary_importer::import_to_path(
+      params.zipPath, params.outputPath, params.lowRam);
+  if (!imported.success) {
+    const auto detail =
+        imported.errors.empty() ? "native dictionary import failed" : imported.errors.front();
+    throw HostError("INVALID_DICTIONARY_ARCHIVE", detail);
+  }
+  if (imported.format_revision != kSupportedDictionaryFormatRevision) {
+    std::error_code ignored;
+    std::filesystem::remove_all(params.outputPath, ignored);
+    throw HostError(
+        "UNSUPPORTED_DICTIONARY_REVISION",
+        "dictionary format revision is unsupported");
+  }
+  if (imported.title.empty() || imported.title.size() > 512) {
+    std::error_code ignored;
+    std::filesystem::remove_all(params.outputPath, ignored);
+    throw HostError("INVALID_DICTIONARY_ARCHIVE", "dictionary title is invalid");
+  }
+  validateUtf8(imported.title, "dictionary title");
+  if (imported.types.empty()) {
+    std::error_code ignored;
+    std::filesystem::remove_all(params.outputPath, ignored);
+    throw HostError(
+        "UNSUPPORTED_DICTIONARY_TYPE",
+        "dictionary contains no supported content");
+  }
+
+  return {
+      .jobId = params.jobId,
+      .title = imported.title,
+      .types = imported.types,
+      .formatRevision = imported.format_revision,
+      .outputPath = imported.output_path,
+      .termCount = imported.term_count,
+      .metadataCount = imported.meta_count,
+      .kanjiCount = imported.kanji_count,
+      .mediaCount = imported.media_count,
+      .probeTerm = imported.probe_term,
+      .probeKanji = imported.probe_kanji,
+  };
+}
+
+DictionaryProbeResult Session::probeDictionary(
+    const DictionaryProbeParams& params) const {
+  Session probe;
+  const auto configured = probe.configureCatalog({
+      .generation = 1,
+      .dictionaries =
+          {{
+              .id = "import-probe",
+              .path = params.path,
+              .types = params.types,
+              .priority = 0,
+          }},
+  });
+
+  bool termProbeMatched = false;
+  if (hasType(params.types, "term")) {
+    if (params.probeTerm.empty()) {
+      throw HostError("CATALOG_LOAD_FAILED", "term dictionary has no probe term");
+    }
+    const auto result = probe.lookupTerm({
+        .catalogGeneration = 1,
+        .requestGeneration = 1,
+        .text = params.probeTerm,
+        .scanLength = kMaxScanLength,
+        .maxResults = 4,
+    });
+    termProbeMatched = !result.results.empty();
+    if (!termProbeMatched) {
+      throw HostError("CATALOG_LOAD_FAILED", "term probe lookup returned no results");
+    }
+  }
+
+  bool kanjiProbeMatched = false;
+  if (hasType(params.types, "kanji")) {
+    if (params.probeKanji.empty()) {
+      throw HostError("CATALOG_LOAD_FAILED", "kanji dictionary has no probe character");
+    }
+    const auto result = probe.lookupKanji({
+        .catalogGeneration = 1,
+        .requestGeneration = 2,
+        .text = params.probeKanji,
+    });
+    kanjiProbeMatched = !result.entries.empty();
+    if (!kanjiProbeMatched) {
+      throw HostError("CATALOG_LOAD_FAILED", "kanji probe lookup returned no results");
+    }
+  }
+
+  return {
+      .loaded = configured.loaded == 1,
+      .termProbeMatched = termProbeMatched,
+      .kanjiProbeMatched = kanjiProbeMatched,
   };
 }
 

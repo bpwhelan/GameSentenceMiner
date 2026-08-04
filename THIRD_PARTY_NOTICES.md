@@ -6,7 +6,7 @@ The optional HoshiDicts host is built from a minimal fork of the MIT
 `main-mit` source line:
 
 - source: https://github.com/bee-san/hoshidicts
-- commit: `14ff793b1d5cdfdfba24518bbdedc064d17d699d`
+- commit: `81e293cde156751e7f38cb040c86eb2c644ee4d2`
 - upstream base: `Manhhao/hoshidicts@af99b554cd4ab289aa65e16fd2a4eea0d3870d3b`
 - license: MIT
 

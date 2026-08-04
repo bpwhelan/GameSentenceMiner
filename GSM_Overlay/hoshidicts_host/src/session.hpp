@@ -145,6 +145,40 @@ struct MediaGetResult {
   std::string data;
 };
 
+struct DictionaryImportParams {
+  std::string jobId;
+  std::string zipPath;
+  std::string outputPath;
+  bool lowRam{true};
+};
+
+struct DictionaryImportResult {
+  std::string jobId;
+  std::string title;
+  std::vector<std::string> types;
+  int formatRevision{};
+  std::string outputPath;
+  std::size_t termCount{};
+  std::size_t metadataCount{};
+  std::size_t kanjiCount{};
+  std::size_t mediaCount{};
+  std::string probeTerm;
+  std::string probeKanji;
+};
+
+struct DictionaryProbeParams {
+  std::string path;
+  std::vector<std::string> types;
+  std::string probeTerm;
+  std::string probeKanji;
+};
+
+struct DictionaryProbeResult {
+  bool loaded{};
+  bool termProbeMatched{};
+  bool kanjiProbeMatched{};
+};
+
 class Session {
  public:
   Session();
@@ -158,6 +192,8 @@ class Session {
   LookupKanjiResult lookupKanji(const LookupKanjiParams& params) const;
   StylesListResult listStyles(const CatalogGenerationParams& params) const;
   MediaGetResult getMedia(const MediaGetParams& params) const;
+  DictionaryImportResult importDictionary(const DictionaryImportParams& params);
+  DictionaryProbeResult probeDictionary(const DictionaryProbeParams& params) const;
 
   std::int64_t catalogGeneration() const noexcept;
 

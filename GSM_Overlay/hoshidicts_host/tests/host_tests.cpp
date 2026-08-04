@@ -57,16 +57,23 @@ void checkHostError(
 
 void testSession(const std::filesystem::path& fixtureZip) {
   TemporaryDirectory output;
-  const auto imported =
-      dictionary_importer::import(fixtureZip.string(), output.path().string(), true);
+  const auto dictionaryPath = output.path() / "opaque-index";
+  const auto imported = dictionary_importer::import_to_path(
+      fixtureZip.string(), dictionaryPath.string(), true);
   check(imported.success, "fixture import failed");
   check(imported.title == "GSM Hoshi Fixture", "fixture title changed");
+  check(imported.format_revision == 3, "fixture format revision changed");
+  check(imported.types.size() == 4, "fixture dictionary types changed");
+  check(imported.probe_term == "食べる", "fixture term probe changed");
+  check(imported.probe_kanji == "食", "fixture kanji probe changed");
+  check(
+      std::filesystem::path(imported.output_path) == dictionaryPath,
+      "direct import changed its opaque output path");
   check(imported.term_count == 3, "fixture term count changed");
   check(imported.meta_count == 2, "fixture metadata count changed");
   check(imported.kanji_count == 1, "fixture kanji count changed");
   check(imported.media_count == 1, "fixture media count changed");
 
-  const auto dictionaryPath = output.path() / imported.title;
   Session session;
   const auto configured = session.configureCatalog({
       .generation = 1,
@@ -154,6 +161,16 @@ void testSession(const std::filesystem::path& fixtureZip) {
       media.data == "Z2VuZXJhdGVkIGZpeHR1cmUgbWVkaWEK",
       "media content changed");
 
+  const auto probed = session.probeDictionary({
+      .path = dictionaryPath.string(),
+      .types = imported.types,
+      .probeTerm = imported.probe_term,
+      .probeKanji = imported.probe_kanji,
+  });
+  check(probed.loaded, "probe catalog did not load");
+  check(probed.termProbeMatched, "term probe lookup failed");
+  check(probed.kanjiProbeMatched, "kanji probe lookup failed");
+
   checkHostError(
       [&] {
         session.getMedia({
@@ -198,6 +215,48 @@ void testSession(const std::filesystem::path& fixtureZip) {
       "STALE_CATALOG", "stale catalog generation was accepted");
 }
 
+void testImportWorker(const std::filesystem::path& fixtureZip) {
+  TemporaryDirectory staging;
+  const auto sourcePath = staging.path() / "source.zip";
+  const auto outputPath = staging.path() / "index";
+  std::filesystem::copy_file(fixtureZip, sourcePath);
+
+  Session session;
+  const auto imported = session.importDictionary({
+      .jobId = "01234567-89ab-4def-8123-456789abcdef",
+      .zipPath = sourcePath.string(),
+      .outputPath = outputPath.string(),
+      .lowRam = true,
+  });
+  check(imported.jobId == "01234567-89ab-4def-8123-456789abcdef", "import job id changed");
+  check(imported.title == "GSM Hoshi Fixture", "worker import title changed");
+  check(imported.outputPath == outputPath.string(), "worker escaped the requested output path");
+  check(imported.termCount == 3, "worker term count changed");
+  check(imported.probeTerm == "食べる", "worker term probe changed");
+  check(imported.probeKanji == "食", "worker kanji probe changed");
+
+  const auto probe = session.probeDictionary({
+      .path = imported.outputPath,
+      .types = imported.types,
+      .probeTerm = imported.probeTerm,
+      .probeKanji = imported.probeKanji,
+  });
+  check(probe.loaded, "worker probe did not load the imported index");
+  check(probe.termProbeMatched, "worker term probe did not match");
+  check(probe.kanjiProbeMatched, "worker kanji probe did not match");
+
+  checkHostError(
+      [&] {
+        session.importDictionary({
+            .jobId = "other",
+            .zipPath = fixtureZip.string(),
+            .outputPath = (staging.path() / "other-index").string(),
+            .lowRam = true,
+        });
+      },
+      "PATH_OUTSIDE_STORE", "worker accepted paths outside one staging job");
+}
+
 void testProtocol() {
   Session session;
   ProtocolHandler protocol(session);
@@ -236,6 +295,8 @@ void testProtocol() {
       hello.find(GSM_HOSHIDICTS_COMMIT) != std::string::npos,
       "hello omitted the selected source commit");
   check(hello.find(R"("kanji")") != std::string::npos, "hello omitted kanji capability");
+  check(hello.find(R"("import")") != std::string::npos, "hello omitted import capability");
+  check(hello.find(R"("probe")") != std::string::npos, "hello omitted probe capability");
 
   const auto duplicate =
       protocol.handleLine(R"({"id":"hello","method":"health","params":{}})");
@@ -276,7 +337,9 @@ int main(int argc, char* argv[]) {
 
   try {
     testProtocol();
-    testSession(std::filesystem::absolute(argv[1]));
+    const auto fixtureZip = std::filesystem::absolute(argv[1]);
+    testSession(fixtureZip);
+    testImportWorker(fixtureZip);
     std::cout << "hoshidicts host tests passed\n";
     return 0;
   } catch (const std::exception& error) {

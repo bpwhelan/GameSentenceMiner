@@ -156,6 +156,8 @@ class HoshiDictsClient extends EventEmitter {
     this.maxStderrBytes = options.maxStderrBytes || MAX_STDERR_BYTES;
     this.methodTimeouts = {
       "catalog.configure": 30_000,
+      "dictionary.import": 30 * 60_000,
+      "dictionary.probe": 30_000,
       "lookup.term": 3000,
       "lookup.kanji": 3000,
       "styles.list": 5000,

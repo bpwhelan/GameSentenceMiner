@@ -79,6 +79,14 @@ struct ShutdownResult {
   bool accepted{true};
 };
 
+struct ImportProgressEvent {
+  std::string event{"import.progress"};
+  std::string jobId;
+  std::string phase;
+  std::size_t completed{};
+  std::size_t total{};
+};
+
 std::string serializeError(
     std::string id, std::string code, std::string message) {
   ErrorEnvelope response{
@@ -149,8 +157,10 @@ void validateGeneration(std::int64_t generation) {
 
 using namespace protocol_detail;
 
-ProtocolHandler::ProtocolHandler(Session& session)
-    : session_(session), started_(std::chrono::steady_clock::now()) {}
+ProtocolHandler::ProtocolHandler(Session& session, EventSink eventSink)
+    : session_(session),
+      eventSink_(std::move(eventSink)),
+      started_(std::chrono::steady_clock::now()) {}
 
 bool ProtocolHandler::rememberRequestId(const std::string& id) {
   if (recentRequestIdSet_.contains(id)) {
@@ -173,6 +183,25 @@ void ProtocolHandler::rememberCancelledId(const std::string& id) {
   if (cancelledRequestIds_.size() > kMaxRememberedIds) {
     cancelledRequestIdSet_.erase(cancelledRequestIds_.front());
     cancelledRequestIds_.pop_front();
+  }
+}
+
+void ProtocolHandler::emitImportProgress(
+    const std::string& jobId,
+    std::string phase,
+    std::size_t completed,
+    std::size_t total) const {
+  if (!eventSink_) {
+    return;
+  }
+  const auto event = glz::write_json(ImportProgressEvent{
+      .jobId = jobId,
+      .phase = std::move(phase),
+      .completed = completed,
+      .total = total,
+  });
+  if (event) {
+    eventSink_(event.value());
   }
 }
 
@@ -238,6 +267,8 @@ std::string ProtocolHandler::handleLine(std::string_view line) {
                       "kanji",
                       "styles",
                       "media",
+                      "import",
+                      "probe",
                       "cancel",
                   },
           },
@@ -292,6 +323,20 @@ std::string ProtocolHandler::handleLine(std::string_view line) {
       const auto params = parseParams<MediaGetParams>(request.params);
       return serializeSuccess(
           request.id, session_.getMedia(params), kMaxMediaResponseLineBytes);
+    }
+
+    if (request.method == "dictionary.import") {
+      const auto params = parseParams<DictionaryImportParams>(request.params);
+      emitImportProgress(params.jobId, "native-import", 0, 1);
+      const auto result = session_.importDictionary(params);
+      emitImportProgress(params.jobId, "native-import", 1, 1);
+      return serializeSuccess(request.id, result, kMaxResponseLineBytes);
+    }
+
+    if (request.method == "dictionary.probe") {
+      const auto params = parseParams<DictionaryProbeParams>(request.params);
+      return serializeSuccess(
+          request.id, session_.probeDictionary(params), kMaxResponseLineBytes);
     }
 
     if (request.method == "cancel") {

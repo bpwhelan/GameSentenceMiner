@@ -42,7 +42,9 @@ int runProtocol() {
 #endif
 
   Session session;
-  ProtocolHandler protocol(session);
+  ProtocolHandler protocol(session, [](std::string_view event) {
+    std::cout << event << '\n' << std::flush;
+  });
   std::string line;
   line.reserve(4096);
   bool oversized = false;

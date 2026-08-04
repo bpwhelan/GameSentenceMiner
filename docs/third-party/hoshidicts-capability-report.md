@@ -5,7 +5,7 @@ Audit date: 2026-08-04
 Candidates:
 
 - selected MIT line:
-  `bee-san/hoshidicts@14ff793b1d5cdfdfba24518bbdedc064d17d699d`,
+  `bee-san/hoshidicts@81e293cde156751e7f38cb040c86eb2c644ee4d2`,
   based on `Manhhao/hoshidicts@af99b554cd4ab289aa65e16fd2a4eea0d3870d3b`;
 - Chimahon GPL reference:
   `sohilsayed/hoshidicts@156f586a5bc67d72e5e6b315e84464719415583c`.

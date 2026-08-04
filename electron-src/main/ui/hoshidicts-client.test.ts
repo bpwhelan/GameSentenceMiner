@@ -17,7 +17,7 @@ const {
   resolveHoshiDictsExecutable,
 } = requireModule("../../../GSM_Overlay/hoshidicts_client.js");
 
-const SOURCE_COMMIT = "14ff793b1d5cdfdfba24518bbdedc064d17d699d";
+const SOURCE_COMMIT = "81e293cde156751e7f38cb040c86eb2c644ee4d2";
 
 type HostRequest = {
   id: string;

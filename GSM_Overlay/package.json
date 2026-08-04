@@ -34,7 +34,8 @@
     "electron-squirrel-startup": "1.0.1",
     "koffi": "^3.0.2",
     "pinyin-pro": "^3.28.1",
-    "ws": "^8.21.0"
+    "ws": "^8.21.0",
+    "yauzl": "^3.4.0"
   },
   "overrides": {
     "@electron/rebuild": "^4.0.4",
