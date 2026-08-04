@@ -11,6 +11,7 @@ GSM_Overlay/yomitan/** text eol=lf
 *.md    text eol=lf
 *.py    text eol=lf
 *.svelte text eol=lf
+*.txt   text eol=lf
 *.ts    text eol=lf
 .gitattributes text eol=lf
 
