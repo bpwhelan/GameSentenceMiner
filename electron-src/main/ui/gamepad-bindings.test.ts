@@ -777,4 +777,194 @@ describe("legacy gamepad popup routing", () => {
       }
     ]);
   });
+
+  it("tracks nested popup IDs and invalidates mining only after the final close", () => {
+    const actions: string[] = [];
+    const handler = Object.create(GamepadHandler.prototype) as any;
+    handler.yomitanPopupCount = 0;
+    handler.yomitanPopupIds = new Set();
+    handler.yomitanPopupVisible = false;
+    handler.popupActionSelectionActive = false;
+    handler.pendingMineCandidate = { anchorKey: "0:0" };
+    handler.lastLookupAnchorKey = "0:0";
+    handler.thumbstickLatch = new Map();
+    handler.sendYomitanControlMessage = (action: string) => actions.push(action);
+    handler.setThumbstickLatch = GamepadHandler.prototype.setThumbstickLatch;
+    handler.clearPendingMineCandidate = GamepadHandler.prototype.clearPendingMineCandidate;
+    handler.resetYomitanPopupActionSelection =
+      GamepadHandler.prototype.resetYomitanPopupActionSelection;
+
+    GamepadHandler.prototype.onYomitanPopupShown.call(handler, {
+      detail: { popupId: "parent" }
+    });
+    GamepadHandler.prototype.onYomitanPopupShown.call(handler, {
+      detail: { popupId: "parent" }
+    });
+    GamepadHandler.prototype.onYomitanPopupShown.call(handler, {
+      detail: { popupId: "child" }
+    });
+
+    expect(handler.yomitanPopupCount).toBe(2);
+    expect(handler.yomitanPopupVisible).toBe(true);
+    expect(actions).toEqual(["reset-action-selection", "reset-action-selection"]);
+
+    GamepadHandler.prototype.onYomitanPopupHidden.call(handler, {
+      detail: { popupId: "child" }
+    });
+    expect(handler.yomitanPopupVisible).toBe(true);
+    expect(handler.pendingMineCandidate).not.toBeNull();
+
+    GamepadHandler.prototype.onYomitanPopupHidden.call(handler, {
+      detail: { popupId: "parent" }
+    });
+    expect(handler.yomitanPopupCount).toBe(0);
+    expect(handler.yomitanPopupVisible).toBe(false);
+    expect(handler.pendingMineCandidate).toBeNull();
+    expect(handler.lastLookupAnchorKey).toBeNull();
+    expect(actions.at(-1)).toBe("clear-action-selection");
+  });
+
+  it("requires an unchanged target and open popup before second-confirm mining", () => {
+    const handler = Object.create(GamepadHandler.prototype) as any;
+    handler.currentBlockIndex = 2;
+    handler.currentCursorIndex = 4;
+    handler.yomitanPopupVisible = true;
+    handler.pendingMineCandidate = null;
+
+    GamepadHandler.prototype.setPendingMineCandidate.call(handler, {
+      anchorKey: "2:4"
+    });
+
+    expect(
+      GamepadHandler.prototype.canMineFromCurrentConfirm.call(handler, {
+        anchorKey: "2:4"
+      })
+    ).toBe(true);
+
+    handler.currentCursorIndex = 5;
+    expect(
+      GamepadHandler.prototype.canMineFromCurrentConfirm.call(handler, {
+        anchorKey: "2:4"
+      })
+    ).toBe(false);
+
+    handler.currentCursorIndex = 4;
+    handler.yomitanPopupVisible = false;
+    expect(
+      GamepadHandler.prototype.canMineFromCurrentConfirm.call(handler, {
+        anchorKey: "2:4"
+      })
+    ).toBe(false);
+  });
+
+  it("performs lookup on first confirm and mines on the second matching confirm", () => {
+    const sent: Array<{ action: string; params?: Record<string, unknown> }> = [];
+    let mined = 0;
+    const targetChar = { textContent: "食" };
+    const handler = Object.create(GamepadHandler.prototype) as any;
+    handler.config = {};
+    handler.currentBlockIndex = 1;
+    handler.currentCursorIndex = 3;
+    handler.yomitanPopupVisible = false;
+    handler.pendingMineCandidate = null;
+    handler.confirmYomitanPopupActionSelection = () => false;
+    handler.getLookupInfoForConfirm = () => ({
+      targetChar,
+      centerX: 10,
+      centerY: 20,
+      label: "character",
+      anchorKey: "1:3"
+    });
+    handler.canMineFromCurrentConfirm =
+      GamepadHandler.prototype.canMineFromCurrentConfirm;
+    handler.setPendingMineCandidate =
+      GamepadHandler.prototype.setPendingMineCandidate;
+    handler.clearPendingMineCandidate =
+      GamepadHandler.prototype.clearPendingMineCandidate;
+    handler.sendYomitanControlMessage = (
+      action: string,
+      params?: Record<string, unknown>
+    ) => sent.push({ action, params });
+    handler.triggerMining = () => {
+      mined += 1;
+    };
+
+    GamepadHandler.prototype.confirmSelection.call(handler);
+
+    expect(sent).toEqual([
+      {
+        action: "lookup-point",
+        params: { x: 10, y: 20 }
+      }
+    ]);
+    expect(handler.pendingMineCandidate).toEqual({
+      anchorKey: "1:3",
+      blockIndex: 1,
+      cursorIndex: 3
+    });
+
+    handler.yomitanPopupVisible = true;
+    GamepadHandler.prototype.confirmSelection.call(handler);
+
+    expect(mined).toBe(1);
+    expect(handler.pendingMineCandidate).toBeNull();
+    expect(sent).toHaveLength(1);
+  });
+
+  it("routes scroll, action, entry, and dismiss controls through Yomitan messages", () => {
+    const actions: string[] = [];
+    const handler = Object.create(GamepadHandler.prototype) as any;
+    handler.yomitanPopupVisible = true;
+    handler.popupActionSelectionActive = true;
+    handler.thumbstickLatch = new Map();
+    handler.lastPopupScrollTime = 0;
+    handler.config = { repeatRate: 0 };
+    handler.pendingMineCandidate = { anchorKey: "0:0" };
+    handler.getYomitanPopupFrames = () => [{}];
+    handler.sendYomitanControlMessage = (action: string) => actions.push(action);
+    handler.getThumbstickLatch = GamepadHandler.prototype.getThumbstickLatch;
+    handler.setThumbstickLatch = GamepadHandler.prototype.setThumbstickLatch;
+    handler.clearPendingMineCandidate = GamepadHandler.prototype.clearPendingMineCandidate;
+    handler.resetYomitanPopupActionSelection =
+      GamepadHandler.prototype.resetYomitanPopupActionSelection;
+
+    GamepadHandler.prototype.processRightStickVerticalForPopup.call(handler, 1, 0.2);
+    GamepadHandler.prototype.processRightStickHorizontalForPopup.call(handler, 1, 0.2);
+    GamepadHandler.prototype.confirmYomitanPopupActionSelection.call(handler);
+    GamepadHandler.prototype.navigateYomitanNextEntry.call(handler);
+    GamepadHandler.prototype.navigateYomitanPrevEntry.call(handler);
+    GamepadHandler.prototype.scanHiddenCharacterToHideYomitan.call(handler);
+
+    expect(actions).toEqual([
+      "scroll",
+      "select-action",
+      "confirm-action",
+      "next-entry",
+      "previous-entry",
+      "hide-popup"
+    ]);
+    expect(handler.pendingMineCandidate).toBeNull();
+  });
+
+  it("posts mining to both the overlay and active Yomitan frame", () => {
+    const hostMessages: unknown[] = [];
+    const frameMessages: unknown[] = [];
+    legacyGamepadContext.window.postMessage = (message: unknown) => {
+      hostMessages.push(message);
+    };
+    legacyGamepadContext.document.querySelector = () => ({
+      contentWindow: {
+        postMessage: (message: unknown) => frameMessages.push(message)
+      }
+    });
+
+    GamepadHandler.prototype.triggerMining.call({});
+
+    const expected = {
+      type: "gsm-trigger-anki-add",
+      cardFormatIndex: 0
+    };
+    expect(hostMessages).toEqual([expected]);
+    expect(frameMessages).toEqual([expected]);
+  });
 });
