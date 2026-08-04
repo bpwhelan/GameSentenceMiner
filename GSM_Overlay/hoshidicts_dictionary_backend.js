@@ -129,6 +129,11 @@ class HoshiDictsDictionaryBackend extends EventEmitter {
     this.hostInfo = null;
     this.mediaResolver = null;
     this.openPopupGeneration = null;
+    this.lookupSettings = {
+      scanLength: 16,
+      maxResults: 16,
+      recursiveLookupEnabled: true,
+    };
     this.onHostExit = (event) => this.#handleHostExit(event);
   }
 
@@ -150,6 +155,7 @@ class HoshiDictsDictionaryBackend extends EventEmitter {
   }
 
   async start(context = {}) {
+    this.#applyProfileSettings(context);
     if (!this.started) {
       this.hostInfo = await this.client.start?.();
       this.client.on?.("exit", this.onHostExit);
@@ -196,10 +202,35 @@ class HoshiDictsDictionaryBackend extends EventEmitter {
     if (!this.started) {
       throw backendError("HOST_NOT_RUNNING", "HoshiDicts host is not running");
     }
+    this.#applyProfileSettings(context);
     if (context.catalog) {
       await this.#configureCatalog(context.catalog, context.signal);
     }
     return this.getSnapshot();
+  }
+
+  #applyProfileSettings(context = {}) {
+    this.lookupSettings = {
+      scanLength: boundedInteger(
+        context.hoshiScanLength,
+        this.lookupSettings.scanLength,
+        1,
+        64,
+      ),
+      maxResults: boundedInteger(
+        context.hoshiMaxResults,
+        this.lookupSettings.maxResults,
+        1,
+        64,
+      ),
+      recursiveLookupEnabled:
+        context.hoshiRecursiveLookupEnabled === undefined
+          ? this.lookupSettings.recursiveLookupEnabled
+          : context.hoshiRecursiveLookupEnabled !== false,
+    };
+    this.popup.setRecursiveLookupEnabled?.(
+      this.lookupSettings.recursiveLookupEnabled,
+    );
   }
 
   async #configureCatalog(rawCatalog, signal) {
@@ -304,8 +335,18 @@ class HoshiDictsDictionaryBackend extends EventEmitter {
           catalogGeneration: this.catalog.generation,
           requestGeneration: generation,
           text: request.text,
-          scanLength: boundedInteger(request.scanLength, 16, 1, 64),
-          maxResults: boundedInteger(request.maxResults, 16, 1, 64),
+          scanLength: boundedInteger(
+            request.scanLength,
+            this.lookupSettings.scanLength,
+            1,
+            64,
+          ),
+          maxResults: boundedInteger(
+            request.maxResults,
+            this.lookupSettings.maxResults,
+            1,
+            64,
+          ),
         },
         { signal: request.signal },
       );
@@ -410,6 +451,7 @@ class HoshiDictsDictionaryBackend extends EventEmitter {
       hostInfo: this.hostInfo,
       catalogGeneration: this.catalog?.generation || null,
       dictionaryCount: this.catalog?.dictionaries.length || 0,
+      lookupSettings: { ...this.lookupSettings },
       popup: this.popup.getSnapshot?.() || null,
     };
   }

@@ -49,6 +49,10 @@
     furiganaOutlineColor: "Color of the outline drawn around furigana for contrast.",
     furiganaOutlineWidth: "Thickness of the furigana outline, in pixels.",
     furiganaFontWeight: "How bold the furigana text is drawn.",
+    hoshiScanLength: "Maximum text length considered for each HoshiDicts lookup.",
+    hoshiMaxResults: "Maximum number of HoshiDicts entries returned per lookup.",
+    hoshiRecursiveLookupEnabled: "Allow a lookup from selected text inside HoshiDicts results.",
+    hoshiLowRamImport: "Use a lower-memory native import strategy for large dictionary ZIPs.",
 
     // Pinyin tone colors
     pinyinTone1Color: "Color for first-tone (high level) pinyin syllables.",
@@ -71,6 +75,7 @@
     "visibility": "indicator border boxes box rectangle red remove hide ready recycled status outline",
     "live stats": "speed cph characters per hour reading time goals widget",
     "pomodoro": "timer focus break work countdown",
+    "dictionary": "lookup popup yomitan hoshidicts import zip glossary definition backend",
     "furigana": "reading ruby kana pronunciation rubytext",
     "pinyin": "chinese tone pronunciation mandarin",
     "ocr": "capture screen recognize text screenshot scan",
@@ -90,7 +95,7 @@
   const GSM_CAPABILITY_CARDS = [
     { icon: "📖", title: "Readings, Stats & Jiten", tab: "reading", blurb: "Furigana / pinyin, live stats, goals, Pomodoro, and Jiten Reader integration." },
     { icon: "✋", title: "Push to Show & Hotkeys", tab: "interaction", blurb: "Reveal the overlay only when you want it, tune hotkeys, and control TextFeed or translation." },
-    { icon: "🎮", title: "Hands-Free Gamepad Nav", tab: "gamepad", blurb: "Drive the cursor and trigger Yomitan lookups with a controller — no keyboard or mouse needed." },
+    { icon: "🎮", title: "Hands-Free Gamepad Nav", tab: "gamepad", blurb: "Drive the cursor and trigger dictionary lookups with a controller — no keyboard or mouse needed." },
     { icon: "🔍", title: "OCR Capture", tab: "capture", blurb: "Pick the engine, monitor, and capture area, and scan text on a timer or on demand." },
     { icon: "🗂️", title: "Profiles & System", tab: "system", blurb: "Tie settings to GSM profiles and check platform or connection details." },
   ];

@@ -29,6 +29,12 @@ const {
   normalizeConfiguredHotkeyValues,
   registerHotkeyWithFallback,
 } = require('./hotkey_settings');
+const {
+  HoshiDictsSettingsService,
+  findHoshiDictionaryReferences,
+  normalizeHoshiProfileSettings,
+  removeHoshiDictionaryReferences,
+} = require('./hoshidicts_settings_service');
 const { shouldRevealAutomaticOverlay, shouldShowOverlayOnReady } = require('./automatic_visibility');
 const { URL } = require('url');
 
@@ -271,6 +277,20 @@ const OVERLAY_PROFILE_CONTROL_KEYS = new Set([
   OVERLAY_SETTINGS_PROFILES_ENABLED_KEY,
   OVERLAY_PROFILE_SETTINGS_KEY,
   OVERLAY_ACTIVE_PROFILE_KEY,
+]);
+const HOSHI_PROFILE_SETTING_KEYS = Object.freeze([
+  "dictionaryBackend",
+  "hoshiDictionaryOrder",
+  "hoshiDictionaryEnabled",
+  "hoshiScanLength",
+  "hoshiMaxResults",
+  "hoshiRecursiveLookupEnabled",
+  "hoshiLowRamImport",
+]);
+const HOSHI_TRANSACTIONAL_SETTING_KEYS = new Set([
+  "dictionaryBackend",
+  "hoshiDictionaryOrder",
+  "hoshiDictionaryEnabled",
 ]);
 // GSM owns these overlay OCR-capture settings; they live per-GSM-profile in config.json
 // and are edited over the websocket, not stored in the overlay's own profiles.
@@ -730,6 +750,13 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "hideOnStartup": true,
   "openSettingsOnStartup": true,
   "focusOverlayOnYomitanLookup": false,
+  "dictionaryBackend": "yomitan",
+  "hoshiDictionaryOrder": [],
+  "hoshiDictionaryEnabled": {},
+  "hoshiScanLength": 16,
+  "hoshiMaxResults": 16,
+  "hoshiRecursiveLookupEnabled": true,
+  "hoshiLowRamImport": true,
   "manualMode": false,
   "manualModeType": "hold",
   "manualModeInactiveBehavior": MANUAL_MODE_INACTIVE_BEHAVIOR_HIDE_OVERLAY,
@@ -865,6 +892,21 @@ let shouldMigrateLegacyOverlayActivationScan = false;
 let reconfigureOverlayRuntimeForSettingsChange = () => {};
 let liveStatsVisibilityMode = "all";
 
+function normalizeHoshiSettingsInPlace(settings) {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
+    return false;
+  }
+  const normalized = normalizeHoshiProfileSettings(settings);
+  let changed = false;
+  for (const key of HOSHI_PROFILE_SETTING_KEYS) {
+    if (JSON.stringify(settings[key]) !== JSON.stringify(normalized[key])) {
+      settings[key] = cloneOverlaySettingValue(normalized[key]);
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 const MANUAL_HOTKEY_ELECTRON_RELEASE_TIMEOUT_MS = 650;
 
 function cloneOverlaySettingValue(value) {
@@ -950,6 +992,7 @@ function normalizeOverlaySettingsProfiles(reason = "unknown") {
         changed = true;
       }
     }
+    changed = normalizeHoshiSettingsInPlace(cleanedSettings) || changed;
     profiles[normalizedName] = cleanedSettings;
   }
 
@@ -1033,6 +1076,7 @@ function applyOverlayProfileSettings(profileName, reason = "unknown", options = 
   normalizeOverlayHotkeySettings(userSettings);
   normalizeFuriganaSettings(userSettings);
   normalizeGamepadTokenizerSettings(userSettings);
+  normalizeHoshiSettingsInPlace(userSettings);
   setOverlaySettingValue("manualModeType", normalizeManualModeType(userSettings.manualModeType));
   setOverlaySettingValue("manualModeInactiveBehavior", normalizeManualModeInactiveBehavior(userSettings.manualModeInactiveBehavior));
   ensureManualAndTexthookerHotkeysDistinct(`overlay-profile:${reason}`);
@@ -1354,6 +1398,507 @@ function buildOverlaySettingsPayload() {
     ...userSettings,
     liveStatsVisibilityMode: normalizeLiveStatsVisibilityMode(liveStatsVisibilityMode),
   };
+}
+
+let hoshiSettingsService = null;
+let hoshiStatePublishTimer = null;
+let hoshiLastOperationError = null;
+let dictionaryBackendTransitionSequence = 0;
+let dictionaryBackendTransitionQueue = Promise.resolve();
+const pendingDictionaryBackendTransitions = new Map();
+
+function createDictionaryBackendError(code, message) {
+  const error = new Error(message || "Dictionary backend transition failed");
+  error.code = code || "BACKEND_SWITCH_FAILED";
+  return error;
+}
+
+function serializeDictionaryBackendTransition(operation) {
+  const run = dictionaryBackendTransitionQueue.then(operation, operation);
+  dictionaryBackendTransitionQueue = run.catch(() => {});
+  return run;
+}
+
+function getHoshiSettingsService() {
+  if (hoshiSettingsService) {
+    return hoshiSettingsService;
+  }
+  hoshiSettingsService = new HoshiDictsSettingsService({
+    dataPath,
+    resourcesPath: getPackagedResourcesPath(),
+    clientVersion:
+      typeof app.getVersion === "function" ? app.getVersion() : "unknown",
+  });
+  hoshiSettingsService.on("state-changed", () => {
+    scheduleHoshiSettingsStatePublish();
+  });
+  return hoshiSettingsService;
+}
+
+function normalizeHoshiError(error, fallback = "HOSHIDICTS_ERROR") {
+  return {
+    code:
+      typeof error?.code === "string" && error.code
+        ? error.code
+        : fallback,
+    message:
+      typeof error?.message === "string" && error.message
+        ? error.message
+        : "HoshiDicts operation failed",
+  };
+}
+
+async function getHoshiSettingsState(options = {}) {
+  const state = await getHoshiSettingsService().getState(userSettings, options);
+  return {
+    ...state,
+    operationError: hoshiLastOperationError,
+  };
+}
+
+async function publishHoshiSettingsState(options = {}) {
+  if (!settingsWindow || settingsWindow.isDestroyed()) {
+    return null;
+  }
+  try {
+    const state = await getHoshiSettingsState(options);
+    if (!settingsWindow || settingsWindow.isDestroyed()) {
+      return state;
+    }
+    settingsWindow.webContents.send("hoshidicts-state-updated", state);
+    return state;
+  } catch (error) {
+    const failure = normalizeHoshiError(error, "STATE_UNAVAILABLE");
+    if (settingsWindow && !settingsWindow.isDestroyed()) {
+      settingsWindow.webContents.send("hoshidicts-state-updated", {
+        settings: normalizeHoshiProfileSettings(userSettings),
+        host: {
+          available: false,
+          status: "error",
+          errorCode: failure.code,
+        },
+        dictionaries: [],
+        imports: [],
+        storage: { activeBytes: 0, dictionaryCount: 0 },
+        operationError: failure,
+      });
+    }
+    return null;
+  }
+}
+
+function scheduleHoshiSettingsStatePublish() {
+  if (hoshiStatePublishTimer !== null) {
+    return;
+  }
+  hoshiStatePublishTimer = setTimeout(() => {
+    hoshiStatePublishTimer = null;
+    void publishHoshiSettingsState();
+  }, 50);
+}
+
+function resolveDictionaryBackendTransition(event, payload = {}) {
+  if (
+    !mainWindow ||
+    mainWindow.isDestroyed() ||
+    event.sender !== mainWindow.webContents
+  ) {
+    return;
+  }
+  const requestId = String(payload.requestId || "");
+  const pending = pendingDictionaryBackendTransitions.get(requestId);
+  if (!pending) {
+    return;
+  }
+  pendingDictionaryBackendTransitions.delete(requestId);
+  clearTimeout(pending.timer);
+  if (payload.ok === true) {
+    pending.resolve(payload);
+    return;
+  }
+  pending.reject(
+    createDictionaryBackendError(
+      payload.errorCode,
+      payload.message || "The overlay renderer rejected the dictionary backend",
+    ),
+  );
+}
+
+function rejectPendingDictionaryBackendTransitions(reason = "renderer-unavailable") {
+  for (const [requestId, pending] of pendingDictionaryBackendTransitions) {
+    pendingDictionaryBackendTransitions.delete(requestId);
+    clearTimeout(pending.timer);
+    pending.reject(
+      createDictionaryBackendError(
+        "RENDERER_UNAVAILABLE",
+        `Dictionary backend transition was cancelled: ${reason}`,
+      ),
+    );
+  }
+}
+
+function requestRendererDictionaryBackendTransition(
+  backendId,
+  runtime,
+  settings,
+  reason,
+) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return Promise.reject(
+      createDictionaryBackendError(
+        "RENDERER_UNAVAILABLE",
+        "The overlay renderer is unavailable",
+      ),
+    );
+  }
+  const requestId = `dictionary-backend-${Date.now()}-${++dictionaryBackendTransitionSequence}`;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingDictionaryBackendTransitions.delete(requestId);
+      reject(
+        createDictionaryBackendError(
+          "BACKEND_SWITCH_TIMEOUT",
+          "The dictionary backend did not become ready in time",
+        ),
+      );
+    }, 45_000);
+    pendingDictionaryBackendTransitions.set(requestId, {
+      resolve,
+      reject,
+      timer,
+    });
+    mainWindow.webContents.send("dictionary-backend-switch-request", {
+      requestId,
+      backendId,
+      runtime,
+      settings,
+      reason,
+    });
+  });
+}
+
+async function transitionDictionaryBackend(settings, reason = "settings") {
+  const normalized = normalizeHoshiProfileSettings(settings);
+  let runtime = null;
+  if (normalized.dictionaryBackend === "hoshidicts") {
+    runtime = await getHoshiSettingsService().buildRuntime(normalized);
+  }
+  await requestRendererDictionaryBackendTransition(
+    normalized.dictionaryBackend,
+    runtime,
+    normalized,
+    reason,
+  );
+  return { runtime, settings: normalized };
+}
+
+function applyCommittedHoshiSettings(settings) {
+  const normalized = normalizeHoshiProfileSettings(settings);
+  for (const key of HOSHI_PROFILE_SETTING_KEYS) {
+    setOverlaySettingValue(key, cloneOverlaySettingValue(normalized[key]));
+  }
+  return normalized;
+}
+
+async function commitHoshiProfileSettings(patch, reason = "settings") {
+  return await serializeDictionaryBackendTransition(async () => {
+    const previous = normalizeHoshiProfileSettings(userSettings);
+    const candidate = normalizeHoshiProfileSettings({
+      ...userSettings,
+      ...patch,
+    });
+    try {
+      await transitionDictionaryBackend(candidate, reason);
+      const committed = applyCommittedHoshiSettings(candidate);
+      hoshiLastOperationError = null;
+      saveSettings();
+      publishOverlaySettingsSnapshot(reason);
+      const state = await publishHoshiSettingsState({ initializeStore: false });
+      return {
+        ok: true,
+        backend: committed.dictionaryBackend,
+        settings: committed,
+        state,
+      };
+    } catch (error) {
+      const transitionError = normalizeHoshiError(
+        error,
+        "BACKEND_SWITCH_FAILED",
+      );
+      try {
+        await transitionDictionaryBackend(previous, `${reason}:rollback`);
+        hoshiLastOperationError = transitionError;
+      } catch (rollbackError) {
+        hoshiLastOperationError = normalizeHoshiError(
+          rollbackError,
+          "BACKEND_ROLLBACK_FAILED",
+        );
+      }
+      scheduleHoshiSettingsStatePublish();
+      return {
+        ok: false,
+        backend: previous.dictionaryBackend,
+        settings: previous,
+        error: hoshiLastOperationError,
+      };
+    }
+  });
+}
+
+function reconcileConfiguredDictionaryBackend(previousSettings, reason) {
+  const previous = normalizeHoshiProfileSettings(previousSettings);
+  const desired = normalizeHoshiProfileSettings(userSettings);
+  void serializeDictionaryBackendTransition(async () => {
+    try {
+      await transitionDictionaryBackend(desired, reason);
+      hoshiLastOperationError = null;
+    } catch (error) {
+      hoshiLastOperationError = normalizeHoshiError(
+        error,
+        "BACKEND_SWITCH_FAILED",
+      );
+      const rollback = applyCommittedHoshiSettings(previous);
+      try {
+        await transitionDictionaryBackend(rollback, `${reason}:rollback`);
+      } catch (rollbackError) {
+        hoshiLastOperationError = normalizeHoshiError(
+          rollbackError,
+          "BACKEND_ROLLBACK_FAILED",
+        );
+      }
+      saveSettings();
+      publishOverlaySettingsSnapshot(`${reason}:rollback`);
+    } finally {
+      scheduleHoshiSettingsStatePublish();
+    }
+  });
+}
+
+function activateConfiguredDictionaryBackend(reason = "startup") {
+  const desired = normalizeHoshiProfileSettings(userSettings);
+  void serializeDictionaryBackendTransition(async () => {
+    try {
+      await transitionDictionaryBackend(desired, reason);
+      hoshiLastOperationError = null;
+    } catch (error) {
+      hoshiLastOperationError = normalizeHoshiError(
+        error,
+        "BACKEND_START_FAILED",
+      );
+      const fallback = applyCommittedHoshiSettings({
+        ...desired,
+        dictionaryBackend: "yomitan",
+      });
+      try {
+        await transitionDictionaryBackend(fallback, `${reason}:fallback`);
+      } catch (fallbackError) {
+        hoshiLastOperationError = normalizeHoshiError(
+          fallbackError,
+          "BACKEND_ROLLBACK_FAILED",
+        );
+      }
+      saveSettings();
+      publishOverlaySettingsSnapshot(`${reason}:fallback`);
+    } finally {
+      scheduleHoshiSettingsStatePublish();
+    }
+  });
+}
+
+function getDictionaryDialogParent() {
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    return settingsWindow;
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    return mainWindow;
+  }
+  return undefined;
+}
+
+async function chooseHoshiDictionaryZip(title) {
+  const options = {
+    title,
+    properties: ["openFile"],
+    filters: [
+      { name: "Yomitan dictionary ZIP", extensions: ["zip"] },
+      { name: "All files", extensions: ["*"] },
+    ],
+  };
+  const parent = getDictionaryDialogParent();
+  const result = parent
+    ? await dialog.showOpenDialog(parent, options)
+    : await dialog.showOpenDialog(options);
+  if (result.canceled || !result.filePaths?.[0]) {
+    return null;
+  }
+  return result.filePaths[0];
+}
+
+async function showHoshiMessageBox(options) {
+  const parent = getDictionaryDialogParent();
+  return parent
+    ? await dialog.showMessageBox(parent, options)
+    : await dialog.showMessageBox(options);
+}
+
+async function importHoshiDictionaryFromPath(
+  sourcePath,
+  options = {},
+) {
+  const service = getHoshiSettingsService();
+  const importOptions = {
+    lowRam: userSettings.hoshiLowRamImport !== false,
+    ...(options.dictionaryId
+      ? { dictionaryId: options.dictionaryId }
+      : {}),
+  };
+  let result;
+  try {
+    result = options.dictionaryId
+      ? await service.reimportDictionary(
+          options.dictionaryId,
+          sourcePath,
+          importOptions,
+        )
+      : await service.importDictionary(sourcePath, importOptions);
+  } catch (error) {
+    if (!options.dictionaryId && error?.code === "DUPLICATE_SOURCE") {
+      const duplicateChoice = await showHoshiMessageBox({
+        type: "question",
+        title: "Dictionary already imported",
+        message: "This dictionary ZIP is already installed.",
+        detail:
+          "Reuse the existing dictionary, or import another copy with a separate identity.",
+        buttons: ["Reuse existing", "Import another copy", "Cancel"],
+        defaultId: 0,
+        cancelId: 2,
+        noLink: true,
+      });
+      if (duplicateChoice.response === 2) {
+        return { ok: false, cancelled: true };
+      }
+      result = await service.importDictionary(sourcePath, {
+        ...importOptions,
+        duplicatePolicy:
+          duplicateChoice.response === 0 ? "reuse" : "new",
+      });
+    } else {
+      throw error;
+    }
+  }
+
+  const entry = result?.entry;
+  if (
+    result?.status === "imported" &&
+    entry?.types?.includes("term") &&
+    !options.dictionaryId
+  ) {
+    const enableChoice = await showHoshiMessageBox({
+      type: "question",
+      title: "Enable imported dictionary",
+      message: `Enable ${entry.displayTitle || entry.title} for this overlay profile?`,
+      detail:
+        "Imported files are shared globally. Enablement and ordering are stored only for the active overlay profile.",
+      buttons: ["Enable", "Keep disabled"],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    });
+    if (enableChoice.response === 0) {
+      const current = normalizeHoshiProfileSettings(userSettings);
+      const order = current.hoshiDictionaryOrder.filter(
+        (id) => id !== entry.id,
+      );
+      order.push(entry.id);
+      await commitHoshiProfileSettings(
+        {
+          hoshiDictionaryOrder: order,
+          hoshiDictionaryEnabled: {
+            ...current.hoshiDictionaryEnabled,
+            [entry.id]: true,
+          },
+        },
+        "hoshidicts:import-enable",
+      );
+    } else {
+      await commitHoshiProfileSettings(
+        normalizeHoshiProfileSettings(userSettings),
+        "hoshidicts:import-refresh",
+      );
+    }
+  } else {
+    await commitHoshiProfileSettings(
+      normalizeHoshiProfileSettings(userSettings),
+      options.dictionaryId
+        ? "hoshidicts:reimport-refresh"
+        : "hoshidicts:import-refresh",
+    );
+  }
+  scheduleHoshiSettingsStatePublish();
+  return { ok: true, result };
+}
+
+async function removeHoshiDictionary(dictionaryId) {
+  const references = findHoshiDictionaryReferences(
+    userSettings,
+    dictionaryId,
+  );
+  const referenceDetail = references.length > 0
+    ? `Referenced by: ${references.join(", ")}.\n\n`
+    : "";
+  const confirmation = await showHoshiMessageBox({
+    type: "warning",
+    title: "Remove HoshiDicts dictionary",
+    message: "Remove this dictionary from every overlay profile?",
+    detail:
+      `${referenceDetail}This is a global operation. The imported index will be removed, while Yomitan dictionaries are untouched.`,
+    buttons: ["Remove dictionary", "Cancel"],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  });
+  if (confirmation.response !== 0) {
+    return { ok: false, cancelled: true, references };
+  }
+
+  return await serializeDictionaryBackendTransition(async () => {
+    const service = getHoshiSettingsService();
+    const removal = await service.removeDictionary(dictionaryId);
+    const changedProfiles = removeHoshiDictionaryReferences(
+      userSettings,
+      dictionaryId,
+    );
+    const desired = normalizeHoshiProfileSettings(userSettings);
+    let committed = desired;
+    try {
+      await transitionDictionaryBackend(desired, "hoshidicts:remove");
+      hoshiLastOperationError = null;
+    } catch (error) {
+      hoshiLastOperationError = normalizeHoshiError(
+        error,
+        "CATALOG_REBUILD_FAILED",
+      );
+      committed = {
+        ...desired,
+        dictionaryBackend: "yomitan",
+      };
+      await transitionDictionaryBackend(
+        committed,
+        "hoshidicts:remove-fallback",
+      );
+    }
+    applyCommittedHoshiSettings(committed);
+    saveSettings();
+    publishOverlaySettingsSnapshot("hoshidicts:remove");
+    scheduleHoshiSettingsStatePublish();
+    return {
+      ok: true,
+      removal,
+      references,
+      changedProfiles,
+      backend: committed.dictionaryBackend,
+    };
+  });
 }
 
 function publishLiveStatsVisibilityMode(reason = "unknown") {
@@ -3948,6 +4493,7 @@ const websocketEndpointsNormalized = enforceOverlayWebSocketUrls(userSettings);
 const texthookerUrlNormalized = enforceTexthookerUrl(userSettings);
 const furiganaSettingsNormalized = normalizeFuriganaSettings(userSettings);
 const gamepadTokenizerSettingsNormalized = normalizeGamepadTokenizerSettings(userSettings);
+const hoshiSettingsNormalized = normalizeHoshiSettingsInPlace(userSettings);
 const normalizedGamepadDeviceBlacklist = normalizeGamepadDeviceBlacklist(userSettings.gamepadDeviceBlacklist);
 const gamepadDeviceBlacklistNormalized = JSON.stringify(userSettings.gamepadDeviceBlacklist) !== JSON.stringify(normalizedGamepadDeviceBlacklist);
 if (gamepadDeviceBlacklistNormalized) {
@@ -3969,6 +4515,7 @@ if (
   texthookerUrlNormalized ||
   furiganaSettingsNormalized ||
   gamepadTokenizerSettingsNormalized ||
+  hoshiSettingsNormalized ||
   gamepadDeviceBlacklistNormalized ||
   liveStatsSettingsNormalized ||
   pomodoroSettingsNormalized ||
@@ -5458,6 +6005,7 @@ function openSettings() {
       runtimeSettings: getManualHotkeyRuntimeStatus(),
       profileState: getOverlayProfileState(),
     });
+    void publishHoshiSettingsState();
     // Populate the OCR/Capture monitor dropdown, then ask the backend to refresh it.
     openedSettingsWindow.webContents.send("gsm-overlay-monitors", gsmOverlayMonitors);
     if (backend) {
@@ -6489,6 +7037,9 @@ async function startOverlayAppImpl() {
         void restartGamepadServer(`${reason}:tokenizer`);
       }
     }
+    if (HOSHI_PROFILE_SETTING_KEYS.some((key) => changed(key))) {
+      reconcileConfiguredDictionaryBackend(previous, reason);
+    }
     if (changed("gamepadServerPort")) {
       void restartGamepadServer(`${reason}:gamepadServerPort`);
     }
@@ -6665,6 +7216,97 @@ async function startOverlayAppImpl() {
     width: displayBounds.width,
     height: displayBounds.height
   };
+
+  ipcMain.on(
+    "dictionary-backend-switch-result",
+    resolveDictionaryBackendTransition,
+  );
+  ipcMain.handle("hoshidicts-get-state", async () => {
+    try {
+      return await getHoshiSettingsState();
+    } catch (error) {
+      return {
+        settings: normalizeHoshiProfileSettings(userSettings),
+        host: {
+          available: false,
+          status: "error",
+          errorCode: normalizeHoshiError(error, "STATE_UNAVAILABLE").code,
+        },
+        dictionaries: [],
+        imports: [],
+        storage: { activeBytes: 0, dictionaryCount: 0 },
+        operationError: normalizeHoshiError(error, "STATE_UNAVAILABLE"),
+      };
+    }
+  });
+  ipcMain.handle("hoshidicts-select-backend", async (_event, payload = {}) => {
+    return await commitHoshiProfileSettings(
+      { dictionaryBackend: payload.backendId },
+      "hoshidicts:backend-selection",
+    );
+  });
+  ipcMain.handle(
+    "hoshidicts-update-profile-settings",
+    async (_event, payload = {}) => {
+      const patch = {};
+      for (const key of HOSHI_PROFILE_SETTING_KEYS) {
+        if (Object.prototype.hasOwnProperty.call(payload, key)) {
+          patch[key] = payload[key];
+        }
+      }
+      return await commitHoshiProfileSettings(
+        patch,
+        "hoshidicts:profile-settings",
+      );
+    },
+  );
+  ipcMain.handle("hoshidicts-import", async () => {
+    try {
+      const sourcePath = await chooseHoshiDictionaryZip(
+        "Import Yomitan dictionary ZIP",
+      );
+      if (!sourcePath) {
+        return { ok: false, cancelled: true };
+      }
+      return await importHoshiDictionaryFromPath(sourcePath);
+    } catch (error) {
+      hoshiLastOperationError = normalizeHoshiError(error, "IMPORT_FAILED");
+      scheduleHoshiSettingsStatePublish();
+      return { ok: false, error: hoshiLastOperationError };
+    }
+  });
+  ipcMain.handle("hoshidicts-reimport", async (_event, payload = {}) => {
+    try {
+      const dictionaryId = String(payload.dictionaryId || "");
+      const sourcePath = await chooseHoshiDictionaryZip(
+        "Reimport Yomitan dictionary ZIP",
+      );
+      if (!sourcePath) {
+        return { ok: false, cancelled: true };
+      }
+      return await importHoshiDictionaryFromPath(sourcePath, {
+        dictionaryId,
+      });
+    } catch (error) {
+      hoshiLastOperationError = normalizeHoshiError(error, "REIMPORT_FAILED");
+      scheduleHoshiSettingsStatePublish();
+      return { ok: false, error: hoshiLastOperationError };
+    }
+  });
+  ipcMain.handle("hoshidicts-cancel-import", async (_event, payload = {}) => {
+    const cancelled = getHoshiSettingsService().cancelImport(payload.jobId);
+    scheduleHoshiSettingsStatePublish();
+    return { ok: cancelled, cancelled };
+  });
+  ipcMain.handle("hoshidicts-remove", async (_event, payload = {}) => {
+    try {
+      return await removeHoshiDictionary(String(payload.dictionaryId || ""));
+    } catch (error) {
+      hoshiLastOperationError = normalizeHoshiError(error, "REMOVE_FAILED");
+      scheduleHoshiSettingsStatePublish();
+      return { ok: false, error: hoshiLastOperationError };
+    }
+  });
 
   ipcMain.on('update-window-shape', (event, shape) => {
     // if (process.platform !== 'win32') {
@@ -6904,6 +7546,7 @@ async function startOverlayAppImpl() {
       // mainWindow.openDevTools({ mode: 'detach' });
     }
     mainWindow.webContents.send("load-settings", buildOverlaySettingsPayload());
+    activateConfiguredDictionaryBackend("startup");
     broadcastPomodoroState();
     mainWindow.webContents.send("display-info", buildOverlayDisplayInfo(display));
     mainWindow.webContents.send("gamepad-input-test-active", { active: gamepadInputTestActive });
@@ -7188,6 +7831,17 @@ async function startOverlayAppImpl() {
   ipcMain.on("setting-changed", (event, { key, value }) => {
     const sanitizedLogValue = (key === "gamepadJitenApiKey" || key === "gamepadJpdbApiKey") ? "***" : value;
     console.log(`Setting changed: ${key} = ${sanitizedLogValue}`);
+    if (HOSHI_TRANSACTIONAL_SETTING_KEYS.has(key)) {
+      console.warn(
+        `[HoshiDicts] Ignoring non-transactional update for ${key}; use the HoshiDicts settings IPC.`,
+      );
+      if (settingsWindow && !settingsWindow.isDestroyed()) {
+        settingsWindow.webContents.send("settings-updated", {
+          [key]: cloneOverlaySettingValue(userSettings[key]),
+        });
+      }
+      return;
+    }
     const enforcedTransportUrls = getEnforcedOverlayTransportUrls();
     if (key === "weburl1") {
       value = enforcedTransportUrls.weburl1;
@@ -7248,6 +7902,24 @@ async function startOverlayAppImpl() {
       value = normalizeGamepadJpdbApiKey(value);
     } else if (key === "gamepadDeviceBlacklist") {
       value = normalizeGamepadDeviceBlacklist(value);
+    } else if (key === "hoshiScanLength") {
+      value = normalizeHoshiProfileSettings({
+        ...userSettings,
+        hoshiScanLength: value,
+      }).hoshiScanLength;
+    } else if (key === "hoshiMaxResults") {
+      value = normalizeHoshiProfileSettings({
+        ...userSettings,
+        hoshiMaxResults: value,
+      }).hoshiMaxResults;
+    } else if (
+      key === "hoshiRecursiveLookupEnabled" ||
+      key === "hoshiLowRamImport"
+    ) {
+      value = normalizeHoshiProfileSettings({
+        ...userSettings,
+        [key]: value,
+      })[key];
     } else if (key === "furiganaScale") {
       value = normalizeFuriganaScale(value);
     } else if (key === "furiganaYOffset") {
@@ -7888,6 +8560,10 @@ async function stopOverlayApp() {
       appHotkeyInputServerConnection.registry.clear();
       runOverlayCleanupStep('background tasks', () => bg.reset());
       runOverlayCleanupStep('pomodoro timer', () => clearPomodoroTicker());
+      runOverlayCleanupStep(
+        'dictionary backend transitions',
+        () => rejectPendingDictionaryBackendTransitions('overlay-unload'),
+      );
 
       if (tray) {
         runOverlayCleanupStep('tray', () => tray.destroy());

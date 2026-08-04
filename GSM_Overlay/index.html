@@ -980,6 +980,17 @@ background: rgba(202, 12, 12, 0.692);
   let dictionaryPopupController = null;
   let dictionaryBackendManager = null;
   let yomitanDictionaryBackend = null;
+  let hoshiDictionaryClient = null;
+  let hoshiDictionaryPopup = null;
+  let hoshiDictionaryBackend = null;
+  let dictionaryProfileSettings = {
+    dictionaryBackend: "yomitan",
+    hoshiDictionaryOrder: [],
+    hoshiDictionaryEnabled: {},
+    hoshiScanLength: 16,
+    hoshiMaxResults: 16,
+    hoshiRecursiveLookupEnabled: true,
+  };
 
   // Manual mode recommendation state
   let dismissedRecommendationGames = []; // Permanently dismissed games
@@ -1316,6 +1327,9 @@ background: rgba(202, 12, 12, 0.692);
   const { ipcRenderer } = require("electron");
   const { DictionaryPopupController } = require("./dictionary_popup_controller.js");
   const { DictionaryBackendManager } = require("./dictionary_backend_manager.js");
+  const { HoshiDictsClient } = require("./hoshidicts_client.js");
+  const { HoshiDictsDictionaryBackend } = require("./hoshidicts_dictionary_backend.js");
+  const { HoshiDictsPopup } = require("./hoshidicts_popup.js");
   const { YomitanDictionaryBackend } = require("./yomitan_dictionary_backend.js");
 
   dictionaryPopupController = new DictionaryPopupController({
@@ -1329,10 +1343,28 @@ background: rgba(202, 12, 12, 0.692);
     getBridge: () => window.gsmYomitanBridge,
     getGeneration: () => dictionaryPopupController.generation,
   });
+  hoshiDictionaryClient = new HoshiDictsClient({
+    clientVersion: "gsm-overlay",
+  });
+  hoshiDictionaryPopup = new HoshiDictsPopup({
+    window,
+    document,
+  });
+  hoshiDictionaryBackend = new HoshiDictsDictionaryBackend({
+    client: hoshiDictionaryClient,
+    popup: hoshiDictionaryPopup,
+    getGeneration: () => dictionaryPopupController.generation,
+  });
   dictionaryBackendManager = new DictionaryBackendManager({
     controller: dictionaryPopupController,
-    backends: [yomitanDictionaryBackend],
+    backends: [yomitanDictionaryBackend, hoshiDictionaryBackend],
   });
+  hoshiDictionaryBackend.setLookupDispatcher((intent) =>
+    dictionaryBackendManager.lookup({
+      ...dictionaryProfileSettings,
+      ...intent,
+    }),
+  );
 
   dictionaryPopupController.on("popup-state", (popupState) => {
     const wasShowing = dictionaryPopupShowing;
@@ -1363,10 +1395,93 @@ background: rgba(202, 12, 12, 0.692);
       detail: status,
     }));
   });
+  ipcRenderer.on("load-settings", (_event, settings = {}) => {
+    dictionaryProfileSettings = {
+      ...dictionaryProfileSettings,
+      ...settings,
+    };
+  });
+  ipcRenderer.on(
+    "dictionary-backend-switch-request",
+    async (_event, request = {}) => {
+      const requestId = String(request.requestId || "");
+      try {
+        const backendId =
+          request.backendId === "hoshidicts" ? "hoshidicts" : "yomitan";
+        const settings = {
+          ...dictionaryProfileSettings,
+          ...(request.settings || {}),
+        };
+        const context = {
+          ...settings,
+          ...(request.runtime?.catalog
+            ? { catalog: request.runtime.catalog }
+            : {}),
+        };
+        if (backendId === "hoshidicts" && !context.catalog) {
+          const error = new Error("HoshiDicts catalog is unavailable");
+          error.code = "CATALOG_NOT_CONFIGURED";
+          throw error;
+        }
+        const snapshot = await dictionaryBackendManager.switchBackend(
+          backendId,
+          context,
+        );
+        dictionaryProfileSettings = settings;
+        await dictionaryBackendManager.updateProfile(settings);
+        ipcRenderer.send("dictionary-backend-switch-result", {
+          requestId,
+          ok: true,
+          backendId,
+          snapshot,
+        });
+      } catch (error) {
+        ipcRenderer.send("dictionary-backend-switch-result", {
+          requestId,
+          ok: false,
+          errorCode:
+            typeof error?.code === "string"
+              ? error.code
+              : "BACKEND_SWITCH_FAILED",
+          message:
+            typeof error?.message === "string"
+              ? error.message
+              : "Dictionary backend transition failed",
+        });
+      }
+    },
+  );
+  ipcRenderer.on("settings-updated", (_event, settings = {}) => {
+    const profileKeys = [
+      "hoshiScanLength",
+      "hoshiMaxResults",
+      "hoshiRecursiveLookupEnabled",
+    ];
+    if (!profileKeys.some((key) =>
+      Object.prototype.hasOwnProperty.call(settings, key)
+    )) {
+      return;
+    }
+    dictionaryProfileSettings = {
+      ...dictionaryProfileSettings,
+      ...settings,
+    };
+    void dictionaryBackendManager
+      .updateProfile(dictionaryProfileSettings)
+      .catch((error) => {
+        console.warn(
+          "[DictionaryPopup] Failed to apply HoshiDicts display settings:",
+          error,
+        );
+      });
+  });
   window.gsmDictionaryPopupController = dictionaryPopupController;
   window.gsmDictionaryBackendManager = dictionaryBackendManager;
   void dictionaryBackendManager.start("yomitan").catch((error) => {
     console.error("[DictionaryPopup] Failed to start the default Yomitan backend:", error);
+  });
+  window.addEventListener("beforeunload", () => {
+    hoshiDictionaryClient?.forceKill?.();
   });
 
   // Try to load OverlayUtils if available (since this is an Electron renderer process)

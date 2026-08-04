@@ -102,6 +102,8 @@ class HoshiDictsPopup {
       1,
       Math.min(32, Number(options.maxHistory) || 16),
     );
+    this.recursiveLookupEnabled =
+      options.recursiveLookupEnabled !== false;
     this.root = options.root || null;
     this.content = null;
     this.dictionaryStyleElement = null;
@@ -121,6 +123,13 @@ class HoshiDictsPopup {
   setLookupDispatcher(dispatcher) {
     this.requestLookup =
       typeof dispatcher === "function" ? dispatcher : null;
+  }
+
+  setRecursiveLookupEnabled(enabled) {
+    this.recursiveLookupEnabled = enabled !== false;
+    if (!this.recursiveLookupEnabled) {
+      this.history = [];
+    }
   }
 
   setMediaResolver(resolver) {
@@ -145,6 +154,9 @@ class HoshiDictsPopup {
     this.root.style.display = "none";
     this.root.style.boxSizing = "border-box";
     this.root.addEventListener("dblclick", (event) => {
+      if (!this.recursiveLookupEnabled) {
+        return;
+      }
       const target = event.target;
       if (!target?.closest?.(".hoshidicts-glossary-content")) {
         return;
@@ -525,7 +537,11 @@ class HoshiDictsPopup {
   }
 
   async requestRecursiveLookup(text) {
-    if (!this.model || typeof this.requestLookup !== "function") {
+    if (
+      !this.recursiveLookupEnabled ||
+      !this.model ||
+      typeof this.requestLookup !== "function"
+    ) {
       return { status: "unsupported" };
     }
     const normalized = String(text || "").trim().slice(0, MAX_RECURSIVE_TEXT);
@@ -669,6 +685,7 @@ class HoshiDictsPopup {
       entryId: entry?.id || null,
       selectedActionId: this.selectedActionId,
       historyDepth: this.history.length,
+      recursiveLookupEnabled: this.recursiveLookupEnabled,
       sourceSentence: this.sourceSentence,
       anchor: this.anchor ? { ...this.anchor } : null,
     };

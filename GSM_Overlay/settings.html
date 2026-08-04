@@ -1118,6 +1118,268 @@
       padding: 4px 2px;
     }
 
+    .dictionary-backend-selector {
+      border: 0;
+      margin: 0 0 14px;
+      padding: 0;
+    }
+
+    .dictionary-backend-selector legend,
+    .hoshi-display-settings legend {
+      color: #d8d8de;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 7px;
+    }
+
+    .dictionary-backend-options {
+      display: grid;
+      gap: 6px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      max-width: 520px;
+    }
+
+    .dictionary-backend-option {
+      display: block;
+      margin: 0;
+      position: relative;
+    }
+
+    .dictionary-backend-option input {
+      opacity: 0;
+      pointer-events: none;
+      position: absolute;
+    }
+
+    .dictionary-backend-option span {
+      align-items: center;
+      background: #24252b;
+      border: 1px solid #4b4d56;
+      border-radius: 6px;
+      color: #d9dae0;
+      cursor: pointer;
+      display: flex;
+      font-size: 13px;
+      font-weight: 600;
+      justify-content: space-between;
+      min-height: 38px;
+      padding: 8px 11px;
+    }
+
+    .dictionary-backend-option input:checked + span {
+      background: #20362b;
+      border-color: #57a876;
+      color: #f2fff7;
+    }
+
+    .dictionary-backend-option input:focus-visible + span {
+      outline: 2px solid #9bc6ff;
+      outline-offset: 2px;
+    }
+
+    .dictionary-backend-option input:disabled + span {
+      cursor: not-allowed;
+      opacity: 0.48;
+    }
+
+    .dictionary-default-label {
+      color: #9fa3ad;
+      font-size: 10px;
+      font-weight: 500;
+    }
+
+    .dictionary-switch-status,
+    .hoshi-host-status {
+      color: #b8bac2;
+      font-size: 12px;
+      line-height: 1.45;
+      min-height: 18px;
+    }
+
+    .dictionary-switch-status.is-error,
+    .hoshi-host-status.is-error {
+      color: #ff9e9e;
+    }
+
+    .dictionary-link-row {
+      align-items: center;
+      display: flex;
+      gap: 8px;
+      justify-content: flex-start;
+      margin-top: 10px;
+    }
+
+    .hoshi-settings-panel {
+      border-top: 1px solid #42444c;
+      margin-top: 14px;
+      padding-top: 14px;
+    }
+
+    .hoshi-settings-panel[hidden],
+    .hoshi-operation-error[hidden],
+    .hoshi-empty-state[hidden] {
+      display: none;
+    }
+
+    .hoshi-summary-row,
+    .hoshi-import-row {
+      align-items: center;
+      display: flex;
+      gap: 10px;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    .hoshi-storage-usage {
+      color: #a9acb5;
+      font-size: 11px;
+      text-align: right;
+    }
+
+    .hoshi-operation-error {
+      background: #351f25;
+      border: 1px solid #71404b;
+      border-radius: 4px;
+      color: #ffc4cc;
+      font-size: 12px;
+      margin: 10px 0;
+      padding: 9px 10px;
+    }
+
+    .hoshi-operation-error details {
+      margin-top: 5px;
+    }
+
+    .hoshi-import-list,
+    .hoshi-dictionary-list {
+      border-top: 1px solid #42444c;
+      margin-top: 10px;
+    }
+
+    .hoshi-import-item,
+    .hoshi-dictionary-row {
+      align-items: center;
+      border-bottom: 1px solid #3c3e46;
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+      padding: 10px 0;
+    }
+
+    .hoshi-import-item {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .hoshi-dictionary-row {
+      grid-template-columns: auto minmax(0, 1fr) auto;
+    }
+
+    .hoshi-dictionary-toggle {
+      align-items: center;
+      display: flex;
+      margin: 0;
+    }
+
+    .hoshi-dictionary-main {
+      min-width: 0;
+    }
+
+    .hoshi-dictionary-title {
+      color: #f0f1f4;
+      font-size: 13px;
+      font-weight: 600;
+      overflow-wrap: anywhere;
+    }
+
+    .hoshi-dictionary-meta,
+    .hoshi-import-meta {
+      color: #a9acb5;
+      font-size: 11px;
+      line-height: 1.45;
+      margin-top: 3px;
+    }
+
+    .hoshi-type-badges {
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+
+    .hoshi-type-badge {
+      background: #313842;
+      border: 1px solid #536172;
+      border-radius: 4px;
+      color: #c9d8e9;
+      font-size: 9px;
+      padding: 1px 4px;
+      text-transform: uppercase;
+    }
+
+    .hoshi-dictionary-actions {
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 4px;
+    }
+
+    .hoshi-icon-button {
+      align-items: center;
+      background: #292b31;
+      border: 1px solid #4b4d56;
+      border-radius: 4px;
+      color: #e0e1e5;
+      display: inline-flex;
+      font-size: 15px;
+      height: 30px;
+      justify-content: center;
+      line-height: 1;
+      padding: 0;
+      width: 30px;
+    }
+
+    .hoshi-icon-button:hover:not(:disabled) {
+      background: #373a42;
+      border-color: #70737e;
+    }
+
+    .hoshi-icon-button:disabled {
+      opacity: 0.4;
+    }
+
+    .hoshi-empty-state {
+      color: #b8bac2;
+      font-size: 12px;
+      padding: 14px 0 4px;
+    }
+
+    .hoshi-import-progress {
+      display: block;
+      height: 7px;
+      margin-top: 6px;
+      width: min(360px, 100%);
+    }
+
+    .hoshi-display-settings {
+      border: 0;
+      border-top: 1px solid #42444c;
+      display: grid;
+      gap: 0;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin: 14px 0 0;
+      padding: 10px 0 0;
+    }
+
+    .hoshi-display-settings legend {
+      padding-right: 5px;
+    }
+
+    .hoshi-global-note {
+      color: #dfbd7e;
+      font-size: 11px;
+      margin-top: 8px;
+    }
+
     /* Injected one-line description under settings (mirrors .hotkey-info). */
     .setting-desc {
       font-size: 11px;
@@ -1325,6 +1587,30 @@
     @media (max-width: 1024px) {
       .settings-grid {
         grid-template-columns: 1fr;
+      }
+
+      .dictionary-backend-options,
+      .hoshi-display-settings {
+        grid-template-columns: 1fr;
+      }
+
+      .hoshi-summary-row,
+      .hoshi-import-row {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .hoshi-storage-usage {
+        text-align: left;
+      }
+
+      .hoshi-dictionary-row {
+        grid-template-columns: auto minmax(0, 1fr);
+      }
+
+      .hoshi-dictionary-actions {
+        grid-column: 1 / -1;
+        justify-content: flex-end;
       }
     }
 
@@ -1868,6 +2154,77 @@
       </label>
     </div>
 
+    <div class="setting-group full-width" data-tab="reading" id="dictionarySettingsGroup">
+      <h4>Dictionary</h4>
+      <fieldset class="dictionary-backend-selector">
+        <legend>Popup backend</legend>
+        <div class="dictionary-backend-options">
+          <label class="dictionary-backend-option">
+            <input type="radio" name="dictionaryBackend" id="dictionaryBackendYomitan" value="yomitan" checked />
+            <span>Yomitan <small class="dictionary-default-label">Default</small></span>
+          </label>
+          <label class="dictionary-backend-option">
+            <input type="radio" name="dictionaryBackend" id="dictionaryBackendHoshiDicts" value="hoshidicts" />
+            <span>HoshiDicts</span>
+          </label>
+        </div>
+      </fieldset>
+      <div id="dictionarySwitchStatus" class="dictionary-switch-status" role="status" aria-live="polite"></div>
+      <div class="dictionary-link-row">
+        <button type="button" id="openYomitanSettingsDictionary" class="guide-button">Open Yomitan Settings</button>
+        <button type="button" id="resetDictionarySettings" class="guide-button">Reset dictionary settings</button>
+      </div>
+
+      <section id="hoshiDictionaryControls" class="hoshi-settings-panel" aria-label="HoshiDicts dictionaries" hidden>
+        <div class="hoshi-summary-row">
+          <div id="hoshiHostStatus" class="hoshi-host-status" role="status">Checking native host...</div>
+          <div id="hoshiStorageUsage" class="hoshi-storage-usage">0 dictionaries | 0 B</div>
+        </div>
+        <div id="hoshiOperationError" class="hoshi-operation-error" role="alert" hidden>
+          <div id="hoshiOperationErrorMessage"></div>
+          <details>
+            <summary>Diagnostic code</summary>
+            <code id="hoshiOperationErrorCode"></code>
+          </details>
+        </div>
+        <label class="hoshi-import-row">
+          <span class="label-text">
+            Import dictionary ZIP
+            <div class="hotkey-info">Yomitan-format dictionaries are indexed locally.</div>
+          </span>
+          <button type="button" id="hoshiImportDictionary" class="guide-button">Import ZIP</button>
+        </label>
+        <div id="hoshiImportList" class="hoshi-import-list" aria-live="polite"></div>
+        <div id="hoshiEmptyState" class="hoshi-empty-state">
+          No term dictionaries are enabled for this profile.
+        </div>
+        <div id="hoshiDictionaryList" class="hoshi-dictionary-list" aria-label="Installed HoshiDicts dictionaries"></div>
+        <div class="hoshi-global-note">
+          Imported files are shared globally. Removing one affects every overlay profile.
+        </div>
+
+        <fieldset class="hoshi-display-settings">
+          <legend>Lookup and import</legend>
+          <label>
+            <span class="label-text">Scan length</span>
+            <input type="number" id="hoshiScanLength" value="16" min="1" max="64" step="1" />
+          </label>
+          <label>
+            <span class="label-text">Maximum results</span>
+            <input type="number" id="hoshiMaxResults" value="16" min="1" max="64" step="1" />
+          </label>
+          <label>
+            <span class="label-text">Recursive lookup</span>
+            <input type="checkbox" id="hoshiRecursiveLookupEnabled" checked />
+          </label>
+          <label>
+            <span class="label-text">Low-memory import</span>
+            <input type="checkbox" id="hoshiLowRamImport" checked />
+          </label>
+        </fieldset>
+      </section>
+    </div>
+
     <div class="setting-group" data-tab="reading">
       <h4>Furigana Tokenizer</h4>
       <div class="shared-setting-note">
@@ -2327,7 +2684,7 @@
       </label>
       <label>
         <span class="label-text">
-          Mine Button
+          Mine Selected Dictionary Entry
           <div class="hotkey-info">Press to mine the current dictionary entry</div>
         </span>
         <input type="text" id="gamepadMineButton" class="gamepad-binding-input" value="A" placeholder="Click and press a controller combo" readonly />
@@ -2723,7 +3080,7 @@
       gamepadManualOverlayScanButton: { settingKey: "gamepadManualOverlayScanButton", label: "Manual Overlay Scan Button", fallbackValue: -1 },
       gamepadPauseToggleButton: { settingKey: "gamepadPauseToggleButton", label: "Pause Button", fallbackValue: -1 },
       gamepadTokenModeToggleButton: { settingKey: "gamepadTokenModeToggleButton", label: "Token Mode Toggle Button", fallbackValue: 3 },
-      gamepadMineButton: { settingKey: "gamepadMineButton", label: "Mine Button", fallbackValue: 0 },
+      gamepadMineButton: { settingKey: "gamepadMineButton", label: "Mine Selected Dictionary Entry", fallbackValue: 0 },
       gamepadNextEntryButton: { settingKey: "gamepadNextEntryButton", label: "Next Dictionary Entry Button", fallbackValue: 7 },
       gamepadPrevEntryButton: { settingKey: "gamepadPrevEntryButton", label: "Previous Dictionary Entry Button", fallbackValue: 6 },
     };
@@ -2747,7 +3104,7 @@
       keyboardNavigateDown: { settingKey: "keyboardNavigateDown", label: "Keyboard Navigate Down", fallbackValue: "ArrowDown" },
       keyboardNavigateLeft: { settingKey: "keyboardNavigateLeft", label: "Keyboard Navigate Left", fallbackValue: "ArrowLeft" },
       keyboardNavigateRight: { settingKey: "keyboardNavigateRight", label: "Keyboard Navigate Right", fallbackValue: "ArrowRight" },
-      keyboardMineButton: { settingKey: "keyboardMineButton", label: "Keyboard Mine Button", fallbackValue: null },
+      keyboardMineButton: { settingKey: "keyboardMineButton", label: "Mine Selected Dictionary Entry", fallbackValue: null },
     };
 
     function updateSettingsTabVisibility(tabName) {
@@ -3006,6 +3363,7 @@
     const VALID_GAMEPAD_TOKENIZER_BACKENDS = new Set(["mecab", "sudachi", "yomitan-bridge", "yomitan-api", "jiten-api", "jpdb-api"]);
     const VALID_LOCAL_TOKENIZER_FALLBACK_BACKENDS = new Set(["mecab", "sudachi"]);
     const VALID_SUDACHI_DICTIONARIES = new Set(["small", "core", "full"]);
+    const VALID_DICTIONARY_BACKENDS = new Set(["yomitan", "hoshidicts"]);
     const VALID_LIVE_STATS_DISPLAY_MODES = new Set(["always", "new-line"]);
     const VALID_LIVE_STATS_LAYOUTS = new Set(["stacked", "one-line"]);
     const VALID_LIVE_STATS_POSITION_MODES = new Set(["active-window", "overlay"]);
@@ -3025,6 +3383,31 @@
       keyboardAvailable: true,
       keyboardError: null,
     };
+    let hoshiSettingsState = {
+      settings: {
+        dictionaryBackend: "yomitan",
+        hoshiDictionaryOrder: [],
+        hoshiDictionaryEnabled: {},
+        hoshiScanLength: 16,
+        hoshiMaxResults: 16,
+        hoshiRecursiveLookupEnabled: true,
+        hoshiLowRamImport: true,
+      },
+      host: {
+        available: null,
+        status: "checking",
+        errorCode: null,
+      },
+      dictionaries: [],
+      imports: [],
+      reindexRequired: [],
+      storage: {
+        activeBytes: 0,
+        dictionaryCount: 0,
+      },
+      operationError: null,
+    };
+    let hoshiOperationInFlight = false;
 
     function toArray(value) {
       return Array.isArray(value) ? value : [value];
@@ -3053,6 +3436,11 @@
     function normalizeTokenizerBackendValue(value) {
       const normalized = String(value || "").trim().toLowerCase();
       return VALID_GAMEPAD_TOKENIZER_BACKENDS.has(normalized) ? normalized : "sudachi";
+    }
+
+    function normalizeDictionaryBackendValue(value) {
+      const normalized = String(value || "").trim().toLowerCase();
+      return VALID_DICTIONARY_BACKENDS.has(normalized) ? normalized : "yomitan";
     }
 
     function normalizeSudachiDictionaryValue(value) {
@@ -3352,6 +3740,499 @@
       return applyBindingValue(binding, value, { ...options, source: "preload" });
     }
 
+    function formatHoshiBytes(value) {
+      const bytes = Number(value);
+      if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+      const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+      const index = Math.min(
+        units.length - 1,
+        Math.floor(Math.log(bytes) / Math.log(1024))
+      );
+      const scaled = bytes / (1024 ** index);
+      return `${scaled >= 10 || index === 0 ? scaled.toFixed(0) : scaled.toFixed(1)} ${units[index]}`;
+    }
+
+    function normalizeHoshiState(state = {}) {
+      const rawSettings = state.settings && typeof state.settings === "object"
+        ? state.settings
+        : {};
+      const rawEnabled = rawSettings.hoshiDictionaryEnabled &&
+        typeof rawSettings.hoshiDictionaryEnabled === "object" &&
+        !Array.isArray(rawSettings.hoshiDictionaryEnabled)
+        ? rawSettings.hoshiDictionaryEnabled
+        : {};
+      return {
+        ...hoshiSettingsState,
+        ...state,
+        settings: {
+          ...hoshiSettingsState.settings,
+          ...rawSettings,
+          dictionaryBackend: normalizeDictionaryBackendValue(rawSettings.dictionaryBackend),
+          hoshiDictionaryOrder: Array.isArray(rawSettings.hoshiDictionaryOrder)
+            ? [...new Set(rawSettings.hoshiDictionaryOrder.filter((id) => typeof id === "string" && id))]
+            : [],
+          hoshiDictionaryEnabled: { ...rawEnabled },
+        },
+        host: {
+          ...hoshiSettingsState.host,
+          ...(state.host || {}),
+        },
+        dictionaries: Array.isArray(state.dictionaries) ? state.dictionaries : [],
+        imports: Array.isArray(state.imports) ? state.imports : [],
+        reindexRequired: Array.isArray(state.reindexRequired) ? state.reindexRequired : [],
+        storage: {
+          activeBytes: Number(state.storage?.activeBytes) || 0,
+          dictionaryCount: Number(state.storage?.dictionaryCount) || 0,
+        },
+        operationError: state.operationError || null,
+      };
+    }
+
+    function setHoshiOperationError(error) {
+      hoshiSettingsState = {
+        ...hoshiSettingsState,
+        operationError: error
+          ? {
+              code: String(error.code || "HOSHIDICTS_ERROR"),
+              message: String(error.message || "HoshiDicts operation failed"),
+            }
+          : null,
+      };
+      renderHoshiSettings();
+    }
+
+    function createHoshiIconButton(symbol, label, onClick) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "hoshi-icon-button";
+      button.textContent = symbol;
+      button.title = label;
+      button.setAttribute("aria-label", label);
+      button.addEventListener("click", onClick);
+      return button;
+    }
+
+    function orderedHoshiDictionaries() {
+      const dictionaries = hoshiSettingsState.dictionaries;
+      const byId = new Map(dictionaries.map((dictionary) => [dictionary.id, dictionary]));
+      const ordered = [];
+      const seen = new Set();
+      for (const id of hoshiSettingsState.settings.hoshiDictionaryOrder) {
+        if (byId.has(id) && !seen.has(id)) {
+          seen.add(id);
+          ordered.push(byId.get(id));
+        }
+      }
+      for (const dictionary of dictionaries) {
+        if (!seen.has(dictionary.id)) {
+          seen.add(dictionary.id);
+          ordered.push(dictionary);
+        }
+      }
+      return ordered;
+    }
+
+    async function refreshHoshiSettingsState() {
+      try {
+        const state = await ipcRenderer.invoke("hoshidicts-get-state");
+        if (state && typeof state === "object") {
+          applyHoshiSettingsState(state);
+        }
+      } catch (error) {
+        setHoshiOperationError({
+          code: "STATE_UNAVAILABLE",
+          message: error?.message || "Unable to load HoshiDicts state",
+        });
+      }
+    }
+
+    async function updateHoshiProfileSettings(patch) {
+      hoshiOperationInFlight = true;
+      renderHoshiSettings();
+      try {
+        const result = await ipcRenderer.invoke(
+          "hoshidicts-update-profile-settings",
+          patch,
+        );
+        if (!result?.ok) {
+          if (result?.settings) {
+            setSettingValueWithoutPersist(
+              "dictionaryBackend",
+              result.settings.dictionaryBackend,
+            );
+          }
+          setHoshiOperationError(
+            result?.error || {
+              code: "PROFILE_UPDATE_FAILED",
+              message: "Dictionary settings were not changed",
+            },
+          );
+          return false;
+        }
+        if (result.state) {
+          applyHoshiSettingsState(result.state);
+        } else {
+          await refreshHoshiSettingsState();
+        }
+        return true;
+      } catch (error) {
+        setHoshiOperationError({
+          code: "PROFILE_UPDATE_FAILED",
+          message: error?.message || "Dictionary settings were not changed",
+        });
+        return false;
+      } finally {
+        hoshiOperationInFlight = false;
+        renderHoshiSettings();
+      }
+    }
+
+    async function persistDictionaryBackendSelection(value) {
+      const requestedBackend = normalizeDictionaryBackendValue(value);
+      hoshiOperationInFlight = true;
+      setHoshiOperationError(null);
+      renderHoshiSettings();
+      try {
+        const result = await ipcRenderer.invoke("hoshidicts-select-backend", {
+          backendId: requestedBackend,
+        });
+        if (!result?.ok) {
+          const rollbackBackend = normalizeDictionaryBackendValue(
+            result?.backend || hoshiSettingsState.settings.dictionaryBackend,
+          );
+          setSettingValueWithoutPersist("dictionaryBackend", rollbackBackend);
+          setHoshiOperationError(
+            result?.error || {
+              code: "BACKEND_SWITCH_FAILED",
+              message: "The previous dictionary backend remains active",
+            },
+          );
+          return;
+        }
+        if (result.state) {
+          applyHoshiSettingsState(result.state);
+        } else {
+          hoshiSettingsState.settings.dictionaryBackend = result.backend;
+          await refreshHoshiSettingsState();
+        }
+      } catch (error) {
+        setSettingValueWithoutPersist(
+          "dictionaryBackend",
+          hoshiSettingsState.settings.dictionaryBackend,
+        );
+        setHoshiOperationError({
+          code: "BACKEND_SWITCH_FAILED",
+          message: error?.message || "The previous dictionary backend remains active",
+        });
+      } finally {
+        hoshiOperationInFlight = false;
+        renderHoshiSettings();
+      }
+    }
+
+    async function runHoshiAction(channel, payload = {}) {
+      hoshiOperationInFlight = true;
+      setHoshiOperationError(null);
+      renderHoshiSettings();
+      try {
+        const result = await ipcRenderer.invoke(channel, payload);
+        if (!result?.ok && !result?.cancelled) {
+          setHoshiOperationError(
+            result?.error || {
+              code: "HOSHIDICTS_OPERATION_FAILED",
+              message: "HoshiDicts operation failed",
+            },
+          );
+          return false;
+        }
+        await refreshHoshiSettingsState();
+        return result?.ok === true;
+      } catch (error) {
+        setHoshiOperationError({
+          code: "HOSHIDICTS_OPERATION_FAILED",
+          message: error?.message || "HoshiDicts operation failed",
+        });
+        return false;
+      } finally {
+        hoshiOperationInFlight = false;
+        renderHoshiSettings();
+      }
+    }
+
+    function moveHoshiDictionary(dictionaryId, direction) {
+      const ordered = orderedHoshiDictionaries().map((dictionary) => dictionary.id);
+      const index = ordered.indexOf(dictionaryId);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= ordered.length) {
+        return;
+      }
+      [ordered[index], ordered[nextIndex]] = [ordered[nextIndex], ordered[index]];
+      const installed = new Set(ordered);
+      const unavailableIds = hoshiSettingsState.settings.hoshiDictionaryOrder
+        .filter((id) => !installed.has(id));
+      void updateHoshiProfileSettings({
+        hoshiDictionaryOrder: [...ordered, ...unavailableIds],
+        hoshiDictionaryEnabled: hoshiSettingsState.settings.hoshiDictionaryEnabled,
+      });
+    }
+
+    function renderHoshiImports() {
+      const list = document.getElementById("hoshiImportList");
+      if (!list) return;
+      list.replaceChildren();
+      for (const entry of hoshiSettingsState.imports) {
+        const row = document.createElement("div");
+        row.className = "hoshi-import-item";
+
+        const content = document.createElement("div");
+        const title = document.createElement("div");
+        title.className = "hoshi-dictionary-title";
+        title.textContent = entry.status === "failed"
+          ? "Dictionary import failed"
+          : entry.status === "cancelled"
+            ? "Dictionary import cancelled"
+            : "Dictionary import";
+        const meta = document.createElement("div");
+        meta.className = "hoshi-import-meta";
+        meta.textContent = entry.code
+          ? `${entry.phase || "failed"} | ${entry.code}`
+          : entry.phase || entry.status || "pending";
+        content.append(title, meta);
+
+        if (
+          Number.isFinite(Number(entry.completed)) &&
+          Number.isFinite(Number(entry.total)) &&
+          Number(entry.total) > 0
+        ) {
+          const progress = document.createElement("progress");
+          progress.className = "hoshi-import-progress";
+          progress.max = Number(entry.total);
+          progress.value = Number(entry.completed);
+          progress.setAttribute(
+            "aria-label",
+            `Dictionary import ${entry.phase || "progress"}`,
+          );
+          content.appendChild(progress);
+        }
+        row.appendChild(content);
+
+        if (
+          entry.status === "running" &&
+          !["complete", "failed", "cancelled"].includes(entry.phase)
+        ) {
+          const cancel = createHoshiIconButton("×", "Cancel import", () => {
+            void runHoshiAction("hoshidicts-cancel-import", {
+              jobId: entry.jobId,
+            });
+          });
+          row.appendChild(cancel);
+        }
+        list.appendChild(row);
+      }
+    }
+
+    function renderHoshiDictionaries() {
+      const list = document.getElementById("hoshiDictionaryList");
+      if (!list) return;
+      const dictionaries = orderedHoshiDictionaries();
+      const reindexRequired = new Set(hoshiSettingsState.reindexRequired);
+      list.replaceChildren();
+
+      dictionaries.forEach((dictionary, index) => {
+        const row = document.createElement("div");
+        row.className = "hoshi-dictionary-row";
+        row.dataset.dictionaryId = dictionary.id;
+
+        const toggleLabel = document.createElement("label");
+        toggleLabel.className = "hoshi-dictionary-toggle";
+        const toggle = document.createElement("input");
+        toggle.type = "checkbox";
+        toggle.checked =
+          hoshiSettingsState.settings.hoshiDictionaryEnabled[dictionary.id] === true;
+        toggle.disabled = hoshiOperationInFlight || reindexRequired.has(dictionary.id);
+        toggle.setAttribute(
+          "aria-label",
+          `${toggle.checked ? "Disable" : "Enable"} ${dictionary.displayTitle || dictionary.title}`,
+        );
+        toggle.addEventListener("change", () => {
+          void updateHoshiProfileSettings({
+            hoshiDictionaryOrder: dictionaries.map((entry) => entry.id),
+            hoshiDictionaryEnabled: {
+              ...hoshiSettingsState.settings.hoshiDictionaryEnabled,
+              [dictionary.id]: toggle.checked,
+            },
+          });
+        });
+        toggleLabel.appendChild(toggle);
+
+        const main = document.createElement("div");
+        main.className = "hoshi-dictionary-main";
+        const title = document.createElement("div");
+        title.className = "hoshi-dictionary-title";
+        title.textContent = dictionary.displayTitle || dictionary.title || dictionary.id;
+        const badges = document.createElement("span");
+        badges.className = "hoshi-type-badges";
+        for (const type of dictionary.types || []) {
+          const badge = document.createElement("span");
+          badge.className = "hoshi-type-badge";
+          badge.textContent = type;
+          badges.appendChild(badge);
+        }
+        title.appendChild(badges);
+        const meta = document.createElement("div");
+        meta.className = "hoshi-dictionary-meta";
+        const health = reindexRequired.has(dictionary.id)
+          ? "Reimport required"
+          : dictionary.health || "ready";
+        meta.textContent = `${health} | ${formatHoshiBytes(dictionary.sizeBytes)}`;
+        main.append(title, meta);
+
+        const actions = document.createElement("div");
+        actions.className = "hoshi-dictionary-actions";
+        const moveUp = createHoshiIconButton("↑", "Move dictionary up", () => {
+          moveHoshiDictionary(dictionary.id, -1);
+        });
+        moveUp.disabled = hoshiOperationInFlight || index === 0;
+        const moveDown = createHoshiIconButton("↓", "Move dictionary down", () => {
+          moveHoshiDictionary(dictionary.id, 1);
+        });
+        moveDown.disabled =
+          hoshiOperationInFlight || index === dictionaries.length - 1;
+        const reimport = createHoshiIconButton(
+          "↻",
+          reindexRequired.has(dictionary.id)
+            ? "Repair by reimporting dictionary"
+            : "Reimport dictionary",
+          () => {
+            void runHoshiAction("hoshidicts-reimport", {
+              dictionaryId: dictionary.id,
+            });
+          },
+        );
+        reimport.disabled = hoshiOperationInFlight;
+        const remove = createHoshiIconButton("×", "Remove dictionary globally", () => {
+          void runHoshiAction("hoshidicts-remove", {
+            dictionaryId: dictionary.id,
+          });
+        });
+        remove.disabled = hoshiOperationInFlight;
+        actions.append(moveUp, moveDown, reimport, remove);
+
+        row.append(toggleLabel, main, actions);
+        list.appendChild(row);
+      });
+    }
+
+    function renderHoshiSettings() {
+      const backend = normalizeDictionaryBackendValue(
+        settingBindingState.get("dictionaryBackend") ||
+          hoshiSettingsState.settings.dictionaryBackend,
+      );
+      const panel = document.getElementById("hoshiDictionaryControls");
+      if (panel) {
+        panel.hidden = backend !== "hoshidicts";
+      }
+
+      const host = hoshiSettingsState.host;
+      const hostUnavailable =
+        host.available === false ||
+        host.status === "error" ||
+        host.status === "unavailable";
+      const hoshiRadio = document.getElementById("dictionaryBackendHoshiDicts");
+      const yomitanRadio = document.getElementById("dictionaryBackendYomitan");
+      if (hoshiRadio) {
+        hoshiRadio.disabled =
+          hoshiOperationInFlight || (hostUnavailable && backend !== "hoshidicts");
+      }
+      if (yomitanRadio) {
+        yomitanRadio.disabled = hoshiOperationInFlight;
+      }
+
+      const switchStatus = document.getElementById("dictionarySwitchStatus");
+      if (switchStatus) {
+        switchStatus.classList.toggle(
+          "is-error",
+          Boolean(hoshiSettingsState.operationError),
+        );
+        switchStatus.textContent = hoshiOperationInFlight
+          ? "Applying dictionary changes..."
+          : hoshiSettingsState.operationError
+            ? "The previous dictionary backend remains active."
+            : backend === "hoshidicts"
+              ? "HoshiDicts is selected for this profile."
+              : "Yomitan is selected.";
+      }
+
+      const hostStatus = document.getElementById("hoshiHostStatus");
+      if (hostStatus) {
+        hostStatus.classList.toggle("is-error", hostUnavailable);
+        hostStatus.textContent = host.available === null
+          ? "Checking native host..."
+          : hostUnavailable
+            ? `Native host unavailable (${host.errorCode || "HOST_UNAVAILABLE"}). Repair or reinstall the overlay package.`
+            : host.status === "ready"
+              ? `Native host ${host.hostVersion || ""} ready`.trim()
+              : "Native host installed; stopped while not in use.";
+      }
+
+      const storage = document.getElementById("hoshiStorageUsage");
+      if (storage) {
+        const count = hoshiSettingsState.storage.dictionaryCount;
+        storage.textContent =
+          `${count} ${count === 1 ? "dictionary" : "dictionaries"} | ` +
+          formatHoshiBytes(hoshiSettingsState.storage.activeBytes);
+      }
+
+      const errorBox = document.getElementById("hoshiOperationError");
+      const errorMessage = document.getElementById("hoshiOperationErrorMessage");
+      const errorCode = document.getElementById("hoshiOperationErrorCode");
+      if (errorBox) {
+        errorBox.hidden = !hoshiSettingsState.operationError;
+      }
+      if (errorMessage) {
+        errorMessage.textContent = hoshiSettingsState.operationError?.message || "";
+      }
+      if (errorCode) {
+        errorCode.textContent = hoshiSettingsState.operationError?.code || "";
+      }
+
+      const importButton = document.getElementById("hoshiImportDictionary");
+      if (importButton) {
+        importButton.disabled = hoshiOperationInFlight || hostUnavailable;
+      }
+
+      renderHoshiImports();
+      renderHoshiDictionaries();
+
+      const reindexRequired = new Set(hoshiSettingsState.reindexRequired);
+      const hasEnabledTermDictionary = hoshiSettingsState.dictionaries.some(
+        (dictionary) =>
+          !reindexRequired.has(dictionary.id) &&
+          dictionary.types?.includes("term") &&
+          hoshiSettingsState.settings.hoshiDictionaryEnabled[dictionary.id] === true,
+      );
+      const emptyState = document.getElementById("hoshiEmptyState");
+      if (emptyState) {
+        emptyState.hidden = hasEnabledTermDictionary;
+      }
+    }
+
+    function applyHoshiSettingsState(state) {
+      hoshiSettingsState = normalizeHoshiState(state);
+      for (const key of [
+        "dictionaryBackend",
+        "hoshiScanLength",
+        "hoshiMaxResults",
+        "hoshiRecursiveLookupEnabled",
+        "hoshiLowRamImport",
+      ]) {
+        if (settingBindingMap.has(key)) {
+          setSettingValueWithoutPersist(key, hoshiSettingsState.settings[key]);
+        }
+      }
+      renderHoshiSettings();
+    }
+
     async function resetSettingToDefault(settingKey) {
       const binding = settingBindingMap.get(settingKey);
       if (!binding) return;
@@ -3601,6 +4482,45 @@
     // Latest GSM-owned monitor index; used to restore selection once the dropdown is populated.
     let desiredMonitorToCapture = 0;
     const SETTING_BINDING_DEFINITIONS = [
+      {
+        key: "dictionaryBackend",
+        selectors: [
+          "#dictionaryBackendYomitan",
+          "#dictionaryBackendHoshiDicts",
+        ],
+        event: "change",
+        addResetButtons: false,
+        shouldHandleEvent: (control) => control.checked === true,
+        read: () =>
+          document.querySelector('input[name="dictionaryBackend"]:checked')?.value ||
+          "yomitan",
+        write: (control, value) => {
+          control.checked =
+            control.value === normalizeDictionaryBackendValue(value);
+        },
+        normalize: normalizeDictionaryBackendValue,
+        afterApply: () => renderHoshiSettings(),
+        persist: (value) => persistDictionaryBackendSelection(value),
+      },
+      createNumberBinding("hoshiScanLength", "#hoshiScanLength", {
+        fallback: 16,
+        min: 1,
+        max: 64,
+        integer: true,
+        blurEvent: true,
+      }),
+      createNumberBinding("hoshiMaxResults", "#hoshiMaxResults", {
+        fallback: 16,
+        min: 1,
+        max: 64,
+        integer: true,
+        blurEvent: true,
+      }),
+      createCheckboxBinding(
+        "hoshiRecursiveLookupEnabled",
+        "#hoshiRecursiveLookupEnabled",
+      ),
+      createCheckboxBinding("hoshiLowRamImport", "#hoshiLowRamImport"),
       createCheckboxBinding("showReadyIndicator", "#showReadyIndicator"),
       createCheckboxBinding("showTextIndicators", "#showTextIndicators", {
         afterApply: () => updateFadeTextIndicatorsState(),
@@ -3967,7 +4887,9 @@
     function registerBindingListener(binding, control) {
       if (!control) return;
 
-      addResetButtonToBindingControl(binding, control);
+      if (binding.addResetButtons !== false) {
+        addResetButtonToBindingControl(binding, control);
+      }
 
       if (binding.kind === "hotkey") {
         const hotkeyOptions = HOTKEY_BINDING_OPTIONS[binding.key] || {};
@@ -3993,6 +4915,12 @@
 
       const eventName = binding.event || ((control.type === "checkbox" || control.tagName === "SELECT") ? "change" : "input");
       control.addEventListener(eventName, () => {
+        if (
+          typeof binding.shouldHandleEvent === "function" &&
+          !binding.shouldHandleEvent(control)
+        ) {
+          return;
+        }
         const nextValue = typeof binding.read === "function"
           ? binding.read(control)
           : defaultReadBindingValue(control);
@@ -4087,6 +5015,26 @@
 
     document.getElementById("openYomitanSettings").addEventListener("click", () => {
       ipcRenderer.send("open-yomitan-settings");
+    });
+
+    document.getElementById("openYomitanSettingsDictionary")?.addEventListener("click", () => {
+      ipcRenderer.send("open-yomitan-settings");
+    });
+
+    document.getElementById("hoshiImportDictionary")?.addEventListener("click", () => {
+      void runHoshiAction("hoshidicts-import");
+    });
+
+    document.getElementById("resetDictionarySettings")?.addEventListener("click", () => {
+      void updateHoshiProfileSettings({
+        dictionaryBackend: "yomitan",
+        hoshiDictionaryOrder: [],
+        hoshiDictionaryEnabled: {},
+        hoshiScanLength: 16,
+        hoshiMaxResults: 16,
+        hoshiRecursiveLookupEnabled: true,
+        hoshiLowRamImport: true,
+      });
     });
 
     const openGSMProfileSettingsButton = document.getElementById("openGSMProfileSettings");
@@ -4803,6 +5751,11 @@
       updateOverlayProfileState(profileState);
       updateWebSocketStatus("ws1", websocketStates.ws1);
       updateWebSocketStatus("ws2", websocketStates.ws2);
+      void refreshHoshiSettingsState();
+    });
+
+    ipcRenderer.on("hoshidicts-state-updated", (event, state = {}) => {
+      applyHoshiSettingsState(state);
     });
 
     ipcRenderer.on("overlay-profile-state-updated", (event, profileState = {}) => {
@@ -5301,8 +6254,10 @@
     syncDisableInteractionSubOptionsUi();
     updateControllerActivationFieldState();
     updateTokenizerBackendFieldState();
+    renderHoshiSettings();
     initializeSettingsTabs();
     renderOverlayPresetCards();
+    void refreshHoshiSettingsState();
     void applyPlatformSpecifics();
 
     function addGamepadInputConsoleLine(message) {

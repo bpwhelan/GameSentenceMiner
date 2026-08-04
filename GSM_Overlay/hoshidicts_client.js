@@ -672,6 +672,10 @@ class HoshiDictsClient extends EventEmitter {
     }
   }
 
+  async stop() {
+    await this.shutdown();
+  }
+
   forceKill() {
     const child = this.child;
     if (!child) {
