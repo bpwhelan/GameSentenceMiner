@@ -86,9 +86,32 @@ jobs:
       - name: Build HoshiDicts
         run: cmake --build build/hoshidicts-provenance --config Release --parallel 4
 
+      - name: Test native host
+        run: >-
+          ctest
+          --test-dir build/hoshidicts-provenance
+          --build-config Release
+          --label-exclude performance
+          --output-on-failure
+
+      - name: Record native performance
+        run: >-
+          ctest
+          --test-dir build/hoshidicts-provenance
+          --build-config Release
+          --label-regex performance
+          --verbose
+          --output-log build/hoshidicts-performance.txt
+
+      - name: Upload native performance
+        uses: actions/upload-artifact@v4
+        with:
+          name: hoshidicts-performance-${{ runner.os }}-${{ runner.arch }}
+          path: build/hoshidicts-performance.txt
+
       - name: Generate public fixture
         run: python scripts/generate_hoshidicts_fixture.py build/gsm-hoshi-fixture.zip
 
       - name: Verify macOS architecture
         if: runner.os == 'macOS'
-        run: file build/hoshidicts-provenance/vendor/hoshidicts/hoshidicts-cli | grep arm64
+        run: file build/hoshidicts-provenance/hoshidicts-host | grep arm64
