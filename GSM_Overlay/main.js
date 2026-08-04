@@ -641,6 +641,81 @@ function sendGsmOwnedOverlayConfig(overlayKey, value) {
   return requestId;
 }
 
+function sendDictionaryMiningIpcResult(sender, channel, payload) {
+  if (sender && !sender.isDestroyed?.()) {
+    sender.send(channel, payload);
+  }
+}
+
+function forwardDictionaryMiningIpcRequest(event, payload, kind) {
+  const requestId =
+    typeof payload?.request_id === "string"
+      ? payload.request_id.trim()
+      : "";
+  const isReadiness = kind === "readiness";
+  const expectedType = isReadiness
+    ? "dictionary-mine-readiness-request"
+    : "dictionary-mine-request";
+  const resultChannel = isReadiness
+    ? "dictionary-mine-readiness-result"
+    : "dictionary-mine-result";
+  if (
+    !requestId ||
+    Buffer.byteLength(requestId, "utf8") > 128 ||
+    payload?.type !== expectedType ||
+    payload?.backend !== "hoshidicts"
+  ) {
+    sendDictionaryMiningIpcResult(event?.sender, resultChannel, {
+      type: resultChannel,
+      request_id: requestId,
+      backend: "hoshidicts",
+      ...(isReadiness
+        ? {
+            ready: false,
+            status: "failed",
+            message: "Invalid HoshiDicts mining request.",
+            missing: [],
+          }
+        : {
+            status: "failed",
+            warnings: [],
+            message: "Invalid HoshiDicts mining request.",
+          }),
+    });
+    return false;
+  }
+  if (!backend || typeof backend.sendReliable !== "function") {
+    sendDictionaryMiningIpcResult(event?.sender, resultChannel, {
+      type: resultChannel,
+      request_id: requestId,
+      backend: "hoshidicts",
+      ...(isReadiness
+        ? {
+            ready: false,
+            status: "anki-unavailable",
+            message: "The GSM backend is not connected.",
+            missing: ["GSM backend"],
+          }
+        : {
+            status: "anki-unavailable",
+            warnings: [],
+            message: "The GSM backend is not connected.",
+          }),
+    });
+    return false;
+  }
+  backend.sendReliable(payload, { id: requestId });
+  return true;
+}
+
+function handleDictionaryMineReadinessIpc(event, payload) {
+  forwardDictionaryMiningIpcRequest(event, payload, "readiness");
+}
+
+function handleDictionaryMineIpc(event, payload) {
+  forwardDictionaryMiningIpcRequest(event, payload, "mine");
+}
+
 let manualHotkeyPressed = false;
 let manualModeToggleState = false;
 let lastManualActivity = Date.now();
@@ -1406,6 +1481,12 @@ function buildOverlaySettingsPayload() {
 let hoshiSettingsService = null;
 let hoshiStatePublishTimer = null;
 let hoshiLastOperationError = null;
+let hoshiMiningReadiness = {
+  ready: false,
+  status: "unknown",
+  message: "Mining readiness is checked when HoshiDicts is active.",
+  missing: [],
+};
 let dictionaryBackendTransitionSequence = 0;
 let dictionaryBackendTransitionQueue = Promise.resolve();
 const pendingDictionaryBackendTransitions = new Map();
@@ -1455,6 +1536,7 @@ async function getHoshiSettingsState(options = {}) {
   const state = await getHoshiSettingsService().getState(userSettings, options);
   return {
     ...state,
+    mining: hoshiMiningReadiness,
     operationError: hoshiLastOperationError,
   };
 }
@@ -2652,6 +2734,38 @@ function handleOverlayWebSocketControlMessage(type, data) {
 
   if (message.type === "gsm-profile-state-updated") {
     applyGSMProfileState(message, `websocket:${type}`);
+    return true;
+  }
+
+  if (
+    message.type === "dictionary-mine-result" ||
+    message.type === "dictionary-mine-readiness-result"
+  ) {
+    if (
+      message.request_id &&
+      backend &&
+      typeof backend.acknowledgeReliable === "function"
+    ) {
+      backend.acknowledgeReliable(message.request_id);
+    }
+    if (message.type === "dictionary-mine-readiness-result") {
+      hoshiMiningReadiness = {
+        ready: message.ready === true,
+        status:
+          typeof message.status === "string" && message.status
+            ? message.status
+            : "unknown",
+        message:
+          typeof message.message === "string" ? message.message : "",
+        missing: Array.isArray(message.missing)
+          ? message.missing.filter((value) => typeof value === "string").slice(0, 32)
+          : [],
+      };
+      scheduleHoshiSettingsStatePublish();
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(message.type, message);
+    }
     return true;
   }
 
@@ -7096,6 +7210,11 @@ async function startOverlayAppImpl() {
     // healthy before the settings UI can observe backend acceptance.
     onMessage: (message) => handleOverlayWebSocketControlMessage("backend-connector", message),
   });
+  ipcMain.on(
+    "dictionary-mine-readiness-request",
+    handleDictionaryMineReadinessIpc,
+  );
+  ipcMain.on("dictionary-mine-request", handleDictionaryMineIpc);
   backend.connect(userSettings.weburl2);
   if (shouldMigrateLegacyOverlayActivationScan) {
     sendGsmOwnedOverlayConfig("scan_on_overlay_activation", true);
@@ -7118,6 +7237,11 @@ async function startOverlayAppImpl() {
     globalShortcut.unregisterAll();
     closeAppHotkeyInputServerConnection();
     stopOverlayWebSockets();
+    ipcMain.removeListener(
+      "dictionary-mine-readiness-request",
+      handleDictionaryMineReadinessIpc,
+    );
+    ipcMain.removeListener("dictionary-mine-request", handleDictionaryMineIpc);
     void stopGamepadServer("app-will-quit");
     if (pendingDisplaySyncTimer) {
       clearTimeout(pendingDisplaySyncTimer);

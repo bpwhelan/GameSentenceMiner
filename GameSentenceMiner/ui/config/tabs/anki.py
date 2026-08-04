@@ -218,6 +218,21 @@ def build_anki_general_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     fields_group.setLayout(fields_layout)
     layout.addRow(fields_group)
 
+    hoshi_group = window._create_group_box("HoshiDicts Mining")
+    hoshi_layout = QFormLayout()
+    window.hoshi_mining_deck_edit.setPlaceholderText("Japanese::Mining")
+    hoshi_layout.addRow(QLabel("Deck:"), window.hoshi_mining_deck_edit)
+    hoshi_layout.addRow(QLabel("Reading:"), window.hoshi_reading_field_edit)
+    hoshi_layout.addRow(QLabel("Selected glossary:"), window.hoshi_glossary_field_edit)
+    hoshi_layout.addRow(QLabel("Dictionary (optional):"), window.hoshi_dictionary_field_edit)
+    hoshi_layout.addRow(QLabel("Frequency (optional):"), window.hoshi_frequency_field_edit)
+    hoshi_layout.addRow(QLabel("Pitch (optional):"), window.hoshi_pitch_field_edit)
+    hoshi_group.setToolTip(
+        "HoshiDicts creates base notes through these mappings. Yomitan continues to use its own Anki templates."
+    )
+    hoshi_group.setLayout(hoshi_layout)
+    layout.addRow(hoshi_group)
+
     behavior_group = window._create_group_box("Browser / Note Actions")
     behavior_layout = QFormLayout()
     behavior_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)

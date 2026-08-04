@@ -585,6 +585,23 @@ def test_resolve_mined_line_prefers_text_event_over_injected_overlay_scan(monkey
     assert calls == [([text_event], True)]
 
 
+def test_resolve_mined_line_prefers_exact_hoshi_line_tag(monkeypatch):
+    exact_line = SimpleNamespace(id="line-exact", text="same sentence")
+    newer_line = SimpleNamespace(id="line-newer", text="same sentence")
+    encoded_line_id = anki.base64.urlsafe_b64encode(b"line-exact").decode("ascii").rstrip("=")
+    tag = f"gsm_line_id_{encoded_line_id}"
+    card = SimpleNamespace(tags=["overlay", "gsm_hoshidicts", tag])
+
+    monkeypatch.setattr(
+        anki,
+        "get_mined_line",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("sentence fallback should not run")),
+    )
+    monkeypatch.setattr(anki.gsm_state, "last_overlay_scan_line", None, raising=False)
+
+    assert anki._resolve_mined_line_for_card(card, [newer_line, exact_line]) is exact_line
+
+
 def test_set_sentence_audio_cache_entry_and_prune():
     key = ("sig", (("line-1", "sig"),), ("line-1", "sig"))
     anki._set_sentence_audio_cache_entry(key, "line-1", "word")

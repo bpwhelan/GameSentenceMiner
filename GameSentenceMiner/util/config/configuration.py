@@ -830,6 +830,12 @@ class Anki:
     url: str = "http://127.0.0.1:8765"
     note_type: str = ""
     available_fields: List[str] = field(default_factory=list)
+    hoshi_mining_deck: str = ""
+    hoshi_reading_field: str = ""
+    hoshi_glossary_field: str = ""
+    hoshi_dictionary_field: str = ""
+    hoshi_frequency_field: str = ""
+    hoshi_pitch_field: str = ""
     sentence: AnkiField = field(
         default_factory=lambda: AnkiField(name="Sentence", enabled=True, overwrite=True, append=False, core=True)
     )
@@ -2211,6 +2217,12 @@ class Config:
             self.sync_shared_field(config.hotkeys, profile.hotkeys, "open_utility")
             self.sync_shared_field(config.hotkeys, profile.hotkeys, "play_latest_audio")
             self.sync_shared_field(config.anki, profile.anki, "url")
+            self.sync_shared_field(config.anki, profile.anki, "hoshi_mining_deck")
+            self.sync_shared_field(config.anki, profile.anki, "hoshi_reading_field")
+            self.sync_shared_field(config.anki, profile.anki, "hoshi_glossary_field")
+            self.sync_shared_field(config.anki, profile.anki, "hoshi_dictionary_field")
+            self.sync_shared_field(config.anki, profile.anki, "hoshi_frequency_field")
+            self.sync_shared_field(config.anki, profile.anki, "hoshi_pitch_field")
             self.sync_shared_field(config.anki, profile.anki, "sentence_field")
             self.sync_shared_field(config.anki, profile.anki, "sentence_field_enabled")
             self.sync_shared_field(config.anki, profile.anki, "sentence_field_overwrite")

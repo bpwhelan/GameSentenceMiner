@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from dataclasses_json import dataclass_json
-from typing import Optional, List
+from typing import Optional, List, Tuple
 
 from GameSentenceMiner.util.config.configuration import (
     get_config,
@@ -238,6 +238,80 @@ class AnkiCard:
             + ", ".join(field_strings)
             + "}}, cards={self.cards})"
         )
+
+
+@dataclass(frozen=True)
+class DictionaryMineMedia:
+    dictionary_id: str
+    path: str
+    mime_type: str
+    data_base64: str
+
+
+@dataclass(frozen=True)
+class DictionaryMineLookup:
+    expression: str
+    reading: str
+    matched_text: str
+    dictionary_id: str
+    dictionary_title: str
+    glossary_id: str
+    glossary_text: str
+    frequency: Tuple[str, ...] = ()
+    pitch: Tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class DictionaryMineRequest:
+    request_id: str
+    idempotency_key: str
+    session_id: str
+    backend: str
+    line_id: str
+    source_sentence: str
+    lookup: DictionaryMineLookup
+    media: Tuple[DictionaryMineMedia, ...] = ()
+
+
+@dataclass(frozen=True)
+class DictionaryMineResult:
+    request_id: str
+    status: str
+    note_id: Optional[int] = None
+    warnings: Tuple[str, ...] = ()
+    message: str = ""
+
+    def to_payload(self) -> dict:
+        payload = {
+            "type": "dictionary-mine-result",
+            "request_id": self.request_id,
+            "status": self.status,
+            "warnings": list(self.warnings),
+        }
+        if self.note_id is not None:
+            payload["note_id"] = self.note_id
+        if self.message:
+            payload["message"] = self.message
+        return payload
+
+
+@dataclass(frozen=True)
+class DictionaryMineReadiness:
+    ready: bool
+    status: str
+    message: str
+    missing: Tuple[str, ...] = ()
+
+    def to_payload(self, request_id: str) -> dict:
+        return {
+            "type": "dictionary-mine-readiness-result",
+            "request_id": request_id,
+            "backend": "hoshidicts",
+            "ready": self.ready,
+            "status": self.status,
+            "message": self.message,
+            "missing": list(self.missing),
+        }
 
 
 class VADResult:

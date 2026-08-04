@@ -2,6 +2,7 @@ import asyncio
 import json
 from types import SimpleNamespace
 
+from GameSentenceMiner.util.models.model import DictionaryMineReadiness, DictionaryMineResult
 from GameSentenceMiner.util.config.configuration import Overlay
 from GameSentenceMiner.web import overlay_handler as overlay_handler_module
 
@@ -198,6 +199,90 @@ def test_get_gsm_profile_state_broadcasts_authoritative_snapshot(monkeypatch):
     asyncio.run(handler.handle_message(json.dumps({"type": "get-gsm-profile-state"})))
 
     assert sent_messages == [(overlay_handler_module.ID_OVERLAY, expected_payload)]
+
+
+def test_hoshi_mining_readiness_is_returned_over_overlay_websocket(monkeypatch):
+    sent_messages = []
+    service = SimpleNamespace(
+        readiness=lambda: DictionaryMineReadiness(
+            ready=True,
+            status="ready",
+            message="Hoshi mining is ready.",
+        )
+    )
+
+    async def fake_send(server_id, message):
+        sent_messages.append((server_id, message))
+
+    monkeypatch.setattr(overlay_handler_module.websocket_manager, "send", fake_send)
+    handler = overlay_handler_module.OverlayRequestHandler(mining_service=service)
+    asyncio.run(
+        handler.handle_message(
+            json.dumps(
+                {
+                    "type": "dictionary-mine-readiness-request",
+                    "request_id": "request-1",
+                    "backend": "hoshidicts",
+                }
+            )
+        )
+    )
+
+    assert sent_messages == [
+        (
+            overlay_handler_module.ID_OVERLAY,
+            {
+                "type": "dictionary-mine-readiness-result",
+                "request_id": "request-1",
+                "backend": "hoshidicts",
+                "ready": True,
+                "status": "ready",
+                "message": "Hoshi mining is ready.",
+                "missing": [],
+            },
+        )
+    ]
+
+
+def test_hoshi_mining_result_is_returned_over_overlay_websocket(monkeypatch):
+    sent_messages = []
+    requests = []
+    service = SimpleNamespace(
+        mine=lambda payload: (
+            requests.append(payload)
+            or DictionaryMineResult(
+                request_id=payload["request_id"],
+                status="created",
+                note_id=42,
+            )
+        )
+    )
+
+    async def fake_send(server_id, message):
+        sent_messages.append((server_id, message))
+
+    monkeypatch.setattr(overlay_handler_module.websocket_manager, "send", fake_send)
+    handler = overlay_handler_module.OverlayRequestHandler(mining_service=service)
+    message = {
+        "type": "dictionary-mine-request",
+        "request_id": "request-2",
+        "backend": "hoshidicts",
+    }
+    asyncio.run(handler.handle_message(json.dumps(message)))
+
+    assert requests == [message]
+    assert sent_messages == [
+        (
+            overlay_handler_module.ID_OVERLAY,
+            {
+                "type": "dictionary-mine-result",
+                "request_id": "request-2",
+                "status": "created",
+                "note_id": 42,
+                "warnings": [],
+            },
+        )
+    ]
 
 
 def test_send_click_request_forwards_to_target_window(monkeypatch):

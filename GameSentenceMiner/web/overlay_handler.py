@@ -7,6 +7,7 @@ import json
 from typing import Optional
 
 from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result
+from GameSentenceMiner.hoshidicts_mining import HoshiDictsMiningService
 from GameSentenceMiner.obs import get_current_game, get_current_scene
 from GameSentenceMiner.util.config.configuration import (
     coerce_gsm_owned_overlay_value,
@@ -24,6 +25,7 @@ from GameSentenceMiner.web.gsm_websocket import (
     build_gsm_profile_state_payload,
     websocket_manager,
 )
+from GameSentenceMiner.util.models.model import DictionaryMineReadiness
 
 OVERLAY_ACTIVATION_SOURCE_PREFIX = "overlay-activation:"
 OVERLAY_ACTIVATION_DEDUPE_THRESHOLD = 0.95
@@ -32,8 +34,9 @@ OVERLAY_ACTIVATION_DEDUPE_THRESHOLD = 0.95
 class OverlayRequestHandler:
     """Handles requests from the overlay, such as translation requests."""
 
-    def __init__(self):
+    def __init__(self, mining_service: Optional[HoshiDictsMiningService] = None):
         self.processing = False
+        self.mining_service = mining_service or HoshiDictsMiningService()
 
     async def handle_message(self, message_str: str):
         """
@@ -72,6 +75,10 @@ class OverlayRequestHandler:
                 self.handle_select_ocr_area_request(message)
             elif message_type == "open-gsm-settings":
                 self.handle_open_gsm_settings_request(message)
+            elif message_type == "dictionary-mine-readiness-request":
+                await self.handle_dictionary_mine_readiness_request(message)
+            elif message_type == "dictionary-mine-request":
+                await self.handle_dictionary_mine_request(message)
             else:
                 logger.warning(f"Unknown overlay message type: {message_type}")
 
@@ -470,6 +477,23 @@ class OverlayRequestHandler:
     async def broadcast_gsm_profile_state(self) -> None:
         """Answer overlay reconciliation requests without exposing config.json paths."""
         await websocket_manager.send(ID_OVERLAY, build_gsm_profile_state_payload())
+
+    async def handle_dictionary_mine_readiness_request(self, message: dict) -> None:
+        request_id = message.get("request_id")
+        request_id = request_id.strip() if isinstance(request_id, str) else ""
+        if len(request_id.encode("utf-8")) > 128 or message.get("backend") != "hoshidicts":
+            readiness = DictionaryMineReadiness(
+                ready=False,
+                status="failed",
+                message="Invalid HoshiDicts mining readiness request.",
+            )
+        else:
+            readiness = await asyncio.to_thread(self.mining_service.readiness)
+        await websocket_manager.send(ID_OVERLAY, readiness.to_payload(request_id))
+
+    async def handle_dictionary_mine_request(self, message: dict) -> None:
+        result = await asyncio.to_thread(self.mining_service.mine, message)
+        await websocket_manager.send(ID_OVERLAY, result.to_payload())
 
     def handle_select_ocr_area_request(self, message: dict):
         """Launch the OCR/overlay area selector from the overlay settings UI."""

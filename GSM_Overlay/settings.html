@@ -2180,6 +2180,9 @@
           <div id="hoshiHostStatus" class="hoshi-host-status" role="status">Checking native host...</div>
           <div id="hoshiStorageUsage" class="hoshi-storage-usage">0 dictionaries | 0 B</div>
         </div>
+        <div id="hoshiMiningStatus" class="hoshi-host-status" role="status">
+          Mining readiness is checked when HoshiDicts is active.
+        </div>
         <div id="hoshiOperationError" class="hoshi-operation-error" role="alert" hidden>
           <div id="hoshiOperationErrorMessage"></div>
           <details>
@@ -3405,6 +3408,12 @@
         activeBytes: 0,
         dictionaryCount: 0,
       },
+      mining: {
+        ready: false,
+        status: "unknown",
+        message: "Mining readiness is checked when HoshiDicts is active.",
+        missing: [],
+      },
       operationError: null,
     };
     let hoshiOperationInFlight = false;
@@ -3783,6 +3792,13 @@
         storage: {
           activeBytes: Number(state.storage?.activeBytes) || 0,
           dictionaryCount: Number(state.storage?.dictionaryCount) || 0,
+        },
+        mining: {
+          ...hoshiSettingsState.mining,
+          ...(state.mining || {}),
+          missing: Array.isArray(state.mining?.missing)
+            ? state.mining.missing
+            : [],
         },
         operationError: state.operationError || null,
       };
@@ -4181,6 +4197,21 @@
         storage.textContent =
           `${count} ${count === 1 ? "dictionary" : "dictionaries"} | ` +
           formatHoshiBytes(hoshiSettingsState.storage.activeBytes);
+      }
+
+      const miningStatus = document.getElementById("hoshiMiningStatus");
+      if (miningStatus) {
+        const mining = hoshiSettingsState.mining;
+        miningStatus.classList.toggle(
+          "is-error",
+          mining.status !== "unknown" && mining.ready !== true,
+        );
+        miningStatus.textContent = mining.ready
+          ? "Hoshi mining is ready."
+          : mining.message ||
+            (mining.missing.length > 0
+              ? `Hoshi mining needs: ${mining.missing.join(", ")}.`
+              : "Hoshi mining is unavailable.");
       }
 
       const errorBox = document.getElementById("hoshiOperationError");

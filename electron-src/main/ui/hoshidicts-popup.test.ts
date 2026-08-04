@@ -288,4 +288,207 @@ describe("HoshiDicts popup", () => {
     expect(root.style.maxWidth).toContain("404px");
     expect(root.style.maxHeight).toContain("304px");
   });
+
+  it("mines the explicitly selected glossary with its authoritative lookup context", async () => {
+    const { HoshiDictsPopup } = await import(modulePath);
+    const dom = popupDom();
+    const requestMine = vi.fn(async () => ({
+      status: "created",
+      note_id: 42,
+      message: "Hoshi dictionary note created.",
+      warnings: ["Dictionary media could not be stored."],
+    }));
+    const onMineSuccess = vi.fn();
+    const popup = new HoshiDictsPopup({
+      document: dom.window.document,
+      window: dom.window,
+      requestMine,
+      onMineSuccess,
+      getWorkArea: () => ({ x: 0, y: 0, width: 800, height: 600 }),
+    });
+    const selectedModel = structuredClone(model()) as any;
+    selectedModel.entries[0].dictionaries[0].glossaries.push({
+      id: "result-cat-glossary-1",
+      content: "feline",
+      definitionTags: [],
+      termTags: [],
+    });
+    selectedModel.entries[0].dictionaries[0].frequencies = [
+      { value: 100, displayValue: "100" },
+    ];
+    selectedModel.entries[0].dictionaries[0].pitches = [2];
+    popup.setMiningReadiness({
+      ready: true,
+      status: "ready",
+      message: "Ready",
+    });
+    popup.showResults(selectedModel, {
+      generation: 7,
+      anchor: { x: 20, y: 30, height: 18 },
+      sourceSentence: "猫です。",
+      lineId: "line-7",
+    });
+
+    const glossaries = dom.window.document.querySelectorAll(
+      ".hoshidicts-glossary",
+    );
+    glossaries[1].dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+      }),
+    );
+    expect(popup.getSnapshot().selectedGlossaryId).toBe(
+      "result-cat-glossary-1",
+    );
+
+    await expect(popup.command("mine")).resolves.toMatchObject({
+      status: "handled",
+      result: { status: "created", note_id: 42 },
+    });
+    expect(requestMine).toHaveBeenCalledWith({
+      generation: 7,
+      line_id: "line-7",
+      source_sentence: "猫です。",
+      lookup: {
+        expression: "猫",
+        reading: "ねこ",
+        matched_text: "猫",
+        dictionary_id: "11111111-1111-4111-8111-111111111111",
+        dictionary_title: "Fixture",
+        glossary_id: "result-cat-glossary-1",
+        glossary_text: "feline",
+        frequency: ["100"],
+        pitch: ["2"],
+      },
+      media: [],
+    });
+    expect(onMineSuccess).toHaveBeenCalledTimes(1);
+    expect(
+      dom.window.document.querySelector(".hoshidicts-mine-status")?.textContent,
+    ).toContain("Dictionary media could not be stored.");
+  });
+
+  it("coalesces overlapping mine commands before media resolution", async () => {
+    const { HoshiDictsPopup } = await import(modulePath);
+    const dom = popupDom();
+    let resolveMine: ((value: { status: string }) => void) | undefined;
+    const requestMine = vi.fn(
+      () =>
+        new Promise<{ status: string }>((resolve) => {
+          resolveMine = resolve;
+        }),
+    );
+    const popup = new HoshiDictsPopup({
+      document: dom.window.document,
+      window: dom.window,
+      requestMine,
+      getWorkArea: () => ({ x: 0, y: 0, width: 800, height: 600 }),
+    });
+    popup.setMiningReadiness({ ready: true, status: "ready" });
+    popup.showResults(model(), {
+      generation: 1,
+      anchor: { x: 20, y: 30, height: 18 },
+    });
+
+    const first = popup.command("mine");
+    await expect(popup.command("mine")).resolves.toEqual({ status: "busy" });
+    await vi.waitFor(() => expect(requestMine).toHaveBeenCalledTimes(1));
+    resolveMine?.({ status: "created" });
+
+    await expect(first).resolves.toMatchObject({ status: "handled" });
+    expect(requestMine).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides mining until ready and keeps the popup open after a retryable failure", async () => {
+    const { HoshiDictsPopup } = await import(modulePath);
+    const dom = popupDom();
+    const requestMine = vi.fn(async () => ({
+      status: "anki-unavailable",
+      message: "Open Anki and retry.",
+      warnings: [],
+    }));
+    const popup = new HoshiDictsPopup({
+      document: dom.window.document,
+      window: dom.window,
+      requestMine,
+      getWorkArea: () => ({ x: 0, y: 0, width: 800, height: 600 }),
+    });
+    popup.showResults(model(), {
+      generation: 1,
+      anchor: { x: 20, y: 30, height: 18 },
+    });
+    expect(
+      dom.window.document.querySelector('[data-action-id="hoshi-action:mine"]'),
+    ).toBeNull();
+
+    popup.setMiningReadiness({ ready: true, status: "ready" });
+    expect(
+      dom.window.document.querySelector('[data-action-id="hoshi-action:mine"]'),
+    ).not.toBeNull();
+    await expect(popup.command("mine")).resolves.toMatchObject({
+      status: "failed",
+      result: { status: "anki-unavailable" },
+    });
+
+    expect(popup.getSnapshot()).toMatchObject({
+      state: "results",
+      visible: true,
+      entryId: "result-cat",
+    });
+    expect(
+      dom.window.document.querySelector(".hoshidicts-mine-status")?.textContent,
+    ).toContain("Open Anki");
+  });
+
+  it("includes only resolved media owned by the selected dictionary", async () => {
+    const { HoshiDictsPopup } = await import(modulePath);
+    const dom = popupDom();
+    const selectedModel = structuredClone(model()) as any;
+    selectedModel.entries[0].dictionaries[0].glossaries[0].content =
+      JSON.stringify({
+        type: "structured-content",
+        content: {
+          tag: "div",
+          content: [
+            "cat",
+            {
+              tag: "img",
+              path: "images/cat.png",
+              title: "cat diagram",
+            },
+          ],
+        },
+      });
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB";
+    const popup = new HoshiDictsPopup({
+      document: dom.window.document,
+      window: dom.window,
+      resolveMedia: vi.fn(async (dictionaryId, mediaPath) => ({
+        dictionaryId,
+        path: mediaPath,
+        mimeType: "image/png",
+        dataUrl: `data:image/png;base64,${png}`,
+      })),
+      getWorkArea: () => ({ x: 0, y: 0, width: 800, height: 600 }),
+    });
+    popup.showResults(selectedModel, {
+      generation: 3,
+      anchor: { x: 20, y: 30, height: 18 },
+    });
+
+    await expect(popup.getMiningSelection()).resolves.toMatchObject({
+      lookup: {
+        glossary_text: "cat cat diagram",
+      },
+      media: [
+        {
+          dictionary_id: "11111111-1111-4111-8111-111111111111",
+          path: "images/cat.png",
+          mime_type: "image/png",
+          data_base64: png,
+        },
+      ],
+    });
+  });
 });

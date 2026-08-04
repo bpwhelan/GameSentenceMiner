@@ -818,6 +818,12 @@ class ConfigWindow(QWidget):
                     url=self.anki_url_edit.text(),
                     note_type=self.anki_note_type_combo.currentText(),
                     available_fields=list(self._anki_available_fields),
+                    hoshi_mining_deck=self.hoshi_mining_deck_edit.text().strip(),
+                    hoshi_reading_field=self.hoshi_reading_field_edit.currentText(),
+                    hoshi_glossary_field=self.hoshi_glossary_field_edit.currentText(),
+                    hoshi_dictionary_field=self.hoshi_dictionary_field_edit.currentText(),
+                    hoshi_frequency_field=self.hoshi_frequency_field_edit.currentText(),
+                    hoshi_pitch_field=self.hoshi_pitch_field_edit.currentText(),
                     sentence=AnkiField(
                         name=self.sentence_field_edit.currentText(),
                         enabled=self.sentence_field_enabled_check.isChecked(),
@@ -1471,6 +1477,12 @@ class ConfigWindow(QWidget):
         self.anki_field_grouping_overwrite_check = QCheckBox()
         self.anki_url_edit = QLineEdit()
         self.anki_note_type_combo = self._create_anki_field_combo()
+        self.hoshi_mining_deck_edit = QLineEdit()
+        self.hoshi_reading_field_edit = self._create_anki_field_combo()
+        self.hoshi_glossary_field_edit = self._create_anki_field_combo()
+        self.hoshi_dictionary_field_edit = self._create_anki_field_combo()
+        self.hoshi_frequency_field_edit = self._create_anki_field_combo()
+        self.hoshi_pitch_field_edit = self._create_anki_field_combo()
         self.sentence_field_edit = self._create_anki_field_combo()
         self.sentence_audio_field_edit = self._create_anki_field_combo()
         self.picture_field_edit = self._create_anki_field_combo()
@@ -1795,6 +1807,12 @@ class ConfigWindow(QWidget):
 
         self.binder.bind(("profile", "paths", "folder_to_watch"), self.folder_to_watch_edit)
         self.binder.bind(("profile", "anki", "note_type"), self.anki_note_type_combo)
+        self.binder.bind(("profile", "anki", "hoshi_mining_deck"), self.hoshi_mining_deck_edit)
+        self.binder.bind(("profile", "anki", "hoshi_reading_field"), self.hoshi_reading_field_edit)
+        self.binder.bind(("profile", "anki", "hoshi_glossary_field"), self.hoshi_glossary_field_edit)
+        self.binder.bind(("profile", "anki", "hoshi_dictionary_field"), self.hoshi_dictionary_field_edit)
+        self.binder.bind(("profile", "anki", "hoshi_frequency_field"), self.hoshi_frequency_field_edit)
+        self.binder.bind(("profile", "anki", "hoshi_pitch_field"), self.hoshi_pitch_field_edit)
         self.binder.bind(("profile", "anki", "sentence_field"), self.sentence_field_edit)
         self.binder.bind(
             ("profile", "anki", "sentence_field_enabled"),
@@ -2807,6 +2825,11 @@ class ConfigWindow(QWidget):
             fields = []
         self._anki_available_fields = list(fields)
         combos = [
+            self.hoshi_reading_field_edit,
+            self.hoshi_glossary_field_edit,
+            self.hoshi_dictionary_field_edit,
+            self.hoshi_frequency_field_edit,
+            self.hoshi_pitch_field_edit,
             self.sentence_field_edit,
             self.sentence_audio_field_edit,
             self.picture_field_edit,
@@ -3044,6 +3067,12 @@ class ConfigWindow(QWidget):
         except Exception as e:
             logger.debug(f"Failed to load Anki note types: {e}")
         self._set_available_anki_fields(s.anki.available_fields, preserve_selection=False)
+        self.hoshi_mining_deck_edit.setText(s.anki.hoshi_mining_deck)
+        self.hoshi_reading_field_edit.setCurrentText(s.anki.hoshi_reading_field)
+        self.hoshi_glossary_field_edit.setCurrentText(s.anki.hoshi_glossary_field)
+        self.hoshi_dictionary_field_edit.setCurrentText(s.anki.hoshi_dictionary_field)
+        self.hoshi_frequency_field_edit.setCurrentText(s.anki.hoshi_frequency_field)
+        self.hoshi_pitch_field_edit.setCurrentText(s.anki.hoshi_pitch_field)
         self.sentence_field_edit.setCurrentText(s.anki.sentence_field)
         self.sentence_audio_field_edit.setCurrentText(s.anki.sentence_audio_field)
         self.picture_field_edit.setCurrentText(s.anki.picture_field)

@@ -104,6 +104,16 @@ class HoshiDictsDictionaryBackend extends EventEmitter {
     this.id = "hoshidicts";
     this.client = options.client;
     this.popup = options.popup;
+    this.miningClient =
+      options.miningClient &&
+      typeof options.miningClient.refreshReadiness === "function" &&
+      typeof options.miningClient.mine === "function"
+        ? options.miningClient
+        : null;
+    this.shouldDismissAfterMine =
+      typeof options.shouldDismissAfterMine === "function"
+        ? options.shouldDismissAfterMine
+        : () => false;
     this.getGeneration =
       typeof options.getGeneration === "function"
         ? options.getGeneration
@@ -124,6 +134,14 @@ class HoshiDictsDictionaryBackend extends EventEmitter {
       "previous-entry",
       "recursive-back",
     ]);
+    this.miningReadiness = Object.freeze({
+      ready: false,
+      status: "unknown",
+      message: "",
+      missing: [],
+    });
+    this.miningRefreshPromise = null;
+    this.miningReadinessEpoch = 0;
     this.started = false;
     this.catalog = null;
     this.hostInfo = null;
@@ -135,6 +153,14 @@ class HoshiDictsDictionaryBackend extends EventEmitter {
       recursiveLookupEnabled: true,
     };
     this.onHostExit = (event) => this.#handleHostExit(event);
+    this.popup.setMineDispatcher?.((selection) =>
+      this.#mineSelection(selection),
+    );
+    this.popup.setMineSuccessHandler?.(() => {
+      if (this.shouldDismissAfterMine()) {
+        this.#closePopup("mine-success");
+      }
+    });
   }
 
   setGenerationProvider(provider) {
@@ -160,6 +186,7 @@ class HoshiDictsDictionaryBackend extends EventEmitter {
       this.hostInfo = await this.client.start?.();
       this.client.on?.("exit", this.onHostExit);
       this.started = true;
+      this.miningReadinessEpoch += 1;
     }
     try {
       if (context.catalog) {
@@ -174,9 +201,11 @@ class HoshiDictsDictionaryBackend extends EventEmitter {
         lifecycle: "idle",
         generation: this.getGeneration(),
       });
+      void this.refreshMiningReadiness();
       return this.getSnapshot();
     } catch (error) {
       if (!this.catalog) {
+        this.miningReadinessEpoch += 1;
         this.started = false;
         this.client.removeListener?.("exit", this.onHostExit);
         await this.client.stop?.().catch?.(() => {});
@@ -191,10 +220,17 @@ class HoshiDictsDictionaryBackend extends EventEmitter {
     try {
       await this.client.stop?.();
     } finally {
+      this.miningReadinessEpoch += 1;
       this.started = false;
       this.catalog = null;
       this.hostInfo = null;
       this.mediaResolver = null;
+      this.#setMiningReadiness({
+        ready: false,
+        status: "inactive",
+        message: "Hoshi mining is inactive.",
+        missing: [],
+      });
     }
   }
 
@@ -206,7 +242,80 @@ class HoshiDictsDictionaryBackend extends EventEmitter {
     if (context.catalog) {
       await this.#configureCatalog(context.catalog, context.signal);
     }
+    void this.refreshMiningReadiness();
     return this.getSnapshot();
+  }
+
+  #setMiningReadiness(readiness = {}) {
+    this.miningReadiness = Object.freeze({
+      ready: readiness.ready === true,
+      status:
+        typeof readiness.status === "string" && readiness.status
+          ? readiness.status
+          : "unknown",
+      message: typeof readiness.message === "string" ? readiness.message : "",
+      missing: Array.isArray(readiness.missing)
+        ? readiness.missing.slice(0, 32)
+        : [],
+    });
+    if (this.miningReadiness.ready) {
+      this.capabilities.add("mine");
+    } else {
+      this.capabilities.delete("mine");
+    }
+    this.popup.setMiningReadiness?.(this.miningReadiness);
+    this.emit("state", {
+      lifecycle: this.popup.getSnapshot?.().state || "idle",
+      generation: this.getGeneration(),
+      miningStatus: this.miningReadiness.status,
+    });
+    return this.miningReadiness;
+  }
+
+  refreshMiningReadiness() {
+    if (!this.miningClient) {
+      return Promise.resolve(
+        this.#setMiningReadiness({
+          ready: false,
+          status: "unsupported",
+          message: "Hoshi mining is unavailable in this build.",
+          missing: [],
+        }),
+      );
+    }
+    if (this.miningRefreshPromise) {
+      return this.miningRefreshPromise;
+    }
+    const epoch = this.miningReadinessEpoch;
+    const refresh = Promise.resolve(
+      this.miningClient.refreshReadiness(),
+    )
+      .then((readiness) =>
+        epoch === this.miningReadinessEpoch && this.started
+          ? this.#setMiningReadiness(readiness)
+          : this.miningReadiness,
+      )
+      .catch((error) => {
+        if (epoch !== this.miningReadinessEpoch || !this.started) {
+          return this.miningReadiness;
+        }
+        return this.#setMiningReadiness({
+          ready: false,
+          status: "anki-unavailable",
+          message:
+            typeof error?.message === "string"
+              ? error.message
+              : "Could not check Hoshi mining readiness.",
+          missing: ["AnkiConnect"],
+        });
+      })
+      .finally(() => {
+        if (this.miningRefreshPromise === refresh) {
+          this.miningRefreshPromise = null;
+        }
+      });
+    this.miningRefreshPromise = refresh;
+    return refresh;
   }
 
   #applyProfileSettings(context = {}) {
@@ -313,7 +422,9 @@ class HoshiDictsDictionaryBackend extends EventEmitter {
         typeof request.sourceSentence === "string"
           ? request.sourceSentence
           : "",
+      lineId: typeof request.lineId === "string" ? request.lineId : "",
     };
+    void this.refreshMiningReadiness();
     const hasTermDictionary = this.catalog.dictionaries.some((dictionary) =>
       dictionary.types.includes("term"),
     );
@@ -402,6 +513,30 @@ class HoshiDictsDictionaryBackend extends EventEmitter {
     return await this.popup.command(command, params);
   }
 
+  async #mineSelection(selection) {
+    if (
+      !this.miningClient ||
+      !this.miningReadiness.ready ||
+      !selection ||
+      selection.generation !== this.getGeneration()
+    ) {
+      return {
+        status: "failed",
+        message: "The Hoshi mining selection is no longer available.",
+      };
+    }
+    const result = await this.miningClient.mine(selection);
+    if (["invalid-config", "anki-unavailable"].includes(result?.status)) {
+      this.#setMiningReadiness({
+        ready: false,
+        status: result.status,
+        message: result.message || "Hoshi mining is unavailable.",
+        missing: [],
+      });
+    }
+    return result;
+  }
+
   #openPopup(generation, reason) {
     if (this.openPopupGeneration === generation) {
       return;
@@ -434,7 +569,14 @@ class HoshiDictsDictionaryBackend extends EventEmitter {
 
   #handleHostExit(event) {
     const generation = this.getGeneration();
+    this.miningReadinessEpoch += 1;
     this.started = false;
+    this.#setMiningReadiness({
+      ready: false,
+      status: "host-unavailable",
+      message: "Hoshi mining is unavailable because the native host exited.",
+      missing: [],
+    });
     this.popup.showState("host-unavailable", {
       generation,
       anchor: this.popup.getSnapshot?.().anchor,
@@ -456,6 +598,7 @@ class HoshiDictsDictionaryBackend extends EventEmitter {
       catalogGeneration: this.catalog?.generation || null,
       dictionaryCount: this.catalog?.dictionaries.length || 0,
       lookupSettings: { ...this.lookupSettings },
+      miningReadiness: this.miningReadiness,
       popup: this.popup.getSnapshot?.() || null,
     };
   }

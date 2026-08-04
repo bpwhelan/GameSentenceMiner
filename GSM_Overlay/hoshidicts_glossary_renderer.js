@@ -270,6 +270,8 @@ function appendImageNode(parent, node, context) {
 
   const image = context.document.createElement("img");
   image.className = "hoshidicts-media hoshidicts-media-loading";
+  image.dataset.hoshiDictionaryId = context.dictionaryId;
+  image.dataset.hoshiMediaPath = path;
   image.alt =
     typeof node.title === "string" && node.title.length <= 512
       ? node.title

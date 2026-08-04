@@ -3285,6 +3285,22 @@ def _is_overlay_mine(card) -> bool:
     return any(str(tag).strip().lower() == "overlay" for tag in (getattr(card, "tags", None) or []))
 
 
+def _decode_hoshi_line_tag(tag) -> Optional[str]:
+    prefix = "gsm_line_id_"
+    normalized = str(tag or "")
+    if not normalized.startswith(prefix):
+        return None
+    encoded = normalized[len(prefix) :]
+    if not encoded or len(encoded) > 384:
+        return None
+    try:
+        padding = "=" * ((4 - len(encoded) % 4) % 4)
+        decoded = base64.urlsafe_b64decode(encoded + padding).decode("utf-8")
+    except Exception:
+        return None
+    return decoded if decoded and len(decoded.encode("utf-8")) <= 256 else None
+
+
 def _resolve_mined_line_for_card(card, lines):
     """Resolve the GameLine a card was mined from.
 
@@ -3295,6 +3311,25 @@ def _resolve_mined_line_for_card(card, lines):
     audio/screenshot without polluting stats or the texthooker.
     """
     overlay_line = getattr(gsm_state, "last_overlay_scan_line", None)
+    tagged_line_id = next(
+        (
+            decoded
+            for tag in (getattr(card, "tags", None) or [])
+            if (decoded := _decode_hoshi_line_tag(tag)) is not None
+        ),
+        None,
+    )
+    if tagged_line_id:
+        available_lines = list(lines or get_all_lines())
+        tagged_line = next(
+            (line for line in available_lines if str(getattr(line, "id", "") or "") == tagged_line_id),
+            None,
+        )
+        if tagged_line is None and str(getattr(overlay_line, "id", "") or "") == tagged_line_id:
+            tagged_line = overlay_line
+        if tagged_line is not None:
+            return tagged_line
+
     anki_sentence = remove_html_and_cloze_tags(get_sentence(card)) if card else ""
     overlay_mine = _is_overlay_mine(card)
     matching_lines = lines

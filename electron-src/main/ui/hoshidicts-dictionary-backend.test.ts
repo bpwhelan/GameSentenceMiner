@@ -70,12 +70,50 @@ class FakePopup {
   showResults = vi.fn(() => true);
   showState = vi.fn();
   setDictionaryStyles = vi.fn();
+  setMiningReadiness = vi.fn();
+  setMineDispatcher = vi.fn();
+  setMineSuccessHandler = vi.fn();
   dismiss = vi.fn();
   command = vi.fn(async () => ({ status: "handled" }));
   setLookupDispatcher = vi.fn();
 }
 
 describe("HoshiDicts dictionary backend", () => {
+  it("exposes mining only after Python reports a valid Anki mapping", async () => {
+    const { HoshiDictsDictionaryBackend } = await import(modulePath);
+    const client = new FakeClient();
+    const popup = new FakePopup();
+    const miningClient = {
+      refreshReadiness: vi.fn(async () => ({
+        ready: true,
+        status: "ready",
+        message: "Ready",
+        missing: [],
+      })),
+      mine: vi.fn(),
+    };
+    const backend = new HoshiDictsDictionaryBackend({
+      client,
+      popup,
+      miningClient,
+    });
+
+    expect(backend.capabilities.has("mine")).toBe(false);
+    await backend.start({
+      catalog: { generation: 7, dictionaries: [dictionary] },
+    });
+    await backend.refreshMiningReadiness();
+
+    expect(backend.capabilities.has("mine")).toBe(true);
+    expect(backend.getSnapshot().miningReadiness).toMatchObject({
+      ready: true,
+      status: "ready",
+    });
+    expect(popup.setMiningReadiness).toHaveBeenCalledWith(
+      expect.objectContaining({ ready: true }),
+    );
+  });
+
   it("starts the host, configures an ID-based catalog, and renders lookup results", async () => {
     const { HoshiDictsDictionaryBackend } = await import(modulePath);
     const client = new FakeClient();

@@ -29,8 +29,7 @@
 }
 
 #hoshidicts-popup-root .hoshidicts-popup-actions {
-  display: grid;
-  grid-template-columns: 34px 34px 34px 1fr;
+  display: flex;
   align-items: center;
   min-height: 42px;
   padding: 4px 8px;
@@ -60,6 +59,7 @@
 }
 
 #hoshidicts-popup-root .hoshidicts-entry-counter {
+  margin-left: auto;
   justify-self: end;
   color: var(--hoshi-muted);
   font-variant-numeric: tabular-nums;
@@ -142,7 +142,19 @@
 }
 
 #hoshidicts-popup-root .hoshidicts-glossary {
-  padding: 3px 0 7px 2px;
+  margin: 1px 0;
+  padding: 5px 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+#hoshidicts-popup-root .hoshidicts-glossary:hover,
+#hoshidicts-popup-root .hoshidicts-glossary:focus-visible,
+#hoshidicts-popup-root .hoshidicts-glossary.is-selected {
+  border-color: var(--hoshi-accent);
+  background: rgba(111, 209, 199, 0.11);
+  outline: none;
 }
 
 #hoshidicts-popup-root .hoshidicts-glossary-content {
@@ -189,6 +201,22 @@
 
 #hoshidicts-popup-root .hoshidicts-popup-state-error,
 #hoshidicts-popup-root .hoshidicts-popup-state-host-unavailable {
+  color: var(--hoshi-danger);
+}
+
+#hoshidicts-popup-root .hoshidicts-mine-status {
+  min-height: 30px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--hoshi-border);
+  color: var(--hoshi-muted);
+  font-size: 12px;
+}
+
+#hoshidicts-popup-root .hoshidicts-mine-status-success {
+  color: var(--hoshi-accent);
+}
+
+#hoshidicts-popup-root .hoshidicts-mine-status-error {
   color: var(--hoshi-danger);
 }
 

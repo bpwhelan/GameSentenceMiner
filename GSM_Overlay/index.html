@@ -982,6 +982,7 @@ background: rgba(202, 12, 12, 0.692);
   let dictionaryPointerScanner = null;
   let yomitanDictionaryBackend = null;
   let hoshiDictionaryClient = null;
+  let hoshiMiningClient = null;
   let hoshiDictionaryPopup = null;
   let hoshiDictionaryBackend = null;
   let dictionaryProfileSettings = {
@@ -1323,6 +1324,7 @@ background: rgba(202, 12, 12, 0.692);
   } = require("./dictionary_interaction.js");
   const { HoshiDictsClient } = require("./hoshidicts_client.js");
   const { HoshiDictsDictionaryBackend } = require("./hoshidicts_dictionary_backend.js");
+  const { HoshiDictsMiningClient } = require("./hoshidicts_mining.js");
   const { HoshiDictsPopup } = require("./hoshidicts_popup.js");
   const { YomitanDictionaryBackend } = require("./yomitan_dictionary_backend.js");
 
@@ -1340,14 +1342,19 @@ background: rgba(202, 12, 12, 0.692);
   hoshiDictionaryClient = new HoshiDictsClient({
     clientVersion: "gsm-overlay",
   });
+  hoshiMiningClient = new HoshiDictsMiningClient({
+    ipcRenderer,
+  });
   hoshiDictionaryPopup = new HoshiDictsPopup({
     window,
     document,
   });
   hoshiDictionaryBackend = new HoshiDictsDictionaryBackend({
     client: hoshiDictionaryClient,
+    miningClient: hoshiMiningClient,
     popup: hoshiDictionaryPopup,
     getGeneration: () => dictionaryPopupController.generation,
+    shouldDismissAfterMine: () => hideYomitanAfterMine,
   });
   dictionaryBackendManager = new DictionaryBackendManager({
     controller: dictionaryPopupController,
@@ -1511,6 +1518,7 @@ background: rgba(202, 12, 12, 0.692);
   });
   window.addEventListener("beforeunload", () => {
     dictionaryPointerScanner?.dispose();
+    hoshiMiningClient?.destroy?.();
     hoshiDictionaryClient?.forceKill?.();
   });
   ipcRenderer.on("dictionary-popup-dismiss-request", (_event, payload = {}) => {

@@ -89,6 +89,10 @@ class HoshiDictsPopup {
       typeof options.resolveMedia === "function" ? options.resolveMedia : null;
     this.requestLookup =
       typeof options.requestLookup === "function" ? options.requestLookup : null;
+    this.requestMine =
+      typeof options.requestMine === "function" ? options.requestMine : null;
+    this.onMineSuccess =
+      typeof options.onMineSuccess === "function" ? options.onMineSuccess : null;
     this.getWorkArea =
       typeof options.getWorkArea === "function"
         ? options.getWorkArea
@@ -113,7 +117,18 @@ class HoshiDictsPopup {
     this.entryIndex = 0;
     this.anchor = null;
     this.sourceSentence = "";
+    this.lineId = "";
     this.selectedActionId = null;
+    this.selectedGlossaryId = null;
+    this.renderedGlossaries = new Map();
+    this.miningReadiness = Object.freeze({
+      ready: false,
+      status: "unknown",
+      message: "",
+      missing: [],
+    });
+    this.miningInFlight = false;
+    this.miningStatus = null;
     this.history = [];
     this.dictionaryStyles = [];
     this.boundReposition = () => this.reposition();
@@ -123,6 +138,33 @@ class HoshiDictsPopup {
   setLookupDispatcher(dispatcher) {
     this.requestLookup =
       typeof dispatcher === "function" ? dispatcher : null;
+  }
+
+  setMineDispatcher(dispatcher) {
+    this.requestMine =
+      typeof dispatcher === "function" ? dispatcher : null;
+  }
+
+  setMineSuccessHandler(handler) {
+    this.onMineSuccess =
+      typeof handler === "function" ? handler : null;
+  }
+
+  setMiningReadiness(readiness = {}) {
+    this.miningReadiness = Object.freeze({
+      ready: readiness.ready === true,
+      status:
+        typeof readiness.status === "string" && readiness.status
+          ? readiness.status
+          : "unknown",
+      message: typeof readiness.message === "string" ? readiness.message : "",
+      missing: Array.isArray(readiness.missing)
+        ? readiness.missing.slice(0, 32)
+        : [],
+    });
+    if (this.state === "results") {
+      this.#renderResults();
+    }
   }
 
   setRecursiveLookupEnabled(enabled) {
@@ -197,6 +239,9 @@ class HoshiDictsPopup {
     if (typeof options.sourceSentence === "string") {
       this.sourceSentence = options.sourceSentence;
     }
+    if (typeof options.lineId === "string") {
+      this.lineId = options.lineId;
+    }
     this.root.style.display = "block";
     this.reposition();
     return true;
@@ -207,6 +252,10 @@ class HoshiDictsPopup {
       return false;
     }
     this.state = "loading";
+    this.model = null;
+    this.selectedGlossaryId = null;
+    this.renderedGlossaries.clear();
+    this.miningStatus = null;
     this.#renderState("loading", options);
     return true;
   }
@@ -222,6 +271,9 @@ class HoshiDictsPopup {
     if (state !== "loading") {
       this.model = null;
       this.entryIndex = 0;
+      this.selectedGlossaryId = null;
+      this.renderedGlossaries.clear();
+      this.miningStatus = null;
     }
     this.#renderState(state, options);
     return true;
@@ -268,7 +320,42 @@ class HoshiDictsPopup {
         model.entries.length - 1,
       );
     }
+    this.#ensureSelectedGlossary();
     this.#renderResults();
+    return true;
+  }
+
+  #glossariesForEntry(entry = this.model?.entries?.[this.entryIndex]) {
+    if (!entry) {
+      return [];
+    }
+    const values = [];
+    for (const dictionary of entry.dictionaries || []) {
+      for (const glossary of dictionary.glossaries || []) {
+        values.push({ dictionary, glossary });
+      }
+    }
+    return values;
+  }
+
+  #ensureSelectedGlossary() {
+    const glossaries = this.#glossariesForEntry();
+    if (
+      !glossaries.some(
+        ({ glossary }) => glossary.id === this.selectedGlossaryId,
+      )
+    ) {
+      this.selectedGlossaryId = glossaries[0]?.glossary.id || null;
+    }
+  }
+
+  #selectGlossary(glossaryId) {
+    if (!this.renderedGlossaries.has(glossaryId)) {
+      return false;
+    }
+    this.selectedGlossaryId = glossaryId;
+    this.miningStatus = null;
+    this.#syncGlossarySelection();
     return true;
   }
 
@@ -295,11 +382,20 @@ class HoshiDictsPopup {
         label: "Back",
       });
     }
+    if (this.miningReadiness.ready === true) {
+      actions.push({
+        id: "hoshi-action:mine",
+        command: "mine",
+        label: "Mine selected glossary",
+      });
+    }
     return actions;
   }
 
   #renderResults() {
     const entry = this.model.entries[this.entryIndex];
+    this.#ensureSelectedGlossary();
+    this.renderedGlossaries.clear();
     this.root.replaceChildren();
 
     const toolbar = this.document.createElement("nav");
@@ -321,7 +417,9 @@ class HoshiDictsPopup {
           ? "\u2039"
           : action.command === "next-entry"
             ? "\u203a"
-            : "\u2190";
+            : action.command === "recursive-back"
+              ? "\u2190"
+              : "\u002b";
       button.addEventListener("click", () => {
         void this.command(action.command);
       });
@@ -336,6 +434,7 @@ class HoshiDictsPopup {
     counter.setAttribute("aria-live", "polite");
     toolbar.appendChild(counter);
     this.root.appendChild(toolbar);
+    this.#renderMiningStatus();
 
     const content = this.document.createElement("div");
     content.className = "hoshidicts-popup-scroll";
@@ -426,6 +525,8 @@ class HoshiDictsPopup {
         const item = this.document.createElement("li");
         item.className = "hoshidicts-glossary";
         item.dataset.glossaryId = glossary.id;
+        item.setAttribute("role", "option");
+        item.tabIndex = 0;
         const rendered = renderGlossaryContent({
           document: this.document,
           content: glossary.content,
@@ -433,6 +534,15 @@ class HoshiDictsPopup {
           resolveMedia: this.resolveMedia,
         });
         item.appendChild(rendered.element);
+        item.addEventListener("click", () => {
+          this.#selectGlossary(glossary.id);
+        });
+        item.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            this.#selectGlossary(glossary.id);
+          }
+        });
         const allTags = [
           ...(glossary.definitionTags || []),
           ...(glossary.termTags || []),
@@ -447,6 +557,13 @@ class HoshiDictsPopup {
           }
           item.appendChild(tags);
         }
+        this.renderedGlossaries.set(glossary.id, {
+          entry,
+          dictionary,
+          glossary,
+          item,
+          mediaPromises: rendered.mediaPromises,
+        });
         list.appendChild(item);
       }
       section.appendChild(list);
@@ -455,7 +572,25 @@ class HoshiDictsPopup {
     this.root.appendChild(content);
     this.#appendDictionaryStyles();
     this.#syncActionSelection();
+    this.#syncGlossarySelection();
     this.reposition();
+  }
+
+  #renderMiningStatus() {
+    this.root.querySelector(".hoshidicts-mine-status")?.remove();
+    if (!this.miningStatus) {
+      return;
+    }
+    const status = createTextElement(
+      this.document,
+      "div",
+      `hoshidicts-mine-status hoshidicts-mine-status-${this.miningStatus.kind}`,
+      this.miningStatus.message,
+    );
+    status.setAttribute("role", "status");
+    status.setAttribute("aria-live", "polite");
+    const toolbar = this.root.querySelector(".hoshidicts-popup-actions");
+    toolbar?.insertAdjacentElement("afterend", status);
   }
 
   setDictionaryStyles(styles = []) {
@@ -496,12 +631,22 @@ class HoshiDictsPopup {
     }
   }
 
+  #syncGlossarySelection() {
+    for (const [glossaryId, rendered] of this.renderedGlossaries) {
+      const selected = glossaryId === this.selectedGlossaryId;
+      rendered.item.classList.toggle("is-selected", selected);
+      rendered.item.setAttribute("aria-selected", selected ? "true" : "false");
+    }
+  }
+
   #moveEntry(delta) {
     if (!this.model?.entries?.length) {
       return { status: "ignored" };
     }
     const count = this.model.entries.length;
     this.entryIndex = (this.entryIndex + delta + count) % count;
+    this.selectedGlossaryId = null;
+    this.miningStatus = null;
     this.#renderResults();
     return {
       status: "handled",
@@ -536,6 +681,149 @@ class HoshiDictsPopup {
     return await this.command(action.command);
   }
 
+  async getMiningSelection() {
+    const generation = this.generation;
+    const glossaryId = this.selectedGlossaryId;
+    const rendered = this.renderedGlossaries.get(glossaryId);
+    if (!rendered) {
+      return null;
+    }
+    await Promise.allSettled(rendered.mediaPromises || []);
+    if (
+      generation !== this.generation ||
+      glossaryId !== this.selectedGlossaryId ||
+      this.renderedGlossaries.get(glossaryId) !== rendered
+    ) {
+      return null;
+    }
+    const glossaryContent = rendered.item.querySelector(
+      ".hoshidicts-glossary-content",
+    );
+    const textParts = [glossaryContent?.textContent || ""];
+    for (const image of rendered.item.querySelectorAll(
+      "img.hoshidicts-media[data-hoshi-media-path]",
+    )) {
+      if (image.alt) {
+        textParts.push(image.alt);
+      }
+    }
+    const glossaryText = textParts
+      .join(" ")
+      .replace(/\s+/gu, " ")
+      .trim();
+    if (!glossaryText) {
+      return null;
+    }
+    const media = [];
+    for (const image of rendered.item.querySelectorAll(
+      "img.hoshidicts-media[data-hoshi-media-path]",
+    )) {
+      if (media.length >= 4) {
+        break;
+      }
+      const match = String(image.src || "").match(
+        /^data:(image\/(?:png|jpeg|gif|webp));base64,([A-Za-z0-9+/]+={0,2})$/u,
+      );
+      if (!match) {
+        continue;
+      }
+      media.push({
+        dictionary_id: rendered.dictionary.dictionaryId,
+        path: image.dataset.hoshiMediaPath,
+        mime_type: match[1],
+        data_base64: match[2],
+      });
+    }
+    return {
+      generation,
+      line_id: this.lineId,
+      source_sentence: this.sourceSentence,
+      lookup: {
+        expression: rendered.entry.expression,
+        reading: rendered.entry.reading,
+        matched_text: rendered.entry.matched,
+        dictionary_id: rendered.dictionary.dictionaryId,
+        dictionary_title: rendered.dictionary.title,
+        glossary_id: rendered.glossary.id,
+        glossary_text: glossaryText,
+        frequency: (rendered.dictionary.frequencies || []).map(
+          (frequency) => frequency.displayValue,
+        ),
+        pitch: (rendered.dictionary.pitches || []).map(String),
+      },
+      media,
+    };
+  }
+
+  async #mineSelection() {
+    if (
+      this.miningReadiness.ready !== true ||
+      typeof this.requestMine !== "function"
+    ) {
+      return { status: "unsupported" };
+    }
+    if (this.miningInFlight) {
+      return { status: "busy" };
+    }
+    this.miningInFlight = true;
+    this.miningStatus = { kind: "pending", message: "Preparing Anki note..." };
+    this.#renderMiningStatus();
+    try {
+      const selection = await this.getMiningSelection();
+      if (!selection) {
+        this.miningStatus = {
+          kind: "error",
+          message: "Select a glossary with mineable content.",
+        };
+        this.#renderMiningStatus();
+        return { status: "failed" };
+      }
+      this.miningStatus = { kind: "pending", message: "Creating Anki note..." };
+      this.#renderMiningStatus();
+      const result = await this.requestMine(selection);
+      const success = ["created", "duplicate", "opened-existing"].includes(
+        result?.status,
+      );
+      const warnings = Array.isArray(result?.warnings)
+        ? result.warnings
+            .filter((warning) => typeof warning === "string" && warning.trim())
+            .slice(0, 8)
+        : [];
+      const resultMessage =
+        result?.message ||
+        (result?.status === "duplicate"
+          ? "This glossary was already mined."
+          : success
+            ? "Anki note created."
+            : "Could not create the Anki note.");
+      this.miningStatus = {
+        kind: success ? "success" : "error",
+        message: [resultMessage, ...warnings].join(" "),
+      };
+      this.#renderMiningStatus();
+      if (success) {
+        this.onMineSuccess?.(result);
+      }
+      return { status: success ? "handled" : "failed", result };
+    } catch (error) {
+      this.miningStatus = {
+        kind: "error",
+        message:
+          typeof error?.message === "string" && error.message
+            ? error.message
+            : "Could not create the Anki note.",
+      };
+      this.#renderMiningStatus();
+      return {
+        status: "failed",
+        errorCode:
+          typeof error?.code === "string" ? error.code : "MINING_FAILED",
+      };
+    } finally {
+      this.miningInFlight = false;
+    }
+  }
+
   async requestRecursiveLookup(text) {
     if (
       !this.recursiveLookupEnabled ||
@@ -554,6 +842,8 @@ class HoshiDictsPopup {
       selectedActionId: this.selectedActionId,
       anchor: this.anchor,
       sourceSentence: this.sourceSentence,
+      lineId: this.lineId,
+      selectedGlossaryId: this.selectedGlossaryId,
       generation: this.generation,
     });
     if (this.history.length > this.maxHistory) {
@@ -566,6 +856,7 @@ class HoshiDictsPopup {
         recursive: true,
         preservePopup: true,
         sourceSentence: this.sourceSentence,
+        lineId: this.lineId,
       });
     } catch (error) {
       const previous = this.history.pop();
@@ -582,6 +873,8 @@ class HoshiDictsPopup {
     this.selectedActionId = previous.selectedActionId;
     this.anchor = previous.anchor;
     this.sourceSentence = previous.sourceSentence;
+    this.lineId = previous.lineId;
+    this.selectedGlossaryId = previous.selectedGlossaryId;
     this.state = "results";
     this.#renderResults();
   }
@@ -611,6 +904,8 @@ class HoshiDictsPopup {
         return { status: "handled" };
       case "confirm-action":
         return await this.#confirmAction();
+      case "mine":
+        return await this.#mineSelection();
       case "next-entry":
         return this.#moveEntry(1);
       case "previous-entry":
@@ -665,6 +960,10 @@ class HoshiDictsPopup {
     this.content = null;
     this.entryIndex = 0;
     this.selectedActionId = null;
+    this.selectedGlossaryId = null;
+    this.renderedGlossaries.clear();
+    this.miningStatus = null;
+    this.miningInFlight = false;
     this.history = [];
     return true;
   }
@@ -684,9 +983,13 @@ class HoshiDictsPopup {
       entryIndex: this.entryIndex,
       entryId: entry?.id || null,
       selectedActionId: this.selectedActionId,
+      selectedGlossaryId: this.selectedGlossaryId,
       historyDepth: this.history.length,
+      miningReady: this.miningReadiness.ready,
+      miningStatus: this.miningStatus,
       recursiveLookupEnabled: this.recursiveLookupEnabled,
       sourceSentence: this.sourceSentence,
+      lineId: this.lineId,
       anchor: this.anchor ? { ...this.anchor } : null,
     };
   }

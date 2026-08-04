@@ -40,3 +40,30 @@ def test_field_grouping_normalizes_invalid_order_and_additional_fields():
 
     assert config.field_grouping_order == "front"
     assert config.field_grouping_additional_fields == ["MiscInfo", "CustomContext"]
+
+
+def test_hoshi_mining_mapping_is_explicit_and_round_trips():
+    defaults = Anki()
+
+    assert defaults.hoshi_mining_deck == ""
+    assert defaults.hoshi_reading_field == ""
+    assert defaults.hoshi_glossary_field == ""
+
+    configured = Anki.from_dict(
+        {
+            **defaults.to_dict(),
+            "hoshi_mining_deck": "Japanese::Mining",
+            "hoshi_reading_field": "Reading",
+            "hoshi_glossary_field": "Glossary",
+            "hoshi_dictionary_field": "Dictionary",
+            "hoshi_frequency_field": "Frequency",
+            "hoshi_pitch_field": "Pitch",
+        }
+    )
+
+    assert configured.hoshi_mining_deck == "Japanese::Mining"
+    assert configured.hoshi_reading_field == "Reading"
+    assert configured.hoshi_glossary_field == "Glossary"
+    assert configured.hoshi_dictionary_field == "Dictionary"
+    assert configured.hoshi_frequency_field == "Frequency"
+    assert configured.hoshi_pitch_field == "Pitch"
