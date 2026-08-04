@@ -153,8 +153,8 @@ class YomitanDictionaryBackend extends EventEmitter {
   }
 
   async lookup(request = {}) {
-    const x = finiteCoordinate(request.anchor?.x);
-    const y = finiteCoordinate(request.anchor?.y);
+    const x = finiteCoordinate(request.pointer?.x ?? request.anchor?.x);
+    const y = finiteCoordinate(request.pointer?.y ?? request.anchor?.y);
     if (x === null || y === null) {
       throw new YomitanDictionaryBackendError(
         "INVALID_ANCHOR",
@@ -182,7 +182,25 @@ class YomitanDictionaryBackend extends EventEmitter {
     if (!action) {
       return { status: "unsupported" };
     }
-    this.#sendControl(action, params);
+    const adapterParams = { ...params };
+    if (command === "scroll") {
+      if (params.direction === "up") {
+        adapterParams.direction = 1;
+      } else if (params.direction === "down") {
+        adapterParams.direction = -1;
+      }
+      if (Number.isFinite(params.amount)) {
+        adapterParams.step = params.amount;
+        delete adapterParams.amount;
+      }
+    } else if (command === "select-action") {
+      if (params.direction === "previous") {
+        adapterParams.direction = -1;
+      } else if (params.direction === "next") {
+        adapterParams.direction = 1;
+      }
+    }
+    this.#sendControl(action, adapterParams);
     return { status: "handled" };
   }
 

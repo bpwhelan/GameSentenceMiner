@@ -157,11 +157,13 @@ describe("YomitanDictionaryBackend", () => {
     await backend.start();
 
     await backend.lookup({
-      anchor: { x: 12, y: 34 },
+      anchor: { x: 10, y: 30, width: 4, height: 8 },
+      pointer: { x: 12, y: 34 },
       generation: 2,
     });
     await backend.command("next-entry", {});
-    await backend.command("scroll", { direction: -1, step: 110 });
+    await backend.command("scroll", { direction: "down", amount: 110 });
+    await backend.command("select-action", { direction: "previous" });
     await backend.command("mine", {});
 
     expect(harness.messages).toEqual(
@@ -179,6 +181,12 @@ describe("YomitanDictionaryBackend", () => {
         expect.objectContaining({
           type: "gsm-yomitan-control",
           action: "scroll",
+          direction: -1,
+          step: 110,
+        }),
+        expect.objectContaining({
+          type: "gsm-yomitan-control",
+          action: "select-action",
           direction: -1,
         }),
         expect.objectContaining({

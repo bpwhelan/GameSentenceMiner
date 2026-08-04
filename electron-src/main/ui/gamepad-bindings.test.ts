@@ -178,7 +178,7 @@ describe("legacy gamepad button bindings", () => {
     expect(handler.isButtonBindingHeld(comboBinding, "pad-1")).toBe(false);
   });
 
-  it("uses normalized bindings for Yomitan entry navigation buttons saved as labels", () => {
+  it("uses normalized bindings for dictionary entry navigation buttons saved as labels", () => {
     const handler = Object.create(GamepadHandler.prototype) as {
       config: {
         activationMode: string;
@@ -193,11 +193,11 @@ describe("legacy gamepad button bindings", () => {
       matchesButtonBindingDown: (binding: any, device: string, buttonIndex: number) => boolean;
       refreshButtonBindings: () => void;
       onButtonDown: (buttonIndex: number, device: string) => void;
-      yomitanPopupVisible: boolean;
+      dictionaryPopupVisible: boolean;
       isNavigationActive: () => boolean;
       shouldProcessNavigation: () => boolean;
-      navigateYomitanNextEntry: () => void;
-      navigateYomitanPrevEntry: () => void;
+      navigateDictionaryNextEntry: () => void;
+      navigateDictionaryPreviousEntry: () => void;
     };
 
     handler.config = {
@@ -212,15 +212,15 @@ describe("legacy gamepad button bindings", () => {
     handler.matchesButtonBindingDown = GamepadHandler.prototype.matchesButtonBindingDown;
     handler.refreshButtonBindings = GamepadHandler.prototype.refreshButtonBindings;
     handler.onButtonDown = GamepadHandler.prototype.onButtonDown;
-    handler.yomitanPopupVisible = true;
+    handler.dictionaryPopupVisible = true;
     handler.isNavigationActive = () => false;
     handler.shouldProcessNavigation = () => false;
 
     const calls: string[] = [];
-    handler.navigateYomitanNextEntry = () => {
+    handler.navigateDictionaryNextEntry = () => {
       calls.push("next");
     };
-    handler.navigateYomitanPrevEntry = () => {
+    handler.navigateDictionaryPreviousEntry = () => {
       calls.push("prev");
     };
 
@@ -711,7 +711,7 @@ describe("legacy gamepad block redraw recovery", () => {
   });
 });
 
-describe("legacy gamepad popup routing", () => {
+describe("backend-neutral gamepad popup routing", () => {
   it("routes lookup and popup commands exclusively through the generic controller", () => {
     const controllerCalls: unknown[] = [];
     const legacyMessages: unknown[] = [];
@@ -734,16 +734,19 @@ describe("legacy gamepad popup routing", () => {
     };
 
     const handler = Object.create(GamepadHandler.prototype) as {
-      sendYomitanControlMessage: (
+      sendDictionaryControlCommand: (
         action: string,
         params?: Record<string, unknown>,
       ) => void;
     };
 
-    handler.sendYomitanControlMessage("lookup-point", {
-      x: 10,
-      y: 20,
+    handler.sendDictionaryControlCommand("lookup", {
+      text: "猫",
+      sourceSentence: "猫が走る。",
+      anchor: { x: 9, y: 19, width: 2, height: 2 },
+      pointer: { x: 10, y: 20 },
       anchorKey: "2:4",
+      source: "gamepad",
     });
     handler.sendYomitanControlMessage("scroll", { direction: -1 });
     handler.sendYomitanControlMessage("hide-popup");
@@ -752,7 +755,10 @@ describe("legacy gamepad popup routing", () => {
       {
         type: "lookup",
         intent: {
-          anchor: { x: 10, y: 20 },
+          text: "猫",
+          sourceSentence: "猫が走る。",
+          anchor: { x: 9, y: 19, width: 2, height: 2 },
+          pointer: { x: 10, y: 20 },
           anchorKey: "2:4",
           source: "gamepad",
         },
@@ -772,10 +778,9 @@ describe("legacy gamepad popup routing", () => {
     delete legacyGamepadContext.window.gsmDictionaryPopupController;
   });
 
-  it("routes popup action controls only to the topmost visible popup frame", () => {
+  it("never bypasses the generic controller when it is unavailable", async () => {
     const hostMessages: unknown[] = [];
     const parentMessages: unknown[] = [];
-    const hiddenChildMessages: unknown[] = [];
     const visibleChildMessages: unknown[] = [];
 
     legacyGamepadContext.window.postMessage = (message: unknown) => {
@@ -791,15 +796,6 @@ describe("legacy gamepad popup routing", () => {
         }
       }
     };
-    const hiddenChildFrame = {
-      style: { display: "block", visibility: "hidden" },
-      getClientRects: () => [],
-      contentWindow: {
-        postMessage: (message: unknown) => {
-          hiddenChildMessages.push(message);
-        }
-      }
-    };
     const visibleChildFrame = {
       style: { display: "block", visibility: "visible" },
       getClientRects: () => [1],
@@ -812,30 +808,23 @@ describe("legacy gamepad popup routing", () => {
 
     legacyGamepadContext.document.querySelectorAll = (selector: string) =>
       selector === "iframe.yomitan-popup"
-        ? [parentFrame, hiddenChildFrame, visibleChildFrame]
+        ? [parentFrame, visibleChildFrame]
         : [];
     legacyGamepadContext.document.querySelector = () => null;
 
     const handler = Object.create(GamepadHandler.prototype) as {
-      sendYomitanControlMessage: (action: string, params?: Record<string, unknown>) => void;
+      sendDictionaryControlCommand: (
+        action: string,
+        params?: Record<string, unknown>,
+      ) => Promise<unknown>;
     };
 
-    handler.sendYomitanControlMessage("reset-action-selection");
-
-    expect(hostMessages).toEqual([
-      {
-        type: "gsm-yomitan-control",
-        action: "reset-action-selection"
-      }
-    ]);
+    await expect(
+      handler.sendDictionaryControlCommand("reset-action-selection"),
+    ).resolves.toMatchObject({ status: "unavailable" });
+    expect(hostMessages).toEqual([]);
     expect(parentMessages).toEqual([]);
-    expect(hiddenChildMessages).toEqual([]);
-    expect(visibleChildMessages).toEqual([
-      {
-        type: "gsm-yomitan-control",
-        action: "reset-action-selection"
-      }
-    ]);
+    expect(visibleChildMessages).toEqual([]);
   });
 
   it("tracks nested popup IDs and invalidates mining only after the final close", () => {
@@ -848,7 +837,11 @@ describe("legacy gamepad popup routing", () => {
     handler.pendingMineCandidate = { anchorKey: "0:0" };
     handler.lastLookupAnchorKey = "0:0";
     handler.thumbstickLatch = new Map();
-    handler.sendYomitanControlMessage = (action: string) => actions.push(action);
+    handler.dictionarySupports = () => true;
+    handler.sendDictionaryControlCommand = (action: string) => {
+      actions.push(action);
+      return Promise.resolve({ status: "handled" });
+    };
     handler.setThumbstickLatch = GamepadHandler.prototype.setThumbstickLatch;
     handler.clearPendingMineCandidate = GamepadHandler.prototype.clearPendingMineCandidate;
     handler.resetYomitanPopupActionSelection =
@@ -895,7 +888,11 @@ describe("legacy gamepad popup routing", () => {
     handler.pendingMineCandidate = { anchorKey: "0:0" };
     handler.lastLookupAnchorKey = "0:0";
     handler.thumbstickLatch = new Map();
-    handler.sendYomitanControlMessage = (action: string) => actions.push(action);
+    handler.dictionarySupports = () => true;
+    handler.sendDictionaryControlCommand = (action: string) => {
+      actions.push(action);
+      return Promise.resolve({ status: "handled" });
+    };
     handler.setThumbstickLatch = GamepadHandler.prototype.setThumbstickLatch;
     handler.clearPendingMineCandidate =
       GamepadHandler.prototype.clearPendingMineCandidate;
@@ -942,15 +939,95 @@ describe("legacy gamepad popup routing", () => {
     expect(actions.at(-1)).toBe("clear-action-selection");
   });
 
-  it("requires an unchanged target and open popup before second-confirm mining", () => {
+  it("invalidates armed mining and action state during a backend transition", () => {
+    const handler = Object.create(GamepadHandler.prototype) as any;
+    handler.pendingMineCandidate = {
+      anchorKey: "19:line-42:2",
+      backendId: "hoshidicts",
+      generation: 9,
+    };
+    handler.dictionaryPopupBackendId = "hoshidicts";
+    handler.popupActionSelectionActive = true;
+    handler.popupActionSelectionExplicit = true;
+    handler.thumbstickLatch = new Map([["right_x", true]]);
+    handler.dictionaryAxisTransitionBlocks = new Set();
+    handler.lastDictionaryStatusBackendId = "hoshidicts";
+    handler.lastDictionaryStatusGeneration = 9;
+    handler.clearPendingMineCandidate =
+      GamepadHandler.prototype.clearPendingMineCandidate;
+    handler.setThumbstickLatch = GamepadHandler.prototype.setThumbstickLatch;
+
+    GamepadHandler.prototype.onDictionaryBackendStatus.call(handler, {
+      detail: {
+        state: "switching",
+        backendId: "yomitan",
+        controller: {
+          backendId: "yomitan",
+          generation: 10,
+        },
+      },
+    });
+
+    expect(handler.pendingMineCandidate).toBeNull();
+    expect(handler.popupActionSelectionActive).toBe(false);
+    expect(handler.popupActionSelectionExplicit).toBe(false);
+    expect(Array.from(handler.dictionaryAxisTransitionBlocks).sort()).toEqual([
+      "right_x",
+      "right_y",
+    ]);
+    expect(handler.thumbstickLatch.get("right_x")).toBe(true);
+  });
+
+  it("requires a neutral right stick before commands resume after a transition", () => {
+    const actions: string[] = [];
+    const handler = Object.create(GamepadHandler.prototype) as any;
+    handler.dictionaryPopupVisible = true;
+    handler.dictionaryAxisTransitionBlocks = new Set(["right_x"]);
+    handler.thumbstickLatch = new Map([["right_x", true]]);
+    handler.popupActionSelectionActive = true;
+    handler.popupActionSelectionExplicit = false;
+    handler.dictionarySupports = () => true;
+    handler.sendDictionaryControlCommand = (command: string) => {
+      actions.push(command);
+      return Promise.resolve({ status: "handled" });
+    };
+    handler.getThumbstickLatch = GamepadHandler.prototype.getThumbstickLatch;
+    handler.setThumbstickLatch = GamepadHandler.prototype.setThumbstickLatch;
+    handler.consumeDictionaryAxisTransitionBlock =
+      GamepadHandler.prototype.consumeDictionaryAxisTransitionBlock;
+
+    GamepadHandler.prototype.processRightStickHorizontalForPopup.call(
+      handler,
+      1,
+      0.2,
+    );
+    GamepadHandler.prototype.processRightStickHorizontalForPopup.call(
+      handler,
+      0,
+      0.2,
+    );
+    GamepadHandler.prototype.processRightStickHorizontalForPopup.call(
+      handler,
+      1,
+      0.2,
+    );
+
+    expect(actions).toEqual(["select-action"]);
+  });
+
+  it("requires an unchanged target, backend, and generation before second-confirm mining", () => {
     const handler = Object.create(GamepadHandler.prototype) as any;
     handler.currentBlockIndex = 2;
     handler.currentCursorIndex = 4;
-    handler.yomitanPopupVisible = true;
+    handler.dictionaryPopupVisible = true;
+    handler.dictionaryPopupBackendId = "hoshidicts";
+    handler.dictionaryPopupGeneration = 9;
     handler.pendingMineCandidate = null;
 
     GamepadHandler.prototype.setPendingMineCandidate.call(handler, {
-      anchorKey: "2:4"
+      anchorKey: "2:4",
+      backendId: "hoshidicts",
+      generation: 9,
     });
 
     expect(
@@ -967,7 +1044,15 @@ describe("legacy gamepad popup routing", () => {
     ).toBe(false);
 
     handler.currentCursorIndex = 4;
-    handler.yomitanPopupVisible = false;
+    handler.dictionaryPopupGeneration = 10;
+    expect(
+      GamepadHandler.prototype.canMineFromCurrentConfirm.call(handler, {
+        anchorKey: "2:4"
+      })
+    ).toBe(false);
+
+    handler.dictionaryPopupGeneration = 9;
+    handler.dictionaryPopupBackendId = "yomitan";
     expect(
       GamepadHandler.prototype.canMineFromCurrentConfirm.call(handler, {
         anchorKey: "2:4"
@@ -976,16 +1061,18 @@ describe("legacy gamepad popup routing", () => {
   });
 
   it("performs lookup on first confirm and mines on the second matching confirm", () => {
-    const sent: Array<{ action: string; params?: Record<string, unknown> }> = [];
+    const intents: Array<Record<string, unknown>> = [];
     let mined = 0;
     const targetChar = { textContent: "食" };
     const handler = Object.create(GamepadHandler.prototype) as any;
     handler.config = {};
     handler.currentBlockIndex = 1;
     handler.currentCursorIndex = 3;
-    handler.yomitanPopupVisible = false;
+    handler.dictionaryPopupVisible = false;
+    handler.dictionaryPopupBackendId = "hoshidicts";
+    handler.dictionaryPopupGeneration = 12;
     handler.pendingMineCandidate = null;
-    handler.confirmYomitanPopupActionSelection = () => false;
+    handler.confirmDictionaryPopupActionSelection = () => false;
     handler.getLookupInfoForConfirm = () => ({
       targetChar,
       centerX: 10,
@@ -999,74 +1086,93 @@ describe("legacy gamepad popup routing", () => {
       GamepadHandler.prototype.setPendingMineCandidate;
     handler.clearPendingMineCandidate =
       GamepadHandler.prototype.clearPendingMineCandidate;
-    handler.sendYomitanControlMessage = (
-      action: string,
-      params?: Record<string, unknown>
-    ) => sent.push({ action, params });
+    handler.buildDictionaryLookupIntent = () => ({
+      text: "食べる",
+      sourceSentence: "食べる",
+      offset: 0,
+      anchor: { x: 9, y: 19, width: 2, height: 2 },
+      pointer: { x: 10, y: 20 },
+      anchorKey: "1:3",
+      source: "gamepad",
+    });
+    handler.lookupDictionaryAtSelection = () => {
+      intents.push({ text: "食べる", anchorKey: "1:3" });
+      return {
+        backendId: "hoshidicts",
+        generation: 12,
+        anchorKey: "1:3",
+      };
+    };
     handler.triggerMining = () => {
       mined += 1;
     };
 
     GamepadHandler.prototype.confirmSelection.call(handler);
 
-    expect(sent).toEqual([
-      {
-        action: "lookup-point",
-        params: { x: 10, y: 20, anchorKey: "1:3" }
-      }
-    ]);
+    expect(intents).toEqual([{ text: "食べる", anchorKey: "1:3" }]);
     expect(handler.pendingMineCandidate).toEqual({
       anchorKey: "1:3",
       blockIndex: 1,
-      cursorIndex: 3
+      cursorIndex: 3,
+      backendId: "hoshidicts",
+      generation: 12,
     });
 
-    handler.yomitanPopupVisible = true;
+    handler.dictionaryPopupVisible = true;
     GamepadHandler.prototype.confirmSelection.call(handler);
 
     expect(mined).toBe(1);
     expect(handler.pendingMineCandidate).toBeNull();
-    expect(sent).toHaveLength(1);
+    expect(intents).toHaveLength(1);
   });
 
-  it("routes scroll, action, entry, and dismiss controls through Yomitan messages", () => {
-    const actions: string[] = [];
+  it("routes semantic scroll, action, entry, and dismiss controls through the generic controller", () => {
+    const actions: Array<{ action: string; params?: Record<string, unknown> }> = [];
     const handler = Object.create(GamepadHandler.prototype) as any;
-    handler.yomitanPopupVisible = true;
+    handler.dictionaryPopupVisible = true;
     handler.popupActionSelectionActive = true;
+    handler.popupActionSelectionExplicit = true;
     handler.thumbstickLatch = new Map();
     handler.lastPopupScrollTime = 0;
     handler.config = { repeatRate: 0 };
     handler.pendingMineCandidate = { anchorKey: "0:0" };
-    handler.getYomitanPopupFrames = () => [{}];
-    handler.sendYomitanControlMessage = (action: string) => actions.push(action);
+    handler.sendDictionaryControlCommand = (
+      action: string,
+      params?: Record<string, unknown>,
+    ) => {
+      actions.push({ action, params });
+      return Promise.resolve({ status: "handled" });
+    };
+    handler.dictionarySupports = () => true;
     handler.getThumbstickLatch = GamepadHandler.prototype.getThumbstickLatch;
     handler.setThumbstickLatch = GamepadHandler.prototype.setThumbstickLatch;
     handler.clearPendingMineCandidate = GamepadHandler.prototype.clearPendingMineCandidate;
-    handler.resetYomitanPopupActionSelection =
-      GamepadHandler.prototype.resetYomitanPopupActionSelection;
+    handler.resetDictionaryPopupActionSelection =
+      GamepadHandler.prototype.resetDictionaryPopupActionSelection;
 
     GamepadHandler.prototype.processRightStickVerticalForPopup.call(handler, 1, 0.2);
     GamepadHandler.prototype.processRightStickHorizontalForPopup.call(handler, 1, 0.2);
-    GamepadHandler.prototype.confirmYomitanPopupActionSelection.call(handler);
-    GamepadHandler.prototype.navigateYomitanNextEntry.call(handler);
-    GamepadHandler.prototype.navigateYomitanPrevEntry.call(handler);
-    GamepadHandler.prototype.scanHiddenCharacterToHideYomitan.call(handler);
+    GamepadHandler.prototype.confirmDictionaryPopupActionSelection.call(handler);
+    GamepadHandler.prototype.navigateDictionaryNextEntry.call(handler);
+    GamepadHandler.prototype.navigateDictionaryPreviousEntry.call(handler);
+    GamepadHandler.prototype.dismissDictionaryPopup.call(handler);
 
     expect(actions).toEqual([
-      "scroll",
-      "select-action",
-      "confirm-action",
-      "next-entry",
-      "previous-entry",
-      "hide-popup"
+      { action: "scroll", params: { direction: "down", amount: 110 } },
+      { action: "select-action", params: { direction: "next" } },
+      { action: "confirm-action", params: undefined },
+      { action: "next-entry", params: undefined },
+      { action: "previous-entry", params: undefined },
+      { action: "dismiss", params: { reason: "gamepad-dismiss" } },
     ]);
     expect(handler.pendingMineCandidate).toBeNull();
   });
 
-  it("posts mining to both the overlay and active Yomitan frame", () => {
+  it("routes mining through controller capabilities and reports unsupported backends", async () => {
     const hostMessages: unknown[] = [];
     const frameMessages: unknown[] = [];
+    const feedback: string[] = [];
+    const commands: unknown[] = [];
     legacyGamepadContext.window.postMessage = (message: unknown) => {
       hostMessages.push(message);
     };
@@ -1075,14 +1181,143 @@ describe("legacy gamepad popup routing", () => {
         postMessage: (message: unknown) => frameMessages.push(message)
       }
     });
-
-    GamepadHandler.prototype.triggerMining.call({});
-
-    const expected = {
-      type: "gsm-trigger-anki-add",
-      cardFormatIndex: 0
+    legacyGamepadContext.window.gsmDictionaryPopupController = {
+      getSnapshot: () => ({
+        active: true,
+        backendId: "hoshidicts",
+        generation: 4,
+        capabilities: ["lookup", "dismiss"],
+      }),
+      command: (command: string, params: unknown) => {
+        commands.push({ command, params });
+        return Promise.resolve({ status: "handled" });
+      },
     };
-    expect(hostMessages).toEqual([expected]);
-    expect(frameMessages).toEqual([expected]);
+
+    const handler = Object.create(GamepadHandler.prototype) as any;
+    handler.showDictionaryActionFeedback = (message: string) => feedback.push(message);
+
+    await GamepadHandler.prototype.triggerMining.call(handler);
+
+    expect(commands).toEqual([]);
+    expect(feedback).toContain("Mining is unavailable for this dictionary backend");
+    expect(hostMessages).toEqual([]);
+    expect(frameMessages).toEqual([]);
+
+    legacyGamepadContext.window.gsmDictionaryPopupController.getSnapshot = () => ({
+      active: true,
+      backendId: "yomitan",
+      generation: 5,
+      capabilities: ["mine"],
+    });
+    await GamepadHandler.prototype.triggerMining.call(handler);
+    expect(commands).toEqual([
+      {
+        command: "mine",
+        params: {
+          expectedBackendId: "yomitan",
+          expectedGeneration: 5,
+        },
+      },
+    ]);
+    expect(feedback).toContain("Dictionary entry mined");
+    expect(hostMessages).toEqual([]);
+    expect(frameMessages).toEqual([]);
+
+    delete legacyGamepadContext.window.gsmDictionaryPopupController;
+  });
+
+  it("builds a Hoshi lookup intent from line metadata and rendered text", () => {
+    const makeBox = (
+      text: string,
+      left: number,
+      dataset: Record<string, string>,
+    ) => ({
+      textContent: text,
+      dataset,
+      isConnected: true,
+      getBoundingClientRect: () => ({
+        left,
+        top: 20,
+        width: 10,
+        height: 18,
+        right: left + 10,
+        bottom: 38,
+      }),
+    });
+    const shared = {
+      lineIndex: "7",
+      lineId: "line-42",
+      renderGeneration: "19",
+      sourceSentence: "猫が走る。",
+    };
+    const boxes = [
+      makeBox("猫", 10, shared),
+      makeBox("が", 20, shared),
+      makeBox("走る", 30, shared),
+      makeBox("。", 40, shared),
+    ];
+    const block = {
+      querySelectorAll: () => boxes,
+    };
+    for (const box of boxes) {
+      (box as any).closest = (selector: string) =>
+        selector === ".text-block-container" ? block : null;
+    }
+
+    const handler = Object.create(GamepadHandler.prototype) as any;
+    handler.characters = boxes;
+    handler.currentBlockIndex = 2;
+    handler.currentCursorIndex = 2;
+    handler.lineNavPrefersCharacters = false;
+    handler.tokenMode = false;
+    handler.tokens = [];
+    handler.isUsingTokenNavigation = () => false;
+
+    expect(
+      GamepadHandler.prototype.buildDictionaryLookupIntent.call(handler, {
+        targetChar: boxes[2],
+        targetIndex: 2,
+        centerX: 35,
+        centerY: 29,
+        anchorKey: "2:2",
+      }),
+    ).toEqual({
+      text: "走る。",
+      sourceSentence: "猫が走る。",
+      lineId: "line-42",
+      offset: 2,
+      anchor: { x: 30, y: 20, width: 10, height: 18 },
+      pointer: { x: 35, y: 29 },
+      anchorKey: "19:line-42:2",
+      source: "gamepad",
+    });
+  });
+
+  it("uses recursive back on cancel before dismissing a Hoshi popup", async () => {
+    const actions: string[] = [];
+    let cancelled = 0;
+    const handler = Object.create(GamepadHandler.prototype) as any;
+    handler.dictionaryPopupVisible = true;
+    handler.dictionarySupports = (command: string) => command === "recursive-back";
+    handler.clearPendingMineCandidate = GamepadHandler.prototype.clearPendingMineCandidate;
+    handler.sendDictionaryControlCommand = async (command: string) => {
+      actions.push(command);
+      return { status: command === "recursive-back" ? "handled" : "ignored" };
+    };
+    handler.dismissDictionaryPopup = () => {
+      actions.push("dismiss");
+      return Promise.resolve({ status: "handled" });
+    };
+    handler.config = {
+      onCancel: () => {
+        cancelled += 1;
+      },
+    };
+
+    await GamepadHandler.prototype.cancelSelection.call(handler);
+
+    expect(actions).toEqual(["recursive-back"]);
+    expect(cancelled).toBe(1);
   });
 });

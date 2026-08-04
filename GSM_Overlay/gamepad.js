@@ -2,7 +2,7 @@
  * GSM Overlay Gamepad Handler
  * 
  * Comprehensive gamepad support for navigating text blocks and cursor positions.
- * Enables Yomitan lookups via cursor positioning using gamepad controls.
+ * Enables dictionary lookups via cursor positioning using gamepad controls.
  * 
  * This version connects to a standalone WebSocket server (gsm_overlay_server)
  * handles gamepad input at the OS level, allowing it to work regardless of
@@ -17,7 +17,7 @@
  * - Cursor position navigation (Left/Right on DPAD) - AUTO-CONFIRMS lookups
  * - Thumbstick support for analog navigation
  * - Configurable button mappings
- * - Auto-confirm: Yomitan lookups trigger automatically when navigating
+ * - Auto-confirm: dictionary lookups trigger automatically when navigating
  */
 
 const GAMEPAD_BUTTON_LABELS = {
@@ -532,9 +532,9 @@ class GamepadHandler {
       manualOverlayScanButton: options.manualOverlayScanButton ?? -1, // Disabled by default; triggers manual overlay scan
       pauseToggleButton: options.pauseToggleButton ?? -1, // Disabled by default; pauses/resumes the text source while navigation is active
       tokenModeToggleButton: options.tokenModeToggleButton ?? 3, // Y button to toggle token/char mode
-      mineButton: options.mineButton ?? 0, // A button to mine the current Yomitan entry
-      nextEntryButton: options.nextEntryButton ?? 7, // RT trigger - navigate to next Yomitan entry
-      prevEntryButton: options.prevEntryButton ?? 6, // LT trigger - navigate to previous Yomitan entry
+      mineButton: options.mineButton ?? 0, // A button to mine the current dictionary entry
+      nextEntryButton: options.nextEntryButton ?? 7, // RT trigger - navigate to next dictionary entry
+      prevEntryButton: options.prevEntryButton ?? 6, // LT trigger - navigate to previous dictionary entry
       
       // D-Pad buttons
       dpadUp: 12,
@@ -692,8 +692,12 @@ class GamepadHandler {
       lastUpdateTime: 0,
     };
     this.thumbstickLatch = new Map(); // axis -> latched boolean for one-shot actions
+    this.dictionaryAxisTransitionBlocks = new Set();
+    this.lastDictionaryStatusBackendId = null;
+    this.lastDictionaryStatusGeneration = null;
     this.lastPopupScrollTime = 0;
     this.popupActionSelectionActive = false;
+    this.popupActionSelectionExplicit = false;
     
     // Furigana request tracking
     this.furiganaRequestId = 0;
@@ -705,6 +709,8 @@ class GamepadHandler {
     this.cursorSegmentHighlights = [];
     this.virtualMouseCursor = null;
     this.modeIndicator = null;
+    this.dictionaryActionFeedback = null;
+    this.dictionaryFeedbackTimer = null;
 
     // DOM change tracking for live text updates
     this.textMutationObserver = null;
@@ -722,6 +728,7 @@ class GamepadHandler {
     this.onYomitanPopupHidden = this.onYomitanPopupHidden.bind(this);
     this.onDictionaryPopupShown = this.onDictionaryPopupShown.bind(this);
     this.onDictionaryPopupHidden = this.onDictionaryPopupHidden.bind(this);
+    this.onDictionaryBackendStatus = this.onDictionaryBackendStatus.bind(this);
     
     // Shared state consumed by Yomitan text scanner.
     this.publishNavigationActiveState(false);
@@ -830,6 +837,11 @@ class GamepadHandler {
       clearTimeout(this.navigationAwayHideTimer);
       this.navigationAwayHideTimer = null;
     }
+
+    if (this.dictionaryFeedbackTimer) {
+      clearTimeout(this.dictionaryFeedbackTimer);
+      this.dictionaryFeedbackTimer = null;
+    }
     
     // Remove visual elements
     this.removeVisualElements();
@@ -843,6 +855,7 @@ class GamepadHandler {
     if (typeof window !== 'undefined') {
       window.removeEventListener('dictionary-popup-shown', this.onDictionaryPopupShown);
       window.removeEventListener('dictionary-popup-hidden', this.onDictionaryPopupHidden);
+      window.removeEventListener('dictionary-backend-status', this.onDictionaryBackendStatus);
     }
     
     console.log('[GamepadHandler] Destroyed');
@@ -2744,14 +2757,14 @@ class GamepadHandler {
       return;
     }
 
-    // Yomitan entry navigation (popup must be visible)
-    if (this.yomitanPopupVisible) {
+    // Dictionary entry navigation (popup must be visible)
+    if (this.dictionaryPopupVisible) {
       if (keyboardEventMatchesBinding(kb.nextEntryKey, keyName, keys, mods)) {
-        this.navigateYomitanNextEntry();
+        this.navigateDictionaryNextEntry();
         return;
       }
       if (keyboardEventMatchesBinding(kb.prevEntryKey, keyName, keys, mods)) {
-        this.navigateYomitanPrevEntry();
+        this.navigateDictionaryPreviousEntry();
         return;
       }
     }
@@ -2801,7 +2814,7 @@ class GamepadHandler {
 
       if (navigated) {
         if (!this.config.autoConfirmSelection) {
-          this.scanHiddenCharacterToHideYomitan();
+          this.dismissDictionaryPopup('keyboard-navigation');
         }
         // Set up keyboard repeat (same as DPad repeat)
         const timerKey = `keyboard-${keyName}`;
@@ -2930,14 +2943,14 @@ class GamepadHandler {
       return;
     }
     
-    // Handle Yomitan entry navigation (popup must be visible)
-    if (this.yomitanPopupVisible) {
+    // Handle dictionary entry navigation (popup must be visible)
+    if (this.dictionaryPopupVisible) {
       if (this.matchesButtonBindingDown(nextEntryBinding, device, buttonIndex)) {
-        this.navigateYomitanNextEntry();
+        this.navigateDictionaryNextEntry();
         return;
       }
       if (this.matchesButtonBindingDown(prevEntryBinding, device, buttonIndex)) {
-        this.navigateYomitanPrevEntry();
+        this.navigateDictionaryPreviousEntry();
         return;
       }
     }
@@ -3111,7 +3124,7 @@ class GamepadHandler {
     // Set up repeat
     if (navigated && this.isDPadButton(buttonIndex)) {
       if (!this.config.autoConfirmSelection) {
-        this.scanHiddenCharacterToHideYomitan()
+        this.dismissDictionaryPopup('controller-navigation');
       }
       const timerKey = `${device}-${buttonIndex}`;
       if (!this.repeatTimers.has(timerKey)) {
@@ -3234,7 +3247,10 @@ class GamepadHandler {
   }
 
   processRightStickVerticalForPopup(value, threshold) {
-    if (!this.yomitanPopupVisible) return;
+    if (this.consumeDictionaryAxisTransitionBlock('right_y', value, threshold)) {
+      return;
+    }
+    if (!this.dictionaryPopupVisible || !this.dictionarySupports('scroll')) return;
 
     const activeThreshold = Math.max(0.45, threshold * 0.75);
     if (Math.abs(value) < activeThreshold) return;
@@ -3243,16 +3259,22 @@ class GamepadHandler {
     if (now - this.lastPopupScrollTime < this.config.repeatRate) return;
 
     // Right-stick Y is positive when pushed down on most controllers.
-    const direction = value > 0 ? -1 : 1;
-    this.sendYomitanControlMessage('scroll', {
+    const direction = value > 0 ? 'down' : 'up';
+    this.sendDictionaryControlCommand('scroll', {
       direction,
-      step: 110,
+      amount: 110,
     });
     this.lastPopupScrollTime = now;
   }
 
   processRightStickHorizontalForPopup(value, threshold) {
-    if (!this.yomitanPopupVisible) {
+    if (this.consumeDictionaryAxisTransitionBlock('right_x', value, threshold)) {
+      return;
+    }
+    if (
+      !this.dictionaryPopupVisible ||
+      !this.dictionarySupports('select-action')
+    ) {
       this.setThumbstickLatch('right_x', false);
       return;
     }
@@ -3267,12 +3289,13 @@ class GamepadHandler {
     if (Math.abs(value) < activeThreshold || this.getThumbstickLatch('right_x')) return;
 
     if (!this.popupActionSelectionActive) {
-      this.resetYomitanPopupActionSelection();
+      this.resetDictionaryPopupActionSelection();
     }
 
-    const direction = value > 0 ? 1 : -1;
+    const direction = value > 0 ? 'next' : 'previous';
     this.popupActionSelectionActive = true;
-    this.sendYomitanControlMessage('select-action', { direction });
+    this.popupActionSelectionExplicit = true;
+    this.sendDictionaryControlCommand('select-action', { direction });
     this.setThumbstickLatch('right_x', true);
   }
 
@@ -3282,6 +3305,21 @@ class GamepadHandler {
 
   setThumbstickLatch(axis, value) {
     this.thumbstickLatch.set(axis, value === true);
+  }
+
+  consumeDictionaryAxisTransitionBlock(axis, value, threshold) {
+    if (!this.dictionaryAxisTransitionBlocks?.has(axis)) {
+      return false;
+    }
+    const activeThreshold = Math.max(0.45, threshold * 0.75);
+    const releaseThreshold = activeThreshold * 0.55;
+    if (Math.abs(value) <= releaseThreshold) {
+      this.dictionaryAxisTransitionBlocks.delete(axis);
+      if (axis === 'right_x') {
+        this.setThumbstickLatch(axis, false);
+      }
+    }
+    return true;
   }
 
   publishNavigationActiveState(active) {
@@ -3326,62 +3364,107 @@ class GamepadHandler {
     });
   }
 
-  sendYomitanControlMessage(action, params = {}) {
-    const controller = typeof window !== 'undefined'
-      ? window.gsmDictionaryPopupController
+  getDictionaryPopupController() {
+    return typeof window !== 'undefined'
+      ? window.gsmDictionaryPopupController || null
       : null;
-    if (controller) {
-      let pending;
+  }
+
+  getDictionaryPopupSnapshot() {
+    const controller = this.getDictionaryPopupController();
+    if (controller && typeof controller.getSnapshot === 'function') {
       try {
-        if (action === 'lookup-point' && typeof controller.lookup === 'function') {
-          pending = controller.lookup({
-            anchor: {
-              x: params.x,
-              y: params.y,
-            },
-            anchorKey: typeof params.anchorKey === 'string' ? params.anchorKey : null,
-            source: 'gamepad',
-          });
-        } else if (action === 'hide-popup' && typeof controller.dismiss === 'function') {
-          pending = controller.dismiss(
-            typeof params.reason === 'string' ? params.reason : 'gamepad-dismiss'
-          );
-        } else if (typeof controller.command === 'function') {
-          pending = controller.command(action, params);
-        }
+        return controller.getSnapshot();
       } catch (error) {
-        console.warn(`[GamepadHandler] Dictionary controller action failed (${action}):`, error);
-        return;
+        console.warn('[GamepadHandler] Failed to read dictionary popup state:', error);
       }
-
-      if (pending && typeof pending.catch === 'function') {
-        pending.catch(error => {
-          console.warn(`[GamepadHandler] Dictionary controller action failed (${action}):`, error);
-        });
-      }
-      return;
     }
-
-    const message = {
-      type: 'gsm-yomitan-control',
-      action,
-      ...params,
+    return {
+      active: this.dictionaryPopupVisible === true,
+      backendId: this.dictionaryPopupBackendId,
+      generation: this.dictionaryPopupGeneration,
+      capabilities: [],
     };
+  }
+
+  dictionarySupports(command) {
+    const capabilities = this.getDictionaryPopupSnapshot()?.capabilities;
+    return Array.isArray(capabilities) && capabilities.includes(command);
+  }
+
+  async sendDictionaryControlCommand(command, params = {}) {
+    const controller = this.getDictionaryPopupController();
+    if (!controller) {
+      return {
+        status: 'unavailable',
+        command,
+      };
+    }
 
     try {
-      window.postMessage(message, '*');
-    } catch (e) {
-      // Ignore local postMessage issues; frame dispatch below is the primary path.
-    }
-
-    const popupFrames = this.getYomitanTargetFramesForControlAction(action);
-    popupFrames.forEach(frame => {
-      try {
-        frame.contentWindow?.postMessage(message, '*');
-      } catch (e) {
-        // Ignore individual frame failures.
+      if (command === 'lookup') {
+        if (typeof controller.lookup !== 'function') {
+          return { status: 'unsupported', command };
+        }
+        return await controller.lookup(params);
       }
-    });
+      if (command === 'dismiss') {
+        if (typeof controller.dismiss !== 'function') {
+          return { status: 'unsupported', command };
+        }
+        return await controller.dismiss(
+          typeof params.reason === 'string'
+            ? params.reason
+            : 'gamepad-dismiss'
+        );
+      }
+      if (typeof controller.command !== 'function') {
+        return { status: 'unsupported', command };
+      }
+      return await controller.command(command, params);
+    } catch (error) {
+      console.warn(
+        `[GamepadHandler] Dictionary controller action failed (${command}):`,
+        error
+      );
+      return {
+        status: 'failed',
+        command,
+        errorCode: typeof error?.code === 'string'
+          ? error.code
+          : 'DICTIONARY_COMMAND_FAILED',
+      };
+    }
+  }
+
+  // Compatibility for extensions that still call the old Yomitan-named helper.
+  sendYomitanControlMessage(action, params = {}) {
+    if (action === 'lookup-point') {
+      return this.sendDictionaryControlCommand('lookup', {
+        anchor: {
+          x: params.x,
+          y: params.y,
+          width: 0,
+          height: 0,
+        },
+        pointer: {
+          x: params.x,
+          y: params.y,
+        },
+        anchorKey:
+          typeof params.anchorKey === 'string' ? params.anchorKey : null,
+        source: 'gamepad',
+      });
+    }
+    if (action === 'hide-popup') {
+      return this.sendDictionaryControlCommand('dismiss', {
+        reason:
+          typeof params.reason === 'string'
+            ? params.reason
+            : 'gamepad-dismiss',
+      });
+    }
+    return this.sendDictionaryControlCommand(action, params);
   }
 
   getYomitanPopupFrames() {
@@ -3445,30 +3528,79 @@ class GamepadHandler {
     return true;
   }
 
-  resetYomitanPopupActionSelection() {
-    if (!this.yomitanPopupVisible) return;
-    this.popupActionSelectionActive = true;
-    this.sendYomitanControlMessage('reset-action-selection');
-  }
-
-  confirmYomitanPopupActionSelection() {
-    if (!this.yomitanPopupVisible) return false;
-    if (this.getYomitanPopupFrames().length === 0) return false;
-    if (!this.popupActionSelectionActive) {
-      this.resetYomitanPopupActionSelection();
+  resetDictionaryPopupActionSelection() {
+    if (
+      !this.dictionaryPopupVisible ||
+      !this.dictionarySupports('reset-action-selection')
+    ) {
+      return false;
     }
-    this.sendYomitanControlMessage('confirm-action');
+    this.popupActionSelectionActive = true;
+    this.sendDictionaryControlCommand('reset-action-selection');
     return true;
   }
 
+  confirmDictionaryPopupActionSelection() {
+    if (
+      !this.dictionaryPopupVisible ||
+      !this.popupActionSelectionExplicit ||
+      !this.dictionarySupports('confirm-action')
+    ) {
+      return false;
+    }
+    this.sendDictionaryControlCommand('confirm-action');
+    this.popupActionSelectionExplicit = false;
+    return true;
+  }
+
+  navigateDictionaryNextEntry() {
+    if (
+      !this.dictionaryPopupVisible ||
+      !this.dictionarySupports('next-entry')
+    ) {
+      return false;
+    }
+    this.clearPendingMineCandidate();
+    this.popupActionSelectionExplicit = false;
+    this.sendDictionaryControlCommand('next-entry');
+    return true;
+  }
+
+  navigateDictionaryPreviousEntry() {
+    if (
+      !this.dictionaryPopupVisible ||
+      !this.dictionarySupports('previous-entry')
+    ) {
+      return false;
+    }
+    this.clearPendingMineCandidate();
+    this.popupActionSelectionExplicit = false;
+    this.sendDictionaryControlCommand('previous-entry');
+    return true;
+  }
+
+  dismissDictionaryPopup(reason = 'gamepad-dismiss') {
+    this.clearPendingMineCandidate();
+    this.popupActionSelectionExplicit = false;
+    return this.sendDictionaryControlCommand('dismiss', { reason });
+  }
+
+  // Compatibility wrappers preserve stored/external callers without routing
+  // around the backend-neutral controller.
+  resetYomitanPopupActionSelection() {
+    return this.resetDictionaryPopupActionSelection();
+  }
+
+  confirmYomitanPopupActionSelection() {
+    return this.confirmDictionaryPopupActionSelection();
+  }
+
   navigateYomitanNextEntry() {
-    if (!this.yomitanPopupVisible) return;
-    this.sendYomitanControlMessage('next-entry');
+    return this.navigateDictionaryNextEntry();
   }
 
   navigateYomitanPrevEntry() {
-    if (!this.yomitanPopupVisible) return;
-    this.sendYomitanControlMessage('previous-entry');
+    return this.navigateDictionaryPreviousEntry();
   }
   
   // ==================== Navigation Logic ====================
@@ -3556,13 +3688,13 @@ class GamepadHandler {
   deactivateNavigation() {
     if (!this.isActive) {
       // Exit requests can still happen while already inactive (state drift);
-      // always attempt to dismiss any lingering Yomitan popup.
+      // always attempt to dismiss any lingering dictionary popup.
       this.releaseOverlayFocus();
-      this.scanHiddenCharacterToHideYomitan();
+      this.dismissDictionaryPopup('navigation-already-inactive');
       return;
     }
     
-    this.scanHiddenCharacterToHideYomitan();
+    this.dismissDictionaryPopup('navigation-deactivated');
     this.isActive = false;
     this.publishNavigationActiveState(false);
     this.navigationPauseActive = false;
@@ -3584,9 +3716,6 @@ class GamepadHandler {
     this.clearCursorPosition();
     this.releaseOverlayFocus();
     
-    // Trigger scan on hidden character to hide Yomitan popup
-    this.scanHiddenCharacterToHideYomitan();
-    
     if (this.config.onModeChange) {
       this.config.onModeChange({ active: false });
     }
@@ -3598,9 +3727,9 @@ class GamepadHandler {
     
     console.log('[GamepadHandler] Navigation deactivated');
 
-    // Set scan hidden character after a short delay to ensure popup is closed
+    // Repeat dismissal after a short delay to catch a late popup open.
     setTimeout(() => {
-      this.scanHiddenCharacterToHideYomitan();
+      this.dismissDictionaryPopup('navigation-deactivated-delayed');
     }, 500);
   }
   
@@ -3649,6 +3778,57 @@ class GamepadHandler {
     if (typeof window === 'undefined') return;
     window.addEventListener('dictionary-popup-shown', this.onDictionaryPopupShown);
     window.addEventListener('dictionary-popup-hidden', this.onDictionaryPopupHidden);
+    window.addEventListener('dictionary-backend-status', this.onDictionaryBackendStatus);
+  }
+
+  onDictionaryBackendStatus(event) {
+    const status = event?.detail || {};
+    const controller = status.controller || {};
+    const backendId = status.backendId || controller.backendId || null;
+    const generation = Number.isSafeInteger(controller.generation)
+      ? controller.generation
+      : null;
+    const pending = this.pendingMineCandidate;
+    const identityChanged = (
+      status.state === 'switching' ||
+      (
+        this.lastDictionaryStatusBackendId !== null &&
+        backendId !== null &&
+        backendId !== this.lastDictionaryStatusBackendId
+      ) ||
+      (
+        this.lastDictionaryStatusGeneration !== null &&
+        generation !== null &&
+        generation !== this.lastDictionaryStatusGeneration
+      )
+    );
+    if (
+      identityChanged ||
+      (
+        pending &&
+        (
+          (backendId && pending.backendId !== backendId) ||
+          (generation !== null && pending.generation !== generation)
+        )
+      )
+    ) {
+      this.clearPendingMineCandidate();
+    }
+    if (identityChanged) {
+      this.popupActionSelectionActive = false;
+      this.popupActionSelectionExplicit = false;
+      if (!(this.dictionaryAxisTransitionBlocks instanceof Set)) {
+        this.dictionaryAxisTransitionBlocks = new Set();
+      }
+      this.dictionaryAxisTransitionBlocks.add('right_x');
+      this.dictionaryAxisTransitionBlocks.add('right_y');
+    }
+    if (backendId !== null) {
+      this.lastDictionaryStatusBackendId = backendId;
+    }
+    if (generation !== null) {
+      this.lastDictionaryStatusGeneration = generation;
+    }
   }
 
   onDictionaryPopupShown(event) {
@@ -3676,8 +3856,9 @@ class GamepadHandler {
     this.dictionaryPopupVisible = true;
     this.dictionaryPopupBackendId = detail.backendId || this.dictionaryPopupBackendId;
     this.dictionaryPopupGeneration = generation;
-    this.yomitanPopupCount = popupCount;
-    this.yomitanPopupVisible = true;
+    const isYomitan = this.dictionaryPopupBackendId === 'yomitan';
+    this.yomitanPopupCount = isYomitan ? popupCount : 0;
+    this.yomitanPopupVisible = isYomitan;
 
     if (backendChanged) {
       this.yomitanPopupIds.clear();
@@ -3685,7 +3866,8 @@ class GamepadHandler {
     }
     if (backendChanged || popupCount > previousCount) {
       this.popupActionSelectionActive = true;
-      this.resetYomitanPopupActionSelection();
+      this.popupActionSelectionExplicit = false;
+      this.resetDictionaryPopupActionSelection();
     }
   }
 
@@ -3715,9 +3897,10 @@ class GamepadHandler {
     this.yomitanPopupIds?.clear();
     this.yomitanPopupVisible = false;
     this.popupActionSelectionActive = false;
+    this.popupActionSelectionExplicit = false;
     this.lastLookupAnchorKey = null;
     this.setThumbstickLatch('right_x', false);
-    this.sendYomitanControlMessage('clear-action-selection');
+    this.sendDictionaryControlCommand('clear-action-selection');
     this.clearPendingMineCandidate();
   }
 
@@ -3736,7 +3919,8 @@ class GamepadHandler {
     this.dictionaryPopupVisible = this.yomitanPopupVisible;
     this.dictionaryPopupBackendId = 'yomitan';
     this.popupActionSelectionActive = true;
-    this.resetYomitanPopupActionSelection();
+    this.popupActionSelectionExplicit = false;
+    this.resetDictionaryPopupActionSelection();
   }
 
   onYomitanPopupHidden(event) {
@@ -3756,9 +3940,10 @@ class GamepadHandler {
       this.dictionaryPopupVisible = false;
       this.dictionaryPopupBackendId = null;
       this.popupActionSelectionActive = false;
+      this.popupActionSelectionExplicit = false;
       this.lastLookupAnchorKey = null;
       this.setThumbstickLatch('right_x', false);
-      this.sendYomitanControlMessage('clear-action-selection');
+      this.sendDictionaryControlCommand('clear-action-selection');
       this.clearPendingMineCandidate();
     } else {
       this.yomitanPopupVisible = true;
@@ -4038,6 +4223,7 @@ class GamepadHandler {
   }
 
   handleOverlayTextRenderComplete(options = {}) {
+    this.clearPendingMineCandidate();
     const preserveSelection = options.preserveSelection !== false;
     const snapshot = options.snapshot || this.lastSelectionSnapshot;
     const navigationActive = this.isNavigationActive();
@@ -4080,6 +4266,7 @@ class GamepadHandler {
   }
 
   refreshOnTextChange() {
+    this.clearPendingMineCandidate();
     const navigationActive = this.isNavigationActive();
     const preserveSelection = this.preserveSelectionOnNextTextRefresh === true;
     const selectionSnapshot = preserveSelection
@@ -4091,7 +4278,7 @@ class GamepadHandler {
     this.updateVirtualMouseCursor();
 
     if (navigationActive && !preserveSelection) {
-      this.scanHiddenCharacterToHideYomitan();
+      this.dismissDictionaryPopup('text-changed');
     }
 
     const previousBlockCount = this.textBlocks.length;
@@ -5083,12 +5270,12 @@ class GamepadHandler {
     }
 
     // Dismiss immediately, then once more shortly after to catch delayed popup creation.
-    this.scanHiddenCharacterToHideYomitan();
+    this.dismissDictionaryPopup('navigation-moved');
 
     const dismissToken = ++this.lookupDismissToken;
     this.lookupDismissTimer = setTimeout(() => {
       if (dismissToken !== this.lookupDismissToken) return;
-      this.scanHiddenCharacterToHideYomitan();
+      this.dismissDictionaryPopup('navigation-moved-delayed');
       this.lookupDismissTimer = null;
     }, 90);
   }
@@ -5341,7 +5528,7 @@ class GamepadHandler {
     console.log(`[GamepadHandler] Cursor RIGHT: now at ${unitType} ${this.currentCursorIndex}`);
   }
 
-  // ==================== Cursor Positioning for Yomitan ====================
+  // ==================== Dictionary Cursor Positioning ====================
 
   syncVirtualMouseToCurrentSelection() {
     if (!this.virtualMouse || !Array.isArray(this.characters) || this.characters.length === 0) {
@@ -5595,7 +5782,8 @@ class GamepadHandler {
 
   getCurrentSelectionAnchorKey() {
     const lookup = this.getTargetCharForLookup();
-    return lookup && lookup.anchorKey ? lookup.anchorKey : null;
+    const intent = this.buildDictionaryLookupIntent(lookup);
+    return intent?.anchorKey || lookup?.anchorKey || null;
   }
 
   scheduleHideYomitanAfterLeavingAnchor(previousAnchorKey) {
@@ -5615,7 +5803,7 @@ class GamepadHandler {
       if (currentAnchorKey === previousAnchorKey) return;
 
       // Aggressive behavior: if we've moved off the last lookup text, force hide.
-      this.scanHiddenCharacterToHideYomitan();
+      this.dismissDictionaryPopup('navigation-anchor-changed');
     }, delay);
   }
 
@@ -5918,50 +6106,54 @@ class GamepadHandler {
   }
   
   confirmSelection() {
-    if (this.confirmYomitanPopupActionSelection()) {
-      console.log('[GamepadHandler] Confirm routed to selected Yomitan popup action');
+    if (this.confirmDictionaryPopupActionSelection()) {
+      console.log('[GamepadHandler] Confirm routed to selected dictionary popup action');
       return;
     }
 
     const lookupInfo = this.getLookupInfoForConfirm();
 
-    const { targetChar, centerX, centerY, label, anchorKey } = lookupInfo;
+    const { targetChar, label } = lookupInfo;
     if (!targetChar) return;
-    
+
+    const intent = this.buildDictionaryLookupIntent(lookupInfo);
+    if (!intent) return;
+
     // Second confirm mines only if popup is still open and cursor/target hasn't changed.
-    if (this.canMineFromCurrentConfirm({ anchorKey })) {
+    if (this.canMineFromCurrentConfirm(intent)) {
+      const candidate = this.pendingMineCandidate;
       console.log('[GamepadHandler] Confirm pressed again on active popup target - triggering mining');
-      this.triggerMining();
       this.clearPendingMineCandidate();
+      void this.triggerMining(candidate);
       return;
     }
-    
+
     // First press - perform normal lookup
     console.log(`Confirming selection at ${label}: ${targetChar.textContent}`);
 
-    this.sendYomitanControlMessage('lookup-point', {
-      x: centerX,
-      y: centerY,
-      anchorKey,
-    });
-    this.lastLookupAnchorKey = anchorKey || null;
+    const lookup = this.lookupDictionaryAtSelection(lookupInfo, intent);
+    if (!lookup) return;
+    this.lastLookupAnchorKey = intent.anchorKey || null;
     
     if (this.config.onConfirm) {
       this.config.onConfirm({
         character: targetChar.textContent,
         element: targetChar,
-        position: { x: centerX, y: centerY },
+        position: {
+          x: intent.pointer.x,
+          y: intent.pointer.y,
+        },
       });
     }
     
     // Arm mining for a second confirm on this exact target while popup remains visible.
-    this.setPendingMineCandidate({ anchorKey });
+    this.setPendingMineCandidate(lookup);
     
     console.log(`[GamepadHandler] Confirmed selection at ${label}: ${targetChar.textContent}`);
   }
   
   autoConfirmSelection() {
-    // Automatically trigger Yomitan lookup when cursor moves
+    // Automatically trigger dictionary lookup when cursor moves.
     if (this.config.autoConfirmSelection === false) return;
     
     this.clearPendingMineCandidate();
@@ -5969,12 +6161,10 @@ class GamepadHandler {
     const result = this.getLookupInfoForConfirm();
     if (!result.targetChar) return;
 
-    this.sendYomitanControlMessage('lookup-point', {
-      x: result.centerX,
-      y: result.centerY,
-      anchorKey: result.anchorKey,
-    });
-    this.lastLookupAnchorKey = result.anchorKey || null;
+    const intent = this.buildDictionaryLookupIntent(result);
+    if (!intent) return;
+    this.lookupDictionaryAtSelection(result, intent);
+    this.lastLookupAnchorKey = intent.anchorKey || null;
     
     console.log(`[GamepadHandler] Auto-confirmed selection at ${result.label}: ${result.targetChar.textContent}`);
   }
@@ -5993,6 +6183,118 @@ class GamepadHandler {
     }
 
     return lookupInfo;
+  }
+
+  buildDictionaryLookupIntent(lookupInfo) {
+    const target = lookupInfo?.targetChar;
+    if (!target || typeof target.getBoundingClientRect !== 'function') {
+      return null;
+    }
+
+    const targetClass = target.classList?.contains?.('nav-char-box')
+      ? '.nav-char-box'
+      : '.text-box';
+    const block = target.closest?.('.text-block-container');
+    const candidates = Array.from(
+      block?.querySelectorAll?.(targetClass) || [target]
+    );
+    const targetLineIndex = target.dataset?.lineIndex;
+    const lineBoxes = candidates.filter((box) => (
+      targetLineIndex === undefined ||
+      box.dataset?.lineIndex === targetLineIndex
+    ));
+    let lineTargetIndex = lineBoxes.indexOf(target);
+    if (lineTargetIndex < 0) {
+      lineBoxes.splice(0, lineBoxes.length, target);
+      lineTargetIndex = 0;
+    }
+
+    const lineText = lineBoxes
+      .map((box) => String(box.textContent || ''))
+      .join('');
+    const offset = lineBoxes
+      .slice(0, lineTargetIndex)
+      .reduce(
+        (total, box) => total + Array.from(String(box.textContent || '')).length,
+        0
+      );
+    const selectedToken = (
+      this.isUsingTokenNavigation() &&
+      this.tokens?.[this.currentCursorIndex]
+    ) || null;
+    const text = typeof selectedToken?.word === 'string' && selectedToken.word.trim()
+      ? selectedToken.word
+      : lineBoxes
+        .slice(lineTargetIndex)
+        .map((box) => String(box.textContent || ''))
+        .join('');
+    if (!text.trim()) {
+      return null;
+    }
+
+    const sourceSentence =
+      lineBoxes.map((box) => box.dataset?.sourceSentence).find(Boolean) ||
+      target.dataset?.sourceSentence ||
+      lineText;
+    const lineId =
+      lineBoxes.map((box) => box.dataset?.lineId).find(Boolean) ||
+      target.dataset?.lineId ||
+      null;
+    const renderGeneration =
+      target.dataset?.renderGeneration ||
+      lineBoxes.map((box) => box.dataset?.renderGeneration).find(Boolean) ||
+      null;
+    const lineKey = lineId || targetLineIndex;
+    const anchorKey = renderGeneration && lineKey !== undefined
+      ? `${renderGeneration}:${lineKey}:${offset}`
+      : lookupInfo.anchorKey;
+    const rect = target.getBoundingClientRect();
+    const centerX = Number.isFinite(lookupInfo.centerX)
+      ? lookupInfo.centerX
+      : rect.left + rect.width / 2;
+    const centerY = Number.isFinite(lookupInfo.centerY)
+      ? lookupInfo.centerY
+      : rect.top + rect.height / 2;
+
+    return {
+      text,
+      sourceSentence,
+      ...(lineId ? { lineId } : {}),
+      offset,
+      anchor: {
+        x: rect.left,
+        y: rect.top,
+        width: Math.max(0, rect.width),
+        height: Math.max(0, rect.height),
+      },
+      pointer: {
+        x: centerX,
+        y: centerY,
+      },
+      anchorKey,
+      source: 'gamepad',
+    };
+  }
+
+  lookupDictionaryAtSelection(lookupInfo, preparedIntent = null) {
+    const intent = preparedIntent || this.buildDictionaryLookupIntent(lookupInfo);
+    const controller = this.getDictionaryPopupController();
+    if (!intent || !controller || typeof controller.lookup !== 'function') {
+      this.showDictionaryActionFeedback('Dictionary lookup is unavailable');
+      return null;
+    }
+
+    void this.sendDictionaryControlCommand('lookup', intent).then((result) => {
+      if (result?.status === 'failed' || result?.status === 'unavailable') {
+        this.showDictionaryActionFeedback('Dictionary lookup failed');
+      }
+    });
+    const snapshot = this.getDictionaryPopupSnapshot();
+    return {
+      anchorKey: intent.anchorKey,
+      backendId: snapshot.backendId,
+      generation: snapshot.generation,
+    };
   }
 
   getTargetCharForLookup() {
@@ -6027,47 +6329,91 @@ class GamepadHandler {
   }
 
   setPendingMineCandidate(lookupInfo) {
+    const snapshot = this.getDictionaryPopupSnapshot();
     this.pendingMineCandidate = {
       anchorKey: lookupInfo.anchorKey,
       blockIndex: this.currentBlockIndex,
       cursorIndex: this.currentCursorIndex,
+      backendId: lookupInfo.backendId || snapshot.backendId,
+      generation: Number.isSafeInteger(lookupInfo.generation)
+        ? lookupInfo.generation
+        : snapshot.generation,
     };
   }
 
   canMineFromCurrentConfirm(lookupInfo) {
     const pending = this.pendingMineCandidate;
-    if (!pending || !this.yomitanPopupVisible) return false;
+    if (!pending || !this.dictionaryPopupVisible) return false;
 
     return (
       pending.anchorKey === lookupInfo.anchorKey &&
       pending.blockIndex === this.currentBlockIndex &&
-      pending.cursorIndex === this.currentCursorIndex
+      pending.cursorIndex === this.currentCursorIndex &&
+      pending.backendId === this.dictionaryPopupBackendId &&
+      pending.generation === this.dictionaryPopupGeneration
     );
   }
 
-  triggerMining() {
-    // 1) postMessage to any Yomitan iframe / extension context
-    try {
-      window.postMessage({ type: 'gsm-trigger-anki-add', cardFormatIndex: 0 }, '*');
-    } catch (e) {
-      console.log('postMessage gsm-trigger-anki-add failed', e);
+  async triggerMining(candidate = null) {
+    const snapshot = this.getDictionaryPopupSnapshot();
+    if (!snapshot.active) {
+      this.showDictionaryActionFeedback('Open a dictionary entry before mining');
+      return { status: 'ignored', command: 'mine' };
     }
-    
-    // 2) if the Yomitan iframe is present, postMessage into its contentWindow (safe cross-origin)
-    try {
-      const yomitanFrame = document.querySelector('iframe');
-      yomitanFrame?.contentWindow?.postMessage({ type: 'gsm-trigger-anki-add', cardFormatIndex: 0 }, '*');
-    } catch (e) {
-      console.log('iframe postMessage gsm-trigger-anki-add failed', e);
+    if (
+      !Array.isArray(snapshot.capabilities) ||
+      !snapshot.capabilities.includes('mine')
+    ) {
+      this.showDictionaryActionFeedback(
+        'Mining is unavailable for this dictionary backend'
+      );
+      return { status: 'unsupported', command: 'mine' };
     }
+
+    const expectedBackendId = candidate?.backendId || snapshot.backendId;
+    const expectedGeneration = Number.isSafeInteger(candidate?.generation)
+      ? candidate.generation
+      : snapshot.generation;
+    if (
+      expectedBackendId !== snapshot.backendId ||
+      expectedGeneration !== snapshot.generation
+    ) {
+      this.showDictionaryActionFeedback('Dictionary selection changed');
+      return { status: 'stale', command: 'mine' };
+    }
+
+    const result = await this.sendDictionaryControlCommand('mine', {
+      expectedBackendId,
+      expectedGeneration,
+    });
+    if (result?.status === 'handled') {
+      this.showDictionaryActionFeedback('Dictionary entry mined');
+    } else if (result?.status === 'unsupported') {
+      this.showDictionaryActionFeedback(
+        'Mining is unavailable for this dictionary backend'
+      );
+    } else if (result?.status === 'stale') {
+      this.showDictionaryActionFeedback('Dictionary selection changed');
+    } else {
+      this.showDictionaryActionFeedback('Dictionary mining failed');
+    }
+    return result;
   }
   
-  cancelSelection() {
+  async cancelSelection() {
     this.clearPendingMineCandidate();
-    
-    // Dismiss Yomitan popup but keep navigation mode intact.
-    // In toggle mode, exiting navigation should only happen via toggle button.
-    this.scanHiddenCharacterToHideYomitan();
+
+    let returnedToParent = false;
+    if (
+      this.dictionaryPopupVisible &&
+      this.dictionarySupports('recursive-back')
+    ) {
+      const result = await this.sendDictionaryControlCommand('recursive-back');
+      returnedToParent = result?.status === 'handled';
+    }
+    if (!returnedToParent) {
+      await this.dismissDictionaryPopup('gamepad-cancel');
+    }
     
     if (this.config.onCancel) {
       this.config.onCancel();
@@ -6077,6 +6423,27 @@ class GamepadHandler {
   }
   
   // ==================== Visual Feedback ====================
+
+  showDictionaryActionFeedback(message, duration = 1400) {
+    this.dictionaryActionFeedback = String(message || '').trim() || null;
+    if (this.dictionaryFeedbackTimer) {
+      clearTimeout(this.dictionaryFeedbackTimer);
+      this.dictionaryFeedbackTimer = null;
+    }
+    this.updateModeIndicatorText();
+    if (this.modeIndicator && this.isNavigationActive()) {
+      this.modeIndicator.style.display = 'block';
+    }
+    if (!this.dictionaryActionFeedback) {
+      return;
+    }
+    this.dictionaryFeedbackTimer = setTimeout(() => {
+      this.dictionaryFeedbackTimer = null;
+      this.dictionaryActionFeedback = null;
+      this.updateModeIndicatorText();
+      this.showModeIndicator(this.isNavigationActive());
+    }, Math.max(400, Math.min(5000, Number(duration) || 1400)));
+  }
   
   createVisualElements() {
     // Create block highlight
@@ -6131,7 +6498,8 @@ class GamepadHandler {
     // Create mode indicator
     this.modeIndicator = document.createElement('div');
     this.modeIndicator.id = 'gamepad-mode-indicator';
-    this.modeIndicator.setAttribute('aria-hidden', 'true');
+    this.modeIndicator.setAttribute('role', 'status');
+    this.modeIndicator.setAttribute('aria-live', 'polite');
     this.modeIndicator.style.cssText = `
       position: fixed;
       top: 60px;
@@ -6491,6 +6859,10 @@ class GamepadHandler {
   
   updateModeIndicatorText() {
     if (this.modeIndicator) {
+      if (this.dictionaryActionFeedback) {
+        this.setGeneratedText(this.modeIndicator, this.dictionaryActionFeedback);
+        return;
+      }
       const pausedSuffix = this.navigationPauseActive ? ' · ⏸ Paused' : '';
       if (!this.currentBlockSupportsTokenization()) {
         this.setGeneratedText(this.modeIndicator, `Character Mode${pausedSuffix}`);
@@ -6750,7 +7122,7 @@ class GamepadHandler {
   
   manualDeactivate() {
     this.deactivateNavigation();
-    this.scanHiddenCharacterToHideYomitan();
+    this.dismissDictionaryPopup('manual-deactivate');
   }
   
   manualToggle() {
@@ -6796,12 +7168,9 @@ class GamepadHandler {
     return true;
   }
   
-  /**
-   * Requests popup dismissal from Yomitan via controller control channel.
-   */
+  // Compatibility wrapper for callers that still use the legacy method name.
   scanHiddenCharacterToHideYomitan() {
-    this.clearPendingMineCandidate();
-    this.sendYomitanControlMessage('hide-popup');
+    return this.dismissDictionaryPopup('legacy-hidden-character-dismiss');
   }
 }
 

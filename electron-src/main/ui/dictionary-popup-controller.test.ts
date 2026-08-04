@@ -79,6 +79,75 @@ class FakeBackend extends EventEmitter {
 }
 
 describe("DictionaryPopupController", () => {
+  it.each(["yomitan", "hoshidicts"])(
+    "routes the shared popup command contract through only the active %s backend",
+    async (backendId) => {
+      const { DictionaryPopupController } = await import(controllerModulePath);
+      const backend = new FakeBackend(backendId);
+      backend.capabilities.add("reset-action-selection");
+      backend.capabilities.add("clear-action-selection");
+      backend.capabilities.add("recursive-back");
+      backend.capabilities.add("mine");
+      const controller = new DictionaryPopupController();
+      controller.attachBackend(backend);
+      const generation = controller.generation;
+
+      for (const [command, params] of [
+        ["scroll", { direction: "down", amount: 110 }],
+        ["select-action", { direction: "next" }],
+        ["reset-action-selection", {}],
+        ["clear-action-selection", {}],
+        ["confirm-action", {}],
+        ["next-entry", {}],
+        ["previous-entry", {}],
+        ["recursive-back", {}],
+        ["mine", { expectedBackendId: backendId, expectedGeneration: generation }],
+      ] as const) {
+        await expect(controller.command(command, params)).resolves.toMatchObject({
+          status: "handled",
+          command,
+          generation,
+        });
+      }
+
+      expect(backend.commandCalls.map((call) => call.command)).toEqual([
+        "scroll",
+        "select-action",
+        "reset-action-selection",
+        "clear-action-selection",
+        "confirm-action",
+        "next-entry",
+        "previous-entry",
+        "recursive-back",
+        "mine",
+      ]);
+    },
+  );
+
+  it("rejects stale backend and generation guards before dispatching a command", async () => {
+    const { DictionaryPopupController } = await import(controllerModulePath);
+    const backend = new FakeBackend("yomitan");
+    backend.capabilities.add("mine");
+    const controller = new DictionaryPopupController();
+    controller.attachBackend(backend);
+    const generation = controller.generation;
+
+    await expect(
+      controller.command("mine", {
+        expectedBackendId: "hoshidicts",
+        expectedGeneration: generation,
+      }),
+    ).resolves.toMatchObject({ status: "stale" });
+    await expect(
+      controller.command("mine", {
+        expectedBackendId: "yomitan",
+        expectedGeneration: generation - 1,
+      }),
+    ).resolves.toMatchObject({ status: "stale" });
+
+    expect(backend.commandCalls).toEqual([]);
+  });
+
   it("reference-counts nested popups and ignores stale close events", async () => {
     const { DictionaryPopupController } = await import(controllerModulePath);
     const backend = new FakeBackend("yomitan");
@@ -347,6 +416,12 @@ describe("DictionaryBackendManager", () => {
     await expect(
       manager.lookup({ text: "猫", anchor: { x: 1, y: 1 } }),
     ).rejects.toMatchObject({ code: "LOOKUP_BLOCKED" });
+    await expect(
+      manager.command("scroll", { direction: "down" }),
+    ).resolves.toMatchObject({ status: "blocked" });
+    expect(
+      yomitan.commandCalls.filter((call) => call.command === "scroll"),
+    ).toEqual([]);
 
     start.resolve();
     await switching;

@@ -851,9 +851,9 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "gamepadManualOverlayScanButton": -1, // Disabled by default; triggers manual overlay scan
   "gamepadPauseToggleButton": -1, // Disabled by default; pauses/resumes the text source while navigating
   "gamepadTokenModeToggleButton": 3, // Y button - toggles token/character navigation
-  "gamepadMineButton": 0, // A button - mines the current Yomitan entry
-  "gamepadNextEntryButton": 7, // RT trigger - navigate to next Yomitan entry
-  "gamepadPrevEntryButton": 6, // LT trigger - navigate to previous Yomitan entry
+  "gamepadMineButton": 0, // A button - mines the current dictionary entry
+  "gamepadNextEntryButton": 7, // RT trigger - navigate to next dictionary entry
+  "gamepadPrevEntryButton": 6, // LT trigger - navigate to previous dictionary entry
   "gamepadAutoConfirmSelection": true,
   "gamepadFocusOverlayOnEntry": true,
   "gamepadShowModeIndicator": true,

@@ -176,6 +176,11 @@ describe("HoshiDicts popup", () => {
       dom.window.document.querySelector(".hoshidicts-expression")?.textContent,
     ).toBe("走る");
 
+    await popup.command("next-entry");
+    expect(popup.getSnapshot().entryId).toBe("result-cat");
+    await popup.command("previous-entry");
+    expect(popup.getSnapshot().entryId).toBe("result-run");
+
     await popup.command("select-action", { direction: "next" });
     expect(popup.getSnapshot().selectedActionId).toBe(
       "hoshi-action:next-entry",

@@ -258,6 +258,32 @@ class DictionaryPopupController extends EventEmitter {
         "No dictionary backend is active",
       );
     }
+    if (this.blocked) {
+      return {
+        status: "blocked",
+        command,
+        generation: this.generation,
+        backendId: this.backend.id,
+      };
+    }
+    const expectedGeneration = Number.isSafeInteger(params.expectedGeneration)
+      ? params.expectedGeneration
+      : null;
+    const expectedBackendId =
+      typeof params.expectedBackendId === "string" && params.expectedBackendId
+        ? params.expectedBackendId
+        : null;
+    if (
+      (expectedGeneration !== null && expectedGeneration !== this.generation) ||
+      (expectedBackendId !== null && expectedBackendId !== this.backend.id)
+    ) {
+      return {
+        status: "stale",
+        command,
+        generation: this.generation,
+        backendId: this.backend.id,
+      };
+    }
     if (
       this.backend.capabilities instanceof Set &&
       !this.backend.capabilities.has(command)
@@ -270,8 +296,13 @@ class DictionaryPopupController extends EventEmitter {
     }
 
     try {
+      const {
+        expectedBackendId: _expectedBackendId,
+        expectedGeneration: _expectedGeneration,
+        ...commandParams
+      } = params;
       const value = await this.backend.command(command, {
-        ...params,
+        ...commandParams,
         generation: this.generation,
       });
       return {

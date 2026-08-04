@@ -5078,7 +5078,7 @@ background: rgba(202, 12, 12, 0.692);
 <script>
   // ==================== Gamepad Integration ====================
   // This provides controller support for navigating text blocks and cursor positions
-  // to enable Yomitan lookups without a mouse.
+  // to enable dictionary lookups without a mouse.
   // 
   // IMPORTANT: This uses a Rust Input Server to handle
   // gamepad input at the OS level, allowing it to work even when another window
@@ -5106,8 +5106,8 @@ background: rgba(202, 12, 12, 0.692);
     pauseToggleButton: -1, // Disabled - pauses/resumes the text source while navigating
     tokenModeToggleButton: 3, // Y
     mineButton: 0, // A
-    nextEntryButton: 7, // RT trigger - navigate to next Yomitan entry
-    prevEntryButton: 6, // LT trigger - navigate to previous Yomitan entry
+    nextEntryButton: 7, // RT trigger - navigate to next dictionary entry
+    prevEntryButton: 6, // LT trigger - navigate to previous dictionary entry
     repeatDelay: 400,
     repeatRate: 150,
     autoConfirmSelection: true,
@@ -5331,7 +5331,7 @@ background: rgba(202, 12, 12, 0.692);
       
       onConfirm: (data) => {
         console.log('[Gamepad] Confirmed selection:', data.character);
-        // The click event dispatched by GamepadHandler should trigger Yomitan
+        // GamepadHandler routes the lookup through the selected dictionary backend.
       },
       
       onCancel: () => {
