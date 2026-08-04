@@ -36,6 +36,13 @@ target_compile_definitions(gsm_hoshidicts_host_core PUBLIC
 add_executable(gsm_hoshidicts_host src/main.cpp)
 target_link_libraries(gsm_hoshidicts_host PRIVATE gsm_hoshidicts_host_core)
 
+if(MSVC)
+  target_link_options(gsm_hoshidicts_host PRIVATE
+    /MANIFEST:EMBED
+    "/MANIFESTINPUT:${CMAKE_CURRENT_SOURCE_DIR}/src/windows_utf8.manifest"
+  )
+endif()
+
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   target_link_options(gsm_hoshidicts_host PRIVATE -static-libgcc -static-libstdc++)
 endif()
