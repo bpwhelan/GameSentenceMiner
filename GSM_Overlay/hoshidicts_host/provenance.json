@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "selection": {
+    "path": "mit-main-mit",
+    "status": "selected-for-fork-implementation",
+    "decisionDate": "2026-08-04",
+    "rationale": "The MIT line is license-compatible with the LGPL-3.0-only GameSentenceMiner package and provides the required core dictionary capabilities without linking GPL HoshiDicts code."
+  },
+  "source": {
+    "name": "HoshiDicts",
+    "repository": "https://github.com/Manhhao/hoshidicts.git",
+    "branch": "main-mit",
+    "path": "GSM_Overlay/hoshidicts_host/vendor/hoshidicts",
+    "commit": "af99b554cd4ab289aa65e16fd2a4eea0d3870d3b",
+    "license": "MIT",
+    "files": {
+      ".gitmodules": "288f6529eb44b9c54bb6b1ffdc45a0012afb2a3a48ebefd1fbd5bf902a2fae9c",
+      "LICENSE": "77d08dad43089f49833be45ccfc55f1d9222f7df04949f5ad12428fd1eec9d0a",
+      "external/Jiten/LICENSE": "43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1",
+      "src/deconjugator/deconjugation_rules.hpp": "1303fc92ecf62014546ecbc69ad5f44552deb0798798c0d8e5aaeaafc1eb03a9"
+    }
+  },
+  "embeddedSources": [
+    {
+      "name": "Jiten deconjugation rules",
+      "repository": "https://github.com/Sirush/Jiten.git",
+      "commit": "0146ce2f83548d81c3ec9557a4f123d30242e1d7",
+      "sourcePath": "Shared/resources/deconjugator.json",
+      "sourceSha256": "62acb90912f45956710e2414a9d5b113a7c21998dfc67f43b9c73993ccb6af25",
+      "vendoredPath": "src/deconjugator/deconjugation_rules.hpp",
+      "vendoredSha256": "1303fc92ecf62014546ecbc69ad5f44552deb0798798c0d8e5aaeaafc1eb03a9",
+      "license": "Apache-2.0",
+      "licensePath": "external/Jiten/LICENSE",
+      "licenseSha256": "43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1"
+    }
+  ],
+  "dependencies": [
+    {
+      "name": "glaze",
+      "path": "external/glaze",
+      "repository": "https://github.com/stephenberry/glaze",
+      "commit": "be5159d80c480ec0d97db40f685983e2f7ade2d3",
+      "license": "MIT",
+      "licensePath": "LICENSE",
+      "licenseSha256": "5d49e66411a0807a7c8d6b911b9a26b59e940c71aebe561a3ad8b0b80ac4b7b6"
+    },
+    {
+      "name": "libdeflate",
+      "path": "external/libdeflate",
+      "repository": "https://github.com/ebiggers/libdeflate.git",
+      "commit": "4b6db597a58a92cf7f1e171211d718ac1faea845",
+      "license": "MIT",
+      "licensePath": "COPYING",
+      "licenseSha256": "4ad69099cb4374836fd27583d9991e2838cd86b6e4666ab26b2d32582c91e73a"
+    },
+    {
+      "name": "unordered_dense",
+      "path": "external/unordered_dense",
+      "repository": "https://github.com/martinus/unordered_dense.git",
+      "commit": "7b55cab8418da1603496462ce3ccdb4cb1dc3368",
+      "license": "MIT",
+      "licensePath": "LICENSE",
+      "licenseSha256": "4f5a62734899ec0ba85d3e8264a7ed1fcb4bcb8f0b4359c0afd627b6314ae599"
+    },
+    {
+      "name": "utfcpp",
+      "path": "external/utfcpp",
+      "repository": "https://github.com/nemtrif/utfcpp.git",
+      "commit": "cfc9112cee3e817e8b72948a675f78479546f0cf",
+      "license": "BSL-1.0",
+      "licensePath": "LICENSE",
+      "licenseSha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+    },
+    {
+      "name": "xxHash",
+      "path": "external/xxHash",
+      "repository": "https://github.com/Cyan4973/xxHash.git",
+      "commit": "82cead715cbfddd9e6093db8df95155077ce6e64",
+      "license": "BSD-2-Clause",
+      "licensePath": "LICENSE",
+      "licenseSha256": "6ffedbc0f7878612d2b23589f1ff2ab15633e1df7963a5d9fc750ec5500c7e7a"
+    },
+    {
+      "name": "zstd",
+      "path": "external/zstd",
+      "repository": "https://github.com/facebook/zstd.git",
+      "commit": "0532fe3e8ac1caf48f11603847ac3176064189d1",
+      "license": "BSD-3-Clause",
+      "licensePath": "LICENSE",
+      "licenseSha256": "7055266497633c9025b777c78eb7235af13922117480ed5c674677adc381c9d8"
+    }
+  ]
+}

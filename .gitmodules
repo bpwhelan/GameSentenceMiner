@@ -1,0 +1,4 @@
+[submodule "GSM_Overlay/hoshidicts_host/vendor/hoshidicts"]
+	path = GSM_Overlay/hoshidicts_host/vendor/hoshidicts
+	url = https://github.com/Manhhao/hoshidicts.git
+	branch = main-mit

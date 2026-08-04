@@ -1,0 +1,25 @@
+[
+  [
+    "食べる",
+    "freq",
+    {
+      "reading": "たべる",
+      "frequency": {
+        "value": 100,
+        "displayValue": "top 100"
+      }
+    }
+  ],
+  [
+    "食べる",
+    "pitch",
+    {
+      "reading": "たべる",
+      "pitches": [
+        {
+          "position": 2
+        }
+      ]
+    }
+  ]
+]

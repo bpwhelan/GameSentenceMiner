@@ -1,0 +1,94 @@
+name: HoshiDicts Provenance
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - "feat/optional-hoshidicts"
+    paths:
+      - .gitmodules
+      - .github/workflows/hoshidicts_provenance.yml
+      - GSM_Overlay/hoshidicts_host/**
+      - THIRD_PARTY_NOTICES.md
+      - docs/third-party/hoshidicts-**
+      - scripts/generate_hoshidicts_fixture.py
+      - scripts/verify-hoshidicts-provenance.mjs
+  pull_request:
+    paths:
+      - .gitmodules
+      - .github/workflows/hoshidicts_provenance.yml
+      - GSM_Overlay/hoshidicts_host/**
+      - THIRD_PARTY_NOTICES.md
+      - docs/third-party/hoshidicts-**
+      - scripts/generate_hoshidicts_fixture.py
+      - scripts/verify-hoshidicts-provenance.mjs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-and-build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-latest
+          - name: Linux x64
+            os: ubuntu-24.04
+          - name: macOS arm64
+            os: macos-15
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout recursive source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify source and licenses
+        run: node scripts/verify-hoshidicts-provenance.mjs
+
+      - name: Install Linux C++23 compiler
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-14
+
+      - name: Configure HoshiDicts
+        if: runner.os != 'Linux'
+        run: >-
+          cmake
+          -S GSM_Overlay/hoshidicts_host/vendor/hoshidicts
+          -B build/hoshidicts-provenance
+          -DCMAKE_BUILD_TYPE=Release
+
+      - name: Configure HoshiDicts on Linux
+        if: runner.os == 'Linux'
+        env:
+          CC: gcc-14
+          CXX: g++-14
+        run: >-
+          cmake
+          -S GSM_Overlay/hoshidicts_host/vendor/hoshidicts
+          -B build/hoshidicts-provenance
+          -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build HoshiDicts
+        run: cmake --build build/hoshidicts-provenance --config Release --parallel 4
+
+      - name: Generate public fixture
+        run: python scripts/generate_hoshidicts_fixture.py build/gsm-hoshi-fixture.zip
+
+      - name: Verify macOS architecture
+        if: runner.os == 'macOS'
+        run: file build/hoshidicts-provenance/hoshidicts-cli | grep arm64
