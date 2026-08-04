@@ -140,6 +140,7 @@ int main(int argc, char* argv[]) {
           .dictionaries =
               {{
                   .id = "fixture",
+                  .title = imported.title,
                   .path = (output.path() / imported.title).string(),
                   .types = {"term", "frequency", "pitch", "kanji"},
                   .priority = 0,

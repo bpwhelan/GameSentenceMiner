@@ -21,6 +21,7 @@ class HostError : public std::runtime_error {
 
 struct DictionarySpec {
   std::string id;
+  std::string title;
   std::string path;
   std::vector<std::string> types;
   int priority{};

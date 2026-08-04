@@ -11,6 +11,8 @@
 #include <cctype>
 #include <chrono>
 #include <filesystem>
+#include <limits>
+#include <map>
 #include <set>
 #include <string_view>
 #include <utility>
@@ -43,6 +45,10 @@ void validateDictionary(const DictionarySpec& spec) {
     throw HostError("INVALID_CATALOG", "dictionary id must contain 1-128 bytes");
   }
   validateUtf8(spec.id, "dictionary id");
+  if (spec.title.empty() || spec.title.size() > 512) {
+    throw HostError("INVALID_CATALOG", "dictionary title must contain 1-512 bytes");
+  }
+  validateUtf8(spec.title, "dictionary title");
 
   const std::filesystem::path path(spec.path);
   if (!path.is_absolute()) {
@@ -130,7 +136,37 @@ void validateImportPaths(const DictionaryImportParams& params) {
   }
 }
 
-TermResultData convertTerm(const TermResult& source) {
+void mergeRules(std::string& target, const std::string& source) {
+  if (source.empty() || target == source) {
+    return;
+  }
+  if (target.empty()) {
+    target = source;
+    return;
+  }
+  target += " ";
+  target += source;
+}
+
+void appendGlossaries(
+    TermResultData& target,
+    const TermResult& source,
+    const std::string& dictionaryId) {
+  target.glossaries.reserve(target.glossaries.size() + source.glossaries.size());
+  for (const auto& glossary : source.glossaries) {
+    target.glossaries.push_back({
+        .dictionary = dictionaryId,
+        .glossary = glossary.glossary,
+        .definitionTags = glossary.definition_tags,
+        .termTags = glossary.term_tags,
+    });
+  }
+  mergeRules(target.rules, source.rules);
+}
+
+TermResultData convertTerm(
+    const TermResult& source,
+    const std::string& dictionaryId) {
   TermResultData result{
       .expression = source.expression,
       .reading = source.reading,
@@ -139,21 +175,18 @@ TermResultData convertTerm(const TermResult& source) {
       .frequencies = {},
       .pitches = {},
   };
+  appendGlossaries(result, source, dictionaryId);
+  return result;
+}
 
-  result.glossaries.reserve(source.glossaries.size());
-  for (const auto& glossary : source.glossaries) {
-    result.glossaries.push_back({
-        .dictionary = glossary.dict_name,
-        .glossary = glossary.glossary,
-        .definitionTags = glossary.definition_tags,
-        .termTags = glossary.term_tags,
-    });
-  }
-
-  result.frequencies.reserve(source.frequencies.size());
+void appendFrequencies(
+    TermResultData& target,
+    const TermResult& source,
+    const std::string& dictionaryId) {
+  target.frequencies.reserve(target.frequencies.size() + source.frequencies.size());
   for (const auto& frequency : source.frequencies) {
     FrequencyResult converted{
-        .dictionary = frequency.dict_name,
+        .dictionary = dictionaryId,
         .values = {},
     };
     converted.values.reserve(frequency.frequencies.size());
@@ -161,32 +194,115 @@ TermResultData convertTerm(const TermResult& source) {
       converted.values.push_back({
           .value = value.value,
           .displayValue = value.display_value,
-      });
+        });
     }
-    result.frequencies.push_back(std::move(converted));
+    target.frequencies.push_back(std::move(converted));
   }
+}
 
-  result.pitches.reserve(source.pitches.size());
+void appendPitches(
+    TermResultData& target,
+    const TermResult& source,
+    const std::string& dictionaryId) {
+  target.pitches.reserve(target.pitches.size() + source.pitches.size());
   for (const auto& pitch : source.pitches) {
-    result.pitches.push_back({
-        .dictionary = pitch.dict_name,
+    target.pitches.push_back({
+        .dictionary = dictionaryId,
         .positions = pitch.pitch_positions,
     });
   }
+}
 
-  return result;
+std::size_t utf8Length(const std::string& value) {
+  return static_cast<std::size_t>(
+      utf8::distance(value.begin(), value.end()));
+}
+
+int frequencyValue(
+    const TermResultData& term,
+    const std::string& dictionaryId) {
+  for (const auto& frequency : term.frequencies) {
+    if (frequency.dictionary != dictionaryId) {
+      continue;
+    }
+    int minimum = std::numeric_limits<int>::max();
+    for (const auto& value : frequency.values) {
+      if (value.value >= 0) {
+        minimum = std::min(minimum, value.value);
+      }
+    }
+    return minimum;
+  }
+  return std::numeric_limits<int>::max();
+}
+
+bool rankedBefore(
+    const LookupResultData& left,
+    const LookupResultData& right,
+    const std::vector<std::string>& frequencyOrder) {
+  const auto leftLength = utf8Length(left.matched);
+  const auto rightLength = utf8Length(right.matched);
+  if (leftLength != rightLength) {
+    return leftLength > rightLength;
+  }
+  if (left.preprocessorSteps != right.preprocessorSteps) {
+    return left.preprocessorSteps < right.preprocessorSteps;
+  }
+  if (left.process.size() != right.process.size()) {
+    return left.process.size() < right.process.size();
+  }
+  const bool leftExact = left.term.expression == left.deinflected;
+  const bool rightExact = right.term.expression == right.deinflected;
+  if (leftExact != rightExact) {
+    return leftExact;
+  }
+  for (const auto& dictionaryId : frequencyOrder) {
+    const int leftFrequency = frequencyValue(left.term, dictionaryId);
+    const int rightFrequency = frequencyValue(right.term, dictionaryId);
+    if (leftFrequency != rightFrequency) {
+      return leftFrequency < rightFrequency;
+    }
+  }
+  const bool leftReadingMatch = left.term.expression == left.term.reading;
+  const bool rightReadingMatch = right.term.expression == right.term.reading;
+  if (leftReadingMatch != rightReadingMatch) {
+    return leftReadingMatch;
+  }
+  if (left.term.expression != right.term.expression) {
+    return left.term.expression < right.term.expression;
+  }
+  return left.term.reading < right.term.reading;
 }
 
 }  // namespace
 
 struct Session::Catalog {
-  std::int64_t generation{};
-  DictionaryQuery query;
-  Deconjugator deconjugator;
-  Lookup lookup;
+  struct Dictionary {
+    DictionarySpec spec;
+    DictionaryQuery query;
+    Deconjugator deconjugator;
+    Lookup lookup;
 
-  explicit Catalog(std::int64_t value)
-      : generation(value), lookup(query, deconjugator) {}
+    explicit Dictionary(DictionarySpec value)
+        : spec(std::move(value)), lookup(query, deconjugator) {
+      for (const auto& type : spec.types) {
+        if (type == "term") {
+          query.add_term_dict(spec.path);
+        } else if (type == "frequency") {
+          query.add_freq_dict(spec.path);
+        } else if (type == "pitch") {
+          query.add_pitch_dict(spec.path);
+        } else if (type == "kanji") {
+          query.add_kanji_dict(spec.path);
+        }
+      }
+    }
+  };
+
+  std::int64_t generation{};
+  std::vector<std::unique_ptr<Dictionary>> dictionaries;
+
+  explicit Catalog(std::int64_t value) : generation(value) {}
 };
 
 HostError::HostError(std::string code, std::string message)
@@ -227,21 +343,14 @@ CatalogConfigureResult Session::configureCatalog(const CatalogConfigureParams& p
   }
 
   auto replacement = std::make_unique<Catalog>(params.generation);
-  for (const auto& dictionary : dictionaries) {
-    for (const auto& type : dictionary.types) {
-      if (type == "term") {
-        replacement->query.add_term_dict(dictionary.path);
-      } else if (type == "frequency") {
-        replacement->query.add_freq_dict(dictionary.path);
-      } else if (type == "pitch") {
-        replacement->query.add_pitch_dict(dictionary.path);
-      } else if (type == "kanji") {
-        replacement->query.add_kanji_dict(dictionary.path);
-      }
-    }
+  std::size_t styleCount = 0;
+  replacement->dictionaries.reserve(dictionaries.size());
+  for (auto& dictionary : dictionaries) {
+    auto loaded = std::make_unique<Catalog::Dictionary>(std::move(dictionary));
+    styleCount += loaded->query.get_styles().size();
+    replacement->dictionaries.push_back(std::move(loaded));
   }
 
-  const auto styleCount = replacement->query.get_styles().size();
   catalog_ = std::move(replacement);
   return {
       .generation = params.generation,
@@ -278,28 +387,93 @@ LookupTermResult Session::lookupTerm(const LookupTermParams& params) const {
   }
 
   const auto started = std::chrono::steady_clock::now();
-  const auto nativeResults =
-      catalog.lookup.lookup(params.text, params.maxResults, params.scanLength);
+  std::map<std::pair<std::string, std::string>, LookupResultData> mergedResults;
+  for (const auto& dictionary : catalog.dictionaries) {
+    if (!hasType(dictionary->spec.types, "term")) {
+      continue;
+    }
+    const auto nativeResults = dictionary->lookup.lookup(
+        params.text, kMaxLookupResults, params.scanLength);
+    for (const auto& nativeResult : nativeResults) {
+      const auto key =
+          std::pair{nativeResult.term.expression, nativeResult.term.reading};
+      auto [iterator, inserted] = mergedResults.try_emplace(
+          key,
+          LookupResultData{
+              .matched = nativeResult.matched,
+              .deinflected = nativeResult.deinflected,
+              .process = nativeResult.process,
+              .preprocessorSteps = nativeResult.preprocessor_steps,
+              .term = convertTerm(nativeResult.term, dictionary->spec.id),
+          });
+      if (inserted) {
+        continue;
+      }
+      appendGlossaries(
+          iterator->second.term, nativeResult.term, dictionary->spec.id);
+      if (utf8Length(nativeResult.matched) >
+          utf8Length(iterator->second.matched)) {
+        iterator->second.matched = nativeResult.matched;
+        iterator->second.deinflected = nativeResult.deinflected;
+        iterator->second.process = nativeResult.process;
+        iterator->second.preprocessorSteps = nativeResult.preprocessor_steps;
+      }
+    }
+  }
+
+  std::vector<LookupResultData> orderedResults;
+  orderedResults.reserve(mergedResults.size());
+  for (auto& [key, lookupResult] : mergedResults) {
+    static_cast<void>(key);
+    orderedResults.push_back(std::move(lookupResult));
+  }
+
+  std::vector<std::string> frequencyOrder;
+  for (const auto& dictionary : catalog.dictionaries) {
+    const bool hasFrequency = hasType(dictionary->spec.types, "frequency");
+    const bool hasPitch = hasType(dictionary->spec.types, "pitch");
+    if (hasFrequency) {
+      frequencyOrder.push_back(dictionary->spec.id);
+    }
+    if (!hasFrequency && !hasPitch) {
+      continue;
+    }
+    for (auto& lookupResult : orderedResults) {
+      TermResult probe;
+      probe.expression = lookupResult.term.expression;
+      probe.reading = lookupResult.term.reading;
+      std::vector<TermResult> probes;
+      probes.push_back(std::move(probe));
+      if (hasFrequency) {
+        dictionary->query.query_freq(probes);
+        appendFrequencies(
+            lookupResult.term, probes.front(), dictionary->spec.id);
+      }
+      if (hasPitch) {
+        dictionary->query.query_pitch(probes);
+        appendPitches(
+            lookupResult.term, probes.front(), dictionary->spec.id);
+      }
+    }
+  }
+  std::stable_sort(
+      orderedResults.begin(), orderedResults.end(),
+      [&frequencyOrder](const auto& left, const auto& right) {
+        return rankedBefore(left, right, frequencyOrder);
+      });
+  if (orderedResults.size() > static_cast<std::size_t>(params.maxResults)) {
+    orderedResults.resize(static_cast<std::size_t>(params.maxResults));
+  }
+
   LookupTermResult result{
       .catalogGeneration = catalog.generation,
       .requestGeneration = params.requestGeneration,
       .matchedLength = 0,
-      .results = {},
+      .results = std::move(orderedResults),
       .elapsedMs = 0,
   };
-  result.results.reserve(nativeResults.size());
-  for (const auto& nativeResult : nativeResults) {
-    result.results.push_back({
-        .matched = nativeResult.matched,
-        .deinflected = nativeResult.deinflected,
-        .process = nativeResult.process,
-        .preprocessorSteps = nativeResult.preprocessor_steps,
-        .term = convertTerm(nativeResult.term),
-    });
-  }
-  if (!nativeResults.empty()) {
-    result.matchedLength = static_cast<std::size_t>(
-        utf8::distance(nativeResults.front().matched.begin(), nativeResults.front().matched.end()));
+  if (!result.results.empty()) {
+    result.matchedLength = utf8Length(result.results.front().matched);
   }
   result.elapsedMs = elapsedMilliseconds(started);
   return result;
@@ -316,24 +490,28 @@ LookupKanjiResult Session::lookupKanji(const LookupKanjiParams& params) const {
   validateUtf8(params.text, "kanji text");
 
   const auto started = std::chrono::steady_clock::now();
-  const auto nativeResult = catalog.query.query_kanji(params.text);
   LookupKanjiResult result{
       .catalogGeneration = catalog.generation,
       .requestGeneration = params.requestGeneration,
-      .character = nativeResult.character,
+      .character = params.text,
       .entries = {},
       .elapsedMs = 0,
   };
-  result.entries.reserve(nativeResult.entries.size());
-  for (const auto& entry : nativeResult.entries) {
-    result.entries.push_back({
-        .dictionary = entry.dict_name,
-        .onyomi = entry.onyomi,
-        .kunyomi = entry.kunyomi,
-        .tags = entry.tags,
-        .definitions = entry.definitions,
-        .stats = {entry.stats.begin(), entry.stats.end()},
-    });
+  for (const auto& dictionary : catalog.dictionaries) {
+    if (!hasType(dictionary->spec.types, "kanji")) {
+      continue;
+    }
+    const auto nativeResult = dictionary->query.query_kanji(params.text);
+    for (const auto& entry : nativeResult.entries) {
+      result.entries.push_back({
+          .dictionary = dictionary->spec.id,
+          .onyomi = entry.onyomi,
+          .kunyomi = entry.kunyomi,
+          .tags = entry.tags,
+          .definitions = entry.definitions,
+          .stats = {entry.stats.begin(), entry.stats.end()},
+      });
+    }
   }
   result.elapsedMs = elapsedMilliseconds(started);
   return result;
@@ -345,14 +523,18 @@ StylesListResult Session::listStyles(const CatalogGenerationParams& params) cons
       .catalogGeneration = catalog.generation,
       .styles = {},
   };
-  for (const auto& style : catalog.query.get_styles()) {
-    if (style.styles.size() > kMaxStyleBytes) {
-      throw HostError("RESPONSE_TOO_LARGE", "dictionary stylesheet exceeds the supported size");
+  for (const auto& dictionary : catalog.dictionaries) {
+    for (const auto& style : dictionary->query.get_styles()) {
+      if (style.styles.size() > kMaxStyleBytes) {
+        throw HostError(
+            "RESPONSE_TOO_LARGE",
+            "dictionary stylesheet exceeds the supported size");
+      }
+      result.styles.push_back({
+          .dictionary = dictionary->spec.id,
+          .css = style.styles,
+      });
     }
-    result.styles.push_back({
-        .dictionary = style.dict_name,
-        .css = style.styles,
-    });
   }
   return result;
 }
@@ -383,7 +565,17 @@ MediaGetResult Session::getMedia(const MediaGetParams& params) const {
     }
   }
 
-  const auto media = catalog.query.get_media_file_view(params.dictionary, params.path);
+  const auto dictionary = std::ranges::find_if(
+      catalog.dictionaries,
+      [&params](const auto& candidate) {
+        return candidate->spec.id == params.dictionary;
+      });
+  if (dictionary == catalog.dictionaries.end() ||
+      !hasType((*dictionary)->spec.types, "term")) {
+    throw HostError("MEDIA_NOT_FOUND", "dictionary media owner was not found");
+  }
+  const auto media = (*dictionary)->query.get_media_file_view(
+      (*dictionary)->spec.title, params.path);
   if (media.data == nullptr) {
     throw HostError("MEDIA_NOT_FOUND", "dictionary media was not found");
   }
@@ -458,6 +650,7 @@ DictionaryProbeResult Session::probeDictionary(
       .dictionaries =
           {{
               .id = "import-probe",
+              .title = "Import probe",
               .path = params.path,
               .types = params.types,
               .priority = 0,

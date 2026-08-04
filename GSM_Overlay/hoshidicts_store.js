@@ -568,6 +568,8 @@ class HoshiDictsStore {
       await verifyExistingDirectoryChain(this.rootPath, dictionaryPath);
       dictionaries.push({
         id,
+        title: dictionary.title,
+        displayTitle: dictionary.title,
         path: dictionaryPath,
         types: [...dictionary.types],
         priority: dictionaries.length,

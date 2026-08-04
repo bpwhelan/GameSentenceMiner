@@ -205,6 +205,7 @@ describe("HoshiDictsStore", () => {
     expect(catalog.dictionaries).toHaveLength(1);
     expect(catalog.dictionaries[0]).toMatchObject({
       id: first.entry.id,
+      title: first.entry.title,
       priority: 0,
     });
 

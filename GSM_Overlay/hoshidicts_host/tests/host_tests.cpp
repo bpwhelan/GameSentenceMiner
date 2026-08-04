@@ -79,15 +79,23 @@ void testSession(const std::filesystem::path& fixtureZip) {
       .generation = 1,
       .dictionaries =
           {{
-              .id = "fixture",
+              .id = "fixture-primary",
+              .title = imported.title,
               .path = dictionaryPath.string(),
               .types = {"term", "frequency", "pitch", "kanji"},
               .priority = 0,
+          },
+           {
+              .id = "fixture-duplicate-title",
+              .title = imported.title,
+              .path = dictionaryPath.string(),
+              .types = {"term", "frequency", "pitch", "kanji"},
+              .priority = 1,
           }},
   });
   check(configured.generation == 1, "catalog generation was not applied");
-  check(configured.loaded == 1, "catalog did not load the fixture");
-  check(configured.styles == 1, "fixture stylesheet was not loaded");
+  check(configured.loaded == 2, "catalog did not load both fixtures");
+  check(configured.styles == 2, "fixture stylesheets were not loaded");
 
   const auto lookup = session.lookupTerm({
       .catalogGeneration = 1,
@@ -102,14 +110,32 @@ void testSession(const std::filesystem::path& fixtureZip) {
   check(lookup.results.front().term.expression == "食べる", "inflection did not resolve to 食べる");
   check(!lookup.results.front().term.glossaries.empty(), "term glossary is missing");
   check(
+      lookup.results.front().term.glossaries.size() == 2,
+      "duplicate-title dictionary glossaries were not kept distinct");
+  check(
+      lookup.results.front().term.glossaries[0].dictionary == "fixture-primary" &&
+          lookup.results.front().term.glossaries[1].dictionary ==
+              "fixture-duplicate-title",
+      "term glossaries did not use opaque dictionary IDs");
+  check(
       lookup.results.front().term.glossaries.front().glossary.find("to eat") !=
           std::string::npos,
       "term glossary content changed");
   check(!lookup.results.front().term.frequencies.empty(), "frequency metadata is missing");
   check(
+      lookup.results.front().term.frequencies[0].dictionary == "fixture-primary" &&
+          lookup.results.front().term.frequencies[1].dictionary ==
+              "fixture-duplicate-title",
+      "frequency metadata did not use opaque dictionary IDs");
+  check(
       lookup.results.front().term.frequencies.front().values.front().value == 100,
       "frequency metadata changed");
   check(!lookup.results.front().term.pitches.empty(), "pitch metadata is missing");
+  check(
+      lookup.results.front().term.pitches[0].dictionary == "fixture-primary" &&
+          lookup.results.front().term.pitches[1].dictionary ==
+              "fixture-duplicate-title",
+      "pitch metadata did not use opaque dictionary IDs");
   check(
       lookup.results.front().term.pitches.front().positions.front() == 2,
       "pitch metadata changed");
@@ -142,20 +168,29 @@ void testSession(const std::filesystem::path& fixtureZip) {
       .text = "食",
   });
   check(kanji.character == "食", "kanji lookup character changed");
-  check(kanji.entries.size() == 1, "kanji lookup entry is missing");
+  check(kanji.entries.size() == 2, "duplicate-title kanji entries are missing");
+  check(
+      kanji.entries[0].dictionary == "fixture-primary" &&
+          kanji.entries[1].dictionary == "fixture-duplicate-title",
+      "kanji entries did not use opaque dictionary IDs");
   check(kanji.entries.front().onyomi == "ショク", "kanji onyomi changed");
 
   const auto styles = session.listStyles({.catalogGeneration = 1});
-  check(styles.styles.size() == 1, "styles.list omitted the fixture");
+  check(styles.styles.size() == 2, "styles.list omitted a duplicate-title fixture");
+  check(
+      styles.styles[0].dictionary == "fixture-primary" &&
+          styles.styles[1].dictionary == "fixture-duplicate-title",
+      "dictionary styles did not use opaque dictionary IDs");
   check(
       styles.styles.front().css.find(".gsm-fixture-definition") != std::string::npos,
       "fixture CSS changed");
 
   const auto media = session.getMedia({
       .catalogGeneration = 1,
-      .dictionary = "GSM Hoshi Fixture",
+      .dictionary = "fixture-primary",
       .path = "media/sample.txt",
   });
+  check(media.dictionary == "fixture-primary", "media owner changed to a title");
   check(media.size == 24, "media size changed");
   check(
       media.data == "Z2VuZXJhdGVkIGZpeHR1cmUgbWVkaWEK",
@@ -175,7 +210,7 @@ void testSession(const std::filesystem::path& fixtureZip) {
       [&] {
         session.getMedia({
             .catalogGeneration = 1,
-            .dictionary = "GSM Hoshi Fixture",
+            .dictionary = "fixture-primary",
             .path = "../index.json",
         });
       },
@@ -188,6 +223,7 @@ void testSession(const std::filesystem::path& fixtureZip) {
             .dictionaries =
                 {{
                     .id = "missing",
+                    .title = "Missing",
                     .path = (output.path() / "missing").string(),
                     .types = {"term"},
                     .priority = 0,
