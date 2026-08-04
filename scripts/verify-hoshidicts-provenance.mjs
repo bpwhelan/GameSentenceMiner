@@ -28,8 +28,13 @@ function runGit(workingDirectory, args) {
   }).trim();
 }
 
-async function sha256(filePath) {
-  const contents = await fs.readFile(filePath);
+function sha256GitBlob(repositoryPath, relativePath) {
+  resolveInside(repositoryPath, relativePath);
+  const gitPath = relativePath.split(path.sep).join('/');
+  const contents = execFileSync('git', ['-C', repositoryPath, 'show', `HEAD:${gitPath}`], {
+    encoding: null,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
   return crypto.createHash('sha256').update(contents).digest('hex');
 }
 
@@ -73,6 +78,9 @@ export function compareProvenance(expected, observed) {
       `checked-out HoshiDicts commit is ${observed.sourceCommit}; expected ${expectedSourceCommit}`,
     );
   }
+  if (observed.sourceDirty) {
+    problems.push('checked-out HoshiDicts source contains tracked worktree changes');
+  }
 
   for (const [relativePath, expectedHash] of Object.entries(expected.source.files)) {
     const actualHash = observed.sourceFiles[relativePath];
@@ -106,6 +114,9 @@ export function compareProvenance(expected, observed) {
         `dependency ${dependency.path} is ${actual.commit}; expected ${dependency.commit}`,
       );
     }
+    if (actual.dirty) {
+      problems.push(`dependency ${dependency.path} contains tracked worktree changes`);
+    }
     if (actual.licenseSha256 !== dependency.licenseSha256) {
       problems.push(
         `dependency ${dependency.path} license has SHA-256 ${actual.licenseSha256 ?? 'missing'}; expected ${dependency.licenseSha256}`,
@@ -124,7 +135,7 @@ export async function collectObservedProvenance(repoRoot, expected) {
   const sourceFiles = {};
 
   for (const relativePath of Object.keys(expected.source.files)) {
-    sourceFiles[relativePath] = await sha256(resolveInside(sourcePath, relativePath));
+    sourceFiles[relativePath] = sha256GitBlob(sourcePath, relativePath);
   }
 
   const statusOutput = execFileSync(
@@ -142,15 +153,14 @@ export async function collectObservedProvenance(repoRoot, expected) {
     const expectedDependency = expected.dependencies.find(
       (dependency) => dependency.path === dependencyPath,
     );
+    const dependencyRepositoryPath = resolveInside(sourcePath, dependencyPath);
     dependencies[dependencyPath] = {
       ...status,
+      dirty:
+        runGit(dependencyRepositoryPath, ['status', '--porcelain', '--untracked-files=no'])
+          .length > 0,
       licenseSha256: expectedDependency
-        ? await sha256(
-            resolveInside(
-              sourcePath,
-              path.join(dependencyPath, expectedDependency.licensePath),
-            ),
-          )
+        ? sha256GitBlob(dependencyRepositoryPath, expectedDependency.licensePath)
         : undefined,
     };
   }
@@ -158,6 +168,8 @@ export async function collectObservedProvenance(repoRoot, expected) {
   return {
     gitlinkCommit,
     sourceCommit,
+    sourceDirty:
+      runGit(sourcePath, ['status', '--porcelain', '--untracked-files=no']).length > 0,
     sourceFiles,
     dependencies,
   };

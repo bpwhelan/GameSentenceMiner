@@ -54,7 +54,9 @@ BSD-3-Clause license. No GPL option is selected for the Hoshi host.
 
 Exact license hashes live in
 `GSM_Overlay/hoshidicts_host/provenance.json`; the verifier checks the source
-gitlink, every recursive checkout, and every selected license:
+gitlink, every recursive checkout, tracked-worktree cleanliness, and every
+selected license. File hashes are computed from the pinned Git blobs so
+platform checkout line-ending conversion cannot change provenance:
 
 ```sh
 git submodule update --init --recursive

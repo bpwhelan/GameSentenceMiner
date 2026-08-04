@@ -22,6 +22,7 @@ function validObserved() {
     return {
         gitlinkCommit: expected.source.commit,
         sourceCommit: expected.source.commit,
+        sourceDirty: false,
         sourceFiles: {
             LICENSE: 'license-hash',
         },
@@ -29,6 +30,7 @@ function validObserved() {
             'external/example': {
                 state: ' ',
                 commit: expected.dependencies[0].commit,
+                dirty: false,
                 licenseSha256: 'dependency-license-hash',
             },
         },
@@ -54,15 +56,27 @@ describe('HoshiDicts provenance verification', () => {
     it('rejects missing, dirty, or unexpected recursive dependencies', () => {
         const observed = validObserved();
         observed.dependencies['external/example'].state = '+';
+        observed.dependencies['external/example'].dirty = true;
         observed.dependencies['external/unexpected'] = {
             state: ' ',
             commit: 'dddddddddddddddddddddddddddddddddddddddd',
+            dirty: false,
             licenseSha256: 'unexpected',
         };
 
         expect(compareProvenance(expected, observed)).toEqual([
             'recursive submodule set is ["external/example","external/unexpected"]; expected ["external/example"]',
             'dependency external/example has submodule state "+"; expected a clean initialized checkout',
+            'dependency external/example contains tracked worktree changes',
+        ]);
+    });
+
+    it('rejects tracked changes in the selected source checkout', () => {
+        const observed = validObserved();
+        observed.sourceDirty = true;
+
+        expect(compareProvenance(expected, observed)).toEqual([
+            'checked-out HoshiDicts source contains tracked worktree changes',
         ]);
     });
 });
