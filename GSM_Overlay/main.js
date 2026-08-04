@@ -15,6 +15,9 @@ const WebSocket = require('ws');
 const bg = require('./background');
 const BackendConnector = require('./backend_connector');
 const { createMagpieState } = require('./magpie');
+const {
+  buildDictionaryInteractionSnapshot,
+} = require('./dictionary_interaction');
 const { JitenParseCache, postJitenSrs, DEFAULT_JITEN_PARSE_URL: JITEN_DEFAULT_PARSE_URL } = require('./jiten_cache');
 const { forceForegroundWindow } = require('./win_foreground');
 const {
@@ -3916,6 +3919,24 @@ function shouldHideOverlayWindowForManualInactive() {
     !shouldKeepOverlayVisibleWhenManualInactive();
 }
 
+function getDictionaryInteractionDiagnosticSnapshot() {
+  return buildDictionaryInteractionSnapshot({
+    popup: {
+      active: dictionaryPopupShown,
+      backendId: activeDictionaryPopupBackendId,
+      popupCount: activeDictionaryPopupCount,
+      generation: activeDictionaryPopupGeneration,
+    },
+    focusOnLookup: userSettings.focusOverlayOnYomitanLookup === true,
+    manualMode: isManualMode(),
+    manualHoldActive: manualHotkeyPressed,
+    manualToggleActive: manualModeToggleState,
+    gamepadNavigationActive,
+    resizeMode,
+    magpieState: currentMagpieState,
+  });
+}
+
 function isDictionaryPopupStateLikelyStale() {
   if (!dictionaryPopupShown) {
     return false;
@@ -5414,15 +5435,23 @@ function resetOverlayInteractionStateForHiddenGameWindow(reason = "game-window-h
   const hadManualState = !!(manualHotkeyPressed || manualModeToggleState || overlayPauseSourceActive[OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY]);
   const hadGamepadNavigation = !!(gamepadNavigationActive || overlayPauseSourceActive[OVERLAY_PAUSE_SOURCE_GAMEPAD_NAVIGATION]);
   const hadVisibleOverlay = !!isOverlayVisible;
+  const hadDictionaryPopup = dictionaryPopupShown;
 
-  if (!hadManualState && !hadGamepadNavigation && !hadVisibleOverlay) {
+  if (!hadManualState && !hadGamepadNavigation && !hadVisibleOverlay && !hadDictionaryPopup) {
     return;
   }
 
   console.log(
     `[OverlayState] Resetting overlay interaction state for hidden game window (${reason}) ` +
-    `manual=${hadManualState} gamepad=${hadGamepadNavigation} overlayVisible=${hadVisibleOverlay}`
+    `manual=${hadManualState} gamepad=${hadGamepadNavigation} ` +
+    `popup=${hadDictionaryPopup} overlayVisible=${hadVisibleOverlay}`
   );
+
+  if (hadDictionaryPopup && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("dictionary-popup-dismiss-request", {
+      reason,
+    });
+  }
 
   manualHotkeyController.reset(reason);
   manualHotkeyPressed = false;
@@ -7307,6 +7336,9 @@ async function startOverlayAppImpl() {
       return { ok: false, error: hoshiLastOperationError };
     }
   });
+  ipcMain.handle("dictionary-interaction-snapshot", async () =>
+    getDictionaryInteractionDiagnosticSnapshot()
+  );
 
   ipcMain.on('update-window-shape', (event, shape) => {
     // if (process.platform !== 'win32') {

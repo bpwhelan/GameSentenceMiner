@@ -979,6 +979,7 @@ background: rgba(202, 12, 12, 0.692);
   
   let dictionaryPopupController = null;
   let dictionaryBackendManager = null;
+  let dictionaryPointerScanner = null;
   let yomitanDictionaryBackend = null;
   let hoshiDictionaryClient = null;
   let hoshiDictionaryPopup = null;
@@ -1218,18 +1219,6 @@ background: rgba(202, 12, 12, 0.692);
     }, delayMs);
   }
 
-  function isDictionaryPopupElement(element) {
-    return (
-      element instanceof HTMLElement &&
-      (
-        element.classList.contains('yomitan-popup') ||
-        element.classList.contains('hoshidicts-popup') ||
-        element.id === 'hoshidicts-popup-root' ||
-        element.tagName === 'YOMITAN-POPUP-TAG-NAME'
-      )
-    );
-  }
-
   function getVisibleYomitanPopupFrames() {
     return Array.from(document.querySelectorAll('iframe.yomitan-popup'))
       .filter((frame) => {
@@ -1327,6 +1316,11 @@ background: rgba(202, 12, 12, 0.692);
   const { ipcRenderer } = require("electron");
   const { DictionaryPopupController } = require("./dictionary_popup_controller.js");
   const { DictionaryBackendManager } = require("./dictionary_backend_manager.js");
+  const {
+    DictionaryPointerScanner,
+    buildDictionaryInteractionSnapshot,
+    classifyDictionaryPointerEvent,
+  } = require("./dictionary_interaction.js");
   const { HoshiDictsClient } = require("./hoshidicts_client.js");
   const { HoshiDictsDictionaryBackend } = require("./hoshidicts_dictionary_backend.js");
   const { HoshiDictsPopup } = require("./hoshidicts_popup.js");
@@ -1365,6 +1359,18 @@ background: rgba(202, 12, 12, 0.692);
       ...intent,
     }),
   );
+  dictionaryPointerScanner = new DictionaryPointerScanner({
+    window,
+    document,
+    lookup: (intent) =>
+      dictionaryBackendManager.lookup({
+        ...dictionaryProfileSettings,
+        ...intent,
+      }),
+    getBackendId: () =>
+      dictionaryBackendManager.getSnapshot().backendId,
+    isInteractionSuppressed: isManualInteractionSuppressed,
+  }).start();
 
   dictionaryPopupController.on("popup-state", (popupState) => {
     const wasShowing = dictionaryPopupShowing;
@@ -1381,6 +1387,7 @@ background: rgba(202, 12, 12, 0.692);
       return;
     }
     if (wasShowing && !dictionaryPopupShowing) {
+      dictionaryPointerScanner?.invalidate();
       if (isMagpieActive && !manualHotkeyPressed) {
         requestMagpieMouseRelease("dictionary-popup-hidden");
       }
@@ -1391,6 +1398,7 @@ background: rgba(202, 12, 12, 0.692);
     }
   });
   dictionaryBackendManager.on("status", (status) => {
+    dictionaryPointerScanner?.invalidate();
     window.dispatchEvent(new CustomEvent("dictionary-backend-status", {
       detail: status,
     }));
@@ -1477,11 +1485,38 @@ background: rgba(202, 12, 12, 0.692);
   });
   window.gsmDictionaryPopupController = dictionaryPopupController;
   window.gsmDictionaryBackendManager = dictionaryBackendManager;
+  window.gsmDictionaryInteractionSnapshot = () => {
+    const popup = dictionaryPopupController.getSnapshot();
+    return buildDictionaryInteractionSnapshot({
+      popup,
+      focusOnLookup:
+        dictionaryProfileSettings.focusOverlayOnYomitanLookup === true,
+      manualMode,
+      manualHoldActive:
+        manualHotkeyPressed && manualModeType === "hold",
+      manualToggleActive:
+        manualHotkeyPressed && manualModeType === "toggle",
+      gamepadNavigationActive:
+        gamepadHandler?.getState?.().active === true,
+      resizeMode,
+      magpieState:
+        magpieController?.getState?.() || {
+          active: isMagpieActive,
+          signature: null,
+        },
+    });
+  };
   void dictionaryBackendManager.start("yomitan").catch((error) => {
     console.error("[DictionaryPopup] Failed to start the default Yomitan backend:", error);
   });
   window.addEventListener("beforeunload", () => {
+    dictionaryPointerScanner?.dispose();
     hoshiDictionaryClient?.forceKill?.();
+  });
+  ipcRenderer.on("dictionary-popup-dismiss-request", (_event, payload = {}) => {
+    void closeDictionaryLookups(
+      String(payload.reason || "main-process-request"),
+    );
   });
 
   // Try to load OverlayUtils if available (since this is an Electron renderer process)
@@ -2973,6 +3008,10 @@ background: rgba(202, 12, 12, 0.692);
           // Supplemental results append to existing overlay without clearing.
           // Retry recalibrations keep text nodes in place and only refresh geometry.
           if (!isSupplemental) {
+            dictionaryPointerScanner?.invalidate();
+            if (dictionaryPopupShowing) {
+              void closeDictionaryLookups("text-rebuild");
+            }
             if (isRecalibration) {
               clearOverlayRecalibrationDecorations();
             } else {
@@ -3080,6 +3119,13 @@ background: rgba(202, 12, 12, 0.692);
                 ? applyTextBoxLayout(reusableTextBoxes[reusableTextBoxIndex++], word.text, x1, y1, x3, y3, true, isVertical)
                 : createTextBox(word.text, x1, y1, x3, y3, 0, true, true, isVertical);
               box.dataset.lineIndex = lineIdx;
+              box.dataset.renderGeneration = renderGeneration;
+              box.dataset.sourceSentence = String(line.text || "");
+              if (data.line_id != null) {
+                box.dataset.lineId = String(data.line_id);
+              } else {
+                delete box.dataset.lineId;
+              }
               const blockContainer = blockContainers.get(blockId);
               if (blockContainer && box.parentNode !== blockContainer) {
                 blockContainer.appendChild(box);
@@ -3980,6 +4026,10 @@ background: rgba(202, 12, 12, 0.692);
   // Function to clear all existing text boxes
   function clearTextBoxes(options = {}) {
     const preserveFurigana = options.preserveFurigana === true;
+    dictionaryPointerScanner?.invalidate();
+    if (dictionaryPopupShowing) {
+      void closeDictionaryLookups("text-rebuild");
+    }
     lastOverlayTextRenderSignature = null;
     // Fast way to clear DOM without leaving residue
     const selectors = ['.text-box', '.big-interactive-area', '.spacer', '.line-box', '.recycled-indicator', '.text-block-container', '.block-separator'];
@@ -4165,21 +4215,27 @@ background: rgba(202, 12, 12, 0.692);
   // but ensures FUTURE clicks pass through. The window must already be in ignore mode
   // for clicks to pass through automatically.
   document.addEventListener("click", (event) => {
-    // Use composedPath to see into Shadow DOMs
-    const path = event.composedPath();
-    const isYomitanPopup = path.some(isDictionaryPopupElement);
+    const pointerRoute = classifyDictionaryPointerEvent(event, {
+      popupActive: dictionaryPopupShowing,
+      interactionSuppressed: isManualInteractionSuppressed(),
+    });
     
-    const target = event.target;
-    const isInteractive = target.classList.contains('interactive') || target.closest('.interactive');
     const isActionPanel = false; // target.id === 'action-panel' || target.closest('#action-panel');
     const isActionTrigger = false; // target.id === 'action-panel-trigger' || target.closest('#action-panel-trigger');
 
-    if (isManualInteractionSuppressed() && !isYomitanPopup) {
+    if (pointerRoute === "inside-popup") {
+      return;
+    }
+    if (pointerRoute === "dismiss-popup") {
+      void closeDictionaryLookups("outside-click");
+      return;
+    }
+    if (pointerRoute === "restore-pass-through") {
       restoreOverlayPassThrough('manual-interaction-suppressed-document-click');
       return;
     }
     
-    if (!isYomitanPopup && !isActionPanel && !isActionTrigger) {
+    if (!isActionPanel && !isActionTrigger) {
       // Set ignore mode immediately so subsequent mouse events pass through
       ipcRenderer.send("set-ignore-mouse-events", true, { forward: true });
     }
@@ -4187,21 +4243,29 @@ background: rgba(202, 12, 12, 0.692);
 
   // Use mousedown to catch events earlier in the chain, giving better pass-through behavior
   document.addEventListener("mousedown", (event) => {
-    const path = event.composedPath();
-    const isYomitanPopup = path.some(isDictionaryPopupElement);
+    const pointerRoute = classifyDictionaryPointerEvent(event, {
+      popupActive: dictionaryPopupShowing,
+      interactionSuppressed: isManualInteractionSuppressed(),
+    });
     
-    const target = event.target;
     // const isInteractive = target.classList.contains('interactive') || target.closest('.interactive');
     const isActionPanel = false; // target.id === 'action-panel' || target.closest('#action-panel');
     const isActionTrigger = false; // target.id === 'action-panel-trigger' || target.closest('#action-panel-trigger');
 
-    if (isManualInteractionSuppressed() && !isYomitanPopup) {
+    if (pointerRoute === "inside-popup") {
+      return;
+    }
+    if (pointerRoute === "dismiss-popup") {
+      void closeDictionaryLookups("outside-mousedown");
+      return;
+    }
+    if (pointerRoute === "restore-pass-through") {
       restoreOverlayPassThrough('manual-interaction-suppressed-document-mousedown');
       return;
     }
     
     // If clicking on non-interactive area, ensure ignore mode is active
-    if (!isYomitanPopup && !isActionPanel && !isActionTrigger) {
+    if (!isActionPanel && !isActionTrigger) {
       ipcRenderer.send("set-ignore-mouse-events", true, { forward: true });
     }
   });

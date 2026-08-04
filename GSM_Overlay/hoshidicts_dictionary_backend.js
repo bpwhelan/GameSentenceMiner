@@ -327,6 +327,7 @@ class HoshiDictsDictionaryBackend extends EventEmitter {
     }
 
     this.popup.showLoading(commonOptions);
+    this.#openPopup(generation, "lookup-loading");
     this.emit("state", { lifecycle: "loading", generation });
     try {
       const response = await this.client.request(
@@ -402,6 +403,9 @@ class HoshiDictsDictionaryBackend extends EventEmitter {
   }
 
   #openPopup(generation, reason) {
+    if (this.openPopupGeneration === generation) {
+      return;
+    }
     this.openPopupGeneration = generation;
     this.emit("popup-opened", {
       backendId: this.id,

@@ -156,7 +156,15 @@ class DictionaryPopupController extends EventEmitter {
     this.generation += 1;
     this.anchorKey = null;
     this.lastErrorCode = null;
-    if (options.keepPopups !== true) {
+    if (options.keepPopups === true && this.popupIds.size > 0) {
+      for (const popupId of this.popupIds.keys()) {
+        this.popupIds.set(popupId, {
+          generation: this.generation,
+          backendId: this.backend?.id || null,
+        });
+      }
+      this.#publishPopupState(true, `${reason}-popup-preserved`);
+    } else {
       this.#clearPopups(reason);
     }
     if (!this.blocked) {
@@ -184,7 +192,10 @@ class DictionaryPopupController extends EventEmitter {
       );
     }
 
-    const generation = this.invalidate("lookup");
+    const generation = this.invalidate("lookup", {
+      keepPopups:
+        intent.preservePopup === true && this.popupIds.size > 0,
+    });
     const controller = new AbortController();
     this.lookupAbortController = controller;
     this.anchorKey =

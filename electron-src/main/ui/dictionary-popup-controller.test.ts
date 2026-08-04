@@ -155,6 +155,56 @@ describe("DictionaryPopupController", () => {
     });
   });
 
+  it("keeps popup ownership locked across recursive lookup generations", async () => {
+    const { DictionaryPopupController } = await import(controllerModulePath);
+    const backend = new FakeBackend("hoshidicts");
+    const lookup = deferred<unknown>();
+    backend.lookupImpl = async () => await lookup.promise;
+    const events: Array<Record<string, unknown>> = [];
+    const controller = new DictionaryPopupController({
+      publishPopupEvent: (event: Record<string, unknown>) => events.push(event),
+    });
+    controller.attachBackend(backend);
+    const parentGeneration = controller.generation;
+    backend.emit("popup-opened", {
+      popupId: "hoshidicts-popup",
+      generation: parentGeneration,
+    });
+
+    const pending = controller.lookup({
+      text: "走る",
+      preservePopup: true,
+      recursive: true,
+    });
+    const recursiveGeneration = controller.generation;
+
+    expect(recursiveGeneration).toBeGreaterThan(parentGeneration);
+    expect(controller.getSnapshot()).toMatchObject({
+      active: true,
+      popupCount: 1,
+      generation: recursiveGeneration,
+    });
+    expect(events.at(-1)).toMatchObject({
+      active: true,
+      generation: recursiveGeneration,
+      popupCount: 1,
+    });
+
+    backend.emit("popup-closed", {
+      popupId: "hoshidicts-popup",
+      generation: parentGeneration,
+    });
+    expect(controller.getSnapshot().active).toBe(true);
+
+    lookup.resolve({ status: "results" });
+    await expect(pending).resolves.toMatchObject({ status: "applied" });
+    backend.emit("popup-closed", {
+      popupId: "hoshidicts-popup",
+      generation: recursiveGeneration,
+    });
+    expect(controller.getSnapshot().active).toBe(false);
+  });
+
   it("invalidates lookup and popup state when dismissed", async () => {
     const { DictionaryPopupController } = await import(controllerModulePath);
     const backend = new FakeBackend("hoshidicts");

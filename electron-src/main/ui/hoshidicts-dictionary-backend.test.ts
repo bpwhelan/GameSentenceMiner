@@ -192,6 +192,92 @@ describe("HoshiDicts dictionary backend", () => {
     );
   });
 
+  it("locks popup interaction as soon as the loading surface becomes visible", async () => {
+    const { HoshiDictsDictionaryBackend } = await import(modulePath);
+    const client = new FakeClient();
+    const popup = new FakePopup();
+    let resolveLookup!: (value: any) => void;
+    const pendingLookup = new Promise((resolve) => {
+      resolveLookup = resolve;
+    });
+    const backend = new HoshiDictsDictionaryBackend({
+      client,
+      popup,
+      getGeneration: () => 12,
+    });
+    await backend.start({
+      catalog: { generation: 7, dictionaries: [dictionary] },
+    });
+    client.request.mockImplementation(async (method, params) => {
+      if (method === "lookup.term") {
+        return await pendingLookup;
+      }
+      throw new Error(`Unexpected method: ${method}`);
+    });
+    const opened: Array<Record<string, unknown>> = [];
+    backend.on("popup-opened", (event: Record<string, unknown>) => {
+      opened.push(event);
+    });
+
+    const lookup = backend.lookup({
+      generation: 12,
+      text: "猫",
+      anchor: { x: 20, y: 30, height: 18 },
+    });
+
+    expect(popup.showLoading).toHaveBeenCalled();
+    expect(opened).toEqual([
+      expect.objectContaining({
+        popupId: "hoshidicts-popup",
+        generation: 12,
+        reason: "lookup-loading",
+      }),
+    ]);
+
+    resolveLookup({
+      catalogGeneration: 7,
+      requestGeneration: 12,
+      matchedLength: 0,
+      elapsedMs: 1,
+      results: [],
+    });
+    await lookup;
+  });
+
+  it("keeps a host-failure surface interaction-locked until it is dismissed", async () => {
+    const { HoshiDictsDictionaryBackend } = await import(modulePath);
+    const client = new FakeClient();
+    const popup = new FakePopup();
+    const backend = new HoshiDictsDictionaryBackend({
+      client,
+      popup,
+      getGeneration: () => 15,
+    });
+    const opened: Array<Record<string, unknown>> = [];
+    backend.on("popup-opened", (event: Record<string, unknown>) => {
+      opened.push(event);
+    });
+    await backend.start({
+      catalog: { generation: 7, dictionaries: [dictionary] },
+    });
+
+    client.emit("exit", { code: "HOST_EXITED" });
+
+    expect(popup.showState).toHaveBeenCalledWith(
+      "host-unavailable",
+      expect.objectContaining({
+        generation: 15,
+        errorCode: "HOST_EXITED",
+      }),
+    );
+    expect(opened).toEqual([
+      expect.objectContaining({
+        generation: 15,
+        reason: "host-exited",
+      }),
+    ]);
+  });
+
   it("keeps Hoshi stopped and closes its popup after backend shutdown", async () => {
     const { HoshiDictsDictionaryBackend } = await import(modulePath);
     const client = new FakeClient();

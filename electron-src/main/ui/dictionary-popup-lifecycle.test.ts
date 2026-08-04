@@ -223,6 +223,23 @@ describe("generic dictionary popup main-process lifecycle", () => {
     expect(popup.calls).not.toContain("blur-and-restore-focus");
   });
 
+  it("does not release manual-toggle focus ownership when the popup closes", () => {
+    const popup = loadMainPopupHandlers({ manualToggle: true });
+
+    popup.emit({
+      active: false,
+      backendId: "hoshidicts",
+      generation: 2,
+      popupCount: 0,
+    });
+
+    expect(popup.calls).toContain(
+      "topmost:dictionary-popup-close-manual-active",
+    );
+    expect(popup.calls).not.toContain("ignore:true");
+    expect(popup.calls).not.toContain("blur-and-restore-focus");
+  });
+
   it("restores click-through but preserves active gamepad focus on close", () => {
     const popup = loadMainPopupHandlers({
       gamepadNavigation: true,
@@ -324,5 +341,22 @@ describe("renderer dictionary popup ownership", () => {
     expect(source).not.toMatch(
       /window\.addEventListener\(['"]yomitan-popup-(?:shown|hidden)['"]/,
     );
+    expect(source).toContain("new DictionaryPointerScanner");
+    expect(source).toContain("classifyDictionaryPointerEvent(event");
+    expect(source).toContain('closeDictionaryLookups("outside-mousedown")');
+    expect(source).toContain('"dictionary-popup-dismiss-request"');
+  });
+
+  it("dismisses generic popups when the tracked game window becomes unusable", () => {
+    const source = fs.readFileSync(MAIN_PATH, "utf8");
+    const resetSource = sourceBetween(
+      source,
+      "function resetOverlayInteractionStateForHiddenGameWindow",
+      "\nfunction restoreAutomaticOverlayPassThrough",
+    );
+
+    expect(resetSource).toContain("const hadDictionaryPopup = dictionaryPopupShown");
+    expect(resetSource).toContain('"dictionary-popup-dismiss-request"');
+    expect(source).toContain('"dictionary-interaction-snapshot"');
   });
 });
