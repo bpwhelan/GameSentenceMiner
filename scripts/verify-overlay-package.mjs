@@ -43,11 +43,13 @@ async function exists(candidate) {
 
 async function main() {
   const resourcesDirCandidates = candidateResourceDirs();
+  let packagedResourcesDir = null;
   let overlayResourcesDir = null;
 
   for (const resourcesDir of resourcesDirCandidates) {
     const candidate = path.join(resourcesDir, 'GSM_Overlay', overlayDirName, 'resources');
     if (await exists(candidate)) {
+      packagedResourcesDir = resourcesDir;
       overlayResourcesDir = candidate;
       break;
     }
@@ -77,6 +79,69 @@ async function main() {
 
   if (missing.length > 0) {
     throw new Error(`Packaged overlay is incomplete. Missing:\n${missing.map((item) => `  - ${item}`).join('\n')}`);
+  }
+
+  const sourcePreReleaseMetadata = path.join(
+    repoRoot,
+    'electron-src',
+    'assets',
+    'prerelease.json'
+  );
+  if (await exists(sourcePreReleaseMetadata)) {
+    const packagedPreReleaseMetadata = path.join(
+      packagedResourcesDir,
+      'assets',
+      'prerelease.json'
+    );
+    if (!(await exists(packagedPreReleaseMetadata))) {
+      throw new Error(
+        `Packaged prerelease metadata is missing: ${packagedPreReleaseMetadata}`
+      );
+    }
+    const [sourceMetadata, packagedMetadata] = await Promise.all([
+      fs.readFile(sourcePreReleaseMetadata, 'utf8'),
+      fs.readFile(packagedPreReleaseMetadata, 'utf8'),
+    ]);
+    if (sourceMetadata !== packagedMetadata) {
+      throw new Error('Packaged prerelease metadata does not match the build metadata.');
+    }
+  }
+
+  const sourceExperimentalSettings = path.join(
+    repoRoot,
+    'GameSentenceMiner',
+    'ui',
+    'config',
+    'tabs',
+    'experimental.py'
+  );
+  const sourceExperimentalContents = await fs.readFile(
+    sourceExperimentalSettings,
+    'utf8'
+  );
+  if (sourceExperimentalContents.includes('enable_hoshidicts')) {
+    const packagedExperimentalSettings = path.join(
+      packagedResourcesDir,
+      'GameSentenceMiner',
+      'ui',
+      'config',
+      'tabs',
+      'experimental.py'
+    );
+    if (!(await exists(packagedExperimentalSettings))) {
+      throw new Error(
+        `Packaged Hoshidicts settings source is missing: ${packagedExperimentalSettings}`
+      );
+    }
+    const packagedExperimentalContents = await fs.readFile(
+      packagedExperimentalSettings,
+      'utf8'
+    );
+    if (!packagedExperimentalContents.includes('enable_hoshidicts')) {
+      throw new Error(
+        'Packaged backend does not expose the Hoshidicts Experimental setting.'
+      );
+    }
   }
 
   console.log(`[verify-overlay-package] Verified ${overlayResourcesDir}`);

@@ -133,9 +133,11 @@ import {
 } from './services/changelog_protocol.js';
 import { startInputServer, stopInputServer } from './services/input_server.js';
 import {
+    openHoshidictsSettingsWindow,
+    registerHoshidictsFeature,
     startHoshidictsManager,
     stopHoshidictsManager,
-} from './services/hoshidicts_manager.js';
+} from './features/hoshidicts/index.js';
 import { getConfiguredSinglePort } from './gsm_config.js';
 import {
     getStatusTrayIconPath,
@@ -155,7 +157,6 @@ import {
     getProjectPath,
     getVenvDirFromPythonPath,
     installPackageNoDeps,
-    isBackendVersionCompatible,
     isPackageInstalled,
     resolveRequestedExtras,
     syncLockedEnvironment,
@@ -1422,6 +1423,11 @@ function handleBackendMessage(msg: BackendMessage): void {
         }
         void restartGSM();
     }
+    if (msg.function === 'open_hoshidicts_settings') {
+        void openHoshidictsSettingsWindow().catch((error) => {
+            console.error('Failed to open Hoshidicts settings from GSM settings:', error);
+        });
+    }
 }
 
 /** Forward the backend child's stdout/stderr to the renderer terminal as logs. */
@@ -1606,6 +1612,9 @@ async function createWindow() {
         markDesktopUpdateChangelogSeen: async (toVersion?: string) =>
             desktopChangelogManager.markSeen(toVersion),
         clearManualDesktopChangelog: () => desktopChangelogManager.clearManualDisplay(),
+    });
+    registerHoshidictsFeature({
+        getMainWindow: () => mainWindow,
     });
     registerDataRelocateIPC();
 
@@ -2587,7 +2596,7 @@ if (!app.requestSingleInstanceLock()) {
             // the optional overlay. Starting it first makes gamepad hotkeys
             // available to every child process from the beginning of startup.
             await startInputServer();
-            startHoshidictsManager();
+            await startHoshidictsManager();
             try {
                 await startBus();
                 wireBackendBus();
