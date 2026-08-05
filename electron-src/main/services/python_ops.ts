@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { spawn } from 'child_process';
 
 import {
@@ -9,8 +10,9 @@ import {
     getSanitizedPythonEnv,
     isDev,
     PACKAGE_NAME,
-    resolvePreReleaseBranch,
+    resolvePreReleaseMetadata,
 } from '../util.js';
+import { getPreReleaseArchiveUrl } from '../../shared/prerelease.js';
 
 const PINNED_UV_VERSION = '0.9.22';
 
@@ -268,6 +270,51 @@ export async function getInstalledPackageVersion(
     }
 }
 
+const READ_DIRECT_URL_SCRIPT = `
+import json
+import sys
+from importlib.metadata import distributions
+
+for dist in distributions(name=sys.argv[1]):
+    try:
+        raw = dist.read_text("direct_url.json")
+        payload = json.loads(raw) if raw else None
+    except (OSError, UnicodeError, ValueError):
+        continue
+    if not isinstance(payload, dict):
+        continue
+    url = payload.get("url")
+    if isinstance(url, str) and url.strip():
+        print(json.dumps({"url": url.strip()}))
+        break
+`.trim();
+
+export async function getInstalledPackageDirectUrl(
+    pythonPath: string,
+    packageName: string
+): Promise<string | null> {
+    try {
+        const { stdout } = await execFileAsync(pythonPath, [
+            '-c',
+            READ_DIRECT_URL_SCRIPT,
+            packageName,
+        ]);
+        const payload: unknown = JSON.parse(stdout.trim());
+        if (
+            payload &&
+            typeof payload === 'object' &&
+            !Array.isArray(payload) &&
+            typeof (payload as { url?: unknown }).url === 'string'
+        ) {
+            const url = (payload as { url: string }).url.trim();
+            return url || null;
+        }
+    } catch {
+        // PyPI installs have no direct_url.json; malformed metadata fails closed.
+    }
+    return null;
+}
+
 export async function isPackageInstalled(
     pythonPath: string,
     packageName: string
@@ -412,6 +459,94 @@ export function isBackendVersionCompatible(
     ).test(installedVersion);
 }
 
+export type BackendInstallReason =
+    | 'missing'
+    | 'source-mismatch'
+    | 'version-mismatch'
+    | 'post-release-check'
+    | 'current';
+
+export interface BundledBackendInstallPlan {
+    shouldInstall: boolean;
+    forceReinstall: boolean;
+    reason: BackendInstallReason;
+}
+
+export interface BundledBackendInstallInput {
+    installedVersion: string | null;
+    bundledVersion: string | null;
+    packageSpecifier: string;
+    isPreRelease: boolean;
+    isDevelopment?: boolean;
+    installedDirectUrl: string | null;
+}
+
+function normalizePackageSource(value: string | null): string | null {
+    const normalized = value?.trim().replace(/\/+$/u, '') ?? '';
+    return normalized || null;
+}
+
+export function planBundledBackendInstall(
+    input: BundledBackendInstallInput
+): BundledBackendInstallPlan {
+    if (!input.installedVersion) {
+        return {
+            shouldInstall: true,
+            forceReinstall: true,
+            reason: 'missing',
+        };
+    }
+
+    const installedSource = normalizePackageSource(input.installedDirectUrl);
+    const expectedSource = normalizePackageSource(input.packageSpecifier);
+    const expectedDevelopmentSource =
+        input.isDevelopment && expectedSource
+            ? normalizePackageSource(pathToFileURL(path.resolve(expectedSource)).href)
+            : null;
+    const sourceMatches =
+        input.isPreRelease || input.isDevelopment
+            ? installedSource !== null &&
+              (installedSource === expectedSource ||
+                  installedSource === expectedDevelopmentSource)
+            : installedSource === null;
+    if (!sourceMatches) {
+        return {
+            shouldInstall: true,
+            forceReinstall: true,
+            reason: 'source-mismatch',
+        };
+    }
+
+    if (
+        !input.isPreRelease &&
+        input.bundledVersion !== null &&
+        !isBackendVersionCompatible(
+            input.installedVersion,
+            input.bundledVersion
+        )
+    ) {
+        return {
+            shouldInstall: true,
+            forceReinstall: true,
+            reason: 'version-mismatch',
+        };
+    }
+
+    if (!input.isPreRelease && input.bundledVersion !== null) {
+        return {
+            shouldInstall: true,
+            forceReinstall: false,
+            reason: 'post-release-check',
+        };
+    }
+
+    return {
+        shouldInstall: false,
+        forceReinstall: false,
+        reason: 'current',
+    };
+}
+
 function getNextReleaseVersion(version: string): string | null {
     if (!/^\d+(?:\.\d+)+$/.test(version)) {
         return null;
@@ -450,9 +585,12 @@ export function getBundledBackendSpecifier(): string {
         return getProjectPath();
     }
 
-    const preReleaseBranch = resolvePreReleaseBranch();
-    if (preReleaseBranch) {
-        return `${BACKEND_GITHUB_REPO_URL}/archive/refs/heads/${preReleaseBranch}.zip`;
+    const preReleaseArchive = getPreReleaseArchiveUrl(
+        resolvePreReleaseMetadata(),
+        BACKEND_GITHUB_REPO_URL
+    );
+    if (preReleaseArchive) {
+        return preReleaseArchive;
     }
 
     const version = getBundledBackendVersion();

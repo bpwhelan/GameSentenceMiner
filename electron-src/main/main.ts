@@ -146,10 +146,11 @@ import {
     cleanUvCache,
     getBundledBackendSpecifier,
     getBundledBackendVersion,
+    getInstalledPackageDirectUrl,
     getInstalledPackageVersion,
     installPackageNoDeps,
-    isBackendVersionCompatible,
     isPackageInstalled,
+    planBundledBackendInstall,
     resolveRequestedExtras,
     syncLockedEnvironment,
 } from './services/python_ops.js';
@@ -2191,20 +2192,28 @@ async function ensureAndRunGSM(
     // Electron client. Prerelease builds continue to track their source branch.
     const bundledVersion = getBundledBackendVersion();
     const isPreRelease = resolvePreReleaseBranch() !== null;
-    const versionMismatch =
-        installedVersion !== null &&
-        !isPreRelease &&
-        bundledVersion !== null &&
-        !isBackendVersionCompatible(installedVersion, bundledVersion);
-    const shouldCheckForStablePostRelease =
-        !isPreRelease && bundledVersion !== null;
-    if (!isInstalled || versionMismatch || shouldCheckForStablePostRelease) {
-        const packageSpecifier = getBundledBackendSpecifier();
-        if (versionMismatch) {
+    const packageSpecifier = getBundledBackendSpecifier();
+    const installedDirectUrl = isInstalled
+        ? await getInstalledPackageDirectUrl(runtimePythonPath, APP_NAME)
+        : null;
+    const installPlan = planBundledBackendInstall({
+        installedVersion,
+        bundledVersion,
+        packageSpecifier,
+        isPreRelease,
+        isDevelopment: isDev,
+        installedDirectUrl,
+    });
+    if (installPlan.shouldInstall) {
+        if (installPlan.reason === 'version-mismatch') {
             console.log(
                 `${APP_NAME} backend ${installedVersion} is incompatible with bundled ${bundledVersion}. Installing ${packageSpecifier}...`
             );
-        } else if (shouldCheckForStablePostRelease && isInstalled) {
+        } else if (installPlan.reason === 'source-mismatch') {
+            console.log(
+                `${APP_NAME} backend source does not match this ${isPreRelease ? 'prerelease' : 'stable'} build. Installing ${packageSpecifier}...`
+            );
+        } else if (installPlan.reason === 'post-release-check') {
             console.log(
                 `Checking for the latest compatible ${APP_NAME} backend (${packageSpecifier})...`
             );
@@ -2223,7 +2232,7 @@ async function ensureAndRunGSM(
             await installPackageNoDeps(
                 runtimePythonPath,
                 packageSpecifier,
-                !isInstalled || versionMismatch,
+                installPlan.forceReinstall,
                 (event) => {
                     updateInstallStage(
                         'gsm_package',
@@ -2235,6 +2244,25 @@ async function ensureAndRunGSM(
                 }
             );
             installedVersion = await getInstalledPackageVersion(runtimePythonPath, APP_NAME);
+            if (isPreRelease) {
+                const installedSource = await getInstalledPackageDirectUrl(
+                    runtimePythonPath,
+                    APP_NAME
+                );
+                const verification = planBundledBackendInstall({
+                    installedVersion,
+                    bundledVersion,
+                    packageSpecifier,
+                    isPreRelease: true,
+                    isDevelopment: false,
+                    installedDirectUrl: installedSource,
+                });
+                if (verification.shouldInstall) {
+                    throw new Error(
+                        `Installed ${APP_NAME} backend did not record the expected prerelease source.`
+                    );
+                }
+            }
             console.log(
                 `Compatible backend check complete. Installed version: ${installedVersion ?? 'unknown'}.`
             );
@@ -2246,7 +2274,7 @@ async function ensureAndRunGSM(
                 `${APP_NAME} backend package is up to date.`
             );
         } catch (error) {
-            if (!isInstalled || versionMismatch) {
+            if (installPlan.forceReinstall) {
                 throw error;
             }
             console.warn(

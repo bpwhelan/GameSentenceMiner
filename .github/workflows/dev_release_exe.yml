@@ -113,8 +113,7 @@ jobs:
           gh release download overlay-server --repo ${{ github.repository }} --pattern gsm_overlay_server-win32.exe --output GSM_Overlay/input_server/bin/win32/gsm_overlay_server.exe --clobber
 
       - name: Write prerelease metadata
-        run: |
-          node -e "const fs=require('fs');const path=require('path');const branch=(process.env.GITHUB_HEAD_REF||process.env.GITHUB_REF_NAME||'unknown').trim()||'unknown';const payload={branch,generatedAt:new Date().toISOString()};const out=path.join('electron-src','assets','prerelease.json');fs.writeFileSync(out, JSON.stringify(payload, null, 2)+'\n');console.log('Wrote prerelease metadata to', out, 'for branch', branch);"
+        run: node scripts/write-prerelease-metadata.mjs
 
       - name: Convert Handlebar files to LF
         run: |
@@ -362,8 +361,7 @@ jobs:
           chmod +x GSM_Overlay/input_server/bin/linux/gsm_overlay_server
 
       - name: Write prerelease metadata
-        run: |
-          node -e "const fs=require('fs');const path=require('path');const branch=(process.env.GITHUB_HEAD_REF||process.env.GITHUB_REF_NAME||'unknown').trim()||'unknown';const payload={branch,generatedAt:new Date().toISOString()};const out=path.join('electron-src','assets','prerelease.json');fs.writeFileSync(out, JSON.stringify(payload, null, 2)+'\n');console.log('Wrote prerelease metadata to', out, 'for branch', branch);"
+        run: node scripts/write-prerelease-metadata.mjs
 
       - name: Build Overlay
         working-directory: GSM_Overlay
@@ -436,8 +434,7 @@ jobs:
           chmod +x GSM_Overlay/input_server/bin/darwin/gsm_overlay_server
 
       - name: Write prerelease metadata
-        run: |
-          node -e "const fs=require('fs');const path=require('path');const branch=(process.env.GITHUB_HEAD_REF||process.env.GITHUB_REF_NAME||'unknown').trim()||'unknown';const payload={branch,generatedAt:new Date().toISOString()};const out=path.join('electron-src','assets','prerelease.json');fs.writeFileSync(out, JSON.stringify(payload, null, 2)+'\n');console.log('Wrote prerelease metadata to', out, 'for branch', branch);"
+        run: node scripts/write-prerelease-metadata.mjs
 
       - name: Build Overlay
         working-directory: GSM_Overlay

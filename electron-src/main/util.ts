@@ -6,6 +6,10 @@ import {execFile, spawn, execSync} from "child_process";
 import { app, type WebPreferences } from "electron";
 import {__dirname} from "./main.js";
 import { getBaseDir } from "./data_dir.js";
+import {
+    parsePreReleaseMetadata,
+    type PreReleaseMetadata,
+} from '../shared/prerelease.js';
 
 export type SupportedPlatform = 'linux' | 'darwin' | 'win32';
 export const isMac = process.platform === 'darwin';
@@ -102,11 +106,10 @@ export function getResourcesDir(): string {
 }
 
 /**
- * Resolve the git branch a pre-release (beta) build was cut from, by reading the
- * prerelease.json metadata bundled into the app at build time (written by
- * dev_release_exe.yml). Returns null for stable builds, which ship no metadata.
+ * Resolve the source a pre-release build was cut from. New metadata pins the
+ * repository and commit; branch-only files from older builds remain supported.
  */
-export function resolvePreReleaseBranch(): string | null {
+export function resolvePreReleaseMetadata(): PreReleaseMetadata | null {
     const candidates = [
         path.join(getResourcesDir(), 'prerelease.json'),
         path.join(getAssetsDir(), 'prerelease.json'),
@@ -119,15 +122,21 @@ export function resolvePreReleaseBranch(): string | null {
         }
         seen.add(candidate);
         try {
-            const parsed = JSON.parse(fs.readFileSync(candidate, 'utf8')) as { branch?: unknown };
-            if (typeof parsed.branch === 'string' && parsed.branch.trim().length > 0) {
-                return parsed.branch.trim();
+            const metadata = parsePreReleaseMetadata(
+                JSON.parse(fs.readFileSync(candidate, 'utf8'))
+            );
+            if (metadata) {
+                return metadata;
             }
         } catch (error) {
             console.warn(`Failed to parse prerelease metadata at ${candidate}:`, error);
         }
     }
     return null;
+}
+
+export function resolvePreReleaseBranch(): string | null {
+    return resolvePreReleaseMetadata()?.branch ?? null;
 }
 
 export function getOverlayPath(): string {
