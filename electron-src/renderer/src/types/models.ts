@@ -128,6 +128,24 @@ export interface UpdateStatusSnapshot {
 }
 
 export type HoshidictsSchedule = "off" | "daily" | "weekly" | "monthly";
+export type HoshidictsDuplicatePolicy = "prevent" | "allow";
+
+export interface HoshidictsMiningProfile {
+  version: 1;
+  enabled: boolean;
+  deck: string;
+  model: string;
+  fields: {
+    expression: string;
+    reading: string;
+    definition: string;
+    sentence: string;
+    frequency: string;
+    pitch: string;
+  };
+  tags: string[];
+  duplicatePolicy: HoshidictsDuplicatePolicy;
+}
 
 export interface HoshidictsDictionaryState {
   id: string;
@@ -148,7 +166,8 @@ export interface HoshidictsProgress {
     | "checking"
     | "downloading"
     | "reloading"
-    | "removing";
+    | "removing"
+    | "saving";
   title?: string;
   completed?: number;
   total?: number;
@@ -156,6 +175,7 @@ export interface HoshidictsProgress {
 
 export interface HoshidictsState {
   dictionaries: HoshidictsDictionaryState[];
+  miningProfile: HoshidictsMiningProfile;
   schedule: HoshidictsSchedule;
   lastCheck: string | null;
   nextCheck: string | null;

@@ -185,4 +185,21 @@ export function registerHoshidictsIPC(deps: HoshidictsIPCDependencies): void {
             };
         }
     });
+
+    ipcMain.handle('hoshidicts.setMiningProfile', async (_event, profile: unknown) => {
+        try {
+            return {
+                success: true,
+                state: withEffectiveState(
+                    await manager.setMiningProfile(profile)
+                ),
+            };
+        } catch (error) {
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+                state: withEffectiveState(await manager.getSnapshot()),
+            };
+        }
+    });
 }

@@ -563,6 +563,28 @@
       "remove": "削除",
       "unknown": "不明",
       "legacyJapanese": "日本語（レガシー）",
+      "mining": {
+        "title": "Ankiマイニングプロファイル",
+        "enabled": "マイニングを有効化",
+        "deck": "デッキ",
+        "noteType": "ノートタイプ",
+        "tags": "追加タグ",
+        "duplicates": "重複",
+        "preventDuplicates": "重複を防止",
+        "allowDuplicates": "重複を許可",
+        "fieldOverrides": "フィールドの上書き",
+        "inheritHint": "空欄の場合は、現在のGSMマッピングまたは選択したノートタイプの互換フィールドを使用します。",
+        "fields": {
+          "expression": "表記",
+          "reading": "読み",
+          "definition": "定義",
+          "sentence": "例文",
+          "frequency": "頻度",
+          "pitch": "アクセント"
+        },
+        "save": "マイニングプロファイルを保存",
+        "saving": "保存中..."
+      },
       "progress": {
         "idle": "準備完了",
         "importing": "辞書をインポート中...",
@@ -570,6 +592,7 @@
         "downloading": "{title}をダウンロード中...",
         "reloading": "辞書を再読み込み中...",
         "removing": "辞書を削除中...",
+        "saving": "マイニングプロファイルを保存中...",
         "count": "{completed} / {total}"
       },
       "errors": {
@@ -578,7 +601,8 @@
         "import": "辞書のインポートに失敗しました。",
         "remove": "辞書の削除に失敗しました。",
         "update": "辞書のアップデート確認に失敗しました。",
-        "schedule": "辞書のアップデート間隔を保存できませんでした。"
+        "schedule": "辞書のアップデート間隔を保存できませんでした。",
+        "miningProfile": "Hoshidictsマイニングプロファイルを保存できませんでした。"
       }
     },
     "backup": {
