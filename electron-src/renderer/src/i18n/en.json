@@ -581,6 +581,14 @@
       "remove": "Remove",
       "unknown": "Unknown",
       "legacyJapanese": "Japanese (legacy)",
+      "recommended": {
+        "title": "Recommended dictionaries",
+        "install": "Install JMdict + JMnedict",
+        "installed": "Installed",
+        "notInstalled": "Not installed",
+        "jmdict": "JMdict English (without proper names)",
+        "jmnedict": "JMnedict"
+      },
       "mining": {
         "title": "Anki mining profile",
         "enabled": "Enable mining",
@@ -620,6 +628,7 @@
         "remove": "Dictionary removal failed.",
         "update": "Dictionary update check failed.",
         "schedule": "Failed to save the dictionary update schedule.",
+        "recommended": "Failed to install the recommended dictionaries.",
         "miningProfile": "Failed to save the Hoshidicts mining profile."
       }
     },

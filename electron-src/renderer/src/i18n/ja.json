@@ -563,6 +563,14 @@
       "remove": "削除",
       "unknown": "不明",
       "legacyJapanese": "日本語（レガシー）",
+      "recommended": {
+        "title": "おすすめの辞書",
+        "install": "JMdict と JMnedict をインストール",
+        "installed": "インストール済み",
+        "notInstalled": "未インストール",
+        "jmdict": "JMdict 英語版（固有名詞なし）",
+        "jmnedict": "JMnedict"
+      },
       "mining": {
         "title": "Ankiマイニングプロファイル",
         "enabled": "マイニングを有効化",
@@ -602,6 +610,7 @@
         "remove": "辞書の削除に失敗しました。",
         "update": "辞書のアップデート確認に失敗しました。",
         "schedule": "辞書のアップデート間隔を保存できませんでした。",
+        "recommended": "おすすめの辞書をインストールできませんでした。",
         "miningProfile": "Hoshidictsマイニングプロファイルを保存できませんでした。"
       }
     },

@@ -164,6 +164,23 @@ export function registerHoshidictsIPC(deps: HoshidictsIPCDependencies): void {
         }
     });
 
+    ipcMain.handle('hoshidicts.installRecommended', async () => {
+        try {
+            return {
+                success: true,
+                state: withEffectiveState(
+                    await manager.installRecommendedDictionaries()
+                ),
+            };
+        } catch (error) {
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+                state: withEffectiveState(await manager.getSnapshot()),
+            };
+        }
+    });
+
     ipcMain.handle('hoshidicts.setSchedule', async (_event, schedule: unknown) => {
         if (!isSchedule(schedule)) {
             return {

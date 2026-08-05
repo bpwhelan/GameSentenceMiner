@@ -9,6 +9,7 @@ import {
     HoshidictsManager,
     inspectHoshidictsArchive,
     normalizeHoshidictsMiningProfile,
+    RECOMMENDED_HOSHIDICTS_DICTIONARIES,
     type ArchiveInspection,
     type HoshidictsImportReport,
     type HoshidictsManagerDependencies,
@@ -437,6 +438,119 @@ describe('Hoshidicts mining profile', () => {
 });
 
 describe('Hoshidicts import policy', () => {
+    it('installs the recommended JMdict and JMnedict pair without KANJIDIC', async () => {
+        const baseDir = makeTempDir();
+        const downloadArchive = vi.fn(async (url: string, outputPath: string) => {
+            const recommended = RECOMMENDED_HOSHIDICTS_DICTIONARIES.find(
+                (dictionary) => dictionary.downloadUrl === url
+            );
+            if (!recommended) {
+                throw new Error(`Unexpected recommended dictionary URL: ${url}`);
+            }
+            fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+            fs.writeFileSync(
+                outputPath,
+                JSON.stringify({
+                    title:
+                        recommended.id === 'jmdict'
+                            ? 'JMdict [2026-08-05]'
+                            : 'JMnedict [2026-08-05]',
+                    revision: `${recommended.id}.2026-08-05`,
+                    sourceLanguage: 'ja',
+                    isUpdatable: true,
+                    indexUrl: recommended.indexUrl,
+                    downloadUrl: recommended.downloadUrl,
+                }),
+                'utf8'
+            );
+        });
+        const { manager } = createHarness(baseDir, { downloadArchive });
+
+        const snapshot = await manager.installRecommendedDictionaries();
+
+        expect(
+            RECOMMENDED_HOSHIDICTS_DICTIONARIES.map(
+                (dictionary) => dictionary.downloadUrl
+            )
+        ).toEqual([
+            expect.stringContaining('JMdict_english_without_proper_names.zip'),
+            expect.stringContaining('JMnedict.zip'),
+        ]);
+        expect(
+            RECOMMENDED_HOSHIDICTS_DICTIONARIES.some((dictionary) =>
+                dictionary.downloadUrl.includes('KANJIDIC')
+            )
+        ).toBe(false);
+        expect(downloadArchive).toHaveBeenCalledTimes(2);
+        expect(snapshot.dictionaries.map((dictionary) => dictionary.title)).toEqual([
+            'JMdict [2026-08-05]',
+            'JMnedict [2026-08-05]',
+        ]);
+        expect(snapshot.recommendedDictionaries).toEqual([
+            { id: 'jmdict', installed: true },
+            { id: 'jmnedict', installed: true },
+        ]);
+
+        await manager.installRecommendedDictionaries();
+        expect(downloadArchive).toHaveBeenCalledTimes(2);
+    });
+
+    it('resumes a partial recommended install without downloading completed dictionaries again', async () => {
+        const baseDir = makeTempDir();
+        let jmnedictAttempts = 0;
+        const downloadArchive = vi.fn(async (url: string, outputPath: string) => {
+            const recommended = RECOMMENDED_HOSHIDICTS_DICTIONARIES.find(
+                (dictionary) => dictionary.downloadUrl === url
+            );
+            if (!recommended) {
+                throw new Error(`Unexpected recommended dictionary URL: ${url}`);
+            }
+            if (recommended.id === 'jmnedict' && jmnedictAttempts++ === 0) {
+                throw new Error('temporary download failure');
+            }
+            fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+            fs.writeFileSync(
+                outputPath,
+                JSON.stringify({
+                    title:
+                        recommended.id === 'jmdict'
+                            ? 'JMdict [2026-08-05]'
+                            : 'JMnedict [2026-08-05]',
+                    revision: `${recommended.id}.2026-08-05`,
+                    sourceLanguage: 'ja',
+                    isUpdatable: true,
+                    indexUrl: recommended.indexUrl,
+                    downloadUrl: recommended.downloadUrl,
+                }),
+                'utf8'
+            );
+        });
+        const { manager } = createHarness(baseDir, { downloadArchive });
+
+        await expect(manager.installRecommendedDictionaries()).rejects.toThrow(
+            'temporary download failure'
+        );
+        expect((await manager.getSnapshot()).recommendedDictionaries).toEqual([
+            { id: 'jmdict', installed: true },
+            { id: 'jmnedict', installed: false },
+        ]);
+
+        await manager.installRecommendedDictionaries();
+
+        expect(
+            downloadArchive.mock.calls.filter(
+                ([url]) =>
+                    url === RECOMMENDED_HOSHIDICTS_DICTIONARIES[0].downloadUrl
+            )
+        ).toHaveLength(1);
+        expect(
+            downloadArchive.mock.calls.filter(
+                ([url]) =>
+                    url === RECOMMENDED_HOSHIDICTS_DICTIONARIES[1].downloadUrl
+            )
+        ).toHaveLength(2);
+    });
+
     it('inspects source language and Japanese terms from a real ZIP archive', async () => {
         const archive = await writeZipArchive(makeTempDir(), 'japanese.zip', {
             'index.json': {
@@ -535,7 +649,7 @@ describe('Hoshidicts updates and schedule', () => {
             downloadUrl: 'https://dict.example/dictionary.zip',
         });
         const update: TestArchive = {
-            title: 'Updatable',
+            title: 'Updatable [new release]',
             revision: 'revision-10-beta',
             sourceLanguage: 'ja',
             isUpdatable: true,
@@ -565,9 +679,9 @@ describe('Hoshidicts updates and schedule', () => {
             'https://cdn.example/dictionary.zip',
             expect.any(String)
         );
-        expect((await manager.getSnapshot()).dictionaries[0].revision).toBe(
-            'revision-10-beta'
-        );
+        const updated = (await manager.getSnapshot()).dictionaries[0];
+        expect(updated.revision).toBe('revision-10-beta');
+        expect(updated.title).toBe('Updatable [new release]');
     });
 
     it('never requests updates from non-HTTPS metadata', async () => {

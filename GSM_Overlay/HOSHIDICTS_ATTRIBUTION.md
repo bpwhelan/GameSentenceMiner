@@ -20,3 +20,10 @@ the following projects:
 The adapted reader source and stylesheet carry
 `SPDX-License-Identifier: GPL-3.0-or-later` headers. The repository's root
 `LICENSE` contains the full GNU GPL version 3 text.
+
+The optional one-click dictionary installer downloads JMdict English (without
+proper names) and JMnedict directly from
+[yomidevs/jmdict-yomitan](https://github.com/yomidevs/jmdict-yomitan). Those
+dictionary releases are licensed under CC BY-SA 4.0 and include EDRDG
+attribution in their metadata. Hoshidicts preserves that metadata during
+import. KANJIDIC is not included in the recommended term-dictionary bundle.
