@@ -15,3 +15,4 @@ https://github.com/user-attachments/assets/c691f5d6-da86-4e1c-802f-7c410211846e
 - [Original Project](https://github.com/Saplling/transparent-texthooker-overlay)
 - [Yomitan](https://github.com/yomidevs/yomitan)
 - [Yomininja](https://github.com/matt-m-o/YomiNinja) (rip)
+- [Hoshidicts, Hoshi Reader, and Yomitan attribution](HOSHIDICTS_ATTRIBUTION.md)

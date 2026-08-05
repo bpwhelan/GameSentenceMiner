@@ -581,6 +581,28 @@
       "remove": "Remove",
       "unknown": "Unknown",
       "legacyJapanese": "Japanese (legacy)",
+      "mining": {
+        "title": "Anki mining profile",
+        "enabled": "Enable mining",
+        "deck": "Deck",
+        "noteType": "Note type",
+        "tags": "Extra tags",
+        "duplicates": "Duplicates",
+        "preventDuplicates": "Prevent duplicates",
+        "allowDuplicates": "Allow duplicates",
+        "fieldOverrides": "Field overrides",
+        "inheritHint": "Blank values use the current GSM mapping or a compatible field in the selected note type.",
+        "fields": {
+          "expression": "Expression",
+          "reading": "Reading",
+          "definition": "Definition",
+          "sentence": "Sentence",
+          "frequency": "Frequency",
+          "pitch": "Pitch accent"
+        },
+        "save": "Save Mining Profile",
+        "saving": "Saving..."
+      },
       "progress": {
         "idle": "Ready",
         "importing": "Importing dictionary...",
@@ -588,6 +610,7 @@
         "downloading": "Downloading {title}...",
         "reloading": "Reloading dictionaries...",
         "removing": "Removing dictionary...",
+        "saving": "Saving mining profile...",
         "count": "{completed} / {total}"
       },
       "errors": {
@@ -596,7 +619,8 @@
         "import": "Dictionary import failed.",
         "remove": "Dictionary removal failed.",
         "update": "Dictionary update check failed.",
-        "schedule": "Failed to save the dictionary update schedule."
+        "schedule": "Failed to save the dictionary update schedule.",
+        "miningProfile": "Failed to save the Hoshidicts mining profile."
       }
     },
     "backup": {

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::ffi::{c_char, c_int, c_void, CStr, CString};
+use std::ffi::{c_char, c_int, CStr, CString};
 use std::fs;
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
@@ -19,6 +19,12 @@ const MAX_DICTIONARIES: usize = 256;
 const MAX_NATIVE_STRING_BYTES: usize = 128 * 1024;
 const MAX_GLOSSARIES: usize = 64;
 const MAX_TRACE_STEPS: usize = 32;
+const MAX_FREQUENCY_ENTRIES: usize = 64;
+const MAX_FREQUENCIES_PER_ENTRY: usize = 64;
+const MAX_PITCH_ENTRIES: usize = 64;
+const MAX_PITCHES_PER_ENTRY: usize = 64;
+const MAX_PITCH_MARKERS: usize = 128;
+const MAX_TRANSCRIPTIONS_PER_ENTRY: usize = 64;
 const MAX_ARCHIVE_INDEX_BYTES: u64 = 1024 * 1024;
 const REQUIRED_DICTIONARY_FILES: [&str; 3] = ["hash.table", "bloom.filter", "blobs.bin"];
 const HOSHIDICTS_MARKERS: [&str; 3] = [".hoshidicts_3", ".hoshidicts_2", ".hoshidicts_1"];
@@ -66,6 +72,42 @@ struct HdGlossaryEntry {
 
 #[derive(Clone, Copy)]
 #[repr(C)]
+struct HdFrequency {
+    value: i32,
+    display_value: HdStr,
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct HdFrequencyEntry {
+    dict_name: HdStr,
+    frequencies: *const HdFrequency,
+    frequencies_count: usize,
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct HdPitch {
+    position: i32,
+    pattern: HdStr,
+    nasal: *const i32,
+    nasal_count: usize,
+    devoice: *const i32,
+    devoice_count: usize,
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct HdPitchEntry {
+    dict_name: HdStr,
+    pitches: *const HdPitch,
+    pitches_count: usize,
+    transcriptions: *const HdStr,
+    transcriptions_count: usize,
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
 struct HdTermResult {
     expression: HdStr,
     reading: HdStr,
@@ -73,9 +115,9 @@ struct HdTermResult {
     score: i32,
     glossaries: *const HdGlossaryEntry,
     glossaries_count: usize,
-    frequencies: *const c_void,
+    frequencies: *const HdFrequencyEntry,
     frequencies_count: usize,
-    pitches: *const c_void,
+    pitches: *const HdPitchEntry,
     pitches_count: usize,
 }
 
@@ -174,12 +216,45 @@ pub struct LookupGlossary {
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct LookupFrequency {
+    pub value: i32,
+    pub display_value: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LookupFrequencyEntry {
+    pub dictionary: String,
+    pub frequencies: Vec<LookupFrequency>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LookupPitch {
+    pub position: i32,
+    pub pattern: String,
+    pub nasal: Vec<i32>,
+    pub devoice: Vec<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LookupPitchEntry {
+    pub dictionary: String,
+    pub pitches: Vec<LookupPitch>,
+    pub transcriptions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct LookupTerm {
     pub expression: String,
     pub reading: String,
     pub rules: String,
     pub score: i32,
     pub glossaries: Vec<LookupGlossary>,
+    pub frequencies: Vec<LookupFrequencyEntry>,
+    pub pitches: Vec<LookupPitchEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -750,6 +825,9 @@ impl NativeEngine {
                         })
                         .collect::<Result<Vec<_>, String>>()?;
                 glossary_count += glossaries.len();
+                let frequencies =
+                    copy_frequency_entries(result.term.frequencies, result.term.frequencies_count)?;
+                let pitches = copy_pitch_entries(result.term.pitches, result.term.pitches_count)?;
 
                 Ok(LookupResult {
                     matched: copy_hd_string(result.matched, "matched text")?,
@@ -761,6 +839,8 @@ impl NativeEngine {
                         rules: copy_hd_string(result.term.rules, "term rules")?,
                         score: result.term.score,
                         glossaries,
+                        frequencies,
+                        pitches,
                     },
                     preprocessor_steps: result.preprocessor_steps,
                 })
@@ -815,6 +895,87 @@ unsafe fn copy_hd_string(value: HdStr, label: &str) -> Result<String, String> {
     }
     let bytes = slice::from_raw_parts(value.ptr.cast::<u8>(), value.len);
     String::from_utf8(bytes.to_vec()).map_err(|_| format!("native {label} was not valid UTF-8"))
+}
+
+unsafe fn copy_frequency_entries(
+    pointer: *const HdFrequencyEntry,
+    count: usize,
+) -> Result<Vec<LookupFrequencyEntry>, String> {
+    checked_slice(
+        pointer,
+        count.min(MAX_FREQUENCY_ENTRIES),
+        "frequency entries",
+    )?
+    .iter()
+    .map(|entry| {
+        let frequencies = checked_slice(
+            entry.frequencies,
+            entry.frequencies_count.min(MAX_FREQUENCIES_PER_ENTRY),
+            "frequency values",
+        )?
+        .iter()
+        .map(|frequency| {
+            Ok(LookupFrequency {
+                value: frequency.value,
+                display_value: copy_hd_string(frequency.display_value, "frequency display value")?,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+        Ok(LookupFrequencyEntry {
+            dictionary: copy_hd_string(entry.dict_name, "frequency dictionary")?,
+            frequencies,
+        })
+    })
+    .collect()
+}
+
+unsafe fn copy_pitch_entries(
+    pointer: *const HdPitchEntry,
+    count: usize,
+) -> Result<Vec<LookupPitchEntry>, String> {
+    checked_slice(pointer, count.min(MAX_PITCH_ENTRIES), "pitch entries")?
+        .iter()
+        .map(|entry| {
+            let pitches = checked_slice(
+                entry.pitches,
+                entry.pitches_count.min(MAX_PITCHES_PER_ENTRY),
+                "pitch values",
+            )?
+            .iter()
+            .map(|pitch| {
+                Ok(LookupPitch {
+                    position: pitch.position,
+                    pattern: copy_hd_string(pitch.pattern, "pitch pattern")?,
+                    nasal: checked_slice(
+                        pitch.nasal,
+                        pitch.nasal_count.min(MAX_PITCH_MARKERS),
+                        "pitch nasal markers",
+                    )?
+                    .to_vec(),
+                    devoice: checked_slice(
+                        pitch.devoice,
+                        pitch.devoice_count.min(MAX_PITCH_MARKERS),
+                        "pitch devoice markers",
+                    )?
+                    .to_vec(),
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+            let transcriptions = checked_slice(
+                entry.transcriptions,
+                entry.transcriptions_count.min(MAX_TRANSCRIPTIONS_PER_ENTRY),
+                "pitch transcriptions",
+            )?
+            .iter()
+            .map(|transcription| copy_hd_string(*transcription, "pitch transcription"))
+            .collect::<Result<Vec<_>, String>>()?;
+            Ok(LookupPitchEntry {
+                dictionary: copy_hd_string(entry.dict_name, "pitch dictionary")?,
+                pitches,
+                transcriptions,
+            })
+        })
+        .collect()
 }
 
 pub fn validate_lookup_text(text: &str) -> Result<(), String> {
@@ -959,6 +1120,15 @@ mod tests {
         archive
             .write_all(r#"[["食べる","たべる","","v1",0,["to eat"],1,""]]"#.as_bytes())
             .expect("write term bank");
+        archive
+            .start_file("term_meta_bank_1.json", options)
+            .expect("start term metadata bank");
+        archive
+            .write_all(
+                r#"[["食べる","freq",{"reading":"たべる","frequency":{"value":123,"displayValue":"123 ★"}}],["食べる","pitch",{"reading":"たべる","pitches":[{"position":2,"nasal":[1],"devoice":[2]}]}]]"#
+                    .as_bytes(),
+            )
+            .expect("write term metadata bank");
         archive.finish().expect("finish archive");
     }
 
@@ -1030,9 +1200,9 @@ mod tests {
                 success: true,
                 title: "Test Dictionary".into(),
                 term_count: 1,
-                meta_count: 0,
-                frequency_count: 0,
-                pitch_count: 0,
+                meta_count: 2,
+                frequency_count: 1,
+                pitch_count: 1,
                 kanji_count: 0,
                 media_count: 0,
                 error: String::new(),
@@ -1047,9 +1217,33 @@ mod tests {
         let mut service = HoshidictsService::new(root.0.clone());
         assert_eq!(service.activate().expect("activate dictionary"), 1);
         let results = service.lookup("食べた").expect("deinflected lookup");
-        assert!(results
+        let result = results
             .iter()
-            .any(|result| result.term.expression == "食べる"));
+            .find(|result| result.term.expression == "食べる")
+            .expect("term result");
+        assert_eq!(
+            result.term.frequencies,
+            vec![LookupFrequencyEntry {
+                dictionary: "Test Dictionary".into(),
+                frequencies: vec![LookupFrequency {
+                    value: 123,
+                    display_value: "123 ★".into(),
+                }],
+            }]
+        );
+        assert_eq!(
+            result.term.pitches,
+            vec![LookupPitchEntry {
+                dictionary: "Test Dictionary".into(),
+                pitches: vec![LookupPitch {
+                    position: 2,
+                    pattern: String::new(),
+                    nasal: vec![1],
+                    devoice: vec![2],
+                }],
+                transcriptions: Vec::new(),
+            }]
+        );
         drop(service);
     }
 

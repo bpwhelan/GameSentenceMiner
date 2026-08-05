@@ -19,7 +19,29 @@ export type HoshidictsProgressPhase =
     | 'checking'
     | 'downloading'
     | 'reloading'
-    | 'removing';
+    | 'removing'
+    | 'saving';
+
+export type HoshidictsDuplicatePolicy = 'prevent' | 'allow';
+
+export interface HoshidictsMiningFields {
+    expression: string;
+    reading: string;
+    definition: string;
+    sentence: string;
+    frequency: string;
+    pitch: string;
+}
+
+export interface HoshidictsMiningProfile {
+    version: 1;
+    enabled: boolean;
+    deck: string;
+    model: string;
+    fields: HoshidictsMiningFields;
+    tags: string[];
+    duplicatePolicy: HoshidictsDuplicatePolicy;
+}
 
 export interface HoshidictsDictionaryState {
     id: string;
@@ -42,6 +64,7 @@ export interface HoshidictsProgress {
 
 export interface HoshidictsManagerSnapshot {
     dictionaries: HoshidictsDictionaryState[];
+    miningProfile: HoshidictsMiningProfile;
     schedule: HoshidictsSchedule;
     lastCheck: string | null;
     nextCheck: string | null;
@@ -115,8 +138,11 @@ export interface HoshidictsManagerDependencies {
 }
 
 const MANIFEST_FILE_NAME = 'manifest.json';
+export const HOSHIDICTS_MINING_PROFILE_FILE_NAME = 'mining-profile.json';
 const MANIFEST_VERSION = 1;
+const MINING_PROFILE_VERSION = 1;
 const MAX_MANIFEST_BYTES = 2 * 1024 * 1024;
+const MAX_MINING_PROFILE_BYTES = 64 * 1024;
 const MAX_ARCHIVE_INDEX_BYTES = 1024 * 1024;
 const MAX_TERM_BANK_BYTES = 32 * 1024 * 1024;
 const MAX_SCANNED_TERM_BANKS = 32;
@@ -149,6 +175,25 @@ function emptyManifest(): PersistedManifest {
     };
 }
 
+export function defaultHoshidictsMiningProfile(): HoshidictsMiningProfile {
+    return {
+        version: MINING_PROFILE_VERSION,
+        enabled: true,
+        deck: 'Default',
+        model: '',
+        fields: {
+            expression: '',
+            reading: '',
+            definition: '',
+            sentence: '',
+            frequency: '',
+            pitch: '',
+        },
+        tags: ['hoshidicts'],
+        duplicatePolicy: 'prevent',
+    };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -173,6 +218,110 @@ function normalizeDate(value: unknown): string | null {
 
 function normalizeOptionalString(value: unknown): string | null {
     return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function normalizeProfileString(
+    value: unknown,
+    label: string,
+    fallback = ''
+): string {
+    if (value === undefined || value === null) {
+        return fallback;
+    }
+    if (
+        typeof value !== 'string' ||
+        value.length > 255 ||
+        value.includes('\0')
+    ) {
+        throw new Error(`${label} is invalid.`);
+    }
+    return value.trim();
+}
+
+export function normalizeHoshidictsMiningProfile(
+    value: unknown
+): HoshidictsMiningProfile {
+    if (!isRecord(value)) {
+        throw new Error('Hoshidicts mining profile must be an object.');
+    }
+    if (
+        value.version !== undefined &&
+        value.version !== MINING_PROFILE_VERSION
+    ) {
+        throw new Error('Hoshidicts mining profile version is unsupported.');
+    }
+    const rawFields = value.fields ?? {};
+    if (!isRecord(rawFields)) {
+        throw new Error('Hoshidicts mining fields must be an object.');
+    }
+    const rawTags = value.tags ?? ['hoshidicts'];
+    if (!Array.isArray(rawTags) || rawTags.length > 32) {
+        throw new Error('Hoshidicts mining tags are invalid.');
+    }
+    const tags: string[] = [];
+    const seenTags = new Set<string>();
+    for (const rawTag of rawTags) {
+        const tag = normalizeProfileString(
+            rawTag,
+            'Hoshidicts mining tag'
+        );
+        const key = tag.toLocaleLowerCase();
+        if (tag && !seenTags.has(key)) {
+            seenTags.add(key);
+            tags.push(tag);
+        }
+    }
+    if (
+        value.duplicatePolicy !== undefined &&
+        value.duplicatePolicy !== 'prevent' &&
+        value.duplicatePolicy !== 'allow'
+    ) {
+        throw new Error('Hoshidicts duplicate policy is invalid.');
+    }
+    const duplicatePolicy =
+        value.duplicatePolicy === 'allow' ? 'allow' : 'prevent';
+    return {
+        version: MINING_PROFILE_VERSION,
+        enabled: value.enabled !== false,
+        deck:
+            normalizeProfileString(
+                value.deck,
+                'Hoshidicts mining deck',
+                'Default'
+            ) || 'Default',
+        model: normalizeProfileString(
+            value.model,
+            'Hoshidicts mining note type'
+        ),
+        fields: {
+            expression: normalizeProfileString(
+                rawFields.expression,
+                'Hoshidicts expression field'
+            ),
+            reading: normalizeProfileString(
+                rawFields.reading,
+                'Hoshidicts reading field'
+            ),
+            definition: normalizeProfileString(
+                rawFields.definition,
+                'Hoshidicts definition field'
+            ),
+            sentence: normalizeProfileString(
+                rawFields.sentence,
+                'Hoshidicts sentence field'
+            ),
+            frequency: normalizeProfileString(
+                rawFields.frequency,
+                'Hoshidicts frequency field'
+            ),
+            pitch: normalizeProfileString(
+                rawFields.pitch,
+                'Hoshidicts pitch field'
+            ),
+        },
+        tags,
+        duplicatePolicy,
+    };
 }
 
 function normalizeRelativePath(value: unknown): string {
@@ -791,6 +940,7 @@ type SnapshotListener = (snapshot: HoshidictsManagerSnapshot) => void;
 export class HoshidictsManager {
     readonly rootDir: string;
     readonly manifestPath: string;
+    readonly miningProfilePath: string;
 
     private readonly deps: HoshidictsManagerDependencies;
     private operationQueue: Promise<void> = Promise.resolve();
@@ -805,6 +955,10 @@ export class HoshidictsManager {
     ) {
         this.rootDir = path.join(baseDir, 'dictionaries', 'hoshidicts');
         this.manifestPath = path.join(this.rootDir, MANIFEST_FILE_NAME);
+        this.miningProfilePath = path.join(
+            this.rootDir,
+            HOSHIDICTS_MINING_PROFILE_FILE_NAME
+        );
         this.deps = { ...defaultDependencies(), ...dependencies };
     }
 
@@ -817,12 +971,13 @@ export class HoshidictsManager {
     }
 
     async getSnapshot(): Promise<HoshidictsManagerSnapshot> {
+        let manifest: PersistedManifest;
         try {
-            const manifest = await this.readManifest();
-            return this.snapshotFromManifest(manifest);
+            manifest = await this.readManifest();
         } catch (error) {
             return {
                 dictionaries: [],
+                miningProfile: defaultHoshidictsMiningProfile(),
                 schedule: 'off',
                 lastCheck: null,
                 nextCheck: null,
@@ -831,6 +986,18 @@ export class HoshidictsManager {
                 progress: { ...this.progress },
             };
         }
+        let miningProfile = defaultHoshidictsMiningProfile();
+        let profileError: string | null = null;
+        try {
+            miningProfile = await this.readMiningProfile();
+        } catch (error) {
+            profileError = errorMessage(error);
+        }
+        return this.snapshotFromManifest(
+            manifest,
+            miningProfile,
+            profileError
+        );
     }
 
     async importDictionary(archivePath: string): Promise<HoshidictsManagerSnapshot> {
@@ -840,7 +1007,7 @@ export class HoshidictsManager {
             try {
                 await this.installStagedDictionary(manifest, staged);
             } catch (error) {
-                await this.discardStagedDictionary(staged);
+                await this.discardStagedDictionaryIfUnreferenced(staged);
                 throw error;
             }
         });
@@ -887,6 +1054,14 @@ export class HoshidictsManager {
                 ),
             };
             await this.atomicWriteManifest(next);
+        });
+        return await this.getSnapshot();
+    }
+
+    async setMiningProfile(value: unknown): Promise<HoshidictsManagerSnapshot> {
+        const profile = normalizeHoshidictsMiningProfile(value);
+        await this.enqueue('saving', async () => {
+            await this.atomicWriteMiningProfile(profile);
         });
         return await this.getSnapshot();
     }
@@ -966,7 +1141,7 @@ export class HoshidictsManager {
                         try {
                             manifest = await this.installStagedDictionary(manifest, staged);
                         } catch (error) {
-                            await this.discardStagedDictionary(staged);
+                            await this.discardStagedDictionaryIfUnreferenced(staged);
                             throw error;
                         }
                     } finally {
@@ -1064,7 +1239,11 @@ export class HoshidictsManager {
         });
     }
 
-    private snapshotFromManifest(manifest: PersistedManifest): HoshidictsManagerSnapshot {
+    private snapshotFromManifest(
+        manifest: PersistedManifest,
+        miningProfile: HoshidictsMiningProfile,
+        profileError: string | null = null
+    ): HoshidictsManagerSnapshot {
         return {
             dictionaries: manifest.dictionaries.map(
                 ({
@@ -1089,13 +1268,39 @@ export class HoshidictsManager {
                     installedAt,
                 })
             ),
+            miningProfile,
             schedule: manifest.schedule,
             lastCheck: manifest.lastCheck,
             nextCheck: manifest.nextCheck,
-            lastError: this.runtimeError ?? manifest.lastError,
+            lastError: this.runtimeError ?? profileError ?? manifest.lastError,
             busy: this.progress.phase !== 'idle',
             progress: { ...this.progress },
         };
+    }
+
+    private async readMiningProfile(): Promise<HoshidictsMiningProfile> {
+        let raw: string;
+        try {
+            const stat = await fsp.stat(this.miningProfilePath);
+            if (
+                !stat.isFile() ||
+                stat.size === 0 ||
+                stat.size > MAX_MINING_PROFILE_BYTES
+            ) {
+                throw new Error(
+                    'Hoshidicts mining profile is empty, oversized, or not a file.'
+                );
+            }
+            raw = await fsp.readFile(this.miningProfilePath, 'utf8');
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+                return defaultHoshidictsMiningProfile();
+            }
+            throw error;
+        }
+        return normalizeHoshidictsMiningProfile(
+            JSON.parse(raw.replace(/^\uFEFF/, ''))
+        );
     }
 
     private async readManifest(): Promise<PersistedManifest> {
@@ -1288,17 +1493,28 @@ export class HoshidictsManager {
             await this.deps.reloadNative();
         } catch (reloadError) {
             let rollbackError: unknown = null;
+            let rollbackManifestRestored = false;
             try {
                 await this.restoreManifest(previousRaw, previous);
+                rollbackManifestRestored = true;
                 await this.deps.reloadNative();
             } catch (error) {
                 rollbackError = error;
             }
-            if (newGenerationRoot) {
+            if (newGenerationRoot && rollbackManifestRestored) {
                 await fsp.rm(newGenerationRoot, { recursive: true, force: true });
             }
+            if (!rollbackManifestRestored) {
+                throw new Error(
+                    `Native Hoshidicts reload failed and manifest rollback failed: ${errorMessage(
+                        reloadError
+                    )}. The new dictionary generation was retained for recovery. Rollback error: ${errorMessage(
+                        rollbackError
+                    )}`
+                );
+            }
             const suffix = rollbackError
-                ? ` Rollback also failed: ${errorMessage(rollbackError)}`
+                ? ` Native rollback reload also failed: ${errorMessage(rollbackError)}.`
                 : '';
             throw new Error(
                 `Native Hoshidicts reload failed; the previous dictionaries were restored: ${errorMessage(
@@ -1314,6 +1530,31 @@ export class HoshidictsManager {
 
     private async discardStagedDictionary(staged: StagedDictionary): Promise<void> {
         await fsp.rm(staged.generationRoot, { recursive: true, force: true });
+    }
+
+    private async discardStagedDictionaryIfUnreferenced(
+        staged: StagedDictionary
+    ): Promise<void> {
+        try {
+            const manifest = await this.readManifest();
+            if (
+                manifest.dictionaries.some(
+                    (dictionary) => dictionary.path === staged.dictionary.path
+                )
+            ) {
+                console.warn(
+                    `[Hoshidicts] Retaining generation referenced by the manifest: ${staged.generationRoot}`
+                );
+                return;
+            }
+        } catch (error) {
+            console.warn(
+                `[Hoshidicts] Could not verify whether the failed import generation is referenced; retaining ${staged.generationRoot}:`,
+                error
+            );
+            return;
+        }
+        await this.discardStagedDictionary(staged);
     }
 
     private async removeGenerationForDictionaryPath(relativePath: string): Promise<void> {
@@ -1372,11 +1613,32 @@ export class HoshidictsManager {
         await this.atomicWriteBuffer(serialized);
     }
 
-    private async atomicWriteBuffer(contents: Buffer): Promise<void> {
+    private async atomicWriteMiningProfile(
+        profile: HoshidictsMiningProfile
+    ): Promise<void> {
+        const serialized = Buffer.from(
+            `${JSON.stringify(profile, null, 2)}\n`,
+            'utf8'
+        );
+        if (serialized.length > MAX_MINING_PROFILE_BYTES) {
+            throw new Error('Hoshidicts mining profile exceeded its size limit.');
+        }
+        await this.atomicWriteBuffer(
+            serialized,
+            this.miningProfilePath,
+            '.mining-profile-'
+        );
+    }
+
+    private async atomicWriteBuffer(
+        contents: Buffer,
+        destination = this.manifestPath,
+        temporaryPrefix = '.manifest-'
+    ): Promise<void> {
         await fsp.mkdir(this.rootDir, { recursive: true });
         const temporaryPath = path.join(
             this.rootDir,
-            `.manifest-${this.deps.randomId()}.tmp`
+            `${temporaryPrefix}${this.deps.randomId()}.tmp`
         );
         const handle = await fsp.open(temporaryPath, 'wx');
         try {
@@ -1386,7 +1648,7 @@ export class HoshidictsManager {
             await handle.close();
         }
         try {
-            await fsp.rename(temporaryPath, this.manifestPath);
+            await fsp.rename(temporaryPath, destination);
         } catch (error) {
             await fsp.rm(temporaryPath, { force: true });
             throw error;

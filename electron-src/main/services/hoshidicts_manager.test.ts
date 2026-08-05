@@ -5,8 +5,10 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+    defaultHoshidictsMiningProfile,
     HoshidictsManager,
     inspectHoshidictsArchive,
+    normalizeHoshidictsMiningProfile,
     type ArchiveInspection,
     type HoshidictsImportReport,
     type HoshidictsManagerDependencies,
@@ -67,6 +69,20 @@ function readManifest(baseDir: string): any {
     return JSON.parse(
         fs.readFileSync(
             path.join(baseDir, 'dictionaries', 'hoshidicts', 'manifest.json'),
+            'utf8'
+        )
+    );
+}
+
+function readMiningProfile(baseDir: string): any {
+    return JSON.parse(
+        fs.readFileSync(
+            path.join(
+                baseDir,
+                'dictionaries',
+                'hoshidicts',
+                'mining-profile.json'
+            ),
             'utf8'
         )
     );
@@ -256,6 +272,63 @@ describe('Hoshidicts immutable generations', () => {
         expect(reloadCount).toBe(3);
     });
 
+    it('retains a generation when manifest rollback fails after publication', async () => {
+        const baseDir = makeTempDir();
+        const archivesDir = makeTempDir();
+        const first = writeArchive(archivesDir, 'alpha-1.zip', {
+            title: 'Alpha',
+            revision: 'working',
+            sourceLanguage: 'ja',
+        });
+        const replacement = writeArchive(archivesDir, 'alpha-2.zip', {
+            title: 'Alpha',
+            revision: 'published-but-not-loaded',
+            sourceLanguage: 'ja',
+        });
+        let reloadCount = 0;
+        const { manager } = createHarness(baseDir, {
+            reloadNative: async () => {
+                reloadCount += 1;
+                if (reloadCount === 2) {
+                    throw new Error('replacement rejected');
+                }
+                return 1;
+            },
+        });
+
+        await manager.importDictionary(first);
+        fs.writeFileSync(
+            path.join(
+                baseDir,
+                'dictionaries',
+                'hoshidicts',
+                '.manifest-test-4.tmp'
+            ),
+            'block rollback temp creation',
+            'utf8'
+        );
+
+        await expect(manager.importDictionary(replacement)).rejects.toThrow(
+            'generation was retained for recovery'
+        );
+
+        const manifest = readManifest(baseDir);
+        expect(manifest.dictionaries[0].revision).toBe(
+            'published-but-not-loaded'
+        );
+        expect(
+            fs.existsSync(
+                path.join(
+                    baseDir,
+                    'dictionaries',
+                    'hoshidicts',
+                    ...manifest.dictionaries[0].path.split('/')
+                )
+            )
+        ).toBe(true);
+        expect(reloadCount).toBe(2);
+    });
+
     it('serializes simultaneous imports', async () => {
         const baseDir = makeTempDir();
         const archivesDir = makeTempDir();
@@ -295,6 +368,71 @@ describe('Hoshidicts immutable generations', () => {
 
         expect(maximumActiveImports).toBe(1);
         expect((await manager.getSnapshot()).dictionaries).toHaveLength(2);
+    });
+});
+
+describe('Hoshidicts mining profile', () => {
+    it('uses defaults until an override profile is saved atomically', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+
+        expect((await manager.getSnapshot()).miningProfile).toEqual(
+            defaultHoshidictsMiningProfile()
+        );
+
+        const snapshot = await manager.setMiningProfile({
+            enabled: false,
+            deck: ' Mining ',
+            model: ' Custom ',
+            fields: {
+                expression: ' Front ',
+                reading: ' Kana ',
+            },
+            tags: [' hoshidicts ', 'HOSHIDICTS', 'custom'],
+            duplicatePolicy: 'allow',
+        });
+
+        expect(snapshot.miningProfile).toEqual({
+            version: 1,
+            enabled: false,
+            deck: 'Mining',
+            model: 'Custom',
+            fields: {
+                expression: 'Front',
+                reading: 'Kana',
+                definition: '',
+                sentence: '',
+                frequency: '',
+                pitch: '',
+            },
+            tags: ['hoshidicts', 'custom'],
+            duplicatePolicy: 'allow',
+        });
+        expect(readMiningProfile(baseDir)).toEqual(snapshot.miningProfile);
+        expect(
+            fs.readdirSync(path.join(baseDir, 'dictionaries', 'hoshidicts'))
+        ).toEqual(['mining-profile.json']);
+    });
+
+    it('reports a malformed saved profile without hiding dictionary state', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+        await manager.setMiningProfile(defaultHoshidictsMiningProfile());
+        fs.writeFileSync(manager.miningProfilePath, '{broken', 'utf8');
+
+        const snapshot = await manager.getSnapshot();
+
+        expect(snapshot.miningProfile).toEqual(defaultHoshidictsMiningProfile());
+        expect(snapshot.lastError).toContain('JSON');
+        expect(snapshot.dictionaries).toEqual([]);
+    });
+
+    it('rejects unsupported duplicate policies', () => {
+        expect(() =>
+            normalizeHoshidictsMiningProfile({
+                duplicatePolicy: 'overwrite',
+            })
+        ).toThrow('duplicate policy is invalid');
     });
 });
 
@@ -448,6 +586,73 @@ describe('Hoshidicts updates and schedule', () => {
         await manager.checkForUpdates();
 
         expect(fetchRemoteIndex).not.toHaveBeenCalled();
+    });
+
+    it('retains an update generation when manifest rollback cannot be verified', async () => {
+        const baseDir = makeTempDir();
+        const archive = writeArchive(makeTempDir(), 'updatable.zip', {
+            title: 'Updatable',
+            revision: 'working',
+            sourceLanguage: 'ja',
+            isUpdatable: true,
+            indexUrl: 'https://dict.example/index.json',
+            downloadUrl: 'https://dict.example/dictionary.zip',
+        });
+        const update: TestArchive = {
+            title: 'Updatable',
+            revision: 'published-but-not-loaded',
+            sourceLanguage: 'ja',
+            isUpdatable: true,
+            indexUrl: 'https://dict.example/index.json',
+            downloadUrl: 'https://dict.example/dictionary.zip',
+        };
+        let reloadCount = 0;
+        const { manager } = createHarness(baseDir, {
+            reloadNative: async () => {
+                reloadCount += 1;
+                if (reloadCount === 2) {
+                    throw new Error('replacement rejected');
+                }
+                return 1;
+            },
+            fetchRemoteIndex: async () => ({
+                revision: update.revision,
+                downloadUrl: update.downloadUrl ?? null,
+            }),
+            downloadArchive: async (_url, outputPath) => {
+                fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+                fs.writeFileSync(outputPath, JSON.stringify(update), 'utf8');
+            },
+        });
+
+        await manager.importDictionary(archive);
+        fs.writeFileSync(
+            path.join(
+                baseDir,
+                'dictionaries',
+                'hoshidicts',
+                '.manifest-test-5.tmp'
+            ),
+            'block rollback temp creation',
+            'utf8'
+        );
+
+        const snapshot = await manager.checkForUpdates();
+
+        expect(snapshot.dictionaries[0].revision).toBe('working');
+        expect(snapshot.lastError).toContain('generation was retained for recovery');
+        const dictionaryId = readManifest(baseDir).dictionaries[0].id;
+        const generations = fs.readdirSync(
+            path.join(
+                baseDir,
+                'dictionaries',
+                'hoshidicts',
+                'generations',
+                dictionaryId
+            )
+        );
+        expect(generations).toHaveLength(2);
+        expect(reloadCount).toBe(2);
     });
 
     it('checks once at startup and then hourly only when work is due', async () => {

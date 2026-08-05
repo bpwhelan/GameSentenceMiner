@@ -27,7 +27,11 @@
   const MAX_RESPONSE_BYTES = 256 * 1024;
   const MAX_GLOSSARIES = 64;
   const MAX_TRACE_STEPS = 32;
+  const MAX_METADATA_GROUPS = 64;
+  const MAX_METADATA_VALUES = 64;
   const MAX_TEXT_LENGTH = 128 * 1024;
+  const MAX_MINING_REQUEST_BYTES = 256 * 1024;
+  const MINING_REQUEST_TIMEOUT_MS = 10 * 1000;
   const MAX_STRUCTURED_DEPTH = 24;
   const MAX_STRUCTURED_NODES = 4096;
   const RECONNECT_DELAY_MS = 750;
@@ -115,6 +119,62 @@
           })
         : [];
       glossaryCount += glossaries.length;
+      const frequencies = Array.isArray(rawTerm.frequencies)
+        ? rawTerm.frequencies.slice(0, MAX_METADATA_GROUPS).map((rawGroup) => {
+            const group = isRecord(rawGroup) ? rawGroup : {};
+            return {
+              dictionary: boundedString(group.dictionary, 4096) || "Dictionary",
+              frequencies: Array.isArray(group.frequencies)
+                ? group.frequencies.slice(0, MAX_METADATA_VALUES)
+                    .map((rawFrequency) => {
+                      const frequency = isRecord(rawFrequency) ? rawFrequency : {};
+                      return {
+                        value: Number.isFinite(frequency.value)
+                          ? Math.trunc(frequency.value)
+                          : null,
+                        displayValue: boundedString(frequency.displayValue, 4096),
+                      };
+                    })
+                    .filter((frequency) => frequency.value !== null)
+                : [],
+            };
+          })
+        : [];
+      const pitches = Array.isArray(rawTerm.pitches)
+        ? rawTerm.pitches.slice(0, MAX_METADATA_GROUPS).map((rawGroup) => {
+            const group = isRecord(rawGroup) ? rawGroup : {};
+            return {
+              dictionary: boundedString(group.dictionary, 4096) || "Dictionary",
+              pitches: Array.isArray(group.pitches)
+                ? group.pitches.slice(0, MAX_METADATA_VALUES)
+                    .map((rawPitch) => {
+                      const pitch = isRecord(rawPitch) ? rawPitch : {};
+                      return {
+                        position: Number.isFinite(pitch.position)
+                          ? Math.trunc(pitch.position)
+                          : null,
+                        pattern: boundedString(pitch.pattern, 4096),
+                        nasal: Array.isArray(pitch.nasal)
+                          ? pitch.nasal.slice(0, MAX_METADATA_VALUES)
+                              .filter(Number.isFinite)
+                              .map(Math.trunc)
+                          : [],
+                        devoice: Array.isArray(pitch.devoice)
+                          ? pitch.devoice.slice(0, MAX_METADATA_VALUES)
+                              .filter(Number.isFinite)
+                              .map(Math.trunc)
+                          : [],
+                      };
+                    })
+                    .filter((pitch) => pitch.position !== null)
+                : [],
+              transcriptions: Array.isArray(group.transcriptions)
+                ? group.transcriptions.slice(0, MAX_METADATA_VALUES)
+                    .map((value) => boundedString(value, 4096))
+                : [],
+            };
+          })
+        : [];
 
       return {
         matched: boundedString(result.matched, 4096),
@@ -129,6 +189,8 @@
           rules: boundedString(rawTerm.rules, 4096),
           score: Number.isFinite(rawTerm.score) ? Math.trunc(rawTerm.score) : 0,
           glossaries,
+          frequencies,
+          pitches,
         },
       };
     }).filter((result) => result.term.expression.length > 0);
@@ -511,6 +573,128 @@
       error: "!",
       unavailable: "-",
     }[state] || "-";
+  }
+
+  function normalizeLocalHttpBaseUrl(value) {
+    if (typeof value !== "string" || value.length === 0) {
+      return null;
+    }
+    try {
+      const url = new URL(value);
+      if (url.protocol === "ws:") {
+        url.protocol = "http:";
+      } else if (url.protocol === "wss:") {
+        url.protocol = "https:";
+      }
+      if (
+        !["http:", "https:"].includes(url.protocol) ||
+        !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) ||
+        url.username ||
+        url.password
+      ) {
+        return null;
+      }
+      return url.origin;
+    } catch {
+      return null;
+    }
+  }
+
+  function resolveGsmApiBaseUrl(settings = {}) {
+    const source = isRecord(settings) ? settings : {};
+    for (const candidate of [
+      source.texthookerUrl,
+      source.weburl1,
+      source.weburl2,
+    ]) {
+      const resolved = normalizeLocalHttpBaseUrl(candidate);
+      if (resolved) {
+        return resolved;
+      }
+    }
+    return "http://127.0.0.1:7275";
+  }
+
+  function utf8Length(value) {
+    return typeof TextEncoder === "function"
+      ? new TextEncoder().encode(value).length
+      : value.length;
+  }
+
+  function createHoshidictsMiningClient(options = {}) {
+    const baseUrl =
+      normalizeLocalHttpBaseUrl(options.baseUrl) ||
+      "http://127.0.0.1:7275";
+    const fetchImpl =
+      typeof options.fetch === "function"
+        ? options.fetch
+        : typeof fetch === "function"
+          ? fetch.bind(globalThis)
+          : null;
+    const timeoutMs =
+      Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
+        ? Math.trunc(options.timeoutMs)
+        : MINING_REQUEST_TIMEOUT_MS;
+
+    async function request(path, init = {}) {
+      if (!fetchImpl) {
+        throw new Error("GSM mining is unavailable.");
+      }
+      const controller =
+        typeof AbortController === "function" ? new AbortController() : null;
+      const timeoutId = controller
+        ? setTimeout(() => controller.abort(), timeoutMs)
+        : null;
+      try {
+        const response = await fetchImpl(`${baseUrl}${path}`, {
+          ...init,
+          signal: controller ? controller.signal : undefined,
+        });
+        let payload;
+        try {
+          payload = await response.json();
+        } catch {
+          throw new Error(`GSM returned an invalid response (HTTP ${response.status}).`);
+        }
+        if (!isRecord(payload)) {
+          throw new Error("GSM returned an invalid mining response.");
+        }
+        if (!response.ok) {
+          throw new Error(
+            typeof payload.error === "string"
+              ? payload.error
+              : `GSM mining failed (HTTP ${response.status}).`
+          );
+        }
+        return payload;
+      } catch (error) {
+        if (error && error.name === "AbortError") {
+          throw new Error("GSM mining request timed out.");
+        }
+        throw error;
+      } finally {
+        if (timeoutId !== null) {
+          clearTimeout(timeoutId);
+        }
+      }
+    }
+
+    return {
+      async getStatus() {
+        return await request("/api/hoshidicts/mining/status");
+      },
+      async mine(payload) {
+        const body = JSON.stringify(payload);
+        if (utf8Length(body) > MAX_MINING_REQUEST_BYTES) {
+          throw new Error("Hoshidicts mining request is too large.");
+        }
+        return await request("/api/hoshidicts/mine", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        });
+      },
+    };
   }
 
   function createHoshidictsReader(options = {}) {
@@ -1030,8 +1214,10 @@
     appendExpressionRuby,
     appendTextOnlyGlossary,
     calculatePopupPosition,
+    createHoshidictsMiningClient,
     createHoshidictsReader,
     normalizeLookupResults,
+    resolveGsmApiBaseUrl,
     resolveLookupCandidate,
     segmentFurigana,
     setMiningButtonState,

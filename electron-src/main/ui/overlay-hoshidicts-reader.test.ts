@@ -14,10 +14,15 @@ function loadReaderModule(window: Window) {
   vm.runInNewContext(
     source,
     {
+      AbortController,
+      TextEncoder,
+      URL,
+      clearTimeout,
       module,
       exports: module.exports,
       console,
       globalThis: window,
+      setTimeout,
       window
     },
     { filename: "GSM_Overlay/hoshidicts_reader.js" }
@@ -164,6 +169,26 @@ function lookupResult(
               definitionTags: "common",
               termTags: "uk"
             }
+          ],
+          frequencies: [
+            {
+              dictionary: "Frequency",
+              frequencies: [{ value: 123, displayValue: "123 ★" }]
+            }
+          ],
+          pitches: [
+            {
+              dictionary: "Pitch",
+              pitches: [
+                {
+                  position: 2,
+                  pattern: "LHL",
+                  nasal: [1],
+                  devoice: [2]
+                }
+              ],
+              transcriptions: ["tabeɾɯ"]
+            }
           ]
         }
       }
@@ -256,6 +281,62 @@ describe("Hoshidicts safe popup rendering", () => {
       width: 300,
       height: 500
     });
+  });
+
+  it("uses the configured local GSM API without a Yomitan bridge", async () => {
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const fetchMock = vi.fn(async (url: string, init: RequestInit = {}) => ({
+      ok: true,
+      status: 200,
+      json: async () =>
+        url.endsWith("/status")
+          ? { available: true, model: "Mining" }
+          : { success: true, noteId: 42, requestBody: init.body }
+    }));
+
+    expect(
+      api.resolveGsmApiBaseUrl({
+        texthookerUrl: "http://127.0.0.1:8123/texthooker"
+      })
+    ).toBe("http://127.0.0.1:8123");
+    expect(
+      api.resolveGsmApiBaseUrl({
+        weburl1: "ws://localhost:8124/ws/plaintext"
+      })
+    ).toBe("http://localhost:8124");
+    expect(
+      api.resolveGsmApiBaseUrl({
+        texthookerUrl: "https://example.test/texthooker"
+      })
+    ).toBe("http://127.0.0.1:7275");
+
+    const client = api.createHoshidictsMiningClient({
+      baseUrl: "http://127.0.0.1:8123",
+      fetch: fetchMock
+    });
+    await expect(client.getStatus()).resolves.toMatchObject({
+      available: true
+    });
+    await expect(client.mine({ sentence: "食べる" })).resolves.toMatchObject({
+      success: true,
+      noteId: 42
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "http://127.0.0.1:8123/api/hoshidicts/mining/status",
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "http://127.0.0.1:8123/api/hoshidicts/mine",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sentence: "食べる" })
+      })
+    );
   });
 });
 
@@ -573,7 +654,29 @@ describe("Hoshidicts Shift-hover scanner", () => {
         sentence: "食べる",
         matchOffset: 0,
         result: expect.objectContaining({
-          term: expect.objectContaining({ expression: "食べる" })
+          term: expect.objectContaining({
+            expression: "食べる",
+            frequencies: [
+              {
+                dictionary: "Frequency",
+                frequencies: [{ value: 123, displayValue: "123 ★" }]
+              }
+            ],
+            pitches: [
+              {
+                dictionary: "Pitch",
+                pitches: [
+                  {
+                    position: 2,
+                    pattern: "LHL",
+                    nasal: [1],
+                    devoice: [2]
+                  }
+                ],
+                transcriptions: ["tabeɾɯ"]
+              }
+            ]
+          })
         })
       })
     );

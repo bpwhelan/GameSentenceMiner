@@ -5014,25 +5014,17 @@ background: rgba(202, 12, 12, 0.692);
     const serverPort = Number.isFinite(port) && port > 0 && port <= 65535
       ? port
       : 7276;
+    const miningClient = window.GSMHoshidictsReader.createHoshidictsMiningClient({
+      baseUrl: window.GSMHoshidictsReader.resolveGsmApiBaseUrl(settings),
+    });
     window.gsmHoshidictsReader = window.GSMHoshidictsReader.createHoshidictsReader({
       serverUrl: `ws://127.0.0.1:${serverPort}`,
       onPopupStateChange: handleHoshidictsPopupState,
       async getMiningStatus() {
-        const bridge = window.gsmYomitanBridge;
-        if (!bridge || typeof bridge.hoshidictsMining !== 'function') {
-          return { available: false, error: 'Anki mining is unavailable.' };
-        }
-        return await bridge.hoshidictsMining({ operation: 'status' });
+        return await miningClient.getStatus();
       },
       async onMine(payload) {
-        const bridge = window.gsmYomitanBridge;
-        if (!bridge || typeof bridge.hoshidictsMining !== 'function') {
-          return { success: false, error: 'Anki mining is unavailable.' };
-        }
-        return await bridge.hoshidictsMining({
-          operation: 'mine',
-          ...payload,
-        });
+        return await miningClient.mine(payload);
       },
     });
 

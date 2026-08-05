@@ -985,6 +985,60 @@ button:disabled {
   font-size: 0.88rem;
 }
 
+.hoshidicts-mining {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--gsm-border-default, #444);
+}
+
+.hoshidicts-mining-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hoshidicts-mining-header h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.hoshidicts-mining-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--gsm-text-secondary, #d0d0d0);
+}
+
+.hoshidicts-mining-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px 16px;
+  margin-top: 12px;
+}
+
+.hoshidicts-mining-grid .input-group {
+  min-width: 0;
+}
+
+.hoshidicts-mining-fields {
+  margin-top: 12px;
+}
+
+.hoshidicts-mining-fields summary {
+  color: var(--gsm-text-primary, #f4f4f4);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.hoshidicts-mining-fields .muted {
+  margin: 8px 0 0;
+}
+
+.hoshidicts-mining-save {
+  margin-top: 12px;
+}
+
 .hoshidicts-installed {
   margin-top: 16px;
 }
@@ -1027,6 +1081,18 @@ button:disabled {
 
 .hoshidicts-dictionary-row button {
   flex: 0 0 auto;
+}
+
+@media (max-width: 640px) {
+  .hoshidicts-mining-header,
+  .hoshidicts-mining-grid .input-group {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .hoshidicts-mining-toggle {
+    align-self: flex-start;
+  }
 }
 
 .settings-backup-progress {

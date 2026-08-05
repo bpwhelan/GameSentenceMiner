@@ -1244,6 +1244,100 @@ def test_handle_incoming_anki_event_queues_and_deduplicates_note_added(monkeypat
     assert anki.first_run is False
 
 
+def test_overlay_tagged_beacon_note_reaches_gsm_media_enrichment(monkeypatch):
+    config = _base_config()
+    overlay_line = SimpleNamespace(
+        id="overlay-line",
+        text="昨日、食べた。",
+        source="overlay",
+        mined_time=None,
+    )
+    replay_calls = []
+    reset_calls = []
+    update_calls = []
+    queue_calls = []
+
+    class BeaconCard:
+        def __init__(self, payload):
+            self.noteId = payload["noteId"]
+            self.tags = payload["tags"]
+            self._fields = {name: field["value"] for name, field in payload["fields"].items()}
+
+        @classmethod
+        def from_dict(cls, payload):
+            return cls(payload)
+
+        def get_field(self, field):
+            return self._fields[field]
+
+    def fake_invoke(action, **kwargs):
+        assert action == "notesInfo"
+        assert kwargs == {"notes": [42]}
+        return [
+            {
+                "noteId": 42,
+                "tags": ["profile-tag", "overlay"],
+                "fields": {
+                    "Word": {"value": "食べる"},
+                    "Sentence": {"value": overlay_line.text},
+                },
+            }
+        ]
+
+    real_update_single_card = anki.update_single_card
+    real_queue_card_for_processing = anki.queue_card_for_processing
+
+    def track_update(card):
+        update_calls.append(card)
+        return real_update_single_card(card)
+
+    def track_queue(*args, **kwargs):
+        queue_calls.append((args, kwargs))
+        return real_queue_card_for_processing(*args, **kwargs)
+
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "AnkiCard", BeaconCard)
+    monkeypatch.setattr(anki, "invoke", fake_invoke)
+    monkeypatch.setattr(anki, "update_single_card", track_update)
+    monkeypatch.setattr(anki, "queue_card_for_processing", track_queue)
+    monkeypatch.setattr(anki, "get_all_lines", lambda: [])
+    monkeypatch.setattr(anki, "get_mined_line", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(anki, "lines_match", lambda left, right: left == right)
+    monkeypatch.setattr(anki.gsm_state, "last_overlay_scan_line", overlay_line, raising=False)
+    monkeypatch.setattr(
+        anki,
+        "_get_texthooking_page_module",
+        lambda: SimpleNamespace(
+            get_selected_lines=lambda: [],
+            reset_checked_lines=lambda: reset_calls.append(True),
+        ),
+    )
+    monkeypatch.setattr(anki.obs, "save_replay_buffer", lambda: replay_calls.append(True))
+
+    assert (
+        anki.handle_incoming_anki_event(
+            {
+                "event": "note_added",
+                "session_id": "hoshidicts-session",
+                "note_id": 42,
+            }
+        )
+        == "note_added"
+    )
+    assert anki._process_next_anki_beacon_note(timeout_seconds=0) is True
+
+    assert len(update_calls) == 1
+    assert update_calls[0].tags == ["profile-tag", "overlay"]
+    assert len(queue_calls) == 1
+    assert queue_calls[0][0][0] is update_calls[0]
+    assert queue_calls[0][0][2] is overlay_line
+    assert len(anki.card_queue) == 1
+    assert anki.card_queue[0][0] is update_calls[0]
+    assert anki.card_queue[0][3] is overlay_line
+    assert replay_calls == [True]
+    assert reset_calls == [True]
+
+
 def test_monitor_anki_iteration_uses_push_queue_when_heartbeat_is_fresh(monkeypatch):
     config = SimpleNamespace(anki=SimpleNamespace(enabled=True, polling_rate_v2=1000))
     timeouts = []

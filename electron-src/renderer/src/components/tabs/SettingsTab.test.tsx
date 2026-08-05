@@ -160,6 +160,22 @@ describe("SettingsTab data folder controls", () => {
           installedAt: "2026-08-05T10:00:00.000Z"
         }
       ],
+      miningProfile: {
+        version: 1,
+        enabled: true,
+        deck: "Default",
+        model: "",
+        fields: {
+          expression: "",
+          reading: "",
+          definition: "",
+          sentence: "",
+          frequency: "",
+          pitch: ""
+        },
+        tags: ["hoshidicts"],
+        duplicatePolicy: "prevent"
+      },
       schedule: "weekly",
       lastCheck: "2026-08-05T10:00:00.000Z",
       nextCheck: "2026-08-12T10:00:00.000Z",
@@ -168,12 +184,18 @@ describe("SettingsTab data folder controls", () => {
       progress: { phase: "idle" },
       effectiveEnabled: true
     };
-    invokeMock.mockImplementation(async (channel: string) => {
+    invokeMock.mockImplementation(async (channel: string, ...args: unknown[]) => {
       if (channel === "settings.getSettings") return {};
       if (channel === "settings.getUpdateStatus") return null;
       if (channel === "data.getCurrentDir") return "C:\\Data\\GameSentenceMiner";
       if (channel === "data.getDefaultDir") return "C:\\Data\\GameSentenceMiner";
       if (channel === "hoshidicts.getState") return hoshidictsState;
+      if (channel === "hoshidicts.setMiningProfile") {
+        return {
+          success: true,
+          state: { ...hoshidictsState, miningProfile: args[0] }
+        };
+      }
       if (channel.startsWith("hoshidicts.")) {
         return { success: true, state: hoshidictsState };
       }
@@ -196,6 +218,7 @@ describe("SettingsTab data folder controls", () => {
     expect(container.textContent).toContain("Revision: 2026-08-05");
     expect(container.textContent).toContain("Language: ja");
     expect(container.textContent).toContain("123 terms");
+    expect(container.textContent).toContain("Anki mining profile");
 
     const importButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Import Dictionary..."
@@ -209,6 +232,32 @@ describe("SettingsTab data folder controls", () => {
     const schedule = container.querySelector<HTMLSelectElement>(
       "#hoshidicts-update-schedule"
     );
+    const miningEnabled = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-mining-enabled"
+    );
+    const miningDeck = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-mining-deck"
+    );
+    const miningModel = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-mining-model"
+    );
+    const miningTags = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-mining-tags"
+    );
+    const miningExpression = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-mining-field-expression"
+    );
+    const miningDuplicates = container.querySelector<HTMLSelectElement>(
+      "#hoshidicts-mining-duplicates"
+    );
+    const setInputValue = (input: HTMLInputElement | null, value: string) => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value"
+      )?.set;
+      valueSetter?.call(input, value);
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
+    };
 
     await act(async () => {
       importButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -218,6 +267,30 @@ describe("SettingsTab data folder controls", () => {
         schedule.value = "monthly";
         schedule.dispatchEvent(new Event("change", { bubbles: true }));
       }
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      miningEnabled?.click();
+      setInputValue(miningDeck, "Mining");
+      setInputValue(miningModel, "Custom");
+      setInputValue(miningTags, "hoshidicts, custom");
+      setInputValue(miningExpression, "Front");
+      if (miningDuplicates) {
+        miningDuplicates.value = "allow";
+        miningDuplicates.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      await Promise.resolve();
+    });
+
+    const saveMiningButton = Array.from(
+      container.querySelectorAll("button")
+    ).find((button) => button.textContent === "Save Mining Profile");
+    await act(async () => {
+      saveMiningButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true })
+      );
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -232,12 +305,34 @@ describe("SettingsTab data folder controls", () => {
       "hoshidicts.setSchedule",
       "monthly"
     );
+    expect(invokeMock).toHaveBeenCalledWith(
+      "hoshidicts.setMiningProfile",
+      expect.objectContaining({
+        version: 1,
+        enabled: false,
+        deck: "Mining",
+        model: "Custom",
+        fields: expect.objectContaining({ expression: "Front" }),
+        tags: ["hoshidicts", "custom"],
+        duplicatePolicy: "allow"
+      })
+    );
   });
 
   it.each([
-    ["ja", "Hoshidicts辞書", "辞書をインポート..."],
-    ["ukr", "Словники Hoshidicts", "Імпортувати словник..."]
-  ])("localizes the Hoshidicts card in %s", async (locale, title, importLabel) => {
+    ["ja", "Hoshidicts辞書", "辞書をインポート...", "Ankiマイニングプロファイル"],
+    [
+      "ukr",
+      "Словники Hoshidicts",
+      "Імпортувати словник...",
+      "Профіль видобування Anki"
+    ]
+  ])("localizes the Hoshidicts card in %s", async (
+    locale,
+    title,
+    importLabel,
+    miningTitle
+  ) => {
     invokeMock.mockImplementation(async (channel: string) => {
       if (channel === "settings.getSettings") return { locale };
       if (channel === "settings.getUpdateStatus") return null;
@@ -258,5 +353,6 @@ describe("SettingsTab data folder controls", () => {
 
     expect(container.textContent).toContain(title);
     expect(container.textContent).toContain(importLabel);
+    expect(container.textContent).toContain(miningTitle);
   });
 });
