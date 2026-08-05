@@ -13,6 +13,7 @@ import type {
   AppSettings,
   ControlledTab,
   HoshidictsMiningProfile,
+  HoshidictsRecommendedDictionaryId,
   HoshidictsSchedule,
   HoshidictsState,
   UpdateStatusSnapshot,
@@ -118,6 +119,10 @@ const DEFAULT_HOSHIDICTS_MINING_PROFILE: HoshidictsMiningProfile = {
 
 const DEFAULT_HOSHIDICTS_STATE: HoshidictsState = {
   dictionaries: [],
+  recommendedDictionaries: [
+    { id: "jmdict", installed: false },
+    { id: "jmnedict", installed: false }
+  ],
   miningProfile: DEFAULT_HOSHIDICTS_MINING_PROFILE,
   schedule: "off",
   lastCheck: null,
@@ -167,6 +172,14 @@ const HOSHIDICTS_PROGRESS_I18N_KEYS: Record<
   reloading: "settings.hoshidicts.progress.reloading",
   removing: "settings.hoshidicts.progress.removing",
   saving: "settings.hoshidicts.progress.saving"
+};
+
+const HOSHIDICTS_RECOMMENDED_I18N_KEYS: Record<
+  HoshidictsRecommendedDictionaryId,
+  string
+> = {
+  jmdict: "settings.hoshidicts.recommended.jmdict",
+  jmnedict: "settings.hoshidicts.recommended.jmnedict"
 };
 
 type HoshidictsMiningField = keyof HoshidictsMiningProfile["fields"];
@@ -335,6 +348,16 @@ function normalizeHoshidictsState(value: unknown): HoshidictsState {
             typeof dictionary.title === "string"
         )
       : [],
+    recommendedDictionaries: (
+      ["jmdict", "jmnedict"] as HoshidictsRecommendedDictionaryId[]
+    ).map((id) => ({
+      id,
+      installed:
+        candidate.recommendedDictionaries?.some(
+          (dictionary) =>
+            dictionary?.id === id && dictionary.installed === true
+        ) === true
+    })),
     miningProfile,
     schedule,
     lastCheck:
@@ -884,6 +907,24 @@ export function SettingsTab({ active }: SettingsTabProps) {
     }
   }, [applyHoshidictsResult, t]);
 
+  const installRecommendedHoshidictsDictionaries =
+    useCallback(async () => {
+      setHoshidictsActionError(null);
+      try {
+        applyHoshidictsResult(
+          await invokeIpc<HoshidictsActionResult>(
+            "hoshidicts.installRecommended"
+          )
+        );
+      } catch (error) {
+        setHoshidictsActionError(
+          error instanceof Error
+            ? error.message
+            : t("settings.hoshidicts.errors.recommended")
+        );
+      }
+    }, [applyHoshidictsResult, t]);
+
   const setHoshidictsSchedule = useCallback(
     async (schedule: HoshidictsSchedule) => {
       setHoshidictsState((current) => ({ ...current, schedule }));
@@ -1201,11 +1242,23 @@ export function SettingsTab({ active }: SettingsTabProps) {
   const hoshidictsProgressLabel = t(
     HOSHIDICTS_PROGRESS_I18N_KEYS[hoshidictsState.progress.phase],
     {
-      title: hoshidictsState.progress.title ?? ""
+      title:
+        hoshidictsState.progress.title === "jmdict" ||
+        hoshidictsState.progress.title === "jmnedict"
+          ? t(
+              HOSHIDICTS_RECOMMENDED_I18N_KEYS[
+                hoshidictsState.progress.title
+              ]
+            )
+          : (hoshidictsState.progress.title ?? "")
     }
   );
   const hoshidictsError =
     hoshidictsActionError ?? hoshidictsState.lastError;
+  const allRecommendedHoshidictsInstalled =
+    hoshidictsState.recommendedDictionaries.every(
+      (dictionary) => dictionary.installed
+    );
 
   return (
     <div className={`tab-panel ${active ? "active" : ""}`}>
@@ -1837,6 +1890,50 @@ export function SettingsTab({ active }: SettingsTabProps) {
             {hoshidictsError ? (
               <p className="update-error-text">{hoshidictsError}</p>
             ) : null}
+
+            <div className="hoshidicts-recommended">
+              <div className="hoshidicts-recommended-header">
+                <h3>{t("settings.hoshidicts.recommended.title")}</h3>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={
+                    hoshidictsState.busy ||
+                    allRecommendedHoshidictsInstalled
+                  }
+                  onClick={() => {
+                    void installRecommendedHoshidictsDictionaries();
+                  }}
+                >
+                  {allRecommendedHoshidictsInstalled
+                    ? t("settings.hoshidicts.recommended.installed")
+                    : t("settings.hoshidicts.recommended.install")}
+                </button>
+              </div>
+              <div className="hoshidicts-recommended-list">
+                {hoshidictsState.recommendedDictionaries.map(
+                  (dictionary) => (
+                    <div
+                      className="hoshidicts-recommended-row"
+                      key={dictionary.id}
+                    >
+                      <span>
+                        {t(
+                          HOSHIDICTS_RECOMMENDED_I18N_KEYS[dictionary.id]
+                        )}
+                      </span>
+                      <span className="muted">
+                        {dictionary.installed
+                          ? t(
+                              "settings.hoshidicts.recommended.installed"
+                            )
+                          : t("settings.hoshidicts.recommended.notInstalled")}
+                      </span>
+                    </div>
+                  )
+                )}
+              </div>
+            </div>
 
             <div className="hoshidicts-mining">
               <div className="hoshidicts-mining-header">

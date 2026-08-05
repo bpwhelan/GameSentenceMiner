@@ -126,6 +126,7 @@ export interface UpdateStatusSnapshot {
 
 export type HoshidictsSchedule = "off" | "daily" | "weekly" | "monthly";
 export type HoshidictsDuplicatePolicy = "prevent" | "allow";
+export type HoshidictsRecommendedDictionaryId = "jmdict" | "jmnedict";
 
 export interface HoshidictsMiningProfile {
   version: 1;
@@ -172,6 +173,10 @@ export interface HoshidictsProgress {
 
 export interface HoshidictsState {
   dictionaries: HoshidictsDictionaryState[];
+  recommendedDictionaries: Array<{
+    id: HoshidictsRecommendedDictionaryId;
+    installed: boolean;
+  }>;
   miningProfile: HoshidictsMiningProfile;
   schedule: HoshidictsSchedule;
   lastCheck: string | null;

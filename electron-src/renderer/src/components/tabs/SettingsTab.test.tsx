@@ -160,6 +160,10 @@ describe("SettingsTab data folder controls", () => {
           installedAt: "2026-08-05T10:00:00.000Z"
         }
       ],
+      recommendedDictionaries: [
+        { id: "jmdict", installed: false },
+        { id: "jmnedict", installed: false }
+      ],
       miningProfile: {
         version: 1,
         enabled: true,
@@ -219,6 +223,12 @@ describe("SettingsTab data folder controls", () => {
     expect(container.textContent).toContain("Language: ja");
     expect(container.textContent).toContain("123 terms");
     expect(container.textContent).toContain("Anki mining profile");
+    expect(container.textContent).toContain("Recommended dictionaries");
+    expect(container.textContent).toContain(
+      "JMdict English (without proper names)"
+    );
+    expect(container.textContent).toContain("JMnedict");
+    expect(container.textContent).not.toContain("KANJIDIC");
 
     const importButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Import Dictionary..."
@@ -226,6 +236,9 @@ describe("SettingsTab data folder controls", () => {
     const checkButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Check for Updates Now"
     );
+    const installRecommendedButton = Array.from(
+      container.querySelectorAll("button")
+    ).find((button) => button.textContent === "Install JMdict + JMnedict");
     const removeButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Remove"
     );
@@ -262,6 +275,9 @@ describe("SettingsTab data folder controls", () => {
     await act(async () => {
       importButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       checkButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      installRecommendedButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true })
+      );
       removeButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       if (schedule) {
         schedule.value = "monthly";
@@ -297,6 +313,7 @@ describe("SettingsTab data folder controls", () => {
 
     expect(invokeMock).toHaveBeenCalledWith("hoshidicts.import");
     expect(invokeMock).toHaveBeenCalledWith("hoshidicts.checkUpdates");
+    expect(invokeMock).toHaveBeenCalledWith("hoshidicts.installRecommended");
     expect(invokeMock).toHaveBeenCalledWith(
       "hoshidicts.remove",
       "dictionary-id"
