@@ -341,6 +341,71 @@ describe("Hoshidicts safe popup rendering", () => {
 });
 
 describe("Hoshidicts Shift-hover scanner", () => {
+  it("logs initialization, the Shift requirement, socket state, and lookup outcome", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn()
+    };
+
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      serverUrl: "ws://127.0.0.1:7276",
+      logger
+    });
+
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining("[HoshidictsReader] reader.initialized")
+    );
+    expect(logger.debug).toHaveBeenCalledWith(
+      expect.stringContaining("[HoshidictsReader] socket.connecting")
+    );
+
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining("[HoshidictsReader] hover.shift-required")
+    );
+
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining("[HoshidictsReader] socket.open")
+    );
+
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        shiftKey: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const request = JSON.parse(socket.sent.at(-1)!);
+    expect(logger.debug).toHaveBeenCalledWith(
+      expect.stringContaining("[HoshidictsReader] lookup.sent")
+    );
+
+    socket.receive(lookupResult(request.requestId, "食べる"));
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining("[HoshidictsReader] lookup.rendered")
+    );
+    reader.destroy();
+  });
+
   it("debounces lookup, renders ruby/tags/cards, and reuses popup lifecycle", async () => {
     vi.useFakeTimers();
     const dom = createDom();
