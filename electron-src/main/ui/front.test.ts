@@ -9,6 +9,7 @@ const isInProcessOverlayRunningMock = vi.fn();
 const waitForInProcessOverlayShutdownMock = vi.fn();
 let isDevValue = false;
 let useInProcessOverlayValue = false;
+let hoshidictsEnabledValue = false;
 const originalPlatform = process.platform;
 
 vi.mock('electron', () => ({
@@ -83,6 +84,10 @@ vi.mock('../main.js', () => ({
     sendOpenTexthooker: vi.fn(),
 }));
 
+vi.mock('../gsm_config.js', () => ({
+    getConfiguredHoshidictsEnabled: () => hoshidictsEnabledValue,
+}));
+
 function createProcessHandle() {
     const listeners: Record<string, ((...args: any[]) => void) | undefined> = {};
     return {
@@ -107,6 +112,7 @@ describe('runOverlayWithSource', () => {
     beforeEach(() => {
         isDevValue = false;
         useInProcessOverlayValue = false;
+        hoshidictsEnabledValue = false;
         existsSyncMock.mockReset();
         spawnMock.mockReset();
         execFileMock.mockReset();
@@ -135,6 +141,9 @@ describe('runOverlayWithSource', () => {
             cwd: 'C:\\repo\\GSM_Overlay',
             detached: false,
             stdio: 'ignore',
+            env: expect.objectContaining({
+                GSM_HOSHIDICTS_ENABLED: '0',
+            }),
         });
         expect(getOverlayRuntimeState()).toEqual({
             isRunning: true,
@@ -144,6 +153,7 @@ describe('runOverlayWithSource', () => {
 
     it('loads and unloads the overlay in the main Electron process when enabled', async () => {
         useInProcessOverlayValue = true;
+        hoshidictsEnabledValue = true;
         isInProcessOverlayRunningMock.mockReturnValue(false);
         startInProcessOverlayMock.mockImplementation(async () => {
             isInProcessOverlayRunningMock.mockReturnValue(true);
@@ -156,6 +166,7 @@ describe('runOverlayWithSource', () => {
         await expect(runOverlayWithSource('startup')).resolves.toBe(true);
 
         expect(startInProcessOverlayMock).toHaveBeenCalledTimes(1);
+        expect(process.env.GSM_HOSHIDICTS_ENABLED).toBe('1');
         expect(spawnMock).not.toHaveBeenCalled();
         expect(getOverlayRuntimeState()).toEqual({
             isRunning: true,
@@ -212,6 +223,7 @@ describe('runOverlayWithSource', () => {
                 GSM_OVERLAY_CHILD: '1',
                 GSM_OVERLAY_SHARED_RUNTIME: '1',
                 GSM_OVERLAY_RESOURCES_PATH: 'C:\\overlay-out\\resources',
+                GSM_HOSHIDICTS_ENABLED: '0',
             }),
         });
         expect(spawnMock.mock.calls[0][2].env.ELECTRON_RUN_AS_NODE).toBeUndefined();
@@ -235,6 +247,9 @@ describe('runOverlayWithSource', () => {
         expect(spawnMock).toHaveBeenCalledWith('C:\\overlay-out\\gsm_overlay.exe', [], {
             detached: false,
             stdio: 'ignore',
+            env: expect.objectContaining({
+                GSM_HOSHIDICTS_ENABLED: '0',
+            }),
         });
         expect(getOverlayRuntimeState()).toEqual({
             isRunning: true,

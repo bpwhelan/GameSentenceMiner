@@ -20,6 +20,7 @@ import { isAllowedDocsUrl } from '../../shared/docs.js';
 import type { DesktopUpdateChangelogSnapshot } from '../../shared/changelog.js';
 import type { InstallSessionSnapshot } from '../../shared/install_session.js';
 import { registerWindowSceneSwitcherIPC } from './window_scene_switcher.js';
+import { registerHoshidictsIPC } from './hoshidicts_ipc.js';
 
 interface MainIPCDependencies {
     getMainWindow: () => BrowserWindow | null;
@@ -109,6 +110,9 @@ export function registerMainIPC(deps: MainIPCDependencies): void {
     registerTextHookIPC();
     registerTextProcessIPC();
     registerWindowSceneSwitcherIPC();
+    registerHoshidictsIPC({
+        getMainWindow: deps.getMainWindow,
+    });
 
     ipcMain.handle('show-error-box', async (_event, { title, message, detail }) => {
         const mainWindow = deps.getMainWindow();

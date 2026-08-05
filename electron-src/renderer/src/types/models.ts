@@ -126,3 +126,41 @@ export interface UpdateStatusSnapshot {
   app: UpdateTargetStatus;
   anyUpdateInProgress: boolean;
 }
+
+export type HoshidictsSchedule = "off" | "daily" | "weekly" | "monthly";
+
+export interface HoshidictsDictionaryState {
+  id: string;
+  title: string;
+  revision: string;
+  isUpdatable: boolean;
+  indexUrl: string | null;
+  downloadUrl: string | null;
+  language: string | null;
+  termCount: number;
+  installedAt: string;
+}
+
+export interface HoshidictsProgress {
+  phase:
+    | "idle"
+    | "importing"
+    | "checking"
+    | "downloading"
+    | "reloading"
+    | "removing";
+  title?: string;
+  completed?: number;
+  total?: number;
+}
+
+export interface HoshidictsState {
+  dictionaries: HoshidictsDictionaryState[];
+  schedule: HoshidictsSchedule;
+  lastCheck: string | null;
+  nextCheck: string | null;
+  lastError: string | null;
+  busy: boolean;
+  progress: HoshidictsProgress;
+  effectiveEnabled: boolean;
+}

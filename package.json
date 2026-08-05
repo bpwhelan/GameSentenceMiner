@@ -112,6 +112,7 @@
     "@types/react-dom": "^19.2.3",
     "@types/semver": "^7.7.1",
     "@types/ws": "^8.18.1",
+    "@types/yauzl": "^2.10.3",
     "@vitejs/plugin-react": "^6.0.1",
     "concurrently": "^9.2.1",
     "cross-env": "^10.0.0",
@@ -151,6 +152,7 @@
     "remark-gfm": "^4.0.1",
     "semver": "^7.7.4",
     "tar": "^7.5.13",
-    "ws": "^8.20.0"
+    "ws": "^8.20.0",
+    "yauzl": "^2.10.0"
   }
 }

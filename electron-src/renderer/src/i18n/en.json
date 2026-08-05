@@ -553,6 +553,52 @@
       "updating": "Updating...",
       "unknown": "Unknown"
     },
+    "hoshidicts": {
+      "title": "Hoshidicts Dictionaries",
+      "enabled": "Reader enabled",
+      "disabled": "Reader disabled",
+      "restartNote": "The reader setting takes effect after the overlay restarts.",
+      "import": "Import Dictionary...",
+      "checkNow": "Check for Updates Now",
+      "schedule": "Global update schedule:",
+      "schedules": {
+        "off": "Off",
+        "daily": "Daily",
+        "weekly": "Weekly",
+        "monthly": "Monthly"
+      },
+      "lastCheck": "Last check: {time}",
+      "nextCheck": "Next check: {time}",
+      "never": "Never",
+      "notScheduled": "Not scheduled",
+      "installed": "Installed dictionaries",
+      "empty": "No dictionaries installed.",
+      "revision": "Revision: {revision}",
+      "language": "Language: {language}",
+      "terms": "{count} terms",
+      "updatable": "Automatic updates",
+      "manualOnly": "Manual updates only",
+      "remove": "Remove",
+      "unknown": "Unknown",
+      "legacyJapanese": "Japanese (legacy)",
+      "progress": {
+        "idle": "Ready",
+        "importing": "Importing dictionary...",
+        "checking": "Checking dictionary updates...",
+        "downloading": "Downloading {title}...",
+        "reloading": "Reloading dictionaries...",
+        "removing": "Removing dictionary...",
+        "count": "{completed} / {total}"
+      },
+      "errors": {
+        "load": "Failed to load Hoshidicts state.",
+        "operation": "Hoshidicts operation failed.",
+        "import": "Dictionary import failed.",
+        "remove": "Dictionary removal failed.",
+        "update": "Dictionary update check failed.",
+        "schedule": "Failed to save the dictionary update schedule."
+      }
+    },
     "backup": {
       "title": "Backup and Restore",
       "automatic": {
@@ -617,7 +663,7 @@
     },
     "dataFolder": {
       "title": "Data Folder",
-      "description": "GSM configs, desktop app settings, overlay settings, and the database are copied. Chromium session/storage and Yomitan data are not copied; export your Yomitan dictionaries before changing folders and import them afterward. No source files are deleted.",
+      "description": "GSM configs, desktop app settings, overlay settings, Hoshidicts dictionaries, and the database are copied. Chromium session/storage and Yomitan data are not copied; export your Yomitan dictionaries before changing folders and import them afterward. No source files are deleted.",
       "current": "Current folder: {path}",
       "original": "Original AppData folder: {path}",
       "loading": "Loading...",

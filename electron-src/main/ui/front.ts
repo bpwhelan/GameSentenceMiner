@@ -34,6 +34,7 @@ import {
     stopInProcessOverlay,
     waitForInProcessOverlayShutdown,
 } from '../overlay_runtime.js';
+import { getConfiguredHoshidictsEnabled } from '../gsm_config.js';
 
 const OCR_CONFIG_DIR = path.join(BASE_DIR, 'ocr_config');
 let overlayProcess: ChildProcess | null = null;
@@ -47,6 +48,12 @@ export interface OverlayRuntimeState {
 
 interface StopOverlayOptions {
     onlyIfSource?: OverlayLaunchSource;
+}
+
+function joinRuntimePath(basePath: string, ...parts: string[]): string {
+    return /^[A-Za-z]:[\\/]/u.test(basePath) || basePath.startsWith('\\\\')
+        ? path.win32.join(basePath, ...parts)
+        : path.join(basePath, ...parts);
 }
 
 export function registerFrontPageIPC() {
@@ -223,8 +230,23 @@ function registerOverlayProcess(processHandle: ChildProcess, source: OverlayLaun
     });
 }
 
-function spawnOverlayFromSource(overlayDir: string) {
-    if (process.platform === 'win32') {
+export function buildHoshidictsOverlayEnvironment(
+    enabled: boolean
+): Record<string, string> {
+    return {
+        GSM_HOSHIDICTS_ENABLED: enabled ? '1' : '0',
+    };
+}
+
+function spawnOverlayFromSource(
+    overlayDir: string,
+    env: NodeJS.ProcessEnv
+) {
+    if (
+        process.platform === 'win32' ||
+        /^[A-Za-z]:[\\/]/u.test(overlayDir) ||
+        overlayDir.startsWith('\\\\')
+    ) {
         return {
             command: 'cmd.exe',
             args: ['/d', '/s', '/c', 'npm run start'],
@@ -232,6 +254,7 @@ function spawnOverlayFromSource(overlayDir: string) {
                 cwd: overlayDir,
                 detached: false,
                 stdio: 'ignore' as const,
+                env,
             },
         };
     }
@@ -243,17 +266,22 @@ function spawnOverlayFromSource(overlayDir: string) {
             cwd: overlayDir,
             detached: false,
             stdio: 'ignore' as const,
+            env,
         },
     };
 }
 
-function spawnSharedOverlayRuntime(spawn: typeof import('child_process').spawn): ChildProcess {
+function spawnSharedOverlayRuntime(
+    spawn: typeof import('child_process').spawn,
+    hoshidictsEnvironment: Record<string, string>
+): ChildProcess {
     const overlayResourcesPath = getOverlayResourcesPath();
     const env: NodeJS.ProcessEnv = {
         ...process.env,
         GSM_OVERLAY_CHILD: '1',
         GSM_OVERLAY_SHARED_RUNTIME: '1',
         [OVERLAY_RESOURCES_ENV]: overlayResourcesPath,
+        ...hoshidictsEnvironment,
     };
     delete env.ELECTRON_RUN_AS_NODE;
 
@@ -271,11 +299,15 @@ function spawnSharedOverlayRuntime(spawn: typeof import('child_process').spawn):
 export async function runOverlayWithSource(
     source: OverlayLaunchSource = 'manual'
 ): Promise<boolean> {
+    const hoshidictsEnvironment = buildHoshidictsOverlayEnvironment(
+        getConfiguredHoshidictsEnabled()
+    );
     if (USE_IN_PROCESS_OVERLAY) {
         if (isInProcessOverlayRunning()) {
             console.log('Overlay is already running.');
             return true;
         }
+        Object.assign(process.env, hoshidictsEnvironment);
         const started = await startInProcessOverlay();
         overlayLaunchSource = started ? source : null;
         return started;
@@ -289,8 +321,8 @@ export async function runOverlayWithSource(
     const { spawn } = await import('child_process');
 
     if (isDev) {
-        const overlayDir = path.join(getResourcesDir(), 'GSM_Overlay');
-        const overlayPackagePath = path.join(overlayDir, 'package.json');
+        const overlayDir = joinRuntimePath(getResourcesDir(), 'GSM_Overlay');
+        const overlayPackagePath = joinRuntimePath(overlayDir, 'package.json');
 
         if (!fs.existsSync(overlayPackagePath)) {
             console.error('Overlay package.json not found at:', overlayPackagePath);
@@ -299,7 +331,10 @@ export async function runOverlayWithSource(
             return false;
         }
 
-        const sourceLaunch = spawnOverlayFromSource(overlayDir);
+        const sourceLaunch = spawnOverlayFromSource(overlayDir, {
+            ...process.env,
+            ...hoshidictsEnvironment,
+        });
         let processHandle: ChildProcess;
         try {
             processHandle = spawn(
@@ -322,7 +357,10 @@ export async function runOverlayWithSource(
     const overlayAppAsarPath = getOverlayAppAsarPath();
     if (fs.existsSync(overlayAppAsarPath)) {
         try {
-            const processHandle = spawnSharedOverlayRuntime(spawn);
+            const processHandle = spawnSharedOverlayRuntime(
+                spawn,
+                hoshidictsEnvironment
+            );
             registerOverlayProcess(processHandle, source);
             console.log('Overlay launched successfully with shared Electron runtime.');
             return true;
@@ -334,10 +372,17 @@ export async function runOverlayWithSource(
         }
     }
 
-    const overlayPath = path.join(getOverlayPath(), getOverlayExecName());
+    const overlayPath = joinRuntimePath(getOverlayPath(), getOverlayExecName());
     if (fs.existsSync(overlayPath)) {
         try {
-            const processHandle = spawn(overlayPath, [], { detached: false, stdio: 'ignore' });
+            const processHandle = spawn(overlayPath, [], {
+                detached: false,
+                stdio: 'ignore',
+                env: {
+                    ...process.env,
+                    ...hoshidictsEnvironment,
+                },
+            });
             registerOverlayProcess(processHandle, source);
             console.log('Overlay launched successfully with legacy standalone runtime.');
             return true;

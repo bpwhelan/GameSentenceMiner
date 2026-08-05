@@ -175,6 +175,23 @@ def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window.experimental_features_enabled_check,
     )
 
+    hoshidicts_group = window._create_group_box("Hoshidicts (Experimental)")
+    hoshidicts_layout = QFormLayout(hoshidicts_group)
+    hoshidicts_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    hoshidicts_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "experimental",
+            "enable_hoshidicts",
+            default_tooltip=(
+                "Use Hoshidicts for Shift-hover lookups in the overlay. "
+                "The master experimental toggle must also be enabled, and the overlay must be restarted."
+            ),
+        ),
+        window.enable_hoshidicts_check,
+    )
+    layout.addRow(hoshidicts_group)
+
     # -- Tokenization group --
     tokenization_group = window._create_group_box("Tokenization (Experimental)")
     tokenization_layout = QFormLayout(tokenization_group)
