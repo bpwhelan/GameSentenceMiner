@@ -2,6 +2,7 @@
 name = "gsm_overlay_server"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
 
 [dependencies]
 tokio = { version = "1.36", features = ["rt-multi-thread", "macros", "net", "time", "sync", "process", "io-util"] }
@@ -21,3 +22,6 @@ sha2 = "0.10"
 sudachi = { git = "https://github.com/WorksApplications/sudachi.rs.git", tag = "v0.6.10" }
 zip = { version = "2.2", default-features = false, features = ["deflate"] }
 rdev = "0.5.3"
+
+[build-dependencies]
+cmake = "0.1"
