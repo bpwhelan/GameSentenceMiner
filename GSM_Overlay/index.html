@@ -2,6 +2,18 @@
 <html>
 
 <head>
+<link rel="stylesheet" href="hoshidicts_reader.css">
+<script>
+  window.gsmHoshidictsReaderEnabled = (
+    typeof process !== 'undefined' &&
+    process.env &&
+    process.env.GSM_HOSHIDICTS_ENABLED === '1'
+  );
+  if (window.gsmHoshidictsReaderEnabled) {
+    document.documentElement.classList.add('gsm-hoshidicts-enabled');
+    document.documentElement.dataset.gsmHoshidictsEnabled = 'true';
+  }
+</script>
 <style>
   /* Hidden container for Jiten Reader to parse text into .jiten-word spans.
      Positioned off-screen but NOT display:none so Jiten's parser can see it. */
@@ -816,6 +828,7 @@ background: rgba(202, 12, 12, 0.692);
 
 <script>
   let yomitanShowing = false;
+  let hoshidictsShowing = false;
   let autoHide = null;
   let hideOnYomitanClose = false;
   // let currentX = 0;
@@ -1111,6 +1124,18 @@ background: rgba(202, 12, 12, 0.692);
     }
 
     hideOnYomitanClose = false;
+    let closedHoshidicts = false;
+    const hoshidictsReader = window.gsmHoshidictsReader;
+    if (
+      hoshidictsReader &&
+      typeof hoshidictsReader.isVisible === 'function' &&
+      hoshidictsReader.isVisible()
+    ) {
+      closedHoshidicts = hoshidictsReader.hide(reason);
+    }
+    if (yomitanPopupCount === 0) {
+      return closedHoshidicts;
+    }
 
     const bridge = window.gsmYomitanBridge;
     if (!bridge || typeof bridge.closePopups !== 'function') {
@@ -1229,6 +1254,9 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   function syncYomitanPopupStateFromDom(reason = 'dom-sync') {
+    if (window.gsmHoshidictsReaderEnabled) {
+      return false;
+    }
     const visiblePopupFrames = getVisibleYomitanPopupFrames();
     if (visiblePopupFrames.length === 0) {
       return false;
@@ -1270,20 +1298,22 @@ background: rgba(202, 12, 12, 0.692);
       // Reset state
       yomitanPopupCount = 0;
       yomitanPopupIds.clear();
-      yomitanShowing = false;
+      yomitanShowing = hoshidictsShowing;
       lastPopupCount = 0;
       lastPopupChangeTime = Date.now();
       
       // Trigger cleanup
       console.log('Resetting stale Yomitan state - triggering cleanup');
-      ipcRenderer.send('yomitan-event', false);
-      if (isMagpieActive && !manualHotkeyPressed) {
-        requestMagpieMouseRelease('stale-yomitan-reset');
-      }
-      
-      if (hideOnYomitanClose) {
-        hideOnYomitanClose = false;
-        applyManualInactivePresentation('yomitan-stale-reset');
+      if (!hoshidictsShowing) {
+        ipcRenderer.send('yomitan-event', false);
+        if (isMagpieActive && !manualHotkeyPressed) {
+          requestMagpieMouseRelease('stale-yomitan-reset');
+        }
+
+        if (hideOnYomitanClose) {
+          hideOnYomitanClose = false;
+          applyManualInactivePresentation('yomitan-stale-reset');
+        }
       }
     }
   }, 5000); // Check every 5 seconds
@@ -1295,6 +1325,13 @@ background: rgba(202, 12, 12, 0.692);
   // });
 
   window.addEventListener('yomitan-popup-shown', (event) => {
+    if (window.gsmHoshidictsReaderEnabled) {
+      const bridge = window.gsmYomitanBridge;
+      if (bridge && typeof bridge.closePopups === 'function') {
+        void bridge.closePopups({ timeoutMs: 1500 }).catch(() => {});
+      }
+      return;
+    }
     console.log('Yomitan popup shown:', event);
     console.log(event.detail); // This will log the value of 'this' passed above
     
@@ -1349,6 +1386,9 @@ background: rgba(202, 12, 12, 0.692);
     // Only trigger cleanup when ALL popups are closed
     if (yomitanPopupCount === 0) {
       console.log('All Yomitan popups closed, triggering cleanup');
+      if (hoshidictsShowing) {
+        return;
+      }
       yomitanShowing = false;
       yomitanPopupIds.clear(); // Clear the set to prevent memory leaks
       
@@ -3911,6 +3951,9 @@ background: rgba(202, 12, 12, 0.692);
     if (!preserveFurigana) {
       resetFuriganaRenderState();
     }
+    if (window.gsmHoshidictsReader) {
+      window.gsmHoshidictsReader.hide('text-cleared');
+    }
     
     // Token highlights are overlay boxes positioned over the now-removed
     // text boxes, so clear them too or they'd be left floating.
@@ -3932,6 +3975,9 @@ background: rgba(202, 12, 12, 0.692);
     });
     if (furiganaLayer) {
       furiganaLayer.style.display = 'none';
+    }
+    if (window.gsmHoshidictsReader) {
+      window.gsmHoshidictsReader.hide('text-hidden');
     }
 
     // Token highlights are overlay boxes over the text; hide them with it.
@@ -4126,6 +4172,7 @@ background: rgba(202, 12, 12, 0.692);
   });
 
   ipcRenderer.on("load-settings", (event, newsettings) => {
+    configureHoshidictsReader(newsettings);
     textEl.style.fontSize = `${newsettings.fontSize}px`;
     setupWebSocket(newsettings.weburl1, true)
     setupWebSocket(newsettings.weburl2, false)
@@ -4929,6 +4976,72 @@ background: rgba(202, 12, 12, 0.692);
 
 <script src="yomitan_bridge.js"></script>
 <script src="jiten_highlight.js"></script>
+<script src="hoshidicts_reader.js"></script>
+<script>
+  function handleHoshidictsPopupState(visible) {
+    hoshidictsShowing = !!visible;
+    if (visible) {
+      if (!yomitanShowing) {
+        yomitanShowing = true;
+        ipcRenderer.send('yomitan-event', true);
+      }
+      return;
+    }
+
+    if (yomitanPopupCount === 0 && yomitanShowing) {
+      yomitanShowing = false;
+      ipcRenderer.send('yomitan-event', false);
+      if (isMagpieActive && !manualHotkeyPressed) {
+        requestMagpieMouseRelease('hoshidicts-popup-hidden');
+      }
+      if (hideOnYomitanClose) {
+        hideOnYomitanClose = false;
+        applyManualInactivePresentation('hoshidicts-popup-hidden');
+      }
+    }
+  }
+
+  function configureHoshidictsReader(settings) {
+    if (
+      !window.gsmHoshidictsReaderEnabled ||
+      window.gsmHoshidictsReader ||
+      !window.GSMHoshidictsReader
+    ) {
+      return;
+    }
+
+    const port = Number.parseInt(settings && settings.gamepadServerPort, 10);
+    const serverPort = Number.isFinite(port) && port > 0 && port <= 65535
+      ? port
+      : 7276;
+    window.gsmHoshidictsReader = window.GSMHoshidictsReader.createHoshidictsReader({
+      serverUrl: `ws://127.0.0.1:${serverPort}`,
+      onPopupStateChange: handleHoshidictsPopupState,
+      async getMiningStatus() {
+        const bridge = window.gsmYomitanBridge;
+        if (!bridge || typeof bridge.hoshidictsMining !== 'function') {
+          return { available: false, error: 'Anki mining is unavailable.' };
+        }
+        return await bridge.hoshidictsMining({ operation: 'status' });
+      },
+      async onMine(payload) {
+        const bridge = window.gsmYomitanBridge;
+        if (!bridge || typeof bridge.hoshidictsMining !== 'function') {
+          return { success: false, error: 'Anki mining is unavailable.' };
+        }
+        return await bridge.hoshidictsMining({
+          operation: 'mine',
+          ...payload,
+        });
+      },
+    });
+
+    const bridge = window.gsmYomitanBridge;
+    if (bridge && typeof bridge.closePopups === 'function') {
+      void bridge.closePopups({ timeoutMs: 1500 }).catch(() => {});
+    }
+  }
+</script>
 
 <script>
   // ==================== Gamepad Integration ====================

@@ -1,0 +1,222 @@
+/*
+ * Hoshidicts popup styling for the GSM overlay.
+ *
+ * Layout is adapted from Hoshi Reader's pinned popup design. Colors mirror the
+ * default dark palette in the GSM Yomitan fork.
+ *
+ * Copyright (C) 2026 Manhhao
+ * Copyright (C) 2023-2026 Yomitan Authors
+ * Copyright (C) 2021-2022 Yomichan Authors
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+html.gsm-hoshidicts-enabled iframe.yomitan-popup {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+.gsm-hoshidicts-popup {
+  --background-color: #1e1e1e;
+  --background-color-light: #0a0a0a;
+  --background-color-dark1: #333333;
+  --text-color: #d4d4d4;
+  --text-color-light1: #aaaaaa;
+  --text-color-light2: #999999;
+  --accent-color: #4a91ed;
+  --tag-default-background-color: #69696e;
+  --tag-expression-background-color: #b07f39;
+  --tag-part-of-speech-background-color: #565656;
+  position: fixed;
+  z-index: 2147483646;
+  width: min(420px, calc(100vw - 12px));
+  max-height: min(520px, 60vh);
+  overflow-x: hidden;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 7px 9px 9px;
+  border: 1px solid #666666;
+  border-radius: 6px;
+  background: var(--background-color);
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.62);
+  color: var(--text-color);
+  font-family: "Yu Gothic UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif;
+  font-size: 14px;
+  line-height: 1.4;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+  user-select: text;
+}
+
+.gsm-hoshidicts-popup[hidden] {
+  display: none;
+}
+
+.gsm-hoshidicts-entry + .gsm-hoshidicts-entry {
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid #3f3f3f;
+}
+
+.gsm-hoshidicts-entry-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  min-height: 32px;
+  gap: 8px;
+}
+
+.gsm-hoshidicts-expression {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 26px;
+  line-height: 1.2;
+}
+
+.gsm-hoshidicts-expression rt {
+  color: var(--text-color-light1);
+  font-size: 13px;
+  user-select: none;
+}
+
+.gsm-hoshidicts-mine-button {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 1px solid var(--accent-color);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--accent-color);
+  font: 700 16px/26px "Segoe UI", sans-serif;
+  text-align: center;
+  cursor: pointer;
+}
+
+.gsm-hoshidicts-mine-button:hover:not(:disabled) {
+  background: rgba(74, 145, 237, 0.14);
+}
+
+.gsm-hoshidicts-mine-button:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 1px;
+}
+
+.gsm-hoshidicts-mine-button:disabled {
+  border-color: #555555;
+  color: #888888;
+  cursor: default;
+}
+
+.gsm-hoshidicts-mine-button[data-state="success"] {
+  border-color: #75cf54;
+  color: #75cf54;
+}
+
+.gsm-hoshidicts-mine-button[data-state="error"] {
+  border-color: #dd6755;
+  color: #dd6755;
+}
+
+.gsm-hoshidicts-tags,
+.gsm-hoshidicts-definition-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 3px;
+  line-height: 1;
+}
+
+.gsm-hoshidicts-tag {
+  padding: 2px 4px;
+  border-radius: 4px;
+  color: #f1f1f1;
+  font-size: 11px;
+  line-height: 1.2;
+  user-select: text;
+}
+
+.gsm-hoshidicts-tag-deinflection {
+  background: var(--tag-expression-background-color);
+}
+
+.gsm-hoshidicts-tag-term {
+  background: var(--tag-part-of-speech-background-color);
+}
+
+.gsm-hoshidicts-tag-definition {
+  background: var(--tag-default-background-color);
+  font-size: 10px;
+}
+
+.gsm-hoshidicts-glossary-card {
+  min-width: 0;
+  margin-top: 6px;
+  padding: 6px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  background: #252525;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.36);
+}
+
+.gsm-hoshidicts-glossary-card > summary {
+  color: var(--text-color-light1);
+  font-size: 11px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.gsm-hoshidicts-glossary-card > summary::-webkit-details-marker {
+  display: none;
+}
+
+.gsm-hoshidicts-glossary-card > summary::before {
+  content: ">";
+  display: inline-block;
+  width: 12px;
+  opacity: 0.65;
+}
+
+.gsm-hoshidicts-glossary-card[open] > summary::before {
+  content: "v";
+}
+
+.gsm-hoshidicts-definitions {
+  margin: 4px 0 0;
+  padding-left: 22px;
+}
+
+.gsm-hoshidicts-definitions > li {
+  margin: 3px 0;
+  padding-left: 2px;
+}
+
+.gsm-hoshidicts-glossary-content {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.gsm-hoshidicts-glossary-content ul,
+.gsm-hoshidicts-glossary-content ol {
+  margin: 2px 0;
+  padding-left: 20px;
+}
+
+.gsm-hoshidicts-glossary-content table {
+  max-width: 100%;
+  border-collapse: collapse;
+}
+
+.gsm-hoshidicts-glossary-content th,
+.gsm-hoshidicts-glossary-content td {
+  padding: 2px 4px;
+  border: 1px solid var(--text-color-light2);
+  vertical-align: top;
+}
+
+.gsm-hoshidicts-glossary-content th {
+  background: var(--background-color-dark1);
+}
