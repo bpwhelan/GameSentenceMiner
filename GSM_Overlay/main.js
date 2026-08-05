@@ -31,6 +31,10 @@ const {
   registerHotkeyWithFallback,
   shouldSuppressGamepadToggleDuringFocusTransition,
 } = require('./hotkey_settings');
+const {
+  appendHoshidictsDiagnostic,
+  normalizeConsoleMessageArguments,
+} = require('./hoshidicts_diagnostics');
 const { shouldRevealAutomaticOverlay, shouldShowOverlayOnReady } = require('./automatic_visibility');
 const { URL } = require('url');
 
@@ -110,6 +114,38 @@ function registerOverlayEmitterListener(emitter, event, listener, once = false) 
     emitter.on(event, listener);
   }
   return listener;
+}
+
+function attachHoshidictsRendererDiagnostics(browserWindow) {
+  if (process.env.GSM_HOSHIDICTS_ENABLED !== '1') {
+    return;
+  }
+
+  try {
+    appendHoshidictsDiagnostic(hoshidictsDiagnosticLogPath, {
+      level: 'info',
+      message: `[HoshidictsReader] diagnostics.ready ${JSON.stringify({
+        logPath: hoshidictsDiagnosticLogPath,
+      })}`,
+    });
+  } catch (error) {
+    console.warn('[HoshidictsDiagnostics] Could not initialize the log file:', error);
+  }
+
+  registerOverlayEmitterListener(
+    browserWindow.webContents,
+    'console-message',
+    (_event, ...args) => {
+      try {
+        appendHoshidictsDiagnostic(
+          hoshidictsDiagnosticLogPath,
+          normalizeConsoleMessageArguments(args)
+        );
+      } catch (error) {
+        console.warn('[HoshidictsDiagnostics] Could not append renderer diagnostics:', error);
+      }
+    }
+  );
 }
 
 function removeOverlayEmitterListeners() {
@@ -258,6 +294,11 @@ const DEFAULT_GSM_APPDATA = process.env.APPDATA
   : path.join(os.homedir(), '.config', "GameSentenceMiner"); // macOS/Linux
 const GSM_APPDATA = process.env.GSM_DATA_DIR || DEFAULT_GSM_APPDATA;
 const gsmSettingsPath = path.join(GSM_APPDATA, 'config.json');
+const hoshidictsDiagnosticLogPath = path.join(
+  GSM_APPDATA,
+  'logs',
+  'hoshidicts-reader.log'
+);
 const sharedRuntimeResourcesPath = process.env.GSM_OVERLAY_RESOURCES_PATH || "";
 const FIND_IN_PAGE_PRELOAD_PATH = path.join(__dirname, 'find-in-page-preload.js');
 const TEXTHOOKER_HOTKEY_FALLBACKS = [
@@ -6760,6 +6801,7 @@ async function startOverlayAppImpl() {
     // received during page load cannot be undone by Electron's initial show.
     show: false,
   });
+  attachHoshidictsRendererDiagnostics(mainWindow);
   lastDisplaySyncSignature = getOverlayDisplaySyncSignature();
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

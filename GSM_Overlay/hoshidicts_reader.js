@@ -733,6 +733,34 @@
     let popupVertical = false;
     let miningInFlight = false;
     let miningStatusGeneration = 0;
+    let shiftRequirementLogged = false;
+    let candidateMissLogged = false;
+
+    function diagnostic(level, event, details = {}) {
+      const sink = typeof logger[level] === "function"
+        ? logger[level]
+        : typeof logger.log === "function"
+          ? logger.log
+          : null;
+      if (!sink) {
+        return;
+      }
+      let suffix = "";
+      try {
+        if (isRecord(details) && Object.keys(details).length > 0) {
+          suffix = ` ${JSON.stringify(details)}`;
+        }
+      } catch {
+        suffix = "";
+      }
+      sink.call(logger, `[HoshidictsReader] ${event}${suffix}`);
+    }
+
+    function isReadableHoverTarget(target) {
+      return target instanceof windowRef.Element && Boolean(
+        target.closest('.text-box[data-selectable="true"], #text')
+      );
+    }
 
     const popup = documentRef.createElement("section");
     popup.id = "gsm-hoshidicts-popup";
@@ -770,7 +798,7 @@
       popupAnchor = null;
       popup.hidden = true;
       publishPopupState(false);
-      logger.debug?.(`[HoshidictsReader] Popup hidden (${reason})`);
+      diagnostic("debug", "popup.hidden", { reason });
       return true;
     }
 
@@ -993,33 +1021,76 @@
           ? new windowRef.TextDecoder().decode(rawData)
           : String(rawData);
       if (serialized.length > MAX_RESPONSE_BYTES) {
+        diagnostic("warn", "response.too-large", {
+          bytes: serialized.length,
+          maxBytes: MAX_RESPONSE_BYTES,
+        });
         return;
       }
       let payload;
       try {
         payload = JSON.parse(serialized);
       } catch {
+        diagnostic("warn", "response.invalid-json", {
+          bytes: serialized.length,
+        });
         return;
       }
       if (
         !isRecord(payload) ||
-        payload.type !== "hoshidicts_lookup_result" ||
-        payload.requestId !== latestRequestId
+        payload.type !== "hoshidicts_lookup_result"
       ) {
         return;
       }
+      if (payload.requestId !== latestRequestId) {
+        diagnostic("debug", "response.stale", {
+          requestId: boundedString(payload.requestId, 256),
+          expectedRequestId: boundedString(latestRequestId, 256),
+        });
+        return;
+      }
       const candidate = latestCandidate;
+      const requestId = latestRequestId;
       latestRequestId = null;
-      if (!candidate || payload.success !== true) {
+      if (!candidate) {
+        diagnostic("warn", "lookup.missing-candidate", { requestId });
+        hide("lookup-error");
+        return;
+      }
+      if (payload.success !== true) {
+        diagnostic("warn", "lookup.failed", {
+          requestId,
+          dictionaryCount: Number.isFinite(payload.dictionaryCount)
+            ? Math.trunc(payload.dictionaryCount)
+            : null,
+          featureDisabled: payload.featureDisabled === true,
+          error: boundedString(payload.error, 4096) || "unknown lookup error",
+        });
         hide("lookup-error");
         return;
       }
       const results = normalizeLookupResults(payload);
       if (results.length === 0) {
+        diagnostic("info", "lookup.empty", {
+          requestId,
+          dictionaryCount: Number.isFinite(payload.dictionaryCount)
+            ? Math.trunc(payload.dictionaryCount)
+            : null,
+          query: candidate.query,
+        });
         hide("no-results");
         return;
       }
       renderResults(results, candidate);
+      diagnostic("info", "lookup.rendered", {
+        requestId,
+        dictionaryCount: Number.isFinite(payload.dictionaryCount)
+          ? Math.trunc(payload.dictionaryCount)
+          : null,
+        resultCount: results.length,
+        query: candidate.query,
+        firstExpression: results[0].term.expression,
+      });
     }
 
     function scheduleReconnect() {
@@ -1044,6 +1115,7 @@
         return;
       }
       try {
+        diagnostic("debug", "socket.connecting", { serverUrl });
         const nextSocket = new WebSocketImpl(serverUrl);
         socket = nextSocket;
         nextSocket.addEventListener("open", () => {
@@ -1054,6 +1126,7 @@
             type: "configure_features",
             features: ["hoshidicts"],
           }));
+          diagnostic("info", "socket.open", { serverUrl });
           if (latestCandidate && latestRequestId === null) {
             sendLookup(latestCandidate, latestGeneration);
           }
@@ -1063,20 +1136,28 @@
             handleLookupResponse(event.data);
           }
         });
-        nextSocket.addEventListener("close", () => {
+        nextSocket.addEventListener("close", (event) => {
           if (socket === nextSocket) {
             socket = null;
             latestRequestId = null;
+            diagnostic("warn", "socket.closed", {
+              serverUrl,
+              code: Number.isFinite(event && event.code) ? Math.trunc(event.code) : null,
+              reason: boundedString(event && event.reason, 1024),
+            });
             scheduleReconnect();
           }
         });
         nextSocket.addEventListener("error", () => {
           if (socket === nextSocket) {
-            logger.warn?.("[HoshidictsReader] Input service connection failed.");
+            diagnostic("warn", "socket.error", { serverUrl });
           }
         });
       } catch (error) {
-        logger.warn?.("[HoshidictsReader] Could not connect to input service.", error);
+        diagnostic("warn", "socket.connect-failed", {
+          serverUrl,
+          error: error instanceof Error ? error.message : String(error),
+        });
         scheduleReconnect();
       }
     }
@@ -1087,6 +1168,10 @@
       }
       latestCandidate = candidate;
       if (!socket || socket.readyState !== WebSocketImpl.OPEN) {
+        diagnostic("debug", "lookup.waiting-for-socket", {
+          query: candidate.query,
+          socketState: socket ? socket.readyState : null,
+        });
         connect();
         return;
       }
@@ -1097,6 +1182,11 @@
         requestId,
         text: candidate.query,
       }));
+      diagnostic("debug", "lookup.sent", {
+        requestId,
+        query: candidate.query,
+        matchOffset: candidate.matchOffset,
+      });
     }
 
     function queueLookup(candidate) {
@@ -1122,7 +1212,16 @@
     }
 
     function onMouseMove(event) {
-      if (!(shiftPressed || event.shiftKey) || popup.contains(event.target)) {
+      if (popup.contains(event.target)) {
+        return;
+      }
+      if (!(shiftPressed || event.shiftKey)) {
+        if (!shiftRequirementLogged && isReadableHoverTarget(event.target)) {
+          shiftRequirementLogged = true;
+          diagnostic("info", "hover.shift-required", {
+            message: "Hold Shift while hovering readable text to run a lookup.",
+          });
+        }
         return;
       }
       const candidate = resolveLookupCandidate(
@@ -1133,8 +1232,17 @@
         event.clientY
       );
       if (candidate) {
+        candidateMissLogged = false;
         queueLookup(candidate);
       } else {
+        if (!candidateMissLogged) {
+          candidateMissLogged = true;
+          diagnostic("debug", "hover.no-candidate", {
+            target: event.target instanceof windowRef.Element
+              ? boundedString(event.target.id || event.target.className, 256)
+              : "non-element",
+          });
+        }
         cancelPendingLookup();
       }
     }
@@ -1164,6 +1272,7 @@
         return;
       }
       destroyed = true;
+      diagnostic("info", "reader.destroyed");
       hide("destroy");
       if (reconnectTimer !== null) {
         clearTimeoutFn(reconnectTimer);
@@ -1196,6 +1305,11 @@
     windowRef.addEventListener("resize", positionPopup);
     windowRef.addEventListener("scroll", positionPopup, true);
     windowRef.addEventListener("blur", onWindowBlur);
+    diagnostic("info", "reader.initialized", {
+      serverUrl,
+      requiresShift: true,
+      scanLength: LOOKUP_SCAN_LENGTH,
+    });
     connect();
 
     return {
