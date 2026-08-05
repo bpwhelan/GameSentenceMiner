@@ -102,9 +102,6 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --fund=false
 
-      - name: Test Hoshidicts reader diagnostics
-        run: npx vitest run electron-src/main/ui/overlay-hoshidicts-reader.test.ts --config vitest.config.ts
-
       - name: Build unpacked Electron app
         run: |
           npm run build

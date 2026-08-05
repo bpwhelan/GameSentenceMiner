@@ -28,6 +28,12 @@ jobs:
         with:
           node-version: 22.12.0
 
+      - name: Install Electron test dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      - name: Test Hoshidicts reader diagnostics
+        run: npx vitest run electron-src/main/ui/overlay-hoshidicts-reader.test.ts --config vitest.config.ts
+
       - name: Compute next pre-release version
         id: version
         run: |
