@@ -931,6 +931,104 @@ button:disabled {
   margin-top: 12px;
 }
 
+.hoshidicts-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hoshidicts-header h2 {
+  margin: 0;
+}
+
+.hoshidicts-status {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border: 1px solid var(--gsm-border-default, #444);
+  border-radius: 4px;
+  color: var(--gsm-text-secondary, #b8b8b8);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.hoshidicts-status.is-enabled {
+  border-color: var(--gsm-success, #1e8e3e);
+  color: var(--gsm-success-text, #7ee787);
+}
+
+.hoshidicts-schedule {
+  margin-top: 14px;
+}
+
+.hoshidicts-check-times {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-top: 12px;
+  color: var(--gsm-text-secondary, #b8b8b8);
+  font-size: 0.86rem;
+}
+
+.hoshidicts-progress {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 36px;
+  margin-top: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--gsm-accent-border, #4f6594);
+  border-radius: 4px;
+  background: var(--gsm-accent-soft, rgba(79, 140, 255, 0.12));
+  color: var(--gsm-text-primary, #f4f4f4);
+  font-size: 0.88rem;
+}
+
+.hoshidicts-installed {
+  margin-top: 16px;
+}
+
+.hoshidicts-installed h3 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+}
+
+.hoshidicts-dictionary-list {
+  border-top: 1px solid var(--gsm-border-default, #444);
+}
+
+.hoshidicts-dictionary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 64px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--gsm-border-default, #444);
+}
+
+.hoshidicts-dictionary-copy {
+  min-width: 0;
+}
+
+.hoshidicts-dictionary-copy strong {
+  overflow-wrap: anywhere;
+}
+
+.hoshidicts-dictionary-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 12px;
+  margin-top: 5px;
+  color: var(--gsm-text-secondary, #b8b8b8);
+  font-size: 0.8rem;
+}
+
+.hoshidicts-dictionary-row button {
+  flex: 0 0 auto;
+}
+
 .settings-backup-progress {
   margin-top: 14px;
   padding: 12px;

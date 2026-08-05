@@ -12,6 +12,8 @@ import { invokeIpc, onIpc, sendIpc } from "../../lib/ipc";
 import type {
   AppSettings,
   ControlledTab,
+  HoshidictsSchedule,
+  HoshidictsState,
   UpdateStatusSnapshot,
   UpdateTargetStatus
 } from "../../types/models";
@@ -96,6 +98,17 @@ const DEFAULT_UPDATE_STATUS: UpdateStatusSnapshot = {
   anyUpdateInProgress: false
 };
 
+const DEFAULT_HOSHIDICTS_STATE: HoshidictsState = {
+  dictionaries: [],
+  schedule: "off",
+  lastCheck: null,
+  nextCheck: null,
+  lastError: null,
+  busy: false,
+  progress: { phase: "idle" },
+  effectiveEnabled: false
+};
+
 const VISIBLE_TAB_OPTIONS: Array<{ id: ControlledTab; labelKey: string }> = [
   { id: "launcher", labelKey: "settings.visibility.tabGameSettings" },
   { id: "stats", labelKey: "settings.visibility.tabStats" },
@@ -122,6 +135,19 @@ const SETTINGS_QUICK_LINK_IDS = [
 
 const SETTINGS_BACKUP_PROGRESS_CHANNEL = "settings-backup-progress";
 const DATA_RELOCATE_PROGRESS_CHANNEL = "data.relocate.progress";
+const HOSHIDICTS_PROGRESS_CHANNEL = "hoshidicts.progress";
+
+const HOSHIDICTS_PROGRESS_I18N_KEYS: Record<
+  HoshidictsState["progress"]["phase"],
+  string
+> = {
+  idle: "settings.hoshidicts.progress.idle",
+  importing: "settings.hoshidicts.progress.importing",
+  checking: "settings.hoshidicts.progress.checking",
+  downloading: "settings.hoshidicts.progress.downloading",
+  reloading: "settings.hoshidicts.progress.reloading",
+  removing: "settings.hoshidicts.progress.removing"
+};
 
 interface SettingsTabProps {
   active: boolean;
@@ -140,6 +166,13 @@ interface DataRelocateResult {
   success?: boolean;
   canceled?: boolean;
   error?: string;
+}
+
+interface HoshidictsActionResult {
+  success?: boolean;
+  canceled?: boolean;
+  error?: string | null;
+  state?: HoshidictsState;
 }
 
 type DataRelocateProgressPhase =
@@ -216,6 +249,58 @@ function normalizeSettings(value: Partial<AppSettings> | null | undefined): AppS
     statsEndpoint: value.statsEndpoint || DEFAULT_SETTINGS.statsEndpoint,
     locale: value.locale || DEFAULT_SETTINGS.locale,
     theme: value.theme || DEFAULT_SETTINGS.theme
+  };
+}
+
+function normalizeHoshidictsState(value: unknown): HoshidictsState {
+  if (!value || typeof value !== "object") {
+    return DEFAULT_HOSHIDICTS_STATE;
+  }
+  const candidate = value as Partial<HoshidictsState>;
+  const schedule: HoshidictsSchedule =
+    candidate.schedule === "daily" ||
+    candidate.schedule === "weekly" ||
+    candidate.schedule === "monthly"
+      ? candidate.schedule
+      : "off";
+  const phase =
+    candidate.progress?.phase &&
+    candidate.progress.phase in HOSHIDICTS_PROGRESS_I18N_KEYS
+      ? candidate.progress.phase
+      : "idle";
+  return {
+    dictionaries: Array.isArray(candidate.dictionaries)
+      ? candidate.dictionaries.filter(
+          (dictionary) =>
+            dictionary &&
+            typeof dictionary.id === "string" &&
+            typeof dictionary.title === "string"
+        )
+      : [],
+    schedule,
+    lastCheck:
+      typeof candidate.lastCheck === "string" ? candidate.lastCheck : null,
+    nextCheck:
+      typeof candidate.nextCheck === "string" ? candidate.nextCheck : null,
+    lastError:
+      typeof candidate.lastError === "string" ? candidate.lastError : null,
+    busy: candidate.busy === true,
+    progress: {
+      phase,
+      title:
+        typeof candidate.progress?.title === "string"
+          ? candidate.progress.title
+          : undefined,
+      completed:
+        typeof candidate.progress?.completed === "number"
+          ? candidate.progress.completed
+          : undefined,
+      total:
+        typeof candidate.progress?.total === "number"
+          ? candidate.progress.total
+          : undefined
+    },
+    effectiveEnabled: candidate.effectiveEnabled === true
   };
 }
 
@@ -345,6 +430,12 @@ export function SettingsTab({ active }: SettingsTabProps) {
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusSnapshot>(
     DEFAULT_UPDATE_STATUS
   );
+  const [hoshidictsState, setHoshidictsState] = useState<HoshidictsState>(
+    DEFAULT_HOSHIDICTS_STATE
+  );
+  const [hoshidictsActionError, setHoshidictsActionError] = useState<
+    string | null
+  >(null);
   const [updateMessage, setUpdateMessage] = useState<string | null>(null);
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
   const [isApplyingUpdates, setIsApplyingUpdates] = useState(false);
@@ -493,6 +584,30 @@ export function SettingsTab({ active }: SettingsTabProps) {
     void loadUpdateStatus(false);
   }, [active, loadUpdateStatus]);
 
+  useEffect(() => {
+    if (!active) {
+      return;
+    }
+    void invokeIpc<HoshidictsState>("hoshidicts.getState")
+      .then((state) => {
+        setHoshidictsState(normalizeHoshidictsState(state));
+        setHoshidictsActionError(null);
+      })
+      .catch((error) => {
+        setHoshidictsActionError(
+          error instanceof Error
+            ? error.message
+            : t("settings.hoshidicts.errors.load")
+        );
+      });
+  }, [active, t]);
+
+  useEffect(() => {
+    return onIpc(HOSHIDICTS_PROGRESS_CHANNEL, (_event, payload) => {
+      setHoshidictsState(normalizeHoshidictsState(payload));
+    });
+  }, []);
+
   const openGsmSettings = async () => {
     await invokeIpc("settings.openGSMSettings");
   };
@@ -582,6 +697,94 @@ export function SettingsTab({ active }: SettingsTabProps) {
       void loadUpdateStatus(false);
     }
   }, [loadUpdateStatus]);
+
+  const applyHoshidictsResult = useCallback(
+    (result: HoshidictsActionResult | null | undefined) => {
+      if (result?.state) {
+        setHoshidictsState(normalizeHoshidictsState(result.state));
+      }
+      if (result?.canceled) {
+        setHoshidictsActionError(null);
+      } else if (result?.success === false) {
+        setHoshidictsActionError(
+          result.error || t("settings.hoshidicts.errors.operation")
+        );
+      } else {
+        setHoshidictsActionError(null);
+      }
+    },
+    [t]
+  );
+
+  const importHoshidictsDictionary = useCallback(async () => {
+    setHoshidictsActionError(null);
+    try {
+      applyHoshidictsResult(
+        await invokeIpc<HoshidictsActionResult>("hoshidicts.import")
+      );
+    } catch (error) {
+      setHoshidictsActionError(
+        error instanceof Error
+          ? error.message
+          : t("settings.hoshidicts.errors.import")
+      );
+    }
+  }, [applyHoshidictsResult, t]);
+
+  const removeHoshidictsDictionary = useCallback(
+    async (id: string) => {
+      setHoshidictsActionError(null);
+      try {
+        applyHoshidictsResult(
+          await invokeIpc<HoshidictsActionResult>("hoshidicts.remove", id)
+        );
+      } catch (error) {
+        setHoshidictsActionError(
+          error instanceof Error
+            ? error.message
+            : t("settings.hoshidicts.errors.remove")
+        );
+      }
+    },
+    [applyHoshidictsResult, t]
+  );
+
+  const checkHoshidictsUpdates = useCallback(async () => {
+    setHoshidictsActionError(null);
+    try {
+      applyHoshidictsResult(
+        await invokeIpc<HoshidictsActionResult>("hoshidicts.checkUpdates")
+      );
+    } catch (error) {
+      setHoshidictsActionError(
+        error instanceof Error
+          ? error.message
+          : t("settings.hoshidicts.errors.update")
+      );
+    }
+  }, [applyHoshidictsResult, t]);
+
+  const setHoshidictsSchedule = useCallback(
+    async (schedule: HoshidictsSchedule) => {
+      setHoshidictsState((current) => ({ ...current, schedule }));
+      setHoshidictsActionError(null);
+      try {
+        applyHoshidictsResult(
+          await invokeIpc<HoshidictsActionResult>(
+            "hoshidicts.setSchedule",
+            schedule
+          )
+        );
+      } catch (error) {
+        setHoshidictsActionError(
+          error instanceof Error
+            ? error.message
+            : t("settings.hoshidicts.errors.schedule")
+        );
+      }
+    },
+    [applyHoshidictsResult, t]
+  );
 
   const showUpdateChangelogPreview = useCallback(async () => {
     const fromVersion = updateStatus.app.currentVersion?.trim() ?? "";
@@ -844,6 +1047,16 @@ export function SettingsTab({ active }: SettingsTabProps) {
     : null;
   const usingCustomDataDir =
     dataDir !== null && defaultDataDir !== null && dataDir !== defaultDataDir;
+  const hoshidictsLastCheck = formatCheckedAt(hoshidictsState.lastCheck);
+  const hoshidictsNextCheck = formatCheckedAt(hoshidictsState.nextCheck);
+  const hoshidictsProgressLabel = t(
+    HOSHIDICTS_PROGRESS_I18N_KEYS[hoshidictsState.progress.phase],
+    {
+      title: hoshidictsState.progress.title ?? ""
+    }
+  );
+  const hoshidictsError =
+    hoshidictsActionError ?? hoshidictsState.lastError;
 
   return (
     <div className={`tab-panel ${active ? "active" : ""}`}>
@@ -1369,6 +1582,169 @@ export function SettingsTab({ active }: SettingsTabProps) {
                     : t("settings.updates.updateNow")}
                 </button>
               </div>
+            </div>
+          </section>
+
+          <section className="card legacy-card hoshidicts-card">
+            <div className="hoshidicts-header">
+              <h2>{t("settings.hoshidicts.title")}</h2>
+              <span
+                className={`hoshidicts-status ${
+                  hoshidictsState.effectiveEnabled ? "is-enabled" : ""
+                }`}
+              >
+                {hoshidictsState.effectiveEnabled
+                  ? t("settings.hoshidicts.enabled")
+                  : t("settings.hoshidicts.disabled")}
+              </span>
+            </div>
+            <p className="muted">{t("settings.hoshidicts.restartNote")}</p>
+
+            <div className="input-group wrap settings-update-actions">
+              <button
+                type="button"
+                onClick={() => {
+                  void importHoshidictsDictionary();
+                }}
+                disabled={hoshidictsState.busy}
+              >
+                {t("settings.hoshidicts.import")}
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  void checkHoshidictsUpdates();
+                }}
+                disabled={hoshidictsState.busy}
+              >
+                {t("settings.hoshidicts.checkNow")}
+              </button>
+            </div>
+
+            <div className="input-group hoshidicts-schedule">
+              <label htmlFor="hoshidicts-update-schedule">
+                {t("settings.hoshidicts.schedule")}
+              </label>
+              <select
+                id="hoshidicts-update-schedule"
+                value={hoshidictsState.schedule}
+                disabled={hoshidictsState.busy}
+                onChange={(event) => {
+                  void setHoshidictsSchedule(
+                    event.target.value as HoshidictsSchedule
+                  );
+                }}
+              >
+                <option value="off">
+                  {t("settings.hoshidicts.schedules.off")}
+                </option>
+                <option value="daily">
+                  {t("settings.hoshidicts.schedules.daily")}
+                </option>
+                <option value="weekly">
+                  {t("settings.hoshidicts.schedules.weekly")}
+                </option>
+                <option value="monthly">
+                  {t("settings.hoshidicts.schedules.monthly")}
+                </option>
+              </select>
+            </div>
+
+            <div className="hoshidicts-check-times">
+              <span>
+                {t("settings.hoshidicts.lastCheck", {
+                  time:
+                    hoshidictsLastCheck ??
+                    t("settings.hoshidicts.never")
+                })}
+              </span>
+              <span>
+                {t("settings.hoshidicts.nextCheck", {
+                  time:
+                    hoshidictsNextCheck ??
+                    t("settings.hoshidicts.notScheduled")
+                })}
+              </span>
+            </div>
+
+            {hoshidictsState.busy ? (
+              <div className="hoshidicts-progress" role="status">
+                <span>{hoshidictsProgressLabel}</span>
+                {typeof hoshidictsState.progress.total === "number" &&
+                hoshidictsState.progress.total > 0 ? (
+                  <span>
+                    {t("settings.hoshidicts.progress.count", {
+                      completed: String(
+                        hoshidictsState.progress.completed ?? 0
+                      ),
+                      total: String(hoshidictsState.progress.total)
+                    })}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+
+            {hoshidictsError ? (
+              <p className="update-error-text">{hoshidictsError}</p>
+            ) : null}
+
+            <div className="hoshidicts-installed">
+              <h3>{t("settings.hoshidicts.installed")}</h3>
+              {hoshidictsState.dictionaries.length === 0 ? (
+                <p className="muted">
+                  {t("settings.hoshidicts.empty")}
+                </p>
+              ) : (
+                <div className="hoshidicts-dictionary-list">
+                  {hoshidictsState.dictionaries.map((dictionary) => (
+                    <div
+                      className="hoshidicts-dictionary-row"
+                      key={dictionary.id}
+                    >
+                      <div className="hoshidicts-dictionary-copy">
+                        <strong>{dictionary.title}</strong>
+                        <div className="hoshidicts-dictionary-meta">
+                          <span>
+                            {t("settings.hoshidicts.revision", {
+                              revision:
+                                dictionary.revision ||
+                                t("settings.hoshidicts.unknown")
+                            })}
+                          </span>
+                          <span>
+                            {t("settings.hoshidicts.language", {
+                              language:
+                                dictionary.language ||
+                                t("settings.hoshidicts.legacyJapanese")
+                            })}
+                          </span>
+                          <span>
+                            {t("settings.hoshidicts.terms", {
+                              count: String(dictionary.termCount)
+                            })}
+                          </span>
+                          <span>
+                            {dictionary.isUpdatable
+                              ? t("settings.hoshidicts.updatable")
+                              : t("settings.hoshidicts.manualOnly")}
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="danger"
+                        disabled={hoshidictsState.busy}
+                        onClick={() => {
+                          void removeHoshidictsDictionary(dictionary.id);
+                        }}
+                      >
+                        {t("settings.hoshidicts.remove")}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </section>
 

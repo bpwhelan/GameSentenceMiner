@@ -193,6 +193,51 @@ describe('performDataMove', () => {
         );
     });
 
+    it('relocates immutable Hoshidicts generations with their manifest', async () => {
+        const oldDir = makeTempDir('gsm-hoshidicts-source-');
+        const dictionaryDir = path.join(
+            oldDir,
+            'dictionaries',
+            'hoshidicts',
+            'generations',
+            'stable-id',
+            'generation-1',
+            'Japanese Dictionary',
+        );
+        fs.mkdirSync(dictionaryDir, { recursive: true });
+        fs.writeFileSync(
+            path.join(oldDir, 'dictionaries', 'hoshidicts', 'manifest.json'),
+            '{"version":1,"dictionaries":[]}',
+            'utf-8',
+        );
+        fs.writeFileSync(path.join(dictionaryDir, 'blobs.bin'), 'dictionary', 'utf-8');
+
+        const newDir = path.join(makeTempDir('gsm-hoshidicts-target-'), 'data');
+        await performDataMove(oldDir, newDir);
+
+        expect(
+            fs.readFileSync(
+                path.join(newDir, 'dictionaries', 'hoshidicts', 'manifest.json'),
+                'utf-8',
+            ),
+        ).toBe('{"version":1,"dictionaries":[]}');
+        expect(
+            fs.readFileSync(
+                path.join(
+                    newDir,
+                    'dictionaries',
+                    'hoshidicts',
+                    'generations',
+                    'stable-id',
+                    'generation-1',
+                    'Japanese Dictionary',
+                    'blobs.bin',
+                ),
+                'utf-8',
+            ),
+        ).toBe('dictionary');
+    });
+
     it('copies OBS settings without startup markers or other runtime artifacts', async () => {
         const oldDir = makeTempDir('gsm-source-');
         const obsConfigDir = path.join(oldDir, 'obs-studio', 'config', 'obs-studio');

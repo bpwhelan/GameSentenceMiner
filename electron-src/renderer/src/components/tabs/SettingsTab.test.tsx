@@ -144,4 +144,119 @@ describe("SettingsTab data folder controls", () => {
       "Return to the original AppData folder cancelled."
     );
   });
+
+  it("manages Hoshidicts imports, updates, schedules, and removal from one card", async () => {
+    const hoshidictsState = {
+      dictionaries: [
+        {
+          id: "dictionary-id",
+          title: "JMdict",
+          revision: "2026-08-05",
+          isUpdatable: true,
+          indexUrl: "https://example.test/index.json",
+          downloadUrl: "https://example.test/dictionary.zip",
+          language: "ja",
+          termCount: 123,
+          installedAt: "2026-08-05T10:00:00.000Z"
+        }
+      ],
+      schedule: "weekly",
+      lastCheck: "2026-08-05T10:00:00.000Z",
+      nextCheck: "2026-08-12T10:00:00.000Z",
+      lastError: null,
+      busy: false,
+      progress: { phase: "idle" },
+      effectiveEnabled: true
+    };
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "settings.getSettings") return {};
+      if (channel === "settings.getUpdateStatus") return null;
+      if (channel === "data.getCurrentDir") return "C:\\Data\\GameSentenceMiner";
+      if (channel === "data.getDefaultDir") return "C:\\Data\\GameSentenceMiner";
+      if (channel === "hoshidicts.getState") return hoshidictsState;
+      if (channel.startsWith("hoshidicts.")) {
+        return { success: true, state: hoshidictsState };
+      }
+      return {};
+    });
+
+    await act(async () => {
+      root.render(
+        <I18nProvider>
+          <SettingsTab active />
+        </I18nProvider>
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Hoshidicts Dictionaries");
+    expect(container.textContent).toContain("Reader enabled");
+    expect(container.textContent).toContain("JMdict");
+    expect(container.textContent).toContain("Revision: 2026-08-05");
+    expect(container.textContent).toContain("Language: ja");
+    expect(container.textContent).toContain("123 terms");
+
+    const importButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Import Dictionary..."
+    );
+    const checkButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Check for Updates Now"
+    );
+    const removeButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Remove"
+    );
+    const schedule = container.querySelector<HTMLSelectElement>(
+      "#hoshidicts-update-schedule"
+    );
+
+    await act(async () => {
+      importButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      checkButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      removeButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      if (schedule) {
+        schedule.value = "monthly";
+        schedule.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("hoshidicts.import");
+    expect(invokeMock).toHaveBeenCalledWith("hoshidicts.checkUpdates");
+    expect(invokeMock).toHaveBeenCalledWith(
+      "hoshidicts.remove",
+      "dictionary-id"
+    );
+    expect(invokeMock).toHaveBeenCalledWith(
+      "hoshidicts.setSchedule",
+      "monthly"
+    );
+  });
+
+  it.each([
+    ["ja", "Hoshidicts辞書", "辞書をインポート..."],
+    ["ukr", "Словники Hoshidicts", "Імпортувати словник..."]
+  ])("localizes the Hoshidicts card in %s", async (locale, title, importLabel) => {
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "settings.getSettings") return { locale };
+      if (channel === "settings.getUpdateStatus") return null;
+      if (channel === "data.getCurrentDir") return "C:\\Data\\GameSentenceMiner";
+      if (channel === "data.getDefaultDir") return "C:\\Data\\GameSentenceMiner";
+      if (channel === "hoshidicts.getState") return {};
+      return {};
+    });
+    await act(async () => {
+      root.render(
+        <I18nProvider initialLocale={locale}>
+          <SettingsTab active />
+        </I18nProvider>
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain(title);
+    expect(container.textContent).toContain(importLabel);
+  });
 });

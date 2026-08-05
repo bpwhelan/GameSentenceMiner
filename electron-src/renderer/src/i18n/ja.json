@@ -535,6 +535,52 @@
       "updating": "アップデート中...",
       "unknown": "不明"
     },
+    "hoshidicts": {
+      "title": "Hoshidicts辞書",
+      "enabled": "リーダー有効",
+      "disabled": "リーダー無効",
+      "restartNote": "リーダー設定はオーバーレイの再起動後に反映されます。",
+      "import": "辞書をインポート...",
+      "checkNow": "今すぐアップデートを確認",
+      "schedule": "共通アップデート間隔:",
+      "schedules": {
+        "off": "オフ",
+        "daily": "毎日",
+        "weekly": "毎週",
+        "monthly": "毎月"
+      },
+      "lastCheck": "最終確認: {time}",
+      "nextCheck": "次回確認: {time}",
+      "never": "未確認",
+      "notScheduled": "予定なし",
+      "installed": "インストール済み辞書",
+      "empty": "辞書はインストールされていません。",
+      "revision": "リビジョン: {revision}",
+      "language": "言語: {language}",
+      "terms": "{count}語",
+      "updatable": "自動アップデート",
+      "manualOnly": "手動アップデートのみ",
+      "remove": "削除",
+      "unknown": "不明",
+      "legacyJapanese": "日本語（レガシー）",
+      "progress": {
+        "idle": "準備完了",
+        "importing": "辞書をインポート中...",
+        "checking": "辞書のアップデートを確認中...",
+        "downloading": "{title}をダウンロード中...",
+        "reloading": "辞書を再読み込み中...",
+        "removing": "辞書を削除中...",
+        "count": "{completed} / {total}"
+      },
+      "errors": {
+        "load": "Hoshidictsの状態を読み込めませんでした。",
+        "operation": "Hoshidictsの操作に失敗しました。",
+        "import": "辞書のインポートに失敗しました。",
+        "remove": "辞書の削除に失敗しました。",
+        "update": "辞書のアップデート確認に失敗しました。",
+        "schedule": "辞書のアップデート間隔を保存できませんでした。"
+      }
+    },
     "backup": {
       "title": "バックアップと復元",
       "description": "一時ファイルやキャッシュを含めずに、GSM設定、Overlay/Yomitanストレージ、OBS設定、GSMデータベース、OCR設定をバックアップします。",
@@ -568,7 +614,7 @@
     },
     "dataFolder": {
       "title": "データフォルダー",
-      "description": "GSM設定、デスクトップアプリ設定、オーバーレイ設定、データベースをコピーします。Chromiumのセッション/ストレージおよびYomitanデータはコピーされません。変更前にYomitan辞書をエクスポートし、変更後にインポートしてください。元のファイルは削除されません。",
+      "description": "GSM設定、デスクトップアプリ設定、オーバーレイ設定、Hoshidicts辞書、データベースをコピーします。Chromiumのセッション/ストレージおよびYomitanデータはコピーされません。変更前にYomitan辞書をエクスポートし、変更後にインポートしてください。元のファイルは削除されません。",
       "current": "現在のフォルダー: {path}",
       "original": "元のAppDataフォルダー: {path}",
       "loading": "読み込み中...",

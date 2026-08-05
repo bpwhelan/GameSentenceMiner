@@ -127,6 +127,10 @@ import {
     registerChangelogProtocolScheme,
 } from './services/changelog_protocol.js';
 import { startInputServer, stopInputServer } from './services/input_server.js';
+import {
+    startHoshidictsManager,
+    stopHoshidictsManager,
+} from './services/hoshidicts_manager.js';
 import { getConfiguredSinglePort } from './gsm_config.js';
 import {
     getStatusTrayIconPath,
@@ -2497,6 +2501,7 @@ if (!app.requestSingleInstanceLock()) {
             // the optional overlay. Starting it first makes gamepad hotkeys
             // available to every child process from the beginning of startup.
             await startInputServer();
+            startHoshidictsManager();
             try {
                 await startBus();
                 wireBackendBus();
@@ -2870,6 +2875,7 @@ async function runQuit(): Promise<void> {
         if (pyProc != null && !pyProc.killed) {
             await closeAllPythonProcesses();
         }
+        await stopHoshidictsManager();
         await stopInputServer();
         await closeOBSFromElectron({ reason: 'app quit' });
         await stopBus().catch((err) => console.warn('Failed to stop message bus:', err));
@@ -2900,6 +2906,7 @@ async function stopAllChildrenForRelocation(): Promise<void> {
     if (pyProc != null && !pyProc.killed) {
         await closeAllPythonProcesses();
     }
+    await stopHoshidictsManager();
     await stopInputServer();
     await closeOBSFromElectron({ reason: 'data relocation' });
     await stopBus().catch((err) => console.warn('Failed to stop message bus during relocation:', err));
@@ -2939,8 +2946,8 @@ function registerDataRelocateIPC(): void {
             defaultId: 0,
             cancelId: 1,
             title: 'Change GSM Data Folder',
-            message: `Copy GSM configs and database to:\n${newDir}`,
-            detail: 'GSM will copy its desktop and overlay settings, then stop and restart. Chromium session/storage and Yomitan data will not be copied, so export/import Yomitan dictionaries yourself. Source files will not be deleted; remove them manually after verifying the new folder.',
+            message: `Copy GSM configs, Hoshidicts dictionaries, and database to:\n${newDir}`,
+            detail: 'GSM will copy its desktop and overlay settings plus Hoshidicts dictionaries, then stop and restart. Chromium session/storage and Yomitan data will not be copied, so export/import Yomitan dictionaries yourself. Source files will not be deleted; remove them manually after verifying the new folder.',
         });
         if (confirm.response !== 0) {
             return { success: false, canceled: true };

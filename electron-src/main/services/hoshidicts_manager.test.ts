@@ -1,0 +1,482 @@
+import archiver from 'archiver';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import {
+    HoshidictsManager,
+    inspectHoshidictsArchive,
+    type ArchiveInspection,
+    type HoshidictsImportReport,
+    type HoshidictsManagerDependencies,
+    type HoshidictsRemoteIndex,
+} from './hoshidicts_manager.js';
+
+interface TestArchive {
+    title: string;
+    revision: string;
+    sourceLanguage?: string | null;
+    japanese?: boolean;
+    terms?: number;
+    isUpdatable?: boolean;
+    indexUrl?: string;
+    downloadUrl?: string;
+}
+
+const tempDirs: string[] = [];
+
+function makeTempDir(): string {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gsm-hoshidicts-'));
+    tempDirs.push(directory);
+    return directory;
+}
+
+function writeArchive(root: string, fileName: string, archive: TestArchive): string {
+    const archivePath = path.join(root, fileName);
+    fs.writeFileSync(archivePath, JSON.stringify(archive), 'utf8');
+    return archivePath;
+}
+
+function readArchive(archivePath: string): TestArchive {
+    return JSON.parse(fs.readFileSync(archivePath, 'utf8')) as TestArchive;
+}
+
+async function writeZipArchive(
+    root: string,
+    fileName: string,
+    entries: Record<string, unknown>
+): Promise<string> {
+    const archivePath = path.join(root, fileName);
+    await new Promise<void>((resolve, reject) => {
+        const output = fs.createWriteStream(archivePath);
+        const archive = archiver('zip');
+        output.once('close', resolve);
+        output.once('error', reject);
+        archive.once('error', reject);
+        archive.pipe(output);
+        for (const [entryName, contents] of Object.entries(entries)) {
+            archive.append(JSON.stringify(contents), { name: entryName });
+        }
+        void archive.finalize().catch(reject);
+    });
+    return archivePath;
+}
+
+function readManifest(baseDir: string): any {
+    return JSON.parse(
+        fs.readFileSync(
+            path.join(baseDir, 'dictionaries', 'hoshidicts', 'manifest.json'),
+            'utf8'
+        )
+    );
+}
+
+function writeImportedDictionary(outputDir: string, archive: TestArchive): void {
+    const dictionaryDir = path.join(outputDir, archive.title);
+    fs.mkdirSync(dictionaryDir, { recursive: true });
+    for (const fileName of ['.hoshidicts_3', 'hash.table', 'bloom.filter', 'blobs.bin']) {
+        fs.writeFileSync(path.join(dictionaryDir, fileName), fileName, 'utf8');
+    }
+    fs.writeFileSync(
+        path.join(dictionaryDir, 'index.json'),
+        JSON.stringify({
+            title: archive.title,
+            revision: archive.revision,
+            sourceLanguage: archive.sourceLanguage,
+            isUpdatable: archive.isUpdatable === true,
+            indexUrl: archive.indexUrl,
+            downloadUrl: archive.downloadUrl,
+            importDate: Date.now(),
+            counts: {
+                terms: { total: archive.terms ?? 1 },
+                termMeta: {},
+                kanji: { total: 0 },
+            },
+        }),
+        'utf8'
+    );
+}
+
+function createHarness(baseDir: string, overrides: Partial<HoshidictsManagerDependencies> = {}) {
+    let sequence = 0;
+    const reloadNative = vi.fn(async () => 1);
+    const fetchRemoteIndex = vi.fn(
+        async (): Promise<HoshidictsRemoteIndex> => ({
+            revision: 'same',
+            downloadUrl: null,
+        })
+    );
+    const downloadArchive = vi.fn(async () => {
+        throw new Error('Unexpected download.');
+    });
+    const inspectArchive = vi.fn(
+        async (archivePath: string): Promise<ArchiveInspection> => {
+            const archive = readArchive(archivePath);
+            return {
+                sourceLanguage: archive.sourceLanguage ?? null,
+                hasTermBank: (archive.terms ?? 1) > 0,
+                hasJapaneseTerm: archive.japanese !== false,
+            };
+        }
+    );
+    const runImport = vi.fn(
+        async (
+            archivePath: string,
+            outputDir: string
+        ): Promise<HoshidictsImportReport> => {
+            const archive = readArchive(archivePath);
+            writeImportedDictionary(outputDir, archive);
+            return {
+                success: true,
+                title: archive.title,
+                termCount: archive.terms ?? 1,
+                error: '',
+            };
+        }
+    );
+    const dependencies: Partial<HoshidictsManagerDependencies> = {
+        now: () => new Date(Date.now()),
+        randomId: () => `test-${sequence++}`,
+        inspectArchive,
+        runImport,
+        reloadNative,
+        fetchRemoteIndex,
+        downloadArchive,
+        ...overrides,
+    };
+    return {
+        manager: new HoshidictsManager(baseDir, dependencies),
+        reloadNative,
+        fetchRemoteIndex,
+        downloadArchive,
+        inspectArchive,
+        runImport,
+    };
+}
+
+beforeEach(() => {
+    vi.useRealTimers();
+});
+
+afterEach(() => {
+    vi.useRealTimers();
+    for (const directory of tempDirs.splice(0)) {
+        fs.rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+describe('Hoshidicts immutable generations', () => {
+    it('replaces a reimported dictionary without changing its ordering', async () => {
+        const baseDir = makeTempDir();
+        const archivesDir = makeTempDir();
+        const first = writeArchive(archivesDir, 'alpha-1.zip', {
+            title: 'Alpha',
+            revision: 'one',
+            sourceLanguage: 'ja',
+        });
+        const second = writeArchive(archivesDir, 'beta.zip', {
+            title: 'Beta',
+            revision: 'one',
+            sourceLanguage: 'ja',
+        });
+        const replacement = writeArchive(archivesDir, 'alpha-2.zip', {
+            title: 'Alpha',
+            revision: 'two',
+            sourceLanguage: 'ja',
+        });
+        const { manager } = createHarness(baseDir);
+
+        await manager.importDictionary(first);
+        await manager.importDictionary(second);
+        const oldManifest = readManifest(baseDir);
+        const oldAlphaPath = oldManifest.dictionaries[0].path;
+        await manager.importDictionary(replacement);
+
+        const snapshot = await manager.getSnapshot();
+        expect(snapshot.dictionaries.map((dictionary) => dictionary.title)).toEqual([
+            'Alpha',
+            'Beta',
+        ]);
+        expect(snapshot.dictionaries.map((dictionary) => dictionary.revision)).toEqual([
+            'two',
+            'one',
+        ]);
+
+        const manifest = readManifest(baseDir);
+        expect(manifest.dictionaries[0].path).not.toBe(oldAlphaPath);
+        expect(
+            fs.existsSync(
+                path.join(
+                    baseDir,
+                    'dictionaries',
+                    'hoshidicts',
+                    ...oldAlphaPath.split('/')
+                )
+            )
+        ).toBe(false);
+    });
+
+    it('restores the prior manifest and generation when native reload fails', async () => {
+        const baseDir = makeTempDir();
+        const archivesDir = makeTempDir();
+        const first = writeArchive(archivesDir, 'alpha-1.zip', {
+            title: 'Alpha',
+            revision: 'working',
+            sourceLanguage: 'ja',
+        });
+        const replacement = writeArchive(archivesDir, 'alpha-2.zip', {
+            title: 'Alpha',
+            revision: 'broken',
+            sourceLanguage: 'ja',
+        });
+        let reloadCount = 0;
+        const { manager } = createHarness(baseDir, {
+            reloadNative: async () => {
+                reloadCount += 1;
+                if (reloadCount === 2) {
+                    throw new Error('replacement rejected');
+                }
+                return 1;
+            },
+        });
+
+        await manager.importDictionary(first);
+        const previousManifest = readManifest(baseDir);
+        await expect(manager.importDictionary(replacement)).rejects.toThrow(
+            'previous dictionaries were restored'
+        );
+
+        const snapshot = await manager.getSnapshot();
+        expect(snapshot.dictionaries).toHaveLength(1);
+        expect(snapshot.dictionaries[0].revision).toBe('working');
+        expect(readManifest(baseDir).dictionaries[0].path).toBe(
+            previousManifest.dictionaries[0].path
+        );
+        expect(reloadCount).toBe(3);
+    });
+
+    it('serializes simultaneous imports', async () => {
+        const baseDir = makeTempDir();
+        const archivesDir = makeTempDir();
+        const alpha = writeArchive(archivesDir, 'alpha.zip', {
+            title: 'Alpha',
+            revision: 'one',
+            sourceLanguage: 'ja',
+        });
+        const beta = writeArchive(archivesDir, 'beta.zip', {
+            title: 'Beta',
+            revision: 'one',
+            sourceLanguage: 'ja',
+        });
+        let activeImports = 0;
+        let maximumActiveImports = 0;
+        const { manager } = createHarness(baseDir, {
+            runImport: async (archivePath, outputDir) => {
+                activeImports += 1;
+                maximumActiveImports = Math.max(maximumActiveImports, activeImports);
+                await new Promise((resolve) => setTimeout(resolve, 5));
+                const archive = readArchive(archivePath);
+                writeImportedDictionary(outputDir, archive);
+                activeImports -= 1;
+                return {
+                    success: true,
+                    title: archive.title,
+                    termCount: archive.terms ?? 1,
+                    error: '',
+                };
+            },
+        });
+
+        await Promise.all([
+            manager.importDictionary(alpha),
+            manager.importDictionary(beta),
+        ]);
+
+        expect(maximumActiveImports).toBe(1);
+        expect((await manager.getSnapshot()).dictionaries).toHaveLength(2);
+    });
+});
+
+describe('Hoshidicts import policy', () => {
+    it('inspects source language and Japanese terms from a real ZIP archive', async () => {
+        const archive = await writeZipArchive(makeTempDir(), 'japanese.zip', {
+            'index.json': {
+                title: 'Japanese',
+                revision: 'one',
+            },
+            'term_bank_1.json': [['食べる', 'たべる', '', '', 0, ['to eat'], 1, '']],
+        });
+
+        await expect(inspectHoshidictsArchive(archive)).resolves.toEqual({
+            sourceLanguage: null,
+            hasTermBank: true,
+            hasJapaneseTerm: true,
+        });
+    });
+
+    it('rejects explicit non-Japanese and unverifiable legacy dictionaries', async () => {
+        const baseDir = makeTempDir();
+        const archivesDir = makeTempDir();
+        const english = writeArchive(archivesDir, 'english.zip', {
+            title: 'English',
+            revision: 'one',
+            sourceLanguage: 'en',
+        });
+        const legacy = writeArchive(archivesDir, 'legacy.zip', {
+            title: 'Legacy',
+            revision: 'one',
+            sourceLanguage: null,
+            japanese: false,
+        });
+        const { manager, runImport } = createHarness(baseDir);
+
+        await expect(manager.importDictionary(english)).rejects.toThrow(
+            'source language must be ja'
+        );
+        await expect(manager.importDictionary(legacy)).rejects.toThrow(
+            'must contain Japanese terms'
+        );
+        expect(runImport).not.toHaveBeenCalled();
+    });
+
+    it('rejects archives without term entries', async () => {
+        const baseDir = makeTempDir();
+        const archive = writeArchive(makeTempDir(), 'empty.zip', {
+            title: 'Empty',
+            revision: 'one',
+            sourceLanguage: 'ja',
+            terms: 0,
+        });
+        const { manager } = createHarness(baseDir, {
+            inspectArchive: async () => ({
+                sourceLanguage: 'ja',
+                hasTermBank: true,
+                hasJapaneseTerm: true,
+            }),
+        });
+
+        await expect(manager.importDictionary(archive)).rejects.toThrow(
+            'does not contain term entries'
+        );
+        expect((await manager.getSnapshot()).dictionaries).toEqual([]);
+    });
+
+    it('rejects importer titles which escape the staging directory', async () => {
+        const baseDir = makeTempDir();
+        const archive = writeArchive(makeTempDir(), 'unsafe.zip', {
+            title: 'Unsafe',
+            revision: 'one',
+            sourceLanguage: 'ja',
+        });
+        const { manager } = createHarness(baseDir, {
+            runImport: async () => ({
+                success: true,
+                title: '../Unsafe',
+                termCount: 1,
+                error: '',
+            }),
+        });
+
+        await expect(manager.importDictionary(archive)).rejects.toThrow(
+            'cannot be used as a directory name'
+        );
+    });
+});
+
+describe('Hoshidicts updates and schedule', () => {
+    it('treats revisions as opaque and updates through the staged import path', async () => {
+        const baseDir = makeTempDir();
+        const archivesDir = makeTempDir();
+        const archive = writeArchive(archivesDir, 'updatable.zip', {
+            title: 'Updatable',
+            revision: 'revision-2',
+            sourceLanguage: 'ja',
+            isUpdatable: true,
+            indexUrl: 'https://dict.example/index.json',
+            downloadUrl: 'https://dict.example/dictionary.zip',
+        });
+        const update: TestArchive = {
+            title: 'Updatable',
+            revision: 'revision-10-beta',
+            sourceLanguage: 'ja',
+            isUpdatable: true,
+            indexUrl: 'https://dict.example/index.json',
+            downloadUrl: 'https://dict.example/dictionary.zip',
+        };
+        const fetchRemoteIndex = vi.fn(async () => ({
+            revision: 'revision-10-beta',
+            downloadUrl: 'https://cdn.example/dictionary.zip',
+        }));
+        const downloadArchive = vi.fn(async (_url: string, outputPath: string) => {
+            fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+            fs.writeFileSync(outputPath, JSON.stringify(update), 'utf8');
+        });
+        const { manager } = createHarness(baseDir, {
+            fetchRemoteIndex,
+            downloadArchive,
+        });
+
+        await manager.importDictionary(archive);
+        await manager.checkForUpdates();
+
+        expect(fetchRemoteIndex).toHaveBeenCalledWith(
+            'https://dict.example/index.json'
+        );
+        expect(downloadArchive).toHaveBeenCalledWith(
+            'https://cdn.example/dictionary.zip',
+            expect.any(String)
+        );
+        expect((await manager.getSnapshot()).dictionaries[0].revision).toBe(
+            'revision-10-beta'
+        );
+    });
+
+    it('never requests updates from non-HTTPS metadata', async () => {
+        const baseDir = makeTempDir();
+        const archive = writeArchive(makeTempDir(), 'insecure.zip', {
+            title: 'Insecure',
+            revision: 'one',
+            sourceLanguage: 'ja',
+            isUpdatable: true,
+            indexUrl: 'http://dict.example/index.json',
+            downloadUrl: 'https://dict.example/dictionary.zip',
+        });
+        const { manager, fetchRemoteIndex } = createHarness(baseDir);
+
+        await manager.importDictionary(archive);
+        await manager.checkForUpdates();
+
+        expect(fetchRemoteIndex).not.toHaveBeenCalled();
+    });
+
+    it('checks once at startup and then hourly only when work is due', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-08-05T12:00:00.000Z'));
+        const baseDir = makeTempDir();
+        const archive = writeArchive(makeTempDir(), 'scheduled.zip', {
+            title: 'Scheduled',
+            revision: 'same',
+            sourceLanguage: 'ja',
+            isUpdatable: true,
+            indexUrl: 'https://dict.example/index.json',
+            downloadUrl: 'https://dict.example/dictionary.zip',
+        });
+        const { manager, fetchRemoteIndex } = createHarness(baseDir);
+        await manager.importDictionary(archive);
+        await manager.setSchedule('daily');
+
+        manager.startScheduler();
+        await manager.waitForIdle();
+        expect(fetchRemoteIndex).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(23 * 60 * 60 * 1000);
+        await manager.waitForIdle();
+        expect(fetchRemoteIndex).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+        await manager.waitForIdle();
+        expect(fetchRemoteIndex).toHaveBeenCalledTimes(2);
+        await manager.stopScheduler();
+    });
+});

@@ -20,16 +20,21 @@ interface InputServerCandidateOptions {
 export function getInputServerExecutableCandidates(
     options: InputServerCandidateOptions
 ): string[] {
+    const pathImpl = options.platform === 'win32' ? path.win32 : path.posix;
     const executableName =
         options.platform === 'win32' ? 'gsm_overlay_server.exe' : 'gsm_overlay_server';
     if (!options.isDev) {
-        return [path.join(options.overlayResourcesDir, executableName)];
+        return [pathImpl.join(options.overlayResourcesDir, executableName)];
     }
-    const inputServerDir = path.join(options.resourcesDir, 'GSM_Overlay', 'input_server');
+    const inputServerDir = pathImpl.join(
+        options.resourcesDir,
+        'GSM_Overlay',
+        'input_server'
+    );
     return [
-        path.join(inputServerDir, 'target', 'debug', executableName),
-        path.join(inputServerDir, 'target', 'release', executableName),
-        path.join(inputServerDir, 'bin', executableName),
+        pathImpl.join(inputServerDir, 'target', 'debug', executableName),
+        pathImpl.join(inputServerDir, 'target', 'release', executableName),
+        pathImpl.join(inputServerDir, 'bin', executableName),
     ];
 }
 
@@ -63,7 +68,7 @@ function publishInputServerEnvironment(port = DEFAULT_INPUT_SERVER_PORT): void {
     Object.assign(process.env, buildInputServerEnvironment(port));
 }
 
-function resolveInputServerExecutable(): string | null {
+export function resolveInputServerExecutable(): string | null {
     const moduleDir = path.dirname(fileURLToPath(import.meta.url));
     const resourcesDir = app.isPackaged
         ? process.resourcesPath
