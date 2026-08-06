@@ -376,12 +376,6 @@ background: rgba(202, 12, 12, 0.692);
     color: #ff6666;
   }
 
-  .hoshidicts-settings-icon {
-    display: block;
-    width: 17px;
-    height: 17px;
-  }
-
   #btn-pin {
     color: #ddd2d2a3;
   }
@@ -819,29 +813,6 @@ background: rgba(202, 12, 12, 0.692);
       <button class="control-btn" id="btn-pin">⬤</button>
       <button class="control-btn" id="btn-translate-toolbar">🌐</button>
       <button class="control-btn" id="btn-settings">⚙</button>
-      <button
-        class="control-btn"
-        id="btn-hoshidicts-settings"
-        type="button"
-        title="Hoshidicts settings"
-        aria-label="Hoshidicts settings"
-      >
-        <!-- Lucide BookOpen icon, ISC license. -->
-        <svg
-          class="hoshidicts-settings-icon"
-          data-lucide-icon="book-open"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <path d="M12 5v16"></path>
-          <path d="M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"></path>
-        </svg>
-      </button>
       <button class="control-btn" id="btn-yomitan"><img src="yomitan-icon.svg"></button>
       <button class="control-btn" id="btn-minimize">➖</button>
       <button class="control-btn" id="btn-close">✖</button>
@@ -4149,12 +4120,6 @@ background: rgba(202, 12, 12, 0.692);
 
   document.getElementById("btn-settings").addEventListener("click", () => {
     ipcRenderer.send("open-settings");
-  });
-
-  document.getElementById("btn-hoshidicts-settings").addEventListener("click", () => {
-    void ipcRenderer.invoke("open-hoshidicts-settings").catch((error) => {
-      console.error("[Hoshidicts] Could not open settings:", error);
-    });
   });
 
   document.getElementById("btn-yomitan").addEventListener("click", () => {

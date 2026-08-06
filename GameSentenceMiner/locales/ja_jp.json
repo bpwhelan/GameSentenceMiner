@@ -762,6 +762,10 @@
           "enable_hoshidicts": {
             "label": "Hoshidictsリーダーを有効化:",
             "tooltip": "オーバーレイでShiftキーを押しながらホバーしてHoshidicts検索を使用します。実験機能のマスタートグルも有効にし、オーバーレイを再起動する必要があります。"
+          },
+          "open_hoshidicts_settings": {
+            "label": "Hoshidicts設定を開く",
+            "tooltip": "専用ウィンドウでHoshidictsの辞書、更新、マイニング設定を管理します。"
           }
         },
         "game_pausing": {

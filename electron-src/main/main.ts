@@ -128,6 +128,7 @@ import {
 } from './services/changelog_protocol.js';
 import { startInputServer, stopInputServer } from './services/input_server.js';
 import {
+    openHoshidictsSettingsWindow,
     registerHoshidictsFeature,
     startHoshidictsManager,
     stopHoshidictsManager,
@@ -1410,6 +1411,11 @@ function handleBackendMessage(msg: BackendMessage): void {
             reopenSettingsAfterBackendRestart = true;
         }
         void restartGSM();
+    }
+    if (msg.function === 'open_hoshidicts_settings') {
+        void openHoshidictsSettingsWindow().catch((error) => {
+            console.error('Failed to open Hoshidicts settings from GSM settings:', error);
+        });
     }
 }
 

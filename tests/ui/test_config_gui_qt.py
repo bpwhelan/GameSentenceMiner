@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from PyQt6.QtCore import QEvent, Qt
 from PyQt6.QtGui import QKeyEvent, QKeySequence
-from PyQt6.QtWidgets import QApplication, QCheckBox, QLabel, QMessageBox
+from PyQt6.QtWidgets import QApplication, QCheckBox, QLabel, QMessageBox, QPushButton
 
 from GameSentenceMiner.ui.config_gui_qt import ClearableKeySequenceEdit, ConfigWindow
 from GameSentenceMiner.util.config.configuration import Locale
@@ -449,6 +449,7 @@ def test_reset_to_default_handles_numeric_screenshot_defaults(monkeypatch) -> No
 def test_experimental_settings_expose_hoshidicts_reader(monkeypatch) -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     app = QApplication.instance() or QApplication([])
+    open_calls = []
 
     monkeypatch.setattr(
         "GameSentenceMiner.ui.config_gui_qt.get_latest_version",
@@ -457,14 +458,27 @@ def test_experimental_settings_expose_hoshidicts_reader(monkeypatch) -> None:
     monkeypatch.setattr(ConfigWindow, "_refresh_anki_model_list", lambda self, preserve_selection=True: None)
     monkeypatch.setattr(ConfigWindow, "_load_monitors", lambda self, preferred_index=None: None)
     monkeypatch.setattr(ConfigWindow, "get_online_models", lambda self: None)
+    monkeypatch.setattr(
+        "GameSentenceMiner.ui.config.tabs.experimental._open_hoshidicts_settings",
+        lambda settings_window: open_calls.append(settings_window),
+    )
 
     window = ConfigWindow()
     try:
-        experimental_tab = window._create_experimental_tab()
+        assert window.navigate_to_settings_tab("advanced", "experimental") is True
+        assert window.tab_widget.currentIndex() == window._settings_tab_indices["advanced"]
+
+        advanced_tabs = window._settings_subtab_widgets["advanced"]
+        assert advanced_tabs.currentIndex() == window._settings_subtab_indices["advanced"]["experimental"]
+        experimental_tab = advanced_tabs.currentWidget().widget()
         labels = [label.text() for label in experimental_tab.findChildren(QLabel)]
+        buttons = experimental_tab.findChildren(QPushButton)
+        hoshidicts_settings_button = next(button for button in buttons if button.text() == "Open Hoshidicts Settings")
 
         assert "Enable Hoshidicts Reader:" in labels
         assert window.enable_hoshidicts_check.parent() is not None
+        hoshidicts_settings_button.click()
+        assert open_calls == [window]
     finally:
         window.close()
         app.processEvents()

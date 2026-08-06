@@ -6934,9 +6934,9 @@ async function startOverlayAppImpl() {
 
   ipcMain.handle("open-hoshidicts-settings", async (event) => {
     if (
-      !mainWindow ||
-      mainWindow.isDestroyed() ||
-      event.sender !== mainWindow.webContents
+      !settingsWindow ||
+      settingsWindow.isDestroyed() ||
+      event.sender !== settingsWindow.webContents
     ) {
       throw new Error("Hoshidicts settings request came from an invalid window.");
     }
@@ -6945,7 +6945,7 @@ async function startOverlayAppImpl() {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : String(error);
-      await dialog.showMessageBox(mainWindow, {
+      await dialog.showMessageBox(settingsWindow, {
         type: "error",
         title: "Hoshidicts Settings",
         message: "Could not open Hoshidicts settings.",
