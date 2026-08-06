@@ -104,6 +104,7 @@
   "author": "Beangate",
   "license": "LGPL-3.0-only",
   "devDependencies": {
+    "@electron/asar": "^3.4.1",
     "@tailwindcss/vite": "^4.3.1",
     "@types/archiver": "^7.0.0",
     "@types/extract-zip": "^2.0.1",
@@ -142,6 +143,7 @@
     "extract-zip": "^2.0.1",
     "frida": "^17.9.7",
     "fuse.js": "^7.3.0",
+    "lucide-react": "^1.28.0",
     "node-window-manager": "^2.2.4",
     "nodejs-file-downloader": "^4.13.0",
     "obs-websocket-js": "^5.0.8",

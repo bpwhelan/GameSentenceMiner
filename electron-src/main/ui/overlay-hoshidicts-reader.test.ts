@@ -7,7 +7,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 function loadReaderModule(window: Window) {
   const source = fs.readFileSync(
-    path.resolve(process.cwd(), "GSM_Overlay/hoshidicts_reader.js"),
+    path.resolve(
+      process.cwd(),
+      "GSM_Overlay/features/hoshidicts/reader.js"
+    ),
     "utf8"
   );
   const module = { exports: {} as any };
@@ -25,7 +28,7 @@ function loadReaderModule(window: Window) {
       setTimeout,
       window
     },
-    { filename: "GSM_Overlay/hoshidicts_reader.js" }
+    { filename: "GSM_Overlay/features/hoshidicts/reader.js" }
   );
   return module.exports;
 }
@@ -53,6 +56,46 @@ function runOverlayFeatureBootstrap(enabled: boolean) {
     window
   });
   return { addClass, documentElement, window };
+}
+
+function loadHoshidictsSettingsButtonWiring() {
+  const html = fs.readFileSync(
+    path.resolve(process.cwd(), "GSM_Overlay/index.html"),
+    "utf8"
+  );
+  const start = html.indexOf(
+    'document.getElementById("btn-hoshidicts-settings")'
+  );
+  const end = html.indexOf(
+    '\n\n  document.getElementById("btn-yomitan")',
+    start
+  );
+  if (start < 0 || end < 0) {
+    throw new Error("Unable to find the Hoshidicts settings button wiring");
+  }
+
+  let clickListener: (() => void) | null = null;
+  const invoke = vi.fn(async () => ({ opened: true }));
+  const button = {
+    addEventListener: vi.fn(
+      (event: string, listener: () => void) => {
+        if (event === "click") clickListener = listener;
+      }
+    )
+  };
+  vm.runInNewContext(
+    html.slice(start, end),
+    {
+      console,
+      document: {
+        getElementById: (id: string) =>
+          id === "btn-hoshidicts-settings" ? button : null
+      },
+      ipcRenderer: { invoke }
+    },
+    { filename: "GSM_Overlay/index.html#btn-hoshidicts-settings" }
+  );
+  return { button, click: () => clickListener?.(), html, invoke };
 }
 
 class FakeWebSocket {
@@ -208,6 +251,28 @@ afterEach(() => {
 });
 
 describe("Hoshidicts safe popup rendering", () => {
+  it("keeps a dedicated settings button available even when the reader is disabled", async () => {
+    const { button, click, html, invoke } =
+      loadHoshidictsSettingsButtonWiring();
+    const document = new JSDOM(html).window.document;
+    const settingsButton = document.querySelector(
+      "#btn-hoshidicts-settings"
+    );
+
+    expect(settingsButton).not.toBeNull();
+    expect(settingsButton?.getAttribute("aria-label")).toBe(
+      "Hoshidicts settings"
+    );
+    expect(button.addEventListener).toHaveBeenCalledWith(
+      "click",
+      expect.any(Function)
+    );
+
+    click();
+    await flushPromises();
+    expect(invoke).toHaveBeenCalledWith("open-hoshidicts-settings");
+  });
+
   it("sets the scanner-suppression marker before the overlay scripts load", () => {
     const enabled = runOverlayFeatureBootstrap(true);
     expect(enabled.window.gsmHoshidictsReaderEnabled).toBe(true);

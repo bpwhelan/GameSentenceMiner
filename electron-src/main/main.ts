@@ -128,10 +128,14 @@ import {
 } from './services/changelog_protocol.js';
 import { startInputServer, stopInputServer } from './services/input_server.js';
 import {
+    registerHoshidictsFeature,
     startHoshidictsManager,
     stopHoshidictsManager,
-} from './services/hoshidicts_manager.js';
-import { getConfiguredSinglePort } from './gsm_config.js';
+} from './features/hoshidicts/index.js';
+import {
+    getLegacyConfiguredHoshidictsEnabled,
+    getConfiguredSinglePort,
+} from './gsm_config.js';
 import {
     getStatusTrayIconPath,
     getTrayBaseIconPath,
@@ -1592,6 +1596,9 @@ async function createWindow() {
             desktopChangelogManager.markSeen(toVersion),
         clearManualDesktopChangelog: () => desktopChangelogManager.clearManualDisplay(),
     });
+    registerHoshidictsFeature({
+        getMainWindow: () => mainWindow,
+    });
     registerDataRelocateIPC();
 
     // Reveal window only after renderer signals it's ready
@@ -2529,7 +2536,9 @@ if (!app.requestSingleInstanceLock()) {
             // the optional overlay. Starting it first makes gamepad hotkeys
             // available to every child process from the beginning of startup.
             await startInputServer();
-            startHoshidictsManager();
+            await startHoshidictsManager(
+                getLegacyConfiguredHoshidictsEnabled()
+            );
             try {
                 await startBus();
                 wireBackendBus();

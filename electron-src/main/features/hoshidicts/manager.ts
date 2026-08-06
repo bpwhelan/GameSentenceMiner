@@ -6,79 +6,33 @@ import * as path from 'node:path';
 import WebSocket from 'ws';
 import yauzl, { type Entry, type ZipFile } from 'yauzl';
 
-import { getBaseDir } from '../data_dir.js';
+import { getBaseDir } from '../../data_dir.js';
 import {
     DEFAULT_INPUT_SERVER_PORT,
     resolveInputServerExecutable,
-} from './input_server.js';
+} from '../../services/input_server.js';
+import type {
+    HoshidictsDictionaryState,
+    HoshidictsManagerSnapshot,
+    HoshidictsMiningProfile,
+    HoshidictsProgress,
+    HoshidictsProgressPhase,
+    HoshidictsRecommendedDictionaryId,
+    HoshidictsRecommendedDictionaryState,
+    HoshidictsSchedule,
+} from '../../../shared/features/hoshidicts.js';
 
-export type HoshidictsSchedule = 'off' | 'daily' | 'weekly' | 'monthly';
-export type HoshidictsProgressPhase =
-    | 'idle'
-    | 'importing'
-    | 'checking'
-    | 'downloading'
-    | 'reloading'
-    | 'removing'
-    | 'saving';
-
-export type HoshidictsDuplicatePolicy = 'prevent' | 'allow';
-export type HoshidictsRecommendedDictionaryId = 'jmdict' | 'jmnedict';
-
-export interface HoshidictsMiningFields {
-    expression: string;
-    reading: string;
-    definition: string;
-    sentence: string;
-    frequency: string;
-    pitch: string;
-}
-
-export interface HoshidictsMiningProfile {
-    version: 1;
-    enabled: boolean;
-    deck: string;
-    model: string;
-    fields: HoshidictsMiningFields;
-    tags: string[];
-    duplicatePolicy: HoshidictsDuplicatePolicy;
-}
-
-export interface HoshidictsDictionaryState {
-    id: string;
-    title: string;
-    revision: string;
-    isUpdatable: boolean;
-    indexUrl: string | null;
-    downloadUrl: string | null;
-    language: string | null;
-    termCount: number;
-    installedAt: string;
-}
-
-export interface HoshidictsProgress {
-    phase: HoshidictsProgressPhase;
-    title?: string;
-    completed?: number;
-    total?: number;
-}
-
-export interface HoshidictsRecommendedDictionaryState {
-    id: HoshidictsRecommendedDictionaryId;
-    installed: boolean;
-}
-
-export interface HoshidictsManagerSnapshot {
-    dictionaries: HoshidictsDictionaryState[];
-    recommendedDictionaries: HoshidictsRecommendedDictionaryState[];
-    miningProfile: HoshidictsMiningProfile;
-    schedule: HoshidictsSchedule;
-    lastCheck: string | null;
-    nextCheck: string | null;
-    lastError: string | null;
-    busy: boolean;
-    progress: HoshidictsProgress;
-}
+export type {
+    HoshidictsDictionaryState,
+    HoshidictsManagerSnapshot,
+    HoshidictsMiningFields,
+    HoshidictsMiningProfile,
+    HoshidictsProgress,
+    HoshidictsProgressPhase,
+    HoshidictsRecommendedDictionaryId,
+    HoshidictsRecommendedDictionaryState,
+    HoshidictsSchedule,
+} from '../../../shared/features/hoshidicts.js';
 
 interface PersistedDictionary extends HoshidictsDictionaryState {
     path: string;
@@ -87,6 +41,7 @@ interface PersistedDictionary extends HoshidictsDictionaryState {
 
 interface PersistedManifest {
     version: 1;
+    featureEnabled: boolean;
     schedule: HoshidictsSchedule;
     lastCheck: string | null;
     nextCheck: string | null;
@@ -198,6 +153,7 @@ const SCHEDULE_INTERVALS: Record<Exclude<HoshidictsSchedule, 'off'>, number> = {
 function emptyManifest(): PersistedManifest {
     return {
         version: MANIFEST_VERSION,
+        featureEnabled: false,
         schedule: 'off',
         lastCheck: null,
         nextCheck: null,
@@ -1019,6 +975,7 @@ export class HoshidictsManager {
             manifest = await this.readManifest();
         } catch (error) {
             return {
+                featureEnabled: false,
                 dictionaries: [],
                 recommendedDictionaries:
                     RECOMMENDED_HOSHIDICTS_DICTIONARIES.map(({ id }) => ({
@@ -1046,6 +1003,46 @@ export class HoshidictsManager {
             miningProfile,
             profileError
         );
+    }
+
+    async initializeFeatureState(
+        legacyFeatureEnabled: boolean
+    ): Promise<HoshidictsManagerSnapshot> {
+        await this.enqueue('saving', async () => {
+            const raw = await this.readManifestRaw();
+            if (raw !== null) {
+                const parsed: unknown = JSON.parse(
+                    raw.toString('utf8').replace(/^\uFEFF/, '')
+                );
+                if (
+                    isRecord(parsed) &&
+                    typeof parsed.featureEnabled === 'boolean'
+                ) {
+                    return;
+                }
+            }
+
+            const manifest = await this.readManifest();
+            await this.atomicWriteManifest({
+                ...manifest,
+                featureEnabled: legacyFeatureEnabled,
+            });
+        });
+        return await this.getSnapshot();
+    }
+
+    async setFeatureEnabled(enabled: boolean): Promise<HoshidictsManagerSnapshot> {
+        await this.enqueue('saving', async () => {
+            const manifest = await this.readManifest();
+            if (manifest.featureEnabled === enabled) {
+                return;
+            }
+            await this.atomicWriteManifest({
+                ...manifest,
+                featureEnabled: enabled,
+            });
+        });
+        return await this.getSnapshot();
     }
 
     async importDictionary(archivePath: string): Promise<HoshidictsManagerSnapshot> {
@@ -1083,62 +1080,39 @@ export class HoshidictsManager {
                     continue;
                 }
 
-                this.setProgress({
-                    phase: 'downloading',
-                    title: recommended.id,
-                    completed: index,
-                    total: RECOMMENDED_HOSHIDICTS_DICTIONARIES.length,
-                });
-                const downloadRoot = path.join(
-                    this.rootDir,
-                    '.staging',
-                    `recommended-${this.deps.randomId()}`
+                manifest = await this.installRecommendedDictionaryLocked(
+                    manifest,
+                    recommended,
+                    index,
+                    RECOMMENDED_HOSHIDICTS_DICTIONARIES.length
                 );
-                const archivePath = path.join(
-                    downloadRoot,
-                    `${recommended.id}.zip`
+            }
+        });
+        return await this.getSnapshot();
+    }
+
+    async installRecommendedDictionary(
+        id: HoshidictsRecommendedDictionaryId
+    ): Promise<HoshidictsManagerSnapshot> {
+        await this.enqueue('downloading', async () => {
+            const recommended = RECOMMENDED_HOSHIDICTS_DICTIONARIES.find(
+                (dictionary) => dictionary.id === id
+            );
+            if (!recommended) {
+                throw new Error('Recommended dictionary id is invalid.');
+            }
+            const manifest = await this.readManifest();
+            const installed = manifest.dictionaries.some(
+                (dictionary) =>
+                    parseHttpsUrl(dictionary.indexUrl) === recommended.indexUrl
+            );
+            if (!installed) {
+                await this.installRecommendedDictionaryLocked(
+                    manifest,
+                    recommended,
+                    0,
+                    1
                 );
-                try {
-                    await this.deps.downloadArchive(
-                        recommended.downloadUrl,
-                        archivePath
-                    );
-                    this.setProgress({
-                        phase: 'importing',
-                        title: recommended.id,
-                        completed: index,
-                        total: RECOMMENDED_HOSHIDICTS_DICTIONARIES.length,
-                    });
-                    const staged = await this.stageArchive(
-                        archivePath,
-                        manifest.dictionaries
-                    );
-                    if (
-                        parseHttpsUrl(staged.dictionary.indexUrl) !==
-                        recommended.indexUrl
-                    ) {
-                        await this.discardStagedDictionary(staged);
-                        throw new Error(
-                            `Downloaded ${recommended.id} archive did not match its trusted update URL.`
-                        );
-                    }
-                    try {
-                        manifest = await this.installStagedDictionary(
-                            manifest,
-                            staged
-                        );
-                    } catch (error) {
-                        await this.discardStagedDictionaryIfUnreferenced(
-                            staged
-                        );
-                        throw error;
-                    }
-                } finally {
-                    await fsp.rm(downloadRoot, {
-                        recursive: true,
-                        force: true,
-                    });
-                }
             }
         });
         return await this.getSnapshot();
@@ -1164,6 +1138,75 @@ export class HoshidictsManager {
                 ),
             };
             await this.commitManifestChange(manifest, next, null, existing.path);
+        });
+        return await this.getSnapshot();
+    }
+
+    async setDictionaryEnabled(
+        id: string,
+        enabled: boolean
+    ): Promise<HoshidictsManagerSnapshot> {
+        await this.enqueue('saving', async () => {
+            if (!SAFE_ID_PATTERN.test(id)) {
+                throw new Error('Dictionary id is invalid.');
+            }
+            const manifest = await this.readManifest();
+            const index = manifest.dictionaries.findIndex(
+                (dictionary) => dictionary.id === id
+            );
+            if (index < 0) {
+                throw new Error('Dictionary is not installed.');
+            }
+            if (manifest.dictionaries[index].enabled === enabled) {
+                return;
+            }
+            const dictionaries = manifest.dictionaries.map((dictionary) => ({
+                ...dictionary,
+            }));
+            dictionaries[index].enabled = enabled;
+            await this.commitManifestChange(
+                manifest,
+                { ...manifest, dictionaries },
+                null,
+                null
+            );
+        });
+        return await this.getSnapshot();
+    }
+
+    async moveDictionary(
+        id: string,
+        direction: -1 | 1
+    ): Promise<HoshidictsManagerSnapshot> {
+        await this.enqueue('saving', async () => {
+            if (!SAFE_ID_PATTERN.test(id)) {
+                throw new Error('Dictionary id is invalid.');
+            }
+            if (direction !== -1 && direction !== 1) {
+                throw new Error('Dictionary move direction is invalid.');
+            }
+            const manifest = await this.readManifest();
+            const currentIndex = manifest.dictionaries.findIndex(
+                (dictionary) => dictionary.id === id
+            );
+            if (currentIndex < 0) {
+                throw new Error('Dictionary is not installed.');
+            }
+            const targetIndex = currentIndex + direction;
+            if (targetIndex < 0 || targetIndex >= manifest.dictionaries.length) {
+                return;
+            }
+            const dictionaries = manifest.dictionaries.map((dictionary) => ({
+                ...dictionary,
+            }));
+            const [dictionary] = dictionaries.splice(currentIndex, 1);
+            dictionaries.splice(targetIndex, 0, dictionary);
+            await this.commitManifestChange(
+                manifest,
+                { ...manifest, dictionaries },
+                null,
+                null
+            );
         });
         return await this.getSnapshot();
     }
@@ -1379,10 +1422,12 @@ export class HoshidictsManager {
         profileError: string | null = null
     ): HoshidictsManagerSnapshot {
         return {
+            featureEnabled: manifest.featureEnabled,
             dictionaries: manifest.dictionaries.map(
                 ({
                     id,
                     title,
+                    enabled,
                     revision,
                     isUpdatable,
                     indexUrl,
@@ -1393,6 +1438,7 @@ export class HoshidictsManager {
                 }) => ({
                     id,
                     title,
+                    enabled,
                     revision,
                     isUpdatable,
                     indexUrl,
@@ -1494,6 +1540,7 @@ export class HoshidictsManager {
 
         return {
             version: MANIFEST_VERSION,
+            featureEnabled: parsed.featureEnabled === true,
             schedule: normalizeSchedule(parsed.schedule),
             lastCheck: normalizeDate(parsed.lastCheck),
             nextCheck: normalizeDate(parsed.nextCheck),
@@ -1627,7 +1674,10 @@ export class HoshidictsManager {
         let oldPath: string | null = null;
         if (existingIndex >= 0) {
             oldPath = dictionaries[existingIndex].path;
-            dictionaries[existingIndex] = staged.dictionary;
+            dictionaries[existingIndex] = {
+                ...staged.dictionary,
+                enabled: dictionaries[existingIndex].enabled,
+            };
         } else {
             dictionaries.push(staged.dictionary);
         }
@@ -1639,6 +1689,62 @@ export class HoshidictsManager {
             oldPath
         );
         return next;
+    }
+
+    private async installRecommendedDictionaryLocked(
+        manifest: PersistedManifest,
+        recommended: RecommendedHoshidictsDictionary,
+        completed: number,
+        total: number
+    ): Promise<PersistedManifest> {
+        this.setProgress({
+            phase: 'downloading',
+            title: recommended.id,
+            completed,
+            total,
+        });
+        const downloadRoot = path.join(
+            this.rootDir,
+            '.staging',
+            `recommended-${this.deps.randomId()}`
+        );
+        const archivePath = path.join(downloadRoot, `${recommended.id}.zip`);
+        try {
+            await this.deps.downloadArchive(
+                recommended.downloadUrl,
+                archivePath
+            );
+            this.setProgress({
+                phase: 'importing',
+                title: recommended.id,
+                completed,
+                total,
+            });
+            const staged = await this.stageArchive(
+                archivePath,
+                manifest.dictionaries
+            );
+            if (
+                parseHttpsUrl(staged.dictionary.indexUrl) !==
+                recommended.indexUrl
+            ) {
+                await this.discardStagedDictionary(staged);
+                throw new Error(
+                    `Downloaded ${recommended.id} archive did not match its trusted update URL.`
+                );
+            }
+            try {
+                return await this.installStagedDictionary(manifest, staged);
+            } catch (error) {
+                await this.discardStagedDictionaryIfUnreferenced(staged);
+                throw error;
+            }
+        } finally {
+            await fsp.rm(downloadRoot, {
+                recursive: true,
+                force: true,
+            });
+        }
     }
 
     private async commitManifestChange(
@@ -1824,8 +1930,12 @@ export function getHoshidictsManager(): HoshidictsManager {
     return defaultManager;
 }
 
-export function startHoshidictsManager(): void {
-    getHoshidictsManager().startScheduler();
+export async function startHoshidictsManager(
+    legacyFeatureEnabled = false
+): Promise<void> {
+    const manager = getHoshidictsManager();
+    await manager.initializeFeatureState(legacyFeatureEnabled);
+    manager.startScheduler();
 }
 
 export async function stopHoshidictsManager(): Promise<void> {

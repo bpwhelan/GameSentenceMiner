@@ -2,6 +2,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 
+import { extractFile, listPackage } from '@electron/asar';
+
 const repoRoot = process.cwd();
 const packageJson = JSON.parse(await fs.readFile(path.join(repoRoot, 'package.json'), 'utf8'));
 const productName = packageJson.productName || packageJson.name || 'GameSentenceMiner';
@@ -41,6 +43,23 @@ async function exists(candidate) {
   }
 }
 
+function normalizeAsarPath(candidate) {
+  return candidate.replaceAll('\\', '/').replace(/^\/+/, '');
+}
+
+function verifyAsarEntries(archivePath, requiredEntries) {
+  const entries = new Set(listPackage(archivePath).map(normalizeAsarPath));
+  const missing = requiredEntries.filter((entry) => !entries.has(entry));
+  if (missing.length > 0) {
+    throw new Error(
+      `Packaged ASAR is missing required Hoshidicts files (${archivePath}):\n${missing
+        .map((entry) => `  - ${entry}`)
+        .join('\n')}`
+    );
+  }
+  return entries;
+}
+
 async function main() {
   const resourcesDirCandidates = candidateResourceDirs();
   let packagedResourcesDir = null;
@@ -64,10 +83,18 @@ async function main() {
   }
 
   const requiredPaths = [
+    path.join(packagedResourcesDir, 'app.asar'),
     path.join(overlayResourcesDir, 'app.asar'),
     path.join(overlayResourcesDir, serverExecutableName),
     path.join(overlayResourcesDir, 'mecab_bridge.py'),
     path.join(overlayResourcesDir, 'yomitan', 'manifest.json'),
+    path.join(packagedResourcesDir, 'GameSentenceMiner', 'hoshidicts_mining.py'),
+    path.join(
+      packagedResourcesDir,
+      'GameSentenceMiner',
+      'web',
+      'hoshidicts_api.py'
+    ),
   ];
 
   const missing = [];
@@ -107,41 +134,50 @@ async function main() {
     }
   }
 
-  const sourceExperimentalSettings = path.join(
-    repoRoot,
-    'GameSentenceMiner',
-    'ui',
-    'config',
-    'tabs',
-    'experimental.py'
+  const desktopAsarPath = path.join(packagedResourcesDir, 'app.asar');
+  const desktopEntries = verifyAsarEntries(desktopAsarPath, [
+    'dist/main/features/hoshidicts/index.js',
+    'dist/main/features/hoshidicts/ipc.js',
+    'dist/main/features/hoshidicts/manager.js',
+    'dist/main/features/hoshidicts/window.js',
+    'dist/shared/features/hoshidicts.js',
+  ]);
+  const rendererBundle = [...desktopEntries].find(
+    (entry) =>
+      /^dist\/renderer\/assets\/index-.*\.js$/u.test(entry)
   );
-  const sourceExperimentalContents = await fs.readFile(
-    sourceExperimentalSettings,
-    'utf8'
-  );
-  if (sourceExperimentalContents.includes('enable_hoshidicts')) {
-    const packagedExperimentalSettings = path.join(
-      packagedResourcesDir,
-      'GameSentenceMiner',
-      'ui',
-      'config',
-      'tabs',
-      'experimental.py'
+  if (!rendererBundle) {
+    throw new Error('Packaged desktop renderer bundle was not found.');
+  }
+  const rendererContents = extractFile(
+    desktopAsarPath,
+    rendererBundle
+  ).toString('utf8');
+  if (!rendererContents.includes('hoshidicts-settings')) {
+    throw new Error(
+      'Packaged desktop renderer does not contain the standalone Hoshidicts window.'
     );
-    if (!(await exists(packagedExperimentalSettings))) {
-      throw new Error(
-        `Packaged Hoshidicts settings source is missing: ${packagedExperimentalSettings}`
-      );
-    }
-    const packagedExperimentalContents = await fs.readFile(
-      packagedExperimentalSettings,
-      'utf8'
+  }
+
+  const overlayAsarPath = path.join(overlayResourcesDir, 'app.asar');
+  verifyAsarEntries(overlayAsarPath, [
+    'features/hoshidicts/desktop_bridge.js',
+    'features/hoshidicts/diagnostics.js',
+    'features/hoshidicts/reader.css',
+    'features/hoshidicts/reader.js',
+    'index.html',
+  ]);
+  const overlayIndexContents = extractFile(
+    overlayAsarPath,
+    'index.html'
+  ).toString('utf8');
+  if (
+    !overlayIndexContents.includes('btn-hoshidicts-settings') ||
+    !overlayIndexContents.includes('features/hoshidicts/reader.js')
+  ) {
+    throw new Error(
+      'Packaged overlay does not expose the Hoshidicts settings shortcut and reader.'
     );
-    if (!packagedExperimentalContents.includes('enable_hoshidicts')) {
-      throw new Error(
-        'Packaged backend does not expose the Hoshidicts Experimental setting.'
-      );
-    }
   }
 
   console.log(`[verify-overlay-package] Verified ${overlayResourcesDir}`);

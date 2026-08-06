@@ -2,7 +2,7 @@
 <html>
 
 <head>
-<link rel="stylesheet" href="hoshidicts_reader.css">
+<link rel="stylesheet" href="features/hoshidicts/reader.css">
 <script>
   window.gsmHoshidictsReaderEnabled = (
     typeof process !== 'undefined' &&
@@ -813,6 +813,13 @@ background: rgba(202, 12, 12, 0.692);
       <button class="control-btn" id="btn-pin">⬤</button>
       <button class="control-btn" id="btn-translate-toolbar">🌐</button>
       <button class="control-btn" id="btn-settings">⚙</button>
+      <button
+        class="control-btn"
+        id="btn-hoshidicts-settings"
+        type="button"
+        title="Hoshidicts settings"
+        aria-label="Hoshidicts settings"
+      ><span aria-hidden="true">辞</span></button>
       <button class="control-btn" id="btn-yomitan"><img src="yomitan-icon.svg"></button>
       <button class="control-btn" id="btn-minimize">➖</button>
       <button class="control-btn" id="btn-close">✖</button>
@@ -4122,6 +4129,12 @@ background: rgba(202, 12, 12, 0.692);
     ipcRenderer.send("open-settings");
   });
 
+  document.getElementById("btn-hoshidicts-settings").addEventListener("click", () => {
+    void ipcRenderer.invoke("open-hoshidicts-settings").catch((error) => {
+      console.error("[Hoshidicts] Could not open settings:", error);
+    });
+  });
+
   document.getElementById("btn-yomitan").addEventListener("click", () => {
     ipcRenderer.send("open-yomitan-settings");
   });
@@ -4976,7 +4989,7 @@ background: rgba(202, 12, 12, 0.692);
 
 <script src="yomitan_bridge.js"></script>
 <script src="jiten_highlight.js"></script>
-<script src="hoshidicts_reader.js"></script>
+<script src="features/hoshidicts/reader.js"></script>
 <script>
   function handleHoshidictsPopupState(visible) {
     hoshidictsShowing = !!visible;

@@ -14,7 +14,7 @@ import {
     type HoshidictsImportReport,
     type HoshidictsManagerDependencies,
     type HoshidictsRemoteIndex,
-} from './hoshidicts_manager.js';
+} from './manager.js';
 
 interface TestArchive {
     title: string;
@@ -184,7 +184,7 @@ afterEach(() => {
 });
 
 describe('Hoshidicts immutable generations', () => {
-    it('replaces a reimported dictionary without changing its ordering', async () => {
+    it('replaces a reimported dictionary without changing its ordering or enabled state', async () => {
         const baseDir = makeTempDir();
         const archivesDir = makeTempDir();
         const first = writeArchive(archivesDir, 'alpha-1.zip', {
@@ -206,6 +206,8 @@ describe('Hoshidicts immutable generations', () => {
 
         await manager.importDictionary(first);
         await manager.importDictionary(second);
+        const alphaId = (await manager.getSnapshot()).dictionaries[0].id;
+        await manager.setDictionaryEnabled(alphaId, false);
         const oldManifest = readManifest(baseDir);
         const oldAlphaPath = oldManifest.dictionaries[0].path;
         await manager.importDictionary(replacement);
@@ -218,6 +220,10 @@ describe('Hoshidicts immutable generations', () => {
         expect(snapshot.dictionaries.map((dictionary) => dictionary.revision)).toEqual([
             'two',
             'one',
+        ]);
+        expect(snapshot.dictionaries.map((dictionary) => dictionary.enabled)).toEqual([
+            false,
+            true,
         ]);
 
         const manifest = readManifest(baseDir);
@@ -370,6 +376,117 @@ describe('Hoshidicts immutable generations', () => {
         expect(maximumActiveImports).toBe(1);
         expect((await manager.getSnapshot()).dictionaries).toHaveLength(2);
     });
+
+    it('enables and reorders dictionaries through atomic native reloads', async () => {
+        const baseDir = makeTempDir();
+        const archivesDir = makeTempDir();
+        const alpha = writeArchive(archivesDir, 'alpha.zip', {
+            title: 'Alpha',
+            revision: 'one',
+            sourceLanguage: 'ja',
+        });
+        const beta = writeArchive(archivesDir, 'beta.zip', {
+            title: 'Beta',
+            revision: 'one',
+            sourceLanguage: 'ja',
+        });
+        const { manager, reloadNative } = createHarness(baseDir);
+
+        await manager.importDictionary(alpha);
+        await manager.importDictionary(beta);
+        const initial = await manager.getSnapshot();
+        const alphaId = initial.dictionaries[0].id;
+        const betaId = initial.dictionaries[1].id;
+
+        await manager.setDictionaryEnabled(alphaId, false);
+        await manager.moveDictionary(betaId, -1);
+
+        const snapshot = await manager.getSnapshot();
+        expect(snapshot.dictionaries.map((dictionary) => dictionary.id)).toEqual([
+            betaId,
+            alphaId,
+        ]);
+        expect(snapshot.dictionaries.map((dictionary) => dictionary.enabled)).toEqual([
+            true,
+            false,
+        ]);
+        expect(readManifest(baseDir).dictionaries.map((dictionary: any) => dictionary.id)).toEqual([
+            betaId,
+            alphaId,
+        ]);
+        expect(reloadNative).toHaveBeenCalledTimes(4);
+    });
+
+    it('rolls back a failed dictionary enablement reload', async () => {
+        const baseDir = makeTempDir();
+        const archive = writeArchive(makeTempDir(), 'alpha.zip', {
+            title: 'Alpha',
+            revision: 'one',
+            sourceLanguage: 'ja',
+        });
+        let reloadCount = 0;
+        const { manager } = createHarness(baseDir, {
+            reloadNative: async () => {
+                reloadCount += 1;
+                if (reloadCount === 2) {
+                    throw new Error('disabled state rejected');
+                }
+                return 1;
+            },
+        });
+
+        await manager.importDictionary(archive);
+        const dictionaryId = (await manager.getSnapshot()).dictionaries[0].id;
+
+        await expect(
+            manager.setDictionaryEnabled(dictionaryId, false)
+        ).rejects.toThrow('previous dictionaries were restored');
+
+        expect((await manager.getSnapshot()).dictionaries[0].enabled).toBe(true);
+        expect(readManifest(baseDir).dictionaries[0].enabled).toBe(true);
+        expect(reloadCount).toBe(3);
+    });
+});
+
+describe('Hoshidicts feature state', () => {
+    it('migrates the legacy toggle into an existing manifest exactly once', async () => {
+        const baseDir = makeTempDir();
+        const archive = writeArchive(makeTempDir(), 'alpha.zip', {
+            title: 'Alpha',
+            revision: 'one',
+            sourceLanguage: 'ja',
+        });
+        const { manager } = createHarness(baseDir);
+        await manager.importDictionary(archive);
+        const legacyManifest = readManifest(baseDir);
+        delete legacyManifest.featureEnabled;
+        fs.writeFileSync(
+            manager.manifestPath,
+            `${JSON.stringify(legacyManifest, null, 2)}\n`,
+            'utf8'
+        );
+
+        await manager.initializeFeatureState(true);
+        expect((await manager.getSnapshot()).featureEnabled).toBe(true);
+        expect(readManifest(baseDir).featureEnabled).toBe(true);
+
+        await manager.initializeFeatureState(false);
+        expect((await manager.getSnapshot()).featureEnabled).toBe(true);
+        expect((await manager.getSnapshot()).dictionaries).toHaveLength(1);
+    });
+
+    it('persists a dedicated feature switch independently of dictionary state', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+
+        await manager.initializeFeatureState(false);
+        expect((await manager.getSnapshot()).featureEnabled).toBe(false);
+
+        const snapshot = await manager.setFeatureEnabled(true);
+        expect(snapshot.featureEnabled).toBe(true);
+        expect(snapshot.dictionaries).toEqual([]);
+        expect(readManifest(baseDir).featureEnabled).toBe(true);
+    });
 });
 
 describe('Hoshidicts mining profile', () => {
@@ -438,6 +555,44 @@ describe('Hoshidicts mining profile', () => {
 });
 
 describe('Hoshidicts import policy', () => {
+    it('installs one selected recommended dictionary', async () => {
+        const baseDir = makeTempDir();
+        const downloadArchive = vi.fn(async (url: string, outputPath: string) => {
+            const recommended = RECOMMENDED_HOSHIDICTS_DICTIONARIES.find(
+                (dictionary) => dictionary.downloadUrl === url
+            );
+            if (!recommended) {
+                throw new Error(`Unexpected recommended dictionary URL: ${url}`);
+            }
+            fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+            fs.writeFileSync(
+                outputPath,
+                JSON.stringify({
+                    title: 'JMdict',
+                    revision: 'jmdict.2026-08-06',
+                    sourceLanguage: 'ja',
+                    isUpdatable: true,
+                    indexUrl: recommended.indexUrl,
+                    downloadUrl: recommended.downloadUrl,
+                }),
+                'utf8'
+            );
+        });
+        const { manager } = createHarness(baseDir, { downloadArchive });
+
+        const snapshot = await manager.installRecommendedDictionary('jmdict');
+
+        expect(downloadArchive).toHaveBeenCalledTimes(1);
+        expect(downloadArchive).toHaveBeenCalledWith(
+            RECOMMENDED_HOSHIDICTS_DICTIONARIES[0].downloadUrl,
+            expect.any(String)
+        );
+        expect(snapshot.recommendedDictionaries).toEqual([
+            { id: 'jmdict', installed: true },
+            { id: 'jmnedict', installed: false },
+        ]);
+    });
+
     it('installs the recommended JMdict and JMnedict pair without KANJIDIC', async () => {
         const baseDir = makeTempDir();
         const downloadArchive = vi.fn(async (url: string, outputPath: string) => {

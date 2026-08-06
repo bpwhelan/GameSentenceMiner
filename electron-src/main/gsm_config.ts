@@ -72,7 +72,9 @@ export function resolveSinglePortFromConfigData(configData: unknown): number {
     return normalizePort(profileData.general.texthooker_port);
 }
 
-export function resolveHoshidictsEnabledFromConfigData(configData: unknown): boolean {
+export function resolveLegacyHoshidictsEnabledFromConfigData(
+    configData: unknown
+): boolean {
     if (!isJsonObject(configData) || !isJsonObject(configData.experimental)) {
         return false;
     }
@@ -143,7 +145,7 @@ export function getConfiguredSinglePort(
     }
 }
 
-export function getConfiguredHoshidictsEnabled(
+export function getLegacyConfiguredHoshidictsEnabled(
     configPath = path.join(DEFAULT_GSM_BASE_DIR, 'config.json')
 ): boolean {
     try {
@@ -152,7 +154,7 @@ export function getConfiguredHoshidictsEnabled(
         }
 
         const raw = fs.readFileSync(configPath, 'utf8').replace(/^\uFEFF/, '');
-        return resolveHoshidictsEnabledFromConfigData(JSON.parse(raw));
+        return resolveLegacyHoshidictsEnabledFromConfigData(JSON.parse(raw));
     } catch {
         return false;
     }
