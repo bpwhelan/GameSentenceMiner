@@ -423,6 +423,11 @@ def test_add_line_to_text_log_schedules_overlay_without_waiting_for_remaining_li
         coro.close()
         return SimpleNamespace()
 
+    def fake_run_transaction(operation, *, priority, wait):
+        assert priority == gametext.DB_PRIORITY_HIGH
+        assert wait is False
+        operation(None)
+
     monkeypatch.setattr(
         gametext,
         "get_config",
@@ -460,6 +465,7 @@ def test_add_line_to_text_log_schedules_overlay_without_waiting_for_remaining_li
         ),
     )
     monkeypatch.setattr(gametext.asyncio, "run_coroutine_threadsafe", fake_run_coroutine_threadsafe)
+    monkeypatch.setattr(gametext.gsm_db, "run_transaction", fake_run_transaction)
     monkeypatch.setattr(
         gametext.obs,
         "add_longplay_srt_line",
