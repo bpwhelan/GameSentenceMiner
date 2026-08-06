@@ -263,6 +263,10 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(settingsButton?.getAttribute("aria-label")).toBe(
       "Hoshidicts settings"
     );
+    expect(settingsButton?.textContent?.trim()).toBe("");
+    expect(
+      settingsButton?.querySelector('[data-lucide-icon="book-open"]')
+    ).not.toBeNull();
     expect(button.addEventListener).toHaveBeenCalledWith(
       "click",
       expect.any(Function)

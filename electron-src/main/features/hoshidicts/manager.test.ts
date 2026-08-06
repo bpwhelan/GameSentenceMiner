@@ -448,47 +448,6 @@ describe('Hoshidicts immutable generations', () => {
     });
 });
 
-describe('Hoshidicts feature state', () => {
-    it('migrates the legacy toggle into an existing manifest exactly once', async () => {
-        const baseDir = makeTempDir();
-        const archive = writeArchive(makeTempDir(), 'alpha.zip', {
-            title: 'Alpha',
-            revision: 'one',
-            sourceLanguage: 'ja',
-        });
-        const { manager } = createHarness(baseDir);
-        await manager.importDictionary(archive);
-        const legacyManifest = readManifest(baseDir);
-        delete legacyManifest.featureEnabled;
-        fs.writeFileSync(
-            manager.manifestPath,
-            `${JSON.stringify(legacyManifest, null, 2)}\n`,
-            'utf8'
-        );
-
-        await manager.initializeFeatureState(true);
-        expect((await manager.getSnapshot()).featureEnabled).toBe(true);
-        expect(readManifest(baseDir).featureEnabled).toBe(true);
-
-        await manager.initializeFeatureState(false);
-        expect((await manager.getSnapshot()).featureEnabled).toBe(true);
-        expect((await manager.getSnapshot()).dictionaries).toHaveLength(1);
-    });
-
-    it('persists a dedicated feature switch independently of dictionary state', async () => {
-        const baseDir = makeTempDir();
-        const { manager } = createHarness(baseDir);
-
-        await manager.initializeFeatureState(false);
-        expect((await manager.getSnapshot()).featureEnabled).toBe(false);
-
-        const snapshot = await manager.setFeatureEnabled(true);
-        expect(snapshot.featureEnabled).toBe(true);
-        expect(snapshot.dictionaries).toEqual([]);
-        expect(readManifest(baseDir).featureEnabled).toBe(true);
-    });
-});
-
 describe('Hoshidicts mining profile', () => {
     it('uses defaults until an override profile is saved atomically', async () => {
         const baseDir = makeTempDir();

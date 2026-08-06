@@ -25,6 +25,7 @@ export interface HoshidictsIPCDependencies {
     getSettingsWindow: () => BrowserWindow | null;
     openSettingsWindow: () => Promise<BrowserWindow>;
     getOverlayRuntimeState: () => OverlayRuntimeState;
+    getConfiguredFeatureEnabled: () => boolean;
     getOverlayFeatureEnabledAtLaunch: () => boolean | null;
     restartOverlay: () => Promise<boolean>;
 }
@@ -76,15 +77,16 @@ function withDesktopState(
 ): HoshidictsDesktopSnapshot {
     const overlay = deps.getOverlayRuntimeState();
     const enabledAtLaunch = deps.getOverlayFeatureEnabledAtLaunch();
+    const effectiveEnabled = deps.getConfiguredFeatureEnabled();
     return {
         ...snapshot,
-        effectiveEnabled: snapshot.featureEnabled,
+        effectiveEnabled,
         overlay: {
             running: overlay.isRunning,
             restartRequired:
                 overlay.isRunning &&
                 enabledAtLaunch !== null &&
-                enabledAtLaunch !== snapshot.featureEnabled,
+                enabledAtLaunch !== effectiveEnabled,
         },
     };
 }
@@ -279,24 +281,6 @@ export function registerHoshidictsIPC(
             return await runAction(
                 deps,
                 async () => await manager.setMiningProfile(profile)
-            );
-        }
-    );
-
-    ipcMain.handle(
-        HOSHIDICTS_CHANNELS.setFeatureEnabled,
-        async (event, enabled: unknown) => {
-            assertSettingsSender(event, deps);
-            if (typeof enabled !== 'boolean') {
-                return {
-                    success: false,
-                    error: 'Hoshidicts enable state is invalid.',
-                    state: await currentState(deps),
-                } satisfies HoshidictsActionResult;
-            }
-            return await runAction(
-                deps,
-                async () => await manager.setFeatureEnabled(enabled)
             );
         }
     );

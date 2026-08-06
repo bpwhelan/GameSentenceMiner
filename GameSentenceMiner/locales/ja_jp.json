@@ -770,7 +770,11 @@
           }
         },
         "experimental": {
-          "title": "Experimental"
+          "title": "Experimental",
+          "enable_hoshidicts": {
+            "label": "Hoshidictsリーダーを有効化:",
+            "tooltip": "オーバーレイでShiftキーを押しながらホバーしてHoshidicts検索を使用します。実験機能のマスタートグルも有効にし、オーバーレイを再起動する必要があります。"
+          }
         },
         "game_pausing": {
           "enabled": {

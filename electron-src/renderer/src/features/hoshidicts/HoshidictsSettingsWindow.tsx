@@ -1,6 +1,7 @@
 import {
   ArrowDown,
   ArrowUp,
+  BookOpen,
   FileArchive,
   RefreshCw,
   RotateCw,
@@ -45,7 +46,6 @@ const DEFAULT_MINING_PROFILE: HoshidictsMiningProfile = {
 };
 
 const DEFAULT_STATE: HoshidictsDesktopSnapshot = {
-  featureEnabled: false,
   effectiveEnabled: false,
   dictionaries: [],
   recommendedDictionaries: [
@@ -177,7 +177,6 @@ export function normalizeHoshidictsDesktopState(
       : "idle";
 
   return {
-    featureEnabled: candidate.featureEnabled === true,
     effectiveEnabled: candidate.effectiveEnabled === true,
     dictionaries: Array.isArray(candidate.dictionaries)
       ? candidate.dictionaries
@@ -297,22 +296,27 @@ export function HoshidictsSettingsWindow() {
 
   useEffect(() => {
     let disposed = false;
-    void invokeIpc<HoshidictsDesktopSnapshot>(HOSHIDICTS_CHANNELS.getState)
-      .then((snapshot) => {
-        if (!disposed) {
-          applyState(snapshot, true);
-          setActionError(null);
-        }
-      })
-      .catch((error) => {
-        if (!disposed) {
-          setActionError(
-            error instanceof Error
-              ? error.message
-              : t("settings.hoshidicts.errors.load")
-          );
-        }
-      });
+    const loadState = (updateMiningDraft = false) => {
+      void invokeIpc<HoshidictsDesktopSnapshot>(HOSHIDICTS_CHANNELS.getState)
+        .then((snapshot) => {
+          if (!disposed) {
+            applyState(snapshot, updateMiningDraft);
+            setActionError(null);
+          }
+        })
+        .catch((error) => {
+          if (!disposed) {
+            setActionError(
+              error instanceof Error
+                ? error.message
+                : t("settings.hoshidicts.errors.load")
+            );
+          }
+        });
+    };
+    const refreshState = () => loadState();
+    loadState(true);
+    window.addEventListener("focus", refreshState);
 
     const unsubscribe = onIpc(
       HOSHIDICTS_CHANNELS.progress,
@@ -324,6 +328,7 @@ export function HoshidictsSettingsWindow() {
     );
     return () => {
       disposed = true;
+      window.removeEventListener("focus", refreshState);
       unsubscribe();
     };
   }, [applyState, t]);
@@ -347,17 +352,6 @@ export function HoshidictsSettingsWindow() {
       }
     },
     [applyResult, t]
-  );
-
-  const setFeatureEnabled = useCallback(
-    async (enabled: boolean) => {
-      await invokeAction(
-        HOSHIDICTS_CHANNELS.setFeatureEnabled,
-        "settings.hoshidicts.errors.operation",
-        enabled
-      );
-    },
-    [invokeAction]
   );
 
   const restartOverlay = useCallback(async () => {
@@ -417,29 +411,22 @@ export function HoshidictsSettingsWindow() {
       <header className="hoshidicts-window__header">
         <div className="hoshidicts-window__identity">
           <div className="hoshidicts-window__mark" aria-hidden="true">
-            星
+            <BookOpen size={24} strokeWidth={1.8} />
           </div>
           <div>
             <h1>{t("settings.hoshidicts.appTitle")}</h1>
             <p>{t("settings.hoshidicts.windowSubtitle")}</p>
           </div>
         </div>
-        <label className="hoshidicts-window__feature-toggle">
-          <span>
-            {state.featureEnabled
-              ? t("settings.hoshidicts.enabled")
-              : t("settings.hoshidicts.disabled")}
-          </span>
-          <input
-            type="checkbox"
-            role="switch"
-            checked={state.featureEnabled}
-            disabled={state.busy}
-            onChange={(event) => {
-              void setFeatureEnabled(event.target.checked);
-            }}
-          />
-        </label>
+        <div
+          className="hoshidicts-window__feature-status"
+          data-enabled={state.effectiveEnabled}
+          role="status"
+        >
+          {state.effectiveEnabled
+            ? t("settings.hoshidicts.enabled")
+            : t("settings.hoshidicts.disabled")}
+        </div>
       </header>
 
       {state.overlay.restartRequired ? (

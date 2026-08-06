@@ -557,9 +557,9 @@
       "appTitle": "Hoshidicts",
       "windowSubtitle": "Dictionary and mining settings",
       "title": "Hoshidicts Dictionaries",
-      "enabled": "Reader enabled",
-      "disabled": "Reader disabled",
-      "restartNote": "The reader setting takes effect after the overlay restarts.",
+      "enabled": "Enabled in GSM Experimental",
+      "disabled": "Disabled in GSM Experimental",
+      "restartNote": "The GSM Experimental setting takes effect after the overlay restarts.",
       "restartNow": "Restart Overlay",
       "restarting": "Restarting...",
       "tabs": {

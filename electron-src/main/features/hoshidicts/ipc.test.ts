@@ -15,7 +15,6 @@ const harness = vi.hoisted(() => ({
         removeDictionary: vi.fn(),
         setSchedule: vi.fn(),
         setMiningProfile: vi.fn(),
-        setFeatureEnabled: vi.fn(),
         setDictionaryEnabled: vi.fn(),
         moveDictionary: vi.fn(),
     },
@@ -45,7 +44,6 @@ vi.mock('./manager.js', () => ({
 }));
 
 const snapshot = {
-    featureEnabled: true,
     dictionaries: [],
     recommendedDictionaries: [
         { id: 'jmdict', installed: false },
@@ -110,6 +108,7 @@ async function registerHarness() {
             isRunning: true,
             source: 'manual',
         }),
+        getConfiguredFeatureEnabled: () => true,
         getOverlayFeatureEnabledAtLaunch: () => false,
         restartOverlay,
     });
@@ -132,9 +131,7 @@ describe('Hoshidicts settings IPC', () => {
     it('rejects requests from unrelated renderer windows', async () => {
         const context = await registerHarness();
         const getState = harness.handlers.get('hoshidicts.getState');
-        const setFeatureEnabled = harness.handlers.get(
-            'hoshidicts.setFeatureEnabled'
-        );
+        const setSchedule = harness.handlers.get('hoshidicts.setSchedule');
         const openSettings = harness.handlers.get(
             'hoshidicts.openSettings'
         );
@@ -143,24 +140,21 @@ describe('Hoshidicts settings IPC', () => {
             getState?.({ sender: context.foreignContents })
         ).rejects.toThrow('invalid window');
         await expect(
-            setFeatureEnabled?.(
+            setSchedule?.(
                 { sender: context.foreignContents },
-                true
+                'daily'
             )
         ).rejects.toThrow('invalid window');
         await expect(
             openSettings?.({ sender: context.settingsContents })
         ).rejects.toThrow('invalid window');
-        expect(harness.manager.setFeatureEnabled).not.toHaveBeenCalled();
+        expect(harness.manager.setSchedule).not.toHaveBeenCalled();
         expect(context.openSettingsWindow).not.toHaveBeenCalled();
     });
 
     it('serves the standalone window and validates typed actions', async () => {
         const context = await registerHarness();
         const getState = harness.handlers.get('hoshidicts.getState');
-        const setFeatureEnabled = harness.handlers.get(
-            'hoshidicts.setFeatureEnabled'
-        );
         const setDictionaryEnabled = harness.handlers.get(
             'hoshidicts.setDictionaryEnabled'
         );
@@ -174,7 +168,6 @@ describe('Hoshidicts settings IPC', () => {
         await expect(
             getState?.({ sender: context.settingsContents })
         ).resolves.toMatchObject({
-            featureEnabled: true,
             effectiveEnabled: true,
             overlay: {
                 running: true,
@@ -195,17 +188,7 @@ describe('Hoshidicts settings IPC', () => {
             harness.manager.setDictionaryEnabled
         ).not.toHaveBeenCalled();
 
-        harness.manager.setFeatureEnabled.mockResolvedValue({
-            ...snapshot,
-            featureEnabled: false,
-        });
-        await expect(
-            setFeatureEnabled?.(
-                { sender: context.settingsContents },
-                false
-            )
-        ).resolves.toMatchObject({ success: true });
-        expect(harness.manager.setFeatureEnabled).toHaveBeenCalledWith(false);
+        expect(harness.handlers.has('hoshidicts.setFeatureEnabled')).toBe(false);
 
         await expect(
             restartOverlay?.({ sender: context.settingsContents })

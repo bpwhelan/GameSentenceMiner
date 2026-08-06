@@ -1,5 +1,6 @@
 import type { BrowserWindow } from 'electron';
 
+import { getConfiguredHoshidictsEnabled } from '../../gsm_config.js';
 import { bus, getBusConnectInfo } from '../../runtime/bus_client.js';
 import {
     getOverlayHoshidictsEnabledAtLaunch,
@@ -34,6 +35,7 @@ export function registerHoshidictsFeature(deps: {
         getSettingsWindow: getHoshidictsSettingsWindow,
         openSettingsWindow: openHoshidictsSettingsWindow,
         getOverlayRuntimeState,
+        getConfiguredFeatureEnabled: getConfiguredHoshidictsEnabled,
         getOverlayFeatureEnabledAtLaunch:
             getOverlayHoshidictsEnabledAtLaunch,
         restartOverlay,

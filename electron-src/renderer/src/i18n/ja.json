@@ -539,9 +539,9 @@
       "appTitle": "Hoshidicts",
       "windowSubtitle": "辞書とマイニングの設定",
       "title": "Hoshidicts辞書",
-      "enabled": "リーダー有効",
-      "disabled": "リーダー無効",
-      "restartNote": "リーダー設定はオーバーレイの再起動後に反映されます。",
+      "enabled": "GSMの実験機能で有効",
+      "disabled": "GSMの実験機能で無効",
+      "restartNote": "GSMの実験機能設定はオーバーレイの再起動後に反映されます。",
       "restartNow": "オーバーレイを再起動",
       "restarting": "再起動中...",
       "tabs": {
