@@ -151,7 +151,7 @@ async function main() {
   }
   const rendererContents = extractFile(
     desktopAsarPath,
-    rendererBundle
+    path.normalize(rendererBundle)
   ).toString('utf8');
   if (!rendererContents.includes('hoshidicts-settings')) {
     throw new Error(
