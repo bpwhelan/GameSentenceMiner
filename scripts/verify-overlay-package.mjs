@@ -128,9 +128,12 @@ async function main() {
     packagedExperimentalSettings,
     'utf8'
   );
-  if (!packagedExperimentalContents.includes('enable_hoshidicts')) {
+  if (
+    !packagedExperimentalContents.includes('enable_hoshidicts') ||
+    !packagedExperimentalContents.includes('open_hoshidicts_settings')
+  ) {
     throw new Error(
-      'Packaged backend does not expose the Hoshidicts Experimental setting.'
+      'Packaged backend does not expose Hoshidicts enablement and its settings link.'
     );
   }
 
@@ -192,18 +195,24 @@ async function main() {
     'features/hoshidicts/reader.css',
     'features/hoshidicts/reader.js',
     'index.html',
+    'settings.html',
   ]);
   const overlayIndexContents = extractFile(
     overlayAsarPath,
     'index.html'
   ).toString('utf8');
+  const overlaySettingsContents = extractFile(
+    overlayAsarPath,
+    'settings.html'
+  ).toString('utf8');
   if (
-    !overlayIndexContents.includes('btn-hoshidicts-settings') ||
-    !overlayIndexContents.includes('data-lucide-icon="book-open"') ||
+    overlayIndexContents.includes('btn-hoshidicts-settings') ||
+    !overlaySettingsContents.includes('openHoshidictsSettings') ||
+    !overlaySettingsContents.includes('open-hoshidicts-settings') ||
     !overlayIndexContents.includes('features/hoshidicts/reader.js')
   ) {
     throw new Error(
-      'Packaged overlay does not expose the Hoshidicts settings shortcut and reader.'
+      'Packaged overlay does not expose Hoshidicts from Overlay Settings only.'
     );
   }
 

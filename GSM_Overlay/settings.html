@@ -1385,6 +1385,10 @@
           <img src="yomitan/images/icon19.png" alt="">
           Yomitan Settings
         </button>
+        <button type="button" class="docs-link-chip" id="openHoshidictsSettings"
+          title="Open Hoshidicts dictionary settings">
+          Hoshidicts Settings
+        </button>
         <button type="button" class="docs-link-chip" data-doc-key="overlay">
           Overlay Guide
         </button>
@@ -4146,6 +4150,12 @@
 
     document.getElementById("openJitenReaderSettings").addEventListener("click", () => {
       ipcRenderer.send("open-jiten-reader-settings");
+    });
+
+    document.getElementById("openHoshidictsSettings").addEventListener("click", () => {
+      void ipcRenderer.invoke("open-hoshidicts-settings").catch((error) => {
+        console.error("[Hoshidicts] Could not open settings:", error);
+      });
     });
 
     document.getElementById("openYomitanSettings").addEventListener("click", () => {

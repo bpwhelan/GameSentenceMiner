@@ -119,6 +119,7 @@ def test_convenience_announce_helpers(monkeypatch):
     electron_ipc.announce_stop()
     electron_ipc.announce_connected()
     electron_ipc.announce_status({"ready": True})
+    electron_ipc.request_hoshidicts_settings_open()
 
     assert calls, "no IPC messages were sent"
     assert calls[0][0] == (electron_ipc.FunctionName.START.value,)
@@ -128,6 +129,7 @@ def test_convenience_announce_helpers(monkeypatch):
         {"message": "Python Connected"},
     )
     assert calls[3][0] == (electron_ipc.FunctionName.GET_STATUS.value, {"ready": True})
+    assert calls[4][0] == (electron_ipc.FunctionName.OPEN_HOSHIDICTS_SETTINGS.value,)
 
 
 def test_send_install_progress_uses_active_session_id_and_clamps_progress(monkeypatch):

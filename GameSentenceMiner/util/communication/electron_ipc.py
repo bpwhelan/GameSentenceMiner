@@ -50,6 +50,7 @@ class FunctionName(Enum):
     OPEN_SETTINGS = "open_settings"
     RELOAD_SETTINGS = "reload_settings"
     OPEN_OVERLAY_SETTINGS = "open_overlay_settings"
+    OPEN_HOSHIDICTS_SETTINGS = "open_hoshidicts_settings"
     OPEN_TEXTHOOKER = "open_texthooker"
     SWITCH_PROFILE = "switch_profile"
     RELATE_SCENE_TO_PROFILE = "relate_scene_to_profile"
@@ -306,6 +307,10 @@ def announce_connected():
 
 def announce_status(status: Dict[str, Any]):
     send_message(FunctionName.GET_STATUS.value, status)
+
+
+def request_hoshidicts_settings_open():
+    send_message(FunctionName.OPEN_HOSHIDICTS_SETTINGS.value)
 
 
 def request_python_app_restart(reason: str = "", open_settings: bool = True):

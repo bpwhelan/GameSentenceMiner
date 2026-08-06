@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -25,6 +27,21 @@ def _get_force_resume_suspended_processes():
     )
 
     return force_resume_suspended_processes
+
+
+@safe_config_call(name="experimental.open_hoshidicts_settings")
+def _open_hoshidicts_settings(window: "ConfigWindow") -> None:
+    if os.getenv("GSM_ELECTRON", "").strip().lower() not in {"1", "true", "yes", "on"}:
+        QMessageBox.information(
+            window,
+            "Hoshidicts Settings",
+            "Open GSM through the desktop app to manage Hoshidicts settings.",
+        )
+        return
+
+    from GameSentenceMiner.util.communication.electron_ipc import request_hoshidicts_settings_open
+
+    request_hoshidicts_settings_open()
 
 
 @safe_config_call(name="experimental.force_resume_suspended_processes")
@@ -190,6 +207,21 @@ def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ),
         window.enable_hoshidicts_check,
     )
+    hoshidicts_i18n = tabs_i18n.get("experimental", {}).get("open_hoshidicts_settings", {})
+    window.open_hoshidicts_settings_button = QPushButton(hoshidicts_i18n.get("label", "Open Hoshidicts Settings"))
+    window.open_hoshidicts_settings_button.setToolTip(
+        hoshidicts_i18n.get(
+            "tooltip",
+            "Manage Hoshidicts dictionaries, updates, and mining settings in its dedicated window.",
+        )
+    )
+    window.open_hoshidicts_settings_button.clicked.connect(
+        safe_config_callback(
+            lambda: _open_hoshidicts_settings(window),
+            name="experimental.open_hoshidicts_settings_button",
+        )
+    )
+    hoshidicts_layout.addRow(window.open_hoshidicts_settings_button)
     layout.addRow(hoshidicts_group)
 
     # -- Tokenization group --

@@ -857,6 +857,10 @@
           "enable_hoshidicts": {
             "label": "Enable Hoshidicts Reader:",
             "tooltip": "Use Hoshidicts for Shift-hover lookups in the overlay. The master experimental toggle must also be enabled, and the overlay must be restarted."
+          },
+          "open_hoshidicts_settings": {
+            "label": "Open Hoshidicts Settings",
+            "tooltip": "Manage Hoshidicts dictionaries, updates, and mining settings in its dedicated window."
           }
         },
         "game_pausing": {

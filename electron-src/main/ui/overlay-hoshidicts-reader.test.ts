@@ -58,20 +58,20 @@ function runOverlayFeatureBootstrap(enabled: boolean) {
   return { addClass, documentElement, window };
 }
 
-function loadHoshidictsSettingsButtonWiring() {
-  const html = fs.readFileSync(
-    path.resolve(process.cwd(), "GSM_Overlay/index.html"),
+function loadHoshidictsSettingsLinkWiring() {
+  const settingsHtml = fs.readFileSync(
+    path.resolve(process.cwd(), "GSM_Overlay/settings.html"),
     "utf8"
   );
-  const start = html.indexOf(
-    'document.getElementById("btn-hoshidicts-settings")'
+  const start = settingsHtml.indexOf(
+    'document.getElementById("openHoshidictsSettings")'
   );
-  const end = html.indexOf(
-    '\n\n  document.getElementById("btn-yomitan")',
+  const end = settingsHtml.indexOf(
+    '\n\n    document.getElementById("openYomitanSettings")',
     start
   );
   if (start < 0 || end < 0) {
-    throw new Error("Unable to find the Hoshidicts settings button wiring");
+    throw new Error("Unable to find the Hoshidicts settings link wiring");
   }
 
   let clickListener: (() => void) | null = null;
@@ -84,18 +84,27 @@ function loadHoshidictsSettingsButtonWiring() {
     )
   };
   vm.runInNewContext(
-    html.slice(start, end),
+    settingsHtml.slice(start, end),
     {
       console,
       document: {
         getElementById: (id: string) =>
-          id === "btn-hoshidicts-settings" ? button : null
+          id === "openHoshidictsSettings" ? button : null
       },
       ipcRenderer: { invoke }
     },
-    { filename: "GSM_Overlay/index.html#btn-hoshidicts-settings" }
+    { filename: "GSM_Overlay/settings.html#openHoshidictsSettings" }
   );
-  return { button, click: () => clickListener?.(), html, invoke };
+  return {
+    button,
+    click: () => clickListener?.(),
+    invoke,
+    overlayHtml: fs.readFileSync(
+      path.resolve(process.cwd(), "GSM_Overlay/index.html"),
+      "utf8"
+    ),
+    settingsHtml
+  };
 }
 
 class FakeWebSocket {
@@ -251,22 +260,17 @@ afterEach(() => {
 });
 
 describe("Hoshidicts safe popup rendering", () => {
-  it("keeps a dedicated settings button available even when the reader is disabled", async () => {
-    const { button, click, html, invoke } =
-      loadHoshidictsSettingsButtonWiring();
-    const document = new JSDOM(html).window.document;
+  it("links to dedicated settings from Overlay Settings instead of the overlay toolbar", async () => {
+    const { button, click, invoke, overlayHtml, settingsHtml } =
+      loadHoshidictsSettingsLinkWiring();
+    const document = new JSDOM(settingsHtml).window.document;
     const settingsButton = document.querySelector(
-      "#btn-hoshidicts-settings"
+      "#openHoshidictsSettings"
     );
 
+    expect(overlayHtml).not.toContain('id="btn-hoshidicts-settings"');
     expect(settingsButton).not.toBeNull();
-    expect(settingsButton?.getAttribute("aria-label")).toBe(
-      "Hoshidicts settings"
-    );
-    expect(settingsButton?.textContent?.trim()).toBe("");
-    expect(
-      settingsButton?.querySelector('[data-lucide-icon="book-open"]')
-    ).not.toBeNull();
+    expect(settingsButton?.textContent?.trim()).toBe("Hoshidicts Settings");
     expect(button.addEventListener).toHaveBeenCalledWith(
       "click",
       expect.any(Function)
