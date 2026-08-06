@@ -91,12 +91,8 @@ vi.mock('../runtime/bus_client.js', () => ({
     }),
 }));
 
-vi.mock('../features/hoshidicts/manager.js', () => ({
-    getHoshidictsManager: () => ({
-        getSnapshot: async () => ({
-            featureEnabled: hoshidictsEnabledValue,
-        }),
-    }),
+vi.mock('../gsm_config.js', () => ({
+    getConfiguredHoshidictsEnabled: () => hoshidictsEnabledValue,
 }));
 
 function createProcessHandle() {

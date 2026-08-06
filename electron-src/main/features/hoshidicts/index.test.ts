@@ -25,6 +25,10 @@ vi.mock('../../runtime/bus_client.js', () => ({
     getBusConnectInfo: () => harness.busInfo,
 }));
 
+vi.mock('../../gsm_config.js', () => ({
+    getConfiguredHoshidictsEnabled: () => true,
+}));
+
 vi.mock('../../ui/front.js', () => ({
     getOverlayHoshidictsEnabledAtLaunch: () => false,
     getOverlayRuntimeState: () => ({
@@ -75,6 +79,9 @@ describe('Hoshidicts feature registration', () => {
             getMainWindow: () => null,
         });
         expect(harness.registerIPC).toHaveBeenCalledOnce();
+        expect(
+            harness.registerIPC.mock.calls[0][0].getConfiguredFeatureEnabled()
+        ).toBe(true);
         expect(harness.busHandler).not.toBeNull();
 
         await expect(

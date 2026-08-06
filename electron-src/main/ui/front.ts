@@ -35,7 +35,7 @@ import {
     waitForInProcessOverlayShutdown,
 } from '../overlay_runtime.js';
 import { getBusConnectInfo } from '../runtime/bus_client.js';
-import { getHoshidictsManager } from '../features/hoshidicts/manager.js';
+import { getConfiguredHoshidictsEnabled } from '../gsm_config.js';
 
 const OCR_CONFIG_DIR = path.join(BASE_DIR, 'ocr_config');
 let overlayProcess: ChildProcess | null = null;
@@ -360,17 +360,7 @@ function spawnSharedOverlayRuntime(
 export async function runOverlayWithSource(
     source: OverlayLaunchSource = 'manual'
 ): Promise<boolean> {
-    let hoshidictsEnabled = false;
-    try {
-        hoshidictsEnabled = (
-            await getHoshidictsManager().getSnapshot()
-        ).featureEnabled;
-    } catch (error) {
-        console.warn(
-            'Could not read Hoshidicts state before launching the overlay:',
-            error
-        );
-    }
+    const hoshidictsEnabled = getConfiguredHoshidictsEnabled();
     const hoshidictsEnvironment = buildHoshidictsOverlayEnvironment(
         hoshidictsEnabled
     );

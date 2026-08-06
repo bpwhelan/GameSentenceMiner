@@ -8,7 +8,6 @@ export const HOSHIDICTS_CHANNELS = {
     removeDictionary: 'hoshidicts.remove',
     setSchedule: 'hoshidicts.setSchedule',
     setMiningProfile: 'hoshidicts.setMiningProfile',
-    setFeatureEnabled: 'hoshidicts.setFeatureEnabled',
     setDictionaryEnabled: 'hoshidicts.setDictionaryEnabled',
     moveDictionary: 'hoshidicts.moveDictionary',
     restartOverlay: 'hoshidicts.restartOverlay',
@@ -76,7 +75,6 @@ export interface HoshidictsProgress {
 }
 
 export interface HoshidictsManagerSnapshot {
-    featureEnabled: boolean;
     dictionaries: HoshidictsDictionaryState[];
     recommendedDictionaries: HoshidictsRecommendedDictionaryState[];
     miningProfile: HoshidictsMiningProfile;

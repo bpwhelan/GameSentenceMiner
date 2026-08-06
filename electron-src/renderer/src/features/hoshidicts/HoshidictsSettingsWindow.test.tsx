@@ -15,7 +15,6 @@ const invokeMock = vi.fn();
 const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
 
 const state = {
-  featureEnabled: true,
   effectiveEnabled: true,
   dictionaries: [
     {
@@ -157,10 +156,11 @@ describe("HoshidictsSettingsWindow", () => {
     });
   }
 
-  it("owns dictionary, update, enablement, ordering, and restart controls", async () => {
+  it("owns dictionary, update, ordering, and restart controls", async () => {
     await render();
 
     expect(container.querySelector("h1")?.textContent).toBe("Hoshidicts");
+    expect(container.textContent).toContain("Enabled in GSM Experimental");
     expect(container.textContent).toContain("Recommended dictionaries");
     expect(container.textContent).toContain("Installed dictionaries");
     expect(container.textContent).toContain("JMdict");
@@ -189,9 +189,6 @@ describe("HoshidictsSettingsWindow", () => {
     const schedule = container.querySelector<HTMLSelectElement>(
       "#hoshidicts-update-schedule"
     );
-    const featureSwitch = container.querySelector<HTMLInputElement>(
-      'input[role="switch"]'
-    );
     const dictionaryToggles = container.querySelectorAll<HTMLInputElement>(
       ".hoshidicts-dictionary-row__toggle input"
     );
@@ -203,7 +200,6 @@ describe("HoshidictsSettingsWindow", () => {
       restartButton?.click();
       removeButton?.click();
       moveDownButton?.click();
-      featureSwitch?.click();
       dictionaryToggles[1]?.click();
       if (schedule) {
         schedule.value = "monthly";
@@ -228,10 +224,6 @@ describe("HoshidictsSettingsWindow", () => {
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.moveDictionary,
       { id: "jmdict-id", direction: 1 }
-    );
-    expect(invokeMock).toHaveBeenCalledWith(
-      HOSHIDICTS_CHANNELS.setFeatureEnabled,
-      false
     );
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.setDictionaryEnabled,
@@ -293,6 +285,25 @@ describe("HoshidictsSettingsWindow", () => {
         tags: ["hoshidicts", "custom"]
       })
     );
+  });
+
+  it("refreshes the GSM Experimental status when the window regains focus", async () => {
+    await render();
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === HOSHIDICTS_CHANNELS.getState) {
+        return { ...state, effectiveEnabled: false };
+      }
+      return { success: true, state };
+    });
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Disabled in GSM Experimental");
+    expect(invokeMock).toHaveBeenCalledWith(HOSHIDICTS_CHANNELS.getState);
   });
 
   it.each([

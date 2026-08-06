@@ -41,7 +41,6 @@ interface PersistedDictionary extends HoshidictsDictionaryState {
 
 interface PersistedManifest {
     version: 1;
-    featureEnabled: boolean;
     schedule: HoshidictsSchedule;
     lastCheck: string | null;
     nextCheck: string | null;
@@ -153,7 +152,6 @@ const SCHEDULE_INTERVALS: Record<Exclude<HoshidictsSchedule, 'off'>, number> = {
 function emptyManifest(): PersistedManifest {
     return {
         version: MANIFEST_VERSION,
-        featureEnabled: false,
         schedule: 'off',
         lastCheck: null,
         nextCheck: null,
@@ -975,7 +973,6 @@ export class HoshidictsManager {
             manifest = await this.readManifest();
         } catch (error) {
             return {
-                featureEnabled: false,
                 dictionaries: [],
                 recommendedDictionaries:
                     RECOMMENDED_HOSHIDICTS_DICTIONARIES.map(({ id }) => ({
@@ -1003,46 +1000,6 @@ export class HoshidictsManager {
             miningProfile,
             profileError
         );
-    }
-
-    async initializeFeatureState(
-        legacyFeatureEnabled: boolean
-    ): Promise<HoshidictsManagerSnapshot> {
-        await this.enqueue('saving', async () => {
-            const raw = await this.readManifestRaw();
-            if (raw !== null) {
-                const parsed: unknown = JSON.parse(
-                    raw.toString('utf8').replace(/^\uFEFF/, '')
-                );
-                if (
-                    isRecord(parsed) &&
-                    typeof parsed.featureEnabled === 'boolean'
-                ) {
-                    return;
-                }
-            }
-
-            const manifest = await this.readManifest();
-            await this.atomicWriteManifest({
-                ...manifest,
-                featureEnabled: legacyFeatureEnabled,
-            });
-        });
-        return await this.getSnapshot();
-    }
-
-    async setFeatureEnabled(enabled: boolean): Promise<HoshidictsManagerSnapshot> {
-        await this.enqueue('saving', async () => {
-            const manifest = await this.readManifest();
-            if (manifest.featureEnabled === enabled) {
-                return;
-            }
-            await this.atomicWriteManifest({
-                ...manifest,
-                featureEnabled: enabled,
-            });
-        });
-        return await this.getSnapshot();
     }
 
     async importDictionary(archivePath: string): Promise<HoshidictsManagerSnapshot> {
@@ -1422,7 +1379,6 @@ export class HoshidictsManager {
         profileError: string | null = null
     ): HoshidictsManagerSnapshot {
         return {
-            featureEnabled: manifest.featureEnabled,
             dictionaries: manifest.dictionaries.map(
                 ({
                     id,
@@ -1540,7 +1496,6 @@ export class HoshidictsManager {
 
         return {
             version: MANIFEST_VERSION,
-            featureEnabled: parsed.featureEnabled === true,
             schedule: normalizeSchedule(parsed.schedule),
             lastCheck: normalizeDate(parsed.lastCheck),
             nextCheck: normalizeDate(parsed.nextCheck),
@@ -1930,11 +1885,8 @@ export function getHoshidictsManager(): HoshidictsManager {
     return defaultManager;
 }
 
-export async function startHoshidictsManager(
-    legacyFeatureEnabled = false
-): Promise<void> {
+export async function startHoshidictsManager(): Promise<void> {
     const manager = getHoshidictsManager();
-    await manager.initializeFeatureState(legacyFeatureEnabled);
     manager.startScheduler();
 }
 

@@ -95,6 +95,14 @@ async function main() {
       'web',
       'hoshidicts_api.py'
     ),
+    path.join(
+      packagedResourcesDir,
+      'GameSentenceMiner',
+      'ui',
+      'config',
+      'tabs',
+      'experimental.py'
+    ),
   ];
 
   const missing = [];
@@ -106,6 +114,24 @@ async function main() {
 
   if (missing.length > 0) {
     throw new Error(`Packaged overlay is incomplete. Missing:\n${missing.map((item) => `  - ${item}`).join('\n')}`);
+  }
+
+  const packagedExperimentalSettings = path.join(
+    packagedResourcesDir,
+    'GameSentenceMiner',
+    'ui',
+    'config',
+    'tabs',
+    'experimental.py'
+  );
+  const packagedExperimentalContents = await fs.readFile(
+    packagedExperimentalSettings,
+    'utf8'
+  );
+  if (!packagedExperimentalContents.includes('enable_hoshidicts')) {
+    throw new Error(
+      'Packaged backend does not expose the Hoshidicts Experimental setting.'
+    );
   }
 
   const sourcePreReleaseMetadata = path.join(
@@ -173,6 +199,7 @@ async function main() {
   ).toString('utf8');
   if (
     !overlayIndexContents.includes('btn-hoshidicts-settings') ||
+    !overlayIndexContents.includes('data-lucide-icon="book-open"') ||
     !overlayIndexContents.includes('features/hoshidicts/reader.js')
   ) {
     throw new Error(

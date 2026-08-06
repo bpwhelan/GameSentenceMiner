@@ -132,10 +132,7 @@ import {
     startHoshidictsManager,
     stopHoshidictsManager,
 } from './features/hoshidicts/index.js';
-import {
-    getLegacyConfiguredHoshidictsEnabled,
-    getConfiguredSinglePort,
-} from './gsm_config.js';
+import { getConfiguredSinglePort } from './gsm_config.js';
 import {
     getStatusTrayIconPath,
     getTrayBaseIconPath,
@@ -2536,9 +2533,7 @@ if (!app.requestSingleInstanceLock()) {
             // the optional overlay. Starting it first makes gamepad hotkeys
             // available to every child process from the beginning of startup.
             await startInputServer();
-            await startHoshidictsManager(
-                getLegacyConfiguredHoshidictsEnabled()
-            );
+            await startHoshidictsManager();
             try {
                 await startBus();
                 wireBackendBus();
