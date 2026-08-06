@@ -34,7 +34,10 @@ const {
 const {
   appendHoshidictsDiagnostic,
   normalizeConsoleMessageArguments,
-} = require('./hoshidicts_diagnostics');
+} = require('./features/hoshidicts/diagnostics');
+const {
+  requestHoshidictsSettingsOpen,
+} = require('./features/hoshidicts/desktop_bridge');
 const { shouldRevealAutomaticOverlay, shouldShowOverlayOnReady } = require('./automatic_visibility');
 const { URL } = require('url');
 
@@ -7094,6 +7097,30 @@ async function startOverlayAppImpl() {
 
   ipcMain.on("open-yomitan-settings", () => {
     openYomitanSettings();
+  });
+
+  ipcMain.handle("open-hoshidicts-settings", async (event) => {
+    if (
+      !mainWindow ||
+      mainWindow.isDestroyed() ||
+      event.sender !== mainWindow.webContents
+    ) {
+      throw new Error("Hoshidicts settings request came from an invalid window.");
+    }
+    try {
+      return await requestHoshidictsSettingsOpen();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String(error);
+      await dialog.showMessageBox(mainWindow, {
+        type: "error",
+        title: "Hoshidicts Settings",
+        message: "Could not open Hoshidicts settings.",
+        detail: message,
+        buttons: ["OK"],
+      });
+      throw error;
+    }
   });
 
   ipcMain.on("open-jiten-reader-settings", () => {

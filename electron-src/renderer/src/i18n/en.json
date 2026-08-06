@@ -554,10 +554,18 @@
       "unknown": "Unknown"
     },
     "hoshidicts": {
+      "appTitle": "Hoshidicts",
+      "windowSubtitle": "Dictionary and mining settings",
       "title": "Hoshidicts Dictionaries",
       "enabled": "Reader enabled",
       "disabled": "Reader disabled",
       "restartNote": "The reader setting takes effect after the overlay restarts.",
+      "restartNow": "Restart Overlay",
+      "restarting": "Restarting...",
+      "tabs": {
+        "dictionaries": "Dictionaries",
+        "mining": "Anki Mining"
+      },
       "import": "Import Dictionary...",
       "checkNow": "Check for Updates Now",
       "schedule": "Global update schedule:",
@@ -578,12 +586,18 @@
       "terms": "{count} terms",
       "updatable": "Automatic updates",
       "manualOnly": "Manual updates only",
+      "priorityHint": "Higher dictionaries are searched first.",
+      "enableDictionary": "Enable {title}",
+      "moveUp": "Move up",
+      "moveDown": "Move down",
       "remove": "Remove",
       "unknown": "Unknown",
       "legacyJapanese": "Japanese (legacy)",
       "recommended": {
         "title": "Recommended dictionaries",
+        "subtitle": "Maintained Japanese term dictionaries",
         "install": "Install JMdict + JMnedict",
+        "installOne": "Install",
         "installed": "Installed",
         "notInstalled": "Not installed",
         "jmdict": "JMdict English (without proper names)",
@@ -629,7 +643,8 @@
         "update": "Dictionary update check failed.",
         "schedule": "Failed to save the dictionary update schedule.",
         "recommended": "Failed to install the recommended dictionaries.",
-        "miningProfile": "Failed to save the Hoshidicts mining profile."
+        "miningProfile": "Failed to save the Hoshidicts mining profile.",
+        "restart": "Failed to restart the overlay."
       }
     },
     "backup": {

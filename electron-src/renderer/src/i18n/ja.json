@@ -536,10 +536,18 @@
       "unknown": "不明"
     },
     "hoshidicts": {
+      "appTitle": "Hoshidicts",
+      "windowSubtitle": "辞書とマイニングの設定",
       "title": "Hoshidicts辞書",
       "enabled": "リーダー有効",
       "disabled": "リーダー無効",
       "restartNote": "リーダー設定はオーバーレイの再起動後に反映されます。",
+      "restartNow": "オーバーレイを再起動",
+      "restarting": "再起動中...",
+      "tabs": {
+        "dictionaries": "辞書",
+        "mining": "Ankiマイニング"
+      },
       "import": "辞書をインポート...",
       "checkNow": "今すぐアップデートを確認",
       "schedule": "共通アップデート間隔:",
@@ -560,12 +568,18 @@
       "terms": "{count}語",
       "updatable": "自動アップデート",
       "manualOnly": "手動アップデートのみ",
+      "priorityHint": "上にある辞書から優先して検索します。",
+      "enableDictionary": "{title}を有効化",
+      "moveUp": "上へ移動",
+      "moveDown": "下へ移動",
       "remove": "削除",
       "unknown": "不明",
       "legacyJapanese": "日本語（レガシー）",
       "recommended": {
         "title": "おすすめの辞書",
+        "subtitle": "継続的に更新される日本語の単語辞書",
         "install": "JMdict と JMnedict をインストール",
+        "installOne": "インストール",
         "installed": "インストール済み",
         "notInstalled": "未インストール",
         "jmdict": "JMdict 英語版（固有名詞なし）",
@@ -611,7 +625,8 @@
         "update": "辞書のアップデート確認に失敗しました。",
         "schedule": "辞書のアップデート間隔を保存できませんでした。",
         "recommended": "おすすめの辞書をインストールできませんでした。",
-        "miningProfile": "Hoshidictsマイニングプロファイルを保存できませんでした。"
+        "miningProfile": "Hoshidictsマイニングプロファイルを保存できませんでした。",
+        "restart": "オーバーレイを再起動できませんでした。"
       }
     },
     "backup": {

@@ -10,11 +10,11 @@ the following projects:
   `GSM_Overlay/input_server/hoshidicts/LICENSE`.
 - [Hoshi Reader](https://github.com/Manhhao/Hoshi-Reader/tree/c31c9d0ce376ff83bf6a91d908bf9f8e0fb4947b/Features/Popup),
   whose popup structure and furigana presentation informed
-  `hoshidicts_reader.js` and `hoshidicts_reader.css`. Hoshi Reader is licensed
+  `features/hoshidicts/reader.js` and `features/hoshidicts/reader.css`. Hoshi Reader is licensed
   under GPL-3.0.
 - [Yomitan GSM](https://github.com/bpwhelan/yomitan-gsm/tree/006dd464a50a468c71093dc8a8311f6110bf1996),
   the pinned source base for the bundled Yomitan extension and the dark popup
-  palette adapted by `hoshidicts_reader.css`. Yomitan GSM is licensed under
+  palette adapted by `features/hoshidicts/reader.css`. Yomitan GSM is licensed under
   GPL-3.0-or-later.
 
 The adapted reader source and stylesheet carry

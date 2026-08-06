@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from PyQt6.QtCore import QEvent, Qt
 from PyQt6.QtGui import QKeyEvent, QKeySequence
-from PyQt6.QtWidgets import QApplication, QCheckBox, QLabel, QMessageBox
+from PyQt6.QtWidgets import QApplication, QCheckBox, QMessageBox
 
 from GameSentenceMiner.ui.config_gui_qt import ClearableKeySequenceEdit, ConfigWindow
 from GameSentenceMiner.util.config.configuration import Locale
@@ -441,30 +441,6 @@ def test_reset_to_default_handles_numeric_screenshot_defaults(monkeypatch) -> No
         assert window.screenshot_width_edit.text() == "0"
         assert window.screenshot_height_edit.text() == "0"
         assert window.screenshot_quality_edit.text() == "85"
-    finally:
-        window.close()
-        app.processEvents()
-
-
-def test_experimental_settings_expose_hoshidicts_reader(monkeypatch) -> None:
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    app = QApplication.instance() or QApplication([])
-
-    monkeypatch.setattr(
-        "GameSentenceMiner.ui.config_gui_qt.get_latest_version",
-        lambda: "test-version",
-    )
-    monkeypatch.setattr(ConfigWindow, "_refresh_anki_model_list", lambda self, preserve_selection=True: None)
-    monkeypatch.setattr(ConfigWindow, "_load_monitors", lambda self, preferred_index=None: None)
-    monkeypatch.setattr(ConfigWindow, "get_online_models", lambda self: None)
-
-    window = ConfigWindow()
-    try:
-        experimental_tab = window._create_experimental_tab()
-        labels = [label.text() for label in experimental_tab.findChildren(QLabel)]
-
-        assert "Enable Hoshidicts Reader:" in labels
-        assert window.enable_hoshidicts_check.parent() is not None
     finally:
         window.close()
         app.processEvents()

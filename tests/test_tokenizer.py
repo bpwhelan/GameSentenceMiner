@@ -151,8 +151,7 @@ def test_sudachi_dictionary_normalization_supports_small_core_and_full() -> None
 
 
 def test_experimental_config_serializes_sudachi_default_and_mecab_selection() -> None:
-    assert Experimental().to_dict()["enable_hoshidicts"] is False
-    assert Experimental(enable_hoshidicts=True).to_dict()["enable_hoshidicts"] is True
+    assert "enable_hoshidicts" not in Experimental().to_dict()
     assert Experimental().to_dict()["tokenization_backend"] == "sudachi"
     assert Experimental(tokenization_backend="mecab").to_dict()["tokenization_backend"] == "mecab"
     assert Experimental().to_dict()["tokenization_sudachi_dictionary"] == "small"

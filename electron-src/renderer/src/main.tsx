@@ -2,6 +2,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import { SceneSwitchConflictWindow } from "./components/SceneSwitchConflictWindow";
+import { HoshidictsSettingsWindow } from "./features/hoshidicts/HoshidictsSettingsWindow";
 import { I18nProvider } from "./i18n";
 import { applyTheme } from "./lib/theme";
 import "./styles.css";
@@ -39,14 +40,22 @@ async function getInitialSettings(): Promise<{ locale: string; theme?: string }>
 }
 
 const root = createRoot(document.getElementById("root")!);
-const isSceneSwitcherPicker = new URLSearchParams(window.location.search).get("window") === "scene-switcher-picker";
+const windowTarget = new URLSearchParams(window.location.search).get("window");
+const isSceneSwitcherPicker = windowTarget === "scene-switcher-picker";
+const isHoshidictsSettings = windowTarget === "hoshidicts-settings";
 
 void getInitialSettings().then(({ locale, theme }) => {
   // Apply the persisted theme before first paint to avoid a flash.
   applyTheme(theme);
   root.render(
     <I18nProvider initialLocale={locale}>
-      {isSceneSwitcherPicker ? <SceneSwitchConflictWindow /> : <App />}
+      {isSceneSwitcherPicker ? (
+        <SceneSwitchConflictWindow />
+      ) : isHoshidictsSettings ? (
+        <HoshidictsSettingsWindow />
+      ) : (
+        <App />
+      )}
     </I18nProvider>
   );
 });

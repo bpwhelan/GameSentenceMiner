@@ -4,9 +4,9 @@ import * as path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
     DEFAULT_GSM_SINGLE_PORT,
-    getConfiguredHoshidictsEnabled,
+    getLegacyConfiguredHoshidictsEnabled,
     getConfiguredSinglePort,
-    resolveHoshidictsEnabledFromConfigData,
+    resolveLegacyHoshidictsEnabledFromConfigData,
     resolveSinglePortFromConfigData,
 } from './gsm_config.js';
 
@@ -65,10 +65,10 @@ describe('GSM config port helpers', () => {
     });
 });
 
-describe('Hoshidicts experimental gate', () => {
+describe('legacy Hoshidicts feature migration', () => {
     it('requires both the master and Hoshidicts toggles', () => {
         expect(
-            resolveHoshidictsEnabledFromConfigData({
+            resolveLegacyHoshidictsEnabledFromConfigData({
                 experimental: {
                     enable_experimental_features: true,
                     enable_hoshidicts: true,
@@ -76,7 +76,7 @@ describe('Hoshidicts experimental gate', () => {
             })
         ).toBe(true);
         expect(
-            resolveHoshidictsEnabledFromConfigData({
+            resolveLegacyHoshidictsEnabledFromConfigData({
                 experimental: {
                     enable_experimental_features: false,
                     enable_hoshidicts: true,
@@ -84,7 +84,7 @@ describe('Hoshidicts experimental gate', () => {
             })
         ).toBe(false);
         expect(
-            resolveHoshidictsEnabledFromConfigData({
+            resolveLegacyHoshidictsEnabledFromConfigData({
                 experimental: {
                     enable_experimental_features: true,
                     enable_hoshidicts: false,
@@ -95,7 +95,7 @@ describe('Hoshidicts experimental gate', () => {
 
     it('fails closed for missing or malformed config files', () => {
         expect(
-            getConfiguredHoshidictsEnabled(
+            getLegacyConfiguredHoshidictsEnabled(
                 path.join(os.tmpdir(), 'missing-gsm-hoshidicts-config.json')
             )
         ).toBe(false);
@@ -106,6 +106,6 @@ describe('Hoshidicts experimental gate', () => {
                 enable_hoshidicts: true,
             },
         });
-        expect(getConfiguredHoshidictsEnabled(configPath)).toBe(true);
+        expect(getLegacyConfiguredHoshidictsEnabled(configPath)).toBe(true);
     });
 });
