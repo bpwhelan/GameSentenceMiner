@@ -33,7 +33,7 @@ function loadReaderModule(window: Window) {
   return module.exports;
 }
 
-function runOverlayFeatureBootstrap(enabled: boolean) {
+function runOverlayFeatureBootstrap(enabled: boolean, lookupMode?: string) {
   const html = fs.readFileSync(
     path.resolve(process.cwd(), "GSM_Overlay/index.html"),
     "utf8"
@@ -52,10 +52,49 @@ function runOverlayFeatureBootstrap(enabled: boolean) {
   const window = {} as Record<string, unknown>;
   vm.runInNewContext(script, {
     document: { documentElement },
-    process: { env: { GSM_HOSHIDICTS_ENABLED: enabled ? "1" : "0" } },
+    process: {
+      env: {
+        GSM_HOSHIDICTS_ENABLED: enabled ? "1" : "0",
+        GSM_HOSHIDICTS_LOOKUP_MODE: lookupMode
+      }
+    },
     window
   });
   return { addClass, documentElement, window };
+}
+
+function runHoshidictsReaderConfiguration(lookupMode: string) {
+  const html = fs.readFileSync(
+    path.resolve(process.cwd(), "GSM_Overlay/index.html"),
+    "utf8"
+  );
+  const script = [...html.matchAll(/<script>([\s\S]*?)<\/script>/gu)]
+    .map((match) => match[1])
+    .find((source) => source.includes("configureHoshidictsReader(settings)"));
+  if (!script) {
+    throw new Error("Unable to find the Hoshidicts reader configuration script");
+  }
+
+  const createHoshidictsReader = vi.fn(() => ({}));
+  const window = {
+    gsmHoshidictsLookupMode: lookupMode,
+    gsmHoshidictsReaderEnabled: true,
+    GSMHoshidictsReader: {
+      createHoshidictsMiningClient: vi.fn(() => ({
+        getStatus: vi.fn(),
+        mine: vi.fn()
+      })),
+      createHoshidictsReader,
+      resolveGsmApiBaseUrl: vi.fn(() => "http://127.0.0.1:7275")
+    }
+  } as Record<string, any>;
+  const context = { console, window } as Record<string, any>;
+  vm.runInNewContext(script, context, {
+    filename: "GSM_Overlay/index.html#configureHoshidictsReader"
+  });
+  context.configureHoshidictsReader({ gamepadServerPort: 7276 });
+
+  return { createHoshidictsReader, window };
 }
 
 function loadHoshidictsSettingsLinkWiring() {
@@ -284,6 +323,7 @@ describe("Hoshidicts safe popup rendering", () => {
   it("sets the scanner-suppression marker before the overlay scripts load", () => {
     const enabled = runOverlayFeatureBootstrap(true);
     expect(enabled.window.gsmHoshidictsReaderEnabled).toBe(true);
+    expect(enabled.window.gsmHoshidictsLookupMode).toBe("shift");
     expect(enabled.addClass).toHaveBeenCalledWith("gsm-hoshidicts-enabled");
     expect(enabled.documentElement.dataset.gsmHoshidictsEnabled).toBe("true");
 
@@ -291,6 +331,20 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(disabled.window.gsmHoshidictsReaderEnabled).toBe(false);
     expect(disabled.addClass).not.toHaveBeenCalled();
     expect(disabled.documentElement.dataset.gsmHoshidictsEnabled).toBeUndefined();
+  });
+
+  it("normalizes and passes the configured Hoshidicts lookup mode", () => {
+    expect(
+      runOverlayFeatureBootstrap(true, "hover").window.gsmHoshidictsLookupMode
+    ).toBe("hover");
+    expect(
+      runOverlayFeatureBootstrap(true, "invalid").window.gsmHoshidictsLookupMode
+    ).toBe("shift");
+
+    const configured = runHoshidictsReaderConfiguration("hover");
+    expect(configured.createHoshidictsReader).toHaveBeenCalledWith(
+      expect.objectContaining({ lookupMode: "hover" })
+    );
   });
 
   it("renders plain HTML-like glossary text literally and allows only text tags", () => {
@@ -414,6 +468,91 @@ describe("Hoshidicts safe popup rendering", () => {
 });
 
 describe("Hoshidicts Shift-hover scanner", () => {
+  it("looks up without a modifier in hover mode and reports its activation mode", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn()
+    };
+
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      logger
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+
+    expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({
+      type: "hoshidicts_lookup",
+      text: "食べる"
+    });
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining('"requiresShift":false')
+    );
+    expect(logger.info).not.toHaveBeenCalledWith(
+      expect.stringContaining("[HoshidictsReader] hover.shift-required")
+    );
+    reader.destroy();
+  });
+
+  it("treats an invalid lookup mode as Shift activation", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn()
+    };
+
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "invalid",
+      logger
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+
+    expect(socket.sent).toHaveLength(1);
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining('"requiresShift":true')
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining("[HoshidictsReader] hover.shift-required")
+    );
+    reader.destroy();
+  });
+
   it("logs initialization, the Shift requirement, socket state, and lookup outcome", async () => {
     vi.useFakeTimers();
     const dom = createDom();

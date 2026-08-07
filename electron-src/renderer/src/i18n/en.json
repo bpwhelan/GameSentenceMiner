@@ -559,12 +559,18 @@
       "title": "Hoshidicts Dictionaries",
       "enabled": "Enabled in GSM Experimental",
       "disabled": "Disabled in GSM Experimental",
-      "restartNote": "The GSM Experimental setting takes effect after the overlay restarts.",
+      "restartNote": "This change takes effect after the overlay restarts.",
       "restartNow": "Restart Overlay",
       "restarting": "Restarting...",
       "tabs": {
         "dictionaries": "Dictionaries",
         "mining": "Anki Mining"
+      },
+      "lookup": {
+        "title": "Lookup activation",
+        "requireShift": "Hold Shift to look up",
+        "shiftHint": "Hoshidicts looks up text only while Shift is held.",
+        "hoverHint": "Hoshidicts looks up text automatically when you hover, like Yomitan."
       },
       "import": "Import Dictionary...",
       "checkNow": "Check for Updates Now",
@@ -606,8 +612,16 @@
       "mining": {
         "title": "Anki mining profile",
         "enabled": "Enable mining",
+        "checkingAnki": "Checking AnkiConnect...",
+        "ankiConnected": "AnkiConnect connected",
+        "ankiDisconnected": "AnkiConnect disconnected",
+        "refreshAnki": "Refresh",
+        "gsmAnkiDisabled": "AnkiConnect is reachable, but Anki integration is disabled in GSM settings.",
         "deck": "Deck",
         "noteType": "Note type",
+        "selectNoteType": "Select a note type",
+        "missingOption": "{name} (missing from Anki)",
+        "noField": "Do not fill",
         "tags": "Extra tags",
         "duplicates": "Duplicates",
         "preventDuplicates": "Prevent duplicates",
@@ -643,6 +657,8 @@
         "update": "Dictionary update check failed.",
         "schedule": "Failed to save the dictionary update schedule.",
         "recommended": "Failed to install the recommended dictionaries.",
+        "lookupMode": "Failed to save the Hoshidicts lookup activation setting.",
+        "ankiOptions": "Failed to load decks and note types from AnkiConnect.",
         "miningProfile": "Failed to save the Hoshidicts mining profile.",
         "restart": "Failed to restart the overlay."
       }

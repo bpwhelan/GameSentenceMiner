@@ -717,6 +717,8 @@
         : null;
     const logger = options.logger || console;
     const serverUrl = String(options.serverUrl || "ws://127.0.0.1:7276");
+    const lookupMode = options.lookupMode === "hover" ? "hover" : "shift";
+    const requiresShift = lookupMode === "shift";
 
     let socket = null;
     let reconnectTimer = null;
@@ -1215,7 +1217,7 @@
       if (popup.contains(event.target)) {
         return;
       }
-      if (!(shiftPressed || event.shiftKey)) {
+      if (requiresShift && !(shiftPressed || event.shiftKey)) {
         if (!shiftRequirementLogged && isReadableHoverTarget(event.target)) {
           shiftRequirementLogged = true;
           diagnostic("info", "hover.shift-required", {
@@ -1307,7 +1309,7 @@
     windowRef.addEventListener("blur", onWindowBlur);
     diagnostic("info", "reader.initialized", {
       serverUrl,
-      requiresShift: true,
+      requiresShift,
       scanLength: LOOKUP_SCAN_LENGTH,
     });
     connect();

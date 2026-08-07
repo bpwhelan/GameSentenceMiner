@@ -14,6 +14,7 @@ import {
 import type {
     HoshidictsDictionaryState,
     HoshidictsManagerSnapshot,
+    HoshidictsLookupMode,
     HoshidictsMiningProfile,
     HoshidictsProgress,
     HoshidictsProgressPhase,
@@ -25,6 +26,7 @@ import type {
 export type {
     HoshidictsDictionaryState,
     HoshidictsManagerSnapshot,
+    HoshidictsLookupMode,
     HoshidictsMiningFields,
     HoshidictsMiningProfile,
     HoshidictsProgress,
@@ -41,6 +43,7 @@ interface PersistedDictionary extends HoshidictsDictionaryState {
 
 interface PersistedManifest {
     version: 1;
+    lookupMode: HoshidictsLookupMode;
     schedule: HoshidictsSchedule;
     lastCheck: string | null;
     nextCheck: string | null;
@@ -152,6 +155,7 @@ const SCHEDULE_INTERVALS: Record<Exclude<HoshidictsSchedule, 'off'>, number> = {
 function emptyManifest(): PersistedManifest {
     return {
         version: MANIFEST_VERSION,
+        lookupMode: 'shift',
         schedule: 'off',
         lastCheck: null,
         nextCheck: null,
@@ -980,6 +984,7 @@ export class HoshidictsManager {
                         installed: false,
                     })),
                 miningProfile: defaultHoshidictsMiningProfile(),
+                lookupMode: 'shift',
                 schedule: 'off',
                 lastCheck: null,
                 nextCheck: null,
@@ -1196,6 +1201,21 @@ export class HoshidictsManager {
         return await this.getSnapshot();
     }
 
+    async setLookupMode(
+        lookupMode: HoshidictsLookupMode
+    ): Promise<HoshidictsManagerSnapshot> {
+        if (lookupMode !== 'shift' && lookupMode !== 'hover') {
+            throw new Error('Hoshidicts lookup mode is invalid.');
+        }
+        await this.enqueue('saving', async () => {
+            const manifest = await this.readManifest();
+            if (manifest.lookupMode !== lookupMode) {
+                await this.atomicWriteManifest({ ...manifest, lookupMode });
+            }
+        });
+        return await this.getSnapshot();
+    }
+
     async checkForUpdates(force = true): Promise<HoshidictsManagerSnapshot> {
         await this.enqueue('checking', async () => {
             let manifest = await this.readManifest();
@@ -1406,6 +1426,7 @@ export class HoshidictsManager {
             ),
             recommendedDictionaries: recommendedDictionaryStates(manifest),
             miningProfile,
+            lookupMode: manifest.lookupMode,
             schedule: manifest.schedule,
             lastCheck: manifest.lastCheck,
             nextCheck: manifest.nextCheck,
@@ -1496,6 +1517,7 @@ export class HoshidictsManager {
 
         return {
             version: MANIFEST_VERSION,
+            lookupMode: parsed.lookupMode === 'hover' ? 'hover' : 'shift',
             schedule: normalizeSchedule(parsed.schedule),
             lastCheck: normalizeDate(parsed.lastCheck),
             nextCheck: normalizeDate(parsed.nextCheck),

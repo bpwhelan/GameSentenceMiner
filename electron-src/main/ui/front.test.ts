@@ -153,6 +153,7 @@ describe('runOverlayWithSource', () => {
                 GSM_BROKER_TOKEN: 'overlay-bus-token',
                 GSM_CLIENT_ID: 'overlay',
                 GSM_HOSHIDICTS_ENABLED: '0',
+                GSM_HOSHIDICTS_LOOKUP_MODE: 'shift',
             }),
         });
         expect(getOverlayRuntimeState()).toEqual({
@@ -177,6 +178,7 @@ describe('runOverlayWithSource', () => {
 
         expect(startInProcessOverlayMock).toHaveBeenCalledTimes(1);
         expect(process.env.GSM_HOSHIDICTS_ENABLED).toBe('1');
+        expect(process.env.GSM_HOSHIDICTS_LOOKUP_MODE).toBe('shift');
         expect(process.env.GSM_BROKER_PORT).toBe('4567');
         expect(process.env.GSM_BROKER_TOKEN).toBe('overlay-bus-token');
         expect(process.env.GSM_CLIENT_ID).toBe('overlay');
@@ -192,6 +194,25 @@ describe('runOverlayWithSource', () => {
         expect(stopInProcessOverlayMock).toHaveBeenCalledTimes(1);
         await waitForOverlayShutdown();
         expect(waitForInProcessOverlayShutdownMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('launches with and records the configured Hoshidicts lookup mode', async () => {
+        isDevValue = true;
+        hoshidictsEnabledValue = true;
+        existsSyncMock.mockReturnValue(true);
+        const processHandle = createProcessHandle();
+        spawnMock.mockReturnValue(processHandle);
+
+        const front = await loadFrontModule();
+        front.configureHoshidictsLookupModeProvider(async () => 'hover');
+
+        await expect(front.runOverlayWithSource('manual')).resolves.toBe(true);
+
+        expect(spawnMock.mock.calls[0][2].env).toMatchObject({
+            GSM_HOSHIDICTS_ENABLED: '1',
+            GSM_HOSHIDICTS_LOOKUP_MODE: 'hover',
+        });
+        expect(front.getOverlayHoshidictsLookupModeAtLaunch()).toBe('hover');
     });
 
     it('stops the whole Windows process tree for source-launched overlays', async () => {

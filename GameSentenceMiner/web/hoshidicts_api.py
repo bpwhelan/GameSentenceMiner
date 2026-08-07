@@ -5,6 +5,7 @@ from flask import jsonify, request
 from GameSentenceMiner.hoshidicts_mining import (
     HoshidictsMiningError,
     MAX_REQUEST_BYTES,
+    get_hoshidicts_mining_options,
     get_hoshidicts_mining_status,
     mine_hoshidicts_note,
 )
@@ -15,6 +16,10 @@ def register_hoshidicts_api_routes(app) -> None:
     @app.get("/api/hoshidicts/mining/status")
     def api_hoshidicts_mining_status():
         return jsonify(get_hoshidicts_mining_status())
+
+    @app.get("/api/hoshidicts/mining/options")
+    def api_hoshidicts_mining_options():
+        return jsonify(get_hoshidicts_mining_options(request.args.get("model")))
 
     @app.post("/api/hoshidicts/mine")
     def api_hoshidicts_mine():

@@ -74,7 +74,7 @@ def _payload():
 
 
 class FakeAnki:
-    def __init__(self, fields=None, note_id=42):
+    def __init__(self, fields=None, note_id=42, model_names=None, decks=None):
         self.fields = fields or [
             "Expression",
             "Reading",
@@ -84,15 +84,19 @@ class FakeAnki:
             "PitchAccent",
         ]
         self.note_id = note_id
+        self.model_names = model_names or ["Mining"]
+        self.decks = decks or ["Default", "Mining"]
         self.calls = []
         self.events = []
 
     def invoke(self, action, **kwargs):
         self.calls.append((action, kwargs))
+        if action == "modelNames":
+            return self.model_names
         if action == "modelFieldNames":
             return self.fields
         if action == "deckNames":
-            return ["Default", "Mining"]
+            return self.decks
         if action == "addNote":
             return self.note_id
         raise AssertionError(action)
@@ -163,6 +167,110 @@ def test_status_inherits_gsm_fields_and_auto_maps_dictionary_fields(monkeypatch)
     }
 
 
+def test_options_load_anki_choices_and_suggest_kiku_lapis_fields(monkeypatch):
+    fields = [
+        "Expression",
+        "ExpressionFurigana",
+        "ExpressionReading",
+        "MainDefinition",
+        "Glossary",
+        "Sentence",
+        "PitchPosition",
+        "Frequency",
+        "MiscInfo",
+    ]
+    fake_anki = FakeAnki(
+        fields=fields,
+        model_names=["Basic", "Kiku"],
+        decks=["Default", "Japanese"],
+    )
+    _wire(monkeypatch, fake_anki, _profile(model="Kiku", deck="Japanese"))
+
+    options = hoshidicts_mining.get_hoshidicts_mining_options()
+
+    assert options == {
+        "connected": True,
+        "gsmAnkiEnabled": True,
+        "decks": ["Default", "Japanese"],
+        "noteTypes": ["Basic", "Kiku"],
+        "selectedNoteType": "Kiku",
+        "fields": fields,
+        "suggestedFields": {
+            "expression": "Expression",
+            "reading": "ExpressionReading",
+            "definition": "Glossary",
+            "sentence": "Sentence",
+            "frequency": "Frequency",
+            "pitch": "PitchPosition",
+        },
+        "error": None,
+    }
+    assert ("modelFieldNames", {"timeout": 3, "modelName": "Kiku"}) in fake_anki.calls
+
+
+def test_options_accept_a_selected_note_type_and_detect_a_renamed_lapis_schema(monkeypatch):
+    fields = [
+        "Expression",
+        "ExpressionReading",
+        "MainDefinition",
+        "Glossary",
+        "Sentence",
+        "Frequency",
+        "PitchPosition",
+    ]
+    fake_anki = FakeAnki(
+        fields=fields,
+        model_names=["Mining", "My Japanese Card"],
+    )
+    _wire(monkeypatch, fake_anki)
+
+    options = hoshidicts_mining.get_hoshidicts_mining_options("my japanese card")
+
+    assert options["connected"] is True
+    assert options["gsmAnkiEnabled"] is True
+    assert options["selectedNoteType"] == "My Japanese Card"
+    assert options["fields"] == fields
+    assert options["suggestedFields"]["definition"] == "Glossary"
+    assert options["suggestedFields"]["pitch"] == "PitchPosition"
+
+
+def test_options_probe_ankiconnect_when_gsm_anki_is_disabled(monkeypatch):
+    fake_anki = FakeAnki()
+    config = _config()
+    config.anki.enabled = False
+    monkeypatch.setattr(hoshidicts_mining, "get_config", lambda: config)
+    monkeypatch.setattr(hoshidicts_mining, "load_hoshidicts_mining_profile", _profile)
+    monkeypatch.setattr(hoshidicts_mining, "_get_anki_module", lambda: fake_anki)
+
+    options = hoshidicts_mining.get_hoshidicts_mining_options()
+
+    assert options["connected"] is True
+    assert options["gsmAnkiEnabled"] is False
+    assert options["noteTypes"] == ["Mining"]
+    assert options["decks"] == ["Default", "Mining"]
+    assert options["fields"] == fake_anki.fields
+    assert options["error"] == "GSM Anki integration is disabled."
+    assert [action for action, _kwargs in fake_anki.calls] == [
+        "modelNames",
+        "deckNames",
+        "modelFieldNames",
+    ]
+
+
+def test_options_report_an_ankiconnect_failure(monkeypatch):
+    class OfflineAnki(FakeAnki):
+        def invoke(self, action, **kwargs):
+            raise RuntimeError("connection refused")
+
+    _wire(monkeypatch, OfflineAnki())
+
+    options = hoshidicts_mining.get_hoshidicts_mining_options()
+
+    assert options["connected"] is False
+    assert options["gsmAnkiEnabled"] is True
+    assert options["error"] == "Could not connect to Anki through GSM: connection refused"
+
+
 def test_mining_preserves_dictionary_metadata_and_queues_gsm_enrichment(monkeypatch):
     fake_anki = FakeAnki()
     _wire(monkeypatch, fake_anki)
@@ -199,6 +307,29 @@ def test_mining_preserves_dictionary_metadata_and_queues_gsm_enrichment(monkeypa
             "note_id": 42,
         }
     ]
+
+
+def test_mining_formats_kiku_lapis_pitch_position_as_numeric_positions(monkeypatch):
+    fields = [
+        "Expression",
+        "ExpressionReading",
+        "Glossary",
+        "Sentence",
+        "Frequency",
+        "PitchPosition",
+    ]
+    fake_anki = FakeAnki(fields=fields, model_names=["Kiku"])
+    profile = _profile(
+        model="Kiku",
+        fields={key: value for key, value in hoshidicts_mining.KIKU_LAPIS_FIELD_MAP.items()},
+    )
+    _wire(monkeypatch, fake_anki, profile)
+
+    hoshidicts_mining.mine_hoshidicts_note(_payload())
+
+    note = next(kwargs["note"] for action, kwargs in fake_anki.calls if action == "addNote")
+    assert note["fields"]["PitchPosition"] == "2"
+    assert "LHL" not in note["fields"]["PitchPosition"]
 
 
 def test_mining_reports_optional_data_not_supported_by_the_model(monkeypatch):
@@ -296,12 +427,21 @@ def test_hoshidicts_routes_expose_status_and_mining_errors(monkeypatch):
     )
     monkeypatch.setattr(
         hoshidicts_api,
+        "get_hoshidicts_mining_options",
+        lambda model=None: {"connected": True, "selectedNoteType": model or "Mining"},
+    )
+    monkeypatch.setattr(
+        hoshidicts_api,
         "mine_hoshidicts_note",
         lambda _payload: (_ for _ in ()).throw(hoshidicts_mining.HoshidictsMiningError("duplicate", 409)),
     )
 
     client = app.test_client()
     assert client.get("/api/hoshidicts/mining/status").get_json() == {"available": True}
+    assert client.get("/api/hoshidicts/mining/options?model=Kiku").get_json() == {
+        "connected": True,
+        "selectedNoteType": "Kiku",
+    }
     response = client.post("/api/hoshidicts/mine", json={})
     assert response.status_code == 409
     assert response.get_json() == {"success": False, "error": "duplicate"}

@@ -205,6 +205,28 @@
   align-items: end;
 }
 
+.hoshidicts-lookup-mode {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.hoshidicts-lookup-mode h2,
+.hoshidicts-lookup-mode p {
+  margin: 0;
+}
+
+.hoshidicts-lookup-mode h2 {
+  font-size: 1rem;
+}
+
+.hoshidicts-lookup-mode p {
+  margin-top: 5px;
+  color: var(--gsm-text-muted);
+  font-size: 0.8rem;
+}
+
 .hoshidicts-actions {
   display: flex;
   flex-wrap: wrap;
@@ -366,6 +388,34 @@
   gap: 14px 18px;
 }
 
+.hoshidicts-anki-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 10px 12px;
+  border: 1px solid var(--gsm-border-default);
+  border-radius: 6px;
+  background: var(--gsm-surface-2);
+}
+
+.hoshidicts-anki-status__badge {
+  color: var(--gsm-danger-text);
+  font-size: 0.86rem;
+  font-weight: 650;
+}
+
+.hoshidicts-anki-status__badge[data-connected="true"] {
+  color: var(--gsm-success-text);
+}
+
+.hoshidicts-anki-status__warning {
+  margin: -8px 0 18px;
+  color: var(--gsm-warning-text);
+  font-size: 0.82rem;
+}
+
 .hoshidicts-mining-fields {
   margin-top: 22px;
   padding-top: 18px;
@@ -393,7 +443,8 @@
 @media (max-width: 760px) {
   .hoshidicts-window__header,
   .hoshidicts-window__restart,
-  .hoshidicts-section__heading {
+  .hoshidicts-section__heading,
+  .hoshidicts-lookup-mode {
     align-items: flex-start;
     flex-direction: column;
   }
