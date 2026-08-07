@@ -205,14 +205,25 @@ describe('runOverlayWithSource', () => {
 
         const front = await loadFrontModule();
         front.configureHoshidictsLookupModeProvider(async () => 'hover');
+        front.configureHoshidictsPopupHideDelayProvider(async () => 850);
 
         await expect(front.runOverlayWithSource('manual')).resolves.toBe(true);
 
         expect(spawnMock.mock.calls[0][2].env).toMatchObject({
             GSM_HOSHIDICTS_ENABLED: '1',
             GSM_HOSHIDICTS_LOOKUP_MODE: 'hover',
+            GSM_HOSHIDICTS_POPUP_HIDE_DELAY_MS: '850',
         });
         expect(front.getOverlayHoshidictsLookupModeAtLaunch()).toBe('hover');
+        expect(front.getOverlayHoshidictsPopupHideDelayAtLaunch()).toBe(850);
+        expect(
+            front.markOverlayHoshidictsReaderPreferencesApplied({
+                lookupMode: 'shift',
+                popupHideDelayMs: 1200,
+            })
+        ).toBe(true);
+        expect(front.getOverlayHoshidictsLookupModeAtLaunch()).toBe('shift');
+        expect(front.getOverlayHoshidictsPopupHideDelayAtLaunch()).toBe(1200);
     });
 
     it('stops the whole Windows process tree for source-launched overlays', async () => {

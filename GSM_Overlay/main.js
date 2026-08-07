@@ -34,6 +34,8 @@ const {
   normalizeConsoleMessageArguments,
 } = require('./features/hoshidicts/diagnostics');
 const {
+  createHoshidictsReaderPreferencesDelivery,
+  createHoshidictsReaderPreferencesBridge,
   requestHoshidictsSettingsOpen,
 } = require('./features/hoshidicts/desktop_bridge');
 const { shouldRevealAutomaticOverlay, shouldShowOverlayOnReady } = require('./automatic_visibility');
@@ -1840,6 +1842,8 @@ let resizeMode = false;
 let yomitanShown = false;
 let gamepadNavigationActive = false; // True while renderer gamepad navigation keeps overlay focused
 let mainWindow = null;
+let hoshidictsReaderPreferencesBridge = null;
+let hoshidictsReaderPreferencesDelivery = null;
 let startupNotificationWindow = null;
 let startupNotificationCloseTimer = null;
 let afkHidden = false; // true when AFK timer hid the overlay
@@ -6580,6 +6584,14 @@ async function startOverlayAppImpl() {
     closeAppHotkeyInputServerConnection();
     stopOverlayWebSockets();
     void stopGamepadServer("app-will-quit");
+    if (hoshidictsReaderPreferencesBridge) {
+      hoshidictsReaderPreferencesBridge.destroy();
+      hoshidictsReaderPreferencesBridge = null;
+    }
+    if (hoshidictsReaderPreferencesDelivery) {
+      hoshidictsReaderPreferencesDelivery.clear();
+      hoshidictsReaderPreferencesDelivery = null;
+    }
     if (pendingDisplaySyncTimer) {
       clearTimeout(pendingDisplaySyncTimer);
       pendingDisplaySyncTimer = null;
@@ -6630,6 +6642,51 @@ async function startOverlayAppImpl() {
     // Reveal explicitly from ready-to-show so a target-state "minimized" event
     // received during page load cannot be undone by Electron's initial show.
     show: false,
+  });
+  if (process.env.GSM_HOSHIDICTS_ENABLED === '1') {
+    hoshidictsReaderPreferencesDelivery = createHoshidictsReaderPreferencesDelivery(
+      (preferences) => {
+        if (!mainWindow || mainWindow.isDestroyed()) {
+          throw new Error('Hoshidicts reader window is unavailable.');
+        }
+        mainWindow.webContents.send(
+          'hoshidicts-reader-preferences',
+          preferences
+        );
+      }
+    );
+    hoshidictsReaderPreferencesBridge = createHoshidictsReaderPreferencesBridge({
+      onPreferences(preferences) {
+        const lookupMode = preferences && preferences.lookupMode;
+        const popupHideDelayMs = preferences && preferences.popupHideDelayMs;
+        if (
+          (lookupMode !== 'shift' && lookupMode !== 'hover') ||
+          !Number.isInteger(popupHideDelayMs) ||
+          popupHideDelayMs < 0 ||
+          popupHideDelayMs > 5000
+        ) {
+          throw new Error('Hoshidicts reader preferences are invalid.');
+        }
+        if (!mainWindow || mainWindow.isDestroyed()) {
+          throw new Error('Hoshidicts reader window is unavailable.');
+        }
+        const normalizedPreferences = {
+          lookupMode,
+          popupHideDelayMs,
+        };
+        hoshidictsReaderPreferencesDelivery.enqueue(normalizedPreferences);
+      },
+    });
+  }
+  mainWindow.webContents.on('did-start-loading', () => {
+    if (hoshidictsReaderPreferencesDelivery) {
+      hoshidictsReaderPreferencesDelivery.markNotReady();
+    }
+  });
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (hoshidictsReaderPreferencesDelivery) {
+      hoshidictsReaderPreferencesDelivery.markReady();
+    }
   });
   attachHoshidictsRendererDiagnostics(mainWindow);
   lastDisplaySyncSignature = getOverlayDisplaySyncSignature();
@@ -7876,6 +7933,16 @@ async function stopOverlayApp() {
         if (yomitanManifestWatcher) {
           yomitanManifestWatcher.close();
           yomitanManifestWatcher = null;
+        }
+      });
+      runOverlayCleanupStep('Hoshidicts reader preferences bridge', () => {
+        if (hoshidictsReaderPreferencesBridge) {
+          hoshidictsReaderPreferencesBridge.destroy();
+          hoshidictsReaderPreferencesBridge = null;
+        }
+        if (hoshidictsReaderPreferencesDelivery) {
+          hoshidictsReaderPreferencesDelivery.clear();
+          hoshidictsReaderPreferencesDelivery = null;
         }
       });
 

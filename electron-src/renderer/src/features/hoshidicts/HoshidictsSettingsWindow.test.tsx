@@ -4,17 +4,27 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { HOSHIDICTS_CHANNELS } from "../../../../shared/features/hoshidicts";
+import {
+  HOSHIDICTS_CHANNELS,
+  type HoshidictsDesktopSnapshot,
+  type HoshidictsMiningOptions
+} from "../../../../shared/features/hoshidicts";
 import { I18nProvider } from "../../i18n";
 import {
   HoshidictsSettingsWindow,
   normalizeHoshidictsDesktopState
 } from "./HoshidictsSettingsWindow";
+import {
+  AUTO_FIELD_VALUE,
+  DISABLED_FIELD_VALUE,
+  getReadiness
+} from "./hoshidictsSettingsModel";
 
 const invokeMock = vi.fn();
 const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
 
-const state = {
+const baseState: HoshidictsDesktopSnapshot = {
+  revision: 10,
   effectiveEnabled: true,
   dictionaries: [
     {
@@ -59,21 +69,63 @@ const state = {
       frequency: "",
       pitch: ""
     },
+    disabledFields: [],
     tags: ["hoshidicts"],
     duplicatePolicy: "prevent"
   },
   lookupMode: "shift",
+  popupHideDelayMs: 300,
   schedule: "weekly",
   lastCheck: "2026-08-06T10:00:00.000Z",
   nextCheck: "2026-08-13T10:00:00.000Z",
   lastError: null,
   busy: false,
   progress: { phase: "idle" },
-  overlay: {
-    running: true,
-    restartRequired: true
-  }
-} as const;
+  overlay: { running: true, restartRequired: false }
+};
+
+const miningOptions: HoshidictsMiningOptions = {
+  connected: true,
+  gsmAnkiEnabled: true,
+  decks: ["Default", "Mining"],
+  noteTypes: ["Kiku", "Lapis"],
+  selectedNoteType: "Kiku",
+  fields: [
+    "Expression",
+    "ExpressionReading",
+    "Glossary",
+    "Sentence",
+    "Frequency",
+    "PitchPosition",
+    "Front"
+  ],
+  suggestedFields: {
+    expression: "Expression",
+    reading: "ExpressionReading",
+    definition: "Glossary",
+    sentence: "Sentence",
+    frequency: "Frequency",
+    pitch: "PitchPosition"
+  },
+  resolvedFields: {
+    expression: "Expression",
+    reading: "ExpressionReading",
+    definition: "Glossary",
+    sentence: "Sentence",
+    frequency: "Frequency",
+    pitch: "PitchPosition"
+  },
+  warnings: [],
+  error: null
+};
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((complete) => {
+    resolve = complete;
+  });
+  return { promise, resolve };
+}
 
 function setInputValue(input: HTMLInputElement | null, value: string) {
   const setter = Object.getOwnPropertyDescriptor(
@@ -82,6 +134,7 @@ function setInputValue(input: HTMLInputElement | null, value: string) {
   )?.set;
   setter?.call(input, value);
   input?.dispatchEvent(new Event("input", { bubbles: true }));
+  input?.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
 function setSelectValue(input: HTMLSelectElement | null, value: string) {
@@ -93,65 +146,50 @@ function setSelectValue(input: HTMLSelectElement | null, value: string) {
   input?.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((complete) => {
-    resolve = complete;
-  });
-  return { promise, resolve };
-}
-
 describe("HoshidictsSettingsWindow", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let revision: number;
 
   beforeEach(() => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
       .IS_REACT_ACT_ENVIRONMENT = true;
     listeners.clear();
+    revision = baseState.revision;
     invokeMock.mockReset();
     invokeMock.mockImplementation(
       async (channel: string, ...args: unknown[]) => {
-        if (channel === HOSHIDICTS_CHANNELS.getState) {
-          return state;
+        if (channel === HOSHIDICTS_CHANNELS.getState) return baseState;
+        if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
+          return miningOptions;
+        }
+        if (channel === HOSHIDICTS_CHANNELS.setReaderPreferences) {
+          const preferences = args[0] as {
+            lookupMode: "shift" | "hover";
+            popupHideDelayMs: number;
+          };
+          return {
+            success: true,
+            outcome: { code: "preferencesSaved" },
+            state: { ...baseState, ...preferences, revision: ++revision }
+          };
         }
         if (channel === HOSHIDICTS_CHANNELS.setMiningProfile) {
           return {
             success: true,
-            state: { ...state, miningProfile: args[0] }
+            outcome: { code: "miningProfileSaved" },
+            state: {
+              ...baseState,
+              revision: ++revision,
+              miningProfile: args[0]
+            }
           };
         }
-        if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
-          return {
-            connected: true,
-            gsmAnkiEnabled: true,
-            decks: ["Default", "Mining"],
-            noteTypes: ["Kiku", "Lapis"],
-            selectedNoteType: "Kiku",
-            fields: [
-              "Expression",
-              "ExpressionReading",
-              "Glossary",
-              "Sentence",
-              "Frequency",
-              "PitchPosition",
-              "Front"
-            ],
-            suggestedFields: {
-              expression: "Expression",
-              reading: "ExpressionReading",
-              definition: "Glossary",
-              sentence: "Sentence",
-              frequency: "Frequency",
-              pitch: "PitchPosition"
-            },
-            error: null
-          };
-        }
-        if (channel.startsWith("hoshidicts.")) {
-          return { success: true, state };
-        }
-        return {};
+        return {
+          success: true,
+          outcome: { code: "dictionaryChanged" },
+          state: { ...baseState, revision: ++revision }
+        };
       }
     );
     Object.defineProperty(window, "ipcRenderer", {
@@ -181,9 +219,8 @@ describe("HoshidictsSettingsWindow", () => {
   });
 
   afterEach(async () => {
-    await act(async () => {
-      root.unmount();
-    });
+    vi.useRealTimers();
+    await act(async () => root.unmount());
     container.remove();
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
       .IS_REACT_ACT_ENVIRONMENT = false;
@@ -201,63 +238,107 @@ describe("HoshidictsSettingsWindow", () => {
     });
   }
 
-  it("owns dictionary, update, ordering, and restart controls", async () => {
+  async function openMining() {
+    const miningTab = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Anki Mining"
+    );
+    await act(async () => {
+      miningTab?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+
+  it("shows loading instead of flashing a false disabled state", async () => {
+    const pendingState = deferred<HoshidictsDesktopSnapshot>();
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === HOSHIDICTS_CHANNELS.getState) {
+        return await pendingState.promise;
+      }
+      return {};
+    });
+
     await render();
+    expect(container.textContent).toContain("Loading Hoshidicts settings");
+    expect(container.textContent).not.toContain("Feature off");
+    expect(container.textContent).not.toContain("No enabled dictionaries");
 
-    expect(container.querySelector("h1")?.textContent).toBe("Hoshidicts");
-    expect(container.textContent).toContain("Enabled in GSM Experimental");
-    expect(container.textContent).toContain("Recommended dictionaries");
-    expect(container.textContent).toContain("Installed dictionaries");
-    expect(container.textContent).toContain("JMdict");
-    expect(container.textContent).toContain("123 terms");
-    expect(container.textContent).not.toContain("KANJIDIC");
+    await act(async () => {
+      pendingState.resolve(baseState);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("2 installed · 1 enabled");
+    expect(container.textContent).toContain("Ready");
+  });
 
+  it("derives every readiness state in priority order", () => {
+    expect(getReadiness({ ...baseState, effectiveEnabled: false }).kind).toBe(
+      "featureOff"
+    );
+    expect(
+      getReadiness({
+        ...baseState,
+        overlay: { running: false, restartRequired: true }
+      }).kind
+    ).toBe("overlayStopped");
+    expect(
+      getReadiness({
+        ...baseState,
+        overlay: { running: true, restartRequired: true }
+      }).kind
+    ).toBe("restartRequired");
+    expect(
+      getReadiness({
+        ...baseState,
+        dictionaries: baseState.dictionaries.map((dictionary) => ({
+          ...dictionary,
+          enabled: false
+        }))
+      }).kind
+    ).toBe("noEnabledDictionaries");
+    expect(getReadiness(baseState).kind).toBe("ready");
+  });
+
+  it("ignores progress snapshots older than the displayed revision", async () => {
+    await render();
+    const progressListener = listeners.get(HOSHIDICTS_CHANNELS.progress)?.[0];
+    await act(async () => {
+      progressListener?.({}, {
+        ...baseState,
+        revision: baseState.revision - 1,
+        effectiveEnabled: false,
+        dictionaries: []
+      });
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("2 installed · 1 enabled");
+    expect(container.textContent).not.toContain("Feature off");
+  });
+
+  it("keeps dictionary actions independently wired", async () => {
+    await render();
     const buttons = Array.from(container.querySelectorAll("button"));
-    const importButton = buttons.find((button) =>
-      button.textContent?.includes("Import Dictionary")
-    );
-    const checkButton = buttons.find((button) =>
-      button.textContent?.includes("Check for Updates")
-    );
-    const installButton = buttons.find(
-      (button) => button.textContent?.trim() === "Install"
-    );
-    const installAllButton = buttons.find((button) =>
-      button.textContent?.includes("Install JMdict + JMnedict")
-    );
-    const restartButton = buttons.find((button) =>
-      button.textContent?.includes("Restart Overlay")
-    );
-    const removeButton = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Remove"]'
-    );
-    const moveDownButton = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Move down"]'
-    );
+    const buttonContaining = (text: string) =>
+      buttons.find((button) => button.textContent?.includes(text));
     const schedule = container.querySelector<HTMLSelectElement>(
       "#hoshidicts-update-schedule"
     );
-    const dictionaryToggles = container.querySelectorAll<HTMLInputElement>(
-      ".hoshidicts-dictionary-row__toggle input"
-    );
-    const lookupToggle = container.querySelector<HTMLInputElement>(
-      "#hoshidicts-lookup-require-shift"
-    );
 
     await act(async () => {
-      importButton?.click();
-      checkButton?.click();
-      installAllButton?.click();
-      installButton?.click();
-      restartButton?.click();
-      removeButton?.click();
-      moveDownButton?.click();
-      dictionaryToggles[1]?.click();
-      lookupToggle?.click();
-      if (schedule) {
-        schedule.value = "monthly";
-        schedule.dispatchEvent(new Event("change", { bubbles: true }));
-      }
+      buttonContaining("Import Dictionary")?.click();
+      buttonContaining("Check for Updates")?.click();
+      buttonContaining("Install JMdict + JMnedict")?.click();
+      buttons.find((button) => button.textContent?.trim() === "Install")?.click();
+      container.querySelector<HTMLButtonElement>('button[aria-label="Move down"]')
+        ?.click();
+      container.querySelector<HTMLButtonElement>('button[aria-label="Remove"]')
+        ?.click();
+      container.querySelectorAll<HTMLInputElement>(
+        ".hoshidicts-dictionary-row__toggle input"
+      )[1]?.click();
+      setSelectValue(schedule, "monthly");
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -274,12 +355,12 @@ describe("HoshidictsSettingsWindow", () => {
       { id: "jmnedict" }
     );
     expect(invokeMock).toHaveBeenCalledWith(
-      HOSHIDICTS_CHANNELS.removeDictionary,
-      "jmdict-id"
-    );
-    expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.moveDictionary,
       { id: "jmdict-id", direction: 1 }
+    );
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.removeDictionary,
+      "jmdict-id"
     );
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.setDictionaryEnabled,
@@ -289,94 +370,87 @@ describe("HoshidictsSettingsWindow", () => {
       HOSHIDICTS_CHANNELS.setSchedule,
       "monthly"
     );
-    expect(invokeMock).toHaveBeenCalledWith(
-      HOSHIDICTS_CHANNELS.setLookupMode,
-      "hover"
-    );
-    expect(invokeMock).toHaveBeenCalledWith(
-      HOSHIDICTS_CHANNELS.restartOverlay
-    );
   });
 
-  it("disables bulk recommended installation when both are installed", async () => {
-    const originalImplementation = invokeMock.getMockImplementation();
-    invokeMock.mockImplementation(
-      async (channel: string, ...args: unknown[]) => {
-        if (channel === HOSHIDICTS_CHANNELS.getState) {
-          return {
-            ...state,
-            recommendedDictionaries: [
-              { id: "jmdict", installed: true },
-              { id: "jmnedict", installed: true }
-            ]
-          };
-        }
-        return await originalImplementation?.(channel, ...args);
-      }
-    );
-
+  it("auto-saves reader preferences atomically", async () => {
+    vi.useFakeTimers();
     await render();
-
-    const installAllButton = Array.from(
-      container.querySelectorAll("button")
-    ).find((button) =>
-      button.textContent?.includes("Install JMdict + JMnedict")
+    const hover = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-reader-mode-hover"
     );
-    expect(installAllButton?.disabled).toBe(true);
-  });
-
-  it("keeps mining in a separate tab and saves a typed profile", async () => {
-    await render();
-    const miningTab = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Anki Mining"
+    const delay = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-popup-hide-delay"
     );
+
     await act(async () => {
-      miningTab?.click();
+      hover?.click();
+      setInputValue(delay, "850");
+      await vi.advanceTimersByTimeAsync(450);
       await Promise.resolve();
       await Promise.resolve();
     });
 
-    expect(container.textContent).toContain("AnkiConnect connected");
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.setReaderPreferences,
+      { lookupMode: "hover", popupHideDelayMs: 850 }
+    );
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.setLookupMode,
+      expect.anything()
+    );
+    expect(container.textContent).toContain("Saved");
+  });
+
+  it("loads Anki on entry without dirtying or pinning automatic mappings", async () => {
+    vi.useFakeTimers();
+    await render();
+    await openMining();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.getMiningOptions,
       undefined
     );
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.setMiningProfile,
+      expect.anything()
+    );
+    expect(
+      container.querySelector<HTMLSelectElement>(
+        "#hoshidicts-mining-field-reading"
+      )?.value
+    ).toBe(AUTO_FIELD_VALUE);
+    expect(container.textContent).toContain("Automatic → ExpressionReading");
+    expect(container.textContent).toContain("6 of 6 fields mapped");
+  });
 
-    const deck = container.querySelector<HTMLSelectElement>(
-      "#hoshidicts-mining-deck"
-    );
-    const expression = container.querySelector<HTMLSelectElement>(
-      "#hoshidicts-mining-field-expression"
-    );
-    const definition = container.querySelector<HTMLSelectElement>(
-      "#hoshidicts-mining-field-definition"
-    );
-    const pitch = container.querySelector<HTMLSelectElement>(
-      "#hoshidicts-mining-field-pitch"
-    );
-    const tags = container.querySelector<HTMLInputElement>(
-      "#hoshidicts-mining-tags"
-    );
-    const fields = container.querySelector("details");
-    await act(async () => {
-      if (fields) {
-        fields.open = true;
-      }
-      expect(expression?.value).toBe("Expression");
-      expect(definition?.value).toBe("Glossary");
-      expect(pitch?.value).toBe("PitchPosition");
-      setSelectValue(deck, "Mining");
-      setSelectValue(expression, "Front");
-      setInputValue(tags, "hoshidicts, custom");
-      await Promise.resolve();
-    });
+  it("auto-saves automatic, disabled, and explicit field choices", async () => {
+    vi.useFakeTimers();
+    await render();
+    await openMining();
 
-    const saveButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Save Mining Profile"
-    );
-    expect(saveButton?.disabled).toBe(false);
     await act(async () => {
-      saveButton?.click();
+      setSelectValue(
+        container.querySelector<HTMLSelectElement>(
+          "#hoshidicts-mining-field-expression"
+        ),
+        DISABLED_FIELD_VALUE
+      );
+      setSelectValue(
+        container.querySelector<HTMLSelectElement>(
+          "#hoshidicts-mining-field-definition"
+        ),
+        "Front"
+      );
+      setSelectValue(
+        container.querySelector<HTMLSelectElement>(
+          "#hoshidicts-mining-field-pitch"
+        ),
+        AUTO_FIELD_VALUE
+      );
+      await vi.advanceTimersByTimeAsync(450);
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -384,17 +458,23 @@ describe("HoshidictsSettingsWindow", () => {
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.setMiningProfile,
       expect.objectContaining({
-        deck: "Mining",
-        fields: expect.objectContaining({ expression: "Front" }),
-        tags: ["hoshidicts", "custom"]
+        fields: expect.objectContaining({
+          expression: "",
+          definition: "Front",
+          pitch: ""
+        }),
+        disabledFields: ["expression"]
       })
+    );
+    expect(container.querySelector("button")?.textContent).not.toBe(
+      "Save Mining Profile"
     );
   });
 
-  it("keeps custom fields and ignores stale note-type discovery responses", async () => {
+  it("preserves overrides and ignores stale note-type discovery", async () => {
+    const lapisRequest = deferred<HoshidictsMiningOptions>();
+    const kikuRequest = deferred<HoshidictsMiningOptions>();
     const originalImplementation = invokeMock.getMockImplementation();
-    const lapisRequest = deferred<Record<string, unknown>>();
-    const kikuRequest = deferred<Record<string, unknown>>();
     invokeMock.mockImplementation(
       async (channel: string, ...args: unknown[]) => {
         if (
@@ -414,15 +494,7 @@ describe("HoshidictsSettingsWindow", () => {
     );
 
     await render();
-    const miningTab = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Anki Mining"
-    );
-    await act(async () => {
-      miningTab?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
+    await openMining();
     await act(async () => {
       setSelectValue(
         container.querySelector<HTMLSelectElement>(
@@ -434,58 +506,27 @@ describe("HoshidictsSettingsWindow", () => {
         container.querySelector<HTMLSelectElement>("#hoshidicts-mining-model"),
         "Lapis"
       );
-      await Promise.resolve();
-    });
-    await act(async () => {
       setSelectValue(
         container.querySelector<HTMLSelectElement>("#hoshidicts-mining-model"),
         "Kiku"
       );
-      kikuRequest.resolve({
-        connected: true,
-        gsmAnkiEnabled: true,
-        decks: ["Default"],
-        noteTypes: ["Kiku", "Lapis"],
-        selectedNoteType: "Kiku",
-        fields: [
-          "Expression",
-          "ExpressionReading",
-          "Glossary",
-          "Sentence",
-          "Frequency",
-          "PitchPosition",
-          "Front"
-        ],
-        suggestedFields: {
-          expression: "Expression",
-          reading: "ExpressionReading",
-          definition: "Glossary",
-          sentence: "Sentence",
-          frequency: "Frequency",
-          pitch: "PitchPosition"
-        },
-        error: null
-      });
+      kikuRequest.resolve(miningOptions);
       await Promise.resolve();
       await Promise.resolve();
     });
     await act(async () => {
       lapisRequest.resolve({
-        connected: true,
-        gsmAnkiEnabled: true,
-        decks: ["Default"],
-        noteTypes: ["Kiku", "Lapis"],
+        ...miningOptions,
         selectedNoteType: "Lapis",
         fields: ["Expression", "MainDefinition"],
         suggestedFields: {
-          expression: "Expression",
-          reading: "",
-          definition: "MainDefinition",
-          sentence: "",
-          frequency: "",
-          pitch: ""
+          ...miningOptions.suggestedFields,
+          definition: "MainDefinition"
         },
-        error: null
+        resolvedFields: {
+          ...miningOptions.resolvedFields,
+          definition: "MainDefinition"
+        }
       });
       await Promise.resolve();
       await Promise.resolve();
@@ -500,30 +541,7 @@ describe("HoshidictsSettingsWindow", () => {
         "#hoshidicts-mining-field-expression"
       )?.value
     ).toBe("Front");
-    expect(
-      container.querySelector<HTMLSelectElement>(
-        "#hoshidicts-mining-field-definition"
-      )?.value
-    ).toBe("Glossary");
-  });
-
-  it("refreshes the GSM Experimental status when the window regains focus", async () => {
-    await render();
-    invokeMock.mockImplementation(async (channel: string) => {
-      if (channel === HOSHIDICTS_CHANNELS.getState) {
-        return { ...state, effectiveEnabled: false };
-      }
-      return { success: true, state };
-    });
-
-    await act(async () => {
-      window.dispatchEvent(new Event("focus"));
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(container.textContent).toContain("Disabled in GSM Experimental");
-    expect(invokeMock).toHaveBeenCalledWith(HOSHIDICTS_CHANNELS.getState);
+    expect(container.textContent).toContain("Automatic → Glossary");
   });
 
   it.each([
@@ -535,11 +553,20 @@ describe("HoshidictsSettingsWindow", () => {
     expect(container.textContent).toContain(recommended);
   });
 
-  it("normalizes legacy dictionaries as enabled", () => {
+  it("normalizes legacy snapshots without dirtying new preferences", () => {
     const normalized = normalizeHoshidictsDesktopState({
-      ...state,
-      dictionaries: [{ ...state.dictionaries[0], enabled: undefined }]
+      ...baseState,
+      revision: undefined,
+      popupHideDelayMs: undefined,
+      dictionaries: [{ ...baseState.dictionaries[0], enabled: undefined }],
+      miningProfile: {
+        ...baseState.miningProfile,
+        disabledFields: undefined
+      }
     });
+    expect(normalized.revision).toBe(0);
+    expect(normalized.popupHideDelayMs).toBe(300);
     expect(normalized.dictionaries[0].enabled).toBe(true);
+    expect(normalized.miningProfile.disabledFields).toEqual([]);
   });
 });

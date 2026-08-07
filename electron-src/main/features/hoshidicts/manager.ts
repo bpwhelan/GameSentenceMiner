@@ -22,6 +22,21 @@ import type {
     HoshidictsRecommendedDictionaryState,
     HoshidictsSchedule,
 } from '../../../shared/features/hoshidicts.js';
+import {
+    DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+    MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+} from '../../../shared/features/hoshidicts.js';
+import {
+    defaultHoshidictsMiningProfile,
+    HOSHIDICTS_MINING_PROFILE_FILE_NAME,
+    normalizeHoshidictsMiningProfile,
+} from './profile.js';
+
+export {
+    defaultHoshidictsMiningProfile,
+    HOSHIDICTS_MINING_PROFILE_FILE_NAME,
+    normalizeHoshidictsMiningProfile,
+} from './profile.js';
 
 export type {
     HoshidictsDictionaryState,
@@ -44,6 +59,7 @@ interface PersistedDictionary extends HoshidictsDictionaryState {
 interface PersistedManifest {
     version: 1;
     lookupMode: HoshidictsLookupMode;
+    popupHideDelayMs: number;
     schedule: HoshidictsSchedule;
     lastCheck: string | null;
     nextCheck: string | null;
@@ -102,10 +118,8 @@ export interface HoshidictsManagerDependencies {
 }
 
 const MANIFEST_FILE_NAME = 'manifest.json';
-export const HOSHIDICTS_MINING_PROFILE_FILE_NAME = 'mining-profile.json';
 const MANIFEST_VERSION = 1;
-const MINING_PROFILE_VERSION = 1;
-const MAX_MANIFEST_BYTES = 2 * 1024 * 1024;
+const MAX_MANIFEST_BYTES = 1024 * 1024;
 const MAX_MINING_PROFILE_BYTES = 64 * 1024;
 const MAX_ARCHIVE_INDEX_BYTES = 1024 * 1024;
 const MAX_TERM_BANK_BYTES = 32 * 1024 * 1024;
@@ -156,30 +170,12 @@ function emptyManifest(): PersistedManifest {
     return {
         version: MANIFEST_VERSION,
         lookupMode: 'shift',
+        popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
         schedule: 'off',
         lastCheck: null,
         nextCheck: null,
         lastError: null,
         dictionaries: [],
-    };
-}
-
-export function defaultHoshidictsMiningProfile(): HoshidictsMiningProfile {
-    return {
-        version: MINING_PROFILE_VERSION,
-        enabled: true,
-        deck: 'Default',
-        model: '',
-        fields: {
-            expression: '',
-            reading: '',
-            definition: '',
-            sentence: '',
-            frequency: '',
-            pitch: '',
-        },
-        tags: ['hoshidicts'],
-        duplicatePolicy: 'prevent',
     };
 }
 
@@ -197,6 +193,14 @@ function normalizeSchedule(value: unknown): HoshidictsSchedule {
         : 'off';
 }
 
+function normalizePopupHideDelay(value: unknown): number {
+    return Number.isInteger(value) &&
+        (value as number) >= 0 &&
+        (value as number) <= MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS
+        ? (value as number)
+        : DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS;
+}
+
 function normalizeDate(value: unknown): string | null {
     if (typeof value !== 'string') {
         return null;
@@ -207,110 +211,6 @@ function normalizeDate(value: unknown): string | null {
 
 function normalizeOptionalString(value: unknown): string | null {
     return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
-}
-
-function normalizeProfileString(
-    value: unknown,
-    label: string,
-    fallback = ''
-): string {
-    if (value === undefined || value === null) {
-        return fallback;
-    }
-    if (
-        typeof value !== 'string' ||
-        value.length > 255 ||
-        value.includes('\0')
-    ) {
-        throw new Error(`${label} is invalid.`);
-    }
-    return value.trim();
-}
-
-export function normalizeHoshidictsMiningProfile(
-    value: unknown
-): HoshidictsMiningProfile {
-    if (!isRecord(value)) {
-        throw new Error('Hoshidicts mining profile must be an object.');
-    }
-    if (
-        value.version !== undefined &&
-        value.version !== MINING_PROFILE_VERSION
-    ) {
-        throw new Error('Hoshidicts mining profile version is unsupported.');
-    }
-    const rawFields = value.fields ?? {};
-    if (!isRecord(rawFields)) {
-        throw new Error('Hoshidicts mining fields must be an object.');
-    }
-    const rawTags = value.tags ?? ['hoshidicts'];
-    if (!Array.isArray(rawTags) || rawTags.length > 32) {
-        throw new Error('Hoshidicts mining tags are invalid.');
-    }
-    const tags: string[] = [];
-    const seenTags = new Set<string>();
-    for (const rawTag of rawTags) {
-        const tag = normalizeProfileString(
-            rawTag,
-            'Hoshidicts mining tag'
-        );
-        const key = tag.toLocaleLowerCase();
-        if (tag && !seenTags.has(key)) {
-            seenTags.add(key);
-            tags.push(tag);
-        }
-    }
-    if (
-        value.duplicatePolicy !== undefined &&
-        value.duplicatePolicy !== 'prevent' &&
-        value.duplicatePolicy !== 'allow'
-    ) {
-        throw new Error('Hoshidicts duplicate policy is invalid.');
-    }
-    const duplicatePolicy =
-        value.duplicatePolicy === 'allow' ? 'allow' : 'prevent';
-    return {
-        version: MINING_PROFILE_VERSION,
-        enabled: value.enabled !== false,
-        deck:
-            normalizeProfileString(
-                value.deck,
-                'Hoshidicts mining deck',
-                'Default'
-            ) || 'Default',
-        model: normalizeProfileString(
-            value.model,
-            'Hoshidicts mining note type'
-        ),
-        fields: {
-            expression: normalizeProfileString(
-                rawFields.expression,
-                'Hoshidicts expression field'
-            ),
-            reading: normalizeProfileString(
-                rawFields.reading,
-                'Hoshidicts reading field'
-            ),
-            definition: normalizeProfileString(
-                rawFields.definition,
-                'Hoshidicts definition field'
-            ),
-            sentence: normalizeProfileString(
-                rawFields.sentence,
-                'Hoshidicts sentence field'
-            ),
-            frequency: normalizeProfileString(
-                rawFields.frequency,
-                'Hoshidicts frequency field'
-            ),
-            pitch: normalizeProfileString(
-                rawFields.pitch,
-                'Hoshidicts pitch field'
-            ),
-        },
-        tags,
-        duplicatePolicy,
-    };
 }
 
 function normalizeRelativePath(value: unknown): string {
@@ -945,6 +845,8 @@ export class HoshidictsManager {
 
     private readonly deps: HoshidictsManagerDependencies;
     private operationQueue: Promise<void> = Promise.resolve();
+    private snapshotQueue: Promise<void> = Promise.resolve();
+    private snapshotRevision = 0;
     private progress: HoshidictsProgress = { phase: 'idle' };
     private runtimeError: string | null = null;
     private listeners = new Set<SnapshotListener>();
@@ -972,26 +874,22 @@ export class HoshidictsManager {
     }
 
     async getSnapshot(): Promise<HoshidictsManagerSnapshot> {
+        const read = this.snapshotQueue.then(async () => await this.readSnapshot());
+        this.snapshotQueue = read.then(
+            () => undefined,
+            () => undefined
+        );
+        return await read;
+    }
+
+    private async readSnapshot(): Promise<HoshidictsManagerSnapshot> {
         let manifest: PersistedManifest;
+        let manifestError: string | null = null;
         try {
             manifest = await this.readManifest();
         } catch (error) {
-            return {
-                dictionaries: [],
-                recommendedDictionaries:
-                    RECOMMENDED_HOSHIDICTS_DICTIONARIES.map(({ id }) => ({
-                        id,
-                        installed: false,
-                    })),
-                miningProfile: defaultHoshidictsMiningProfile(),
-                lookupMode: 'shift',
-                schedule: 'off',
-                lastCheck: null,
-                nextCheck: null,
-                lastError: this.runtimeError ?? errorMessage(error),
-                busy: this.progress.phase !== 'idle',
-                progress: { ...this.progress },
-            };
+            manifestError = errorMessage(error);
+            manifest = await this.readManifestPreferences().catch(() => emptyManifest());
         }
         let miningProfile = defaultHoshidictsMiningProfile();
         let profileError: string | null = null;
@@ -1003,7 +901,7 @@ export class HoshidictsManager {
         return this.snapshotFromManifest(
             manifest,
             miningProfile,
-            profileError
+            manifestError ?? profileError
         );
     }
 
@@ -1027,26 +925,20 @@ export class HoshidictsManager {
     async installRecommendedDictionaries(): Promise<HoshidictsManagerSnapshot> {
         await this.enqueue('downloading', async () => {
             let manifest = await this.readManifest();
-            for (
-                let index = 0;
-                index < RECOMMENDED_HOSHIDICTS_DICTIONARIES.length;
-                index += 1
-            ) {
-                const recommended = RECOMMENDED_HOSHIDICTS_DICTIONARIES[index];
-                const installed = manifest.dictionaries.some(
+            const missing = RECOMMENDED_HOSHIDICTS_DICTIONARIES.filter(
+                (recommended) => !manifest.dictionaries.some(
                     (dictionary) =>
                         parseHttpsUrl(dictionary.indexUrl) ===
                         recommended.indexUrl
-                );
-                if (installed) {
-                    continue;
-                }
-
+                )
+            );
+            for (let index = 0; index < missing.length; index += 1) {
+                const recommended = missing[index];
                 manifest = await this.installRecommendedDictionaryLocked(
                     manifest,
                     recommended,
                     index,
-                    RECOMMENDED_HOSHIDICTS_DICTIONARIES.length
+                    missing.length
                 );
             }
         });
@@ -1174,7 +1066,7 @@ export class HoshidictsManager {
     }
 
     async setSchedule(schedule: HoshidictsSchedule): Promise<HoshidictsManagerSnapshot> {
-        await this.enqueue('checking', async () => {
+        await this.enqueue('saving', async () => {
             if (!['off', 'daily', 'weekly', 'monthly'].includes(schedule)) {
                 throw new Error('Dictionary update schedule is invalid.');
             }
@@ -1189,7 +1081,7 @@ export class HoshidictsManager {
                 ),
             };
             await this.atomicWriteManifest(next);
-        });
+        }, 'preferences');
         return await this.getSnapshot();
     }
 
@@ -1197,7 +1089,7 @@ export class HoshidictsManager {
         const profile = normalizeHoshidictsMiningProfile(value);
         await this.enqueue('saving', async () => {
             await this.atomicWriteMiningProfile(profile);
-        });
+        }, 'mining');
         return await this.getSnapshot();
     }
 
@@ -1207,12 +1099,40 @@ export class HoshidictsManager {
         if (lookupMode !== 'shift' && lookupMode !== 'hover') {
             throw new Error('Hoshidicts lookup mode is invalid.');
         }
+        const snapshot = await this.getSnapshot();
+        return await this.setReaderPreferences(
+            lookupMode,
+            snapshot.popupHideDelayMs
+        );
+    }
+
+    async setReaderPreferences(
+        lookupMode: HoshidictsLookupMode,
+        popupHideDelayMs: number
+    ): Promise<HoshidictsManagerSnapshot> {
+        if (lookupMode !== 'shift' && lookupMode !== 'hover') {
+            throw new Error('Hoshidicts lookup mode is invalid.');
+        }
+        if (
+            !Number.isInteger(popupHideDelayMs) ||
+            popupHideDelayMs < 0 ||
+            popupHideDelayMs > MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS
+        ) {
+            throw new Error('Hoshidicts popup hide delay is invalid.');
+        }
         await this.enqueue('saving', async () => {
             const manifest = await this.readManifest();
-            if (manifest.lookupMode !== lookupMode) {
-                await this.atomicWriteManifest({ ...manifest, lookupMode });
+            if (
+                manifest.lookupMode !== lookupMode ||
+                manifest.popupHideDelayMs !== popupHideDelayMs
+            ) {
+                await this.atomicWriteManifest({
+                    ...manifest,
+                    lookupMode,
+                    popupHideDelayMs,
+                });
             }
-        });
+        }, 'preferences');
         return await this.getSnapshot();
     }
 
@@ -1356,18 +1276,19 @@ export class HoshidictsManager {
 
     private async enqueue<T>(
         initialPhase: HoshidictsProgressPhase,
-        operation: () => Promise<T>
+        operation: () => Promise<T>,
+        scope: HoshidictsProgress['scope'] = 'dictionary'
     ): Promise<T> {
         const run = this.operationQueue.then(async () => {
             this.runtimeError = null;
-            this.setProgress({ phase: initialPhase });
+            this.setProgress({ phase: initialPhase, scope });
             try {
                 return await operation();
             } catch (error) {
                 this.runtimeError = errorMessage(error);
                 throw error;
             } finally {
-                this.setProgress({ phase: 'idle' });
+                this.setProgress({ phase: 'idle', scope });
             }
         });
         this.operationQueue = run.then(
@@ -1378,7 +1299,8 @@ export class HoshidictsManager {
     }
 
     private setProgress(progress: HoshidictsProgress): void {
-        this.progress = progress;
+        const scope = progress.scope ?? this.progress.scope;
+        this.progress = scope ? { ...progress, scope } : progress;
         this.emitSnapshot();
     }
 
@@ -1399,6 +1321,7 @@ export class HoshidictsManager {
         profileError: string | null = null
     ): HoshidictsManagerSnapshot {
         return {
+            revision: ++this.snapshotRevision,
             dictionaries: manifest.dictionaries.map(
                 ({
                     id,
@@ -1427,6 +1350,7 @@ export class HoshidictsManager {
             recommendedDictionaries: recommendedDictionaryStates(manifest),
             miningProfile,
             lookupMode: manifest.lookupMode,
+            popupHideDelayMs: manifest.popupHideDelayMs,
             schedule: manifest.schedule,
             lastCheck: manifest.lastCheck,
             nextCheck: manifest.nextCheck,
@@ -1518,11 +1442,42 @@ export class HoshidictsManager {
         return {
             version: MANIFEST_VERSION,
             lookupMode: parsed.lookupMode === 'hover' ? 'hover' : 'shift',
+            popupHideDelayMs: normalizePopupHideDelay(parsed.popupHideDelayMs),
             schedule: normalizeSchedule(parsed.schedule),
             lastCheck: normalizeDate(parsed.lastCheck),
             nextCheck: normalizeDate(parsed.nextCheck),
             lastError: normalizeOptionalString(parsed.lastError),
             dictionaries,
+        };
+    }
+
+    private async readManifestPreferences(): Promise<PersistedManifest> {
+        let raw: string;
+        try {
+            const stat = await fsp.stat(this.manifestPath);
+            if (!stat.isFile() || stat.size === 0 || stat.size > MAX_MANIFEST_BYTES) {
+                throw new Error('Hoshidicts manifest is empty, oversized, or not a file.');
+            }
+            raw = await fsp.readFile(this.manifestPath, 'utf8');
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+                return emptyManifest();
+            }
+            throw error;
+        }
+        const parsed: unknown = JSON.parse(raw.replace(/^\uFEFF/, ''));
+        if (!isRecord(parsed) || parsed.version !== MANIFEST_VERSION) {
+            throw new Error('Hoshidicts manifest has an unsupported version.');
+        }
+        return {
+            version: MANIFEST_VERSION,
+            lookupMode: parsed.lookupMode === 'hover' ? 'hover' : 'shift',
+            popupHideDelayMs: normalizePopupHideDelay(parsed.popupHideDelayMs),
+            schedule: normalizeSchedule(parsed.schedule),
+            lastCheck: normalizeDate(parsed.lastCheck),
+            nextCheck: normalizeDate(parsed.nextCheck),
+            lastError: normalizeOptionalString(parsed.lastError),
+            dictionaries: [],
         };
     }
 

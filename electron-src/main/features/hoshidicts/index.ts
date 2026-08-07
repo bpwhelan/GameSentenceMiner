@@ -4,13 +4,18 @@ import { getConfiguredHoshidictsEnabled } from '../../gsm_config.js';
 import { bus, getBusConnectInfo } from '../../runtime/bus_client.js';
 import {
     configureHoshidictsLookupModeProvider,
+    configureHoshidictsPopupHideDelayProvider,
     getOverlayHoshidictsEnabledAtLaunch,
     getOverlayHoshidictsLookupModeAtLaunch,
+    getOverlayHoshidictsPopupHideDelayAtLaunch,
     getOverlayRuntimeState,
+    markOverlayHoshidictsReaderPreferencesApplied,
     restartOverlay,
 } from '../../ui/front.js';
 import {
     HOSHIDICTS_BUS_TOPICS,
+    HOSHIDICTS_READER_CLIENT_ID,
+    type HoshidictsReaderPreferences,
 } from '../../../shared/features/hoshidicts.js';
 import { registerHoshidictsIPC } from './ipc.js';
 import { fetchHoshidictsMiningOptions } from './mining_options.js';
@@ -25,6 +30,26 @@ import {
 } from './window.js';
 
 let featureRegistered = false;
+
+async function applyReaderPreferences(
+    preferences: HoshidictsReaderPreferences
+): Promise<boolean> {
+    if (!getBusConnectInfo() || !bus.isConnected(HOSHIDICTS_READER_CLIENT_ID)) {
+        return false;
+    }
+    try {
+        await bus.request(
+            HOSHIDICTS_READER_CLIENT_ID,
+            HOSHIDICTS_BUS_TOPICS.readerPreferences,
+            preferences,
+            2000
+        );
+        return markOverlayHoshidictsReaderPreferencesApplied(preferences);
+    } catch (error) {
+        console.warn('[Hoshidicts] Could not update the running reader.', error);
+        return false;
+    }
+}
 
 export function isHoshidictsOverlaySettingsClient(clientId: string): boolean {
     return clientId.startsWith('overlay.hoshidicts-settings.');
@@ -48,6 +73,9 @@ export function registerHoshidictsFeature(deps: {
             getOverlayHoshidictsEnabledAtLaunch,
         getOverlayLookupModeAtLaunch:
             getOverlayHoshidictsLookupModeAtLaunch,
+        getOverlayPopupHideDelayAtLaunch:
+            getOverlayHoshidictsPopupHideDelayAtLaunch,
+        applyReaderPreferences,
         getMiningOptions: fetchHoshidictsMiningOptions,
         restartOverlay,
     });
@@ -73,6 +101,10 @@ export async function startHoshidictsManager(): Promise<void> {
     await startManager();
     configureHoshidictsLookupModeProvider(
         async () => (await getHoshidictsManager().getSnapshot()).lookupMode
+    );
+    configureHoshidictsPopupHideDelayProvider(
+        async () =>
+            (await getHoshidictsManager().getSnapshot()).popupHideDelayMs
     );
 }
 

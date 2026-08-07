@@ -562,9 +562,43 @@
       "restartNote": "This change takes effect after the overlay restarts.",
       "restartNow": "Restart Overlay",
       "restarting": "Restarting...",
+      "loading": "Loading Hoshidicts settings...",
+      "readiness": {
+        "loading": "Loading",
+        "loadingHint": "Checking the reader and installed dictionaries.",
+        "featureOff": "Feature off",
+        "featureOffHint": "Enable Hoshidicts in GSM Experimental settings.",
+        "overlayStopped": "Overlay stopped",
+        "overlayStoppedHint": "Start the overlay to use dictionary lookup.",
+        "restartRequired": "Restart required",
+        "restartRequiredHint": "Restart the overlay to apply the latest reader changes.",
+        "noEnabledDictionaries": "No enabled dictionaries",
+        "noEnabledDictionariesHint": "Install or enable a dictionary before looking up words.",
+        "ready": "Ready",
+        "readyHint": "Hover Japanese text in the overlay to look up words.",
+        "dictionaryCounts": "{installed} installed · {enabled} enabled",
+        "enableDictionary": "Enable a Dictionary"
+      },
       "tabs": {
         "dictionaries": "Dictionaries",
         "mining": "Anki Mining"
+      },
+      "reader": {
+        "title": "Reader behavior",
+        "subtitle": "Changes are saved automatically and applied to the running overlay.",
+        "activation": "Lookup activation",
+        "holdShift": "Hold Shift",
+        "holdShiftHint": "Look up text only while Shift is held.",
+        "automaticHover": "Automatic hover",
+        "automaticHoverHint": "Look up Japanese text as the pointer moves over it.",
+        "hideDelay": "Popup hide delay",
+        "hideDelayHint": "Keeps the popup reachable when moving from the word into its definitions.",
+        "milliseconds": "ms"
+      },
+      "saveStatus": {
+        "saving": "Saving...",
+        "saved": "Saved",
+        "error": "Save failed"
       },
       "lookup": {
         "title": "Lookup activation",
@@ -617,9 +651,13 @@
         "ankiDisconnected": "AnkiConnect disconnected",
         "refreshAnki": "Refresh",
         "gsmAnkiDisabled": "AnkiConnect is reachable, but Anki integration is disabled in GSM settings.",
+        "ankiError": "AnkiConnect error: {message}",
+        "autoSaveHint": "Changes are saved automatically.",
         "deck": "Deck",
         "noteType": "Note type",
         "selectNoteType": "Select a note type",
+        "automatic": "Automatic",
+        "automaticNoteType": "Automatic ({name})",
         "missingOption": "{name} (missing from Anki)",
         "noField": "Do not fill",
         "tags": "Extra tags",
@@ -628,6 +666,13 @@
         "allowDuplicates": "Allow duplicates",
         "fieldOverrides": "Field overrides",
         "inheritHint": "Blank values use the current GSM mapping or a compatible field in the selected note type.",
+        "fieldMappings": "Field mappings",
+        "mappingHint": "Automatic uses a compatible field from the selected note type.",
+        "mappingCount": "{mapped} of {total} fields mapped",
+        "automaticField": "Automatic → {name}",
+        "automaticUnmapped": "Automatic (no compatible field)",
+        "mappingWarning": "Anki mapping warning: {message}",
+        "missingMappings": "These explicit fields are missing from the selected note type: {fields}",
         "fields": {
           "expression": "Expression",
           "reading": "Reading",
@@ -639,6 +684,16 @@
         "save": "Save Mining Profile",
         "saving": "Saving..."
       },
+      "outcomes": {
+        "preferencesSaved": "Reader preferences saved.",
+        "miningProfileSaved": "Mining profile saved.",
+        "dictionaryImported": "Dictionary imported.",
+        "recommendedInstalled": "Installed {count} recommended dictionaries.",
+        "updatesChecked": "Dictionary update check complete.",
+        "dictionaryRemoved": "Removed {title}.",
+        "dictionaryChanged": "Dictionary settings updated.",
+        "overlayRestarted": "Overlay restarted."
+      },
       "progress": {
         "idle": "Ready",
         "importing": "Importing dictionary...",
@@ -646,7 +701,7 @@
         "downloading": "Downloading {title}...",
         "reloading": "Reloading dictionaries...",
         "removing": "Removing dictionary...",
-        "saving": "Saving mining profile...",
+        "saving": "Saving settings...",
         "count": "{completed} / {total}"
       },
       "errors": {
@@ -658,6 +713,7 @@
         "schedule": "Failed to save the dictionary update schedule.",
         "recommended": "Failed to install the recommended dictionaries.",
         "lookupMode": "Failed to save the Hoshidicts lookup activation setting.",
+        "readerPreferences": "Failed to save the Hoshidicts reader settings.",
         "ankiOptions": "Failed to load decks and note types from AnkiConnect.",
         "miningProfile": "Failed to save the Hoshidicts mining profile.",
         "restart": "Failed to restart the overlay."

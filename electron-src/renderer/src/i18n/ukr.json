@@ -544,9 +544,43 @@
       "restartNote": "Ця зміна набуде чинності після перезапуску оверлею.",
       "restartNow": "Перезапустити оверлей",
       "restarting": "Перезапуск...",
+      "loading": "Завантаження налаштувань Hoshidicts...",
+      "readiness": {
+        "loading": "Завантаження",
+        "loadingHint": "Перевірка читача та встановлених словників.",
+        "featureOff": "Функцію вимкнено",
+        "featureOffHint": "Увімкніть Hoshidicts в експериментальних налаштуваннях GSM.",
+        "overlayStopped": "Оверлей зупинено",
+        "overlayStoppedHint": "Запустіть оверлей, щоб користуватися пошуком у словнику.",
+        "restartRequired": "Потрібен перезапуск",
+        "restartRequiredHint": "Перезапустіть оверлей, щоб застосувати нові налаштування читача.",
+        "noEnabledDictionaries": "Немає ввімкнених словників",
+        "noEnabledDictionariesHint": "Встановіть або ввімкніть словник перед пошуком слів.",
+        "ready": "Готово",
+        "readyHint": "Наведіть вказівник на японський текст в оверлеї, щоб знайти слово.",
+        "dictionaryCounts": "Встановлено: {installed} · увімкнено: {enabled}",
+        "enableDictionary": "Увімкнути словник"
+      },
       "tabs": {
         "dictionaries": "Словники",
         "mining": "Видобування Anki"
+      },
+      "reader": {
+        "title": "Поведінка читача",
+        "subtitle": "Зміни зберігаються автоматично й застосовуються до запущеного оверлею.",
+        "activation": "Активація пошуку",
+        "holdShift": "Утримувати Shift",
+        "holdShiftHint": "Шукати текст лише під час утримування Shift.",
+        "automaticHover": "Автоматичне наведення",
+        "automaticHoverHint": "Шукати японський текст під час руху вказівника над ним.",
+        "hideDelay": "Затримка приховування вікна",
+        "hideDelayHint": "Дає змогу перемістити вказівник зі слова до його визначень.",
+        "milliseconds": "мс"
+      },
+      "saveStatus": {
+        "saving": "Збереження...",
+        "saved": "Збережено",
+        "error": "Не вдалося зберегти"
       },
       "lookup": {
         "title": "Активація пошуку",
@@ -599,9 +633,13 @@
         "ankiDisconnected": "AnkiConnect не підключено",
         "refreshAnki": "Оновити",
         "gsmAnkiDisabled": "AnkiConnect доступний, але інтеграцію Anki вимкнено в налаштуваннях GSM.",
+        "ankiError": "Помилка AnkiConnect: {message}",
+        "autoSaveHint": "Зміни зберігаються автоматично.",
         "deck": "Колода",
         "noteType": "Тип нотатки",
         "selectNoteType": "Виберіть тип нотатки",
+        "automatic": "Автоматично",
+        "automaticNoteType": "Автоматично ({name})",
         "missingOption": "{name} (відсутнє в Anki)",
         "noField": "Не заповнювати",
         "tags": "Додаткові теги",
@@ -610,6 +648,13 @@
         "allowDuplicates": "Дозволяти дублікати",
         "fieldOverrides": "Перевизначення полів",
         "inheritHint": "Порожні значення використовують поточне зіставлення GSM або сумісне поле вибраного типу нотатки.",
+        "fieldMappings": "Зіставлення полів",
+        "mappingHint": "Автоматичний режим використовує сумісне поле вибраного типу нотатки.",
+        "mappingCount": "Зіставлено {mapped} з {total} полів",
+        "automaticField": "Автоматично → {name}",
+        "automaticUnmapped": "Автоматично (немає сумісного поля)",
+        "mappingWarning": "Попередження зіставлення Anki: {message}",
+        "missingMappings": "У вибраному типі нотатки відсутні вказані поля: {fields}",
         "fields": {
           "expression": "Вираз",
           "reading": "Читання",
@@ -621,6 +666,16 @@
         "save": "Зберегти профіль видобування",
         "saving": "Збереження..."
       },
+      "outcomes": {
+        "preferencesSaved": "Налаштування читача збережено.",
+        "miningProfileSaved": "Профіль видобування збережено.",
+        "dictionaryImported": "Словник імпортовано.",
+        "recommendedInstalled": "Встановлено рекомендованих словників: {count}.",
+        "updatesChecked": "Перевірку оновлень словників завершено.",
+        "dictionaryRemoved": "Видалено {title}.",
+        "dictionaryChanged": "Налаштування словників оновлено.",
+        "overlayRestarted": "Оверлей перезапущено."
+      },
       "progress": {
         "idle": "Готово",
         "importing": "Імпорт словника...",
@@ -628,7 +683,7 @@
         "downloading": "Завантаження {title}...",
         "reloading": "Перезавантаження словників...",
         "removing": "Видалення словника...",
-        "saving": "Збереження профілю видобування...",
+        "saving": "Збереження налаштувань...",
         "count": "{completed} / {total}"
       },
       "errors": {
@@ -640,6 +695,7 @@
         "schedule": "Не вдалося зберегти розклад оновлень словників.",
         "recommended": "Не вдалося встановити рекомендовані словники.",
         "lookupMode": "Не вдалося зберегти спосіб активації пошуку Hoshidicts.",
+        "readerPreferences": "Не вдалося зберегти налаштування читача Hoshidicts.",
         "ankiOptions": "Не вдалося завантажити колоди й типи нотаток з AnkiConnect.",
         "miningProfile": "Не вдалося зберегти профіль видобування Hoshidicts.",
         "restart": "Не вдалося перезапустити оверлей."
