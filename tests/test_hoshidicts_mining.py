@@ -110,6 +110,7 @@ class FakeAnki:
 
 
 def _wire(monkeypatch, fake_anki, profile=None):
+    hoshidicts_mining._clear_mining_status_cache()
     monkeypatch.setattr(hoshidicts_mining, "get_config", _config)
     monkeypatch.setattr(
         hoshidicts_mining,
@@ -133,6 +134,7 @@ def test_profile_defaults_and_normalization(tmp_path):
             "deck": " Mining ",
             "model": " Custom ",
             "fields": {"reading": " Kana "},
+            "disabledFields": ["pitch", "pitch", "frequency"],
             "tags": [" hoshidicts ", "HOSHIDICTS", "custom"],
             "duplicatePolicy": "allow",
         }
@@ -141,6 +143,7 @@ def test_profile_defaults_and_normalization(tmp_path):
     assert profile["deck"] == "Mining"
     assert profile["model"] == "Custom"
     assert profile["fields"]["reading"] == "Kana"
+    assert profile["disabledFields"] == ["pitch", "frequency"]
     assert profile["tags"] == ["hoshidicts", "custom"]
     assert profile["duplicatePolicy"] == "allow"
 
@@ -203,9 +206,24 @@ def test_options_load_anki_choices_and_suggest_kiku_lapis_fields(monkeypatch):
             "frequency": "Frequency",
             "pitch": "PitchPosition",
         },
+        "resolvedFields": {
+            "expression": "Expression",
+            "reading": "ExpressionReading",
+            "definition": "Glossary",
+            "sentence": "Sentence",
+            "frequency": "Frequency",
+            "pitch": "PitchPosition",
+        },
+        "warnings": [],
         "error": None,
     }
-    assert ("modelFieldNames", {"timeout": 3, "modelName": "Kiku"}) in fake_anki.calls
+    assert (
+        "modelFieldNames",
+        {
+            "timeout": hoshidicts_mining.ANKI_CONNECT_TIMEOUT_SECONDS,
+            "modelName": "Kiku",
+        },
+    ) in fake_anki.calls
 
 
 def test_options_accept_a_selected_note_type_and_detect_a_renamed_lapis_schema(monkeypatch):
@@ -271,6 +289,28 @@ def test_options_report_an_ankiconnect_failure(monkeypatch):
     assert options["error"] == "Could not connect to Anki through GSM: connection refused"
 
 
+def test_options_keep_partial_ankiconnect_results(monkeypatch):
+    class PartialAnki(FakeAnki):
+        def invoke(self, action, **kwargs):
+            if action == "deckNames":
+                self.calls.append((action, kwargs))
+                raise TimeoutError("deck lookup timed out")
+            return super().invoke(action, **kwargs)
+
+    fake_anki = PartialAnki(model_names=["Mining"])
+    _wire(monkeypatch, fake_anki)
+
+    options = hoshidicts_mining.get_hoshidicts_mining_options()
+
+    assert options["connected"] is True
+    assert options["noteTypes"] == ["Mining"]
+    assert options["decks"] == []
+    assert options["fields"] == fake_anki.fields
+    assert options["resolvedFields"]["expression"] == "Expression"
+    assert options["error"] is None
+    assert options["warnings"] == ["Could not load Anki decks: deck lookup timed out"]
+
+
 def test_mining_preserves_dictionary_metadata_and_queues_gsm_enrichment(monkeypatch):
     fake_anki = FakeAnki()
     _wire(monkeypatch, fake_anki)
@@ -283,7 +323,7 @@ def test_mining_preserves_dictionary_metadata_and_queues_gsm_enrichment(monkeypa
     assert add_note["modelName"] == "Mining"
     assert add_note["fields"]["Expression"] == "食べる"
     assert add_note["fields"]["Reading"] == "たべる"
-    assert add_note["fields"]["Sentence"] == "昨日、食べた。"
+    assert add_note["fields"]["Sentence"] == "昨日、<b>食べた</b>。"
     assert "JMdict" in add_note["fields"]["Definition"]
     assert "to eat" in add_note["fields"]["Definition"]
     assert "consume" in add_note["fields"]["Definition"]
@@ -332,6 +372,50 @@ def test_mining_formats_kiku_lapis_pitch_position_as_numeric_positions(monkeypat
     assert "LHL" not in note["fields"]["PitchPosition"]
 
 
+def test_mining_automatically_maps_kiku_lapis_without_saved_field_overrides(monkeypatch):
+    fields = [
+        "Expression",
+        "ExpressionReading",
+        "Glossary",
+        "Sentence",
+        "Frequency",
+        "PitchPosition",
+    ]
+    fake_anki = FakeAnki(fields=fields, model_names=["Kiku"])
+    config = _config()
+    config.anki.note_type = "Kiku"
+    _wire(monkeypatch, fake_anki)
+    monkeypatch.setattr(hoshidicts_mining, "get_config", lambda: config)
+
+    hoshidicts_mining.mine_hoshidicts_note(_payload())
+
+    note = next(kwargs["note"] for action, kwargs in fake_anki.calls if action == "addNote")
+    assert note["fields"]["ExpressionReading"] == "たべる"
+    assert "Reading" not in note["fields"]
+    assert note["fields"]["Glossary"]
+    assert note["fields"]["PitchPosition"] == "2"
+
+
+def test_mining_honors_explicitly_disabled_fields(monkeypatch):
+    fake_anki = FakeAnki()
+    _wire(
+        monkeypatch,
+        fake_anki,
+        _profile(disabledFields=["reading", "frequency", "pitch"]),
+    )
+
+    options = hoshidicts_mining.get_hoshidicts_mining_options()
+    result = hoshidicts_mining.mine_hoshidicts_note(_payload())
+
+    assert options["suggestedFields"]["reading"] == "Reading"
+    assert options["resolvedFields"]["reading"] == ""
+    note = next(kwargs["note"] for action, kwargs in fake_anki.calls if action == "addNote")
+    assert "Reading" not in note["fields"]
+    assert "Frequency" not in note["fields"]
+    assert "PitchAccent" not in note["fields"]
+    assert result["unmappedFields"] == []
+
+
 def test_mining_reports_optional_data_not_supported_by_the_model(monkeypatch):
     fake_anki = FakeAnki(fields=["Expression", "Sentence"])
     _wire(monkeypatch, fake_anki)
@@ -347,7 +431,7 @@ def test_mining_reports_optional_data_not_supported_by_the_model(monkeypatch):
     add_note = next(kwargs["note"] for action, kwargs in fake_anki.calls if action == "addNote")
     assert add_note["fields"] == {
         "Expression": "食べる",
-        "Sentence": "昨日、食べた。",
+        "Sentence": "昨日、<b>食べた</b>。",
     }
 
 
@@ -386,6 +470,20 @@ def test_mining_honors_profile_overrides(monkeypatch):
     assert "dictionary" in add_note["tags"]
 
 
+def test_status_deduplicates_short_lived_ankiconnect_checks(monkeypatch):
+    fake_anki = FakeAnki()
+    _wire(monkeypatch, fake_anki)
+
+    first = hoshidicts_mining.get_hoshidicts_mining_status()
+    second = hoshidicts_mining.get_hoshidicts_mining_status()
+
+    assert first == second
+    assert [action for action, _kwargs in fake_anki.calls] == [
+        "modelFieldNames",
+        "deckNames",
+    ]
+
+
 def test_validation_uses_the_overlay_utf16_offset():
     payload = _payload()
     payload["sentence"] = "😀食べた"
@@ -401,6 +499,12 @@ def test_validation_uses_the_overlay_utf16_offset():
         match="splits a Unicode character",
     ):
         hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+
+    payload = _payload()
+    payload["sentence"] = "<食べた&"
+    payload["matchOffset"] = 1
+    validated = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+    assert hoshidicts_mining._highlight_sentence_match(validated) == ("&lt;<b>食べた</b>&amp;")
 
 
 def test_duplicate_rejection_returns_a_conflict(monkeypatch):
