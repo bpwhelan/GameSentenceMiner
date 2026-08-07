@@ -13,6 +13,8 @@ import {
   HOSHIDICTS_CHANNELS,
   type HoshidictsActionResult,
   type HoshidictsDesktopSnapshot,
+  type HoshidictsMiningFields,
+  type HoshidictsMiningOptions,
   type HoshidictsMiningProfile,
   type HoshidictsProgressPhase,
   type HoshidictsRecommendedDictionaryId,
@@ -53,6 +55,7 @@ const DEFAULT_STATE: HoshidictsDesktopSnapshot = {
     { id: "jmnedict", installed: false }
   ],
   miningProfile: DEFAULT_MINING_PROFILE,
+  lookupMode: "shift",
   schedule: "off",
   lastCheck: null,
   nextCheck: null,
@@ -63,6 +66,24 @@ const DEFAULT_STATE: HoshidictsDesktopSnapshot = {
     running: false,
     restartRequired: false
   }
+};
+
+const DEFAULT_MINING_OPTIONS: HoshidictsMiningOptions = {
+  connected: false,
+  gsmAnkiEnabled: false,
+  decks: [],
+  noteTypes: [],
+  selectedNoteType: "",
+  fields: [],
+  suggestedFields: {
+    expression: "",
+    reading: "",
+    definition: "",
+    sentence: "",
+    frequency: "",
+    pitch: ""
+  },
+  error: null
 };
 
 const PROGRESS_KEYS: Record<HoshidictsProgressPhase, string> = {
@@ -149,6 +170,48 @@ function normalizeMiningProfile(value: unknown): HoshidictsMiningProfile {
   };
 }
 
+function normalizeMiningOptions(value: unknown): HoshidictsMiningOptions {
+  if (!value || typeof value !== "object") {
+    return {
+      ...DEFAULT_MINING_OPTIONS,
+      suggestedFields: { ...DEFAULT_MINING_OPTIONS.suggestedFields }
+    };
+  }
+  const candidate = value as Partial<HoshidictsMiningOptions>;
+  const strings = (items: unknown): string[] =>
+    Array.isArray(items)
+      ? items.filter(
+          (item): item is string => typeof item === "string" && item.length > 0
+        )
+      : [];
+  const suggested =
+    candidate.suggestedFields && typeof candidate.suggestedFields === "object"
+      ? candidate.suggestedFields
+      : DEFAULT_MINING_OPTIONS.suggestedFields;
+  const fieldValue = (field: MiningField) =>
+    typeof suggested[field] === "string" ? suggested[field] : "";
+  return {
+    connected: candidate.connected === true,
+    gsmAnkiEnabled: candidate.gsmAnkiEnabled === true,
+    decks: strings(candidate.decks),
+    noteTypes: strings(candidate.noteTypes),
+    selectedNoteType:
+      typeof candidate.selectedNoteType === "string"
+        ? candidate.selectedNoteType
+        : "",
+    fields: strings(candidate.fields),
+    suggestedFields: {
+      expression: fieldValue("expression"),
+      reading: fieldValue("reading"),
+      definition: fieldValue("definition"),
+      sentence: fieldValue("sentence"),
+      frequency: fieldValue("frequency"),
+      pitch: fieldValue("pitch")
+    },
+    error: typeof candidate.error === "string" ? candidate.error : null
+  };
+}
+
 export function normalizeHoshidictsDesktopState(
   value: unknown
 ): HoshidictsDesktopSnapshot {
@@ -202,6 +265,7 @@ export function normalizeHoshidictsDesktopState(
         ) === true
     })),
     miningProfile: normalizeMiningProfile(candidate.miningProfile),
+    lookupMode: candidate.lookupMode === "hover" ? "hover" : "shift",
     schedule,
     lastCheck:
       typeof candidate.lastCheck === "string" ? candidate.lastCheck : null,
@@ -255,8 +319,19 @@ export function HoshidictsSettingsWindow() {
   const [miningDraft, setMiningDraft] = useState<MiningProfileDraft>(
     profileToDraft(DEFAULT_MINING_PROFILE)
   );
+  const miningDraftRef = useRef<MiningProfileDraft>(
+    profileToDraft(DEFAULT_MINING_PROFILE)
+  );
   const [miningDirty, setMiningDirty] = useState(false);
   const miningDirtyRef = useRef(false);
+  const [miningOptions, setMiningOptions] = useState<HoshidictsMiningOptions>(
+    DEFAULT_MINING_OPTIONS
+  );
+  const [miningOptionsLoading, setMiningOptionsLoading] = useState(false);
+  const miningOptionsRequestRef = useRef(0);
+  const automaticFieldsRef = useRef<HoshidictsMiningFields>({
+    ...DEFAULT_MINING_OPTIONS.suggestedFields
+  });
   const [actionError, setActionError] = useState<string | null>(null);
   const [restarting, setRestarting] = useState(false);
 
@@ -265,9 +340,26 @@ export function HoshidictsSettingsWindow() {
       const normalized = normalizeHoshidictsDesktopState(value);
       setState(normalized);
       if (updateMiningDraft || !miningDirtyRef.current) {
-        setMiningDraft(profileToDraft(normalized.miningProfile));
+        const draft = profileToDraft(normalized.miningProfile);
+        miningDraftRef.current = draft;
+        setMiningDraft(draft);
       }
       return normalized;
+    },
+    []
+  );
+
+  useEffect(() => {
+    miningDraftRef.current = miningDraft;
+  }, [miningDraft]);
+
+  const updateMiningDraft = useCallback(
+    (update: (current: MiningProfileDraft) => MiningProfileDraft) => {
+      setMiningDraft((current) => {
+        const next = update(current);
+        miningDraftRef.current = next;
+        return next;
+      });
     },
     []
   );
@@ -352,6 +444,66 @@ export function HoshidictsSettingsWindow() {
       }
     },
     [applyResult, t]
+  );
+
+  const loadMiningOptions = useCallback(
+    async (model?: string, applySuggestions = true) => {
+      const requestId = miningOptionsRequestRef.current + 1;
+      miningOptionsRequestRef.current = requestId;
+      setMiningOptionsLoading(true);
+      try {
+        const value = await invokeIpc<HoshidictsMiningOptions>(
+          HOSHIDICTS_CHANNELS.getMiningOptions,
+          model || undefined
+        );
+        if (requestId !== miningOptionsRequestRef.current) return;
+        const normalized = normalizeMiningOptions(value);
+        setMiningOptions(normalized);
+        if (applySuggestions && normalized.connected) {
+          const previousAutomatic = automaticFieldsRef.current;
+          automaticFieldsRef.current = { ...normalized.suggestedFields };
+          const current = miningDraftRef.current;
+          const fields = { ...current.fields };
+          let changed = false;
+          for (const field of MINING_FIELDS) {
+            const suggestion = normalized.suggestedFields[field.id];
+            if (
+              suggestion &&
+              (!fields[field.id] ||
+                fields[field.id] === previousAutomatic[field.id]) &&
+              fields[field.id] !== suggestion
+            ) {
+              fields[field.id] = suggestion;
+              changed = true;
+            }
+          }
+          const selectedModel = current.model || normalized.selectedNoteType;
+          if (selectedModel !== current.model) changed = true;
+          if (changed) {
+            const next = { ...current, model: selectedModel, fields };
+            miningDraftRef.current = next;
+            setMiningDraft(next);
+            miningDirtyRef.current = true;
+            setMiningDirty(true);
+          }
+        }
+      } catch (error) {
+        if (requestId !== miningOptionsRequestRef.current) return;
+        setMiningOptions({
+          ...DEFAULT_MINING_OPTIONS,
+          suggestedFields: { ...DEFAULT_MINING_OPTIONS.suggestedFields },
+          error:
+            error instanceof Error
+              ? error.message
+              : t("settings.hoshidicts.errors.ankiOptions")
+        });
+      } finally {
+        if (requestId === miningOptionsRequestRef.current) {
+          setMiningOptionsLoading(false);
+        }
+      }
+    },
+    [t]
   );
 
   const restartOverlay = useCallback(async () => {
@@ -460,7 +612,12 @@ export function HoshidictsSettingsWindow() {
           type="button"
           className={view === "mining" ? "is-active" : ""}
           aria-selected={view === "mining"}
-          onClick={() => setView("mining")}
+          onClick={() => {
+            setView("mining");
+            if (view !== "mining") {
+              void loadMiningOptions(miningDraft.model || undefined);
+            }
+          }}
         >
           {t("settings.hoshidicts.tabs.mining")}
         </button>
@@ -490,6 +647,33 @@ export function HoshidictsSettingsWindow() {
 
         {view === "dictionaries" ? (
           <div className="hoshidicts-dictionaries">
+            <section className="hoshidicts-section hoshidicts-lookup-mode">
+              <div>
+                <h2>{t("settings.hoshidicts.lookup.title")}</h2>
+                <p>
+                  {state.lookupMode === "shift"
+                    ? t("settings.hoshidicts.lookup.shiftHint")
+                    : t("settings.hoshidicts.lookup.hoverHint")}
+                </p>
+              </div>
+              <label className="hoshidicts-mining__toggle">
+                <input
+                  id="hoshidicts-lookup-require-shift"
+                  type="checkbox"
+                  checked={state.lookupMode === "shift"}
+                  disabled={state.busy}
+                  onChange={(event) => {
+                    void invokeAction(
+                      HOSHIDICTS_CHANNELS.setLookupMode,
+                      "settings.hoshidicts.errors.lookupMode",
+                      event.target.checked ? "shift" : "hover"
+                    );
+                  }}
+                />
+                <span>{t("settings.hoshidicts.lookup.requireShift")}</span>
+              </label>
+            </section>
+
             <section className="hoshidicts-section hoshidicts-section--toolbar">
               <div className="hoshidicts-actions">
                 <button
@@ -571,6 +755,24 @@ export function HoshidictsSettingsWindow() {
                   <h2>{t("settings.hoshidicts.recommended.title")}</h2>
                   <p>{t("settings.hoshidicts.recommended.subtitle")}</p>
                 </div>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={
+                    state.busy ||
+                    state.recommendedDictionaries.every(
+                      (dictionary) => dictionary.installed
+                    )
+                  }
+                  onClick={() => {
+                    void invokeAction(
+                      HOSHIDICTS_CHANNELS.installAllRecommended,
+                      "settings.hoshidicts.errors.recommended"
+                    );
+                  }}
+                >
+                  {t("settings.hoshidicts.recommended.install")}
+                </button>
               </div>
               <div className="hoshidicts-recommended-list">
                 {state.recommendedDictionaries.map((dictionary) => (
@@ -753,7 +955,7 @@ export function HoshidictsSettingsWindow() {
                   onChange={(event) => {
                     miningDirtyRef.current = true;
                     setMiningDirty(true);
-                    setMiningDraft((current) => ({
+                    updateMiningDraft((current) => ({
                       ...current,
                       enabled: event.target.checked
                     }));
@@ -763,40 +965,138 @@ export function HoshidictsSettingsWindow() {
               </label>
             </div>
 
+            <div className="hoshidicts-anki-status">
+              <div
+                className="hoshidicts-anki-status__badge"
+                data-connected={miningOptions.connected}
+                role="status"
+              >
+                {miningOptionsLoading
+                  ? t("settings.hoshidicts.mining.checkingAnki")
+                  : miningOptions.connected
+                    ? t("settings.hoshidicts.mining.ankiConnected")
+                    : t("settings.hoshidicts.mining.ankiDisconnected")}
+              </div>
+              <button
+                type="button"
+                className="secondary"
+                disabled={miningOptionsLoading}
+                onClick={() => {
+                  void loadMiningOptions(miningDraft.model || undefined);
+                }}
+              >
+                <RefreshCw size={16} aria-hidden="true" />
+                {t("settings.hoshidicts.mining.refreshAnki")}
+              </button>
+            </div>
+            {!miningOptionsLoading &&
+            miningOptions.connected &&
+            !miningOptions.gsmAnkiEnabled ? (
+              <p className="hoshidicts-anki-status__warning" role="alert">
+                {t("settings.hoshidicts.mining.gsmAnkiDisabled")}
+              </p>
+            ) : miningOptions.error ? (
+              <p className="hoshidicts-anki-status__warning" role="alert">
+                {miningOptions.error}
+              </p>
+            ) : null}
+
             <div className="hoshidicts-mining-grid">
               <label>
                 <span>{t("settings.hoshidicts.mining.deck")}</span>
-                <input
-                  id="hoshidicts-mining-deck"
-                  type="text"
-                  value={miningDraft.deck}
-                  disabled={state.busy}
-                  onChange={(event) => {
-                    miningDirtyRef.current = true;
-                    setMiningDirty(true);
-                    setMiningDraft((current) => ({
-                      ...current,
-                      deck: event.target.value
-                    }));
-                  }}
-                />
+                {miningOptions.connected ? (
+                  <select
+                    id="hoshidicts-mining-deck"
+                    value={miningDraft.deck}
+                    disabled={state.busy}
+                    onChange={(event) => {
+                      miningDirtyRef.current = true;
+                      setMiningDirty(true);
+                      updateMiningDraft((current) => ({
+                        ...current,
+                        deck: event.target.value
+                      }));
+                    }}
+                  >
+                    {miningDraft.deck &&
+                    !miningOptions.decks.includes(miningDraft.deck) ? (
+                      <option value={miningDraft.deck}>
+                        {t("settings.hoshidicts.mining.missingOption", {
+                          name: miningDraft.deck
+                        })}
+                      </option>
+                    ) : null}
+                    {miningOptions.decks.map((deck) => (
+                      <option value={deck} key={deck}>
+                        {deck}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    id="hoshidicts-mining-deck"
+                    type="text"
+                    value={miningDraft.deck}
+                    disabled={state.busy}
+                    onChange={(event) => {
+                      miningDirtyRef.current = true;
+                      setMiningDirty(true);
+                      updateMiningDraft((current) => ({
+                        ...current,
+                        deck: event.target.value
+                      }));
+                    }}
+                  />
+                )}
               </label>
               <label>
                 <span>{t("settings.hoshidicts.mining.noteType")}</span>
-                <input
-                  id="hoshidicts-mining-model"
-                  type="text"
-                  value={miningDraft.model}
-                  disabled={state.busy}
-                  onChange={(event) => {
-                    miningDirtyRef.current = true;
-                    setMiningDirty(true);
-                    setMiningDraft((current) => ({
-                      ...current,
-                      model: event.target.value
-                    }));
-                  }}
-                />
+                {miningOptions.connected ? (
+                  <select
+                    id="hoshidicts-mining-model"
+                    value={miningDraft.model}
+                    disabled={state.busy}
+                    onChange={(event) => {
+                      const model = event.target.value;
+                      miningDirtyRef.current = true;
+                      setMiningDirty(true);
+                      updateMiningDraft((current) => ({ ...current, model }));
+                      void loadMiningOptions(model);
+                    }}
+                  >
+                    <option value="">
+                      {t("settings.hoshidicts.mining.selectNoteType")}
+                    </option>
+                    {miningDraft.model &&
+                    !miningOptions.noteTypes.includes(miningDraft.model) ? (
+                      <option value={miningDraft.model}>
+                        {t("settings.hoshidicts.mining.missingOption", {
+                          name: miningDraft.model
+                        })}
+                      </option>
+                    ) : null}
+                    {miningOptions.noteTypes.map((noteType) => (
+                      <option value={noteType} key={noteType}>
+                        {noteType}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    id="hoshidicts-mining-model"
+                    type="text"
+                    value={miningDraft.model}
+                    disabled={state.busy}
+                    onChange={(event) => {
+                      miningDirtyRef.current = true;
+                      setMiningDirty(true);
+                      updateMiningDraft((current) => ({
+                        ...current,
+                        model: event.target.value
+                      }));
+                    }}
+                  />
+                )}
               </label>
               <label>
                 <span>{t("settings.hoshidicts.mining.tags")}</span>
@@ -808,7 +1108,7 @@ export function HoshidictsSettingsWindow() {
                   onChange={(event) => {
                     miningDirtyRef.current = true;
                     setMiningDirty(true);
-                    setMiningDraft((current) => ({
+                    updateMiningDraft((current) => ({
                       ...current,
                       tags: event.target.value
                     }));
@@ -824,7 +1124,7 @@ export function HoshidictsSettingsWindow() {
                   onChange={(event) => {
                     miningDirtyRef.current = true;
                     setMiningDirty(true);
-                    setMiningDraft((current) => ({
+                    updateMiningDraft((current) => ({
                       ...current,
                       duplicatePolicy:
                         event.target.value === "allow" ? "allow" : "prevent"
@@ -850,24 +1150,57 @@ export function HoshidictsSettingsWindow() {
                 {MINING_FIELDS.map((field) => (
                   <label key={field.id}>
                     <span>{t(field.labelKey)}</span>
-                    <input
-                      id={`hoshidicts-mining-field-${field.id}`}
-                      type="text"
-                      value={miningDraft.fields[field.id]}
-                      disabled={state.busy}
-                      onChange={(event) => {
-                        const value = event.target.value;
-                        miningDirtyRef.current = true;
-                        setMiningDirty(true);
-                        setMiningDraft((current) => ({
-                          ...current,
-                          fields: {
-                            ...current.fields,
-                            [field.id]: value
-                          }
-                        }));
-                      }}
-                    />
+                    {miningOptions.connected && miningOptions.fields.length ? (
+                      <select
+                        id={`hoshidicts-mining-field-${field.id}`}
+                        value={miningDraft.fields[field.id]}
+                        disabled={state.busy}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          miningDirtyRef.current = true;
+                          setMiningDirty(true);
+                          updateMiningDraft((current) => ({
+                            ...current,
+                            fields: { ...current.fields, [field.id]: value }
+                          }));
+                        }}
+                      >
+                        <option value="">
+                          {t("settings.hoshidicts.mining.noField")}
+                        </option>
+                        {miningDraft.fields[field.id] &&
+                        !miningOptions.fields.includes(
+                          miningDraft.fields[field.id]
+                        ) ? (
+                          <option value={miningDraft.fields[field.id]}>
+                            {t("settings.hoshidicts.mining.missingOption", {
+                              name: miningDraft.fields[field.id]
+                            })}
+                          </option>
+                        ) : null}
+                        {miningOptions.fields.map((modelField) => (
+                          <option value={modelField} key={modelField}>
+                            {modelField}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        id={`hoshidicts-mining-field-${field.id}`}
+                        type="text"
+                        value={miningDraft.fields[field.id]}
+                        disabled={state.busy}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          miningDirtyRef.current = true;
+                          setMiningDirty(true);
+                          updateMiningDraft((current) => ({
+                            ...current,
+                            fields: { ...current.fields, [field.id]: value }
+                          }));
+                        }}
+                      />
+                    )}
                   </label>
                 ))}
               </div>

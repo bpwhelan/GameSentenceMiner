@@ -3,11 +3,14 @@ export const HOSHIDICTS_CHANNELS = {
     getState: 'hoshidicts.getState',
     progress: 'hoshidicts.progress',
     importDictionary: 'hoshidicts.import',
+    installAllRecommended: 'hoshidicts.installAllRecommended',
     installRecommended: 'hoshidicts.installRecommended',
     checkUpdates: 'hoshidicts.checkUpdates',
     removeDictionary: 'hoshidicts.remove',
     setSchedule: 'hoshidicts.setSchedule',
+    setLookupMode: 'hoshidicts.setLookupMode',
     setMiningProfile: 'hoshidicts.setMiningProfile',
+    getMiningOptions: 'hoshidicts.getMiningOptions',
     setDictionaryEnabled: 'hoshidicts.setDictionaryEnabled',
     moveDictionary: 'hoshidicts.moveDictionary',
     restartOverlay: 'hoshidicts.restartOverlay',
@@ -18,6 +21,7 @@ export const HOSHIDICTS_BUS_TOPICS = {
 } as const;
 
 export type HoshidictsSchedule = 'off' | 'daily' | 'weekly' | 'monthly';
+export type HoshidictsLookupMode = 'shift' | 'hover';
 export type HoshidictsRecommendedDictionaryId = 'jmdict' | 'jmnedict';
 export type HoshidictsMoveDirection = -1 | 1;
 export type HoshidictsDuplicatePolicy = 'prevent' | 'allow';
@@ -49,6 +53,17 @@ export interface HoshidictsMiningProfile {
     duplicatePolicy: HoshidictsDuplicatePolicy;
 }
 
+export interface HoshidictsMiningOptions {
+    connected: boolean;
+    gsmAnkiEnabled: boolean;
+    decks: string[];
+    noteTypes: string[];
+    selectedNoteType: string;
+    fields: string[];
+    suggestedFields: HoshidictsMiningFields;
+    error: string | null;
+}
+
 export interface HoshidictsDictionaryState {
     id: string;
     title: string;
@@ -78,6 +93,7 @@ export interface HoshidictsManagerSnapshot {
     dictionaries: HoshidictsDictionaryState[];
     recommendedDictionaries: HoshidictsRecommendedDictionaryState[];
     miningProfile: HoshidictsMiningProfile;
+    lookupMode: HoshidictsLookupMode;
     schedule: HoshidictsSchedule;
     lastCheck: string | null;
     nextCheck: string | null;

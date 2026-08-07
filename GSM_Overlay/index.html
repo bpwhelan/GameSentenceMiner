@@ -9,6 +9,11 @@
     process.env &&
     process.env.GSM_HOSHIDICTS_ENABLED === '1'
   );
+  window.gsmHoshidictsLookupMode = (
+    typeof process !== 'undefined' &&
+    process.env &&
+    process.env.GSM_HOSHIDICTS_LOOKUP_MODE === 'hover'
+  ) ? 'hover' : 'shift';
   if (window.gsmHoshidictsReaderEnabled) {
     document.documentElement.classList.add('gsm-hoshidicts-enabled');
     document.documentElement.dataset.gsmHoshidictsEnabled = 'true';
@@ -5019,6 +5024,7 @@ background: rgba(202, 12, 12, 0.692);
     });
     window.gsmHoshidictsReader = window.GSMHoshidictsReader.createHoshidictsReader({
       serverUrl: `ws://127.0.0.1:${serverPort}`,
+      lookupMode: window.gsmHoshidictsLookupMode === 'hover' ? 'hover' : 'shift',
       onPopupStateChange: handleHoshidictsPopupState,
       async getMiningStatus() {
         return await miningClient.getStatus();

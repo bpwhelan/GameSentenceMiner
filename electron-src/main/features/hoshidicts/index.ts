@@ -3,7 +3,9 @@ import type { BrowserWindow } from 'electron';
 import { getConfiguredHoshidictsEnabled } from '../../gsm_config.js';
 import { bus, getBusConnectInfo } from '../../runtime/bus_client.js';
 import {
+    configureHoshidictsLookupModeProvider,
     getOverlayHoshidictsEnabledAtLaunch,
+    getOverlayHoshidictsLookupModeAtLaunch,
     getOverlayRuntimeState,
     restartOverlay,
 } from '../../ui/front.js';
@@ -11,6 +13,12 @@ import {
     HOSHIDICTS_BUS_TOPICS,
 } from '../../../shared/features/hoshidicts.js';
 import { registerHoshidictsIPC } from './ipc.js';
+import { fetchHoshidictsMiningOptions } from './mining_options.js';
+import {
+    getHoshidictsManager,
+    startHoshidictsManager as startManager,
+    stopHoshidictsManager,
+} from './manager.js';
 import {
     getHoshidictsSettingsWindow,
     openHoshidictsSettingsWindow,
@@ -38,6 +46,9 @@ export function registerHoshidictsFeature(deps: {
         getConfiguredFeatureEnabled: getConfiguredHoshidictsEnabled,
         getOverlayFeatureEnabledAtLaunch:
             getOverlayHoshidictsEnabledAtLaunch,
+        getOverlayLookupModeAtLaunch:
+            getOverlayHoshidictsLookupModeAtLaunch,
+        getMiningOptions: fetchHoshidictsMiningOptions,
         restartOverlay,
     });
 
@@ -58,11 +69,14 @@ export function registerHoshidictsFeature(deps: {
     }
 }
 
-export {
-    getHoshidictsManager,
-    startHoshidictsManager,
-    stopHoshidictsManager,
-} from './manager.js';
+export async function startHoshidictsManager(): Promise<void> {
+    await startManager();
+    configureHoshidictsLookupModeProvider(
+        async () => (await getHoshidictsManager().getSnapshot()).lookupMode
+    );
+}
+
+export { getHoshidictsManager, stopHoshidictsManager };
 export {
     getHoshidictsSettingsWindow,
     openHoshidictsSettingsWindow,

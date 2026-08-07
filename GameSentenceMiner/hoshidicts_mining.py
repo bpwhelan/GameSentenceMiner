@@ -16,6 +16,7 @@ MAX_TERM_LENGTH = 4096
 MAX_GLOSSARIES = 64
 MAX_METADATA_GROUPS = 64
 MAX_METADATA_VALUES = 64
+MAX_ANKI_OPTION_NAMES = 4096
 
 FIELD_KEYS = (
     "expression",
@@ -31,6 +32,24 @@ OPTIONAL_FIELD_ALIASES = {
     "definition": ("Definition", "Definitions", "Meaning", "Glossary"),
     "frequency": ("Frequency", "Frequencies"),
     "pitch": ("Pitch Accent", "PitchAccent", "Pitch", "Accent"),
+}
+
+GENERIC_FIELD_ALIASES = {
+    "expression": ("Expression", "Word", "Term", "Front"),
+    "reading": OPTIONAL_FIELD_ALIASES["reading"],
+    "definition": OPTIONAL_FIELD_ALIASES["definition"],
+    "sentence": ("Sentence", "Context", "Example Sentence"),
+    "frequency": OPTIONAL_FIELD_ALIASES["frequency"],
+    "pitch": OPTIONAL_FIELD_ALIASES["pitch"],
+}
+
+KIKU_LAPIS_FIELD_MAP = {
+    "expression": "Expression",
+    "reading": "ExpressionReading",
+    "definition": "Glossary",
+    "sentence": "Sentence",
+    "frequency": "Frequency",
+    "pitch": "PitchPosition",
 }
 
 IGNORED_STRUCTURED_TAGS = {
@@ -524,6 +543,18 @@ def _pitch_html(result: dict[str, Any]) -> str:
     return "<br>".join(groups)
 
 
+def _pitch_positions_text(result: dict[str, Any]) -> str:
+    positions = []
+    seen = set()
+    for group in result["term"]["pitches"]:
+        for pitch in group["pitches"]:
+            position = pitch["position"]
+            if position not in seen:
+                seen.add(position)
+                positions.append(str(position))
+    return ", ".join(positions)
+
+
 def _find_model_field(
     available_fields: list[str],
     requested: str,
@@ -539,6 +570,152 @@ def _get_anki_module():
     from GameSentenceMiner import anki
 
     return anki
+
+
+def _empty_mining_options(
+    *,
+    selected_note_type: str = "",
+    gsm_anki_enabled: bool = False,
+    error: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "connected": False,
+        "gsmAnkiEnabled": gsm_anki_enabled,
+        "decks": [],
+        "noteTypes": [],
+        "selectedNoteType": selected_note_type,
+        "fields": [],
+        "suggestedFields": {key: "" for key in FIELD_KEYS},
+        "error": error,
+    }
+
+
+def _validate_anki_name_list(value: Any, label: str) -> list[str]:
+    names = _require_list(value, label, MAX_ANKI_OPTION_NAMES)
+    output = []
+    seen = set()
+    for value in names:
+        name = _bounded_string(
+            value,
+            label,
+            255,
+            allow_empty=False,
+        )
+        key = name.casefold()
+        if key not in seen:
+            seen.add(key)
+            output.append(name)
+    return output
+
+
+def _suggest_mining_fields(
+    model: str,
+    available_fields: list[str],
+    config: Any,
+) -> dict[str, str]:
+    suggestions = {key: "" for key in FIELD_KEYS}
+    kiku_lapis_fields = {key: _find_model_field(available_fields, field) for key, field in KIKU_LAPIS_FIELD_MAP.items()}
+    is_named_kiku_lapis = any(name in model.casefold() for name in ("kiku", "lapis"))
+    has_kiku_lapis_signature = all(kiku_lapis_fields.values())
+    if is_named_kiku_lapis or has_kiku_lapis_signature:
+        suggestions.update({key: field or "" for key, field in kiku_lapis_fields.items()})
+
+    inherited = {
+        "expression": str(config.anki.word_field or "").strip(),
+        "sentence": str(config.anki.sentence_field or "").strip(),
+    }
+    for key in FIELD_KEYS:
+        if suggestions[key]:
+            continue
+        candidates = []
+        if inherited.get(key):
+            candidates.append(inherited[key])
+        candidates.extend(GENERIC_FIELD_ALIASES[key])
+        suggestions[key] = next(
+            (
+                resolved
+                for candidate in candidates
+                if (resolved := _find_model_field(available_fields, candidate)) is not None
+            ),
+            "",
+        )
+    return suggestions
+
+
+def get_hoshidicts_mining_options(model: str | None = None) -> dict[str, Any]:
+    """Discover Anki mining choices without changing the saved mining profile."""
+    selected_note_type = ""
+    gsm_anki_enabled = False
+    try:
+        profile = load_hoshidicts_mining_profile()
+        config = get_config()
+        gsm_anki_enabled = bool(config.anki.enabled)
+        requested_model = _bounded_string(model, "Hoshidicts note type", 255).strip() if model is not None else ""
+        selected_note_type = requested_model or profile["model"] or str(config.anki.note_type or "").strip()
+        options = _empty_mining_options(
+            selected_note_type=selected_note_type,
+            gsm_anki_enabled=gsm_anki_enabled,
+        )
+        anki = _get_anki_module()
+        note_types = _validate_anki_name_list(
+            anki.invoke("modelNames", timeout=3),
+            "Anki note type list",
+        )
+        decks = _validate_anki_name_list(
+            anki.invoke("deckNames", timeout=3),
+            "Anki deck list",
+        )
+        options.update(
+            {
+                "connected": True,
+                "decks": decks,
+                "noteTypes": note_types,
+                "error": (None if gsm_anki_enabled else "GSM Anki integration is disabled."),
+            }
+        )
+        if not selected_note_type:
+            return options
+
+        selected_model = next(
+            (candidate for candidate in note_types if candidate.casefold() == selected_note_type.casefold()),
+            None,
+        )
+        if selected_model is None:
+            options["error"] = f'Anki note type "{selected_note_type}" does not exist.'
+            return options
+
+        fields = _validate_anki_name_list(
+            anki.invoke(
+                "modelFieldNames",
+                timeout=3,
+                modelName=selected_model,
+            ),
+            "Anki field list",
+        )
+        options.update(
+            {
+                "selectedNoteType": selected_model,
+                "fields": fields,
+                "suggestedFields": _suggest_mining_fields(
+                    selected_model,
+                    fields,
+                    config,
+                ),
+            }
+        )
+        return options
+    except HoshidictsMiningError as exc:
+        return _empty_mining_options(
+            selected_note_type=selected_note_type,
+            gsm_anki_enabled=gsm_anki_enabled,
+            error=str(exc),
+        )
+    except Exception as exc:
+        return _empty_mining_options(
+            selected_note_type=selected_note_type,
+            gsm_anki_enabled=gsm_anki_enabled,
+            error=f"Could not connect to Anki through GSM: {exc}",
+        )
 
 
 def _resolve_mining_configuration() -> dict[str, Any]:
@@ -683,7 +860,13 @@ def mine_hoshidicts_note(payload: Any) -> dict[str, Any]:
     _add_field_value(fields, resolved["fields"]["definition"], _definition_html(request))
     _add_field_value(fields, resolved["fields"]["sentence"], request["sentence"])
     _add_field_value(fields, resolved["fields"]["frequency"], _frequency_html(request))
-    _add_field_value(fields, resolved["fields"]["pitch"], _pitch_html(request))
+    pitch_field = resolved["fields"]["pitch"]
+    pitch_value = (
+        _pitch_positions_text(request)
+        if pitch_field and pitch_field.casefold() == "pitchposition"
+        else _pitch_html(request)
+    )
+    _add_field_value(fields, pitch_field, pitch_value)
 
     config = resolved["config"]
     anki = resolved["anki"]

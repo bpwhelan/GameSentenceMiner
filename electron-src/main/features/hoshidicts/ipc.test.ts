@@ -6,14 +6,19 @@ const harness = vi.hoisted(() => ({
     showMessageBox: vi.fn(),
     showOpenDialog: vi.fn(),
     subscriber: null as ((snapshot: any) => void) | null,
+    configuredEnabled: true,
+    enabledAtLaunch: false as boolean | null,
+    lookupModeAtLaunch: 'shift' as 'shift' | 'hover' | null,
     manager: {
         subscribe: vi.fn(),
         getSnapshot: vi.fn(),
         importDictionary: vi.fn(),
+        installRecommendedDictionaries: vi.fn(),
         installRecommendedDictionary: vi.fn(),
         checkForUpdates: vi.fn(),
         removeDictionary: vi.fn(),
         setSchedule: vi.fn(),
+        setLookupMode: vi.fn(),
         setMiningProfile: vi.fn(),
         setDictionaryEnabled: vi.fn(),
         moveDictionary: vi.fn(),
@@ -65,6 +70,7 @@ const snapshot = {
         tags: ['hoshidicts'],
         duplicatePolicy: 'prevent',
     },
+    lookupMode: 'shift',
     schedule: 'off',
     lastCheck: null,
     nextCheck: null,
@@ -82,6 +88,8 @@ async function registerHarness() {
         return () => {};
     });
     harness.manager.getSnapshot.mockResolvedValue(snapshot);
+    harness.manager.installRecommendedDictionaries.mockResolvedValue(snapshot);
+    harness.manager.setLookupMode.mockResolvedValue(snapshot);
 
     const settingsContents = { id: 'settings' };
     const mainContents = { id: 'main' };
@@ -99,6 +107,23 @@ async function registerHarness() {
 
     const openSettingsWindow = vi.fn(async () => settingsWindow);
     const restartOverlay = vi.fn(async () => true);
+    const getMiningOptions = vi.fn(async () => ({
+        connected: true,
+        gsmAnkiEnabled: true,
+        decks: ['Mining'],
+        noteTypes: ['Kiku'],
+        selectedNoteType: 'Kiku',
+        fields: ['Expression'],
+        suggestedFields: {
+            expression: 'Expression',
+            reading: '',
+            definition: '',
+            sentence: '',
+            frequency: '',
+            pitch: '',
+        },
+        error: null,
+    }));
     const { registerHoshidictsIPC } = await import('./ipc.js');
     registerHoshidictsIPC({
         getMainWindow: () => mainWindow as any,
@@ -108,8 +133,10 @@ async function registerHarness() {
             isRunning: true,
             source: 'manual',
         }),
-        getConfiguredFeatureEnabled: () => true,
-        getOverlayFeatureEnabledAtLaunch: () => false,
+        getConfiguredFeatureEnabled: () => harness.configuredEnabled,
+        getOverlayFeatureEnabledAtLaunch: () => harness.enabledAtLaunch,
+        getOverlayLookupModeAtLaunch: () => harness.lookupModeAtLaunch,
+        getMiningOptions,
         restartOverlay,
     });
 
@@ -120,12 +147,36 @@ async function registerHarness() {
         restartOverlay,
         settingsContents,
         settingsWindow,
+        getMiningOptions,
     };
 }
 
 describe('Hoshidicts settings IPC', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        harness.configuredEnabled = true;
+        harness.enabledAtLaunch = false;
+        harness.lookupModeAtLaunch = 'shift';
+    });
+
+    it('requires an overlay restart when the persisted lookup mode changed', async () => {
+        harness.enabledAtLaunch = true;
+        harness.lookupModeAtLaunch = 'hover';
+        const context = await registerHarness();
+        const getState = harness.handlers.get('hoshidicts.getState');
+
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: true },
+        });
+
+        harness.lookupModeAtLaunch = 'shift';
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: false },
+        });
     });
 
     it('rejects requests from unrelated renderer windows', async () => {
@@ -207,5 +258,47 @@ describe('Hoshidicts settings IPC', () => {
                 effectiveEnabled: true,
             })
         );
+    });
+
+    it('installs all recommendations, validates lookup mode, and discovers Anki options', async () => {
+        const context = await registerHarness();
+        const installAll = harness.handlers.get(
+            'hoshidicts.installAllRecommended'
+        );
+        const setLookupMode = harness.handlers.get('hoshidicts.setLookupMode');
+        const getMiningOptions = harness.handlers.get(
+            'hoshidicts.getMiningOptions'
+        );
+
+        await expect(
+            installAll?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({ success: true });
+        expect(
+            harness.manager.installRecommendedDictionaries
+        ).toHaveBeenCalledOnce();
+
+        await expect(
+            setLookupMode?.(
+                { sender: context.settingsContents },
+                'automatic'
+            )
+        ).resolves.toMatchObject({
+            success: false,
+            error: 'Hoshidicts lookup mode is invalid.',
+        });
+        expect(harness.manager.setLookupMode).not.toHaveBeenCalled();
+
+        await expect(
+            setLookupMode?.({ sender: context.settingsContents }, 'hover')
+        ).resolves.toMatchObject({ success: true });
+        expect(harness.manager.setLookupMode).toHaveBeenCalledWith('hover');
+
+        await expect(
+            getMiningOptions?.(
+                { sender: context.settingsContents },
+                'Kiku'
+            )
+        ).resolves.toMatchObject({ connected: true, noteTypes: ['Kiku'] });
+        expect(context.getMiningOptions).toHaveBeenCalledWith('Kiku');
     });
 });

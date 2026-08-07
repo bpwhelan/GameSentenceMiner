@@ -8,6 +8,9 @@ const harness = vi.hoisted(() => ({
     busHandler: null as ((message: { src: string }) => Promise<unknown>) | null,
     openWindow: vi.fn(async () => ({})),
     registerIPC: vi.fn(),
+    configureLookupModeProvider: vi.fn(),
+    startManager: vi.fn(async () => undefined),
+    managerSnapshot: { lookupMode: 'hover' },
 }));
 
 vi.mock('../../runtime/bus_client.js', () => ({
@@ -27,10 +30,13 @@ vi.mock('../../runtime/bus_client.js', () => ({
 
 vi.mock('../../gsm_config.js', () => ({
     getConfiguredHoshidictsEnabled: () => true,
+    getConfiguredSinglePort: () => 7275,
 }));
 
 vi.mock('../../ui/front.js', () => ({
+    configureHoshidictsLookupModeProvider: harness.configureLookupModeProvider,
     getOverlayHoshidictsEnabledAtLaunch: () => false,
+    getOverlayHoshidictsLookupModeAtLaunch: () => 'shift',
     getOverlayRuntimeState: () => ({
         isRunning: false,
         source: null,
@@ -43,8 +49,10 @@ vi.mock('./ipc.js', () => ({
 }));
 
 vi.mock('./manager.js', () => ({
-    getHoshidictsManager: vi.fn(),
-    startHoshidictsManager: vi.fn(),
+    getHoshidictsManager: () => ({
+        getSnapshot: vi.fn(async () => harness.managerSnapshot),
+    }),
+    startHoshidictsManager: harness.startManager,
     stopHoshidictsManager: vi.fn(),
 }));
 
@@ -59,6 +67,8 @@ describe('Hoshidicts feature registration', () => {
         vi.clearAllMocks();
         harness.busInfo = { port: 1234, token: 'token' };
         harness.busHandler = null;
+        harness.configureLookupModeProvider.mockReset();
+        harness.startManager.mockClear();
     });
 
     it('accepts only the authenticated one-shot overlay client identity', async () => {
@@ -82,6 +92,9 @@ describe('Hoshidicts feature registration', () => {
         expect(
             harness.registerIPC.mock.calls[0][0].getConfiguredFeatureEnabled()
         ).toBe(true);
+        expect(
+            harness.registerIPC.mock.calls[0][0].getOverlayLookupModeAtLaunch()
+        ).toBe('shift');
         expect(harness.busHandler).not.toBeNull();
 
         await expect(
@@ -93,6 +106,17 @@ describe('Hoshidicts feature registration', () => {
             })
         ).resolves.toEqual({ opened: true });
         expect(harness.openWindow).toHaveBeenCalledOnce();
+    });
+
+    it('wires the persisted lookup mode into overlay launches after startup', async () => {
+        const { startHoshidictsManager } = await import('./index.js');
+
+        await startHoshidictsManager();
+
+        expect(harness.startManager).toHaveBeenCalledOnce();
+        expect(harness.configureLookupModeProvider).toHaveBeenCalledOnce();
+        const provider = harness.configureLookupModeProvider.mock.calls[0][0];
+        await expect(provider()).resolves.toBe('hover');
     });
 
     it('keeps local settings IPC available if the desktop bus failed to start', async () => {

@@ -541,12 +541,18 @@
       "title": "Словники Hoshidicts",
       "enabled": "Увімкнено в експериментальних налаштуваннях GSM",
       "disabled": "Вимкнено в експериментальних налаштуваннях GSM",
-      "restartNote": "Експериментальне налаштування GSM набуде чинності після перезапуску оверлею.",
+      "restartNote": "Ця зміна набуде чинності після перезапуску оверлею.",
       "restartNow": "Перезапустити оверлей",
       "restarting": "Перезапуск...",
       "tabs": {
         "dictionaries": "Словники",
         "mining": "Видобування Anki"
+      },
+      "lookup": {
+        "title": "Активація пошуку",
+        "requireShift": "Утримувати Shift для пошуку",
+        "shiftHint": "Hoshidicts шукає текст лише під час утримування Shift.",
+        "hoverHint": "Hoshidicts автоматично шукає текст під вказівником, як Yomitan."
       },
       "import": "Імпортувати словник...",
       "checkNow": "Перевірити оновлення зараз",
@@ -588,8 +594,16 @@
       "mining": {
         "title": "Профіль видобування Anki",
         "enabled": "Увімкнути видобування",
+        "checkingAnki": "Перевірка AnkiConnect...",
+        "ankiConnected": "AnkiConnect підключено",
+        "ankiDisconnected": "AnkiConnect не підключено",
+        "refreshAnki": "Оновити",
+        "gsmAnkiDisabled": "AnkiConnect доступний, але інтеграцію Anki вимкнено в налаштуваннях GSM.",
         "deck": "Колода",
         "noteType": "Тип нотатки",
+        "selectNoteType": "Виберіть тип нотатки",
+        "missingOption": "{name} (відсутнє в Anki)",
+        "noField": "Не заповнювати",
         "tags": "Додаткові теги",
         "duplicates": "Дублікати",
         "preventDuplicates": "Запобігати дублікатам",
@@ -625,6 +639,8 @@
         "update": "Не вдалося перевірити оновлення словників.",
         "schedule": "Не вдалося зберегти розклад оновлень словників.",
         "recommended": "Не вдалося встановити рекомендовані словники.",
+        "lookupMode": "Не вдалося зберегти спосіб активації пошуку Hoshidicts.",
+        "ankiOptions": "Не вдалося завантажити колоди й типи нотаток з AnkiConnect.",
         "miningProfile": "Не вдалося зберегти профіль видобування Hoshidicts.",
         "restart": "Не вдалося перезапустити оверлей."
       }

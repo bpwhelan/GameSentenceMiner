@@ -513,6 +513,52 @@ describe('Hoshidicts mining profile', () => {
     });
 });
 
+describe('Hoshidicts lookup mode', () => {
+    it('loads manifests created before lookup mode was introduced as Shift', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+        fs.mkdirSync(path.dirname(manager.manifestPath), { recursive: true });
+        fs.writeFileSync(
+            manager.manifestPath,
+            JSON.stringify({
+                version: 1,
+                schedule: 'off',
+                lastCheck: null,
+                nextCheck: null,
+                lastError: null,
+                dictionaries: [],
+            }),
+            'utf8'
+        );
+
+        expect((await manager.getSnapshot()).lookupMode).toBe('shift');
+    });
+
+    it('defaults new state to Shift and persists hover lookup', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+
+        expect((await manager.getSnapshot()).lookupMode).toBe('shift');
+
+        const snapshot = await manager.setLookupMode('hover');
+
+        expect(snapshot.lookupMode).toBe('hover');
+        expect(readManifest(baseDir).lookupMode).toBe('hover');
+
+        const reloaded = createHarness(baseDir).manager;
+        expect((await reloaded.getSnapshot()).lookupMode).toBe('hover');
+    });
+
+    it('rejects unsupported lookup modes', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+
+        await expect(
+            manager.setLookupMode('automatic' as never)
+        ).rejects.toThrow('lookup mode is invalid');
+    });
+});
+
 describe('Hoshidicts import policy', () => {
     it('installs one selected recommended dictionary', async () => {
         const baseDir = makeTempDir();

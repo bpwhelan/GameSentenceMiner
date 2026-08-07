@@ -541,12 +541,18 @@
       "title": "Hoshidicts辞書",
       "enabled": "GSMの実験機能で有効",
       "disabled": "GSMの実験機能で無効",
-      "restartNote": "GSMの実験機能設定はオーバーレイの再起動後に反映されます。",
+      "restartNote": "この変更はオーバーレイの再起動後に反映されます。",
       "restartNow": "オーバーレイを再起動",
       "restarting": "再起動中...",
       "tabs": {
         "dictionaries": "辞書",
         "mining": "Ankiマイニング"
+      },
+      "lookup": {
+        "title": "検索の起動方法",
+        "requireShift": "Shiftキーを押して検索",
+        "shiftHint": "Shiftキーを押している間だけHoshidictsで検索します。",
+        "hoverHint": "Yomitanのように、ホバーした文字を自動的に検索します。"
       },
       "import": "辞書をインポート...",
       "checkNow": "今すぐアップデートを確認",
@@ -588,8 +594,16 @@
       "mining": {
         "title": "Ankiマイニングプロファイル",
         "enabled": "マイニングを有効化",
+        "checkingAnki": "AnkiConnectを確認中...",
+        "ankiConnected": "AnkiConnectに接続済み",
+        "ankiDisconnected": "AnkiConnectに未接続",
+        "refreshAnki": "更新",
+        "gsmAnkiDisabled": "AnkiConnectには接続できますが、GSM設定でAnki連携が無効になっています。",
         "deck": "デッキ",
         "noteType": "ノートタイプ",
+        "selectNoteType": "ノートタイプを選択",
+        "missingOption": "{name}（Ankiにありません）",
+        "noField": "入力しない",
         "tags": "追加タグ",
         "duplicates": "重複",
         "preventDuplicates": "重複を防止",
@@ -625,6 +639,8 @@
         "update": "辞書のアップデート確認に失敗しました。",
         "schedule": "辞書のアップデート間隔を保存できませんでした。",
         "recommended": "おすすめの辞書をインストールできませんでした。",
+        "lookupMode": "Hoshidictsの検索起動設定を保存できませんでした。",
+        "ankiOptions": "AnkiConnectからデッキとノートタイプを読み込めませんでした。",
         "miningProfile": "Hoshidictsマイニングプロファイルを保存できませんでした。",
         "restart": "オーバーレイを再起動できませんでした。"
       }

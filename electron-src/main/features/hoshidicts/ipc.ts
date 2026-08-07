@@ -14,6 +14,8 @@ import {
     type HoshidictsDictionaryEnabledRequest,
     type HoshidictsInstallRecommendedRequest,
     type HoshidictsManagerSnapshot,
+    type HoshidictsLookupMode,
+    type HoshidictsMiningOptions,
     type HoshidictsMoveDictionaryRequest,
     type HoshidictsRecommendedDictionaryId,
     type HoshidictsSchedule,
@@ -27,6 +29,8 @@ export interface HoshidictsIPCDependencies {
     getOverlayRuntimeState: () => OverlayRuntimeState;
     getConfiguredFeatureEnabled: () => boolean;
     getOverlayFeatureEnabledAtLaunch: () => boolean | null;
+    getOverlayLookupModeAtLaunch: () => HoshidictsLookupMode | null;
+    getMiningOptions: (model?: string) => Promise<HoshidictsMiningOptions>;
     restartOverlay: () => Promise<boolean>;
 }
 
@@ -43,6 +47,10 @@ function isSchedule(value: unknown): value is HoshidictsSchedule {
         value === 'weekly' ||
         value === 'monthly'
     );
+}
+
+function isLookupMode(value: unknown): value is HoshidictsLookupMode {
+    return value === 'shift' || value === 'hover';
 }
 
 function isRecommendedDictionaryId(
@@ -77,6 +85,7 @@ function withDesktopState(
 ): HoshidictsDesktopSnapshot {
     const overlay = deps.getOverlayRuntimeState();
     const enabledAtLaunch = deps.getOverlayFeatureEnabledAtLaunch();
+    const lookupModeAtLaunch = deps.getOverlayLookupModeAtLaunch();
     const effectiveEnabled = deps.getConfiguredFeatureEnabled();
     return {
         ...snapshot,
@@ -85,8 +94,11 @@ function withDesktopState(
             running: overlay.isRunning,
             restartRequired:
                 overlay.isRunning &&
-                enabledAtLaunch !== null &&
-                enabledAtLaunch !== effectiveEnabled,
+                ((enabledAtLaunch !== null &&
+                    enabledAtLaunch !== effectiveEnabled) ||
+                    (effectiveEnabled &&
+                        lookupModeAtLaunch !== null &&
+                        lookupModeAtLaunch !== snapshot.lookupMode)),
         },
     };
 }
@@ -171,6 +183,17 @@ export function registerHoshidictsIPC(
             async () => await manager.importDictionary(result.filePaths[0])
         );
     });
+
+    ipcMain.handle(
+        HOSHIDICTS_CHANNELS.installAllRecommended,
+        async (event) => {
+            assertSettingsSender(event, deps);
+            return await runAction(
+                deps,
+                async () => await manager.installRecommendedDictionaries()
+            );
+        }
+    );
 
     ipcMain.handle(
         HOSHIDICTS_CHANNELS.installRecommended,
@@ -275,12 +298,48 @@ export function registerHoshidictsIPC(
     );
 
     ipcMain.handle(
+        HOSHIDICTS_CHANNELS.setLookupMode,
+        async (event, lookupMode: unknown) => {
+            assertSettingsSender(event, deps);
+            if (!isLookupMode(lookupMode)) {
+                return {
+                    success: false,
+                    error: 'Hoshidicts lookup mode is invalid.',
+                    state: await currentState(deps),
+                } satisfies HoshidictsActionResult;
+            }
+            return await runAction(
+                deps,
+                async () => await manager.setLookupMode(lookupMode)
+            );
+        }
+    );
+
+    ipcMain.handle(
         HOSHIDICTS_CHANNELS.setMiningProfile,
         async (event, profile: unknown) => {
             assertSettingsSender(event, deps);
             return await runAction(
                 deps,
                 async () => await manager.setMiningProfile(profile)
+            );
+        }
+    );
+
+    ipcMain.handle(
+        HOSHIDICTS_CHANNELS.getMiningOptions,
+        async (event, model: unknown) => {
+            assertSettingsSender(event, deps);
+            if (
+                model !== undefined &&
+                (typeof model !== 'string' ||
+                    model.length > 255 ||
+                    model.includes('\0'))
+            ) {
+                throw new Error('Hoshidicts note type is invalid.');
+            }
+            return await deps.getMiningOptions(
+                typeof model === 'string' ? model : undefined
             );
         }
     );
