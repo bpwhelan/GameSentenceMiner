@@ -16,6 +16,17 @@ html.gsm-hoshidicts-enabled iframe.yomitan-popup {
   pointer-events: none !important;
 }
 
+::highlight(gsm-hoshidicts-match) {
+  color: inherit;
+  background-color: rgba(255, 206, 84, 0.34);
+}
+
+.gsm-hoshidicts-source-match {
+  border-radius: 2px;
+  background-color: rgba(255, 206, 84, 0.34) !important;
+  box-shadow: 0 0 0 1px rgba(255, 206, 84, 0.5);
+}
+
 .gsm-hoshidicts-popup {
   --background-color: #1e1e1e;
   --background-color-light: #0a0a0a;
@@ -115,18 +126,77 @@ html.gsm-hoshidicts-enabled iframe.yomitan-popup {
   color: #75cf54;
 }
 
+.gsm-hoshidicts-mine-button[data-state="mining"] {
+  animation: gsm-hoshidicts-spin 0.8s linear infinite;
+}
+
+.gsm-hoshidicts-mine-button[data-state="duplicate"] {
+  border-color: #a8a8a8;
+  color: #a8a8a8;
+}
+
+@keyframes gsm-hoshidicts-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gsm-hoshidicts-mine-button[data-state="mining"] {
+    animation: none;
+  }
+}
+
+.gsm-hoshidicts-mining-feedback,
+.gsm-hoshidicts-lookup-notice {
+  margin: 1px 0 7px;
+  padding: 6px 8px;
+  border: 1px solid rgba(74, 145, 237, 0.35);
+  border-radius: 6px;
+  background: rgba(74, 145, 237, 0.1);
+  color: var(--text-color-light1);
+  font-size: 12px;
+}
+
+.gsm-hoshidicts-mining-feedback[hidden] {
+  display: none;
+}
+
+.gsm-hoshidicts-mining-feedback[data-kind="success"] {
+  border-color: rgba(117, 207, 84, 0.45);
+  background: rgba(117, 207, 84, 0.1);
+  color: #a9df96;
+}
+
+.gsm-hoshidicts-mining-feedback[data-kind="warning"] {
+  border-color: rgba(224, 174, 80, 0.45);
+  background: rgba(224, 174, 80, 0.1);
+  color: #dfc58f;
+}
+
+.gsm-hoshidicts-mining-feedback[data-kind="error"] {
+  border-color: rgba(221, 103, 85, 0.5);
+  background: rgba(221, 103, 85, 0.1);
+  color: #e5a197;
+}
+
 .gsm-hoshidicts-mine-button[data-state="error"] {
   border-color: #dd6755;
   color: #dd6755;
 }
 
 .gsm-hoshidicts-tags,
-.gsm-hoshidicts-definition-tags {
+.gsm-hoshidicts-definition-tags,
+.gsm-hoshidicts-metadata {
   display: flex;
   flex-wrap: wrap;
   gap: 3px;
   margin-top: 3px;
   line-height: 1;
+}
+
+.gsm-hoshidicts-metadata {
+  margin-top: 5px;
 }
 
 .gsm-hoshidicts-tag {
@@ -149,6 +219,14 @@ html.gsm-hoshidicts-enabled iframe.yomitan-popup {
 .gsm-hoshidicts-tag-definition {
   background: var(--tag-default-background-color);
   font-size: 10px;
+}
+
+.gsm-hoshidicts-tag-frequency {
+  background: #315d70;
+}
+
+.gsm-hoshidicts-tag-pitch {
+  background: #665078;
 }
 
 .gsm-hoshidicts-glossary-card {
@@ -219,4 +297,23 @@ html.gsm-hoshidicts-enabled iframe.yomitan-popup {
 
 .gsm-hoshidicts-glossary-content th {
   background: var(--background-color-dark1);
+}
+
+.gsm-hoshidicts-show-more {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px 8px;
+  border: 1px solid #555555;
+  border-radius: 5px;
+  background: #292929;
+  color: var(--text-color);
+  font: inherit;
+  cursor: pointer;
+}
+
+.gsm-hoshidicts-show-more:hover,
+.gsm-hoshidicts-show-more:focus-visible {
+  border-color: var(--accent-color);
+  background: rgba(74, 145, 237, 0.12);
 }

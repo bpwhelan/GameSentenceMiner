@@ -11,19 +11,29 @@
  */
 
 (function (root, factory) {
-  const api = factory();
+  const popupApi = root && root.GSMHoshidictsPopup;
+  const api = factory(popupApi);
   if (typeof module !== "undefined" && module.exports) {
     module.exports = api;
   }
   if (root) {
     root.GSMHoshidictsReader = api;
   }
-}(typeof window !== "undefined" ? window : globalThis, function () {
+}(typeof window !== "undefined" ? window : globalThis, function (popupApi) {
   "use strict";
 
+  if (!popupApi || typeof popupApi.createPopupView !== "function") {
+    throw new Error("Hoshidicts popup support must load before the reader.");
+  }
+  const { createPopupView, setMiningButtonState } = popupApi;
+
   const LOOKUP_DEBOUNCE_MS = 20;
+  const LOOKUP_REQUEST_TIMEOUT_MS = 4 * 1000;
   const LOOKUP_SCAN_LENGTH = 10;
   const LOOKUP_MAX_RESULTS = 16;
+  const INITIAL_VISIBLE_RESULTS = 6;
+  const DEFAULT_POPUP_HIDE_DELAY_MS = 300;
+  const MAX_POPUP_HIDE_DELAY_MS = 5 * 1000;
   const MAX_RESPONSE_BYTES = 256 * 1024;
   const MAX_GLOSSARIES = 64;
   const MAX_TRACE_STEPS = 32;
@@ -34,7 +44,11 @@
   const MINING_REQUEST_TIMEOUT_MS = 10 * 1000;
   const MAX_STRUCTURED_DEPTH = 24;
   const MAX_STRUCTURED_NODES = 4096;
-  const RECONNECT_DELAY_MS = 750;
+  const RECONNECT_INITIAL_DELAY_MS = 750;
+  const RECONNECT_MAX_DELAY_MS = 12 * 1000;
+  const MINING_STATUS_CACHE_MS = 5 * 1000;
+  const MAX_VISIBLE_METADATA_TAGS = 12;
+  const SOURCE_HIGHLIGHT_NAME = "gsm-hoshidicts-match";
   const JAPANESE_TEXT_PATTERN =
     /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/u;
   const KANJI_SEGMENT_PATTERN =
@@ -508,6 +522,7 @@
       }
       return {
         anchor: textBox,
+        sourceElements: boxes,
         sentence,
         matchOffset,
         query,
@@ -536,43 +551,12 @@
     }
     return {
       anchor: mainText,
+      sourceElements: [mainText],
       sentence,
       matchOffset,
       query,
       vertical: false,
     };
-  }
-
-  function createTag(documentRef, text, description, kind) {
-    const tag = documentRef.createElement("span");
-    tag.className = `gsm-hoshidicts-tag gsm-hoshidicts-tag-${kind}`;
-    tag.textContent = text;
-    if (description) {
-      tag.title = description;
-    }
-    return tag;
-  }
-
-  function setMiningButtonState(button, state, message = "") {
-    button.dataset.state = state;
-    button.disabled = state !== "ready";
-    button.title = message || {
-      checking: "Checking Anki availability",
-      ready: "Mine to Anki",
-      mining: "Adding note",
-      success: "Note added",
-      error: "Could not add note",
-      unavailable: "Anki mining is unavailable",
-    }[state] || "Mine to Anki";
-    button.setAttribute("aria-label", button.title);
-    button.textContent = {
-      checking: "...",
-      ready: "+",
-      mining: "...",
-      success: "OK",
-      error: "!",
-      unavailable: "-",
-    }[state] || "-";
   }
 
   function normalizeLocalHttpBaseUrl(value) {
@@ -697,6 +681,13 @@
     };
   }
 
+  function normalizePopupHideDelay(value, fallback = DEFAULT_POPUP_HIDE_DELAY_MS) {
+    if (!Number.isFinite(value)) {
+      return fallback;
+    }
+    return Math.max(0, Math.min(MAX_POPUP_HIDE_DELAY_MS, Math.trunc(value)));
+  }
+
   function createHoshidictsReader(options = {}) {
     const windowRef = options.window || window;
     const documentRef = options.document || document;
@@ -717,14 +708,35 @@
         : null;
     const logger = options.logger || console;
     const serverUrl = String(options.serverUrl || "ws://127.0.0.1:7276");
-    const lookupMode = options.lookupMode === "hover" ? "hover" : "shift";
-    const requiresShift = lookupMode === "shift";
+    const lookupTimeoutMs =
+      Number.isFinite(options.lookupTimeoutMs) && options.lookupTimeoutMs > 0
+        ? Math.trunc(options.lookupTimeoutMs)
+        : LOOKUP_REQUEST_TIMEOUT_MS;
+    const reconnectInitialDelayMs =
+      Number.isFinite(options.reconnectInitialDelayMs) && options.reconnectInitialDelayMs > 0
+        ? Math.trunc(options.reconnectInitialDelayMs)
+        : RECONNECT_INITIAL_DELAY_MS;
+    const reconnectMaxDelayMs =
+      Number.isFinite(options.reconnectMaxDelayMs) &&
+      options.reconnectMaxDelayMs >= reconnectInitialDelayMs
+        ? Math.trunc(options.reconnectMaxDelayMs)
+        : RECONNECT_MAX_DELAY_MS;
 
+    let preferences = {
+      lookupMode: options.lookupMode === "hover" ? "hover" : "shift",
+      popupHideDelayMs: normalizePopupHideDelay(options.popupHideDelayMs),
+    };
     let socket = null;
     let reconnectTimer = null;
+    let reconnectAttempt = 0;
     let debounceTimer = null;
+    let lookupTimeoutTimer = null;
+    let hideTimer = null;
+    let pendingHideReason = "pointer-left";
     let destroyed = false;
     let shiftPressed = false;
+    let pointerInPopup = false;
+    let lastPointer = null;
     let requestSequence = 0;
     let latestRequestId = null;
     let latestCandidate = null;
@@ -735,6 +747,9 @@
     let popupVertical = false;
     let miningInFlight = false;
     let miningStatusGeneration = 0;
+    let miningStatusCache = null;
+    let miningStatusCacheExpiresAt = 0;
+    let miningStatusPromise = null;
     let shiftRequirementLogged = false;
     let candidateMissLogged = false;
 
@@ -758,6 +773,10 @@
       sink.call(logger, `[HoshidictsReader] ${event}${suffix}`);
     }
 
+    function requiresShift() {
+      return preferences.lookupMode === "shift";
+    }
+
     function isReadableHoverTarget(target) {
       return target instanceof windowRef.Element && Boolean(
         target.closest('.text-box[data-selectable="true"], #text')
@@ -775,6 +794,21 @@
     documentRef.body.appendChild(popup);
     documentRef.documentElement.classList.add("gsm-hoshidicts-enabled");
     documentRef.documentElement.dataset.gsmHoshidictsEnabled = "true";
+    const popupView = createPopupView({
+      window: windowRef,
+      document: documentRef,
+      popup,
+      appendExpressionRuby,
+      appendTextOnlyGlossary,
+      parseTagList,
+      initialResultCount: INITIAL_VISIBLE_RESULTS,
+      maxMetadataTags: MAX_VISIBLE_METADATA_TAGS,
+      highlightName: SOURCE_HIGHLIGHT_NAME,
+      positionPopup,
+      onMineClick(button, result, candidate, feedback) {
+        void mineResult(button, result, candidate, feedback);
+      },
+    });
 
     function publishPopupState(visible) {
       if (popupVisible === visible) {
@@ -784,24 +818,64 @@
       onPopupStateChange(visible);
     }
 
-    function cancelPendingLookup() {
+    function clearHideTimer() {
+      if (hideTimer !== null) {
+        clearTimeoutFn(hideTimer);
+        hideTimer = null;
+      }
+    }
+
+    function clearLookupTimeout() {
+      if (lookupTimeoutTimer !== null) {
+        clearTimeoutFn(lookupTimeoutTimer);
+        lookupTimeoutTimer = null;
+      }
+    }
+
+    function invalidateLookup() {
       latestGeneration += 1;
       latestRequestId = null;
       latestCandidate = null;
       lastCandidateSignature = "";
+      clearLookupTimeout();
       if (debounceTimer !== null) {
         clearTimeoutFn(debounceTimer);
         debounceTimer = null;
       }
     }
 
-    function hide(reason = "hide") {
-      cancelPendingLookup();
+    function dismissPopup(reason) {
+      clearHideTimer();
+      miningStatusGeneration += 1;
       popupAnchor = null;
+      popupView.clear();
       popup.hidden = true;
       publishPopupState(false);
       diagnostic("debug", "popup.hidden", { reason });
+    }
+
+    function hide(reason = "hide") {
+      invalidateLookup();
+      dismissPopup(reason);
       return true;
+    }
+
+    function scheduleHide(reason = "pointer-left") {
+      pendingHideReason = reason;
+      clearHideTimer();
+      if (pointerInPopup || !popupVisible) {
+        return;
+      }
+      if (preferences.popupHideDelayMs === 0) {
+        hide(reason);
+        return;
+      }
+      hideTimer = setTimeoutFn(() => {
+        hideTimer = null;
+        if (!pointerInPopup) {
+          hide(reason);
+        }
+      }, preferences.popupHideDelayMs);
     }
 
     function positionPopup() {
@@ -829,40 +903,91 @@
       popup.style.maxHeight = `${position.height}px`;
     }
 
-    async function refreshMiningButtons(buttons) {
-      const generation = ++miningStatusGeneration;
-      let status;
+    function showPopup(candidate) {
+      clearHideTimer();
+      popupAnchor = candidate.anchor;
+      popupVertical = candidate.vertical;
+      popup.hidden = false;
+      popup.scrollTop = 0;
+      publishPopupState(true);
+      positionPopup();
+    }
+
+    function renderLookupNotice(candidate, message) {
+      popupView.renderNotice(message);
+      showPopup(candidate);
+    }
+
+    async function getCachedMiningStatus() {
+      const now = Date.now();
+      if (miningStatusCache && now < miningStatusCacheExpiresAt) {
+        return miningStatusCache;
+      }
+      if (miningStatusPromise) {
+        return await miningStatusPromise;
+      }
       try {
-        status = await getMiningStatus();
+        miningStatusPromise = Promise.resolve(getMiningStatus());
       } catch (error) {
-        status = {
+        miningStatusPromise = Promise.reject(error);
+      }
+      try {
+        miningStatusCache = await miningStatusPromise;
+      } catch (error) {
+        miningStatusCache = {
           available: false,
           error: error instanceof Error ? error.message : String(error),
         };
+      } finally {
+        miningStatusPromise = null;
       }
-      if (destroyed || generation !== miningStatusGeneration) {
-        return;
-      }
-      for (const button of buttons) {
-        if (status && status.available === true && onMine) {
-          setMiningButtonState(button, "ready");
-        } else {
-          setMiningButtonState(
-            button,
-            "unavailable",
-            status && typeof status.error === "string"
-              ? status.error
-              : "Anki mining is unavailable"
-          );
-        }
-      }
+      miningStatusCacheExpiresAt = Date.now() + MINING_STATUS_CACHE_MS;
+      return miningStatusCache;
     }
 
-    async function mineResult(button, result, candidate) {
-      if (!onMine || miningInFlight || button.dataset.state !== "ready") {
+    async function refreshMiningButtons(buttons, feedback) {
+      const generation = ++miningStatusGeneration;
+      const status = await getCachedMiningStatus();
+      if (destroyed || generation !== miningStatusGeneration || !feedback.isConnected) {
+        return;
+      }
+      if (status && status.available === true && onMine) {
+        for (const button of buttons) {
+          button.hidden = false;
+          setMiningButtonState(button, "ready");
+        }
+        const unmapped = Array.isArray(status.unmappedFields)
+          ? status.unmappedFields.filter((field) => typeof field === "string")
+          : [];
+        popupView.setFeedback(
+          feedback,
+          unmapped.length > 0
+            ? `Optional Anki fields not mapped: ${unmapped.join(", ")}.`
+            : "",
+          "warning"
+        );
+        return;
+      }
+      const reason = status && typeof status.error === "string"
+        ? status.error
+        : "Set up Anki mining in Hoshidicts Settings.";
+      for (const button of buttons) {
+        button.hidden = true;
+        setMiningButtonState(button, "unavailable", reason);
+      }
+      popupView.setFeedback(feedback, `Anki mining unavailable: ${reason}`, "warning");
+    }
+
+    async function mineResult(button, result, candidate, feedback) {
+      if (
+        !onMine ||
+        miningInFlight ||
+        !["ready", "error"].includes(button.dataset.state)
+      ) {
         return;
       }
       miningInFlight = true;
+      popupView.setFeedback(feedback, "Adding note to Anki…");
       const buttons = Array.from(
         popup.querySelectorAll(".gsm-hoshidicts-mine-button")
       );
@@ -886,134 +1011,33 @@
           );
         }
         setMiningButtonState(button, "success");
+        const unmapped = Array.isArray(response.unmappedFields)
+          ? response.unmappedFields.filter((field) => typeof field === "string")
+          : [];
+        popupView.setFeedback(
+          feedback,
+          unmapped.length > 0
+            ? `Added to Anki. Optional fields not filled: ${unmapped.join(", ")}.`
+            : "Added to Anki.",
+          unmapped.length > 0 ? "warning" : "success"
+        );
       } catch (error) {
-        setMiningButtonState(
-          button,
-          "error",
-          error instanceof Error ? error.message : String(error)
+        const message = error instanceof Error ? error.message : String(error);
+        const duplicate = /already exists|duplicate/iu.test(message);
+        setMiningButtonState(button, duplicate ? "duplicate" : "error", message);
+        popupView.setFeedback(
+          feedback,
+          duplicate ? "Already in Anki." : `Could not add to Anki: ${message}`,
+          duplicate ? "info" : "error"
         );
       } finally {
         miningInFlight = false;
         for (const current of buttons) {
-          if (current !== button) {
+          if (current !== button && current.isConnected) {
             setMiningButtonState(current, "ready");
           }
         }
       }
-    }
-
-    function renderResults(results, candidate) {
-      popup.replaceChildren();
-      const miningButtons = [];
-
-      results.forEach((result, resultIndex) => {
-        const entry = documentRef.createElement("article");
-        entry.className = "gsm-hoshidicts-entry";
-        entry.dataset.expression = result.term.expression;
-
-        const header = documentRef.createElement("header");
-        header.className = "gsm-hoshidicts-entry-header";
-        const expression = documentRef.createElement("span");
-        expression.className = "gsm-hoshidicts-expression";
-        appendExpressionRuby(
-          documentRef,
-          expression,
-          result.term.expression,
-          result.term.reading
-        );
-        header.appendChild(expression);
-
-        const mineButton = documentRef.createElement("button");
-        mineButton.type = "button";
-        mineButton.className = "gsm-hoshidicts-mine-button";
-        setMiningButtonState(mineButton, "checking");
-        mineButton.addEventListener("click", () => {
-          void mineResult(mineButton, result, candidate);
-        });
-        header.appendChild(mineButton);
-        miningButtons.push(mineButton);
-        entry.appendChild(header);
-
-        const tagRow = documentRef.createElement("div");
-        tagRow.className = "gsm-hoshidicts-tags";
-        const seenTags = new Set();
-        for (const step of result.trace) {
-          if (!seenTags.has(`trace:${step.name}`)) {
-            seenTags.add(`trace:${step.name}`);
-            tagRow.appendChild(
-              createTag(documentRef, step.name, step.description, "deinflection")
-            );
-          }
-        }
-        for (const tag of [
-          ...parseTagList(result.term.rules),
-          ...result.term.glossaries.flatMap((glossary) =>
-            parseTagList(glossary.termTags)
-          ),
-        ]) {
-          if (!seenTags.has(`term:${tag}`)) {
-            seenTags.add(`term:${tag}`);
-            tagRow.appendChild(createTag(documentRef, tag, "", "term"));
-          }
-        }
-        if (tagRow.childNodes.length > 0) {
-          entry.appendChild(tagRow);
-        }
-
-        const groupedGlossaries = new Map();
-        for (const glossary of result.term.glossaries) {
-          if (!groupedGlossaries.has(glossary.dictionary)) {
-            groupedGlossaries.set(glossary.dictionary, []);
-          }
-          groupedGlossaries.get(glossary.dictionary).push(glossary);
-        }
-        let dictionaryIndex = 0;
-        for (const [dictionary, glossaries] of groupedGlossaries) {
-          const details = documentRef.createElement("details");
-          details.className = "gsm-hoshidicts-glossary-card";
-          details.open = resultIndex === 0 && dictionaryIndex === 0;
-          const summary = documentRef.createElement("summary");
-          summary.textContent = dictionary;
-          details.appendChild(summary);
-          const definitions = documentRef.createElement("ol");
-          definitions.className = "gsm-hoshidicts-definitions";
-          for (const glossary of glossaries) {
-            const definition = documentRef.createElement("li");
-            const definitionTags = parseTagList(glossary.definitionTags);
-            if (definitionTags.length > 0) {
-              const definitionTagRow = documentRef.createElement("div");
-              definitionTagRow.className = "gsm-hoshidicts-definition-tags";
-              for (const tag of definitionTags) {
-                definitionTagRow.appendChild(
-                  createTag(documentRef, tag, "", "definition")
-                );
-              }
-              definition.appendChild(definitionTagRow);
-            }
-            const content = documentRef.createElement("div");
-            content.className = "gsm-hoshidicts-glossary-content";
-            appendTextOnlyGlossary(
-              documentRef,
-              content,
-              glossary.glossary
-            );
-            definition.appendChild(content);
-            definitions.appendChild(definition);
-          }
-          details.appendChild(definitions);
-          entry.appendChild(details);
-          dictionaryIndex += 1;
-        }
-
-        popup.appendChild(entry);
-      });
-
-      popupAnchor = candidate.anchor;
-      popupVertical = candidate.vertical;
-      popup.hidden = false;
-      publishPopupState(true);
-      positionPopup();
-      void refreshMiningButtons(miningButtons);
     }
 
     function handleLookupResponse(rawData) {
@@ -1033,15 +1057,10 @@
       try {
         payload = JSON.parse(serialized);
       } catch {
-        diagnostic("warn", "response.invalid-json", {
-          bytes: serialized.length,
-        });
+        diagnostic("warn", "response.invalid-json", { bytes: serialized.length });
         return;
       }
-      if (
-        !isRecord(payload) ||
-        payload.type !== "hoshidicts_lookup_result"
-      ) {
+      if (!isRecord(payload) || payload.type !== "hoshidicts_lookup_result") {
         return;
       }
       if (payload.requestId !== latestRequestId) {
@@ -1051,6 +1070,7 @@
         });
         return;
       }
+      clearLookupTimeout();
       const candidate = latestCandidate;
       const requestId = latestRequestId;
       latestRequestId = null;
@@ -1068,7 +1088,12 @@
           featureDisabled: payload.featureDisabled === true,
           error: boundedString(payload.error, 4096) || "unknown lookup error",
         });
-        hide("lookup-error");
+        const message = payload.featureDisabled === true
+          ? "Hoshidicts is off. Enable it in Hoshidicts Settings."
+          : payload.dictionaryCount === 0
+            ? "No Hoshidicts dictionaries are enabled. Open Hoshidicts Settings."
+            : `Dictionary lookup failed: ${boundedString(payload.error, 1024) || "try again"}`;
+        renderLookupNotice(candidate, message);
         return;
       }
       const results = normalizeLookupResults(payload);
@@ -1083,7 +1108,9 @@
         hide("no-results");
         return;
       }
-      renderResults(results, candidate);
+      const rendered = popupView.renderResults(results, candidate);
+      showPopup(candidate);
+      void refreshMiningButtons(rendered.miningButtons, rendered.feedback);
       diagnostic("info", "lookup.rendered", {
         requestId,
         dictionaryCount: Number.isFinite(payload.dictionaryCount)
@@ -1099,10 +1126,16 @@
       if (destroyed || reconnectTimer !== null) {
         return;
       }
+      const delay = Math.min(
+        reconnectMaxDelayMs,
+        reconnectInitialDelayMs * (2 ** Math.min(reconnectAttempt, 10))
+      );
+      reconnectAttempt += 1;
       reconnectTimer = setTimeoutFn(() => {
         reconnectTimer = null;
         connect();
-      }, RECONNECT_DELAY_MS);
+      }, delay);
+      diagnostic("debug", "socket.reconnect-scheduled", { delay });
     }
 
     function connect() {
@@ -1124,6 +1157,7 @@
           if (socket !== nextSocket) {
             return;
           }
+          reconnectAttempt = 0;
           nextSocket.send(JSON.stringify({
             type: "configure_features",
             features: ["hoshidicts"],
@@ -1139,16 +1173,21 @@
           }
         });
         nextSocket.addEventListener("close", (event) => {
-          if (socket === nextSocket) {
-            socket = null;
-            latestRequestId = null;
-            diagnostic("warn", "socket.closed", {
-              serverUrl,
-              code: Number.isFinite(event && event.code) ? Math.trunc(event.code) : null,
-              reason: boundedString(event && event.reason, 1024),
-            });
-            scheduleReconnect();
+          if (socket !== nextSocket) {
+            return;
           }
+          socket = null;
+          latestRequestId = null;
+          clearLookupTimeout();
+          if (popupVisible) {
+            dismissPopup("socket-closed");
+          }
+          diagnostic("warn", "socket.closed", {
+            serverUrl,
+            code: Number.isFinite(event && event.code) ? Math.trunc(event.code) : null,
+            reason: boundedString(event && event.reason, 1024),
+          });
+          scheduleReconnect();
         });
         nextSocket.addEventListener("error", () => {
           if (socket === nextSocket) {
@@ -1169,6 +1208,24 @@
         return;
       }
       latestCandidate = candidate;
+      if (lookupTimeoutTimer === null) {
+        lookupTimeoutTimer = setTimeoutFn(() => {
+          lookupTimeoutTimer = null;
+          if (generation !== latestGeneration) {
+            return;
+          }
+          const requestId = latestRequestId;
+          latestRequestId = null;
+          renderLookupNotice(
+            candidate,
+            "Dictionary lookup timed out. Check that the overlay service is running."
+          );
+          diagnostic("warn", "lookup.timed-out", {
+            requestId,
+            query: candidate.query,
+          });
+        }, lookupTimeoutMs);
+      }
       if (!socket || socket.readyState !== WebSocketImpl.OPEN) {
         diagnostic("debug", "lookup.waiting-for-socket", {
           query: candidate.query,
@@ -1197,76 +1254,145 @@
         candidate.matchOffset,
         candidate.query,
       ].join("\u0000");
+      clearHideTimer();
       if (signature === lastCandidateSignature) {
         return;
       }
+      invalidateLookup();
+      if (popupVisible) {
+        dismissPopup("candidate-changed");
+      }
       lastCandidateSignature = signature;
       latestCandidate = candidate;
-      latestRequestId = null;
-      const generation = ++latestGeneration;
-      if (debounceTimer !== null) {
-        clearTimeoutFn(debounceTimer);
-      }
+      const generation = latestGeneration;
       debounceTimer = setTimeoutFn(() => {
         debounceTimer = null;
         sendLookup(candidate, generation);
       }, LOOKUP_DEBOUNCE_MS);
     }
 
-    function onMouseMove(event) {
-      if (popup.contains(event.target)) {
+    function scanPointer(pointer, modifierActive) {
+      if (!pointer || !(pointer.target instanceof windowRef.Element)) {
         return;
       }
-      if (requiresShift && !(shiftPressed || event.shiftKey)) {
-        if (!shiftRequirementLogged && isReadableHoverTarget(event.target)) {
+      if (popup.contains(pointer.target)) {
+        pointerInPopup = true;
+        clearHideTimer();
+        return;
+      }
+      pointerInPopup = false;
+      if (requiresShift() && !modifierActive) {
+        if (!shiftRequirementLogged && isReadableHoverTarget(pointer.target)) {
           shiftRequirementLogged = true;
           diagnostic("info", "hover.shift-required", {
             message: "Hold Shift while hovering readable text to run a lookup.",
           });
         }
+        invalidateLookup();
+        scheduleHide("shift-not-held");
         return;
       }
       const candidate = resolveLookupCandidate(
         windowRef,
         documentRef,
-        event.target,
-        event.clientX,
-        event.clientY
+        pointer.target,
+        pointer.clientX,
+        pointer.clientY
       );
       if (candidate) {
         candidateMissLogged = false;
         queueLookup(candidate);
-      } else {
-        if (!candidateMissLogged) {
-          candidateMissLogged = true;
-          diagnostic("debug", "hover.no-candidate", {
-            target: event.target instanceof windowRef.Element
-              ? boundedString(event.target.id || event.target.className, 256)
-              : "non-element",
-          });
-        }
-        cancelPendingLookup();
+        return;
       }
+      if (!candidateMissLogged) {
+        candidateMissLogged = true;
+        diagnostic("debug", "hover.no-candidate", {
+          target: boundedString(pointer.target.id || pointer.target.className, 256),
+        });
+      }
+      invalidateLookup();
+      scheduleHide("pointer-left-text");
+    }
+
+    function onMouseMove(event) {
+      lastPointer = {
+        target: event.target,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        shiftKey: event.shiftKey,
+      };
+      scanPointer(lastPointer, shiftPressed || event.shiftKey);
     }
 
     function onKeyDown(event) {
-      if (event.key === "Shift") {
-        shiftPressed = true;
-      } else if (event.key === "Escape" && popupVisible) {
-        hide("escape");
+      if (event.key !== "Shift") {
+        return;
+      }
+      const wasPressed = shiftPressed;
+      shiftPressed = true;
+      if (!wasPressed && requiresShift()) {
+        scanPointer(lastPointer, true);
       }
     }
 
     function onKeyUp(event) {
       if (event.key === "Shift") {
         shiftPressed = false;
+        if (requiresShift()) {
+          invalidateLookup();
+          scheduleHide("shift-released");
+        }
       }
     }
 
-    function onDocumentPointerDown(event) {
-      if (popupVisible && !popup.contains(event.target)) {
-        hide("outside-click");
+    function onPopupPointerEnter() {
+      pointerInPopup = true;
+      clearHideTimer();
+    }
+
+    function onPopupPointerLeave() {
+      pointerInPopup = false;
+      scheduleHide("popup-left");
+    }
+
+    function updatePreferences(nextPreferences = {}) {
+      const hadHideTimer = hideTimer !== null;
+      const previousMode = preferences.lookupMode;
+      preferences = {
+        lookupMode: Object.prototype.hasOwnProperty.call(nextPreferences, "lookupMode")
+          ? nextPreferences.lookupMode === "hover" ? "hover" : "shift"
+          : preferences.lookupMode,
+        popupHideDelayMs: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "popupHideDelayMs"
+        )
+          ? normalizePopupHideDelay(
+              nextPreferences.popupHideDelayMs,
+              preferences.popupHideDelayMs
+            )
+          : preferences.popupHideDelayMs,
+      };
+      if (hadHideTimer) {
+        clearHideTimer();
+        scheduleHide(pendingHideReason);
       }
+      if (previousMode !== preferences.lookupMode) {
+        shiftRequirementLogged = false;
+        if (requiresShift() && !shiftPressed) {
+          invalidateLookup();
+          scheduleHide("lookup-mode-changed");
+        } else {
+          scanPointer(lastPointer, true);
+        }
+      }
+      diagnostic("info", "preferences.updated", preferences);
+      return { ...preferences };
+    }
+
+    function onWindowBlur() {
+      shiftPressed = false;
+      invalidateLookup();
+      scheduleHide("window-blurred");
     }
 
     function destroy() {
@@ -1287,7 +1413,8 @@
       documentRef.removeEventListener("mousemove", onMouseMove, true);
       documentRef.removeEventListener("keydown", onKeyDown, true);
       documentRef.removeEventListener("keyup", onKeyUp, true);
-      documentRef.removeEventListener("pointerdown", onDocumentPointerDown, true);
+      popup.removeEventListener("pointerenter", onPopupPointerEnter);
+      popup.removeEventListener("pointerleave", onPopupPointerLeave);
       windowRef.removeEventListener("resize", positionPopup);
       windowRef.removeEventListener("scroll", positionPopup, true);
       windowRef.removeEventListener("blur", onWindowBlur);
@@ -1296,20 +1423,18 @@
       delete documentRef.documentElement.dataset.gsmHoshidictsEnabled;
     }
 
-    function onWindowBlur() {
-      shiftPressed = false;
-    }
-
     documentRef.addEventListener("mousemove", onMouseMove, true);
     documentRef.addEventListener("keydown", onKeyDown, true);
     documentRef.addEventListener("keyup", onKeyUp, true);
-    documentRef.addEventListener("pointerdown", onDocumentPointerDown, true);
+    popup.addEventListener("pointerenter", onPopupPointerEnter);
+    popup.addEventListener("pointerleave", onPopupPointerLeave);
     windowRef.addEventListener("resize", positionPopup);
     windowRef.addEventListener("scroll", positionPopup, true);
     windowRef.addEventListener("blur", onWindowBlur);
     diagnostic("info", "reader.initialized", {
       serverUrl,
-      requiresShift,
+      requiresShift: requiresShift(),
+      popupHideDelayMs: preferences.popupHideDelayMs,
       scanLength: LOOKUP_SCAN_LENGTH,
     });
     connect();
@@ -1319,19 +1444,26 @@
       hide,
       isVisible: () => popupVisible,
       getPopupElement: () => popup,
+      getPreferences: () => ({ ...preferences }),
       positionPopup,
+      updatePreferences,
     };
   }
 
   return {
+    DEFAULT_POPUP_HIDE_DELAY_MS,
+    INITIAL_VISIBLE_RESULTS,
     LOOKUP_DEBOUNCE_MS,
     LOOKUP_MAX_RESULTS,
+    LOOKUP_REQUEST_TIMEOUT_MS,
     LOOKUP_SCAN_LENGTH,
+    MAX_POPUP_HIDE_DELAY_MS,
     appendExpressionRuby,
     appendTextOnlyGlossary,
     calculatePopupPosition,
     createHoshidictsMiningClient,
     createHoshidictsReader,
+    normalizePopupHideDelay,
     normalizeLookupResults,
     resolveGsmApiBaseUrl,
     resolveLookupCandidate,

@@ -6,6 +6,13 @@ import { JSDOM } from "jsdom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 function loadReaderModule(window: Window) {
+  const popupSource = fs.readFileSync(
+    path.resolve(
+      process.cwd(),
+      "GSM_Overlay/features/hoshidicts/popup.js"
+    ),
+    "utf8"
+  );
   const source = fs.readFileSync(
     path.resolve(
       process.cwd(),
@@ -13,24 +20,30 @@ function loadReaderModule(window: Window) {
     ),
     "utf8"
   );
-  const module = { exports: {} as any };
-  vm.runInNewContext(
-    source,
-    {
-      AbortController,
-      TextEncoder,
-      URL,
-      clearTimeout,
-      module,
-      exports: module.exports,
-      console,
-      globalThis: window,
-      setTimeout,
-      window
-    },
-    { filename: "GSM_Overlay/features/hoshidicts/reader.js" }
-  );
-  return module.exports;
+  const context = {
+    AbortController,
+    TextEncoder,
+    URL,
+    clearTimeout,
+    console,
+    globalThis: window,
+    setTimeout,
+    window
+  } as Record<string, any>;
+  const popupModule = { exports: {} as any };
+  context.module = popupModule;
+  context.exports = popupModule.exports;
+  vm.runInNewContext(popupSource, context, {
+    filename: "GSM_Overlay/features/hoshidicts/popup.js"
+  });
+
+  const readerModule = { exports: {} as any };
+  context.module = readerModule;
+  context.exports = readerModule.exports;
+  vm.runInNewContext(source, context, {
+    filename: "GSM_Overlay/features/hoshidicts/reader.js"
+  });
+  return readerModule.exports;
 }
 
 function runOverlayFeatureBootstrap(enabled: boolean, lookupMode?: string) {
@@ -88,7 +101,11 @@ function runHoshidictsReaderConfiguration(lookupMode: string) {
       resolveGsmApiBaseUrl: vi.fn(() => "http://127.0.0.1:7275")
     }
   } as Record<string, any>;
-  const context = { console, window } as Record<string, any>;
+  const context = {
+    console,
+    ipcRenderer: { on: vi.fn() },
+    window
+  } as Record<string, any>;
   vm.runInNewContext(script, context, {
     filename: "GSM_Overlay/index.html#configureHoshidictsReader"
   });
@@ -288,8 +305,9 @@ function lookupResult(
 }
 
 async function flushPromises() {
-  await Promise.resolve();
-  await Promise.resolve();
+  for (let index = 0; index < 6; index += 1) {
+    await Promise.resolve();
+  }
 }
 
 afterEach(() => {
@@ -743,28 +761,304 @@ describe("Hoshidicts Shift-hover scanner", () => {
     reader.destroy();
   });
 
-  it.each([
-    {
-      name: "lookup errors",
-      response: (requestId: string) => ({
-        type: "hoshidicts_lookup_result",
-        requestId,
-        success: false,
-        error: "lookup failed",
-        results: []
+  it("starts a lookup when Shift is pressed over a stationary word", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      logger: { debug() {}, info() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 11,
+        clientY: 11
       })
-    },
-    {
-      name: "empty lookup results",
-      response: (requestId: string) => ({
-        type: "hoshidicts_lookup_result",
-        requestId,
-        success: true,
-        error: null,
-        results: []
+    );
+    expect(socket.sent).toHaveLength(1);
+
+    dom.window.document.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "Shift", bubbles: true })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+
+    expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({
+      type: "hoshidicts_lookup",
+      text: "食べる"
+    });
+    reader.destroy();
+  });
+
+  it("dismisses naturally after the configured delay and pauses while hovered", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      popupHideDelayMs: 300,
+      logger: { debug() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 11,
+        clientY: 11
       })
-    }
-  ])("hides an existing popup after $name", async ({ response }) => {
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const request = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(request.requestId, "食べる"));
+    expect(reader.isVisible()).toBe(true);
+
+    dom.window.document.body.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 200,
+        clientY: 200
+      })
+    );
+    await vi.advanceTimersByTimeAsync(299);
+    expect(reader.isVisible()).toBe(true);
+
+    dom.window.document.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })
+    );
+    dom.window.document.body.dispatchEvent(
+      new dom.window.MouseEvent("pointerdown", { bubbles: true })
+    );
+    expect(reader.isVisible()).toBe(true);
+
+    reader.getPopupElement().dispatchEvent(new dom.window.Event("pointerenter"));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(reader.isVisible()).toBe(true);
+
+    reader.getPopupElement().dispatchEvent(new dom.window.Event("pointerleave"));
+    await vi.advanceTimersByTimeAsync(299);
+    expect(reader.isVisible()).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(reader.isVisible()).toBe(false);
+    reader.destroy();
+  });
+
+  it("immediately replaces yomu with kiku and never restores the stale popup", async () => {
+    vi.useFakeTimers();
+    const dom = new JSDOM(
+      `<!doctype html><html><body>
+        <p class="text-block-container">
+          <span id="yomu" class="text-box" data-selectable="true">読む</span><span id="kiku" class="text-box" data-selectable="true">聞く</span>
+        </p>
+      </body></html>`,
+      { pretendToBeVisual: true, url: "file:///overlay/index.html" }
+    );
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const yomu = dom.window.document.getElementById("yomu")!;
+    const kiku = dom.window.document.getElementById("kiku")!;
+    setRect(yomu, { left: 10, top: 10, right: 70, bottom: 30 });
+    setRect(kiku, { left: 70, top: 10, right: 130, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      popupHideDelayMs: 5000,
+      logger: { debug() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    yomu.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const yomuRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(yomuRequest.requestId, "読む", "to read"));
+    expect(reader.getPopupElement().textContent).toContain("to read");
+    reader.getPopupElement().scrollTop = 120;
+
+    kiku.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 71,
+        clientY: 11
+      })
+    );
+    expect(reader.isVisible()).toBe(false);
+    expect(reader.getPopupElement().childElementCount).toBe(0);
+    expect(yomu.classList.contains("gsm-hoshidicts-source-match")).toBe(false);
+
+    socket.receive(lookupResult(yomuRequest.requestId, "読む", "stale"));
+    expect(reader.isVisible()).toBe(false);
+    await vi.advanceTimersByTimeAsync(20);
+    const kikuRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(kikuRequest.requestId, "聞く", "to listen"));
+
+    expect(reader.isVisible()).toBe(true);
+    expect(reader.getPopupElement().textContent).toContain("to listen");
+    expect(reader.getPopupElement().textContent).not.toContain("stale");
+    expect(reader.getPopupElement().scrollTop).toBe(0);
+    expect(kiku.classList.contains("gsm-hoshidicts-source-match")).toBe(true);
+    reader.destroy();
+  });
+
+  it("updates and clamps live reader preferences", () => {
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      logger: { debug() {}, info() {}, warn() {} }
+    });
+
+    expect(reader.getPreferences()).toEqual({
+      lookupMode: "shift",
+      popupHideDelayMs: 300
+    });
+    expect(
+      reader.updatePreferences({ lookupMode: "hover", popupHideDelayMs: 9000 })
+    ).toEqual({ lookupMode: "hover", popupHideDelayMs: 5000 });
+    expect(reader.updatePreferences({ popupHideDelayMs: -20 })).toEqual({
+      lookupMode: "hover",
+      popupHideDelayMs: 0
+    });
+    reader.destroy();
+  });
+
+  it("shows compact metadata, one open definition per result, and six results initially", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      logger: { debug() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const request = JSON.parse(socket.sent.at(-1)!);
+    const response = lookupResult(request.requestId, "食べる");
+    response.results = Array.from({ length: 8 }, (_, index) => ({
+      ...response.results[0],
+      term: {
+        ...response.results[0].term,
+        expression: `語${index}`,
+        reading: `ご${index}`
+      }
+    }));
+    socket.receive(response);
+
+    const popup = reader.getPopupElement();
+    const entries = Array.from(popup.querySelectorAll<HTMLElement>(".gsm-hoshidicts-entry"));
+    expect(entries).toHaveLength(8);
+    expect(entries.filter((entry) => entry.hidden)).toHaveLength(2);
+    expect(entries.every((entry) => entry.querySelector("details")?.open)).toBe(true);
+    expect(popup.textContent).toContain("Freq 123 ★");
+    expect(popup.textContent).toContain("Pitch 2 LHL");
+
+    popup.querySelector<HTMLButtonElement>(".gsm-hoshidicts-show-more")!.click();
+    expect(entries.some((entry) => entry.hidden)).toBe(false);
+    expect(popup.querySelector(".gsm-hoshidicts-show-more")).toBeNull();
+    reader.destroy();
+  });
+
+  it("shows an actionable timeout and ignores the late response", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      lookupTimeoutMs: 50,
+      logger: { debug() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const request = JSON.parse(socket.sent.at(-1)!);
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(reader.getPopupElement().textContent).toContain("timed out");
+    socket.receive(lookupResult(request.requestId, "late"));
+    expect(reader.getPopupElement().textContent).toContain("timed out");
+    expect(reader.getPopupElement().textContent).not.toContain("late");
+    reader.destroy();
+  });
+
+  it("bounds lookup time even while the socket is still connecting", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      lookupTimeoutMs: 50,
+      logger: { debug() {}, warn() {} }
+    });
+
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    expect(FakeWebSocket.instances[0].sent).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(reader.isVisible()).toBe(true);
+    expect(reader.getPopupElement().textContent).toContain("timed out");
+    reader.destroy();
+  });
+
+  it("hides an existing popup after an empty lookup result", async () => {
     vi.useFakeTimers();
     const dom = createDom();
     const api = loadReaderModule(dom.window as unknown as Window);
@@ -806,7 +1100,13 @@ describe("Hoshidicts Shift-hover scanner", () => {
     );
     await vi.advanceTimersByTimeAsync(20);
     const secondRequest = JSON.parse(socket.sent.at(-1)!);
-    socket.receive(response(secondRequest.requestId));
+    socket.receive({
+      type: "hoshidicts_lookup_result",
+      requestId: secondRequest.requestId,
+      success: true,
+      error: null,
+      results: []
+    });
 
     expect(reader.isVisible()).toBe(false);
     expect(reader.getPopupElement().hidden).toBe(true);
@@ -884,6 +1184,117 @@ describe("Hoshidicts Shift-hover scanner", () => {
 
     expect(reader.isVisible()).toBe(false);
     expect(reader.getPopupElement().childElementCount).toBe(0);
+    reader.destroy();
+  });
+
+  it("shows one mining setup notice and caches the unavailable status", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    const second = dom.window.document.getElementById("second")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    setRect(second, { left: 30, top: 10, right: 90, bottom: 30 });
+    const getMiningStatus = vi.fn(async () => ({
+      available: false,
+      error: "Open Hoshidicts Settings to choose a deck."
+    }));
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      getMiningStatus,
+      logger: { debug() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const firstRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(firstRequest.requestId, "食べる"));
+    await flushPromises();
+
+    const popup = reader.getPopupElement();
+    expect(popup.querySelectorAll(".gsm-hoshidicts-mining-feedback")).toHaveLength(1);
+    expect(popup.querySelector(".gsm-hoshidicts-mining-feedback")?.textContent)
+      .toContain("Open Hoshidicts Settings");
+    expect(
+      Array.from(popup.querySelectorAll<HTMLButtonElement>(".gsm-hoshidicts-mine-button"))
+        .every((button) => button.hidden)
+    ).toBe(true);
+
+    second.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 31,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const secondRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(secondRequest.requestId, "べる"));
+    await flushPromises();
+    expect(getMiningStatus).toHaveBeenCalledTimes(1);
+    reader.destroy();
+  });
+
+  it("keeps transient mining failures readable and retryable", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const mine = vi.fn()
+      .mockRejectedValueOnce(new Error("AnkiConnect stopped responding."))
+      .mockResolvedValueOnce({ success: true, noteId: 123 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      getMiningStatus: async () => ({ available: true }),
+      onMine: mine,
+      logger: { debug() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        shiftKey: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const request = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(request.requestId, "食べる"));
+    await flushPromises();
+
+    const popup = reader.getPopupElement();
+    const button = popup.querySelector<HTMLButtonElement>(
+      ".gsm-hoshidicts-mine-button"
+    )!;
+    button.click();
+    await flushPromises();
+    expect(button.dataset.state).toBe("error");
+    expect(button.disabled).toBe(false);
+    expect(popup.querySelector(".gsm-hoshidicts-mining-feedback")?.textContent)
+      .toContain("AnkiConnect stopped responding");
+
+    button.click();
+    await flushPromises();
+    expect(mine).toHaveBeenCalledTimes(2);
+    expect(button.dataset.state).toBe("success");
+    expect(popup.querySelector(".gsm-hoshidicts-mining-feedback")?.textContent)
+      .toBe("Added to Anki.");
     reader.destroy();
   });
 
