@@ -1,22 +1,48 @@
 from __future__ import annotations
 
-import html
 import json
+import threading
+import time
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from GameSentenceMiner import hoshidicts_mining_note as _note
 from GameSentenceMiner.util.config.configuration import get_app_directory, get_config
 
 HOSHIDICTS_MINING_PROFILE_FILE = "mining-profile.json"
 HOSHIDICTS_MINING_PROFILE_VERSION = 1
 MAX_PROFILE_BYTES = 64 * 1024
-MAX_REQUEST_BYTES = 256 * 1024
-MAX_TEXT_LENGTH = 128 * 1024
-MAX_TERM_LENGTH = 4096
-MAX_GLOSSARIES = 64
-MAX_METADATA_GROUPS = 64
-MAX_METADATA_VALUES = 64
 MAX_ANKI_OPTION_NAMES = 4096
+ANKI_CONNECT_TIMEOUT_SECONDS = 1.25
+MINING_STATUS_CACHE_SECONDS = 2.0
+MINING_STATUS_WAIT_SECONDS = (ANKI_CONNECT_TIMEOUT_SECONDS * 2) + 0.5
+
+# Keep the original module surface stable while the pure request and rendering
+# pipeline lives in a focused, dependency-free module.
+HoshidictsMiningError = _note.HoshidictsMiningError
+MAX_REQUEST_BYTES = _note.MAX_REQUEST_BYTES
+MAX_TEXT_LENGTH = _note.MAX_TEXT_LENGTH
+MAX_TERM_LENGTH = _note.MAX_TERM_LENGTH
+MAX_GLOSSARIES = _note.MAX_GLOSSARIES
+MAX_METADATA_GROUPS = _note.MAX_METADATA_GROUPS
+MAX_METADATA_VALUES = _note.MAX_METADATA_VALUES
+IGNORED_STRUCTURED_TAGS = _note.IGNORED_STRUCTURED_TAGS
+BLOCK_STRUCTURED_TAGS = _note.BLOCK_STRUCTURED_TAGS
+_bounded_string = _note.bounded_string
+_require_list = _note.require_list
+_validate_glossary = _note._validate_glossary
+_validate_frequency_group = _note._validate_frequency_group
+_validate_pitch_group = _note._validate_pitch_group
+_utf16_suffix = _note._utf16_suffix
+_highlight_sentence_match = _note.highlight_sentence_match
+validate_hoshidicts_mining_request = _note.validate_hoshidicts_mining_request
+_append_structured_text = _note._append_structured_text
+_glossary_text = _note._glossary_text
+_definition_html = _note.definition_html
+_frequency_html = _note.frequency_html
+_pitch_html = _note.pitch_html
+_pitch_positions_text = _note.pitch_positions_text
 
 FIELD_KEYS = (
     "expression",
@@ -52,42 +78,6 @@ KIKU_LAPIS_FIELD_MAP = {
     "pitch": "PitchPosition",
 }
 
-IGNORED_STRUCTURED_TAGS = {
-    "audio",
-    "button",
-    "canvas",
-    "iframe",
-    "img",
-    "input",
-    "script",
-    "source",
-    "style",
-    "svg",
-    "video",
-}
-
-BLOCK_STRUCTURED_TAGS = {
-    "br",
-    "div",
-    "li",
-    "ol",
-    "p",
-    "table",
-    "tbody",
-    "td",
-    "tfoot",
-    "th",
-    "thead",
-    "tr",
-    "ul",
-}
-
-
-class HoshidictsMiningError(Exception):
-    def __init__(self, message: str, status_code: int = 400):
-        super().__init__(message)
-        self.status_code = status_code
-
 
 def default_hoshidicts_mining_profile() -> dict[str, Any]:
     return {
@@ -96,6 +86,7 @@ def default_hoshidicts_mining_profile() -> dict[str, Any]:
         "deck": "Default",
         "model": "",
         "fields": {key: "" for key in FIELD_KEYS},
+        "disabledFields": [],
         "tags": ["hoshidicts"],
         "duplicatePolicy": "prevent",
     }
@@ -103,20 +94,6 @@ def default_hoshidicts_mining_profile() -> dict[str, Any]:
 
 def get_hoshidicts_mining_profile_path() -> Path:
     return Path(get_app_directory()) / "dictionaries" / "hoshidicts" / HOSHIDICTS_MINING_PROFILE_FILE
-
-
-def _bounded_string(
-    value: Any,
-    label: str,
-    maximum: int,
-    *,
-    allow_empty: bool = True,
-) -> str:
-    if not isinstance(value, str):
-        raise HoshidictsMiningError(f"{label} must be a string.")
-    if "\x00" in value or len(value) > maximum or (not allow_empty and not value):
-        raise HoshidictsMiningError(f"{label} is invalid.")
-    return value
 
 
 def normalize_hoshidicts_mining_profile(value: Any) -> dict[str, Any]:
@@ -136,6 +113,16 @@ def normalize_hoshidicts_mining_profile(value: Any) -> dict[str, Any]:
             f"Hoshidicts {key} field",
             255,
         ).strip()
+
+    raw_disabled_fields = value.get("disabledFields", [])
+    if not isinstance(raw_disabled_fields, list) or len(raw_disabled_fields) > len(FIELD_KEYS):
+        raise HoshidictsMiningError("Hoshidicts disabled mining fields are invalid.")
+    disabled_fields = []
+    for raw_field in raw_disabled_fields:
+        if raw_field not in FIELD_KEYS:
+            raise HoshidictsMiningError("Hoshidicts disabled mining field is invalid.")
+        if raw_field not in disabled_fields:
+            disabled_fields.append(raw_field)
 
     raw_tags = value.get("tags", ["hoshidicts"])
     if not isinstance(raw_tags, list) or len(raw_tags) > 32:
@@ -168,6 +155,7 @@ def normalize_hoshidicts_mining_profile(value: Any) -> dict[str, Any]:
             255,
         ).strip(),
         "fields": fields,
+        "disabledFields": disabled_fields,
         "tags": tags,
         "duplicatePolicy": duplicate_policy,
     }
@@ -188,371 +176,6 @@ def load_hoshidicts_mining_profile(
     except (OSError, ValueError) as exc:
         raise HoshidictsMiningError(f"Could not read the Hoshidicts mining profile: {exc}") from exc
     return normalize_hoshidicts_mining_profile(parsed)
-
-
-def _require_list(value: Any, label: str, maximum: int) -> list[Any]:
-    if not isinstance(value, list) or len(value) > maximum:
-        raise HoshidictsMiningError(f"{label} is invalid.")
-    return value
-
-
-def _validate_glossary(value: Any) -> dict[str, str]:
-    if not isinstance(value, dict):
-        raise HoshidictsMiningError("Hoshidicts glossary is invalid.")
-    return {
-        "dictionary": _bounded_string(
-            value.get("dictionary", ""),
-            "Hoshidicts glossary dictionary",
-            MAX_TERM_LENGTH,
-            allow_empty=False,
-        ),
-        "glossary": _bounded_string(
-            value.get("glossary", ""),
-            "Hoshidicts glossary",
-            MAX_TEXT_LENGTH,
-        ),
-        "definitionTags": _bounded_string(
-            value.get("definitionTags", ""),
-            "Hoshidicts definition tags",
-            MAX_TERM_LENGTH,
-        ),
-        "termTags": _bounded_string(
-            value.get("termTags", ""),
-            "Hoshidicts term tags",
-            MAX_TERM_LENGTH,
-        ),
-    }
-
-
-def _validate_frequency_group(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise HoshidictsMiningError("Hoshidicts frequency group is invalid.")
-    frequencies = []
-    for item in _require_list(
-        value.get("frequencies", []),
-        "Hoshidicts frequencies",
-        MAX_METADATA_VALUES,
-    ):
-        if not isinstance(item, dict) or not isinstance(item.get("value"), int) or isinstance(item.get("value"), bool):
-            raise HoshidictsMiningError("Hoshidicts frequency is invalid.")
-        frequencies.append(
-            {
-                "value": item["value"],
-                "displayValue": _bounded_string(
-                    item.get("displayValue", ""),
-                    "Hoshidicts frequency display value",
-                    MAX_TERM_LENGTH,
-                ),
-            }
-        )
-    return {
-        "dictionary": _bounded_string(
-            value.get("dictionary", ""),
-            "Hoshidicts frequency dictionary",
-            MAX_TERM_LENGTH,
-            allow_empty=False,
-        ),
-        "frequencies": frequencies,
-    }
-
-
-def _validate_pitch_group(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise HoshidictsMiningError("Hoshidicts pitch group is invalid.")
-    pitches = []
-    for item in _require_list(
-        value.get("pitches", []),
-        "Hoshidicts pitches",
-        MAX_METADATA_VALUES,
-    ):
-        if (
-            not isinstance(item, dict)
-            or not isinstance(item.get("position"), int)
-            or isinstance(item.get("position"), bool)
-        ):
-            raise HoshidictsMiningError("Hoshidicts pitch value is invalid.")
-        pitches.append(
-            {
-                "position": item["position"],
-                "pattern": _bounded_string(
-                    item.get("pattern", ""),
-                    "Hoshidicts pitch pattern",
-                    MAX_TERM_LENGTH,
-                ),
-                "nasal": [
-                    marker
-                    for marker in _require_list(
-                        item.get("nasal", []),
-                        "Hoshidicts nasal markers",
-                        MAX_METADATA_VALUES,
-                    )
-                    if isinstance(marker, int) and not isinstance(marker, bool)
-                ],
-                "devoice": [
-                    marker
-                    for marker in _require_list(
-                        item.get("devoice", []),
-                        "Hoshidicts devoice markers",
-                        MAX_METADATA_VALUES,
-                    )
-                    if isinstance(marker, int) and not isinstance(marker, bool)
-                ],
-            }
-        )
-    transcriptions = [
-        _bounded_string(
-            item,
-            "Hoshidicts pitch transcription",
-            MAX_TERM_LENGTH,
-        )
-        for item in _require_list(
-            value.get("transcriptions", []),
-            "Hoshidicts pitch transcriptions",
-            MAX_METADATA_VALUES,
-        )
-    ]
-    return {
-        "dictionary": _bounded_string(
-            value.get("dictionary", ""),
-            "Hoshidicts pitch dictionary",
-            MAX_TERM_LENGTH,
-            allow_empty=False,
-        ),
-        "pitches": pitches,
-        "transcriptions": transcriptions,
-    }
-
-
-def _utf16_suffix(text: str, offset: int) -> str:
-    encoded = text.encode("utf-16-le")
-    byte_offset = offset * 2
-    if byte_offset > len(encoded):
-        raise HoshidictsMiningError("Hoshidicts match offset is out of range.")
-    try:
-        return encoded[byte_offset:].decode("utf-16-le")
-    except UnicodeDecodeError as exc:
-        raise HoshidictsMiningError("Hoshidicts match offset splits a Unicode character.") from exc
-
-
-def validate_hoshidicts_mining_request(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise HoshidictsMiningError("Hoshidicts mining request must be an object.")
-    sentence = _bounded_string(
-        value.get("sentence", ""),
-        "Hoshidicts sentence",
-        MAX_TEXT_LENGTH,
-        allow_empty=False,
-    )
-    match_offset = value.get("matchOffset")
-    if not isinstance(match_offset, int) or isinstance(match_offset, bool) or match_offset < 0:
-        raise HoshidictsMiningError("Hoshidicts match offset is invalid.")
-
-    result = value.get("result")
-    if not isinstance(result, dict) or not isinstance(result.get("term"), dict):
-        raise HoshidictsMiningError("Hoshidicts lookup result is invalid.")
-    term = result["term"]
-    glossaries = [
-        _validate_glossary(item)
-        for item in _require_list(
-            term.get("glossaries", []),
-            "Hoshidicts glossaries",
-            MAX_GLOSSARIES,
-        )
-    ]
-    if not glossaries:
-        raise HoshidictsMiningError("Hoshidicts lookup result has no definitions.")
-
-    normalized = {
-        "matched": _bounded_string(
-            result.get("matched", ""),
-            "Hoshidicts matched text",
-            MAX_TERM_LENGTH,
-            allow_empty=False,
-        ),
-        "deinflected": _bounded_string(
-            result.get("deinflected", ""),
-            "Hoshidicts deinflected text",
-            MAX_TERM_LENGTH,
-        ),
-        "trace": [
-            {
-                "name": _bounded_string(
-                    item.get("name", "") if isinstance(item, dict) else None,
-                    "Hoshidicts trace name",
-                    1024,
-                    allow_empty=False,
-                ),
-                "description": _bounded_string(
-                    item.get("description", "") if isinstance(item, dict) else None,
-                    "Hoshidicts trace description",
-                    MAX_TERM_LENGTH,
-                ),
-            }
-            for item in _require_list(
-                result.get("trace", []),
-                "Hoshidicts trace",
-                32,
-            )
-        ],
-        "term": {
-            "expression": _bounded_string(
-                term.get("expression", ""),
-                "Hoshidicts expression",
-                MAX_TERM_LENGTH,
-                allow_empty=False,
-            ),
-            "reading": _bounded_string(
-                term.get("reading", ""),
-                "Hoshidicts reading",
-                MAX_TERM_LENGTH,
-            ),
-            "rules": _bounded_string(
-                term.get("rules", ""),
-                "Hoshidicts rules",
-                MAX_TERM_LENGTH,
-            ),
-            "glossaries": glossaries,
-            "frequencies": [
-                _validate_frequency_group(item)
-                for item in _require_list(
-                    term.get("frequencies", []),
-                    "Hoshidicts frequency groups",
-                    MAX_METADATA_GROUPS,
-                )
-            ],
-            "pitches": [
-                _validate_pitch_group(item)
-                for item in _require_list(
-                    term.get("pitches", []),
-                    "Hoshidicts pitch groups",
-                    MAX_METADATA_GROUPS,
-                )
-            ],
-        },
-        "sentence": sentence,
-        "matchOffset": match_offset,
-    }
-    if not _utf16_suffix(sentence, match_offset).startswith(normalized["matched"]):
-        raise HoshidictsMiningError("Hoshidicts match offset does not point at the matched text.")
-    return normalized
-
-
-def _append_structured_text(value: Any, output: list[str], state: list[int]) -> None:
-    if state[0] >= 4096:
-        return
-    if isinstance(value, str):
-        output.append(value)
-        state[0] += 1
-        return
-    if isinstance(value, (int, float, bool)):
-        output.append(str(value))
-        state[0] += 1
-        return
-    if isinstance(value, list):
-        for child in value:
-            _append_structured_text(child, output, state)
-        return
-    if not isinstance(value, dict):
-        return
-    tag = str(value.get("tag") or "").lower()
-    if tag in IGNORED_STRUCTURED_TAGS:
-        return
-    if value.get("type") == "text" and isinstance(value.get("text"), str):
-        output.append(value["text"])
-        state[0] += 1
-    elif "content" in value:
-        _append_structured_text(value["content"], output, state)
-    if tag in BLOCK_STRUCTURED_TAGS:
-        output.append("\n")
-
-
-def _glossary_text(value: str) -> str:
-    parsed: Any = value
-    try:
-        parsed = json.loads(value)
-    except (TypeError, ValueError):
-        pass
-    output: list[str] = []
-    _append_structured_text(parsed, output, [0])
-    return "\n".join(line.strip() for line in "".join(output).splitlines() if line.strip())
-
-
-def _definition_html(result: dict[str, Any]) -> str:
-    term = result["term"]
-    groups: dict[str, list[dict[str, str]]] = {}
-    for glossary in term["glossaries"]:
-        groups.setdefault(glossary["dictionary"], []).append(glossary)
-
-    sections = []
-    for dictionary, glossaries in groups.items():
-        items = []
-        for glossary in glossaries:
-            text = _glossary_text(glossary["glossary"])
-            tags = " ".join(
-                item
-                for item in (
-                    glossary["definitionTags"],
-                    glossary["termTags"],
-                )
-                if item
-            )
-            suffix = f" <small>{html.escape(tags)}</small>" if tags else ""
-            items.append(f"<li>{html.escape(text)}{suffix}</li>")
-        sections.append(f"<div><b>{html.escape(dictionary)}</b><ol>{''.join(items)}</ol></div>")
-
-    details = []
-    if term["rules"]:
-        details.append(f"Rules: {html.escape(term['rules'])}")
-    if result["trace"]:
-        details.append("Deinflection: " + " &gt; ".join(html.escape(step["name"]) for step in result["trace"]))
-    if details:
-        sections.append(f"<small>{'<br>'.join(details)}</small>")
-    return "".join(sections)
-
-
-def _frequency_html(result: dict[str, Any]) -> str:
-    groups = []
-    for group in result["term"]["frequencies"]:
-        values = [frequency["displayValue"] or str(frequency["value"]) for frequency in group["frequencies"]]
-        if values:
-            groups.append(
-                f"<b>{html.escape(group['dictionary'])}</b>: " + ", ".join(html.escape(value) for value in values)
-            )
-    return "<br>".join(groups)
-
-
-def _pitch_html(result: dict[str, Any]) -> str:
-    groups = []
-    for group in result["term"]["pitches"]:
-        values = []
-        for pitch in group["pitches"]:
-            description = pitch["pattern"] or f"position {pitch['position']}"
-            markers = []
-            if pitch["nasal"]:
-                markers.append("nasal " + ",".join(map(str, pitch["nasal"])))
-            if pitch["devoice"]:
-                markers.append("devoice " + ",".join(map(str, pitch["devoice"])))
-            if markers:
-                description += f" ({'; '.join(markers)})"
-            values.append(description)
-        values.extend(group["transcriptions"])
-        if values:
-            groups.append(
-                f"<b>{html.escape(group['dictionary'])}</b>: " + ", ".join(html.escape(value) for value in values)
-            )
-    return "<br>".join(groups)
-
-
-def _pitch_positions_text(result: dict[str, Any]) -> str:
-    positions = []
-    seen = set()
-    for group in result["term"]["pitches"]:
-        for pitch in group["pitches"]:
-            position = pitch["position"]
-            if position not in seen:
-                seen.add(position)
-                positions.append(str(position))
-    return ", ".join(positions)
 
 
 def _find_model_field(
@@ -586,6 +209,8 @@ def _empty_mining_options(
         "selectedNoteType": selected_note_type,
         "fields": [],
         "suggestedFields": {key: "" for key in FIELD_KEYS},
+        "resolvedFields": {key: "" for key in FIELD_KEYS},
+        "warnings": [],
         "error": error,
     }
 
@@ -608,30 +233,31 @@ def _validate_anki_name_list(value: Any, label: str) -> list[str]:
     return output
 
 
-def _suggest_mining_fields(
+def _resolve_mining_fields(
     model: str,
     available_fields: list[str],
+    profile: dict[str, Any],
     config: Any,
-) -> dict[str, str]:
-    suggestions = {key: "" for key in FIELD_KEYS}
+) -> dict[str, Any]:
+    automatic_fields = {key: "" for key in FIELD_KEYS}
     kiku_lapis_fields = {key: _find_model_field(available_fields, field) for key, field in KIKU_LAPIS_FIELD_MAP.items()}
     is_named_kiku_lapis = any(name in model.casefold() for name in ("kiku", "lapis"))
     has_kiku_lapis_signature = all(kiku_lapis_fields.values())
     if is_named_kiku_lapis or has_kiku_lapis_signature:
-        suggestions.update({key: field or "" for key, field in kiku_lapis_fields.items()})
+        automatic_fields.update({key: field or "" for key, field in kiku_lapis_fields.items()})
 
     inherited = {
         "expression": str(config.anki.word_field or "").strip(),
         "sentence": str(config.anki.sentence_field or "").strip(),
     }
     for key in FIELD_KEYS:
-        if suggestions[key]:
+        if automatic_fields[key]:
             continue
         candidates = []
         if inherited.get(key):
             candidates.append(inherited[key])
         candidates.extend(GENERIC_FIELD_ALIASES[key])
-        suggestions[key] = next(
+        automatic_fields[key] = next(
             (
                 resolved
                 for candidate in candidates
@@ -639,7 +265,36 @@ def _suggest_mining_fields(
             ),
             "",
         )
-    return suggestions
+
+    disabled_fields = set(profile.get("disabledFields", []))
+    resolved_fields = {key: "" for key in FIELD_KEYS}
+    invalid_fields: dict[str, str] = {}
+    unmapped_fields = []
+    for key in FIELD_KEYS:
+        if key in disabled_fields:
+            continue
+        override = str(profile.get("fields", {}).get(key, "") or "").strip()
+        if override:
+            resolved = _find_model_field(available_fields, override)
+            if resolved is None:
+                invalid_fields[key] = override
+            else:
+                resolved_fields[key] = resolved
+            continue
+        resolved_fields[key] = automatic_fields[key]
+        if not resolved_fields[key]:
+            unmapped_fields.append(key)
+
+    return {
+        "automaticFields": automatic_fields,
+        "resolvedFields": resolved_fields,
+        "invalidFields": invalid_fields,
+        "unmappedFields": unmapped_fields,
+    }
+
+
+def _invalid_field_message(key: str, field: str, model: str) -> str:
+    return f'Hoshidicts {key} field "{field}" is not in note type "{model}".'
 
 
 def get_hoshidicts_mining_options(model: str | None = None) -> dict[str, Any]:
@@ -657,52 +312,93 @@ def get_hoshidicts_mining_options(model: str | None = None) -> dict[str, Any]:
             gsm_anki_enabled=gsm_anki_enabled,
         )
         anki = _get_anki_module()
-        note_types = _validate_anki_name_list(
-            anki.invoke("modelNames", timeout=3),
-            "Anki note type list",
-        )
-        decks = _validate_anki_name_list(
-            anki.invoke("deckNames", timeout=3),
-            "Anki deck list",
-        )
-        options.update(
-            {
-                "connected": True,
-                "decks": decks,
-                "noteTypes": note_types,
-                "error": (None if gsm_anki_enabled else "GSM Anki integration is disabled."),
-            }
-        )
+        successful_calls = 0
+        failures: list[Exception] = []
+        note_types: list[str] = []
+        note_types_loaded = False
+        try:
+            note_types = _validate_anki_name_list(
+                anki.invoke(
+                    "modelNames",
+                    timeout=ANKI_CONNECT_TIMEOUT_SECONDS,
+                ),
+                "Anki note type list",
+            )
+            note_types_loaded = True
+            successful_calls += 1
+        except Exception as exc:
+            failures.append(exc)
+            options["warnings"].append(f"Could not load Anki note types: {exc}")
+
+        try:
+            options["decks"] = _validate_anki_name_list(
+                anki.invoke(
+                    "deckNames",
+                    timeout=ANKI_CONNECT_TIMEOUT_SECONDS,
+                ),
+                "Anki deck list",
+            )
+            successful_calls += 1
+        except Exception as exc:
+            failures.append(exc)
+            options["warnings"].append(f"Could not load Anki decks: {exc}")
+
+        options["noteTypes"] = note_types
         if not selected_note_type:
+            options["connected"] = successful_calls > 0
+            if not options["connected"] and failures:
+                options["error"] = f"Could not connect to Anki through GSM: {failures[0]}"
+            elif not gsm_anki_enabled:
+                options["error"] = "GSM Anki integration is disabled."
             return options
 
-        selected_model = next(
-            (candidate for candidate in note_types if candidate.casefold() == selected_note_type.casefold()),
-            None,
-        )
-        if selected_model is None:
+        selected_model = selected_note_type
+        if note_types_loaded:
+            selected_model = next(
+                (candidate for candidate in note_types if candidate.casefold() == selected_note_type.casefold()),
+                "",
+            )
+        if not selected_model:
+            options["connected"] = successful_calls > 0
             options["error"] = f'Anki note type "{selected_note_type}" does not exist.'
             return options
 
-        fields = _validate_anki_name_list(
-            anki.invoke(
-                "modelFieldNames",
-                timeout=3,
-                modelName=selected_model,
-            ),
-            "Anki field list",
-        )
-        options.update(
-            {
-                "selectedNoteType": selected_model,
-                "fields": fields,
-                "suggestedFields": _suggest_mining_fields(
-                    selected_model,
-                    fields,
-                    config,
+        options["selectedNoteType"] = selected_model
+        try:
+            fields = _validate_anki_name_list(
+                anki.invoke(
+                    "modelFieldNames",
+                    timeout=ANKI_CONNECT_TIMEOUT_SECONDS,
+                    modelName=selected_model,
                 ),
-            }
-        )
+                "Anki field list",
+            )
+            successful_calls += 1
+            options["fields"] = fields
+            resolution = _resolve_mining_fields(
+                selected_model,
+                fields,
+                profile,
+                config,
+            )
+            options.update(
+                {
+                    "suggestedFields": resolution["automaticFields"],
+                    "resolvedFields": resolution["resolvedFields"],
+                }
+            )
+            options["warnings"].extend(
+                _invalid_field_message(key, field, selected_model) for key, field in resolution["invalidFields"].items()
+            )
+        except Exception as exc:
+            failures.append(exc)
+            options["warnings"].append(f"Could not load Anki fields: {exc}")
+
+        options["connected"] = successful_calls > 0
+        if not options["connected"] and failures:
+            options["error"] = f"Could not connect to Anki through GSM: {failures[0]}"
+        elif not gsm_anki_enabled:
+            options["error"] = "GSM Anki integration is disabled."
         return options
     except HoshidictsMiningError as exc:
         return _empty_mining_options(
@@ -718,9 +414,12 @@ def get_hoshidicts_mining_options(model: str | None = None) -> dict[str, Any]:
         )
 
 
-def _resolve_mining_configuration() -> dict[str, Any]:
-    profile = load_hoshidicts_mining_profile()
-    config = get_config()
+def _resolve_mining_configuration(
+    profile: dict[str, Any] | None = None,
+    config: Any | None = None,
+) -> dict[str, Any]:
+    profile = profile or load_hoshidicts_mining_profile()
+    config = config or get_config()
     if not profile["enabled"]:
         raise HoshidictsMiningError("Hoshidicts mining is disabled.", 503)
     if not config.anki.enabled:
@@ -736,18 +435,27 @@ def _resolve_mining_configuration() -> dict[str, Any]:
     anki = _get_anki_module()
     model_fields = anki.invoke(
         "modelFieldNames",
-        timeout=3,
+        timeout=ANKI_CONNECT_TIMEOUT_SECONDS,
         modelName=model,
     )
-    if not isinstance(model_fields, list) or not all(isinstance(field, str) for field in model_fields):
-        raise HoshidictsMiningError(
-            "Anki returned an invalid field list for the selected note type.",
-            503,
+    try:
+        model_fields = _validate_anki_name_list(
+            model_fields,
+            "Anki field list",
         )
+    except HoshidictsMiningError as exc:
+        raise HoshidictsMiningError(str(exc), 503) from exc
 
-    decks = anki.invoke("deckNames", timeout=3)
-    if not isinstance(decks, list) or not all(isinstance(deck, str) for deck in decks):
-        raise HoshidictsMiningError("Anki returned an invalid deck list.", 503)
+    try:
+        decks = _validate_anki_name_list(
+            anki.invoke(
+                "deckNames",
+                timeout=ANKI_CONNECT_TIMEOUT_SECONDS,
+            ),
+            "Anki deck list",
+        )
+    except HoshidictsMiningError as exc:
+        raise HoshidictsMiningError(str(exc), 503) from exc
     deck = next(
         (item for item in decks if item.casefold() == profile["deck"].casefold()),
         None,
@@ -758,42 +466,13 @@ def _resolve_mining_configuration() -> dict[str, Any]:
             503,
         )
 
-    inherited = {
-        "expression": str(config.anki.word_field or "").strip(),
-        "sentence": str(config.anki.sentence_field or "").strip(),
-    }
-    resolved_fields: dict[str, str | None] = {}
-    unmapped = []
-    for key in FIELD_KEYS:
-        override = profile["fields"][key]
-        if override:
-            resolved = _find_model_field(model_fields, override)
-            if resolved is None:
-                raise HoshidictsMiningError(
-                    f'Hoshidicts {key} field "{override}" is not in note type "{model}".',
-                    503,
-                )
-            resolved_fields[key] = resolved
-            continue
-        if key in inherited:
-            resolved = _find_model_field(model_fields, inherited[key])
-            if resolved is None:
-                raise HoshidictsMiningError(
-                    f'GSM {key} field "{inherited[key]}" is not in note type "{model}".',
-                    503,
-                )
-            resolved_fields[key] = resolved
-            continue
-        resolved_fields[key] = next(
-            (
-                resolved
-                for alias in OPTIONAL_FIELD_ALIASES[key]
-                if (resolved := _find_model_field(model_fields, alias)) is not None
-            ),
-            None,
+    resolution = _resolve_mining_fields(model, model_fields, profile, config)
+    if resolution["invalidFields"]:
+        key, field = next(iter(resolution["invalidFields"].items()))
+        raise HoshidictsMiningError(
+            _invalid_field_message(key, field, model),
+            503,
         )
-        if resolved_fields[key] is None:
-            unmapped.append(key)
 
     return {
         "profile": profile,
@@ -801,14 +480,53 @@ def _resolve_mining_configuration() -> dict[str, Any]:
         "anki": anki,
         "deck": deck,
         "model": model,
-        "fields": resolved_fields,
-        "unmappedFields": unmapped,
+        "fields": resolution["resolvedFields"],
+        "unmappedFields": resolution["unmappedFields"],
     }
 
 
-def get_hoshidicts_mining_status() -> dict[str, Any]:
+_status_cache_lock = threading.Lock()
+_status_cache_key: tuple[Any, ...] | None = None
+_status_cache_value: dict[str, Any] | None = None
+_status_cache_expires_at = 0.0
+_status_in_flight: dict[tuple[Any, ...], threading.Event] = {}
+
+
+def _mining_status_cache_key(
+    profile: dict[str, Any],
+    config: Any,
+) -> tuple[Any, ...]:
+    return (
+        profile.get("enabled", True),
+        profile.get("deck", ""),
+        profile.get("model", ""),
+        tuple((key, profile.get("fields", {}).get(key, "")) for key in FIELD_KEYS),
+        tuple(profile.get("disabledFields", [])),
+        bool(config.anki.enabled),
+        str(config.anki.note_type or ""),
+        str(config.anki.word_field or ""),
+        str(config.anki.sentence_field or ""),
+    )
+
+
+def _clear_mining_status_cache() -> None:
+    global _status_cache_expires_at, _status_cache_key, _status_cache_value
+    with _status_cache_lock:
+        _status_cache_key = None
+        _status_cache_value = None
+        _status_cache_expires_at = 0.0
+        events = list(_status_in_flight.values())
+        _status_in_flight.clear()
+    for event in events:
+        event.set()
+
+
+def _compute_mining_status(
+    profile: dict[str, Any],
+    config: Any,
+) -> dict[str, Any]:
     try:
-        resolved = _resolve_mining_configuration()
+        resolved = _resolve_mining_configuration(profile, config)
         return {
             "available": True,
             "deck": resolved["deck"],
@@ -823,6 +541,51 @@ def get_hoshidicts_mining_status() -> dict[str, Any]:
             "available": False,
             "error": f"Could not connect to Anki through GSM: {exc}",
         }
+
+
+def get_hoshidicts_mining_status() -> dict[str, Any]:
+    global _status_cache_expires_at, _status_cache_key, _status_cache_value
+    try:
+        profile = load_hoshidicts_mining_profile()
+        config = get_config()
+        cache_key = _mining_status_cache_key(profile, config)
+    except HoshidictsMiningError as exc:
+        return {"available": False, "error": str(exc)}
+    except Exception as exc:
+        return {
+            "available": False,
+            "error": f"Could not prepare Hoshidicts mining: {exc}",
+        }
+
+    now = time.monotonic()
+    owner = False
+    with _status_cache_lock:
+        if _status_cache_key == cache_key and _status_cache_value is not None and now < _status_cache_expires_at:
+            return deepcopy(_status_cache_value)
+        event = _status_in_flight.get(cache_key)
+        if event is None:
+            event = threading.Event()
+            _status_in_flight[cache_key] = event
+            owner = True
+
+    if not owner:
+        event.wait(MINING_STATUS_WAIT_SECONDS)
+        with _status_cache_lock:
+            if _status_cache_key == cache_key and _status_cache_value is not None:
+                return deepcopy(_status_cache_value)
+        return {
+            "available": False,
+            "error": "Timed out while checking AnkiConnect through GSM.",
+        }
+
+    status = _compute_mining_status(profile, config)
+    with _status_cache_lock:
+        _status_cache_key = cache_key
+        _status_cache_value = deepcopy(status)
+        _status_cache_expires_at = time.monotonic() + MINING_STATUS_CACHE_SECONDS
+        _status_in_flight.pop(cache_key, None)
+        event.set()
+    return status
 
 
 def _unique_tags(values: list[Any]) -> list[str]:
@@ -858,7 +621,11 @@ def mine_hoshidicts_note(payload: Any) -> dict[str, Any]:
     _add_field_value(fields, resolved["fields"]["expression"], term["expression"])
     _add_field_value(fields, resolved["fields"]["reading"], term["reading"])
     _add_field_value(fields, resolved["fields"]["definition"], _definition_html(request))
-    _add_field_value(fields, resolved["fields"]["sentence"], request["sentence"])
+    _add_field_value(
+        fields,
+        resolved["fields"]["sentence"],
+        _highlight_sentence_match(request),
+    )
     _add_field_value(fields, resolved["fields"]["frequency"], _frequency_html(request))
     pitch_field = resolved["fields"]["pitch"]
     pitch_value = (
