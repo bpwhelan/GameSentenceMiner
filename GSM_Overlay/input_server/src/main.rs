@@ -33,6 +33,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::{broadcast, Mutex};
+use tokio::task;
 use tokio::time;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 use tracing::{debug, error, info, warn};
@@ -292,7 +293,42 @@ type SharedDeviceBlacklist = Arc<StdMutex<HashSet<String>>>;
 type SharedMecab = Mutex<MecabService>;
 type SharedSudachi = Mutex<SudachiService>;
 type SharedManualHotkey = Arc<StdMutex<ManualHotkeyState>>;
-type SharedHoshidicts = Arc<StdMutex<HoshidictsService>>;
+
+#[derive(Clone)]
+struct SharedHoshidicts {
+    service: Arc<StdMutex<HoshidictsService>>,
+    operation_gate: Arc<Mutex<()>>,
+}
+
+impl SharedHoshidicts {
+    fn new(root: PathBuf) -> Self {
+        Self {
+            service: Arc::new(StdMutex::new(HoshidictsService::new(root))),
+            operation_gate: Arc::new(Mutex::new(())),
+        }
+    }
+
+    async fn run_blocking<T, F>(&self, operation: F) -> Result<T, String>
+    where
+        T: Send + 'static,
+        F: FnOnce(&mut HoshidictsService) -> T + Send + 'static,
+    {
+        // Wait for exclusive access without consuming a blocking-pool thread. Move
+        // the permit into the blocking task so cancellation cannot admit another
+        // native call before this one has actually finished.
+        let operation_permit = self.operation_gate.clone().lock_owned().await;
+        let service = self.service.clone();
+        task::spawn_blocking(move || {
+            let _operation_permit = operation_permit;
+            let mut service = service
+                .lock()
+                .map_err(|_| "Hoshidicts service lock is poisoned".to_string())?;
+            Ok(operation(&mut service))
+        })
+        .await
+        .map_err(|error| format!("Hoshidicts blocking task failed: {error}"))?
+    }
+}
 
 fn baseline_features_from_args(values: &[String]) -> Vec<ServiceFeature> {
     values
@@ -2291,9 +2327,9 @@ fn feature_status_payload(features: &FeatureRegistry) -> Value {
     })
 }
 
-fn hoshidicts_lookup_payload(
+async fn hoshidicts_lookup_payload(
     request_id: RequestId,
-    text: &str,
+    text: String,
     features: &FeatureRegistry,
     hoshidicts: &SharedHoshidicts,
 ) -> String {
@@ -2322,12 +2358,15 @@ fn hoshidicts_lookup_payload(
         .to_string();
     }
 
-    let (result, dictionary_count) = match hoshidicts.lock() {
-        Ok(mut service) => {
-            let result = service.lookup(text);
+    let (result, dictionary_count) = match hoshidicts
+        .run_blocking(move |service| {
+            let result = service.lookup(&text);
             (result, service.dictionary_count())
-        }
-        Err(_) => (Err("Hoshidicts service lock is poisoned".to_string()), 0),
+        })
+        .await
+    {
+        Ok(outcome) => outcome,
+        Err(error) => (Err(error), 0),
     };
     let payload = match result {
         Ok(results) => json!({
@@ -2368,7 +2407,7 @@ fn hoshidicts_lookup_payload(
     }
 }
 
-fn hoshidicts_reload_payload(
+async fn hoshidicts_reload_payload(
     request_id: RequestId,
     features: &FeatureRegistry,
     hoshidicts: &SharedHoshidicts,
@@ -2396,13 +2435,16 @@ fn hoshidicts_reload_payload(
         .to_string();
     }
 
-    let (result, active_dictionary_count) = match hoshidicts.lock() {
-        Ok(mut service) => {
+    let (result, active_dictionary_count) = match hoshidicts
+        .run_blocking(|service| {
             let result = service.reload();
             let active_dictionary_count = service.dictionary_count();
             (result, active_dictionary_count)
-        }
-        Err(_) => (Err("Hoshidicts service lock is poisoned".to_string()), 0),
+        })
+        .await
+    {
+        Ok(outcome) => outcome,
+        Err(error) => (Err(error), 0),
     };
     match result {
         Ok(dictionary_count) => json!({
@@ -2742,10 +2784,11 @@ async fn handle_socket(
                             Ok(ClientMsg::HoshidictsLookup { request_id, text }) => {
                                 let payload = hoshidicts_lookup_payload(
                                     request_id,
-                                    &text,
+                                    text,
                                     &features,
                                     &hoshidicts,
-                                );
+                                )
+                                .await;
                                 if ws_sink.send(Message::Text(payload)).await.is_err() {
                                     break;
                                 }
@@ -2755,7 +2798,8 @@ async fn handle_socket(
                                     request_id,
                                     &features,
                                     &hoshidicts,
-                                );
+                                )
+                                .await;
                                 if ws_sink.send(Message::Text(payload)).await.is_err() {
                                     break;
                                 }
@@ -3339,19 +3383,21 @@ async fn optional_feature_lifecycle_loop(
             sudachi.lock().await.disable();
         }
         if hoshidicts_enabled && !hoshidicts_was_enabled {
-            match hoshidicts.lock() {
-                Ok(mut service) => match service.activate() {
+            match hoshidicts.run_blocking(HoshidictsService::activate).await {
+                Ok(result) => match result {
                     Ok(dictionary_count) => {
                         info!("Hoshidicts activated with {dictionary_count} dictionaries")
                     }
                     Err(error) => warn!("failed to activate Hoshidicts: {error}"),
                 },
-                Err(_) => warn!("failed to activate Hoshidicts: service lock is poisoned"),
+                Err(error) => warn!("failed to activate Hoshidicts: {error}"),
             }
         } else if hoshidicts_was_enabled && !hoshidicts_enabled {
-            match hoshidicts.lock() {
-                Ok(mut service) => service.deactivate(),
-                Err(_) => warn!("failed to deactivate Hoshidicts: service lock is poisoned"),
+            if let Err(error) = hoshidicts
+                .run_blocking(|service| service.deactivate())
+                .await
+            {
+                warn!("failed to deactivate Hoshidicts: {error}");
             }
         }
 
@@ -3409,9 +3455,7 @@ async fn main() {
         sudachi_user_dict_dir,
         sudachi_dictionary_kind,
     ))));
-    let hoshidicts: SharedHoshidicts = Arc::new(StdMutex::new(HoshidictsService::new(
-        resolve_hoshidicts_data_root(),
-    )));
+    let hoshidicts = SharedHoshidicts::new(resolve_hoshidicts_data_root());
     let manual_hotkey: SharedManualHotkey = Arc::new(StdMutex::new(ManualHotkeyState {
         status: ManualHotkeyStatus {
             available: features.is_enabled(ServiceFeature::Keyboard),
@@ -3564,22 +3608,56 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn hoshidicts_lookup_reports_feature_state_and_preserves_correlation() {
+    #[tokio::test]
+    async fn hoshidicts_lookup_reports_feature_state_and_preserves_correlation() {
         let features = FeatureRegistry::new([]);
-        let service = Arc::new(StdMutex::new(HoshidictsService::new(PathBuf::from(
-            "unused",
-        ))));
+        let service = SharedHoshidicts::new(PathBuf::from("unused"));
         let payload = hoshidicts_lookup_payload(
             RequestId::Text("lookup-2".into()),
-            "食べる",
+            "食べる".into(),
             &features,
             &service,
-        );
+        )
+        .await;
         let value: Value = serde_json::from_str(&payload).expect("valid lookup response");
         assert_eq!(value["requestId"], "lookup-2");
         assert_eq!(value["success"], false);
         assert_eq!(value["featureDisabled"], true);
+    }
+
+    #[tokio::test]
+    async fn hoshidicts_lookup_runs_through_blocking_boundary_and_preserves_correlation() {
+        let features = FeatureRegistry::new([ServiceFeature::Hoshidicts]);
+        let service = SharedHoshidicts::new(PathBuf::from("unused"));
+        let payload =
+            hoshidicts_lookup_payload(RequestId::Number(42), "食べる".into(), &features, &service)
+                .await;
+        let value: Value = serde_json::from_str(&payload).expect("valid lookup response");
+        assert_eq!(value["requestId"], 42);
+        assert_eq!(value["success"], true);
+        assert_eq!(value["dictionaryCount"], 0);
+        assert_eq!(value["featureDisabled"], false);
+        assert_eq!(value["results"], json!([]));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn hoshidicts_blocking_work_does_not_stall_async_runtime() {
+        let service = SharedHoshidicts::new(PathBuf::from("unused"));
+        let slow_operation = service.run_blocking(|_| {
+            thread::sleep(Duration::from_millis(100));
+        });
+        tokio::pin!(slow_operation);
+
+        tokio::select! {
+            _ = time::sleep(Duration::from_millis(10)) => {}
+            result = &mut slow_operation => {
+                panic!("blocking work completed before the async heartbeat: {result:?}");
+            }
+        }
+
+        slow_operation
+            .await
+            .expect("blocking Hoshidicts work should complete");
     }
 
     #[test]
