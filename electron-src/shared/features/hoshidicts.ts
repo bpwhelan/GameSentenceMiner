@@ -9,6 +9,7 @@ export const HOSHIDICTS_CHANNELS = {
     removeDictionary: 'hoshidicts.remove',
     setSchedule: 'hoshidicts.setSchedule',
     setLookupMode: 'hoshidicts.setLookupMode',
+    setReaderPreferences: 'hoshidicts.setReaderPreferences',
     setMiningProfile: 'hoshidicts.setMiningProfile',
     getMiningOptions: 'hoshidicts.getMiningOptions',
     setDictionaryEnabled: 'hoshidicts.setDictionaryEnabled',
@@ -18,10 +19,15 @@ export const HOSHIDICTS_CHANNELS = {
 
 export const HOSHIDICTS_BUS_TOPICS = {
     openSettings: 'hoshidicts.openSettings',
+    readerPreferences: 'hoshidicts.readerPreferences',
 } as const;
+
+export const HOSHIDICTS_READER_CLIENT_ID = 'overlay.hoshidicts-reader';
 
 export type HoshidictsSchedule = 'off' | 'daily' | 'weekly' | 'monthly';
 export type HoshidictsLookupMode = 'shift' | 'hover';
+export const DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS = 300;
+export const MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS = 5000;
 export type HoshidictsRecommendedDictionaryId = 'jmdict' | 'jmnedict';
 export type HoshidictsMoveDirection = -1 | 1;
 export type HoshidictsDuplicatePolicy = 'prevent' | 'allow';
@@ -43,12 +49,20 @@ export interface HoshidictsMiningFields {
     pitch: string;
 }
 
+export type HoshidictsMiningFieldName = keyof HoshidictsMiningFields;
+
+export interface HoshidictsReaderPreferences {
+    lookupMode: HoshidictsLookupMode;
+    popupHideDelayMs: number;
+}
+
 export interface HoshidictsMiningProfile {
     version: 1;
     enabled: boolean;
     deck: string;
     model: string;
     fields: HoshidictsMiningFields;
+    disabledFields: HoshidictsMiningFieldName[];
     tags: string[];
     duplicatePolicy: HoshidictsDuplicatePolicy;
 }
@@ -61,6 +75,8 @@ export interface HoshidictsMiningOptions {
     selectedNoteType: string;
     fields: string[];
     suggestedFields: HoshidictsMiningFields;
+    resolvedFields: HoshidictsMiningFields;
+    warnings: string[];
     error: string | null;
 }
 
@@ -84,16 +100,19 @@ export interface HoshidictsRecommendedDictionaryState {
 
 export interface HoshidictsProgress {
     phase: HoshidictsProgressPhase;
+    scope?: 'dictionary' | 'preferences' | 'mining';
     title?: string;
     completed?: number;
     total?: number;
 }
 
 export interface HoshidictsManagerSnapshot {
+    revision: number;
     dictionaries: HoshidictsDictionaryState[];
     recommendedDictionaries: HoshidictsRecommendedDictionaryState[];
     miningProfile: HoshidictsMiningProfile;
     lookupMode: HoshidictsLookupMode;
+    popupHideDelayMs: number;
     schedule: HoshidictsSchedule;
     lastCheck: string | null;
     nextCheck: string | null;
@@ -114,8 +133,23 @@ export interface HoshidictsActionResult {
     success: boolean;
     canceled?: boolean;
     error?: string | null;
+    outcome?: {
+        code:
+            | 'preferencesSaved'
+            | 'miningProfileSaved'
+            | 'dictionaryImported'
+            | 'recommendedInstalled'
+            | 'updatesChecked'
+            | 'dictionaryRemoved'
+            | 'dictionaryChanged'
+            | 'overlayRestarted';
+        count?: number;
+        title?: string;
+    };
     state: HoshidictsDesktopSnapshot;
 }
+
+export type HoshidictsReaderPreferencesRequest = HoshidictsReaderPreferences;
 
 export interface HoshidictsDictionaryEnabledRequest {
     id: string;

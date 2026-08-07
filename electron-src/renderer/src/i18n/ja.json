@@ -544,9 +544,43 @@
       "restartNote": "この変更はオーバーレイの再起動後に反映されます。",
       "restartNow": "オーバーレイを再起動",
       "restarting": "再起動中...",
+      "loading": "Hoshidicts設定を読み込み中...",
+      "readiness": {
+        "loading": "読み込み中",
+        "loadingHint": "リーダーとインストール済み辞書を確認しています。",
+        "featureOff": "機能はオフです",
+        "featureOffHint": "GSMの実験機能設定でHoshidictsを有効にしてください。",
+        "overlayStopped": "オーバーレイは停止中です",
+        "overlayStoppedHint": "辞書検索を使うにはオーバーレイを起動してください。",
+        "restartRequired": "再起動が必要です",
+        "restartRequiredHint": "最新のリーダー設定を反映するため、オーバーレイを再起動してください。",
+        "noEnabledDictionaries": "有効な辞書がありません",
+        "noEnabledDictionariesHint": "単語を検索する前に辞書をインストールまたは有効化してください。",
+        "ready": "準備完了",
+        "readyHint": "オーバーレイの日本語テキストにカーソルを合わせると検索できます。",
+        "dictionaryCounts": "インストール済み {installed} · 有効 {enabled}",
+        "enableDictionary": "辞書を有効化"
+      },
       "tabs": {
         "dictionaries": "辞書",
         "mining": "Ankiマイニング"
+      },
+      "reader": {
+        "title": "リーダーの動作",
+        "subtitle": "変更は自動保存され、実行中のオーバーレイに反映されます。",
+        "activation": "検索の起動方法",
+        "holdShift": "Shiftキーを押す",
+        "holdShiftHint": "Shiftキーを押している間だけ検索します。",
+        "automaticHover": "自動ホバー",
+        "automaticHoverHint": "カーソルを日本語テキストに合わせると自動的に検索します。",
+        "hideDelay": "ポップアップを閉じるまでの時間",
+        "hideDelayHint": "単語から定義へカーソルを移動するときもポップアップを操作できます。",
+        "milliseconds": "ミリ秒"
+      },
+      "saveStatus": {
+        "saving": "保存中...",
+        "saved": "保存済み",
+        "error": "保存に失敗"
       },
       "lookup": {
         "title": "検索の起動方法",
@@ -599,9 +633,13 @@
         "ankiDisconnected": "AnkiConnectに未接続",
         "refreshAnki": "更新",
         "gsmAnkiDisabled": "AnkiConnectには接続できますが、GSM設定でAnki連携が無効になっています。",
+        "ankiError": "AnkiConnectエラー: {message}",
+        "autoSaveHint": "変更は自動的に保存されます。",
         "deck": "デッキ",
         "noteType": "ノートタイプ",
         "selectNoteType": "ノートタイプを選択",
+        "automatic": "自動",
+        "automaticNoteType": "自動（{name}）",
         "missingOption": "{name}（Ankiにありません）",
         "noField": "入力しない",
         "tags": "追加タグ",
@@ -610,6 +648,13 @@
         "allowDuplicates": "重複を許可",
         "fieldOverrides": "フィールドの上書き",
         "inheritHint": "空欄の場合は、現在のGSMマッピングまたは選択したノートタイプの互換フィールドを使用します。",
+        "fieldMappings": "フィールドのマッピング",
+        "mappingHint": "自動では、選択したノートタイプの互換フィールドを使用します。",
+        "mappingCount": "{total}フィールド中{mapped}フィールドをマッピング済み",
+        "automaticField": "自動 → {name}",
+        "automaticUnmapped": "自動（互換フィールドなし）",
+        "mappingWarning": "Ankiマッピングの警告: {message}",
+        "missingMappings": "選択したノートタイプに次の指定フィールドがありません: {fields}",
         "fields": {
           "expression": "表記",
           "reading": "読み",
@@ -621,6 +666,16 @@
         "save": "マイニングプロファイルを保存",
         "saving": "保存中..."
       },
+      "outcomes": {
+        "preferencesSaved": "リーダー設定を保存しました。",
+        "miningProfileSaved": "マイニングプロファイルを保存しました。",
+        "dictionaryImported": "辞書をインポートしました。",
+        "recommendedInstalled": "おすすめの辞書を{count}件インストールしました。",
+        "updatesChecked": "辞書のアップデート確認が完了しました。",
+        "dictionaryRemoved": "{title}を削除しました。",
+        "dictionaryChanged": "辞書設定を更新しました。",
+        "overlayRestarted": "オーバーレイを再起動しました。"
+      },
       "progress": {
         "idle": "準備完了",
         "importing": "辞書をインポート中...",
@@ -628,7 +683,7 @@
         "downloading": "{title}をダウンロード中...",
         "reloading": "辞書を再読み込み中...",
         "removing": "辞書を削除中...",
-        "saving": "マイニングプロファイルを保存中...",
+        "saving": "設定を保存中...",
         "count": "{completed} / {total}"
       },
       "errors": {
@@ -640,6 +695,7 @@
         "schedule": "辞書のアップデート間隔を保存できませんでした。",
         "recommended": "おすすめの辞書をインストールできませんでした。",
         "lookupMode": "Hoshidictsの検索起動設定を保存できませんでした。",
+        "readerPreferences": "Hoshidictsリーダー設定を保存できませんでした。",
         "ankiOptions": "AnkiConnectからデッキとノートタイプを読み込めませんでした。",
         "miningProfile": "Hoshidictsマイニングプロファイルを保存できませんでした。",
         "restart": "オーバーレイを再起動できませんでした。"

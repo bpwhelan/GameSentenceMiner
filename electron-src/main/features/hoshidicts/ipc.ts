@@ -9,6 +9,7 @@ import {
 import type { OverlayRuntimeState } from '../../ui/front.js';
 import {
     HOSHIDICTS_CHANNELS,
+    MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
     type HoshidictsActionResult,
     type HoshidictsDesktopSnapshot,
     type HoshidictsDictionaryEnabledRequest,
@@ -17,6 +18,8 @@ import {
     type HoshidictsLookupMode,
     type HoshidictsMiningOptions,
     type HoshidictsMoveDictionaryRequest,
+    type HoshidictsReaderPreferences,
+    type HoshidictsReaderPreferencesRequest,
     type HoshidictsRecommendedDictionaryId,
     type HoshidictsSchedule,
 } from '../../../shared/features/hoshidicts.js';
@@ -30,6 +33,10 @@ export interface HoshidictsIPCDependencies {
     getConfiguredFeatureEnabled: () => boolean;
     getOverlayFeatureEnabledAtLaunch: () => boolean | null;
     getOverlayLookupModeAtLaunch: () => HoshidictsLookupMode | null;
+    getOverlayPopupHideDelayAtLaunch: () => number | null;
+    applyReaderPreferences: (
+        preferences: HoshidictsReaderPreferences
+    ) => Promise<boolean>;
     getMiningOptions: (model?: string) => Promise<HoshidictsMiningOptions>;
     restartOverlay: () => Promise<boolean>;
 }
@@ -86,6 +93,7 @@ function withDesktopState(
     const overlay = deps.getOverlayRuntimeState();
     const enabledAtLaunch = deps.getOverlayFeatureEnabledAtLaunch();
     const lookupModeAtLaunch = deps.getOverlayLookupModeAtLaunch();
+    const popupHideDelayAtLaunch = deps.getOverlayPopupHideDelayAtLaunch();
     const effectiveEnabled = deps.getConfiguredFeatureEnabled();
     return {
         ...snapshot,
@@ -98,7 +106,10 @@ function withDesktopState(
                     enabledAtLaunch !== effectiveEnabled) ||
                     (effectiveEnabled &&
                         lookupModeAtLaunch !== null &&
-                        lookupModeAtLaunch !== snapshot.lookupMode)),
+                        lookupModeAtLaunch !== snapshot.lookupMode) ||
+                    (effectiveEnabled &&
+                        popupHideDelayAtLaunch !== null &&
+                        popupHideDelayAtLaunch !== snapshot.popupHideDelayMs)),
         },
     };
 }
@@ -114,11 +125,13 @@ async function currentState(
 
 async function runAction(
     deps: HoshidictsIPCDependencies,
-    action: () => Promise<HoshidictsManagerSnapshot>
+    action: () => Promise<HoshidictsManagerSnapshot>,
+    outcome?: HoshidictsActionResult['outcome']
 ): Promise<HoshidictsActionResult> {
     try {
         return {
             success: true,
+            outcome,
             state: withDesktopState(await action(), deps),
         };
     } catch (error) {
@@ -180,7 +193,8 @@ export function registerHoshidictsIPC(
         }
         return await runAction(
             deps,
-            async () => await manager.importDictionary(result.filePaths[0])
+            async () => await manager.importDictionary(result.filePaths[0]),
+            { code: 'dictionaryImported' }
         );
     });
 
@@ -188,9 +202,14 @@ export function registerHoshidictsIPC(
         HOSHIDICTS_CHANNELS.installAllRecommended,
         async (event) => {
             assertSettingsSender(event, deps);
+            const before = await manager.getSnapshot();
+            const missingCount = before.recommendedDictionaries.filter(
+                (dictionary) => !dictionary.installed
+            ).length;
             return await runAction(
                 deps,
-                async () => await manager.installRecommendedDictionaries()
+                async () => await manager.installRecommendedDictionaries(),
+                { code: 'recommendedInstalled', count: missingCount }
             );
         }
     );
@@ -214,7 +233,8 @@ export function registerHoshidictsIPC(
             }
             return await runAction(
                 deps,
-                async () => await manager.installRecommendedDictionary(id)
+                async () => await manager.installRecommendedDictionary(id),
+                { code: 'recommendedInstalled', count: 1 }
             );
         }
     );
@@ -227,7 +247,7 @@ export function registerHoshidictsIPC(
                 throw new Error(state.lastError);
             }
             return state;
-        });
+        }, { code: 'updatesChecked' });
     });
 
     ipcMain.handle(
@@ -274,7 +294,8 @@ export function registerHoshidictsIPC(
             }
             return await runAction(
                 deps,
-                async () => await manager.removeDictionary(id)
+                async () => await manager.removeDictionary(id),
+                { code: 'dictionaryRemoved', title: dictionary.title }
             );
         }
     );
@@ -292,7 +313,8 @@ export function registerHoshidictsIPC(
             }
             return await runAction(
                 deps,
-                async () => await manager.setSchedule(schedule)
+                async () => await manager.setSchedule(schedule),
+                { code: 'preferencesSaved' }
             );
         }
     );
@@ -310,7 +332,46 @@ export function registerHoshidictsIPC(
             }
             return await runAction(
                 deps,
-                async () => await manager.setLookupMode(lookupMode)
+                async () => await manager.setLookupMode(lookupMode),
+                { code: 'preferencesSaved' }
+            );
+        }
+    );
+
+    ipcMain.handle(
+        HOSHIDICTS_CHANNELS.setReaderPreferences,
+        async (event, request: unknown) => {
+            assertSettingsSender(event, deps);
+            const value = request as Partial<HoshidictsReaderPreferencesRequest> | null;
+            if (
+                !value ||
+                !isLookupMode(value.lookupMode) ||
+                !Number.isInteger(value.popupHideDelayMs) ||
+                (value.popupHideDelayMs as number) < 0 ||
+                (value.popupHideDelayMs as number) >
+                    MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS
+            ) {
+                return {
+                    success: false,
+                    error: 'Hoshidicts reader preferences are invalid.',
+                    state: await currentState(deps),
+                } satisfies HoshidictsActionResult;
+            }
+            return await runAction(
+                deps,
+                async () => {
+                    const preferences: HoshidictsReaderPreferences = {
+                        lookupMode: value.lookupMode as HoshidictsLookupMode,
+                        popupHideDelayMs: value.popupHideDelayMs as number,
+                    };
+                    const state = await manager.setReaderPreferences(
+                        preferences.lookupMode,
+                        preferences.popupHideDelayMs
+                    );
+                    await deps.applyReaderPreferences(preferences);
+                    return state;
+                },
+                { code: 'preferencesSaved' }
             );
         }
     );
@@ -321,7 +382,8 @@ export function registerHoshidictsIPC(
             assertSettingsSender(event, deps);
             return await runAction(
                 deps,
-                async () => await manager.setMiningProfile(profile)
+                async () => await manager.setMiningProfile(profile),
+                { code: 'miningProfileSaved' }
             );
         }
     );
@@ -368,7 +430,8 @@ export function registerHoshidictsIPC(
                     await manager.setDictionaryEnabled(
                         value.id as string,
                         value.enabled as boolean
-                    )
+                    ),
+                { code: 'dictionaryChanged' }
             );
         }
     );
@@ -397,7 +460,8 @@ export function registerHoshidictsIPC(
                     await manager.moveDictionary(
                         value.id as string,
                         value.direction as -1 | 1
-                    )
+                    ),
+                { code: 'dictionaryChanged' }
             );
         }
     );
@@ -409,6 +473,7 @@ export function registerHoshidictsIPC(
             return {
                 success,
                 error: success ? null : 'The overlay could not be restarted.',
+                outcome: success ? { code: 'overlayRestarted' } : undefined,
                 state: await currentState(deps),
             } satisfies HoshidictsActionResult;
         } catch (error) {

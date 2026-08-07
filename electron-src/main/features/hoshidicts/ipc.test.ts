@@ -9,6 +9,7 @@ const harness = vi.hoisted(() => ({
     configuredEnabled: true,
     enabledAtLaunch: false as boolean | null,
     lookupModeAtLaunch: 'shift' as 'shift' | 'hover' | null,
+    popupHideDelayAtLaunch: 300 as number | null,
     manager: {
         subscribe: vi.fn(),
         getSnapshot: vi.fn(),
@@ -19,6 +20,7 @@ const harness = vi.hoisted(() => ({
         removeDictionary: vi.fn(),
         setSchedule: vi.fn(),
         setLookupMode: vi.fn(),
+        setReaderPreferences: vi.fn(),
         setMiningProfile: vi.fn(),
         setDictionaryEnabled: vi.fn(),
         moveDictionary: vi.fn(),
@@ -49,6 +51,7 @@ vi.mock('./manager.js', () => ({
 }));
 
 const snapshot = {
+    revision: 1,
     dictionaries: [],
     recommendedDictionaries: [
         { id: 'jmdict', installed: false },
@@ -67,10 +70,12 @@ const snapshot = {
             frequency: '',
             pitch: '',
         },
+        disabledFields: [],
         tags: ['hoshidicts'],
         duplicatePolicy: 'prevent',
     },
     lookupMode: 'shift',
+    popupHideDelayMs: 300,
     schedule: 'off',
     lastCheck: null,
     nextCheck: null,
@@ -90,6 +95,7 @@ async function registerHarness() {
     harness.manager.getSnapshot.mockResolvedValue(snapshot);
     harness.manager.installRecommendedDictionaries.mockResolvedValue(snapshot);
     harness.manager.setLookupMode.mockResolvedValue(snapshot);
+    harness.manager.setReaderPreferences.mockResolvedValue(snapshot);
 
     const settingsContents = { id: 'settings' };
     const mainContents = { id: 'main' };
@@ -107,6 +113,7 @@ async function registerHarness() {
 
     const openSettingsWindow = vi.fn(async () => settingsWindow);
     const restartOverlay = vi.fn(async () => true);
+    const applyReaderPreferences = vi.fn(async () => true);
     const getMiningOptions = vi.fn(async () => ({
         connected: true,
         gsmAnkiEnabled: true,
@@ -122,6 +129,15 @@ async function registerHarness() {
             frequency: '',
             pitch: '',
         },
+        resolvedFields: {
+            expression: 'Expression',
+            reading: '',
+            definition: '',
+            sentence: '',
+            frequency: '',
+            pitch: '',
+        },
+        warnings: [],
         error: null,
     }));
     const { registerHoshidictsIPC } = await import('./ipc.js');
@@ -136,6 +152,9 @@ async function registerHarness() {
         getConfiguredFeatureEnabled: () => harness.configuredEnabled,
         getOverlayFeatureEnabledAtLaunch: () => harness.enabledAtLaunch,
         getOverlayLookupModeAtLaunch: () => harness.lookupModeAtLaunch,
+        getOverlayPopupHideDelayAtLaunch: () =>
+            harness.popupHideDelayAtLaunch,
+        applyReaderPreferences,
         getMiningOptions,
         restartOverlay,
     });
@@ -148,6 +167,7 @@ async function registerHarness() {
         settingsContents,
         settingsWindow,
         getMiningOptions,
+        applyReaderPreferences,
     };
 }
 
@@ -157,6 +177,7 @@ describe('Hoshidicts settings IPC', () => {
         harness.configuredEnabled = true;
         harness.enabledAtLaunch = false;
         harness.lookupModeAtLaunch = 'shift';
+        harness.popupHideDelayAtLaunch = 300;
     });
 
     it('requires an overlay restart when the persisted lookup mode changed', async () => {
@@ -266,6 +287,9 @@ describe('Hoshidicts settings IPC', () => {
             'hoshidicts.installAllRecommended'
         );
         const setLookupMode = harness.handlers.get('hoshidicts.setLookupMode');
+        const setReaderPreferences = harness.handlers.get(
+            'hoshidicts.setReaderPreferences'
+        );
         const getMiningOptions = harness.handlers.get(
             'hoshidicts.getMiningOptions'
         );
@@ -292,6 +316,24 @@ describe('Hoshidicts settings IPC', () => {
             setLookupMode?.({ sender: context.settingsContents }, 'hover')
         ).resolves.toMatchObject({ success: true });
         expect(harness.manager.setLookupMode).toHaveBeenCalledWith('hover');
+
+        await expect(
+            setReaderPreferences?.(
+                { sender: context.settingsContents },
+                { lookupMode: 'hover', popupHideDelayMs: 850 }
+            )
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'preferencesSaved' },
+        });
+        expect(harness.manager.setReaderPreferences).toHaveBeenCalledWith(
+            'hover',
+            850
+        );
+        expect(context.applyReaderPreferences).toHaveBeenCalledWith({
+            lookupMode: 'hover',
+            popupHideDelayMs: 850,
+        });
 
         await expect(
             getMiningOptions?.(

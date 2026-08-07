@@ -44,6 +44,8 @@ function emptyOptions(error: string | null = null): HoshidictsMiningOptions {
         selectedNoteType: '',
         fields: [],
         suggestedFields: { ...EMPTY_FIELDS },
+        resolvedFields: { ...EMPTY_FIELDS },
+        warnings: [],
         error,
     };
 }
@@ -60,6 +62,11 @@ export function normalizeHoshidictsMiningOptions(
         typeof candidate.suggestedFields === 'object'
             ? candidate.suggestedFields
             : EMPTY_FIELDS;
+    const resolved =
+        candidate.resolvedFields &&
+        typeof candidate.resolvedFields === 'object'
+            ? candidate.resolvedFields
+            : EMPTY_FIELDS;
     return {
         connected: candidate.connected === true,
         gsmAnkiEnabled: candidate.gsmAnkiEnabled === true,
@@ -75,6 +82,15 @@ export function normalizeHoshidictsMiningOptions(
             frequency: stringValue(suggested.frequency),
             pitch: stringValue(suggested.pitch),
         },
+        resolvedFields: {
+            expression: stringValue(resolved.expression),
+            reading: stringValue(resolved.reading),
+            definition: stringValue(resolved.definition),
+            sentence: stringValue(resolved.sentence),
+            frequency: stringValue(resolved.frequency),
+            pitch: stringValue(resolved.pitch),
+        },
+        warnings: stringList(candidate.warnings),
         error:
             typeof candidate.error === 'string' && candidate.error.length > 0
                 ? candidate.error

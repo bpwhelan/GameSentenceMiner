@@ -482,6 +482,7 @@ describe('Hoshidicts mining profile', () => {
                 frequency: '',
                 pitch: '',
             },
+            disabledFields: [],
             tags: ['hoshidicts', 'custom'],
             duplicatePolicy: 'allow',
         });
@@ -511,6 +512,21 @@ describe('Hoshidicts mining profile', () => {
             })
         ).toThrow('duplicate policy is invalid');
     });
+
+    it('normalizes explicit do-not-fill mining fields without pinning automatic fields', () => {
+        expect(
+            normalizeHoshidictsMiningProfile({
+                fields: { expression: '', reading: 'Kana' },
+                disabledFields: ['definition', 'definition', 'pitch'],
+            })
+        ).toMatchObject({
+            fields: { expression: '', reading: 'Kana' },
+            disabledFields: ['definition', 'pitch'],
+        });
+        expect(() =>
+            normalizeHoshidictsMiningProfile({ disabledFields: ['unknown'] })
+        ).toThrow('disabled mining field is invalid');
+    });
 });
 
 describe('Hoshidicts lookup mode', () => {
@@ -539,14 +555,18 @@ describe('Hoshidicts lookup mode', () => {
         const { manager } = createHarness(baseDir);
 
         expect((await manager.getSnapshot()).lookupMode).toBe('shift');
+        expect((await manager.getSnapshot()).popupHideDelayMs).toBe(300);
 
-        const snapshot = await manager.setLookupMode('hover');
+        const snapshot = await manager.setReaderPreferences('hover', 850);
 
         expect(snapshot.lookupMode).toBe('hover');
+        expect(snapshot.popupHideDelayMs).toBe(850);
         expect(readManifest(baseDir).lookupMode).toBe('hover');
+        expect(readManifest(baseDir).popupHideDelayMs).toBe(850);
 
         const reloaded = createHarness(baseDir).manager;
         expect((await reloaded.getSnapshot()).lookupMode).toBe('hover');
+        expect((await reloaded.getSnapshot()).popupHideDelayMs).toBe(850);
     });
 
     it('rejects unsupported lookup modes', async () => {
@@ -556,6 +576,62 @@ describe('Hoshidicts lookup mode', () => {
         await expect(
             manager.setLookupMode('automatic' as never)
         ).rejects.toThrow('lookup mode is invalid');
+    });
+
+    it('rejects popup hide delays outside the reader preference bounds', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+
+        await expect(manager.setReaderPreferences('hover', -1)).rejects.toThrow(
+            'hide delay is invalid'
+        );
+        await expect(manager.setReaderPreferences('hover', 5001)).rejects.toThrow(
+            'hide delay is invalid'
+        );
+    });
+});
+
+describe('Hoshidicts snapshots', () => {
+    it('publishes monotonically increasing revisions', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+
+        const first = await manager.getSnapshot();
+        const second = await manager.getSnapshot();
+
+        expect(second.revision).toBeGreaterThan(first.revision);
+    });
+
+    it('preserves reader and mining preferences when dictionary hydration fails', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+        await manager.setReaderPreferences('hover', 900);
+        await manager.setMiningProfile({
+            deck: 'Mining',
+            model: 'Kiku',
+            fields: {},
+            disabledFields: ['frequency'],
+        });
+        const manifest = readManifest(baseDir);
+        manifest.dictionaries = [
+            {
+                id: 'broken',
+                path: 'missing-generation',
+                enabled: true,
+            },
+        ];
+        fs.writeFileSync(manager.manifestPath, JSON.stringify(manifest), 'utf8');
+
+        const snapshot = await manager.getSnapshot();
+
+        expect(snapshot.lookupMode).toBe('hover');
+        expect(snapshot.popupHideDelayMs).toBe(900);
+        expect(snapshot.miningProfile).toMatchObject({
+            deck: 'Mining',
+            model: 'Kiku',
+            disabledFields: ['frequency'],
+        });
+        expect(snapshot.lastError).toMatch(/missing|dictionary/i);
     });
 });
 

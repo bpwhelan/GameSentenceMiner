@@ -25,6 +25,11 @@ describe('Hoshidicts Anki mining options proxy', () => {
                     expression: 'Expression',
                     definition: 'Glossary',
                 },
+                resolvedFields: {
+                    expression: 'Expression',
+                    definition: 'Glossary',
+                },
+                warnings: ['Deck list is temporarily unavailable.'],
                 error: null,
             }),
         }));
@@ -41,6 +46,11 @@ describe('Hoshidicts Anki mining options proxy', () => {
                 expression: 'Expression',
                 definition: 'Glossary',
             },
+            resolvedFields: {
+                expression: 'Expression',
+                definition: 'Glossary',
+            },
+            warnings: ['Deck list is temporarily unavailable.'],
         });
         expect(fetchMock).toHaveBeenCalledWith(
             'http://127.0.0.1:8123/api/hoshidicts/mining/options?model=Kiku+%2B+Copy',
@@ -61,6 +71,15 @@ describe('Hoshidicts Anki mining options proxy', () => {
             gsmAnkiEnabled: false,
             decks: [],
             noteTypes: [],
+            resolvedFields: {
+                expression: '',
+                reading: '',
+                definition: '',
+                sentence: '',
+                frequency: '',
+                pitch: '',
+            },
+            warnings: [],
             error: expect.stringContaining('connection refused'),
         });
     });
