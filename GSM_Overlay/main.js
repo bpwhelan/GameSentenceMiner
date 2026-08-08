@@ -55,6 +55,13 @@ const nativeSetTimeout = global.setTimeout;
 const nativeClearTimeout = global.clearTimeout;
 const nativeSetInterval = global.setInterval;
 const nativeClearInterval = global.clearInterval;
+const HOSHIDICTS_CUSTOM_TERM_BYTES = 4 * 1024;
+const HOSHIDICTS_CUSTOM_READING_BYTES = 4 * 1024;
+const HOSHIDICTS_CUSTOM_DEFINITION_BYTES = 2 * 1024;
+
+function isJsonStringWithinUtf8Limit(value, maxBytes) {
+  return Buffer.byteLength(JSON.stringify(value), "utf8") <= maxBytes + 2;
+}
 
 function setTimeout(callback, delay, ...args) {
   let timer = null;
@@ -6987,6 +6994,55 @@ async function startOverlayAppImpl() {
 
   ipcMain.on("open-yomitan-settings", () => {
     openYomitanSettings();
+  });
+
+  ipcMain.handle("hoshidicts-add-custom-entry", async (event, payload) => {
+    if (
+      !mainWindow ||
+      mainWindow.isDestroyed() ||
+      event.sender !== mainWindow.webContents
+    ) {
+      throw new Error("Custom dictionary request came from an invalid window.");
+    }
+    const term = payload && typeof payload.term === "string"
+      ? payload.term.trim()
+      : "";
+    const reading = payload && typeof payload.reading === "string"
+      ? payload.reading.trim()
+      : "";
+    const definition = payload && typeof payload.definition === "string"
+      ? payload.definition.trim()
+      : "";
+    if (!term || !reading || !definition) {
+      throw new Error("Term, reading, and definition are required.");
+    }
+    if (term.startsWith("#")) {
+      throw new Error("Custom dictionary terms cannot begin with #.");
+    }
+    if (
+      !isJsonStringWithinUtf8Limit(term, HOSHIDICTS_CUSTOM_TERM_BYTES) ||
+      !isJsonStringWithinUtf8Limit(
+        reading,
+        HOSHIDICTS_CUSTOM_READING_BYTES
+      ) ||
+      !isJsonStringWithinUtf8Limit(
+        definition,
+        HOSHIDICTS_CUSTOM_DEFINITION_BYTES
+      )
+    ) {
+      throw new Error("Custom dictionary entry is too large.");
+    }
+    if (
+      !hoshidictsReaderPreferencesBridge ||
+      typeof hoshidictsReaderPreferencesBridge.requestAddCustomEntry !== "function"
+    ) {
+      throw new Error("Hoshidicts desktop control channel is unavailable.");
+    }
+    return await hoshidictsReaderPreferencesBridge.requestAddCustomEntry({
+      term,
+      reading,
+      definition,
+    });
   });
 
   ipcMain.handle("open-hoshidicts-settings", async (event) => {

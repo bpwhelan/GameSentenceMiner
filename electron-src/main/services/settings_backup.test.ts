@@ -42,6 +42,24 @@ describe('settings backup path filters', () => {
         expect(shouldIncludeGsmBackupPath('obs-studio/bin/64bit/obs64.exe', false)).toBe(false);
         expect(shouldIncludeGsmBackupPath('temp/image.png', false)).toBe(false);
         expect(shouldIncludeGsmBackupPath('python_venv/pyvenv.cfg', false)).toBe(false);
+        expect(
+            shouldIncludeGsmBackupPath(
+                'dictionaries/hoshidicts/custom-dictionary.txt',
+                false
+            )
+        ).toBe(true);
+        expect(
+            shouldIncludeGsmBackupPath(
+                'dictionaries/hoshidicts/manifest.json',
+                false
+            )
+        ).toBe(false);
+        expect(
+            shouldIncludeGsmBackupPath(
+                'dictionaries/hoshidicts/generations/custom/index.json',
+                false
+            )
+        ).toBe(false);
     });
 
     it('keeps overlay settings and Yomitan storage but skips browser caches', () => {
@@ -80,6 +98,19 @@ describe('settings backup archive', () => {
         writeFile(path.join(baseDir, 'obs-studio', 'config', 'obs-studio', 'logs', 'obs.txt'), 'log');
         writeFile(path.join(baseDir, 'obs-studio', 'bin', '64bit', 'obs64.exe'), 'exe');
         writeFile(path.join(baseDir, 'texthook', 'profiles.json'), '{"profiles":[]}');
+        writeFile(
+            path.join(
+                baseDir,
+                'dictionaries',
+                'hoshidicts',
+                'custom-dictionary.txt'
+            ),
+            '猫, ねこ, cat\n'
+        );
+        writeFile(
+            path.join(baseDir, 'dictionaries', 'hoshidicts', 'manifest.json'),
+            '{"generated":true}'
+        );
         writeFile(path.join(baseDir, 'texthook', 'luna_builds', 'LunaHost64.dll'), 'dll');
         writeFile(path.join(overlayDir, 'settings.json'), '{"fontSize":42}');
         writeFile(path.join(overlayDir, 'IndexedDB', 'ext.leveldb', '000003.log'), 'leveldb');
@@ -129,6 +160,29 @@ describe('settings backup archive', () => {
             false,
         );
         expect(fs.readFileSync(path.join(extractDir, 'gsm_overlay', 'settings.json'), 'utf8')).toBe('{"fontSize":42}');
+        expect(
+            fs.readFileSync(
+                path.join(
+                    extractDir,
+                    'GameSentenceMiner',
+                    'dictionaries',
+                    'hoshidicts',
+                    'custom-dictionary.txt'
+                ),
+                'utf8'
+            )
+        ).toBe('猫, ねこ, cat\n');
+        expect(
+            fs.existsSync(
+                path.join(
+                    extractDir,
+                    'GameSentenceMiner',
+                    'dictionaries',
+                    'hoshidicts',
+                    'manifest.json'
+                )
+            )
+        ).toBe(false);
         expect(fs.readFileSync(path.join(extractDir, 'gsm_overlay', 'IndexedDB', 'ext.leveldb', '000003.log'), 'utf8')).toBe(
             'leveldb',
         );

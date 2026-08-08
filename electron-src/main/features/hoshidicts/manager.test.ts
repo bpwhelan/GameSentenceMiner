@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
     defaultHoshidictsMiningProfile,
+    HOSHIDICTS_CUSTOM_DICTIONARY_ID,
+    HOSHIDICTS_CUSTOM_DICTIONARY_TITLE,
     HoshidictsManager,
     inspectHoshidictsArchive,
     normalizeHoshidictsMiningProfile,
@@ -152,6 +154,26 @@ function createHarness(baseDir: string, overrides: Partial<HoshidictsManagerDepe
             };
         }
     );
+    const writeCustomArchive = vi.fn(
+        async (
+            outputPath: string,
+            title: string,
+            revision: string,
+            entries: readonly unknown[]
+        ): Promise<void> => {
+            fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+            fs.writeFileSync(
+                outputPath,
+                JSON.stringify({
+                    title,
+                    revision,
+                    sourceLanguage: 'ja',
+                    terms: entries.length,
+                }),
+                'utf8'
+            );
+        }
+    );
     const dependencies: Partial<HoshidictsManagerDependencies> = {
         now: () => new Date(Date.now()),
         randomId: () => `test-${sequence++}`,
@@ -160,6 +182,7 @@ function createHarness(baseDir: string, overrides: Partial<HoshidictsManagerDepe
         reloadNative,
         fetchRemoteIndex,
         downloadArchive,
+        writeCustomArchive,
         ...overrides,
     };
     return {
@@ -169,6 +192,7 @@ function createHarness(baseDir: string, overrides: Partial<HoshidictsManagerDepe
         downloadArchive,
         inspectArchive,
         runImport,
+        writeCustomArchive,
     };
 }
 
@@ -445,6 +469,428 @@ describe('Hoshidicts immutable generations', () => {
         expect((await manager.getSnapshot()).dictionaries[0].enabled).toBe(true);
         expect(readManifest(baseDir).dictionaries[0].enabled).toBe(true);
         expect(reloadCount).toBe(3);
+    });
+});
+
+describe('Hoshidicts managed custom dictionary', () => {
+    it('compiles valid rows as a hidden, highest-priority managed dictionary', async () => {
+        const baseDir = makeTempDir();
+        const regularArchive = writeArchive(makeTempDir(), 'regular.zip', {
+            title: 'Regular',
+            revision: 'one',
+            sourceLanguage: 'ja',
+        });
+        const { manager, writeCustomArchive } = createHarness(baseDir);
+        await manager.importDictionary(regularArchive);
+        const original = await manager.getCustomDictionaryDocument();
+
+        const document = await manager.saveCustomDictionary(
+            '螺旋丸, らせんがん, Rotating chakra sphere attack\n',
+            original.revision
+        );
+
+        expect(document).toMatchObject({
+            exists: true,
+            filePath: manager.customDictionaryPath,
+        });
+        expect(writeCustomArchive).toHaveBeenCalledWith(
+            expect.any(String),
+            HOSHIDICTS_CUSTOM_DICTIONARY_TITLE,
+            expect.stringMatching(/^[a-f0-9]{64}$/u),
+            [
+                {
+                    term: '螺旋丸',
+                    reading: 'らせんがん',
+                    definition: 'Rotating chakra sphere attack',
+                },
+            ]
+        );
+        const manifest = readManifest(baseDir);
+        expect(manifest.dictionaries.map((dictionary: any) => dictionary.id)).toEqual([
+            HOSHIDICTS_CUSTOM_DICTIONARY_ID,
+            expect.any(String),
+        ]);
+        expect(manifest.dictionaries[0]).toMatchObject({
+            title: HOSHIDICTS_CUSTOM_DICTIONARY_TITLE,
+            enabled: true,
+        });
+
+        const snapshot = await manager.getSnapshot();
+        expect(snapshot.dictionaries.map((dictionary) => dictionary.title)).toEqual([
+            'Regular',
+        ]);
+        expect(snapshot.customDictionaryActive).toBe(true);
+    });
+
+    it('rejects a compiled generation if the importer drops valid source rows', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir, {
+            runImport: async (archivePath, outputDir) => {
+                const archive = readArchive(archivePath);
+                writeImportedDictionary(outputDir, { ...archive, terms: 1 });
+                return {
+                    success: true,
+                    title: archive.title,
+                    termCount: 1,
+                    error: '',
+                };
+            },
+        });
+        const missing = await manager.getCustomDictionaryDocument();
+
+        await expect(
+            manager.saveCustomDictionary(
+                '一, いち, One\n二, に, Two\n',
+                missing.revision
+            )
+        ).rejects.toThrow('did not match its source entries');
+
+        expect(fs.existsSync(manager.customDictionaryPath)).toBe(false);
+    });
+
+    it('saves source-only edits without recompiling unchanged semantic entries', async () => {
+        const baseDir = makeTempDir();
+        const { manager, reloadNative, writeCustomArchive } = createHarness(baseDir);
+        const missing = await manager.getCustomDictionaryDocument();
+        const first = await manager.saveCustomDictionary(
+            '千鳥, ちどり, Lightning chakra thrust attack\n',
+            missing.revision
+        );
+
+        const second = await manager.saveCustomDictionary(
+            '# Personal notes\r\n\r\n千鳥,ちどり,Lightning chakra thrust attack\r\n',
+            first.revision
+        );
+
+        expect(second.revision).not.toBe(first.revision);
+        expect(writeCustomArchive).toHaveBeenCalledTimes(1);
+        expect(reloadNative).toHaveBeenCalledTimes(1);
+        expect(fs.readFileSync(manager.customDictionaryPath, 'utf8')).toBe(second.text);
+    });
+
+    it('rejects stale full-editor saves without replacing external edits', async () => {
+        const baseDir = makeTempDir();
+        const { manager, writeCustomArchive } = createHarness(baseDir);
+        const opened = await manager.getCustomDictionaryDocument();
+        fs.mkdirSync(path.dirname(manager.customDictionaryPath), { recursive: true });
+        fs.writeFileSync(
+            manager.customDictionaryPath,
+            '外部, がいぶ, External edit\n',
+            'utf8'
+        );
+
+        await expect(
+            manager.saveCustomDictionary(
+                '上書き, うわがき, Stale overwrite\n',
+                opened.revision
+            )
+        ).rejects.toThrow('changed after it was opened');
+
+        expect(fs.readFileSync(manager.customDictionaryPath, 'utf8')).toContain(
+            'External edit'
+        );
+        expect(writeCustomArchive).not.toHaveBeenCalled();
+    });
+
+    it('rechecks the source immediately before replacing it after compilation', async () => {
+        const baseDir = makeTempDir();
+        let announceCompile!: () => void;
+        let resumeCompile!: () => void;
+        const compileStarted = new Promise<void>((resolve) => {
+            announceCompile = resolve;
+        });
+        const compileMayFinish = new Promise<void>((resolve) => {
+            resumeCompile = resolve;
+        });
+        const { manager } = createHarness(baseDir, {
+            writeCustomArchive: async (
+                outputPath,
+                title,
+                revision,
+                entries
+            ) => {
+                announceCompile();
+                await compileMayFinish;
+                fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+                fs.writeFileSync(
+                    outputPath,
+                    JSON.stringify({
+                        title,
+                        revision,
+                        sourceLanguage: 'ja',
+                        terms: entries.length,
+                    }),
+                    'utf8'
+                );
+            },
+        });
+        const opened = await manager.getCustomDictionaryDocument();
+        const saving = manager.saveCustomDictionary(
+            '準備, じゅんび, Prepared\n',
+            opened.revision
+        );
+        await compileStarted;
+        fs.mkdirSync(path.dirname(manager.customDictionaryPath), {
+            recursive: true,
+        });
+        fs.writeFileSync(
+            manager.customDictionaryPath,
+            '外部, がいぶ, External during compile\n',
+            'utf8'
+        );
+        resumeCompile();
+
+        await expect(saving).rejects.toThrow(
+            'changed while the update was being prepared'
+        );
+        expect(fs.readFileSync(manager.customDictionaryPath, 'utf8')).toContain(
+            'External during compile'
+        );
+        expect(fs.existsSync(manager.manifestPath)).toBe(false);
+    });
+
+    it('serializes simultaneous note appends against the latest file contents', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+
+        await Promise.all([
+            manager.addCustomEntry({
+                term: '影分身の術',
+                reading: 'かげぶんしんのじゅつ',
+                definition: 'Creates solid shadow clones',
+            }),
+            manager.addCustomEntry({
+                term: '千鳥',
+                reading: 'ちどり',
+                definition: 'Lightning chakra thrust attack',
+            }),
+        ]);
+
+        const document = await manager.getCustomDictionaryDocument();
+        expect(document.text).toContain(
+            '影分身の術, かげぶんしんのじゅつ, Creates solid shadow clones'
+        );
+        expect(document.text).toContain(
+            '千鳥, ちどり, Lightning chakra thrust attack'
+        );
+        expect(readManifest(baseDir).dictionaries[0].termCount).toBe(2);
+    });
+
+    it('does not notice external source edits until an explicit synchronization', async () => {
+        const baseDir = makeTempDir();
+        const { manager, writeCustomArchive } = createHarness(baseDir);
+        const opened = await manager.getCustomDictionaryDocument();
+        await manager.saveCustomDictionary(
+            '最初, さいしょ, First\n',
+            opened.revision
+        );
+        fs.writeFileSync(
+            manager.customDictionaryPath,
+            '変更, へんこう, Changed externally\n',
+            'utf8'
+        );
+
+        await manager.getSnapshot();
+        expect(writeCustomArchive).toHaveBeenCalledTimes(1);
+
+        const synced = await manager.syncCustomDictionary();
+        expect(synced.text).toContain('Changed externally');
+        expect(writeCustomArchive).toHaveBeenCalledTimes(2);
+    });
+
+    it('removes compiled state for an empty source while preserving the text file', async () => {
+        const baseDir = makeTempDir();
+        const { manager, reloadNative } = createHarness(baseDir);
+        const missing = await manager.getCustomDictionaryDocument();
+        const installed = await manager.saveCustomDictionary(
+            '螺旋丸, らせんがん, Attack\n',
+            missing.revision
+        );
+
+        const empty = await manager.saveCustomDictionary('', installed.revision);
+
+        expect(empty.exists).toBe(true);
+        expect(fs.existsSync(manager.customDictionaryPath)).toBe(true);
+        expect(fs.readFileSync(manager.customDictionaryPath, 'utf8')).toBe('');
+        expect(readManifest(baseDir).dictionaries).toEqual([]);
+        expect((await manager.getSnapshot()).customDictionaryActive).toBe(false);
+        expect(reloadNative).toHaveBeenCalledTimes(2);
+    });
+
+    it('removes compiled state when explicit sync observes a deleted source file', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+        const missing = await manager.getCustomDictionaryDocument();
+        await manager.saveCustomDictionary(
+            '削除, さくじょ, Delete\n',
+            missing.revision
+        );
+        fs.unlinkSync(manager.customDictionaryPath);
+
+        const synced = await manager.syncCustomDictionary();
+
+        expect(synced).toMatchObject({ exists: false, text: '' });
+        expect(readManifest(baseDir).dictionaries).toEqual([]);
+    });
+
+    it('protects the custom dictionary from generic remove, disable, and reorder actions', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+        const missing = await manager.getCustomDictionaryDocument();
+        await manager.saveCustomDictionary(
+            '自作, じさく, Custom\n',
+            missing.revision
+        );
+        const regularArchive = writeArchive(makeTempDir(), 'regular.zip', {
+            title: 'Regular',
+            revision: 'one',
+            sourceLanguage: 'ja',
+        });
+        await manager.importDictionary(regularArchive);
+        const regularId = (await manager.getSnapshot()).dictionaries[0].id;
+
+        await expect(
+            manager.removeDictionary(HOSHIDICTS_CUSTOM_DICTIONARY_ID)
+        ).rejects.toThrow('managed from its editor');
+        await expect(
+            manager.setDictionaryEnabled(HOSHIDICTS_CUSTOM_DICTIONARY_ID, false)
+        ).rejects.toThrow('always enabled');
+        await expect(manager.moveDictionary(regularId, -1)).rejects.toThrow(
+            'always first'
+        );
+        expect(readManifest(baseDir).dictionaries[0].id).toBe(
+            HOSHIDICTS_CUSTOM_DICTIONARY_ID
+        );
+    });
+
+    it('keeps an ordinary same-title dictionary separate from the managed one', async () => {
+        const baseDir = makeTempDir();
+        const archive = writeArchive(makeTempDir(), 'ordinary.zip', {
+            title: HOSHIDICTS_CUSTOM_DICTIONARY_TITLE,
+            revision: 'user-owned',
+            sourceLanguage: 'ja',
+        });
+        const { manager } = createHarness(baseDir);
+        await manager.importDictionary(archive);
+        const ordinaryId = (await manager.getSnapshot()).dictionaries[0].id;
+        const missing = await manager.getCustomDictionaryDocument();
+        await manager.saveCustomDictionary(
+            '自作, じさく, Managed entry\n',
+            missing.revision
+        );
+
+        const manifest = readManifest(baseDir);
+        expect(manifest.dictionaries.map((dictionary: any) => dictionary.id)).toEqual([
+            HOSHIDICTS_CUSTOM_DICTIONARY_ID,
+            ordinaryId,
+        ]);
+        expect((await manager.getSnapshot()).dictionaries).toMatchObject([
+            { id: ordinaryId, title: HOSHIDICTS_CUSTOM_DICTIONARY_TITLE },
+        ]);
+    });
+
+    it('restores source, manifest, and native state when a custom reload fails', async () => {
+        const baseDir = makeTempDir();
+        let reloadCount = 0;
+        const { manager } = createHarness(baseDir, {
+            reloadNative: async () => {
+                reloadCount += 1;
+                if (reloadCount === 2) {
+                    throw new Error('new custom dictionary rejected');
+                }
+                return 1;
+            },
+        });
+        const missing = await manager.getCustomDictionaryDocument();
+        const working = await manager.saveCustomDictionary(
+            '動作, どうさ, Working\n',
+            missing.revision
+        );
+        const previousManifest = readManifest(baseDir);
+
+        await expect(
+            manager.saveCustomDictionary(
+                '故障, こしょう, Broken\n',
+                working.revision
+            )
+        ).rejects.toThrow('previous dictionaries were restored');
+
+        const restored = await manager.getCustomDictionaryDocument();
+        expect(restored.text).toBe(working.text);
+        expect(readManifest(baseDir).dictionaries[0].path).toBe(
+            previousManifest.dictionaries[0].path
+        );
+        expect(reloadCount).toBe(3);
+    });
+
+    it('retains the matching new source when manifest rollback cannot be published', async () => {
+        const baseDir = makeTempDir();
+        let reloadCount = 0;
+        const { manager } = createHarness(baseDir, {
+            reloadNative: async () => {
+                reloadCount += 1;
+                if (reloadCount === 2) {
+                    throw new Error('replacement rejected');
+                }
+                return 1;
+            },
+        });
+        const missing = await manager.getCustomDictionaryDocument();
+        const working = await manager.saveCustomDictionary(
+            '動作, どうさ, Working\n',
+            missing.revision
+        );
+        const previousManifest = readManifest(baseDir);
+        fs.writeFileSync(
+            path.join(
+                baseDir,
+                'dictionaries',
+                'hoshidicts',
+                '.manifest-test-8.tmp'
+            ),
+            'block rollback temp creation',
+            'utf8'
+        );
+        const replacementText = '公開, こうかい, Published for recovery\n';
+
+        await expect(
+            manager.saveCustomDictionary(replacementText, working.revision)
+        ).rejects.toThrow('generation was retained for recovery');
+
+        const retainedManifest = readManifest(baseDir);
+        expect(retainedManifest.dictionaries[0].path).not.toBe(
+            previousManifest.dictionaries[0].path
+        );
+        expect(fs.readFileSync(manager.customDictionaryPath, 'utf8')).toBe(
+            replacementText
+        );
+        expect(reloadCount).toBe(2);
+    });
+
+    it('does not leave a source file or generation after an initial reload failure', async () => {
+        const baseDir = makeTempDir();
+        let reloadCount = 0;
+        const { manager } = createHarness(baseDir, {
+            reloadNative: async () => {
+                reloadCount += 1;
+                if (reloadCount === 1) {
+                    throw new Error('initial custom dictionary rejected');
+                }
+                return 0;
+            },
+        });
+        const missing = await manager.getCustomDictionaryDocument();
+
+        await expect(
+            manager.saveCustomDictionary(
+                '失敗, しっぱい, Failure\n',
+                missing.revision
+            )
+        ).rejects.toThrow('previous dictionaries were restored');
+
+        expect(fs.existsSync(manager.customDictionaryPath)).toBe(false);
+        expect(fs.existsSync(manager.manifestPath)).toBe(false);
+        expect(reloadCount).toBe(2);
     });
 });
 

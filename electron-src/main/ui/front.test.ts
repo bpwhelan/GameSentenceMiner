@@ -204,8 +204,12 @@ describe('runOverlayWithSource', () => {
         spawnMock.mockReturnValue(processHandle);
 
         const front = await loadFrontModule();
+        const syncCustomDictionary = vi.fn(async () => undefined);
         front.configureHoshidictsLookupModeProvider(async () => 'hover');
         front.configureHoshidictsPopupHideDelayProvider(async () => 850);
+        front.configureHoshidictsCustomDictionarySyncProvider(
+            syncCustomDictionary
+        );
 
         await expect(front.runOverlayWithSource('manual')).resolves.toBe(true);
 
@@ -216,6 +220,7 @@ describe('runOverlayWithSource', () => {
         });
         expect(front.getOverlayHoshidictsLookupModeAtLaunch()).toBe('hover');
         expect(front.getOverlayHoshidictsPopupHideDelayAtLaunch()).toBe(850);
+        expect(syncCustomDictionary).toHaveBeenCalledOnce();
         expect(
             front.markOverlayHoshidictsReaderPreferencesApplied({
                 lookupMode: 'shift',
@@ -224,6 +229,56 @@ describe('runOverlayWithSource', () => {
         ).toBe(true);
         expect(front.getOverlayHoshidictsLookupModeAtLaunch()).toBe('shift');
         expect(front.getOverlayHoshidictsPopupHideDelayAtLaunch()).toBe(1200);
+    });
+
+    it('does not wait for custom dictionary synchronization before launching', async () => {
+        isDevValue = true;
+        hoshidictsEnabledValue = true;
+        existsSyncMock.mockReturnValue(true);
+        spawnMock.mockReturnValue(createProcessHandle());
+        let finishSync!: () => void;
+        const syncCustomDictionary = vi.fn(
+            () =>
+                new Promise<void>((resolve) => {
+                    finishSync = resolve;
+                })
+        );
+        const front = await loadFrontModule();
+        front.configureHoshidictsCustomDictionarySyncProvider(
+            syncCustomDictionary
+        );
+
+        const launch = front.runOverlayWithSource('manual');
+
+        try {
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            expect(syncCustomDictionary).toHaveBeenCalledOnce();
+            expect(spawnMock).toHaveBeenCalledOnce();
+            await expect(launch).resolves.toBe(true);
+        } finally {
+            finishSync();
+        }
+    });
+
+    it('uses the last compiled custom dictionary if pre-launch synchronization fails', async () => {
+        isDevValue = true;
+        hoshidictsEnabledValue = true;
+        existsSyncMock.mockReturnValue(true);
+        spawnMock.mockReturnValue(createProcessHandle());
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const front = await loadFrontModule();
+        front.configureHoshidictsCustomDictionarySyncProvider(async () => {
+            throw new Error('custom refresh failed');
+        });
+
+        await expect(front.runOverlayWithSource('manual')).resolves.toBe(true);
+
+        expect(spawnMock).toHaveBeenCalledOnce();
+        expect(warn).toHaveBeenCalledWith(
+            expect.stringContaining('last active version'),
+            expect.any(Error)
+        );
+        warn.mockRestore();
     });
 
     it('stops the whole Windows process tree for source-launched overlays', async () => {

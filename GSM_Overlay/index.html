@@ -5045,6 +5045,9 @@ background: rgba(202, 12, 12, 0.692);
       async onMine(payload) {
         return await miningClient.mine(payload);
       },
+      async onAddCustomEntry(entry) {
+        return await ipcRenderer.invoke('hoshidicts-add-custom-entry', entry);
+      },
     });
 
     const bridge = window.gsmYomitanBridge;

@@ -54,6 +54,8 @@ let hoshidictsLookupModeProvider: () => Promise<HoshidictsLookupMode> =
     async () => 'shift';
 let hoshidictsPopupHideDelayProvider: () => Promise<number> =
     async () => DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS;
+let hoshidictsCustomDictionarySyncProvider: () => Promise<void> =
+    async () => undefined;
 
 export interface OverlayRuntimeState {
     isRunning: boolean;
@@ -70,6 +72,19 @@ export function configureHoshidictsPopupHideDelayProvider(
     provider: () => Promise<number>
 ): void {
     hoshidictsPopupHideDelayProvider = provider;
+}
+
+export function configureHoshidictsCustomDictionarySyncProvider(
+    provider: () => Promise<void>
+): void {
+    hoshidictsCustomDictionarySyncProvider = provider;
+}
+
+function warnCustomDictionarySyncFailure(error: unknown): void {
+    console.warn(
+        '[Hoshidicts] Could not refresh the custom dictionary before overlay launch; using the last active version.',
+        error
+    );
 }
 
 interface StopOverlayOptions {
@@ -427,6 +442,13 @@ export async function runOverlayWithSource(
     let hoshidictsLookupMode: HoshidictsLookupMode = 'shift';
     let hoshidictsPopupHideDelayMs = DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS;
     if (hoshidictsEnabled) {
+        try {
+            void hoshidictsCustomDictionarySyncProvider().catch(
+                warnCustomDictionarySyncFailure
+            );
+        } catch (error) {
+            warnCustomDictionarySyncFailure(error);
+        }
         try {
             hoshidictsLookupMode =
                 (await hoshidictsLookupModeProvider()) === 'hover'
