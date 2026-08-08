@@ -9,8 +9,13 @@ import {
 import type { OverlayRuntimeState } from '../../ui/front.js';
 import {
     HOSHIDICTS_CHANNELS,
+    MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
+    MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
     MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+    MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
+    MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
     type HoshidictsActionResult,
+    type HoshidictsDefinitionBlurPreferences,
     type HoshidictsDesktopSnapshot,
     type HoshidictsDictionaryEnabledRequest,
     type HoshidictsInstallRecommendedRequest,
@@ -34,6 +39,9 @@ export interface HoshidictsIPCDependencies {
     getOverlayFeatureEnabledAtLaunch: () => boolean | null;
     getOverlayLookupModeAtLaunch: () => HoshidictsLookupMode | null;
     getOverlayPopupHideDelayAtLaunch: () => number | null;
+    getOverlayDefinitionBlurAtLaunch: () =>
+        | HoshidictsDefinitionBlurPreferences
+        | null;
     applyReaderPreferences: (
         preferences: HoshidictsReaderPreferences
     ) => Promise<boolean>;
@@ -58,6 +66,42 @@ function isSchedule(value: unknown): value is HoshidictsSchedule {
 
 function isLookupMode(value: unknown): value is HoshidictsLookupMode {
     return value === 'shift' || value === 'hover';
+}
+
+function isDefinitionBlurPreferences(
+    value: unknown
+): value is HoshidictsDefinitionBlurPreferences {
+    if (!value || typeof value !== 'object') {
+        return false;
+    }
+    const preferences = value as Partial<HoshidictsDefinitionBlurPreferences>;
+    return (
+        typeof preferences.enabled === 'boolean' &&
+        Number.isInteger(preferences.lookupThreshold) &&
+        (preferences.lookupThreshold as number) >=
+            MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD &&
+        (preferences.lookupThreshold as number) <=
+            MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD &&
+        (preferences.revealMode === 'timed' ||
+            preferences.revealMode === 'hover') &&
+        Number.isInteger(preferences.revealDelayMs) &&
+        (preferences.revealDelayMs as number) >=
+            MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS &&
+        (preferences.revealDelayMs as number) <=
+            MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS
+    );
+}
+
+function definitionBlurPreferencesEqual(
+    left: HoshidictsDefinitionBlurPreferences,
+    right: HoshidictsDefinitionBlurPreferences
+): boolean {
+    return (
+        left.enabled === right.enabled &&
+        left.lookupThreshold === right.lookupThreshold &&
+        left.revealMode === right.revealMode &&
+        left.revealDelayMs === right.revealDelayMs
+    );
 }
 
 function isRecommendedDictionaryId(
@@ -94,6 +138,7 @@ function withDesktopState(
     const enabledAtLaunch = deps.getOverlayFeatureEnabledAtLaunch();
     const lookupModeAtLaunch = deps.getOverlayLookupModeAtLaunch();
     const popupHideDelayAtLaunch = deps.getOverlayPopupHideDelayAtLaunch();
+    const definitionBlurAtLaunch = deps.getOverlayDefinitionBlurAtLaunch();
     const effectiveEnabled = deps.getConfiguredFeatureEnabled();
     return {
         ...snapshot,
@@ -109,7 +154,13 @@ function withDesktopState(
                         lookupModeAtLaunch !== snapshot.lookupMode) ||
                     (effectiveEnabled &&
                         popupHideDelayAtLaunch !== null &&
-                        popupHideDelayAtLaunch !== snapshot.popupHideDelayMs)),
+                        popupHideDelayAtLaunch !== snapshot.popupHideDelayMs) ||
+                    (effectiveEnabled &&
+                        definitionBlurAtLaunch !== null &&
+                        !definitionBlurPreferencesEqual(
+                            definitionBlurAtLaunch,
+                            snapshot.definitionBlur
+                        ))),
         },
     };
 }
@@ -349,7 +400,8 @@ export function registerHoshidictsIPC(
                 !Number.isInteger(value.popupHideDelayMs) ||
                 (value.popupHideDelayMs as number) < 0 ||
                 (value.popupHideDelayMs as number) >
-                    MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS
+                    MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS ||
+                !isDefinitionBlurPreferences(value.definitionBlur)
             ) {
                 return {
                     success: false,
@@ -363,11 +415,11 @@ export function registerHoshidictsIPC(
                     const preferences: HoshidictsReaderPreferences = {
                         lookupMode: value.lookupMode as HoshidictsLookupMode,
                         popupHideDelayMs: value.popupHideDelayMs as number,
+                        definitionBlur: {
+                            ...value.definitionBlur,
+                        } as HoshidictsDefinitionBlurPreferences,
                     };
-                    const state = await manager.setReaderPreferences(
-                        preferences.lookupMode,
-                        preferences.popupHideDelayMs
-                    );
+                    const state = await manager.setReaderPreferences(preferences);
                     await deps.applyReaderPreferences(preferences);
                     return state;
                 },

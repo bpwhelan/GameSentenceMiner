@@ -10,6 +10,17 @@ const harness = vi.hoisted(() => ({
     enabledAtLaunch: false as boolean | null,
     lookupModeAtLaunch: 'shift' as 'shift' | 'hover' | null,
     popupHideDelayAtLaunch: 300 as number | null,
+    definitionBlurAtLaunch: {
+        enabled: false,
+        lookupThreshold: 5,
+        revealMode: 'timed' as 'timed' | 'hover',
+        revealDelayMs: 5000,
+    } as {
+        enabled: boolean;
+        lookupThreshold: number;
+        revealMode: 'timed' | 'hover';
+        revealDelayMs: number;
+    } | null,
     manager: {
         subscribe: vi.fn(),
         getSnapshot: vi.fn(),
@@ -76,6 +87,12 @@ const snapshot = {
     },
     lookupMode: 'shift',
     popupHideDelayMs: 300,
+    definitionBlur: {
+        enabled: false,
+        lookupThreshold: 5,
+        revealMode: 'timed',
+        revealDelayMs: 5000,
+    },
     schedule: 'off',
     lastCheck: null,
     nextCheck: null,
@@ -154,6 +171,8 @@ async function registerHarness() {
         getOverlayLookupModeAtLaunch: () => harness.lookupModeAtLaunch,
         getOverlayPopupHideDelayAtLaunch: () =>
             harness.popupHideDelayAtLaunch,
+        getOverlayDefinitionBlurAtLaunch: () =>
+            harness.definitionBlurAtLaunch,
         applyReaderPreferences,
         getMiningOptions,
         restartOverlay,
@@ -178,6 +197,12 @@ describe('Hoshidicts settings IPC', () => {
         harness.enabledAtLaunch = false;
         harness.lookupModeAtLaunch = 'shift';
         harness.popupHideDelayAtLaunch = 300;
+        harness.definitionBlurAtLaunch = {
+            enabled: false,
+            lookupThreshold: 5,
+            revealMode: 'timed',
+            revealDelayMs: 5000,
+        };
     });
 
     it('requires an overlay restart when the persisted lookup mode changed', async () => {
@@ -193,6 +218,31 @@ describe('Hoshidicts settings IPC', () => {
         });
 
         harness.lookupModeAtLaunch = 'shift';
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: false },
+        });
+    });
+
+    it('requires an overlay restart when definition blur was not applied live', async () => {
+        harness.enabledAtLaunch = true;
+        harness.definitionBlurAtLaunch = {
+            enabled: true,
+            lookupThreshold: 5,
+            revealMode: 'timed',
+            revealDelayMs: 5000,
+        };
+        const context = await registerHarness();
+        const getState = harness.handlers.get('hoshidicts.getState');
+
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: true },
+        });
+
+        harness.definitionBlurAtLaunch = { ...snapshot.definitionBlur };
         await expect(
             getState?.({ sender: context.settingsContents })
         ).resolves.toMatchObject({
@@ -320,19 +370,40 @@ describe('Hoshidicts settings IPC', () => {
         await expect(
             setReaderPreferences?.(
                 { sender: context.settingsContents },
-                { lookupMode: 'hover', popupHideDelayMs: 850 }
+                {
+                    lookupMode: 'hover',
+                    popupHideDelayMs: 850,
+                    definitionBlur: {
+                        enabled: true,
+                        lookupThreshold: 7,
+                        revealMode: 'hover',
+                        revealDelayMs: 6000,
+                    },
+                }
             )
         ).resolves.toMatchObject({
             success: true,
             outcome: { code: 'preferencesSaved' },
         });
-        expect(harness.manager.setReaderPreferences).toHaveBeenCalledWith(
-            'hover',
-            850
-        );
+        expect(harness.manager.setReaderPreferences).toHaveBeenCalledWith({
+            lookupMode: 'hover',
+            popupHideDelayMs: 850,
+            definitionBlur: {
+                enabled: true,
+                lookupThreshold: 7,
+                revealMode: 'hover',
+                revealDelayMs: 6000,
+            },
+        });
         expect(context.applyReaderPreferences).toHaveBeenCalledWith({
             lookupMode: 'hover',
             popupHideDelayMs: 850,
+            definitionBlur: {
+                enabled: true,
+                lookupThreshold: 7,
+                revealMode: 'hover',
+                revealDelayMs: 6000,
+            },
         });
 
         await expect(
@@ -342,5 +413,42 @@ describe('Hoshidicts settings IPC', () => {
             )
         ).resolves.toMatchObject({ connected: true, noteTypes: ['Kiku'] });
         expect(context.getMiningOptions).toHaveBeenCalledWith('Kiku');
+    });
+
+    it('rejects malformed definition blur reader preferences', async () => {
+        const context = await registerHarness();
+        const setReaderPreferences = harness.handlers.get(
+            'hoshidicts.setReaderPreferences'
+        );
+        const valid = {
+            lookupMode: 'hover',
+            popupHideDelayMs: 850,
+            definitionBlur: {
+                enabled: true,
+                lookupThreshold: 5,
+                revealMode: 'timed',
+                revealDelayMs: 5000,
+            },
+        };
+
+        for (const definitionBlur of [
+            { ...valid.definitionBlur, lookupThreshold: 0 },
+            { ...valid.definitionBlur, lookupThreshold: 1_000_001 },
+            { ...valid.definitionBlur, revealMode: 'click' },
+            { ...valid.definitionBlur, revealDelayMs: 999 },
+            { ...valid.definitionBlur, revealDelayMs: 3_600_001 },
+        ]) {
+            await expect(
+                setReaderPreferences?.(
+                    { sender: context.settingsContents },
+                    { ...valid, definitionBlur }
+                )
+            ).resolves.toMatchObject({
+                success: false,
+                error: 'Hoshidicts reader preferences are invalid.',
+            });
+        }
+        expect(harness.manager.setReaderPreferences).not.toHaveBeenCalled();
+        expect(context.applyReaderPreferences).not.toHaveBeenCalled();
     });
 });

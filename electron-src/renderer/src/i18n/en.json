@@ -593,7 +593,19 @@
         "automaticHoverHint": "Look up Japanese text as the pointer moves over it.",
         "hideDelay": "Popup hide delay",
         "hideDelayHint": "Keeps the popup reachable when moving from the word into its definitions.",
-        "milliseconds": "ms"
+        "milliseconds": "ms",
+        "definitionBlur": {
+          "title": "Blur definitions after repeated lookups",
+          "hint": "Once a word reaches the lookup threshold, blur only its definitions.",
+          "threshold": "Lookup threshold",
+          "lookups": "lookups",
+          "reveal": "Reveal definitions",
+          "timed": "After a delay",
+          "hover": "On hover",
+          "delay": "Reveal delay",
+          "seconds": "seconds",
+          "delayHint": "Time from showing the popup until its definitions are revealed."
+        }
       },
       "saveStatus": {
         "saving": "Saving...",

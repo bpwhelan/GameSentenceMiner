@@ -43,6 +43,40 @@ const {
 const { shouldRevealAutomaticOverlay, shouldShowOverlayOnReady } = require('./automatic_visibility');
 const { URL } = require('url');
 
+function normalizeHoshidictsReaderPreferences(preferences) {
+  const definitionBlur = preferences && preferences.definitionBlur;
+  if (
+    !preferences ||
+    typeof preferences !== 'object' ||
+    (preferences.lookupMode !== 'shift' && preferences.lookupMode !== 'hover') ||
+    !Number.isInteger(preferences.popupHideDelayMs) ||
+    preferences.popupHideDelayMs < 0 ||
+    preferences.popupHideDelayMs > 5000 ||
+    !definitionBlur ||
+    typeof definitionBlur !== 'object' ||
+    typeof definitionBlur.enabled !== 'boolean' ||
+    !Number.isInteger(definitionBlur.lookupThreshold) ||
+    definitionBlur.lookupThreshold < 1 ||
+    definitionBlur.lookupThreshold > 1000000 ||
+    (definitionBlur.revealMode !== 'timed' && definitionBlur.revealMode !== 'hover') ||
+    !Number.isInteger(definitionBlur.revealDelayMs) ||
+    definitionBlur.revealDelayMs < 1000 ||
+    definitionBlur.revealDelayMs > 3600000
+  ) {
+    return null;
+  }
+  return {
+    lookupMode: preferences.lookupMode,
+    popupHideDelayMs: preferences.popupHideDelayMs,
+    definitionBlur: {
+      enabled: definitionBlur.enabled,
+      lookupThreshold: definitionBlur.lookupThreshold,
+      revealMode: definitionBlur.revealMode,
+      revealDelayMs: definitionBlur.revealDelayMs,
+    },
+  };
+}
+
 const IN_PROCESS_OVERLAY = process.env.GSM_OVERLAY_IN_PROCESS === '1';
 const OVERLAY_HOST_SYMBOL = Symbol.for('gsm.overlay.host');
 const overlayIpcListeners = [];
@@ -6830,23 +6864,13 @@ async function startOverlayAppImpl() {
     );
     hoshidictsReaderPreferencesBridge = createHoshidictsReaderPreferencesBridge({
       onPreferences(preferences) {
-        const lookupMode = preferences && preferences.lookupMode;
-        const popupHideDelayMs = preferences && preferences.popupHideDelayMs;
-        if (
-          (lookupMode !== 'shift' && lookupMode !== 'hover') ||
-          !Number.isInteger(popupHideDelayMs) ||
-          popupHideDelayMs < 0 ||
-          popupHideDelayMs > 5000
-        ) {
+        const normalizedPreferences = normalizeHoshidictsReaderPreferences(preferences);
+        if (!normalizedPreferences) {
           throw new Error('Hoshidicts reader preferences are invalid.');
         }
         if (!mainWindow || mainWindow.isDestroyed()) {
           throw new Error('Hoshidicts reader window is unavailable.');
         }
-        const normalizedPreferences = {
-          lookupMode,
-          popupHideDelayMs,
-        };
         hoshidictsReaderPreferencesDelivery.enqueue(normalizedPreferences);
       },
     });

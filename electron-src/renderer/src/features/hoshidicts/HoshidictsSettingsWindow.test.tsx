@@ -5,9 +5,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
   HOSHIDICTS_CHANNELS,
   type HoshidictsDesktopSnapshot,
-  type HoshidictsMiningOptions
+  type HoshidictsMiningOptions,
+  type HoshidictsReaderPreferences
 } from "../../../../shared/features/hoshidicts";
 import { I18nProvider } from "../../i18n";
 import {
@@ -75,6 +77,7 @@ const baseState: HoshidictsDesktopSnapshot = {
   },
   lookupMode: "shift",
   popupHideDelayMs: 300,
+  definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
   schedule: "weekly",
   lastCheck: "2026-08-06T10:00:00.000Z",
   nextCheck: "2026-08-13T10:00:00.000Z",
@@ -164,10 +167,7 @@ describe("HoshidictsSettingsWindow", () => {
           return miningOptions;
         }
         if (channel === HOSHIDICTS_CHANNELS.setReaderPreferences) {
-          const preferences = args[0] as {
-            lookupMode: "shift" | "hover";
-            popupHideDelayMs: number;
-          };
+          const preferences = args[0] as HoshidictsReaderPreferences;
           return {
             success: true,
             outcome: { code: "preferencesSaved" },
@@ -392,13 +392,149 @@ describe("HoshidictsSettingsWindow", () => {
 
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.setReaderPreferences,
-      { lookupMode: "hover", popupHideDelayMs: 850 }
+      {
+        lookupMode: "hover",
+        popupHideDelayMs: 850,
+        definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
+      }
     );
     expect(invokeMock).not.toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.setLookupMode,
       expect.anything()
     );
     expect(container.textContent).toContain("Saved");
+  });
+
+  it("auto-saves definition blur preferences as one nested setting", async () => {
+    vi.useFakeTimers();
+    await render();
+
+    const enabled = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-definition-blur-enabled"
+    );
+    const threshold = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-definition-blur-threshold"
+    );
+    const revealMode = container.querySelector<HTMLSelectElement>(
+      "#hoshidicts-definition-blur-reveal-mode"
+    );
+
+    expect(
+      container.querySelector<HTMLInputElement>(
+        "#hoshidicts-definition-blur-reveal-delay"
+      )?.value
+    ).toBe("5");
+
+    await act(async () => {
+      enabled?.click();
+      setInputValue(threshold, "12");
+      setSelectValue(revealMode, "hover");
+      await vi.advanceTimersByTimeAsync(450);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector("#hoshidicts-definition-blur-reveal-delay")
+    ).toBeNull();
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.setReaderPreferences,
+      {
+        lookupMode: "shift",
+        popupHideDelayMs: 300,
+        definitionBlur: {
+          enabled: true,
+          lookupThreshold: 12,
+          revealMode: "hover",
+          revealDelayMs: 5000
+        }
+      }
+    );
+  });
+
+  it("restores and updates the preserved reveal duration in timed mode", async () => {
+    vi.useFakeTimers();
+    invokeMock.mockImplementationOnce(async () => ({
+      ...baseState,
+      definitionBlur: {
+        enabled: true,
+        lookupThreshold: 7,
+        revealMode: "hover",
+        revealDelayMs: 9000
+      }
+    }));
+    await render();
+
+    expect(
+      container.querySelector("#hoshidicts-definition-blur-reveal-delay")
+    ).toBeNull();
+    await act(async () => {
+      setSelectValue(
+        container.querySelector<HTMLSelectElement>(
+          "#hoshidicts-definition-blur-reveal-mode"
+        ),
+        "timed"
+      );
+      await Promise.resolve();
+    });
+    const revealDelay = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-definition-blur-reveal-delay"
+    );
+    expect(revealDelay?.value).toBe("9");
+
+    await act(async () => {
+      setInputValue(revealDelay, "8");
+      await vi.advanceTimersByTimeAsync(450);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.setReaderPreferences,
+      expect.objectContaining({
+        definitionBlur: {
+          enabled: true,
+          lookupThreshold: 7,
+          revealMode: "timed",
+          revealDelayMs: 8000
+        }
+      })
+    );
+  });
+
+  it("clamps definition blur inputs to the supported bounds", async () => {
+    vi.useFakeTimers();
+    await render();
+
+    await act(async () => {
+      setInputValue(
+        container.querySelector<HTMLInputElement>(
+          "#hoshidicts-definition-blur-threshold"
+        ),
+        "0"
+      );
+      setInputValue(
+        container.querySelector<HTMLInputElement>(
+          "#hoshidicts-definition-blur-reveal-delay"
+        ),
+        "7200"
+      );
+      await vi.advanceTimersByTimeAsync(450);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.setReaderPreferences,
+      expect.objectContaining({
+        definitionBlur: {
+          enabled: false,
+          lookupThreshold: 1,
+          revealMode: "timed",
+          revealDelayMs: 3_600_000
+        }
+      })
+    );
   });
 
   it("loads Anki on entry without dirtying or pinning automatic mappings", async () => {
@@ -545,12 +681,28 @@ describe("HoshidictsSettingsWindow", () => {
   });
 
   it.each([
-    ["ja", "辞書とマイニングの設定", "おすすめの辞書"],
-    ["ukr", "Налаштування словників і видобування", "Рекомендовані словники"]
-  ])("localizes the standalone window in %s", async (locale, subtitle, recommended) => {
+    [
+      "ja",
+      "辞書とマイニングの設定",
+      "おすすめの辞書",
+      "繰り返し検索した定義をぼかす"
+    ],
+    [
+      "ukr",
+      "Налаштування словників і видобування",
+      "Рекомендовані словники",
+      "Розмивати визначення після повторних пошуків"
+    ]
+  ])("localizes the standalone window in %s", async (
+    locale,
+    subtitle,
+    recommended,
+    definitionBlur
+  ) => {
     await render(locale);
     expect(container.textContent).toContain(subtitle);
     expect(container.textContent).toContain(recommended);
+    expect(container.textContent).toContain(definitionBlur);
   });
 
   it("normalizes legacy snapshots without dirtying new preferences", () => {
@@ -566,7 +718,27 @@ describe("HoshidictsSettingsWindow", () => {
     });
     expect(normalized.revision).toBe(0);
     expect(normalized.popupHideDelayMs).toBe(300);
+    expect(normalized.definitionBlur).toEqual(
+      DEFAULT_HOSHIDICTS_DEFINITION_BLUR
+    );
     expect(normalized.dictionaries[0].enabled).toBe(true);
     expect(normalized.miningProfile.disabledFields).toEqual([]);
+  });
+
+  it("normalizes malformed definition blur preferences", () => {
+    const normalized = normalizeHoshidictsDesktopState({
+      ...baseState,
+      definitionBlur: {
+        enabled: true,
+        lookupThreshold: 0,
+        revealMode: "click",
+        revealDelayMs: 3_600_001
+      }
+    });
+
+    expect(normalized.definitionBlur).toEqual({
+      ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
+      enabled: true
+    });
   });
 });

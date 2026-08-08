@@ -21,6 +21,7 @@
   const DEFAULT_INITIAL_RESULT_COUNT = 6;
   const DEFAULT_MAX_METADATA_TAGS = 12;
   const DEFAULT_HIGHLIGHT_NAME = "gsm-hoshidicts-match";
+  const DEFINITION_BLUR_STATES = new Set(["pending", "blurred"]);
 
   function createTag(documentRef, text, description, kind) {
     const tag = documentRef.createElement("span");
@@ -163,11 +164,34 @@
       documentRef,
       options.highlightName || DEFAULT_HIGHLIGHT_NAME
     );
+    let definitionBlurState = "revealed";
+
+    function applyDefinitionBlurState(element) {
+      if (DEFINITION_BLUR_STATES.has(definitionBlurState)) {
+        element.dataset.definitionBlurState = definitionBlurState;
+      } else {
+        delete element.dataset.definitionBlurState;
+      }
+    }
+
+    function setDefinitionBlurState(state) {
+      definitionBlurState = DEFINITION_BLUR_STATES.has(state) ? state : "revealed";
+      if (definitionBlurState === "revealed") {
+        delete popup.dataset.definitionBlurState;
+      } else {
+        popup.dataset.definitionBlurState = definitionBlurState;
+      }
+      for (const definitions of popup.querySelectorAll(".gsm-hoshidicts-definitions")) {
+        applyDefinitionBlurState(definitions);
+      }
+      return definitionBlurState;
+    }
 
     function clear() {
       sourceHighlighter.clear();
       popup.replaceChildren();
       popup.scrollTop = 0;
+      setDefinitionBlurState("revealed");
     }
 
     function setFeedback(feedback, message, kind = "info") {
@@ -225,8 +249,9 @@
       }
     }
 
-    function renderResults(results, candidate) {
+    function renderResults(results, candidate, renderOptions = {}) {
       clear();
+      setDefinitionBlurState(renderOptions.definitionBlurState);
       const feedback = documentRef.createElement("div");
       feedback.className = "gsm-hoshidicts-mining-feedback";
       feedback.setAttribute("role", "status");
@@ -310,6 +335,7 @@
           details.appendChild(summary);
           const definitions = documentRef.createElement("ol");
           definitions.className = "gsm-hoshidicts-definitions";
+          applyDefinitionBlurState(definitions);
           for (const glossary of glossaries) {
             const definition = documentRef.createElement("li");
             const definitionTags = parseTagList(glossary.definitionTags);
@@ -362,6 +388,7 @@
       clear,
       renderNotice,
       renderResults,
+      setDefinitionBlurState,
       setFeedback,
     };
   }

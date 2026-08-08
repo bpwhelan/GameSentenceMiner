@@ -13,6 +13,7 @@ import {
 } from '../../services/input_server.js';
 import type {
     HoshidictsDictionaryState,
+    HoshidictsDefinitionBlurPreferences,
     HoshidictsManagerSnapshot,
     HoshidictsLookupMode,
     HoshidictsMiningProfile,
@@ -20,11 +21,17 @@ import type {
     HoshidictsProgressPhase,
     HoshidictsRecommendedDictionaryId,
     HoshidictsRecommendedDictionaryState,
+    HoshidictsReaderPreferences,
     HoshidictsSchedule,
 } from '../../../shared/features/hoshidicts.js';
 import {
+    DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
     DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+    MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
+    MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
     MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+    MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
+    MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
 } from '../../../shared/features/hoshidicts.js';
 import {
     defaultHoshidictsMiningProfile,
@@ -40,6 +47,7 @@ export {
 
 export type {
     HoshidictsDictionaryState,
+    HoshidictsDefinitionBlurPreferences,
     HoshidictsManagerSnapshot,
     HoshidictsLookupMode,
     HoshidictsMiningFields,
@@ -48,6 +56,7 @@ export type {
     HoshidictsProgressPhase,
     HoshidictsRecommendedDictionaryId,
     HoshidictsRecommendedDictionaryState,
+    HoshidictsReaderPreferences,
     HoshidictsSchedule,
 } from '../../../shared/features/hoshidicts.js';
 
@@ -60,6 +69,7 @@ interface PersistedManifest {
     version: 1;
     lookupMode: HoshidictsLookupMode;
     popupHideDelayMs: number;
+    definitionBlur: HoshidictsDefinitionBlurPreferences;
     schedule: HoshidictsSchedule;
     lastCheck: string | null;
     nextCheck: string | null;
@@ -171,6 +181,7 @@ function emptyManifest(): PersistedManifest {
         version: MANIFEST_VERSION,
         lookupMode: 'shift',
         popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+        definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
         schedule: 'off',
         lastCheck: null,
         nextCheck: null,
@@ -199,6 +210,49 @@ function normalizePopupHideDelay(value: unknown): number {
         (value as number) <= MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS
         ? (value as number)
         : DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS;
+}
+
+function normalizeDefinitionBlur(
+    value: unknown
+): HoshidictsDefinitionBlurPreferences {
+    if (!isRecord(value)) {
+        return { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR };
+    }
+    return {
+        enabled:
+            typeof value.enabled === 'boolean'
+                ? value.enabled
+                : DEFAULT_HOSHIDICTS_DEFINITION_BLUR.enabled,
+        lookupThreshold:
+            Number.isInteger(value.lookupThreshold) &&
+            (value.lookupThreshold as number) >=
+                MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD &&
+            (value.lookupThreshold as number) <=
+                MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD
+                ? (value.lookupThreshold as number)
+                : DEFAULT_HOSHIDICTS_DEFINITION_BLUR.lookupThreshold,
+        revealMode: value.revealMode === 'hover' ? 'hover' : 'timed',
+        revealDelayMs:
+            Number.isInteger(value.revealDelayMs) &&
+            (value.revealDelayMs as number) >=
+                MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS &&
+            (value.revealDelayMs as number) <=
+                MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS
+                ? (value.revealDelayMs as number)
+                : DEFAULT_HOSHIDICTS_DEFINITION_BLUR.revealDelayMs,
+    };
+}
+
+function definitionBlurPreferencesEqual(
+    left: HoshidictsDefinitionBlurPreferences,
+    right: HoshidictsDefinitionBlurPreferences
+): boolean {
+    return (
+        left.enabled === right.enabled &&
+        left.lookupThreshold === right.lookupThreshold &&
+        left.revealMode === right.revealMode &&
+        left.revealDelayMs === right.revealDelayMs
+    );
 }
 
 function normalizeDate(value: unknown): string | null {
@@ -1100,16 +1154,17 @@ export class HoshidictsManager {
             throw new Error('Hoshidicts lookup mode is invalid.');
         }
         const snapshot = await this.getSnapshot();
-        return await this.setReaderPreferences(
+        return await this.setReaderPreferences({
             lookupMode,
-            snapshot.popupHideDelayMs
-        );
+            popupHideDelayMs: snapshot.popupHideDelayMs,
+            definitionBlur: snapshot.definitionBlur,
+        });
     }
 
     async setReaderPreferences(
-        lookupMode: HoshidictsLookupMode,
-        popupHideDelayMs: number
+        preferences: HoshidictsReaderPreferences
     ): Promise<HoshidictsManagerSnapshot> {
+        const { lookupMode, popupHideDelayMs, definitionBlur } = preferences;
         if (lookupMode !== 'shift' && lookupMode !== 'hover') {
             throw new Error('Hoshidicts lookup mode is invalid.');
         }
@@ -1120,16 +1175,54 @@ export class HoshidictsManager {
         ) {
             throw new Error('Hoshidicts popup hide delay is invalid.');
         }
+        if (!definitionBlur || typeof definitionBlur.enabled !== 'boolean') {
+            throw new Error(
+                'Hoshidicts definition blur enabled state is invalid.'
+            );
+        }
+        if (
+            !Number.isInteger(definitionBlur.lookupThreshold) ||
+            definitionBlur.lookupThreshold <
+                MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD ||
+            definitionBlur.lookupThreshold >
+                MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD
+        ) {
+            throw new Error(
+                'Hoshidicts definition blur lookup threshold is invalid.'
+            );
+        }
+        if (
+            definitionBlur.revealMode !== 'timed' &&
+            definitionBlur.revealMode !== 'hover'
+        ) {
+            throw new Error('Hoshidicts definition blur reveal mode is invalid.');
+        }
+        if (
+            !Number.isInteger(definitionBlur.revealDelayMs) ||
+            definitionBlur.revealDelayMs <
+                MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS ||
+            definitionBlur.revealDelayMs >
+                MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS
+        ) {
+            throw new Error(
+                'Hoshidicts definition blur reveal delay is invalid.'
+            );
+        }
         await this.enqueue('saving', async () => {
             const manifest = await this.readManifest();
             if (
                 manifest.lookupMode !== lookupMode ||
-                manifest.popupHideDelayMs !== popupHideDelayMs
+                manifest.popupHideDelayMs !== popupHideDelayMs ||
+                !definitionBlurPreferencesEqual(
+                    manifest.definitionBlur,
+                    definitionBlur
+                )
             ) {
                 await this.atomicWriteManifest({
                     ...manifest,
                     lookupMode,
                     popupHideDelayMs,
+                    definitionBlur: { ...definitionBlur },
                 });
             }
         }, 'preferences');
@@ -1351,6 +1444,7 @@ export class HoshidictsManager {
             miningProfile,
             lookupMode: manifest.lookupMode,
             popupHideDelayMs: manifest.popupHideDelayMs,
+            definitionBlur: { ...manifest.definitionBlur },
             schedule: manifest.schedule,
             lastCheck: manifest.lastCheck,
             nextCheck: manifest.nextCheck,
@@ -1443,6 +1537,7 @@ export class HoshidictsManager {
             version: MANIFEST_VERSION,
             lookupMode: parsed.lookupMode === 'hover' ? 'hover' : 'shift',
             popupHideDelayMs: normalizePopupHideDelay(parsed.popupHideDelayMs),
+            definitionBlur: normalizeDefinitionBlur(parsed.definitionBlur),
             schedule: normalizeSchedule(parsed.schedule),
             lastCheck: normalizeDate(parsed.lastCheck),
             nextCheck: normalizeDate(parsed.nextCheck),
@@ -1473,6 +1568,7 @@ export class HoshidictsManager {
             version: MANIFEST_VERSION,
             lookupMode: parsed.lookupMode === 'hover' ? 'hover' : 'shift',
             popupHideDelayMs: normalizePopupHideDelay(parsed.popupHideDelayMs),
+            definitionBlur: normalizeDefinitionBlur(parsed.definitionBlur),
             schedule: normalizeSchedule(parsed.schedule),
             lastCheck: normalizeDate(parsed.lastCheck),
             nextCheck: normalizeDate(parsed.nextCheck),

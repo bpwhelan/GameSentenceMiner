@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
   DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   HOSHIDICTS_CHANNELS,
+  MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
+  MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+  MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
+  MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
   type HoshidictsActionResult,
   type HoshidictsDesktopSnapshot,
   type HoshidictsLookupMode,
@@ -36,6 +41,16 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
+function readerPreferencesFromState(
+  state: HoshidictsDesktopSnapshot
+): HoshidictsReaderPreferences {
+  return {
+    lookupMode: state.lookupMode,
+    popupHideDelayMs: state.popupHideDelayMs,
+    definitionBlur: { ...state.definitionBlur }
+  };
+}
+
 export function useHoshidictsSettingsController() {
   const t = useTranslation();
   const [view, setView] = useState<HoshidictsView>("dictionaries");
@@ -46,7 +61,8 @@ export function useHoshidictsSettingsController() {
 
   const initialReaderPreferences: HoshidictsReaderPreferences = {
     lookupMode: "shift",
-    popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS
+    popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+    definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR }
   };
   const [readerDraft, setReaderDraft] = useState(initialReaderPreferences);
   const readerDraftRef = useRef(initialReaderPreferences);
@@ -93,10 +109,7 @@ export function useHoshidictsSettingsController() {
 
     if (!initializedRef.current) {
       initializedRef.current = true;
-      const reader = {
-        lookupMode: normalized.lookupMode,
-        popupHideDelayMs: normalized.popupHideDelayMs
-      };
+      const reader = readerPreferencesFromState(normalized);
       const mining = profileToDraft(normalized.miningProfile);
       readerDraftRef.current = reader;
       miningDraftRef.current = mining;
@@ -106,10 +119,7 @@ export function useHoshidictsSettingsController() {
     }
 
     if (!readerDirtyRef.current && !readerSavingRef.current) {
-      const reader = {
-        lookupMode: normalized.lookupMode,
-        popupHideDelayMs: normalized.popupHideDelayMs
-      };
+      const reader = readerPreferencesFromState(normalized);
       readerDraftRef.current = reader;
       setReaderDraft(reader);
     }
@@ -263,6 +273,63 @@ export function useHoshidictsSettingsController() {
     [updateReaderPreferences]
   );
 
+  const updateDefinitionBlur = useCallback(
+    (
+      update: Partial<HoshidictsReaderPreferences["definitionBlur"]>
+    ) => {
+      updateReaderPreferences({
+        definitionBlur: {
+          ...readerDraftRef.current.definitionBlur,
+          ...update
+        }
+      });
+    },
+    [updateReaderPreferences]
+  );
+
+  const setDefinitionBlurEnabled = useCallback(
+    (enabled: boolean) => updateDefinitionBlur({ enabled }),
+    [updateDefinitionBlur]
+  );
+
+  const setDefinitionBlurLookupThreshold = useCallback(
+    (lookupThreshold: number) => {
+      if (!Number.isFinite(lookupThreshold)) return;
+      updateDefinitionBlur({
+        lookupThreshold: Math.min(
+          MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
+          Math.max(
+            MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
+            Math.round(lookupThreshold)
+          )
+        )
+      });
+    },
+    [updateDefinitionBlur]
+  );
+
+  const setDefinitionBlurRevealMode = useCallback(
+    (revealMode: HoshidictsReaderPreferences["definitionBlur"]["revealMode"]) =>
+      updateDefinitionBlur({ revealMode }),
+    [updateDefinitionBlur]
+  );
+
+  const setDefinitionBlurRevealDelayMs = useCallback(
+    (revealDelayMs: number) => {
+      if (!Number.isFinite(revealDelayMs)) return;
+      updateDefinitionBlur({
+        revealDelayMs: Math.min(
+          MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
+          Math.max(
+            MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
+            Math.round(revealDelayMs)
+          )
+        )
+      });
+    },
+    [updateDefinitionBlur]
+  );
+
   useEffect(() => {
     if (
       !readerDirty ||
@@ -272,7 +339,10 @@ export function useHoshidictsSettingsController() {
       return;
     }
     const timer = window.setTimeout(() => {
-      const request = { ...readerDraftRef.current };
+      const request = {
+        ...readerDraftRef.current,
+        definitionBlur: { ...readerDraftRef.current.definitionBlur }
+      };
       const version = readerEditVersionRef.current;
       readerSavingRef.current = true;
       setReaderSaving(true);
@@ -483,6 +553,10 @@ export function useHoshidictsSettingsController() {
     readerSaveStatus,
     setLookupMode,
     setPopupHideDelayMs,
+    setDefinitionBlurEnabled,
+    setDefinitionBlurLookupThreshold,
+    setDefinitionBlurRevealMode,
+    setDefinitionBlurRevealDelayMs,
     miningDraft,
     miningOptions,
     miningOptionsLoading,

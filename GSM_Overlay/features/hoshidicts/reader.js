@@ -34,6 +34,16 @@
   const INITIAL_VISIBLE_RESULTS = 6;
   const DEFAULT_POPUP_HIDE_DELAY_MS = 300;
   const MAX_POPUP_HIDE_DELAY_MS = 5 * 1000;
+  const DEFAULT_DEFINITION_BLUR_PREFERENCES = Object.freeze({
+    enabled: false,
+    lookupThreshold: 5,
+    revealMode: "timed",
+    revealDelayMs: 5 * 1000,
+  });
+  const MIN_DEFINITION_BLUR_LOOKUP_THRESHOLD = 1;
+  const MAX_DEFINITION_BLUR_LOOKUP_THRESHOLD = 1_000_000;
+  const MIN_DEFINITION_BLUR_REVEAL_DELAY_MS = 1000;
+  const MAX_DEFINITION_BLUR_REVEAL_DELAY_MS = 60 * 60 * 1000;
   const MAX_RESPONSE_BYTES = 256 * 1024;
   const MAX_GLOSSARIES = 64;
   const MAX_TRACE_STEPS = 32;
@@ -698,6 +708,45 @@
       Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
         ? Math.trunc(options.timeoutMs)
         : LOOKUP_STATS_REQUEST_TIMEOUT_MS;
+    const pendingRecords = new Map();
+
+    async function sendRecord(body) {
+      const controller =
+        typeof AbortController === "function" ? new AbortController() : null;
+      const timeoutId = controller
+        ? setTimeout(() => controller.abort(), timeoutMs)
+        : null;
+      try {
+        const response = await fetchImpl(
+          `${baseUrl}/api/hoshidicts/lookup-stats`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body,
+            signal: controller ? controller.signal : undefined,
+          }
+        );
+        let responsePayload;
+        try {
+          responsePayload = await response.json();
+        } catch {
+          throw new Error("GSM returned an invalid lookup statistics response.");
+        }
+        if (!response.ok || !isRecord(responsePayload) || responsePayload.success !== true) {
+          throw new Error("GSM could not record the lookup.");
+        }
+        return responsePayload;
+      } catch (error) {
+        if (error && error.name === "AbortError") {
+          throw new Error("GSM lookup statistics request timed out.");
+        }
+        throw error;
+      } finally {
+        if (timeoutId !== null) {
+          clearTimeout(timeoutId);
+        }
+      }
+    }
 
     return {
       async record(payload) {
@@ -707,8 +756,12 @@
         if (!isRecord(payload)) {
           throw new Error("A lookup statistics payload is required.");
         }
-        const term = typeof payload.term === "string" ? payload.term : "";
-        const reading = typeof payload.reading === "string" ? payload.reading : "";
+        const term = typeof payload.term === "string"
+          ? payload.term.trim().normalize("NFC")
+          : "";
+        const reading = typeof payload.reading === "string"
+          ? payload.reading.trim().normalize("NFC")
+          : "";
         if (
           term.length === 0 ||
           term.length > MAX_LOOKUP_STATS_TEXT_LENGTH ||
@@ -720,39 +773,21 @@
         if (utf8Length(body) > MAX_LOOKUP_STATS_REQUEST_BYTES) {
           throw new Error("The lookup statistics payload is too large.");
         }
-        const controller =
-          typeof AbortController === "function" ? new AbortController() : null;
-        const timeoutId = controller
-          ? setTimeout(() => controller.abort(), timeoutMs)
-          : null;
+
+        // SQLite increments are atomic, but concurrent HTTP requests can still
+        // arrive in the opposite order from their lookups. Keep writes for one
+        // canonical term ordered so the active popup receives its own count.
+        const previous = pendingRecords.get(body);
+        const recordPromise = (previous
+          ? previous.catch(() => undefined)
+          : Promise.resolve()
+        ).then(() => sendRecord(body));
+        pendingRecords.set(body, recordPromise);
         try {
-          const response = await fetchImpl(
-            `${baseUrl}/api/hoshidicts/lookup-stats`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body,
-              signal: controller ? controller.signal : undefined,
-            }
-          );
-          let responsePayload;
-          try {
-            responsePayload = await response.json();
-          } catch {
-            throw new Error("GSM returned an invalid lookup statistics response.");
-          }
-          if (!response.ok || !isRecord(responsePayload) || responsePayload.success !== true) {
-            throw new Error("GSM could not record the lookup.");
-          }
-          return responsePayload;
-        } catch (error) {
-          if (error && error.name === "AbortError") {
-            throw new Error("GSM lookup statistics request timed out.");
-          }
-          throw error;
+          return await recordPromise;
         } finally {
-          if (timeoutId !== null) {
-            clearTimeout(timeoutId);
+          if (pendingRecords.get(body) === recordPromise) {
+            pendingRecords.delete(body);
           }
         }
       },
@@ -764,6 +799,40 @@
       return fallback;
     }
     return Math.max(0, Math.min(MAX_POPUP_HIDE_DELAY_MS, Math.trunc(value)));
+  }
+
+  function normalizeDefinitionBlurPreferences(
+    value,
+    fallback = DEFAULT_DEFINITION_BLUR_PREFERENCES
+  ) {
+    const source = isRecord(value) ? value : {};
+    const baseline = isRecord(fallback)
+      ? fallback
+      : DEFAULT_DEFINITION_BLUR_PREFERENCES;
+    const normalizeInteger = (candidate, minimum, maximum, defaultValue) =>
+      Number.isFinite(candidate)
+        ? Math.max(minimum, Math.min(maximum, Math.trunc(candidate)))
+        : defaultValue;
+    return {
+      enabled: typeof source.enabled === "boolean"
+        ? source.enabled
+        : baseline.enabled === true,
+      lookupThreshold: normalizeInteger(
+        source.lookupThreshold,
+        MIN_DEFINITION_BLUR_LOOKUP_THRESHOLD,
+        MAX_DEFINITION_BLUR_LOOKUP_THRESHOLD,
+        baseline.lookupThreshold
+      ),
+      revealMode: source.revealMode === "hover" || source.revealMode === "timed"
+        ? source.revealMode
+        : baseline.revealMode === "hover" ? "hover" : "timed",
+      revealDelayMs: normalizeInteger(
+        source.revealDelayMs,
+        MIN_DEFINITION_BLUR_REVEAL_DELAY_MS,
+        MAX_DEFINITION_BLUR_REVEAL_DELAY_MS,
+        baseline.revealDelayMs
+      ),
+    };
   }
 
   function createHoshidictsReader(options = {}) {
@@ -807,6 +876,7 @@
     let preferences = {
       lookupMode: options.lookupMode === "hover" ? "hover" : "shift",
       popupHideDelayMs: normalizePopupHideDelay(options.popupHideDelayMs),
+      definitionBlur: normalizeDefinitionBlurPreferences(options.definitionBlur),
     };
     let socket = null;
     let reconnectTimer = null;
@@ -814,6 +884,7 @@
     let debounceTimer = null;
     let lookupTimeoutTimer = null;
     let hideTimer = null;
+    let definitionRevealTimer = null;
     let pendingHideReason = "pointer-left";
     let destroyed = false;
     let shiftPressed = false;
@@ -834,6 +905,8 @@
     let miningStatusPromise = null;
     let shiftRequirementLogged = false;
     let candidateMissLogged = false;
+    let definitionBlurGeneration = 0;
+    let activeDefinitionBlur = null;
 
     function diagnostic(level, event, details = {}) {
       const sink = typeof logger[level] === "function"
@@ -892,6 +965,122 @@
       },
     });
 
+    function clearDefinitionRevealTimer() {
+      if (definitionRevealTimer !== null) {
+        clearTimeoutFn(definitionRevealTimer);
+        definitionRevealTimer = null;
+      }
+    }
+
+    function isActiveDefinitionBlur(context) {
+      return Boolean(
+        context &&
+        activeDefinitionBlur === context &&
+        context.generation === definitionBlurGeneration &&
+        popupVisible &&
+        !destroyed
+      );
+    }
+
+    function revealDefinitions(context, reason) {
+      if (!isActiveDefinitionBlur(context) || context.revealed) {
+        return false;
+      }
+      context.revealed = true;
+      clearDefinitionRevealTimer();
+      popupView.setDefinitionBlurState("revealed");
+      diagnostic("debug", "definitions.revealed", { reason });
+      return true;
+    }
+
+    function invalidateDefinitionBlur() {
+      definitionBlurGeneration += 1;
+      activeDefinitionBlur = null;
+      clearDefinitionRevealTimer();
+      popupView.setDefinitionBlurState("revealed");
+    }
+
+    function beginDefinitionBlur() {
+      invalidateDefinitionBlur();
+      if (!preferences.definitionBlur.enabled) {
+        return null;
+      }
+      const context = {
+        generation: definitionBlurGeneration,
+        preferences: { ...preferences.definitionBlur },
+        deadlineReached: false,
+        hovered: false,
+        revealed: false,
+      };
+      activeDefinitionBlur = context;
+      return context;
+    }
+
+    function startDefinitionBlurDeadline(context) {
+      if (
+        !isActiveDefinitionBlur(context) ||
+        context.preferences.revealMode !== "timed"
+      ) {
+        return;
+      }
+      definitionRevealTimer = setTimeoutFn(() => {
+        definitionRevealTimer = null;
+        if (!isActiveDefinitionBlur(context)) {
+          return;
+        }
+        context.deadlineReached = true;
+        revealDefinitions(context, "timed-deadline");
+      }, context.preferences.revealDelayMs);
+    }
+
+    function applyDefinitionBlurLookupCount(context, response) {
+      if (!isActiveDefinitionBlur(context) || context.revealed) {
+        return;
+      }
+      const lookupCount = isRecord(response) && response.success === true
+        ? response.lookupCount
+        : null;
+      if (!Number.isInteger(lookupCount) || lookupCount < 1) {
+        revealDefinitions(context, "invalid-lookup-count");
+        return;
+      }
+      if (lookupCount < context.preferences.lookupThreshold) {
+        revealDefinitions(context, "below-threshold");
+        return;
+      }
+      if (
+        context.preferences.revealMode === "timed" &&
+        context.deadlineReached
+      ) {
+        revealDefinitions(context, "timed-deadline-reached");
+        return;
+      }
+      if (context.preferences.revealMode === "hover" && context.hovered) {
+        revealDefinitions(context, "definition-hovered");
+        return;
+      }
+      popupView.setDefinitionBlurState("blurred");
+      diagnostic("debug", "definitions.blurred", {
+        lookupCount,
+        lookupThreshold: context.preferences.lookupThreshold,
+        revealMode: context.preferences.revealMode,
+      });
+    }
+
+    function onDefinitionPointerOver(event) {
+      const context = activeDefinitionBlur;
+      if (
+        !isActiveDefinitionBlur(context) ||
+        context.preferences.revealMode !== "hover" ||
+        !(event.target instanceof windowRef.Element) ||
+        !event.target.closest(".gsm-hoshidicts-definitions")
+      ) {
+        return;
+      }
+      context.hovered = true;
+      revealDefinitions(context, "definition-hovered");
+    }
+
     function publishPopupState(visible) {
       if (popupVisible === visible) {
         return;
@@ -928,6 +1117,7 @@
 
     function dismissPopup(reason) {
       clearHideTimer();
+      invalidateDefinitionBlur();
       miningStatusGeneration += 1;
       popupAnchor = null;
       popupView.clear();
@@ -996,6 +1186,7 @@
     }
 
     function renderLookupNotice(candidate, message) {
+      invalidateDefinitionBlur();
       popupView.renderNotice(message);
       showPopup(candidate);
     }
@@ -1122,15 +1313,20 @@
       }
     }
 
-    function recordLookup(result) {
+    function recordLookup(result, definitionBlurContext) {
       if (!onLookup) {
+        revealDefinitions(definitionBlurContext, "lookup-statistics-unavailable");
         return;
       }
       const term = result.term.expression;
       const reading = result.term.reading;
       void Promise.resolve()
         .then(() => onLookup({ term, reading }))
+        .then((response) => {
+          applyDefinitionBlurLookupCount(definitionBlurContext, response);
+        })
         .catch((error) => {
+          revealDefinitions(definitionBlurContext, "lookup-statistics-error");
           diagnostic("warn", "lookup.record-failed", {
             error: boundedString(
               error instanceof Error ? error.message : String(error),
@@ -1208,9 +1404,13 @@
         hide("no-results");
         return;
       }
-      const rendered = popupView.renderResults(results, candidate);
+      const definitionBlurContext = beginDefinitionBlur();
+      const rendered = popupView.renderResults(results, candidate, {
+        definitionBlurState: definitionBlurContext ? "pending" : "revealed",
+      });
       showPopup(candidate);
-      recordLookup(results[0]);
+      startDefinitionBlurDeadline(definitionBlurContext);
+      recordLookup(results[0], definitionBlurContext);
       void refreshMiningButtons(rendered.miningButtons, rendered.feedback);
       diagnostic("info", "lookup.rendered", {
         requestId,
@@ -1459,6 +1659,7 @@
     function updatePreferences(nextPreferences = {}) {
       const hadHideTimer = hideTimer !== null;
       const previousMode = preferences.lookupMode;
+      const definitionBlurWasEnabled = preferences.definitionBlur.enabled;
       preferences = {
         lookupMode: Object.prototype.hasOwnProperty.call(nextPreferences, "lookupMode")
           ? nextPreferences.lookupMode === "hover" ? "hover" : "shift"
@@ -1472,7 +1673,19 @@
               preferences.popupHideDelayMs
             )
           : preferences.popupHideDelayMs,
+        definitionBlur: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "definitionBlur"
+        )
+          ? normalizeDefinitionBlurPreferences(
+              nextPreferences.definitionBlur,
+              preferences.definitionBlur
+            )
+          : preferences.definitionBlur,
       };
+      if (definitionBlurWasEnabled && !preferences.definitionBlur.enabled) {
+        invalidateDefinitionBlur();
+      }
       if (hadHideTimer) {
         clearHideTimer();
         scheduleHide(pendingHideReason);
@@ -1487,7 +1700,10 @@
         }
       }
       diagnostic("info", "preferences.updated", preferences);
-      return { ...preferences };
+      return {
+        ...preferences,
+        definitionBlur: { ...preferences.definitionBlur },
+      };
     }
 
     function onWindowBlur() {
@@ -1516,6 +1732,7 @@
       documentRef.removeEventListener("keyup", onKeyUp, true);
       popup.removeEventListener("pointerenter", onPopupPointerEnter);
       popup.removeEventListener("pointerleave", onPopupPointerLeave);
+      popup.removeEventListener("pointerover", onDefinitionPointerOver);
       windowRef.removeEventListener("resize", positionPopup);
       windowRef.removeEventListener("scroll", positionPopup, true);
       windowRef.removeEventListener("blur", onWindowBlur);
@@ -1529,6 +1746,7 @@
     documentRef.addEventListener("keyup", onKeyUp, true);
     popup.addEventListener("pointerenter", onPopupPointerEnter);
     popup.addEventListener("pointerleave", onPopupPointerLeave);
+    popup.addEventListener("pointerover", onDefinitionPointerOver);
     windowRef.addEventListener("resize", positionPopup);
     windowRef.addEventListener("scroll", positionPopup, true);
     windowRef.addEventListener("blur", onWindowBlur);
@@ -1545,13 +1763,17 @@
       hide,
       isVisible: () => popupVisible,
       getPopupElement: () => popup,
-      getPreferences: () => ({ ...preferences }),
+      getPreferences: () => ({
+        ...preferences,
+        definitionBlur: { ...preferences.definitionBlur },
+      }),
       positionPopup,
       updatePreferences,
     };
   }
 
   return {
+    DEFAULT_DEFINITION_BLUR_PREFERENCES,
     DEFAULT_POPUP_HIDE_DELAY_MS,
     INITIAL_VISIBLE_RESULTS,
     LOOKUP_DEBOUNCE_MS,
@@ -1559,12 +1781,17 @@
     LOOKUP_REQUEST_TIMEOUT_MS,
     LOOKUP_SCAN_LENGTH,
     MAX_POPUP_HIDE_DELAY_MS,
+    MAX_DEFINITION_BLUR_LOOKUP_THRESHOLD,
+    MAX_DEFINITION_BLUR_REVEAL_DELAY_MS,
+    MIN_DEFINITION_BLUR_LOOKUP_THRESHOLD,
+    MIN_DEFINITION_BLUR_REVEAL_DELAY_MS,
     appendExpressionRuby,
     appendTextOnlyGlossary,
     calculatePopupPosition,
     createHoshidictsMiningClient,
     createHoshidictsLookupStatsClient,
     createHoshidictsReader,
+    normalizeDefinitionBlurPreferences,
     normalizePopupHideDelay,
     normalizeLookupResults,
     resolveGsmApiBaseUrl,

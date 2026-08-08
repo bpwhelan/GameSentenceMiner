@@ -8,7 +8,11 @@ import {
 import { useMemo } from "react";
 
 import {
+  MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
+  MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+  MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
+  MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
   type HoshidictsSchedule
 } from "../../../../shared/features/hoshidicts";
 import { useTranslation } from "../../i18n";
@@ -53,6 +57,10 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
     readerSaveStatus,
     setLookupMode,
     setPopupHideDelayMs,
+    setDefinitionBlurEnabled,
+    setDefinitionBlurLookupThreshold,
+    setDefinitionBlurRevealMode,
+    setDefinitionBlurRevealDelayMs,
     dictionaryBusy,
     preferencesBusy,
     actions
@@ -126,6 +134,112 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
           </div>
           <small>{t("settings.hoshidicts.reader.hideDelayHint")}</small>
         </label>
+
+        <div className="hoshidicts-definition-blur">
+          <label className="hoshidicts-definition-blur__toggle">
+            <input
+              id="hoshidicts-definition-blur-enabled"
+              type="checkbox"
+              checked={readerDraft.definitionBlur.enabled}
+              disabled={preferencesBusy}
+              onChange={(event) =>
+                setDefinitionBlurEnabled(event.currentTarget.checked)
+              }
+            />
+            <span>
+              <strong>
+                {t("settings.hoshidicts.reader.definitionBlur.title")}
+              </strong>
+              <small>
+                {t("settings.hoshidicts.reader.definitionBlur.hint")}
+              </small>
+            </span>
+          </label>
+
+          <div className="hoshidicts-definition-blur__controls">
+            <label>
+              <span>
+                {t("settings.hoshidicts.reader.definitionBlur.threshold")}
+              </span>
+              <div className="hoshidicts-definition-blur__number">
+                <input
+                  id="hoshidicts-definition-blur-threshold"
+                  type="number"
+                  min={MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD}
+                  max={MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD}
+                  step={1}
+                  value={readerDraft.definitionBlur.lookupThreshold}
+                  disabled={preferencesBusy}
+                  onChange={(event) =>
+                    setDefinitionBlurLookupThreshold(
+                      event.currentTarget.valueAsNumber
+                    )
+                  }
+                />
+                <span>
+                  {t("settings.hoshidicts.reader.definitionBlur.lookups")}
+                </span>
+              </div>
+            </label>
+
+            <label>
+              <span>
+                {t("settings.hoshidicts.reader.definitionBlur.reveal")}
+              </span>
+              <select
+                id="hoshidicts-definition-blur-reveal-mode"
+                value={readerDraft.definitionBlur.revealMode}
+                disabled={preferencesBusy}
+                onChange={(event) =>
+                  setDefinitionBlurRevealMode(
+                    event.currentTarget.value === "hover" ? "hover" : "timed"
+                  )
+                }
+              >
+                <option value="timed">
+                  {t("settings.hoshidicts.reader.definitionBlur.timed")}
+                </option>
+                <option value="hover">
+                  {t("settings.hoshidicts.reader.definitionBlur.hover")}
+                </option>
+              </select>
+            </label>
+
+            {readerDraft.definitionBlur.revealMode === "timed" ? (
+              <label>
+                <span>
+                  {t("settings.hoshidicts.reader.definitionBlur.delay")}
+                </span>
+                <div className="hoshidicts-definition-blur__number">
+                  <input
+                    id="hoshidicts-definition-blur-reveal-delay"
+                    type="number"
+                    min={
+                      MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS / 1000
+                    }
+                    max={
+                      MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS / 1000
+                    }
+                    step={1}
+                    value={readerDraft.definitionBlur.revealDelayMs / 1000}
+                    disabled={preferencesBusy}
+                    onChange={(event) =>
+                      setDefinitionBlurRevealDelayMs(
+                        event.currentTarget.valueAsNumber * 1000
+                      )
+                    }
+                  />
+                  <span>
+                    {t("settings.hoshidicts.reader.definitionBlur.seconds")}
+                  </span>
+                </div>
+                <small>
+                  {t("settings.hoshidicts.reader.definitionBlur.delayHint")}
+                </small>
+              </label>
+            ) : null}
+          </div>
+        </div>
       </section>
 
       <section className="hoshidicts-section hoshidicts-section--toolbar">

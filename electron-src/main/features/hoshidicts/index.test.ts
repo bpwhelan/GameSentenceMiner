@@ -10,10 +10,20 @@ const harness = vi.hoisted(() => ({
     registerIPC: vi.fn(),
     configureLookupModeProvider: vi.fn(),
     configurePopupHideDelayProvider: vi.fn(),
+    configureDefinitionBlurProvider: vi.fn(),
     markPreferencesApplied: vi.fn(() => true),
     busRequest: vi.fn(async () => ({ applied: true })),
     startManager: vi.fn(async () => undefined),
-    managerSnapshot: { lookupMode: 'hover', popupHideDelayMs: 850 },
+    managerSnapshot: {
+        lookupMode: 'hover',
+        popupHideDelayMs: 850,
+        definitionBlur: {
+            enabled: true,
+            lookupThreshold: 9,
+            revealMode: 'hover',
+            revealDelayMs: 7500,
+        },
+    },
 }));
 
 vi.mock('../../runtime/bus_client.js', () => ({
@@ -42,9 +52,17 @@ vi.mock('../../ui/front.js', () => ({
     configureHoshidictsLookupModeProvider: harness.configureLookupModeProvider,
     configureHoshidictsPopupHideDelayProvider:
         harness.configurePopupHideDelayProvider,
+    configureHoshidictsDefinitionBlurProvider:
+        harness.configureDefinitionBlurProvider,
     getOverlayHoshidictsEnabledAtLaunch: () => false,
     getOverlayHoshidictsLookupModeAtLaunch: () => 'shift',
     getOverlayHoshidictsPopupHideDelayAtLaunch: () => 300,
+    getOverlayHoshidictsDefinitionBlurAtLaunch: () => ({
+        enabled: false,
+        lookupThreshold: 5,
+        revealMode: 'timed',
+        revealDelayMs: 5000,
+    }),
     getOverlayRuntimeState: () => ({
         isRunning: false,
         source: null,
@@ -79,6 +97,7 @@ describe('Hoshidicts feature registration', () => {
         harness.busHandler = null;
         harness.configureLookupModeProvider.mockReset();
         harness.configurePopupHideDelayProvider.mockReset();
+        harness.configureDefinitionBlurProvider.mockReset();
         harness.startManager.mockClear();
     });
 
@@ -110,17 +129,38 @@ describe('Hoshidicts feature registration', () => {
             harness.registerIPC.mock.calls[0][0].applyReaderPreferences({
                 lookupMode: 'hover',
                 popupHideDelayMs: 850,
+                definitionBlur: {
+                    enabled: true,
+                    lookupThreshold: 9,
+                    revealMode: 'hover',
+                    revealDelayMs: 7500,
+                },
             })
         ).resolves.toBe(true);
         expect(harness.busRequest).toHaveBeenCalledWith(
             'overlay.hoshidicts-reader',
             'hoshidicts.readerPreferences',
-            { lookupMode: 'hover', popupHideDelayMs: 850 },
+            {
+                lookupMode: 'hover',
+                popupHideDelayMs: 850,
+                definitionBlur: {
+                    enabled: true,
+                    lookupThreshold: 9,
+                    revealMode: 'hover',
+                    revealDelayMs: 7500,
+                },
+            },
             2000
         );
         expect(harness.markPreferencesApplied).toHaveBeenCalledWith({
             lookupMode: 'hover',
             popupHideDelayMs: 850,
+            definitionBlur: {
+                enabled: true,
+                lookupThreshold: 9,
+                revealMode: 'hover',
+                revealDelayMs: 7500,
+            },
         });
         expect(harness.busHandler).not.toBeNull();
 
@@ -150,6 +190,17 @@ describe('Hoshidicts feature registration', () => {
         const delayProvider =
             harness.configurePopupHideDelayProvider.mock.calls[0][0];
         await expect(delayProvider()).resolves.toBe(850);
+        expect(
+            harness.configureDefinitionBlurProvider
+        ).toHaveBeenCalledOnce();
+        const definitionBlurProvider =
+            harness.configureDefinitionBlurProvider.mock.calls[0][0];
+        await expect(definitionBlurProvider()).resolves.toEqual({
+            enabled: true,
+            lookupThreshold: 9,
+            revealMode: 'hover',
+            revealDelayMs: 7500,
+        });
     });
 
     it('keeps local settings IPC available if the desktop bus failed to start', async () => {

@@ -3,9 +3,11 @@ import type { BrowserWindow } from 'electron';
 import { getConfiguredHoshidictsEnabled } from '../../gsm_config.js';
 import { bus, getBusConnectInfo } from '../../runtime/bus_client.js';
 import {
+    configureHoshidictsDefinitionBlurProvider,
     configureHoshidictsLookupModeProvider,
     configureHoshidictsPopupHideDelayProvider,
     getOverlayHoshidictsEnabledAtLaunch,
+    getOverlayHoshidictsDefinitionBlurAtLaunch,
     getOverlayHoshidictsLookupModeAtLaunch,
     getOverlayHoshidictsPopupHideDelayAtLaunch,
     getOverlayRuntimeState,
@@ -75,6 +77,8 @@ export function registerHoshidictsFeature(deps: {
             getOverlayHoshidictsLookupModeAtLaunch,
         getOverlayPopupHideDelayAtLaunch:
             getOverlayHoshidictsPopupHideDelayAtLaunch,
+        getOverlayDefinitionBlurAtLaunch:
+            getOverlayHoshidictsDefinitionBlurAtLaunch,
         applyReaderPreferences,
         getMiningOptions: fetchHoshidictsMiningOptions,
         restartOverlay,
@@ -105,6 +109,10 @@ export async function startHoshidictsManager(): Promise<void> {
     configureHoshidictsPopupHideDelayProvider(
         async () =>
             (await getHoshidictsManager().getSnapshot()).popupHideDelayMs
+    );
+    configureHoshidictsDefinitionBlurProvider(
+        async () =>
+            (await getHoshidictsManager().getSnapshot()).definitionBlur
     );
 }
 

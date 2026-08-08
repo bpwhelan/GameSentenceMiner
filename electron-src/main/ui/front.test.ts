@@ -154,6 +154,10 @@ describe('runOverlayWithSource', () => {
                 GSM_CLIENT_ID: 'overlay',
                 GSM_HOSHIDICTS_ENABLED: '0',
                 GSM_HOSHIDICTS_LOOKUP_MODE: 'shift',
+                GSM_HOSHIDICTS_DEFINITION_BLUR_ENABLED: '0',
+                GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD: '5',
+                GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_MODE: 'timed',
+                GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS: '5000',
             }),
         });
         expect(getOverlayRuntimeState()).toEqual({
@@ -206,6 +210,12 @@ describe('runOverlayWithSource', () => {
         const front = await loadFrontModule();
         front.configureHoshidictsLookupModeProvider(async () => 'hover');
         front.configureHoshidictsPopupHideDelayProvider(async () => 850);
+        front.configureHoshidictsDefinitionBlurProvider(async () => ({
+            enabled: true,
+            lookupThreshold: 8,
+            revealMode: 'hover',
+            revealDelayMs: 7000,
+        }));
 
         await expect(front.runOverlayWithSource('manual')).resolves.toBe(true);
 
@@ -213,17 +223,63 @@ describe('runOverlayWithSource', () => {
             GSM_HOSHIDICTS_ENABLED: '1',
             GSM_HOSHIDICTS_LOOKUP_MODE: 'hover',
             GSM_HOSHIDICTS_POPUP_HIDE_DELAY_MS: '850',
+            GSM_HOSHIDICTS_DEFINITION_BLUR_ENABLED: '1',
+            GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD: '8',
+            GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_MODE: 'hover',
+            GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS: '7000',
         });
         expect(front.getOverlayHoshidictsLookupModeAtLaunch()).toBe('hover');
         expect(front.getOverlayHoshidictsPopupHideDelayAtLaunch()).toBe(850);
+        expect(front.getOverlayHoshidictsDefinitionBlurAtLaunch()).toEqual({
+            enabled: true,
+            lookupThreshold: 8,
+            revealMode: 'hover',
+            revealDelayMs: 7000,
+        });
         expect(
             front.markOverlayHoshidictsReaderPreferencesApplied({
                 lookupMode: 'shift',
                 popupHideDelayMs: 1200,
+                definitionBlur: {
+                    enabled: false,
+                    lookupThreshold: 10,
+                    revealMode: 'timed',
+                    revealDelayMs: 9000,
+                },
             })
         ).toBe(true);
         expect(front.getOverlayHoshidictsLookupModeAtLaunch()).toBe('shift');
         expect(front.getOverlayHoshidictsPopupHideDelayAtLaunch()).toBe(1200);
+        expect(front.getOverlayHoshidictsDefinitionBlurAtLaunch()).toEqual({
+            enabled: false,
+            lookupThreshold: 10,
+            revealMode: 'timed',
+            revealDelayMs: 9000,
+        });
+    });
+
+    it('falls back to safe definition blur launch defaults for invalid providers', async () => {
+        isDevValue = true;
+        hoshidictsEnabledValue = true;
+        existsSyncMock.mockReturnValue(true);
+        spawnMock.mockReturnValue(createProcessHandle());
+
+        const front = await loadFrontModule();
+        front.configureHoshidictsDefinitionBlurProvider(async () => ({
+            enabled: true,
+            lookupThreshold: 0,
+            revealMode: 'hover',
+            revealDelayMs: 999,
+        }));
+
+        await expect(front.runOverlayWithSource('manual')).resolves.toBe(true);
+
+        expect(spawnMock.mock.calls[0][2].env).toMatchObject({
+            GSM_HOSHIDICTS_DEFINITION_BLUR_ENABLED: '0',
+            GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD: '5',
+            GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_MODE: 'timed',
+            GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS: '5000',
+        });
     });
 
     it('stops the whole Windows process tree for source-launched overlays', async () => {
