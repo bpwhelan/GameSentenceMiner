@@ -3,6 +3,7 @@ import {
   ArrowUp,
   Eraser,
   FileArchive,
+  FileJson,
   Keyboard,
   RefreshCw,
   Save,
@@ -593,6 +594,15 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
           >
             <FileArchive size={17} aria-hidden="true" />
             {t("settings.hoshidicts.import")}
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => void actions.importYomitanBackup()}
+            disabled={dictionaryBusy}
+          >
+            <FileJson size={17} aria-hidden="true" />
+            {t("settings.hoshidicts.importYomitan")}
           </button>
           <button
             type="button"

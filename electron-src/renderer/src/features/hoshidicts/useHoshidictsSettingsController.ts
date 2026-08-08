@@ -131,13 +131,14 @@ export function useHoshidictsSettingsController() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [restarting, setRestarting] = useState(false);
+  const [importingYomitan, setImportingYomitan] = useState(false);
   const draftSynchronizersRef = useRef<DraftSynchronizers | null>(null);
 
   useEffect(() => {
     viewRef.current = view;
   }, [view]);
 
-  const applyState = useCallback((value: unknown) => {
+  const applyState = useCallback((value: unknown, forceDrafts = false) => {
     const normalized = normalizeHoshidictsDesktopState(value);
     if (normalized.revision < highestRevisionRef.current) return null;
     highestRevisionRef.current = normalized.revision;
@@ -164,9 +165,9 @@ export function useHoshidictsSettingsController() {
       synchronizers.audio(audio, true);
       return normalized;
     }
-    synchronizers.reader(reader);
-    synchronizers.mining(mining);
-    synchronizers.audio(audio);
+    synchronizers.reader(reader, forceDrafts);
+    synchronizers.mining(mining, forceDrafts);
+    synchronizers.audio(audio, forceDrafts);
     return normalized;
   }, []);
 
@@ -175,15 +176,24 @@ export function useHoshidictsSettingsController() {
       if (!result.outcome) return null;
       return t(`settings.hoshidicts.outcomes.${result.outcome.code}`, {
         count: result.outcome.count ?? 0,
-        title: result.outcome.title ?? ""
+        title: result.outcome.title ?? "",
+        dictionaries:
+          (result.yomitanReport?.imported ?? 0) +
+          (result.yomitanReport?.replaced ?? 0),
+        settings: result.yomitanReport?.settings.length ?? 0,
+        warnings: result.yomitanReport?.warnings.length ?? 0
       });
     },
     [t]
   );
 
   const applyResult = useCallback(
-    (result: HoshidictsActionResult, showOutcome = true): boolean => {
-      if (result.state) applyState(result.state);
+    (
+      result: HoshidictsActionResult,
+      showOutcome = true,
+      forceDrafts = false
+    ): boolean => {
+      if (result.state) applyState(result.state, forceDrafts);
       if (result.canceled) {
         setActionError(null);
         return true;
@@ -566,12 +576,13 @@ export function useHoshidictsSettingsController() {
   const runAction = useCallback(
     async (
       action: () => Promise<HoshidictsActionResult>,
-      fallbackKey: string
+      fallbackKey: string,
+      forceDrafts = false
     ): Promise<boolean> => {
       setActionError(null);
       setNotice(null);
       try {
-        return applyResult(await action());
+        return applyResult(await action(), true, forceDrafts);
       } catch (error) {
         setActionError(errorMessage(error, t(fallbackKey)));
         return false;
@@ -587,6 +598,18 @@ export function useHoshidictsSettingsController() {
           () => invokeIpc(HOSHIDICTS_CHANNELS.importDictionary),
           "settings.hoshidicts.errors.import"
         ),
+      importYomitanBackup: async () => {
+        setImportingYomitan(true);
+        try {
+          return await runAction(
+            () => invokeIpc(HOSHIDICTS_CHANNELS.importYomitanBackup),
+            "settings.hoshidicts.errors.importYomitan",
+            true
+          );
+        } finally {
+          setImportingYomitan(false);
+        }
+      },
       checkUpdates: () =>
         runAction(
           () => invokeIpc(HOSHIDICTS_CHANNELS.checkUpdates),
@@ -659,15 +682,17 @@ export function useHoshidictsSettingsController() {
     [runAction]
   );
 
-  const dictionaryBusy = state ? isScopedBusy(state, "dictionary") : true;
+  const dictionaryBusy = state
+    ? importingYomitan || isScopedBusy(state, "dictionary")
+    : true;
   const preferencesBusy = state
-    ? isScopedBusy(state, "preferences") || readerSaving
+    ? importingYomitan || isScopedBusy(state, "preferences") || readerSaving
     : true;
   const miningBusy = state
-    ? isScopedBusy(state, "mining") || miningSaving
+    ? importingYomitan || isScopedBusy(state, "mining") || miningSaving
     : true;
   const audioBusy = state
-    ? isScopedBusy(state, "audio") || audioSaving
+    ? importingYomitan || isScopedBusy(state, "audio") || audioSaving
     : true;
   const customBusy = state
     ? isScopedBusy(state, "custom") || customLoading || customSaving

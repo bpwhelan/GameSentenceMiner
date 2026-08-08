@@ -173,6 +173,7 @@ async function main() {
     'dist/main/features/hoshidicts/audio_profile.js',
     'dist/main/features/hoshidicts/profile.js',
     'dist/main/features/hoshidicts/window.js',
+    'dist/main/features/hoshidicts/yomitan_backup.js',
     'dist/shared/features/hoshidicts.js',
   ]);
   const rendererBundle = [...desktopEntries].find(

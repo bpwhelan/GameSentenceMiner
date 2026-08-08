@@ -3,6 +3,7 @@ export const HOSHIDICTS_CHANNELS = {
     getState: 'hoshidicts.getState',
     progress: 'hoshidicts.progress',
     importDictionary: 'hoshidicts.import',
+    importYomitanBackup: 'hoshidicts.importYomitanBackup',
     installAllRecommended: 'hoshidicts.installAllRecommended',
     installRecommended: 'hoshidicts.installRecommended',
     checkUpdates: 'hoshidicts.checkUpdates',
@@ -442,6 +443,25 @@ export interface HoshidictsProgress {
     total?: number;
 }
 
+export interface HoshidictsYomitanDictionaryPreference {
+    title: string;
+    enabled: boolean;
+}
+
+export type HoshidictsYomitanSettingsGroup =
+    | 'dictionaries'
+    | 'reader'
+    | 'anki'
+    | 'audio';
+
+export interface HoshidictsYomitanImportReport {
+    imported: number;
+    replaced: number;
+    failed: number;
+    settings: HoshidictsYomitanSettingsGroup[];
+    warnings: string[];
+}
+
 export interface HoshidictsCustomDictionaryDocument {
     text: string;
     revision: string;
@@ -510,6 +530,7 @@ export interface HoshidictsActionResult {
             | 'miningProfileSaved'
             | 'audioProfileSaved'
             | 'dictionaryImported'
+            | 'yomitanBackupImported'
             | 'recommendedInstalled'
             | 'updatesChecked'
             | 'dictionaryRemoved'
@@ -520,6 +541,7 @@ export interface HoshidictsActionResult {
         title?: string;
     };
     document?: HoshidictsCustomDictionaryDocument;
+    yomitanReport?: HoshidictsYomitanImportReport;
     state: HoshidictsDesktopSnapshot;
 }
 

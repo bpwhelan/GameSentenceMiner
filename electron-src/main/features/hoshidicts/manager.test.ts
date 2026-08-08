@@ -290,6 +290,40 @@ afterEach(() => {
 });
 
 describe('Hoshidicts immutable generations', () => {
+    it('applies Yomitan dictionary order and enabled preferences without removing extras', async () => {
+        const baseDir = makeTempDir();
+        const archivesDir = makeTempDir();
+        const { manager, reloadNative } = createHarness(baseDir);
+        for (const title of ['Alpha', 'Beta', 'Gamma']) {
+            await manager.importDictionary(
+                writeArchive(archivesDir, `${title}.zip`, {
+                    title,
+                    revision: 'one',
+                    sourceLanguage: 'ja',
+                })
+            );
+        }
+        reloadNative.mockClear();
+
+        const snapshot = await manager.applyYomitanDictionaryPreferences([
+            { title: 'Beta', enabled: false },
+            { title: 'Alpha', enabled: true },
+            { title: 'Missing', enabled: false },
+        ]);
+
+        expect(
+            snapshot.dictionaries.map(({ title, enabled }) => ({
+                title,
+                enabled,
+            }))
+        ).toEqual([
+            { title: 'Beta', enabled: false },
+            { title: 'Alpha', enabled: true },
+            { title: 'Gamma', enabled: true },
+        ]);
+        expect(reloadNative).toHaveBeenCalledOnce();
+    });
+
     it('replaces a reimported dictionary without changing its ordering, enabled state, or presentation', async () => {
         const baseDir = makeTempDir();
         const archivesDir = makeTempDir();

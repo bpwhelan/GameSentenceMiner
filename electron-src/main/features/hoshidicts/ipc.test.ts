@@ -7,6 +7,7 @@ const harness = vi.hoisted(() => ({
     fromWebContents: vi.fn(),
     showMessageBox: vi.fn(),
     showOpenDialog: vi.fn(),
+    prepareYomitanBackupFiles: vi.fn(),
     subscriber: null as ((snapshot: any) => void) | null,
     configuredEnabled: true,
     enabledAtLaunch: false as boolean | null,
@@ -32,6 +33,7 @@ const harness = vi.hoisted(() => ({
         subscribe: vi.fn(),
         getSnapshot: vi.fn(),
         importDictionary: vi.fn(),
+        applyYomitanDictionaryPreferences: vi.fn(),
         installRecommendedDictionaries: vi.fn(),
         installRecommendedDictionary: vi.fn(),
         checkForUpdates: vi.fn(),
@@ -70,6 +72,10 @@ vi.mock('electron', () => ({
 
 vi.mock('./manager.js', () => ({
     getHoshidictsManager: () => harness.manager,
+}));
+
+vi.mock('./yomitan_backup.js', () => ({
+    prepareYomitanBackupFiles: harness.prepareYomitanBackupFiles,
 }));
 
 const snapshot = {
@@ -161,6 +167,9 @@ async function registerHarness() {
     });
     harness.manager.getSnapshot.mockResolvedValue(snapshot);
     harness.manager.importDictionary.mockResolvedValue(snapshot);
+    harness.manager.applyYomitanDictionaryPreferences.mockResolvedValue(
+        snapshot
+    );
     harness.manager.installRecommendedDictionaries.mockResolvedValue(snapshot);
     harness.manager.installRecommendedDictionary.mockResolvedValue(snapshot);
     harness.manager.checkForUpdates.mockResolvedValue(snapshot);
@@ -168,6 +177,7 @@ async function registerHarness() {
     harness.manager.setLookupMode.mockResolvedValue(snapshot);
     harness.manager.setReaderPreferences.mockResolvedValue(snapshot);
     harness.manager.setAudioProfile.mockResolvedValue(snapshot);
+    harness.manager.setMiningProfile.mockResolvedValue(snapshot);
     harness.manager.setDictionaryPresentation.mockResolvedValue(snapshot);
     harness.manager.moveDictionary.mockResolvedValue(snapshot);
     const customDocument = {
@@ -295,6 +305,36 @@ describe('Hoshidicts settings IPC', () => {
             revealMode: 'timed',
             revealDelayMs: 5000,
         };
+    });
+
+    it('imports a selected Yomitan dictionary backup through the existing manager', async () => {
+        const cleanup = vi.fn(async () => undefined);
+        harness.prepareYomitanBackupFiles.mockResolvedValueOnce({
+            dictionaries: [
+                { title: 'JMdict', archivePath: '/tmp/jmdict.zip' },
+            ],
+            settings: null,
+            cleanup,
+        });
+        harness.showOpenDialog.mockResolvedValueOnce({
+            canceled: false,
+            filePaths: ['/tmp/yomitan-dictionaries.json'],
+        });
+        const context = await registerHarness();
+
+        await expect(
+            harness.handlers.get('hoshidicts.importYomitanBackup')?.({
+                sender: context.settingsContents,
+            })
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'yomitanBackupImported', count: 1 },
+            yomitanReport: { imported: 1, replaced: 0, failed: 0 },
+        });
+        expect(harness.manager.importDictionary).toHaveBeenCalledWith(
+            '/tmp/jmdict.zip'
+        );
+        expect(cleanup).toHaveBeenCalledOnce();
     });
 
     it('saves audio profiles, applies them live, and exposes failed sync restart state', async () => {

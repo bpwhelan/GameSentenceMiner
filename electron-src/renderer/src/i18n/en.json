@@ -640,6 +640,7 @@
         "hoverHint": "Hoshidicts looks up text automatically when you hover, like Yomitan."
       },
       "import": "Import Dictionary...",
+      "importYomitan": "Import Yomitan Backup...",
       "checkNow": "Check for Updates Now",
       "schedule": "Global update schedule:",
       "schedules": {
@@ -816,6 +817,7 @@
         "audioProfileSaved": "Audio preferences saved.",
         "miningProfileSaved": "Mining profile saved.",
         "dictionaryImported": "Dictionary imported.",
+        "yomitanBackupImported": "Imported from Yomitan: {dictionaries} dictionaries and {settings} settings groups ({warnings} warnings).",
         "recommendedInstalled": "Installed {count} recommended dictionaries.",
         "updatesChecked": "Dictionary update check complete.",
         "dictionaryRemoved": "Removed {title}.",
@@ -837,6 +839,7 @@
         "load": "Failed to load Hoshidicts state.",
         "operation": "Hoshidicts operation failed.",
         "import": "Dictionary import failed.",
+        "importYomitan": "Yomitan backup import failed.",
         "remove": "Dictionary removal failed.",
         "update": "Dictionary update check failed.",
         "schedule": "Failed to save the dictionary update schedule.",

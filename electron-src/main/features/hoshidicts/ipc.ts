@@ -36,8 +36,10 @@ import {
     type HoshidictsReaderPreferencesRequest,
     type HoshidictsRecommendedDictionaryId,
     type HoshidictsSchedule,
+    type HoshidictsYomitanImportReport,
 } from '../../../shared/features/hoshidicts.js';
 import { getHoshidictsManager } from './manager.js';
+import { prepareYomitanBackupFiles } from './yomitan_backup.js';
 
 export interface HoshidictsIPCDependencies {
     getMainWindow: () => BrowserWindow | null;
@@ -390,6 +392,125 @@ export function registerHoshidictsIPC(
             },
             { code: 'dictionaryImported' }
         );
+    });
+
+    ipcMain.handle(HOSHIDICTS_CHANNELS.importYomitanBackup, async (event) => {
+        assertSettingsSender(event, deps);
+        const settingsWindow = deps.getSettingsWindow();
+        const options: OpenDialogOptions = {
+            title: 'Import from Yomitan',
+            properties: ['openFile', 'multiSelections'],
+            filters: [{ name: 'Yomitan Backup', extensions: ['json'] }],
+        };
+        const result = settingsWindow
+            ? await dialog.showOpenDialog(settingsWindow, options)
+            : await dialog.showOpenDialog(options);
+        if (result.canceled || result.filePaths.length === 0) {
+            return {
+                success: false,
+                canceled: true,
+                state: await currentState(deps),
+            } satisfies HoshidictsActionResult;
+        }
+
+        let prepared: Awaited<
+            ReturnType<typeof prepareYomitanBackupFiles>
+        > | null = null;
+        try {
+            const before = await manager.getSnapshot();
+            prepared = await prepareYomitanBackupFiles(
+                result.filePaths,
+                before
+            );
+            const installedTitles = new Set(
+                before.dictionaries.map((dictionary) => dictionary.title)
+            );
+            const report: HoshidictsYomitanImportReport = {
+                imported: 0,
+                replaced: 0,
+                failed: 0,
+                settings: prepared.settings?.groups ?? [],
+                warnings: [...(prepared.settings?.warnings ?? [])],
+            };
+            let state = before;
+            for (const dictionary of prepared.dictionaries) {
+                try {
+                    state = await manager.importDictionary(
+                        dictionary.archivePath
+                    );
+                    if (installedTitles.has(dictionary.title)) {
+                        report.replaced += 1;
+                    } else {
+                        report.imported += 1;
+                        installedTitles.add(dictionary.title);
+                    }
+                } catch (error) {
+                    report.failed += 1;
+                    report.warnings.push(
+                        `${dictionary.title}: ${errorMessage(error)}`
+                    );
+                }
+            }
+
+            const settings = prepared.settings;
+            if (settings) {
+                if (settings.dictionaries.length > 0) {
+                    state = await manager.applyYomitanDictionaryPreferences(
+                        settings.dictionaries
+                    );
+                }
+                if (settings.miningProfile) {
+                    state = await manager.setMiningProfile(
+                        settings.miningProfile
+                    );
+                }
+                if (settings.audioProfile) {
+                    state = await manager.setAudioProfile(
+                        settings.audioProfile
+                    );
+                    await deps.applyAudioProfile(state.audioProfile);
+                }
+                if (settings.readerPreferences) {
+                    const reader = settings.readerPreferences;
+                    state = await manager.setReaderPreferences(
+                        reader.lookupMode,
+                        reader.popupHideDelayMs,
+                        reader.activationKey,
+                        reader.sourceHighlightEnabled,
+                        reader.popupNestingMaxDepth,
+                        reader.definitionBlur,
+                        reader.showLookupCounts
+                    );
+                }
+            }
+            await applyReaderSnapshot(state, deps);
+            if (
+                report.imported + report.replaced === 0 &&
+                report.settings.length === 0
+            ) {
+                throw new Error(
+                    report.warnings[0] ||
+                        'The Yomitan backup did not contain anything to import.'
+                );
+            }
+            return {
+                success: true,
+                outcome: {
+                    code: 'yomitanBackupImported',
+                    count: report.imported + report.replaced,
+                },
+                yomitanReport: report,
+                state: withDesktopState(state, deps),
+            } satisfies HoshidictsActionResult;
+        } catch (error) {
+            return {
+                success: false,
+                error: errorMessage(error),
+                state: await currentState(deps),
+            } satisfies HoshidictsActionResult;
+        } finally {
+            await prepared?.cleanup();
+        }
     });
 
     ipcMain.handle(

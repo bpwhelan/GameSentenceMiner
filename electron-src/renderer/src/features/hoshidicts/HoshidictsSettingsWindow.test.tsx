@@ -675,6 +675,7 @@ describe("HoshidictsSettingsWindow", () => {
 
     await act(async () => {
       buttonContaining("Import Dictionary")?.click();
+      buttonContaining("Import Yomitan Backup")?.click();
       buttonContaining("Check for Updates")?.click();
       buttonContaining("Install default set")?.click();
       buttons.find((button) => button.textContent?.trim() === "Install")?.click();
@@ -692,6 +693,9 @@ describe("HoshidictsSettingsWindow", () => {
 
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.importDictionary
+    );
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.importYomitanBackup
     );
     expect(invokeMock).toHaveBeenCalledWith(HOSHIDICTS_CHANNELS.checkUpdates);
     expect(invokeMock).toHaveBeenCalledWith(

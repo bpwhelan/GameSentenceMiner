@@ -622,6 +622,7 @@
         "hoverHint": "Hoshidicts автоматично шукає текст під вказівником, як Yomitan."
       },
       "import": "Імпортувати словник...",
+      "importYomitan": "Імпортувати резервну копію Yomitan...",
       "checkNow": "Перевірити оновлення зараз",
       "schedule": "Загальний розклад оновлень:",
       "schedules": {
@@ -798,6 +799,7 @@
         "audioProfileSaved": "Налаштування аудіо збережено.",
         "miningProfileSaved": "Профіль видобування збережено.",
         "dictionaryImported": "Словник імпортовано.",
+        "yomitanBackupImported": "Імпортовано з Yomitan: словників — {dictionaries}, груп налаштувань — {settings}, попереджень — {warnings}.",
         "recommendedInstalled": "Встановлено рекомендованих словників: {count}.",
         "updatesChecked": "Перевірку оновлень словників завершено.",
         "dictionaryRemoved": "Видалено {title}.",
@@ -819,6 +821,7 @@
         "load": "Не вдалося завантажити стан Hoshidicts.",
         "operation": "Операція Hoshidicts завершилася помилкою.",
         "import": "Не вдалося імпортувати словник.",
+        "importYomitan": "Не вдалося імпортувати резервну копію Yomitan.",
         "remove": "Не вдалося видалити словник.",
         "update": "Не вдалося перевірити оновлення словників.",
         "schedule": "Не вдалося зберегти розклад оновлень словників.",
