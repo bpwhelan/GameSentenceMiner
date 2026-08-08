@@ -65,7 +65,8 @@ function runOverlayFeatureBootstrap(
   enabled: boolean,
   lookupMode?: string,
   activationKey?: string,
-  sourceHighlightEnabled?: string
+  sourceHighlightEnabled?: string,
+  popupNestingMaxDepth?: string
 ) {
   const html = fs.readFileSync(
     path.resolve(process.cwd(), "GSM_Overlay/index.html"),
@@ -90,7 +91,8 @@ function runOverlayFeatureBootstrap(
         GSM_HOSHIDICTS_ENABLED: enabled ? "1" : "0",
         GSM_HOSHIDICTS_LOOKUP_MODE: lookupMode,
         GSM_HOSHIDICTS_ACTIVATION_KEY: activationKey,
-        GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED: sourceHighlightEnabled
+        GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED: sourceHighlightEnabled,
+        GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH: popupNestingMaxDepth
       }
     },
     window
@@ -101,7 +103,8 @@ function runOverlayFeatureBootstrap(
 function runHoshidictsReaderConfiguration(
   lookupMode: string,
   activationKey: string = "Shift",
-  sourceHighlightEnabled: boolean = false
+  sourceHighlightEnabled: boolean = false,
+  popupNestingMaxDepth = 10
 ) {
   const html = fs.readFileSync(
     path.resolve(process.cwd(), "GSM_Overlay/index.html"),
@@ -137,6 +140,7 @@ function runHoshidictsReaderConfiguration(
     gsmHoshidictsActivationKeyPressed: false,
     gsmHoshidictsLookupMode: lookupMode,
     gsmHoshidictsSourceHighlightEnabled: sourceHighlightEnabled,
+    gsmHoshidictsPopupNestingMaxDepth: popupNestingMaxDepth,
     gsmHoshidictsReaderEnabled: true,
     GSMHoshidictsReader: {
       createHoshidictsAudioClient,
@@ -561,6 +565,7 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(enabled.window.gsmHoshidictsActivationKey).toBe("Shift");
     expect(enabled.window.gsmHoshidictsActivationKeyPressed).toBe(false);
     expect(enabled.window.gsmHoshidictsSourceHighlightEnabled).toBe(false);
+    expect(enabled.window.gsmHoshidictsPopupNestingMaxDepth).toBe(10);
     expect(enabled.addClass).toHaveBeenCalledWith("gsm-hoshidicts-enabled");
     expect(enabled.documentElement.dataset.gsmHoshidictsEnabled).toBe("true");
 
@@ -583,14 +588,20 @@ describe("Hoshidicts safe popup rendering", () => {
       runOverlayFeatureBootstrap(true, "invalid").window.gsmHoshidictsLookupMode
     ).toBe("shift");
 
-    const configured = runHoshidictsReaderConfiguration("hover", "F8", true);
+    expect(runOverlayFeatureBootstrap(true, "hover", undefined, undefined, "0").window
+      .gsmHoshidictsPopupNestingMaxDepth).toBe(0);
+    expect(runOverlayFeatureBootstrap(true, "hover", undefined, undefined, "invalid").window
+      .gsmHoshidictsPopupNestingMaxDepth).toBe(10);
+
+    const configured = runHoshidictsReaderConfiguration("hover", "F8", true, 4);
     expect(configured.createHoshidictsReader).toHaveBeenCalledWith(
       expect.objectContaining({
         lookupMode: "hover",
         activationKey: "F8",
         activationKeyPressed: false,
         audioClient: { kind: "audio" },
-        sourceHighlightEnabled: true
+        sourceHighlightEnabled: true,
+        popupNestingMaxDepth: 4
       })
     );
     expect(configured.createHoshidictsAudioClient).toHaveBeenCalledWith({
@@ -665,6 +676,7 @@ describe("Hoshidicts safe popup rendering", () => {
       lookupMode: "shift",
       activationKey: "F9",
       popupHideDelayMs: 450,
+      popupNestingMaxDepth: 10,
       sourceHighlightEnabled: true
     });
 
@@ -2617,24 +2629,1012 @@ describe("Hoshidicts Shift-hover scanner", () => {
       lookupMode: "shift",
       activationKey: "Shift",
       sourceHighlightEnabled: false,
-      popupHideDelayMs: 300
+      popupHideDelayMs: 300,
+      popupNestingMaxDepth: 10
     });
     expect(reader.updatePreferences({
       lookupMode: "hover",
       activationKey: "f24",
       sourceHighlightEnabled: true,
-      popupHideDelayMs: 9000
+      popupHideDelayMs: 9000,
+      popupNestingMaxDepth: 2
     })).toEqual({
       lookupMode: "hover",
       activationKey: "F24",
       sourceHighlightEnabled: true,
-      popupHideDelayMs: 5000
+      popupHideDelayMs: 5000,
+      popupNestingMaxDepth: 2
     });
     expect(reader.updatePreferences({ popupHideDelayMs: -20 })).toEqual({
       lookupMode: "hover",
       activationKey: "F24",
       sourceHighlightEnabled: true,
-      popupHideDelayMs: 0
+      popupHideDelayMs: 0,
+      popupNestingMaxDepth: 2
+    });
+    expect(reader.updatePreferences({ popupNestingMaxDepth: -1 }))
+      .toEqual({
+        lookupMode: "hover",
+        activationKey: "F24",
+        sourceHighlightEnabled: true,
+        popupHideDelayMs: 0,
+        popupNestingMaxDepth: 2
+      });
+    reader.destroy();
+  });
+
+  it("opens one child from definition text, preserves its parent, and prunes live", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      popupNestingMaxDepth: 1,
+      sourceHighlightEnabled: true,
+      logger: { debug() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const rootRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(rootRequest.requestId, "食べる", "食事を口に入れる"));
+
+    const rootPopup = reader.getPopupElement();
+    const definition = rootPopup.querySelector<HTMLElement>(
+      ".gsm-hoshidicts-glossary-content"
+    )!;
+    const definitionText = definition.firstChild!;
+    const caret = dom.window.document.createRange();
+    caret.setStart(definitionText, 0);
+    caret.collapse(true);
+    Object.defineProperty(dom.window.document, "caretRangeFromPoint", {
+      configurable: true,
+      value: vi.fn(() => caret.cloneRange())
+    });
+
+    definition.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 40,
+      clientY: 40
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const childRequest = JSON.parse(socket.sent.at(-1)!);
+    expect(childRequest).toMatchObject({
+      type: "hoshidicts_lookup",
+      text: "食事を口に入れる"
+    });
+    socket.receive(lookupResult(childRequest.requestId, "食事", "meal"));
+
+    expect(reader.getPopupElements()).toHaveLength(2);
+    expect(reader.getPopupElements()[0]).toBe(rootPopup);
+    expect(rootPopup.textContent).toContain("食事を口に入れる");
+    expect(reader.getPopupElements()[1].textContent).toContain("meal");
+    expect(first.classList.contains("gsm-hoshidicts-source-match")).toBe(true);
+    expect(definition.classList.contains("gsm-hoshidicts-source-match")).toBe(true);
+
+    dom.window.document.body.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 200,
+      clientY: 200
+    }));
+    await vi.advanceTimersByTimeAsync(299);
+    reader.getPopupElements()[1].dispatchEvent(new dom.window.Event("pointerenter"));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(reader.getPopupElements()).toHaveLength(2);
+    reader.getPopupElements()[1].dispatchEvent(new dom.window.Event("pointerleave"));
+    definition.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 40,
+      clientY: 40
+    }));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(reader.getPopupElements()).toHaveLength(2);
+
+    reader.updatePreferences({ popupNestingMaxDepth: 0 });
+    expect(reader.getPopupElements()).toHaveLength(1);
+    expect(reader.isVisible()).toBe(true);
+    expect(rootPopup.textContent).toContain("食事を口に入れる");
+    expect(first.classList.contains("gsm-hoshidicts-source-match")).toBe(true);
+    expect(definition.classList.contains("gsm-hoshidicts-source-match")).toBe(false);
+    reader.destroy();
+  });
+
+  it("keeps unresolved parent media alive while rendering a child popup", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const createObjectURL = vi.fn(() => "blob:parent-image");
+    const revokeObjectURL = vi.fn();
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      popupNestingMaxDepth: 1,
+      Blob: dom.window.Blob,
+      createObjectURL,
+      revokeObjectURL,
+      logger: { debug() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const rootRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(
+      rootRequest.requestId,
+      "食べる",
+      JSON.stringify({
+        type: "structured-content",
+        content: [
+          { tag: "span", content: "食事" },
+          { tag: "img", path: "img/parent.jpg" }
+        ]
+      }),
+      7
+    ));
+    const parentMediaRequest = socket.sent
+      .map((value) => JSON.parse(value))
+      .find((value) => value.type === "hoshidicts_media");
+    const definition = reader.getPopupElement().querySelector<HTMLElement>(
+      ".gsm-hoshidicts-glossary-content"
+    )!;
+    const parentImage = definition.querySelector<HTMLImageElement>("img")!;
+    const caret = dom.window.document.createRange();
+    caret.setStart(definition.querySelector("span")!.firstChild!, 0);
+    caret.collapse(true);
+    Object.defineProperty(dom.window.document, "caretRangeFromPoint", {
+      configurable: true,
+      value: vi.fn(() => caret.cloneRange())
+    });
+
+    definition.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 40,
+      clientY: 40
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const childRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(
+      childRequest.requestId,
+      "食事",
+      JSON.stringify({
+        type: "structured-content",
+        content: [
+          { tag: "span", content: "meal" },
+          { tag: "img", path: "img/parent.jpg" }
+        ]
+      }),
+      7
+    ));
+    await flushPromises();
+    expect(parentImage.hidden).toBe(false);
+
+    const childMediaRequest = socket.sent
+      .map((value) => JSON.parse(value))
+      .filter((value) => value.type === "hoshidicts_media")
+      .at(-1)!;
+    expect(childMediaRequest.requestId).not.toBe(parentMediaRequest.requestId);
+
+    socket.receive({
+      type: "hoshidicts_media_result",
+      requestId: parentMediaRequest.requestId,
+      success: true,
+      generation: 7,
+      dictionary: "JMdict",
+      path: "img/parent.jpg",
+      mediaType: "image/jpeg",
+      byteLength: 5,
+      width: 64,
+      height: 64,
+      dataBase64: "/9j/4AA=",
+      featureDisabled: false,
+      staleGeneration: false,
+      error: null
+    });
+    await flushPromises();
+    socket.receive({
+      type: "hoshidicts_media_result",
+      requestId: childMediaRequest.requestId,
+      success: true,
+      generation: 7,
+      dictionary: "JMdict",
+      path: "img/parent.jpg",
+      mediaType: "image/jpeg",
+      byteLength: 5,
+      width: 64,
+      height: 64,
+      dataBase64: "/9j/4AA=",
+      featureDisabled: false,
+      staleGeneration: false,
+      error: null
+    });
+    await flushPromises();
+
+    expect(parentImage.src).toBe("blob:parent-image");
+    expect(
+      reader.getPopupElements()[1].querySelector<HTMLImageElement>("img")?.src
+    ).toBe("blob:parent-image");
+    expect(createObjectURL).toHaveBeenCalledOnce();
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+    reader.destroy();
+  });
+
+  it("enforces the decoded-pixel budget across the visible popup chain", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    let blobSequence = 0;
+    const createObjectURL = vi.fn(() => `blob:chain-${++blobSequence}`);
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      popupNestingMaxDepth: 1,
+      Blob: dom.window.Blob,
+      createObjectURL,
+      revokeObjectURL: vi.fn(),
+      logger: { debug() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const rootRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(
+      rootRequest.requestId,
+      "食べる",
+      JSON.stringify({
+        type: "structured-content",
+        content: [
+          { tag: "span", content: "食事" },
+          { tag: "img", path: "img/root-1.jpg" },
+          { tag: "img", path: "img/root-2.jpg" }
+        ]
+      }),
+      8
+    ));
+    const rootMediaRequests = socket.sent
+      .map((value) => JSON.parse(value))
+      .filter((value) => value.type === "hoshidicts_media");
+    expect(rootMediaRequests).toHaveLength(2);
+    for (const request of rootMediaRequests) {
+      socket.receive({
+        type: "hoshidicts_media_result",
+        requestId: request.requestId,
+        success: true,
+        generation: 8,
+        dictionary: "JMdict",
+        path: request.path,
+        mediaType: "image/jpeg",
+        byteLength: 5,
+        width: 4096,
+        height: 4096,
+        dataBase64: "/9j/4AA=",
+        featureDisabled: false,
+        staleGeneration: false,
+        error: null
+      });
+    }
+    await flushPromises();
+
+    const definition = reader.getPopupElement().querySelector<HTMLElement>(
+      ".gsm-hoshidicts-glossary-content"
+    )!;
+    const caret = dom.window.document.createRange();
+    caret.setStart(definition.querySelector("span")!.firstChild!, 0);
+    caret.collapse(true);
+    Object.defineProperty(dom.window.document, "caretRangeFromPoint", {
+      configurable: true,
+      value: vi.fn(() => caret.cloneRange())
+    });
+    definition.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 40,
+      clientY: 40
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const childRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(
+      childRequest.requestId,
+      "食事",
+      JSON.stringify({
+        type: "structured-content",
+        content: [
+          { tag: "span", content: "料理" },
+          { tag: "img", path: "img/child.jpg" }
+        ]
+      }),
+      8
+    ));
+    await flushPromises();
+
+    const allMediaRequests = socket.sent
+      .map((value) => JSON.parse(value))
+      .filter((value) => value.type === "hoshidicts_media");
+    expect(allMediaRequests).toHaveLength(2);
+    expect(createObjectURL).toHaveBeenCalledTimes(2);
+    expect(
+      reader.getPopupElements()[1].querySelector<HTMLImageElement>("img")?.hidden
+    ).toBe(true);
+    reader.destroy();
+  });
+
+  it("retains aggregate parent audio ownership while opening and pruning a child", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const audioController = createAudioControllerStub();
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      popupHideDelayMs: 0,
+      popupNestingMaxDepth: 1,
+      audioController,
+      logger: { debug() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const rootRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(rootRequest.requestId, "食べる", "食事"));
+    const rootPopup = reader.getPopupElement();
+    const parentAudioButton = rootPopup.querySelector<HTMLButtonElement>(
+      ".gsm-hoshidicts-audio-button"
+    )!;
+    const beginLookupCount = audioController.beginLookup.mock.calls.length;
+    const definition = rootPopup.querySelector<HTMLElement>(
+      ".gsm-hoshidicts-glossary-content"
+    )!;
+    const caret = dom.window.document.createRange();
+    caret.setStart(definition.firstChild!, 0);
+    caret.collapse(true);
+    Object.defineProperty(dom.window.document, "caretRangeFromPoint", {
+      configurable: true,
+      value: vi.fn(() => caret.cloneRange())
+    });
+
+    definition.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 40,
+      clientY: 40
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    expect(audioController.beginLookup).toHaveBeenCalledTimes(beginLookupCount);
+    const childRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(childRequest.requestId, "食事", "meal"));
+
+    const childSync = audioController.setRenderedResults.mock.calls.at(-1)!;
+    expect(childSync[0]).toHaveLength(2);
+    expect(childSync[0][0].button.closest(".gsm-hoshidicts-popup")?.dataset
+      .hoshidictsDepth).toBe("1");
+    expect(childSync[1]).toEqual({ autoPlay: true });
+
+    rootPopup.querySelector<HTMLElement>(".gsm-hoshidicts-entry-header")!
+      .dispatchEvent(new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 40,
+        clientY: 40
+      }));
+    const parentSync = audioController.setRenderedResults.mock.calls.at(-1)!;
+    expect(reader.getPopupElements()).toEqual([rootPopup]);
+    expect(parentSync[0]).toHaveLength(1);
+    expect(parentSync[0][0].button).toBe(parentAudioButton);
+    expect(parentSync[1]).toEqual({ autoPlay: false });
+    reader.destroy();
+  });
+
+  it("uses the hovered definition as child mining sentence context", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const mine = vi.fn(async () => ({ success: true, noteId: 123 }));
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      popupNestingMaxDepth: 1,
+      getMiningStatus: async () => ({ available: true }),
+      onMine: mine,
+      logger: { debug() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const rootRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(rootRequest.requestId, "食べる", "説明：食事を選ぶ"));
+
+    const definition = reader.getPopupElement().querySelector<HTMLElement>(
+      ".gsm-hoshidicts-glossary-content"
+    )!;
+    const caret = dom.window.document.createRange();
+    caret.setStart(definition.firstChild!, 3);
+    caret.collapse(true);
+    Object.defineProperty(dom.window.document, "caretRangeFromPoint", {
+      configurable: true,
+      value: vi.fn(() => caret.cloneRange())
+    });
+    definition.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 40,
+      clientY: 40
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const childRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(childRequest.requestId, "食事", "meal"));
+    await flushPromises();
+
+    const childButton = reader.getPopupElements()[1]
+      .querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")!;
+    expect(childButton.dataset.state).toBe("ready");
+    childButton.click();
+    await flushPromises();
+
+    expect(mine).toHaveBeenCalledWith(expect.objectContaining({
+      sentence: "説明：食事を選ぶ",
+      matchOffset: 3,
+      result: expect.objectContaining({
+        term: expect.objectContaining({ expression: "食事" })
+      })
+    }));
+    reader.destroy();
+  });
+
+  it("allows exactly the configured number of child popup levels", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      popupNestingMaxDepth: 2,
+      logger: { debug() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const rootRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(rootRequest.requestId, "食べる", "第一"));
+
+    for (const [expression, glossary] of [["第一", "第二"], ["第二", "第三"]]) {
+      const definition = reader.getPopupElements().at(-1)!
+        .querySelector<HTMLElement>(".gsm-hoshidicts-glossary-content")!;
+      const caret = dom.window.document.createRange();
+      caret.setStart(definition.firstChild!, 0);
+      caret.collapse(true);
+      Object.defineProperty(dom.window.document, "caretRangeFromPoint", {
+        configurable: true,
+        value: vi.fn(() => caret.cloneRange())
+      });
+      definition.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 40,
+        clientY: 40
+      }));
+      await vi.advanceTimersByTimeAsync(20);
+      const request = JSON.parse(socket.sent.at(-1)!);
+      expect(request.text).toBe(glossary === "第二" ? "第一" : "第二");
+      socket.receive(lookupResult(request.requestId, expression, glossary));
+    }
+
+    expect(reader.getPopupElements()).toHaveLength(3);
+    const sentCount = socket.sent.length;
+    const deepestDefinition = reader.getPopupElements().at(-1)!
+      .querySelector<HTMLElement>(".gsm-hoshidicts-glossary-content")!;
+    const deepestCaret = dom.window.document.createRange();
+    deepestCaret.setStart(deepestDefinition.firstChild!, 0);
+    deepestCaret.collapse(true);
+    Object.defineProperty(dom.window.document, "caretRangeFromPoint", {
+      configurable: true,
+      value: vi.fn(() => deepestCaret.cloneRange())
+    });
+    deepestDefinition.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 40,
+      clientY: 40
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+
+    expect(socket.sent).toHaveLength(sentCount);
+    expect(reader.getPopupElements()).toHaveLength(3);
+    reader.destroy();
+  });
+
+  it("repositions child popups when a parent expands more results", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      popupNestingMaxDepth: 1,
+      logger: { debug() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const rootRequest = JSON.parse(socket.sent.at(-1)!);
+    const rootResult = lookupResult(rootRequest.requestId, "食べる", "食事");
+    const firstResult = rootResult.results[0];
+    rootResult.results = Array.from({ length: 7 }, (_, index) => ({
+      ...firstResult,
+      matched: `食${index}`,
+      deinflected: `食${index}`,
+      term: {
+        ...firstResult.term,
+        expression: `食${index}`,
+        glossaries: firstResult.term.glossaries.map((glossary) => ({
+          ...glossary
+        }))
+      }
+    }));
+    socket.receive(rootResult);
+
+    const rootPopup = reader.getPopupElement();
+    const definition = rootPopup.querySelector<HTMLElement>(
+      ".gsm-hoshidicts-glossary-content"
+    )!;
+    const definitionRect = vi.spyOn(definition, "getBoundingClientRect")
+      .mockReturnValue({
+        x: 40,
+        y: 40,
+        left: 40,
+        top: 40,
+        right: 100,
+        bottom: 60,
+        width: 60,
+        height: 20,
+        toJSON: () => ({})
+      } as DOMRect);
+    const caret = dom.window.document.createRange();
+    caret.setStart(definition.firstChild!, 0);
+    caret.collapse(true);
+    Object.defineProperty(dom.window.document, "caretRangeFromPoint", {
+      configurable: true,
+      value: vi.fn(() => caret.cloneRange())
+    });
+    definition.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 40,
+      clientY: 40
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const childRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(childRequest.requestId, "食事", "meal"));
+
+    const childPopup = reader.getPopupElements()[1];
+    const originalTop = childPopup.style.top;
+    definitionRect.mockReturnValue({
+      x: 40,
+      y: 140,
+      left: 40,
+      top: 140,
+      right: 100,
+      bottom: 160,
+      width: 60,
+      height: 20,
+      toJSON: () => ({})
+    } as DOMRect);
+    rootPopup.querySelector<HTMLButtonElement>(".gsm-hoshidicts-show-more")!
+      .click();
+
+    expect(childPopup.style.top).not.toBe(originalTop);
+    expect(childPopup.style.top).toBe("140px");
+    reader.destroy();
+  });
+
+  it("ignores a stale child response without replacing its parent", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      popupNestingMaxDepth: 1,
+      logger: { debug() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const rootRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(rootRequest.requestId, "食べる", "食事"));
+    const rootPopup = reader.getPopupElement();
+    const definition = rootPopup.querySelector<HTMLElement>(
+      ".gsm-hoshidicts-glossary-content"
+    )!;
+    const caret = dom.window.document.createRange();
+    caret.setStart(definition.firstChild!, 0);
+    caret.collapse(true);
+    Object.defineProperty(dom.window.document, "caretRangeFromPoint", {
+      configurable: true,
+      value: vi.fn(() => caret.cloneRange())
+    });
+    definition.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 40,
+      clientY: 40
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const childRequest = JSON.parse(socket.sent.at(-1)!);
+
+    rootPopup.querySelector<HTMLElement>(".gsm-hoshidicts-entry-header")!
+      .dispatchEvent(new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 40,
+        clientY: 40
+      }));
+    socket.receive(lookupResult(childRequest.requestId, "食事", "stale child"));
+
+    expect(reader.getPopupElements()).toEqual([rootPopup]);
+    expect(rootPopup.textContent).toContain("食事");
+    expect(rootPopup.textContent).not.toContain("stale child");
+    reader.destroy();
+  });
+
+  it("treats identical definition blocks as distinct child lookup sources", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      popupNestingMaxDepth: 1,
+      sourceHighlightEnabled: true,
+      logger: { debug() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const rootRequest = JSON.parse(socket.sent.at(-1)!);
+    const rootResult = lookupResult(rootRequest.requestId, "食べる", "食事");
+    rootResult.results[0].term.glossaries.push({
+      ...rootResult.results[0].term.glossaries[0]
+    });
+    socket.receive(rootResult);
+    const definitions = Array.from(
+      reader.getPopupElement().querySelectorAll<HTMLElement>(
+        ".gsm-hoshidicts-glossary-content"
+      )
+    );
+
+    const hoverDefinition = async (definition: HTMLElement) => {
+      const caret = dom.window.document.createRange();
+      caret.setStart(definition.firstChild!, 0);
+      caret.collapse(true);
+      Object.defineProperty(dom.window.document, "caretRangeFromPoint", {
+        configurable: true,
+        value: vi.fn(() => caret.cloneRange())
+      });
+      definition.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 40,
+        clientY: 40
+      }));
+      await vi.advanceTimersByTimeAsync(20);
+    };
+
+    await hoverDefinition(definitions[0]);
+    const firstChildRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(firstChildRequest.requestId, "食事", "first child"));
+    expect(definitions[0].classList.contains("gsm-hoshidicts-source-match"))
+      .toBe(true);
+
+    await hoverDefinition(definitions[1]);
+    const secondChildRequest = JSON.parse(socket.sent.at(-1)!);
+    expect(secondChildRequest.requestId).not.toBe(firstChildRequest.requestId);
+    socket.receive(lookupResult(secondChildRequest.requestId, "食事", "second child"));
+
+    expect(definitions[0].classList.contains("gsm-hoshidicts-source-match"))
+      .toBe(false);
+    expect(definitions[1].classList.contains("gsm-hoshidicts-source-match"))
+      .toBe(true);
+    expect(reader.getPopupElements()[1].textContent).toContain("second child");
+    reader.destroy();
+  });
+
+  it("retries a timed-out child lookup at the same definition", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      popupNestingMaxDepth: 1,
+      lookupTimeoutMs: 50,
+      logger: { debug() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const rootRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(rootRequest.requestId, "食べる", "食事"));
+    const rootPopup = reader.getPopupElement();
+    const definition = rootPopup.querySelector<HTMLElement>(
+      ".gsm-hoshidicts-glossary-content"
+    )!;
+    const caret = dom.window.document.createRange();
+    caret.setStart(definition.firstChild!, 0);
+    caret.collapse(true);
+    Object.defineProperty(dom.window.document, "caretRangeFromPoint", {
+      configurable: true,
+      value: vi.fn(() => caret.cloneRange())
+    });
+    const hoverDefinition = () => definition.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 40,
+        clientY: 40
+      })
+    );
+
+    hoverDefinition();
+    await vi.advanceTimersByTimeAsync(20);
+    const timedOutRequest = JSON.parse(socket.sent.at(-1)!);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(reader.getPopupElements()).toHaveLength(2);
+    expect(reader.getPopupElements()[1].textContent).toContain("timed out");
+
+    hoverDefinition();
+    await vi.advanceTimersByTimeAsync(20);
+    expect(JSON.parse(socket.sent.at(-1)!).requestId).toBe(
+      timedOutRequest.requestId
+    );
+    rootPopup.querySelector<HTMLElement>(".gsm-hoshidicts-entry-header")!
+      .dispatchEvent(new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 40,
+        clientY: 40
+      }));
+    hoverDefinition();
+    await vi.advanceTimersByTimeAsync(20);
+    const retryRequest = JSON.parse(socket.sent.at(-1)!);
+    expect(retryRequest.requestId).not.toBe(timedOutRequest.requestId);
+    expect(reader.getPopupElements()[0]).toBe(rootPopup);
+    reader.destroy();
+  });
+
+  it("clears removed child pointer ownership after a live depth reduction", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      popupHideDelayMs: 0,
+      popupNestingMaxDepth: 1,
+      logger: { debug() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const rootRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(rootRequest.requestId, "食べる", "食事"));
+    const definition = reader.getPopupElement().querySelector<HTMLElement>(
+      ".gsm-hoshidicts-glossary-content"
+    )!;
+    const caret = dom.window.document.createRange();
+    caret.setStart(definition.firstChild!, 0);
+    caret.collapse(true);
+    Object.defineProperty(dom.window.document, "caretRangeFromPoint", {
+      configurable: true,
+      value: vi.fn(() => caret.cloneRange())
+    });
+    definition.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 40,
+      clientY: 40
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const childRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(childRequest.requestId, "食事", "meal"));
+    const childPopup = reader.getPopupElements()[1];
+    childPopup.dispatchEvent(new dom.window.Event("pointerenter"));
+
+    reader.updatePreferences({ popupNestingMaxDepth: 0 });
+    expect(reader.getPopupElements()).toHaveLength(1);
+    reader.updatePreferences({ lookupMode: "shift" });
+    expect(reader.isVisible()).toBe(false);
+    reader.destroy();
+  });
+
+  it("does not scan definition text when child popups are disabled", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      popupNestingMaxDepth: 0,
+      logger: { debug() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const rootRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(rootRequest.requestId, "食べる", "食事"));
+    const sentCount = socket.sent.length;
+    const definition = reader.getPopupElement().querySelector<HTMLElement>(
+      ".gsm-hoshidicts-glossary-content"
+    )!;
+    definition.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 40,
+      clientY: 40
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+
+    expect(socket.sent).toHaveLength(sentCount);
+    expect(reader.getPopupElements()).toHaveLength(1);
+    reader.destroy();
+  });
+
+  it("requires Shift for definition lookups when the reader uses Shift-hover", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      popupNestingMaxDepth: 1,
+      logger: { debug() {}, info() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      shiftKey: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const rootRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(rootRequest.requestId, "食べる", "食事"));
+    const definition = reader.getPopupElement().querySelector<HTMLElement>(
+      ".gsm-hoshidicts-glossary-content"
+    )!;
+    const caret = dom.window.document.createRange();
+    caret.setStart(definition.firstChild!, 0);
+    caret.collapse(true);
+    Object.defineProperty(dom.window.document, "caretRangeFromPoint", {
+      configurable: true,
+      value: vi.fn(() => caret.cloneRange())
+    });
+    const sentCount = socket.sent.length;
+    definition.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 40,
+      clientY: 40
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    expect(socket.sent).toHaveLength(sentCount);
+
+    dom.window.document.dispatchEvent(new dom.window.KeyboardEvent("keydown", {
+      bubbles: true,
+      key: "Shift"
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({
+      type: "hoshidicts_lookup",
+      text: "食事"
     });
     reader.destroy();
   });
@@ -3099,7 +4099,8 @@ describe("Hoshidicts Shift-hover scanner", () => {
       }
     });
 
-    const renderedResult = audioController.setRenderedResults.mock.calls[0][0][0].result;
+    const renderedResult = audioController.setRenderedResults.mock.calls
+      .find(([items]) => items.length > 0)![0][0].result;
     expect(renderedResult.term).toMatchObject({
       expression: "食べる",
       reading: "たべる"

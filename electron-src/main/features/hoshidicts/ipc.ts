@@ -44,6 +44,7 @@ export interface HoshidictsIPCDependencies {
     getOverlaySourceHighlightEnabledAtLaunch: () => boolean | null;
     getOverlayPopupHideDelayAtLaunch: () => number | null;
     getOverlayAudioProfileRestartRequired: () => boolean;
+    getOverlayPopupNestingMaxDepthAtLaunch: () => number | null;
     applyReaderPreferences: (
         preferences: HoshidictsReaderPreferences
     ) => Promise<boolean>;
@@ -110,6 +111,8 @@ function withDesktopState(
     const sourceHighlightEnabledAtLaunch =
         deps.getOverlaySourceHighlightEnabledAtLaunch();
     const popupHideDelayAtLaunch = deps.getOverlayPopupHideDelayAtLaunch();
+    const popupNestingMaxDepthAtLaunch =
+        deps.getOverlayPopupNestingMaxDepthAtLaunch();
     const effectiveEnabled = deps.getConfiguredFeatureEnabled();
     return {
         ...snapshot,
@@ -133,6 +136,10 @@ function withDesktopState(
                     (effectiveEnabled &&
                         popupHideDelayAtLaunch !== null &&
                         popupHideDelayAtLaunch !== snapshot.popupHideDelayMs) ||
+                    (effectiveEnabled &&
+                        popupNestingMaxDepthAtLaunch !== null &&
+                        popupNestingMaxDepthAtLaunch !==
+                            snapshot.popupNestingMaxDepth) ||
                     (effectiveEnabled &&
                         deps.getOverlayAudioProfileRestartRequired())),
         },
@@ -425,7 +432,9 @@ export function registerHoshidictsIPC(
                 !Number.isInteger(value.popupHideDelayMs) ||
                 (value.popupHideDelayMs as number) < 0 ||
                 (value.popupHideDelayMs as number) >
-                    MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS
+                    MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS ||
+                !Number.isSafeInteger(value.popupNestingMaxDepth) ||
+                (value.popupNestingMaxDepth as number) < 0
             ) {
                 return {
                     success: false,
@@ -442,12 +451,15 @@ export function registerHoshidictsIPC(
                         sourceHighlightEnabled:
                             value.sourceHighlightEnabled as boolean,
                         popupHideDelayMs: value.popupHideDelayMs as number,
+                        popupNestingMaxDepth:
+                            value.popupNestingMaxDepth as number,
                     };
                     const state = await manager.setReaderPreferences(
                         preferences.lookupMode,
                         preferences.popupHideDelayMs,
                         preferences.activationKey,
-                        preferences.sourceHighlightEnabled
+                        preferences.sourceHighlightEnabled,
+                        preferences.popupNestingMaxDepth
                     );
                     await deps.applyReaderPreferences(preferences);
                     return state;

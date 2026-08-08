@@ -63,9 +63,10 @@
   }
 
   function createSourceHighlighter(windowRef, documentRef, highlightName) {
-    let highlightedSourceElements = [];
+    const matches = new Map();
+    let highlightedSourceElements = new Set();
 
-    function clear() {
+    function clearRenderedHighlight() {
       const highlights = windowRef.CSS && windowRef.CSS.highlights;
       if (highlights && typeof highlights.delete === "function") {
         highlights.delete(highlightName);
@@ -73,19 +74,18 @@
       for (const element of highlightedSourceElements) {
         element.classList.remove("gsm-hoshidicts-source-match");
       }
-      highlightedSourceElements = [];
+      highlightedSourceElements = new Set();
     }
 
-    function apply(candidate, matchedText) {
-      clear();
+    function createMatchRanges(candidate, matchedText) {
       const matchLength = typeof matchedText === "string" ? matchedText.length : 0;
       if (matchLength <= 0 || !Array.isArray(candidate.sourceElements)) {
-        return;
+        return null;
       }
       const startOffset = Math.max(0, candidate.matchOffset);
       const endOffset = Math.min(candidate.sentence.length, startOffset + matchLength);
       if (endOffset <= startOffset) {
-        return;
+        return null;
       }
 
       const sourceElements = candidate.sourceElements;
@@ -96,92 +96,158 @@
         sourceElements.map((element) => element.textContent || "").join("") !==
           candidate.sentence
       ) {
-        return;
+        return null;
       }
+      const showText = windowRef.NodeFilter ? windowRef.NodeFilter.SHOW_TEXT : 4;
       const ranges = [];
-      const rangedSourceElements = [];
+      const rangedSourceElements = new Set();
       let elementStart = 0;
       for (const element of sourceElements) {
         const elementEnd = elementStart + (element.textContent || "").length;
-        if (elementEnd > startOffset && elementStart < endOffset) {
-          element.classList.add("gsm-hoshidicts-source-match");
-          highlightedSourceElements.push(element);
+        if (elementEnd <= startOffset || elementStart >= endOffset) {
+          elementStart = elementEnd;
+          continue;
+        }
+        const textNodes = [];
+        const walker = documentRef.createTreeWalker(element, showText);
+        let node = walker.nextNode();
+        while (node) {
+          textNodes.push(node);
+          node = walker.nextNode();
+        }
 
-          const textNodes = [];
-          const showText = windowRef.NodeFilter ? windowRef.NodeFilter.SHOW_TEXT : 4;
-          const walker = documentRef.createTreeWalker(element, showText);
-          let node = walker.nextNode();
-          while (node) {
-            textNodes.push(node);
-            node = walker.nextNode();
-          }
-
-          function findBoundary(offset, preferFollowingNode) {
-            let consumed = 0;
-            for (let index = 0; index < textNodes.length; index += 1) {
-              const textNode = textNodes[index];
-              const length = (textNode.nodeValue || "").length;
-              const nodeEnd = consumed + length;
-              if (
-                offset < nodeEnd ||
-                (
-                  offset === nodeEnd &&
-                  (!preferFollowingNode || index === textNodes.length - 1)
-                )
-              ) {
-                return {
-                  node: textNode,
-                  offset: Math.max(0, Math.min(length, offset - consumed)),
-                };
-              }
-              consumed = nodeEnd;
+        function findBoundary(offset, preferFollowingNode) {
+          let consumed = 0;
+          for (let index = 0; index < textNodes.length; index += 1) {
+            const textNode = textNodes[index];
+            const length = (textNode.nodeValue || "").length;
+            const nodeEnd = consumed + length;
+            if (
+              offset < nodeEnd ||
+              (
+                offset === nodeEnd &&
+                (!preferFollowingNode || index === textNodes.length - 1)
+              )
+            ) {
+              return {
+                node: textNode,
+                offset: Math.max(0, Math.min(length, offset - consumed)),
+              };
             }
-            return null;
+            consumed = nodeEnd;
           }
+          return null;
+        }
 
-          const localStart = Math.max(0, startOffset - elementStart);
-          const localEnd = Math.min(elementEnd, endOffset) - elementStart;
-          const start = findBoundary(localStart, true);
-          const end = findBoundary(localEnd, false);
-          if (start && end) {
-            try {
-              const range = documentRef.createRange();
-              range.setStart(start.node, start.offset);
-              range.setEnd(end.node, end.offset);
-              ranges.push(range);
-              rangedSourceElements.push(element);
-            } catch {
-              // Keep this element's class fallback if its exact range is invalid.
-            }
+        const localStart = Math.max(0, startOffset - elementStart);
+        const localEnd = Math.min(elementEnd, endOffset) - elementStart;
+        const start = findBoundary(localStart, true);
+        const end = findBoundary(localEnd, false);
+        if (start && end) {
+          try {
+            const range = documentRef.createRange();
+            range.setStart(start.node, start.offset);
+            range.setEnd(end.node, end.offset);
+            ranges.push(range);
+            rangedSourceElements.add(element);
+          } catch {
+            // The class fallback below handles invalid ranges.
           }
         }
         elementStart = elementEnd;
       }
+      return {
+        ranges,
+        rangedSourceElements,
+        sourceElements,
+        startOffset,
+        endOffset,
+      };
+    }
 
-      const highlights = windowRef.CSS && windowRef.CSS.highlights;
-      const HighlightImpl = windowRef.Highlight;
-      if (
-        !highlights ||
-        typeof highlights.set !== "function" ||
-        !HighlightImpl ||
-        ranges.length === 0
-      ) {
-        return;
-      }
-      try {
-        highlights.set(highlightName, new HighlightImpl(...ranges));
-        for (const element of rangedSourceElements) {
-          element.classList.remove("gsm-hoshidicts-source-match");
+    function applyElementFallback(match, skippedElements = new Set()) {
+      let elementStart = 0;
+      for (const element of match.sourceElements) {
+        const elementEnd = elementStart + (element.textContent || "").length;
+        if (
+          !skippedElements.has(element) &&
+          elementEnd > match.startOffset &&
+          elementStart < match.endOffset
+        ) {
+          element.classList.add("gsm-hoshidicts-source-match");
+          highlightedSourceElements.add(element);
         }
-        highlightedSourceElements = highlightedSourceElements.filter(
-          (element) => !rangedSourceElements.includes(element)
-        );
-      } catch {
-        // Keep the non-mutating element-class fallback when exact ranges fail.
+        elementStart = elementEnd;
       }
     }
 
-    return { apply, clear };
+    function render() {
+      clearRenderedHighlight();
+      const highlights = windowRef.CSS && windowRef.CSS.highlights;
+      const HighlightImpl = windowRef.Highlight;
+      const canUseRanges = Boolean(
+        highlights && typeof highlights.set === "function" && HighlightImpl
+      );
+      const ranges = [];
+      for (const { candidate, matchedText } of matches.values()) {
+        const match = createMatchRanges(candidate, matchedText);
+        if (!match) {
+          continue;
+        }
+        if (canUseRanges && match.ranges.length > 0) {
+          ranges.push(...match.ranges);
+          applyElementFallback(match, match.rangedSourceElements);
+        } else {
+          applyElementFallback(match);
+        }
+      }
+      if (canUseRanges && ranges.length > 0) {
+        try {
+          highlights.set(highlightName, new HighlightImpl(...ranges));
+        } catch {
+          for (const { candidate, matchedText } of matches.values()) {
+            const match = createMatchRanges(candidate, matchedText);
+            if (match) {
+              applyElementFallback(match);
+            }
+          }
+        }
+      }
+    }
+
+    function applyFor(key, candidate, matchedText) {
+      matches.set(key, { candidate, matchedText });
+      render();
+    }
+
+    function clearFor(key) {
+      if (matches.delete(key)) {
+        render();
+      }
+    }
+
+    return {
+      apply(candidate, matchedText) {
+        applyFor("default", candidate, matchedText);
+      },
+      clear() {
+        clearFor("default");
+      },
+      scope(key) {
+        return {
+          apply(candidate, matchedText) {
+            applyFor(key, candidate, matchedText);
+          },
+          clear() {
+            clearFor(key);
+          },
+        };
+      },
+      clearAll() {
+        matches.clear();
+        clearRenderedHighlight();
+      },
+    };
   }
 
   function createPopupView(options) {
@@ -207,7 +273,7 @@
     const maxMetadataTags = Number.isInteger(options.maxMetadataTags)
       ? Math.max(1, options.maxMetadataTags)
       : DEFAULT_MAX_METADATA_TAGS;
-    const sourceHighlighter = createSourceHighlighter(
+    const sourceHighlighter = options.sourceHighlighter || createSourceHighlighter(
       windowRef,
       documentRef,
       options.highlightName || DEFAULT_HIGHLIGHT_NAME
@@ -756,6 +822,7 @@
   }
 
   return {
+    createSourceHighlighter,
     createPopupView,
     setMiningButtonState,
   };

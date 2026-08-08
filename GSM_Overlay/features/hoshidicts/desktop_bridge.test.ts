@@ -74,6 +74,7 @@ const {
     activationKey: string;
     sourceHighlightEnabled: boolean;
     popupHideDelayMs: number;
+    popupNestingMaxDepth: number;
   };
   SETTINGS_CLIENT_SEGMENT: string;
 };
@@ -104,22 +105,33 @@ describe("Hoshidicts desktop bridge", () => {
       activationKey: "f8",
       sourceHighlightEnabled: true,
       popupHideDelayMs: 850,
+      popupNestingMaxDepth: 4,
     })).toEqual({
       lookupMode: "hover",
       activationKey: "F8",
       sourceHighlightEnabled: true,
       popupHideDelayMs: 850,
+      popupNestingMaxDepth: 4,
     });
     expect(() => normalizeHoshidictsReaderPreferences({
       lookupMode: "hover",
       activationKey: "F8",
       sourceHighlightEnabled: "true",
       popupHideDelayMs: 850,
+      popupNestingMaxDepth: 4,
     })).toThrow("Hoshidicts reader preferences are invalid.");
     expect(() => normalizeHoshidictsReaderPreferences({
       lookupMode: "hover",
       activationKey: "F8",
       popupHideDelayMs: 850,
+      popupNestingMaxDepth: 4,
+    })).toThrow("Hoshidicts reader preferences are invalid.");
+    expect(() => normalizeHoshidictsReaderPreferences({
+      lookupMode: "hover",
+      activationKey: "F8",
+      sourceHighlightEnabled: true,
+      popupHideDelayMs: 850,
+      popupNestingMaxDepth: -1,
     })).toThrow("Hoshidicts reader preferences are invalid.");
   });
 
@@ -206,21 +218,38 @@ describe("Hoshidicts desktop bridge", () => {
       delivered.push(preferences);
     });
 
-    expect(delivery.enqueue({ lookupMode: "shift", popupHideDelayMs: 300 }))
+    expect(delivery.enqueue({
+      lookupMode: "shift",
+      popupHideDelayMs: 300,
+      popupNestingMaxDepth: 10,
+    }))
       .toBe(false);
-    expect(delivery.enqueue({ lookupMode: "hover", popupHideDelayMs: 800 }))
+    expect(delivery.enqueue({
+      lookupMode: "hover",
+      popupHideDelayMs: 800,
+      popupNestingMaxDepth: 4,
+    }))
       .toBe(false);
     expect(delivered).toEqual([]);
 
     expect(delivery.markReady()).toBe(true);
     expect(delivered).toEqual([
-      { lookupMode: "hover", popupHideDelayMs: 800 },
+      {
+        lookupMode: "hover",
+        popupHideDelayMs: 800,
+        popupNestingMaxDepth: 4,
+      },
     ]);
-    expect(delivery.enqueue({ lookupMode: "shift", popupHideDelayMs: 500 }))
+    expect(delivery.enqueue({
+      lookupMode: "shift",
+      popupHideDelayMs: 500,
+      popupNestingMaxDepth: 0,
+    }))
       .toBe(true);
     expect(delivered.at(-1)).toEqual({
       lookupMode: "shift",
       popupHideDelayMs: 500,
+      popupNestingMaxDepth: 0,
     });
 
     delivery.markNotReady();
@@ -228,10 +257,15 @@ describe("Hoshidicts desktop bridge", () => {
     expect(delivered.at(-1)).toEqual({
       lookupMode: "shift",
       popupHideDelayMs: 500,
+      popupNestingMaxDepth: 0,
     });
 
     delivery.markNotReady();
-    delivery.enqueue({ lookupMode: "hover", popupHideDelayMs: 900 });
+    delivery.enqueue({
+      lookupMode: "hover",
+      popupHideDelayMs: 900,
+      popupNestingMaxDepth: 8,
+    });
     delivery.clear();
     expect(delivery.markReady()).toBe(false);
     expect(delivered).toHaveLength(3);
@@ -324,11 +358,19 @@ describe("Hoshidicts desktop bridge", () => {
       broker.request(
         "overlay.hoshidicts-reader",
         "hoshidicts.readerPreferences",
-        { lookupMode: "hover", popupHideDelayMs: 800 }
+        {
+          lookupMode: "hover",
+          popupHideDelayMs: 800,
+          popupNestingMaxDepth: 4,
+        }
       )
     ).resolves.toEqual({ applied: true });
     expect(applied).toEqual([
-      { lookupMode: "hover", popupHideDelayMs: 800 },
+      {
+        lookupMode: "hover",
+        popupHideDelayMs: 800,
+        popupNestingMaxDepth: 4,
+      },
     ]);
     const audioProfile = {
       version: 1,

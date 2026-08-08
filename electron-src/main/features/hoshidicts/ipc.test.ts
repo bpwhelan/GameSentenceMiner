@@ -15,6 +15,7 @@ const harness = vi.hoisted(() => ({
     sourceHighlightEnabledAtLaunch: false as boolean | null,
     popupHideDelayAtLaunch: 300 as number | null,
     audioProfileRestartRequired: false,
+    popupNestingMaxDepthAtLaunch: 10 as number | null,
     manager: {
         subscribe: vi.fn(),
         getSnapshot: vi.fn(),
@@ -95,6 +96,7 @@ const snapshot = {
     activationKey: 'Shift',
     sourceHighlightEnabled: false,
     popupHideDelayMs: 300,
+    popupNestingMaxDepth: 10,
     schedule: 'off',
     lastCheck: null,
     nextCheck: null,
@@ -199,6 +201,8 @@ async function registerHarness() {
             harness.popupHideDelayAtLaunch,
         getOverlayAudioProfileRestartRequired: () =>
             harness.audioProfileRestartRequired,
+        getOverlayPopupNestingMaxDepthAtLaunch: () =>
+            harness.popupNestingMaxDepthAtLaunch,
         applyReaderPreferences,
         applyAudioProfile,
         getMiningOptions,
@@ -228,6 +232,7 @@ describe('Hoshidicts settings IPC', () => {
         harness.sourceHighlightEnabledAtLaunch = false;
         harness.popupHideDelayAtLaunch = 300;
         harness.audioProfileRestartRequired = false;
+        harness.popupNestingMaxDepthAtLaunch = 10;
     });
 
     it('saves audio profiles, applies them live, and exposes failed sync restart state', async () => {
@@ -294,6 +299,26 @@ describe('Hoshidicts settings IPC', () => {
             getState?.({ sender: context.settingsContents })
         ).resolves.toMatchObject({
             overlay: { running: true, restartRequired: true },
+        });
+    });
+
+    it('requires an overlay restart when the persisted nesting depth changed', async () => {
+        harness.enabledAtLaunch = true;
+        harness.popupNestingMaxDepthAtLaunch = 4;
+        const context = await registerHarness();
+        const getState = harness.handlers.get('hoshidicts.getState');
+
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: true },
+        });
+
+        harness.popupNestingMaxDepthAtLaunch = 10;
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: false },
         });
     });
 
@@ -422,6 +447,7 @@ describe('Hoshidicts settings IPC', () => {
                     activationKey: 'F8',
                     sourceHighlightEnabled: true,
                     popupHideDelayMs: 850,
+                    popupNestingMaxDepth: 4,
                 }
             )
         ).resolves.toMatchObject({
@@ -432,13 +458,29 @@ describe('Hoshidicts settings IPC', () => {
             'hover',
             850,
             'F8',
-            true
+            true,
+            4
         );
         expect(context.applyReaderPreferences).toHaveBeenCalledWith({
             lookupMode: 'hover',
             activationKey: 'F8',
             sourceHighlightEnabled: true,
             popupHideDelayMs: 850,
+            popupNestingMaxDepth: 4,
+        });
+
+        await expect(
+            setReaderPreferences?.(
+                { sender: context.settingsContents },
+                {
+                    lookupMode: 'hover',
+                    popupHideDelayMs: 850,
+                    popupNestingMaxDepth: Number.MAX_SAFE_INTEGER + 1,
+                }
+            )
+        ).resolves.toMatchObject({
+            success: false,
+            error: 'Hoshidicts reader preferences are invalid.',
         });
 
         await expect(

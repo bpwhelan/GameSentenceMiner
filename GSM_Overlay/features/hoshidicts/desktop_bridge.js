@@ -71,13 +71,17 @@ function normalizeHoshidictsReaderPreferences(preferences) {
   const sourceHighlightEnabled =
     preferences && preferences.sourceHighlightEnabled;
   const popupHideDelayMs = preferences && preferences.popupHideDelayMs;
+  const popupNestingMaxDepth =
+    preferences && preferences.popupNestingMaxDepth;
   if (
     (lookupMode !== "shift" && lookupMode !== "hover") ||
     activationKey === null ||
     typeof sourceHighlightEnabled !== "boolean" ||
     !Number.isInteger(popupHideDelayMs) ||
     popupHideDelayMs < 0 ||
-    popupHideDelayMs > 5000
+    popupHideDelayMs > 5000 ||
+    !Number.isSafeInteger(popupNestingMaxDepth) ||
+    popupNestingMaxDepth < 0
   ) {
     throw new Error("Hoshidicts reader preferences are invalid.");
   }
@@ -86,6 +90,7 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     activationKey,
     sourceHighlightEnabled,
     popupHideDelayMs,
+    popupNestingMaxDepth,
   };
 }
 

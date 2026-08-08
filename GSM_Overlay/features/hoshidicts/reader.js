@@ -23,13 +23,17 @@
 }(typeof window !== "undefined" ? window : globalThis, function (popupApi, audioApi) {
   "use strict";
 
-  if (!popupApi || typeof popupApi.createPopupView !== "function") {
+  if (
+    !popupApi ||
+    typeof popupApi.createPopupView !== "function" ||
+    typeof popupApi.createSourceHighlighter !== "function"
+  ) {
     throw new Error("Hoshidicts popup support must load before the reader.");
   }
   if (!audioApi || typeof audioApi.createHoshidictsAudioController !== "function") {
     throw new Error("Hoshidicts audio support must load before the reader.");
   }
-  const { createPopupView, setMiningButtonState } = popupApi;
+  const { createPopupView, createSourceHighlighter, setMiningButtonState } = popupApi;
   const {
     canonicalizeAudioTerm,
     createHoshidictsAudioClient,
@@ -46,6 +50,7 @@
   const DEFAULT_POPUP_HIDE_DELAY_MS = 300;
   const DEFAULT_ACTIVATION_KEY = "Shift";
   const DEFAULT_SOURCE_HIGHLIGHT_ENABLED = false;
+  const DEFAULT_POPUP_NESTING_MAX_DEPTH = 10;
   const MAX_POPUP_HIDE_DELAY_MS = 5 * 1000;
   const MAX_RESPONSE_BYTES = 256 * 1024;
   const MAX_MEDIA_RESPONSE_BYTES = 6 * 1024 * 1024;
@@ -973,6 +978,105 @@
     return Array.from(text.slice(utf16Offset)).slice(0, count).join("");
   }
 
+  function createTextRangeForOffsets(documentRef, root, startOffset, endOffset) {
+    const showText = documentRef.defaultView && documentRef.defaultView.NodeFilter
+      ? documentRef.defaultView.NodeFilter.SHOW_TEXT
+      : 4;
+    const walker = documentRef.createTreeWalker(root, showText);
+    const boundaries = [];
+    let consumed = 0;
+    let node = walker.nextNode();
+    while (node) {
+      const length = (node.nodeValue || "").length;
+      boundaries.push({ node, start: consumed, end: consumed + length });
+      consumed += length;
+      node = walker.nextNode();
+    }
+    function findBoundary(offset) {
+      for (const boundary of boundaries) {
+        if (offset <= boundary.end) {
+          return {
+            node: boundary.node,
+            offset: Math.max(0, Math.min(
+              (boundary.node.nodeValue || "").length,
+              offset - boundary.start
+            )),
+          };
+        }
+      }
+      const last = boundaries.at(-1);
+      return last
+        ? { node: last.node, offset: (last.node.nodeValue || "").length }
+        : null;
+    }
+    const start = findBoundary(Math.max(0, startOffset));
+    const end = findBoundary(Math.max(startOffset, endOffset));
+    if (!start || !end) {
+      return null;
+    }
+    try {
+      const range = documentRef.createRange();
+      range.setStart(start.node, start.offset);
+      range.setEnd(end.node, end.offset);
+      return range;
+    } catch {
+      return null;
+    }
+  }
+
+  function resolveGlossaryLookupCandidate(
+    windowRef,
+    documentRef,
+    eventTarget,
+    clientX,
+    clientY,
+    sourceDepth
+  ) {
+    if (!(eventTarget instanceof windowRef.Element)) {
+      return null;
+    }
+    const glossary = eventTarget.closest(".gsm-hoshidicts-glossary-content");
+    if (!glossary) {
+      return null;
+    }
+    const sentence = glossary.textContent || "";
+    const caretRange = typeof documentRef.caretRangeFromPoint === "function"
+      ? documentRef.caretRangeFromPoint(clientX, clientY)
+      : null;
+    if (!caretRange || !glossary.contains(caretRange.startContainer)) {
+      return null;
+    }
+    let matchOffset;
+    try {
+      const prefixRange = documentRef.createRange();
+      prefixRange.selectNodeContents(glossary);
+      prefixRange.setEnd(caretRange.startContainer, caretRange.startOffset);
+      matchOffset = prefixRange.toString().length;
+    } catch {
+      return null;
+    }
+    const query = sliceCodePoints(sentence, matchOffset, LOOKUP_SCAN_LENGTH);
+    if (!query || !JAPANESE_TEXT_PATTERN.test(query)) {
+      return null;
+    }
+    const firstCodePointLength = Array.from(query)[0].length;
+    return {
+      anchor: glossary,
+      anchorRange: createTextRangeForOffsets(
+        documentRef,
+        glossary,
+        matchOffset,
+        matchOffset + firstCodePointLength
+      ),
+      sourceElements: [glossary],
+      sentence,
+      matchOffset,
+      query,
+      sourceDepth,
+      vertical: windowRef.getComputedStyle(glossary).writingMode.startsWith("vertical"),
+    };
+  }
+
   function resolveLookupCandidate(windowRef, documentRef, eventTarget, clientX, clientY) {
     if (!(eventTarget instanceof windowRef.Element)) {
       return null;
@@ -1003,6 +1107,7 @@
         sentence,
         matchOffset,
         query,
+        sourceDepth: -1,
         vertical: windowRef.getComputedStyle(textBox).writingMode.startsWith("vertical"),
       };
     }
@@ -1032,6 +1137,7 @@
       sentence,
       matchOffset,
       query,
+      sourceDepth: -1,
       vertical: false,
     };
   }
@@ -1148,6 +1254,13 @@
     return Math.max(0, Math.min(MAX_POPUP_HIDE_DELAY_MS, Math.trunc(value)));
   }
 
+  function normalizePopupNestingMaxDepth(
+    value,
+    fallback = DEFAULT_POPUP_NESTING_MAX_DEPTH
+  ) {
+    return Number.isSafeInteger(value) && value >= 0 ? value : fallback;
+  }
+
   function createHoshidictsReader(options = {}) {
     const windowRef = options.window || window;
     const documentRef = options.document || document;
@@ -1214,6 +1327,9 @@
       activationKey: normalizeActivationKey(options.activationKey),
       sourceHighlightEnabled: options.sourceHighlightEnabled === true,
       popupHideDelayMs: normalizePopupHideDelay(options.popupHideDelayMs),
+      popupNestingMaxDepth: normalizePopupNestingMaxDepth(
+        options.popupNestingMaxDepth
+      ),
     };
     let socket = null;
     let reconnectTimer = null;
@@ -1221,19 +1337,23 @@
     let debounceTimer = null;
     let lookupTimeoutTimer = null;
     let hideTimer = null;
+    let descendantHideTimer = null;
     let pendingHideReason = "pointer-left";
+    let pendingPruneDepth = 1;
     let destroyed = false;
     let localShiftPressed = false;
     let globalActivationKeyPressed = options.activationKeyPressed === true;
     let pointerInPopup = false;
+    let pointerPopupDepth = null;
     let lastPointer = null;
     let requestSequence = 0;
     let latestRequestId = null;
     let latestCandidate = null;
+    let latestCandidateSignature = "";
+    let latestTargetDepth = 0;
     let latestGeneration = 0;
     let latestRequestMode = "term-first";
     let latestRequestText = "";
-    let cachedTermView = null;
     let activeDictionaryGeneration = null;
     let mediaRequestSequence = 0;
     let activeMediaRequestCount = 0;
@@ -1244,19 +1364,35 @@
     const mediaPendingByRequestId = new Map();
     const popupMediaKeys = new Map();
     let mediaQueue = [];
-    let lastCandidateSignature = "";
     let popupVisible = false;
-    let popupAnchor = null;
-    let popupVertical = false;
     let noteEditing = false;
     let miningInFlight = false;
-    let miningStatusGeneration = 0;
     let miningStatusCache = null;
     let miningStatusCacheExpiresAt = 0;
     let miningStatusPromise = null;
     let activationRequirementLogged = false;
     let candidateMissLogged = false;
-    let audioController = null;
+    let candidateSourceSequence = 0;
+    let lastHoveredSource = null;
+    let lastHoveredTargetDepth = null;
+    const popupLevels = [];
+    const renderedSignatures = new Map();
+    const noticeSignatures = new Map();
+    const candidateSourceIds = new WeakMap();
+    const chainHighlighter = createSourceHighlighter(
+      windowRef,
+      documentRef,
+      SOURCE_HIGHLIGHT_NAME
+    );
+    const audioController = options.audioController || createHoshidictsAudioController({
+      window: windowRef,
+      document: documentRef,
+      client: options.audioClient || null,
+      audioPreferences: options.audioPreferences || options.audioProfile,
+      logger,
+      setTimeout: setTimeoutFn,
+      clearTimeout: clearTimeoutFn,
+    });
 
     function diagnostic(level, event, details = {}) {
       const sink = typeof logger[level] === "function"
@@ -1294,56 +1430,11 @@
 
     function isReadableHoverTarget(target) {
       return target instanceof windowRef.Element && Boolean(
-        target.closest('.text-box[data-selectable="true"], #text')
+        target.closest(
+          '.text-box[data-selectable="true"], #text, .gsm-hoshidicts-glossary-content'
+        )
       );
     }
-
-    const popup = documentRef.createElement("section");
-    popup.id = "gsm-hoshidicts-popup";
-    popup.className = "gsm-hoshidicts-popup interactive";
-    popup.setAttribute("role", "dialog");
-    popup.setAttribute("aria-label", "Hoshidicts lookup");
-    popup.hidden = true;
-    popup.addEventListener("pointerdown", (event) => event.stopPropagation());
-    popup.addEventListener("click", (event) => event.stopPropagation());
-    documentRef.body.appendChild(popup);
-    documentRef.documentElement.classList.add("gsm-hoshidicts-enabled");
-    documentRef.documentElement.dataset.gsmHoshidictsEnabled = "true";
-    const popupView = createPopupView({
-      window: windowRef,
-      document: documentRef,
-      popup,
-      appendExpressionRuby,
-      appendTextOnlyGlossary,
-      parseTagList,
-      initialResultCount: INITIAL_VISIBLE_RESULTS,
-      maxMetadataTags: MAX_VISIBLE_METADATA_TAGS,
-      highlightName: SOURCE_HIGHLIGHT_NAME,
-      sourceHighlightEnabled: preferences.sourceHighlightEnabled,
-      positionPopup,
-      onMineClick(button, result, candidate, feedback) {
-        void mineResult(button, result, candidate, feedback);
-      },
-      onKanjiClick(character, _result, candidate) {
-        requestKanji(character, candidate);
-      },
-      onAddCustomEntry(entry) {
-        return addCustomEntryAndRefresh(entry);
-      },
-      onNoteEditingChange(editing) {
-        noteEditing = editing;
-        clearHideTimer();
-      },
-    });
-    audioController = options.audioController || createHoshidictsAudioController({
-      window: windowRef,
-      document: documentRef,
-      client: options.audioClient || null,
-      audioPreferences: options.audioPreferences || options.audioProfile,
-      logger,
-      setTimeout: setTimeoutFn,
-      clearTimeout: clearTimeoutFn,
-    });
 
     function publishPopupState(visible) {
       if (popupVisible === visible) {
@@ -1360,6 +1451,13 @@
       }
     }
 
+    function clearDescendantHideTimer() {
+      if (descendantHideTimer !== null) {
+        clearTimeoutFn(descendantHideTimer);
+        descendantHideTimer = null;
+      }
+    }
+
     function clearLookupTimeout() {
       if (lookupTimeoutTimer !== null) {
         clearTimeoutFn(lookupTimeoutTimer);
@@ -1369,6 +1467,10 @@
 
     function mediaCacheKey(generation, dictionary, path) {
       return JSON.stringify([generation, dictionary, path]);
+    }
+
+    function mediaDepthKey(depth, key) {
+      return JSON.stringify([depth, key]);
     }
 
     function revokeCachedMedia(entry) {
@@ -1399,21 +1501,21 @@
       if (job.requestId !== null) {
         mediaPendingByRequestId.delete(job.requestId);
       }
-      mediaInFlight.delete(job.key);
+      mediaInFlight.delete(job.inFlightKey);
       if (job.active) {
         activeMediaRequestCount = Math.max(0, activeMediaRequestCount - 1);
       }
       job.reject(error instanceof Error ? error : new Error(String(error)));
     }
 
-    function cancelMediaRequests(reason) {
-      const jobs = [...mediaInFlight.values()];
-      mediaQueue = [];
+    function cancelMediaRequests(reason, minimumDepth = 0) {
+      const jobs = [...mediaInFlight.values()].filter(
+        (job) => job.depth >= minimumDepth
+      );
+      mediaQueue = mediaQueue.filter((job) => job.depth < minimumDepth);
       for (const job of jobs) {
         rejectMediaJob(job, new Error(reason));
       }
-      mediaPendingByRequestId.clear();
-      activeMediaRequestCount = 0;
     }
 
     function clearMediaState(reason) {
@@ -1421,18 +1523,28 @@
       clearMediaCache();
     }
 
-    function resetPopupMediaBudget() {
-      popupMediaKeys.clear();
-      popupMediaPixels = 0;
+    function releasePopupMediaFromDepth(minimumDepth) {
+      for (const [reservationKey, reservation] of popupMediaKeys) {
+        if (reservation.depth < minimumDepth) {
+          continue;
+        }
+        popupMediaKeys.delete(reservationKey);
+        popupMediaPixels = Math.max(
+          0,
+          popupMediaPixels - reservation.pixelCount
+        );
+      }
     }
 
-    function preparePopupContent(reason) {
-      cancelMediaRequests(reason);
-      resetPopupMediaBudget();
+    function preparePopupContent(reason, targetDepth = 0) {
+      cancelMediaRequests(reason, targetDepth);
+      releasePopupMediaFromDepth(targetDepth);
+      pumpMediaQueue();
     }
 
-    function reservePopupMedia(key, pixelCount) {
-      if (popupMediaKeys.has(key)) {
+    function reservePopupMedia(depth, key, pixelCount) {
+      const reservationKey = mediaDepthKey(depth, key);
+      if (popupMediaKeys.has(reservationKey)) {
         return true;
       }
       if (
@@ -1441,7 +1553,7 @@
       ) {
         return false;
       }
-      popupMediaKeys.set(key, pixelCount);
+      popupMediaKeys.set(reservationKey, { depth, pixelCount });
       popupMediaPixels += pixelCount;
       return true;
     }
@@ -1453,13 +1565,14 @@
       );
     }
 
-    function releasePopupMedia(key) {
-      const pixelCount = popupMediaKeys.get(key);
-      if (pixelCount === undefined) {
+    function releasePopupMedia(depth, key) {
+      const reservationKey = mediaDepthKey(depth, key);
+      const reservation = popupMediaKeys.get(reservationKey);
+      if (!reservation) {
         return;
       }
-      popupMediaKeys.delete(key);
-      popupMediaPixels = Math.max(0, popupMediaPixels - pixelCount);
+      popupMediaKeys.delete(reservationKey);
+      popupMediaPixels = Math.max(0, popupMediaPixels - reservation.pixelCount);
     }
 
     function updateDictionaryGeneration(generation) {
@@ -1471,14 +1584,14 @@
     }
 
     function cacheMedia(job, url, byteLength, pixelCount) {
-      const existing = mediaCache.get(job.key);
+      const existing = mediaCache.get(job.cacheKey);
       if (existing) {
         mediaCacheBytes -= existing.byteLength;
         revokeCachedMedia(existing);
-        mediaCache.delete(job.key);
+        mediaCache.delete(job.cacheKey);
       }
       const entry = { byteLength, pixelCount, url };
-      mediaCache.set(job.key, entry);
+      mediaCache.set(job.cacheKey, entry);
       mediaCacheBytes += byteLength;
       while (
         mediaCache.size > mediaCacheMaxEntries ||
@@ -1502,9 +1615,11 @@
         job.timeoutTimer = null;
       }
       mediaPendingByRequestId.delete(job.requestId);
-      mediaInFlight.delete(job.key);
+      mediaInFlight.delete(job.inFlightKey);
       activeMediaRequestCount = Math.max(0, activeMediaRequestCount - 1);
-      cacheMedia(job, url, byteLength, pixelCount);
+      if (mediaCache.get(job.cacheKey)?.url !== url) {
+        cacheMedia(job, url, byteLength, pixelCount);
+      }
       job.resolve(url);
     }
 
@@ -1545,10 +1660,12 @@
       }
     }
 
-    function resolveMedia({ dictionary, generation, path }) {
+    function resolveMedia({ depth, dictionary, generation, path }) {
       const normalizedGeneration = normalizeDictionaryGeneration(generation);
       const normalizedPath = normalizeMediaPath(path);
       if (
+        !Number.isSafeInteger(depth) ||
+        depth < 0 ||
         normalizedGeneration === null ||
         normalizedGeneration !== activeDictionaryGeneration ||
         typeof dictionary !== "string" ||
@@ -1564,7 +1681,7 @@
       const key = mediaCacheKey(normalizedGeneration, dictionary, normalizedPath);
       const cached = mediaCache.get(key);
       if (cached) {
-        if (!reservePopupMedia(key, cached.pixelCount)) {
+        if (!reservePopupMedia(depth, key, cached.pixelCount)) {
           cancelMediaRequests("media_pixel_budget_exceeded");
           return Promise.reject(new Error("media_pixel_budget_exceeded"));
         }
@@ -1578,7 +1695,8 @@
       if (isPopupMediaBudgetFull()) {
         return Promise.reject(new Error("media_pixel_budget_exhausted"));
       }
-      const inFlight = mediaInFlight.get(key);
+      const inFlightKey = mediaDepthKey(depth, key);
+      const inFlight = mediaInFlight.get(inFlightKey);
       if (inFlight) {
         return inFlight.promise;
       }
@@ -1587,9 +1705,11 @@
       }
       const job = {
         active: false,
+        cacheKey: key,
+        depth,
         dictionary,
         generation: normalizedGeneration,
-        key,
+        inFlightKey,
         path: normalizedPath,
         requestId: null,
         settled: false,
@@ -1599,7 +1719,7 @@
         job.resolve = resolve;
         job.reject = reject;
       });
-      mediaInFlight.set(key, job);
+      mediaInFlight.set(inFlightKey, job);
       mediaQueue.push(job);
       pumpMediaQueue();
       return job.promise;
@@ -1611,7 +1731,7 @@
       latestCandidate = null;
       latestRequestMode = "term-first";
       latestRequestText = "";
-      lastCandidateSignature = "";
+      latestCandidateSignature = "";
       clearLookupTimeout();
       if (debounceTimer !== null) {
         clearTimeoutFn(debounceTimer);
@@ -1619,22 +1739,170 @@
       }
     }
 
-    function dismissPopup(reason) {
+    function getPopupDepthForTarget(target) {
+      if (!(target instanceof windowRef.Element)) {
+        return null;
+      }
+      const popup = target.closest(".gsm-hoshidicts-popup[data-hoshidicts-depth]");
+      if (!popup) {
+        return null;
+      }
+      const depth = Number.parseInt(popup.dataset.hoshidictsDepth || "", 10);
+      return Number.isInteger(depth) && popupLevels[depth]?.popup === popup
+        ? depth
+        : null;
+    }
+
+    function onPopupPointerEnter(depth) {
+      pointerInPopup = true;
+      pointerPopupDepth = depth;
       clearHideTimer();
-      miningStatusGeneration += 1;
-      cachedTermView = null;
-      popupAnchor = null;
-      audioController.dismissPopup();
-      preparePopupContent("popup_dismissed");
-      popupView.clear();
+      if (descendantHideTimer !== null && depth >= pendingPruneDepth) {
+        clearDescendantHideTimer();
+      }
+    }
+
+    function onPopupPointerLeave(depth) {
+      if (pointerPopupDepth === depth) {
+        pointerPopupDepth = null;
+      }
+      pointerInPopup = false;
+      scheduleHide("popup-left");
+    }
+
+    function createPopupLevel(depth) {
+      const popup = documentRef.createElement("section");
+      popup.id = depth === 0
+        ? "gsm-hoshidicts-popup"
+        : `gsm-hoshidicts-popup-${depth}`;
+      popup.className = "gsm-hoshidicts-popup interactive";
+      popup.dataset.hoshidictsDepth = String(depth);
+      popup.setAttribute("role", "dialog");
+      popup.setAttribute("aria-label", "Hoshidicts lookup");
       popup.hidden = true;
-      publishPopupState(false);
-      diagnostic("debug", "popup.hidden", { reason });
+      if (depth > 0) {
+        popup.style.zIndex = "2147483647";
+      }
+      const stopPropagation = (event) => event.stopPropagation();
+      const pointerEnter = () => onPopupPointerEnter(depth);
+      const pointerLeave = () => onPopupPointerLeave(depth);
+      popup.addEventListener("pointerdown", stopPropagation);
+      popup.addEventListener("click", stopPropagation);
+      popup.addEventListener("pointerenter", pointerEnter);
+      popup.addEventListener("pointerleave", pointerLeave);
+      documentRef.body.appendChild(popup);
+      const level = {
+        depth,
+        popup,
+        view: null,
+        visible: false,
+        candidate: null,
+        termView: null,
+        audioItems: [],
+        miningStatusGeneration: 0,
+        cleanup() {
+          popup.removeEventListener("pointerdown", stopPropagation);
+          popup.removeEventListener("click", stopPropagation);
+          popup.removeEventListener("pointerenter", pointerEnter);
+          popup.removeEventListener("pointerleave", pointerLeave);
+        },
+      };
+      level.view = createPopupView({
+        window: windowRef,
+        document: documentRef,
+        popup,
+        appendExpressionRuby,
+        appendTextOnlyGlossary,
+        parseTagList,
+        initialResultCount: INITIAL_VISIBLE_RESULTS,
+        maxMetadataTags: MAX_VISIBLE_METADATA_TAGS,
+        sourceHighlighter: chainHighlighter.scope(depth),
+        sourceHighlightEnabled: preferences.sourceHighlightEnabled,
+        positionPopup: () => positionPopupAndDescendants(depth),
+        onMineClick(button, result, candidate, feedback) {
+          void mineResult(button, result, candidate, feedback);
+        },
+        onKanjiClick(character, _result, candidate) {
+          requestKanji(character, candidate, depth);
+        },
+        onAddCustomEntry(entry) {
+          return addCustomEntryAndRefresh(entry, depth);
+        },
+        onNoteEditingChange(editing) {
+          noteEditing = editing;
+          clearHideTimer();
+        },
+      });
+      return level;
+    }
+
+    function ensurePopupLevel(depth) {
+      while (popupLevels.length <= depth) {
+        popupLevels.push(createPopupLevel(popupLevels.length));
+      }
+      return popupLevels[depth];
+    }
+
+    function syncAudioRenderedResults(preferredDepth = null, autoPlay = false) {
+      const visibleLevels = popupLevels.filter(
+        (level) => level.visible && level.audioItems.length > 0
+      );
+      const preferredLevel = Number.isInteger(preferredDepth)
+        ? visibleLevels.find((level) => level.depth === preferredDepth)
+        : null;
+      const orderedLevels = preferredLevel
+        ? [preferredLevel, ...visibleLevels.filter((level) => level !== preferredLevel)]
+        : visibleLevels;
+      audioController.setRenderedResults(
+        orderedLevels.flatMap((level) => level.audioItems),
+        { autoPlay }
+      );
+    }
+
+    function pruneFromDepth(depth, reason = "descendants-pruned") {
+      const startDepth = Math.max(0, Math.trunc(depth));
+      clearDescendantHideTimer();
+      preparePopupContent(reason, startDepth);
+      if (latestCandidate && latestTargetDepth >= startDepth) {
+        invalidateLookup();
+      }
+      for (let index = popupLevels.length - 1; index >= startDepth; index -= 1) {
+        const level = popupLevels[index];
+        level.miningStatusGeneration += 1;
+        level.candidate = null;
+        level.termView = null;
+        level.audioItems = [];
+        level.view.clear();
+        level.popup.hidden = true;
+        level.visible = false;
+        renderedSignatures.delete(index);
+        noticeSignatures.delete(index);
+        if (index > 0) {
+          level.cleanup();
+          level.popup.remove();
+        }
+      }
+      if (startDepth === 0) {
+        popupLevels.length = Math.min(1, popupLevels.length);
+        publishPopupState(false);
+      } else if (popupLevels.length > startDepth) {
+        popupLevels.length = startDepth;
+      }
+      if (pointerPopupDepth !== null && pointerPopupDepth >= startDepth) {
+        pointerPopupDepth = null;
+        pointerInPopup = false;
+      }
+      audioController.dismissPopup();
+      syncAudioRenderedResults(null, false);
+      diagnostic("debug", "popup.pruned", { depth: startDepth, reason });
     }
 
     function hide(reason = "hide") {
+      clearHideTimer();
+      clearDescendantHideTimer();
       invalidateLookup();
-      dismissPopup(reason);
+      preparePopupContent("popup_hidden");
+      pruneFromDepth(0, reason);
       return true;
     }
 
@@ -1656,99 +1924,237 @@
       }, preferences.popupHideDelayMs);
     }
 
-    function positionPopup() {
-      if (!popupVisible || !popupAnchor || !popupAnchor.isConnected) {
-        if (popupVisible) {
+    function schedulePruneFromDepth(depth, reason = "ancestor-hovered") {
+      if (popupLevels.length <= depth) {
+        return;
+      }
+      pendingPruneDepth = depth;
+      clearDescendantHideTimer();
+      if (preferences.popupHideDelayMs === 0) {
+        pruneFromDepth(depth, reason);
+        return;
+      }
+      descendantHideTimer = setTimeoutFn(() => {
+        descendantHideTimer = null;
+        if (pointerPopupDepth === null || pointerPopupDepth < depth) {
+          pruneFromDepth(depth, reason);
+        }
+      }, preferences.popupHideDelayMs);
+    }
+
+    function isCandidateAnchorConnected(candidate) {
+      if (!candidate || !candidate.anchor || !candidate.anchor.isConnected) {
+        return false;
+      }
+      return !candidate.anchorRange || candidate.anchorRange.startContainer.isConnected;
+    }
+
+    function getCandidateAnchorRect(candidate) {
+      if (
+        candidate.anchorRange &&
+        typeof candidate.anchorRange.getBoundingClientRect === "function"
+      ) {
+        try {
+          const rangeRect = candidate.anchorRange.getBoundingClientRect();
+          if (rangeRect && Number.isFinite(rangeRect.left)) {
+            return rangeRect;
+          }
+        } catch {
+          // Fall back to the containing definition element.
+        }
+      }
+      return candidate.anchor.getBoundingClientRect();
+    }
+
+    function calculateChildPosition(anchorRect, popupSize, parentRect) {
+      const padding = 6;
+      const gap = 6;
+      const viewport = { width: windowRef.innerWidth, height: windowRef.innerHeight };
+      const width = Math.min(
+        Math.max(1, popupSize.width),
+        Math.max(1, viewport.width - padding * 2)
+      );
+      const height = Math.min(
+        Math.max(1, popupSize.height),
+        Math.max(1, viewport.height - padding * 2)
+      );
+      const spaceRight = viewport.width - parentRect.right - gap;
+      const spaceLeft = parentRect.left - gap;
+      const preferredLeft = spaceRight >= width || spaceRight >= spaceLeft
+        ? parentRect.right + gap
+        : parentRect.left - gap - width;
+      const clamp = (value, minimum, maximum) =>
+        Math.max(minimum, Math.min(value, maximum));
+      return {
+        left: Math.round(clamp(preferredLeft, padding, viewport.width - width - padding)),
+        top: Math.round(clamp(anchorRect.top, padding, viewport.height - height - padding)),
+        width,
+        height,
+      };
+    }
+
+    function positionPopup(depth = 0) {
+      const level = popupLevels[depth];
+      if (!level || !level.visible) {
+        return;
+      }
+      if (!isCandidateAnchorConnected(level.candidate)) {
+        if (depth === 0) {
           hide("anchor-removed");
+        } else {
+          pruneFromDepth(depth, "anchor-removed");
         }
         return;
       }
-      const anchorRect = popupAnchor.getBoundingClientRect();
-      const measuredRect = popup.getBoundingClientRect();
+      const anchorRect = getCandidateAnchorRect(level.candidate);
+      const measuredRect = level.popup.getBoundingClientRect();
       const popupSize = {
         width: measuredRect.width || Math.min(420, windowRef.innerWidth - 12),
         height: measuredRect.height || Math.min(420, windowRef.innerHeight * 0.6),
       };
-      const position = calculatePopupPosition(
-        anchorRect,
-        popupSize,
-        { width: windowRef.innerWidth, height: windowRef.innerHeight },
-        { vertical: popupVertical }
-      );
-      popup.style.left = `${position.left}px`;
-      popup.style.top = `${position.top}px`;
-      popup.style.maxWidth = `${position.width}px`;
-      popup.style.maxHeight = `${position.height}px`;
+      const parentLevel = depth > 0 ? popupLevels[depth - 1] : null;
+      const position = parentLevel && parentLevel.visible
+        ? calculateChildPosition(
+            anchorRect,
+            popupSize,
+            parentLevel.popup.getBoundingClientRect()
+          )
+        : calculatePopupPosition(
+            anchorRect,
+            popupSize,
+            { width: windowRef.innerWidth, height: windowRef.innerHeight },
+            { vertical: level.candidate.vertical }
+          );
+      level.popup.style.left = `${position.left}px`;
+      level.popup.style.top = `${position.top}px`;
+      level.popup.style.maxWidth = `${position.width}px`;
+      level.popup.style.maxHeight = `${position.height}px`;
     }
 
-    function showPopup(candidate) {
+    function positionPopupAndDescendants(startDepth = 0) {
+      for (let depth = startDepth; depth < popupLevels.length; depth += 1) {
+        positionPopup(depth);
+      }
+    }
+
+    function positionAllPopups() {
+      positionPopupAndDescendants(0);
+    }
+
+    function showPopup(candidate, targetDepth) {
       clearHideTimer();
-      popupAnchor = candidate.anchor;
-      popupVertical = candidate.vertical;
-      popup.hidden = false;
-      popup.scrollTop = 0;
+      const level = ensurePopupLevel(targetDepth);
+      level.candidate = candidate;
+      level.popup.hidden = false;
+      level.popup.scrollTop = 0;
+      level.visible = true;
       publishPopupState(true);
-      positionPopup();
+      positionPopup(targetDepth);
+      return level;
     }
 
-    function renderLookupNotice(candidate, message) {
-      preparePopupContent("lookup_notice");
-      popupView.renderNotice(message, candidate);
-      showPopup(candidate);
+    function renderLookupNotice(candidate, message, targetDepth, signature) {
+      preparePopupContent("lookup_notice", targetDepth);
+      const level = ensurePopupLevel(targetDepth);
+      level.termView = null;
+      level.audioItems = [];
+      level.view.renderNotice(message, candidate);
+      renderedSignatures.set(targetDepth, signature);
+      noticeSignatures.set(targetDepth, signature);
+      showPopup(candidate, targetDepth);
+      syncAudioRenderedResults(null, false);
     }
 
-    function renderTermResults(results, candidate, dictionaryGeneration) {
-      preparePopupContent("lookup_results");
-      cachedTermView = {
+    function renderTermResults(
+      results,
+      candidate,
+      dictionaryGeneration,
+      targetDepth,
+      signature
+    ) {
+      preparePopupContent("lookup_results", targetDepth);
+      expandCandidateAnchor(
+        candidate,
+        results[0].matched || results[0].term.expression
+      );
+      const level = ensurePopupLevel(targetDepth);
+      level.termView = {
         results,
         candidate,
         dictionaryGeneration,
         highlightText: results[0].matched || results[0].term.expression,
+        signature,
       };
-      const rendered = popupView.renderResults(results, candidate, {
+      const rendered = level.view.renderResults(results, candidate, {
         generation: dictionaryGeneration,
-        resolveMedia: dictionaryGeneration === null ? null : resolveMedia,
+        resolveMedia: dictionaryGeneration === null
+          ? null
+          : (request) => resolveMedia({ ...request, depth: targetDepth }),
       });
       for (const button of rendered.miningButtons) {
         button.hidden = true;
       }
-      showPopup(candidate);
-      audioController.setRenderedResults(rendered.audioItems);
-      void refreshMiningButtons(rendered.miningButtons, rendered.feedback);
+      renderedSignatures.set(targetDepth, signature);
+      noticeSignatures.delete(targetDepth);
+      level.audioItems = rendered.audioItems;
+      showPopup(candidate, targetDepth);
+      syncAudioRenderedResults(targetDepth, true);
+      void refreshMiningButtons(level, rendered.miningButtons, rendered.feedback);
     }
 
-    function restoreTermView() {
-      if (!cachedTermView) return;
-      const { results, candidate, dictionaryGeneration } = cachedTermView;
+    function restoreTermView(targetDepth) {
+      const level = popupLevels[targetDepth];
+      if (!level || !level.termView) return;
+      const {
+        results,
+        candidate,
+        dictionaryGeneration,
+        signature,
+      } = level.termView;
       latestCandidate = candidate;
+      latestCandidateSignature = signature;
+      latestTargetDepth = targetDepth;
       latestRequestMode = "term-first";
       latestRequestText = candidate.query;
-      preparePopupContent("restore_term_results");
-      const rendered = popupView.renderResults(results, candidate, {
+      preparePopupContent("restore_term_results", targetDepth);
+      const rendered = level.view.renderResults(results, candidate, {
         generation: dictionaryGeneration,
-        resolveMedia: dictionaryGeneration === null ? null : resolveMedia,
+        resolveMedia: dictionaryGeneration === null
+          ? null
+          : (request) => resolveMedia({ ...request, depth: targetDepth }),
       });
       for (const button of rendered.miningButtons) {
         button.hidden = true;
       }
-      showPopup(candidate);
-      audioController.setRenderedResults(rendered.audioItems);
-      void refreshMiningButtons(rendered.miningButtons, rendered.feedback);
+      renderedSignatures.set(targetDepth, signature);
+      noticeSignatures.delete(targetDepth);
+      level.audioItems = rendered.audioItems;
+      showPopup(candidate, targetDepth);
+      syncAudioRenderedResults(targetDepth, true);
+      void refreshMiningButtons(level, rendered.miningButtons, rendered.feedback);
     }
 
-    function requestKanji(character, candidate) {
+    function requestKanji(character, candidate, targetDepth) {
       const kanji = Array.from(String(character || ""))[0] || "";
       if (!HAN_CHARACTER_PATTERN.test(kanji)) return;
       clearLookupTimeout();
-      sendLookup(candidate, latestGeneration, "kanji", kanji);
+      const signature = renderedSignatures.get(targetDepth) || latestCandidateSignature;
+      sendLookup(
+        candidate,
+        latestGeneration,
+        targetDepth,
+        signature,
+        "kanji",
+        kanji
+      );
     }
 
-    async function addCustomEntryAndRefresh(entry) {
+    async function addCustomEntryAndRefresh(entry, targetDepth) {
       if (!onAddCustomEntry) {
         throw new Error("The custom dictionary is unavailable.");
       }
       const response = await onAddCustomEntry(entry);
-      repeatCurrentLookup();
+      repeatCurrentLookup(targetDepth);
       return response;
     }
 
@@ -1779,10 +2185,14 @@
       return miningStatusCache;
     }
 
-    async function refreshMiningButtons(buttons, feedback) {
-      const generation = ++miningStatusGeneration;
+    async function refreshMiningButtons(level, buttons, feedback) {
+      const generation = ++level.miningStatusGeneration;
       const status = await getCachedMiningStatus();
-      if (destroyed || generation !== miningStatusGeneration || !feedback.isConnected) {
+      if (
+        destroyed ||
+        generation !== level.miningStatusGeneration ||
+        !feedback.isConnected
+      ) {
         return;
       }
       if (status && status.available === true && onMine) {
@@ -1793,7 +2203,7 @@
         const unmapped = Array.isArray(status.unmappedFields)
           ? status.unmappedFields.filter((field) => typeof field === "string")
           : [];
-        popupView.setFeedback(
+        level.view.setFeedback(
           feedback,
           unmapped.length > 0
             ? `Optional Anki fields not mapped: ${unmapped.join(", ")}.`
@@ -1812,7 +2222,7 @@
       // Match Yomitan's quiet unavailable state: dictionary results remain the
       // focus, with no setup warning or inert mining affordance. Errors from a
       // real mining attempt still flow through mineResult below.
-      popupView.setFeedback(feedback, "");
+      level.view.setFeedback(feedback, "");
     }
 
     async function mineResult(button, result, candidate, feedback) {
@@ -1823,16 +2233,17 @@
       ) {
         return;
       }
+      const level = popupLevels.find((entry) => entry.popup.contains(button));
+      if (!level) {
+        return;
+      }
       miningInFlight = true;
-      popupView.setFeedback(feedback, "Adding note to Anki…");
-      const buttons = Array.from(
-        popup.querySelectorAll(".gsm-hoshidicts-mine-button")
+      level.view.setFeedback(feedback, "Adding note to Anki…");
+      const buttons = popupLevels.flatMap((entry) =>
+        Array.from(entry.popup.querySelectorAll(".gsm-hoshidicts-mine-button"))
       );
       for (const current of buttons) {
-        setMiningButtonState(
-          current,
-          current === button ? "mining" : "checking"
-        );
+        setMiningButtonState(current, current === button ? "mining" : "checking");
       }
       try {
         const audioSelection = audioController.getSelection(result);
@@ -1871,7 +2282,7 @@
               "Pronunciation audio could not be added."
           );
         }
-        popupView.setFeedback(
+        level.view.setFeedback(
           feedback,
           feedbackParts.join(" "),
           visibleUnmapped.length > 0 || audioFailed ? "warning" : "success"
@@ -1880,7 +2291,7 @@
         const message = error instanceof Error ? error.message : String(error);
         const duplicate = /already exists|duplicate/iu.test(message);
         setMiningButtonState(button, duplicate ? "duplicate" : "error", message);
-        popupView.setFeedback(
+        level.view.setFeedback(
           feedback,
           duplicate ? "Already in Anki." : `Could not add to Anki: ${message}`,
           duplicate ? "info" : "error"
@@ -1939,10 +2350,29 @@
         pumpMediaQueue();
         return;
       }
-      const alreadyReserved = popupMediaKeys.has(job.key);
-      if (!reservePopupMedia(job.key, metadata.pixelCount)) {
+      const cached = mediaCache.get(job.cacheKey);
+      const pixelCount = cached ? cached.pixelCount : metadata.pixelCount;
+      const reservationKey = mediaDepthKey(job.depth, job.cacheKey);
+      const alreadyReserved = popupMediaKeys.has(reservationKey);
+      if (!reservePopupMedia(job.depth, job.cacheKey, pixelCount)) {
         rejectMediaJob(job, new Error("media_pixel_budget_exceeded"));
         cancelMediaRequests("media_pixel_budget_exceeded");
+        return;
+      }
+      if (cached) {
+        mediaCache.delete(job.cacheKey);
+        mediaCache.set(job.cacheKey, cached);
+        resolveMediaJob(
+          job,
+          cached.url,
+          cached.byteLength,
+          cached.pixelCount
+        );
+        if (isPopupMediaBudgetFull()) {
+          cancelMediaRequests("media_pixel_budget_exhausted");
+        } else {
+          pumpMediaQueue();
+        }
         return;
       }
       let media;
@@ -1956,7 +2386,7 @@
         }
       } catch (error) {
         if (!alreadyReserved) {
-          releasePopupMedia(job.key);
+          releasePopupMedia(job.depth, job.cacheKey);
         }
         rejectMediaJob(job, error);
         pumpMediaQueue();
@@ -1968,6 +2398,18 @@
       } else {
         pumpMediaQueue();
       }
+    }
+
+    function expandCandidateAnchor(candidate, matchedText) {
+      if (!candidate.anchorRange || candidate.sourceElements.length !== 1) {
+        return;
+      }
+      candidate.anchorRange = createTextRangeForOffsets(
+        documentRef,
+        candidate.sourceElements[0],
+        candidate.matchOffset,
+        candidate.matchOffset + matchedText.length
+      ) || candidate.anchorRange;
     }
 
     function handleLookupResponse(rawData) {
@@ -2017,25 +2459,32 @@
       }
       clearLookupTimeout();
       const candidate = latestCandidate;
+      const signature = latestCandidateSignature;
+      const targetDepth = latestTargetDepth;
       const requestId = latestRequestId;
       const requestMode = latestRequestMode;
       latestRequestId = null;
-      if (!candidate) {
-        diagnostic("warn", "lookup.missing-candidate", { requestId });
-        hide("lookup-error");
+      if (!candidate || !isCandidateAnchorConnected(candidate)) {
+        diagnostic("warn", "lookup.missing-candidate", { requestId, targetDepth });
+        pruneFromDepth(targetDepth, "lookup-error");
+        return;
+      }
+      if (targetDepth > preferences.popupNestingMaxDepth) {
+        pruneFromDepth(targetDepth, "depth-limit-changed");
         return;
       }
       if (payload.success !== true) {
         diagnostic("warn", "lookup.failed", {
           requestId,
+          targetDepth,
           dictionaryCount: Number.isFinite(payload.dictionaryCount)
             ? Math.trunc(payload.dictionaryCount)
             : null,
           featureDisabled: payload.featureDisabled === true,
           error: boundedString(payload.error, 4096) || "unknown lookup error",
         });
-        if (requestMode === "kanji" && cachedTermView) {
-          restoreTermView();
+        if (requestMode === "kanji" && popupLevels[targetDepth]?.termView) {
+          restoreTermView(targetDepth);
           return;
         }
         const message = payload.featureDisabled === true
@@ -2043,7 +2492,7 @@
           : payload.dictionaryCount === 0
             ? "No Hoshidicts dictionaries are enabled. Open Hoshidicts Settings."
             : `Dictionary lookup failed: ${boundedString(payload.error, 1024) || "try again"}`;
-        renderLookupNotice(candidate, message);
+        renderLookupNotice(candidate, message, targetDepth, signature);
         return;
       }
       const dictionaryGeneration = normalizeDictionaryGeneration(payload.generation);
@@ -2056,9 +2505,16 @@
       }
       const results = normalizeLookupResults(payload);
       if (results.length > 0) {
-        renderTermResults(results, candidate, dictionaryGeneration);
+        renderTermResults(
+          results,
+          candidate,
+          dictionaryGeneration,
+          targetDepth,
+          signature
+        );
         diagnostic("info", "lookup.rendered", {
           requestId,
+          targetDepth,
           dictionaryCount: Number.isFinite(payload.dictionaryCount)
             ? Math.trunc(payload.dictionaryCount)
             : null,
@@ -2070,17 +2526,25 @@
       }
       const kanji = normalizeKanjiLookup(payload);
       if (kanji) {
-        preparePopupContent("kanji_results");
-        audioController.setRenderedResults([]);
-        popupView.renderKanji(kanji, candidate, {
-          onBack: requestMode === "kanji" && cachedTermView ? restoreTermView : null,
-          highlightText: requestMode === "kanji" && cachedTermView
-            ? cachedTermView.highlightText
+        preparePopupContent("kanji_results", targetDepth);
+        const level = ensurePopupLevel(targetDepth);
+        const termView = level.termView;
+        level.audioItems = [];
+        level.view.renderKanji(kanji, candidate, {
+          onBack: requestMode === "kanji" && termView
+            ? () => restoreTermView(targetDepth)
+            : null,
+          highlightText: requestMode === "kanji" && termView
+            ? termView.highlightText
             : kanji.character,
         });
-        showPopup(candidate);
+        renderedSignatures.set(targetDepth, signature);
+        noticeSignatures.delete(targetDepth);
+        showPopup(candidate, targetDepth);
+        syncAudioRenderedResults(null, false);
         diagnostic("info", "lookup.kanji-rendered", {
           requestId,
+          targetDepth,
           dictionaryCount: Number.isFinite(payload.dictionaryCount)
             ? Math.trunc(payload.dictionaryCount)
             : null,
@@ -2093,19 +2557,27 @@
       if (results.length === 0) {
         diagnostic("info", "lookup.empty", {
           requestId,
+          targetDepth,
           dictionaryCount: Number.isFinite(payload.dictionaryCount)
             ? Math.trunc(payload.dictionaryCount)
             : null,
           query: candidate.query,
         });
-        if (requestMode === "kanji" && cachedTermView) {
-          restoreTermView();
+        if (requestMode === "kanji" && popupLevels[targetDepth]?.termView) {
+          restoreTermView(targetDepth);
           return;
         }
-        renderLookupNotice(
-          candidate,
-          "No definitions found. Add one with the Note button."
-        );
+        latestCandidate = null;
+        if (targetDepth > 0) {
+          pruneFromDepth(targetDepth, "no-results");
+        } else {
+          renderLookupNotice(
+            candidate,
+            "No definitions found. Add one with the Note button.",
+            targetDepth,
+            signature
+          );
+        }
         return;
       }
     }
@@ -2155,6 +2627,8 @@
             sendLookup(
               latestCandidate,
               latestGeneration,
+              latestTargetDepth,
+              latestCandidateSignature,
               latestRequestMode,
               latestRequestText || latestCandidate.query
             );
@@ -2169,13 +2643,31 @@
           if (socket !== nextSocket) {
             return;
           }
+          const reconnectLookup = latestCandidate
+            ? {
+                candidate: latestCandidate,
+                mode: latestRequestMode,
+                signature: latestCandidateSignature,
+                targetDepth: latestTargetDepth,
+                text: latestRequestText || latestCandidate.query,
+              }
+            : null;
           socket = null;
           latestRequestId = null;
           clearLookupTimeout();
           clearMediaState("socket_closed");
           activeDictionaryGeneration = null;
-          if (popupVisible) {
-            dismissPopup("socket-closed");
+          hide("socket-closed");
+          if (
+            reconnectLookup &&
+            reconnectLookup.targetDepth === 0 &&
+            isCandidateAnchorConnected(reconnectLookup.candidate)
+          ) {
+            latestCandidate = reconnectLookup.candidate;
+            latestCandidateSignature = reconnectLookup.signature;
+            latestTargetDepth = reconnectLookup.targetDepth;
+            latestRequestMode = reconnectLookup.mode;
+            latestRequestText = reconnectLookup.text;
           }
           diagnostic("warn", "socket.closed", {
             serverUrl,
@@ -2198,11 +2690,25 @@
       }
     }
 
-    function sendLookup(candidate, generation, mode = "term-first", text = candidate.query) {
-      if (destroyed || generation !== latestGeneration) {
+    function sendLookup(
+      candidate,
+      generation,
+      targetDepth,
+      signature,
+      mode = "term-first",
+      text = candidate.query
+    ) {
+      if (
+        destroyed ||
+        generation !== latestGeneration ||
+        targetDepth > preferences.popupNestingMaxDepth ||
+        !isCandidateAnchorConnected(candidate)
+      ) {
         return;
       }
       latestCandidate = candidate;
+      latestTargetDepth = targetDepth;
+      latestCandidateSignature = signature;
       latestRequestMode = mode;
       latestRequestText = text;
       if (lookupTimeoutTimer === null) {
@@ -2213,16 +2719,19 @@
           }
           const requestId = latestRequestId;
           latestRequestId = null;
-          if (mode === "kanji" && cachedTermView) {
-            restoreTermView();
+          if (mode === "kanji" && popupLevels[targetDepth]?.termView) {
+            restoreTermView(targetDepth);
           } else {
             renderLookupNotice(
               candidate,
-              "Dictionary lookup timed out. Check that the overlay service is running."
+              "Dictionary lookup timed out. Check that the overlay service is running.",
+              targetDepth,
+              signature
             );
           }
           diagnostic("warn", "lookup.timed-out", {
             requestId,
+            targetDepth,
             query: candidate.query,
           });
         }, lookupTimeoutMs);
@@ -2230,6 +2739,7 @@
       if (!socket || socket.readyState !== WebSocketImpl.OPEN) {
         diagnostic("debug", "lookup.waiting-for-socket", {
           query: candidate.query,
+          targetDepth,
           socketState: socket ? socket.readyState : null,
         });
         connect();
@@ -2247,66 +2757,115 @@
         requestId,
         query: text,
         mode,
+        targetDepth,
         matchOffset: candidate.matchOffset,
       });
     }
 
-    function repeatCurrentLookup() {
-      const candidate = latestCandidate;
-      if (!candidate || !candidate.anchor || !candidate.anchor.isConnected) {
+    function repeatCurrentLookup(targetDepth = latestTargetDepth) {
+      const candidate = popupLevels[targetDepth]?.candidate || latestCandidate;
+      if (!isCandidateAnchorConnected(candidate)) {
         return false;
       }
-      queueLookup(candidate, true);
+      queueLookup(candidate, targetDepth, true);
       return true;
     }
 
-    function queueLookup(candidate, immediate = false) {
+    function queueLookup(candidate, targetDepth, immediate = false) {
+      let sourceId = candidateSourceIds.get(candidate.anchor);
+      if (sourceId === undefined) {
+        sourceId = ++candidateSourceSequence;
+        candidateSourceIds.set(candidate.anchor, sourceId);
+      }
       const signature = [
+        targetDepth,
+        sourceId,
         candidate.sentence,
         candidate.matchOffset,
         candidate.query,
       ].join("\u0000");
       clearHideTimer();
-      if (!immediate && signature === lastCandidateSignature) {
+      clearDescendantHideTimer();
+      if (
+        !immediate &&
+        signature === latestCandidateSignature &&
+        latestTargetDepth === targetDepth &&
+        (latestRequestId !== null || debounceTimer !== null)
+      ) {
+        return;
+      }
+      if (!immediate && renderedSignatures.get(targetDepth) === signature) {
+        invalidateLookup();
+        schedulePruneFromDepth(targetDepth + 1, "ancestor-hovered");
         return;
       }
       invalidateLookup();
-      audioController.beginLookup();
-      if (!immediate && popupVisible) {
-        dismissPopup("candidate-changed");
+      if (targetDepth === 0) {
+        audioController.beginLookup();
+      } else {
+        audioController.dismissPopup();
       }
-      lastCandidateSignature = signature;
+      pruneFromDepth(targetDepth, "candidate-changed");
       latestCandidate = candidate;
+      latestTargetDepth = targetDepth;
+      latestCandidateSignature = signature;
       const generation = latestGeneration;
       if (immediate) {
-        sendLookup(candidate, generation);
+        sendLookup(candidate, generation, targetDepth, signature);
         return;
       }
       debounceTimer = setTimeoutFn(() => {
         debounceTimer = null;
-        sendLookup(candidate, generation);
+        sendLookup(candidate, generation, targetDepth, signature);
       }, LOOKUP_DEBOUNCE_MS);
+    }
+
+    function clearHoveredSource() {
+      lastHoveredSource = null;
+      lastHoveredTargetDepth = null;
+    }
+
+    function queueHoveredLookup(candidate, targetDepth) {
+      const enteredSource =
+        lastHoveredSource !== candidate.anchor ||
+        lastHoveredTargetDepth !== targetDepth;
+      lastHoveredSource = candidate.anchor;
+      lastHoveredTargetDepth = targetDepth;
+      if (
+        enteredSource &&
+        noticeSignatures.has(targetDepth) &&
+        noticeSignatures.get(targetDepth) === renderedSignatures.get(targetDepth)
+      ) {
+        renderedSignatures.delete(targetDepth);
+      }
+      queueLookup(candidate, targetDepth);
     }
 
     function scanPointer(pointer, modifierActive) {
       if (!pointer || !(pointer.target instanceof windowRef.Element)) {
         return;
       }
-      if (noteEditing) {
-        pointerInPopup = popup.contains(pointer.target);
-        clearHideTimer();
-        return;
-      }
-      if (
-        popup.contains(pointer.target) ||
-        pointer.target.closest(".gsm-hoshidicts-audio-menu")
-      ) {
+      if (pointer.target.closest(".gsm-hoshidicts-audio-menu")) {
         pointerInPopup = true;
+        pointerPopupDepth = null;
         clearHideTimer();
         return;
       }
-      pointerInPopup = false;
+      const popupDepth = getPopupDepthForTarget(pointer.target);
+      pointerInPopup = popupDepth !== null;
+      pointerPopupDepth = popupDepth;
+      if (popupDepth !== null) {
+        clearHideTimer();
+        if (descendantHideTimer !== null && popupDepth >= pendingPruneDepth) {
+          clearDescendantHideTimer();
+        }
+      }
+      if (noteEditing) {
+        clearHideTimer();
+        return;
+      }
       if (requiresActivationKey() && !modifierActive) {
+        clearHoveredSource();
         if (!activationRequirementLogged && isReadableHoverTarget(pointer.target)) {
           activationRequirementLogged = true;
           diagnostic("info", "hover.activation-key-required", {
@@ -2318,6 +2877,34 @@
         scheduleHide("activation-key-not-held");
         return;
       }
+
+      if (popupDepth !== null) {
+        const targetDepth = popupDepth + 1;
+        if (targetDepth > preferences.popupNestingMaxDepth) {
+          clearHoveredSource();
+          invalidateLookup();
+          schedulePruneFromDepth(targetDepth, "depth-limit");
+          return;
+        }
+        const candidate = resolveGlossaryLookupCandidate(
+          windowRef,
+          documentRef,
+          pointer.target,
+          pointer.clientX,
+          pointer.clientY,
+          popupDepth
+        );
+        if (candidate) {
+          candidateMissLogged = false;
+          queueHoveredLookup(candidate, targetDepth);
+        } else {
+          clearHoveredSource();
+          invalidateLookup();
+          schedulePruneFromDepth(targetDepth, "ancestor-hovered");
+        }
+        return;
+      }
+
       const candidate = resolveLookupCandidate(
         windowRef,
         documentRef,
@@ -2327,9 +2914,10 @@
       );
       if (candidate) {
         candidateMissLogged = false;
-        queueLookup(candidate);
+        queueHoveredLookup(candidate, 0);
         return;
       }
+      clearHoveredSource();
       if (!candidateMissLogged) {
         candidateMissLogged = true;
         diagnostic("debug", "hover.no-candidate", {
@@ -2398,21 +2986,12 @@
       return true;
     }
 
-    function onPopupPointerEnter() {
-      pointerInPopup = true;
-      clearHideTimer();
-    }
-
-    function onPopupPointerLeave() {
-      pointerInPopup = false;
-      scheduleHide("popup-left");
-    }
-
     function updatePreferences(nextPreferences = {}) {
       const hadHideTimer = hideTimer !== null;
       const previousMode = preferences.lookupMode;
       const previousActivationKey = preferences.activationKey;
       const previousSourceHighlightEnabled = preferences.sourceHighlightEnabled;
+      const previousMaxDepth = preferences.popupNestingMaxDepth;
       preferences = {
         lookupMode: Object.prototype.hasOwnProperty.call(nextPreferences, "lookupMode")
           ? nextPreferences.lookupMode === "hover" ? "hover" : "shift"
@@ -2438,6 +3017,15 @@
               preferences.popupHideDelayMs
             )
           : preferences.popupHideDelayMs,
+        popupNestingMaxDepth: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "popupNestingMaxDepth"
+        )
+          ? normalizePopupNestingMaxDepth(
+              nextPreferences.popupNestingMaxDepth,
+              preferences.popupNestingMaxDepth
+            )
+          : preferences.popupNestingMaxDepth,
       };
       if (hadHideTimer) {
         clearHideTimer();
@@ -2449,7 +3037,15 @@
         globalActivationKeyPressed = false;
       }
       if (previousSourceHighlightEnabled !== preferences.sourceHighlightEnabled) {
-        popupView.setSourceHighlightEnabled(preferences.sourceHighlightEnabled);
+        for (const level of popupLevels) {
+          level.view.setSourceHighlightEnabled(preferences.sourceHighlightEnabled);
+        }
+      }
+      if (preferences.popupNestingMaxDepth < previousMaxDepth) {
+        pruneFromDepth(
+          preferences.popupNestingMaxDepth + 1,
+          "depth-limit-changed"
+        );
       }
       if (previousMode !== preferences.lookupMode || activationKeyChanged) {
         activationRequirementLogged = false;
@@ -2457,7 +3053,7 @@
           invalidateLookup();
           scheduleHide(activationKeyChanged ? "activation-key-changed" : "lookup-mode-changed");
         } else {
-          scanPointer(lastPointer, true);
+          scanPointer(lastPointer, isActivationKeyPressed());
         }
       }
       diagnostic("info", "preferences.updated", preferences);
@@ -2477,6 +3073,7 @@
 
     function onWindowBlur() {
       localShiftPressed = false;
+      clearHoveredSource();
       if (noteEditing) {
         clearHideTimer();
         return;
@@ -2504,29 +3101,34 @@
         reconnectTimer = null;
       }
       if (socket) {
-        socket.close();
+        const currentSocket = socket;
         socket = null;
+        currentSocket.close();
       }
       documentRef.removeEventListener("mousemove", onMouseMove, true);
       documentRef.removeEventListener("keydown", onKeyDown, true);
       documentRef.removeEventListener("keyup", onKeyUp, true);
-      popup.removeEventListener("pointerenter", onPopupPointerEnter);
-      popup.removeEventListener("pointerleave", onPopupPointerLeave);
-      windowRef.removeEventListener("resize", positionPopup);
-      windowRef.removeEventListener("scroll", positionPopup, true);
+      windowRef.removeEventListener("resize", positionAllPopups);
+      windowRef.removeEventListener("scroll", positionAllPopups, true);
       windowRef.removeEventListener("blur", onWindowBlur);
-      popup.remove();
+      for (const level of popupLevels) {
+        level.cleanup();
+        level.popup.remove();
+      }
+      popupLevels.length = 0;
+      chainHighlighter.clearAll();
       documentRef.documentElement.classList.remove("gsm-hoshidicts-enabled");
       delete documentRef.documentElement.dataset.gsmHoshidictsEnabled;
     }
 
+    documentRef.documentElement.classList.add("gsm-hoshidicts-enabled");
+    documentRef.documentElement.dataset.gsmHoshidictsEnabled = "true";
+    ensurePopupLevel(0);
     documentRef.addEventListener("mousemove", onMouseMove, true);
     documentRef.addEventListener("keydown", onKeyDown, true);
     documentRef.addEventListener("keyup", onKeyUp, true);
-    popup.addEventListener("pointerenter", onPopupPointerEnter);
-    popup.addEventListener("pointerleave", onPopupPointerLeave);
-    windowRef.addEventListener("resize", positionPopup);
-    windowRef.addEventListener("scroll", positionPopup, true);
+    windowRef.addEventListener("resize", positionAllPopups);
+    windowRef.addEventListener("scroll", positionAllPopups, true);
     windowRef.addEventListener("blur", onWindowBlur);
     diagnostic("info", "reader.initialized", {
       serverUrl,
@@ -2534,6 +3136,7 @@
       activationKey: preferences.activationKey,
       sourceHighlightEnabled: preferences.sourceHighlightEnabled,
       popupHideDelayMs: preferences.popupHideDelayMs,
+      popupNestingMaxDepth: preferences.popupNestingMaxDepth,
       scanLength: LOOKUP_SCAN_LENGTH,
     });
     connect();
@@ -2542,10 +3145,13 @@
       destroy,
       hide,
       isVisible: () => popupVisible,
-      getPopupElement: () => popup,
+      getPopupElement: () => popupLevels[0]?.popup || null,
+      getPopupElements: () => popupLevels
+        .filter((level) => level.visible)
+        .map((level) => level.popup),
       getPreferences: () => ({ ...preferences }),
       getAudioPreferences: () => audioController.getPreferences(),
-      positionPopup,
+      positionPopup: positionAllPopups,
       setActivationKeyPressed,
       updateAudioPreferences,
       updatePreferences,
@@ -2555,6 +3161,7 @@
   return {
     DEFAULT_ACTIVATION_KEY,
     DEFAULT_POPUP_HIDE_DELAY_MS,
+    DEFAULT_POPUP_NESTING_MAX_DEPTH,
     DEFAULT_SOURCE_HIGHLIGHT_ENABLED,
     INITIAL_VISIBLE_RESULTS,
     LOOKUP_DEBOUNCE_MS,
@@ -2572,9 +3179,11 @@
     normalizeAudioProfile,
     normalizePopupHideDelay,
     normalizeKanjiLookup,
+    normalizePopupNestingMaxDepth,
     normalizeLookupResults,
     resolveGsmApiBaseUrl,
     resolveLookupCandidate,
+    resolveGlossaryLookupCandidate,
     segmentFurigana,
     setMiningButtonState,
   };

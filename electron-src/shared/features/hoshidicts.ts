@@ -143,6 +143,7 @@ export function isHoshidictsActivationKey(
 export const DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS = 300;
 export const DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED = false;
 export const MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS = 5000;
+export const DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH = 10;
 export const HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS = [
     'jitendex',
     'jmdict',
@@ -312,6 +313,7 @@ export interface HoshidictsReaderPreferences {
     activationKey: HoshidictsActivationKey;
     sourceHighlightEnabled: boolean;
     popupHideDelayMs: number;
+    popupNestingMaxDepth: number;
 }
 
 export interface HoshidictsAudioSource {
@@ -429,6 +431,7 @@ export interface HoshidictsManagerSnapshot {
     activationKey: HoshidictsActivationKey;
     sourceHighlightEnabled: boolean;
     popupHideDelayMs: number;
+    popupNestingMaxDepth: number;
     schedule: HoshidictsSchedule;
     lastCheck: string | null;
     nextCheck: string | null;

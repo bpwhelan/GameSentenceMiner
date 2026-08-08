@@ -5,6 +5,10 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS } from '../../../shared/features/hoshidicts.js';
+
+vi.mock('electron', () => ({
+    app: { isPackaged: false },
+}));
 import {
     defaultHoshidictsAudioProfile,
     defaultHoshidictsMiningProfile,
@@ -1159,6 +1163,7 @@ describe('Hoshidicts lookup mode', () => {
         expect(snapshot.lookupMode).toBe('shift');
         expect(snapshot.activationKey).toBe('Shift');
         expect(snapshot.sourceHighlightEnabled).toBe(false);
+        expect(snapshot.popupNestingMaxDepth).toBe(10);
     });
 
     it('defaults new state to Shift and persists hover lookup', async () => {
@@ -1169,33 +1174,39 @@ describe('Hoshidicts lookup mode', () => {
         expect((await manager.getSnapshot()).activationKey).toBe('Shift');
         expect((await manager.getSnapshot()).sourceHighlightEnabled).toBe(false);
         expect((await manager.getSnapshot()).popupHideDelayMs).toBe(300);
+        expect((await manager.getSnapshot()).popupNestingMaxDepth).toBe(10);
 
         const snapshot = await manager.setReaderPreferences(
             'hover',
             850,
             'F8',
-            true
+            true,
+            12
         );
 
         expect(snapshot.lookupMode).toBe('hover');
         expect(snapshot.activationKey).toBe('F8');
         expect(snapshot.sourceHighlightEnabled).toBe(true);
         expect(snapshot.popupHideDelayMs).toBe(850);
+        expect(snapshot.popupNestingMaxDepth).toBe(12);
         expect(readManifest(baseDir).lookupMode).toBe('hover');
         expect(readManifest(baseDir).activationKey).toBe('F8');
         expect(readManifest(baseDir).sourceHighlightEnabled).toBe(true);
         expect(readManifest(baseDir).popupHideDelayMs).toBe(850);
+        expect(readManifest(baseDir).popupNestingMaxDepth).toBe(12);
 
         const reloaded = createHarness(baseDir).manager;
         expect((await reloaded.getSnapshot()).lookupMode).toBe('hover');
         expect((await reloaded.getSnapshot()).activationKey).toBe('F8');
         expect((await reloaded.getSnapshot()).sourceHighlightEnabled).toBe(true);
         expect((await reloaded.getSnapshot()).popupHideDelayMs).toBe(850);
+        expect((await reloaded.getSnapshot()).popupNestingMaxDepth).toBe(12);
 
         const shifted = await reloaded.setLookupMode('shift');
         expect(shifted.lookupMode).toBe('shift');
         expect(shifted.activationKey).toBe('F8');
         expect(shifted.sourceHighlightEnabled).toBe(true);
+        expect(shifted.popupNestingMaxDepth).toBe(12);
     });
 
     it('rejects unsupported lookup modes', async () => {
@@ -1236,6 +1247,44 @@ describe('Hoshidicts lookup mode', () => {
             manager.setReaderPreferences('shift', 300, 'Shift', 'yes' as never)
         ).rejects.toThrow('source highlight preference is invalid');
     });
+
+    it('defaults invalid persisted popup nesting depths and rejects invalid updates', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+        fs.mkdirSync(path.dirname(manager.manifestPath), { recursive: true });
+        fs.writeFileSync(
+            manager.manifestPath,
+            JSON.stringify({
+                version: 1,
+                lookupMode: 'hover',
+                popupHideDelayMs: 850,
+                popupNestingMaxDepth: -1,
+                schedule: 'off',
+                lastCheck: null,
+                nextCheck: null,
+                lastError: null,
+                dictionaries: [],
+            }),
+            'utf8'
+        );
+
+        expect((await manager.getSnapshot()).popupNestingMaxDepth).toBe(10);
+        await expect(
+            manager.setReaderPreferences('hover', 850, 'Shift', false, -1)
+        ).rejects.toThrow('nesting depth is invalid');
+        await expect(
+            manager.setReaderPreferences('hover', 850, 'Shift', false, 1.5)
+        ).rejects.toThrow('nesting depth is invalid');
+        await expect(
+            manager.setReaderPreferences(
+                'hover',
+                850,
+                'Shift',
+                false,
+                Number.MAX_SAFE_INTEGER + 1
+            )
+        ).rejects.toThrow('nesting depth is invalid');
+    });
 });
 
 describe('Hoshidicts snapshots', () => {
@@ -1252,7 +1301,7 @@ describe('Hoshidicts snapshots', () => {
     it('preserves reader and mining preferences when dictionary hydration fails', async () => {
         const baseDir = makeTempDir();
         const { manager } = createHarness(baseDir);
-        await manager.setReaderPreferences('hover', 900, 'Space', true);
+        await manager.setReaderPreferences('hover', 900, 'Space', true, 0);
         await manager.setMiningProfile({
             deck: 'Mining',
             model: 'Kiku',
@@ -1281,6 +1330,7 @@ describe('Hoshidicts snapshots', () => {
         expect(snapshot.activationKey).toBe('Space');
         expect(snapshot.sourceHighlightEnabled).toBe(true);
         expect(snapshot.popupHideDelayMs).toBe(900);
+        expect(snapshot.popupNestingMaxDepth).toBe(0);
         expect(snapshot.miningProfile).toMatchObject({
             deck: 'Mining',
             model: 'Kiku',

@@ -983,7 +983,7 @@
       buttonListeners.set(button, { click, contextmenu });
     }
 
-    function setRenderedResults(items) {
+    function setRenderedResults(items, options = {}) {
       clearAutoplay();
       removeMenu();
       renderedItems = Array.isArray(items)
@@ -996,6 +996,7 @@
       }
       updateButtons();
       if (
+        options.autoPlay !== false &&
         preferences.enabled &&
         preferences.autoPlay &&
         preferences.sources.length > 0 &&

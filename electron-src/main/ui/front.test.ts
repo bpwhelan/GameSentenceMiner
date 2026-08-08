@@ -156,6 +156,7 @@ describe('runOverlayWithSource', () => {
                 GSM_HOSHIDICTS_LOOKUP_MODE: 'shift',
                 GSM_HOSHIDICTS_ACTIVATION_KEY: 'Shift',
                 GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED: '0',
+                GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH: '10',
             }),
         });
         expect(getOverlayRuntimeState()).toEqual({
@@ -183,6 +184,7 @@ describe('runOverlayWithSource', () => {
         expect(process.env.GSM_HOSHIDICTS_LOOKUP_MODE).toBe('shift');
         expect(process.env.GSM_HOSHIDICTS_ACTIVATION_KEY).toBe('Shift');
         expect(process.env.GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED).toBe('0');
+        expect(process.env.GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH).toBe('10');
         expect(process.env.GSM_BROKER_PORT).toBe('4567');
         expect(process.env.GSM_BROKER_TOKEN).toBe('overlay-bus-token');
         expect(process.env.GSM_CLIENT_ID).toBe('overlay');
@@ -216,6 +218,7 @@ describe('runOverlayWithSource', () => {
         front.configureHoshidictsCustomDictionarySyncProvider(
             syncCustomDictionary
         );
+        front.configureHoshidictsPopupNestingMaxDepthProvider(async () => 4);
 
         await expect(front.runOverlayWithSource('manual')).resolves.toBe(true);
 
@@ -225,11 +228,13 @@ describe('runOverlayWithSource', () => {
             GSM_HOSHIDICTS_ACTIVATION_KEY: 'F8',
             GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED: '1',
             GSM_HOSHIDICTS_POPUP_HIDE_DELAY_MS: '850',
+            GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH: '4',
         });
         expect(front.getOverlayHoshidictsLookupModeAtLaunch()).toBe('hover');
         expect(front.getOverlayHoshidictsActivationKeyAtLaunch()).toBe('F8');
         expect(front.getOverlayHoshidictsSourceHighlightEnabledAtLaunch()).toBe(true);
         expect(front.getOverlayHoshidictsPopupHideDelayAtLaunch()).toBe(850);
+        expect(front.getOverlayHoshidictsPopupNestingMaxDepthAtLaunch()).toBe(4);
         expect(syncCustomDictionary).toHaveBeenCalledOnce();
         expect(
             front.getOverlayHoshidictsAudioProfileRestartRequired()
@@ -256,12 +261,14 @@ describe('runOverlayWithSource', () => {
                 activationKey: 'Space',
                 sourceHighlightEnabled: false,
                 popupHideDelayMs: 1200,
+                popupNestingMaxDepth: 0,
             })
         ).toBe(true);
         expect(front.getOverlayHoshidictsLookupModeAtLaunch()).toBe('shift');
         expect(front.getOverlayHoshidictsActivationKeyAtLaunch()).toBe('Space');
         expect(front.getOverlayHoshidictsSourceHighlightEnabledAtLaunch()).toBe(false);
         expect(front.getOverlayHoshidictsPopupHideDelayAtLaunch()).toBe(1200);
+        expect(front.getOverlayHoshidictsPopupNestingMaxDepthAtLaunch()).toBe(0);
     });
 
     it('does not wait for custom dictionary synchronization before launching', async () => {

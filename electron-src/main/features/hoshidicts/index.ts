@@ -6,12 +6,14 @@ import {
     configureHoshidictsActivationKeyProvider,
     configureHoshidictsLookupModeProvider,
     configureHoshidictsPopupHideDelayProvider,
+    configureHoshidictsPopupNestingMaxDepthProvider,
     configureHoshidictsSourceHighlightProvider,
     configureHoshidictsCustomDictionarySyncProvider,
     getOverlayHoshidictsEnabledAtLaunch,
     getOverlayHoshidictsActivationKeyAtLaunch,
     getOverlayHoshidictsLookupModeAtLaunch,
     getOverlayHoshidictsPopupHideDelayAtLaunch,
+    getOverlayHoshidictsPopupNestingMaxDepthAtLaunch,
     getOverlayHoshidictsSourceHighlightEnabledAtLaunch,
     getOverlayHoshidictsAudioProfileRestartRequired,
     getOverlayRuntimeState,
@@ -109,6 +111,7 @@ async function synchronizeConnectedReader(): Promise<void> {
         activationKey: snapshot.activationKey,
         sourceHighlightEnabled: snapshot.sourceHighlightEnabled,
         popupHideDelayMs: snapshot.popupHideDelayMs,
+        popupNestingMaxDepth: snapshot.popupNestingMaxDepth,
     });
     await applyAudioProfile(snapshot.audioProfile);
 }
@@ -143,6 +146,8 @@ export function registerHoshidictsFeature(deps: {
             getOverlayHoshidictsPopupHideDelayAtLaunch,
         getOverlayAudioProfileRestartRequired:
             getOverlayHoshidictsAudioProfileRestartRequired,
+        getOverlayPopupNestingMaxDepthAtLaunch:
+            getOverlayHoshidictsPopupNestingMaxDepthAtLaunch,
         applyReaderPreferences,
         applyAudioProfile,
         getMiningOptions: fetchHoshidictsMiningOptions,
@@ -211,6 +216,10 @@ export async function startHoshidictsManager(): Promise<void> {
     );
     configureHoshidictsPopupHideDelayProvider(
         async () => (await manager.getSnapshot()).popupHideDelayMs
+    );
+    configureHoshidictsPopupNestingMaxDepthProvider(
+        async () =>
+            (await getHoshidictsManager().getSnapshot()).popupNestingMaxDepth
     );
     configureHoshidictsCustomDictionarySyncProvider(async () => {
         await manager.syncCustomDictionary();

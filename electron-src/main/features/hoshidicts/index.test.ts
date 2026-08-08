@@ -17,6 +17,7 @@ const harness = vi.hoisted(() => ({
     configureSourceHighlightProvider: vi.fn(),
     configurePopupHideDelayProvider: vi.fn(),
     configureCustomSyncProvider: vi.fn(),
+    configurePopupNestingMaxDepthProvider: vi.fn(),
     markPreferencesApplied: vi.fn(() => true),
     markAudioApplied: vi.fn(() => true),
     markAudioSyncFailed: vi.fn(() => true),
@@ -34,6 +35,7 @@ const harness = vi.hoisted(() => ({
         activationKey: 'F8',
         sourceHighlightEnabled: true,
         popupHideDelayMs: 850,
+        popupNestingMaxDepth: 4,
         audioProfile: {
             version: 1 as const,
             enabled: true,
@@ -94,12 +96,15 @@ vi.mock('../../ui/front.js', () => ({
         harness.configurePopupHideDelayProvider,
     configureHoshidictsCustomDictionarySyncProvider:
         harness.configureCustomSyncProvider,
+    configureHoshidictsPopupNestingMaxDepthProvider:
+        harness.configurePopupNestingMaxDepthProvider,
     getOverlayHoshidictsEnabledAtLaunch: () => false,
     getOverlayHoshidictsLookupModeAtLaunch: () => 'shift',
     getOverlayHoshidictsActivationKeyAtLaunch: () => 'Shift',
     getOverlayHoshidictsSourceHighlightEnabledAtLaunch: () => false,
     getOverlayHoshidictsPopupHideDelayAtLaunch: () => 300,
     getOverlayHoshidictsAudioProfileRestartRequired: () => false,
+    getOverlayHoshidictsPopupNestingMaxDepthAtLaunch: () => 10,
     getOverlayRuntimeState: () => ({
         isRunning: false,
         source: null,
@@ -143,6 +148,7 @@ describe('Hoshidicts feature registration', () => {
         harness.configureSourceHighlightProvider.mockReset();
         harness.configurePopupHideDelayProvider.mockReset();
         harness.configureCustomSyncProvider.mockReset();
+        harness.configurePopupNestingMaxDepthProvider.mockReset();
         harness.startManager.mockClear();
         harness.syncCustomDictionary.mockClear();
         harness.addCustomEntry.mockClear();
@@ -178,6 +184,7 @@ describe('Hoshidicts feature registration', () => {
                 activationKey: 'F8',
                 sourceHighlightEnabled: true,
                 popupHideDelayMs: 850,
+                popupNestingMaxDepth: 4,
             })
         ).resolves.toBe(true);
         expect(harness.busRequest).toHaveBeenCalledWith(
@@ -188,6 +195,7 @@ describe('Hoshidicts feature registration', () => {
                 activationKey: 'F8',
                 sourceHighlightEnabled: true,
                 popupHideDelayMs: 850,
+                popupNestingMaxDepth: 4,
             },
             2000
         );
@@ -196,6 +204,7 @@ describe('Hoshidicts feature registration', () => {
             activationKey: 'F8',
             sourceHighlightEnabled: true,
             popupHideDelayMs: 850,
+            popupNestingMaxDepth: 4,
         });
         await expect(
             harness.registerIPC.mock.calls[0][0].applyAudioProfile(
@@ -237,6 +246,7 @@ describe('Hoshidicts feature registration', () => {
                     activationKey: 'F8',
                     sourceHighlightEnabled: true,
                     popupHideDelayMs: 850,
+                    popupNestingMaxDepth: 4,
                 },
                 2000
             );
@@ -295,6 +305,12 @@ describe('Hoshidicts feature registration', () => {
         const delayProvider =
             harness.configurePopupHideDelayProvider.mock.calls[0][0];
         await expect(delayProvider()).resolves.toBe(850);
+        expect(
+            harness.configurePopupNestingMaxDepthProvider
+        ).toHaveBeenCalledOnce();
+        const depthProvider =
+            harness.configurePopupNestingMaxDepthProvider.mock.calls[0][0];
+        await expect(depthProvider()).resolves.toBe(4);
         expect(harness.configureCustomSyncProvider).toHaveBeenCalledOnce();
         const syncProvider = harness.configureCustomSyncProvider.mock.calls[0][0];
         await expect(syncProvider()).resolves.toBeUndefined();

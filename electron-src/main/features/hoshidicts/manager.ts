@@ -33,6 +33,7 @@ import {
     DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
     DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
     DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+    DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
     DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
     isHoshidictsActivationKey,
     MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES,
@@ -98,6 +99,7 @@ interface PersistedManifest {
     activationKey: HoshidictsActivationKey;
     sourceHighlightEnabled: boolean;
     popupHideDelayMs: number;
+    popupNestingMaxDepth: number;
     schedule: HoshidictsSchedule;
     lastCheck: string | null;
     nextCheck: string | null;
@@ -325,6 +327,7 @@ function emptyManifest(): PersistedManifest {
         sourceHighlightEnabled:
             DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
         popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+        popupNestingMaxDepth: DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
         schedule: 'off',
         lastCheck: null,
         nextCheck: null,
@@ -389,6 +392,12 @@ function normalizePopupHideDelay(value: unknown): number {
         (value as number) <= MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS
         ? (value as number)
         : DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS;
+}
+
+function normalizePopupNestingMaxDepth(value: unknown): number {
+    return Number.isSafeInteger(value) && (value as number) >= 0
+        ? (value as number)
+        : DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH;
 }
 
 function normalizeDate(value: unknown): string | null {
@@ -1579,7 +1588,8 @@ export class HoshidictsManager {
             lookupMode,
             snapshot.popupHideDelayMs,
             snapshot.activationKey,
-            snapshot.sourceHighlightEnabled
+            snapshot.sourceHighlightEnabled,
+            snapshot.popupNestingMaxDepth
         );
     }
 
@@ -1588,7 +1598,9 @@ export class HoshidictsManager {
         popupHideDelayMs: number,
         activationKey: HoshidictsActivationKey,
         sourceHighlightEnabled: boolean =
-            DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED
+            DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
+        popupNestingMaxDepth: number =
+            DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH
     ): Promise<HoshidictsManagerSnapshot> {
         if (lookupMode !== 'shift' && lookupMode !== 'hover') {
             throw new Error('Hoshidicts lookup mode is invalid.');
@@ -1608,13 +1620,20 @@ export class HoshidictsManager {
                 'Hoshidicts source highlight preference is invalid.'
             );
         }
+        if (
+            !Number.isSafeInteger(popupNestingMaxDepth) ||
+            popupNestingMaxDepth < 0
+        ) {
+            throw new Error('Hoshidicts popup nesting depth is invalid.');
+        }
         await this.enqueue('saving', async () => {
             const manifest = await this.readManifest();
             if (
                 manifest.lookupMode !== lookupMode ||
                 manifest.popupHideDelayMs !== popupHideDelayMs ||
                 manifest.activationKey !== activationKey ||
-                manifest.sourceHighlightEnabled !== sourceHighlightEnabled
+                manifest.sourceHighlightEnabled !== sourceHighlightEnabled ||
+                manifest.popupNestingMaxDepth !== popupNestingMaxDepth
             ) {
                 await this.atomicWriteManifest({
                     ...manifest,
@@ -1622,6 +1641,7 @@ export class HoshidictsManager {
                     activationKey,
                     sourceHighlightEnabled,
                     popupHideDelayMs,
+                    popupNestingMaxDepth,
                 });
             }
         }, 'preferences');
@@ -1876,6 +1896,7 @@ export class HoshidictsManager {
             activationKey: manifest.activationKey,
             sourceHighlightEnabled: manifest.sourceHighlightEnabled,
             popupHideDelayMs: manifest.popupHideDelayMs,
+            popupNestingMaxDepth: manifest.popupNestingMaxDepth,
             schedule: manifest.schedule,
             lastCheck: manifest.lastCheck,
             nextCheck: manifest.nextCheck,
@@ -2203,6 +2224,9 @@ export class HoshidictsManager {
                 : DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
             sourceHighlightEnabled: parsed.sourceHighlightEnabled === true,
             popupHideDelayMs: normalizePopupHideDelay(parsed.popupHideDelayMs),
+            popupNestingMaxDepth: normalizePopupNestingMaxDepth(
+                parsed.popupNestingMaxDepth
+            ),
             schedule: normalizeSchedule(parsed.schedule),
             lastCheck: normalizeDate(parsed.lastCheck),
             nextCheck: normalizeDate(parsed.nextCheck),
@@ -2229,6 +2253,9 @@ export class HoshidictsManager {
                 : DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
             sourceHighlightEnabled: parsed.sourceHighlightEnabled === true,
             popupHideDelayMs: normalizePopupHideDelay(parsed.popupHideDelayMs),
+            popupNestingMaxDepth: normalizePopupNestingMaxDepth(
+                parsed.popupNestingMaxDepth
+            ),
             schedule: normalizeSchedule(parsed.schedule),
             lastCheck: normalizeDate(parsed.lastCheck),
             nextCheck: normalizeDate(parsed.nextCheck),

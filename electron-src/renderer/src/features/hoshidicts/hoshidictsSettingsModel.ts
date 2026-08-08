@@ -2,6 +2,7 @@ import {
   createDefaultHoshidictsAudioProfile,
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+  DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
   DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
   HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
   isHoshidictsActivationKey,
@@ -193,6 +194,7 @@ const DEFAULT_STATE: HoshidictsDesktopSnapshot = {
   activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   sourceHighlightEnabled: DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
   popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+  popupNestingMaxDepth: DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
   schedule: "off",
   lastCheck: null,
   nextCheck: null,
@@ -382,6 +384,11 @@ export function normalizeHoshidictsDesktopState(
       MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS
       ? (candidate.popupHideDelayMs as number)
       : DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS;
+  const popupNestingMaxDepth =
+    Number.isSafeInteger(candidate.popupNestingMaxDepth) &&
+    (candidate.popupNestingMaxDepth as number) >= 0
+      ? (candidate.popupNestingMaxDepth as number)
+      : DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH;
 
   return {
     revision:
@@ -427,6 +434,7 @@ export function normalizeHoshidictsDesktopState(
       : DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
     sourceHighlightEnabled: candidate.sourceHighlightEnabled === true,
     popupHideDelayMs,
+    popupNestingMaxDepth,
     schedule,
     lastCheck:
       typeof candidate.lastCheck === "string" ? candidate.lastCheck : null,

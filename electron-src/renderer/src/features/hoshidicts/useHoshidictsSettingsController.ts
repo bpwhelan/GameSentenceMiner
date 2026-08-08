@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+  DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
   DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
   HOSHIDICTS_CHANNELS,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
@@ -47,7 +48,8 @@ const defaultReaderPreferences = (): HoshidictsReaderPreferences => ({
   lookupMode: "shift",
   activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   sourceHighlightEnabled: DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
-  popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS
+  popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+  popupNestingMaxDepth: DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH
 });
 
 function copyReaderPreferences(
@@ -89,7 +91,6 @@ interface DraftSynchronizers {
   audio: SyncDraft<HoshidictsAudioProfile>;
   mining: SyncDraft<MiningProfileDraft>;
 }
-
 export function useHoshidictsSettingsController() {
   const t = useTranslation();
   const [view, setView] = useState<HoshidictsView>("dictionaries");
@@ -137,7 +138,8 @@ export function useHoshidictsSettingsController() {
       lookupMode: normalized.lookupMode,
       activationKey: normalized.activationKey,
       sourceHighlightEnabled: normalized.sourceHighlightEnabled,
-      popupHideDelayMs: normalized.popupHideDelayMs
+      popupHideDelayMs: normalized.popupHideDelayMs,
+      popupNestingMaxDepth: normalized.popupNestingMaxDepth
     };
     const mining = profileToDraft(normalized.miningProfile);
     const audio = copyAudioProfile(normalized.audioProfile);
@@ -222,6 +224,7 @@ export function useHoshidictsSettingsController() {
 
   const {
     draft: readerDraft,
+    draftRef: readerDraftRef,
     updateDraft: updateReaderDraft,
     saving: readerSaving,
     saveStatus: readerSaveStatus
@@ -445,6 +448,28 @@ export function useHoshidictsSettingsController() {
     [updateReaderPreferences]
   );
 
+  const setPopupContentScanningEnabled = useCallback(
+    (enabled: boolean) => {
+      const currentDepth = readerDraftRef.current.popupNestingMaxDepth;
+      updateReaderPreferences({
+        popupNestingMaxDepth: enabled ? Math.max(1, currentDepth) : 0
+      });
+    },
+    [updateReaderPreferences]
+  );
+
+  const setPopupNestingMaxDepth = useCallback(
+    (popupNestingMaxDepth: number) => {
+      if (!Number.isFinite(popupNestingMaxDepth)) return;
+      updateReaderPreferences({
+        popupNestingMaxDepth: Math.min(
+          Number.MAX_SAFE_INTEGER,
+          Math.max(1, Math.round(popupNestingMaxDepth))
+        )
+      });
+    },
+    [updateReaderPreferences]
+  );
   const setMiningModel = useCallback(
     (model: string) => {
       updateMiningDraft((current) => ({ ...current, model }));
@@ -563,6 +588,8 @@ export function useHoshidictsSettingsController() {
     setActivationKey,
     setSourceHighlightEnabled,
     setPopupHideDelayMs,
+    setPopupContentScanningEnabled,
+    setPopupNestingMaxDepth,
     audioDraft,
     audioSaveStatus,
     updateAudioDraft,
