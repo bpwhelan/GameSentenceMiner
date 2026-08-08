@@ -302,6 +302,10 @@ describe('Hoshidicts feature registration', () => {
                             displayName: 'Core lexicon',
                         },
                         {
+                            title: 'Frequency only',
+                            favorite: true,
+                        },
+                        {
                             title: 'Backup',
                             favorite: false,
                         },
