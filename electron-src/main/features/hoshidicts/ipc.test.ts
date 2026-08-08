@@ -10,6 +10,7 @@ const harness = vi.hoisted(() => ({
     fromWebContents: vi.fn(),
     showMessageBox: vi.fn(),
     showOpenDialog: vi.fn(),
+    showSaveDialog: vi.fn(),
     prepareYomitanDictionaryBackup: vi.fn(),
     prepareYomitanSettingsBackup: vi.fn(),
     subscriber: null as ((snapshot: any) => void) | null,
@@ -46,6 +47,8 @@ const harness = vi.hoisted(() => ({
         getSnapshot: vi.fn(),
         importDictionary: vi.fn(),
         importDictionaries: vi.fn(),
+        exportBackup: vi.fn(),
+        restoreBackup: vi.fn(),
         applyYomitanDictionaryPreferences: vi.fn(),
         installRecommendedDictionaries: vi.fn(),
         installRecommendedDictionary: vi.fn(),
@@ -74,6 +77,7 @@ vi.mock('electron', () => ({
     dialog: {
         showMessageBox: harness.showMessageBox,
         showOpenDialog: harness.showOpenDialog,
+        showSaveDialog: harness.showSaveDialog,
     },
     ipcMain: {
         handle: vi.fn(
@@ -188,6 +192,8 @@ async function registerHarness() {
     harness.manager.getSnapshot.mockResolvedValue(snapshot);
     harness.manager.importDictionary.mockResolvedValue(snapshot);
     harness.manager.importDictionaries.mockResolvedValue(snapshot);
+    harness.manager.exportBackup.mockResolvedValue(undefined);
+    harness.manager.restoreBackup.mockResolvedValue(snapshot);
     harness.manager.applyYomitanDictionaryPreferences.mockResolvedValue(
         snapshot
     );
@@ -457,6 +463,159 @@ describe('Hoshidicts settings IPC', () => {
         );
         expect(harness.manager.importDictionary).not.toHaveBeenCalled();
         expect(cleanup).toHaveBeenCalledOnce();
+    });
+
+    it('exports a complete Hoshidicts backup with a ZIP save dialog', async () => {
+        harness.showSaveDialog.mockResolvedValueOnce({
+            canceled: false,
+            filePath: '/tmp/hoshidicts-backup.zip',
+        });
+        const context = await registerHarness();
+
+        await expect(
+            harness.handlers.get('hoshidicts.exportBackup')?.({
+                sender: context.settingsContents,
+            })
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'backupExported' },
+        });
+        expect(harness.showSaveDialog).toHaveBeenCalledWith(
+            context.settingsWindow,
+            expect.objectContaining({
+                title: 'Export Hoshidicts Backup',
+                defaultPath: expect.stringMatching(
+                    /^hoshidicts-backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.zip$/u
+                ),
+                filters: [
+                    {
+                        name: 'Hoshidicts Backup',
+                        extensions: ['zip'],
+                    },
+                ],
+            })
+        );
+        expect(harness.manager.exportBackup).toHaveBeenCalledWith(
+            '/tmp/hoshidicts-backup.zip'
+        );
+    });
+
+    it('returns a canceled action when backup export or restore is canceled', async () => {
+        harness.showSaveDialog.mockResolvedValueOnce({
+            canceled: true,
+            filePath: undefined,
+        });
+        harness.showOpenDialog.mockResolvedValueOnce({
+            canceled: false,
+            filePaths: ['/tmp/hoshidicts-backup.zip'],
+        });
+        harness.showMessageBox.mockResolvedValueOnce({ response: 1 });
+        const context = await registerHarness();
+        const settingsEvent = { sender: context.settingsContents };
+
+        await expect(
+            harness.handlers.get('hoshidicts.exportBackup')?.(settingsEvent)
+        ).resolves.toMatchObject({ success: false, canceled: true });
+        await expect(
+            harness.handlers.get('hoshidicts.restoreBackup')?.(settingsEvent)
+        ).resolves.toMatchObject({ success: false, canceled: true });
+        expect(harness.manager.exportBackup).not.toHaveBeenCalled();
+        expect(harness.manager.restoreBackup).not.toHaveBeenCalled();
+        expect(harness.showMessageBox).toHaveBeenCalledWith(
+            context.settingsWindow,
+            expect.objectContaining({
+                type: 'warning',
+                message: 'Replace all Hoshidicts data with this backup?',
+                buttons: ['Restore Backup', 'Cancel'],
+                defaultId: 1,
+                cancelId: 1,
+            })
+        );
+    });
+
+    it('restores a complete backup and applies reader and audio settings live', async () => {
+        const restoredAudio = {
+            ...snapshot.audioProfile,
+            volume: 64,
+        };
+        const restored = {
+            ...snapshot,
+            revision: 2,
+            lookupMode: 'hover' as const,
+            audioProfile: restoredAudio,
+        };
+        harness.showOpenDialog.mockResolvedValueOnce({
+            canceled: false,
+            filePaths: ['/tmp/hoshidicts-backup.zip'],
+        });
+        harness.showMessageBox.mockResolvedValueOnce({ response: 0 });
+        const context = await registerHarness();
+        harness.manager.restoreBackup.mockResolvedValueOnce(restored);
+
+        await expect(
+            harness.handlers.get('hoshidicts.restoreBackup')?.({
+                sender: context.settingsContents,
+            })
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'backupRestored' },
+            state: { revision: 2, lookupMode: 'hover' },
+        });
+        expect(harness.showOpenDialog).toHaveBeenCalledWith(
+            context.settingsWindow,
+            expect.objectContaining({
+                title: 'Restore Hoshidicts Backup',
+                properties: ['openFile'],
+                filters: [
+                    {
+                        name: 'Hoshidicts Backup',
+                        extensions: ['zip'],
+                    },
+                ],
+            })
+        );
+        expect(harness.manager.restoreBackup).toHaveBeenCalledWith(
+            '/tmp/hoshidicts-backup.zip'
+        );
+        expect(context.applyReaderPreferences).toHaveBeenCalledWith(
+            expect.objectContaining({ lookupMode: 'hover' })
+        );
+        expect(context.applyAudioProfile).toHaveBeenCalledWith(restoredAudio);
+        expect(context.restartOverlay).not.toHaveBeenCalled();
+    });
+
+    it('reports an actionable error when restored settings cannot restart the overlay', async () => {
+        const restored = {
+            ...snapshot,
+            revision: 2,
+        };
+        harness.showOpenDialog.mockResolvedValueOnce({
+            canceled: false,
+            filePaths: ['/tmp/hoshidicts-backup.zip'],
+        });
+        harness.showMessageBox.mockResolvedValueOnce({ response: 0 });
+        const context = await registerHarness();
+        harness.manager.restoreBackup.mockResolvedValueOnce(restored);
+        harness.manager.getSnapshot.mockResolvedValue(restored);
+        context.applyReaderPreferences.mockResolvedValueOnce(false);
+        context.applyAudioProfile.mockResolvedValueOnce(false);
+        context.restartOverlay.mockResolvedValueOnce(false);
+
+        await expect(
+            harness.handlers.get('hoshidicts.restoreBackup')?.({
+                sender: context.settingsContents,
+            })
+        ).resolves.toMatchObject({
+            success: false,
+            error: expect.stringContaining(
+                'Backup was restored, but its settings could not be applied'
+            ),
+            state: { revision: 2 },
+        });
+        expect(harness.manager.restoreBackup).toHaveBeenCalledOnce();
+        expect(context.applyReaderPreferences).toHaveBeenCalledOnce();
+        expect(context.applyAudioProfile).toHaveBeenCalledOnce();
+        expect(context.restartOverlay).toHaveBeenCalledOnce();
     });
 
     it('saves audio profiles, applies them live, and exposes failed sync restart state', async () => {

@@ -115,6 +115,9 @@ interface DraftSynchronizers {
   audio: SyncDraft<HoshidictsAudioProfile>;
   mining: SyncDraft<MiningProfileDraft>;
 }
+
+type HoshidictsBackupOperation = "exporting" | "restoring";
+
 export function useHoshidictsSettingsController() {
   const t = useTranslation();
   const [view, setView] = useState<HoshidictsView>("dictionaries");
@@ -144,6 +147,8 @@ export function useHoshidictsSettingsController() {
   const [notice, setNotice] = useState<string | null>(null);
   const [restarting, setRestarting] = useState(false);
   const [importingYomitan, setImportingYomitan] = useState(false);
+  const [backupOperation, setBackupOperation] =
+    useState<HoshidictsBackupOperation | null>(null);
   const draftSynchronizersRef = useRef<DraftSynchronizers | null>(null);
 
   useEffect(() => {
@@ -646,6 +651,29 @@ export function useHoshidictsSettingsController() {
 
   const actions = useMemo(
     () => ({
+      exportBackup: async () => {
+        setBackupOperation("exporting");
+        try {
+          return await runAction(
+            () => invokeIpc(HOSHIDICTS_CHANNELS.exportBackup),
+            "settings.hoshidicts.errors.exportBackup"
+          );
+        } finally {
+          setBackupOperation(null);
+        }
+      },
+      restoreBackup: async () => {
+        setBackupOperation("restoring");
+        try {
+          return await runAction(
+            () => invokeIpc(HOSHIDICTS_CHANNELS.restoreBackup),
+            "settings.hoshidicts.errors.restoreBackup",
+            true
+          );
+        } finally {
+          setBackupOperation(null);
+        }
+      },
       importDictionary: () =>
         runAction(
           () => invokeIpc(HOSHIDICTS_CHANNELS.importDictionary),
@@ -752,19 +780,42 @@ export function useHoshidictsSettingsController() {
   );
 
   const dictionaryBusy = state
-    ? importingYomitan || isScopedBusy(state, "dictionary")
+    ? backupOperation !== null ||
+      importingYomitan ||
+      isScopedBusy(state, "dictionary")
     : true;
   const preferencesBusy = state
-    ? importingYomitan || isScopedBusy(state, "preferences") || readerSaving
+    ? backupOperation !== null ||
+      importingYomitan ||
+      isScopedBusy(state, "preferences") ||
+      readerSaving
     : true;
   const miningBusy = state
-    ? importingYomitan || isScopedBusy(state, "mining") || miningSaving
+    ? backupOperation !== null ||
+      importingYomitan ||
+      isScopedBusy(state, "mining") ||
+      miningSaving
     : true;
   const audioBusy = state
-    ? importingYomitan || isScopedBusy(state, "audio") || audioSaving
+    ? backupOperation !== null ||
+      importingYomitan ||
+      isScopedBusy(state, "audio") ||
+      audioSaving
     : true;
   const customBusy = state
-    ? isScopedBusy(state, "custom") || customLoading || customSaving
+    ? backupOperation !== null ||
+      isScopedBusy(state, "custom") ||
+      customLoading ||
+      customSaving
+    : true;
+  const backupBusy = state
+    ? backupOperation !== null ||
+      importingYomitan ||
+      state.busy ||
+      readerSaving ||
+      miningSaving ||
+      audioSaving ||
+      customSaving
     : true;
 
   return {
@@ -810,6 +861,8 @@ export function useHoshidictsSettingsController() {
     actionError,
     notice,
     restarting,
+    backupOperation,
+    backupBusy,
     dictionaryBusy,
     preferencesBusy,
     audioBusy,

@@ -1,7 +1,9 @@
 import {
+  ArchiveRestore,
   ArrowDown,
   ArrowUp,
   ChevronDown,
+  Download,
   EllipsisVertical,
   Eraser,
   FileArchive,
@@ -345,6 +347,8 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
     setDefinitionBlurRevealDelayMs,
     setPopupContentScanningEnabled,
     setPopupNestingMaxDepth,
+    backupOperation,
+    backupBusy,
     dictionaryBusy,
     preferencesBusy,
     actions
@@ -1187,8 +1191,26 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
           <button
             type="button"
             className="secondary"
+            onClick={() => void actions.exportBackup()}
+            disabled={backupBusy}
+          >
+            <Download size={17} aria-hidden="true" />
+            {t("settings.hoshidicts.backups.exportHoshidicts")}
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => void actions.restoreBackup()}
+            disabled={backupBusy}
+          >
+            <ArchiveRestore size={17} aria-hidden="true" />
+            {t("settings.hoshidicts.backups.restoreHoshidicts")}
+          </button>
+          <button
+            type="button"
+            className="secondary"
             onClick={() => void actions.importYomitanDictionaries()}
-            disabled={dictionaryBusy}
+            disabled={backupBusy}
           >
             <FileArchive size={17} aria-hidden="true" />
             {t("settings.hoshidicts.backups.importDictionaries")}
@@ -1197,12 +1219,20 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
             type="button"
             className="secondary"
             onClick={() => void actions.importYomitanSettings()}
-            disabled={dictionaryBusy}
+            disabled={backupBusy}
           >
             <FileJson size={17} aria-hidden="true" />
             {t("settings.hoshidicts.backups.importSettings")}
           </button>
         </div>
+        {backupOperation ? (
+          <div
+            className="hoshidicts-window__progress hoshidicts-backups__status"
+            role="status"
+          >
+            {t(`settings.hoshidicts.backups.${backupOperation}`)}
+          </div>
+        ) : null}
       </section>
     </div>
   );

@@ -5,6 +5,8 @@ export const HOSHIDICTS_CHANNELS = {
     importDictionary: 'hoshidicts.import',
     importYomitanDictionaries: 'hoshidicts.importYomitanDictionaries',
     importYomitanSettings: 'hoshidicts.importYomitanSettings',
+    exportBackup: 'hoshidicts.exportBackup',
+    restoreBackup: 'hoshidicts.restoreBackup',
     installAllRecommended: 'hoshidicts.installAllRecommended',
     installRecommended: 'hoshidicts.installRecommended',
     checkUpdates: 'hoshidicts.checkUpdates',
@@ -602,6 +604,8 @@ export interface HoshidictsActionResult {
             | 'dictionaryImported'
             | 'yomitanDictionariesImported'
             | 'yomitanSettingsImported'
+            | 'backupExported'
+            | 'backupRestored'
             | 'recommendedInstalled'
             | 'updatesChecked'
             | 'dictionaryRemoved'
