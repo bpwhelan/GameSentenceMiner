@@ -31,7 +31,6 @@ import type {
     HoshidictsRecommendedDictionaryId,
     HoshidictsRecommendedDictionaryState,
     HoshidictsSchedule,
-    HoshidictsYomitanDictionaryPreference,
 } from '../../../shared/features/hoshidicts.js';
 import {
     MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES,
@@ -1835,39 +1834,6 @@ export class HoshidictsManager {
                 total: archivePaths.length,
             });
         });
-        return await this.getSnapshot();
-    }
-
-    async applyYomitanDictionaryPreferences(
-        preferences: readonly HoshidictsYomitanDictionaryPreference[]
-    ): Promise<HoshidictsManagerSnapshot> {
-        await this.enqueue('saving', async () => {
-            const manifest = await this.readManifest();
-            const remaining = manifest.dictionaries.map((dictionary) => ({
-                ...dictionary,
-            }));
-            const ordered: PersistedDictionary[] = [];
-            for (const preference of preferences) {
-                const index = remaining.findIndex(
-                    (dictionary) => dictionary.title === preference.title
-                );
-                if (index < 0) {
-                    continue;
-                }
-                const [dictionary] = remaining.splice(index, 1);
-                ordered.push({ ...dictionary, enabled: preference.enabled });
-            }
-            const next = {
-                ...manifest,
-                dictionaries: [...ordered, ...remaining],
-            };
-            if (
-                JSON.stringify(next.dictionaries) !==
-                JSON.stringify(manifest.dictionaries)
-            ) {
-                await this.commitManifestChange(manifest, next, null, null);
-            }
-        }, 'dictionary');
         return await this.getSnapshot();
     }
 
