@@ -2,6 +2,7 @@ import {
   DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   type HoshidictsDesktopSnapshot,
+  type HoshidictsFrequencyMode,
   type HoshidictsMiningFieldName,
   type HoshidictsMiningFields,
   type HoshidictsMiningOptions,
@@ -38,6 +39,16 @@ export const RECOMMENDED_KEYS: Record<
   jmdict: "settings.hoshidicts.recommended.jmdict",
   jmnedict: "settings.hoshidicts.recommended.jmnedict"
 };
+
+export function frequencyModeKey(mode: HoshidictsFrequencyMode | null): string {
+  if (mode === "occurrence-based") {
+    return "settings.hoshidicts.frequencyModes.occurrenceBased";
+  }
+  if (mode === "rank-based") {
+    return "settings.hoshidicts.frequencyModes.rankBased";
+  }
+  return "settings.hoshidicts.frequencyModes.automatic";
+}
 
 export const MINING_FIELDS: Array<{
   id: MiningField;
@@ -245,7 +256,21 @@ export function normalizeHoshidictsDesktopState(
           )
           .map((dictionary) => ({
             ...dictionary,
-            enabled: dictionary.enabled !== false
+            enabled: dictionary.enabled !== false,
+            termCount:
+              Number.isInteger(dictionary.termCount) && dictionary.termCount >= 0
+                ? dictionary.termCount
+                : 0,
+            frequencyCount:
+              Number.isInteger(dictionary.frequencyCount) &&
+              dictionary.frequencyCount >= 0
+                ? dictionary.frequencyCount
+                : 0,
+            frequencyMode:
+              dictionary.frequencyMode === "occurrence-based" ||
+              dictionary.frequencyMode === "rank-based"
+                ? dictionary.frequencyMode
+                : null
           }))
       : [],
     recommendedDictionaries: (
@@ -380,13 +405,16 @@ export function getReadiness(
   const installed = state.dictionaries.length;
   const enabled = state.dictionaries.filter((dictionary) => dictionary.enabled)
     .length;
+  const hasEnabledTermDictionary = state.dictionaries.some(
+    (dictionary) => dictionary.enabled && dictionary.termCount > 0
+  );
   const kind: ReadinessKind = !state.effectiveEnabled
     ? "featureOff"
     : !state.overlay.running
       ? "overlayStopped"
       : state.overlay.restartRequired
         ? "restartRequired"
-        : enabled === 0
+        : !hasEnabledTermDictionary
           ? "noEnabledDictionaries"
           : "ready";
   return { kind, installed, enabled };

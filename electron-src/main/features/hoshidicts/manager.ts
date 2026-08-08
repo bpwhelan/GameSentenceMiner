@@ -13,6 +13,7 @@ import {
 } from '../../services/input_server.js';
 import type {
     HoshidictsDictionaryState,
+    HoshidictsFrequencyMode,
     HoshidictsManagerSnapshot,
     HoshidictsLookupMode,
     HoshidictsMiningProfile,
@@ -40,6 +41,7 @@ export {
 
 export type {
     HoshidictsDictionaryState,
+    HoshidictsFrequencyMode,
     HoshidictsManagerSnapshot,
     HoshidictsLookupMode,
     HoshidictsMiningFields,
@@ -75,19 +77,20 @@ interface GeneratedIndex {
     downloadUrl: string | null;
     sourceLanguage: string | null;
     termCount: number;
+    frequencyCount: number;
+    frequencyMode: HoshidictsFrequencyMode | null;
     importDate: number | null;
 }
 
 export interface ArchiveInspection {
     sourceLanguage: string | null;
-    hasTermBank: boolean;
+    hasTermDataBank: boolean;
     hasJapaneseTerm: boolean;
 }
 
 export interface HoshidictsImportReport {
     success: boolean;
     title: string;
-    termCount: number;
     error: string;
 }
 
@@ -211,6 +214,16 @@ function normalizeDate(value: unknown): string | null {
 
 function normalizeOptionalString(value: unknown): string | null {
     return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function normalizeCount(value: unknown): number {
+    return typeof value === 'number' && Number.isFinite(value)
+        ? Math.max(0, Math.trunc(value))
+        : 0;
+}
+
+function normalizeFrequencyMode(value: unknown): HoshidictsFrequencyMode | null {
+    return value === 'occurrence-based' || value === 'rank-based' ? value : null;
 }
 
 function normalizeRelativePath(value: unknown): string {
@@ -348,10 +361,9 @@ async function readGeneratedIndex(dictionaryPath: string): Promise<GeneratedInde
     }
     const counts = isRecord(parsed.counts) ? parsed.counts : {};
     const terms = isRecord(counts.terms) ? counts.terms : {};
-    const termCount =
-        typeof terms.total === 'number' && Number.isFinite(terms.total)
-            ? Math.max(0, Math.trunc(terms.total))
-            : 0;
+    const termMeta = isRecord(counts.termMeta) ? counts.termMeta : {};
+    const termCount = normalizeCount(terms.total);
+    const frequencyCount = normalizeCount(termMeta.freq);
     return {
         title: parsed.title,
         revision: typeof parsed.revision === 'string' ? parsed.revision : '',
@@ -360,6 +372,8 @@ async function readGeneratedIndex(dictionaryPath: string): Promise<GeneratedInde
         downloadUrl: normalizeOptionalString(parsed.downloadUrl),
         sourceLanguage: normalizeOptionalString(parsed.sourceLanguage),
         termCount,
+        frequencyCount,
+        frequencyMode: normalizeFrequencyMode(parsed.frequencyMode),
         importDate:
             typeof parsed.importDate === 'number' && Number.isFinite(parsed.importDate)
                 ? parsed.importDate
@@ -399,8 +413,10 @@ function dictionaryStateFromIndex(
     index: GeneratedIndex,
     fallbackDate: Date
 ): PersistedDictionary {
-    if (index.termCount === 0) {
-        throw new Error(`Dictionary "${index.title}" does not contain term entries.`);
+    if (index.termCount === 0 && index.frequencyCount === 0) {
+        throw new Error(
+            `Dictionary "${index.title}" does not contain term or frequency entries.`
+        );
     }
     return {
         id,
@@ -413,6 +429,8 @@ function dictionaryStateFromIndex(
         downloadUrl: index.downloadUrl,
         language: index.sourceLanguage,
         termCount: index.termCount,
+        frequencyCount: index.frequencyCount,
+        frequencyMode: index.frequencyMode,
         installedAt: installedAtFromIndex(index, fallbackDate),
     };
 }
@@ -455,7 +473,7 @@ function openZip(archivePath: string): Promise<ZipFile> {
     });
 }
 
-function termBankContainsJapanese(value: unknown): boolean {
+function termBankContainsJapanese(value: unknown, includeReading: boolean): boolean {
     if (!Array.isArray(value)) {
         return false;
     }
@@ -463,7 +481,8 @@ function termBankContainsJapanese(value: unknown): boolean {
         if (!Array.isArray(entry)) {
             return false;
         }
-        return [entry[0], entry[1]].some(
+        const candidates = includeReading ? [entry[0], entry[1]] : [entry[0]];
+        return candidates.some(
             (term) => typeof term === 'string' && JAPANESE_TEXT_PATTERN.test(term)
         );
     });
@@ -476,7 +495,7 @@ export async function inspectHoshidictsArchive(
     return await new Promise<ArchiveInspection>((resolve, reject) => {
         let sourceLanguage: string | null = null;
         let foundIndex = false;
-        let hasTermBank = false;
+        let hasTermDataBank = false;
         let hasJapaneseTerm = false;
         let scannedTermBanks = 0;
         let settled = false;
@@ -500,7 +519,11 @@ export async function inspectHoshidictsArchive(
                 reject(new Error('Dictionary archive does not contain index.json.'));
                 return;
             }
-            resolve({ sourceLanguage, hasTermBank, hasJapaneseTerm });
+            resolve({
+                sourceLanguage,
+                hasTermDataBank,
+                hasJapaneseTerm,
+            });
         });
         zip.on('entry', (entry: Entry) => {
             void (async () => {
@@ -515,8 +538,12 @@ export async function inspectHoshidictsArchive(
                     }
                     foundIndex = true;
                     sourceLanguage = normalizeOptionalString(parsed.sourceLanguage);
-                } else if (/^term_bank_\d+\.json$/u.test(normalizedName)) {
-                    hasTermBank = true;
+                } else if (
+                    /^term_bank_\d+\.json$/u.test(normalizedName) ||
+                    /^term_meta_bank_\d+\.json$/u.test(normalizedName)
+                ) {
+                    const isTermBank = /^term_bank_\d+\.json$/u.test(normalizedName);
+                    hasTermDataBank = true;
                     if (
                         sourceLanguage === null &&
                         !hasJapaneseTerm &&
@@ -528,7 +555,7 @@ export async function inspectHoshidictsArchive(
                         const parsed: unknown = JSON.parse(
                             contents.toString('utf8').replace(/^\uFEFF/, '')
                         );
-                        hasJapaneseTerm = termBankContainsJapanese(parsed);
+                        hasJapaneseTerm = termBankContainsJapanese(parsed, isTermBank);
                     }
                 }
                 zip.readEntry();
@@ -554,10 +581,6 @@ function parseImportReport(stdout: string): HoshidictsImportReport {
     return {
         success: parsed.success === true,
         title: typeof parsed.title === 'string' ? parsed.title : '',
-        termCount:
-            typeof parsed.termCount === 'number' && Number.isFinite(parsed.termCount)
-                ? Math.max(0, Math.trunc(parsed.termCount))
-                : 0,
         error: typeof parsed.error === 'string' ? parsed.error : '',
     };
 }
@@ -1333,6 +1356,8 @@ export class HoshidictsManager {
                     downloadUrl,
                     language,
                     termCount,
+                    frequencyCount,
+                    frequencyMode,
                     installedAt,
                 }) => ({
                     id,
@@ -1344,6 +1369,8 @@ export class HoshidictsManager {
                     downloadUrl,
                     language,
                     termCount,
+                    frequencyCount,
+                    frequencyMode,
                     installedAt,
                 })
             ),
@@ -1493,8 +1520,10 @@ export class HoshidictsManager {
                 `Dictionary source language must be ja, not ${inspection.sourceLanguage}.`
             );
         }
-        if (!inspection.hasTermBank) {
-            throw new Error('Dictionary archive does not contain term entries.');
+        if (!inspection.hasTermDataBank) {
+            throw new Error(
+                'Dictionary archive does not contain term or frequency entries.'
+            );
         }
         if (explicitLanguage === null && !inspection.hasJapaneseTerm) {
             throw new Error(
@@ -1512,8 +1541,10 @@ export class HoshidictsManager {
             if (!report.success) {
                 throw new Error(report.error || 'Hoshidicts import failed.');
             }
-            if (!report.title || report.termCount === 0) {
-                throw new Error('Dictionary archive does not contain term entries.');
+            if (!report.title) {
+                throw new Error(
+                    'Dictionary archive does not contain term or frequency entries.'
+                );
             }
             const directoryName = dictionaryDirectoryName(report.title);
             const outputDictionaryPath = path.join(outputDir, directoryName);
@@ -1521,9 +1552,6 @@ export class HoshidictsManager {
             const index = await readGeneratedIndex(outputDictionaryPath);
             if (index.title !== report.title) {
                 throw new Error('Imported dictionary title did not match generated index.json.');
-            }
-            if (index.termCount === 0) {
-                throw new Error('Dictionary archive does not contain term entries.');
             }
             const generatedLanguage = index.sourceLanguage?.toLowerCase() ?? null;
             if (generatedLanguage !== null && generatedLanguage !== 'ja') {
@@ -1575,8 +1603,6 @@ export class HoshidictsManager {
                 generation
             );
             const finalDictionaryPath = path.join(finalGenerationRoot, directoryName);
-            await fsp.mkdir(finalGenerationRoot, { recursive: true });
-            await fsp.rename(outputDictionaryPath, finalDictionaryPath);
             const dictionary = dictionaryStateFromIndex(
                 id,
                 relativePath,
@@ -1584,6 +1610,8 @@ export class HoshidictsManager {
                 index,
                 this.deps.now()
             );
+            await fsp.mkdir(finalGenerationRoot, { recursive: true });
+            await fsp.rename(outputDictionaryPath, finalDictionaryPath);
             return { dictionary, generationRoot: finalGenerationRoot };
         } catch (error) {
             if (finalGenerationRoot) {

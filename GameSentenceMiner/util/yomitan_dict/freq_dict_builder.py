@@ -26,6 +26,7 @@ class FrequencyDictBuilder:
             "revision": self.revision,
             "format": 3,
             "frequencyMode": "occurrence-based",
+            "sourceLanguage": "ja",
             "author": "GameSentenceMiner",
             "description": "Word frequency data from your GSM database",
         }

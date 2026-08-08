@@ -554,12 +554,13 @@
         "overlayStoppedHint": "辞書検索を使うにはオーバーレイを起動してください。",
         "restartRequired": "再起動が必要です",
         "restartRequiredHint": "最新のリーダー設定を反映するため、オーバーレイを再起動してください。",
-        "noEnabledDictionaries": "有効な辞書がありません",
-        "noEnabledDictionariesHint": "単語を検索する前に辞書をインストールまたは有効化してください。",
+        "noEnabledDictionaries": "有効な単語辞書がありません",
+        "noEnabledDictionariesHint": "単語を検索するには単語辞書をインストールまたは有効化してください。頻度専用辞書だけでは単語を検索できません。",
         "ready": "準備完了",
         "readyHint": "オーバーレイの日本語テキストにカーソルを合わせると検索できます。",
         "dictionaryCounts": "インストール済み {installed} · 有効 {enabled}",
-        "enableDictionary": "辞書を有効化"
+        "enableTermDictionary": "{title}を有効化",
+        "installTermDictionary": "単語辞書をインストール"
       },
       "tabs": {
         "dictionaries": "辞書",
@@ -606,6 +607,13 @@
       "revision": "リビジョン: {revision}",
       "language": "言語: {language}",
       "terms": "{count}語",
+      "frequencies": "頻度データ {count}件",
+      "frequencyMode": "頻度モード: {mode}",
+      "frequencyModes": {
+        "automatic": "自動判定",
+        "occurrenceBased": "出現頻度順",
+        "rankBased": "順位順"
+      },
       "updatable": "自動アップデート",
       "manualOnly": "手動アップデートのみ",
       "priorityHint": "上にある辞書から優先して検索します。",

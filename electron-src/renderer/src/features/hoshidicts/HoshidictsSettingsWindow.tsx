@@ -40,7 +40,9 @@ function ReadinessBanner({
   }
 
   const readiness = getReadiness(state);
-  const firstDictionary = state.dictionaries[0];
+  const firstTermDictionary = state.dictionaries.find(
+    (dictionary) => dictionary.termCount > 0
+  );
   const label = t(`settings.hoshidicts.readiness.${readiness.kind}`);
   const hint = t(`settings.hoshidicts.readiness.${readiness.kind}Hint`);
 
@@ -76,16 +78,18 @@ function ReadinessBanner({
           type="button"
           disabled={dictionaryBusy}
           onClick={() => {
-            if (firstDictionary) {
-              void actions.setDictionaryEnabled(firstDictionary.id, true);
+            if (firstTermDictionary) {
+              void actions.setDictionaryEnabled(firstTermDictionary.id, true);
             } else {
               void actions.installAllRecommended();
             }
           }}
         >
-          {firstDictionary
-            ? t("settings.hoshidicts.readiness.enableDictionary")
-            : t("settings.hoshidicts.recommended.install")}
+          {firstTermDictionary
+            ? t("settings.hoshidicts.readiness.enableTermDictionary", {
+                title: firstTermDictionary.title
+              })
+            : t("settings.hoshidicts.readiness.installTermDictionary")}
         </button>
       ) : null}
     </div>

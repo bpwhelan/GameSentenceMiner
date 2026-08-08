@@ -37,6 +37,8 @@ const baseState: HoshidictsDesktopSnapshot = {
       downloadUrl: "https://example.test/jmdict.zip",
       language: "ja",
       termCount: 123,
+      frequencyCount: 12,
+      frequencyMode: null,
       installedAt: "2026-08-06T10:00:00.000Z"
     },
     {
@@ -48,7 +50,9 @@ const baseState: HoshidictsDesktopSnapshot = {
       indexUrl: null,
       downloadUrl: null,
       language: "ja",
-      termCount: 20,
+      termCount: 0,
+      frequencyCount: 456,
+      frequencyMode: "rank-based",
       installedAt: "2026-08-06T11:00:00.000Z"
     }
   ],
@@ -293,11 +297,62 @@ describe("HoshidictsSettingsWindow", () => {
         ...baseState,
         dictionaries: baseState.dictionaries.map((dictionary) => ({
           ...dictionary,
-          enabled: false
+          enabled: dictionary.termCount === 0
         }))
       }).kind
     ).toBe("noEnabledDictionaries");
     expect(getReadiness(baseState).kind).toBe("ready");
+  });
+
+  it("shows localized term and frequency capabilities and modes", async () => {
+    await render();
+
+    expect(container.textContent).toContain("123 terms");
+    expect(container.textContent).toContain("12 frequency entries");
+    expect(container.textContent).toContain("Frequency mode: Automatic");
+    expect(container.textContent).toContain("456 frequency entries");
+    expect(container.textContent).toContain("Frequency mode: Rank-based");
+  });
+
+  it.each([
+    {
+      name: "enables the first term-capable dictionary",
+      label: "Enable JMdict",
+      dictionaries: [
+        { ...baseState.dictionaries[1], enabled: true },
+        { ...baseState.dictionaries[0], enabled: false }
+      ],
+      invocation: [
+        HOSHIDICTS_CHANNELS.setDictionaryEnabled,
+        { id: "jmdict-id", enabled: true }
+      ]
+    },
+    {
+      name: "offers a term dictionary install when only frequency data is installed",
+      label: "Install a Term Dictionary",
+      dictionaries: [{ ...baseState.dictionaries[1], enabled: true }],
+      invocation: [HOSHIDICTS_CHANNELS.installAllRecommended]
+    }
+  ])("$name from the readiness action", async ({ dictionaries, label, invocation }) => {
+    const state: HoshidictsDesktopSnapshot = { ...baseState, dictionaries };
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === HOSHIDICTS_CHANNELS.getState) return state;
+      if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) return miningOptions;
+      return { success: true, state };
+    });
+
+    await render();
+    const action = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === label
+    );
+    expect(action).toBeDefined();
+
+    await act(async () => {
+      action?.click();
+      await Promise.resolve();
+    });
+
+    expect(invokeMock.mock.calls).toContainEqual(invocation);
   });
 
   it("ignores progress snapshots older than the displayed revision", async () => {
@@ -545,20 +600,36 @@ describe("HoshidictsSettingsWindow", () => {
   });
 
   it.each([
-    ["ja", "辞書とマイニングの設定", "おすすめの辞書"],
-    ["ukr", "Налаштування словників і видобування", "Рекомендовані словники"]
-  ])("localizes the standalone window in %s", async (locale, subtitle, recommended) => {
-    await render(locale);
-    expect(container.textContent).toContain(subtitle);
-    expect(container.textContent).toContain(recommended);
-  });
+    ["ja", "辞書とマイニングの設定", "おすすめの辞書", "頻度モード: 順位順"],
+    [
+      "ukr",
+      "Налаштування словників і видобування",
+      "Рекомендовані словники",
+      "Режим частоти: За рангом"
+    ]
+  ])(
+    "localizes the standalone window in %s",
+    async (locale, subtitle, recommended, frequencyMode) => {
+      await render(locale);
+      expect(container.textContent).toContain(subtitle);
+      expect(container.textContent).toContain(recommended);
+      expect(container.textContent).toContain(frequencyMode);
+    }
+  );
 
   it("normalizes legacy snapshots without dirtying new preferences", () => {
     const normalized = normalizeHoshidictsDesktopState({
       ...baseState,
       revision: undefined,
       popupHideDelayMs: undefined,
-      dictionaries: [{ ...baseState.dictionaries[0], enabled: undefined }],
+      dictionaries: [
+        {
+          ...baseState.dictionaries[0],
+          enabled: undefined,
+          frequencyCount: undefined,
+          frequencyMode: "invalid"
+        }
+      ],
       miningProfile: {
         ...baseState.miningProfile,
         disabledFields: undefined
@@ -567,6 +638,8 @@ describe("HoshidictsSettingsWindow", () => {
     expect(normalized.revision).toBe(0);
     expect(normalized.popupHideDelayMs).toBe(300);
     expect(normalized.dictionaries[0].enabled).toBe(true);
+    expect(normalized.dictionaries[0].frequencyCount).toBe(0);
+    expect(normalized.dictionaries[0].frequencyMode).toBeNull();
     expect(normalized.miningProfile.disabledFields).toEqual([]);
   });
 });

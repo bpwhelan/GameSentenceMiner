@@ -554,12 +554,13 @@
         "overlayStoppedHint": "Запустіть оверлей, щоб користуватися пошуком у словнику.",
         "restartRequired": "Потрібен перезапуск",
         "restartRequiredHint": "Перезапустіть оверлей, щоб застосувати нові налаштування читача.",
-        "noEnabledDictionaries": "Немає ввімкнених словників",
-        "noEnabledDictionariesHint": "Встановіть або ввімкніть словник перед пошуком слів.",
+        "noEnabledDictionaries": "Немає ввімкнених словників термінів",
+        "noEnabledDictionariesHint": "Встановіть або ввімкніть словник термінів перед пошуком слів. Словники лише з частотами доповнюють результати, але не можуть знаходити слова самостійно.",
         "ready": "Готово",
         "readyHint": "Наведіть вказівник на японський текст в оверлеї, щоб знайти слово.",
         "dictionaryCounts": "Встановлено: {installed} · увімкнено: {enabled}",
-        "enableDictionary": "Увімкнути словник"
+        "enableTermDictionary": "Увімкнути {title}",
+        "installTermDictionary": "Встановити словник термінів"
       },
       "tabs": {
         "dictionaries": "Словники",
@@ -606,6 +607,13 @@
       "revision": "Ревізія: {revision}",
       "language": "Мова: {language}",
       "terms": "Термінів: {count}",
+      "frequencies": "Частотних записів: {count}",
+      "frequencyMode": "Режим частоти: {mode}",
+      "frequencyModes": {
+        "automatic": "Автоматичний",
+        "occurrenceBased": "За частотою появи",
+        "rankBased": "За рангом"
+      },
       "updatable": "Автоматичні оновлення",
       "manualOnly": "Лише ручні оновлення",
       "priorityHint": "Словники вище перевіряються першими.",
