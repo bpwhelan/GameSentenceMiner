@@ -222,6 +222,7 @@ describe('Hoshidicts manager full backups', () => {
         expect(beta).toBeDefined();
         await source.setDictionaryEnabled(alpha!.id, false);
         await source.setDictionaryPresentation(beta!.id, true);
+        await source.renameDictionary(beta!.id, 'Main definitions');
         await source.moveDictionaryToPosition(beta!.id, 1);
         await source.setReaderPreferences(
             'hover',
@@ -300,14 +301,25 @@ describe('Hoshidicts manager full backups', () => {
 
         expect(reloadNative).toHaveBeenCalledOnce();
         expect(
-            restored.dictionaries.map(({ title, enabled, favorite }) => ({
+            restored.dictionaries.map(({ title, displayName, enabled, favorite }) => ({
                 title,
+                displayName,
                 enabled,
                 favorite,
             })),
         ).toEqual([
-            { title: 'Beta', enabled: true, favorite: true },
-            { title: 'Alpha', enabled: false, favorite: false },
+            {
+                title: 'Beta',
+                displayName: 'Main definitions',
+                enabled: true,
+                favorite: true,
+            },
+            {
+                title: 'Alpha',
+                displayName: null,
+                enabled: false,
+                favorite: false,
+            },
         ]);
         expect(restored).toMatchObject({
             customDictionaryActive: true,
@@ -337,6 +349,11 @@ describe('Hoshidicts manager full backups', () => {
         expect(
             restoredManifest.dictionaries.map((dictionary: { id: string }) => dictionary.id),
         ).toEqual(sourceManifest.dictionaries.map((dictionary: { id: string }) => dictionary.id));
+        expect(
+            restoredManifest.dictionaries.find(
+                (dictionary: { id: string }) => dictionary.id === beta!.id,
+            )?.displayName,
+        ).toBe('Main definitions');
         for (const [index, dictionary] of restoredManifest.dictionaries.entries()) {
             expect(dictionary.path).not.toBe(sourceManifest.dictionaries[index].path);
             expect(dictionary.path).toMatch(/^generations\/[A-Za-z0-9._-]+\/restore-/u);
