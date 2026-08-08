@@ -1,4 +1,4 @@
-import { BookOpen, RotateCw } from "lucide-react";
+import { BookOpen, EllipsisVertical, Plus, RotateCw } from "lucide-react";
 import { useMemo } from "react";
 
 import {
@@ -6,20 +6,35 @@ import {
   type HoshidictsRecommendedDictionaryId
 } from "../../../../shared/features/hoshidicts";
 import { useTranslation } from "../../i18n";
+import { HoshidictsAudioPanel } from "./HoshidictsAudioPanel";
+import { HoshidictsDesignPanel } from "./HoshidictsDesignPanel";
 import {
+  CustomDictionaryPanel,
   DictionariesPanel,
   MiningPanel
 } from "./HoshidictsSettingsPanels";
 import {
   PROGRESS_KEYS,
   RECOMMENDED_KEYS,
-  getReadiness,
-  normalizeHoshidictsDesktopState
+  type HoshidictsView,
+  getReadiness
 } from "./hoshidictsSettingsModel";
 import { useHoshidictsSettingsController } from "./useHoshidictsSettingsController";
 import "./hoshidicts.css";
 
-export { normalizeHoshidictsDesktopState } from "./hoshidictsSettingsModel";
+const HOSHIDICTS_TABS: Array<{
+  view: HoshidictsView;
+  labelKey: string;
+}> = [
+  {
+    view: "dictionaries",
+    labelKey: "settings.hoshidicts.tabs.dictionaries"
+  },
+  { view: "design", labelKey: "settings.hoshidicts.tabs.design" },
+  { view: "custom", labelKey: "settings.hoshidicts.tabs.custom" },
+  { view: "audio", labelKey: "settings.hoshidicts.tabs.audio" },
+  { view: "mining", labelKey: "settings.hoshidicts.tabs.mining" }
+];
 
 function ReadinessBanner({
   controller
@@ -99,6 +114,115 @@ function ReadinessBanner({
   );
 }
 
+function ProfileControl({
+  controller
+}: {
+  controller: ReturnType<typeof useHoshidictsSettingsController>;
+}) {
+  const t = useTranslation();
+  const { state, profileSwitching, actions } = controller;
+  if (!state) return null;
+  const activeProfile = state.profiles.find(
+    ({ id }) => id === state.activeProfileId
+  );
+  const disabled = profileSwitching || state.busy;
+
+  return (
+    <div className="hoshidicts-profile-control">
+      <label htmlFor="hoshidicts-active-profile">
+        {t("settings.hoshidicts.profiles.label")}
+      </label>
+      <select
+        id="hoshidicts-active-profile"
+        value={state.activeProfileId}
+        disabled={disabled}
+        onChange={(event) => void actions.switchProfile(event.currentTarget.value)}
+      >
+        {state.profiles.map((profile) => (
+          <option value={profile.id} key={profile.id}>
+            {profile.name}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        className="hoshidicts-icon-button secondary"
+        aria-label={t("settings.hoshidicts.profiles.create")}
+        disabled={disabled}
+        onClick={() => {
+          const name = window.prompt(
+            t("settings.hoshidicts.profiles.createPrompt")
+          );
+          if (name?.trim()) void actions.createProfile(name);
+        }}
+      >
+        <Plus size={16} aria-hidden="true" />
+      </button>
+      <details className="hoshidicts-profile-control__menu">
+        <summary
+          className="hoshidicts-icon-button secondary"
+          aria-label={t("settings.hoshidicts.profiles.manage")}
+          aria-disabled={disabled}
+          onClick={(event) => {
+            if (disabled) event.preventDefault();
+          }}
+        >
+          <EllipsisVertical size={16} aria-hidden="true" />
+        </summary>
+        <div>
+          <button
+            type="button"
+            className="secondary"
+            disabled={disabled || !activeProfile}
+            onClick={(event) => {
+              const details = event.currentTarget.closest(
+                "details"
+              ) as HTMLDetailsElement | null;
+              if (details) details.open = false;
+              if (!activeProfile) return;
+              const name = window.prompt(
+                t("settings.hoshidicts.profiles.renamePrompt"),
+                activeProfile.name
+              );
+              if (name?.trim()) {
+                void actions.renameProfile(activeProfile.id, name);
+              }
+            }}
+          >
+            {t("settings.hoshidicts.profiles.rename")}
+          </button>
+          <button
+            type="button"
+            className="danger"
+            disabled={disabled || state.profiles.length === 1 || !activeProfile}
+            onClick={(event) => {
+              const details = event.currentTarget.closest(
+                "details"
+              ) as HTMLDetailsElement | null;
+              if (details) details.open = false;
+              if (
+                activeProfile &&
+                window.confirm(
+                  t("settings.hoshidicts.profiles.deleteConfirm", {
+                    name: activeProfile.name
+                  })
+                )
+              ) {
+                void actions.deleteProfile(activeProfile.id);
+              }
+            }}
+          >
+            {t("settings.hoshidicts.profiles.delete")}
+          </button>
+        </div>
+      </details>
+      {profileSwitching ? (
+        <span role="status">{t("settings.hoshidicts.profiles.switching")}</span>
+      ) : null}
+    </div>
+  );
+}
+
 export function HoshidictsSettingsWindow() {
   const t = useTranslation();
   const controller = useHoshidictsSettingsController();
@@ -117,6 +241,8 @@ export function HoshidictsSettingsWindow() {
 
   const readiness = state ? getReadiness(state) : null;
   const displayedError = actionError ?? state?.lastError ?? null;
+  const importProgressIsLocal =
+    view === "dictionaries" && state?.progress.phase === "importing";
 
   return (
     <div className="hoshidicts-window">
@@ -130,14 +256,17 @@ export function HoshidictsSettingsWindow() {
             <p>{t("settings.hoshidicts.windowSubtitle")}</p>
           </div>
         </div>
-        <div
-          className="hoshidicts-window__feature-status"
-          data-ready={readiness?.kind === "ready"}
-          role="status"
-        >
-          {readiness
-            ? t(`settings.hoshidicts.readiness.${readiness.kind}`)
-            : t("settings.hoshidicts.readiness.loading")}
+        <div className="hoshidicts-window__header-actions">
+          <ProfileControl controller={controller} />
+          <div
+            className="hoshidicts-window__feature-status"
+            data-ready={readiness?.kind === "ready"}
+            role="status"
+          >
+            {readiness
+              ? t(`settings.hoshidicts.readiness.${readiness.kind}`)
+              : t("settings.hoshidicts.readiness.loading")}
+          </div>
         </div>
       </header>
 
@@ -147,26 +276,25 @@ export function HoshidictsSettingsWindow() {
         className="hoshidicts-window__tabs"
         aria-label={t("settings.hoshidicts.appTitle")}
       >
-        <button
-          type="button"
-          className={view === "dictionaries" ? "is-active" : ""}
-          aria-selected={view === "dictionaries"}
-          onClick={() => setView("dictionaries")}
-        >
-          {t("settings.hoshidicts.tabs.dictionaries")}
-        </button>
-        <button
-          type="button"
-          className={view === "mining" ? "is-active" : ""}
-          aria-selected={view === "mining"}
-          onClick={() => setView("mining")}
-        >
-          {t("settings.hoshidicts.tabs.mining")}
-        </button>
+        {HOSHIDICTS_TABS.map((tab) => (
+          <button
+            type="button"
+            className={view === tab.view ? "is-active" : ""}
+            aria-selected={view === tab.view}
+            onClick={() => setView(tab.view)}
+            key={tab.view}
+          >
+            {t(tab.labelKey)}
+          </button>
+        ))}
       </nav>
 
-      <main className="hoshidicts-window__content">
-        {state?.busy ? (
+      <main
+        className={`hoshidicts-window__content${
+          view === "design" ? " hoshidicts-window__content--design" : ""
+        }`}
+      >
+        {state?.busy && !importProgressIsLocal ? (
           <div className="hoshidicts-window__progress" role="status">
             <span>{progressLabel}</span>
             {typeof state.progress.total === "number" &&
@@ -198,6 +326,12 @@ export function HoshidictsSettingsWindow() {
           </div>
         ) : view === "dictionaries" ? (
           <DictionariesPanel controller={controller} />
+        ) : view === "design" ? (
+          <HoshidictsDesignPanel controller={controller} />
+        ) : view === "audio" ? (
+          <HoshidictsAudioPanel controller={controller} />
+        ) : view === "custom" ? (
+          <CustomDictionaryPanel controller={controller} />
         ) : (
           <MiningPanel controller={controller} />
         )}
