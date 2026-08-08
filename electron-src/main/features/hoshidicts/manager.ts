@@ -115,6 +115,7 @@ export type {
 interface PersistedDictionary extends HoshidictsDictionaryState {
     path: string;
     enabled: boolean;
+    displayName: string | null;
     recommendedId: HoshidictsRecommendedDictionaryId | null;
 }
 
@@ -226,6 +227,8 @@ const HOSHIDICTS_MARKERS = ['.hoshidicts_3', '.hoshidicts_2', '.hoshidicts_1'] a
 const JAPANESE_TEXT_PATTERN =
     /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u{20000}-\u{2fa1f}]/u;
 const SAFE_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
+const INVALID_DICTIONARY_DISPLAY_NAME_PATTERN = /[\p{Cc}\p{Cf}]/u;
+const MAX_DICTIONARY_DISPLAY_NAME_CODE_POINTS = 128;
 
 type RecommendedHoshidictsDictionaryKind =
     | 'term'
@@ -508,6 +511,46 @@ function normalizeDate(value: unknown): string | null {
 
 function normalizeOptionalString(value: unknown): string | null {
     return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function normalizeDictionaryDisplayName(
+    value: unknown,
+    canonicalTitle: string
+): string | null {
+    if (value === null) {
+        return null;
+    }
+    if (typeof value !== 'string') {
+        throw new Error('Dictionary display name is invalid.');
+    }
+    const normalized = value.normalize('NFC');
+    if (INVALID_DICTIONARY_DISPLAY_NAME_PATTERN.test(normalized)) {
+        throw new Error(
+            'Dictionary display name cannot contain control or format characters.'
+        );
+    }
+    const trimmed = normalized.trim();
+    if ([...trimmed].length > MAX_DICTIONARY_DISPLAY_NAME_CODE_POINTS) {
+        throw new Error(
+            `Dictionary display name cannot exceed ${MAX_DICTIONARY_DISPLAY_NAME_CODE_POINTS} Unicode code points.`
+        );
+    }
+    if (
+        trimmed.length === 0 ||
+        trimmed === canonicalTitle.normalize('NFC')
+    ) {
+        return null;
+    }
+    return trimmed;
+}
+
+function normalizePersistedDictionaryDisplayName(
+    value: unknown,
+    canonicalTitle: string
+): string | null {
+    return value === undefined
+        ? null
+        : normalizeDictionaryDisplayName(value, canonicalTitle);
 }
 
 function normalizeCount(value: unknown): number {
@@ -817,6 +860,7 @@ function dictionaryStateFromIndex(
         path: relativePath,
         enabled,
         favorite: false,
+        displayName: null,
         recommendedId,
         title: index.title,
         revision: index.revision,
@@ -1731,6 +1775,43 @@ export class HoshidictsManager {
         return await this.getSnapshot();
     }
 
+    async renameDictionary(
+        id: string,
+        displayName: string | null
+    ): Promise<HoshidictsManagerSnapshot> {
+        await this.enqueue('saving', async () => {
+            if (!SAFE_ID_PATTERN.test(id)) {
+                throw new Error('Dictionary id is invalid.');
+            }
+            if (id === HOSHIDICTS_CUSTOM_DICTIONARY_ID) {
+                throw new Error(
+                    'The custom dictionary name is managed automatically.'
+                );
+            }
+            const manifest = await this.readManifest();
+            const index = manifest.dictionaries.findIndex(
+                (dictionary) => dictionary.id === id
+            );
+            if (index < 0) {
+                throw new Error('Dictionary is not installed.');
+            }
+            const normalized = normalizeDictionaryDisplayName(
+                displayName,
+                manifest.dictionaries[index].title
+            );
+            if (manifest.dictionaries[index].displayName === normalized) {
+                return;
+            }
+            const dictionaries = manifest.dictionaries.map((dictionary) => ({
+                ...dictionary,
+            }));
+            dictionaries[index].displayName = normalized;
+            // Display aliases do not affect the native dictionary engine.
+            await this.atomicWriteManifest({ ...manifest, dictionaries });
+        });
+        return await this.getSnapshot();
+    }
+
     async moveDictionary(
         id: string,
         direction: -1 | 1
@@ -2300,6 +2381,7 @@ export class HoshidictsManager {
                     ({
                         id,
                         title,
+                        displayName,
                         enabled,
                         favorite,
                         revision,
@@ -2316,6 +2398,7 @@ export class HoshidictsManager {
                     }) => ({
                         id,
                         title,
+                        displayName,
                         enabled,
                         favorite,
                         revision,
@@ -2662,6 +2745,10 @@ export class HoshidictsManager {
                     recommendedId
                 ),
                 favorite: value.favorite === true,
+                displayName: normalizePersistedDictionaryDisplayName(
+                    value.displayName,
+                    index.title
+                ),
             });
         }
 
@@ -2895,6 +2982,7 @@ export class HoshidictsManager {
                 ...staged.dictionary,
                 enabled: dictionaries[existingIndex].enabled,
                 favorite: dictionaries[existingIndex].favorite,
+                displayName: dictionaries[existingIndex].displayName,
             };
         } else {
             dictionaries.push(staged.dictionary);

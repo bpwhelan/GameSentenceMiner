@@ -385,6 +385,7 @@ describe('Hoshidicts immutable generations', () => {
         const alphaId = (await manager.getSnapshot()).dictionaries[0].id;
         await manager.setDictionaryEnabled(alphaId, false);
         await manager.setDictionaryPresentation(alphaId, true);
+        await manager.renameDictionary(alphaId, 'Primary reference');
         const oldManifest = readManifest(baseDir);
         const oldAlphaPath = oldManifest.dictionaries[0].path;
         await manager.importDictionary(replacement);
@@ -403,6 +404,7 @@ describe('Hoshidicts immutable generations', () => {
             true,
         ]);
         expect(snapshot.dictionaries[0].favorite).toBe(true);
+        expect(snapshot.dictionaries[0].displayName).toBe('Primary reference');
         expect(snapshot.dictionaries[0]).toMatchObject({
             termCount: 1,
             frequencyCount: 0,
@@ -658,6 +660,43 @@ describe('Hoshidicts immutable generations', () => {
         expect(reloadNative).not.toHaveBeenCalled();
     });
 
+    it('persists a normalized dictionary display name without reloading native dictionaries', async () => {
+        const baseDir = makeTempDir();
+        const archive = writeArchive(makeTempDir(), 'alpha.zip', {
+            title: 'Alpha',
+            revision: 'one',
+            sourceLanguage: 'ja',
+        });
+        const { manager, reloadNative } = createHarness(baseDir);
+        await manager.importDictionary(archive);
+        const dictionaryId = (await manager.getSnapshot()).dictionaries[0].id;
+        reloadNative.mockClear();
+
+        const renamed = await manager.renameDictionary(
+            dictionaryId,
+            '  Cafe\u0301 reference  '
+        );
+
+        expect(renamed.dictionaries[0].displayName).toBe('Caf\u00e9 reference');
+        expect(readManifest(baseDir).dictionaries[0].displayName).toBe(
+            'Caf\u00e9 reference'
+        );
+        expect(reloadNative).not.toHaveBeenCalled();
+
+        expect(
+            (await manager.renameDictionary(dictionaryId, 'Alpha')).dictionaries[0]
+                .displayName
+        ).toBeNull();
+        expect(readManifest(baseDir).dictionaries[0].displayName).toBeNull();
+
+        await manager.renameDictionary(dictionaryId, 'Temporary name');
+        expect(
+            (await manager.renameDictionary(dictionaryId, null)).dictionaries[0]
+                .displayName
+        ).toBeNull();
+        expect(reloadNative).not.toHaveBeenCalled();
+    });
+
     it('defaults favorite state from older version-one manifests', async () => {
         const baseDir = makeTempDir();
         const archive = writeArchive(makeTempDir(), 'alpha.zip', {
@@ -669,9 +708,51 @@ describe('Hoshidicts immutable generations', () => {
         await manager.importDictionary(archive);
         const manifest = readManifest(baseDir);
         delete manifest.dictionaries[0].favorite;
+        delete manifest.dictionaries[0].displayName;
         writeManifest(baseDir, manifest);
 
         expect((await manager.getSnapshot()).dictionaries[0].favorite).toBe(false);
+        expect((await manager.getSnapshot()).dictionaries[0].displayName).toBeNull();
+    });
+
+    it('validates dictionary display names by Unicode code point', async () => {
+        const baseDir = makeTempDir();
+        const archive = writeArchive(makeTempDir(), 'alpha.zip', {
+            title: 'Alpha',
+            revision: 'one',
+            sourceLanguage: 'ja',
+        });
+        const { manager } = createHarness(baseDir);
+        await manager.importDictionary(archive);
+        const dictionaryId = (await manager.getSnapshot()).dictionaries[0].id;
+
+        await expect(
+            manager.renameDictionary('not a valid id', 'Alias')
+        ).rejects.toThrow('Dictionary id is invalid');
+        await expect(
+            manager.renameDictionary(HOSHIDICTS_CUSTOM_DICTIONARY_ID, 'Alias')
+        ).rejects.toThrow('custom dictionary');
+        await expect(
+            manager.renameDictionary(dictionaryId, 42 as unknown as string)
+        ).rejects.toThrow('display name is invalid');
+        await expect(
+            manager.renameDictionary(dictionaryId, 'Line\nBreak')
+        ).rejects.toThrow('control or format');
+        await expect(
+            manager.renameDictionary(dictionaryId, 'Zero\u200bWidth')
+        ).rejects.toThrow('control or format');
+
+        const boundary = '\ud83c\udf38'.repeat(128);
+        expect(
+            (await manager.renameDictionary(dictionaryId, boundary)).dictionaries[0]
+                .displayName
+        ).toBe(boundary);
+        await expect(
+            manager.renameDictionary(dictionaryId, `${boundary}\ud83c\udf38`)
+        ).rejects.toThrow('128 Unicode code points');
+        await expect(
+            manager.renameDictionary('missing', 'Alias')
+        ).rejects.toThrow('not installed');
     });
 
     it('validates dictionary presentation changes', async () => {
@@ -2312,6 +2393,8 @@ describe('Hoshidicts updates and schedule', () => {
         });
 
         await manager.importDictionary(archive);
+        const dictionaryId = (await manager.getSnapshot()).dictionaries[0].id;
+        await manager.renameDictionary(dictionaryId, 'My updateable dictionary');
         await manager.checkForUpdates();
 
         expect(fetchRemoteIndex).toHaveBeenCalledWith(
@@ -2324,6 +2407,7 @@ describe('Hoshidicts updates and schedule', () => {
         const updated = (await manager.getSnapshot()).dictionaries[0];
         expect(updated.revision).toBe('revision-10-beta');
         expect(updated.title).toBe('Updatable [new release]');
+        expect(updated.displayName).toBe('My updateable dictionary');
     });
 
     it('never requests updates from non-HTTPS metadata', async () => {
