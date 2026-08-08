@@ -1466,18 +1466,45 @@ export class HoshidictsManager {
     }
 
     async importDictionary(archivePath: string): Promise<HoshidictsManagerSnapshot> {
+        return await this.importDictionaries([archivePath]);
+    }
+
+    async importDictionaries(
+        selectedArchivePaths: readonly string[]
+    ): Promise<HoshidictsManagerSnapshot> {
+        const archivePaths = [...selectedArchivePaths];
+        if (archivePaths.length === 0) {
+            throw new Error('No dictionary archives were selected.');
+        }
         await this.enqueue('importing', async () => {
-            const manifest = await this.readManifest();
-            const staged = await this.stageArchive(
-                archivePath,
-                manifest.dictionaries
-            );
-            try {
-                await this.installStagedDictionary(manifest, staged);
-            } catch (error) {
-                await this.discardStagedDictionaryIfUnreferenced(staged);
-                throw error;
+            let manifest = await this.readManifest();
+            for (let index = 0; index < archivePaths.length; index += 1) {
+                const archivePath = archivePaths[index];
+                this.setProgress({
+                    phase: 'importing',
+                    title: path.basename(archivePath),
+                    completed: index,
+                    total: archivePaths.length,
+                });
+                const staged = await this.stageArchive(
+                    archivePath,
+                    manifest.dictionaries
+                );
+                try {
+                    manifest = await this.installStagedDictionary(
+                        manifest,
+                        staged
+                    );
+                } catch (error) {
+                    await this.discardStagedDictionaryIfUnreferenced(staged);
+                    throw error;
+                }
             }
+            this.setProgress({
+                phase: 'importing',
+                completed: archivePaths.length,
+                total: archivePaths.length,
+            });
         });
         return await this.getSnapshot();
     }

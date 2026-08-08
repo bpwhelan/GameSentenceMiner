@@ -377,7 +377,7 @@ describe("HoshidictsSettingsWindow", () => {
     const localProgress = container.querySelector(
       ".hoshidicts-dictionary-import-progress"
     );
-    expect(localProgress?.textContent).toContain("Importing dictionary...");
+    expect(localProgress?.textContent).toContain("Importing dictionaries...");
     expect(localProgress?.textContent).toContain("1 / 3");
     expect(localProgress?.closest(".hoshidicts-section--toolbar")).not.toBeNull();
     expect(
@@ -666,7 +666,7 @@ describe("HoshidictsSettingsWindow", () => {
     );
 
     await act(async () => {
-      buttonContaining("Import Dictionary")?.click();
+      buttonContaining("Import Dictionaries")?.click();
       buttonContaining("Import dictionaries from Yomitan")?.click();
       buttonContaining("Import settings from Yomitan")?.click();
       buttonContaining("Check for Updates")?.click();

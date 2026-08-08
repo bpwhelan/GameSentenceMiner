@@ -371,8 +371,8 @@ export function registerHoshidictsIPC(
         assertSettingsSender(event, deps);
         const settingsWindow = deps.getSettingsWindow();
         const options: OpenDialogOptions = {
-            title: 'Import Hoshidicts Dictionary',
-            properties: ['openFile'],
+            title: 'Import Hoshidicts Dictionaries',
+            properties: ['openFile', 'multiSelections'],
             filters: [{ name: 'Yomitan Dictionary', extensions: ['zip'] }],
         };
         const result = settingsWindow
@@ -388,13 +388,11 @@ export function registerHoshidictsIPC(
         return await runAction(
             deps,
             async () => {
-                const state = await manager.importDictionary(
-                    result.filePaths[0]
-                );
+                const state = await manager.importDictionaries(result.filePaths);
                 await applyReaderSnapshot(state, deps);
                 return state;
             },
-            { code: 'dictionaryImported' }
+            { code: 'dictionaryImported', count: result.filePaths.length }
         );
     });
 

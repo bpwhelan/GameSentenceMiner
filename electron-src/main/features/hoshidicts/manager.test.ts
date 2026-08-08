@@ -290,6 +290,42 @@ afterEach(() => {
 });
 
 describe('Hoshidicts immutable generations', () => {
+    it('imports multiple selected archives in order with aggregate progress', async () => {
+        const baseDir = makeTempDir();
+        const archivesDir = makeTempDir();
+        const archivePaths = ['Alpha', 'Beta', 'Gamma'].map((title) =>
+            writeArchive(archivesDir, `${title}.zip`, {
+                title,
+                revision: 'one',
+                sourceLanguage: 'ja',
+            })
+        );
+        const { manager, runImport } = createHarness(baseDir);
+        const progress: Array<{ completed?: number; total?: number }> = [];
+        manager.subscribe((state) => {
+            if (state.progress.phase === 'importing') {
+                progress.push(state.progress);
+            }
+        });
+
+        const snapshot = await manager.importDictionaries(archivePaths);
+        await vi.waitFor(() => {
+            expect(progress).toContainEqual(
+                expect.objectContaining({ completed: 2, total: 3 })
+            );
+        });
+
+        expect(
+            snapshot.dictionaries.map((dictionary) => dictionary.title)
+        ).toEqual(['Alpha', 'Beta', 'Gamma']);
+        expect(runImport.mock.calls.map(([archivePath]) => archivePath)).toEqual(
+            archivePaths
+        );
+        expect(progress).toContainEqual(
+            expect.objectContaining({ completed: 0, total: 3 })
+        );
+    });
+
     it('applies Yomitan dictionary order and enabled preferences without removing extras', async () => {
         const baseDir = makeTempDir();
         const archivesDir = makeTempDir();

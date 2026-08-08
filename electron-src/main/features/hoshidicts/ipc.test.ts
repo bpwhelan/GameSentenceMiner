@@ -34,6 +34,7 @@ const harness = vi.hoisted(() => ({
         subscribe: vi.fn(),
         getSnapshot: vi.fn(),
         importDictionary: vi.fn(),
+        importDictionaries: vi.fn(),
         applyYomitanDictionaryPreferences: vi.fn(),
         installRecommendedDictionaries: vi.fn(),
         installRecommendedDictionary: vi.fn(),
@@ -168,6 +169,7 @@ async function registerHarness() {
     });
     harness.manager.getSnapshot.mockResolvedValue(snapshot);
     harness.manager.importDictionary.mockResolvedValue(snapshot);
+    harness.manager.importDictionaries.mockResolvedValue(snapshot);
     harness.manager.applyYomitanDictionaryPreferences.mockResolvedValue(
         snapshot
     );
@@ -307,6 +309,40 @@ describe('Hoshidicts settings IPC', () => {
             revealMode: 'timed',
             revealDelayMs: 5000,
         };
+    });
+
+    it('selects and imports multiple Yomitan ZIP dictionaries as one batch', async () => {
+        const filePaths = [
+            '/tmp/jmdict.zip',
+            '/tmp/jmnedict.zip',
+            '/tmp/kanjidic.zip',
+        ];
+        harness.showOpenDialog.mockResolvedValueOnce({
+            canceled: false,
+            filePaths,
+        });
+        const context = await registerHarness();
+
+        await expect(
+            harness.handlers.get('hoshidicts.import')?.({
+                sender: context.settingsContents,
+            })
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'dictionaryImported', count: 3 },
+        });
+        expect(harness.showOpenDialog).toHaveBeenCalledWith(
+            context.settingsWindow,
+            expect.objectContaining({
+                title: 'Import Hoshidicts Dictionaries',
+                properties: ['openFile', 'multiSelections'],
+            })
+        );
+        expect(harness.manager.importDictionaries).toHaveBeenCalledWith(
+            filePaths
+        );
+        expect(harness.manager.importDictionary).not.toHaveBeenCalled();
+        expect(context.applyReaderPreferences).toHaveBeenCalledOnce();
     });
 
     it('imports a selected Yomitan dictionary backup through the existing manager', async () => {
@@ -835,7 +871,7 @@ describe('Hoshidicts settings IPC', () => {
         } as const;
         const context = await registerHarness();
         harness.manager.getSnapshot.mockResolvedValue(initialState);
-        harness.manager.importDictionary.mockResolvedValueOnce(initialState);
+        harness.manager.importDictionaries.mockResolvedValueOnce(initialState);
         harness.manager.installRecommendedDictionaries.mockResolvedValueOnce(
             initialState
         );
@@ -895,7 +931,7 @@ describe('Hoshidicts settings IPC', () => {
             },
         });
 
-        expect(harness.manager.importDictionary).toHaveBeenCalledOnce();
+        expect(harness.manager.importDictionaries).toHaveBeenCalledOnce();
         expect(
             harness.manager.installRecommendedDictionaries
         ).toHaveBeenCalledOnce();

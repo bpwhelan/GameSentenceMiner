@@ -621,7 +621,7 @@
         "shiftHint": "Shiftキーを押している間だけHoshidictsで検索します。",
         "hoverHint": "Yomitanのように、ホバーした文字を自動的に検索します。"
       },
-      "import": "辞書をインポート...",
+      "import": "複数の辞書をインポート...",
       "backups": {
         "title": "バックアップ",
         "subtitle": "YomitanのJSONバックアップから辞書または対応する設定を復元します。",
@@ -808,7 +808,7 @@
         "preferencesSaved": "リーダー設定を保存しました。",
         "audioProfileSaved": "音声設定を保存しました。",
         "miningProfileSaved": "マイニングプロファイルを保存しました。",
-        "dictionaryImported": "辞書をインポートしました。",
+        "dictionaryImported": "辞書を{count}件インポートしました。",
         "yomitanDictionariesImported": "Yomitanから辞書{dictionaries}件をインポートしました（警告{warnings}件）。",
         "yomitanSettingsImported": "Yomitanから設定グループ{settings}件をインポートしました（警告{warnings}件）。",
         "recommendedInstalled": "おすすめの辞書を{count}件インストールしました。",

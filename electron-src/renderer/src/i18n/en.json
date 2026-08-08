@@ -639,7 +639,7 @@
         "shiftHint": "Hoshidicts looks up text only while Shift is held.",
         "hoverHint": "Hoshidicts looks up text automatically when you hover, like Yomitan."
       },
-      "import": "Import Dictionary...",
+      "import": "Import Dictionaries...",
       "backups": {
         "title": "Backups",
         "subtitle": "Restore dictionaries or supported settings from Yomitan JSON backups.",
@@ -826,7 +826,7 @@
         "preferencesSaved": "Reader preferences saved.",
         "audioProfileSaved": "Audio preferences saved.",
         "miningProfileSaved": "Mining profile saved.",
-        "dictionaryImported": "Dictionary imported.",
+        "dictionaryImported": "Dictionaries imported: {count}.",
         "yomitanDictionariesImported": "Imported {dictionaries} dictionaries from Yomitan ({warnings} warnings).",
         "yomitanSettingsImported": "Imported {settings} settings groups from Yomitan ({warnings} warnings).",
         "recommendedInstalled": "Installed {count} recommended dictionaries.",
@@ -838,7 +838,7 @@
       },
       "progress": {
         "idle": "Ready",
-        "importing": "Importing dictionary...",
+        "importing": "Importing dictionaries...",
         "checking": "Checking dictionary updates...",
         "downloading": "Downloading {title}...",
         "reloading": "Reloading dictionaries...",
