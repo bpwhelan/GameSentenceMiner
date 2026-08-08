@@ -1,11 +1,15 @@
 import {
+  createDefaultHoshidictsAudioProfile,
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
   HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
-  MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   isHoshidictsActivationKey,
+  isHoshidictsAudioSourceType,
+  MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   type HoshidictsActivationKey,
+  type HoshidictsAudioProfile,
+  type HoshidictsAudioSource,
   type HoshidictsDesktopSnapshot,
   type HoshidictsFrequencyMode,
   type HoshidictsMiningFieldName,
@@ -17,7 +21,7 @@ import {
   type HoshidictsSchedule
 } from "../../../../shared/features/hoshidicts";
 
-export type HoshidictsView = "dictionaries" | "mining";
+export type HoshidictsView = "dictionaries" | "audio" | "mining";
 export type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
 export type MiningField = HoshidictsMiningFieldName;
 export type MiningProfileDraft = Omit<HoshidictsMiningProfile, "tags"> & {
@@ -135,7 +139,8 @@ export const MINING_FIELDS: Array<{
   { id: "definition", labelKey: "settings.hoshidicts.mining.fields.definition" },
   { id: "sentence", labelKey: "settings.hoshidicts.mining.fields.sentence" },
   { id: "frequency", labelKey: "settings.hoshidicts.mining.fields.frequency" },
-  { id: "pitch", labelKey: "settings.hoshidicts.mining.fields.pitch" }
+  { id: "pitch", labelKey: "settings.hoshidicts.mining.fields.pitch" },
+  { id: "audio", labelKey: "settings.hoshidicts.mining.fields.audio" }
 ];
 
 const EMPTY_FIELDS: HoshidictsMiningFields = {
@@ -144,7 +149,8 @@ const EMPTY_FIELDS: HoshidictsMiningFields = {
   definition: "",
   sentence: "",
   frequency: "",
-  pitch: ""
+  pitch: "",
+  audio: ""
 };
 
 export const DEFAULT_MINING_PROFILE: HoshidictsMiningProfile = {
@@ -180,6 +186,7 @@ const DEFAULT_STATE: HoshidictsDesktopSnapshot = {
     installed: false
   })),
   miningProfile: DEFAULT_MINING_PROFILE,
+  audioProfile: createDefaultHoshidictsAudioProfile(),
   lookupMode: "shift",
   activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   sourceHighlightEnabled: DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
@@ -220,7 +227,8 @@ function fieldValues(value: unknown): HoshidictsMiningFields {
     definition: read("definition"),
     sentence: read("sentence"),
     frequency: read("frequency"),
-    pitch: read("pitch")
+    pitch: read("pitch"),
+    audio: read("audio")
   };
 }
 
@@ -264,6 +272,54 @@ export function normalizeMiningProfile(value: unknown): HoshidictsMiningProfile 
   };
 }
 
+export function copyAudioProfile(
+  profile: HoshidictsAudioProfile = createDefaultHoshidictsAudioProfile()
+): HoshidictsAudioProfile {
+  return {
+    ...profile,
+    sources: profile.sources.map((source) => ({ ...source }))
+  };
+}
+
+export function normalizeAudioProfile(value: unknown): HoshidictsAudioProfile {
+  if (!value || typeof value !== "object") return copyAudioProfile();
+  const candidate = value as Partial<HoshidictsAudioProfile>;
+  const seenIds = new Set<string>();
+  const sources = Array.isArray(candidate.sources)
+    ? candidate.sources.flatMap((value): HoshidictsAudioSource[] => {
+        if (!value || typeof value !== "object") return [];
+        const source = value as Partial<HoshidictsAudioSource>;
+        const id = typeof source.id === "string" ? source.id.trim() : "";
+        if (
+          !id ||
+          seenIds.has(id) ||
+          !isHoshidictsAudioSourceType(source.type)
+        )
+          return [];
+        seenIds.add(id);
+        return [
+          {
+            id,
+            type: source.type,
+            url: typeof source.url === "string" ? source.url : "",
+            voice: typeof source.voice === "string" ? source.voice : ""
+          }
+        ];
+      })
+    : copyAudioProfile().sources;
+  const volume =
+    typeof candidate.volume === "number" && Number.isFinite(candidate.volume)
+      ? Math.min(100, Math.max(0, Math.round(candidate.volume)))
+      : 100;
+  return {
+    version: 1,
+    enabled: candidate.enabled !== false,
+    autoPlay: candidate.autoPlay === true,
+    volume,
+    sources
+  };
+}
+
 export function normalizeMiningOptions(value: unknown): HoshidictsMiningOptions {
   if (!value || typeof value !== "object") {
     return {
@@ -297,6 +353,7 @@ export function normalizeHoshidictsDesktopState(
     return {
       ...DEFAULT_STATE,
       miningProfile: copyMiningProfile(),
+      audioProfile: copyAudioProfile(),
       recommendedDictionaries: DEFAULT_STATE.recommendedDictionaries.map(
         (dictionary) => ({ ...dictionary })
       ),
@@ -360,6 +417,7 @@ export function normalizeHoshidictsDesktopState(
         ) === true
     })),
     miningProfile: normalizeMiningProfile(candidate.miningProfile),
+    audioProfile: normalizeAudioProfile(candidate.audioProfile),
     lookupMode: candidate.lookupMode === "hover" ? "hover" : "shift",
     activationKey: isHoshidictsActivationKey(candidate.activationKey)
       ? candidate.activationKey
@@ -379,7 +437,8 @@ export function normalizeHoshidictsDesktopState(
       scope:
         candidate.progress?.scope === "dictionary" ||
         candidate.progress?.scope === "preferences" ||
-        candidate.progress?.scope === "mining"
+        candidate.progress?.scope === "mining" ||
+        candidate.progress?.scope === "audio"
           ? candidate.progress.scope
           : undefined,
       title:
@@ -508,7 +567,7 @@ export function getReadiness(
 
 export function isScopedBusy(
   state: HoshidictsDesktopSnapshot,
-  scope: "dictionary" | "preferences" | "mining"
+  scope: "dictionary" | "preferences" | "mining" | "audio"
 ): boolean {
   return (
     state.busy &&

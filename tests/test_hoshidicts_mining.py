@@ -1,9 +1,10 @@
+import json
 from types import SimpleNamespace
 
 import pytest
 from flask import Flask
 
-from GameSentenceMiner import hoshidicts_mining
+from GameSentenceMiner import hoshidicts_audio, hoshidicts_mining
 from GameSentenceMiner.web import hoshidicts_api
 
 
@@ -99,6 +100,10 @@ class FakeAnki:
             return self.decks
         if action == "addNote":
             return self.note_id
+        if action == "storeMediaFile":
+            return kwargs["filename"]
+        if action == "updateNoteFields":
+            return None
         raise AssertionError(action)
 
     def _prepare_anki_tags(self):
@@ -124,9 +129,48 @@ def _wire(monkeypatch, fake_anki, profile=None):
     )
 
 
+_AUDIO_MEDIA = hoshidicts_audio.AudioMedia(
+    data=b"ID3pronunciation",
+    content_type="audio/mpeg",
+    extension="mp3",
+)
+
+
+def _wire_audio(
+    monkeypatch,
+    fake_anki,
+    *,
+    mining_profile=None,
+    audio_profile=None,
+    media=_AUDIO_MEDIA,
+    error=None,
+    resolver=None,
+):
+    _wire(monkeypatch, fake_anki, mining_profile)
+    audio_profile = audio_profile or hoshidicts_audio.default_hoshidicts_audio_profile()
+    monkeypatch.setattr(
+        hoshidicts_audio,
+        "load_hoshidicts_audio_profile_or_default",
+        lambda: audio_profile,
+    )
+
+    if resolver is None:
+
+        def resolver(*_args, **_kwargs):
+            if error is not None:
+                raise error
+            return media
+
+    monkeypatch.setattr(hoshidicts_audio, "get_mining_audio", resolver)
+    return audio_profile
+
+
 def test_profile_defaults_and_normalization(tmp_path):
     missing = tmp_path / "missing.json"
     assert hoshidicts_mining.load_hoshidicts_mining_profile(missing) == _profile()
+    saved = tmp_path / "mining-profile.json"
+    saved.write_text(json.dumps(_profile(fields={"audio": "WordAudio"})), encoding="utf-8")
+    assert hoshidicts_mining.load_hoshidicts_mining_profile(saved)["fields"]["audio"] == "WordAudio"
 
     profile = hoshidicts_mining.normalize_hoshidicts_mining_profile(
         {
@@ -165,8 +209,9 @@ def test_status_inherits_gsm_fields_and_auto_maps_dictionary_fields(monkeypatch)
             "sentence": "Sentence",
             "frequency": "Frequency",
             "pitch": "PitchAccent",
+            "audio": "",
         },
-        "unmappedFields": [],
+        "unmappedFields": ["audio"],
     }
 
 
@@ -205,6 +250,7 @@ def test_options_load_anki_choices_and_suggest_kiku_lapis_fields(monkeypatch):
             "sentence": "Sentence",
             "frequency": "Frequency",
             "pitch": "PitchPosition",
+            "audio": "",
         },
         "resolvedFields": {
             "expression": "Expression",
@@ -213,6 +259,7 @@ def test_options_load_anki_choices_and_suggest_kiku_lapis_fields(monkeypatch):
             "sentence": "Sentence",
             "frequency": "Frequency",
             "pitch": "PitchPosition",
+            "audio": "",
         },
         "warnings": [],
         "error": None,
@@ -317,7 +364,12 @@ def test_mining_preserves_dictionary_metadata_and_queues_gsm_enrichment(monkeypa
 
     result = hoshidicts_mining.mine_hoshidicts_note(_payload())
 
-    assert result == {"success": True, "noteId": 42, "unmappedFields": []}
+    assert result == {
+        "success": True,
+        "noteId": 42,
+        "unmappedFields": ["audio"],
+        "audio": {"status": "skipped"},
+    }
     add_note = next(kwargs["note"] for action, kwargs in fake_anki.calls if action == "addNote")
     assert add_note["deckName"] == "Default"
     assert add_note["modelName"] == "Mining"
@@ -413,7 +465,7 @@ def test_mining_honors_explicitly_disabled_fields(monkeypatch):
     assert "Reading" not in note["fields"]
     assert "Frequency" not in note["fields"]
     assert "PitchAccent" not in note["fields"]
-    assert result["unmappedFields"] == []
+    assert result["unmappedFields"] == ["audio"]
 
 
 def test_mining_reports_optional_data_not_supported_by_the_model(monkeypatch):
@@ -427,6 +479,7 @@ def test_mining_reports_optional_data_not_supported_by_the_model(monkeypatch):
         "definition",
         "frequency",
         "pitch",
+        "audio",
     ]
     add_note = next(kwargs["note"] for action, kwargs in fake_anki.calls if action == "addNote")
     assert add_note["fields"] == {
@@ -468,6 +521,176 @@ def test_mining_honors_profile_overrides(monkeypatch):
     }
     assert add_note["options"] == {"allowDuplicate": True}
     assert "dictionary" in add_note["tags"]
+
+
+def test_mining_stores_selected_pronunciation_after_note_creation(monkeypatch):
+    fake_anki = FakeAnki(fields=[*FakeAnki().fields, "WordAudio"])
+    audio_profile = hoshidicts_audio.default_hoshidicts_audio_profile()
+
+    def get_mining_audio(term, reading, selection, *, profile):
+        assert (term, reading) == ("食べる", "たべる")
+        assert selection == {
+            "sourceId": "jisho",
+            "candidateIndex": 1,
+            "candidateToken": "a" * 64,
+        }
+        assert profile is audio_profile
+        return _AUDIO_MEDIA
+
+    _wire_audio(
+        monkeypatch,
+        fake_anki,
+        audio_profile=audio_profile,
+        resolver=get_mining_audio,
+    )
+    payload = _payload()
+    payload["audioSelection"] = {
+        "sourceId": "jisho",
+        "candidateIndex": 1,
+        "candidateToken": "a" * 64,
+    }
+    payload["result"]["term"]["expression"] = " 食べる "
+    payload["result"]["term"]["reading"] = " たべる "
+
+    result = hoshidicts_mining.mine_hoshidicts_note(payload)
+
+    assert result["audio"]["status"] == "stored"
+    assert result["audio"]["filename"].startswith("gsm_hoshidicts_")
+    actions = [action for action, _kwargs in fake_anki.calls]
+    assert actions.index("addNote") < actions.index("storeMediaFile") < actions.index("updateNoteFields")
+    stored = next(kwargs for action, kwargs in fake_anki.calls if action == "storeMediaFile")
+    assert stored["filename"] == result["audio"]["filename"]
+    assert stored["data"] == "SUQzcHJvbnVuY2lhdGlvbg=="
+    updated = next(kwargs for action, kwargs in fake_anki.calls if action == "updateNoteFields")
+    assert updated["note"] == {
+        "id": 42,
+        "fields": {"WordAudio": f"[sound:{result['audio']['filename']}]"},
+    }
+
+
+def test_mining_appends_audio_when_the_field_already_contains_text(monkeypatch):
+    fake_anki = FakeAnki(fields=["Front", "Sentence"])
+    profile = _profile(
+        model="Custom",
+        fields={
+            "expression": "Front",
+            "reading": "",
+            "definition": "",
+            "sentence": "Sentence",
+            "frequency": "",
+            "pitch": "",
+            "audio": "Front",
+        },
+        disabledFields=["reading", "definition", "frequency", "pitch"],
+    )
+    _wire_audio(monkeypatch, fake_anki, mining_profile=profile)
+
+    result = hoshidicts_mining.mine_hoshidicts_note(_payload())
+
+    updated = next(kwargs for action, kwargs in fake_anki.calls if action == "updateNoteFields")
+    assert updated["note"]["fields"]["Front"] == (f"食べる<br>[sound:{result['audio']['filename']}]")
+
+
+def test_mining_audio_unavailable_is_nonfatal(monkeypatch):
+    fake_anki = FakeAnki(fields=[*FakeAnki().fields, "PronunciationAudio"])
+    _wire_audio(
+        monkeypatch,
+        fake_anki,
+        error=hoshidicts_audio.HoshidictsAudioError("No pronunciation audio is available.", 404),
+    )
+
+    result = hoshidicts_mining.mine_hoshidicts_note(_payload())
+
+    assert result["success"] is True
+    assert result["audio"] == {
+        "status": "unavailable",
+        "warning": "No pronunciation audio is available.",
+    }
+    assert [action for action, _kwargs in fake_anki.calls if action in {"storeMediaFile", "updateNoteFields"}] == []
+    assert fake_anki.events[-1]["note_id"] == 42
+
+
+def test_mining_audio_store_failure_is_nonfatal(monkeypatch):
+    class StoreFailureAnki(FakeAnki):
+        def invoke(self, action, **kwargs):
+            if action == "storeMediaFile":
+                self.calls.append((action, kwargs))
+                raise RuntimeError("media collection is locked")
+            return super().invoke(action, **kwargs)
+
+    fake_anki = StoreFailureAnki(fields=[*FakeAnki().fields, "Pronunciation"])
+    _wire_audio(monkeypatch, fake_anki)
+
+    result = hoshidicts_mining.mine_hoshidicts_note(_payload())
+
+    assert result["success"] is True
+    assert result["audio"]["status"] == "failed"
+    assert "media collection is locked" in result["audio"]["warning"]
+    assert fake_anki.events[-1]["note_id"] == 42
+
+
+def test_mining_audio_disabled_is_skipped_without_resolution(monkeypatch):
+    fake_anki = FakeAnki(fields=[*FakeAnki().fields, "WordAudio"])
+    audio_profile = hoshidicts_audio.default_hoshidicts_audio_profile()
+    audio_profile["enabled"] = False
+
+    def unexpected_resolution(*_args, **_kwargs):
+        raise AssertionError("disabled audio must not resolve")
+
+    _wire_audio(
+        monkeypatch,
+        fake_anki,
+        audio_profile=audio_profile,
+        resolver=unexpected_resolution,
+    )
+
+    result = hoshidicts_mining.mine_hoshidicts_note(_payload())
+
+    assert result["audio"] == {"status": "skipped"}
+
+
+def test_mining_auto_maps_standard_audio_but_not_sentence_audio(monkeypatch):
+    fake_anki = FakeAnki(fields=[*FakeAnki().fields, "Audio", "SentenceAudio"])
+    _wire_audio(monkeypatch, fake_anki)
+
+    result = hoshidicts_mining.mine_hoshidicts_note(_payload())
+
+    assert result["audio"]["status"] == "stored"
+    updated = next(kwargs for action, kwargs in fake_anki.calls if action == "updateNoteFields")
+    assert updated["note"]["fields"] == {"Audio": f"[sound:{result['audio']['filename']}]"}
+    assert "SentenceAudio" not in updated["note"]["fields"]
+
+
+def test_duplicate_note_rejection_happens_before_audio_download(monkeypatch):
+    fake_anki = FakeAnki(fields=[*FakeAnki().fields, "Pronunciation"], note_id=None)
+    called = False
+
+    def get_mining_audio(*_args, **_kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("audio must not be resolved for a rejected note")
+
+    _wire_audio(monkeypatch, fake_anki, resolver=get_mining_audio)
+
+    with pytest.raises(hoshidicts_mining.HoshidictsMiningError, match="already exists"):
+        hoshidicts_mining.mine_hoshidicts_note(_payload())
+
+    assert called is False
+
+
+def test_mining_audio_selection_validation_rejects_urls_and_bad_indexes():
+    payload = _payload()
+    payload["audioSelection"] = {
+        "sourceId": "jisho",
+        "candidateIndex": 0,
+        "url": "https://attacker.test/audio.mp3",
+    }
+    with pytest.raises(hoshidicts_mining.HoshidictsMiningError, match="audio selection"):
+        hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+
+    payload["audioSelection"] = {"sourceId": "jisho", "candidateIndex": True}
+    with pytest.raises(hoshidicts_mining.HoshidictsMiningError, match="audio selection"):
+        hoshidicts_mining.validate_hoshidicts_mining_request(payload)
 
 
 def test_status_deduplicates_short_lived_ankiconnect_checks(monkeypatch):
@@ -555,6 +778,9 @@ def test_duplicate_rejection_returns_a_conflict(monkeypatch):
 
 
 def test_hoshidicts_routes_expose_status_and_mining_errors(monkeypatch):
+    token = "d" * 64
+    headers = {"Authorization": f"Bearer {token}"}
+    monkeypatch.setenv("GSM_BROKER_TOKEN", token)
     app = Flask(__name__)
     hoshidicts_api.register_hoshidicts_api_routes(app)
     monkeypatch.setattr(
@@ -567,18 +793,25 @@ def test_hoshidicts_routes_expose_status_and_mining_errors(monkeypatch):
         "get_hoshidicts_mining_options",
         lambda model=None: {"connected": True, "selectedNoteType": model or "Mining"},
     )
-    monkeypatch.setattr(
-        hoshidicts_api,
-        "mine_hoshidicts_note",
-        lambda _payload: (_ for _ in ()).throw(hoshidicts_mining.HoshidictsMiningError("duplicate", 409)),
-    )
+    mining_calls = []
+
+    def mine(payload):
+        mining_calls.append(payload)
+        raise hoshidicts_mining.HoshidictsMiningError("duplicate", 409)
+
+    monkeypatch.setattr(hoshidicts_api, "mine_hoshidicts_note", mine)
 
     client = app.test_client()
-    assert client.get("/api/hoshidicts/mining/status").get_json() == {"available": True}
-    assert client.get("/api/hoshidicts/mining/options?model=Kiku").get_json() == {
+    assert client.get("/api/hoshidicts/mining/status", headers=headers).get_json() == {"available": True}
+    assert client.get("/api/hoshidicts/mining/options?model=Kiku", headers=headers).get_json() == {
         "connected": True,
         "selectedNoteType": "Kiku",
     }
-    response = client.post("/api/hoshidicts/mine", json={})
+    unauthorized = client.post("/api/hoshidicts/mine", json={})
+    assert unauthorized.status_code == 401
+    assert mining_calls == []
+
+    response = client.post("/api/hoshidicts/mine", json={}, headers=headers)
     assert response.status_code == 409
     assert response.get_json() == {"success": False, "error": "duplicate"}
+    assert mining_calls == [{}]

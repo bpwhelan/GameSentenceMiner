@@ -44,6 +44,7 @@ import {
     MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
     type HoshidictsActivationKey,
     type HoshidictsLookupMode,
+    type HoshidictsAudioProfile,
     type HoshidictsReaderPreferences,
 } from '../../shared/features/hoshidicts.js';
 
@@ -56,6 +57,7 @@ let overlayHoshidictsLookupModeAtLaunch: HoshidictsLookupMode | null = null;
 let overlayHoshidictsActivationKeyAtLaunch: HoshidictsActivationKey | null = null;
 let overlayHoshidictsSourceHighlightEnabledAtLaunch: boolean | null = null;
 let overlayHoshidictsPopupHideDelayAtLaunch: number | null = null;
+let overlayHoshidictsAudioProfileRestartRequired = false;
 let hoshidictsLookupModeProvider: () => Promise<HoshidictsLookupMode> =
     async () => 'shift';
 let hoshidictsActivationKeyProvider: () => Promise<HoshidictsActivationKey> =
@@ -202,6 +204,7 @@ export function getOverlayRuntimeState(): OverlayRuntimeState {
         overlayHoshidictsActivationKeyAtLaunch = null;
         overlayHoshidictsSourceHighlightEnabledAtLaunch = null;
         overlayHoshidictsPopupHideDelayAtLaunch = null;
+        overlayHoshidictsAudioProfileRestartRequired = false;
     }
     return {
         isRunning,
@@ -234,6 +237,11 @@ export function getOverlayHoshidictsPopupHideDelayAtLaunch(): number | null {
     return overlayHoshidictsPopupHideDelayAtLaunch;
 }
 
+export function getOverlayHoshidictsAudioProfileRestartRequired(): boolean {
+    return getOverlayRuntimeState().isRunning &&
+        overlayHoshidictsAudioProfileRestartRequired;
+}
+
 export function markOverlayHoshidictsReaderPreferencesApplied(
     preferences: HoshidictsReaderPreferences
 ): boolean {
@@ -245,6 +253,24 @@ export function markOverlayHoshidictsReaderPreferencesApplied(
     overlayHoshidictsSourceHighlightEnabledAtLaunch =
         preferences.sourceHighlightEnabled;
     overlayHoshidictsPopupHideDelayAtLaunch = preferences.popupHideDelayMs;
+    return true;
+}
+
+export function markOverlayHoshidictsAudioProfileApplied(
+    _profile: HoshidictsAudioProfile
+): boolean {
+    if (!getOverlayRuntimeState().isRunning) {
+        return false;
+    }
+    overlayHoshidictsAudioProfileRestartRequired = false;
+    return true;
+}
+
+export function markOverlayHoshidictsAudioProfileSyncFailed(): boolean {
+    if (!getOverlayRuntimeState().isRunning) {
+        return false;
+    }
+    overlayHoshidictsAudioProfileRestartRequired = true;
     return true;
 }
 
@@ -265,6 +291,7 @@ export function stopOverlay(options: StopOverlayOptions = {}): boolean {
             overlayHoshidictsActivationKeyAtLaunch = null;
             overlayHoshidictsSourceHighlightEnabledAtLaunch = null;
             overlayHoshidictsPopupHideDelayAtLaunch = null;
+            overlayHoshidictsAudioProfileRestartRequired = false;
         }
         return stopRequested;
     }
@@ -277,6 +304,7 @@ export function stopOverlay(options: StopOverlayOptions = {}): boolean {
         overlayHoshidictsActivationKeyAtLaunch = null;
         overlayHoshidictsSourceHighlightEnabledAtLaunch = null;
         overlayHoshidictsPopupHideDelayAtLaunch = null;
+        overlayHoshidictsAudioProfileRestartRequired = false;
         return false;
     }
 
@@ -367,6 +395,7 @@ function registerOverlayProcess(
     overlayHoshidictsSourceHighlightEnabledAtLaunch =
         hoshidictsSourceHighlightEnabled;
     overlayHoshidictsPopupHideDelayAtLaunch = hoshidictsPopupHideDelayMs;
+    overlayHoshidictsAudioProfileRestartRequired = false;
     overlayProcess.once('exit', () => {
         overlayProcess = null;
         overlayLaunchSource = null;
@@ -375,6 +404,7 @@ function registerOverlayProcess(
         overlayHoshidictsActivationKeyAtLaunch = null;
         overlayHoshidictsSourceHighlightEnabledAtLaunch = null;
         overlayHoshidictsPopupHideDelayAtLaunch = null;
+        overlayHoshidictsAudioProfileRestartRequired = false;
     });
     overlayProcess.once('error', (error: Error) => {
         console.error('Overlay process error:', error);
@@ -385,6 +415,7 @@ function registerOverlayProcess(
         overlayHoshidictsActivationKeyAtLaunch = null;
         overlayHoshidictsSourceHighlightEnabledAtLaunch = null;
         overlayHoshidictsPopupHideDelayAtLaunch = null;
+        overlayHoshidictsAudioProfileRestartRequired = false;
     });
 }
 
@@ -548,6 +579,7 @@ export async function runOverlayWithSource(
         overlayHoshidictsPopupHideDelayAtLaunch = started
             ? hoshidictsPopupHideDelayMs
             : null;
+        overlayHoshidictsAudioProfileRestartRequired = false;
         return started;
     }
 

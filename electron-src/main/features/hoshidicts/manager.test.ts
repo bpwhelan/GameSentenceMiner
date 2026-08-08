@@ -6,10 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS } from '../../../shared/features/hoshidicts.js';
 import {
+    defaultHoshidictsAudioProfile,
     defaultHoshidictsMiningProfile,
     HoshidictsManager,
     inspectHoshidictsArchive,
     normalizeHoshidictsMiningProfile,
+    normalizeHoshidictsAudioProfile,
     RECOMMENDED_HOSHIDICTS_DICTIONARIES,
     type ArchiveInspection,
     type HoshidictsImportReport,
@@ -115,27 +117,25 @@ async function writeZipArchive(
     return archivePath;
 }
 
-function readManifest(baseDir: string): any {
+function readHoshidictsJson(baseDir: string, fileName: string): any {
     return JSON.parse(
         fs.readFileSync(
-            path.join(baseDir, 'dictionaries', 'hoshidicts', 'manifest.json'),
+            path.join(baseDir, 'dictionaries', 'hoshidicts', fileName),
             'utf8'
         )
     );
 }
 
+function readManifest(baseDir: string): any {
+    return readHoshidictsJson(baseDir, 'manifest.json');
+}
+
 function readMiningProfile(baseDir: string): any {
-    return JSON.parse(
-        fs.readFileSync(
-            path.join(
-                baseDir,
-                'dictionaries',
-                'hoshidicts',
-                'mining-profile.json'
-            ),
-            'utf8'
-        )
-    );
+    return readHoshidictsJson(baseDir, 'mining-profile.json');
+}
+
+function readAudioProfile(baseDir: string): any {
+    return readHoshidictsJson(baseDir, 'audio-profile.json');
 }
 
 function writeImportedDictionary(outputDir: string, archive: TestArchive): void {
@@ -543,6 +543,7 @@ describe('Hoshidicts mining profile', () => {
                 sentence: '',
                 frequency: '',
                 pitch: '',
+                audio: '',
             },
             disabledFields: [],
             tags: ['hoshidicts', 'custom'],
@@ -588,6 +589,91 @@ describe('Hoshidicts mining profile', () => {
         expect(() =>
             normalizeHoshidictsMiningProfile({ disabledFields: ['unknown'] })
         ).toThrow('disabled mining field is invalid');
+    });
+});
+
+describe('Hoshidicts audio profile', () => {
+    it('uses defaults until an ordered audio profile is saved atomically', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+
+        expect((await manager.getSnapshot()).audioProfile).toEqual(
+            defaultHoshidictsAudioProfile()
+        );
+
+        const snapshot = await manager.setAudioProfile({
+            enabled: true,
+            autoPlay: true,
+            volume: 45,
+            sources: [
+                {
+                    id: 'local',
+                    type: 'custom-json',
+                    url: 'http://127.0.0.1:9000/{term}',
+                },
+                {
+                    id: 'term-tts',
+                    type: 'text-to-speech',
+                    voice: 'ja-JP',
+                },
+            ],
+        });
+
+        expect(snapshot.audioProfile).toEqual({
+            version: 1,
+            enabled: true,
+            autoPlay: true,
+            volume: 45,
+            sources: [
+                {
+                    id: 'local',
+                    type: 'custom-json',
+                    url: 'http://127.0.0.1:9000/{term}',
+                    voice: '',
+                },
+                {
+                    id: 'term-tts',
+                    type: 'text-to-speech',
+                    url: '',
+                    voice: 'ja-JP',
+                },
+            ],
+        });
+        expect(snapshot.progress).toEqual({ phase: 'idle', scope: 'audio' });
+        expect(readAudioProfile(baseDir)).toEqual(snapshot.audioProfile);
+        expect(
+            fs.readdirSync(path.join(baseDir, 'dictionaries', 'hoshidicts'))
+        ).toEqual(['audio-profile.json']);
+    });
+
+    it('falls back to defaults and reports malformed saved audio profiles', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+        await manager.setAudioProfile(defaultHoshidictsAudioProfile());
+        fs.writeFileSync(manager.audioProfilePath, '{broken', 'utf8');
+
+        const snapshot = await manager.getSnapshot();
+
+        expect(snapshot.audioProfile).toEqual(defaultHoshidictsAudioProfile());
+        expect(snapshot.lastError).toContain('JSON');
+        expect(snapshot.dictionaries).toEqual([]);
+    });
+
+    it('rejects unsupported source configuration before writing a profile', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+
+        expect(() =>
+            normalizeHoshidictsAudioProfile({
+                sources: [{ id: 'bad id', type: 'jisho' }],
+            })
+        ).toThrow('source id is invalid');
+        await expect(
+            manager.setAudioProfile({
+                sources: [{ id: 'custom', type: 'custom', url: 'ftp://example.test' }],
+            })
+        ).rejects.toThrow('source URL is invalid');
+        expect(fs.existsSync(manager.audioProfilePath)).toBe(false);
     });
 });
 
@@ -713,6 +799,12 @@ describe('Hoshidicts snapshots', () => {
             fields: {},
             disabledFields: ['frequency'],
         });
+        await manager.setAudioProfile({
+            enabled: false,
+            autoPlay: true,
+            volume: 20,
+            sources: [],
+        });
         const manifest = readManifest(baseDir);
         manifest.dictionaries = [
             {
@@ -733,6 +825,12 @@ describe('Hoshidicts snapshots', () => {
             deck: 'Mining',
             model: 'Kiku',
             disabledFields: ['frequency'],
+        });
+        expect(snapshot.audioProfile).toMatchObject({
+            enabled: false,
+            autoPlay: true,
+            volume: 20,
+            sources: [],
         });
         expect(snapshot.lastError).toMatch(/missing|dictionary/i);
     });

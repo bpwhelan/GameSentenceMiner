@@ -537,7 +537,7 @@
     },
     "hoshidicts": {
       "appTitle": "Hoshidicts",
-      "windowSubtitle": "辞書とマイニングの設定",
+      "windowSubtitle": "辞書・音声・マイニングの設定",
       "title": "Hoshidicts辞書",
       "enabled": "GSMの実験機能で有効",
       "disabled": "GSMの実験機能で無効",
@@ -565,6 +565,7 @@
       },
       "tabs": {
         "dictionaries": "辞書",
+        "audio": "音声",
         "mining": "Ankiマイニング"
       },
       "reader": {
@@ -652,6 +653,50 @@
         "kanjiumPitch": "Kanjium アクセント",
         "kanjidic": "KANJIDIC 英語版"
       },
+      "audio": {
+        "title": "単語の発音",
+        "subtitle": "Hoshidictsの検索結果で日本語の単語音声を再生し、必要に応じてマイニングしたノートに追加します。",
+        "enabled": "発音音声を有効化",
+        "enabledHint": "スピーカー操作を表示し、マイニング時の発音音声を許可します。",
+        "autoplay": "最初の結果を自動再生",
+        "autoplayHint": "最新の検索が成功した後、最初の項目を再生します。",
+        "volume": "音量: {volume}%",
+        "sources": "音声ソース",
+        "sourcesHint": "再生できるソースが見つかるまで上から順に試します。",
+        "restoreDefaults": "デフォルトに戻す",
+        "addSource": "ソースを追加",
+        "noSources": "音声ソースが設定されていません。",
+        "sourceType": "ソースの種類",
+        "sourceUrl": "ソースURL",
+        "sourceUrlPlaceholder": "https://example.test/audio?term={term}&reading={reading}",
+        "voice": "音声",
+        "defaultVoice": "システムのデフォルト",
+        "missingVoice": "{name}（現在利用できません）",
+        "testVoice": "テスト",
+        "testPhrase": "日本語",
+        "moveUp": "{name}を上へ移動",
+        "moveDown": "{name}を下へ移動",
+        "removeSource": "{name}を削除",
+        "privacy": "外部の音声ソースには、検索した表記と読みが送信されます。信頼できるプロバイダーだけを追加してください。",
+        "sourceTypes": {
+          "jpod101": "JapanesePod101",
+          "languagePod101": "LanguagePod101",
+          "jisho": "Jisho",
+          "custom": "カスタムURL",
+          "customJson": "カスタムJSON",
+          "termTts": "テキスト読み上げ（表記）",
+          "readingTts": "テキスト読み上げ（読み）"
+        },
+        "sourceHelp": {
+          "jpod101": "JapanesePod101の辞書音声を検索します。",
+          "languagePod101": "LanguagePod101の日本語発音サービスを使用します。",
+          "jisho": "Jishoが提供する発音音声を検索します。",
+          "custom": "URL内の{term}、{reading}、{language}を文字列のまま置換します。",
+          "customJson": "Yomitan互換のaudioSourceList JSONレスポンスを取得します。",
+          "termTts": "再生専用: ローカルのシステム音声で辞書の表記を読み上げます。マイニングしたノートには追加できません。",
+          "readingTts": "再生専用: ローカルのシステム音声で辞書の読みを読み上げます。マイニングしたノートには追加できません。"
+        }
+      },
       "mining": {
         "title": "Ankiマイニングプロファイル",
         "enabled": "マイニングを有効化",
@@ -688,13 +733,15 @@
           "definition": "定義",
           "sentence": "例文",
           "frequency": "頻度",
-          "pitch": "アクセント"
+          "pitch": "アクセント",
+          "audio": "発音音声"
         },
         "save": "マイニングプロファイルを保存",
         "saving": "保存中..."
       },
       "outcomes": {
         "preferencesSaved": "リーダー設定を保存しました。",
+        "audioProfileSaved": "音声設定を保存しました。",
         "miningProfileSaved": "マイニングプロファイルを保存しました。",
         "dictionaryImported": "辞書をインポートしました。",
         "recommendedInstalled": "おすすめの辞書を{count}件インストールしました。",
@@ -723,6 +770,7 @@
         "recommended": "おすすめの辞書をインストールできませんでした。",
         "lookupMode": "Hoshidictsの検索起動設定を保存できませんでした。",
         "readerPreferences": "Hoshidictsリーダー設定を保存できませんでした。",
+        "audioProfile": "Hoshidictsの音声設定を保存できませんでした。",
         "ankiOptions": "AnkiConnectからデッキとノートタイプを読み込めませんでした。",
         "miningProfile": "Hoshidictsマイニングプロファイルを保存できませんでした。",
         "restart": "オーバーレイを再起動できませんでした。"

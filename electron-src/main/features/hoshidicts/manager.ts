@@ -12,6 +12,7 @@ import {
     resolveInputServerExecutable,
 } from '../../services/input_server.js';
 import type {
+    HoshidictsAudioProfile,
     HoshidictsDictionaryState,
     HoshidictsActivationKey,
     HoshidictsFrequencyMode,
@@ -33,11 +34,21 @@ import {
     MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
 } from '../../../shared/features/hoshidicts.js';
 import {
+    defaultHoshidictsAudioProfile,
+    HOSHIDICTS_AUDIO_PROFILE_FILE_NAME,
+    normalizeHoshidictsAudioProfile,
+} from './audio_profile.js';
+import {
     defaultHoshidictsMiningProfile,
     HOSHIDICTS_MINING_PROFILE_FILE_NAME,
     normalizeHoshidictsMiningProfile,
 } from './profile.js';
 
+export {
+    defaultHoshidictsAudioProfile,
+    HOSHIDICTS_AUDIO_PROFILE_FILE_NAME,
+    normalizeHoshidictsAudioProfile,
+} from './audio_profile.js';
 export {
     defaultHoshidictsMiningProfile,
     HOSHIDICTS_MINING_PROFILE_FILE_NAME,
@@ -45,6 +56,9 @@ export {
 } from './profile.js';
 
 export type {
+    HoshidictsAudioProfile,
+    HoshidictsAudioSource,
+    HoshidictsAudioSourceType,
     HoshidictsDictionaryState,
     HoshidictsFrequencyMode,
     HoshidictsManagerSnapshot,
@@ -134,6 +148,7 @@ const MANIFEST_FILE_NAME = 'manifest.json';
 const MANIFEST_VERSION = 1;
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 const MAX_MINING_PROFILE_BYTES = 64 * 1024;
+const MAX_AUDIO_PROFILE_BYTES = 64 * 1024;
 const MAX_ARCHIVE_INDEX_BYTES = 1024 * 1024;
 const MAX_TERM_BANK_BYTES = 32 * 1024 * 1024;
 const MAX_SCANNED_TERM_BANKS = 32;
@@ -154,6 +169,28 @@ type RecommendedHoshidictsDictionaryKind =
     | 'frequency'
     | 'pitch'
     | 'kanji';
+
+async function readBoundedJsonFile(
+    filePath: string,
+    maximumBytes: number,
+    label: string,
+    defaultValue: () => unknown
+): Promise<unknown> {
+    let raw: string;
+    try {
+        const stat = await fsp.stat(filePath);
+        if (!stat.isFile() || stat.size === 0 || stat.size > maximumBytes) {
+            throw new Error(`${label} is empty, oversized, or not a file.`);
+        }
+        raw = await fsp.readFile(filePath, 'utf8');
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            return defaultValue();
+        }
+        throw error;
+    }
+    return JSON.parse(raw.replace(/^\uFEFF/, '')) as unknown;
+}
 
 interface RecommendedHoshidictsDictionary {
     id: HoshidictsRecommendedDictionaryId;
@@ -1041,6 +1078,7 @@ export class HoshidictsManager {
     readonly rootDir: string;
     readonly manifestPath: string;
     readonly miningProfilePath: string;
+    readonly audioProfilePath: string;
 
     private readonly deps: HoshidictsManagerDependencies;
     private operationQueue: Promise<void> = Promise.resolve();
@@ -1060,6 +1098,10 @@ export class HoshidictsManager {
         this.miningProfilePath = path.join(
             this.rootDir,
             HOSHIDICTS_MINING_PROFILE_FILE_NAME
+        );
+        this.audioProfilePath = path.join(
+            this.rootDir,
+            HOSHIDICTS_AUDIO_PROFILE_FILE_NAME
         );
         this.deps = { ...defaultDependencies(), ...dependencies };
     }
@@ -1091,16 +1133,24 @@ export class HoshidictsManager {
             manifest = await this.readManifestPreferences().catch(() => emptyManifest());
         }
         let miningProfile = defaultHoshidictsMiningProfile();
-        let profileError: string | null = null;
+        let miningProfileError: string | null = null;
         try {
             miningProfile = await this.readMiningProfile();
         } catch (error) {
-            profileError = errorMessage(error);
+            miningProfileError = errorMessage(error);
+        }
+        let audioProfile = defaultHoshidictsAudioProfile();
+        let audioProfileError: string | null = null;
+        try {
+            audioProfile = await this.readAudioProfile();
+        } catch (error) {
+            audioProfileError = errorMessage(error);
         }
         return this.snapshotFromManifest(
             manifest,
             miningProfile,
-            manifestError ?? profileError
+            audioProfile,
+            manifestError ?? miningProfileError ?? audioProfileError
         );
     }
 
@@ -1287,6 +1337,14 @@ export class HoshidictsManager {
         await this.enqueue('saving', async () => {
             await this.atomicWriteMiningProfile(profile);
         }, 'mining');
+        return await this.getSnapshot();
+    }
+
+    async setAudioProfile(value: unknown): Promise<HoshidictsManagerSnapshot> {
+        const profile = normalizeHoshidictsAudioProfile(value);
+        await this.enqueue('saving', async () => {
+            await this.atomicWriteAudioProfile(profile);
+        }, 'audio');
         return await this.getSnapshot();
     }
 
@@ -1535,6 +1593,7 @@ export class HoshidictsManager {
     private snapshotFromManifest(
         manifest: PersistedManifest,
         miningProfile: HoshidictsMiningProfile,
+        audioProfile: HoshidictsAudioProfile,
         profileError: string | null = null
     ): HoshidictsManagerSnapshot {
         return {
@@ -1574,6 +1633,7 @@ export class HoshidictsManager {
             ),
             recommendedDictionaries: recommendedDictionaryStates(manifest),
             miningProfile,
+            audioProfile,
             lookupMode: manifest.lookupMode,
             activationKey: manifest.activationKey,
             sourceHighlightEnabled: manifest.sourceHighlightEnabled,
@@ -1588,46 +1648,34 @@ export class HoshidictsManager {
     }
 
     private async readMiningProfile(): Promise<HoshidictsMiningProfile> {
-        let raw: string;
-        try {
-            const stat = await fsp.stat(this.miningProfilePath);
-            if (
-                !stat.isFile() ||
-                stat.size === 0 ||
-                stat.size > MAX_MINING_PROFILE_BYTES
-            ) {
-                throw new Error(
-                    'Hoshidicts mining profile is empty, oversized, or not a file.'
-                );
-            }
-            raw = await fsp.readFile(this.miningProfilePath, 'utf8');
-        } catch (error) {
-            if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-                return defaultHoshidictsMiningProfile();
-            }
-            throw error;
-        }
         return normalizeHoshidictsMiningProfile(
-            JSON.parse(raw.replace(/^\uFEFF/, ''))
+            await readBoundedJsonFile(
+                this.miningProfilePath,
+                MAX_MINING_PROFILE_BYTES,
+                'Hoshidicts mining profile',
+                defaultHoshidictsMiningProfile
+            )
+        );
+    }
+
+    private async readAudioProfile(): Promise<HoshidictsAudioProfile> {
+        return normalizeHoshidictsAudioProfile(
+            await readBoundedJsonFile(
+                this.audioProfilePath,
+                MAX_AUDIO_PROFILE_BYTES,
+                'Hoshidicts audio profile',
+                defaultHoshidictsAudioProfile
+            )
         );
     }
 
     private async readManifest(): Promise<PersistedManifest> {
-        let raw: string;
-        try {
-            const stat = await fsp.stat(this.manifestPath);
-            if (!stat.isFile() || stat.size === 0 || stat.size > MAX_MANIFEST_BYTES) {
-                throw new Error('Hoshidicts manifest is empty, oversized, or not a file.');
-            }
-            raw = await fsp.readFile(this.manifestPath, 'utf8');
-        } catch (error) {
-            if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-                return emptyManifest();
-            }
-            throw error;
-        }
-
-        const parsed: unknown = JSON.parse(raw.replace(/^\uFEFF/, ''));
+        const parsed = await readBoundedJsonFile(
+            this.manifestPath,
+            MAX_MANIFEST_BYTES,
+            'Hoshidicts manifest',
+            emptyManifest
+        );
         if (!isRecord(parsed) || parsed.version !== MANIFEST_VERSION) {
             throw new Error('Hoshidicts manifest has an unsupported version.');
         }
@@ -1687,20 +1735,12 @@ export class HoshidictsManager {
     }
 
     private async readManifestPreferences(): Promise<PersistedManifest> {
-        let raw: string;
-        try {
-            const stat = await fsp.stat(this.manifestPath);
-            if (!stat.isFile() || stat.size === 0 || stat.size > MAX_MANIFEST_BYTES) {
-                throw new Error('Hoshidicts manifest is empty, oversized, or not a file.');
-            }
-            raw = await fsp.readFile(this.manifestPath, 'utf8');
-        } catch (error) {
-            if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-                return emptyManifest();
-            }
-            throw error;
-        }
-        const parsed: unknown = JSON.parse(raw.replace(/^\uFEFF/, ''));
+        const parsed = await readBoundedJsonFile(
+            this.manifestPath,
+            MAX_MANIFEST_BYTES,
+            'Hoshidicts manifest',
+            emptyManifest
+        );
         if (!isRecord(parsed) || parsed.version !== MANIFEST_VERSION) {
             throw new Error('Hoshidicts manifest has an unsupported version.');
         }
@@ -2078,28 +2118,54 @@ export class HoshidictsManager {
     }
 
     private async atomicWriteManifest(manifest: PersistedManifest): Promise<void> {
-        const serialized = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-        if (serialized.length > MAX_MANIFEST_BYTES) {
-            throw new Error('Hoshidicts manifest exceeded its size limit.');
-        }
-        await this.atomicWriteBuffer(serialized);
+        await this.atomicWriteJson(
+            manifest,
+            this.manifestPath,
+            MAX_MANIFEST_BYTES,
+            'Hoshidicts manifest',
+            '.manifest-'
+        );
     }
 
     private async atomicWriteMiningProfile(
         profile: HoshidictsMiningProfile
     ): Promise<void> {
-        const serialized = Buffer.from(
-            `${JSON.stringify(profile, null, 2)}\n`,
-            'utf8'
-        );
-        if (serialized.length > MAX_MINING_PROFILE_BYTES) {
-            throw new Error('Hoshidicts mining profile exceeded its size limit.');
-        }
-        await this.atomicWriteBuffer(
-            serialized,
+        await this.atomicWriteJson(
+            profile,
             this.miningProfilePath,
+            MAX_MINING_PROFILE_BYTES,
+            'Hoshidicts mining profile',
             '.mining-profile-'
         );
+    }
+
+    private async atomicWriteAudioProfile(
+        profile: HoshidictsAudioProfile
+    ): Promise<void> {
+        await this.atomicWriteJson(
+            profile,
+            this.audioProfilePath,
+            MAX_AUDIO_PROFILE_BYTES,
+            'Hoshidicts audio profile',
+            '.audio-profile-'
+        );
+    }
+
+    private async atomicWriteJson(
+        value: unknown,
+        destination: string,
+        maximumBytes: number,
+        label: string,
+        temporaryPrefix: string
+    ): Promise<void> {
+        const serialized = Buffer.from(
+            `${JSON.stringify(value, null, 2)}\n`,
+            'utf8'
+        );
+        if (serialized.length > maximumBytes) {
+            throw new Error(`${label} exceeded its size limit.`);
+        }
+        await this.atomicWriteBuffer(serialized, destination, temporaryPrefix);
     }
 
     private async atomicWriteBuffer(

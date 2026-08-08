@@ -12,20 +12,31 @@
 
 (function (root, factory) {
   const popupApi = root && root.GSMHoshidictsPopup;
-  const api = factory(popupApi);
+  const audioApi = root && root.GSMHoshidictsAudio;
+  const api = factory(popupApi, audioApi);
   if (typeof module !== "undefined" && module.exports) {
     module.exports = api;
   }
   if (root) {
     root.GSMHoshidictsReader = api;
   }
-}(typeof window !== "undefined" ? window : globalThis, function (popupApi) {
+}(typeof window !== "undefined" ? window : globalThis, function (popupApi, audioApi) {
   "use strict";
 
   if (!popupApi || typeof popupApi.createPopupView !== "function") {
     throw new Error("Hoshidicts popup support must load before the reader.");
   }
+  if (!audioApi || typeof audioApi.createHoshidictsAudioController !== "function") {
+    throw new Error("Hoshidicts audio support must load before the reader.");
+  }
   const { createPopupView, setMiningButtonState } = popupApi;
+  const {
+    canonicalizeAudioTerm,
+    createHoshidictsAudioClient,
+    createHoshidictsAudioController,
+    normalizeLocalHttpBaseUrl,
+    normalizeAudioProfile,
+  } = audioApi;
 
   const LOOKUP_DEBOUNCE_MS = 20;
   const LOOKUP_REQUEST_TIMEOUT_MS = 4 * 1000;
@@ -43,7 +54,7 @@
   const MAX_METADATA_VALUES = 64;
   const MAX_TEXT_LENGTH = 128 * 1024;
   const MAX_MINING_REQUEST_BYTES = 256 * 1024;
-  const MINING_REQUEST_TIMEOUT_MS = 10 * 1000;
+  const MINING_REQUEST_TIMEOUT_MS = 90 * 1000;
   const MAX_STRUCTURED_DEPTH = 24;
   const MAX_STRUCTURED_NODES = 4096;
   const RECONNECT_INITIAL_DELAY_MS = 750;
@@ -160,6 +171,7 @@
     return payload.results.slice(0, LOOKUP_MAX_RESULTS).map((rawResult) => {
       const result = isRecord(rawResult) ? rawResult : {};
       const rawTerm = isRecord(result.term) ? result.term : {};
+      const canonicalTerm = canonicalizeAudioTerm(rawTerm);
       const trace = Array.isArray(result.trace)
         ? result.trace.slice(0, MAX_TRACE_STEPS).map((rawStep) => {
             const step = isRecord(rawStep) ? rawStep : {};
@@ -249,8 +261,8 @@
           ? Math.trunc(result.preprocessorSteps)
           : 0,
         term: {
-          expression: boundedString(rawTerm.expression, 4096),
-          reading: boundedString(rawTerm.reading, 4096),
+          expression: canonicalTerm.expression,
+          reading: canonicalTerm.reading,
           rules: boundedString(rawTerm.rules, 4096),
           score: Number.isFinite(rawTerm.score) ? Math.trunc(rawTerm.score) : 0,
           glossaries,
@@ -667,31 +679,6 @@
     };
   }
 
-  function normalizeLocalHttpBaseUrl(value) {
-    if (typeof value !== "string" || value.length === 0) {
-      return null;
-    }
-    try {
-      const url = new URL(value);
-      if (url.protocol === "ws:") {
-        url.protocol = "http:";
-      } else if (url.protocol === "wss:") {
-        url.protocol = "https:";
-      }
-      if (
-        !["http:", "https:"].includes(url.protocol) ||
-        !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) ||
-        url.username ||
-        url.password
-      ) {
-        return null;
-      }
-      return url.origin;
-    } catch {
-      return null;
-    }
-  }
-
   function resolveGsmApiBaseUrl(settings = {}) {
     const source = isRecord(settings) ? settings : {};
     for (const candidate of [
@@ -717,6 +704,7 @@
     const baseUrl =
       normalizeLocalHttpBaseUrl(options.baseUrl) ||
       "http://127.0.0.1:7275";
+    const apiToken = boundedString(options.apiToken, 64).trim();
     const fetchImpl =
       typeof options.fetch === "function"
         ? options.fetch
@@ -732,6 +720,9 @@
       if (!fetchImpl) {
         throw new Error("GSM mining is unavailable.");
       }
+      if (!/^[a-f0-9]{64}$/.test(apiToken)) {
+        throw new Error("GSM mining authentication is unavailable.");
+      }
       const controller =
         typeof AbortController === "function" ? new AbortController() : null;
       const timeoutId = controller
@@ -740,6 +731,10 @@
       try {
         const response = await fetchImpl(`${baseUrl}${path}`, {
           ...init,
+          headers: {
+            ...(isRecord(init.headers) ? init.headers : {}),
+            "Authorization": `Bearer ${apiToken}`,
+          },
           signal: controller ? controller.signal : undefined,
         });
         let payload;
@@ -866,6 +861,7 @@
     let miningStatusPromise = null;
     let activationRequirementLogged = false;
     let candidateMissLogged = false;
+    let audioController = null;
 
     function diagnostic(level, event, details = {}) {
       const sink = typeof logger[level] === "function"
@@ -937,6 +933,15 @@
         requestKanji(character, candidate);
       },
     });
+    audioController = options.audioController || createHoshidictsAudioController({
+      window: windowRef,
+      document: documentRef,
+      client: options.audioClient || null,
+      audioPreferences: options.audioPreferences || options.audioProfile,
+      logger,
+      setTimeout: setTimeoutFn,
+      clearTimeout: clearTimeoutFn,
+    });
 
     function publishPopupState(visible) {
       if (popupVisible === visible) {
@@ -979,6 +984,7 @@
       miningStatusGeneration += 1;
       cachedTermView = null;
       popupAnchor = null;
+      audioController.dismissPopup();
       popupView.clear();
       popup.hidden = true;
       publishPopupState(false);
@@ -1060,6 +1066,7 @@
         button.hidden = true;
       }
       showPopup(candidate);
+      audioController.setRenderedResults(rendered.audioItems);
       void refreshMiningButtons(rendered.miningButtons, rendered.feedback);
     }
 
@@ -1074,6 +1081,7 @@
         button.hidden = true;
       }
       showPopup(candidate);
+      audioController.setRenderedResults(rendered.audioItems);
       void refreshMiningButtons(rendered.miningButtons, rendered.feedback);
     }
 
@@ -1167,10 +1175,12 @@
         );
       }
       try {
+        const audioSelection = audioController.getSelection(result);
         const response = await onMine({
           result,
           sentence: candidate.sentence,
           matchOffset: candidate.matchOffset,
+          ...(audioSelection ? { audioSelection } : {}),
         });
         if (!response || response.success !== true) {
           throw new Error(
@@ -1180,15 +1190,31 @@
           );
         }
         setMiningButtonState(button, "success");
+        const audioOutcome = isRecord(response.audio) ? response.audio : null;
+        const audioFailed = audioOutcome &&
+          ["unavailable", "failed"].includes(audioOutcome.status);
         const unmapped = Array.isArray(response.unmappedFields)
           ? response.unmappedFields.filter((field) => typeof field === "string")
           : [];
+        const visibleUnmapped = audioFailed
+          ? unmapped.filter((field) => field !== "audio")
+          : unmapped;
+        const feedbackParts = ["Added to Anki."];
+        if (visibleUnmapped.length > 0) {
+          feedbackParts.push(
+            `Optional fields not filled: ${visibleUnmapped.join(", ")}.`
+          );
+        }
+        if (audioFailed) {
+          feedbackParts.push(
+            boundedString(audioOutcome.warning, 1024).trim() ||
+              "Pronunciation audio could not be added."
+          );
+        }
         popupView.setFeedback(
           feedback,
-          unmapped.length > 0
-            ? `Added to Anki. Optional fields not filled: ${unmapped.join(", ")}.`
-            : "Added to Anki.",
-          unmapped.length > 0 ? "warning" : "success"
+          feedbackParts.join(" "),
+          visibleUnmapped.length > 0 || audioFailed ? "warning" : "success"
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -1286,6 +1312,7 @@
       }
       const kanji = normalizeKanjiLookup(payload);
       if (kanji) {
+        audioController.setRenderedResults([]);
         popupView.renderKanji(kanji, candidate, {
           onBack: requestMode === "kanji" && cachedTermView ? restoreTermView : null,
           highlightText: requestMode === "kanji" && cachedTermView
@@ -1471,6 +1498,7 @@
         return;
       }
       invalidateLookup();
+      audioController.beginLookup();
       if (popupVisible) {
         dismissPopup("candidate-changed");
       }
@@ -1487,7 +1515,10 @@
       if (!pointer || !(pointer.target instanceof windowRef.Element)) {
         return;
       }
-      if (popup.contains(pointer.target)) {
+      if (
+        popup.contains(pointer.target) ||
+        pointer.target.closest(".gsm-hoshidicts-audio-menu")
+      ) {
         pointerInPopup = true;
         clearHideTimer();
         return;
@@ -1651,6 +1682,17 @@
       return { ...preferences };
     }
 
+    function updateAudioPreferences(nextPreferences = {}) {
+      const normalized = audioController.updatePreferences(nextPreferences);
+      diagnostic("info", "audio-preferences.updated", {
+        enabled: normalized.enabled,
+        autoPlay: normalized.autoPlay,
+        volume: normalized.volume,
+        sourceCount: normalized.sources.length,
+      });
+      return normalized;
+    }
+
     function onWindowBlur() {
       localShiftPressed = false;
       if (!globalActivationKeyPressed) {
@@ -1668,6 +1710,7 @@
       globalActivationKeyPressed = false;
       diagnostic("info", "reader.destroyed");
       hide("destroy");
+      audioController.destroy();
       if (reconnectTimer !== null) {
         clearTimeoutFn(reconnectTimer);
         reconnectTimer = null;
@@ -1713,8 +1756,10 @@
       isVisible: () => popupVisible,
       getPopupElement: () => popup,
       getPreferences: () => ({ ...preferences }),
+      getAudioPreferences: () => audioController.getPreferences(),
       positionPopup,
       setActivationKeyPressed,
+      updateAudioPreferences,
       updatePreferences,
     };
   }
@@ -1733,8 +1778,10 @@
     appendTextOnlyGlossary,
     calculatePopupPosition,
     createHoshidictsMiningClient,
+    createHoshidictsAudioClient,
     createHoshidictsReader,
     normalizeActivationKey,
+    normalizeAudioProfile,
     normalizePopupHideDelay,
     normalizeKanjiLookup,
     normalizeLookupResults,

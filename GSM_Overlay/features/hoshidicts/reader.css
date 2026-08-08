@@ -104,6 +104,14 @@ html.gsm-hoshidicts-enabled #btn-yomitan {
   user-select: none;
 }
 
+.gsm-hoshidicts-entry-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+}
+
+.gsm-hoshidicts-audio-button,
 .gsm-hoshidicts-mine-button {
   flex: 0 0 28px;
   width: 28px;
@@ -111,28 +119,59 @@ html.gsm-hoshidicts-enabled #btn-yomitan {
   min-width: 28px;
   min-height: 28px;
   padding: 0;
-  border: 1px solid var(--accent-color);
   border-radius: 4px;
   background: transparent;
-  color: var(--accent-color);
-  font: 700 16px/26px "Segoe UI", sans-serif;
   text-align: center;
   cursor: pointer;
 }
 
-.gsm-hoshidicts-mine-button:hover:not(:disabled) {
+.gsm-hoshidicts-audio-button {
+  border: 1px solid #777777;
+  color: var(--text-color);
+  font: 14px/26px "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+}
+
+.gsm-hoshidicts-audio-button[hidden] {
+  display: none;
+}
+
+.gsm-hoshidicts-audio-button:hover:not(:disabled),
+.gsm-hoshidicts-audio-button:focus-visible {
+  border-color: var(--accent-color);
   background: rgba(74, 145, 237, 0.14);
 }
 
+.gsm-hoshidicts-audio-button:focus-visible,
 .gsm-hoshidicts-mine-button:focus-visible {
   outline: 2px solid var(--accent-color);
   outline-offset: 1px;
 }
 
+.gsm-hoshidicts-audio-button:disabled,
 .gsm-hoshidicts-mine-button:disabled {
   border-color: #555555;
   color: #888888;
   cursor: default;
+}
+
+.gsm-hoshidicts-audio-button[data-state="playing"] {
+  border-color: #75cf54;
+  color: #a9df96;
+}
+
+.gsm-hoshidicts-audio-button[data-state="error"] {
+  border-color: #dd6755;
+  color: #e5a197;
+}
+
+.gsm-hoshidicts-mine-button {
+  border: 1px solid var(--accent-color);
+  color: var(--accent-color);
+  font: 700 16px/26px "Segoe UI", sans-serif;
+}
+
+.gsm-hoshidicts-mine-button:hover:not(:disabled) {
+  background: rgba(74, 145, 237, 0.14);
 }
 
 .gsm-hoshidicts-mine-button[data-state="success"] {
@@ -147,6 +186,59 @@ html.gsm-hoshidicts-enabled #btn-yomitan {
 .gsm-hoshidicts-mine-button[data-state="duplicate"] {
   border-color: #a8a8a8;
   color: #a8a8a8;
+}
+
+.gsm-hoshidicts-audio-menu {
+  position: fixed;
+  z-index: 2147483647;
+  width: min(260px, calc(100vw - 12px));
+  max-height: min(320px, calc(100vh - 12px));
+  overflow-x: hidden;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 6px;
+  border: 1px solid #666666;
+  border-radius: 6px;
+  background: #202020;
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.68);
+  color: #d4d4d4;
+  font-family: "Yu Gothic UI", "Hiragino Sans", sans-serif;
+  font-size: 12px;
+  line-height: 1.35;
+  pointer-events: auto;
+}
+
+.gsm-hoshidicts-audio-menu-heading {
+  padding: 5px 6px 2px;
+  color: #aaaaaa;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.gsm-hoshidicts-audio-menu-item {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.gsm-hoshidicts-audio-menu-item:hover,
+.gsm-hoshidicts-audio-menu-item:focus-visible {
+  outline: none;
+  background: rgba(74, 145, 237, 0.18);
+}
+
+.gsm-hoshidicts-audio-menu-status {
+  padding: 7px 8px;
+  color: #aaaaaa;
 }
 
 @keyframes gsm-hoshidicts-spin {

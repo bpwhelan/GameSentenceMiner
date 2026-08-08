@@ -11,6 +11,7 @@ export const HOSHIDICTS_CHANNELS = {
     setLookupMode: 'hoshidicts.setLookupMode',
     setReaderPreferences: 'hoshidicts.setReaderPreferences',
     setMiningProfile: 'hoshidicts.setMiningProfile',
+    setAudioProfile: 'hoshidicts.setAudioProfile',
     getMiningOptions: 'hoshidicts.getMiningOptions',
     setDictionaryEnabled: 'hoshidicts.setDictionaryEnabled',
     moveDictionary: 'hoshidicts.moveDictionary',
@@ -20,6 +21,7 @@ export const HOSHIDICTS_CHANNELS = {
 export const HOSHIDICTS_BUS_TOPICS = {
     openSettings: 'hoshidicts.openSettings',
     readerPreferences: 'hoshidicts.readerPreferences',
+    audioProfile: 'hoshidicts.audioProfile',
 } as const;
 
 export const HOSHIDICTS_READER_CLIENT_ID = 'overlay.hoshidicts-reader';
@@ -161,6 +163,18 @@ export const DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS = [
 ] as const satisfies readonly HoshidictsRecommendedDictionaryId[];
 export type HoshidictsMoveDirection = -1 | 1;
 export type HoshidictsDuplicatePolicy = 'prevent' | 'allow';
+export const HOSHIDICTS_AUDIO_SOURCE_TYPES = [
+    'jpod101',
+    'language-pod-101',
+    'jisho',
+    'custom',
+    'custom-json',
+    'text-to-speech',
+    'text-to-speech-reading',
+] as const;
+export const MAX_HOSHIDICTS_AUDIO_SOURCES = 32;
+export type HoshidictsAudioSourceType =
+    (typeof HOSHIDICTS_AUDIO_SOURCE_TYPES)[number];
 export type HoshidictsProgressPhase =
     | 'idle'
     | 'importing'
@@ -177,6 +191,7 @@ export interface HoshidictsMiningFields {
     sentence: string;
     frequency: string;
     pitch: string;
+    audio: string;
 }
 
 export type HoshidictsMiningFieldName = keyof HoshidictsMiningFields;
@@ -186,6 +201,49 @@ export interface HoshidictsReaderPreferences {
     activationKey: HoshidictsActivationKey;
     sourceHighlightEnabled: boolean;
     popupHideDelayMs: number;
+}
+
+export interface HoshidictsAudioSource {
+    id: string;
+    type: HoshidictsAudioSourceType;
+    url: string;
+    voice: string;
+}
+
+export interface HoshidictsAudioProfile {
+    version: 1;
+    enabled: boolean;
+    autoPlay: boolean;
+    volume: number;
+    sources: HoshidictsAudioSource[];
+}
+
+export function createDefaultHoshidictsAudioProfile(): HoshidictsAudioProfile {
+    return {
+        version: 1,
+        enabled: true,
+        autoPlay: false,
+        volume: 100,
+        sources: [
+            { id: 'jpod101', type: 'jpod101', url: '', voice: '' },
+            {
+                id: 'language-pod-101',
+                type: 'language-pod-101',
+                url: '',
+                voice: '',
+            },
+            { id: 'jisho', type: 'jisho', url: '', voice: '' },
+        ],
+    };
+}
+
+export function isHoshidictsAudioSourceType(
+    value: unknown
+): value is HoshidictsAudioSourceType {
+    return (
+        typeof value === 'string' &&
+        (HOSHIDICTS_AUDIO_SOURCE_TYPES as readonly string[]).includes(value)
+    );
 }
 
 export interface HoshidictsMiningProfile {
@@ -236,7 +294,7 @@ export interface HoshidictsRecommendedDictionaryState {
 
 export interface HoshidictsProgress {
     phase: HoshidictsProgressPhase;
-    scope?: 'dictionary' | 'preferences' | 'mining';
+    scope?: 'dictionary' | 'preferences' | 'mining' | 'audio';
     title?: string;
     completed?: number;
     total?: number;
@@ -247,6 +305,7 @@ export interface HoshidictsManagerSnapshot {
     dictionaries: HoshidictsDictionaryState[];
     recommendedDictionaries: HoshidictsRecommendedDictionaryState[];
     miningProfile: HoshidictsMiningProfile;
+    audioProfile: HoshidictsAudioProfile;
     lookupMode: HoshidictsLookupMode;
     activationKey: HoshidictsActivationKey;
     sourceHighlightEnabled: boolean;
@@ -275,6 +334,7 @@ export interface HoshidictsActionResult {
         code:
             | 'preferencesSaved'
             | 'miningProfileSaved'
+            | 'audioProfileSaved'
             | 'dictionaryImported'
             | 'recommendedInstalled'
             | 'updatesChecked'

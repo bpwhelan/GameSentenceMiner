@@ -227,6 +227,25 @@ describe('runOverlayWithSource', () => {
         expect(front.getOverlayHoshidictsSourceHighlightEnabledAtLaunch()).toBe(true);
         expect(front.getOverlayHoshidictsPopupHideDelayAtLaunch()).toBe(850);
         expect(
+            front.getOverlayHoshidictsAudioProfileRestartRequired()
+        ).toBe(false);
+        expect(front.markOverlayHoshidictsAudioProfileSyncFailed()).toBe(true);
+        expect(
+            front.getOverlayHoshidictsAudioProfileRestartRequired()
+        ).toBe(true);
+        expect(
+            front.markOverlayHoshidictsAudioProfileApplied({
+                version: 1,
+                enabled: true,
+                autoPlay: false,
+                volume: 100,
+                sources: [],
+            })
+        ).toBe(true);
+        expect(
+            front.getOverlayHoshidictsAudioProfileRestartRequired()
+        ).toBe(false);
+        expect(
             front.markOverlayHoshidictsReaderPreferencesApplied({
                 lookupMode: 'shift',
                 activationKey: 'Space',

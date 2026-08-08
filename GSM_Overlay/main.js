@@ -1854,6 +1854,7 @@ let gamepadNavigationActive = false; // True while renderer gamepad navigation k
 let mainWindow = null;
 let hoshidictsReaderPreferencesBridge = null;
 let hoshidictsReaderPreferencesDelivery = null;
+let hoshidictsAudioPreferencesDelivery = null;
 let startupNotificationWindow = null;
 let startupNotificationCloseTimer = null;
 let afkHidden = false; // true when AFK timer hid the overlay
@@ -6673,6 +6674,10 @@ async function startOverlayAppImpl() {
       hoshidictsReaderPreferencesDelivery.clear();
       hoshidictsReaderPreferencesDelivery = null;
     }
+    if (hoshidictsAudioPreferencesDelivery) {
+      hoshidictsAudioPreferencesDelivery.clear();
+      hoshidictsAudioPreferencesDelivery = null;
+    }
     if (pendingDisplaySyncTimer) {
       clearTimeout(pendingDisplaySyncTimer);
       pendingDisplaySyncTimer = null;
@@ -6736,6 +6741,17 @@ async function startOverlayAppImpl() {
         );
       }
     );
+    hoshidictsAudioPreferencesDelivery = createHoshidictsReaderPreferencesDelivery(
+      (preferences) => {
+        if (!mainWindow || mainWindow.isDestroyed()) {
+          throw new Error('Hoshidicts reader window is unavailable.');
+        }
+        mainWindow.webContents.send(
+          'hoshidicts-audio-preferences',
+          preferences
+        );
+      }
+    );
     hoshidictsReaderPreferencesBridge = createHoshidictsReaderPreferencesBridge({
       onPreferences(preferences) {
         const normalizedPreferences =
@@ -6748,16 +6764,61 @@ async function startOverlayAppImpl() {
         });
         hoshidictsReaderPreferencesDelivery.enqueue(normalizedPreferences);
       },
+      onAudioPreferences(profile) {
+        const allowedSourceTypes = new Set([
+          'jpod101',
+          'language-pod-101',
+          'jisho',
+          'custom',
+          'custom-json',
+          'text-to-speech',
+          'text-to-speech-reading',
+        ]);
+        if (
+          !profile ||
+          profile.version !== 1 ||
+          typeof profile.enabled !== 'boolean' ||
+          typeof profile.autoPlay !== 'boolean' ||
+          !Number.isInteger(profile.volume) ||
+          profile.volume < 0 ||
+          profile.volume > 100 ||
+          !Array.isArray(profile.sources) ||
+          profile.sources.length > 32 ||
+          !profile.sources.every((source) =>
+            source &&
+            typeof source.id === 'string' &&
+            source.id.length > 0 &&
+            source.id.length <= 128 &&
+            allowedSourceTypes.has(source.type) &&
+            typeof source.url === 'string' &&
+            source.url.length <= 4096 &&
+            typeof source.voice === 'string' &&
+            source.voice.length <= 255
+          )
+        ) {
+          throw new Error('Hoshidicts audio preferences are invalid.');
+        }
+        if (!mainWindow || mainWindow.isDestroyed()) {
+          throw new Error('Hoshidicts reader window is unavailable.');
+        }
+        hoshidictsAudioPreferencesDelivery.enqueue(profile);
+      },
     });
   }
   mainWindow.webContents.on('did-start-loading', () => {
     if (hoshidictsReaderPreferencesDelivery) {
       hoshidictsReaderPreferencesDelivery.markNotReady();
     }
+    if (hoshidictsAudioPreferencesDelivery) {
+      hoshidictsAudioPreferencesDelivery.markNotReady();
+    }
   });
   mainWindow.webContents.on('did-finish-load', () => {
     if (hoshidictsReaderPreferencesDelivery) {
       hoshidictsReaderPreferencesDelivery.markReady();
+    }
+    if (hoshidictsAudioPreferencesDelivery) {
+      hoshidictsAudioPreferencesDelivery.markReady();
     }
     sendHoshidictsActivationKeyState(
       hoshidictsActivationHotkeyController.isPressed()
@@ -8018,6 +8079,10 @@ async function stopOverlayApp() {
         if (hoshidictsReaderPreferencesDelivery) {
           hoshidictsReaderPreferencesDelivery.clear();
           hoshidictsReaderPreferencesDelivery = null;
+        }
+        if (hoshidictsAudioPreferencesDelivery) {
+          hoshidictsAudioPreferencesDelivery.clear();
+          hoshidictsAudioPreferencesDelivery = null;
         }
       });
 

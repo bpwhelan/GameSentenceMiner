@@ -15,6 +15,7 @@ import {
     MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
     type HoshidictsActionResult,
     type HoshidictsActivationKey,
+    type HoshidictsAudioProfile,
     type HoshidictsDesktopSnapshot,
     type HoshidictsDictionaryEnabledRequest,
     type HoshidictsInstallRecommendedRequest,
@@ -40,9 +41,11 @@ export interface HoshidictsIPCDependencies {
     getOverlayActivationKeyAtLaunch: () => HoshidictsActivationKey | null;
     getOverlaySourceHighlightEnabledAtLaunch: () => boolean | null;
     getOverlayPopupHideDelayAtLaunch: () => number | null;
+    getOverlayAudioProfileRestartRequired: () => boolean;
     applyReaderPreferences: (
         preferences: HoshidictsReaderPreferences
     ) => Promise<boolean>;
+    applyAudioProfile: (profile: HoshidictsAudioProfile) => Promise<boolean>;
     getMiningOptions: (model?: string) => Promise<HoshidictsMiningOptions>;
     restartOverlay: () => Promise<boolean>;
 }
@@ -127,7 +130,9 @@ function withDesktopState(
                             snapshot.sourceHighlightEnabled) ||
                     (effectiveEnabled &&
                         popupHideDelayAtLaunch !== null &&
-                        popupHideDelayAtLaunch !== snapshot.popupHideDelayMs)),
+                        popupHideDelayAtLaunch !== snapshot.popupHideDelayMs) ||
+                    (effectiveEnabled &&
+                        deps.getOverlayAudioProfileRestartRequired())),
         },
     };
 }
@@ -412,6 +417,22 @@ export function registerHoshidictsIPC(
                 deps,
                 async () => await manager.setMiningProfile(profile),
                 { code: 'miningProfileSaved' }
+            );
+        }
+    );
+
+    ipcMain.handle(
+        HOSHIDICTS_CHANNELS.setAudioProfile,
+        async (event, profile: unknown) => {
+            assertSettingsSender(event, deps);
+            return await runAction(
+                deps,
+                async () => {
+                    const state = await manager.setAudioProfile(profile);
+                    await deps.applyAudioProfile(state.audioProfile);
+                    return state;
+                },
+                { code: 'audioProfileSaved' }
             );
         }
     );

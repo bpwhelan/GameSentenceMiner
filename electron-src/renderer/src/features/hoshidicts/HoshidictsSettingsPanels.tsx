@@ -32,28 +32,10 @@ import {
   getFieldChoice,
   resolvedDraftField
 } from "./hoshidictsSettingsModel";
+import { HoshidictsSaveIndicator } from "./HoshidictsSaveIndicator";
 import type { useHoshidictsSettingsController } from "./useHoshidictsSettingsController";
 
 type Controller = ReturnType<typeof useHoshidictsSettingsController>;
-
-function SaveIndicator({
-  status
-}: {
-  status: Controller["readerSaveStatus"];
-}) {
-  const t = useTranslation();
-  if (status === "idle") return null;
-  const visibleStatus = status === "dirty" ? "saving" : status;
-  return (
-    <span
-      className="hoshidicts-save-status"
-      data-status={visibleStatus}
-      role="status"
-    >
-      {t(`settings.hoshidicts.saveStatus.${visibleStatus}`)}
-    </span>
-  );
-}
 
 function ActivationKeyControl({
   activationKey,
@@ -178,7 +160,7 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
             <h2>{t("settings.hoshidicts.reader.title")}</h2>
             <p>{t("settings.hoshidicts.reader.subtitle")}</p>
           </div>
-          <SaveIndicator status={readerSaveStatus} />
+          <HoshidictsSaveIndicator status={readerSaveStatus} />
         </div>
 
         <fieldset className="hoshidicts-reader-mode">
@@ -560,7 +542,7 @@ export function MiningPanel({ controller }: { controller: Controller }) {
           <p>{t("settings.hoshidicts.mining.autoSaveHint")}</p>
         </div>
         <div className="hoshidicts-section__status-actions">
-          <SaveIndicator status={miningSaveStatus} />
+          <HoshidictsSaveIndicator status={miningSaveStatus} />
           <label className="hoshidicts-mining__toggle">
             <input
               id="hoshidicts-mining-enabled"

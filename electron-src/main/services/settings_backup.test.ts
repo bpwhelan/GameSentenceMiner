@@ -24,6 +24,14 @@ function writeFile(filePath: string, contents: string): void {
     fs.writeFileSync(filePath, contents, 'utf8');
 }
 
+function readText(root: string, ...parts: string[]): string {
+    return fs.readFileSync(path.join(root, ...parts), 'utf8');
+}
+
+function exists(root: string, ...parts: string[]): boolean {
+    return fs.existsSync(path.join(root, ...parts));
+}
+
 afterEach(() => {
     for (const dir of tempDirs.splice(0)) {
         fs.rmSync(dir, { recursive: true, force: true });
@@ -31,27 +39,35 @@ afterEach(() => {
 });
 
 describe('settings backup path filters', () => {
-    it('keeps durable GSM settings and skips generated files', () => {
-        expect(shouldIncludeGsmBackupPath('config.json', false)).toBe(true);
-        expect(shouldIncludeGsmBackupPath('gsm.db-wal', false)).toBe(true);
-        expect(shouldIncludeGsmBackupPath('black_bar_cache.json', false)).toBe(false);
-        expect(shouldIncludeGsmBackupPath('ocr_config/Game.json', false)).toBe(true);
-        expect(shouldIncludeGsmBackupPath('ocr_config/backup/Game/old.json', false)).toBe(false);
-        expect(shouldIncludeGsmBackupPath('obs-studio/config/obs-studio/basic/scenes/Scene.json', false)).toBe(true);
-        expect(shouldIncludeGsmBackupPath('obs-studio/config/obs-studio/logs/obs.txt', false)).toBe(false);
-        expect(shouldIncludeGsmBackupPath('obs-studio/bin/64bit/obs64.exe', false)).toBe(false);
-        expect(shouldIncludeGsmBackupPath('temp/image.png', false)).toBe(false);
-        expect(shouldIncludeGsmBackupPath('python_venv/pyvenv.cfg', false)).toBe(false);
+    it.each<[string, boolean]>([
+        ['config.json', true],
+        ['gsm.db-wal', true],
+        ['black_bar_cache.json', false],
+        ['ocr_config/Game.json', true],
+        ['ocr_config/backup/Game/old.json', false],
+        ['obs-studio/config/obs-studio/basic/scenes/Scene.json', true],
+        ['obs-studio/config/obs-studio/logs/obs.txt', false],
+        ['obs-studio/bin/64bit/obs64.exe', false],
+        ['temp/image.png', false],
+        ['python_venv/pyvenv.cfg', false],
+        ['dictionaries/hoshidicts/audio-profile.json', true],
+        ['dictionaries/hoshidicts/mining-profile.json', true],
+        ['dictionaries/hoshidicts/manifest.json', false],
+        ['dictionaries/hoshidicts/generations/dictionary/blobs.bin', false],
+    ])('filters durable GSM path %s', (relativePath, expected) => {
+        expect(shouldIncludeGsmBackupPath(relativePath, false)).toBe(expected);
     });
 
-    it('keeps overlay settings and Yomitan storage but skips browser caches', () => {
-        expect(shouldIncludeOverlayBackupPath('settings.json', false)).toBe(true);
-        expect(shouldIncludeOverlayBackupPath('yomitan_last_mtime.json', false)).toBe(false);
-        expect(shouldIncludeOverlayBackupPath('IndexedDB/chrome-extension/indexeddb.leveldb/000003.log', false)).toBe(true);
-        expect(shouldIncludeOverlayBackupPath('Local Extension Settings/ext/000003.log', false)).toBe(true);
-        expect(shouldIncludeOverlayBackupPath('IndexedDB/chrome-extension/indexeddb.leveldb/LOCK', false)).toBe(false);
-        expect(shouldIncludeOverlayBackupPath('Cache/Cache_Data/data_0', false)).toBe(false);
-        expect(shouldIncludeOverlayBackupPath('Service Worker/ScriptCache/index', false)).toBe(false);
+    it.each<[string, boolean]>([
+        ['settings.json', true],
+        ['yomitan_last_mtime.json', false],
+        ['IndexedDB/chrome-extension/indexeddb.leveldb/000003.log', true],
+        ['Local Extension Settings/ext/000003.log', true],
+        ['IndexedDB/chrome-extension/indexeddb.leveldb/LOCK', false],
+        ['Cache/Cache_Data/data_0', false],
+        ['Service Worker/ScriptCache/index', false],
+    ])('filters durable overlay path %s', (relativePath, expected) => {
+        expect(shouldIncludeOverlayBackupPath(relativePath, false)).toBe(expected);
     });
 });
 
@@ -72,6 +88,22 @@ describe('settings backup archive', () => {
         writeFile(path.join(baseDir, 'ocr_config', 'backup', 'Game', 'old.json'), '{"old":true}');
         writeFile(path.join(baseDir, 'electron', 'config.json'), '{"desktop":true}');
         writeFile(path.join(baseDir, 'electron', 'Cache', 'data_0'), 'cache');
+        writeFile(
+            path.join(baseDir, 'dictionaries', 'hoshidicts', 'audio-profile.json'),
+            '{"version":1,"enabled":true}',
+        );
+        writeFile(
+            path.join(baseDir, 'dictionaries', 'hoshidicts', 'mining-profile.json'),
+            '{"version":1,"deck":"Mining"}',
+        );
+        writeFile(
+            path.join(baseDir, 'dictionaries', 'hoshidicts', 'manifest.json'),
+            '{"version":1,"dictionaries":[]}',
+        );
+        writeFile(
+            path.join(baseDir, 'dictionaries', 'hoshidicts', 'generations', 'dict', 'blobs.bin'),
+            'dictionary',
+        );
         writeFile(path.join(baseDir, 'obs-studio', 'config', 'obs-studio', 'global.ini'), 'global');
         writeFile(
             path.join(baseDir, 'obs-studio', 'config', 'obs-studio', 'basic', 'scenes', 'Untitled.json'),
@@ -113,6 +145,33 @@ describe('settings backup archive', () => {
         expect(fs.existsSync(path.join(extractDir, 'gsm-backup-manifest.json'))).toBe(true);
         expect(fs.readFileSync(path.join(extractDir, 'GameSentenceMiner', 'config.json'), 'utf8')).toBe('{"gsm":true}');
         expect(fs.readFileSync(path.join(extractDir, 'GameSentenceMiner', 'gsm.db'), 'utf8')).toBe('sqlite');
+        expect(
+            readText(
+                extractDir,
+                'GameSentenceMiner',
+                'dictionaries',
+                'hoshidicts',
+                'audio-profile.json',
+            ),
+        ).toContain('"enabled":true');
+        expect(
+            exists(
+                extractDir,
+                'GameSentenceMiner',
+                'dictionaries',
+                'hoshidicts',
+                'manifest.json',
+            ),
+        ).toBe(false);
+        expect(
+            exists(
+                extractDir,
+                'GameSentenceMiner',
+                'dictionaries',
+                'hoshidicts',
+                'generations',
+            ),
+        ).toBe(false);
         expect(fs.readFileSync(path.join(extractDir, 'GameSentenceMiner', 'ocr_config', 'Game.json'), 'utf8')).toBe(
             '{"areas":[]}',
         );
@@ -147,6 +206,14 @@ describe('settings backup archive', () => {
 
         writeFile(path.join(sourceBaseDir, 'config.json'), '{"restored":true}');
         writeFile(path.join(sourceBaseDir, 'gsm.db'), 'restored-db');
+        writeFile(
+            path.join(sourceBaseDir, 'dictionaries', 'hoshidicts', 'audio-profile.json'),
+            '{"volume":25}',
+        );
+        writeFile(
+            path.join(sourceBaseDir, 'dictionaries', 'hoshidicts', 'mining-profile.json'),
+            '{"deck":"Restored"}',
+        );
         writeFile(path.join(sourceBaseDir, 'ocr_config', 'Game.json'), '{"restored":true}');
         writeFile(path.join(sourceBaseDir, 'obs-studio', 'config', 'obs-studio', 'global.ini'), 'restored-global');
         writeFile(
@@ -169,6 +236,18 @@ describe('settings backup archive', () => {
         const targetHomeConfig = path.join(makeTempDir('gsm-restore-target-home-'), '.config', 'owocr_config_gsm.ini');
 
         writeFile(path.join(targetBaseDir, 'config.json'), '{"old":true}');
+        writeFile(
+            path.join(targetBaseDir, 'dictionaries', 'hoshidicts', 'audio-profile.json'),
+            '{"volume":100}',
+        );
+        writeFile(
+            path.join(targetBaseDir, 'dictionaries', 'hoshidicts', 'manifest.json'),
+            '{"keep":true}',
+        );
+        writeFile(
+            path.join(targetBaseDir, 'dictionaries', 'hoshidicts', 'generations', 'dict', 'blobs.bin'),
+            'keep-dictionary',
+        );
         writeFile(path.join(targetBaseDir, 'ocr_config', 'Extra.json'), '{"stale":true}');
         writeFile(path.join(targetBaseDir, 'ocr_config', 'backup', 'Old', 'old.json'), '{"keep":true}');
         writeFile(path.join(targetBaseDir, 'obs-studio', 'config', 'obs-studio', 'logs', 'obs.txt'), 'keep-log');
@@ -203,6 +282,25 @@ describe('settings backup archive', () => {
         expect(restoreProgress.at(-1)?.phase).toBe('done');
         expect(fs.readFileSync(path.join(targetBaseDir, 'config.json'), 'utf8')).toBe('{"restored":true}');
         expect(fs.readFileSync(path.join(targetBaseDir, 'gsm.db'), 'utf8')).toBe('restored-db');
+        expect(
+            readText(targetBaseDir, 'dictionaries', 'hoshidicts', 'audio-profile.json'),
+        ).toBe('{"volume":25}');
+        expect(
+            readText(targetBaseDir, 'dictionaries', 'hoshidicts', 'mining-profile.json'),
+        ).toBe('{"deck":"Restored"}');
+        expect(
+            readText(targetBaseDir, 'dictionaries', 'hoshidicts', 'manifest.json'),
+        ).toBe('{"keep":true}');
+        expect(
+            readText(
+                targetBaseDir,
+                'dictionaries',
+                'hoshidicts',
+                'generations',
+                'dict',
+                'blobs.bin',
+            ),
+        ).toBe('keep-dictionary');
         expect(fs.readFileSync(path.join(targetBaseDir, 'ocr_config', 'Game.json'), 'utf8')).toBe('{"restored":true}');
         expect(fs.existsSync(path.join(targetBaseDir, 'ocr_config', 'Extra.json'))).toBe(false);
         expect(fs.existsSync(path.join(targetBaseDir, 'ocr_config', 'backup', 'Old', 'old.json'))).toBe(true);

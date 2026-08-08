@@ -42,6 +42,7 @@ const {
   createHoshidictsReaderPreferencesBridge: (options: {
     env: Record<string, string>;
     onPreferences: (preferences: unknown) => Promise<void>;
+    onAudioPreferences?: (preferences: unknown) => Promise<void>;
   }) => { destroy: () => void };
   dispatchAppHotkeyInputServerMessage: (
     message: Record<string, unknown>,
@@ -216,10 +217,17 @@ describe("Hoshidicts desktop bridge", () => {
     });
 
     delivery.markNotReady();
+    expect(delivery.markReady()).toBe(true);
+    expect(delivered.at(-1)).toEqual({
+      lookupMode: "shift",
+      popupHideDelayMs: 500,
+    });
+
+    delivery.markNotReady();
     delivery.enqueue({ lookupMode: "hover", popupHideDelayMs: 900 });
     delivery.clear();
     expect(delivery.markReady()).toBe(false);
-    expect(delivered).toHaveLength(2);
+    expect(delivered).toHaveLength(3);
   });
 
   it("rejects missing or malformed authenticated bus settings", () => {
@@ -285,6 +293,7 @@ describe("Hoshidicts desktop bridge", () => {
     brokers.push(broker);
     const connectInfo = await broker.start();
     const applied: unknown[] = [];
+    const appliedAudio: unknown[] = [];
     bridges.push(
       createHoshidictsReaderPreferencesBridge({
         env: {
@@ -294,6 +303,9 @@ describe("Hoshidicts desktop bridge", () => {
         },
         async onPreferences(preferences) {
           applied.push(preferences);
+        },
+        async onAudioPreferences(preferences) {
+          appliedAudio.push(preferences);
         },
       })
     );
@@ -311,5 +323,25 @@ describe("Hoshidicts desktop bridge", () => {
     expect(applied).toEqual([
       { lookupMode: "hover", popupHideDelayMs: 800 },
     ]);
+    const audioProfile = {
+      version: 1,
+      enabled: true,
+      autoPlay: false,
+      volume: 70,
+      sources: [{
+        id: "jisho",
+        type: "jisho",
+        url: "",
+        voice: "",
+      }],
+    };
+    await expect(
+      broker.request(
+        "overlay.hoshidicts-reader",
+        "hoshidicts.audioProfile",
+        audioProfile
+      )
+    ).resolves.toEqual({ applied: true });
+    expect(appliedAudio).toEqual([audioProfile]);
   });
 });

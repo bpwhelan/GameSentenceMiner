@@ -6,6 +6,7 @@ import {
   type HoshidictsRecommendedDictionaryId
 } from "../../../../shared/features/hoshidicts";
 import { useTranslation } from "../../i18n";
+import { HoshidictsAudioPanel } from "./HoshidictsAudioPanel";
 import {
   DictionariesPanel,
   MiningPanel
@@ -13,11 +14,24 @@ import {
 import {
   PROGRESS_KEYS,
   RECOMMENDED_KEYS,
+  type HoshidictsView,
   getReadiness,
   normalizeHoshidictsDesktopState
 } from "./hoshidictsSettingsModel";
 import { useHoshidictsSettingsController } from "./useHoshidictsSettingsController";
 import "./hoshidicts.css";
+
+const HOSHIDICTS_TABS: Array<{
+  view: HoshidictsView;
+  labelKey: string;
+}> = [
+  {
+    view: "dictionaries",
+    labelKey: "settings.hoshidicts.tabs.dictionaries"
+  },
+  { view: "audio", labelKey: "settings.hoshidicts.tabs.audio" },
+  { view: "mining", labelKey: "settings.hoshidicts.tabs.mining" }
+];
 
 export { normalizeHoshidictsDesktopState } from "./hoshidictsSettingsModel";
 
@@ -147,22 +161,17 @@ export function HoshidictsSettingsWindow() {
         className="hoshidicts-window__tabs"
         aria-label={t("settings.hoshidicts.appTitle")}
       >
-        <button
-          type="button"
-          className={view === "dictionaries" ? "is-active" : ""}
-          aria-selected={view === "dictionaries"}
-          onClick={() => setView("dictionaries")}
-        >
-          {t("settings.hoshidicts.tabs.dictionaries")}
-        </button>
-        <button
-          type="button"
-          className={view === "mining" ? "is-active" : ""}
-          aria-selected={view === "mining"}
-          onClick={() => setView("mining")}
-        >
-          {t("settings.hoshidicts.tabs.mining")}
-        </button>
+        {HOSHIDICTS_TABS.map((tab) => (
+          <button
+            type="button"
+            className={view === tab.view ? "is-active" : ""}
+            aria-selected={view === tab.view}
+            onClick={() => setView(tab.view)}
+            key={tab.view}
+          >
+            {t(tab.labelKey)}
+          </button>
+        ))}
       </nav>
 
       <main className="hoshidicts-window__content">
@@ -198,6 +207,8 @@ export function HoshidictsSettingsWindow() {
           </div>
         ) : view === "dictionaries" ? (
           <DictionariesPanel controller={controller} />
+        ) : view === "audio" ? (
+          <HoshidictsAudioPanel controller={controller} />
         ) : (
           <MiningPanel controller={controller} />
         )}

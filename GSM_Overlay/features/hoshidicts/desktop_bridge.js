@@ -6,6 +6,7 @@ const WebSocket = require("ws");
 const BUS_PROTOCOL_VERSION = 1;
 const OPEN_SETTINGS_TOPIC = "hoshidicts.openSettings";
 const READER_PREFERENCES_TOPIC = "hoshidicts.readerPreferences";
+const AUDIO_PROFILE_TOPIC = "hoshidicts.audioProfile";
 const READER_CLIENT_SUFFIX = ".hoshidicts-reader";
 const SETTINGS_CLIENT_SEGMENT = ".hoshidicts-settings.";
 const REQUEST_TIMEOUT_MS = 5000;
@@ -212,23 +213,22 @@ function createHoshidictsReaderPreferencesDelivery(deliver) {
     throw new TypeError("Hoshidicts reader preference delivery requires a callback.");
   }
   let ready = false;
-  let pending = null;
+  let latest = null;
 
   return {
     enqueue(preferences) {
+      latest = preferences;
       if (!ready) {
-        pending = preferences;
         return false;
       }
       deliver(preferences);
       return true;
     },
     markReady() {
+      if (ready) return false;
       ready = true;
-      if (pending === null) return false;
-      const preferences = pending;
-      deliver(preferences);
-      pending = null;
+      if (latest === null) return false;
+      deliver(latest);
       return true;
     },
     markNotReady() {
@@ -236,7 +236,7 @@ function createHoshidictsReaderPreferencesDelivery(deliver) {
     },
     clear() {
       ready = false;
-      pending = null;
+      latest = null;
     },
   };
 }
@@ -247,10 +247,20 @@ function createHoshidictsReaderPreferencesBridge(options = {}) {
     return { destroy() {} };
   }
   const WebSocketImpl = options.WebSocketImpl || WebSocket;
-  const onPreferences =
-    typeof options.onPreferences === "function"
-      ? options.onPreferences
-      : async () => undefined;
+  const requestHandlers = new Map([
+    [
+      READER_PREFERENCES_TOPIC,
+      typeof options.onPreferences === "function"
+        ? options.onPreferences
+        : async () => undefined,
+    ],
+    [
+      AUDIO_PROFILE_TOPIC,
+      typeof options.onAudioPreferences === "function"
+        ? options.onAudioPreferences
+        : async () => undefined,
+    ],
+  ]);
   const readerClientId = `${config.clientId}${READER_CLIENT_SUFFIX}`;
   let socket = null;
   let reconnectTimer = null;
@@ -292,14 +302,11 @@ function createHoshidictsReaderPreferencesBridge(options = {}) {
     const nextSocket = new WebSocketImpl(`ws://127.0.0.1:${config.port}`);
     socket = nextSocket;
     nextSocket.on("open", () => {
-      send({
-        ...envelope(readerClientId, "hello", "bus.hello", {
-          token: config.token,
-          pid: process.pid,
-          version: "1",
-        }),
-        src: readerClientId,
-      });
+      send(envelope(readerClientId, "hello", "bus.hello", {
+        token: config.token,
+        pid: process.pid,
+        version: "1",
+      }));
     });
     nextSocket.on("message", (raw) => {
       let message;
@@ -312,13 +319,11 @@ function createHoshidictsReaderPreferencesBridge(options = {}) {
         reconnectDelayMs = 750;
         return;
       }
-      if (
-        message.kind !== "request" ||
-        message.topic !== READER_PREFERENCES_TOPIC
-      ) {
+      const apply = requestHandlers.get(message.topic);
+      if (message.kind !== "request" || !apply) {
         return;
       }
-      Promise.resolve(onPreferences(message.data)).then(
+      Promise.resolve().then(() => apply(message.data)).then(
         () => respond(message, true, { applied: true }),
         (error) => respond(
           message,
@@ -447,6 +452,7 @@ function requestHoshidictsSettingsOpen(options = {}) {
 }
 
 module.exports = {
+  AUDIO_PROFILE_TOPIC,
   createHoshidictsActivationHotkeyController,
   createHoshidictsReaderPreferencesDelivery,
   createHoshidictsReaderPreferencesBridge,

@@ -555,7 +555,7 @@
     },
     "hoshidicts": {
       "appTitle": "Hoshidicts",
-      "windowSubtitle": "Dictionary and mining settings",
+      "windowSubtitle": "Dictionary, audio, and mining settings",
       "title": "Hoshidicts Dictionaries",
       "enabled": "Enabled in GSM Experimental",
       "disabled": "Disabled in GSM Experimental",
@@ -583,6 +583,7 @@
       },
       "tabs": {
         "dictionaries": "Dictionaries",
+        "audio": "Audio",
         "mining": "Anki Mining"
       },
       "reader": {
@@ -670,6 +671,50 @@
         "kanjiumPitch": "Kanjium pitch accents",
         "kanjidic": "KANJIDIC English"
       },
+      "audio": {
+        "title": "Word pronunciation",
+        "subtitle": "Play Japanese word audio in Hoshidicts results and optionally add it to mined notes.",
+        "enabled": "Enable pronunciation audio",
+        "enabledHint": "Shows speaker controls and permits pronunciation audio during mining.",
+        "autoplay": "Autoplay the first result",
+        "autoplayHint": "Plays the first entry after the latest successful lookup.",
+        "volume": "Volume: {volume}%",
+        "sources": "Audio sources",
+        "sourcesHint": "Sources are tried from top to bottom until one plays.",
+        "restoreDefaults": "Restore Defaults",
+        "addSource": "Add Source",
+        "noSources": "No audio sources configured.",
+        "sourceType": "Source type",
+        "sourceUrl": "Source URL",
+        "sourceUrlPlaceholder": "https://example.test/audio?term={term}&reading={reading}",
+        "voice": "Voice",
+        "defaultVoice": "System default",
+        "missingVoice": "{name} (not currently available)",
+        "testVoice": "Test",
+        "testPhrase": "日本語",
+        "moveUp": "Move {name} up",
+        "moveDown": "Move {name} down",
+        "removeSource": "Remove {name}",
+        "privacy": "External audio sources receive the looked-up expression and reading. Only add providers you trust.",
+        "sourceTypes": {
+          "jpod101": "JapanesePod101",
+          "languagePod101": "LanguagePod101",
+          "jisho": "Jisho",
+          "custom": "Custom URL",
+          "customJson": "Custom JSON",
+          "termTts": "Text-to-speech (expression)",
+          "readingTts": "Text-to-speech (reading)"
+        },
+        "sourceHelp": {
+          "jpod101": "Looks up JapanesePod101 dictionary recordings.",
+          "languagePod101": "Uses the LanguagePod101 Japanese pronunciation service.",
+          "jisho": "Finds pronunciation recordings exposed by Jisho.",
+          "custom": "Substitutes {term}, {reading}, and {language} literally in the URL.",
+          "customJson": "Requests a Yomitan-compatible audioSourceList JSON response.",
+          "termTts": "Playback only: speaks the dictionary expression with a local system voice and cannot be attached to mined notes.",
+          "readingTts": "Playback only: speaks the dictionary reading with a local system voice and cannot be attached to mined notes."
+        }
+      },
       "mining": {
         "title": "Anki mining profile",
         "enabled": "Enable mining",
@@ -706,13 +751,15 @@
           "definition": "Definition",
           "sentence": "Sentence",
           "frequency": "Frequency",
-          "pitch": "Pitch accent"
+          "pitch": "Pitch accent",
+          "audio": "Pronunciation audio"
         },
         "save": "Save Mining Profile",
         "saving": "Saving..."
       },
       "outcomes": {
         "preferencesSaved": "Reader preferences saved.",
+        "audioProfileSaved": "Audio preferences saved.",
         "miningProfileSaved": "Mining profile saved.",
         "dictionaryImported": "Dictionary imported.",
         "recommendedInstalled": "Installed {count} recommended dictionaries.",
@@ -741,6 +788,7 @@
         "recommended": "Failed to install the recommended dictionaries.",
         "lookupMode": "Failed to save the Hoshidicts lookup activation setting.",
         "readerPreferences": "Failed to save the Hoshidicts reader settings.",
+        "audioProfile": "Failed to save the Hoshidicts audio settings.",
         "ankiOptions": "Failed to load decks and note types from AnkiConnect.",
         "miningProfile": "Failed to save the Hoshidicts mining profile.",
         "restart": "Failed to restart the overlay."

@@ -537,7 +537,7 @@
     },
     "hoshidicts": {
       "appTitle": "Hoshidicts",
-      "windowSubtitle": "Налаштування словників і видобування",
+      "windowSubtitle": "Налаштування словників, аудіо та видобування",
       "title": "Словники Hoshidicts",
       "enabled": "Увімкнено в експериментальних налаштуваннях GSM",
       "disabled": "Вимкнено в експериментальних налаштуваннях GSM",
@@ -565,6 +565,7 @@
       },
       "tabs": {
         "dictionaries": "Словники",
+        "audio": "Аудіо",
         "mining": "Видобування Anki"
       },
       "reader": {
@@ -652,6 +653,50 @@
         "kanjiumPitch": "Тональний наголос Kanjium",
         "kanjidic": "KANJIDIC англійською"
       },
+      "audio": {
+        "title": "Вимова слів",
+        "subtitle": "Відтворюйте аудіо японських слів у результатах Hoshidicts і за бажанням додавайте його до нотаток.",
+        "enabled": "Увімкнути аудіо вимови",
+        "enabledHint": "Показує кнопки динаміка та дозволяє додавати вимову під час видобування.",
+        "autoplay": "Автоматично відтворювати перший результат",
+        "autoplayHint": "Відтворює перший запис після останнього успішного пошуку.",
+        "volume": "Гучність: {volume}%",
+        "sources": "Джерела аудіо",
+        "sourcesHint": "Джерела перевіряються згори вниз, доки одне не відтвориться.",
+        "restoreDefaults": "Відновити типові",
+        "addSource": "Додати джерело",
+        "noSources": "Джерела аудіо не налаштовані.",
+        "sourceType": "Тип джерела",
+        "sourceUrl": "URL джерела",
+        "sourceUrlPlaceholder": "https://example.test/audio?term={term}&reading={reading}",
+        "voice": "Голос",
+        "defaultVoice": "Системний за замовчуванням",
+        "missingVoice": "{name} (зараз недоступний)",
+        "testVoice": "Перевірити",
+        "testPhrase": "日本語",
+        "moveUp": "Перемістити {name} вгору",
+        "moveDown": "Перемістити {name} вниз",
+        "removeSource": "Видалити {name}",
+        "privacy": "Зовнішні джерела аудіо отримують знайдений вираз і читання. Додавайте лише довірених постачальників.",
+        "sourceTypes": {
+          "jpod101": "JapanesePod101",
+          "languagePod101": "LanguagePod101",
+          "jisho": "Jisho",
+          "custom": "Власний URL",
+          "customJson": "Власний JSON",
+          "termTts": "Синтез мовлення (вираз)",
+          "readingTts": "Синтез мовлення (читання)"
+        },
+        "sourceHelp": {
+          "jpod101": "Шукає словникові записи JapanesePod101.",
+          "languagePod101": "Використовує службу японської вимови LanguagePod101.",
+          "jisho": "Шукає записи вимови, які надає Jisho.",
+          "custom": "Буквально підставляє {term}, {reading} і {language} в URL.",
+          "customJson": "Запитує сумісну з Yomitan JSON-відповідь audioSourceList.",
+          "termTts": "Лише відтворення: озвучує словниковий вираз локальним системним голосом і не додається до нотаток.",
+          "readingTts": "Лише відтворення: озвучує словникове читання локальним системним голосом і не додається до нотаток."
+        }
+      },
       "mining": {
         "title": "Профіль видобування Anki",
         "enabled": "Увімкнути видобування",
@@ -688,13 +733,15 @@
           "definition": "Визначення",
           "sentence": "Речення",
           "frequency": "Частота",
-          "pitch": "Тональний наголос"
+          "pitch": "Тональний наголос",
+          "audio": "Аудіо вимови"
         },
         "save": "Зберегти профіль видобування",
         "saving": "Збереження..."
       },
       "outcomes": {
         "preferencesSaved": "Налаштування читача збережено.",
+        "audioProfileSaved": "Налаштування аудіо збережено.",
         "miningProfileSaved": "Профіль видобування збережено.",
         "dictionaryImported": "Словник імпортовано.",
         "recommendedInstalled": "Встановлено рекомендованих словників: {count}.",
@@ -723,6 +770,7 @@
         "recommended": "Не вдалося встановити рекомендовані словники.",
         "lookupMode": "Не вдалося зберегти спосіб активації пошуку Hoshidicts.",
         "readerPreferences": "Не вдалося зберегти налаштування читача Hoshidicts.",
+        "audioProfile": "Не вдалося зберегти налаштування аудіо Hoshidicts.",
         "ankiOptions": "Не вдалося завантажити колоди й типи нотаток з AnkiConnect.",
         "miningProfile": "Не вдалося зберегти профіль видобування Hoshidicts.",
         "restart": "Не вдалося перезапустити оверлей."

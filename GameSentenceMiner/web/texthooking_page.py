@@ -1,6 +1,7 @@
 import asyncio
 import datetime
 import flask
+import ipaddress
 import json
 import logging
 import os
@@ -43,6 +44,11 @@ _single_port_gateway_active = False
 _single_port_gateway_port = None
 _ws_invalid_upgrade_filter_installed = False
 AI_TRANSLATION_SETUP_DOCS_URL = "https://docs.gamesentenceminer.com/docs/guides/ai-features"
+_HOSHIDICTS_GATEWAY_BODY_LIMITS = {
+    "/api/hoshidicts/audio/candidates": 32 * 1024,
+    "/api/hoshidicts/audio/media": 32 * 1024,
+    "/api/hoshidicts/mine": 256 * 1024,
+}
 
 app = flask.Flask(__name__, static_folder="static", static_url_path="/static")
 
@@ -53,6 +59,19 @@ _LOCAL_CORS_ORIGINS = {
     "http://localhost:5174",
     "http://127.0.0.1:5174",
 }
+
+
+def _hoshidicts_gateway_body_limit(path: str) -> int | None:
+    return _HOSHIDICTS_GATEWAY_BODY_LIMITS.get(path)
+
+
+def _is_loopback_address(value: str | None) -> bool:
+    try:
+        address = ipaddress.ip_address(value or "")
+    except ValueError:
+        return False
+    mapped = getattr(address, "ipv4_mapped", None)
+    return (mapped or address).is_loopback
 
 
 def _is_single_port_experiment_enabled() -> bool:
@@ -232,8 +251,25 @@ def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
         if incoming_request.path == "/get_websocket_port":
             return web.json_response({"port": external_port})
 
+        if incoming_request.path.startswith("/api/hoshidicts/") and not _is_loopback_address(incoming_request.remote):
+            return web.json_response(
+                {"error": "Hoshidicts is available only on this device."},
+                status=403,
+            )
+
         target = f"http://{upstream_host}:{internal_http_port}{incoming_request.rel_url}"
-        payload = await incoming_request.read()
+        body_limit = _hoshidicts_gateway_body_limit(incoming_request.path)
+        if body_limit is not None:
+            if incoming_request.content_length is not None and incoming_request.content_length > body_limit:
+                return web.json_response({"error": "Hoshidicts request is too large."}, status=413)
+            try:
+                payload = await incoming_request.content.readexactly(body_limit + 1)
+            except asyncio.IncompleteReadError as error:
+                payload = error.partial
+            if len(payload) > body_limit:
+                return web.json_response({"error": "Hoshidicts request is too large."}, status=413)
+        else:
+            payload = await incoming_request.read()
         forward_headers = {
             key: value for key, value in incoming_request.headers.items() if key.lower() not in hop_by_hop_headers
         }

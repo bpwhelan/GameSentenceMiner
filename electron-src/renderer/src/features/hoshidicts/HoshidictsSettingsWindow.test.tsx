@@ -8,8 +8,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  createDefaultHoshidictsAudioProfile,
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   HOSHIDICTS_CHANNELS,
+  type HoshidictsActionResult,
   type HoshidictsDesktopSnapshot,
   type HoshidictsMiningOptions,
   type HoshidictsReaderPreferences
@@ -89,12 +91,14 @@ const baseState: HoshidictsDesktopSnapshot = {
       definition: "",
       sentence: "",
       frequency: "",
-      pitch: ""
+      pitch: "",
+      audio: ""
     },
     disabledFields: [],
     tags: ["hoshidicts"],
     duplicatePolicy: "prevent"
   },
+  audioProfile: createDefaultHoshidictsAudioProfile(),
   lookupMode: "shift",
   activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   sourceHighlightEnabled: false,
@@ -121,6 +125,7 @@ const miningOptions: HoshidictsMiningOptions = {
     "Sentence",
     "Frequency",
     "PitchPosition",
+    "WordAudio",
     "Front"
   ],
   suggestedFields: {
@@ -129,7 +134,8 @@ const miningOptions: HoshidictsMiningOptions = {
     definition: "Glossary",
     sentence: "Sentence",
     frequency: "Frequency",
-    pitch: "PitchPosition"
+    pitch: "PitchPosition",
+    audio: "WordAudio"
   },
   resolvedFields: {
     expression: "Expression",
@@ -137,7 +143,8 @@ const miningOptions: HoshidictsMiningOptions = {
     definition: "Glossary",
     sentence: "Sentence",
     frequency: "Frequency",
-    pitch: "PitchPosition"
+    pitch: "PitchPosition",
+    audio: "WordAudio"
   },
   warnings: [],
   error: null
@@ -206,6 +213,17 @@ describe("HoshidictsSettingsWindow", () => {
             }
           };
         }
+        if (channel === HOSHIDICTS_CHANNELS.setAudioProfile) {
+          return {
+            success: true,
+            outcome: { code: "audioProfileSaved" },
+            state: {
+              ...baseState,
+              revision: ++revision,
+              audioProfile: args[0]
+            }
+          };
+        }
         return {
           success: true,
           outcome: { code: "dictionaryChanged" },
@@ -259,12 +277,12 @@ describe("HoshidictsSettingsWindow", () => {
     });
   }
 
-  async function openMining() {
-    const miningTab = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Anki Mining"
+  async function openView(label: string) {
+    const tab = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === label
     );
     await act(async () => {
-      miningTab?.click();
+      tab?.click();
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -294,6 +312,18 @@ describe("HoshidictsSettingsWindow", () => {
   ] as const)("maps physical key code %s to %s", (code, expected) => {
     expect(activationKeyFromKeyboardCode(code)).toBe(expected);
   });
+
+  async function flushAutosave() {
+    await vi.advanceTimersByTimeAsync(450);
+    await Promise.resolve();
+    await Promise.resolve();
+  }
+
+  function callsFor(channel: string): unknown[][] {
+    return invokeMock.mock.calls.filter(
+      ([calledChannel]) => calledChannel === channel
+    );
+  }
 
   it("shows loading instead of flashing a false disabled state", async () => {
     const pendingState = deferred<HoshidictsDesktopSnapshot>();
@@ -527,9 +557,7 @@ describe("HoshidictsSettingsWindow", () => {
     await act(async () => {
       hover?.click();
       setInputValue(delay, "850");
-      await vi.advanceTimersByTimeAsync(450);
-      await Promise.resolve();
-      await Promise.resolve();
+      await flushAutosave();
     });
 
     expect(invokeMock).toHaveBeenCalledWith(
@@ -658,7 +686,7 @@ describe("HoshidictsSettingsWindow", () => {
   it("loads Anki on entry without dirtying or pinning automatic mappings", async () => {
     vi.useFakeTimers();
     await render();
-    await openMining();
+    await openView("Anki Mining");
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
     });
@@ -677,13 +705,208 @@ describe("HoshidictsSettingsWindow", () => {
       )?.value
     ).toBe(AUTO_FIELD_VALUE);
     expect(container.textContent).toContain("Automatic → ExpressionReading");
-    expect(container.textContent).toContain("6 of 6 fields mapped");
+    expect(container.textContent).toContain("7 of 7 fields mapped");
+    expect(container.textContent).toContain("Automatic → WordAudio");
+  });
+
+  it("edits and auto-saves ordered pronunciation sources", async () => {
+    vi.useFakeTimers();
+    await render();
+    await openView("Audio");
+
+    expect(container.textContent).toContain("JapanesePod101");
+    expect(container.textContent).toContain("LanguagePod101");
+    expect(container.textContent).toContain("Jisho");
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Move LanguagePod101 up"]'
+        )
+        ?.click();
+      container
+        .querySelector<HTMLButtonElement>("#hoshidicts-audio-add-source")
+        ?.click();
+      const rows = container.querySelectorAll<HTMLElement>(
+        ".hoshidicts-audio-source"
+      );
+      const customRow = rows[rows.length - 1];
+      setSelectValue(
+        customRow?.querySelector<HTMLSelectElement>("select"),
+        "custom-json"
+      );
+      setInputValue(
+        customRow?.querySelector<HTMLInputElement>('input[type="text"]'),
+        "http://127.0.0.1:9000/audio"
+      );
+      const autoplay = container.querySelector<HTMLInputElement>(
+        "#hoshidicts-audio-autoplay"
+      );
+      autoplay?.click();
+      const volume = container.querySelector<HTMLInputElement>(
+        "#hoshidicts-audio-volume"
+      );
+      setInputValue(volume, "65");
+      await flushAutosave();
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.setAudioProfile,
+      expect.objectContaining({
+        enabled: true,
+        autoPlay: true,
+        volume: 65,
+        sources: expect.arrayContaining([
+          expect.objectContaining({
+            type: "custom-json",
+            url: "http://127.0.0.1:9000/audio"
+          })
+        ])
+      })
+    );
+    const savedProfile = invokeMock.mock.calls.find(
+      ([channel]) => channel === HOSHIDICTS_CHANNELS.setAudioProfile
+    )?.[1] as typeof baseState.audioProfile;
+    expect(savedProfile.sources[0].type).toBe("language-pod-101");
+    expect(container.textContent).toContain("Saved");
+  });
+
+  it("blocks a failed audio version until the next edit", async () => {
+    vi.useFakeTimers();
+    const defaultInvoke = invokeMock.getMockImplementation();
+    let rejectNextAudioSave = true;
+    invokeMock.mockImplementation(
+      async (channel: string, ...args: unknown[]) => {
+        if (
+          channel === HOSHIDICTS_CHANNELS.setAudioProfile &&
+          rejectNextAudioSave
+        ) {
+          rejectNextAudioSave = false;
+          return {
+            success: false,
+            error: "Audio profile was rejected.",
+            state: { ...baseState, revision: ++revision }
+          };
+        }
+        return await defaultInvoke?.(channel, ...args);
+      }
+    );
+    await render();
+    await openView("Audio");
+
+    await act(async () => {
+      container
+        .querySelector<HTMLInputElement>("#hoshidicts-audio-autoplay")
+        ?.click();
+      await flushAutosave();
+    });
+    expect(callsFor(HOSHIDICTS_CHANNELS.setAudioProfile)).toHaveLength(1);
+    expect(container.textContent).toContain("Save failed");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1200);
+    });
+    expect(callsFor(HOSHIDICTS_CHANNELS.setAudioProfile)).toHaveLength(1);
+
+    await act(async () => {
+      container
+        .querySelector<HTMLInputElement>("#hoshidicts-audio-enabled")
+        ?.click();
+      await flushAutosave();
+    });
+    expect(callsFor(HOSHIDICTS_CHANNELS.setAudioProfile)).toHaveLength(2);
+    expect(container.textContent).toContain("Saved");
+  });
+
+  it("queues edits made while an audio save is in flight", async () => {
+    vi.useFakeTimers();
+    const pendingSave = deferred<HoshidictsActionResult>();
+    const defaultInvoke = invokeMock.getMockImplementation();
+    let firstAudioSave = true;
+    invokeMock.mockImplementation(
+      async (channel: string, ...args: unknown[]) => {
+        if (
+          channel === HOSHIDICTS_CHANNELS.setAudioProfile &&
+          firstAudioSave
+        ) {
+          firstAudioSave = false;
+          return await pendingSave.promise;
+        }
+        return await defaultInvoke?.(channel, ...args);
+      }
+    );
+    await render();
+    await openView("Audio");
+
+    await act(async () => {
+      container
+        .querySelector<HTMLInputElement>("#hoshidicts-audio-autoplay")
+        ?.click();
+      await flushAutosave();
+    });
+    const firstRequest = callsFor(HOSHIDICTS_CHANNELS.setAudioProfile)[0]?.[1] as
+      | typeof baseState.audioProfile
+      | undefined;
+    expect(firstRequest?.autoPlay).toBe(true);
+
+    await act(async () => {
+      setInputValue(
+        container.querySelector<HTMLInputElement>("#hoshidicts-audio-volume"),
+        "65"
+      );
+      pendingSave.resolve({
+        success: true,
+        state: {
+          ...baseState,
+          revision: ++revision,
+          audioProfile: firstRequest ?? baseState.audioProfile
+        }
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await flushAutosave();
+    });
+
+    expect(callsFor(HOSHIDICTS_CHANNELS.setAudioProfile)).toHaveLength(2);
+    expect(callsFor(HOSHIDICTS_CHANNELS.setAudioProfile)[1]?.[1]).toMatchObject({
+      autoPlay: true,
+      volume: 65
+    });
+  });
+
+  it("does not overwrite a dirty audio draft with progress snapshots", async () => {
+    vi.useFakeTimers();
+    await render();
+    await openView("Audio");
+    const volume = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-audio-volume"
+    );
+
+    await act(async () => {
+      setInputValue(volume, "65");
+      listeners.get(HOSHIDICTS_CHANNELS.progress)?.[0]?.({}, {
+        ...baseState,
+        revision: ++revision,
+        audioProfile: { ...baseState.audioProfile, volume: 5 }
+      });
+      await Promise.resolve();
+    });
+    expect(volume?.value).toBe("65");
+
+    await act(async () => {
+      await flushAutosave();
+    });
+    expect(callsFor(HOSHIDICTS_CHANNELS.setAudioProfile)[0]?.[1]).toMatchObject({
+      volume: 65
+    });
   });
 
   it("auto-saves automatic, disabled, and explicit field choices", async () => {
     vi.useFakeTimers();
     await render();
-    await openMining();
+    await openView("Anki Mining");
 
     await act(async () => {
       setSelectValue(
@@ -704,9 +927,7 @@ describe("HoshidictsSettingsWindow", () => {
         ),
         AUTO_FIELD_VALUE
       );
-      await vi.advanceTimersByTimeAsync(450);
-      await Promise.resolve();
-      await Promise.resolve();
+      await flushAutosave();
     });
 
     expect(invokeMock).toHaveBeenCalledWith(
@@ -748,7 +969,7 @@ describe("HoshidictsSettingsWindow", () => {
     );
 
     await render();
-    await openMining();
+    await openView("Anki Mining");
     await act(async () => {
       setSelectValue(
         container.querySelector<HTMLSelectElement>(
@@ -801,7 +1022,7 @@ describe("HoshidictsSettingsWindow", () => {
   it.each([
     [
       "ja",
-      "辞書とマイニングの設定",
+      "辞書・音声・マイニングの設定",
       "おすすめの辞書",
       "キーを変更",
       "Shiftに戻す",
@@ -810,7 +1031,7 @@ describe("HoshidictsSettingsWindow", () => {
     ],
     [
       "ukr",
-      "Налаштування словників і видобування",
+      "Налаштування словників, аудіо та видобування",
       "Рекомендовані словники",
       "Змінити клавішу",
       "Скинути до Shift",
@@ -845,6 +1066,7 @@ describe("HoshidictsSettingsWindow", () => {
       activationKey: undefined,
       sourceHighlightEnabled: undefined,
       popupHideDelayMs: undefined,
+      audioProfile: undefined,
       dictionaries: [
         {
           ...baseState.dictionaries[0],
@@ -882,5 +1104,7 @@ describe("HoshidictsSettingsWindow", () => {
       "kanjidic"
     ]);
     expect(normalized.miningProfile.disabledFields).toEqual([]);
+    expect(normalized.miningProfile.fields.audio).toBe("");
+    expect(normalized.audioProfile).toEqual(baseState.audioProfile);
   });
 });

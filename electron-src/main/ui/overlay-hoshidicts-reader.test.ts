@@ -5,7 +5,16 @@ import vm from "node:vm";
 import { JSDOM } from "jsdom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const API_TOKEN = "a".repeat(64);
+
 function loadReaderModule(window: Window) {
+  const audioSource = fs.readFileSync(
+    path.resolve(
+      process.cwd(),
+      "GSM_Overlay/features/hoshidicts/audio.js"
+    ),
+    "utf8"
+  );
   const popupSource = fs.readFileSync(
     path.resolve(
       process.cwd(),
@@ -30,6 +39,12 @@ function loadReaderModule(window: Window) {
     setTimeout,
     window
   } as Record<string, any>;
+  const audioModule = { exports: {} as any };
+  context.module = audioModule;
+  context.exports = audioModule.exports;
+  vm.runInNewContext(audioSource, context, {
+    filename: "GSM_Overlay/features/hoshidicts/audio.js"
+  });
   const popupModule = { exports: {} as any };
   context.module = popupModule;
   context.exports = popupModule.exports;
@@ -100,10 +115,18 @@ function runHoshidictsReaderConfiguration(
   }
 
   const setActivationKeyPressed = vi.fn();
+  const updateAudioPreferences = vi.fn();
   const updatePreferences = vi.fn();
-  const createHoshidictsReader = vi.fn(() => ({
+  const reader = {
     setActivationKeyPressed,
+    updateAudioPreferences,
     updatePreferences
+  };
+  const createHoshidictsReader = vi.fn(() => reader);
+  const createHoshidictsAudioClient = vi.fn(() => ({ kind: "audio" }));
+  const createHoshidictsMiningClient = vi.fn(() => ({
+    getStatus: vi.fn(),
+    mine: vi.fn()
   }));
   const normalizeActivationKey = vi.fn((value: unknown) =>
     typeof value === "string" && value.trim() ? value.trim() : "Shift"
@@ -115,23 +138,23 @@ function runHoshidictsReaderConfiguration(
     gsmHoshidictsSourceHighlightEnabled: sourceHighlightEnabled,
     gsmHoshidictsReaderEnabled: true,
     GSMHoshidictsReader: {
-      createHoshidictsMiningClient: vi.fn(() => ({
-        getStatus: vi.fn(),
-        mine: vi.fn()
-      })),
+      createHoshidictsAudioClient,
+      createHoshidictsMiningClient,
       createHoshidictsReader,
       normalizeActivationKey,
       resolveGsmApiBaseUrl: vi.fn(() => "http://127.0.0.1:7275")
     }
   } as Record<string, any>;
   const ipcListeners = new Map<string, (...args: any[]) => void>();
+  const ipcOn = vi.fn(
+    (channel: string, listener: (...args: any[]) => void) => {
+      ipcListeners.set(channel, listener);
+    }
+  );
   const context = {
     console,
-    ipcRenderer: {
-      on: vi.fn((channel: string, listener: (...args: any[]) => void) => {
-        ipcListeners.set(channel, listener);
-      })
-    },
+    ipcRenderer: { on: ipcOn },
+    process: { env: { GSM_BROKER_TOKEN: API_TOKEN } },
     window
   } as Record<string, any>;
   vm.runInNewContext(script, context, {
@@ -140,9 +163,13 @@ function runHoshidictsReaderConfiguration(
   context.configureHoshidictsReader({ gamepadServerPort: 7276 });
 
   return {
+    createHoshidictsAudioClient,
+    createHoshidictsMiningClient,
     createHoshidictsReader,
     ipcListeners,
+    ipcOn,
     normalizeActivationKey,
+    reader,
     setActivationKeyPressed,
     updatePreferences,
     window
@@ -373,6 +400,71 @@ async function flushPromises() {
   }
 }
 
+function createAudioControllerStub(
+  selection: {
+    sourceId: string;
+    candidateIndex: number;
+    candidateToken: string;
+  } | null = null
+) {
+  return {
+    beginLookup: vi.fn(),
+    destroy: vi.fn(),
+    dismissPopup: vi.fn(),
+    getPreferences: vi.fn(() => ({
+      version: 1,
+      enabled: true,
+      autoPlay: false,
+      volume: 100,
+      sources: []
+    })),
+    getSelection: vi.fn(() => selection),
+    setRenderedResults: vi.fn(),
+    updatePreferences: vi.fn((profile) => profile)
+  };
+}
+
+function createReaderHarness(options: Record<string, any> = {}) {
+  vi.useFakeTimers();
+  const dom = createDom();
+  const api = loadReaderModule(dom.window as unknown as Window);
+  const first = dom.window.document.getElementById("first")!;
+  setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+  const reader = api.createHoshidictsReader({
+    window: dom.window,
+    document: dom.window.document,
+    WebSocket: FakeWebSocket,
+    logger: { debug() {}, warn() {} },
+    ...options
+  });
+  const socket = FakeWebSocket.instances[0];
+  socket.open();
+  return { dom, first, reader, socket };
+}
+
+async function renderFirstLookup(
+  harness: ReturnType<typeof createReaderHarness>,
+  options: {
+    expression?: string;
+    shiftKey?: boolean;
+    transform?: (response: ReturnType<typeof lookupResult>) => void;
+  } = {}
+) {
+  harness.first.dispatchEvent(new harness.dom.window.MouseEvent("mousemove", {
+    bubbles: true,
+    shiftKey: options.shiftKey ?? true,
+    clientX: 11,
+    clientY: 11
+  }));
+  await vi.advanceTimersByTimeAsync(20);
+  const request = JSON.parse(harness.socket.sent.at(-1)!);
+  const response = lookupResult(request.requestId, options.expression ?? "食べる");
+  options.transform?.(response);
+  harness.socket.receive(response);
+  await flushPromises();
+  return response;
+}
+
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -440,6 +532,12 @@ describe("Hoshidicts safe popup rendering", () => {
     );
 
     expect(overlayHtml).not.toContain('id="btn-hoshidicts-settings"');
+    expect(overlayHtml.indexOf("features/hoshidicts/audio.js")).toBeLessThan(
+      overlayHtml.indexOf("features/hoshidicts/popup.js")
+    );
+    expect(overlayHtml.indexOf("features/hoshidicts/popup.js")).toBeLessThan(
+      overlayHtml.indexOf("features/hoshidicts/reader.js")
+    );
     expect(settingsButton).not.toBeNull();
     expect(settingsButton?.textContent?.trim()).toBe("Hoshidicts Settings");
     expect(button.addEventListener).toHaveBeenCalledWith(
@@ -487,9 +585,43 @@ describe("Hoshidicts safe popup rendering", () => {
         lookupMode: "hover",
         activationKey: "F8",
         activationKeyPressed: false,
+        audioClient: { kind: "audio" },
         sourceHighlightEnabled: true
       })
     );
+    expect(configured.createHoshidictsAudioClient).toHaveBeenCalledWith({
+      apiToken: API_TOKEN,
+      baseUrl: "http://127.0.0.1:7275"
+    });
+    expect(configured.createHoshidictsMiningClient).toHaveBeenCalledWith({
+      apiToken: API_TOKEN,
+      baseUrl: "http://127.0.0.1:7275"
+    });
+  });
+
+  it("applies complete audio profiles delivered by the desktop bridge", () => {
+    const configured = runHoshidictsReaderConfiguration("hover");
+    const registration = configured.ipcOn.mock.calls.find(
+      ([channel]) => channel === "hoshidicts-audio-preferences"
+    );
+    expect(registration).toBeDefined();
+    const profile = {
+      version: 1,
+      enabled: true,
+      autoPlay: true,
+      volume: 60,
+      sources: [{
+        id: "jisho",
+        type: "jisho",
+        url: "",
+        voice: ""
+      }]
+    };
+
+    registration![1]({}, profile);
+
+    expect(configured.window.gsmHoshidictsAudioPreferences).toBe(profile);
+    expect(configured.reader.updateAudioPreferences).toHaveBeenCalledWith(profile);
   });
 
   it("relays live activation-key preferences and global press edges", () => {
@@ -604,6 +736,7 @@ describe("Hoshidicts safe popup rendering", () => {
     ).toBe("http://127.0.0.1:7275");
 
     const client = api.createHoshidictsMiningClient({
+      apiToken: API_TOKEN,
       baseUrl: "http://127.0.0.1:8123",
       fetch: fetchMock
     });
@@ -618,17 +751,36 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
       "http://127.0.0.1:8123/api/hoshidicts/mining/status",
-      expect.objectContaining({ signal: expect.any(AbortSignal) })
+      expect.objectContaining({
+        headers: { "Authorization": `Bearer ${API_TOKEN}` },
+        signal: expect.any(AbortSignal)
+      })
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       "http://127.0.0.1:8123/api/hoshidicts/mine",
       expect.objectContaining({
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Authorization": `Bearer ${API_TOKEN}`,
+          "Content-Type": "application/json"
+        },
         body: JSON.stringify({ sentence: "食べる" })
       })
     );
+  });
+
+  it("does not call the mining API without a broker credential", async () => {
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const fetchMock = vi.fn();
+    const client = api.createHoshidictsMiningClient({
+      baseUrl: "http://127.0.0.1:8123",
+      fetch: fetchMock
+    });
+
+    await expect(client.getStatus()).rejects.toThrow(/authentication/iu);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 
@@ -845,6 +997,9 @@ describe("Hoshidicts Shift-hover scanner", () => {
     expect(popup.textContent).toContain("JMdict");
     expect(popup.textContent).toContain("to eat");
     expect(popup.querySelector("details")?.open).toBe(true);
+    const actions = popup.querySelector(".gsm-hoshidicts-entry-actions");
+    expect(actions?.querySelector(".gsm-hoshidicts-audio-button")).not.toBeNull();
+    expect(actions?.querySelector(".gsm-hoshidicts-mine-button")).not.toBeNull();
     expect(states).toEqual([true]);
 
     reader.hide("test");
@@ -1100,6 +1255,46 @@ describe("Hoshidicts Shift-hover scanner", () => {
     const popup = reader.getPopupElement();
     expect(popup.querySelector(".gsm-hoshidicts-kanji-entry")).not.toBeNull();
     expect(popup.querySelector(".gsm-hoshidicts-kanji-back")).toBeNull();
+    reader.destroy();
+  });
+
+  it("keeps the popup open while choosing an audio source", async () => {
+    const harness = createReaderHarness({
+      lookupMode: "hover",
+      popupHideDelayMs: 50,
+      audioClient: {
+        getCandidates: vi.fn(async () => [{ index: 0, name: "Default" }]),
+        getMedia: vi.fn()
+      },
+      audioPreferences: {
+        version: 1,
+        enabled: true,
+        autoPlay: false,
+        volume: 100,
+        sources: [{ id: "jisho", type: "jisho", url: "", voice: "" }]
+      }
+    });
+    const { dom, reader } = harness;
+    await renderFirstLookup(harness, { shiftKey: false });
+
+    const popup = reader.getPopupElement();
+    popup.querySelector<HTMLButtonElement>(".gsm-hoshidicts-audio-button")!
+      .dispatchEvent(new dom.window.MouseEvent("click", {
+        bubbles: true,
+        shiftKey: true
+      }));
+    await flushPromises();
+    const menu = dom.window.document.querySelector<HTMLElement>(
+      ".gsm-hoshidicts-audio-menu"
+    )!;
+    expect(menu).not.toBeNull();
+
+    popup.dispatchEvent(new dom.window.Event("pointerleave"));
+    menu.dispatchEvent(new dom.window.MouseEvent("mousemove", { bubbles: true }));
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(reader.isVisible()).toBe(true);
+    expect(menu.isConnected).toBe(true);
     reader.destroy();
   });
 
@@ -1836,36 +2031,15 @@ describe("Hoshidicts Shift-hover scanner", () => {
   });
 
   it("keeps transient mining failures readable and retryable", async () => {
-    vi.useFakeTimers();
-    const dom = createDom();
-    const api = loadReaderModule(dom.window as unknown as Window);
-    const first = dom.window.document.getElementById("first")!;
-    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
     const mine = vi.fn()
       .mockRejectedValueOnce(new Error("AnkiConnect stopped responding."))
       .mockResolvedValueOnce({ success: true, noteId: 123 });
-    const reader = api.createHoshidictsReader({
-      window: dom.window,
-      document: dom.window.document,
-      WebSocket: FakeWebSocket,
+    const harness = createReaderHarness({
       getMiningStatus: async () => ({ available: true }),
-      onMine: mine,
-      logger: { debug() {}, warn() {} }
+      onMine: mine
     });
-    const socket = FakeWebSocket.instances[0];
-    socket.open();
-    first.dispatchEvent(
-      new dom.window.MouseEvent("mousemove", {
-        bubbles: true,
-        shiftKey: true,
-        clientX: 11,
-        clientY: 11
-      })
-    );
-    await vi.advanceTimersByTimeAsync(20);
-    const request = JSON.parse(socket.sent.at(-1)!);
-    socket.receive(lookupResult(request.requestId, "食べる"));
-    await flushPromises();
+    const { reader } = harness;
+    await renderFirstLookup(harness);
 
     const popup = reader.getPopupElement();
     const button = popup.querySelector<HTMLButtonElement>(
@@ -1888,35 +2062,13 @@ describe("Hoshidicts Shift-hover scanner", () => {
   });
 
   it("passes the validated term and sentence offset to one mining button", async () => {
-    vi.useFakeTimers();
-    const dom = createDom();
-    const api = loadReaderModule(dom.window as unknown as Window);
-    const first = dom.window.document.getElementById("first")!;
-    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
     const mine = vi.fn(async () => ({ success: true, noteId: 123 }));
-    const reader = api.createHoshidictsReader({
-      window: dom.window,
-      document: dom.window.document,
-      WebSocket: FakeWebSocket,
+    const harness = createReaderHarness({
       getMiningStatus: async () => ({ available: true }),
-      onMine: mine,
-      logger: { debug() {}, warn() {} }
+      onMine: mine
     });
-    const socket = FakeWebSocket.instances[0];
-    socket.open();
-
-    first.dispatchEvent(
-      new dom.window.MouseEvent("mousemove", {
-        bubbles: true,
-        shiftKey: true,
-        clientX: 11,
-        clientY: 11
-      })
-    );
-    await vi.advanceTimersByTimeAsync(20);
-    const request = JSON.parse(socket.sent.at(-1)!);
-    socket.receive(lookupResult(request.requestId, "食べる"));
-    await flushPromises();
+    const { reader } = harness;
+    await renderFirstLookup(harness);
 
     const button = reader
       .getPopupElement()
@@ -1958,6 +2110,87 @@ describe("Hoshidicts Shift-hover scanner", () => {
       })
     );
     expect(button.dataset.state).toBe("success");
+    reader.destroy();
+  });
+
+  it("passes a successful pronunciation selection to mining", async () => {
+    const mine = vi.fn(async () => ({ success: true, noteId: 123 }));
+    const audioController = createAudioControllerStub({
+      sourceId: "jpod101",
+      candidateIndex: 2,
+      candidateToken: "a".repeat(64)
+    });
+    const harness = createReaderHarness({
+      audioController,
+      getMiningStatus: async () => ({ available: true }),
+      onMine: mine
+    });
+    const { reader } = harness;
+    await renderFirstLookup(harness, {
+      transform(response) {
+        response.results[0].term.expression = "  食べる  ";
+        response.results[0].term.reading = "  たべる  ";
+      }
+    });
+
+    const renderedResult = audioController.setRenderedResults.mock.calls[0][0][0].result;
+    expect(renderedResult.term).toMatchObject({
+      expression: "食べる",
+      reading: "たべる"
+    });
+
+    reader.getPopupElement()
+      .querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")!
+      .click();
+    await flushPromises();
+
+    expect(mine).toHaveBeenCalledWith(expect.objectContaining({
+      result: expect.objectContaining({
+        term: expect.objectContaining({
+          expression: "食べる",
+          reading: "たべる"
+        })
+      }),
+      audioSelection: {
+        sourceId: "jpod101",
+        candidateIndex: 2,
+        candidateToken: "a".repeat(64)
+      }
+    }));
+    expect(mine.mock.calls[0][0].result).toBe(renderedResult);
+    reader.destroy();
+  });
+
+  it("keeps mining successful while surfacing an audio enrichment warning", async () => {
+    const harness = createReaderHarness({
+      getMiningStatus: async () => ({ available: true }),
+      onMine: async () => ({
+        success: true,
+        noteId: 123,
+        unmappedFields: ["audio", "pitch"],
+        audio: {
+          status: "failed",
+          warning: "The pronunciation provider did not respond."
+        }
+      })
+    });
+    const { reader } = harness;
+    await renderFirstLookup(harness);
+
+    reader.getPopupElement()
+      .querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")!
+      .click();
+    await flushPromises();
+
+    const feedback = reader.getPopupElement().querySelector(
+      ".gsm-hoshidicts-mining-feedback"
+    );
+    expect(feedback?.dataset.kind).toBe("warning");
+    expect(feedback?.textContent).toContain("Optional fields not filled: pitch.");
+    expect(feedback?.textContent).toContain(
+      "The pronunciation provider did not respond."
+    );
+    expect(feedback?.textContent).not.toContain("not filled: audio");
     reader.destroy();
   });
 });
