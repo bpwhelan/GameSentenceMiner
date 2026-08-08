@@ -11,7 +11,13 @@ from GameSentenceMiner.web import hoshidicts_api
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
+    monkeypatch.setattr(
+        hoshidicts_api.TermLookupStatsTable,
+        "get_seen_count",
+        lambda _term: None,
+        raising=False,
+    )
     app = Flask(__name__)
     hoshidicts_api.register_hoshidicts_api_routes(app)
     return app.test_client()
@@ -50,6 +56,7 @@ def test_post_lookup_stats_normalizes_and_returns_current_count(client, monkeypa
         "lookupCount": 3,
         "firstLookedUpAt": 100.0,
         "lastLookedUpAt": 200.0,
+        "seenCount": None,
     }
 
 
@@ -140,6 +147,65 @@ def test_post_lookup_stats_returns_generic_unavailable_error(client, monkeypatch
         "error": "Lookup statistics are unavailable.",
     }
     assert "secret" not in response.get_data(as_text=True)
+
+
+def test_post_lookup_stats_returns_seen_count(client, monkeypatch):
+    monkeypatch.setattr(
+        hoshidicts_api.TermLookupStatsTable,
+        "record_lookup",
+        lambda term, reading: {
+            "term": term,
+            "reading": reading,
+            "lookup_count": 2,
+            "first_looked_up_at": 100.0,
+            "last_looked_up_at": 200.0,
+        },
+    )
+    monkeypatch.setattr(
+        hoshidicts_api.TermLookupStatsTable,
+        "get_seen_count",
+        lambda term: 34 if term == "食べる" else 0,
+    )
+
+    response = client.post(
+        "/api/hoshidicts/lookup-stats",
+        json={"term": "食べる", "reading": "たべる"},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["seenCount"] == 34
+
+
+def test_post_lookup_stats_keeps_recording_success_when_seen_count_is_unavailable(client, monkeypatch):
+    monkeypatch.setattr(
+        hoshidicts_api.TermLookupStatsTable,
+        "record_lookup",
+        lambda term, reading: {
+            "term": term,
+            "reading": reading,
+            "lookup_count": 1,
+            "first_looked_up_at": 100.0,
+            "last_looked_up_at": 100.0,
+        },
+    )
+
+    def fail_seen_count(_term):
+        raise RuntimeError("tokenization cache unavailable")
+
+    monkeypatch.setattr(
+        hoshidicts_api.TermLookupStatsTable,
+        "get_seen_count",
+        fail_seen_count,
+    )
+
+    response = client.post(
+        "/api/hoshidicts/lookup-stats",
+        json={"term": "食べる", "reading": "たべる"},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["lookupCount"] == 1
+    assert response.get_json()["seenCount"] is None
 
 
 def test_get_lookup_stats_returns_paginated_camel_case_results(client, monkeypatch):
@@ -255,6 +321,7 @@ def test_lookup_stats_api_persists_and_reads_aggregates(client):
 
         assert first.status_code == 200
         assert first.get_json()["lookupCount"] == 1
+        assert first.get_json()["seenCount"] is None
         assert second.status_code == 200
         assert second.get_json()["lookupCount"] == 2
         assert stats.status_code == 200

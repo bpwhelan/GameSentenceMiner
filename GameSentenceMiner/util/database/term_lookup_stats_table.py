@@ -103,6 +103,42 @@ class TermLookupStatsTable:
         return db.run_transaction(write)
 
     @classmethod
+    def get_seen_count(cls, term: str) -> int | None:
+        """Return the all-games tokenized occurrence count for an exact term."""
+        db = cls._get_db()
+        if not db.table_exists("words"):
+            return None
+
+        if db.table_exists("word_stats_cache"):
+            row = db.fetchone(
+                """
+                SELECT COALESCE(word_stats_cache.occurrence_count, 0)
+                FROM words
+                LEFT JOIN word_stats_cache
+                    ON word_stats_cache.word_id = words.id
+                WHERE words.word = ?
+                LIMIT 1
+                """,
+                (term,),
+            )
+            return int(row[0] or 0) if row is not None else 0
+
+        if not db.table_exists("word_occurrences"):
+            return None
+
+        row = db.fetchone(
+            """
+            SELECT COUNT(word_occurrences.line_id)
+            FROM words
+            LEFT JOIN word_occurrences
+                ON word_occurrences.word_id = words.id
+            WHERE words.word = ?
+            """,
+            (term,),
+        )
+        return int(row[0] or 0) if row is not None else 0
+
+    @classmethod
     def get_stats(cls, limit: int, offset: int) -> dict[str, Any]:
         db = cls._get_db()
         if not db.table_exists(cls._table):
