@@ -5973,6 +5973,16 @@ function updateTrayMenu() {
       label: 'Jiten Reader Settings',
       click: () => openJitenReaderSettings()
     },
+    ...(isDev ? [
+      {
+        label: 'Open DevTools',
+        click: () => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.openDevTools({ mode: 'detach' });
+          }
+        }
+      }
+    ] : []),
     { type: 'separator' },
     {
       label: 'Push to Show',
@@ -6932,12 +6942,6 @@ async function startOverlayAppImpl() {
   mainWindow.webContents.on('did-finish-load', () => {
     startOverlayWebSockets();
   });
-  if (isDev) {
-    mainWindow.webContents.on('context-menu', () => {
-      mainWindow.webContents.openDevTools({ mode: 'detach' });
-    });
-    // openSettings();
-  }
   mainWindow.once('ready-to-show', () => {
     const syncResult = syncOverlayWindowsToCurrentMonitor("ready-to-show", { forceSendDisplayInfo: true });
     display = syncResult.display;
