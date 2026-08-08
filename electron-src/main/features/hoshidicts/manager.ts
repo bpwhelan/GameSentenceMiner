@@ -106,6 +106,7 @@ interface PersistedManifest {
     activationKey: HoshidictsActivationKey;
     sourceHighlightEnabled: boolean;
     popupHideDelayMs: number;
+    showLookupCounts: boolean;
     popupNestingMaxDepth: number;
     definitionBlur: HoshidictsDefinitionBlurPreferences;
     schedule: HoshidictsSchedule;
@@ -335,6 +336,7 @@ function emptyManifest(): PersistedManifest {
         sourceHighlightEnabled:
             DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
         popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+        showLookupCounts: true,
         popupNestingMaxDepth: DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
         definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
         schedule: 'off',
@@ -1641,7 +1643,9 @@ export class HoshidictsManager {
             snapshot.popupHideDelayMs,
             snapshot.activationKey,
             snapshot.sourceHighlightEnabled,
-            snapshot.popupNestingMaxDepth
+            snapshot.popupNestingMaxDepth,
+            undefined,
+            snapshot.showLookupCounts
         );
     }
 
@@ -1653,7 +1657,8 @@ export class HoshidictsManager {
             DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
         popupNestingMaxDepth: number =
             DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
-        definitionBlur?: HoshidictsDefinitionBlurPreferences
+        definitionBlur?: HoshidictsDefinitionBlurPreferences,
+        showLookupCounts = true
     ): Promise<HoshidictsManagerSnapshot> {
         if (lookupMode !== 'shift' && lookupMode !== 'hover') {
             throw new Error('Hoshidicts lookup mode is invalid.');
@@ -1672,6 +1677,9 @@ export class HoshidictsManager {
             throw new Error(
                 'Hoshidicts source highlight preference is invalid.'
             );
+        }
+        if (typeof showLookupCounts !== 'boolean') {
+            throw new Error('Hoshidicts lookup count preference is invalid.');
         }
         if (
             !Number.isSafeInteger(popupNestingMaxDepth) ||
@@ -1727,6 +1735,7 @@ export class HoshidictsManager {
                 manifest.popupHideDelayMs !== popupHideDelayMs ||
                 manifest.activationKey !== activationKey ||
                 manifest.sourceHighlightEnabled !== sourceHighlightEnabled ||
+                manifest.showLookupCounts !== showLookupCounts ||
                 manifest.popupNestingMaxDepth !== popupNestingMaxDepth ||
                 !definitionBlurPreferencesEqual(
                     manifest.definitionBlur,
@@ -1739,6 +1748,7 @@ export class HoshidictsManager {
                     activationKey,
                     sourceHighlightEnabled,
                     popupHideDelayMs,
+                    showLookupCounts,
                     popupNestingMaxDepth,
                     definitionBlur: { ...effectiveDefinitionBlur },
                 });
@@ -1995,6 +2005,7 @@ export class HoshidictsManager {
             activationKey: manifest.activationKey,
             sourceHighlightEnabled: manifest.sourceHighlightEnabled,
             popupHideDelayMs: manifest.popupHideDelayMs,
+            showLookupCounts: manifest.showLookupCounts,
             popupNestingMaxDepth: manifest.popupNestingMaxDepth,
             definitionBlur: { ...manifest.definitionBlur },
             schedule: manifest.schedule,
@@ -2324,6 +2335,7 @@ export class HoshidictsManager {
                 : DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
             sourceHighlightEnabled: parsed.sourceHighlightEnabled === true,
             popupHideDelayMs: normalizePopupHideDelay(parsed.popupHideDelayMs),
+            showLookupCounts: parsed.showLookupCounts !== false,
             popupNestingMaxDepth: normalizePopupNestingMaxDepth(
                 parsed.popupNestingMaxDepth
             ),
@@ -2354,6 +2366,7 @@ export class HoshidictsManager {
                 : DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
             sourceHighlightEnabled: parsed.sourceHighlightEnabled === true,
             popupHideDelayMs: normalizePopupHideDelay(parsed.popupHideDelayMs),
+            showLookupCounts: parsed.showLookupCounts !== false,
             popupNestingMaxDepth: normalizePopupNestingMaxDepth(
                 parsed.popupNestingMaxDepth
             ),

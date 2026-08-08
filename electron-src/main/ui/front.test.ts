@@ -166,6 +166,7 @@ describe('runOverlayWithSource', () => {
                 GSM_HOSHIDICTS_LOOKUP_MODE: 'shift',
                 GSM_HOSHIDICTS_ACTIVATION_KEY: 'Shift',
                 GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED: '0',
+                GSM_HOSHIDICTS_SHOW_LOOKUP_COUNTS: '1',
                 GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH: '10',
                 GSM_HOSHIDICTS_DEFINITION_BLUR_ENABLED: '0',
                 GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD: '5',
@@ -198,6 +199,7 @@ describe('runOverlayWithSource', () => {
         expect(process.env.GSM_HOSHIDICTS_LOOKUP_MODE).toBe('shift');
         expect(process.env.GSM_HOSHIDICTS_ACTIVATION_KEY).toBe('Shift');
         expect(process.env.GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED).toBe('0');
+        expect(process.env.GSM_HOSHIDICTS_SHOW_LOOKUP_COUNTS).toBe('1');
         expect(process.env.GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH).toBe('10');
         expect(process.env.GSM_HOSHIDICTS_DEFINITION_BLUR_ENABLED).toBe('0');
         expect(process.env.GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD).toBe('5');
@@ -218,7 +220,7 @@ describe('runOverlayWithSource', () => {
         expect(waitForInProcessOverlayShutdownMock).toHaveBeenCalledTimes(1);
     });
 
-    it('launches with and records the configured Hoshidicts lookup mode', async () => {
+    it('launches with and records configured Hoshidicts reader preferences', async () => {
         isDevValue = true;
         hoshidictsEnabledValue = true;
         existsSyncMock.mockReturnValue(true);
@@ -231,6 +233,7 @@ describe('runOverlayWithSource', () => {
         front.configureHoshidictsActivationKeyProvider(async () => 'F8');
         front.configureHoshidictsSourceHighlightProvider(async () => true);
         front.configureHoshidictsPopupHideDelayProvider(async () => 850);
+        front.configureHoshidictsShowLookupCountsProvider(async () => false);
         front.configureHoshidictsCustomDictionarySyncProvider(
             syncCustomDictionary
         );
@@ -250,6 +253,7 @@ describe('runOverlayWithSource', () => {
             GSM_HOSHIDICTS_ACTIVATION_KEY: 'F8',
             GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED: '1',
             GSM_HOSHIDICTS_POPUP_HIDE_DELAY_MS: '850',
+            GSM_HOSHIDICTS_SHOW_LOOKUP_COUNTS: '0',
             GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH: '4',
             GSM_HOSHIDICTS_DEFINITION_BLUR_ENABLED: '1',
             GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD: '8',
@@ -260,6 +264,7 @@ describe('runOverlayWithSource', () => {
         expect(front.getOverlayHoshidictsActivationKeyAtLaunch()).toBe('F8');
         expect(front.getOverlayHoshidictsSourceHighlightEnabledAtLaunch()).toBe(true);
         expect(front.getOverlayHoshidictsPopupHideDelayAtLaunch()).toBe(850);
+        expect(front.getOverlayHoshidictsShowLookupCountsAtLaunch()).toBe(false);
         expect(front.getOverlayHoshidictsPopupNestingMaxDepthAtLaunch()).toBe(4);
         expect(front.getOverlayHoshidictsDefinitionBlurAtLaunch()).toEqual({
             enabled: true,
@@ -293,6 +298,7 @@ describe('runOverlayWithSource', () => {
                 activationKey: 'Space',
                 sourceHighlightEnabled: false,
                 popupHideDelayMs: 1200,
+                showLookupCounts: true,
                 popupNestingMaxDepth: 0,
                 definitionBlur: {
                     enabled: false,
@@ -306,6 +312,7 @@ describe('runOverlayWithSource', () => {
         expect(front.getOverlayHoshidictsActivationKeyAtLaunch()).toBe('Space');
         expect(front.getOverlayHoshidictsSourceHighlightEnabledAtLaunch()).toBe(false);
         expect(front.getOverlayHoshidictsPopupHideDelayAtLaunch()).toBe(1200);
+        expect(front.getOverlayHoshidictsShowLookupCountsAtLaunch()).toBe(true);
         expect(front.getOverlayHoshidictsPopupNestingMaxDepthAtLaunch()).toBe(0);
         expect(front.getOverlayHoshidictsDefinitionBlurAtLaunch()).toEqual({
             enabled: false,

@@ -305,6 +305,7 @@
 .hoshidicts-activation-key small,
 .hoshidicts-reader-highlight small,
 .hoshidicts-reader-delay small,
+.hoshidicts-reader-counts small,
 .hoshidicts-definition-blur small,
 .hoshidicts-reader-popup-scanning small {
   color: var(--gsm-text-muted);
@@ -410,6 +411,25 @@
 
 .hoshidicts-reader-delay input {
   width: 130px;
+}
+
+.hoshidicts-reader-counts {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: min(100%, 520px);
+  color: var(--gsm-text-secondary);
+  cursor: pointer;
+}
+
+.hoshidicts-reader-counts input {
+  margin-top: 3px;
+  accent-color: var(--gsm-accent);
+}
+
+.hoshidicts-reader-counts span {
+  display: grid;
+  gap: 4px;
 }
 
 .hoshidicts-definition-blur {

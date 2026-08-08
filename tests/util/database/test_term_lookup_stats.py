@@ -169,3 +169,76 @@ def test_lookup_stats_persist_when_database_reopens(tmp_path):
         ]
     finally:
         second_database.close()
+
+
+def test_seen_count_is_unavailable_without_tokenization_tables(lookup_db):
+    assert TermLookupStatsTable.get_seen_count("食べる") is None
+
+    lookup_db.execute(
+        "CREATE TABLE words (id INTEGER PRIMARY KEY, word TEXT NOT NULL)",
+        commit=True,
+    )
+
+    assert TermLookupStatsTable.get_seen_count("食べる") is None
+
+
+def test_seen_count_uses_word_stats_cache_and_returns_zero_for_unseen_terms(lookup_db):
+    lookup_db.execute(
+        "CREATE TABLE words (id INTEGER PRIMARY KEY, word TEXT NOT NULL)",
+        commit=True,
+    )
+    lookup_db.execute(
+        """
+        CREATE TABLE word_stats_cache (
+            word_id INTEGER PRIMARY KEY,
+            occurrence_count INTEGER NOT NULL
+        )
+        """,
+        commit=True,
+    )
+    lookup_db.execute(
+        "CREATE TABLE word_occurrences (word_id INTEGER NOT NULL, line_id TEXT NOT NULL)",
+        commit=True,
+    )
+    lookup_db.execute(
+        "INSERT INTO words (id, word) VALUES (?, ?)",
+        (1, "食べる"),
+        commit=True,
+    )
+    lookup_db.execute(
+        "INSERT INTO word_stats_cache (word_id, occurrence_count) VALUES (?, ?)",
+        (1, 34),
+        commit=True,
+    )
+    lookup_db.execute(
+        "INSERT INTO word_occurrences (word_id, line_id) VALUES (?, ?)",
+        (1, "cache-must-win"),
+        commit=True,
+    )
+
+    assert TermLookupStatsTable.get_seen_count("食べる") == 34
+    assert TermLookupStatsTable.get_seen_count("未出") == 0
+
+
+def test_seen_count_falls_back_to_raw_occurrences_when_cache_is_missing(lookup_db):
+    lookup_db.execute(
+        "CREATE TABLE words (id INTEGER PRIMARY KEY, word TEXT NOT NULL)",
+        commit=True,
+    )
+    lookup_db.execute(
+        "CREATE TABLE word_occurrences (word_id INTEGER NOT NULL, line_id TEXT NOT NULL)",
+        commit=True,
+    )
+    lookup_db.execute(
+        "INSERT INTO words (id, word) VALUES (?, ?)",
+        (1, "読む"),
+        commit=True,
+    )
+    lookup_db.executemany(
+        "INSERT INTO word_occurrences (word_id, line_id) VALUES (?, ?)",
+        [(1, "line-1"), (1, "line-2")],
+        commit=True,
+    )
+
+    assert TermLookupStatsTable.get_seen_count("読む") == 2
+    assert TermLookupStatsTable.get_seen_count("未出") == 0

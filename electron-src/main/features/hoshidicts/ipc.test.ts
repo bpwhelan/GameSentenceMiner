@@ -14,6 +14,7 @@ const harness = vi.hoisted(() => ({
     activationKeyAtLaunch: 'Shift' as string | null,
     sourceHighlightEnabledAtLaunch: false as boolean | null,
     popupHideDelayAtLaunch: 300 as number | null,
+    showLookupCountsAtLaunch: true as boolean | null,
     audioProfileRestartRequired: false,
     popupNestingMaxDepthAtLaunch: 10 as number | null,
     definitionBlurAtLaunch: {
@@ -107,6 +108,7 @@ const snapshot = {
     activationKey: 'Shift',
     sourceHighlightEnabled: false,
     popupHideDelayMs: 300,
+    showLookupCounts: true,
     popupNestingMaxDepth: 10,
     definitionBlur: {
         enabled: false,
@@ -216,6 +218,8 @@ async function registerHarness() {
             harness.sourceHighlightEnabledAtLaunch,
         getOverlayPopupHideDelayAtLaunch: () =>
             harness.popupHideDelayAtLaunch,
+        getOverlayShowLookupCountsAtLaunch: () =>
+            harness.showLookupCountsAtLaunch,
         getOverlayAudioProfileRestartRequired: () =>
             harness.audioProfileRestartRequired,
         getOverlayPopupNestingMaxDepthAtLaunch: () =>
@@ -250,6 +254,7 @@ describe('Hoshidicts settings IPC', () => {
         harness.activationKeyAtLaunch = 'Shift';
         harness.sourceHighlightEnabledAtLaunch = false;
         harness.popupHideDelayAtLaunch = 300;
+        harness.showLookupCountsAtLaunch = true;
         harness.audioProfileRestartRequired = false;
         harness.popupNestingMaxDepthAtLaunch = 10;
         harness.definitionBlurAtLaunch = {
@@ -324,6 +329,21 @@ describe('Hoshidicts settings IPC', () => {
             getState?.({ sender: context.settingsContents })
         ).resolves.toMatchObject({
             overlay: { running: true, restartRequired: true },
+        });
+
+        harness.sourceHighlightEnabledAtLaunch = false;
+        harness.showLookupCountsAtLaunch = false;
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: true },
+        });
+
+        harness.showLookupCountsAtLaunch = true;
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: false },
         });
     });
 
@@ -497,6 +517,26 @@ describe('Hoshidicts settings IPC', () => {
                     activationKey: 'F8',
                     sourceHighlightEnabled: true,
                     popupHideDelayMs: 850,
+                    showLookupCounts: 'yes',
+                    popupNestingMaxDepth: 4,
+                    definitionBlur: snapshot.definitionBlur,
+                }
+            )
+        ).resolves.toMatchObject({
+            success: false,
+            error: 'Hoshidicts reader preferences are invalid.',
+        });
+        expect(harness.manager.setReaderPreferences).not.toHaveBeenCalled();
+
+        await expect(
+            setReaderPreferences?.(
+                { sender: context.settingsContents },
+                {
+                    lookupMode: 'hover',
+                    activationKey: 'F8',
+                    sourceHighlightEnabled: true,
+                    popupHideDelayMs: 850,
+                    showLookupCounts: false,
                     popupNestingMaxDepth: 4,
                     definitionBlur: {
                         enabled: true,
@@ -521,13 +561,15 @@ describe('Hoshidicts settings IPC', () => {
                 lookupThreshold: 7,
                 revealMode: 'hover',
                 revealDelayMs: 6000,
-            }
+            },
+            false
         );
         expect(context.applyReaderPreferences).toHaveBeenCalledWith({
             lookupMode: 'hover',
             activationKey: 'F8',
             sourceHighlightEnabled: true,
             popupHideDelayMs: 850,
+            showLookupCounts: false,
             popupNestingMaxDepth: 4,
             definitionBlur: {
                 enabled: true,
@@ -689,6 +731,7 @@ describe('Hoshidicts settings IPC', () => {
             activationKey: 'F8',
             sourceHighlightEnabled: true,
             popupHideDelayMs: 850,
+            showLookupCounts: true,
             popupNestingMaxDepth: 4,
             definitionBlur: {
                 enabled: true,

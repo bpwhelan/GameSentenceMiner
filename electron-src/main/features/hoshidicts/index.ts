@@ -7,6 +7,7 @@ import {
     configureHoshidictsLookupModeProvider,
     configureHoshidictsPopupHideDelayProvider,
     configureHoshidictsPopupNestingMaxDepthProvider,
+    configureHoshidictsShowLookupCountsProvider,
     configureHoshidictsSourceHighlightProvider,
     configureHoshidictsCustomDictionarySyncProvider,
     getOverlayHoshidictsEnabledAtLaunch,
@@ -15,6 +16,7 @@ import {
     getOverlayHoshidictsLookupModeAtLaunch,
     getOverlayHoshidictsPopupHideDelayAtLaunch,
     getOverlayHoshidictsPopupNestingMaxDepthAtLaunch,
+    getOverlayHoshidictsShowLookupCountsAtLaunch,
     getOverlayHoshidictsSourceHighlightEnabledAtLaunch,
     getOverlayHoshidictsAudioProfileRestartRequired,
     getOverlayRuntimeState,
@@ -152,6 +154,7 @@ async function synchronizeConnectedReader(): Promise<void> {
             activationKey: snapshot.activationKey,
             sourceHighlightEnabled: snapshot.sourceHighlightEnabled,
             popupHideDelayMs: snapshot.popupHideDelayMs,
+            showLookupCounts: snapshot.showLookupCounts,
             popupNestingMaxDepth: snapshot.popupNestingMaxDepth,
             definitionBlur: snapshot.definitionBlur,
         },
@@ -184,6 +187,8 @@ export function registerHoshidictsFeature(deps: {
             getOverlayHoshidictsSourceHighlightEnabledAtLaunch,
         getOverlayPopupHideDelayAtLaunch:
             getOverlayHoshidictsPopupHideDelayAtLaunch,
+        getOverlayShowLookupCountsAtLaunch:
+            getOverlayHoshidictsShowLookupCountsAtLaunch,
         getOverlayAudioProfileRestartRequired:
             getOverlayHoshidictsAudioProfileRestartRequired,
         getOverlayPopupNestingMaxDepthAtLaunch:
@@ -219,6 +224,9 @@ export async function startHoshidictsManager(): Promise<void> {
     );
     configureHoshidictsPopupHideDelayProvider(
         async () => (await manager.getSnapshot()).popupHideDelayMs
+    );
+    configureHoshidictsShowLookupCountsProvider(
+        async () => (await manager.getSnapshot()).showLookupCounts
     );
     configureHoshidictsPopupNestingMaxDepthProvider(
         async () =>

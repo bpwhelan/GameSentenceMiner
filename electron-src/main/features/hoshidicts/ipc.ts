@@ -48,6 +48,7 @@ export interface HoshidictsIPCDependencies {
     getOverlayActivationKeyAtLaunch: () => HoshidictsActivationKey | null;
     getOverlaySourceHighlightEnabledAtLaunch: () => boolean | null;
     getOverlayPopupHideDelayAtLaunch: () => number | null;
+    getOverlayShowLookupCountsAtLaunch: () => boolean | null;
     getOverlayAudioProfileRestartRequired: () => boolean;
     getOverlayPopupNestingMaxDepthAtLaunch: () => number | null;
     getOverlayDefinitionBlurAtLaunch: () =>
@@ -155,6 +156,8 @@ function withDesktopState(
     const sourceHighlightEnabledAtLaunch =
         deps.getOverlaySourceHighlightEnabledAtLaunch();
     const popupHideDelayAtLaunch = deps.getOverlayPopupHideDelayAtLaunch();
+    const showLookupCountsAtLaunch =
+        deps.getOverlayShowLookupCountsAtLaunch();
     const popupNestingMaxDepthAtLaunch =
         deps.getOverlayPopupNestingMaxDepthAtLaunch();
     const definitionBlurAtLaunch = deps.getOverlayDefinitionBlurAtLaunch();
@@ -181,6 +184,9 @@ function withDesktopState(
                     (effectiveEnabled &&
                         popupHideDelayAtLaunch !== null &&
                         popupHideDelayAtLaunch !== snapshot.popupHideDelayMs) ||
+                    (effectiveEnabled &&
+                        showLookupCountsAtLaunch !== null &&
+                        showLookupCountsAtLaunch !== snapshot.showLookupCounts) ||
                     (effectiveEnabled &&
                         popupNestingMaxDepthAtLaunch !== null &&
                         popupNestingMaxDepthAtLaunch !==
@@ -480,6 +486,7 @@ export function registerHoshidictsIPC(
                 !isLookupMode(value.lookupMode) ||
                 !isHoshidictsActivationKey(value.activationKey) ||
                 typeof value.sourceHighlightEnabled !== 'boolean' ||
+                typeof value.showLookupCounts !== 'boolean' ||
                 !Number.isInteger(value.popupHideDelayMs) ||
                 (value.popupHideDelayMs as number) < 0 ||
                 (value.popupHideDelayMs as number) >
@@ -503,6 +510,7 @@ export function registerHoshidictsIPC(
                         sourceHighlightEnabled:
                             value.sourceHighlightEnabled as boolean,
                         popupHideDelayMs: value.popupHideDelayMs as number,
+                        showLookupCounts: value.showLookupCounts as boolean,
                         popupNestingMaxDepth:
                             value.popupNestingMaxDepth as number,
                         definitionBlur: {
@@ -515,7 +523,8 @@ export function registerHoshidictsIPC(
                         preferences.activationKey,
                         preferences.sourceHighlightEnabled,
                         preferences.popupNestingMaxDepth,
-                        preferences.definitionBlur
+                        preferences.definitionBlur,
+                        preferences.showLookupCounts
                     );
                     await deps.applyReaderPreferences(preferences);
                     return state;

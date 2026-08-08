@@ -1472,6 +1472,7 @@
       activationKey: normalizeActivationKey(options.activationKey),
       sourceHighlightEnabled: options.sourceHighlightEnabled === true,
       popupHideDelayMs: normalizePopupHideDelay(options.popupHideDelayMs),
+      showLookupCounts: options.showLookupCounts !== false,
       definitionBlur: normalizeDefinitionBlurPreferences(options.definitionBlur),
       popupNestingMaxDepth: normalizePopupNestingMaxDepth(
         options.popupNestingMaxDepth
@@ -1498,6 +1499,7 @@
     let latestCandidateSignature = "";
     let latestTargetDepth = 0;
     let latestGeneration = 0;
+    let lookupStatsGeneration = 0;
     let latestRequestMode = "term-first";
     let latestRequestText = "";
     let activeDictionaryGeneration = null;
@@ -2081,6 +2083,8 @@
         termView: null,
         audioItems: [],
         definitionBlurContext: null,
+        lookupStatsPayload: null,
+        lookupStatsRequestGeneration: 0,
         miningStatusGeneration: 0,
         cleanup() {
           popup.removeEventListener("pointerdown", stopPropagation);
@@ -2120,9 +2124,16 @@
           pruneFromDepth(depth + 1, "dictionary-tab-changed");
           preparePopupContent("dictionary_tab_changed", depth);
         },
-        onResultsRendered({ audioItems, feedback, miningButtons }) {
+        onResultsRendered({ audioItems, feedback, lookupStats, miningButtons }) {
           for (const button of miningButtons) {
             button.hidden = true;
+          }
+          if (
+            lookupStats &&
+            preferences.showLookupCounts &&
+            level.lookupStatsPayload
+          ) {
+            level.view.setLookupStats(lookupStats, level.lookupStatsPayload);
           }
           level.audioItems = audioItems;
           syncAudioRenderedResults(depth, true);
@@ -2165,6 +2176,8 @@
       for (let index = popupLevels.length - 1; index >= startDepth; index -= 1) {
         const level = popupLevels[index];
         invalidateDefinitionBlur(level);
+        level.lookupStatsRequestGeneration += 1;
+        level.lookupStatsPayload = null;
         level.miningStatusGeneration += 1;
         level.candidate = null;
         level.termView = null;
@@ -2377,6 +2390,8 @@
       );
       const level = ensurePopupLevel(targetDepth);
       const definitionBlurContext = beginDefinitionBlur(level);
+      level.lookupStatsRequestGeneration += 1;
+      level.lookupStatsPayload = null;
       level.termView = {
         results,
         candidate,
@@ -2388,6 +2403,7 @@
       const rendered = level.view.renderResults(results, candidate, {
         definitionBlurState: getDefinitionBlurState(definitionBlurContext),
         generation: dictionaryGeneration,
+        showLookupCounts: preferences.showLookupCounts && Boolean(onLookup),
         resolveMedia: dictionaryGeneration === null
           ? null
           : (request) => resolveMedia({ ...request, depth: targetDepth }),
@@ -2400,7 +2416,7 @@
       level.audioItems = rendered.audioItems;
       showPopup(candidate, targetDepth);
       startDefinitionBlurDeadline(definitionBlurContext);
-      recordLookup(results[0], definitionBlurContext);
+      recordLookup(results[0], definitionBlurContext, level);
       syncAudioRenderedResults(targetDepth, true);
       void refreshMiningButtons(level, rendered.miningButtons, rendered.feedback);
     }
@@ -2424,12 +2440,20 @@
       const rendered = level.view.renderResults(results, candidate, {
         definitionBlurState: getDefinitionBlurState(definitionBlurContext),
         generation: dictionaryGeneration,
+        showLookupCounts: preferences.showLookupCounts && Boolean(onLookup),
         resolveMedia: dictionaryGeneration === null
           ? null
           : (request) => resolveMedia({ ...request, depth: targetDepth }),
       });
       for (const button of rendered.miningButtons) {
         button.hidden = true;
+      }
+      if (
+        rendered.lookupStats &&
+        preferences.showLookupCounts &&
+        level.lookupStatsPayload
+      ) {
+        level.view.setLookupStats(rendered.lookupStats, level.lookupStatsPayload);
       }
       renderedSignatures.set(targetDepth, signature);
       noticeSignatures.delete(targetDepth);
@@ -2620,19 +2644,62 @@
       }
     }
 
-    function recordLookup(result, definitionBlurContext) {
-      if (!onLookup) {
+    function recordLookup(result, definitionBlurContext, level) {
+      if (!onLookup || !preferences.showLookupCounts) {
         revealDefinitions(definitionBlurContext, "lookup-statistics-unavailable");
         return;
       }
       const term = result.term.expression;
       const reading = result.term.reading;
+      const statsGeneration = lookupStatsGeneration;
+      const requestGeneration = level.lookupStatsRequestGeneration;
+      let lookupInvoked = false;
       void Promise.resolve()
-        .then(() => onLookup({ term, reading }))
+        .then(() => {
+          if (
+            destroyed ||
+            statsGeneration !== lookupStatsGeneration ||
+            !preferences.showLookupCounts
+          ) {
+            return undefined;
+          }
+          lookupInvoked = true;
+          return onLookup({ term, reading });
+        })
         .then((response) => {
+          if (
+            !lookupInvoked ||
+            destroyed ||
+            statsGeneration !== lookupStatsGeneration ||
+            requestGeneration !== level.lookupStatsRequestGeneration ||
+            popupLevels[level.depth] !== level ||
+            !preferences.showLookupCounts
+          ) {
+            return;
+          }
           applyDefinitionBlurLookupCount(definitionBlurContext, response);
+          level.lookupStatsPayload = response;
+          const lookupStats = level.popup.querySelector(
+            ".gsm-hoshidicts-lookup-stats"
+          );
+          if (
+            lookupStats &&
+            lookupStats.isConnected &&
+            level.popup.contains(lookupStats)
+          ) {
+            level.view.setLookupStats(lookupStats, response);
+          }
         })
         .catch((error) => {
+          if (
+            destroyed ||
+            statsGeneration !== lookupStatsGeneration ||
+            requestGeneration !== level.lookupStatsRequestGeneration ||
+            popupLevels[level.depth] !== level ||
+            !preferences.showLookupCounts
+          ) {
+            return;
+          }
           revealDefinitions(definitionBlurContext, "lookup-statistics-error");
           diagnostic("warn", "lookup.record-failed", {
             error: boundedString(
@@ -3332,6 +3399,7 @@
       const definitionBlurWasEnabled = preferences.definitionBlur.enabled;
       const previousActivationKey = preferences.activationKey;
       const previousSourceHighlightEnabled = preferences.sourceHighlightEnabled;
+      const previousShowLookupCounts = preferences.showLookupCounts;
       const previousMaxDepth = preferences.popupNestingMaxDepth;
       preferences = {
         lookupMode: Object.prototype.hasOwnProperty.call(nextPreferences, "lookupMode")
@@ -3358,6 +3426,12 @@
               preferences.popupHideDelayMs
             )
           : preferences.popupHideDelayMs,
+        showLookupCounts: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "showLookupCounts"
+        )
+          ? nextPreferences.showLookupCounts !== false
+          : preferences.showLookupCounts,
         definitionBlur: Object.prototype.hasOwnProperty.call(
           nextPreferences,
           "definitionBlur"
@@ -3381,6 +3455,20 @@
         for (const level of popupLevels) {
           invalidateDefinitionBlur(level);
         }
+      }
+      if (previousShowLookupCounts && !preferences.showLookupCounts) {
+        lookupStatsGeneration += 1;
+        for (const level of popupLevels) {
+          level.lookupStatsRequestGeneration += 1;
+          level.lookupStatsPayload = null;
+          revealDefinitions(level.definitionBlurContext, "lookup-statistics-disabled");
+          for (const lookupStats of level.popup.querySelectorAll(
+            ".gsm-hoshidicts-lookup-stats"
+          )) {
+            lookupStats.remove();
+          }
+        }
+        positionAllPopups();
       }
       if (hadHideTimer) {
         clearHideTimer();
@@ -3494,6 +3582,7 @@
       activationKey: preferences.activationKey,
       sourceHighlightEnabled: preferences.sourceHighlightEnabled,
       popupHideDelayMs: preferences.popupHideDelayMs,
+      showLookupCounts: preferences.showLookupCounts,
       popupNestingMaxDepth: preferences.popupNestingMaxDepth,
       scanLength: LOOKUP_SCAN_LENGTH,
     });

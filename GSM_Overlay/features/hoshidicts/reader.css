@@ -506,6 +506,17 @@ html.gsm-hoshidicts-enabled #btn-yomitan {
   color: #dd6755;
 }
 
+.gsm-hoshidicts-lookup-stats {
+  margin-top: 2px;
+  color: var(--text-color-light2);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.gsm-hoshidicts-lookup-stats[hidden] {
+  display: none;
+}
+
 .gsm-hoshidicts-tags,
 .gsm-hoshidicts-definition-tags,
 .gsm-hoshidicts-metadata {

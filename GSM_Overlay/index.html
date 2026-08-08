@@ -37,6 +37,11 @@
     configuredHoshidictsHideDelay >= 0 &&
     configuredHoshidictsHideDelay <= 5000
   ) ? configuredHoshidictsHideDelay : 300;
+  window.gsmHoshidictsShowLookupCounts = !(
+    typeof process !== 'undefined' &&
+    process.env &&
+    process.env.GSM_HOSHIDICTS_SHOW_LOOKUP_COUNTS === '0'
+  );
   const configuredHoshidictsDefinitionBlurThreshold = Number(
     typeof process !== 'undefined' && process.env
       ? process.env.GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD
@@ -5132,6 +5137,7 @@ background: rgba(202, 12, 12, 0.692);
       activationKeyPressed: window.gsmHoshidictsActivationKeyPressed === true,
       sourceHighlightEnabled: window.gsmHoshidictsSourceHighlightEnabled === true,
       popupHideDelayMs: window.gsmHoshidictsPopupHideDelayMs,
+      showLookupCounts: window.gsmHoshidictsShowLookupCounts,
       definitionBlur: window.gsmHoshidictsDefinitionBlur,
       popupNestingMaxDepth: window.gsmHoshidictsPopupNestingMaxDepth,
       audioClient,
@@ -5179,6 +5185,7 @@ background: rgba(202, 12, 12, 0.692);
     window.gsmHoshidictsPopupHideDelayMs = (
       Number.isInteger(hideDelay) && hideDelay >= 0 && hideDelay <= 5000
     ) ? hideDelay : 300;
+    window.gsmHoshidictsShowLookupCounts = preferences.showLookupCounts !== false;
     const popupNestingMaxDepth = Number(preferences.popupNestingMaxDepth);
     window.gsmHoshidictsPopupNestingMaxDepth = (
       Number.isSafeInteger(popupNestingMaxDepth) && popupNestingMaxDepth >= 0
@@ -5192,6 +5199,7 @@ background: rgba(202, 12, 12, 0.692);
         activationKey: window.gsmHoshidictsActivationKey,
         sourceHighlightEnabled: window.gsmHoshidictsSourceHighlightEnabled,
         popupHideDelayMs: window.gsmHoshidictsPopupHideDelayMs,
+        showLookupCounts: window.gsmHoshidictsShowLookupCounts,
         definitionBlur: window.gsmHoshidictsDefinitionBlur,
         popupNestingMaxDepth: window.gsmHoshidictsPopupNestingMaxDepth,
       });

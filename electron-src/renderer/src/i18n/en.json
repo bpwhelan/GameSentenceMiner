@@ -607,6 +607,8 @@
         "sourceHighlightHint": "Show a yellow highlight over the source text used for the lookup.",
         "hideDelay": "Popup hide delay",
         "hideDelayHint": "Keeps the popup reachable when moving from the word into its definitions.",
+        "showLookupCounts": "Show seen and lookup counts",
+        "showLookupCountsHint": "Records lookups and shows seen and lookup totals in the first dictionary result.",
         "allowPopupContentScanning": "Allow scanning popup content",
         "allowPopupContentScanningHint": "Look up Japanese words inside dictionary definitions.",
         "maxChildPopups": "Maximum number of child popups",

@@ -323,6 +323,7 @@ export interface HoshidictsReaderPreferences {
     activationKey: HoshidictsActivationKey;
     sourceHighlightEnabled: boolean;
     popupHideDelayMs: number;
+    showLookupCounts: boolean;
     popupNestingMaxDepth: number;
     definitionBlur: HoshidictsDefinitionBlurPreferences;
 }
@@ -442,6 +443,7 @@ export interface HoshidictsManagerSnapshot {
     activationKey: HoshidictsActivationKey;
     sourceHighlightEnabled: boolean;
     popupHideDelayMs: number;
+    showLookupCounts: boolean;
     popupNestingMaxDepth: number;
     definitionBlur: HoshidictsDefinitionBlurPreferences;
     schedule: HoshidictsSchedule;

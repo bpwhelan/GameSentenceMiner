@@ -303,6 +303,7 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
     setActivationKey,
     setSourceHighlightEnabled,
     setPopupHideDelayMs,
+    setShowLookupCounts,
     setDefinitionBlurEnabled,
     setDefinitionBlurLookupThreshold,
     setDefinitionBlurRevealMode,
@@ -413,6 +414,24 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
             <span>{t("settings.hoshidicts.reader.milliseconds")}</span>
           </div>
           <small>{t("settings.hoshidicts.reader.hideDelayHint")}</small>
+        </label>
+
+        <label className="hoshidicts-reader-counts">
+          <input
+            id="hoshidicts-show-lookup-counts"
+            type="checkbox"
+            checked={readerDraft.showLookupCounts}
+            disabled={preferencesBusy}
+            onChange={(event) =>
+              setShowLookupCounts(event.currentTarget.checked)
+            }
+          />
+          <span>
+            <strong>{t("settings.hoshidicts.reader.showLookupCounts")}</strong>
+            <small>
+              {t("settings.hoshidicts.reader.showLookupCountsHint")}
+            </small>
+          </span>
         </label>
 
         <div className="hoshidicts-definition-blur">

@@ -13,6 +13,7 @@ const harness = vi.hoisted(() => ({
     configureActivationKeyProvider: vi.fn(),
     configureSourceHighlightProvider: vi.fn(),
     configurePopupHideDelayProvider: vi.fn(),
+    configureShowLookupCountsProvider: vi.fn(),
     configureCustomSyncProvider: vi.fn(),
     configurePopupNestingMaxDepthProvider: vi.fn(),
     configureDefinitionBlurProvider: vi.fn(),
@@ -36,6 +37,7 @@ const harness = vi.hoisted(() => ({
         activationKey: 'F8',
         sourceHighlightEnabled: true,
         popupHideDelayMs: 850,
+        showLookupCounts: false,
         popupNestingMaxDepth: 4,
         definitionBlur: {
             enabled: true,
@@ -89,6 +91,8 @@ vi.mock('../../ui/front.js', () => ({
         harness.configureSourceHighlightProvider,
     configureHoshidictsPopupHideDelayProvider:
         harness.configurePopupHideDelayProvider,
+    configureHoshidictsShowLookupCountsProvider:
+        harness.configureShowLookupCountsProvider,
     configureHoshidictsCustomDictionarySyncProvider:
         harness.configureCustomSyncProvider,
     configureHoshidictsPopupNestingMaxDepthProvider:
@@ -100,6 +104,7 @@ vi.mock('../../ui/front.js', () => ({
     getOverlayHoshidictsActivationKeyAtLaunch: () => 'Shift',
     getOverlayHoshidictsSourceHighlightEnabledAtLaunch: () => false,
     getOverlayHoshidictsPopupHideDelayAtLaunch: () => 300,
+    getOverlayHoshidictsShowLookupCountsAtLaunch: () => true,
     getOverlayHoshidictsAudioProfileRestartRequired: () => false,
     getOverlayHoshidictsPopupNestingMaxDepthAtLaunch: () => 10,
     getOverlayHoshidictsDefinitionBlurAtLaunch: () => ({
@@ -149,6 +154,7 @@ describe('Hoshidicts feature registration', () => {
         harness.configureActivationKeyProvider.mockReset();
         harness.configureSourceHighlightProvider.mockReset();
         harness.configurePopupHideDelayProvider.mockReset();
+        harness.configureShowLookupCountsProvider.mockReset();
         harness.configureCustomSyncProvider.mockReset();
         harness.configurePopupNestingMaxDepthProvider.mockReset();
         harness.configureDefinitionBlurProvider.mockReset();
@@ -175,12 +181,17 @@ describe('Hoshidicts feature registration', () => {
         expect(
             harness.registerIPC.mock.calls[0][0].getOverlayLookupModeAtLaunch()
         ).toBe('shift');
+        expect(
+            harness.registerIPC.mock.calls[0][0]
+                .getOverlayShowLookupCountsAtLaunch()
+        ).toBe(true);
         await expect(
             harness.registerIPC.mock.calls[0][0].applyReaderPreferences({
                 lookupMode: 'hover',
                 activationKey: 'F8',
                 sourceHighlightEnabled: true,
                 popupHideDelayMs: 850,
+                showLookupCounts: false,
                 popupNestingMaxDepth: 4,
                 definitionBlur: harness.managerSnapshot.definitionBlur,
             })
@@ -192,6 +203,7 @@ describe('Hoshidicts feature registration', () => {
                 activationKey: 'F8',
                 sourceHighlightEnabled: true,
                 popupHideDelayMs: 850,
+                showLookupCounts: false,
                 popupNestingMaxDepth: 4,
                 definitionBlur: harness.managerSnapshot.definitionBlur,
             },
@@ -202,6 +214,7 @@ describe('Hoshidicts feature registration', () => {
             activationKey: 'F8',
             sourceHighlightEnabled: true,
             popupHideDelayMs: 850,
+            showLookupCounts: false,
             popupNestingMaxDepth: 4,
             definitionBlur: harness.managerSnapshot.definitionBlur,
         });
@@ -233,6 +246,7 @@ describe('Hoshidicts feature registration', () => {
                     activationKey: 'F8',
                     sourceHighlightEnabled: true,
                     popupHideDelayMs: 850,
+                    showLookupCounts: false,
                     popupNestingMaxDepth: 4,
                     definitionBlur: harness.managerSnapshot.definitionBlur,
                 },
@@ -289,6 +303,12 @@ describe('Hoshidicts feature registration', () => {
         const delayProvider =
             harness.configurePopupHideDelayProvider.mock.calls[0][0];
         await expect(delayProvider()).resolves.toBe(850);
+        expect(
+            harness.configureShowLookupCountsProvider
+        ).toHaveBeenCalledOnce();
+        const showLookupCountsProvider =
+            harness.configureShowLookupCountsProvider.mock.calls[0][0];
+        await expect(showLookupCountsProvider()).resolves.toBe(false);
         expect(
             harness.configurePopupNestingMaxDepthProvider
         ).toHaveBeenCalledOnce();

@@ -106,6 +106,7 @@ const baseState: HoshidictsDesktopSnapshot = {
   activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   sourceHighlightEnabled: false,
   popupHideDelayMs: 300,
+  showLookupCounts: true,
   definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
   popupNestingMaxDepth: 10,
   schedule: "weekly",
@@ -627,11 +628,18 @@ describe("HoshidictsSettingsWindow", () => {
     const maxDepth = container.querySelector<HTMLInputElement>(
       "#hoshidicts-popup-nesting-max-depth"
     );
+    const showLookupCounts = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-show-lookup-counts"
+    );
+
+    expect(showLookupCounts?.checked).toBe(true);
+    expect(container.textContent).toContain("Show seen and lookup counts");
 
     await act(async () => {
       hover?.click();
       setInputValue(delay, "850");
       setInputValue(maxDepth, "12");
+      showLookupCounts?.click();
       await flushAutosave();
     });
 
@@ -642,6 +650,7 @@ describe("HoshidictsSettingsWindow", () => {
         activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
         sourceHighlightEnabled: false,
         popupHideDelayMs: 850,
+        showLookupCounts: false,
         popupNestingMaxDepth: 12,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
@@ -651,6 +660,22 @@ describe("HoshidictsSettingsWindow", () => {
       expect.anything()
     );
     expect(container.textContent).toContain("Saved");
+  });
+
+  it("keeps lookup counts with the reader settings", async () => {
+    await render();
+    const countsToggle = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-show-lookup-counts"
+    );
+    const hideDelay = container.querySelector(
+      ".hoshidicts-reader-delay"
+    );
+
+    expect(countsToggle).not.toBeNull();
+    expect(hideDelay).not.toBeNull();
+    expect(countsToggle?.closest(".hoshidicts-section")).toBe(
+      hideDelay?.closest(".hoshidicts-section")
+    );
   });
 
   it("keeps source highlighting off by default and auto-saves when enabled", async () => {
@@ -678,6 +703,7 @@ describe("HoshidictsSettingsWindow", () => {
         activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
         sourceHighlightEnabled: true,
         popupHideDelayMs: 300,
+        showLookupCounts: true,
         popupNestingMaxDepth: 10,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
@@ -721,6 +747,7 @@ describe("HoshidictsSettingsWindow", () => {
         activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
         sourceHighlightEnabled: false,
         popupHideDelayMs: 300,
+        showLookupCounts: true,
         popupNestingMaxDepth: 10,
         definitionBlur: {
           enabled: true,
@@ -841,6 +868,7 @@ describe("HoshidictsSettingsWindow", () => {
         activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
         sourceHighlightEnabled: false,
         popupHideDelayMs: 300,
+        showLookupCounts: true,
         popupNestingMaxDepth: 0,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
@@ -863,6 +891,7 @@ describe("HoshidictsSettingsWindow", () => {
         activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
         sourceHighlightEnabled: false,
         popupHideDelayMs: 300,
+        showLookupCounts: true,
         popupNestingMaxDepth: 1,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
@@ -924,6 +953,7 @@ describe("HoshidictsSettingsWindow", () => {
         activationKey: "1",
         sourceHighlightEnabled: false,
         popupHideDelayMs: 300,
+        showLookupCounts: true,
         popupNestingMaxDepth: 10,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
@@ -950,6 +980,7 @@ describe("HoshidictsSettingsWindow", () => {
         activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
         sourceHighlightEnabled: false,
         popupHideDelayMs: 300,
+        showLookupCounts: true,
         popupNestingMaxDepth: 10,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
@@ -1465,7 +1496,8 @@ describe("HoshidictsSettingsWindow", () => {
       "ポップアップの内容を検索可能にする",
       "繰り返し検索した定義をぼかす",
       "フィールド",
-      "値"
+      "値",
+      "既出回数と検索回数を表示"
     ],
     [
       "ukr",
@@ -1479,7 +1511,8 @@ describe("HoshidictsSettingsWindow", () => {
       "Дозволити пошук у вмісті спливних вікон",
       "Розмивати визначення після повторних пошуків",
       "Поле",
-      "Значення"
+      "Значення",
+      "Показувати кількість зустрічей і пошуків"
     ]
   ])(
     "localizes the standalone window in %s",
@@ -1495,7 +1528,8 @@ describe("HoshidictsSettingsWindow", () => {
       popupScanning,
       definitionBlur,
       fieldHeader,
-      valueHeader
+      valueHeader,
+      lookupCounts
     ) => {
       await render(locale);
       expect(container.textContent).toContain(subtitle);
@@ -1507,6 +1541,7 @@ describe("HoshidictsSettingsWindow", () => {
       expect(container.textContent).toContain(custom);
       expect(container.textContent).toContain(popupScanning);
       expect(container.textContent).toContain(definitionBlur);
+      expect(container.textContent).toContain(lookupCounts);
       await openMining();
       expect(
         Array.from(
@@ -1523,6 +1558,7 @@ describe("HoshidictsSettingsWindow", () => {
       activationKey: undefined,
       sourceHighlightEnabled: undefined,
       popupHideDelayMs: undefined,
+      showLookupCounts: undefined,
       popupNestingMaxDepth: undefined,
       definitionBlur: undefined,
       audioProfile: undefined,
@@ -1545,6 +1581,7 @@ describe("HoshidictsSettingsWindow", () => {
     expect(normalized.activationKey).toBe(DEFAULT_HOSHIDICTS_ACTIVATION_KEY);
     expect(normalized.sourceHighlightEnabled).toBe(false);
     expect(normalized.popupHideDelayMs).toBe(300);
+    expect(normalized.showLookupCounts).toBe(true);
     expect(normalized.definitionBlur).toEqual(
       DEFAULT_HOSHIDICTS_DEFINITION_BLUR
     );

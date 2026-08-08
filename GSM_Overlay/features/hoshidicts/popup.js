@@ -63,6 +63,13 @@
     }[state] || "-";
   }
 
+  function formatLookupCount(label, value) {
+    if (!Number.isSafeInteger(value) || value < 0) {
+      return null;
+    }
+    return `${label} ${value} ${value === 1 ? "time" : "times"}`;
+  }
+
   function createSourceHighlighter(windowRef, documentRef, highlightName) {
     const matches = new Map();
     let highlightedSourceElements = new Set();
@@ -352,6 +359,20 @@
       feedback.textContent = message;
     }
 
+    function setLookupStats(element, payload) {
+      const seen = formatLookupCount("Seen", payload && payload.seenCount);
+      const lookedUp = formatLookupCount(
+        "Looked up",
+        payload && payload.lookupCount
+      );
+      const segments = [seen, lookedUp].filter(Boolean);
+      element.textContent = segments.join(" · ");
+      element.hidden = segments.length === 0;
+      if (!element.hidden) {
+        positionPopup();
+      }
+    }
+
     function appendNoteControls(prefill, selectTermOnOpen = false) {
       const toolbar = documentRef.createElement("div");
       toolbar.className = "gsm-hoshidicts-toolbar";
@@ -627,6 +648,7 @@
       panel.appendChild(feedback);
       const miningButtons = [];
       const audioItems = [];
+      let lookupStats = null;
 
       results.forEach((result, resultIndex) => {
         const entry = documentRef.createElement("article");
@@ -672,6 +694,14 @@
         header.appendChild(actions);
         miningButtons.push(mineButton);
         entry.appendChild(header);
+
+        if (resultIndex === 0 && renderContext.showLookupCounts === true) {
+          lookupStats = documentRef.createElement("div");
+          lookupStats.className = "gsm-hoshidicts-lookup-stats";
+          lookupStats.setAttribute("aria-live", "polite");
+          lookupStats.hidden = true;
+          entry.appendChild(lookupStats);
+        }
 
         const tagRow = documentRef.createElement("div");
         tagRow.className = "gsm-hoshidicts-tags";
@@ -775,7 +805,7 @@
           currentSourceHighlight.matchedText
         );
       }
-      return { audioItems, feedback, miningButtons };
+      return { audioItems, feedback, lookupStats, miningButtons };
     }
 
     function renderKanji(kanji, candidate, renderOptions = {}) {
@@ -942,7 +972,14 @@
           panel,
           projectedResults,
           candidate,
-          renderContext
+          {
+            ...renderContext,
+            // Lookup statistics describe the first unfiltered result. Keep the
+            // line on the All tab so a dictionary projection cannot attach the
+            // original term's count to a different expression.
+            showLookupCounts:
+              activeIndex === 0 && renderContext.showLookupCounts === true,
+          }
         );
         if (hasRendered) {
           onResultsRendered(rendered);
@@ -1012,6 +1049,7 @@
       renderKanji,
       setDefinitionBlurState,
       setFeedback,
+      setLookupStats,
       setSourceHighlightEnabled,
     };
   }

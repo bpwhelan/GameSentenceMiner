@@ -1141,8 +1141,8 @@ describe('Hoshidicts audio profile', () => {
     });
 });
 
-describe('Hoshidicts lookup mode', () => {
-    it('loads manifests created before lookup mode was introduced as Shift', async () => {
+describe('Hoshidicts reader preferences', () => {
+    it('loads legacy manifests with Shift lookup and lookup counts enabled', async () => {
         const baseDir = makeTempDir();
         const { manager } = createHarness(baseDir);
         fs.mkdirSync(path.dirname(manager.manifestPath), { recursive: true });
@@ -1163,6 +1163,7 @@ describe('Hoshidicts lookup mode', () => {
         expect(snapshot.lookupMode).toBe('shift');
         expect(snapshot.activationKey).toBe('Shift');
         expect(snapshot.sourceHighlightEnabled).toBe(false);
+        expect(snapshot.showLookupCounts).toBe(true);
         expect(snapshot.popupNestingMaxDepth).toBe(10);
         expect(snapshot.definitionBlur).toEqual({
             enabled: false,
@@ -1180,6 +1181,7 @@ describe('Hoshidicts lookup mode', () => {
         expect((await manager.getSnapshot()).activationKey).toBe('Shift');
         expect((await manager.getSnapshot()).sourceHighlightEnabled).toBe(false);
         expect((await manager.getSnapshot()).popupHideDelayMs).toBe(300);
+        expect((await manager.getSnapshot()).showLookupCounts).toBe(true);
         expect((await manager.getSnapshot()).popupNestingMaxDepth).toBe(10);
         expect((await manager.getSnapshot()).definitionBlur).toEqual({
             enabled: false,
@@ -1199,13 +1201,15 @@ describe('Hoshidicts lookup mode', () => {
                 lookupThreshold: 8,
                 revealMode: 'hover',
                 revealDelayMs: 7000,
-            }
+            },
+            false
         );
 
         expect(snapshot.lookupMode).toBe('hover');
         expect(snapshot.activationKey).toBe('F8');
         expect(snapshot.sourceHighlightEnabled).toBe(true);
         expect(snapshot.popupHideDelayMs).toBe(850);
+        expect(snapshot.showLookupCounts).toBe(false);
         expect(snapshot.popupNestingMaxDepth).toBe(12);
         expect(snapshot.definitionBlur).toEqual({
             enabled: true,
@@ -1217,6 +1221,7 @@ describe('Hoshidicts lookup mode', () => {
         expect(readManifest(baseDir).activationKey).toBe('F8');
         expect(readManifest(baseDir).sourceHighlightEnabled).toBe(true);
         expect(readManifest(baseDir).popupHideDelayMs).toBe(850);
+        expect(readManifest(baseDir).showLookupCounts).toBe(false);
         expect(readManifest(baseDir).popupNestingMaxDepth).toBe(12);
         expect(readManifest(baseDir).definitionBlur).toEqual({
             enabled: true,
@@ -1230,6 +1235,7 @@ describe('Hoshidicts lookup mode', () => {
         expect((await reloaded.getSnapshot()).activationKey).toBe('F8');
         expect((await reloaded.getSnapshot()).sourceHighlightEnabled).toBe(true);
         expect((await reloaded.getSnapshot()).popupHideDelayMs).toBe(850);
+        expect((await reloaded.getSnapshot()).showLookupCounts).toBe(false);
         expect((await reloaded.getSnapshot()).popupNestingMaxDepth).toBe(12);
         expect((await reloaded.getSnapshot()).definitionBlur).toEqual({
             enabled: true,
@@ -1242,6 +1248,8 @@ describe('Hoshidicts lookup mode', () => {
         expect(shifted.lookupMode).toBe('shift');
         expect(shifted.activationKey).toBe('F8');
         expect(shifted.sourceHighlightEnabled).toBe(true);
+        expect(shifted.showLookupCounts).toBe(false);
+        expect(readManifest(baseDir).showLookupCounts).toBe(false);
         expect(shifted.popupNestingMaxDepth).toBe(12);
         expect(shifted.definitionBlur).toEqual({
             enabled: true,
@@ -1288,6 +1296,23 @@ describe('Hoshidicts lookup mode', () => {
         await expect(
             manager.setReaderPreferences('shift', 300, 'Shift', 'yes' as never)
         ).rejects.toThrow('source highlight preference is invalid');
+    });
+
+    it('rejects non-boolean lookup count preferences', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+
+        await expect(
+            manager.setReaderPreferences(
+                'shift',
+                300,
+                'Shift',
+                false,
+                10,
+                undefined,
+                'yes' as never
+            )
+        ).rejects.toThrow('lookup count preference is invalid');
     });
 
     it('defaults invalid persisted popup nesting depths and rejects invalid updates', async () => {
@@ -1384,7 +1409,7 @@ describe('Hoshidicts snapshots', () => {
             lookupThreshold: 12,
             revealMode: 'hover',
             revealDelayMs: 6000,
-        });
+        }, false);
         await manager.setMiningProfile({
             deck: 'Mining',
             model: 'Kiku',
@@ -1413,6 +1438,7 @@ describe('Hoshidicts snapshots', () => {
         expect(snapshot.activationKey).toBe('Space');
         expect(snapshot.sourceHighlightEnabled).toBe(true);
         expect(snapshot.popupHideDelayMs).toBe(900);
+        expect(snapshot.showLookupCounts).toBe(false);
         expect(snapshot.popupNestingMaxDepth).toBe(0);
         expect(snapshot.definitionBlur).toEqual({
             enabled: true,

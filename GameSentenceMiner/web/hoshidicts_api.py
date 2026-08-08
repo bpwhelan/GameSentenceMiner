@@ -171,7 +171,20 @@ def register_hoshidicts_api_routes(app) -> None:
         except Exception:
             logger.exception("Could not record Hoshidicts lookup statistics")
             return _lookup_stats_error("Lookup statistics are unavailable.", 500)
-        return jsonify({"success": True, **_serialize_lookup_stat(stat)})
+
+        try:
+            seen_count = TermLookupStatsTable.get_seen_count(term)
+        except Exception:
+            logger.exception("Could not read Hoshidicts seen count")
+            seen_count = None
+
+        return jsonify(
+            {
+                "success": True,
+                **_serialize_lookup_stat(stat),
+                "seenCount": seen_count,
+            }
+        )
 
     @app.post("/api/hoshidicts/audio/candidates")
     @local_hoshidicts_only

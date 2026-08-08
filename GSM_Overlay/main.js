@@ -53,6 +53,7 @@ const { URL } = require('url');
 function normalizeHoshidictsReaderPreferencesWithDefinitionBlur(preferences) {
   const normalizedPreferences = normalizeHoshidictsReaderPreferences(preferences);
   const definitionBlur = preferences && preferences.definitionBlur;
+  const showLookupCounts = preferences && preferences.showLookupCounts;
   if (
     !definitionBlur ||
     typeof definitionBlur !== 'object' ||
@@ -63,12 +64,14 @@ function normalizeHoshidictsReaderPreferencesWithDefinitionBlur(preferences) {
     (definitionBlur.revealMode !== 'timed' && definitionBlur.revealMode !== 'hover') ||
     !Number.isInteger(definitionBlur.revealDelayMs) ||
     definitionBlur.revealDelayMs < 1000 ||
-    definitionBlur.revealDelayMs > 3600000
+    definitionBlur.revealDelayMs > 3600000 ||
+    typeof showLookupCounts !== 'boolean'
   ) {
     throw new Error('Hoshidicts reader preferences are invalid.');
   }
   return {
     ...normalizedPreferences,
+    showLookupCounts,
     definitionBlur: {
       enabled: definitionBlur.enabled,
       lookupThreshold: definitionBlur.lookupThreshold,

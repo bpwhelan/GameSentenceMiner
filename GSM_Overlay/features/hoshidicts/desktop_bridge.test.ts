@@ -239,12 +239,14 @@ describe("Hoshidicts desktop bridge", () => {
       lookupMode: "shift",
       popupHideDelayMs: 300,
       popupNestingMaxDepth: 10,
+      showLookupCounts: true,
     }))
       .toBe(false);
     expect(delivery.enqueue({
       lookupMode: "hover",
       popupHideDelayMs: 800,
       popupNestingMaxDepth: 4,
+      showLookupCounts: false,
     }))
       .toBe(false);
     expect(delivered).toEqual([]);
@@ -255,18 +257,21 @@ describe("Hoshidicts desktop bridge", () => {
         lookupMode: "hover",
         popupHideDelayMs: 800,
         popupNestingMaxDepth: 4,
+        showLookupCounts: false,
       },
     ]);
     expect(delivery.enqueue({
       lookupMode: "shift",
       popupHideDelayMs: 500,
       popupNestingMaxDepth: 0,
+      showLookupCounts: true,
     }))
       .toBe(true);
     expect(delivered.at(-1)).toEqual({
       lookupMode: "shift",
       popupHideDelayMs: 500,
       popupNestingMaxDepth: 0,
+      showLookupCounts: true,
     });
 
     delivery.markNotReady();
@@ -275,6 +280,7 @@ describe("Hoshidicts desktop bridge", () => {
       lookupMode: "shift",
       popupHideDelayMs: 500,
       popupNestingMaxDepth: 0,
+      showLookupCounts: true,
     });
 
     delivery.markNotReady();
@@ -282,6 +288,7 @@ describe("Hoshidicts desktop bridge", () => {
       lookupMode: "hover",
       popupHideDelayMs: 900,
       popupNestingMaxDepth: 8,
+      showLookupCounts: false,
     });
     delivery.clear();
     expect(delivery.markReady()).toBe(false);
@@ -341,6 +348,7 @@ describe("Hoshidicts desktop bridge", () => {
           lookupMode: "hover",
           popupHideDelayMs: 800,
           popupNestingMaxDepth: 4,
+          showLookupCounts: false,
         }
       )
     ).resolves.toEqual({ applied: true });
@@ -349,6 +357,7 @@ describe("Hoshidicts desktop bridge", () => {
         lookupMode: "hover",
         popupHideDelayMs: 800,
         popupNestingMaxDepth: 4,
+        showLookupCounts: false,
       },
     ]);
     const audioProfile = {

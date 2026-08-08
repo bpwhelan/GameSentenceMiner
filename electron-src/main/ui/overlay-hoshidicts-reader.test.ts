@@ -65,7 +65,8 @@ function runOverlayFeatureBootstrap(
   activationKey?: string,
   sourceHighlightEnabled?: string,
   popupNestingMaxDepth?: string,
-  definitionBlurEnv: Record<string, string | undefined> = {}
+  definitionBlurEnv: Record<string, string | undefined> = {},
+  showLookupCounts?: string
 ) {
   const html = fs.readFileSync(
     path.resolve(process.cwd(), "GSM_Overlay/index.html"),
@@ -92,6 +93,7 @@ function runOverlayFeatureBootstrap(
         GSM_HOSHIDICTS_ACTIVATION_KEY: activationKey,
         GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED: sourceHighlightEnabled,
         GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH: popupNestingMaxDepth,
+        GSM_HOSHIDICTS_SHOW_LOOKUP_COUNTS: showLookupCounts,
         ...definitionBlurEnv
       }
     },
@@ -110,7 +112,8 @@ function runHoshidictsReaderConfiguration(
     lookupThreshold: 5,
     revealMode: "timed",
     revealDelayMs: 5000
-  }
+  },
+  showLookupCounts = true
 ) {
   const html = fs.readFileSync(
     path.resolve(process.cwd(), "GSM_Overlay/index.html"),
@@ -150,6 +153,7 @@ function runHoshidictsReaderConfiguration(
     gsmHoshidictsActivationKeyPressed: false,
     gsmHoshidictsDefinitionBlur: definitionBlur,
     gsmHoshidictsLookupMode: lookupMode,
+    gsmHoshidictsShowLookupCounts: showLookupCounts,
     gsmHoshidictsSourceHighlightEnabled: sourceHighlightEnabled,
     gsmHoshidictsPopupNestingMaxDepth: popupNestingMaxDepth,
     gsmHoshidictsReaderEnabled: true,
@@ -651,11 +655,13 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(enabled.window.gsmHoshidictsActivationKeyPressed).toBe(false);
     expect(enabled.window.gsmHoshidictsSourceHighlightEnabled).toBe(false);
     expect(enabled.window.gsmHoshidictsPopupNestingMaxDepth).toBe(10);
+    expect(enabled.window.gsmHoshidictsShowLookupCounts).toBe(true);
     expect(enabled.addClass).toHaveBeenCalledWith("gsm-hoshidicts-enabled");
     expect(enabled.documentElement.dataset.gsmHoshidictsEnabled).toBe("true");
 
     const disabled = runOverlayFeatureBootstrap(false);
     expect(disabled.window.gsmHoshidictsReaderEnabled).toBe(false);
+    expect(disabled.window.gsmHoshidictsShowLookupCounts).toBe(true);
     expect(disabled.addClass).not.toHaveBeenCalled();
     expect(disabled.documentElement.dataset.gsmHoshidictsEnabled).toBeUndefined();
 
@@ -663,6 +669,17 @@ describe("Hoshidicts safe popup rendering", () => {
       runOverlayFeatureBootstrap(true, "hover", "F8", "1")
         .window.gsmHoshidictsSourceHighlightEnabled
     ).toBe(true);
+    expect(
+      runOverlayFeatureBootstrap(
+        true,
+        "hover",
+        undefined,
+        undefined,
+        undefined,
+        {},
+        "0"
+      ).window.gsmHoshidictsShowLookupCounts
+    ).toBe(false);
   });
 
   it("normalizes the lookup mode and wires custom entries through overlay IPC", async () => {
@@ -686,6 +703,7 @@ describe("Hoshidicts safe popup rendering", () => {
         activationKeyPressed: false,
         audioClient: { kind: "audio" },
         sourceHighlightEnabled: true,
+        showLookupCounts: true,
         popupNestingMaxDepth: 4,
         definitionBlur: {
           enabled: false,
@@ -771,6 +789,7 @@ describe("Hoshidicts safe popup rendering", () => {
       activationKey: "F9",
       sourceHighlightEnabled: true,
       popupHideDelayMs: 800,
+      showLookupCounts: false,
       popupNestingMaxDepth: 3,
       definitionBlur: {
         enabled: true,
@@ -799,6 +818,7 @@ describe("Hoshidicts safe popup rendering", () => {
       activationKey: "F9",
       sourceHighlightEnabled: true,
       popupHideDelayMs: 800,
+      showLookupCounts: true,
       popupNestingMaxDepth: 3,
       definitionBlur: {
         enabled: true,
@@ -815,6 +835,10 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(() => normalize({
       ...preferences,
       definitionBlur: { ...preferences.definitionBlur, revealDelayMs: 3_600_001 }
+    })).toThrow("Hoshidicts reader preferences are invalid.");
+    expect(() => normalize({
+      ...preferences,
+      showLookupCounts: "false"
     })).toThrow("Hoshidicts reader preferences are invalid.");
   });
 
@@ -863,6 +887,7 @@ describe("Hoshidicts safe popup rendering", () => {
       lookupMode: "shift",
       activationKey: "F9",
       popupHideDelayMs: 450,
+      showLookupCounts: false,
       popupNestingMaxDepth: 10,
       sourceHighlightEnabled: true,
       definitionBlur: {
@@ -882,6 +907,7 @@ describe("Hoshidicts safe popup rendering", () => {
         revealDelayMs: 5000
       },
       popupHideDelayMs: 450,
+      showLookupCounts: false,
       popupNestingMaxDepth: 10,
       sourceHighlightEnabled: true
     });
@@ -1984,6 +2010,195 @@ describe("Hoshidicts Shift-hover scanner", () => {
     expect(reader.getPopupElement().querySelector<HTMLElement>(
       ".gsm-hoshidicts-definitions"
     )?.dataset.definitionBlurState).toBeUndefined();
+    reader.destroy();
+  });
+
+  it("renders first-result seen and lookup counts without blocking the popup", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const lookupStats = deferred<Record<string, unknown>>();
+    const onLookup = vi.fn(() => lookupStats.promise);
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      onLookup,
+      logger: { debug() {}, info() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const request = JSON.parse(socket.sent.at(-1)!);
+    const response = lookupResult(request.requestId, "食べる");
+    response.results.push({
+      ...response.results[0],
+      term: {
+        ...response.results[0].term,
+        expression: "食う",
+        reading: "くう"
+      }
+    });
+    socket.receive(response);
+
+    const entries = reader.getPopupElement().querySelectorAll(
+      ".gsm-hoshidicts-entry"
+    );
+    expect(reader.isVisible()).toBe(true);
+    expect(entries).toHaveLength(2);
+    expect(entries[0].querySelector(".gsm-hoshidicts-lookup-stats")?.hidden)
+      .toBe(true);
+    expect(entries[1].querySelector(".gsm-hoshidicts-lookup-stats")).toBeNull();
+
+    lookupStats.resolve({ success: true, seenCount: 38, lookupCount: 5 });
+    await flushPromises();
+
+    const countLine = entries[0].querySelector<HTMLElement>(
+      ".gsm-hoshidicts-lookup-stats"
+    );
+    expect(countLine?.hidden).toBe(false);
+    expect(countLine?.textContent).toBe("Seen 38 times · Looked up 5 times");
+    expect(onLookup).toHaveBeenCalledTimes(1);
+    reader.destroy();
+  });
+
+  it("does not record or mount lookup counts when disabled", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const onLookup = vi.fn();
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      showLookupCounts: false,
+      onLookup,
+      logger: { debug() {}, info() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const request = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(request.requestId, "食べる"));
+    await flushPromises();
+
+    expect(onLookup).not.toHaveBeenCalled();
+    expect(reader.getPopupElement().querySelector(
+      ".gsm-hoshidicts-lookup-stats"
+    )).toBeNull();
+    reader.destroy();
+  });
+
+  it("removes counts and suppresses an in-flight response when disabled live", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const lookupStats = deferred<Record<string, unknown>>();
+    const onLookup = vi.fn(() => lookupStats.promise);
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      onLookup,
+      logger: { debug() {}, info() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const request = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(request.requestId, "食べる"));
+    await flushPromises();
+    expect(onLookup).toHaveBeenCalledTimes(1);
+
+    reader.updatePreferences({ showLookupCounts: false });
+    expect(reader.getPopupElement().querySelector(
+      ".gsm-hoshidicts-lookup-stats"
+    )).toBeNull();
+    lookupStats.resolve({ success: true, seenCount: 8, lookupCount: 3 });
+    await flushPromises();
+    expect(reader.getPopupElement().textContent).not.toContain("Seen 8 times");
+    reader.destroy();
+  });
+
+  it("ignores lookup counts that resolve after a newer popup renders", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    const second = dom.window.document.getElementById("second")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    setRect(second, { left: 30, top: 10, right: 90, bottom: 30 });
+    const firstStats = deferred<Record<string, unknown>>();
+    const secondStats = deferred<Record<string, unknown>>();
+    const onLookup = vi.fn()
+      .mockImplementationOnce(() => firstStats.promise)
+      .mockImplementationOnce(() => secondStats.promise);
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      onLookup,
+      logger: { debug() {}, info() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const firstRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(firstRequest.requestId, "食べる"));
+    await flushPromises();
+
+    second.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 31,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const secondRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(secondRequest.requestId, "べる", "new result"));
+    await flushPromises();
+
+    firstStats.resolve({ success: true, seenCount: 99, lookupCount: 99 });
+    await flushPromises();
+    const countLine = reader.getPopupElement().querySelector<HTMLElement>(
+      ".gsm-hoshidicts-lookup-stats"
+    );
+    expect(reader.getPopupElement().textContent).toContain("new result");
+    expect(countLine?.textContent).toBe("");
+
+    secondStats.resolve({ success: true, seenCount: 2, lookupCount: 3 });
+    await flushPromises();
+    expect(countLine?.textContent).toBe("Seen 2 times · Looked up 3 times");
     reader.destroy();
   });
 
@@ -3802,6 +4017,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       activationKey: "Shift",
       sourceHighlightEnabled: false,
       popupHideDelayMs: 300,
+      showLookupCounts: true,
       popupNestingMaxDepth: 10
     });
     expect(reader.updatePreferences({
@@ -3827,6 +4043,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       },
       sourceHighlightEnabled: true,
       popupHideDelayMs: 5000,
+      showLookupCounts: true,
       popupNestingMaxDepth: 2
     });
     expect(reader.updatePreferences({ popupHideDelayMs: -20 })).toEqual({
@@ -3840,6 +4057,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       },
       sourceHighlightEnabled: true,
       popupHideDelayMs: 0,
+      showLookupCounts: true,
       popupNestingMaxDepth: 2
     });
     expect(reader.updatePreferences({ popupNestingMaxDepth: -1 }))
@@ -3854,6 +4072,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
         },
         sourceHighlightEnabled: true,
         popupHideDelayMs: 0,
+        showLookupCounts: true,
         popupNestingMaxDepth: 2
       });
     reader.destroy();

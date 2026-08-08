@@ -54,6 +54,7 @@ const defaultReaderPreferences = (): HoshidictsReaderPreferences => ({
   activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   sourceHighlightEnabled: DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
   popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+  showLookupCounts: true,
   popupNestingMaxDepth: DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
   definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR }
 });
@@ -148,6 +149,7 @@ export function useHoshidictsSettingsController() {
       activationKey: normalized.activationKey,
       sourceHighlightEnabled: normalized.sourceHighlightEnabled,
       popupHideDelayMs: normalized.popupHideDelayMs,
+      showLookupCounts: normalized.showLookupCounts,
       popupNestingMaxDepth: normalized.popupNestingMaxDepth,
       definitionBlur: { ...normalized.definitionBlur }
     };
@@ -458,6 +460,13 @@ export function useHoshidictsSettingsController() {
     [updateReaderPreferences]
   );
 
+  const setShowLookupCounts = useCallback(
+    (showLookupCounts: boolean) => {
+      updateReaderPreferences({ showLookupCounts });
+    },
+    [updateReaderPreferences]
+  );
+
   const updateDefinitionBlur = useCallback(
     (
       update: Partial<HoshidictsReaderPreferences["definitionBlur"]>
@@ -655,6 +664,7 @@ export function useHoshidictsSettingsController() {
     setActivationKey,
     setSourceHighlightEnabled,
     setPopupHideDelayMs,
+    setShowLookupCounts,
     setDefinitionBlurEnabled,
     setDefinitionBlurLookupThreshold,
     setDefinitionBlurRevealMode,

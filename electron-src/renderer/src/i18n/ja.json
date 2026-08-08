@@ -589,6 +589,8 @@
         "sourceHighlightHint": "検索に使われた元のテキストを黄色でハイライトします。",
         "hideDelay": "ポップアップを閉じるまでの時間",
         "hideDelayHint": "単語から定義へカーソルを移動するときもポップアップを操作できます。",
+        "showLookupCounts": "既出回数と検索回数を表示",
+        "showLookupCountsHint": "検索履歴を記録し、最初の辞書結果に既出回数と検索回数を表示します。",
         "allowPopupContentScanning": "ポップアップの内容を検索可能にする",
         "allowPopupContentScanningHint": "辞書の定義内にある日本語の単語を検索できます。",
         "maxChildPopups": "子ポップアップの最大数",
