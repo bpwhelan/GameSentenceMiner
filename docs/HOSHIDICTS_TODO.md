@@ -23,8 +23,8 @@ This is the implementation and validation checklist for the Hoshidicts feature b
 - [x] Support simultaneous lookup across multiple enabled dictionaries.
 - [x] Verify current Jitendex contains `我輩` / `吾輩` with reading `わがはい`.
 - [x] Verify full-width katakana `ワガハイ` resolves through a real current Jitendex Yomitan import.
-- [ ] Match Yomitan's width-before-kana normalization so visually equivalent half-width `ﾜｶﾞﾊｲ` also resolves to `わがはい`.
-- [ ] Keep regression coverage for full-width, half-width, decomposed, hiragana, and kanji forms while preserving the original matched text.
+- [x] Match Yomitan's width-before-kana normalization so visually equivalent half-width `ﾜｶﾞﾊｲ` also resolves to `わがはい`.
+- [x] Keep regression coverage for full-width, half-width, decomposed, hiragana, and kanji forms while preserving the original matched text.
 - [ ] Add useful diagnostics which distinguish no enabled term dictionary, no dictionary entry, normalization failure, and lookup transport failure.
 
 ## Popup rendering and appearance
@@ -32,6 +32,8 @@ This is the implementation and validation checklist for the Hoshidicts feature b
 - [ ] Compare default Jitendex/JMdict/JMnedict/KANJIDIC rendering against current Yomitan and native Hoshidicts.
 - [ ] Test CharacterDictionary.tokyo structured content and media through import, lookup, and nested popup rendering.
 - [ ] Render all supported Yomitan structured-content elements, styles, images, ruby, tables, lists, tags, links, and collapsible sections cleanly.
+- [ ] Support Jitendex hyperlinks/cross-references to other dictionary definitions and open them as child Hoshidicts lookups without closing the parent popup.
+- [ ] Distinguish internal definition links from genuine external attribution/source links; keep external links usable without treating them as dictionary queries.
 - [ ] Scope dictionary CSS so one dictionary cannot visually corrupt another dictionary or the popup shell.
 - [ ] Provide attractive fallback styling when a dictionary has no stylesheet.
 - [ ] Keep the popup at a stable configured width and height instead of resizing for each word.
