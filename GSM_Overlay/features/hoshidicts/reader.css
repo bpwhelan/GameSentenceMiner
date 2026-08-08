@@ -48,6 +48,7 @@ html.gsm-hoshidicts-enabled #btn-yomitan {
   max-height: min(520px, 60vh);
   overflow-x: hidden;
   overflow-y: auto;
+  scrollbar-width: none;
   box-sizing: border-box;
   padding: 7px 9px 9px;
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -66,6 +67,10 @@ html.gsm-hoshidicts-enabled #btn-yomitan {
   overscroll-behavior: contain;
   pointer-events: auto;
   user-select: text;
+}
+
+.gsm-hoshidicts-popup::-webkit-scrollbar {
+  display: none;
 }
 
 .gsm-hoshidicts-popup[hidden] {
