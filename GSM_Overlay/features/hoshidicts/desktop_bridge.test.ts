@@ -81,6 +81,7 @@ const {
     dictionaryPresentation: Array<{
       title: string;
       favorite: boolean;
+      displayName?: string;
     }>;
   };
 };
@@ -138,7 +139,7 @@ describe("Hoshidicts desktop bridge", () => {
       popupNestingMaxDepth: 4,
       ...popupAppearance,
       dictionaryPresentation: [
-        { title: "Monolingual", favorite: false },
+        { title: "Monolingual", favorite: false, displayName: "国語辞典" },
         { title: "Bilingual", favorite: true, displayMode: "legacy-value" },
       ],
     })).toEqual({
@@ -149,7 +150,7 @@ describe("Hoshidicts desktop bridge", () => {
       popupNestingMaxDepth: 4,
       ...popupAppearance,
       dictionaryPresentation: [
-        { title: "Monolingual", favorite: false },
+        { title: "Monolingual", favorite: false, displayName: "国語辞典" },
         { title: "Bilingual", favorite: true },
       ],
     });
@@ -224,6 +225,28 @@ describe("Hoshidicts desktop bridge", () => {
       popupNestingMaxDepth: 4,
       ...popupAppearance,
       theme: "neon",
+    })).toThrow("Hoshidicts reader preferences are invalid.");
+    expect(() => normalizeHoshidictsReaderPreferences({
+      lookupMode: "hover",
+      activationKey: "F8",
+      sourceHighlightEnabled: true,
+      popupHideDelayMs: 850,
+      popupNestingMaxDepth: 4,
+      ...popupAppearance,
+      dictionaryPresentation: [
+        { title: "Broken", favorite: true, displayName: "   " },
+      ],
+    })).toThrow("Hoshidicts reader preferences are invalid.");
+    expect(() => normalizeHoshidictsReaderPreferences({
+      lookupMode: "hover",
+      activationKey: "F8",
+      sourceHighlightEnabled: true,
+      popupHideDelayMs: 850,
+      popupNestingMaxDepth: 4,
+      ...popupAppearance,
+      dictionaryPresentation: [
+        { title: "Broken", favorite: true, displayName: "x".repeat(4097) },
+      ],
     })).toThrow("Hoshidicts reader preferences are invalid.");
   });
 

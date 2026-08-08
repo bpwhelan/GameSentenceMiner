@@ -72,11 +72,24 @@ function normalizeHoshidictsDictionaryPresentation(value) {
     ) {
       throw new Error("Hoshidicts reader preferences are invalid.");
     }
+    const displayName = entry.displayName;
+    if (
+      displayName !== undefined &&
+      (typeof displayName !== "string" ||
+        !displayName.trim() ||
+        displayName.length > MAX_HOSHIDICTS_DICTIONARY_TITLE_LENGTH)
+    ) {
+      throw new Error("Hoshidicts reader preferences are invalid.");
+    }
     titles.add(title);
-    return {
+    const normalized = {
       title,
       favorite: entry.favorite,
     };
+    if (displayName !== undefined) {
+      normalized.displayName = displayName.trim();
+    }
+    return normalized;
   });
 }
 

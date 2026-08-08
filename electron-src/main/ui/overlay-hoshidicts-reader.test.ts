@@ -960,7 +960,7 @@ describe("Hoshidicts safe popup rendering", () => {
       popupHeightPx: 520,
       theme: "autumn",
       dictionaryPresentation: [
-        { title: "Primary", favorite: false },
+        { title: "Primary", favorite: false, displayName: "Main dictionary" },
         { title: "Backup", favorite: true }
       ],
       definitionBlur: {
@@ -979,6 +979,13 @@ describe("Hoshidicts safe popup rendering", () => {
         ...validPreferences.definitionBlur,
         lookupThreshold: 0
       }
+    });
+    expect(configured.updatePreferences).toHaveBeenCalledTimes(1);
+    configured.emitPreferences({
+      ...validPreferences,
+      dictionaryPresentation: [
+        { title: "Primary", favorite: false, displayName: "   " }
+      ]
     });
     expect(configured.updatePreferences).toHaveBeenCalledTimes(1);
   });
@@ -2151,6 +2158,33 @@ describe("Hoshidicts dictionary tabs", () => {
     return { dom, first, lookup, reader, second, socket };
   }
 
+  it("normalizes optional dictionary aliases without changing canonical titles", () => {
+    const { reader } = createLookupHarness({
+      dictionaryPresentation: [
+        { title: "Main", favorite: true, displayName: "  Friendly name  " },
+        { title: "Backup", favorite: false, displayName: "   " }
+      ]
+    });
+
+    expect(reader.getPreferences().dictionaryPresentation).toEqual([
+      { title: "Main", favorite: true, displayName: "Friendly name" },
+      { title: "Backup", favorite: false }
+    ]);
+    const longAlias = "長".repeat(5000);
+    reader.updatePreferences({
+      dictionaryPresentation: [
+        { title: "Main", favorite: true, displayName: longAlias }
+      ]
+    });
+    expect(
+      reader.getPreferences().dictionaryPresentation[0].displayName
+    ).toHaveLength(4096);
+    expect(reader.getPreferences().dictionaryPresentation[0].title).toBe(
+      "Main"
+    );
+    reader.destroy();
+  });
+
   it("shows a fresh reader without tabs when presentation is undefined", async () => {
     const harness = createReaderHarness({
       lookupMode: "hover",
@@ -2285,6 +2319,119 @@ describe("Hoshidicts dictionary tabs", () => {
     const panel = popup.querySelector<HTMLElement>('[role="tabpanel"]');
     expect(tabs[0]?.getAttribute("aria-controls")).toBe(panel?.id);
     expect(panel?.getAttribute("aria-labelledby")).toBe(tabs[0]?.id);
+    reader.destroy();
+  });
+
+  it("renders aliases while keeping favorite selection and dictionary identity canonical", async () => {
+    const { lookup, reader, socket } = createLookupHarness({
+      dictionaryPresentation: [
+        { title: "Main", favorite: true, displayName: "Primary Lexicon" },
+        { title: "Backup", favorite: true, displayName: "Reference Notes" }
+      ]
+    });
+    const { popup } = await lookup((requestId) =>
+      lookupResultWithDictionaries(requestId, [
+        { dictionary: "Main", glossary: "main definition" },
+        { dictionary: "Backup", glossary: "backup definition" }
+      ])
+    );
+
+    const tabs = Array.from(
+      popup.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+    );
+    expect(tabs.map((tab) => tab.textContent)).toEqual([
+      "All",
+      "Primary Lexicon",
+      "Reference Notes"
+    ]);
+    expect(tabs[1]?.title).toBe("Main");
+    expect(tabs[1]?.getAttribute("aria-label")).toBe("Main");
+    expect(Array.from(popup.querySelectorAll("summary"), (summary) =>
+      summary.textContent
+    )).toEqual(["Primary Lexicon", "Reference Notes"]);
+    expect(popup.querySelector("summary")?.title).toBe("Main");
+    expect(
+      popup.querySelector<HTMLElement>(
+        '.gsm-hoshidicts-glossary-content[data-hoshidicts-dictionary="Main"]'
+      )
+    ).not.toBeNull();
+
+    const sentBeforeClick = socket.sent.length;
+    tabs[2]?.click();
+    expect(socket.sent).toHaveLength(sentBeforeClick);
+    expect(popup.querySelector('[role="tabpanel"]')?.textContent)
+      .toContain("backup definition");
+    expect(popup.querySelector('[role="tabpanel"]')?.textContent)
+      .not.toContain("main definition");
+    expect(
+      popup.querySelector<HTMLElement>(
+        '.gsm-hoshidicts-glossary-content[data-hoshidicts-dictionary="Backup"]'
+      )
+    ).not.toBeNull();
+    reader.destroy();
+  });
+
+  it("disambiguates duplicate aliases without confusing canonical dictionaries", async () => {
+    const { lookup, reader } = createLookupHarness({
+      dictionaryPresentation: [
+        { title: "Main", favorite: true, displayName: "Core" },
+        { title: "Backup", favorite: true, displayName: "Core" },
+        { title: "Core", favorite: true }
+      ]
+    });
+    const { popup } = await lookup((requestId) =>
+      lookupResultWithDictionaries(requestId, [
+        { dictionary: "Main", glossary: "main" },
+        { dictionary: "Backup", glossary: "backup" },
+        { dictionary: "Core", glossary: "core" }
+      ])
+    );
+
+    const tabs = Array.from(
+      popup.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+    );
+    expect(tabs.map((tab) => tab.textContent)).toEqual([
+      "All",
+      "Core (Main)",
+      "Core (Backup)",
+      "Core"
+    ]);
+    expect(tabs.slice(1).map((tab) => tab.title)).toEqual([
+      "Main",
+      "Backup",
+      "Core"
+    ]);
+    reader.destroy();
+  });
+
+  it("updates visible aliases live without issuing another dictionary lookup", async () => {
+    const { lookup, reader, socket } = createLookupHarness({
+      dictionaryPresentation: [
+        { title: "Main", favorite: true, displayName: "Original label" }
+      ]
+    });
+    const { popup } = await lookup((requestId) =>
+      lookupResultWithDictionaries(requestId, [
+        { dictionary: "Main", glossary: "main definition" }
+      ])
+    );
+    const sentBeforeRename = socket.sent.length;
+
+    reader.updatePreferences({
+      dictionaryPresentation: [
+        { title: "Main", favorite: true, displayName: "Renamed label" }
+      ]
+    });
+
+    expect(socket.sent).toHaveLength(sentBeforeRename);
+    expect(Array.from(popup.querySelectorAll('[role="tab"]'), (tab) =>
+      tab.textContent
+    )).toEqual(["All", "Renamed label"]);
+    expect(popup.querySelector("summary")?.textContent).toBe("Renamed label");
+    expect(popup.querySelector("summary")?.title).toBe("Main");
+    expect(reader.getPreferences().dictionaryPresentation).toEqual([
+      { title: "Main", favorite: true, displayName: "Renamed label" }
+    ]);
     reader.destroy();
   });
 

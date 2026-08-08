@@ -58,21 +58,59 @@
     return displayName || canonicalName;
   }
 
-  function createDictionaryDisplayNames(dictionaries) {
+  function createDictionaryDisplayNames(dictionaries, presentation = []) {
+    const aliases = new Map();
+    for (const entry of presentation) {
+      const title = typeof entry?.title === "string" ? entry.title : "";
+      const displayName = typeof entry?.displayName === "string"
+        ? entry.displayName.trim()
+        : "";
+      if (title && displayName && !aliases.has(title)) {
+        aliases.set(title, displayName);
+      }
+    }
+    const uniqueDictionaries = [...new Set(dictionaries)];
     const cleanedNames = new Map();
     const counts = new Map();
-    for (const dictionary of dictionaries) {
+    for (const dictionary of uniqueDictionaries) {
       const cleanedName = cleanDictionaryDisplayName(dictionary);
       cleanedNames.set(dictionary, cleanedName);
-      counts.set(cleanedName, (counts.get(cleanedName) || 0) + 1);
+      const preferredName = aliases.get(dictionary) || cleanedName;
+      counts.set(preferredName, (counts.get(preferredName) || 0) + 1);
+    }
+    const candidates = new Map();
+    const candidateCounts = new Map();
+    for (const dictionary of uniqueDictionaries) {
+      const alias = aliases.get(dictionary);
+      const cleanedName = cleanedNames.get(dictionary);
+      const preferredName = alias || cleanedName;
+      const candidate = counts.get(preferredName) === 1
+        ? preferredName
+        : alias
+          ? `${alias} (${cleanedName})`
+          : dictionary;
+      candidates.set(dictionary, candidate);
+      candidateCounts.set(candidate, (candidateCounts.get(candidate) || 0) + 1);
     }
     const displayNames = new Map();
-    for (const dictionary of dictionaries) {
-      const cleanedName = cleanedNames.get(dictionary);
-      displayNames.set(
-        dictionary,
-        counts.get(cleanedName) === 1 ? cleanedName : dictionary
-      );
+    const usedNames = new Set();
+    for (const dictionary of uniqueDictionaries) {
+      const alias = aliases.get(dictionary);
+      let displayName = candidates.get(dictionary);
+      if (candidateCounts.get(displayName) > 1 && alias) {
+        displayName = `${alias} (${dictionary})`;
+      }
+      if (usedNames.has(displayName)) {
+        const baseName = `${displayName} — ${dictionary}`;
+        displayName = baseName;
+        let suffix = 2;
+        while (usedNames.has(displayName)) {
+          displayName = `${baseName} ${suffix}`;
+          suffix += 1;
+        }
+      }
+      usedNames.add(displayName);
+      displayNames.set(dictionary, displayName);
     }
     return displayNames;
   }
@@ -1111,6 +1149,12 @@
 
     function renderKanji(kanji, candidate, renderOptions = {}) {
       clear();
+      const dictionaryDisplayNames = createDictionaryDisplayNames(
+        kanji.entries.map(({ dictionary }) => dictionary),
+        Array.isArray(renderOptions.dictionaryPresentation)
+          ? renderOptions.dictionaryPresentation
+          : []
+      );
       const noteControls = createNoteControls(
         { term: kanji.character, reading: "", definition: "" },
         true
@@ -1147,7 +1191,11 @@
 
         const dictionary = documentRef.createElement("h3");
         dictionary.className = "gsm-hoshidicts-kanji-dictionary";
-        dictionary.textContent = kanjiEntry.dictionary;
+        dictionary.textContent = dictionaryDisplayNames.get(
+          kanjiEntry.dictionary
+        ) || kanjiEntry.dictionary;
+        dictionary.title = kanjiEntry.dictionary;
+        dictionary.setAttribute("aria-label", kanjiEntry.dictionary);
         entry.appendChild(dictionary);
 
         if (kanjiEntry.tags.length > 0) {
@@ -1222,10 +1270,13 @@
       clear();
       setDefinitionBlurState(renderContext.definitionBlurState);
       const dictionaries = collectDictionaries(results);
-      const dictionaryDisplayNames = createDictionaryDisplayNames(dictionaries);
       const dictionaryPresentation = Array.isArray(
         renderContext.dictionaryPresentation
       ) ? renderContext.dictionaryPresentation : [];
+      const dictionaryDisplayNames = createDictionaryDisplayNames(
+        dictionaries,
+        dictionaryPresentation
+      );
       const availableDictionaries = new Set(dictionaries);
       const favoriteDictionaries = dictionaryPresentation
         .filter(({ favorite, title }) =>

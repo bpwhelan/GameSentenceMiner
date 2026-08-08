@@ -1782,12 +1782,29 @@
         continue;
       }
       titles.add(title);
-      normalized.push({
+      const normalizedEntry = {
         title,
         favorite: entry.favorite,
-      });
+      };
+      const displayName = boundedString(
+        entry.displayName,
+        MAX_DICTIONARY_PRESENTATION_TITLE_LENGTH
+      ).trim();
+      if (displayName) {
+        normalizedEntry.displayName = displayName;
+      }
+      normalized.push(normalizedEntry);
     }
     return normalized;
+  }
+
+  function dictionaryPresentationEqual(left, right) {
+    return left.length === right.length && left.every((entry, index) => {
+      const other = right[index];
+      return entry.title === other.title &&
+        entry.favorite === other.favorite &&
+        entry.displayName === other.displayName;
+    });
   }
 
   function normalizeDefinitionBlurPreferences(
@@ -3816,6 +3833,7 @@
         level.miningItems = [];
         level.miningFeedback = null;
         level.view.renderKanji(kanji, candidate, {
+          dictionaryPresentation: preferences.dictionaryPresentation,
           onBack: requestMode === "kanji" && termView
             ? () => restoreTermView(targetDepth)
             : null,
@@ -4335,6 +4353,7 @@
       const previousPopupWidthPx = preferences.popupWidthPx;
       const previousPopupHeightPx = preferences.popupHeightPx;
       const previousTheme = preferences.theme;
+      const previousDictionaryPresentation = preferences.dictionaryPresentation;
       preferences = {
         lookupMode: Object.prototype.hasOwnProperty.call(nextPreferences, "lookupMode")
           ? nextPreferences.lookupMode === "hover" ? "hover" : "shift"
@@ -4451,6 +4470,18 @@
         previousTheme !== preferences.theme
       ) {
         applyAppearancePreferences();
+      }
+      if (
+        !dictionaryPresentationEqual(
+          previousDictionaryPresentation,
+          preferences.dictionaryPresentation
+        )
+      ) {
+        for (const level of popupLevels) {
+          if (level.visible && level.termView) {
+            restoreTermView(level.depth);
+          }
+        }
       }
       if (previousMode !== preferences.lookupMode || activationKeyChanged) {
         activationRequirementLogged = false;
