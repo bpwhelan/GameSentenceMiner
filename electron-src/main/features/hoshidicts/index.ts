@@ -3,11 +3,15 @@ import type { BrowserWindow } from 'electron';
 import { getConfiguredHoshidictsEnabled } from '../../gsm_config.js';
 import { bus, getBusConnectInfo } from '../../runtime/bus_client.js';
 import {
+    configureHoshidictsActivationKeyProvider,
     configureHoshidictsLookupModeProvider,
     configureHoshidictsPopupHideDelayProvider,
+    configureHoshidictsSourceHighlightProvider,
     getOverlayHoshidictsEnabledAtLaunch,
+    getOverlayHoshidictsActivationKeyAtLaunch,
     getOverlayHoshidictsLookupModeAtLaunch,
     getOverlayHoshidictsPopupHideDelayAtLaunch,
+    getOverlayHoshidictsSourceHighlightEnabledAtLaunch,
     getOverlayRuntimeState,
     markOverlayHoshidictsReaderPreferencesApplied,
     restartOverlay,
@@ -73,6 +77,10 @@ export function registerHoshidictsFeature(deps: {
             getOverlayHoshidictsEnabledAtLaunch,
         getOverlayLookupModeAtLaunch:
             getOverlayHoshidictsLookupModeAtLaunch,
+        getOverlayActivationKeyAtLaunch:
+            getOverlayHoshidictsActivationKeyAtLaunch,
+        getOverlaySourceHighlightEnabledAtLaunch:
+            getOverlayHoshidictsSourceHighlightEnabledAtLaunch,
         getOverlayPopupHideDelayAtLaunch:
             getOverlayHoshidictsPopupHideDelayAtLaunch,
         applyReaderPreferences,
@@ -101,6 +109,14 @@ export async function startHoshidictsManager(): Promise<void> {
     await startManager();
     configureHoshidictsLookupModeProvider(
         async () => (await getHoshidictsManager().getSnapshot()).lookupMode
+    );
+    configureHoshidictsActivationKeyProvider(
+        async () => (await getHoshidictsManager().getSnapshot()).activationKey
+    );
+    configureHoshidictsSourceHighlightProvider(
+        async () =>
+            (await getHoshidictsManager().getSnapshot())
+                .sourceHighlightEnabled
     );
     configureHoshidictsPopupHideDelayProvider(
         async () =>

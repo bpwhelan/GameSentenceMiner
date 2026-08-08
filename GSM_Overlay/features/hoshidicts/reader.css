@@ -16,6 +16,10 @@ html.gsm-hoshidicts-enabled iframe.yomitan-popup {
   pointer-events: none !important;
 }
 
+html.gsm-hoshidicts-enabled #btn-yomitan {
+  display: none !important;
+}
+
 ::highlight(gsm-hoshidicts-match) {
   color: inherit;
   background-color: rgba(255, 206, 84, 0.34);
@@ -28,10 +32,10 @@ html.gsm-hoshidicts-enabled iframe.yomitan-popup {
 }
 
 .gsm-hoshidicts-popup {
-  --background-color: #1e1e1e;
-  --background-color-light: #0a0a0a;
-  --background-color-dark1: #333333;
-  --text-color: #d4d4d4;
+  --background-color: rgba(45, 45, 55, 0.85);
+  --background-color-light: rgba(10, 10, 14, 0.52);
+  --background-color-dark1: rgba(51, 51, 59, 0.58);
+  --text-color: #dfdfdf;
   --text-color-light1: #aaaaaa;
   --text-color-light2: #999999;
   --accent-color: #4a91ed;
@@ -46,11 +50,16 @@ html.gsm-hoshidicts-enabled iframe.yomitan-popup {
   overflow-y: auto;
   box-sizing: border-box;
   padding: 7px 9px 9px;
-  border: 1px solid #666666;
-  border-radius: 6px;
-  background: var(--background-color);
-  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  background: rgba(45, 45, 55, 0.85);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  box-shadow:
+    0 0 10px rgba(255, 255, 255, 0.5),
+    0 8px 30px rgba(0, 0, 0, 0.48);
   color: var(--text-color);
+  color-scheme: dark;
   font-family: "Yu Gothic UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif;
   font-size: 14px;
   line-height: 1.4;
@@ -66,7 +75,7 @@ html.gsm-hoshidicts-enabled iframe.yomitan-popup {
 .gsm-hoshidicts-entry + .gsm-hoshidicts-entry {
   margin-top: 7px;
   padding-top: 7px;
-  border-top: 1px solid #3f3f3f;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .gsm-hoshidicts-entry-header {
@@ -85,7 +94,7 @@ html.gsm-hoshidicts-enabled iframe.yomitan-popup {
 }
 
 .gsm-hoshidicts-expression rt {
-  color: var(--text-color-light1);
+  color: #979797;
   font-size: 13px;
   user-select: none;
 }
@@ -235,7 +244,7 @@ html.gsm-hoshidicts-enabled iframe.yomitan-popup {
   padding: 6px 8px;
   border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 8px;
-  background: #252525;
+  background: rgba(10, 10, 14, 0.42);
   box-shadow: 0 1px 1px rgba(0, 0, 0, 0.36);
 }
 
@@ -296,7 +305,7 @@ html.gsm-hoshidicts-enabled iframe.yomitan-popup {
 }
 
 .gsm-hoshidicts-glossary-content th {
-  background: var(--background-color-dark1);
+  background: transparent;
 }
 
 .gsm-hoshidicts-show-more {
@@ -304,9 +313,9 @@ html.gsm-hoshidicts-enabled iframe.yomitan-popup {
   width: 100%;
   margin-top: 8px;
   padding: 6px 8px;
-  border: 1px solid #555555;
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 5px;
-  background: #292929;
+  background: rgba(10, 10, 14, 0.52);
   color: var(--text-color);
   font: inherit;
   cursor: pointer;

@@ -33,6 +33,8 @@
   const LOOKUP_MAX_RESULTS = 16;
   const INITIAL_VISIBLE_RESULTS = 6;
   const DEFAULT_POPUP_HIDE_DELAY_MS = 300;
+  const DEFAULT_ACTIVATION_KEY = "Shift";
+  const DEFAULT_SOURCE_HIGHLIGHT_ENABLED = false;
   const MAX_POPUP_HIDE_DELAY_MS = 5 * 1000;
   const MAX_RESPONSE_BYTES = 256 * 1024;
   const MAX_GLOSSARIES = 64;
@@ -93,6 +95,30 @@
     "svg",
     "video",
   ]);
+  const NAMED_ACTIVATION_KEYS = new Map([
+    ["ctrl", "Ctrl"],
+    ["alt", "Alt"],
+    ["shift", "Shift"],
+    ["cmd", "Cmd"],
+    ["space", "Space"],
+    ["return", "Return"],
+    ["escape", "Escape"],
+    ["backspace", "Backspace"],
+    ["delete", "Delete"],
+    ["tab", "Tab"],
+    ["up", "Up"],
+    ["down", "Down"],
+    ["left", "Left"],
+    ["right", "Right"],
+    ["home", "Home"],
+    ["end", "End"],
+    ["pageup", "PageUp"],
+    ["pagedown", "PageDown"],
+    ["insert", "Insert"],
+  ]);
+  const PUNCTUATION_ACTIVATION_KEYS = new Set([
+    "-", "=", "[", "]", "\\", ";", "'", ",", ".", "/", "`",
+  ]);
 
   function isRecord(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -100,6 +126,27 @@
 
   function boundedString(value, maxLength = MAX_TEXT_LENGTH) {
     return typeof value === "string" ? value.slice(0, maxLength) : "";
+  }
+
+  function normalizeActivationKey(value, fallback = DEFAULT_ACTIVATION_KEY) {
+    if (typeof value !== "string") {
+      return fallback;
+    }
+    const token = value.trim();
+    if (PUNCTUATION_ACTIVATION_KEYS.has(token)) {
+      return token;
+    }
+    if (/^[a-z]$/iu.test(token)) {
+      return token.toUpperCase();
+    }
+    if (/^[0-9]$/u.test(token)) {
+      return token;
+    }
+    const functionKeyMatch = /^f([1-9]|1[0-9]|2[0-4])$/iu.exec(token);
+    if (functionKeyMatch) {
+      return `F${functionKeyMatch[1]}`;
+    }
+    return NAMED_ACTIVATION_KEYS.get(token.toLowerCase()) ?? fallback;
   }
 
   function normalizeLookupResults(payload) {
@@ -724,6 +771,8 @@
 
     let preferences = {
       lookupMode: options.lookupMode === "hover" ? "hover" : "shift",
+      activationKey: normalizeActivationKey(options.activationKey),
+      sourceHighlightEnabled: options.sourceHighlightEnabled === true,
       popupHideDelayMs: normalizePopupHideDelay(options.popupHideDelayMs),
     };
     let socket = null;
@@ -734,7 +783,8 @@
     let hideTimer = null;
     let pendingHideReason = "pointer-left";
     let destroyed = false;
-    let shiftPressed = false;
+    let localShiftPressed = false;
+    let globalActivationKeyPressed = options.activationKeyPressed === true;
     let pointerInPopup = false;
     let lastPointer = null;
     let requestSequence = 0;
@@ -750,7 +800,7 @@
     let miningStatusCache = null;
     let miningStatusCacheExpiresAt = 0;
     let miningStatusPromise = null;
-    let shiftRequirementLogged = false;
+    let activationRequirementLogged = false;
     let candidateMissLogged = false;
 
     function diagnostic(level, event, details = {}) {
@@ -773,8 +823,18 @@
       sink.call(logger, `[HoshidictsReader] ${event}${suffix}`);
     }
 
-    function requiresShift() {
+    function requiresActivationKey() {
       return preferences.lookupMode === "shift";
+    }
+
+    function isActivationKeyPressed(mouseShiftPressed = false) {
+      return (
+        globalActivationKeyPressed ||
+        (
+          preferences.activationKey === DEFAULT_ACTIVATION_KEY &&
+          (localShiftPressed || mouseShiftPressed)
+        )
+      );
     }
 
     function isReadableHoverTarget(target) {
@@ -804,6 +864,7 @@
       initialResultCount: INITIAL_VISIBLE_RESULTS,
       maxMetadataTags: MAX_VISIBLE_METADATA_TAGS,
       highlightName: SOURCE_HIGHLIGHT_NAME,
+      sourceHighlightEnabled: preferences.sourceHighlightEnabled,
       positionPopup,
       onMineClick(button, result, candidate, feedback) {
         void mineResult(button, result, candidate, feedback);
@@ -975,7 +1036,10 @@
         button.hidden = true;
         setMiningButtonState(button, "unavailable", reason);
       }
-      popupView.setFeedback(feedback, `Anki mining unavailable: ${reason}`, "warning");
+      // Match Yomitan's quiet unavailable state: dictionary results remain the
+      // focus, with no setup warning or inert mining affordance. Errors from a
+      // real mining attempt still flow through mineResult below.
+      popupView.setFeedback(feedback, "");
     }
 
     async function mineResult(button, result, candidate, feedback) {
@@ -1109,6 +1173,9 @@
         return;
       }
       const rendered = popupView.renderResults(results, candidate);
+      for (const button of rendered.miningButtons) {
+        button.hidden = true;
+      }
       showPopup(candidate);
       void refreshMiningButtons(rendered.miningButtons, rendered.feedback);
       diagnostic("info", "lookup.rendered", {
@@ -1281,15 +1348,16 @@
         return;
       }
       pointerInPopup = false;
-      if (requiresShift() && !modifierActive) {
-        if (!shiftRequirementLogged && isReadableHoverTarget(pointer.target)) {
-          shiftRequirementLogged = true;
-          diagnostic("info", "hover.shift-required", {
-            message: "Hold Shift while hovering readable text to run a lookup.",
+      if (requiresActivationKey() && !modifierActive) {
+        if (!activationRequirementLogged && isReadableHoverTarget(pointer.target)) {
+          activationRequirementLogged = true;
+          diagnostic("info", "hover.activation-key-required", {
+            activationKey: preferences.activationKey,
+            message: `Hold ${preferences.activationKey} while hovering readable text to run a lookup.`,
           });
         }
         invalidateLookup();
-        scheduleHide("shift-not-held");
+        scheduleHide("activation-key-not-held");
         return;
       }
       const candidate = resolveLookupCandidate(
@@ -1321,28 +1389,53 @@
         clientY: event.clientY,
         shiftKey: event.shiftKey,
       };
-      scanPointer(lastPointer, shiftPressed || event.shiftKey);
+      scanPointer(lastPointer, isActivationKeyPressed(event.shiftKey));
     }
 
     function onKeyDown(event) {
-      if (event.key !== "Shift") {
+      if (
+        preferences.activationKey !== DEFAULT_ACTIVATION_KEY ||
+        event.key !== DEFAULT_ACTIVATION_KEY
+      ) {
         return;
       }
-      const wasPressed = shiftPressed;
-      shiftPressed = true;
-      if (!wasPressed && requiresShift()) {
+      const wasPressed = localShiftPressed;
+      localShiftPressed = true;
+      if (!wasPressed && requiresActivationKey()) {
         scanPointer(lastPointer, true);
       }
     }
 
     function onKeyUp(event) {
-      if (event.key === "Shift") {
-        shiftPressed = false;
-        if (requiresShift()) {
+      if (
+        preferences.activationKey === DEFAULT_ACTIVATION_KEY &&
+        event.key === DEFAULT_ACTIVATION_KEY
+      ) {
+        localShiftPressed = false;
+        if (requiresActivationKey() && !globalActivationKeyPressed) {
           invalidateLookup();
-          scheduleHide("shift-released");
+          scheduleHide("activation-key-released");
         }
       }
+    }
+
+    function setActivationKeyPressed(active) {
+      const nextPressed = active === true;
+      if (globalActivationKeyPressed === nextPressed) {
+        return false;
+      }
+      globalActivationKeyPressed = nextPressed;
+      if (!requiresActivationKey()) {
+        return true;
+      }
+      if (nextPressed) {
+        scanPointer(lastPointer, true);
+      } else {
+        localShiftPressed = false;
+        invalidateLookup();
+        scheduleHide("activation-key-released");
+      }
+      return true;
     }
 
     function onPopupPointerEnter() {
@@ -1358,10 +1451,24 @@
     function updatePreferences(nextPreferences = {}) {
       const hadHideTimer = hideTimer !== null;
       const previousMode = preferences.lookupMode;
+      const previousActivationKey = preferences.activationKey;
+      const previousSourceHighlightEnabled = preferences.sourceHighlightEnabled;
       preferences = {
         lookupMode: Object.prototype.hasOwnProperty.call(nextPreferences, "lookupMode")
           ? nextPreferences.lookupMode === "hover" ? "hover" : "shift"
           : preferences.lookupMode,
+        activationKey: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "activationKey"
+        )
+          ? normalizeActivationKey(nextPreferences.activationKey)
+          : preferences.activationKey,
+        sourceHighlightEnabled: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "sourceHighlightEnabled"
+        )
+          ? nextPreferences.sourceHighlightEnabled === true
+          : preferences.sourceHighlightEnabled,
         popupHideDelayMs: Object.prototype.hasOwnProperty.call(
           nextPreferences,
           "popupHideDelayMs"
@@ -1376,11 +1483,19 @@
         clearHideTimer();
         scheduleHide(pendingHideReason);
       }
-      if (previousMode !== preferences.lookupMode) {
-        shiftRequirementLogged = false;
-        if (requiresShift() && !shiftPressed) {
+      const activationKeyChanged = previousActivationKey !== preferences.activationKey;
+      if (activationKeyChanged) {
+        localShiftPressed = false;
+        globalActivationKeyPressed = false;
+      }
+      if (previousSourceHighlightEnabled !== preferences.sourceHighlightEnabled) {
+        popupView.setSourceHighlightEnabled(preferences.sourceHighlightEnabled);
+      }
+      if (previousMode !== preferences.lookupMode || activationKeyChanged) {
+        activationRequirementLogged = false;
+        if (requiresActivationKey() && !isActivationKeyPressed()) {
           invalidateLookup();
-          scheduleHide("lookup-mode-changed");
+          scheduleHide(activationKeyChanged ? "activation-key-changed" : "lookup-mode-changed");
         } else {
           scanPointer(lastPointer, true);
         }
@@ -1390,9 +1505,11 @@
     }
 
     function onWindowBlur() {
-      shiftPressed = false;
-      invalidateLookup();
-      scheduleHide("window-blurred");
+      localShiftPressed = false;
+      if (!globalActivationKeyPressed) {
+        invalidateLookup();
+        scheduleHide("window-blurred");
+      }
     }
 
     function destroy() {
@@ -1400,6 +1517,8 @@
         return;
       }
       destroyed = true;
+      localShiftPressed = false;
+      globalActivationKeyPressed = false;
       diagnostic("info", "reader.destroyed");
       hide("destroy");
       if (reconnectTimer !== null) {
@@ -1433,7 +1552,9 @@
     windowRef.addEventListener("blur", onWindowBlur);
     diagnostic("info", "reader.initialized", {
       serverUrl,
-      requiresShift: requiresShift(),
+      requiresShift: requiresActivationKey(),
+      activationKey: preferences.activationKey,
+      sourceHighlightEnabled: preferences.sourceHighlightEnabled,
       popupHideDelayMs: preferences.popupHideDelayMs,
       scanLength: LOOKUP_SCAN_LENGTH,
     });
@@ -1446,12 +1567,15 @@
       getPopupElement: () => popup,
       getPreferences: () => ({ ...preferences }),
       positionPopup,
+      setActivationKeyPressed,
       updatePreferences,
     };
   }
 
   return {
+    DEFAULT_ACTIVATION_KEY,
     DEFAULT_POPUP_HIDE_DELAY_MS,
+    DEFAULT_SOURCE_HIGHLIGHT_ENABLED,
     INITIAL_VISIBLE_RESULTS,
     LOOKUP_DEBOUNCE_MS,
     LOOKUP_MAX_RESULTS,
@@ -1463,6 +1587,7 @@
     calculatePopupPosition,
     createHoshidictsMiningClient,
     createHoshidictsReader,
+    normalizeActivationKey,
     normalizePopupHideDelay,
     normalizeLookupResults,
     resolveGsmApiBaseUrl,

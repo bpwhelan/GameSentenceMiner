@@ -82,59 +82,94 @@
         return;
       }
 
-      const sourceElements = candidate.sourceElements.filter(
-        (element) => element instanceof windowRef.Element && element.isConnected
-      );
+      const sourceElements = candidate.sourceElements;
+      if (
+        sourceElements.some(
+          (element) => !(element instanceof windowRef.Element) || !element.isConnected
+        ) ||
+        sourceElements.map((element) => element.textContent || "").join("") !==
+          candidate.sentence
+      ) {
+        return;
+      }
+      const ranges = [];
+      const rangedSourceElements = [];
       let elementStart = 0;
       for (const element of sourceElements) {
         const elementEnd = elementStart + (element.textContent || "").length;
         if (elementEnd > startOffset && elementStart < endOffset) {
           element.classList.add("gsm-hoshidicts-source-match");
           highlightedSourceElements.push(element);
+
+          const textNodes = [];
+          const showText = windowRef.NodeFilter ? windowRef.NodeFilter.SHOW_TEXT : 4;
+          const walker = documentRef.createTreeWalker(element, showText);
+          let node = walker.nextNode();
+          while (node) {
+            textNodes.push(node);
+            node = walker.nextNode();
+          }
+
+          function findBoundary(offset, preferFollowingNode) {
+            let consumed = 0;
+            for (let index = 0; index < textNodes.length; index += 1) {
+              const textNode = textNodes[index];
+              const length = (textNode.nodeValue || "").length;
+              const nodeEnd = consumed + length;
+              if (
+                offset < nodeEnd ||
+                (
+                  offset === nodeEnd &&
+                  (!preferFollowingNode || index === textNodes.length - 1)
+                )
+              ) {
+                return {
+                  node: textNode,
+                  offset: Math.max(0, Math.min(length, offset - consumed)),
+                };
+              }
+              consumed = nodeEnd;
+            }
+            return null;
+          }
+
+          const localStart = Math.max(0, startOffset - elementStart);
+          const localEnd = Math.min(elementEnd, endOffset) - elementStart;
+          const start = findBoundary(localStart, true);
+          const end = findBoundary(localEnd, false);
+          if (start && end) {
+            try {
+              const range = documentRef.createRange();
+              range.setStart(start.node, start.offset);
+              range.setEnd(end.node, end.offset);
+              ranges.push(range);
+              rangedSourceElements.push(element);
+            } catch {
+              // Keep this element's class fallback if its exact range is invalid.
+            }
+          }
         }
         elementStart = elementEnd;
       }
 
       const highlights = windowRef.CSS && windowRef.CSS.highlights;
       const HighlightImpl = windowRef.Highlight;
-      if (!highlights || typeof highlights.set !== "function" || !HighlightImpl) {
-        return;
-      }
-      const textNodes = [];
-      const showText = windowRef.NodeFilter ? windowRef.NodeFilter.SHOW_TEXT : 4;
-      for (const element of sourceElements) {
-        const walker = documentRef.createTreeWalker(element, showText);
-        let node = walker.nextNode();
-        while (node) {
-          textNodes.push(node);
-          node = walker.nextNode();
-        }
-      }
-      function findBoundary(offset) {
-        let consumed = 0;
-        for (const node of textNodes) {
-          const length = (node.nodeValue || "").length;
-          if (offset <= consumed + length) {
-            return { node, offset: Math.max(0, offset - consumed) };
-          }
-          consumed += length;
-        }
-        return null;
-      }
-      const start = findBoundary(startOffset);
-      const end = findBoundary(endOffset);
-      if (!start || !end) {
+      if (
+        !highlights ||
+        typeof highlights.set !== "function" ||
+        !HighlightImpl ||
+        ranges.length === 0
+      ) {
         return;
       }
       try {
-        const range = documentRef.createRange();
-        range.setStart(start.node, start.offset);
-        range.setEnd(end.node, end.offset);
-        highlights.set(highlightName, new HighlightImpl(range));
-        for (const element of highlightedSourceElements) {
+        highlights.set(highlightName, new HighlightImpl(...ranges));
+        for (const element of rangedSourceElements) {
           element.classList.remove("gsm-hoshidicts-source-match");
         }
-        highlightedSourceElements = [];
+        highlightedSourceElements = highlightedSourceElements.filter(
+          (element) => !rangedSourceElements.includes(element)
+        );
       } catch {
         // Keep the non-mutating element-class fallback when exact ranges fail.
       }
@@ -163,11 +198,27 @@
       documentRef,
       options.highlightName || DEFAULT_HIGHLIGHT_NAME
     );
+    let sourceHighlightEnabled = options.sourceHighlightEnabled === true;
+    let currentSourceHighlight = null;
 
     function clear() {
       sourceHighlighter.clear();
+      currentSourceHighlight = null;
       popup.replaceChildren();
       popup.scrollTop = 0;
+    }
+
+    function setSourceHighlightEnabled(enabled) {
+      sourceHighlightEnabled = enabled === true;
+      if (!sourceHighlightEnabled) {
+        sourceHighlighter.clear();
+      } else if (currentSourceHighlight) {
+        sourceHighlighter.apply(
+          currentSourceHighlight.candidate,
+          currentSourceHighlight.matchedText
+        );
+      }
+      return sourceHighlightEnabled;
     }
 
     function setFeedback(feedback, message, kind = "info") {
@@ -351,10 +402,16 @@
         popup.appendChild(showMore);
       }
 
-      sourceHighlighter.apply(
+      currentSourceHighlight = {
         candidate,
-        results[0].matched || results[0].term.expression
-      );
+        matchedText: results[0].matched || results[0].term.expression,
+      };
+      if (sourceHighlightEnabled) {
+        sourceHighlighter.apply(
+          currentSourceHighlight.candidate,
+          currentSourceHighlight.matchedText
+        );
+      }
       return { feedback, miningButtons };
     }
 
@@ -363,6 +420,7 @@
       renderNotice,
       renderResults,
       setFeedback,
+      setSourceHighlightEnabled,
     };
   }
 

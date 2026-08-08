@@ -154,6 +154,8 @@ describe('runOverlayWithSource', () => {
                 GSM_CLIENT_ID: 'overlay',
                 GSM_HOSHIDICTS_ENABLED: '0',
                 GSM_HOSHIDICTS_LOOKUP_MODE: 'shift',
+                GSM_HOSHIDICTS_ACTIVATION_KEY: 'Shift',
+                GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED: '0',
             }),
         });
         expect(getOverlayRuntimeState()).toEqual({
@@ -179,6 +181,8 @@ describe('runOverlayWithSource', () => {
         expect(startInProcessOverlayMock).toHaveBeenCalledTimes(1);
         expect(process.env.GSM_HOSHIDICTS_ENABLED).toBe('1');
         expect(process.env.GSM_HOSHIDICTS_LOOKUP_MODE).toBe('shift');
+        expect(process.env.GSM_HOSHIDICTS_ACTIVATION_KEY).toBe('Shift');
+        expect(process.env.GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED).toBe('0');
         expect(process.env.GSM_BROKER_PORT).toBe('4567');
         expect(process.env.GSM_BROKER_TOKEN).toBe('overlay-bus-token');
         expect(process.env.GSM_CLIENT_ID).toBe('overlay');
@@ -205,6 +209,8 @@ describe('runOverlayWithSource', () => {
 
         const front = await loadFrontModule();
         front.configureHoshidictsLookupModeProvider(async () => 'hover');
+        front.configureHoshidictsActivationKeyProvider(async () => 'F8');
+        front.configureHoshidictsSourceHighlightProvider(async () => true);
         front.configureHoshidictsPopupHideDelayProvider(async () => 850);
 
         await expect(front.runOverlayWithSource('manual')).resolves.toBe(true);
@@ -212,17 +218,25 @@ describe('runOverlayWithSource', () => {
         expect(spawnMock.mock.calls[0][2].env).toMatchObject({
             GSM_HOSHIDICTS_ENABLED: '1',
             GSM_HOSHIDICTS_LOOKUP_MODE: 'hover',
+            GSM_HOSHIDICTS_ACTIVATION_KEY: 'F8',
+            GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED: '1',
             GSM_HOSHIDICTS_POPUP_HIDE_DELAY_MS: '850',
         });
         expect(front.getOverlayHoshidictsLookupModeAtLaunch()).toBe('hover');
+        expect(front.getOverlayHoshidictsActivationKeyAtLaunch()).toBe('F8');
+        expect(front.getOverlayHoshidictsSourceHighlightEnabledAtLaunch()).toBe(true);
         expect(front.getOverlayHoshidictsPopupHideDelayAtLaunch()).toBe(850);
         expect(
             front.markOverlayHoshidictsReaderPreferencesApplied({
                 lookupMode: 'shift',
+                activationKey: 'Space',
+                sourceHighlightEnabled: false,
                 popupHideDelayMs: 1200,
             })
         ).toBe(true);
         expect(front.getOverlayHoshidictsLookupModeAtLaunch()).toBe('shift');
+        expect(front.getOverlayHoshidictsActivationKeyAtLaunch()).toBe('Space');
+        expect(front.getOverlayHoshidictsSourceHighlightEnabledAtLaunch()).toBe(false);
         expect(front.getOverlayHoshidictsPopupHideDelayAtLaunch()).toBe(1200);
     });
 

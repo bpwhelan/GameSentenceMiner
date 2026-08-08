@@ -46,7 +46,12 @@ function loadReaderModule(window: Window) {
   return readerModule.exports;
 }
 
-function runOverlayFeatureBootstrap(enabled: boolean, lookupMode?: string) {
+function runOverlayFeatureBootstrap(
+  enabled: boolean,
+  lookupMode?: string,
+  activationKey?: string,
+  sourceHighlightEnabled?: string
+) {
   const html = fs.readFileSync(
     path.resolve(process.cwd(), "GSM_Overlay/index.html"),
     "utf8"
@@ -68,7 +73,9 @@ function runOverlayFeatureBootstrap(enabled: boolean, lookupMode?: string) {
     process: {
       env: {
         GSM_HOSHIDICTS_ENABLED: enabled ? "1" : "0",
-        GSM_HOSHIDICTS_LOOKUP_MODE: lookupMode
+        GSM_HOSHIDICTS_LOOKUP_MODE: lookupMode,
+        GSM_HOSHIDICTS_ACTIVATION_KEY: activationKey,
+        GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED: sourceHighlightEnabled
       }
     },
     window
@@ -76,7 +83,11 @@ function runOverlayFeatureBootstrap(enabled: boolean, lookupMode?: string) {
   return { addClass, documentElement, window };
 }
 
-function runHoshidictsReaderConfiguration(lookupMode: string) {
+function runHoshidictsReaderConfiguration(
+  lookupMode: string,
+  activationKey: string = "Shift",
+  sourceHighlightEnabled: boolean = false
+) {
   const html = fs.readFileSync(
     path.resolve(process.cwd(), "GSM_Overlay/index.html"),
     "utf8"
@@ -88,9 +99,20 @@ function runHoshidictsReaderConfiguration(lookupMode: string) {
     throw new Error("Unable to find the Hoshidicts reader configuration script");
   }
 
-  const createHoshidictsReader = vi.fn(() => ({}));
+  const setActivationKeyPressed = vi.fn();
+  const updatePreferences = vi.fn();
+  const createHoshidictsReader = vi.fn(() => ({
+    setActivationKeyPressed,
+    updatePreferences
+  }));
+  const normalizeActivationKey = vi.fn((value: unknown) =>
+    typeof value === "string" && value.trim() ? value.trim() : "Shift"
+  );
   const window = {
+    gsmHoshidictsActivationKey: activationKey,
+    gsmHoshidictsActivationKeyPressed: false,
     gsmHoshidictsLookupMode: lookupMode,
+    gsmHoshidictsSourceHighlightEnabled: sourceHighlightEnabled,
     gsmHoshidictsReaderEnabled: true,
     GSMHoshidictsReader: {
       createHoshidictsMiningClient: vi.fn(() => ({
@@ -98,12 +120,18 @@ function runHoshidictsReaderConfiguration(lookupMode: string) {
         mine: vi.fn()
       })),
       createHoshidictsReader,
+      normalizeActivationKey,
       resolveGsmApiBaseUrl: vi.fn(() => "http://127.0.0.1:7275")
     }
   } as Record<string, any>;
+  const ipcListeners = new Map<string, (...args: any[]) => void>();
   const context = {
     console,
-    ipcRenderer: { on: vi.fn() },
+    ipcRenderer: {
+      on: vi.fn((channel: string, listener: (...args: any[]) => void) => {
+        ipcListeners.set(channel, listener);
+      })
+    },
     window
   } as Record<string, any>;
   vm.runInNewContext(script, context, {
@@ -111,7 +139,14 @@ function runHoshidictsReaderConfiguration(lookupMode: string) {
   });
   context.configureHoshidictsReader({ gamepadServerPort: 7276 });
 
-  return { createHoshidictsReader, window };
+  return {
+    createHoshidictsReader,
+    ipcListeners,
+    normalizeActivationKey,
+    setActivationKeyPressed,
+    updatePreferences,
+    window
+  };
 }
 
 function loadHoshidictsSettingsLinkWiring() {
@@ -317,6 +352,35 @@ afterEach(() => {
 });
 
 describe("Hoshidicts safe popup rendering", () => {
+  it("uses the GSM Yomitan glass-dark appearance by default", () => {
+    const css = fs.readFileSync(
+      path.resolve(
+        process.cwd(),
+        "GSM_Overlay/features/hoshidicts/reader.css"
+      ),
+      "utf8"
+    );
+    const popupRule = /\.gsm-hoshidicts-popup\s*\{(?<declarations>[^}]*)\}/.exec(
+      css
+    )?.groups?.declarations;
+    const glossaryRule =
+      /\.gsm-hoshidicts-glossary-card\s*\{(?<declarations>[^}]*)\}/.exec(
+        css
+      )?.groups?.declarations;
+
+    expect(popupRule).toContain("background: rgba(45, 45, 55, 0.85)");
+    expect(popupRule).toContain("backdrop-filter: blur(6px)");
+    expect(popupRule).toContain("-webkit-backdrop-filter: blur(6px)");
+    expect(popupRule).toContain("border-radius: 12px");
+    expect(popupRule).toContain(
+      "border: 1px solid rgba(255, 255, 255, 0.2)"
+    );
+    expect(popupRule).toContain("color: var(--text-color)");
+    expect(popupRule).toContain("color-scheme: dark");
+    expect(popupRule).not.toMatch(/(?:^|;)\s*opacity\s*:/);
+    expect(glossaryRule).toContain("background: rgba(10, 10, 14, 0.42)");
+  });
+
   it("links to dedicated settings from Overlay Settings instead of the overlay toolbar", async () => {
     const { button, click, invoke, overlayHtml, settingsHtml } =
       loadHoshidictsSettingsLinkWiring();
@@ -342,6 +406,9 @@ describe("Hoshidicts safe popup rendering", () => {
     const enabled = runOverlayFeatureBootstrap(true);
     expect(enabled.window.gsmHoshidictsReaderEnabled).toBe(true);
     expect(enabled.window.gsmHoshidictsLookupMode).toBe("shift");
+    expect(enabled.window.gsmHoshidictsActivationKey).toBe("Shift");
+    expect(enabled.window.gsmHoshidictsActivationKeyPressed).toBe(false);
+    expect(enabled.window.gsmHoshidictsSourceHighlightEnabled).toBe(false);
     expect(enabled.addClass).toHaveBeenCalledWith("gsm-hoshidicts-enabled");
     expect(enabled.documentElement.dataset.gsmHoshidictsEnabled).toBe("true");
 
@@ -349,6 +416,11 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(disabled.window.gsmHoshidictsReaderEnabled).toBe(false);
     expect(disabled.addClass).not.toHaveBeenCalled();
     expect(disabled.documentElement.dataset.gsmHoshidictsEnabled).toBeUndefined();
+
+    expect(
+      runOverlayFeatureBootstrap(true, "hover", "F8", "1")
+        .window.gsmHoshidictsSourceHighlightEnabled
+    ).toBe(true);
   });
 
   it("normalizes and passes the configured Hoshidicts lookup mode", () => {
@@ -359,10 +431,35 @@ describe("Hoshidicts safe popup rendering", () => {
       runOverlayFeatureBootstrap(true, "invalid").window.gsmHoshidictsLookupMode
     ).toBe("shift");
 
-    const configured = runHoshidictsReaderConfiguration("hover");
+    const configured = runHoshidictsReaderConfiguration("hover", "F8", true);
     expect(configured.createHoshidictsReader).toHaveBeenCalledWith(
-      expect.objectContaining({ lookupMode: "hover" })
+      expect.objectContaining({
+        lookupMode: "hover",
+        activationKey: "F8",
+        activationKeyPressed: false,
+        sourceHighlightEnabled: true
+      })
     );
+  });
+
+  it("relays live activation-key preferences and global press edges", () => {
+    const configured = runHoshidictsReaderConfiguration("shift", "Shift");
+    configured.ipcListeners.get("hoshidicts-reader-preferences")?.({}, {
+      lookupMode: "shift",
+      activationKey: "F9",
+      popupHideDelayMs: 450,
+      sourceHighlightEnabled: true
+    });
+    expect(configured.updatePreferences).toHaveBeenCalledWith({
+      lookupMode: "shift",
+      activationKey: "F9",
+      popupHideDelayMs: 450,
+      sourceHighlightEnabled: true
+    });
+
+    configured.ipcListeners.get("hoshidicts-activation-key-state")?.({}, true);
+    expect(configured.setActivationKeyPressed).toHaveBeenCalledWith(true);
+    expect(configured.window.gsmHoshidictsActivationKeyPressed).toBe(true);
   });
 
   it("renders plain HTML-like glossary text literally and allows only text tags", () => {
@@ -525,7 +622,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       expect.stringContaining('"requiresShift":false')
     );
     expect(logger.info).not.toHaveBeenCalledWith(
-      expect.stringContaining("[HoshidictsReader] hover.shift-required")
+      expect.stringContaining("[HoshidictsReader] hover.activation-key-required")
     );
     reader.destroy();
   });
@@ -566,7 +663,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       expect.stringContaining('"requiresShift":true')
     );
     expect(logger.info).toHaveBeenCalledWith(
-      expect.stringContaining("[HoshidictsReader] hover.shift-required")
+      expect.stringContaining("[HoshidictsReader] hover.activation-key-required")
     );
     reader.destroy();
   });
@@ -606,7 +703,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       })
     );
     expect(logger.info).toHaveBeenCalledWith(
-      expect.stringContaining("[HoshidictsReader] hover.shift-required")
+      expect.stringContaining("[HoshidictsReader] hover.activation-key-required")
     );
 
     const socket = FakeWebSocket.instances[0];
@@ -797,6 +894,52 @@ describe("Hoshidicts Shift-hover scanner", () => {
     reader.destroy();
   });
 
+  it("uses global pressed and released edges for a custom activation key", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      activationKey: "F8",
+      popupHideDelayMs: 300,
+      logger: { debug() {}, info() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    expect(socket.sent).toHaveLength(1);
+
+    expect(reader.setActivationKeyPressed(true)).toBe(true);
+    await vi.advanceTimersByTimeAsync(20);
+    const request = JSON.parse(socket.sent.at(-1)!);
+    expect(request).toMatchObject({
+      type: "hoshidicts_lookup",
+      text: "食べる"
+    });
+    socket.receive(lookupResult(request.requestId, "食べる"));
+    await flushPromises();
+    expect(reader.isVisible()).toBe(true);
+
+    expect(reader.setActivationKeyPressed(false)).toBe(true);
+    await vi.advanceTimersByTimeAsync(299);
+    expect(reader.isVisible()).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(reader.isVisible()).toBe(false);
+    reader.destroy();
+  });
+
   it("dismisses naturally after the configured delay and pauses while hovered", async () => {
     vi.useFakeTimers();
     const dom = createDom();
@@ -876,6 +1019,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       document: dom.window.document,
       WebSocket: FakeWebSocket,
       lookupMode: "hover",
+      sourceHighlightEnabled: true,
       popupHideDelayMs: 5000,
       logger: { debug() {}, warn() {} }
     });
@@ -920,6 +1064,102 @@ describe("Hoshidicts Shift-hover scanner", () => {
     reader.destroy();
   });
 
+  it("keeps source highlighting off by default and spans every matched source element", async () => {
+    vi.useFakeTimers();
+    const dom = new JSDOM(
+      `<!doctype html><html><body>
+        <p class="text-block-container" data-block-id="0">
+          <span id="first" class="text-box" data-selectable="true">前<strong>食</strong></span>
+          <span id="second" class="text-box" data-selectable="true">べ</span>
+          <span id="third" class="text-box" data-selectable="true">る後</span>
+        </p>
+      </body></html>`,
+      {
+        pretendToBeVisual: true,
+        url: "file:///overlay/index.html"
+      }
+    );
+    const highlights = {
+      delete: vi.fn(),
+      set: vi.fn()
+    };
+    class TestHighlight {
+      readonly ranges: Range[];
+
+      constructor(...ranges: Range[]) {
+        this.ranges = ranges;
+      }
+    }
+    Object.defineProperty(dom.window, "CSS", {
+      configurable: true,
+      value: { highlights }
+    });
+    Object.defineProperty(dom.window, "Highlight", {
+      configurable: true,
+      value: TestHighlight
+    });
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      logger: { debug() {}, info() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 21,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const request = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(request.requestId, "食べる"));
+    await flushPromises();
+
+    expect(reader.getPreferences().sourceHighlightEnabled).toBe(false);
+    expect(highlights.set).not.toHaveBeenCalled();
+    expect(
+      dom.window.document.querySelectorAll(".gsm-hoshidicts-source-match")
+    ).toHaveLength(0);
+
+    reader.updatePreferences({ sourceHighlightEnabled: true });
+    expect(highlights.set).toHaveBeenCalledTimes(1);
+    const highlight = highlights.set.mock.calls[0][1] as TestHighlight;
+    expect(highlight.ranges.map((range) => range.toString())).toEqual([
+      "食",
+      "べ",
+      "る"
+    ]);
+
+    const deletesBeforeDisable = highlights.delete.mock.calls.length;
+    reader.updatePreferences({ sourceHighlightEnabled: false });
+    expect(highlights.delete).toHaveBeenCalledTimes(deletesBeforeDisable + 1);
+    expect(
+      dom.window.document.querySelectorAll(".gsm-hoshidicts-source-match")
+    ).toHaveLength(0);
+
+    first.firstChild!.nodeValue = "別";
+    reader.updatePreferences({ sourceHighlightEnabled: true });
+    expect(highlights.set).toHaveBeenCalledTimes(1);
+
+    reader.updatePreferences({ sourceHighlightEnabled: false });
+    first.firstChild!.nodeValue = "前";
+    first.remove();
+    reader.updatePreferences({ sourceHighlightEnabled: true });
+    expect(highlights.set).toHaveBeenCalledTimes(1);
+    expect(
+      dom.window.document.querySelectorAll(".gsm-hoshidicts-source-match")
+    ).toHaveLength(0);
+    reader.destroy();
+  });
+
   it("updates and clamps live reader preferences", () => {
     const dom = createDom();
     const api = loadReaderModule(dom.window as unknown as Window);
@@ -932,13 +1172,25 @@ describe("Hoshidicts Shift-hover scanner", () => {
 
     expect(reader.getPreferences()).toEqual({
       lookupMode: "shift",
+      activationKey: "Shift",
+      sourceHighlightEnabled: false,
       popupHideDelayMs: 300
     });
-    expect(
-      reader.updatePreferences({ lookupMode: "hover", popupHideDelayMs: 9000 })
-    ).toEqual({ lookupMode: "hover", popupHideDelayMs: 5000 });
+    expect(reader.updatePreferences({
+      lookupMode: "hover",
+      activationKey: "f24",
+      sourceHighlightEnabled: true,
+      popupHideDelayMs: 9000
+    })).toEqual({
+      lookupMode: "hover",
+      activationKey: "F24",
+      sourceHighlightEnabled: true,
+      popupHideDelayMs: 5000
+    });
     expect(reader.updatePreferences({ popupHideDelayMs: -20 })).toEqual({
       lookupMode: "hover",
+      activationKey: "F24",
+      sourceHighlightEnabled: true,
       popupHideDelayMs: 0
     });
     reader.destroy();
@@ -1187,7 +1439,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
     reader.destroy();
   });
 
-  it("shows one mining setup notice and caches the unavailable status", async () => {
+  it("quietly hides mining controls when Anki mining is unavailable", async () => {
     vi.useFakeTimers();
     const dom = createDom();
     const api = loadReaderModule(dom.window as unknown as Window);
@@ -1220,12 +1472,18 @@ describe("Hoshidicts Shift-hover scanner", () => {
     await vi.advanceTimersByTimeAsync(20);
     const firstRequest = JSON.parse(socket.sent.at(-1)!);
     socket.receive(lookupResult(firstRequest.requestId, "食べる"));
-    await flushPromises();
 
     const popup = reader.getPopupElement();
+    expect(
+      Array.from(popup.querySelectorAll<HTMLButtonElement>(".gsm-hoshidicts-mine-button"))
+        .every((button) => button.hidden)
+    ).toBe(true);
+    await flushPromises();
     expect(popup.querySelectorAll(".gsm-hoshidicts-mining-feedback")).toHaveLength(1);
+    expect(popup.querySelector<HTMLDivElement>(".gsm-hoshidicts-mining-feedback")?.hidden)
+      .toBe(true);
     expect(popup.querySelector(".gsm-hoshidicts-mining-feedback")?.textContent)
-      .toContain("Open Hoshidicts Settings");
+      .toBe("");
     expect(
       Array.from(popup.querySelectorAll<HTMLButtonElement>(".gsm-hoshidicts-mine-button"))
         .every((button) => button.hidden)

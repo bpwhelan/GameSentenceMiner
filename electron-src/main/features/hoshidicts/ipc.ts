@@ -9,8 +9,10 @@ import {
 import type { OverlayRuntimeState } from '../../ui/front.js';
 import {
     HOSHIDICTS_CHANNELS,
+    isHoshidictsActivationKey,
     MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
     type HoshidictsActionResult,
+    type HoshidictsActivationKey,
     type HoshidictsDesktopSnapshot,
     type HoshidictsDictionaryEnabledRequest,
     type HoshidictsInstallRecommendedRequest,
@@ -33,6 +35,8 @@ export interface HoshidictsIPCDependencies {
     getConfiguredFeatureEnabled: () => boolean;
     getOverlayFeatureEnabledAtLaunch: () => boolean | null;
     getOverlayLookupModeAtLaunch: () => HoshidictsLookupMode | null;
+    getOverlayActivationKeyAtLaunch: () => HoshidictsActivationKey | null;
+    getOverlaySourceHighlightEnabledAtLaunch: () => boolean | null;
     getOverlayPopupHideDelayAtLaunch: () => number | null;
     applyReaderPreferences: (
         preferences: HoshidictsReaderPreferences
@@ -93,6 +97,9 @@ function withDesktopState(
     const overlay = deps.getOverlayRuntimeState();
     const enabledAtLaunch = deps.getOverlayFeatureEnabledAtLaunch();
     const lookupModeAtLaunch = deps.getOverlayLookupModeAtLaunch();
+    const activationKeyAtLaunch = deps.getOverlayActivationKeyAtLaunch();
+    const sourceHighlightEnabledAtLaunch =
+        deps.getOverlaySourceHighlightEnabledAtLaunch();
     const popupHideDelayAtLaunch = deps.getOverlayPopupHideDelayAtLaunch();
     const effectiveEnabled = deps.getConfiguredFeatureEnabled();
     return {
@@ -107,6 +114,13 @@ function withDesktopState(
                     (effectiveEnabled &&
                         lookupModeAtLaunch !== null &&
                         lookupModeAtLaunch !== snapshot.lookupMode) ||
+                    (effectiveEnabled &&
+                        activationKeyAtLaunch !== null &&
+                        activationKeyAtLaunch !== snapshot.activationKey) ||
+                    (effectiveEnabled &&
+                        sourceHighlightEnabledAtLaunch !== null &&
+                        sourceHighlightEnabledAtLaunch !==
+                            snapshot.sourceHighlightEnabled) ||
                     (effectiveEnabled &&
                         popupHideDelayAtLaunch !== null &&
                         popupHideDelayAtLaunch !== snapshot.popupHideDelayMs)),
@@ -346,6 +360,8 @@ export function registerHoshidictsIPC(
             if (
                 !value ||
                 !isLookupMode(value.lookupMode) ||
+                !isHoshidictsActivationKey(value.activationKey) ||
+                typeof value.sourceHighlightEnabled !== 'boolean' ||
                 !Number.isInteger(value.popupHideDelayMs) ||
                 (value.popupHideDelayMs as number) < 0 ||
                 (value.popupHideDelayMs as number) >
@@ -362,11 +378,16 @@ export function registerHoshidictsIPC(
                 async () => {
                     const preferences: HoshidictsReaderPreferences = {
                         lookupMode: value.lookupMode as HoshidictsLookupMode,
+                        activationKey: value.activationKey as HoshidictsActivationKey,
+                        sourceHighlightEnabled:
+                            value.sourceHighlightEnabled as boolean,
                         popupHideDelayMs: value.popupHideDelayMs as number,
                     };
                     const state = await manager.setReaderPreferences(
                         preferences.lookupMode,
-                        preferences.popupHideDelayMs
+                        preferences.popupHideDelayMs,
+                        preferences.activationKey,
+                        preferences.sourceHighlightEnabled
                     );
                     await deps.applyReaderPreferences(preferences);
                     return state;

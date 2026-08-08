@@ -5,12 +5,32 @@ import { MessageBroker } from "../../../electron-src/main/runtime/message_bus";
 
 const require = createRequire(import.meta.url);
 const {
+  createHoshidictsActivationHotkeyController,
   createHoshidictsReaderPreferencesDelivery,
   createHoshidictsReaderPreferencesBridge,
+  dispatchAppHotkeyInputServerMessage,
+  HOSHIDICTS_ACTIVATION_HOTKEY_ID,
+  normalizeHoshidictsActivationKey,
+  normalizeHoshidictsReaderPreferences,
   requestHoshidictsSettingsOpen,
   resolveDesktopBusConfig,
   SETTINGS_CLIENT_SEGMENT,
 } = require("./desktop_bridge.js") as {
+  createHoshidictsActivationHotkeyController: (options: {
+    registry: Map<string, Record<string, unknown>>;
+    onStateChange: (pressed: boolean) => void;
+  }) => {
+    clear: () => { changed: boolean; enabled: boolean };
+    configure: (preferences: {
+      activationKey?: string;
+      enabled: boolean;
+      lookupMode?: string;
+    }) => { activationKey: string; changed: boolean; enabled: boolean };
+    getActivationKey: () => string | null;
+    isEnabled: () => boolean;
+    isPressed: () => boolean;
+    release: () => boolean;
+  };
   createHoshidictsReaderPreferencesDelivery: (
     deliver: (preferences: unknown) => void
   ) => {
@@ -23,6 +43,10 @@ const {
     env: Record<string, string>;
     onPreferences: (preferences: unknown) => Promise<void>;
   }) => { destroy: () => void };
+  dispatchAppHotkeyInputServerMessage: (
+    message: Record<string, unknown>,
+    registry: Map<string, Record<string, unknown>>
+  ) => boolean;
   requestHoshidictsSettingsOpen: (options: {
     env: Record<string, string>;
     timeoutMs?: number;
@@ -30,6 +54,19 @@ const {
   resolveDesktopBusConfig: (
     env: Record<string, string>
   ) => { port: number; token: string; clientId: string } | null;
+  HOSHIDICTS_ACTIVATION_HOTKEY_ID: string;
+  normalizeHoshidictsActivationKey: (
+    value: unknown,
+    fallback?: string | null
+  ) => string | null;
+  normalizeHoshidictsReaderPreferences: (
+    value: unknown
+  ) => {
+    lookupMode: "shift" | "hover";
+    activationKey: string;
+    sourceHighlightEnabled: boolean;
+    popupHideDelayMs: number;
+  };
   SETTINGS_CLIENT_SEGMENT: string;
 };
 
@@ -42,6 +79,119 @@ afterEach(async () => {
 });
 
 describe("Hoshidicts desktop bridge", () => {
+  it("normalizes only canonical single-key accelerators supported by the input server", () => {
+    expect(normalizeHoshidictsActivationKey(undefined)).toBe("Shift");
+    expect(normalizeHoshidictsActivationKey(" f24 ")).toBe("F24");
+    expect(normalizeHoshidictsActivationKey("pageup")).toBe("PageUp");
+    expect(normalizeHoshidictsActivationKey("z")).toBe("Z");
+    expect(normalizeHoshidictsActivationKey("=")).toBe("=");
+    expect(normalizeHoshidictsActivationKey("Shift+Space", null)).toBeNull();
+    expect(normalizeHoshidictsActivationKey("+", null)).toBeNull();
+    expect(normalizeHoshidictsActivationKey("F25", null)).toBeNull();
+  });
+
+  it("strictly preserves the source highlight preference for live delivery", () => {
+    expect(normalizeHoshidictsReaderPreferences({
+      lookupMode: "hover",
+      activationKey: "f8",
+      sourceHighlightEnabled: true,
+      popupHideDelayMs: 850,
+    })).toEqual({
+      lookupMode: "hover",
+      activationKey: "F8",
+      sourceHighlightEnabled: true,
+      popupHideDelayMs: 850,
+    });
+    expect(() => normalizeHoshidictsReaderPreferences({
+      lookupMode: "hover",
+      activationKey: "F8",
+      sourceHighlightEnabled: "true",
+      popupHideDelayMs: 850,
+    })).toThrow("Hoshidicts reader preferences are invalid.");
+    expect(() => normalizeHoshidictsReaderPreferences({
+      lookupMode: "hover",
+      activationKey: "F8",
+      popupHideDelayMs: 850,
+    })).toThrow("Hoshidicts reader preferences are invalid.");
+  });
+
+  it("adds a stateful activation binding without replacing route-all hotkeys", () => {
+    const routeHandler = vi.fn();
+    const registry = new Map<string, Record<string, unknown>>([
+      ["toggleOverlay", { accelerator: "F10", handler: routeHandler }],
+    ]);
+    const states: boolean[] = [];
+    const controller = createHoshidictsActivationHotkeyController({
+      registry,
+      onStateChange: (pressed) => states.push(pressed),
+    });
+
+    expect(controller.configure({
+      enabled: true,
+      lookupMode: "shift",
+      activationKey: "F8",
+    })).toEqual({ activationKey: "F8", changed: true, enabled: true });
+    expect(registry.get("toggleOverlay")).toMatchObject({
+      accelerator: "F10",
+      handler: routeHandler,
+    });
+    const activationEntry = registry.get(HOSHIDICTS_ACTIVATION_HOTKEY_ID)!;
+    expect(activationEntry).toMatchObject({ accelerator: "F8" });
+
+    (activationEntry.onStateChange as (state: string) => void)("pressed");
+    expect(controller.isPressed()).toBe(true);
+    expect(states).toEqual([true]);
+
+    controller.configure({
+      enabled: true,
+      lookupMode: "shift",
+      activationKey: "F9",
+    });
+    expect(states).toEqual([true, false]);
+    expect(registry.get(HOSHIDICTS_ACTIVATION_HOTKEY_ID)).toMatchObject({
+      accelerator: "F9",
+    });
+    expect(registry.has("toggleOverlay")).toBe(true);
+
+    controller.clear();
+    expect(registry.has(HOSHIDICTS_ACTIVATION_HOTKEY_ID)).toBe(false);
+    expect(registry.has("toggleOverlay")).toBe(true);
+  });
+
+  it("dispatches both state edges while ordinary app actions remain press-only", () => {
+    const stateHandler = vi.fn();
+    const actionHandler = vi.fn();
+    const registry = new Map<string, Record<string, unknown>>([
+      ["hoshidictsLookup", { onStateChange: stateHandler }],
+      ["toggleOverlay", { handler: actionHandler }],
+    ]);
+
+    expect(dispatchAppHotkeyInputServerMessage({
+      type: "app_hotkey_event",
+      id: "hoshidictsLookup",
+      state: "pressed",
+    }, registry)).toBe(true);
+    expect(dispatchAppHotkeyInputServerMessage({
+      type: "app_hotkey_event",
+      id: "hoshidictsLookup",
+      state: "released",
+    }, registry)).toBe(true);
+    expect(stateHandler).toHaveBeenNthCalledWith(1, "pressed");
+    expect(stateHandler).toHaveBeenNthCalledWith(2, "released");
+
+    dispatchAppHotkeyInputServerMessage({
+      type: "app_hotkey_event",
+      id: "toggleOverlay",
+      state: "pressed",
+    }, registry);
+    dispatchAppHotkeyInputServerMessage({
+      type: "app_hotkey_event",
+      id: "toggleOverlay",
+      state: "released",
+    }, registry);
+    expect(actionHandler).toHaveBeenCalledTimes(1);
+  });
+
   it("holds the latest reader preferences until the renderer is ready", () => {
     const delivered: unknown[] = [];
     const delivery = createHoshidictsReaderPreferencesDelivery((preferences) => {

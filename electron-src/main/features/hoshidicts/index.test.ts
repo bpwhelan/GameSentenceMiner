@@ -9,11 +9,18 @@ const harness = vi.hoisted(() => ({
     openWindow: vi.fn(async () => ({})),
     registerIPC: vi.fn(),
     configureLookupModeProvider: vi.fn(),
+    configureActivationKeyProvider: vi.fn(),
+    configureSourceHighlightProvider: vi.fn(),
     configurePopupHideDelayProvider: vi.fn(),
     markPreferencesApplied: vi.fn(() => true),
     busRequest: vi.fn(async () => ({ applied: true })),
     startManager: vi.fn(async () => undefined),
-    managerSnapshot: { lookupMode: 'hover', popupHideDelayMs: 850 },
+    managerSnapshot: {
+        lookupMode: 'hover',
+        activationKey: 'F8',
+        sourceHighlightEnabled: true,
+        popupHideDelayMs: 850,
+    },
 }));
 
 vi.mock('../../runtime/bus_client.js', () => ({
@@ -40,10 +47,16 @@ vi.mock('../../gsm_config.js', () => ({
 
 vi.mock('../../ui/front.js', () => ({
     configureHoshidictsLookupModeProvider: harness.configureLookupModeProvider,
+    configureHoshidictsActivationKeyProvider:
+        harness.configureActivationKeyProvider,
+    configureHoshidictsSourceHighlightProvider:
+        harness.configureSourceHighlightProvider,
     configureHoshidictsPopupHideDelayProvider:
         harness.configurePopupHideDelayProvider,
     getOverlayHoshidictsEnabledAtLaunch: () => false,
     getOverlayHoshidictsLookupModeAtLaunch: () => 'shift',
+    getOverlayHoshidictsActivationKeyAtLaunch: () => 'Shift',
+    getOverlayHoshidictsSourceHighlightEnabledAtLaunch: () => false,
     getOverlayHoshidictsPopupHideDelayAtLaunch: () => 300,
     getOverlayRuntimeState: () => ({
         isRunning: false,
@@ -78,6 +91,8 @@ describe('Hoshidicts feature registration', () => {
         harness.busInfo = { port: 1234, token: 'token' };
         harness.busHandler = null;
         harness.configureLookupModeProvider.mockReset();
+        harness.configureActivationKeyProvider.mockReset();
+        harness.configureSourceHighlightProvider.mockReset();
         harness.configurePopupHideDelayProvider.mockReset();
         harness.startManager.mockClear();
     });
@@ -109,17 +124,26 @@ describe('Hoshidicts feature registration', () => {
         await expect(
             harness.registerIPC.mock.calls[0][0].applyReaderPreferences({
                 lookupMode: 'hover',
+                activationKey: 'F8',
+                sourceHighlightEnabled: true,
                 popupHideDelayMs: 850,
             })
         ).resolves.toBe(true);
         expect(harness.busRequest).toHaveBeenCalledWith(
             'overlay.hoshidicts-reader',
             'hoshidicts.readerPreferences',
-            { lookupMode: 'hover', popupHideDelayMs: 850 },
+            {
+                lookupMode: 'hover',
+                activationKey: 'F8',
+                sourceHighlightEnabled: true,
+                popupHideDelayMs: 850,
+            },
             2000
         );
         expect(harness.markPreferencesApplied).toHaveBeenCalledWith({
             lookupMode: 'hover',
+            activationKey: 'F8',
+            sourceHighlightEnabled: true,
             popupHideDelayMs: 850,
         });
         expect(harness.busHandler).not.toBeNull();
@@ -144,6 +168,14 @@ describe('Hoshidicts feature registration', () => {
         expect(harness.configureLookupModeProvider).toHaveBeenCalledOnce();
         const provider = harness.configureLookupModeProvider.mock.calls[0][0];
         await expect(provider()).resolves.toBe('hover');
+        expect(harness.configureActivationKeyProvider).toHaveBeenCalledOnce();
+        const activationKeyProvider =
+            harness.configureActivationKeyProvider.mock.calls[0][0];
+        await expect(activationKeyProvider()).resolves.toBe('F8');
+        expect(harness.configureSourceHighlightProvider).toHaveBeenCalledOnce();
+        const sourceHighlightProvider =
+            harness.configureSourceHighlightProvider.mock.calls[0][0];
+        await expect(sourceHighlightProvider()).resolves.toBe(true);
         expect(
             harness.configurePopupHideDelayProvider
         ).toHaveBeenCalledOnce();

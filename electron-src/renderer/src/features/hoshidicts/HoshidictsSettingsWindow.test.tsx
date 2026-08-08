@@ -1,13 +1,18 @@
 // @vitest-environment jsdom
+/// <reference types="node" />
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   HOSHIDICTS_CHANNELS,
   type HoshidictsDesktopSnapshot,
-  type HoshidictsMiningOptions
+  type HoshidictsMiningOptions,
+  type HoshidictsReaderPreferences
 } from "../../../../shared/features/hoshidicts";
 import { I18nProvider } from "../../i18n";
 import {
@@ -17,8 +22,17 @@ import {
 import {
   AUTO_FIELD_VALUE,
   DISABLED_FIELD_VALUE,
+  activationKeyFromKeyboardCode,
   getReadiness
 } from "./hoshidictsSettingsModel";
+
+const hoshidictsStyles = readFileSync(
+  resolve(
+    process.cwd(),
+    "electron-src/renderer/src/features/hoshidicts/hoshidicts.css"
+  ),
+  "utf8"
+);
 
 const invokeMock = vi.fn();
 const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
@@ -74,6 +88,8 @@ const baseState: HoshidictsDesktopSnapshot = {
     duplicatePolicy: "prevent"
   },
   lookupMode: "shift",
+  activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
+  sourceHighlightEnabled: false,
   popupHideDelayMs: 300,
   schedule: "weekly",
   lastCheck: "2026-08-06T10:00:00.000Z",
@@ -164,10 +180,7 @@ describe("HoshidictsSettingsWindow", () => {
           return miningOptions;
         }
         if (channel === HOSHIDICTS_CHANNELS.setReaderPreferences) {
-          const preferences = args[0] as {
-            lookupMode: "shift" | "hover";
-            popupHideDelayMs: number;
-          };
+          const preferences = args[0] as HoshidictsReaderPreferences;
           return {
             success: true,
             outcome: { code: "preferencesSaved" },
@@ -248,6 +261,31 @@ describe("HoshidictsSettingsWindow", () => {
       await Promise.resolve();
     });
   }
+
+  it("owns viewport scrolling even though the shared renderer body is fixed", () => {
+    const rootRule =
+      /\.hoshidicts-window\s*\{(?<declarations>[^}]*)\}/.exec(
+        hoshidictsStyles
+      )?.groups?.declarations ?? "";
+
+    expect(rootRule).toMatch(/\bheight:\s*100vh\s*;/);
+    expect(rootRule).toMatch(/\boverflow-y:\s*auto\s*;/);
+  });
+
+  it.each([
+    ["KeyA", "A"],
+    ["Digit1", "1"],
+    ["Numpad7", "7"],
+    ["ControlRight", "Ctrl"],
+    ["NumpadEnter", "Return"],
+    ["ArrowUp", "Up"],
+    ["Semicolon", ";"],
+    ["F24", "F24"],
+    ["CapsLock", null],
+    ["F25", null]
+  ] as const)("maps physical key code %s to %s", (code, expected) => {
+    expect(activationKeyFromKeyboardCode(code)).toBe(expected);
+  });
 
   it("shows loading instead of flashing a false disabled state", async () => {
     const pendingState = deferred<HoshidictsDesktopSnapshot>();
@@ -392,13 +430,125 @@ describe("HoshidictsSettingsWindow", () => {
 
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.setReaderPreferences,
-      { lookupMode: "hover", popupHideDelayMs: 850 }
+      {
+        lookupMode: "hover",
+        activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
+        sourceHighlightEnabled: false,
+        popupHideDelayMs: 850
+      }
     );
     expect(invokeMock).not.toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.setLookupMode,
       expect.anything()
     );
     expect(container.textContent).toContain("Saved");
+  });
+
+  it("keeps source highlighting off by default and auto-saves when enabled", async () => {
+    vi.useFakeTimers();
+    await render();
+    const sourceHighlight = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-source-highlight-enabled"
+    );
+
+    expect(sourceHighlight?.checked).toBe(false);
+    expect(container.textContent).toContain("Highlight looked-up word");
+
+    await act(async () => {
+      sourceHighlight?.click();
+      await vi.advanceTimersByTimeAsync(450);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(sourceHighlight?.checked).toBe(true);
+    expect(invokeMock).toHaveBeenLastCalledWith(
+      HOSHIDICTS_CHANNELS.setReaderPreferences,
+      {
+        lookupMode: "shift",
+        activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
+        sourceHighlightEnabled: true,
+        popupHideDelayMs: 300
+      }
+    );
+  });
+
+  it("captures a single physical key and can reset it to Shift", async () => {
+    vi.useFakeTimers();
+    await render();
+    const capture = container.querySelector<HTMLButtonElement>(
+      "#hoshidicts-activation-key-capture"
+    );
+
+    await act(async () => {
+      capture?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      capture?.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          code: "CapsLock",
+          key: "CapsLock"
+        })
+      );
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("That key cannot be used");
+
+    const shiftedDigit = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "Digit1",
+      key: "!",
+      shiftKey: true
+    });
+    await act(async () => {
+      capture?.dispatchEvent(shiftedDigit);
+      await Promise.resolve();
+    });
+    expect(shiftedDigit.defaultPrevented).toBe(true);
+    expect(container.textContent).toContain("Hold 1");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(450);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(invokeMock).toHaveBeenLastCalledWith(
+      HOSHIDICTS_CHANNELS.setReaderPreferences,
+      {
+        lookupMode: "shift",
+        activationKey: "1",
+        sourceHighlightEnabled: false,
+        popupHideDelayMs: 300
+      }
+    );
+
+    const reset = container.querySelector<HTMLButtonElement>(
+      "#hoshidicts-activation-key-reset"
+    );
+    await act(async () => {
+      reset?.click();
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("Hold Shift");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(450);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(invokeMock).toHaveBeenLastCalledWith(
+      HOSHIDICTS_CHANNELS.setReaderPreferences,
+      {
+        lookupMode: "shift",
+        activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
+        sourceHighlightEnabled: false,
+        popupHideDelayMs: 300
+      }
+    );
   });
 
   it("loads Anki on entry without dirtying or pinning automatic mappings", async () => {
@@ -545,18 +695,44 @@ describe("HoshidictsSettingsWindow", () => {
   });
 
   it.each([
-    ["ja", "辞書とマイニングの設定", "おすすめの辞書"],
-    ["ukr", "Налаштування словників і видобування", "Рекомендовані словники"]
-  ])("localizes the standalone window in %s", async (locale, subtitle, recommended) => {
+    [
+      "ja",
+      "辞書とマイニングの設定",
+      "おすすめの辞書",
+      "キーを変更",
+      "Shiftに戻す",
+      "検索語をハイライト"
+    ],
+    [
+      "ukr",
+      "Налаштування словників і видобування",
+      "Рекомендовані словники",
+      "Змінити клавішу",
+      "Скинути до Shift",
+      "Підсвічувати знайдене слово"
+    ]
+  ])("localizes the standalone window in %s", async (
+    locale,
+    subtitle,
+    recommended,
+    changeKey,
+    resetKey,
+    sourceHighlight
+  ) => {
     await render(locale);
     expect(container.textContent).toContain(subtitle);
     expect(container.textContent).toContain(recommended);
+    expect(container.textContent).toContain(changeKey);
+    expect(container.textContent).toContain(resetKey);
+    expect(container.textContent).toContain(sourceHighlight);
   });
 
   it("normalizes legacy snapshots without dirtying new preferences", () => {
     const normalized = normalizeHoshidictsDesktopState({
       ...baseState,
       revision: undefined,
+      activationKey: undefined,
+      sourceHighlightEnabled: undefined,
       popupHideDelayMs: undefined,
       dictionaries: [{ ...baseState.dictionaries[0], enabled: undefined }],
       miningProfile: {
@@ -565,6 +741,8 @@ describe("HoshidictsSettingsWindow", () => {
       }
     });
     expect(normalized.revision).toBe(0);
+    expect(normalized.activationKey).toBe(DEFAULT_HOSHIDICTS_ACTIVATION_KEY);
+    expect(normalized.sourceHighlightEnabled).toBe(false);
     expect(normalized.popupHideDelayMs).toBe(300);
     expect(normalized.dictionaries[0].enabled).toBe(true);
     expect(normalized.miningProfile.disabledFields).toEqual([]);

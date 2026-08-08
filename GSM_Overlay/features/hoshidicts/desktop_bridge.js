@@ -9,6 +9,181 @@ const READER_PREFERENCES_TOPIC = "hoshidicts.readerPreferences";
 const READER_CLIENT_SUFFIX = ".hoshidicts-reader";
 const SETTINGS_CLIENT_SEGMENT = ".hoshidicts-settings.";
 const REQUEST_TIMEOUT_MS = 5000;
+const DEFAULT_HOSHIDICTS_ACTIVATION_KEY = "Shift";
+const HOSHIDICTS_ACTIVATION_HOTKEY_ID = "hoshidictsLookup";
+const HOSHIDICTS_NAMED_ACTIVATION_KEYS = new Map([
+  ["ctrl", "Ctrl"],
+  ["alt", "Alt"],
+  ["shift", "Shift"],
+  ["cmd", "Cmd"],
+  ["space", "Space"],
+  ["return", "Return"],
+  ["escape", "Escape"],
+  ["backspace", "Backspace"],
+  ["delete", "Delete"],
+  ["tab", "Tab"],
+  ["up", "Up"],
+  ["down", "Down"],
+  ["left", "Left"],
+  ["right", "Right"],
+  ["home", "Home"],
+  ["end", "End"],
+  ["pageup", "PageUp"],
+  ["pagedown", "PageDown"],
+  ["insert", "Insert"],
+]);
+const HOSHIDICTS_PUNCTUATION_ACTIVATION_KEYS = new Set([
+  "-", "=", "[", "]", "\\", ";", "'", ",", ".", "/", "`",
+]);
+
+function normalizeHoshidictsActivationKey(
+  value,
+  fallback = DEFAULT_HOSHIDICTS_ACTIVATION_KEY
+) {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+  const token = value.trim();
+  if (HOSHIDICTS_PUNCTUATION_ACTIVATION_KEYS.has(token)) {
+    return token;
+  }
+  if (/^[a-z]$/iu.test(token)) {
+    return token.toUpperCase();
+  }
+  if (/^[0-9]$/u.test(token)) {
+    return token;
+  }
+  const functionKeyMatch = /^f([1-9]|1[0-9]|2[0-4])$/iu.exec(token);
+  if (functionKeyMatch) {
+    return `F${functionKeyMatch[1]}`;
+  }
+  return HOSHIDICTS_NAMED_ACTIVATION_KEYS.get(token.toLowerCase()) ?? fallback;
+}
+
+function normalizeHoshidictsReaderPreferences(preferences) {
+  const lookupMode = preferences && preferences.lookupMode;
+  const requestedActivationKey = preferences && preferences.activationKey;
+  const activationKey = requestedActivationKey === undefined
+    ? DEFAULT_HOSHIDICTS_ACTIVATION_KEY
+    : normalizeHoshidictsActivationKey(requestedActivationKey, null);
+  const sourceHighlightEnabled =
+    preferences && preferences.sourceHighlightEnabled;
+  const popupHideDelayMs = preferences && preferences.popupHideDelayMs;
+  if (
+    (lookupMode !== "shift" && lookupMode !== "hover") ||
+    activationKey === null ||
+    typeof sourceHighlightEnabled !== "boolean" ||
+    !Number.isInteger(popupHideDelayMs) ||
+    popupHideDelayMs < 0 ||
+    popupHideDelayMs > 5000
+  ) {
+    throw new Error("Hoshidicts reader preferences are invalid.");
+  }
+  return {
+    lookupMode,
+    activationKey,
+    sourceHighlightEnabled,
+    popupHideDelayMs,
+  };
+}
+
+function createHoshidictsActivationHotkeyController(options = {}) {
+  const registry = options.registry;
+  if (!(registry instanceof Map)) {
+    throw new TypeError("Hoshidicts activation hotkey controller requires a registry.");
+  }
+  const onStateChange = typeof options.onStateChange === "function"
+    ? options.onStateChange
+    : () => {};
+  const id = String(options.id || HOSHIDICTS_ACTIVATION_HOTKEY_ID);
+  let activationKey = null;
+  let pressed = false;
+
+  function setPressed(nextState) {
+    const nextPressed = nextState === true || nextState === "pressed";
+    if (pressed === nextPressed) {
+      return false;
+    }
+    pressed = nextPressed;
+    onStateChange(pressed);
+    return true;
+  }
+
+  function configure(preferences = {}) {
+    const normalizedActivationKey = normalizeHoshidictsActivationKey(
+      preferences.activationKey
+    );
+    const enabled = preferences.enabled === true && preferences.lookupMode !== "hover";
+    const nextActivationKey = enabled ? normalizedActivationKey : null;
+    const currentEntry = registry.get(id);
+    if (
+      activationKey === nextActivationKey &&
+      (nextActivationKey === null || (
+        currentEntry &&
+        currentEntry.accelerator === nextActivationKey &&
+        currentEntry.onStateChange === setPressed
+      ))
+    ) {
+      return {
+        activationKey: normalizedActivationKey,
+        changed: false,
+        enabled,
+      };
+    }
+
+    setPressed(false);
+    registry.delete(id);
+    activationKey = nextActivationKey;
+    if (activationKey !== null) {
+      registry.set(id, {
+        accelerator: activationKey,
+        onStateChange: setPressed,
+      });
+    }
+    return {
+      activationKey: normalizedActivationKey,
+      changed: true,
+      enabled,
+    };
+  }
+
+  function clear() {
+    return configure({ enabled: false });
+  }
+
+  return {
+    clear,
+    configure,
+    getActivationKey: () => activationKey,
+    isEnabled: () => activationKey !== null,
+    isPressed: () => pressed,
+    release: () => setPressed(false),
+  };
+}
+
+function dispatchAppHotkeyInputServerMessage(message, registry) {
+  if (
+    !message ||
+    message.type !== "app_hotkey_event" ||
+    (message.state !== "pressed" && message.state !== "released") ||
+    !(registry instanceof Map)
+  ) {
+    return false;
+  }
+  const entry = registry.get(message.id);
+  if (!entry) {
+    return false;
+  }
+  if (typeof entry.onStateChange === "function") {
+    entry.onStateChange(message.state);
+    return true;
+  }
+  if (message.state === "pressed" && typeof entry.handler === "function") {
+    entry.handler();
+    return true;
+  }
+  return false;
+}
 
 function resolveDesktopBusConfig(env = process.env) {
   const port = Number.parseInt(env.GSM_BROKER_PORT || "", 10);
@@ -272,8 +447,14 @@ function requestHoshidictsSettingsOpen(options = {}) {
 }
 
 module.exports = {
+  createHoshidictsActivationHotkeyController,
   createHoshidictsReaderPreferencesDelivery,
   createHoshidictsReaderPreferencesBridge,
+  DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
+  dispatchAppHotkeyInputServerMessage,
+  HOSHIDICTS_ACTIVATION_HOTKEY_ID,
+  normalizeHoshidictsActivationKey,
+  normalizeHoshidictsReaderPreferences,
   OPEN_SETTINGS_TOPIC,
   READER_CLIENT_SUFFIX,
   READER_PREFERENCES_TOPIC,

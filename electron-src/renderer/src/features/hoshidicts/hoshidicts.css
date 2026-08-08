@@ -1,5 +1,8 @@
 .hoshidicts-window {
+  height: 100vh;
   min-height: 100vh;
+  overflow-x: hidden;
+  overflow-y: auto;
   background: var(--gsm-surface-0);
   color: var(--gsm-text-primary);
 }
@@ -297,10 +300,93 @@
 }
 
 .hoshidicts-reader-mode small,
+.hoshidicts-activation-key small,
+.hoshidicts-reader-highlight small,
 .hoshidicts-reader-delay small {
   color: var(--gsm-text-muted);
   font-size: 0.78rem;
   font-weight: 400;
+}
+
+.hoshidicts-reader-highlight {
+  display: flex;
+  width: min(100%, 620px);
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--gsm-border-default);
+  border-radius: 6px;
+  background: var(--gsm-surface-1);
+  cursor: pointer;
+}
+
+.hoshidicts-reader-highlight:has(input:checked) {
+  border-color: var(--gsm-accent-border);
+  background: var(--gsm-accent-soft);
+}
+
+.hoshidicts-reader-highlight input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: var(--gsm-accent);
+}
+
+.hoshidicts-reader-highlight span {
+  display: grid;
+  gap: 4px;
+}
+
+.hoshidicts-activation-key {
+  display: grid;
+  width: min(100%, 620px);
+  gap: 6px;
+  color: var(--gsm-text-secondary);
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.hoshidicts-activation-key__controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hoshidicts-activation-key__current {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--gsm-border-default);
+  border-radius: 6px;
+  background: var(--gsm-surface-1);
+  color: var(--gsm-text-muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.hoshidicts-activation-key__current kbd {
+  min-width: 44px;
+  padding: 3px 8px;
+  border: 1px solid var(--gsm-border-strong);
+  border-radius: 4px;
+  background: var(--gsm-surface-2);
+  color: var(--gsm-text-primary);
+  font-family: var(--gsm-font-mono);
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.hoshidicts-window .hoshidicts-activation-key__capture[data-capturing="true"] {
+  border-color: var(--gsm-accent);
+  box-shadow: 0 0 0 2px var(--gsm-accent-soft);
+}
+
+.hoshidicts-activation-key small.is-error {
+  color: var(--gsm-danger-text);
 }
 
 .hoshidicts-reader-delay {
