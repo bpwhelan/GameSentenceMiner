@@ -8,6 +8,7 @@ import {
 import { useTranslation } from "../../i18n";
 import { HoshidictsAudioPanel } from "./HoshidictsAudioPanel";
 import {
+  CustomDictionaryPanel,
   DictionariesPanel,
   MiningPanel
 } from "./HoshidictsSettingsPanels";
@@ -29,6 +30,7 @@ const HOSHIDICTS_TABS: Array<{
     view: "dictionaries",
     labelKey: "settings.hoshidicts.tabs.dictionaries"
   },
+  { view: "custom", labelKey: "settings.hoshidicts.tabs.custom" },
   { view: "audio", labelKey: "settings.hoshidicts.tabs.audio" },
   { view: "mining", labelKey: "settings.hoshidicts.tabs.mining" }
 ];
@@ -209,6 +211,8 @@ export function HoshidictsSettingsWindow() {
           <DictionariesPanel controller={controller} />
         ) : view === "audio" ? (
           <HoshidictsAudioPanel controller={controller} />
+        ) : view === "custom" ? (
+          <CustomDictionaryPanel controller={controller} />
         ) : (
           <MiningPanel controller={controller} />
         )}

@@ -131,6 +131,7 @@ function runHoshidictsReaderConfiguration(
   const normalizeActivationKey = vi.fn((value: unknown) =>
     typeof value === "string" && value.trim() ? value.trim() : "Shift"
   );
+  const invoke = vi.fn(async () => ({ saved: true }));
   const window = {
     gsmHoshidictsActivationKey: activationKey,
     gsmHoshidictsActivationKeyPressed: false,
@@ -153,7 +154,7 @@ function runHoshidictsReaderConfiguration(
   );
   const context = {
     console,
-    ipcRenderer: { on: ipcOn },
+    ipcRenderer: { invoke, on: ipcOn },
     process: { env: { GSM_BROKER_TOKEN: API_TOKEN } },
     window
   } as Record<string, any>;
@@ -166,6 +167,7 @@ function runHoshidictsReaderConfiguration(
     createHoshidictsAudioClient,
     createHoshidictsMiningClient,
     createHoshidictsReader,
+    invoke,
     ipcListeners,
     ipcOn,
     normalizeActivationKey,
@@ -571,7 +573,7 @@ describe("Hoshidicts safe popup rendering", () => {
     ).toBe(true);
   });
 
-  it("normalizes and passes the configured Hoshidicts lookup mode", () => {
+  it("normalizes the lookup mode and wires custom entries through overlay IPC", async () => {
     expect(
       runOverlayFeatureBootstrap(true, "hover").window.gsmHoshidictsLookupMode
     ).toBe("hover");
@@ -597,6 +599,31 @@ describe("Hoshidicts safe popup rendering", () => {
       apiToken: API_TOKEN,
       baseUrl: "http://127.0.0.1:7275"
     });
+    const options = configured.createHoshidictsReader.mock.calls[0][0];
+    const entry = {
+      term: "螺旋丸",
+      reading: "らせんがん",
+      definition: "Rotating chakra sphere attack"
+    };
+    await expect(options.onAddCustomEntry(entry)).resolves.toEqual({ saved: true });
+    expect(configured.invoke).toHaveBeenCalledWith(
+      "hoshidicts-add-custom-entry",
+      entry
+    );
+  });
+
+  it("sender-validates overlay custom-entry IPC before using the desktop bridge", () => {
+    const mainSource = fs.readFileSync(
+      path.resolve(process.cwd(), "GSM_Overlay/main.js"),
+      "utf8"
+    );
+    expect(mainSource).toContain(
+      'ipcMain.handle("hoshidicts-add-custom-entry", async (event, payload)'
+    );
+    expect(mainSource).toContain("event.sender !== mainWindow.webContents");
+    expect(mainSource).toContain(
+      "hoshidictsReaderPreferencesBridge.requestAddCustomEntry"
+    );
   });
 
   it("applies complete audio profiles delivered by the desktop bridge", () => {
@@ -1048,6 +1075,8 @@ describe("Hoshidicts Shift-hover scanner", () => {
     expect(directRequest).toMatchObject({ text: "食", mode: "kanji" });
 
     socket.receive(kanjiResult(directRequest.requestId));
+    expect(popup.firstElementChild?.classList.contains("gsm-hoshidicts-toolbar"))
+      .toBe(true);
     expect(popup.querySelector(".gsm-hoshidicts-kanji-glyph")?.textContent).toBe("食");
     expect(popup.textContent).toContain("KANJIDIC (English)");
     expect(popup.textContent).toContain("ショク · ジキ");
@@ -1295,6 +1324,209 @@ describe("Hoshidicts Shift-hover scanner", () => {
 
     expect(reader.isVisible()).toBe(true);
     expect(menu.isConnected).toBe(true);
+    reader.destroy();
+  });
+
+  it("keeps a persistent top Note action and refreshes the lookup after saving", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    let finishSave!: (value: { saved: boolean }) => void;
+    const pendingSave = new Promise<{ saved: boolean }>((resolve) => {
+      finishSave = resolve;
+    });
+    const addCustomEntry = vi.fn(async () => await pendingSave);
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      onAddCustomEntry: addCustomEntry,
+      logger: { debug() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const request = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(request.requestId, "食べる"));
+    await flushPromises();
+
+    const popup = reader.getPopupElement();
+    const noteButton = popup.querySelector<HTMLButtonElement>(
+      ".gsm-hoshidicts-note-button"
+    )!;
+    expect(popup.firstElementChild?.classList.contains("gsm-hoshidicts-toolbar"))
+      .toBe(true);
+    expect(popup.querySelector<HTMLButtonElement>(
+      ".gsm-hoshidicts-mine-button"
+    )?.hidden).toBe(true);
+    expect(noteButton.hidden).toBe(false);
+    noteButton.click();
+    const form = popup.querySelector<HTMLFormElement>(
+      ".gsm-hoshidicts-note-form"
+    )!;
+    const term = form.querySelector<HTMLInputElement>(
+      ".gsm-hoshidicts-note-term"
+    )!;
+    const reading = form.querySelector<HTMLInputElement>(
+      ".gsm-hoshidicts-note-reading"
+    )!;
+    const definition = form.querySelector<HTMLTextAreaElement>(
+      ".gsm-hoshidicts-note-definition"
+    )!;
+    expect(form.hidden).toBe(false);
+    expect(term.value).toBe("食べる");
+    expect(reading.value).toBe("たべる");
+    definition.value = "A personal definition";
+    form.dispatchEvent(new dom.window.Event("submit", {
+      bubbles: true,
+      cancelable: true
+    }));
+    await flushPromises();
+
+    expect(addCustomEntry).toHaveBeenCalledWith({
+      term: "食べる",
+      reading: "たべる",
+      definition: "A personal definition"
+    });
+    expect(term.disabled).toBe(true);
+    expect(reading.disabled).toBe(true);
+    expect(definition.disabled).toBe(true);
+    const cancel = form.querySelector<HTMLButtonElement>(
+      ".gsm-hoshidicts-note-cancel"
+    )!;
+    expect(cancel.disabled).toBe(true);
+    cancel.click();
+    expect(form.hidden).toBe(false);
+
+    finishSave({ saved: true });
+    await flushPromises();
+    expect(form.hidden).toBe(true);
+    const repeatedRequest = JSON.parse(socket.sent.at(-1)!);
+    expect(repeatedRequest).toMatchObject({
+      type: "hoshidicts_lookup",
+      text: "食べる"
+    });
+    expect(repeatedRequest.requestId).not.toBe(request.requestId);
+
+    socket.receive(lookupResult(
+      repeatedRequest.requestId,
+      "食べる",
+      "A personal definition"
+    ));
+    expect(popup.firstElementChild?.classList.contains("gsm-hoshidicts-toolbar"))
+      .toBe(true);
+    expect(popup.textContent).toContain("A personal definition");
+    reader.destroy();
+  });
+
+  it("validates and preserves a Note draft while failures suspend auto-hide", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const addCustomEntry = vi.fn(async () => {
+      throw new Error("Custom dictionary is read-only.");
+    });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      onAddCustomEntry: addCustomEntry,
+      logger: { debug() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const request = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(request.requestId, "食べる"));
+
+    const popup = reader.getPopupElement();
+    const noteButton = popup.querySelector<HTMLButtonElement>(
+      ".gsm-hoshidicts-note-button"
+    )!;
+    noteButton.click();
+    const form = popup.querySelector<HTMLFormElement>(
+      ".gsm-hoshidicts-note-form"
+    )!;
+    const term = form.querySelector<HTMLInputElement>(
+      ".gsm-hoshidicts-note-term"
+    )!;
+    form.querySelector<HTMLButtonElement>(".gsm-hoshidicts-note-cancel")!.click();
+    expect(form.hidden).toBe(true);
+    noteButton.click();
+    const definition = form.querySelector<HTMLTextAreaElement>(
+      ".gsm-hoshidicts-note-definition"
+    )!;
+    form.dispatchEvent(new dom.window.Event("submit", {
+      bubbles: true,
+      cancelable: true
+    }));
+    expect(addCustomEntry).not.toHaveBeenCalled();
+    expect(form.querySelector(".gsm-hoshidicts-note-error")?.textContent)
+      .toContain("required");
+
+    definition.value = "\\".repeat(1_025);
+    form.dispatchEvent(new dom.window.Event("submit", {
+      bubbles: true,
+      cancelable: true
+    }));
+    expect(addCustomEntry).not.toHaveBeenCalled();
+    expect(form.querySelector(".gsm-hoshidicts-note-error")?.textContent)
+      .toContain("2 KiB");
+
+    definition.value = "Visible definition";
+    term.value = "#hidden";
+    form.dispatchEvent(new dom.window.Event("submit", {
+      bubbles: true,
+      cancelable: true
+    }));
+    expect(addCustomEntry).not.toHaveBeenCalled();
+    expect(form.querySelector(".gsm-hoshidicts-note-error")?.textContent)
+      .toContain("cannot begin with #");
+
+    term.value = "食べる";
+    definition.value = "Keep this draft";
+    form.dispatchEvent(new dom.window.Event("submit", {
+      bubbles: true,
+      cancelable: true
+    }));
+    await flushPromises();
+    expect(addCustomEntry).toHaveBeenCalledOnce();
+    expect(form.hidden).toBe(false);
+    expect(definition.value).toBe("Keep this draft");
+    expect(form.querySelector(".gsm-hoshidicts-note-error")?.textContent)
+      .toContain("read-only");
+
+    popup.dispatchEvent(new dom.window.Event("pointerleave"));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(reader.isVisible()).toBe(true);
+    definition.dispatchEvent(new dom.window.KeyboardEvent("keydown", {
+      bubbles: true,
+      key: "Escape"
+    }));
+    expect(form.hidden).toBe(true);
+    popup.dispatchEvent(new dom.window.Event("pointerleave"));
+    await vi.advanceTimersByTimeAsync(300);
+    expect(reader.isVisible()).toBe(false);
     reader.destroy();
   });
 
@@ -1798,10 +2030,20 @@ describe("Hoshidicts Shift-hover scanner", () => {
     const request = JSON.parse(socket.sent.at(-1)!);
     await vi.advanceTimersByTimeAsync(50);
 
-    expect(reader.getPopupElement().textContent).toContain("timed out");
+    const popup = reader.getPopupElement();
+    expect(popup.textContent).toContain("timed out");
+    expect(popup.firstElementChild?.classList.contains("gsm-hoshidicts-toolbar"))
+      .toBe(true);
+    popup.querySelector<HTMLButtonElement>(".gsm-hoshidicts-note-button")!.click();
+    const term = popup.querySelector<HTMLInputElement>(
+      ".gsm-hoshidicts-note-term"
+    )!;
+    expect(term.value).toBe("食べる");
+    expect(term.selectionStart).toBe(0);
+    expect(term.selectionEnd).toBe(term.value.length);
     socket.receive(lookupResult(request.requestId, "late"));
-    expect(reader.getPopupElement().textContent).toContain("timed out");
-    expect(reader.getPopupElement().textContent).not.toContain("late");
+    expect(popup.textContent).toContain("timed out");
+    expect(popup.textContent).not.toContain("late");
     reader.destroy();
   });
 
@@ -1836,7 +2078,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
     reader.destroy();
   });
 
-  it("hides an existing popup after an empty lookup result", async () => {
+  it("keeps the top Note action available after an empty lookup result", async () => {
     vi.useFakeTimers();
     const dom = createDom();
     const api = loadReaderModule(dom.window as unknown as Window);
@@ -1886,9 +2128,14 @@ describe("Hoshidicts Shift-hover scanner", () => {
       results: []
     });
 
-    expect(reader.isVisible()).toBe(false);
-    expect(reader.getPopupElement().hidden).toBe(true);
-    expect(states).toEqual([true, false]);
+    const popup = reader.getPopupElement();
+    expect(reader.isVisible()).toBe(true);
+    expect(popup.hidden).toBe(false);
+    expect(popup.firstElementChild?.classList.contains("gsm-hoshidicts-toolbar"))
+      .toBe(true);
+    expect(popup.querySelector(".gsm-hoshidicts-note-button")).not.toBeNull();
+    expect(popup.textContent).toContain("No definitions found");
+    expect(states).toEqual([true, false, true]);
     reader.destroy();
   });
 

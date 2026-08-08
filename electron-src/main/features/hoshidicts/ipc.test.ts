@@ -30,6 +30,8 @@ const harness = vi.hoisted(() => ({
         setAudioProfile: vi.fn(),
         setDictionaryEnabled: vi.fn(),
         moveDictionary: vi.fn(),
+        getCustomDictionaryDocument: vi.fn(),
+        saveCustomDictionary: vi.fn(),
     },
 }));
 
@@ -59,6 +61,7 @@ vi.mock('./manager.js', () => ({
 const snapshot = {
     revision: 1,
     dictionaries: [],
+    customDictionaryActive: false,
     recommendedDictionaries: [
         { id: 'jitendex', installed: false },
         { id: 'jmdict', installed: false },
@@ -114,6 +117,21 @@ async function registerHarness() {
     harness.manager.setLookupMode.mockResolvedValue(snapshot);
     harness.manager.setReaderPreferences.mockResolvedValue(snapshot);
     harness.manager.setAudioProfile.mockResolvedValue(snapshot);
+    const customDocument = {
+        text: '',
+        revision: 'empty-revision',
+        exists: false,
+        filePath: '/tmp/custom-dictionary.txt',
+    };
+    harness.manager.getCustomDictionaryDocument.mockResolvedValue(
+        customDocument
+    );
+    harness.manager.saveCustomDictionary.mockResolvedValue({
+        ...customDocument,
+        text: '猫, ねこ, cat\n',
+        revision: 'saved-revision',
+        exists: true,
+    });
 
     const settingsContents = { id: 'settings' };
     const mainContents = { id: 'main' };
@@ -500,6 +518,54 @@ describe('Hoshidicts settings IPC', () => {
         ).resolves.toMatchObject({
             success: false,
             error: 'Recommended dictionary id is invalid.',
+        });
+    });
+
+    it('loads and explicitly saves the managed custom dictionary document', async () => {
+        const context = await registerHarness();
+        const getCustom = harness.handlers.get(
+            'hoshidicts.getCustomDictionary'
+        );
+        const saveCustom = harness.handlers.get(
+            'hoshidicts.saveCustomDictionary'
+        );
+
+        await expect(
+            getCustom?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            revision: 'empty-revision',
+            exists: false,
+        });
+        await expect(
+            getCustom?.({ sender: context.foreignContents })
+        ).rejects.toThrow('invalid window');
+
+        await expect(
+            saveCustom?.(
+                { sender: context.settingsContents },
+                {
+                    text: '猫, ねこ, cat\n',
+                    expectedRevision: 'empty-revision',
+                }
+            )
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'customDictionarySaved' },
+            document: { exists: true, text: '猫, ねこ, cat\n' },
+        });
+        expect(harness.manager.saveCustomDictionary).toHaveBeenCalledWith(
+            '猫, ねこ, cat\n',
+            'empty-revision'
+        );
+
+        await expect(
+            saveCustom?.(
+                { sender: context.settingsContents },
+                { text: '猫, ねこ, cat', expectedRevision: 42 }
+            )
+        ).resolves.toMatchObject({
+            success: false,
+            error: expect.stringContaining('invalid'),
         });
     });
 });

@@ -566,6 +566,7 @@
       "tabs": {
         "dictionaries": "辞書",
         "audio": "音声",
+        "custom": "カスタム",
         "mining": "Ankiマイニング"
       },
       "reader": {
@@ -591,6 +592,7 @@
         "milliseconds": "ミリ秒"
       },
       "saveStatus": {
+        "dirty": "未保存の変更",
         "saving": "保存中...",
         "saved": "保存済み",
         "error": "保存に失敗"
@@ -697,6 +699,29 @@
           "readingTts": "再生専用: ローカルのシステム音声で辞書の読みを読み上げます。マイニングしたノートには追加できません。"
         }
       },
+      "custom": {
+        "title": "カスタム辞書",
+        "subtitle": "自分用の定義を作成・編集できます。変更は保存したときだけ反映されます。",
+        "path": "ファイル:",
+        "editorLabel": "辞書項目",
+        "placeholder": "螺旋丸, らせんがん, 回転するチャクラ球の攻撃",
+        "entries": "有効な項目: {count}",
+        "fileExists": "ソースファイルは作成済みです",
+        "fileNotCreated": "保存するとソースファイルが作成されます",
+        "skippedLines": "形式が正しくない行は保持されますが、読み込み時にスキップされます（合計{count}行、先頭の行番号: {lines}）。",
+        "formatTitle": "1行につき1項目",
+        "formatExample": "単語, 読み, 定義",
+        "formatHint": "最初の2つのカンマでフィールドを区切るため、定義にはカンマを含められます。空行と#で始まる行は無視されます。保存時の定義は2 KiBまでです。",
+        "newlineHint": "改行には \\n を、文字どおりの \\n を保持するには \\\\n を入力します。",
+        "clear": "クリア",
+        "reload": "ファイルから再読み込み",
+        "reloadConfirm": "再読み込みすると、カスタム辞書の未保存の変更は破棄されます。続行しますか？",
+        "save": "辞書を保存",
+        "saving": "保存中...",
+        "loading": "カスタム辞書を読み込み中...",
+        "loadFailed": "カスタム辞書を読み込めませんでした。",
+        "retry": "再試行"
+      },
       "mining": {
         "title": "Ankiマイニングプロファイル",
         "enabled": "マイニングを有効化",
@@ -748,6 +773,7 @@
         "updatesChecked": "辞書のアップデート確認が完了しました。",
         "dictionaryRemoved": "{title}を削除しました。",
         "dictionaryChanged": "辞書設定を更新しました。",
+        "customDictionarySaved": "カスタム辞書を保存しました。",
         "overlayRestarted": "オーバーレイを再起動しました。"
       },
       "progress": {
@@ -773,6 +799,8 @@
         "audioProfile": "Hoshidictsの音声設定を保存できませんでした。",
         "ankiOptions": "AnkiConnectからデッキとノートタイプを読み込めませんでした。",
         "miningProfile": "Hoshidictsマイニングプロファイルを保存できませんでした。",
+        "customLoad": "カスタム辞書を読み込めませんでした。",
+        "customSave": "カスタム辞書を保存できませんでした。",
         "restart": "オーバーレイを再起動できませんでした。"
       }
     },

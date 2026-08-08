@@ -9,6 +9,7 @@ import {
   type HoshidictsActionResult,
   type HoshidictsActivationKey,
   type HoshidictsAudioProfile,
+  type HoshidictsCustomDictionaryDocument,
   type HoshidictsDesktopSnapshot,
   type HoshidictsLookupMode,
   type HoshidictsMiningOptions,
@@ -16,6 +17,7 @@ import {
   type HoshidictsMoveDirection,
   type HoshidictsReaderPreferences,
   type HoshidictsRecommendedDictionaryId,
+  type HoshidictsSaveCustomDictionaryRequest,
   type HoshidictsSchedule
 } from "../../../../shared/features/hoshidicts";
 import { useTranslation } from "../../i18n";
@@ -23,6 +25,7 @@ import { invokeIpc, onIpc } from "../../lib/ipc";
 import {
   DEFAULT_MINING_OPTIONS,
   DEFAULT_MINING_PROFILE,
+  type SaveStatus,
   type HoshidictsView,
   type MiningField,
   type MiningProfileDraft,
@@ -94,6 +97,17 @@ export function useHoshidictsSettingsController() {
   const [state, setState] = useState<HoshidictsDesktopSnapshot | null>(null);
   const highestRevisionRef = useRef(-1);
   const initializedRef = useRef(false);
+
+  const [customDocument, setCustomDocument] =
+    useState<HoshidictsCustomDictionaryDocument | null>(null);
+  const [customDraft, setCustomDraft] = useState("");
+  const [customLoading, setCustomLoading] = useState(true);
+  const [customSaving, setCustomSaving] = useState(false);
+  const [customSaveStatus, setCustomSaveStatus] =
+    useState<SaveStatus>("idle");
+  const customLoadedRef = useRef(false);
+  const customDirty =
+    customDocument !== null && customDraft !== customDocument.text;
   const [miningOptions, setMiningOptions] = useState<HoshidictsMiningOptions>({
     ...DEFAULT_MINING_OPTIONS,
     suggestedFields: { ...DEFAULT_MINING_OPTIONS.suggestedFields },
@@ -258,6 +272,42 @@ export function useHoshidictsSettingsController() {
     [t]
   );
 
+  const loadCustomDictionary = useCallback(async (force = false) => {
+    if (customLoadedRef.current && !force) return;
+    customLoadedRef.current = true;
+    setCustomLoading(true);
+    try {
+      const document = await invokeIpc<HoshidictsCustomDictionaryDocument>(
+        HOSHIDICTS_CHANNELS.getCustomDictionary
+      );
+      setCustomDocument(document);
+      setCustomDraft(document.text);
+      setCustomSaveStatus("idle");
+      setActionError(null);
+    } catch (error) {
+      customLoadedRef.current = false;
+      setActionError(
+        errorMessage(error, t("settings.hoshidicts.errors.customLoad"))
+      );
+    } finally {
+      setCustomLoading(false);
+    }
+  }, [t]);
+
+  const reloadCustomDictionary = useCallback(async (
+    confirmDiscard = true
+  ): Promise<boolean> => {
+    if (
+      confirmDiscard &&
+      customDirty &&
+      !window.confirm(t("settings.hoshidicts.custom.reloadConfirm"))
+    ) {
+      return false;
+    }
+    await loadCustomDictionary(true);
+    return true;
+  }, [customDirty, loadCustomDictionary, t]);
+
   useEffect(() => {
     let disposed = false;
     const loadState = () => {
@@ -301,8 +351,58 @@ export function useHoshidictsSettingsController() {
   useEffect(() => {
     if (view === "mining") {
       void loadMiningOptions(miningDraftRef.current.model || undefined);
+    } else if (view === "custom") {
+      void loadCustomDictionary();
     }
-  }, [loadMiningOptions, view]);
+  }, [loadCustomDictionary, loadMiningOptions, view]);
+
+  const updateCustomDraft = useCallback((text: string) => {
+    setCustomDraft(text);
+    setCustomSaveStatus(text === customDocument?.text ? "idle" : "dirty");
+    setActionError(null);
+    setNotice(null);
+  }, [customDocument]);
+
+  const saveCustomDictionary = useCallback(async (): Promise<boolean> => {
+    if (!customDocument || customSaving || !customDirty) {
+      return false;
+    }
+    const request: HoshidictsSaveCustomDictionaryRequest = {
+      text: customDraft,
+      expectedRevision: customDocument.revision
+    };
+    setCustomSaving(true);
+    setCustomSaveStatus("saving");
+    setActionError(null);
+    setNotice(null);
+    try {
+      const result = await invokeIpc<HoshidictsActionResult>(
+        HOSHIDICTS_CHANNELS.saveCustomDictionary,
+        request
+      );
+      if (!applyResult(result)) {
+        setCustomSaveStatus("error");
+        return false;
+      }
+      if (!result.document) {
+        setActionError(t("settings.hoshidicts.errors.customSave"));
+        setCustomSaveStatus("error");
+        return false;
+      }
+      setCustomDocument(result.document);
+      setCustomDraft(result.document.text);
+      setCustomSaveStatus("saved");
+      return true;
+    } catch (error) {
+      setActionError(
+        errorMessage(error, t("settings.hoshidicts.errors.customSave"))
+      );
+      setCustomSaveStatus("error");
+      return false;
+    } finally {
+      setCustomSaving(false);
+    }
+  }, [applyResult, customDirty, customDocument, customDraft, customSaving, t]);
 
   const updateReaderPreferences = useCallback(
     (update: Partial<HoshidictsReaderPreferences>) => {
@@ -449,6 +549,9 @@ export function useHoshidictsSettingsController() {
   const audioBusy = state
     ? isScopedBusy(state, "audio") || audioSaving
     : true;
+  const customBusy = state
+    ? isScopedBusy(state, "custom") || customLoading || customSaving
+    : true;
 
   return {
     view,
@@ -471,6 +574,14 @@ export function useHoshidictsSettingsController() {
     setMiningModel,
     setMiningField,
     loadMiningOptions,
+    customDocument,
+    customDraft,
+    customDirty,
+    customLoading,
+    customSaveStatus,
+    updateCustomDraft,
+    saveCustomDictionary,
+    reloadCustomDictionary,
     actionError,
     notice,
     restarting,
@@ -478,6 +589,7 @@ export function useHoshidictsSettingsController() {
     preferencesBusy,
     audioBusy,
     miningBusy,
+    customBusy,
     actions
   };
 }

@@ -1,9 +1,11 @@
 import {
   ArrowDown,
   ArrowUp,
+  Eraser,
   FileArchive,
   Keyboard,
   RefreshCw,
+  Save,
   Trash2
 } from "lucide-react";
 import {
@@ -30,12 +32,31 @@ import {
   frequencyModeKey,
   formatTimestamp,
   getFieldChoice,
-  resolvedDraftField
+  resolvedDraftField,
+  summarizeCustomDictionaryText
 } from "./hoshidictsSettingsModel";
 import { HoshidictsSaveIndicator } from "./HoshidictsSaveIndicator";
 import type { useHoshidictsSettingsController } from "./useHoshidictsSettingsController";
 
 type Controller = ReturnType<typeof useHoshidictsSettingsController>;
+
+function CustomDictionarySaveIndicator({
+  status
+}: {
+  status: Controller["customSaveStatus"];
+}) {
+  const t = useTranslation();
+  if (status === "idle") return null;
+  return (
+    <span
+      className="hoshidicts-save-status"
+      data-status={status}
+      role="status"
+    >
+      {t(`settings.hoshidicts.saveStatus.${status}`)}
+    </span>
+  );
+}
 
 function ActivationKeyControl({
   activationKey,
@@ -130,6 +151,140 @@ function ActivationKeyControl({
             : t("settings.hoshidicts.reader.activationKeyHint")}
       </small>
     </div>
+  );
+}
+
+export function CustomDictionaryPanel({
+  controller
+}: {
+  controller: Controller;
+}) {
+  const t = useTranslation();
+  const {
+    customDocument,
+    customDraft,
+    customDirty,
+    customLoading,
+    customSaveStatus,
+    updateCustomDraft,
+    saveCustomDictionary,
+    reloadCustomDictionary,
+    customBusy
+  } = controller;
+  const summary = useMemo(
+    () => summarizeCustomDictionaryText(customDraft),
+    [customDraft]
+  );
+
+  return (
+    <section className="hoshidicts-section hoshidicts-custom">
+      <div className="hoshidicts-section__heading">
+        <div>
+          <h2>{t("settings.hoshidicts.custom.title")}</h2>
+          <p>{t("settings.hoshidicts.custom.subtitle")}</p>
+        </div>
+        <CustomDictionarySaveIndicator status={customSaveStatus} />
+      </div>
+
+      {customDocument ? (
+        <>
+          <div className="hoshidicts-custom__path">
+            <span>{t("settings.hoshidicts.custom.path")}</span>
+            <code>{customDocument.filePath}</code>
+          </div>
+
+          <label className="hoshidicts-custom__editor">
+            <span>{t("settings.hoshidicts.custom.editorLabel")}</span>
+            <textarea
+              id="hoshidicts-custom-dictionary-editor"
+              value={customDraft}
+              disabled={customBusy}
+              spellCheck={false}
+              placeholder={t("settings.hoshidicts.custom.placeholder")}
+              onChange={(event) => updateCustomDraft(event.currentTarget.value)}
+            />
+          </label>
+
+          <div className="hoshidicts-custom__summary" role="status">
+            <span>
+              {t("settings.hoshidicts.custom.entries", {
+                count: summary.entryCount
+              })}
+            </span>
+            <span>
+              {customDocument.exists
+                ? t("settings.hoshidicts.custom.fileExists")
+                : t("settings.hoshidicts.custom.fileNotCreated")}
+            </span>
+          </div>
+
+          {summary.ignoredLineCount > 0 ? (
+            <p className="hoshidicts-custom__warning" role="alert">
+              {t("settings.hoshidicts.custom.skippedLines", {
+                count: summary.ignoredLineCount,
+                lines: summary.ignoredLines.join(", ")
+              })}
+            </p>
+          ) : null}
+
+          <div className="hoshidicts-custom__hint">
+            <strong>{t("settings.hoshidicts.custom.formatTitle")}</strong>
+            <code>{t("settings.hoshidicts.custom.formatExample")}</code>
+            <span>{t("settings.hoshidicts.custom.formatHint")}</span>
+            <span>{t("settings.hoshidicts.custom.newlineHint")}</span>
+          </div>
+
+          <div className="hoshidicts-custom__actions">
+            <button
+              type="button"
+              className="secondary"
+              disabled={customBusy}
+              onClick={() => void reloadCustomDictionary()}
+            >
+              <RefreshCw size={17} aria-hidden="true" />
+              {t("settings.hoshidicts.custom.reload")}
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              disabled={customBusy || customDraft.length === 0}
+              onClick={() => updateCustomDraft("")}
+            >
+              <Eraser size={17} aria-hidden="true" />
+              {t("settings.hoshidicts.custom.clear")}
+            </button>
+            <button
+              type="button"
+              disabled={customBusy || !customDirty}
+              onClick={() => void saveCustomDictionary()}
+            >
+              <Save size={17} aria-hidden="true" />
+              {customSaveStatus === "saving"
+                ? t("settings.hoshidicts.custom.saving")
+                : t("settings.hoshidicts.custom.save")}
+            </button>
+          </div>
+        </>
+      ) : (
+        <div className="hoshidicts-custom__loading" role="status">
+          <span>
+            {customLoading
+              ? t("settings.hoshidicts.custom.loading")
+              : t("settings.hoshidicts.custom.loadFailed")}
+          </span>
+          {!customLoading ? (
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => void reloadCustomDictionary(false)}
+            >
+              <RefreshCw size={16} aria-hidden="true" />
+              {t("settings.hoshidicts.custom.retry")}
+            </button>
+          ) : null}
+        </div>
+      )}
+    </section>
   );
 }
 

@@ -12,10 +12,12 @@ import {
     DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
     HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
     isHoshidictsActivationKey,
+    MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES,
     MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
     type HoshidictsActionResult,
     type HoshidictsActivationKey,
     type HoshidictsAudioProfile,
+    type HoshidictsSaveCustomDictionaryRequest,
     type HoshidictsDesktopSnapshot,
     type HoshidictsDictionaryEnabledRequest,
     type HoshidictsInstallRecommendedRequest,
@@ -195,6 +197,52 @@ export function registerHoshidictsIPC(
         assertSettingsSender(event, deps);
         return await currentState(deps);
     });
+
+    ipcMain.handle(HOSHIDICTS_CHANNELS.getCustomDictionary, async (event) => {
+        assertSettingsSender(event, deps);
+        return await manager.getCustomDictionaryDocument();
+    });
+
+    ipcMain.handle(
+        HOSHIDICTS_CHANNELS.saveCustomDictionary,
+        async (event, request: unknown) => {
+            assertSettingsSender(event, deps);
+            const value = request as
+                | Partial<HoshidictsSaveCustomDictionaryRequest>
+                | null;
+            if (
+                !value ||
+                typeof value.text !== 'string' ||
+                typeof value.expectedRevision !== 'string' ||
+                Buffer.byteLength(value.text, 'utf8') >
+                    MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES
+            ) {
+                return {
+                    success: false,
+                    error: 'Custom dictionary save request is invalid or too large.',
+                    state: await currentState(deps),
+                } satisfies HoshidictsActionResult;
+            }
+            try {
+                const document = await manager.saveCustomDictionary(
+                    value.text,
+                    value.expectedRevision
+                );
+                return {
+                    success: true,
+                    outcome: { code: 'customDictionarySaved' },
+                    document,
+                    state: await currentState(deps),
+                } satisfies HoshidictsActionResult;
+            } catch (error) {
+                return {
+                    success: false,
+                    error: errorMessage(error),
+                    state: await currentState(deps),
+                } satisfies HoshidictsActionResult;
+            }
+        }
+    );
 
     ipcMain.handle(HOSHIDICTS_CHANNELS.importDictionary, async (event) => {
         assertSettingsSender(event, deps);

@@ -12,6 +12,7 @@ import {
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   HOSHIDICTS_CHANNELS,
   type HoshidictsActionResult,
+  type HoshidictsCustomDictionaryDocument,
   type HoshidictsDesktopSnapshot,
   type HoshidictsMiningOptions,
   type HoshidictsReaderPreferences
@@ -76,6 +77,7 @@ const baseState: HoshidictsDesktopSnapshot = {
       installedAt: "2026-08-06T11:00:00.000Z"
     }
   ],
+  customDictionaryActive: false,
   recommendedDictionaries: [
     { id: "jmdict", installed: true },
     { id: "jmnedict", installed: false }
@@ -150,6 +152,13 @@ const miningOptions: HoshidictsMiningOptions = {
   error: null
 };
 
+const customDocument: HoshidictsCustomDictionaryDocument = {
+  text: "螺旋丸, らせんがん, Rotating chakra sphere attack\n",
+  revision: "source-one",
+  exists: true,
+  filePath: "/data/dictionaries/hoshidicts/custom-dictionary.txt"
+};
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((complete) => {
@@ -161,6 +170,16 @@ function deferred<T>() {
 function setInputValue(input: HTMLInputElement | null, value: string) {
   const setter = Object.getOwnPropertyDescriptor(
     HTMLInputElement.prototype,
+    "value"
+  )?.set;
+  setter?.call(input, value);
+  input?.dispatchEvent(new Event("input", { bubbles: true }));
+  input?.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function setTextareaValue(input: HTMLTextAreaElement | null, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(
+    HTMLTextAreaElement.prototype,
     "value"
   )?.set;
   setter?.call(input, value);
@@ -193,6 +212,26 @@ describe("HoshidictsSettingsWindow", () => {
         if (channel === HOSHIDICTS_CHANNELS.getState) return baseState;
         if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
           return miningOptions;
+        }
+        if (channel === HOSHIDICTS_CHANNELS.getCustomDictionary) {
+          return customDocument;
+        }
+        if (channel === HOSHIDICTS_CHANNELS.saveCustomDictionary) {
+          const request = args[0] as { text: string };
+          return {
+            success: true,
+            outcome: { code: "customDictionarySaved" },
+            document: {
+              ...customDocument,
+              text: request.text,
+              revision: "source-two"
+            },
+            state: {
+              ...baseState,
+              revision: ++revision,
+              customDictionaryActive: true
+            }
+          };
         }
         if (channel === HOSHIDICTS_CHANNELS.setReaderPreferences) {
           const preferences = args[0] as HoshidictsReaderPreferences;
@@ -325,6 +364,17 @@ describe("HoshidictsSettingsWindow", () => {
     );
   }
 
+  async function openCustom() {
+    const customTab = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Custom"
+    );
+    await act(async () => {
+      customTab?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+
   it("shows loading instead of flashing a false disabled state", async () => {
     const pendingState = deferred<HoshidictsDesktopSnapshot>();
     invokeMock.mockImplementation(async (channel: string) => {
@@ -399,6 +449,13 @@ describe("HoshidictsSettingsWindow", () => {
         ]
       }).kind
     ).toBe("ready");
+    expect(
+      getReadiness({
+        ...baseState,
+        dictionaries: [],
+        customDictionaryActive: true
+      })
+    ).toEqual({ kind: "ready", installed: 1, enabled: 1 });
     expect(getReadiness(baseState).kind).toBe("ready");
   });
 
@@ -681,6 +738,127 @@ describe("HoshidictsSettingsWindow", () => {
         popupHideDelayMs: 300
       }
     );
+  });
+
+  it("loads the custom source lazily and saves the explicit draft", async () => {
+    await render();
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.getCustomDictionary
+    );
+
+    await openCustom();
+    const editor = container.querySelector<HTMLTextAreaElement>(
+      "#hoshidicts-custom-dictionary-editor"
+    );
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.getCustomDictionary
+    );
+    expect(editor?.value).toBe(customDocument.text);
+    expect(container.textContent).toContain(customDocument.filePath);
+
+    const draft = [
+      customDocument.text.trimEnd(),
+      "bad line",
+      "千鳥, ちどり, Lightning thrust, with chakra"
+    ].join("\n");
+    await act(async () => {
+      setTextareaValue(editor, draft);
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("2 valid entries");
+    expect(container.textContent).toContain(
+      "Malformed lines will be preserved but skipped (1 total; first lines: 2)."
+    );
+    expect(container.textContent).toContain("Unsaved changes");
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.saveCustomDictionary,
+      expect.anything()
+    );
+
+    const save = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Save Dictionary")
+    );
+    await act(async () => {
+      save?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.saveCustomDictionary,
+      { text: draft, expectedRevision: customDocument.revision }
+    );
+    expect(container.textContent).toContain("Custom dictionary saved.");
+    expect(container.textContent).toContain("Saved");
+  });
+
+  it("preserves the custom draft when saving fails", async () => {
+    const originalImplementation = invokeMock.getMockImplementation();
+    const reloadedDocument = {
+      ...customDocument,
+      text: `${customDocument.text}千鳥, ちどり, External definition\n`,
+      revision: "external-revision"
+    };
+    let customReadCount = 0;
+    invokeMock.mockImplementation(
+      async (channel: string, ...args: unknown[]) => {
+        if (channel === HOSHIDICTS_CHANNELS.getCustomDictionary) {
+          customReadCount += 1;
+          return customReadCount === 1 ? customDocument : reloadedDocument;
+        }
+        if (channel === HOSHIDICTS_CHANNELS.saveCustomDictionary) {
+          return {
+            success: false,
+            error: "The custom dictionary changed after it was opened.",
+            state: { ...baseState, revision: ++revision }
+          };
+        }
+        return await originalImplementation?.(channel, ...args);
+      }
+    );
+    await render();
+    await openCustom();
+    const editor = container.querySelector<HTMLTextAreaElement>(
+      "#hoshidicts-custom-dictionary-editor"
+    );
+    const draft = `${customDocument.text}影分身の術, かげぶんしんのじゅつ, Creates solid shadow clones\n`;
+    await act(async () => {
+      setTextareaValue(editor, draft);
+      await Promise.resolve();
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent?.includes("Save Dictionary"))
+        ?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(editor?.value).toBe(draft);
+    expect(container.textContent).toContain(
+      "The custom dictionary changed after it was opened."
+    );
+    expect(container.textContent).toContain("Save failed");
+
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    await act(async () => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent?.includes("Reload from File"))
+        ?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(confirm).toHaveBeenCalledWith(
+      "Reloading will discard your unsaved custom dictionary changes. Continue?"
+    );
+    expect(
+      container.querySelector<HTMLTextAreaElement>(
+        "#hoshidicts-custom-dictionary-editor"
+      )?.value
+    ).toBe(reloadedDocument.text);
+    expect(
+      invokeMock.mock.calls.filter(
+        ([channel]) => channel === HOSHIDICTS_CHANNELS.getCustomDictionary
+      )
+    ).toHaveLength(2);
+    confirm.mockRestore();
   });
 
   it("loads Anki on entry without dirtying or pinning automatic mappings", async () => {
@@ -1027,7 +1205,8 @@ describe("HoshidictsSettingsWindow", () => {
       "キーを変更",
       "Shiftに戻す",
       "検索語をハイライト",
-      "頻度モード: 順位順"
+      "頻度モード: 順位順",
+      "カスタム"
     ],
     [
       "ukr",
@@ -1036,7 +1215,8 @@ describe("HoshidictsSettingsWindow", () => {
       "Змінити клавішу",
       "Скинути до Shift",
       "Підсвічувати знайдене слово",
-      "Режим частоти: За рангом"
+      "Режим частоти: За рангом",
+      "Власний"
     ]
   ])(
     "localizes the standalone window in %s",
@@ -1047,7 +1227,8 @@ describe("HoshidictsSettingsWindow", () => {
       changeKey,
       resetKey,
       sourceHighlight,
-      frequencyMode
+      frequencyMode,
+      custom
     ) => {
       await render(locale);
       expect(container.textContent).toContain(subtitle);
@@ -1056,6 +1237,7 @@ describe("HoshidictsSettingsWindow", () => {
       expect(container.textContent).toContain(resetKey);
       expect(container.textContent).toContain(sourceHighlight);
       expect(container.textContent).toContain(frequencyMode);
+      expect(container.textContent).toContain(custom);
     }
   );
 

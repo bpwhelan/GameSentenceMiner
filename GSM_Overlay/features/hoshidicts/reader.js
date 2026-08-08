@@ -809,6 +809,10 @@
       typeof options.onMine === "function"
         ? options.onMine
         : null;
+    const onAddCustomEntry =
+      typeof options.onAddCustomEntry === "function"
+        ? options.onAddCustomEntry
+        : null;
     const logger = options.logger || console;
     const serverUrl = String(options.serverUrl || "ws://127.0.0.1:7276");
     const lookupTimeoutMs =
@@ -854,6 +858,7 @@
     let popupVisible = false;
     let popupAnchor = null;
     let popupVertical = false;
+    let noteEditing = false;
     let miningInFlight = false;
     let miningStatusGeneration = 0;
     let miningStatusCache = null;
@@ -932,6 +937,13 @@
       onKanjiClick(character, _result, candidate) {
         requestKanji(character, candidate);
       },
+      onAddCustomEntry(entry) {
+        return addCustomEntryAndRefresh(entry);
+      },
+      onNoteEditingChange(editing) {
+        noteEditing = editing;
+        clearHideTimer();
+      },
     });
     audioController = options.audioController || createHoshidictsAudioController({
       window: windowRef,
@@ -1000,7 +1012,7 @@
     function scheduleHide(reason = "pointer-left") {
       pendingHideReason = reason;
       clearHideTimer();
-      if (pointerInPopup || !popupVisible) {
+      if (noteEditing || pointerInPopup || !popupVisible) {
         return;
       }
       if (preferences.popupHideDelayMs === 0) {
@@ -1051,7 +1063,7 @@
     }
 
     function renderLookupNotice(candidate, message) {
-      popupView.renderNotice(message);
+      popupView.renderNotice(message, candidate);
       showPopup(candidate);
     }
 
@@ -1090,6 +1102,15 @@
       if (!HAN_CHARACTER_PATTERN.test(kanji)) return;
       clearLookupTimeout();
       sendLookup(candidate, latestGeneration, "kanji", kanji);
+    }
+
+    async function addCustomEntryAndRefresh(entry) {
+      if (!onAddCustomEntry) {
+        throw new Error("The custom dictionary is unavailable.");
+      }
+      const response = await onAddCustomEntry(entry);
+      repeatCurrentLookup();
+      return response;
     }
 
     async function getCachedMiningStatus() {
@@ -1343,7 +1364,10 @@
           restoreTermView();
           return;
         }
-        hide("no-results");
+        renderLookupNotice(
+          candidate,
+          "No definitions found. Add one with the Note button."
+        );
         return;
       }
     }
@@ -1487,24 +1511,37 @@
       });
     }
 
-    function queueLookup(candidate) {
+    function repeatCurrentLookup() {
+      const candidate = latestCandidate;
+      if (!candidate || !candidate.anchor || !candidate.anchor.isConnected) {
+        return false;
+      }
+      queueLookup(candidate, true);
+      return true;
+    }
+
+    function queueLookup(candidate, immediate = false) {
       const signature = [
         candidate.sentence,
         candidate.matchOffset,
         candidate.query,
       ].join("\u0000");
       clearHideTimer();
-      if (signature === lastCandidateSignature) {
+      if (!immediate && signature === lastCandidateSignature) {
         return;
       }
       invalidateLookup();
       audioController.beginLookup();
-      if (popupVisible) {
+      if (!immediate && popupVisible) {
         dismissPopup("candidate-changed");
       }
       lastCandidateSignature = signature;
       latestCandidate = candidate;
       const generation = latestGeneration;
+      if (immediate) {
+        sendLookup(candidate, generation);
+        return;
+      }
       debounceTimer = setTimeoutFn(() => {
         debounceTimer = null;
         sendLookup(candidate, generation);
@@ -1513,6 +1550,11 @@
 
     function scanPointer(pointer, modifierActive) {
       if (!pointer || !(pointer.target instanceof windowRef.Element)) {
+        return;
+      }
+      if (noteEditing) {
+        pointerInPopup = popup.contains(pointer.target);
+        clearHideTimer();
         return;
       }
       if (
@@ -1589,7 +1631,7 @@
       ) {
         localShiftPressed = false;
         if (requiresActivationKey() && !globalActivationKeyPressed) {
-          if (!pointerInPopup) {
+          if (!pointerInPopup && !noteEditing) {
             invalidateLookup();
           }
           scheduleHide("activation-key-released");
@@ -1695,6 +1737,10 @@
 
     function onWindowBlur() {
       localShiftPressed = false;
+      if (noteEditing) {
+        clearHideTimer();
+        return;
+      }
       if (!globalActivationKeyPressed) {
         invalidateLookup();
         scheduleHide("window-blurred");

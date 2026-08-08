@@ -7,6 +7,7 @@ import {
   isHoshidictsActivationKey,
   isHoshidictsAudioSourceType,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+  parseHoshidictsCustomDictionary,
   type HoshidictsActivationKey,
   type HoshidictsAudioProfile,
   type HoshidictsAudioSource,
@@ -21,7 +22,7 @@ import {
   type HoshidictsSchedule
 } from "../../../../shared/features/hoshidicts";
 
-export type HoshidictsView = "dictionaries" | "audio" | "mining";
+export type HoshidictsView = "dictionaries" | "custom" | "audio" | "mining";
 export type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
 export type MiningField = HoshidictsMiningFieldName;
 export type MiningProfileDraft = Omit<HoshidictsMiningProfile, "tags"> & {
@@ -181,6 +182,7 @@ const DEFAULT_STATE: HoshidictsDesktopSnapshot = {
   revision: 0,
   effectiveEnabled: false,
   dictionaries: [],
+  customDictionaryActive: false,
   recommendedDictionaries: HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.map((id) => ({
     id,
     installed: false
@@ -409,6 +411,7 @@ export function normalizeHoshidictsDesktopState(
                 : null
           }))
       : [],
+    customDictionaryActive: candidate.customDictionaryActive === true,
     recommendedDictionaries: HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.map((id) => ({
       id,
       installed:
@@ -438,7 +441,8 @@ export function normalizeHoshidictsDesktopState(
         candidate.progress?.scope === "dictionary" ||
         candidate.progress?.scope === "preferences" ||
         candidate.progress?.scope === "mining" ||
-        candidate.progress?.scope === "audio"
+        candidate.progress?.scope === "audio" ||
+        candidate.progress?.scope === "custom"
           ? candidate.progress.scope
           : undefined,
       title:
@@ -543,14 +547,16 @@ export interface HoshidictsReadiness {
 export function getReadiness(
   state: HoshidictsDesktopSnapshot
 ): HoshidictsReadiness {
-  const installed = state.dictionaries.length;
-  const enabled = state.dictionaries.filter((dictionary) => dictionary.enabled)
-    .length;
+  const customActive = state.customDictionaryActive ? 1 : 0;
+  const installed = state.dictionaries.length + customActive;
+  const enabled =
+    state.dictionaries.filter((dictionary) => dictionary.enabled).length +
+    customActive;
   const enabledLookupDictionaries = state.dictionaries.filter(
     (dictionary) =>
       dictionary.enabled &&
       (dictionary.termCount > 0 || dictionary.kanjiCount > 0)
-  ).length;
+  ).length + customActive;
   const kind: ReadinessKind = !state.effectiveEnabled
     ? "featureOff"
     : !state.overlay.running
@@ -567,12 +573,26 @@ export function getReadiness(
 
 export function isScopedBusy(
   state: HoshidictsDesktopSnapshot,
-  scope: "dictionary" | "preferences" | "mining" | "audio"
+  scope: "dictionary" | "preferences" | "mining" | "audio" | "custom"
 ): boolean {
   return (
     state.busy &&
     (state.progress.scope === undefined || state.progress.scope === scope)
   );
+}
+
+export interface CustomDictionaryDraftSummary {
+  entryCount: number;
+  ignoredLines: number[];
+  ignoredLineCount: number;
+}
+
+export function summarizeCustomDictionaryText(
+  text: string
+): CustomDictionaryDraftSummary {
+  const { entries, ignoredLines, ignoredLineCount } =
+    parseHoshidictsCustomDictionary(text);
+  return { entryCount: entries.length, ignoredLines, ignoredLineCount };
 }
 
 export function formatTimestamp(value: string | null): string | null {

@@ -584,6 +584,7 @@
       "tabs": {
         "dictionaries": "Dictionaries",
         "audio": "Audio",
+        "custom": "Custom",
         "mining": "Anki Mining"
       },
       "reader": {
@@ -609,6 +610,7 @@
         "milliseconds": "ms"
       },
       "saveStatus": {
+        "dirty": "Unsaved changes",
         "saving": "Saving...",
         "saved": "Saved",
         "error": "Save failed"
@@ -715,6 +717,29 @@
           "readingTts": "Playback only: speaks the dictionary reading with a local system voice and cannot be attached to mined notes."
         }
       },
+      "custom": {
+        "title": "Custom dictionary",
+        "subtitle": "Create or edit personal definitions. Changes take effect only when you save.",
+        "path": "File:",
+        "editorLabel": "Dictionary entries",
+        "placeholder": "螺旋丸, らせんがん, Rotating chakra sphere attack",
+        "entries": "{count} valid entries",
+        "fileExists": "Source file exists",
+        "fileNotCreated": "Source file will be created when saved",
+        "skippedLines": "Malformed lines will be preserved but skipped ({count} total; first lines: {lines}).",
+        "formatTitle": "One entry per line",
+        "formatExample": "word, reading, definition",
+        "formatHint": "The first two commas separate the fields, so definitions may contain commas. Blank lines and lines starting with # are ignored. Definitions may use up to 2 KiB when saved.",
+        "newlineHint": "Use \\n for a line break and \\\\n to keep the literal characters \\n.",
+        "clear": "Clear",
+        "reload": "Reload from File",
+        "reloadConfirm": "Reloading will discard your unsaved custom dictionary changes. Continue?",
+        "save": "Save Dictionary",
+        "saving": "Saving...",
+        "loading": "Loading the custom dictionary...",
+        "loadFailed": "The custom dictionary could not be loaded.",
+        "retry": "Retry"
+      },
       "mining": {
         "title": "Anki mining profile",
         "enabled": "Enable mining",
@@ -766,6 +791,7 @@
         "updatesChecked": "Dictionary update check complete.",
         "dictionaryRemoved": "Removed {title}.",
         "dictionaryChanged": "Dictionary settings updated.",
+        "customDictionarySaved": "Custom dictionary saved.",
         "overlayRestarted": "Overlay restarted."
       },
       "progress": {
@@ -791,6 +817,8 @@
         "audioProfile": "Failed to save the Hoshidicts audio settings.",
         "ankiOptions": "Failed to load decks and note types from AnkiConnect.",
         "miningProfile": "Failed to save the Hoshidicts mining profile.",
+        "customLoad": "Failed to load the custom dictionary.",
+        "customSave": "Failed to save the custom dictionary.",
         "restart": "Failed to restart the overlay."
       }
     },
