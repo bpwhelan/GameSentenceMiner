@@ -243,7 +243,13 @@ describe('Hoshidicts full backups', () => {
         const workspace = makeTempDirectory('gsm-hoshidicts-backup-large-');
         const sourceRoot = path.join(workspace, 'source');
         const { dictionaryPath } = await writeTestRoot(sourceRoot, { media: false });
+        const bloomPath = path.join(sourceRoot, ...dictionaryPath.split('/'), 'bloom.filter');
         const blobPath = path.join(sourceRoot, ...dictionaryPath.split('/'), 'blobs.bin');
+        const bloomBytes = Buffer.alloc(2_097_168);
+        for (let index = 0; index < bloomBytes.length; index += 1) {
+            bloomBytes[index] = (index * 31 + (index >>> 8)) & 0xff;
+        }
+        await fsp.writeFile(bloomPath, bloomBytes);
         const handle = await fsp.open(blobPath, 'w');
         const chunk = Buffer.alloc(64 * 1024, 0x5a);
         try {
@@ -263,6 +269,11 @@ describe('Hoshidicts full backups', () => {
             (file) => file.path === `${dictionaryPath}/blobs.bin`,
         );
         expect(blobMetadata?.size).toBe(8 * 1024 * 1024);
+        expect(
+            result.manifest.files.find(
+                (file) => file.path === `${dictionaryPath}/bloom.filter`,
+            )?.size,
+        ).toBe(2_097_168);
         expect(JSON.stringify(result.manifest).length).toBeLessThan(20_000);
 
         const prepared = await prepareHoshidictsBackupRestore({
@@ -275,6 +286,11 @@ describe('Hoshidicts full backups', () => {
                     path.join(prepared.payloadRoot, ...dictionaryPath.split('/'), 'blobs.bin'),
                 ),
             ).resolves.toMatchObject({ size: 8 * 1024 * 1024 });
+            await expect(
+                fsp.stat(
+                    path.join(prepared.payloadRoot, ...dictionaryPath.split('/'), 'bloom.filter'),
+                ),
+            ).resolves.toMatchObject({ size: 2_097_168 });
         } finally {
             await disposePreparedHoshidictsBackupRestore(prepared);
         }

@@ -763,10 +763,29 @@ export async function exportHoshidictsBackup(
     return { outputPath, manifest };
 }
 
-function openZip(archivePath: string): Promise<ZipFile> {
-    return new Promise((resolve, reject) => {
-        yauzl.open(
-            archivePath,
+class NativeFileRandomAccessReader extends yauzl.RandomAccessReader {
+    constructor(private readonly archivePath: string) {
+        super();
+    }
+
+    override _readStreamForRange(start: number, end: number): Readable {
+        return fs.createReadStream(this.archivePath, { start, end: end - 1 });
+    }
+}
+
+async function openZip(archivePath: string): Promise<ZipFile> {
+    const archiveStat = await fsp.stat(archivePath);
+    if (!archiveStat.isFile() || !Number.isSafeInteger(archiveStat.size)) {
+        throw new Error('Hoshidicts backup archive is not a regular file.');
+    }
+    return await new Promise((resolve, reject) => {
+        // yauzl 2.x normally delegates range reads to fd-slicer 1.x. That legacy
+        // stream can stop one chunk before EOF on large files in modern Node,
+        // leaving a restore promise permanently unsettled. Native range streams
+        // preserve yauzl's ZIP parsing and validation without that compatibility bug.
+        yauzl.fromRandomAccessReader(
+            new NativeFileRandomAccessReader(archivePath),
+            archiveStat.size,
             { lazyEntries: true, autoClose: true, validateEntrySizes: true },
             (error, zip) => {
                 if (error || !zip) {
