@@ -1,10 +1,21 @@
 import type {
+    HoshidictsDuplicateBehavior,
+    HoshidictsDuplicateScope,
+    HoshidictsFieldOverwriteMode,
+    HoshidictsFieldOverwriteModes,
     HoshidictsMiningFieldName,
     HoshidictsMiningProfile,
 } from '../../../shared/features/hoshidicts.js';
+import {
+    createDefaultHoshidictsFieldOverwriteModes,
+    HOSHIDICTS_DUPLICATE_BEHAVIORS,
+    HOSHIDICTS_DUPLICATE_SCOPES,
+    HOSHIDICTS_FIELD_OVERWRITE_MODES,
+} from '../../../shared/features/hoshidicts.js';
 
 export const HOSHIDICTS_MINING_PROFILE_FILE_NAME = 'mining-profile.json';
-const MINING_PROFILE_VERSION = 1;
+const MINING_PROFILE_VERSION = 2;
+const LEGACY_MINING_PROFILE_VERSION = 1;
 
 const MINING_FIELD_NAMES: readonly HoshidictsMiningFieldName[] = [
     'expression',
@@ -55,7 +66,11 @@ export function defaultHoshidictsMiningProfile(): HoshidictsMiningProfile {
         },
         disabledFields: [],
         tags: ['hoshidicts'],
-        duplicatePolicy: 'prevent',
+        checkForDuplicates: true,
+        duplicateScope: 'collection',
+        duplicateScopeCheckAllModels: false,
+        duplicateBehavior: 'prevent',
+        fieldOverwriteModes: createDefaultHoshidictsFieldOverwriteModes(),
     };
 }
 
@@ -67,7 +82,8 @@ export function normalizeHoshidictsMiningProfile(
     }
     if (
         value.version !== undefined &&
-        value.version !== MINING_PROFILE_VERSION
+        value.version !== MINING_PROFILE_VERSION &&
+        value.version !== LEGACY_MINING_PROFILE_VERSION
     ) {
         throw new Error('Hoshidicts mining profile version is unsupported.');
     }
@@ -95,6 +111,53 @@ export function normalizeHoshidictsMiningProfile(
         value.duplicatePolicy !== 'allow'
     ) {
         throw new Error('Hoshidicts duplicate policy is invalid.');
+    }
+    if (
+        value.checkForDuplicates !== undefined &&
+        typeof value.checkForDuplicates !== 'boolean'
+    ) {
+        throw new Error('Hoshidicts duplicate check setting is invalid.');
+    }
+    if (
+        value.duplicateScope !== undefined &&
+        !HOSHIDICTS_DUPLICATE_SCOPES.includes(
+            value.duplicateScope as HoshidictsDuplicateScope
+        )
+    ) {
+        throw new Error('Hoshidicts duplicate scope is invalid.');
+    }
+    if (
+        value.duplicateScopeCheckAllModels !== undefined &&
+        typeof value.duplicateScopeCheckAllModels !== 'boolean'
+    ) {
+        throw new Error('Hoshidicts duplicate note type setting is invalid.');
+    }
+    if (
+        value.duplicateBehavior !== undefined &&
+        !HOSHIDICTS_DUPLICATE_BEHAVIORS.includes(
+            value.duplicateBehavior as HoshidictsDuplicateBehavior
+        )
+    ) {
+        throw new Error('Hoshidicts duplicate behavior is invalid.');
+    }
+    const rawOverwriteModes = value.fieldOverwriteModes ?? {};
+    if (!isRecord(rawOverwriteModes)) {
+        throw new Error('Hoshidicts field overwrite modes are invalid.');
+    }
+    const fieldOverwriteModes = createDefaultHoshidictsFieldOverwriteModes();
+    for (const field of MINING_FIELD_NAMES) {
+        const mode = rawOverwriteModes[field];
+        if (mode === undefined) {
+            continue;
+        }
+        if (
+            !HOSHIDICTS_FIELD_OVERWRITE_MODES.includes(
+                mode as HoshidictsFieldOverwriteMode
+            )
+        ) {
+            throw new Error(`Hoshidicts ${field} overwrite mode is invalid.`);
+        }
+        fieldOverwriteModes[field] = mode as HoshidictsFieldOverwriteMode;
     }
     const rawDisabledFields = value.disabledFields ?? [];
     if (!Array.isArray(rawDisabledFields)) {
@@ -161,7 +224,17 @@ export function normalizeHoshidictsMiningProfile(
         },
         disabledFields,
         tags,
-        duplicatePolicy:
-            value.duplicatePolicy === 'allow' ? 'allow' : 'prevent',
+        checkForDuplicates: value.checkForDuplicates !== false,
+        duplicateScope:
+            (value.duplicateScope as HoshidictsDuplicateScope | undefined) ??
+            'collection',
+        duplicateScopeCheckAllModels:
+            value.duplicateScopeCheckAllModels === true,
+        duplicateBehavior:
+            (value.duplicateBehavior as
+                | HoshidictsDuplicateBehavior
+                | undefined) ??
+            (value.duplicatePolicy === 'allow' ? 'new' : 'prevent'),
+        fieldOverwriteModes: fieldOverwriteModes as HoshidictsFieldOverwriteModes,
     };
 }

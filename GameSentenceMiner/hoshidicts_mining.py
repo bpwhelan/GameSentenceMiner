@@ -14,7 +14,8 @@ from GameSentenceMiner import hoshidicts_mining_note as _note
 from GameSentenceMiner.util.config.configuration import get_app_directory, get_config
 
 HOSHIDICTS_MINING_PROFILE_FILE = "mining-profile.json"
-HOSHIDICTS_MINING_PROFILE_VERSION = 1
+HOSHIDICTS_MINING_PROFILE_VERSION = 2
+LEGACY_HOSHIDICTS_MINING_PROFILE_VERSION = 1
 MAX_PROFILE_BYTES = 64 * 1024
 MAX_ANKI_OPTION_NAMES = 4096
 MAX_DUPLICATE_CHECK_NOTES = 16
@@ -59,6 +60,17 @@ FIELD_KEYS = (
     "audio",
 )
 
+DUPLICATE_SCOPES = ("collection", "deck", "deck-root")
+DUPLICATE_BEHAVIORS = ("prevent", "overwrite", "new")
+FIELD_OVERWRITE_MODES = (
+    "coalesce",
+    "coalesce-new",
+    "skip",
+    "append",
+    "prepend",
+    "overwrite",
+)
+
 OPTIONAL_FIELD_ALIASES = {
     "reading": ("Reading", "Word Reading", "WordReading", "Kana"),
     "definition": ("Definition", "Definitions", "Meaning", "Glossary"),
@@ -96,7 +108,11 @@ def default_hoshidicts_mining_profile() -> dict[str, Any]:
         "fields": {key: "" for key in FIELD_KEYS},
         "disabledFields": [],
         "tags": ["hoshidicts"],
-        "duplicatePolicy": "prevent",
+        "checkForDuplicates": True,
+        "duplicateScope": "collection",
+        "duplicateScopeCheckAllModels": False,
+        "duplicateBehavior": "prevent",
+        "fieldOverwriteModes": {key: "coalesce" for key in FIELD_KEYS},
     }
 
 
@@ -107,7 +123,10 @@ def get_hoshidicts_mining_profile_path() -> Path:
 def normalize_hoshidicts_mining_profile(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise HoshidictsMiningError("Hoshidicts mining profile must be an object.")
-    if value.get("version", HOSHIDICTS_MINING_PROFILE_VERSION) != HOSHIDICTS_MINING_PROFILE_VERSION:
+    if value.get("version", LEGACY_HOSHIDICTS_MINING_PROFILE_VERSION) not in {
+        LEGACY_HOSHIDICTS_MINING_PROFILE_VERSION,
+        HOSHIDICTS_MINING_PROFILE_VERSION,
+    }:
         raise HoshidictsMiningError("Hoshidicts mining profile version is unsupported.")
 
     raw_fields = value.get("fields", {})
@@ -148,6 +167,30 @@ def normalize_hoshidicts_mining_profile(value: Any) -> dict[str, Any]:
     if duplicate_policy not in {"prevent", "allow"}:
         raise HoshidictsMiningError("Hoshidicts duplicate policy is invalid.")
 
+    check_for_duplicates = value.get("checkForDuplicates", True)
+    if not isinstance(check_for_duplicates, bool):
+        raise HoshidictsMiningError("Hoshidicts duplicate check setting is invalid.")
+    duplicate_scope = value.get("duplicateScope", "collection")
+    if duplicate_scope not in DUPLICATE_SCOPES:
+        raise HoshidictsMiningError("Hoshidicts duplicate scope is invalid.")
+    duplicate_scope_check_all_models = value.get("duplicateScopeCheckAllModels", False)
+    if not isinstance(duplicate_scope_check_all_models, bool):
+        raise HoshidictsMiningError("Hoshidicts duplicate note type setting is invalid.")
+    duplicate_behavior = value.get("duplicateBehavior")
+    if duplicate_behavior is None:
+        duplicate_behavior = "new" if duplicate_policy == "allow" else "prevent"
+    if duplicate_behavior not in DUPLICATE_BEHAVIORS:
+        raise HoshidictsMiningError("Hoshidicts duplicate behavior is invalid.")
+    raw_overwrite_modes = value.get("fieldOverwriteModes", {})
+    if not isinstance(raw_overwrite_modes, dict):
+        raise HoshidictsMiningError("Hoshidicts field overwrite modes are invalid.")
+    field_overwrite_modes = {}
+    for key in FIELD_KEYS:
+        mode = raw_overwrite_modes.get(key, "coalesce")
+        if mode not in FIELD_OVERWRITE_MODES:
+            raise HoshidictsMiningError(f"Hoshidicts {key} overwrite mode is invalid.")
+        field_overwrite_modes[key] = mode
+
     return {
         "version": HOSHIDICTS_MINING_PROFILE_VERSION,
         "enabled": value.get("enabled", True) is not False,
@@ -165,7 +208,11 @@ def normalize_hoshidicts_mining_profile(value: Any) -> dict[str, Any]:
         "fields": fields,
         "disabledFields": disabled_fields,
         "tags": tags,
-        "duplicatePolicy": duplicate_policy,
+        "checkForDuplicates": check_for_duplicates,
+        "duplicateScope": duplicate_scope,
+        "duplicateScopeCheckAllModels": duplicate_scope_check_all_models,
+        "duplicateBehavior": duplicate_behavior,
+        "fieldOverwriteModes": field_overwrite_modes,
     }
 
 
@@ -622,14 +669,32 @@ def _add_field_value(
         fields[field_name] = value
 
 
-def _anki_note_options(allow_duplicate: bool) -> dict[str, Any]:
+def _root_deck_name(deck_name: str) -> str:
+    return deck_name.split("::", 1)[0]
+
+
+def _anki_note_options(
+    profile: dict[str, Any],
+    deck_name: str,
+    *,
+    allow_duplicate: bool | None = None,
+) -> dict[str, Any]:
+    duplicate_scope = profile["duplicateScope"]
+    duplicate_scope_deck_name = None
+    duplicate_scope_check_children = False
+    if duplicate_scope == "deck-root":
+        duplicate_scope = "deck"
+        duplicate_scope_deck_name = _root_deck_name(deck_name)
+        duplicate_scope_check_children = True
+    if allow_duplicate is None:
+        allow_duplicate = not profile["checkForDuplicates"] or profile["duplicateBehavior"] != "prevent"
     return {
         "allowDuplicate": allow_duplicate,
-        "duplicateScope": "collection",
+        "duplicateScope": duplicate_scope,
         "duplicateScopeOptions": {
-            "deckName": None,
-            "checkChildren": False,
-            "checkAllModels": False,
+            "deckName": duplicate_scope_deck_name,
+            "checkChildren": duplicate_scope_check_children,
+            "checkAllModels": profile["duplicateScopeCheckAllModels"],
         },
     }
 
@@ -677,7 +742,7 @@ def _build_hoshidicts_note(
         "deckName": resolved["deck"],
         "modelName": resolved["model"],
         "fields": fields,
-        "options": _anki_note_options(resolved["profile"]["duplicatePolicy"] == "allow"),
+        "options": _anki_note_options(resolved["profile"], resolved["deck"]),
         "tags": tags,
     }
 
@@ -723,24 +788,12 @@ def _validate_anki_check_results(
     return value
 
 
-def check_hoshidicts_notes(payload: Any) -> dict[str, Any]:
-    if not isinstance(payload, dict):
-        raise HoshidictsMiningError("Duplicate check request must be an object.")
-    raw_notes = payload.get("notes")
-    if not isinstance(raw_notes, list) or not 1 <= len(raw_notes) <= MAX_DUPLICATE_CHECK_NOTES:
-        raise HoshidictsMiningError(
-            f"Duplicate check notes must contain between 1 and {MAX_DUPLICATE_CHECK_NOTES} items."
-        )
-
-    requests = [validate_hoshidicts_mining_request(note) for note in raw_notes]
-    resolved = _resolve_mining_configuration()
-    if not resolved["modelFields"]:
-        raise HoshidictsMiningError("The selected Anki note type has no fields.", 503)
-    notes = [_build_hoshidicts_note(request, resolved) for request in requests]
-    first_model_field = resolved["modelFields"][0]
+def _check_anki_duplicates(
+    notes: list[dict[str, Any]],
+    first_model_field: str,
+    anki: Any,
+) -> list[dict[str, Any]]:
     check_notes = [_duplicate_check_note(note, first_model_field, allow_duplicate=False) for note in notes]
-    duplicate_policy = resolved["profile"]["duplicatePolicy"]
-    anki = resolved["anki"]
     legacy_results = None
     try:
         details = _validate_anki_check_results(
@@ -757,12 +810,20 @@ def check_hoshidicts_notes(payload: Any) -> dict[str, Any]:
             raise
         allow_notes = [_duplicate_check_note(note, first_model_field, allow_duplicate=True) for note in notes]
         allowed = _validate_anki_check_results(
-            anki.invoke("canAddNotes", notes=allow_notes, timeout=ANKI_CONNECT_TIMEOUT_SECONDS),
+            anki.invoke(
+                "canAddNotes",
+                notes=allow_notes,
+                timeout=ANKI_CONNECT_TIMEOUT_SECONDS,
+            ),
             len(notes),
             detailed=False,
         )
         prevented = _validate_anki_check_results(
-            anki.invoke("canAddNotes", notes=check_notes, timeout=ANKI_CONNECT_TIMEOUT_SECONDS),
+            anki.invoke(
+                "canAddNotes",
+                notes=check_notes,
+                timeout=ANKI_CONNECT_TIMEOUT_SECONDS,
+            ),
             len(notes),
             detailed=False,
         )
@@ -775,14 +836,269 @@ def check_hoshidicts_notes(payload: Any) -> dict[str, Any]:
         error = raw_error if isinstance(raw_error, str) and raw_error else None
         duplicate = _is_duplicate_anki_error(error) if isinstance(item, dict) else item[0] != item[1]
         addable = item.get("canAdd") is True if isinstance(item, dict) else item == (True, True)
-        if duplicate:
-            results.append(
-                {
-                    "state": "duplicate",
-                    "canAdd": duplicate_policy == "allow",
-                    "duplicate": True,
-                }
+        results.append(
+            {
+                "duplicate": duplicate,
+                "addable": addable,
+                "error": error,
+            }
+        )
+    return results
+
+
+def _escape_anki_query_value(value: str) -> str:
+    return value.replace('"', "")
+
+
+def _duplicate_note_query(
+    note: dict[str, Any],
+    first_model_field: str,
+    profile: dict[str, Any],
+) -> str:
+    parts = []
+    duplicate_scope = profile["duplicateScope"]
+    if duplicate_scope == "deck":
+        parts.append(f'"deck:{_escape_anki_query_value(note["deckName"])}"')
+    elif duplicate_scope == "deck-root":
+        root_deck = _root_deck_name(note["deckName"])
+        parts.append(f'"deck:{_escape_anki_query_value(root_deck)}"')
+    field_value = str(note["fields"].get(first_model_field, ""))
+    parts.append(f'"{first_model_field.lower()}:{_escape_anki_query_value(field_value)}"')
+    return " ".join(parts)
+
+
+def _valid_note_ids(value: Any) -> list[int]:
+    if not isinstance(value, list):
+        raise HoshidictsMiningError(
+            "AnkiConnect returned invalid duplicate note IDs.",
+            502,
+        )
+    note_ids = []
+    for item in value:
+        if not isinstance(item, int) or isinstance(item, bool) or item <= 0:
+            raise HoshidictsMiningError(
+                "AnkiConnect returned invalid duplicate note IDs.",
+                502,
             )
+        note_ids.append(item)
+    return note_ids
+
+
+def _note_info_fields(value: Any) -> dict[str, str] | None:
+    if not isinstance(value, dict):
+        return None
+    raw_fields = value.get("fields")
+    if not isinstance(raw_fields, dict):
+        return None
+    fields = {}
+    for field_name, raw_value in raw_fields.items():
+        if not isinstance(field_name, str):
+            continue
+        if isinstance(raw_value, dict):
+            raw_value = raw_value.get("value")
+        if isinstance(raw_value, str):
+            fields[field_name] = raw_value
+    return fields
+
+
+def _scope_note_ids(
+    note_infos: list[Any],
+    profile: dict[str, Any],
+    deck_name: str,
+    anki: Any,
+) -> set[int] | None:
+    duplicate_scope = profile["duplicateScope"]
+    if duplicate_scope == "collection":
+        return None
+    card_ids = []
+    for info in note_infos:
+        if not isinstance(info, dict) or not isinstance(info.get("cards"), list):
+            continue
+        card_ids.extend(
+            card_id
+            for card_id in info["cards"]
+            if isinstance(card_id, int) and not isinstance(card_id, bool) and card_id > 0
+        )
+    if not card_ids:
+        return set()
+    card_infos = anki.invoke(
+        "cardsInfo",
+        cards=card_ids,
+        timeout=ANKI_CONNECT_TIMEOUT_SECONDS,
+    )
+    if not isinstance(card_infos, list):
+        raise HoshidictsMiningError(
+            "AnkiConnect returned invalid duplicate card details.",
+            502,
+        )
+    target_deck = deck_name.casefold()
+    target_root = _root_deck_name(deck_name).casefold()
+    matching_note_ids = set()
+    for card in card_infos:
+        if not isinstance(card, dict) or not isinstance(card.get("deckName"), str):
+            continue
+        note_id = card.get("note", card.get("noteId"))
+        if not isinstance(note_id, int) or isinstance(note_id, bool) or note_id <= 0:
+            continue
+        card_deck = card["deckName"].casefold()
+        in_scope = (
+            card_deck == target_deck
+            if duplicate_scope == "deck"
+            else card_deck == target_root or card_deck.startswith(f"{target_root}::")
+        )
+        if in_scope:
+            matching_note_ids.add(note_id)
+    return matching_note_ids
+
+
+def _find_overwrite_target(
+    note: dict[str, Any],
+    first_model_field: str,
+    resolved: dict[str, Any],
+) -> dict[str, Any] | None:
+    anki = resolved["anki"]
+    note_ids = _valid_note_ids(
+        anki.invoke(
+            "findNotes",
+            query=_duplicate_note_query(
+                note,
+                first_model_field,
+                resolved["profile"],
+            ),
+            timeout=ANKI_CONNECT_TIMEOUT_SECONDS,
+        )
+    )
+    if not note_ids:
+        return None
+    note_infos = anki.invoke(
+        "notesInfo",
+        notes=note_ids,
+        timeout=ANKI_CONNECT_TIMEOUT_SECONDS,
+    )
+    if not isinstance(note_infos, list):
+        raise HoshidictsMiningError(
+            "AnkiConnect returned invalid duplicate note details.",
+            502,
+        )
+    scoped_note_ids = _scope_note_ids(
+        note_infos,
+        resolved["profile"],
+        resolved["deck"],
+        anki,
+    )
+    infos_by_id = {
+        info.get("noteId"): info
+        for info in note_infos
+        if isinstance(info, dict) and isinstance(info.get("noteId"), int) and not isinstance(info.get("noteId"), bool)
+    }
+    for note_id in note_ids:
+        if scoped_note_ids is not None and note_id not in scoped_note_ids:
+            continue
+        info = infos_by_id.get(note_id)
+        if not isinstance(info, dict):
+            continue
+        model_name = info.get("modelName")
+        fields = _note_info_fields(info)
+        if not isinstance(model_name, str) or model_name.casefold() != resolved["model"].casefold() or fields is None:
+            continue
+        return {"noteId": note_id, "fields": fields}
+    return None
+
+
+def _overwrite_field(existing_value: str, new_value: str, mode: str) -> str:
+    if mode == "overwrite":
+        return new_value
+    if mode == "skip":
+        return existing_value
+    if mode == "append":
+        return existing_value + new_value
+    if mode == "prepend":
+        return new_value + existing_value
+    if mode == "coalesce-new":
+        return new_value or existing_value
+    return existing_value or new_value
+
+
+def _resolved_overwrite_modes(resolved: dict[str, Any]) -> dict[str, str]:
+    modes = {}
+    for key in FIELD_KEYS:
+        target = resolved["fields"].get(key)
+        if target and target not in modes:
+            modes[target] = resolved["profile"]["fieldOverwriteModes"][key]
+    return modes
+
+
+def _overwritten_note_fields(
+    note: dict[str, Any],
+    existing_fields: dict[str, str],
+    resolved: dict[str, Any],
+) -> dict[str, str]:
+    modes = _resolved_overwrite_modes(resolved)
+    return {
+        field: _overwrite_field(
+            existing_fields.get(field, ""),
+            new_value,
+            modes.get(field, "coalesce"),
+        )
+        for field, new_value in note["fields"].items()
+    }
+
+
+def check_hoshidicts_notes(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise HoshidictsMiningError("Duplicate check request must be an object.")
+    raw_notes = payload.get("notes")
+    if not isinstance(raw_notes, list) or not 1 <= len(raw_notes) <= MAX_DUPLICATE_CHECK_NOTES:
+        raise HoshidictsMiningError(
+            f"Duplicate check notes must contain between 1 and {MAX_DUPLICATE_CHECK_NOTES} items."
+        )
+
+    requests = [validate_hoshidicts_mining_request(note) for note in raw_notes]
+    resolved = _resolve_mining_configuration()
+    if not resolved["modelFields"]:
+        raise HoshidictsMiningError("The selected Anki note type has no fields.", 503)
+    notes = [_build_hoshidicts_note(request, resolved) for request in requests]
+    profile = resolved["profile"]
+    duplicate_behavior = profile["duplicateBehavior"]
+    if not profile["checkForDuplicates"]:
+        return {
+            "success": True,
+            "checkForDuplicates": False,
+            "duplicateBehavior": duplicate_behavior,
+            "results": [{"state": "addable", "canAdd": True, "duplicate": False} for _note_value in notes],
+        }
+    first_model_field = resolved["modelFields"][0]
+    results = []
+    duplicate_details = _check_anki_duplicates(
+        notes,
+        first_model_field,
+        resolved["anki"],
+    )
+    for note, item in zip(notes, duplicate_details):
+        duplicate = item["duplicate"]
+        addable = item["addable"]
+        error = item["error"]
+        if duplicate:
+            duplicate_result = {
+                "state": "duplicate",
+                "canAdd": duplicate_behavior != "prevent",
+                "duplicate": True,
+            }
+            if duplicate_behavior == "overwrite":
+                target = _find_overwrite_target(
+                    note,
+                    first_model_field,
+                    resolved,
+                )
+                duplicate_result["canAdd"] = target is not None
+                if target is None:
+                    duplicate_result["error"] = (
+                        "A duplicate exists, but it uses a different note type "
+                        "or is outside the selected deck scope and cannot be overwritten."
+                    )
+                else:
+                    duplicate_result["action"] = "overwrite"
+            results.append(duplicate_result)
         elif addable and not error:
             results.append({"state": "addable", "canAdd": True, "duplicate": False})
         else:
@@ -796,7 +1112,8 @@ def check_hoshidicts_notes(payload: Any) -> dict[str, Any]:
             )
     return {
         "success": True,
-        "duplicatePolicy": duplicate_policy,
+        "checkForDuplicates": True,
+        "duplicateBehavior": duplicate_behavior,
         "results": results,
     }
 
@@ -813,6 +1130,8 @@ def _enrich_hoshidicts_note_audio(
     resolved: dict[str, Any],
     note_id: int,
     initial_fields: dict[str, str],
+    *,
+    overwritten: bool = False,
 ) -> dict[str, str]:
     audio_field = resolved["fields"]["audio"]
     if not audio_field:
@@ -825,6 +1144,11 @@ def _enrich_hoshidicts_note_audio(
         return _audio_warning("failed", f"Could not load pronunciation audio settings: {exc}")
     if not profile["enabled"]:
         return {"status": "skipped"}
+
+    existing_value = initial_fields.get(audio_field, "")
+    overwrite_mode = resolved["profile"]["fieldOverwriteModes"]["audio"]
+    if overwritten and (overwrite_mode == "skip" or (overwrite_mode == "coalesce" and bool(existing_value))):
+        return {"status": "preserved"}
 
     term = request["term"]
     try:
@@ -852,8 +1176,10 @@ def _enrich_hoshidicts_note_audio(
         if not isinstance(stored_filename, str) or not stored_filename:
             raise RuntimeError("Anki did not return a stored media filename")
         sound = f"[sound:{stored_filename}]"
-        existing_value = initial_fields.get(audio_field, "")
-        field_value = f"{existing_value}<br>{sound}" if existing_value else sound
+        if overwritten:
+            field_value = _overwrite_field(existing_value, sound, overwrite_mode)
+        else:
+            field_value = f"{existing_value}<br>{sound}" if existing_value else sound
         resolved["anki"].invoke(
             "updateNoteFields",
             note={
@@ -863,7 +1189,11 @@ def _enrich_hoshidicts_note_audio(
             timeout=30,
         )
     except Exception as exc:
-        return _audio_warning("failed", f"The note was added, but pronunciation audio could not be stored: {exc}")
+        action = "updated" if overwritten else "added"
+        return _audio_warning(
+            "failed",
+            f"The note was {action}, but pronunciation audio could not be stored: {exc}",
+        )
     return {
         "status": "stored",
         "filename": stored_filename,
@@ -875,15 +1205,63 @@ def mine_hoshidicts_note(payload: Any) -> dict[str, Any]:
     resolved = _resolve_mining_configuration()
     note = _build_hoshidicts_note(request, resolved)
     anki = resolved["anki"]
-    try:
-        note_id = anki.invoke("addNote", note=note)
-    except Exception as exc:
-        if _is_duplicate_anki_error(exc):
+    profile = resolved["profile"]
+    overwritten = False
+    existing_fields: dict[str, str] = {}
+    if profile["checkForDuplicates"] and profile["duplicateBehavior"] == "overwrite":
+        if not resolved["modelFields"]:
             raise HoshidictsMiningError(
-                "This note already exists in Anki.",
-                409,
-            ) from exc
-        raise
+                "The selected Anki note type has no fields.",
+                503,
+            )
+        first_model_field = resolved["modelFields"][0]
+        duplicate_details = _check_anki_duplicates(
+            [note],
+            first_model_field,
+            anki,
+        )[0]
+        if duplicate_details["duplicate"]:
+            target = _find_overwrite_target(
+                note,
+                first_model_field,
+                resolved,
+            )
+            if target is None:
+                raise HoshidictsMiningError(
+                    "This note is a duplicate, but the matching note uses a "
+                    "different note type or is outside the selected deck scope.",
+                    409,
+                )
+            note_id = target["noteId"]
+            existing_fields = target["fields"]
+            overwritten_fields = _overwritten_note_fields(
+                note,
+                existing_fields,
+                resolved,
+            )
+            anki.invoke(
+                "updateNoteFields",
+                note={"id": note_id, "fields": overwritten_fields},
+                timeout=ANKI_CONNECT_TIMEOUT_SECONDS,
+            )
+            existing_fields = {**existing_fields, **overwritten_fields}
+            overwritten = True
+        elif not duplicate_details["addable"] or duplicate_details["error"]:
+            raise HoshidictsMiningError(
+                duplicate_details["error"] or "Anki cannot add this note.",
+                502,
+            )
+
+    if not overwritten:
+        try:
+            note_id = anki.invoke("addNote", note=note)
+        except Exception as exc:
+            if _is_duplicate_anki_error(exc):
+                raise HoshidictsMiningError(
+                    "This note already exists in Anki.",
+                    409,
+                ) from exc
+            raise
     if not isinstance(note_id, int) or isinstance(note_id, bool) or note_id <= 0:
         raise HoshidictsMiningError("Anki did not return a note ID.", 502)
 
@@ -891,18 +1269,23 @@ def mine_hoshidicts_note(payload: Any) -> dict[str, Any]:
         request,
         resolved,
         note_id,
-        note["fields"],
+        existing_fields if overwritten else note["fields"],
+        overwritten=overwritten,
     )
-    anki.handle_incoming_anki_event(
-        {
-            "event": "note_added",
-            "session_id": "hoshidicts",
-            "note_id": note_id,
-        }
-    )
-    return {
+    if not overwritten:
+        anki.handle_incoming_anki_event(
+            {
+                "event": "note_added",
+                "session_id": "hoshidicts",
+                "note_id": note_id,
+            }
+        )
+    result = {
         "success": True,
         "noteId": note_id,
         "unmappedFields": resolved["unmappedFields"],
         "audio": audio_result,
     }
+    if overwritten:
+        result["overwritten"] = True
+    return result

@@ -14,6 +14,7 @@ import {
 import type { HoshidictsManagerSnapshot } from '../../../shared/features/hoshidicts.js';
 import {
     createDefaultHoshidictsAudioProfile,
+    createDefaultHoshidictsFieldOverwriteModes,
     DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
 } from '../../../shared/features/hoshidicts.js';
 
@@ -32,7 +33,7 @@ function currentState(): HoshidictsManagerSnapshot {
         customDictionaryActive: false,
         recommendedDictionaries: [],
         miningProfile: {
-            version: 1,
+            version: 2,
             enabled: true,
             deck: 'Old',
             model: 'Old',
@@ -47,7 +48,12 @@ function currentState(): HoshidictsManagerSnapshot {
             },
             disabledFields: [],
             tags: [],
-            duplicatePolicy: 'prevent',
+            checkForDuplicates: true,
+            duplicateScope: 'collection',
+            duplicateScopeCheckAllModels: false,
+            duplicateBehavior: 'prevent',
+            fieldOverwriteModes:
+                createDefaultHoshidictsFieldOverwriteModes(),
         },
         audioProfile: createDefaultHoshidictsAudioProfile(),
         lookupMode: 'shift',
@@ -140,7 +146,10 @@ describe('parseYomitanSettingsBackup', () => {
             enabled: true,
             deck: 'Japanese',
             model: 'Mining',
-            duplicatePolicy: 'allow',
+            checkForDuplicates: false,
+            duplicateScope: 'collection',
+            duplicateScopeCheckAllModels: false,
+            duplicateBehavior: 'new',
             fields: {
                 expression: 'Word',
                 reading: 'Reading',
@@ -216,13 +225,97 @@ describe('parseYomitanSettingsBackup', () => {
         expect(parsed.miningProfile).toMatchObject({
             deck: 'Deck',
             model: 'Note',
-            duplicatePolicy: 'prevent',
+            checkForDuplicates: true,
+            duplicateScope: 'collection',
+            duplicateScopeCheckAllModels: false,
+            duplicateBehavior: 'prevent',
             fields: {
                 expression: 'Expression',
                 frequency: 'Frequency',
                 pitch: 'Pitch',
             },
+            fieldOverwriteModes: {
+                expression: 'coalesce',
+                frequency: 'coalesce',
+                pitch: 'coalesce',
+            },
         });
+    });
+
+    it('imports Yomitan duplicate scopes, note-type checks, and every overwrite mode', () => {
+        const parsed = parseYomitanSettingsBackup(
+            {
+                version: 0,
+                options: {
+                    profileCurrent: 0,
+                    profiles: [
+                        {
+                            options: {
+                                anki: {
+                                    enable: true,
+                                    checkForDuplicates: true,
+                                    duplicateScope: 'deck-root',
+                                    duplicateScopeCheckAllModels: true,
+                                    duplicateBehavior: 'overwrite',
+                                    cardFormats: [
+                                        {
+                                            type: 'term',
+                                            deck: 'Japanese::Mining',
+                                            model: 'Mining',
+                                            fields: {
+                                                Expression: {
+                                                    value: '{expression}',
+                                                    overwriteMode: 'overwrite',
+                                                },
+                                                Reading: {
+                                                    value: '{reading}',
+                                                    overwriteMode: 'skip',
+                                                },
+                                                Definition: {
+                                                    value: '{glossary}',
+                                                    overwriteMode: 'append',
+                                                },
+                                                Sentence: {
+                                                    value: '{sentence}',
+                                                    overwriteMode: 'prepend',
+                                                },
+                                                Frequency: {
+                                                    value: '{frequency-harmonic-rank}',
+                                                    overwriteMode: 'coalesce-new',
+                                                },
+                                                Pitch: {
+                                                    value: '{pitch-accent-graphs}',
+                                                    overwriteMode: 'coalesce',
+                                                },
+                                            },
+                                        },
+                                    ],
+                                },
+                            },
+                        },
+                    ],
+                },
+            },
+            currentState(),
+        );
+
+        expect(parsed.miningProfile).toMatchObject({
+            version: 2,
+            checkForDuplicates: true,
+            duplicateScope: 'deck-root',
+            duplicateScopeCheckAllModels: true,
+            duplicateBehavior: 'overwrite',
+            fieldOverwriteModes: {
+                expression: 'overwrite',
+                reading: 'skip',
+                definition: 'append',
+                sentence: 'prepend',
+                frequency: 'coalesce-new',
+                pitch: 'coalesce',
+                audio: 'coalesce',
+            },
+        });
+        expect(parsed.warnings).toEqual([]);
     });
 
     it('imports local-audio-yomichan from the active Yomitan profile', () => {
