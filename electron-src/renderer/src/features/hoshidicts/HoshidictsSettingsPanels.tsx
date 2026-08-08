@@ -9,6 +9,7 @@ import {
   FileArchive,
   FileJson,
   Keyboard,
+  Pencil,
   RefreshCw,
   Save,
   Star,
@@ -77,6 +78,13 @@ const THEME_KEYS: Record<HoshidictsTheme, string> = {
   autumn: "settings.hoshidicts.reader.appearance.themes.autumn",
   cyberpunk: "settings.hoshidicts.reader.appearance.themes.cyberpunk"
 };
+
+function dictionaryDisplayName(dictionary: {
+  title: string;
+  displayName: string | null;
+}): string {
+  return dictionary.displayName ?? dictionary.title;
+}
 
 function CustomDictionarySaveIndicator({
   status
@@ -354,6 +362,10 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
     actions
   } = controller;
   const [positionMove, setPositionMove] = useState<{
+    id: string;
+    value: string;
+  } | null>(null);
+  const [dictionaryRename, setDictionaryRename] = useState<{
     id: string;
     value: string;
   } | null>(null);
@@ -904,7 +916,7 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                     checked={dictionary.enabled}
                     disabled={dictionaryBusy}
                     aria-label={t("settings.hoshidicts.enableDictionary", {
-                      title: dictionary.title
+                      title: dictionaryDisplayName(dictionary)
                     })}
                     onChange={(event) =>
                       void actions.setDictionaryEnabled(
@@ -925,13 +937,13 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                           dictionary.favorite
                             ? "settings.hoshidicts.dictionaryPresentation.removeFavorite"
                             : "settings.hoshidicts.dictionaryPresentation.addFavorite",
-                          { title: dictionary.title }
+                          { title: dictionaryDisplayName(dictionary) }
                         )}
                         title={t(
                           dictionary.favorite
                             ? "settings.hoshidicts.dictionaryPresentation.removeFavorite"
                             : "settings.hoshidicts.dictionaryPresentation.addFavorite",
-                          { title: dictionary.title }
+                          { title: dictionaryDisplayName(dictionary) }
                         )}
                         disabled={dictionaryBusy}
                         onClick={() =>
@@ -953,9 +965,28 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                         aria-hidden="true"
                       />
                     )}
-                    <strong>{dictionary.title}</strong>
+                    <strong
+                      title={
+                        dictionary.displayName
+                          ? t(
+                              "settings.hoshidicts.dictionaryActions.originalName",
+                              { title: dictionary.title }
+                            )
+                          : undefined
+                      }
+                    >
+                      {dictionaryDisplayName(dictionary)}
+                    </strong>
                   </div>
                   <div className="hoshidicts-dictionary-meta">
+                    {dictionary.displayName ? (
+                      <span className="hoshidicts-dictionary-canonical-name">
+                        {t(
+                          "settings.hoshidicts.dictionaryActions.originalName",
+                          { title: dictionary.title }
+                        )}
+                      </span>
+                    ) : null}
                     <span>
                       {t("settings.hoshidicts.revision", {
                         revision:
@@ -1016,11 +1047,11 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                     <summary
                       className="hoshidicts-icon-button secondary"
                       title={t("settings.hoshidicts.dictionaryActions.menu", {
-                        title: dictionary.title
+                        title: dictionaryDisplayName(dictionary)
                       })}
                       aria-label={t(
                         "settings.hoshidicts.dictionaryActions.menu",
-                        { title: dictionary.title }
+                        { title: dictionaryDisplayName(dictionary) }
                       )}
                       aria-disabled={dictionaryBusy}
                       aria-haspopup="menu"
@@ -1031,7 +1062,100 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                       <EllipsisVertical size={18} aria-hidden="true" />
                     </summary>
                     <div className="hoshidicts-dictionary-menu__popover">
-                      {positionMove?.id === dictionary.id ? (
+                      {dictionaryRename?.id === dictionary.id ? (
+                        <form
+                          className="hoshidicts-dictionary-rename"
+                          aria-label={t(
+                            "settings.hoshidicts.dictionaryActions.renameForm",
+                            { title: dictionaryDisplayName(dictionary) }
+                          )}
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            const displayName = dictionaryRename.value.trim();
+                            if (!displayName) return;
+                            setDictionaryRename(null);
+                            event.currentTarget
+                              .closest("details")
+                              ?.removeAttribute("open");
+                            void actions.renameDictionary(
+                              dictionary.id,
+                              displayName
+                            );
+                          }}
+                        >
+                          <label>
+                            <span>
+                              {t(
+                                "settings.hoshidicts.dictionaryActions.displayName"
+                              )}
+                            </span>
+                            <input
+                              type="text"
+                              autoFocus
+                              required
+                              aria-describedby={`hoshidicts-dictionary-rename-original-${dictionary.id}`}
+                              value={dictionaryRename.value}
+                              onChange={(event) =>
+                                setDictionaryRename({
+                                  id: dictionary.id,
+                                  value: event.currentTarget.value
+                                })
+                              }
+                            />
+                          </label>
+                          <small
+                            id={`hoshidicts-dictionary-rename-original-${dictionary.id}`}
+                          >
+                            {t(
+                              "settings.hoshidicts.dictionaryActions.originalName",
+                              { title: dictionary.title }
+                            )}
+                          </small>
+                          <div>
+                            <button
+                              type="submit"
+                              disabled={
+                                dictionaryBusy ||
+                                dictionaryRename.value.trim().length === 0
+                              }
+                            >
+                              {t(
+                                "settings.hoshidicts.dictionaryActions.saveName"
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              className="secondary"
+                              onClick={() => setDictionaryRename(null)}
+                            >
+                              {t(
+                                "settings.hoshidicts.dictionaryActions.cancel"
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              className="secondary hoshidicts-dictionary-rename__reset"
+                              disabled={
+                                dictionaryBusy || dictionary.displayName === null
+                              }
+                              onClick={(event) => {
+                                setDictionaryRename(null);
+                                event.currentTarget
+                                  .closest("details")
+                                  ?.removeAttribute("open");
+                                void actions.renameDictionary(
+                                  dictionary.id,
+                                  null
+                                );
+                              }}
+                            >
+                              {t(
+                                "settings.hoshidicts.dictionaryActions.resetName"
+                              )}
+                            </button>
+                          </div>
+                        </form>
+                      ) : positionMove?.id === dictionary.id ? (
                         <form
                           className="hoshidicts-dictionary-position"
                           onSubmit={(event) => {
@@ -1143,15 +1267,33 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                             type="button"
                             role="menuitem"
                             disabled={dictionaryBusy}
-                            onClick={() =>
+                            onClick={() => {
+                              setDictionaryRename(null);
                               setPositionMove({
                                 id: dictionary.id,
                                 value: String(index + 1)
-                              })
-                            }
+                              });
+                            }}
                           >
                             {t(
                               "settings.hoshidicts.dictionaryActions.moveToPosition"
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            disabled={dictionaryBusy}
+                            onClick={() => {
+                              setPositionMove(null);
+                              setDictionaryRename({
+                                id: dictionary.id,
+                                value: dictionaryDisplayName(dictionary)
+                              });
+                            }}
+                          >
+                            <Pencil size={16} aria-hidden="true" />
+                            {t(
+                              "settings.hoshidicts.dictionaryActions.rename"
                             )}
                           </button>
                           <button

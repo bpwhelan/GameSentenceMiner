@@ -518,6 +518,11 @@ export function normalizeHoshidictsDesktopState(
           )
           .map((dictionary) => ({
             ...dictionary,
+            displayName:
+              typeof dictionary.displayName === "string" &&
+              dictionary.displayName.trim()
+                ? dictionary.displayName.trim()
+                : null,
             enabled: dictionary.enabled !== false,
             favorite: dictionary.favorite === true,
             termCount: count(dictionary.termCount),

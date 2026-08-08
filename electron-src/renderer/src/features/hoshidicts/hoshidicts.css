@@ -762,6 +762,10 @@
   overflow-wrap: anywhere;
 }
 
+.hoshidicts-dictionary-canonical-name {
+  font-style: italic;
+}
+
 .hoshidicts-window .hoshidicts-dictionary-favorite {
   width: 32px;
   height: 32px;
@@ -843,7 +847,7 @@
   z-index: 20;
   top: calc(100% + 6px);
   right: 0;
-  width: min(280px, calc(100vw - 48px));
+  width: min(360px, calc(100vw - 48px));
   padding: 6px;
   border: 1px solid var(--gsm-border-default);
   border-radius: 7px;
@@ -872,13 +876,15 @@
   color: var(--gsm-danger-text);
 }
 
-.hoshidicts-dictionary-position {
+.hoshidicts-dictionary-position,
+.hoshidicts-dictionary-rename {
   display: grid;
   gap: 8px;
   padding: 6px;
 }
 
-.hoshidicts-dictionary-position label {
+.hoshidicts-dictionary-position label,
+.hoshidicts-dictionary-rename label {
   display: grid;
   gap: 5px;
   color: var(--gsm-text-secondary);
@@ -886,15 +892,22 @@
   font-weight: 600;
 }
 
-.hoshidicts-dictionary-position small {
+.hoshidicts-dictionary-position small,
+.hoshidicts-dictionary-rename small {
   color: var(--gsm-text-muted);
   font-size: 0.76rem;
 }
 
-.hoshidicts-dictionary-position > div {
+.hoshidicts-dictionary-position > div,
+.hoshidicts-dictionary-rename > div {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 6px;
+}
+
+.hoshidicts-dictionary-rename input {
+  width: 100%;
 }
 
 .hoshidicts-window .hoshidicts-icon-button {

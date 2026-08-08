@@ -31,6 +31,7 @@ import {
   type HoshidictsMoveDirection,
   type HoshidictsMoveDictionaryToPositionRequest,
   type HoshidictsReaderPreferences,
+  type HoshidictsRenameDictionaryRequest,
   type HoshidictsRecommendedDictionaryId,
   type HoshidictsSaveCustomDictionaryRequest,
   type HoshidictsSchedule,
@@ -743,6 +744,18 @@ export function useHoshidictsSettingsController() {
               } satisfies HoshidictsDictionaryPresentationRequest
             ),
           "settings.hoshidicts.errors.operation"
+        ),
+      renameDictionary: (id: string, displayName: string | null) =>
+        runAction(
+          () =>
+            invokeIpc(
+              HOSHIDICTS_CHANNELS.renameDictionary,
+              {
+                id,
+                displayName
+              } satisfies HoshidictsRenameDictionaryRequest
+            ),
+          "settings.hoshidicts.errors.rename"
         ),
       moveDictionary: (id: string, direction: HoshidictsMoveDirection) =>
         runAction(

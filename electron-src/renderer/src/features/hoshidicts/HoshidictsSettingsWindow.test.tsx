@@ -52,6 +52,7 @@ const baseState: HoshidictsDesktopSnapshot = {
     {
       id: "jmdict-id",
       title: "JMdict",
+      displayName: null,
       enabled: true,
       favorite: false,
       revision: "2026-08-06",
@@ -69,6 +70,7 @@ const baseState: HoshidictsDesktopSnapshot = {
     {
       id: "custom-id",
       title: "Custom",
+      displayName: null,
       enabled: false,
       favorite: false,
       revision: "one",
@@ -903,6 +905,122 @@ describe("HoshidictsSettingsWindow", () => {
     expect(invokeMock).toHaveBeenCalledWith(
       "hoshidicts.moveDictionaryToPosition",
       { id: "jmdict-id", position: 2 }
+    );
+  });
+
+  it("shows a dictionary alias and saves a renamed display name", async () => {
+    await render();
+    await act(async () => {
+      listeners.get(HOSHIDICTS_CHANNELS.progress)?.[0]?.({}, {
+        ...baseState,
+        revision: baseState.revision + 1,
+        dictionaries: [
+          {
+            ...baseState.dictionaries[0],
+            displayName: "Core Japanese"
+          },
+          baseState.dictionaries[1]
+        ]
+      });
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Core Japanese");
+    expect(container.textContent).toContain("Original name: JMdict");
+    expect(
+      container.querySelector('strong[title="Original name: JMdict"]')
+        ?.textContent
+    ).toBe("Core Japanese");
+
+    const menu = container.querySelector<HTMLElement>(
+      '[aria-label="Dictionary actions for Core Japanese"]'
+    );
+    await act(async () => {
+      menu?.click();
+      await Promise.resolve();
+    });
+    const rename = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Rename dictionary")
+    );
+    await act(async () => {
+      rename?.click();
+      await Promise.resolve();
+    });
+
+    const input = container.querySelector<HTMLInputElement>(
+      '.hoshidicts-dictionary-rename input[type="text"]'
+    );
+    const renameForm = input?.closest("form");
+    expect(input?.value).toBe("Core Japanese");
+    expect(input?.getAttribute("aria-describedby")).toBe(
+      "hoshidicts-dictionary-rename-original-jmdict-id"
+    );
+    expect(renameForm?.getAttribute("aria-label")).toBe(
+      "Rename Core Japanese"
+    );
+    expect(
+      Array.from(renameForm?.querySelectorAll("button") ?? []).map((button) =>
+        button.textContent?.trim()
+      )
+    ).toEqual(["Save", "Cancel", "Reset original name"]);
+    setInputValue(input, "Friendly Lexicon");
+    await act(async () => {
+      input?.closest("form")?.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true })
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.renameDictionary,
+      { id: "jmdict-id", displayName: "Friendly Lexicon" }
+    );
+  });
+
+  it("resets a dictionary alias to its original name", async () => {
+    await render();
+    await act(async () => {
+      listeners.get(HOSHIDICTS_CHANNELS.progress)?.[0]?.({}, {
+        ...baseState,
+        revision: baseState.revision + 1,
+        dictionaries: [
+          {
+            ...baseState.dictionaries[0],
+            displayName: "Core Japanese"
+          },
+          baseState.dictionaries[1]
+        ]
+      });
+      await Promise.resolve();
+    });
+
+    const menu = container.querySelector<HTMLElement>(
+      '[aria-label="Dictionary actions for Core Japanese"]'
+    );
+    await act(async () => {
+      menu?.click();
+      await Promise.resolve();
+    });
+    const rename = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Rename dictionary")
+    );
+    await act(async () => {
+      rename?.click();
+      await Promise.resolve();
+    });
+    const reset = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Reset original name")
+    );
+    await act(async () => {
+      reset?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.renameDictionary,
+      { id: "jmdict-id", displayName: null }
     );
   });
 
