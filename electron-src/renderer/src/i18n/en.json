@@ -696,6 +696,8 @@
       "recommended": {
         "title": "Recommended dictionaries",
         "subtitle": "Japanese term, frequency, pitch-accent, and kanji dictionaries",
+        "expand": "Expand recommended dictionaries",
+        "collapse": "Collapse recommended dictionaries",
         "install": "Install default set",
         "installOne": "Install",
         "installed": "Installed",

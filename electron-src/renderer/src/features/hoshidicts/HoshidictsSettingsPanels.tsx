@@ -1,6 +1,7 @@
 import {
   ArrowDown,
   ArrowUp,
+  ChevronDown,
   EllipsisVertical,
   Eraser,
   FileArchive,
@@ -321,6 +322,7 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
     id: string;
     value: string;
   } | null>(null);
+  const [recommendedExpanded, setRecommendedExpanded] = useState(true);
   if (!state) return null;
 
   const lastCheck = formatTimestamp(state.lastCheck);
@@ -673,25 +675,50 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
             <h2>{t("settings.hoshidicts.recommended.title")}</h2>
             <p>{t("settings.hoshidicts.recommended.subtitle")}</p>
           </div>
-          <button
-            type="button"
-            className="secondary"
-            disabled={
-              dictionaryBusy ||
-              state.recommendedDictionaries
-                .filter((dictionary) =>
-                  DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.some(
-                    (dictionaryId) => dictionaryId === dictionary.id
+          <div className="hoshidicts-section__status-actions">
+            <button
+              type="button"
+              className="secondary"
+              disabled={
+                dictionaryBusy ||
+                state.recommendedDictionaries
+                  .filter((dictionary) =>
+                    DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.some(
+                      (dictionaryId) => dictionaryId === dictionary.id
+                    )
                   )
-                )
-                .every((dictionary) => dictionary.installed)
-            }
-            onClick={() => void actions.installAllRecommended()}
-          >
-            {t("settings.hoshidicts.recommended.install")}
-          </button>
+                  .every((dictionary) => dictionary.installed)
+              }
+              onClick={() => void actions.installAllRecommended()}
+            >
+              {t("settings.hoshidicts.recommended.install")}
+            </button>
+            <button
+              type="button"
+              className="hoshidicts-icon-button hoshidicts-recommended-toggle secondary"
+              title={t(
+                recommendedExpanded
+                  ? "settings.hoshidicts.recommended.collapse"
+                  : "settings.hoshidicts.recommended.expand"
+              )}
+              aria-label={t(
+                recommendedExpanded
+                  ? "settings.hoshidicts.recommended.collapse"
+                  : "settings.hoshidicts.recommended.expand"
+              )}
+              aria-expanded={recommendedExpanded}
+              aria-controls="hoshidicts-recommended-list"
+              onClick={() => setRecommendedExpanded((expanded) => !expanded)}
+            >
+              <ChevronDown size={18} aria-hidden="true" />
+            </button>
+          </div>
         </div>
-        <div className="hoshidicts-recommended-list">
+        <div
+          id="hoshidicts-recommended-list"
+          className="hoshidicts-recommended-list"
+          hidden={!recommendedExpanded}
+        >
           {state.recommendedDictionaries.map((dictionary) => (
             <div className="hoshidicts-recommended-row" key={dictionary.id}>
               <div>

@@ -678,6 +678,8 @@
       "recommended": {
         "title": "おすすめの辞書",
         "subtitle": "日本語の単語・頻度・アクセント・漢字辞書",
+        "expand": "おすすめの辞書を展開",
+        "collapse": "おすすめの辞書を折りたたむ",
         "install": "標準セットをインストール",
         "installOne": "インストール",
         "installed": "インストール済み",

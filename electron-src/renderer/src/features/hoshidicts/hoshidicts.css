@@ -630,6 +630,14 @@
   gap: 12px;
 }
 
+.hoshidicts-recommended-toggle svg {
+  transition: transform 140ms ease;
+}
+
+.hoshidicts-recommended-toggle[aria-expanded="false"] svg {
+  transform: rotate(-90deg);
+}
+
 .hoshidicts-section__count {
   min-width: 30px;
   padding: 3px 8px;
