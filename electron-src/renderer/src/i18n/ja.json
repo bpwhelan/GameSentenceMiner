@@ -537,6 +537,17 @@
     },
     "backup": {
       "title": "バックアップと復元",
+      "automatic": {
+        "title": "データベースの自動バックアップ",
+        "description": "1日1回、圧縮されたデータベースのスナップショットを作成します。自動バックアップはオプトインで、既定では最新の2件を保持します。",
+        "enabled": "データベースの自動バックアップを有効にする",
+        "retentionCount": "保持するバックアップ数",
+        "directory": "バックアップフォルダー",
+        "defaultDirectory": "既定：GSMデータベースの隣の backup/database",
+        "chooseDirectory": "フォルダーを選択...",
+        "useDefaultDirectory": "既定のフォルダーを使用",
+        "restartHint": "変更は次回GSMバックエンドを起動したときに適用されます。"
+      },
       "description": "一時ファイルやキャッシュを含めずに、GSM設定、Overlay/Yomitanストレージ、OBS設定、GSMデータベース、OCR設定をバックアップします。",
       "selectionHint": "バックアップの作成または復元に含める項目を選択してください。",
       "selectAtLeastOne": "バックアップまたは復元する項目を1つ以上選択してください。",

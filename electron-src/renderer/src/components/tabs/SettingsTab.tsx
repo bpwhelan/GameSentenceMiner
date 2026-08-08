@@ -74,6 +74,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   textCaptureWizardEnabled: true,
   visibleTabs: ["launcher", "stats", "python", "console"],
   statsEndpoint: "overview",
+  databaseBackupEnabled: false,
+  databaseBackupDirectory: "",
+  databaseBackupRetentionCount: 2,
   singlePort: 7275,
   locale: "en",
   theme: DEFAULT_THEME
@@ -385,6 +388,15 @@ function normalizeSettings(value: Partial<AppSettings> | null | undefined): AppS
     customPythonPackage:
       value.customPythonPackage || DEFAULT_SETTINGS.customPythonPackage,
     statsEndpoint: value.statsEndpoint || DEFAULT_SETTINGS.statsEndpoint,
+    databaseBackupDirectory:
+      typeof value.databaseBackupDirectory === "string"
+        ? value.databaseBackupDirectory
+        : DEFAULT_SETTINGS.databaseBackupDirectory,
+    databaseBackupRetentionCount:
+      typeof value.databaseBackupRetentionCount === "number" &&
+      Number.isFinite(value.databaseBackupRetentionCount)
+        ? Math.max(1, Math.min(1000, Math.trunc(value.databaseBackupRetentionCount)))
+        : DEFAULT_SETTINGS.databaseBackupRetentionCount,
     locale: value.locale || DEFAULT_SETTINGS.locale,
     theme: value.theme || DEFAULT_SETTINGS.theme
   };
@@ -715,6 +727,15 @@ export function SettingsTab({ active }: SettingsTabProps) {
   const runWindowTransparencyTool = async () => {
     await invokeIpc("settings.runWindowTransparencyTool");
   };
+
+  const selectDatabaseBackupDirectory = useCallback(async () => {
+    const result = await invokeIpc<{ canceled?: boolean; directory?: string }>(
+      "settings.selectDatabaseBackupDirectory"
+    );
+    if (!result?.canceled && typeof result?.directory === "string") {
+      patchSettings({ databaseBackupDirectory: result.directory });
+    }
+  }, [patchSettings]);
 
   const updateHotkey = (event: KeyboardEvent<HTMLInputElement>) => {
     event.preventDefault();
@@ -1581,6 +1602,74 @@ export function SettingsTab({ active }: SettingsTabProps) {
           <section className="card legacy-card">
             <h2>{t("settings.backup.title")}</h2>
             <div className="settings-update-panel">
+              <div className="settings-automatic-backup">
+                <h3>{t("settings.backup.automatic.title")}</h3>
+                <p className="muted">{t("settings.backup.automatic.description")}</p>
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={settings.databaseBackupEnabled}
+                    onChange={(event) =>
+                      patchSettings({ databaseBackupEnabled: event.currentTarget.checked })
+                    }
+                  />
+                  <span>{t("settings.backup.automatic.enabled")}</span>
+                </label>
+                <label className="field-label" htmlFor="database-backup-count">
+                  {t("settings.backup.automatic.retentionCount")}
+                </label>
+                <input
+                  id="database-backup-count"
+                  type="number"
+                  min={1}
+                  max={1000}
+                  value={settings.databaseBackupRetentionCount}
+                  disabled={!settings.databaseBackupEnabled}
+                  onChange={(event) => {
+                    const value = Number(event.currentTarget.value);
+                    if (Number.isFinite(value)) {
+                      patchSettings({
+                        databaseBackupRetentionCount: Math.max(
+                          1,
+                          Math.min(1000, Math.trunc(value))
+                        )
+                      });
+                    }
+                  }}
+                />
+                <div className="settings-backup-directory">
+                  <div>
+                    <span className="field-label">
+                      {t("settings.backup.automatic.directory")}
+                    </span>
+                    <p className="update-version-meta">
+                      {settings.databaseBackupDirectory ||
+                        t("settings.backup.automatic.defaultDirectory")}
+                    </p>
+                  </div>
+                  <div className="input-group wrap">
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={!settings.databaseBackupEnabled}
+                      onClick={() => void selectDatabaseBackupDirectory()}
+                    >
+                      {t("settings.backup.automatic.chooseDirectory")}
+                    </button>
+                    {settings.databaseBackupDirectory ? (
+                      <button
+                        type="button"
+                        className="secondary"
+                        disabled={!settings.databaseBackupEnabled}
+                        onClick={() => patchSettings({ databaseBackupDirectory: "" })}
+                      >
+                        {t("settings.backup.automatic.useDefaultDirectory")}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+                <p className="muted">{t("settings.backup.automatic.restartHint")}</p>
+              </div>
               <p className="muted">{t("settings.backup.description")}</p>
               <p className="settings-backup-selection-hint">
                 {t("settings.backup.selectionHint")}

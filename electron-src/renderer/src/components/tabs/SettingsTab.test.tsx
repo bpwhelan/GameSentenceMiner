@@ -39,6 +39,9 @@ describe("SettingsTab data folder controls", () => {
       if (channel === "data.restoreDefault") {
         return { success: false, canceled: true };
       }
+      if (channel === "settings.selectDatabaseBackupDirectory") {
+        return { canceled: false, directory: "D:\\GSM Backups" };
+      }
       return {};
     });
 
@@ -185,5 +188,57 @@ describe("SettingsTab data folder controls", () => {
     expect(invokeMock).toHaveBeenCalledWith("settings.createBackup", {
       categories: ["database"]
     });
+  });
+
+  it("keeps automatic database backups opt-in and saves a custom policy", async () => {
+    await act(async () => {
+      root.render(
+        <I18nProvider>
+          <SettingsTab active />
+        </I18nProvider>
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const enabled = Array.from(container.querySelectorAll("label")).find((label) =>
+      label.textContent?.includes("Enable automatic database backups")
+    )?.querySelector("input") as HTMLInputElement | undefined;
+    const retention = container.querySelector(
+      "#database-backup-count"
+    ) as HTMLInputElement;
+
+    expect(enabled?.checked).toBe(false);
+    expect(retention.value).toBe("2");
+    expect(retention.disabled).toBe(true);
+
+    await act(async () => {
+      enabled?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(retention.disabled).toBe(false);
+    expect(invokeMock).toHaveBeenCalledWith(
+      "settings.saveSettings",
+      expect.objectContaining({
+        databaseBackupEnabled: true,
+        databaseBackupRetentionCount: 2
+      })
+    );
+
+    const chooseButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Choose Folder..."
+    );
+    await act(async () => {
+      chooseButton?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      "settings.selectDatabaseBackupDirectory"
+    );
+    expect(container.textContent).toContain("D:\\GSM Backups");
   });
 });

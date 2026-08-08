@@ -937,6 +937,38 @@ button:disabled {
   font-size: 0.92rem;
 }
 
+.settings-automatic-backup {
+  display: grid;
+  gap: 0.65rem;
+  padding-bottom: 1rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--gsm-border-default, #444);
+}
+
+.settings-automatic-backup h3,
+.settings-automatic-backup p {
+  margin: 0;
+}
+
+.settings-automatic-backup input[type="number"] {
+  width: 8rem;
+}
+
+.settings-automatic-backup .checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.settings-automatic-backup .field-label {
+  font-weight: 600;
+}
+
+.settings-backup-directory {
+  display: grid;
+  gap: 0.5rem;
+}
+
 .settings-backup-tree {
   max-width: 620px;
   padding: 10px 12px;

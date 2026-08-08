@@ -24,6 +24,9 @@ import {
     getAgentScriptsPath,
     getConsoleMode,
     getCustomPythonPackage,
+    getDatabaseBackupDirectory,
+    getDatabaseBackupEnabled,
+    getDatabaseBackupRetentionCount,
     getForceManualOcrAllProfiles,
     getIgnoreActiveSceneForOcr,
     getHasCompletedSetup,
@@ -59,6 +62,9 @@ import {
     setPullPreReleases,
     setConsoleMode,
     setCustomPythonPackage,
+    setDatabaseBackupDirectory,
+    setDatabaseBackupEnabled,
+    setDatabaseBackupRetentionCount,
     setQuitOnWindowClose,
     setForceManualOcrAllProfiles,
     setIgnoreActiveSceneForOcr,
@@ -962,6 +968,9 @@ function getSettingsSnapshot() {
         textCaptureWizardEnabled: getTextCaptureWizardEnabled(),
         visibleTabs: getVisibleTabs(),
         statsEndpoint: getStatsEndpoint(),
+        databaseBackupEnabled: getDatabaseBackupEnabled(),
+        databaseBackupDirectory: getDatabaseBackupDirectory(),
+        databaseBackupRetentionCount: getDatabaseBackupRetentionCount(),
         singlePort: getConfiguredSinglePort(),
         iconStyle: store.get('iconStyle') || 'gsm',
         locale: getLocale(),
@@ -1176,6 +1185,18 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
         if (typeof payload.statsEndpoint === 'string') {
             setStatsEndpoint(payload.statsEndpoint || 'overview');
         }
+        if (typeof payload.databaseBackupEnabled === 'boolean') {
+            setDatabaseBackupEnabled(payload.databaseBackupEnabled);
+        }
+        if (typeof payload.databaseBackupDirectory === 'string') {
+            setDatabaseBackupDirectory(payload.databaseBackupDirectory);
+        }
+        if (
+            typeof payload.databaseBackupRetentionCount === 'number' &&
+            Number.isFinite(payload.databaseBackupRetentionCount)
+        ) {
+            setDatabaseBackupRetentionCount(payload.databaseBackupRetentionCount);
+        }
         if (typeof payload.iconStyle === 'string') {
             setIconStyle(payload.iconStyle || 'gsm');
         }
@@ -1231,6 +1252,19 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
         return {
             success: sendOpenOverlaySettings(),
         };
+    });
+
+    ipcMain.handle('settings.selectDatabaseBackupDirectory', async () => {
+        const configuredDirectory = getDatabaseBackupDirectory();
+        const result = await showOpenDialog({
+            title: 'Choose Database Backup Folder',
+            defaultPath: configuredDirectory || path.join(BASE_DIR, 'backup', 'database'),
+            properties: ['openDirectory', 'createDirectory'],
+        });
+        if (result.canceled || result.filePaths.length === 0) {
+            return { canceled: true };
+        }
+        return { canceled: false, directory: result.filePaths[0] };
     });
 
     ipcMain.handle('settings.createBackup', async (event, payload) => {

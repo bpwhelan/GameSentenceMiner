@@ -1835,21 +1835,13 @@ def get_db_directory(test=False, delete_test=False) -> str:
     return sanitize_and_resolve_path(path)
 
 
-DATABASE_BACKUP_RETENTION_DAYS = 5
+DATABASE_BACKUP_DEFAULT_RETENTION_COUNT = 2
 DATABASE_BACKUP_PAGE_COUNT = 512
 DATABASE_BACKUP_SLEEP_SECONDS = 0.05
 DATABASE_BACKUP_BUSY_TIMEOUT_MS = 5000
 DATABASE_BACKUP_GZIP_COMPRESSLEVEL = 1
 DATABASE_BACKUP_COPY_BUFFER_SIZE = 1024 * 1024
 DATABASE_BACKUP_LOCK_STALE_SECONDS = 6 * 60 * 60
-
-
-def _timestamp_from_backup_now(now: Optional[Union[float, datetime]] = None) -> float:
-    if now is None:
-        return time.time()
-    if isinstance(now, datetime):
-        return now.timestamp()
-    return float(now)
 
 
 def _backup_date_string(now: Optional[Union[float, datetime]] = None) -> str:
@@ -1864,18 +1856,22 @@ def _database_backup_dir(db_path: str) -> str:
     return os.path.join(os.path.dirname(db_path), "backup", "database")
 
 
-def _daily_database_backup_path(db_path: str, now: Optional[Union[float, datetime]] = None) -> str:
-    return os.path.join(_database_backup_dir(db_path), f"gsm_{_backup_date_string(now)}.db.gz")
+def _daily_database_backup_path(
+    db_path: str,
+    now: Optional[Union[float, datetime]] = None,
+    *,
+    backup_dir: Optional[str] = None,
+) -> str:
+    destination_dir = backup_dir or _database_backup_dir(db_path)
+    return os.path.join(destination_dir, f"gsm_{_backup_date_string(now)}.db.gz")
 
 
-def _remove_expired_database_backups(
+def _remove_excess_database_backups(
     backup_dir: str,
     *,
-    now: Optional[Union[float, datetime]] = None,
-    retention_days: int = DATABASE_BACKUP_RETENTION_DAYS,
+    retention_count: int = DATABASE_BACKUP_DEFAULT_RETENTION_COUNT,
 ) -> None:
-    cutoff = _timestamp_from_backup_now(now) - retention_days * 24 * 60 * 60
-
+    backups: List[Tuple[float, str]] = []
     for fname in os.listdir(backup_dir):
         fpath = os.path.join(backup_dir, fname)
         if not (fname.startswith("gsm_") and fname.endswith(".db.gz")):
@@ -1883,9 +1879,16 @@ def _remove_expired_database_backups(
         if not os.path.isfile(fpath):
             continue
         try:
-            if os.path.getmtime(fpath) < cutoff:
-                os.remove(fpath)
-                logger.info(f"Old backup removed: {fpath}")
+            backups.append((os.path.getmtime(fpath), fpath))
+        except Exception as e:
+            logger.warning(f"Failed to inspect database backup {fpath}: {e}")
+
+    keep_count = max(1, int(retention_count))
+    backups.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    for _, fpath in backups[keep_count:]:
+        try:
+            os.remove(fpath)
+            logger.info(f"Old backup removed: {fpath}")
         except Exception as e:
             logger.warning(f"Failed to remove old backup {fpath}: {e}")
 
@@ -1948,20 +1951,22 @@ def _gzip_file(source_path: str, destination_path: str) -> None:
             shutil.copyfileobj(f_in, gz_out, length=DATABASE_BACKUP_COPY_BUFFER_SIZE)
 
 
-def backup_db(db_path: str, *, now: Optional[Union[float, datetime]] = None) -> Optional[str]:
+def backup_db(
+    db_path: str,
+    *,
+    backup_dir: Optional[str] = None,
+    retention_count: int = DATABASE_BACKUP_DEFAULT_RETENTION_COUNT,
+    now: Optional[Union[float, datetime]] = None,
+) -> Optional[str]:
     """Create today's compressed SQLite backup if one does not already exist."""
     if not os.path.exists(db_path):
         logger.debug(f"Skipping database backup because database does not exist: {db_path}")
         return None
 
-    backup_dir = _database_backup_dir(db_path)
+    backup_dir = sanitize_and_resolve_path(backup_dir) if backup_dir else _database_backup_dir(db_path)
     os.makedirs(backup_dir, exist_ok=True)
-    _remove_expired_database_backups(backup_dir, now=now)
 
-    backup_file = _daily_database_backup_path(db_path, now)
-    if os.path.exists(backup_file):
-        logger.debug(f"Database backup already exists for today: {backup_file}")
-        return None
+    backup_file = _daily_database_backup_path(db_path, now, backup_dir=backup_dir)
 
     with _database_backup_lock(backup_dir) as lock_acquired:
         if not lock_acquired:
@@ -1969,6 +1974,7 @@ def backup_db(db_path: str, *, now: Optional[Union[float, datetime]] = None) -> 
             return None
         if os.path.exists(backup_file):
             logger.debug(f"Database backup already exists for today: {backup_file}")
+            _remove_excess_database_backups(backup_dir, retention_count=retention_count)
             return None
 
         temp_prefix = f".{os.path.basename(backup_file)}.{os.getpid()}.{threading.get_ident()}"
@@ -1983,6 +1989,7 @@ def backup_db(db_path: str, *, now: Optional[Union[float, datetime]] = None) -> 
             _create_sqlite_backup(db_path, temp_db)
             _gzip_file(temp_db, temp_gz)
             os.replace(temp_gz, backup_file)
+            _remove_excess_database_backups(backup_dir, retention_count=retention_count)
             logger.success(f"Database backup created: {backup_file}")
             return backup_file
         finally:
@@ -1994,6 +2001,12 @@ def backup_db(db_path: str, *, now: Optional[Union[float, datetime]] = None) -> 
                     pass
 
 
+def _get_database_backup_settings() -> Dict[str, Any]:
+    from GameSentenceMiner.util.config.electron_config import get_database_backup_settings
+
+    return get_database_backup_settings()
+
+
 def schedule_database_backup(db_path: str, *, read_only: bool = False) -> Optional[threading.Thread]:
     """Run the daily database backup asynchronously so app startup is not blocked."""
     if read_only:
@@ -2002,13 +2015,21 @@ def schedule_database_backup(db_path: str, *, read_only: bool = False) -> Option
     if os.environ.get("GSM_DISABLE_DB_BACKUP", "0") == "1":
         logger.info("Skipping database backup because GSM_DISABLE_DB_BACKUP=1")
         return None
+    backup_settings = _get_database_backup_settings()
+    if not backup_settings["enabled"]:
+        logger.info("Skipping automatic database backup because it is not enabled")
+        return None
     if not os.path.exists(db_path):
         logger.debug(f"Skipping database backup because database does not exist: {db_path}")
         return None
 
     def run_backup():
         try:
-            backup_db(db_path)
+            backup_db(
+                db_path,
+                backup_dir=backup_settings["directory"] or None,
+                retention_count=backup_settings["retention_count"],
+            )
         except Exception as e:
             logger.warning(f"Database backup failed: {e}")
 

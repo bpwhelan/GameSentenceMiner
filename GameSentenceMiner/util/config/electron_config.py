@@ -146,6 +146,9 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
     "statsEndpoint": "overview",
     "locale": "en",
     "hasCompletedSetup": False,
+    "databaseBackupEnabled": False,
+    "databaseBackupDirectory": "",
+    "databaseBackupRetentionCount": 2,
 }
 
 
@@ -304,6 +307,22 @@ electron_store = Store(config_path=ELECTRON_CONFIG_PATH, defaults=DEFAULT_STORE_
 
 def get_electron_store() -> Store:
     return electron_store
+
+
+def get_database_backup_settings() -> Dict[str, Any]:
+    """Return the normalized automatic database backup policy."""
+    data = electron_store.read_from_disk()
+    raw_count = data.get("databaseBackupRetentionCount", 2)
+    try:
+        retention_count = int(raw_count)
+    except (TypeError, ValueError):
+        retention_count = 2
+
+    return {
+        "enabled": data.get("databaseBackupEnabled") is True,
+        "directory": str(data.get("databaseBackupDirectory") or "").strip(),
+        "retention_count": max(1, min(1000, retention_count)),
+    }
 
 
 def _get_ocr_config() -> Dict[str, Any]:

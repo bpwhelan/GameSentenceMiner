@@ -216,6 +216,22 @@ def test_backup_db_uses_online_snapshot_that_includes_wal_changes(tmp_path):
         restored_conn.close()
 
 
+def test_backup_db_can_write_to_a_custom_directory(tmp_path):
+    db_path = tmp_path / "source.db"
+    backup_dir = tmp_path / "external-backups"
+    sqlite3.connect(db_path).close()
+
+    backup_path = backup_db(
+        str(db_path),
+        backup_dir=str(backup_dir),
+        retention_count=2,
+        now=datetime(2026, 1, 1),
+    )
+
+    assert Path(backup_path) == backup_dir / "gsm_2026-01-01.db.gz"
+    assert Path(backup_path).is_file()
+
+
 def test_backup_db_skips_existing_daily_backup_without_copying(tmp_path, monkeypatch):
     db_path = tmp_path / "source.db"
     sqlite3.connect(db_path).close()
@@ -234,38 +250,49 @@ def test_backup_db_skips_existing_daily_backup_without_copying(tmp_path, monkeyp
     assert existing_backup.read_bytes() == b"already backed up"
 
 
-def test_backup_db_prunes_expired_daily_backups(tmp_path):
+def test_backup_db_keeps_only_the_configured_number_of_backups(tmp_path):
     db_path = tmp_path / "source.db"
     sqlite3.connect(db_path).close()
 
     backup_dir = tmp_path / "backup" / "database"
     backup_dir.mkdir(parents=True)
-    expired_backup = backup_dir / "gsm_2025-12-01.db.gz"
-    expired_backup.write_bytes(b"old")
-    recent_backup = backup_dir / "gsm_2025-12-31.db.gz"
-    recent_backup.write_bytes(b"recent")
+    oldest_backup = backup_dir / "gsm_2025-12-01.db.gz"
+    oldest_backup.write_bytes(b"oldest")
+    middle_backup = backup_dir / "gsm_2025-12-15.db.gz"
+    middle_backup.write_bytes(b"middle")
+    newest_existing_backup = backup_dir / "gsm_2025-12-31.db.gz"
+    newest_existing_backup.write_bytes(b"newest")
 
     now = datetime(2026, 1, 1)
     now_timestamp = now.timestamp()
     os.utime(
-        expired_backup,
+        oldest_backup,
         (
             now_timestamp - 6 * 24 * 60 * 60,
             now_timestamp - 6 * 24 * 60 * 60,
         ),
     )
     os.utime(
-        recent_backup,
+        middle_backup,
+        (
+            now_timestamp - 4 * 24 * 60 * 60,
+            now_timestamp - 4 * 24 * 60 * 60,
+        ),
+    )
+    os.utime(
+        newest_existing_backup,
         (
             now_timestamp - 2 * 24 * 60 * 60,
             now_timestamp - 2 * 24 * 60 * 60,
         ),
     )
 
-    backup_db(str(db_path), now=now)
+    backup_db(str(db_path), retention_count=2, now=now)
 
-    assert not expired_backup.exists()
-    assert recent_backup.exists()
+    assert not oldest_backup.exists()
+    assert not middle_backup.exists()
+    assert newest_existing_backup.exists()
+    assert (backup_dir / "gsm_2026-01-01.db.gz").exists()
 
 
 def test_schedule_database_backup_runs_on_daemon_thread_without_waiting(tmp_path, monkeypatch):
@@ -274,10 +301,17 @@ def test_schedule_database_backup_runs_on_daemon_thread_without_waiting(tmp_path
     sqlite3.connect(db_path).close()
     backup_started = threading.Event()
     release_backup = threading.Event()
+    monkeypatch.setattr(
+        db_module,
+        "_get_database_backup_settings",
+        lambda: {"enabled": True, "directory": "", "retention_count": 2},
+    )
 
-    def fake_backup(path):
+    def fake_backup(path, *, backup_dir, retention_count):
         backup_started.set()
         assert path == str(db_path)
+        assert backup_dir is None
+        assert retention_count == 2
         assert release_backup.wait(timeout=2)
 
     monkeypatch.setattr(db_module, "backup_db", fake_backup)
@@ -292,3 +326,48 @@ def test_schedule_database_backup_runs_on_daemon_thread_without_waiting(tmp_path
     release_backup.set()
     thread.join(timeout=1)
     assert not thread.is_alive()
+
+
+def test_schedule_database_backup_is_opt_in(tmp_path, monkeypatch):
+    monkeypatch.delenv("GSM_DISABLE_DB_BACKUP", raising=False)
+    db_path = tmp_path / "source.db"
+    sqlite3.connect(db_path).close()
+    monkeypatch.setattr(
+        db_module,
+        "_get_database_backup_settings",
+        lambda: {"enabled": False, "directory": "", "retention_count": 2},
+    )
+
+    assert schedule_database_backup(str(db_path)) is None
+
+
+def test_schedule_database_backup_uses_configured_policy(tmp_path, monkeypatch):
+    monkeypatch.delenv("GSM_DISABLE_DB_BACKUP", raising=False)
+    db_path = tmp_path / "source.db"
+    sqlite3.connect(db_path).close()
+    custom_dir = tmp_path / "custom-backups"
+    backup_finished = threading.Event()
+
+    monkeypatch.setattr(
+        db_module,
+        "_get_database_backup_settings",
+        lambda: {
+            "enabled": True,
+            "directory": str(custom_dir),
+            "retention_count": 7,
+        },
+    )
+
+    def fake_backup(path, *, backup_dir, retention_count):
+        assert path == str(db_path)
+        assert backup_dir == str(custom_dir)
+        assert retention_count == 7
+        backup_finished.set()
+
+    monkeypatch.setattr(db_module, "backup_db", fake_backup)
+
+    thread = schedule_database_backup(str(db_path))
+
+    assert thread is not None
+    assert backup_finished.wait(timeout=1)
+    thread.join(timeout=1)

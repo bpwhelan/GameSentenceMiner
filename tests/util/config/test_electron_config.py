@@ -70,6 +70,33 @@ def test_store_handles_invalid_json_file(tmp_path):
     assert store.get("foo") == "bar"
 
 
+def test_database_backup_settings_are_opt_in_and_normalized(monkeypatch):
+    store = _DummyStore(
+        disk_data={
+            "databaseBackupEnabled": True,
+            "databaseBackupDirectory": "  D:/Backups  ",
+            "databaseBackupRetentionCount": "7",
+        }
+    )
+    monkeypatch.setattr(electron_config, "electron_store", store)
+
+    assert electron_config.get_database_backup_settings() == {
+        "enabled": True,
+        "directory": "D:/Backups",
+        "retention_count": 7,
+    }
+
+
+def test_database_backup_settings_default_to_disabled_with_two_copies(monkeypatch):
+    monkeypatch.setattr(electron_config, "electron_store", _DummyStore(disk_data={}))
+
+    assert electron_config.get_database_backup_settings() == {
+        "enabled": False,
+        "directory": "",
+        "retention_count": 2,
+    }
+
+
 def test_get_ocr_values_basic_mode(monkeypatch):
     store = _DummyStore(
         {

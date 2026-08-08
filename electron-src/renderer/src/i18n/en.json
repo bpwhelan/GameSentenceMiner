@@ -555,6 +555,17 @@
     },
     "backup": {
       "title": "Backup and Restore",
+      "automatic": {
+        "title": "Automatic Database Backups",
+        "description": "Create one compressed database snapshot per day. Automatic backups are opt-in and the newest 2 are kept by default.",
+        "enabled": "Enable automatic database backups",
+        "retentionCount": "Number of backups to keep",
+        "directory": "Backup folder",
+        "defaultDirectory": "Default: backup/database next to the GSM database",
+        "chooseDirectory": "Choose Folder...",
+        "useDefaultDirectory": "Use Default Folder",
+        "restartHint": "Changes apply the next time the GSM backend starts."
+      },
       "description": "Back up GSM settings, overlay/Yomitan storage, OBS settings, the GSM database, and OCR configs without temp files or caches.",
       "selectionHint": "Choose what to include when creating or restoring a backup.",
       "selectAtLeastOne": "Select at least one item to back up or restore.",
