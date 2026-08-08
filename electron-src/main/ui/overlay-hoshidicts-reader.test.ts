@@ -5,8 +5,6 @@ import vm from "node:vm";
 import { JSDOM } from "jsdom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const API_TOKEN = "a".repeat(64);
-
 function loadReaderModule(window: Window) {
   const audioSource = fs.readFileSync(
     path.resolve(
@@ -173,7 +171,7 @@ function runHoshidictsReaderConfiguration(
   const context = {
     console,
     ipcRenderer: { invoke, on: ipcOn },
-    process: { env: { GSM_BROKER_TOKEN: API_TOKEN } },
+    process: { env: {} },
     window
   } as Record<string, any>;
   vm.runInNewContext(script, context, {
@@ -481,7 +479,7 @@ function createAudioControllerStub(
   selection: {
     sourceId: string;
     candidateIndex: number;
-    candidateToken: string;
+    candidateId: string;
   } | null = null
 ) {
   return {
@@ -698,15 +696,12 @@ describe("Hoshidicts safe popup rendering", () => {
       })
     );
     expect(configured.createHoshidictsLookupStatsClient).toHaveBeenCalledWith({
-      apiToken: API_TOKEN,
       baseUrl: "http://127.0.0.1:7275"
     });
     expect(configured.createHoshidictsAudioClient).toHaveBeenCalledWith({
-      apiToken: API_TOKEN,
       baseUrl: "http://127.0.0.1:7275"
     });
     expect(configured.createHoshidictsMiningClient).toHaveBeenCalledWith({
-      apiToken: API_TOKEN,
       baseUrl: "http://127.0.0.1:7275"
     });
     const options = configured.createHoshidictsReader.mock.calls[0][0];
@@ -1093,7 +1088,6 @@ describe("Hoshidicts safe popup rendering", () => {
     ).toBe("http://127.0.0.1:7275");
 
     const client = api.createHoshidictsMiningClient({
-      apiToken: API_TOKEN,
       baseUrl: "http://127.0.0.1:8123",
       fetch: fetchMock
     });
@@ -1105,7 +1099,6 @@ describe("Hoshidicts safe popup rendering", () => {
       noteId: 42
     });
     const lookupClient = api.createHoshidictsLookupStatsClient({
-      apiToken: API_TOKEN,
       baseUrl: "http://127.0.0.1:8123",
       fetch: fetchMock
     });
@@ -1117,17 +1110,16 @@ describe("Hoshidicts safe popup rendering", () => {
       1,
       "http://127.0.0.1:8123/api/hoshidicts/mining/status",
       expect.objectContaining({
-        headers: { "Authorization": `Bearer ${API_TOKEN}` },
         signal: expect.any(AbortSignal)
       })
     );
+    expect(fetchMock.mock.calls[0][1]).not.toHaveProperty("headers");
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       "http://127.0.0.1:8123/api/hoshidicts/mine",
       expect.objectContaining({
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${API_TOKEN}`,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({ sentence: "食べる" })
@@ -1139,7 +1131,6 @@ describe("Hoshidicts safe popup rendering", () => {
       expect.objectContaining({
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${API_TOKEN}`,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({ term: "食べる", reading: "たべる" }),
@@ -1164,7 +1155,6 @@ describe("Hoshidicts safe popup rendering", () => {
       json: async () => ({ success: true, lookupCount })
     }) as Response;
     const client = api.createHoshidictsLookupStatsClient({
-      apiToken: API_TOKEN,
       baseUrl: "http://127.0.0.1:8123",
       fetch: fetchMock
     });
@@ -1521,18 +1511,6 @@ describe("Hoshidicts definition blur", () => {
     reader.destroy();
   });
 
-  it("does not call the mining API without a broker credential", async () => {
-    const dom = createDom();
-    const api = loadReaderModule(dom.window as unknown as Window);
-    const fetchMock = vi.fn();
-    const client = api.createHoshidictsMiningClient({
-      baseUrl: "http://127.0.0.1:8123",
-      fetch: fetchMock
-    });
-
-    await expect(client.getStatus()).rejects.toThrow(/authentication/iu);
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
 });
 
 describe("Hoshidicts dictionary tabs", () => {
@@ -5413,7 +5391,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
     const audioController = createAudioControllerStub({
       sourceId: "jpod101",
       candidateIndex: 2,
-      candidateToken: "a".repeat(64)
+      candidateId: "a".repeat(64)
     });
     const harness = createReaderHarness({
       audioController,
@@ -5450,7 +5428,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       audioSelection: {
         sourceId: "jpod101",
         candidateIndex: 2,
-        candidateToken: "a".repeat(64)
+        candidateId: "a".repeat(64)
       }
     }));
     expect(mine.mock.calls[0][0].result).toBe(renderedResult);

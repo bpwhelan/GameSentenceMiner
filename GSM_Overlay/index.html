@@ -5112,20 +5112,14 @@ background: rgba(202, 12, 12, 0.692);
       ? port
       : 7276;
     const apiBaseUrl = window.GSMHoshidictsReader.resolveGsmApiBaseUrl(settings);
-    const apiToken = typeof process !== 'undefined' && process.env
-      ? String(process.env.GSM_BROKER_TOKEN || '')
-      : '';
     const miningClient = window.GSMHoshidictsReader.createHoshidictsMiningClient({
       baseUrl: apiBaseUrl,
-      apiToken,
     });
     const lookupStatsClient = window.GSMHoshidictsReader.createHoshidictsLookupStatsClient({
       baseUrl: apiBaseUrl,
-      apiToken,
     });
     const audioClient = window.GSMHoshidictsReader.createHoshidictsAudioClient({
       baseUrl: apiBaseUrl,
-      apiToken,
     });
     window.gsmHoshidictsActivationKey =
       window.GSMHoshidictsReader.normalizeActivationKey(

@@ -198,21 +198,21 @@
     if (typeof value !== "string") {
       return fallback;
     }
-    const token = value.trim();
-    if (PUNCTUATION_ACTIVATION_KEYS.has(token)) {
-      return token;
+    const normalizedKey = value.trim();
+    if (PUNCTUATION_ACTIVATION_KEYS.has(normalizedKey)) {
+      return normalizedKey;
     }
-    if (/^[a-z]$/iu.test(token)) {
-      return token.toUpperCase();
+    if (/^[a-z]$/iu.test(normalizedKey)) {
+      return normalizedKey.toUpperCase();
     }
-    if (/^[0-9]$/u.test(token)) {
-      return token;
+    if (/^[0-9]$/u.test(normalizedKey)) {
+      return normalizedKey;
     }
-    const functionKeyMatch = /^f([1-9]|1[0-9]|2[0-4])$/iu.exec(token);
+    const functionKeyMatch = /^f([1-9]|1[0-9]|2[0-4])$/iu.exec(normalizedKey);
     if (functionKeyMatch) {
       return `F${functionKeyMatch[1]}`;
     }
-    return NAMED_ACTIVATION_KEYS.get(token.toLowerCase()) ?? fallback;
+    return NAMED_ACTIVATION_KEYS.get(normalizedKey.toLowerCase()) ?? fallback;
   }
 
   function normalizeLookupResults(payload) {
@@ -1180,7 +1180,6 @@
     const baseUrl =
       normalizeLocalHttpBaseUrl(options.baseUrl) ||
       "http://127.0.0.1:7275";
-    const apiToken = boundedString(options.apiToken, 64).trim();
     const fetchImpl =
       typeof options.fetch === "function"
         ? options.fetch
@@ -1196,9 +1195,6 @@
       if (!fetchImpl) {
         throw new Error("GSM mining is unavailable.");
       }
-      if (!/^[a-f0-9]{64}$/.test(apiToken)) {
-        throw new Error("GSM mining authentication is unavailable.");
-      }
       const controller =
         typeof AbortController === "function" ? new AbortController() : null;
       const timeoutId = controller
@@ -1207,10 +1203,6 @@
       try {
         const response = await fetchImpl(`${baseUrl}${path}`, {
           ...init,
-          headers: {
-            ...(isRecord(init.headers) ? init.headers : {}),
-            "Authorization": `Bearer ${apiToken}`,
-          },
           signal: controller ? controller.signal : undefined,
         });
         let payload;
@@ -1264,7 +1256,6 @@
     const baseUrl =
       normalizeLocalHttpBaseUrl(options.baseUrl) ||
       "http://127.0.0.1:7275";
-    const apiToken = boundedString(options.apiToken, 64).trim();
     const fetchImpl =
       typeof options.fetch === "function"
         ? options.fetch
@@ -1289,7 +1280,6 @@
           {
             method: "POST",
             headers: {
-              "Authorization": `Bearer ${apiToken}`,
               "Content-Type": "application/json",
             },
             body,
@@ -1322,9 +1312,6 @@
       async record(payload) {
         if (!fetchImpl) {
           throw new Error("GSM lookup statistics are unavailable.");
-        }
-        if (!/^[a-f0-9]{64}$/.test(apiToken)) {
-          throw new Error("GSM lookup statistics authentication is unavailable.");
         }
         if (!isRecord(payload)) {
           throw new Error("A lookup statistics payload is required.");

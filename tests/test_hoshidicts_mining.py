@@ -532,7 +532,7 @@ def test_mining_stores_selected_pronunciation_after_note_creation(monkeypatch):
         assert selection == {
             "sourceId": "jisho",
             "candidateIndex": 1,
-            "candidateToken": "a" * 64,
+            "candidateId": "a" * 64,
         }
         assert profile is audio_profile
         return _AUDIO_MEDIA
@@ -547,7 +547,7 @@ def test_mining_stores_selected_pronunciation_after_note_creation(monkeypatch):
     payload["audioSelection"] = {
         "sourceId": "jisho",
         "candidateIndex": 1,
-        "candidateToken": "a" * 64,
+        "candidateId": "a" * 64,
     }
     payload["result"]["term"]["expression"] = " 食べる "
     payload["result"]["term"]["reading"] = " たべる "
@@ -778,9 +778,6 @@ def test_duplicate_rejection_returns_a_conflict(monkeypatch):
 
 
 def test_hoshidicts_routes_expose_status_and_mining_errors(monkeypatch):
-    token = "d" * 64
-    headers = {"Authorization": f"Bearer {token}"}
-    monkeypatch.setenv("GSM_BROKER_TOKEN", token)
     app = Flask(__name__)
     hoshidicts_api.register_hoshidicts_api_routes(app)
     monkeypatch.setattr(
@@ -802,16 +799,12 @@ def test_hoshidicts_routes_expose_status_and_mining_errors(monkeypatch):
     monkeypatch.setattr(hoshidicts_api, "mine_hoshidicts_note", mine)
 
     client = app.test_client()
-    assert client.get("/api/hoshidicts/mining/status", headers=headers).get_json() == {"available": True}
-    assert client.get("/api/hoshidicts/mining/options?model=Kiku", headers=headers).get_json() == {
+    assert client.get("/api/hoshidicts/mining/status").get_json() == {"available": True}
+    assert client.get("/api/hoshidicts/mining/options?model=Kiku").get_json() == {
         "connected": True,
         "selectedNoteType": "Kiku",
     }
-    unauthorized = client.post("/api/hoshidicts/mine", json={})
-    assert unauthorized.status_code == 401
-    assert mining_calls == []
-
-    response = client.post("/api/hoshidicts/mine", json={}, headers=headers)
+    response = client.post("/api/hoshidicts/mine", json={})
     assert response.status_code == 409
     assert response.get_json() == {"success": False, "error": "duplicate"}
     assert mining_calls == [{}]

@@ -175,12 +175,12 @@
       if (!Number.isInteger(source.candidateIndex) || source.candidateIndex < 0) {
         throw new Error("The audio candidate is invalid.");
       }
-      const candidateToken = boundedString(source.candidateToken, 64).trim();
-      if (!/^[a-f0-9]{64}$/.test(candidateToken)) {
-        throw new Error("The audio candidate token is invalid.");
+      const candidateId = boundedString(source.candidateId, 64).trim();
+      if (!/^[a-f0-9]{64}$/.test(candidateId)) {
+        throw new Error("The audio candidate ID is invalid.");
       }
       request.candidateIndex = source.candidateIndex;
-      request.candidateToken = candidateToken;
+      request.candidateId = candidateId;
     }
     return request;
   }
@@ -188,7 +188,6 @@
   function createHoshidictsAudioClient(options = {}) {
     const baseUrl =
       normalizeLocalHttpBaseUrl(options.baseUrl) || "http://127.0.0.1:7275";
-    const apiToken = boundedString(options.apiToken, 64).trim();
     const fetchImpl = typeof options.fetch === "function"
       ? options.fetch
       : typeof fetch === "function"
@@ -201,9 +200,6 @@
     async function post(path, body, externalSignal) {
       if (!fetchImpl) {
         throw new Error("GSM pronunciation audio is unavailable.");
-      }
-      if (!/^[a-f0-9]{64}$/.test(apiToken)) {
-        throw new Error("GSM pronunciation audio authentication is unavailable.");
       }
       const controller = typeof AbortController === "function"
         ? new AbortController()
@@ -224,7 +220,6 @@
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${apiToken}`,
           },
           body: JSON.stringify(body),
           signal: controller ? controller.signal : externalSignal,
@@ -283,15 +278,15 @@
             continue;
           }
           const index = rawCandidate.index;
-          const token = boundedString(rawCandidate.token, 64).trim();
-          if (index < 0 || seen.has(index) || !/^[a-f0-9]{64}$/.test(token)) {
+          const candidateId = boundedString(rawCandidate.candidateId, 64).trim();
+          if (index < 0 || seen.has(index) || !/^[a-f0-9]{64}$/.test(candidateId)) {
             continue;
           }
           seen.add(index);
           candidates.push({
             index,
             name: boundedString(rawCandidate.name, 1024).trim(),
-            token,
+            candidateId,
           });
         }
         return candidates;
@@ -550,7 +545,7 @@
       const media = await client.getMedia({
         ...termRequest(result, source),
         candidateIndex: candidate.index,
-        candidateToken: candidate.token,
+        candidateId: candidate.candidateId,
       }, { signal });
       if (destroyed || sequence !== operationSequence) {
         return false;
@@ -575,7 +570,7 @@
             selection &&
             selection.sourceId === source.id &&
             selection.candidateIndex === candidate.index &&
-            selection.candidateToken === candidate.token
+            selection.candidateId === candidate.candidateId
           ) {
             selections.delete(result);
           }
@@ -602,7 +597,7 @@
       selections.set(result, {
         sourceId: source.id,
         candidateIndex: candidate.index,
-        candidateToken: candidate.token,
+        candidateId: candidate.candidateId,
       });
       setAudioButtonState(button, "playing");
       return true;

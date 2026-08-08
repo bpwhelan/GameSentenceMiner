@@ -84,11 +84,9 @@ vi.mock('../main.js', () => ({
     sendOpenTexthooker: vi.fn(),
 }));
 
-vi.mock('../runtime/bus_client.js', () => ({
-    getBusConnectInfo: () => ({
-        port: 4567,
-        token: 'overlay-bus-token',
-    }),
+vi.mock('../features/hoshidicts/control_channel.js', () => ({
+    getHoshidictsControlPort: () => 4567,
+    HOSHIDICTS_CONTROL_ENV: 'GSM_HOSHIDICTS_CONTROL_PORT',
 }));
 
 vi.mock('../gsm_config.js', () => ({
@@ -133,6 +131,20 @@ describe('runOverlayWithSource', () => {
         });
     });
 
+    it('strips inherited desktop-control state from overlay environments', async () => {
+        const { buildOverlayProcessEnvironment } = await loadFrontModule();
+
+        expect(
+            buildOverlayProcessEnvironment({
+                PATH: 'safe-path',
+                GSM_BROKER_PORT: '1234',
+                GSM_BROKER_SESSION: 'not-for-the-overlay',
+                GSM_CLIENT_ID: 'desktop',
+                GSM_HOSHIDICTS_CONTROL_PORT: 'stale-port',
+            })
+        ).toEqual({ PATH: 'safe-path' });
+    });
+
     it('runs npm start in GSM_Overlay when launched from source', async () => {
         isDevValue = true;
         existsSyncMock.mockReturnValue(true);
@@ -149,9 +161,7 @@ describe('runOverlayWithSource', () => {
             detached: false,
             stdio: 'ignore',
             env: expect.objectContaining({
-                GSM_BROKER_PORT: '4567',
-                GSM_BROKER_TOKEN: 'overlay-bus-token',
-                GSM_CLIENT_ID: 'overlay',
+                GSM_HOSHIDICTS_CONTROL_PORT: '4567',
                 GSM_HOSHIDICTS_ENABLED: '0',
                 GSM_HOSHIDICTS_LOOKUP_MODE: 'shift',
                 GSM_HOSHIDICTS_ACTIVATION_KEY: 'Shift',
@@ -193,9 +203,7 @@ describe('runOverlayWithSource', () => {
         expect(process.env.GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD).toBe('5');
         expect(process.env.GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_MODE).toBe('timed');
         expect(process.env.GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS).toBe('5000');
-        expect(process.env.GSM_BROKER_PORT).toBe('4567');
-        expect(process.env.GSM_BROKER_TOKEN).toBe('overlay-bus-token');
-        expect(process.env.GSM_CLIENT_ID).toBe('overlay');
+        expect(process.env.GSM_HOSHIDICTS_CONTROL_PORT).toBe('4567');
         expect(spawnMock).not.toHaveBeenCalled();
         expect(getOverlayRuntimeState()).toEqual({
             isRunning: true,
@@ -420,9 +428,7 @@ describe('runOverlayWithSource', () => {
             detached: false,
             stdio: 'ignore',
             env: expect.objectContaining({
-                GSM_BROKER_PORT: '4567',
-                GSM_BROKER_TOKEN: 'overlay-bus-token',
-                GSM_CLIENT_ID: 'overlay',
+                GSM_HOSHIDICTS_CONTROL_PORT: '4567',
                 GSM_OVERLAY_CHILD: '1',
                 GSM_OVERLAY_SHARED_RUNTIME: '1',
                 GSM_OVERLAY_RESOURCES_PATH: 'C:\\overlay-out\\resources',
@@ -451,9 +457,7 @@ describe('runOverlayWithSource', () => {
             detached: false,
             stdio: 'ignore',
             env: expect.objectContaining({
-                GSM_BROKER_PORT: '4567',
-                GSM_BROKER_TOKEN: 'overlay-bus-token',
-                GSM_CLIENT_ID: 'overlay',
+                GSM_HOSHIDICTS_CONTROL_PORT: '4567',
                 GSM_HOSHIDICTS_ENABLED: '0',
             }),
         });

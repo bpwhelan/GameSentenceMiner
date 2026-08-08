@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import hmac
 import ipaddress
 import json
-import os
 import re
 import unicodedata
 from functools import wraps
@@ -81,9 +79,6 @@ def _serialize_lookup_stat(item: dict) -> dict:
     }
 
 
-_BROKER_TOKEN_PATTERN = re.compile(r"^[a-f0-9]{64}$")
-
-
 def register_hoshidicts_api_routes(app) -> None:
     def audio_error_response(exc: HoshidictsAudioError):
         return jsonify({"error": str(exc)}), exc.status_code
@@ -98,16 +93,6 @@ def register_hoshidicts_api_routes(app) -> None:
             address = mapped
         if not address.is_loopback:
             return jsonify({"error": "Hoshidicts is available only on this device."}), 403
-        expected_token = os.environ.get("GSM_BROKER_TOKEN", "")
-        if _BROKER_TOKEN_PATTERN.fullmatch(expected_token) is None:
-            return jsonify({"error": "Hoshidicts authentication is unavailable."}), 503
-        authorization = request.headers.get("Authorization", "")
-        supplied_token = authorization[7:] if authorization.startswith("Bearer ") else ""
-        if not hmac.compare_digest(supplied_token, expected_token):
-            response = jsonify({"error": "Hoshidicts authentication failed."})
-            response.status_code = 401
-            response.headers["WWW-Authenticate"] = "Bearer"
-            return response
         return None
 
     def local_hoshidicts_only(view):
@@ -227,7 +212,7 @@ def register_hoshidicts_api_routes(app) -> None:
                 payload["reading"],
                 payload["sourceId"],
                 payload["candidateIndex"],
-                payload["candidateToken"],
+                payload["candidateId"],
                 profile=profile,
             )
             response = Response(media.data, mimetype=media.content_type)

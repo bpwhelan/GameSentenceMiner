@@ -5,8 +5,8 @@ import vm from "node:vm";
 import { JSDOM } from "jsdom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const CANDIDATE_TOKEN = "a".repeat(64);
-const SECOND_CANDIDATE_TOKEN = "b".repeat(64);
+const CANDIDATE_ID = "a".repeat(64);
+const SECOND_CANDIDATE_ID = "b".repeat(64);
 
 function loadAudioModule(window: Window) {
   const source = fs.readFileSync(
@@ -124,7 +124,7 @@ describe("Hoshidicts audio client", () => {
           ok: true,
           status: 200,
           json: async () => ({
-            candidates: [{ index: 3, name: "Female", token: CANDIDATE_TOKEN }]
+            candidates: [{ index: 3, name: "Female", candidateId: CANDIDATE_ID }]
           })
         };
       }
@@ -135,7 +135,6 @@ describe("Hoshidicts audio client", () => {
       };
     });
     const client = api.createHoshidictsAudioClient({
-      apiToken: CANDIDATE_TOKEN,
       baseUrl: "http://127.0.0.1:8123",
       fetch: fetchMock
     });
@@ -147,14 +146,14 @@ describe("Hoshidicts audio client", () => {
     })).resolves.toEqual([{
       index: 3,
       name: "Female",
-      token: CANDIDATE_TOKEN
+      candidateId: CANDIDATE_ID
     }]);
     await expect(client.getMedia({
       term: "食べる",
       reading: "たべる",
       sourceId: "jpod101",
       candidateIndex: 3,
-      candidateToken: CANDIDATE_TOKEN
+      candidateId: CANDIDATE_ID
     })).resolves.toBe(audioBlob);
 
     expect(fetchMock).toHaveBeenNthCalledWith(
@@ -163,7 +162,6 @@ describe("Hoshidicts audio client", () => {
       expect.objectContaining({
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${CANDIDATE_TOKEN}`,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
@@ -179,7 +177,6 @@ describe("Hoshidicts audio client", () => {
       expect.objectContaining({
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${CANDIDATE_TOKEN}`,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
@@ -187,30 +184,12 @@ describe("Hoshidicts audio client", () => {
           reading: "たべる",
           sourceId: "jpod101",
           candidateIndex: 3,
-          candidateToken: CANDIDATE_TOKEN
+          candidateId: CANDIDATE_ID
         })
       })
     );
   });
 
-  it("does not fetch without a broker credential", async () => {
-    const dom = createDom();
-    const api = loadAudioModule(dom.window as unknown as Window);
-    const fetchMock = vi.fn();
-    const client = api.createHoshidictsAudioClient({
-      baseUrl: "http://127.0.0.1:8123",
-      fetch: fetchMock
-    });
-
-    await expect(
-      client.getCandidates({
-        term: "食べる",
-        reading: "たべる",
-        sourceId: "jpod101"
-      })
-    ).rejects.toThrow(/authentication/iu);
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
 });
 
 describe("Hoshidicts audio controller", () => {
@@ -229,7 +208,7 @@ describe("Hoshidicts audio controller", () => {
       getCandidates: vi.fn(async ({ sourceId }: { sourceId: string }) =>
         sourceId === "first"
           ? []
-          : [{ index: 7, name: "Default", token: CANDIDATE_TOKEN }]
+          : [{ index: 7, name: "Default", candidateId: CANDIDATE_ID }]
       ),
       getMedia: vi.fn(async () => new Blob(["audio"], { type: "audio/mpeg" }))
     };
@@ -255,14 +234,14 @@ describe("Hoshidicts audio controller", () => {
       expect.objectContaining({
         sourceId: "second",
         candidateIndex: 7,
-        candidateToken: CANDIDATE_TOKEN
+        candidateId: CANDIDATE_ID
       }),
       expect.objectContaining({ signal: expect.anything() })
     );
     expect(controller.getSelection(term)).toEqual({
       sourceId: "second",
       candidateIndex: 7,
-      candidateToken: CANDIDATE_TOKEN
+      candidateId: CANDIDATE_ID
     });
     expect(button.dataset.state).toBe("playing");
     controller.destroy();
@@ -310,8 +289,8 @@ describe("Hoshidicts audio controller", () => {
 
   it("caps ordered fallback attempts across sources and candidates", async () => {
     const getCandidates = vi.fn(async () => [
-      { index: 0, name: "First", token: CANDIDATE_TOKEN },
-      { index: 1, name: "Second", token: SECOND_CANDIDATE_TOKEN }
+      { index: 0, name: "First", candidateId: CANDIDATE_ID },
+      { index: 1, name: "Second", candidateId: SECOND_CANDIDATE_ID }
     ]);
     const getMedia = vi.fn(async () => {
       throw new Error("unplayable");
@@ -340,7 +319,7 @@ describe("Hoshidicts audio controller", () => {
     const getCandidates = vi.fn(async () => [{
       index: 0,
       name: "Default",
-      token: CANDIDATE_TOKEN
+      candidateId: CANDIDATE_ID
     }]);
     const getMedia = vi.fn(async () => new Blob(["audio"], { type: "audio/mpeg" }));
     const { button, controller } = createControllerHarness({
@@ -424,7 +403,7 @@ describe("Hoshidicts audio controller", () => {
         getCandidates: vi.fn(async () => [{
           index: 0,
           name: "Default",
-          token: CANDIDATE_TOKEN
+          candidateId: CANDIDATE_ID
         }]),
         getMedia: vi.fn(async () => new Blob(["audio"], { type: "audio/mpeg" }))
       },
@@ -443,7 +422,7 @@ describe("Hoshidicts audio controller", () => {
       expect(controller.getSelection(term)).toEqual({
         sourceId: "jisho",
         candidateIndex: 0,
-        candidateToken: CANDIDATE_TOKEN
+        candidateId: CANDIDATE_ID
       });
     });
 
@@ -462,7 +441,7 @@ describe("Hoshidicts audio controller", () => {
         getCandidates: vi.fn(async () => [{
           index: 0,
           name: "Default",
-          token: CANDIDATE_TOKEN
+          candidateId: CANDIDATE_ID
         }]),
         getMedia: vi.fn(async () => new Blob(["audio"], { type: "audio/mpeg" }))
       },
@@ -509,8 +488,8 @@ describe("Hoshidicts audio controller", () => {
     const play = vi.fn(async () => undefined);
     const client = {
       getCandidates: vi.fn(async () => [
-        { index: 1, name: "Female", token: CANDIDATE_TOKEN },
-        { index: 2, name: "Male", token: SECOND_CANDIDATE_TOKEN }
+        { index: 1, name: "Female", candidateId: CANDIDATE_ID },
+        { index: 2, name: "Male", candidateId: SECOND_CANDIDATE_ID }
       ]),
       getMedia: vi.fn(async () => new Blob(["audio"], { type: "audio/mpeg" }))
     };
@@ -551,14 +530,14 @@ describe("Hoshidicts audio controller", () => {
       expect.objectContaining({
         sourceId: "jpod",
         candidateIndex: 2,
-        candidateToken: SECOND_CANDIDATE_TOKEN
+        candidateId: SECOND_CANDIDATE_ID
       }),
       expect.objectContaining({ signal: expect.anything() })
     );
     expect(controller.getSelection(term)).toEqual({
       sourceId: "jpod",
       candidateIndex: 2,
-      candidateToken: SECOND_CANDIDATE_TOKEN
+      candidateId: SECOND_CANDIDATE_ID
     });
     expect(dom.window.document.querySelector(".gsm-hoshidicts-audio-menu"))
       .toBeNull();

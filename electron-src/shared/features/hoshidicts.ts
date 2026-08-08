@@ -20,15 +20,6 @@ export const HOSHIDICTS_CHANNELS = {
     restartOverlay: 'hoshidicts.restartOverlay',
 } as const;
 
-export const HOSHIDICTS_BUS_TOPICS = {
-    openSettings: 'hoshidicts.openSettings',
-    readerPreferences: 'hoshidicts.readerPreferences',
-    audioProfile: 'hoshidicts.audioProfile',
-    addCustomEntry: 'hoshidicts.addCustomEntry',
-} as const;
-
-export const HOSHIDICTS_READER_CLIENT_ID = 'overlay.hoshidicts-reader';
-
 export type HoshidictsSchedule = 'off' | 'daily' | 'weekly' | 'monthly';
 export type HoshidictsLookupMode = 'shift' | 'hover';
 export type HoshidictsDefinitionBlurRevealMode = 'timed' | 'hover';

@@ -1,15 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const harness = vi.hoisted(() => ({
-    busInfo: { port: 1234, token: 'token' } as {
-        port: number;
-        token: string;
-    } | null,
-    busConnectedHandler: null as ((clientId: string) => void) | null,
-    busHandlers: new Map<
-        string,
-        (message: { src: string; data?: unknown }) => Promise<unknown>
-    >(),
+    controlConnected: true,
+    controlHandlers: null as null | {
+        openSettings: () => Promise<unknown>;
+        addCustomEntry: (value: unknown) => Promise<unknown>;
+        onReaderReady?: () => void;
+    },
     openWindow: vi.fn(async () => ({})),
     registerIPC: vi.fn(),
     configureLookupModeProvider: vi.fn(),
@@ -22,8 +19,11 @@ const harness = vi.hoisted(() => ({
     markPreferencesApplied: vi.fn(() => true),
     markAudioApplied: vi.fn(() => true),
     markAudioSyncFailed: vi.fn(() => true),
-    busRequest: vi.fn(async () => ({ applied: true })),
+    controlRequest: vi.fn(async () => ({ applied: true })),
+    startControl: vi.fn(async () => 4567),
+    stopControl: vi.fn(async () => undefined),
     startManager: vi.fn(async () => undefined),
+    stopManager: vi.fn(async () => undefined),
     syncCustomDictionary: vi.fn(async () => ({
         text: '',
         revision: 'empty',
@@ -60,32 +60,20 @@ const harness = vi.hoisted(() => ({
     },
 }));
 
-vi.mock('../../runtime/bus_client.js', () => ({
-    bus: {
-        handle: vi.fn(
-            (
-                topic: string,
-                handler: (message: { src: string; data?: unknown }) => Promise<unknown>
-            ) => {
-                harness.busHandlers.set(topic, handler);
-                return () => {};
-            }
-        ),
-        isConnected: vi.fn(() => true),
-        request: harness.busRequest,
-        on: vi.fn(
-            (
-                event: string,
-                handler: (clientId: string) => void
-            ) => {
-                if (event === 'client-connected') {
-                    harness.busConnectedHandler = handler;
-                }
-                return () => {};
-            }
-        ),
+vi.mock('./control_channel.js', () => ({
+    HOSHIDICTS_CONTROL_METHODS: {
+        openSettings: 'hoshidicts.openSettings',
+        readerPreferences: 'hoshidicts.readerPreferences',
+        audioProfile: 'hoshidicts.audioProfile',
+        addCustomEntry: 'hoshidicts.addCustomEntry',
     },
-    getBusConnectInfo: () => harness.busInfo,
+    configureHoshidictsControlChannel: vi.fn((handlers) => {
+        harness.controlHandlers = handlers;
+    }),
+    isHoshidictsReaderControlConnected: () => harness.controlConnected,
+    requestHoshidictsReader: harness.controlRequest,
+    startHoshidictsControlChannel: harness.startControl,
+    stopHoshidictsControlChannel: harness.stopControl,
 }));
 
 vi.mock('../../gsm_config.js', () => ({
@@ -143,7 +131,7 @@ vi.mock('./manager.js', () => ({
         addCustomEntry: harness.addCustomEntry,
     }),
     startHoshidictsManager: harness.startManager,
-    stopHoshidictsManager: vi.fn(),
+    stopHoshidictsManager: harness.stopManager,
 }));
 
 vi.mock('./window.js', () => ({
@@ -155,9 +143,8 @@ describe('Hoshidicts feature registration', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
-        harness.busInfo = { port: 1234, token: 'token' };
-        harness.busConnectedHandler = null;
-        harness.busHandlers.clear();
+        harness.controlConnected = true;
+        harness.controlHandlers = null;
         harness.configureLookupModeProvider.mockReset();
         harness.configureActivationKeyProvider.mockReset();
         harness.configureSourceHighlightProvider.mockReset();
@@ -166,24 +153,18 @@ describe('Hoshidicts feature registration', () => {
         harness.configurePopupNestingMaxDepthProvider.mockReset();
         harness.configureDefinitionBlurProvider.mockReset();
         harness.startManager.mockClear();
+        harness.stopManager.mockClear();
+        harness.startControl.mockClear();
+        harness.stopControl.mockClear();
+        harness.controlRequest.mockClear();
         harness.syncCustomDictionary.mockClear();
         harness.addCustomEntry.mockClear();
     });
 
-    it('accepts only the authenticated one-shot overlay client identity', async () => {
-        const {
-            isHoshidictsOverlaySettingsClient,
-            registerHoshidictsFeature,
-        } = await import('./index.js');
-
-        expect(
-            isHoshidictsOverlaySettingsClient(
-                'overlay.hoshidicts-settings.10.uuid'
-            )
-        ).toBe(true);
-        expect(isHoshidictsOverlaySettingsClient('overlay')).toBe(false);
-        expect(isHoshidictsOverlaySettingsClient('backend')).toBe(false);
-
+    it('registers local IPC and preserves every overlay control operation', async () => {
+        const { registerHoshidictsFeature, startHoshidictsManager } =
+            await import('./index.js');
+        await startHoshidictsManager();
         registerHoshidictsFeature({
             getMainWindow: () => null,
         });
@@ -204,8 +185,7 @@ describe('Hoshidicts feature registration', () => {
                 definitionBlur: harness.managerSnapshot.definitionBlur,
             })
         ).resolves.toBe(true);
-        expect(harness.busRequest).toHaveBeenCalledWith(
-            'overlay.hoshidicts-reader',
+        expect(harness.controlRequest).toHaveBeenCalledWith(
             'hoshidicts.readerPreferences',
             {
                 lookupMode: 'hover',
@@ -230,8 +210,7 @@ describe('Hoshidicts feature registration', () => {
                 harness.managerSnapshot.audioProfile
             )
         ).resolves.toBe(true);
-        expect(harness.busRequest).toHaveBeenCalledWith(
-            'overlay.hoshidicts-reader',
+        expect(harness.controlRequest).toHaveBeenCalledWith(
             'hoshidicts.audioProfile',
             harness.managerSnapshot.audioProfile,
             2000
@@ -239,26 +218,15 @@ describe('Hoshidicts feature registration', () => {
         expect(harness.markAudioApplied).toHaveBeenCalledWith(
             harness.managerSnapshot.audioProfile
         );
-        const openHandler = harness.busHandlers.get('hoshidicts.openSettings');
-        expect(openHandler).toBeDefined();
-
         await expect(
-            openHandler?.({ src: 'backend' })
-        ).rejects.toThrow('Only the GSM overlay');
-        await expect(
-            openHandler?.({
-                src: 'overlay.hoshidicts-settings.10.uuid',
-            })
+            harness.controlHandlers?.openSettings()
         ).resolves.toEqual({ opened: true });
         expect(harness.openWindow).toHaveBeenCalledOnce();
 
-        harness.busRequest.mockClear();
-        harness.busConnectedHandler?.('backend');
-        expect(harness.busRequest).not.toHaveBeenCalled();
-        harness.busConnectedHandler?.('overlay.hoshidicts-reader');
+        harness.controlRequest.mockClear();
+        harness.controlHandlers?.onReaderReady?.();
         await vi.waitFor(() => {
-            expect(harness.busRequest).toHaveBeenCalledWith(
-                'overlay.hoshidicts-reader',
+            expect(harness.controlRequest).toHaveBeenCalledWith(
                 'hoshidicts.readerPreferences',
                 {
                     lookupMode: 'hover',
@@ -270,25 +238,18 @@ describe('Hoshidicts feature registration', () => {
                 },
                 2000
             );
-            expect(harness.busRequest).toHaveBeenCalledWith(
-                'overlay.hoshidicts-reader',
+            expect(harness.controlRequest).toHaveBeenCalledWith(
                 'hoshidicts.audioProfile',
                 harness.managerSnapshot.audioProfile,
                 2000
             );
         });
 
-        const addHandler = harness.busHandlers.get('hoshidicts.addCustomEntry');
         await expect(
-            addHandler?.({
-                src: 'backend',
-                data: { term: '猫', reading: 'ねこ', definition: 'cat' },
-            })
-        ).rejects.toThrow('Only the Hoshidicts overlay reader');
-        await expect(
-            addHandler?.({
-                src: 'overlay.hoshidicts-reader',
-                data: { term: ' 猫 ', reading: ' ねこ ', definition: ' cat ' },
+            harness.controlHandlers?.addCustomEntry({
+                term: ' 猫 ',
+                reading: ' ねこ ',
+                definition: ' cat ',
             })
         ).resolves.toEqual({ saved: true });
         expect(harness.addCustomEntry).toHaveBeenCalledWith({
@@ -296,6 +257,9 @@ describe('Hoshidicts feature registration', () => {
             reading: ' ねこ ',
             definition: ' cat ',
         });
+        await expect(
+            harness.controlHandlers?.addCustomEntry({ term: '猫' })
+        ).rejects.toThrow('fields must be strings');
     });
 
     it('wires the persisted lookup mode into overlay launches after startup', async () => {
@@ -346,6 +310,7 @@ describe('Hoshidicts feature registration', () => {
         const syncProvider = harness.configureCustomSyncProvider.mock.calls[0][0];
         await expect(syncProvider()).resolves.toBeUndefined();
         expect(harness.syncCustomDictionary).toHaveBeenCalledTimes(2);
+        expect(harness.startControl).toHaveBeenCalledOnce();
     });
 
     it('keeps startup available when the custom source cannot be synchronized', async () => {
@@ -388,7 +353,7 @@ describe('Hoshidicts feature registration', () => {
     });
 
     it('marks a running reader stale when live audio delivery fails', async () => {
-        harness.busRequest.mockRejectedValueOnce(new Error('reader unavailable'));
+        harness.controlRequest.mockRejectedValueOnce(new Error('reader unavailable'));
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const { registerHoshidictsFeature } = await import('./index.js');
 
@@ -406,19 +371,81 @@ describe('Hoshidicts feature registration', () => {
         );
     });
 
-    it('keeps local settings IPC available if the desktop bus failed to start', async () => {
-        harness.busInfo = null;
+    it('does not overwrite a live audio update with an older connection snapshot', async () => {
+        let finishInitialPreferences!: () => void;
+        harness.controlRequest
+            .mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        finishInitialPreferences = () =>
+                            resolve({ applied: true });
+                    })
+            )
+            .mockResolvedValue({ applied: true });
+        const { registerHoshidictsFeature, startHoshidictsManager } =
+            await import('./index.js');
+        await startHoshidictsManager();
+        registerHoshidictsFeature({ getMainWindow: () => null });
+
+        harness.controlHandlers?.onReaderReady?.();
+        await vi.waitFor(() => {
+            expect(harness.controlRequest).toHaveBeenCalledTimes(1);
+        });
+
+        const liveProfile = {
+            ...harness.managerSnapshot.audioProfile,
+            volume: 42,
+        };
+        await expect(
+            harness.registerIPC.mock.calls[0][0].applyAudioProfile(liveProfile)
+        ).resolves.toBe(true);
+        finishInitialPreferences();
+        await vi.waitFor(() => {
+            expect(harness.markPreferencesApplied).toHaveBeenCalledOnce();
+        });
+
+        expect(harness.controlRequest).toHaveBeenCalledTimes(2);
+        expect(harness.controlRequest).toHaveBeenLastCalledWith(
+            'hoshidicts.audioProfile',
+            liveProfile,
+            2000
+        );
+        expect(harness.markAudioApplied).toHaveBeenCalledWith(liveProfile);
+        expect(harness.markAudioSyncFailed).not.toHaveBeenCalled();
+    });
+
+    it('keeps local settings IPC available if the loopback channel failed to start', async () => {
+        harness.startControl.mockRejectedValueOnce(new Error('bind failed'));
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        const { registerHoshidictsFeature } = await import('./index.js');
+        const { registerHoshidictsFeature, startHoshidictsManager } =
+            await import('./index.js');
+
+        await expect(startHoshidictsManager()).resolves.toBeUndefined();
 
         registerHoshidictsFeature({
             getMainWindow: () => null,
         });
 
         expect(harness.registerIPC).toHaveBeenCalledOnce();
-        expect(harness.busHandlers.size).toBe(0);
         expect(warn).toHaveBeenCalledWith(
-            expect.stringContaining('message bus is unavailable')
+            expect.stringContaining('loopback control channel'),
+            expect.any(Error)
+        );
+    });
+
+    it('stops the manager even when control-channel shutdown fails', async () => {
+        const failure = new Error('close failed');
+        harness.stopControl.mockRejectedValueOnce(failure);
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const { stopHoshidictsManager } = await import('./index.js');
+
+        await expect(stopHoshidictsManager()).resolves.toBeUndefined();
+
+        expect(harness.stopControl).toHaveBeenCalledOnce();
+        expect(harness.stopManager).toHaveBeenCalledOnce();
+        expect(warn).toHaveBeenCalledWith(
+            expect.stringContaining('control channel'),
+            failure
         );
     });
 });

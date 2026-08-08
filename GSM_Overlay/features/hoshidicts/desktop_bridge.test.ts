@@ -1,11 +1,13 @@
 import { createRequire } from "node:module";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { MessageBroker } from "../../../electron-src/main/runtime/message_bus";
+import {
+  HOSHIDICTS_CONTROL_METHODS,
+  HoshidictsControlChannel,
+} from "../../../electron-src/main/features/hoshidicts/control_channel";
 
 const require = createRequire(import.meta.url);
 const {
-  ADD_CUSTOM_ENTRY_TOPIC,
   createHoshidictsActivationHotkeyController,
   createHoshidictsReaderPreferencesDelivery,
   createHoshidictsReaderPreferencesBridge,
@@ -14,10 +16,8 @@ const {
   normalizeHoshidictsActivationKey,
   normalizeHoshidictsReaderPreferences,
   requestHoshidictsSettingsOpen,
-  resolveDesktopBusConfig,
-  SETTINGS_CLIENT_SEGMENT,
+  resolveHoshidictsControlConfig,
 } = require("./desktop_bridge.js") as {
-  ADD_CUSTOM_ENTRY_TOPIC: string;
   createHoshidictsActivationHotkeyController: (options: {
     registry: Map<string, Record<string, unknown>>;
     onStateChange: (pressed: boolean) => void;
@@ -59,9 +59,9 @@ const {
     env: Record<string, string>;
     timeoutMs?: number;
   }) => Promise<unknown>;
-  resolveDesktopBusConfig: (
+  resolveHoshidictsControlConfig: (
     env: Record<string, string>
-  ) => { port: number; token: string; clientId: string } | null;
+  ) => { port: number } | null;
   HOSHIDICTS_ACTIVATION_HOTKEY_ID: string;
   normalizeHoshidictsActivationKey: (
     value: unknown,
@@ -76,16 +76,33 @@ const {
     popupHideDelayMs: number;
     popupNestingMaxDepth: number;
   };
-  SETTINGS_CLIENT_SEGMENT: string;
 };
 
-const brokers: MessageBroker[] = [];
+const channels: HoshidictsControlChannel[] = [];
 const bridges: Array<{ destroy: () => void }> = [];
 
 afterEach(async () => {
   bridges.splice(0).forEach((bridge) => bridge.destroy());
-  await Promise.all(brokers.splice(0).map(async (broker) => broker.stop()));
+  await Promise.all(channels.splice(0).map(async (channel) => channel.stop()));
 });
+
+async function startControlChannel(options: {
+  openSettings?: () => unknown | Promise<unknown>;
+  addCustomEntry?: (value: unknown) => unknown | Promise<unknown>;
+  onReaderReady?: () => void;
+} = {}) {
+  const channel = new HoshidictsControlChannel({
+    openSettings: options.openSettings ?? (() => ({ opened: true })),
+    addCustomEntry: options.addCustomEntry ?? (() => ({ saved: true })),
+    onReaderReady: options.onReaderReady,
+  });
+  channels.push(channel);
+  const port = await channel.start();
+  return {
+    channel,
+    env: { GSM_HOSHIDICTS_CONTROL_PORT: String(port) },
+  };
+}
 
 describe("Hoshidicts desktop bridge", () => {
   it("normalizes only canonical single-key accelerators supported by the input server", () => {
@@ -271,77 +288,40 @@ describe("Hoshidicts desktop bridge", () => {
     expect(delivered).toHaveLength(3);
   });
 
-  it("rejects missing or malformed authenticated bus settings", () => {
-    expect(resolveDesktopBusConfig({})).toBeNull();
-    expect(
-      resolveDesktopBusConfig({
-        GSM_BROKER_PORT: "99999",
-        GSM_BROKER_TOKEN: "token",
-        GSM_CLIENT_ID: "overlay",
-      })
-    ).toBeNull();
+  it("rejects missing or malformed control settings", () => {
+    expect(resolveHoshidictsControlConfig({})).toBeNull();
+    expect(resolveHoshidictsControlConfig({
+      GSM_HOSHIDICTS_CONTROL_PORT: "99999",
+    })).toBeNull();
+    expect(resolveHoshidictsControlConfig({
+      GSM_HOSHIDICTS_CONTROL_PORT: "1234oops",
+    })).toBeNull();
   });
 
-  it("opens settings through unique authenticated requests to desktop main", async () => {
-    const broker = new MessageBroker();
-    brokers.push(broker);
-    const connectInfo = await broker.start();
-    const sources: string[] = [];
-    broker.handle("hoshidicts.openSettings", (message) => {
-      sources.push(message.src);
-      return { opened: true };
+  it("opens settings through independent loopback requests", async () => {
+    let openCount = 0;
+    const { env } = await startControlChannel({
+      openSettings() {
+        openCount += 1;
+        return { opened: true };
+      },
     });
-
-    const env = {
-      GSM_BROKER_PORT: String(connectInfo.port),
-      GSM_BROKER_TOKEN: connectInfo.token,
-      GSM_CLIENT_ID: "overlay",
-    };
     await expect(
       Promise.all([
         requestHoshidictsSettingsOpen({ env }),
         requestHoshidictsSettingsOpen({ env }),
       ])
     ).resolves.toEqual([{ opened: true }, { opened: true }]);
-    expect(sources).toHaveLength(2);
-    expect(new Set(sources).size).toBe(2);
-    expect(
-      sources.every((source) =>
-        source.startsWith(`overlay${SETTINGS_CLIENT_SEGMENT}`)
-      )
-    ).toBe(true);
+    expect(openCount).toBe(2);
   });
 
-  it("fails closed with an invalid token", async () => {
-    const broker = new MessageBroker();
-    brokers.push(broker);
-    const connectInfo = await broker.start();
-
-    await expect(
-      requestHoshidictsSettingsOpen({
-        env: {
-          GSM_BROKER_PORT: String(connectInfo.port),
-          GSM_BROKER_TOKEN: "wrong-token",
-          GSM_CLIENT_ID: "overlay",
-        },
-        timeoutMs: 500,
-      })
-    ).rejects.toThrow();
-  });
-
-  it("applies reader preferences over a persistent authenticated client", async () => {
-    const broker = new MessageBroker();
-    brokers.push(broker);
-    const connectInfo = await broker.start();
+  it("applies reader preferences over a persistent loopback connection", async () => {
+    const { channel, env } = await startControlChannel();
     const applied: unknown[] = [];
     const appliedAudio: unknown[] = [];
     bridges.push(
       createHoshidictsReaderPreferencesBridge({
-        env: {
-          GSM_BROKER_PORT: String(connectInfo.port),
-          GSM_BROKER_TOKEN: connectInfo.token,
-          GSM_CLIENT_ID: "overlay",
-        },
+        env,
         async onPreferences(preferences) {
           applied.push(preferences);
         },
@@ -352,12 +332,11 @@ describe("Hoshidicts desktop bridge", () => {
     );
 
     await vi.waitFor(() => {
-      expect(broker.isClientConnected("overlay.hoshidicts-reader")).toBe(true);
+      expect(channel.isReaderConnected()).toBe(true);
     });
     await expect(
-      broker.request(
-        "overlay.hoshidicts-reader",
-        "hoshidicts.readerPreferences",
+      channel.requestReader(
+        HOSHIDICTS_CONTROL_METHODS.readerPreferences,
         {
           lookupMode: "hover",
           popupHideDelayMs: 800,
@@ -385,36 +364,30 @@ describe("Hoshidicts desktop bridge", () => {
       }],
     };
     await expect(
-      broker.request(
-        "overlay.hoshidicts-reader",
-        "hoshidicts.audioProfile",
+      channel.requestReader(
+        HOSHIDICTS_CONTROL_METHODS.audioProfile,
         audioProfile
       )
     ).resolves.toEqual({ applied: true });
     expect(appliedAudio).toEqual([audioProfile]);
   });
 
-  it("adds custom entries through correlated requests from the exact reader client", async () => {
-    const broker = new MessageBroker();
-    brokers.push(broker);
-    const connectInfo = await broker.start();
-    const received: Array<{ src: string; data: unknown }> = [];
-    broker.handle(ADD_CUSTOM_ENTRY_TOPIC, (message) => {
-      received.push({ src: message.src, data: message.data });
-      return { saved: true };
+  it("adds custom entries through correlated reader requests", async () => {
+    const received: unknown[] = [];
+    const { channel, env } = await startControlChannel({
+      addCustomEntry(value) {
+        received.push(value);
+        return { saved: true };
+      },
     });
     const bridge = createHoshidictsReaderPreferencesBridge({
-      env: {
-        GSM_BROKER_PORT: String(connectInfo.port),
-        GSM_BROKER_TOKEN: connectInfo.token,
-        GSM_CLIENT_ID: "overlay",
-      },
+      env,
       async onPreferences() {},
     });
     bridges.push(bridge);
 
     await vi.waitFor(() => {
-      expect(broker.isClientConnected("overlay.hoshidicts-reader")).toBe(true);
+      expect(channel.isReaderConnected()).toBe(true);
     });
     const entry = {
       term: "螺旋丸",
@@ -424,33 +397,23 @@ describe("Hoshidicts desktop bridge", () => {
     await expect(bridge.requestAddCustomEntry(entry)).resolves.toEqual({
       saved: true,
     });
-    expect(received).toEqual([
-      {
-        src: "overlay.hoshidicts-reader",
-        data: entry,
-      },
-    ]);
+    expect(received).toEqual([entry]);
   });
 
   it("propagates desktop errors for custom-entry requests", async () => {
-    const broker = new MessageBroker();
-    brokers.push(broker);
-    const connectInfo = await broker.start();
-    broker.handle(ADD_CUSTOM_ENTRY_TOPIC, () => {
-      throw new Error("Custom dictionary save was rejected.");
+    const { channel, env } = await startControlChannel({
+      addCustomEntry() {
+        throw new Error("Custom dictionary save was rejected.");
+      },
     });
     const bridge = createHoshidictsReaderPreferencesBridge({
-      env: {
-        GSM_BROKER_PORT: String(connectInfo.port),
-        GSM_BROKER_TOKEN: connectInfo.token,
-        GSM_CLIENT_ID: "overlay",
-      },
+      env,
       async onPreferences() {},
     });
     bridges.push(bridge);
 
     await vi.waitFor(() => {
-      expect(broker.isClientConnected("overlay.hoshidicts-reader")).toBe(true);
+      expect(channel.isReaderConnected()).toBe(true);
     });
     await expect(bridge.requestAddCustomEntry({
       term: "error",
@@ -460,32 +423,27 @@ describe("Hoshidicts desktop bridge", () => {
   });
 
   it("keeps a queued custom-entry save pending until desktop responds", async () => {
-    const broker = new MessageBroker();
-    brokers.push(broker);
-    const connectInfo = await broker.start();
     let respond!: (value: { saved: true }) => void;
     let requestReceived!: () => void;
     const received = new Promise<void>((resolve) => {
       requestReceived = resolve;
     });
-    broker.handle(ADD_CUSTOM_ENTRY_TOPIC, () => {
-      requestReceived();
-      return new Promise<{ saved: true }>((resolve) => {
-        respond = resolve;
-      });
+    const { channel, env } = await startControlChannel({
+      addCustomEntry() {
+        requestReceived();
+        return new Promise<{ saved: true }>((resolve) => {
+          respond = resolve;
+        });
+      },
     });
     const bridge = createHoshidictsReaderPreferencesBridge({
-      env: {
-        GSM_BROKER_PORT: String(connectInfo.port),
-        GSM_BROKER_TOKEN: connectInfo.token,
-        GSM_CLIENT_ID: "overlay",
-      },
+      env,
       async onPreferences() {},
     });
     bridges.push(bridge);
 
     await vi.waitFor(() => {
-      expect(broker.isClientConnected("overlay.hoshidicts-reader")).toBe(true);
+      expect(channel.isReaderConnected()).toBe(true);
     });
     vi.useFakeTimers();
     try {

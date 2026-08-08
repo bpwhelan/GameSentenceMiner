@@ -1,7 +1,6 @@
 import type { BrowserWindow } from 'electron';
 
 import { getConfiguredHoshidictsEnabled } from '../../gsm_config.js';
-import { bus, getBusConnectInfo } from '../../runtime/bus_client.js';
 import {
     configureHoshidictsActivationKeyProvider,
     configureHoshidictsDefinitionBlurProvider,
@@ -25,18 +24,24 @@ import {
     restartOverlay,
 } from '../../ui/front.js';
 import {
-    HOSHIDICTS_BUS_TOPICS,
-    HOSHIDICTS_READER_CLIENT_ID,
     type HoshidictsAudioProfile,
     type HoshidictsCustomEntryRequest,
     type HoshidictsReaderPreferences,
 } from '../../../shared/features/hoshidicts.js';
+import {
+    configureHoshidictsControlChannel,
+    HOSHIDICTS_CONTROL_METHODS,
+    isHoshidictsReaderControlConnected,
+    requestHoshidictsReader,
+    startHoshidictsControlChannel,
+    stopHoshidictsControlChannel,
+} from './control_channel.js';
 import { registerHoshidictsIPC } from './ipc.js';
 import { fetchHoshidictsMiningOptions } from './mining_options.js';
 import {
     getHoshidictsManager,
     startHoshidictsManager as startManager,
-    stopHoshidictsManager,
+    stopHoshidictsManager as stopManager,
 } from './manager.js';
 import {
     getHoshidictsSettingsWindow,
@@ -44,6 +49,8 @@ import {
 } from './window.js';
 
 let featureRegistered = false;
+let readerPreferencesRevision = 0;
+let audioProfileRevision = 0;
 
 function customEntryFromPayload(value: unknown): HoshidictsCustomEntryRequest {
     if (!value || typeof value !== 'object') {
@@ -64,19 +71,25 @@ function customEntryFromPayload(value: unknown): HoshidictsCustomEntryRequest {
     };
 }
 
-async function applyReaderPreferences(
-    preferences: HoshidictsReaderPreferences
+async function deliverReaderPreferences(
+    preferences: HoshidictsReaderPreferences,
+    revision: number
 ): Promise<boolean> {
-    if (!getBusConnectInfo() || !bus.isConnected(HOSHIDICTS_READER_CLIENT_ID)) {
+    if (
+        revision !== readerPreferencesRevision ||
+        !isHoshidictsReaderControlConnected()
+    ) {
         return false;
     }
     try {
-        await bus.request(
-            HOSHIDICTS_READER_CLIENT_ID,
-            HOSHIDICTS_BUS_TOPICS.readerPreferences,
+        await requestHoshidictsReader(
+            HOSHIDICTS_CONTROL_METHODS.readerPreferences,
             preferences,
             2000
         );
+        if (revision !== readerPreferencesRevision) {
+            return false;
+        }
         return markOverlayHoshidictsReaderPreferencesApplied(preferences);
     } catch (error) {
         console.warn('[Hoshidicts] Could not update the running reader.', error);
@@ -84,20 +97,36 @@ async function applyReaderPreferences(
     }
 }
 
-async function applyAudioProfile(
-    profile: HoshidictsAudioProfile
+async function applyReaderPreferences(
+    preferences: HoshidictsReaderPreferences
 ): Promise<boolean> {
-    if (!getBusConnectInfo() || !bus.isConnected(HOSHIDICTS_READER_CLIENT_ID)) {
+    readerPreferencesRevision += 1;
+    return await deliverReaderPreferences(
+        preferences,
+        readerPreferencesRevision
+    );
+}
+
+async function deliverAudioProfile(
+    profile: HoshidictsAudioProfile,
+    revision: number
+): Promise<boolean> {
+    if (revision !== audioProfileRevision) {
+        return false;
+    }
+    if (!isHoshidictsReaderControlConnected()) {
         markOverlayHoshidictsAudioProfileSyncFailed();
         return false;
     }
     try {
-        await bus.request(
-            HOSHIDICTS_READER_CLIENT_ID,
-            HOSHIDICTS_BUS_TOPICS.audioProfile,
+        await requestHoshidictsReader(
+            HOSHIDICTS_CONTROL_METHODS.audioProfile,
             profile,
             2000
         );
+        if (revision !== audioProfileRevision) {
+            return false;
+        }
         return markOverlayHoshidictsAudioProfileApplied(profile);
     } catch (error) {
         markOverlayHoshidictsAudioProfileSyncFailed();
@@ -106,21 +135,29 @@ async function applyAudioProfile(
     }
 }
 
-async function synchronizeConnectedReader(): Promise<void> {
-    const snapshot = await getHoshidictsManager().getSnapshot();
-    await applyReaderPreferences({
-        lookupMode: snapshot.lookupMode,
-        activationKey: snapshot.activationKey,
-        sourceHighlightEnabled: snapshot.sourceHighlightEnabled,
-        popupHideDelayMs: snapshot.popupHideDelayMs,
-        popupNestingMaxDepth: snapshot.popupNestingMaxDepth,
-        definitionBlur: snapshot.definitionBlur,
-    });
-    await applyAudioProfile(snapshot.audioProfile);
+async function applyAudioProfile(
+    profile: HoshidictsAudioProfile
+): Promise<boolean> {
+    audioProfileRevision += 1;
+    return await deliverAudioProfile(profile, audioProfileRevision);
 }
 
-export function isHoshidictsOverlaySettingsClient(clientId: string): boolean {
-    return clientId.startsWith('overlay.hoshidicts-settings.');
+async function synchronizeConnectedReader(): Promise<void> {
+    const preferencesRevision = readerPreferencesRevision;
+    const profileRevision = audioProfileRevision;
+    const snapshot = await getHoshidictsManager().getSnapshot();
+    await deliverReaderPreferences(
+        {
+            lookupMode: snapshot.lookupMode,
+            activationKey: snapshot.activationKey,
+            sourceHighlightEnabled: snapshot.sourceHighlightEnabled,
+            popupHideDelayMs: snapshot.popupHideDelayMs,
+            popupNestingMaxDepth: snapshot.popupNestingMaxDepth,
+            definitionBlur: snapshot.definitionBlur,
+        },
+        preferencesRevision
+    );
+    await deliverAudioProfile(snapshot.audioProfile, profileRevision);
 }
 
 export function registerHoshidictsFeature(deps: {
@@ -158,45 +195,6 @@ export function registerHoshidictsFeature(deps: {
         getMiningOptions: fetchHoshidictsMiningOptions,
         restartOverlay,
     });
-
-    if (getBusConnectInfo()) {
-        bus.on('client-connected', (clientId: string) => {
-            if (clientId !== HOSHIDICTS_READER_CLIENT_ID) {
-                return;
-            }
-            void synchronizeConnectedReader().catch((error) => {
-                markOverlayHoshidictsAudioProfileSyncFailed();
-                console.warn(
-                    '[Hoshidicts] Could not initialize the connected reader.',
-                    error
-                );
-            });
-        });
-        bus.handle(HOSHIDICTS_BUS_TOPICS.openSettings, async (message) => {
-            if (!isHoshidictsOverlaySettingsClient(message.src)) {
-                throw new Error(
-                    'Only the GSM overlay may open Hoshidicts settings.'
-                );
-            }
-            await openHoshidictsSettingsWindow();
-            return { opened: true };
-        });
-        bus.handle(HOSHIDICTS_BUS_TOPICS.addCustomEntry, async (message) => {
-            if (message.src !== HOSHIDICTS_READER_CLIENT_ID) {
-                throw new Error(
-                    'Only the Hoshidicts overlay reader may add custom definitions.'
-                );
-            }
-            await getHoshidictsManager().addCustomEntry(
-                customEntryFromPayload(message.data)
-            );
-            return { saved: true };
-        });
-    } else {
-        console.warn(
-            '[Hoshidicts] Desktop message bus is unavailable; overlay settings shortcut is disabled.'
-        );
-    }
 }
 
 export async function startHoshidictsManager(): Promise<void> {
@@ -232,9 +230,48 @@ export async function startHoshidictsManager(): Promise<void> {
     configureHoshidictsCustomDictionarySyncProvider(async () => {
         await manager.syncCustomDictionary();
     });
+    configureHoshidictsControlChannel({
+        async openSettings() {
+            await openHoshidictsSettingsWindow();
+            return { opened: true };
+        },
+        async addCustomEntry(value) {
+            await manager.addCustomEntry(customEntryFromPayload(value));
+            return { saved: true };
+        },
+        onReaderReady() {
+            void synchronizeConnectedReader().catch((error) => {
+                markOverlayHoshidictsAudioProfileSyncFailed();
+                console.warn(
+                    '[Hoshidicts] Could not initialize the connected reader.',
+                    error
+                );
+            });
+        },
+    });
+    try {
+        await startHoshidictsControlChannel();
+    } catch (error) {
+        console.warn(
+            '[Hoshidicts] Could not start the loopback control channel; live overlay controls are unavailable.',
+            error
+        );
+    }
 }
 
-export { getHoshidictsManager, stopHoshidictsManager };
+export async function stopHoshidictsManager(): Promise<void> {
+    try {
+        await stopHoshidictsControlChannel();
+    } catch (error) {
+        console.warn(
+            '[Hoshidicts] Could not stop the loopback control channel cleanly.',
+            error
+        );
+    }
+    await stopManager();
+}
+
+export { getHoshidictsManager };
 export {
     getHoshidictsSettingsWindow,
     openHoshidictsSettingsWindow,

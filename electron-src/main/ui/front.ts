@@ -34,7 +34,10 @@ import {
     stopInProcessOverlay,
     waitForInProcessOverlayShutdown,
 } from '../overlay_runtime.js';
-import { getBusConnectInfo } from '../runtime/bus_client.js';
+import {
+    getHoshidictsControlPort,
+    HOSHIDICTS_CONTROL_ENV,
+} from '../features/hoshidicts/control_channel.js';
 import { getConfiguredHoshidictsEnabled } from '../gsm_config.js';
 import {
     DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
@@ -552,16 +555,34 @@ export function buildHoshidictsOverlayEnvironment(
     };
 }
 
-export function buildOverlayDesktopBusEnvironment(): Record<string, string> {
-    const connectInfo = getBusConnectInfo();
-    if (!connectInfo) {
+export function buildHoshidictsControlEnvironment(): Record<string, string> {
+    const port = getHoshidictsControlPort();
+    if (!port) {
         return {};
     }
     return {
-        GSM_BROKER_PORT: String(connectInfo.port),
-        GSM_BROKER_TOKEN: connectInfo.token,
-        GSM_CLIENT_ID: 'overlay',
+        [HOSHIDICTS_CONTROL_ENV]: String(port),
     };
+}
+
+function removeOverlayControlEnvironment(env: NodeJS.ProcessEnv): void {
+    for (const name of Object.keys(env)) {
+        if (
+            name.startsWith('GSM_BROKER_') ||
+            name === 'GSM_CLIENT_ID' ||
+            name === HOSHIDICTS_CONTROL_ENV
+        ) {
+            delete env[name];
+        }
+    }
+}
+
+export function buildOverlayProcessEnvironment(
+    source: NodeJS.ProcessEnv = process.env
+): NodeJS.ProcessEnv {
+    const env = { ...source };
+    removeOverlayControlEnvironment(env);
+    return env;
 }
 
 function spawnOverlayFromSource(
@@ -599,11 +620,12 @@ function spawnOverlayFromSource(
 
 function spawnSharedOverlayRuntime(
     spawn: typeof import('child_process').spawn,
+    baseEnvironment: NodeJS.ProcessEnv,
     hoshidictsEnvironment: Record<string, string>
 ): ChildProcess {
     const overlayResourcesPath = getOverlayResourcesPath();
     const env: NodeJS.ProcessEnv = {
-        ...process.env,
+        ...baseEnvironment,
         GSM_OVERLAY_CHILD: '1',
         GSM_OVERLAY_SHARED_RUNTIME: '1',
         [OVERLAY_RESOURCES_ENV]: overlayResourcesPath,
@@ -691,16 +713,18 @@ export async function runOverlayWithSource(
         hoshidictsPopupNestingMaxDepth,
         hoshidictsDefinitionBlur
     );
-    const desktopBusEnvironment = buildOverlayDesktopBusEnvironment();
+    const hoshidictsControlEnvironment = buildHoshidictsControlEnvironment();
+    const overlayProcessEnvironment = buildOverlayProcessEnvironment();
     if (USE_IN_PROCESS_OVERLAY) {
         if (isInProcessOverlayRunning()) {
             console.log('Overlay is already running.');
             return true;
         }
+        removeOverlayControlEnvironment(process.env);
         Object.assign(
             process.env,
             hoshidictsEnvironment,
-            desktopBusEnvironment
+            hoshidictsControlEnvironment
         );
         const started = await startInProcessOverlay();
         overlayLaunchSource = started ? source : null;
@@ -748,9 +772,9 @@ export async function runOverlayWithSource(
         }
 
         const sourceLaunch = spawnOverlayFromSource(overlayDir, {
-            ...process.env,
+            ...overlayProcessEnvironment,
             ...hoshidictsEnvironment,
-            ...desktopBusEnvironment,
+            ...hoshidictsControlEnvironment,
         });
         let processHandle: ChildProcess;
         try {
@@ -786,9 +810,10 @@ export async function runOverlayWithSource(
         try {
             const processHandle = spawnSharedOverlayRuntime(
                 spawn,
+                overlayProcessEnvironment,
                 {
                     ...hoshidictsEnvironment,
-                    ...desktopBusEnvironment,
+                    ...hoshidictsControlEnvironment,
                 }
             );
             registerOverlayProcess(
@@ -819,9 +844,9 @@ export async function runOverlayWithSource(
                 detached: false,
                 stdio: 'ignore',
                 env: {
-                    ...process.env,
+                    ...overlayProcessEnvironment,
                     ...hoshidictsEnvironment,
-                    ...desktopBusEnvironment,
+                    ...hoshidictsControlEnvironment,
                 },
             });
             registerOverlayProcess(

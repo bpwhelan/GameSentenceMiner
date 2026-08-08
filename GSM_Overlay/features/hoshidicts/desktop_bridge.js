@@ -3,13 +3,11 @@
 const { randomUUID } = require("node:crypto");
 const WebSocket = require("ws");
 
-const BUS_PROTOCOL_VERSION = 1;
-const OPEN_SETTINGS_TOPIC = "hoshidicts.openSettings";
-const READER_PREFERENCES_TOPIC = "hoshidicts.readerPreferences";
-const AUDIO_PROFILE_TOPIC = "hoshidicts.audioProfile";
-const ADD_CUSTOM_ENTRY_TOPIC = "hoshidicts.addCustomEntry";
-const READER_CLIENT_SUFFIX = ".hoshidicts-reader";
-const SETTINGS_CLIENT_SEGMENT = ".hoshidicts-settings.";
+const CONTROL_VERSION = 1;
+const OPEN_SETTINGS_METHOD = "hoshidicts.openSettings";
+const READER_PREFERENCES_METHOD = "hoshidicts.readerPreferences";
+const AUDIO_PROFILE_METHOD = "hoshidicts.audioProfile";
+const ADD_CUSTOM_ENTRY_METHOD = "hoshidicts.addCustomEntry";
 const REQUEST_TIMEOUT_MS = 5000;
 const DEFAULT_HOSHIDICTS_ACTIVATION_KEY = "Shift";
 const HOSHIDICTS_ACTIVATION_HOTKEY_ID = "hoshidictsLookup";
@@ -45,21 +43,23 @@ function normalizeHoshidictsActivationKey(
   if (typeof value !== "string") {
     return fallback;
   }
-  const token = value.trim();
-  if (HOSHIDICTS_PUNCTUATION_ACTIVATION_KEYS.has(token)) {
-    return token;
+  const normalizedKey = value.trim();
+  if (HOSHIDICTS_PUNCTUATION_ACTIVATION_KEYS.has(normalizedKey)) {
+    return normalizedKey;
   }
-  if (/^[a-z]$/iu.test(token)) {
-    return token.toUpperCase();
+  if (/^[a-z]$/iu.test(normalizedKey)) {
+    return normalizedKey.toUpperCase();
   }
-  if (/^[0-9]$/u.test(token)) {
-    return token;
+  if (/^[0-9]$/u.test(normalizedKey)) {
+    return normalizedKey;
   }
-  const functionKeyMatch = /^f([1-9]|1[0-9]|2[0-4])$/iu.exec(token);
+  const functionKeyMatch = /^f([1-9]|1[0-9]|2[0-4])$/iu.exec(normalizedKey);
   if (functionKeyMatch) {
     return `F${functionKeyMatch[1]}`;
   }
-  return HOSHIDICTS_NAMED_ACTIVATION_KEYS.get(token.toLowerCase()) ?? fallback;
+  return (
+    HOSHIDICTS_NAMED_ACTIVATION_KEYS.get(normalizedKey.toLowerCase()) ?? fallback
+  );
 }
 
 function normalizeHoshidictsReaderPreferences(preferences) {
@@ -192,25 +192,23 @@ function dispatchAppHotkeyInputServerMessage(message, registry) {
   return false;
 }
 
-function resolveDesktopBusConfig(env = process.env) {
-  const port = Number.parseInt(env.GSM_BROKER_PORT || "", 10);
-  const token = String(env.GSM_BROKER_TOKEN || "").trim();
-  const clientId = String(env.GSM_CLIENT_ID || "overlay").trim();
-  if (!Number.isInteger(port) || port < 1 || port > 65535 || !token || !clientId) {
+function resolveHoshidictsControlConfig(env = process.env) {
+  const configuredPort = String(env.GSM_HOSHIDICTS_CONTROL_PORT || "").trim();
+  if (!/^\d{1,5}$/u.test(configuredPort)) {
     return null;
   }
-  return { port, token, clientId };
+  const port = Number(configuredPort);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return null;
+  }
+  return { port };
 }
 
-function envelope(clientId, kind, topic, data) {
+function controlFrame(kind, fields = {}) {
   return {
-    v: BUS_PROTOCOL_VERSION,
-    id: randomUUID(),
-    src: clientId,
-    dst: "main",
+    version: CONTROL_VERSION,
     kind,
-    topic,
-    ...(data === undefined ? {} : { data }),
+    ...fields,
   };
 }
 
@@ -248,7 +246,7 @@ function createHoshidictsReaderPreferencesDelivery(deliver) {
 }
 
 function createHoshidictsReaderPreferencesBridge(options = {}) {
-  const config = resolveDesktopBusConfig(options.env);
+  const config = resolveHoshidictsControlConfig(options.env);
   if (!config) {
     return {
       requestAddCustomEntry() {
@@ -262,24 +260,23 @@ function createHoshidictsReaderPreferencesBridge(options = {}) {
   const WebSocketImpl = options.WebSocketImpl || WebSocket;
   const requestHandlers = new Map([
     [
-      READER_PREFERENCES_TOPIC,
+      READER_PREFERENCES_METHOD,
       typeof options.onPreferences === "function"
         ? options.onPreferences
         : async () => undefined,
     ],
     [
-      AUDIO_PROFILE_TOPIC,
+      AUDIO_PROFILE_METHOD,
       typeof options.onAudioPreferences === "function"
         ? options.onAudioPreferences
         : async () => undefined,
     ],
   ]);
-  const readerClientId = `${config.clientId}${READER_CLIENT_SUFFIX}`;
   let socket = null;
   let reconnectTimer = null;
   let reconnectDelayMs = 750;
   let destroyed = false;
-  let welcomed = false;
+  let ready = false;
   const pendingRequests = new Map();
 
   function send(message) {
@@ -304,12 +301,12 @@ function createHoshidictsReaderPreferencesBridge(options = {}) {
     pendingRequests.clear();
   }
 
-  function request(topic, data) {
+  function request(method, data) {
     if (destroyed) {
       return Promise.reject(new Error("Hoshidicts desktop bridge is closed."));
     }
     if (
-      !welcomed ||
+      !ready ||
       !socket ||
       socket.readyState !== WebSocketImpl.OPEN
     ) {
@@ -317,7 +314,11 @@ function createHoshidictsReaderPreferencesBridge(options = {}) {
         new Error("Hoshidicts desktop control channel is unavailable.")
       );
     }
-    const message = envelope(readerClientId, "request", topic, data);
+    const message = controlFrame("request", {
+      id: randomUUID(),
+      method,
+      data,
+    });
 
     return new Promise((resolve, reject) => {
       pendingRequests.set(message.id, { resolve, reject });
@@ -331,18 +332,14 @@ function createHoshidictsReaderPreferencesBridge(options = {}) {
   }
 
   function respond(message, ok, data, error) {
-    send({
-      v: BUS_PROTOCOL_VERSION,
-      id: randomUUID(),
-      src: readerClientId,
-      dst: message.src,
-      kind: "response",
-      topic: message.topic,
-      corr: message.id,
-      ok,
-      ...(data === undefined ? {} : { data }),
-      ...(error ? { error } : {}),
-    });
+    send(
+      controlFrame("response", {
+        id: message.id,
+        ok,
+        ...(data === undefined ? {} : { data }),
+        ...(error ? { error } : {}),
+      })
+    );
   }
 
   function connect() {
@@ -350,11 +347,7 @@ function createHoshidictsReaderPreferencesBridge(options = {}) {
     const nextSocket = new WebSocketImpl(`ws://127.0.0.1:${config.port}`);
     socket = nextSocket;
     nextSocket.on("open", () => {
-      send(envelope(readerClientId, "hello", "bus.hello", {
-        token: config.token,
-        pid: process.pid,
-        version: "1",
-      }));
+      send(controlFrame("reader-ready"));
     });
     nextSocket.on("message", (raw) => {
       let message;
@@ -363,31 +356,40 @@ function createHoshidictsReaderPreferencesBridge(options = {}) {
       } catch {
         return;
       }
-      if (message.kind === "ack" && message.topic === "bus.welcome") {
-        welcomed = true;
+      if (
+        message.version === CONTROL_VERSION &&
+        message.kind === "reader-ready"
+      ) {
+        ready = true;
         reconnectDelayMs = 750;
         return;
       }
       if (
+        message.version === CONTROL_VERSION &&
         message.kind === "response" &&
-        typeof message.corr === "string" &&
-        pendingRequests.has(message.corr)
+        typeof message.id === "string" &&
+        pendingRequests.has(message.id)
       ) {
-        const pending = pendingRequests.get(message.corr);
-        pendingRequests.delete(message.corr);
+        const pending = pendingRequests.get(message.id);
+        pendingRequests.delete(message.id);
         if (message.ok === false) {
           pending.reject(new Error(
             typeof message.error === "string"
               ? message.error
-              : `Desktop rejected ${message.topic || "the request"}.`
+              : `Desktop rejected ${message.method || "the request"}.`
           ));
         } else {
           pending.resolve(message.data);
         }
         return;
       }
-      const apply = requestHandlers.get(message.topic);
-      if (message.kind !== "request" || !apply) {
+      const apply = requestHandlers.get(message.method);
+      if (
+        message.version !== CONTROL_VERSION ||
+        message.kind !== "request" ||
+        typeof message.id !== "string" ||
+        !apply
+      ) {
         return;
       }
       Promise.resolve().then(() => apply(message.data)).then(
@@ -403,7 +405,7 @@ function createHoshidictsReaderPreferencesBridge(options = {}) {
     nextSocket.on("error", () => {});
     nextSocket.on("close", () => {
       if (socket === nextSocket) socket = null;
-      welcomed = false;
+      ready = false;
       rejectPending(
         new Error("Hoshidicts desktop control channel closed unexpectedly.")
       );
@@ -414,7 +416,7 @@ function createHoshidictsReaderPreferencesBridge(options = {}) {
   connect();
   return {
     requestAddCustomEntry(entry) {
-      return request(ADD_CUSTOM_ENTRY_TOPIC, entry);
+      return request(ADD_CUSTOM_ENTRY_METHOD, entry);
     },
     destroy() {
       destroyed = true;
@@ -426,14 +428,14 @@ function createHoshidictsReaderPreferencesBridge(options = {}) {
         socket.close();
         socket = null;
       }
-      welcomed = false;
+      ready = false;
       rejectPending(new Error("Hoshidicts desktop bridge is closed."));
     },
   };
 }
 
 function requestHoshidictsSettingsOpen(options = {}) {
-  const config = resolveDesktopBusConfig(options.env);
+  const config = resolveHoshidictsControlConfig(options.env);
   if (!config) {
     return Promise.reject(
       new Error("GameSentenceMiner desktop control channel is unavailable.")
@@ -443,10 +445,8 @@ function requestHoshidictsSettingsOpen(options = {}) {
   const WebSocketImpl = options.WebSocketImpl || WebSocket;
   return new Promise((resolve, reject) => {
     const socket = new WebSocketImpl(`ws://127.0.0.1:${config.port}`);
-    const requestClientId =
-      `${config.clientId}${SETTINGS_CLIENT_SEGMENT}${process.pid}.${randomUUID()}`;
     let settled = false;
-    let requestId = null;
+    const requestId = randomUUID();
     const timeout = setTimeout(() => {
       finish(new Error("Timed out opening Hoshidicts settings."));
     }, options.timeoutMs || REQUEST_TIMEOUT_MS);
@@ -465,12 +465,14 @@ function requestHoshidictsSettingsOpen(options = {}) {
     }
 
     socket.on("open", () => {
-      const hello = envelope(requestClientId, "hello", "bus.hello", {
-        token: config.token,
-        pid: process.pid,
-        version: "1",
-      });
-      socket.send(JSON.stringify(hello));
+      socket.send(
+        JSON.stringify(
+          controlFrame("request", {
+            id: requestId,
+            method: OPEN_SETTINGS_METHOD,
+          })
+        )
+      );
     });
 
     socket.on("message", (raw) => {
@@ -482,21 +484,10 @@ function requestHoshidictsSettingsOpen(options = {}) {
         return;
       }
 
-      if (message.kind === "ack" && message.topic === "bus.welcome") {
-        const request = envelope(
-          requestClientId,
-          "request",
-          OPEN_SETTINGS_TOPIC
-        );
-        requestId = request.id;
-        socket.send(JSON.stringify(request));
-        return;
-      }
-
       if (
-        requestId &&
+        message.version === CONTROL_VERSION &&
         message.kind === "response" &&
-        message.corr === requestId
+        message.id === requestId
       ) {
         if (message.ok === false) {
           finish(
@@ -528,8 +519,8 @@ function requestHoshidictsSettingsOpen(options = {}) {
 }
 
 module.exports = {
-  ADD_CUSTOM_ENTRY_TOPIC,
-  AUDIO_PROFILE_TOPIC,
+  ADD_CUSTOM_ENTRY_METHOD,
+  AUDIO_PROFILE_METHOD,
   createHoshidictsActivationHotkeyController,
   createHoshidictsReaderPreferencesDelivery,
   createHoshidictsReaderPreferencesBridge,
@@ -538,10 +529,8 @@ module.exports = {
   HOSHIDICTS_ACTIVATION_HOTKEY_ID,
   normalizeHoshidictsActivationKey,
   normalizeHoshidictsReaderPreferences,
-  OPEN_SETTINGS_TOPIC,
-  READER_CLIENT_SUFFIX,
-  READER_PREFERENCES_TOPIC,
-  SETTINGS_CLIENT_SEGMENT,
+  OPEN_SETTINGS_METHOD,
+  READER_PREFERENCES_METHOD,
   requestHoshidictsSettingsOpen,
-  resolveDesktopBusConfig,
+  resolveHoshidictsControlConfig,
 };

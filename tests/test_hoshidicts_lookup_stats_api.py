@@ -9,35 +9,12 @@ from flask import Flask
 from GameSentenceMiner.util.database.db import SQLiteDB
 from GameSentenceMiner.web import hoshidicts_api
 
-BROKER_TOKEN = "a" * 64
-
 
 @pytest.fixture
-def client(monkeypatch):
-    monkeypatch.setenv("GSM_BROKER_TOKEN", BROKER_TOKEN)
+def client():
     app = Flask(__name__)
     hoshidicts_api.register_hoshidicts_api_routes(app)
-    flask_client = app.test_client()
-    flask_client.environ_base["HTTP_AUTHORIZATION"] = f"Bearer {BROKER_TOKEN}"
-    return flask_client
-
-
-@pytest.mark.parametrize("method", ["get", "post"])
-def test_lookup_stats_require_broker_authentication(client, method):
-    request_method = getattr(client, method)
-    kwargs = {"json": {"term": "猫"}} if method == "post" else {}
-
-    response = request_method(
-        "/api/hoshidicts/lookup-stats",
-        headers={"Authorization": ""},
-        **kwargs,
-    )
-
-    assert response.status_code == 401
-    assert response.headers["WWW-Authenticate"] == "Bearer"
-    assert response.get_json() == {
-        "error": "Hoshidicts authentication failed.",
-    }
+    return app.test_client()
 
 
 def test_post_lookup_stats_normalizes_and_returns_current_count(client, monkeypatch):
