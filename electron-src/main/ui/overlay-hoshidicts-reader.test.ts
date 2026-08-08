@@ -89,6 +89,10 @@ function runHoshidictsReaderConfiguration(lookupMode: string) {
   }
 
   const createHoshidictsReader = vi.fn(() => ({}));
+  const recordLookup = vi.fn();
+  const createHoshidictsLookupStatsClient = vi.fn(() => ({
+    record: recordLookup
+  }));
   const window = {
     gsmHoshidictsLookupMode: lookupMode,
     gsmHoshidictsReaderEnabled: true,
@@ -97,6 +101,7 @@ function runHoshidictsReaderConfiguration(lookupMode: string) {
         getStatus: vi.fn(),
         mine: vi.fn()
       })),
+      createHoshidictsLookupStatsClient,
       createHoshidictsReader,
       resolveGsmApiBaseUrl: vi.fn(() => "http://127.0.0.1:7275")
     }
@@ -111,7 +116,12 @@ function runHoshidictsReaderConfiguration(lookupMode: string) {
   });
   context.configureHoshidictsReader({ gamepadServerPort: 7276 });
 
-  return { createHoshidictsReader, window };
+  return {
+    createHoshidictsLookupStatsClient,
+    createHoshidictsReader,
+    recordLookup,
+    window
+  };
 }
 
 function loadHoshidictsSettingsLinkWiring() {
@@ -363,6 +373,15 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(configured.createHoshidictsReader).toHaveBeenCalledWith(
       expect.objectContaining({ lookupMode: "hover" })
     );
+    expect(configured.createHoshidictsLookupStatsClient).toHaveBeenCalledWith({
+      baseUrl: "http://127.0.0.1:7275"
+    });
+    const options = configured.createHoshidictsReader.mock.calls[0][0];
+    options.onLookup({ term: "食べる", reading: "たべる" });
+    expect(configured.recordLookup).toHaveBeenCalledWith({
+      term: "食べる",
+      reading: "たべる"
+    });
   });
 
   it("renders plain HTML-like glossary text literally and allows only text tags", () => {
@@ -467,6 +486,13 @@ describe("Hoshidicts safe popup rendering", () => {
       success: true,
       noteId: 42
     });
+    const lookupClient = api.createHoshidictsLookupStatsClient({
+      baseUrl: "http://127.0.0.1:8123",
+      fetch: fetchMock
+    });
+    await expect(
+      lookupClient.record({ term: "食べる", reading: "たべる" })
+    ).resolves.toMatchObject({ success: true });
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
@@ -482,10 +508,178 @@ describe("Hoshidicts safe popup rendering", () => {
         body: JSON.stringify({ sentence: "食べる" })
       })
     );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "http://127.0.0.1:8123/api/hoshidicts/lookup-stats",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ term: "食べる", reading: "たべる" }),
+        signal: expect.any(AbortSignal)
+      })
+    );
   });
 });
 
 describe("Hoshidicts Shift-hover scanner", () => {
+  it("records the first canonical result exactly once after rendering", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const onLookup = vi.fn();
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      onLookup,
+      logger: { debug() {}, info() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const request = JSON.parse(socket.sent.at(-1)!);
+    const response = lookupResult(request.requestId, "食べる");
+    response.results.push({
+      ...response.results[0],
+      term: {
+        ...response.results[0].term,
+        expression: "食う",
+        reading: "くう"
+      }
+    });
+
+    socket.receive(response);
+    await flushPromises();
+
+    expect(reader.isVisible()).toBe(true);
+    expect(onLookup).toHaveBeenCalledTimes(1);
+    expect(onLookup).toHaveBeenCalledWith({
+      term: "食べる",
+      reading: "たべる"
+    });
+    reader.destroy();
+  });
+
+  it("does not record stale, failed, or empty lookup responses", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    const second = dom.window.document.getElementById("second")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    setRect(second, { left: 30, top: 10, right: 90, bottom: 30 });
+    const onLookup = vi.fn();
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      onLookup,
+      logger: { debug() {}, info() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const firstRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult("stale-request", "古い"));
+    socket.receive({
+      type: "hoshidicts_lookup_result",
+      requestId: firstRequest.requestId,
+      success: false,
+      error: "failed",
+      results: []
+    });
+
+    second.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 31,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const secondRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive({
+      type: "hoshidicts_lookup_result",
+      requestId: secondRequest.requestId,
+      success: true,
+      error: null,
+      results: []
+    });
+    await flushPromises();
+
+    expect(onLookup).not.toHaveBeenCalled();
+    reader.destroy();
+  });
+
+  it.each([
+    [
+      "throws",
+      () => {
+        throw new Error("write failed");
+      }
+    ],
+    ["rejects", () => Promise.reject(new Error("write failed"))]
+  ])(
+    "keeps the popup visible when lookup recording %s",
+    async (_name, onLookup) => {
+      vi.useFakeTimers();
+      const dom = createDom();
+      const api = loadReaderModule(dom.window as unknown as Window);
+      const first = dom.window.document.getElementById("first")!;
+      setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+      const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn() };
+      const reader = api.createHoshidictsReader({
+        window: dom.window,
+        document: dom.window.document,
+        WebSocket: FakeWebSocket,
+        lookupMode: "hover",
+        onLookup,
+        logger
+      });
+      const socket = FakeWebSocket.instances[0];
+      socket.open();
+      first.dispatchEvent(
+        new dom.window.MouseEvent("mousemove", {
+          bubbles: true,
+          clientX: 11,
+          clientY: 11
+        })
+      );
+      await vi.advanceTimersByTimeAsync(20);
+      const request = JSON.parse(socket.sent.at(-1)!);
+
+      expect(() =>
+        socket.receive(lookupResult(request.requestId, "食べる"))
+      ).not.toThrow();
+      await flushPromises();
+
+      expect(reader.isVisible()).toBe(true);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("[HoshidictsReader] lookup.record-failed")
+      );
+      reader.destroy();
+    }
+  );
+
   it("looks up without a modifier in hover mode and reports its activation mode", async () => {
     vi.useFakeTimers();
     const dom = createDom();
@@ -999,12 +1193,14 @@ describe("Hoshidicts Shift-hover scanner", () => {
     const api = loadReaderModule(dom.window as unknown as Window);
     const first = dom.window.document.getElementById("first")!;
     setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const onLookup = vi.fn();
     const reader = api.createHoshidictsReader({
       window: dom.window,
       document: dom.window.document,
       WebSocket: FakeWebSocket,
       lookupMode: "hover",
       lookupTimeoutMs: 50,
+      onLookup,
       logger: { debug() {}, warn() {} }
     });
     const socket = FakeWebSocket.instances[0];
@@ -1024,6 +1220,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
     socket.receive(lookupResult(request.requestId, "late"));
     expect(reader.getPopupElement().textContent).toContain("timed out");
     expect(reader.getPopupElement().textContent).not.toContain("late");
+    expect(onLookup).not.toHaveBeenCalled();
     reader.destroy();
   });
 
