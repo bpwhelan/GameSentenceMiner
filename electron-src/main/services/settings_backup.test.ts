@@ -51,9 +51,12 @@ describe('settings backup path filters', () => {
         ['temp/image.png', false],
         ['python_venv/pyvenv.cfg', false],
         ['dictionaries/hoshidicts/audio-profile.json', true],
+        ['dictionaries/hoshidicts/custom-dictionary.txt', true],
         ['dictionaries/hoshidicts/mining-profile.json', true],
+        ['dictionaries/hoshidicts/tab-groups.json', false],
         ['dictionaries/hoshidicts/manifest.json', false],
         ['dictionaries/hoshidicts/generations/dictionary/blobs.bin', false],
+        ['dictionaries/hoshidicts/generations/custom/index.json', false],
     ])('filters durable GSM path %s', (relativePath, expected) => {
         expect(shouldIncludeGsmBackupPath(relativePath, false)).toBe(expected);
     });
@@ -166,6 +169,19 @@ describe('settings backup archive', () => {
         writeFile(path.join(baseDir, 'obs-studio', 'config', 'obs-studio', 'logs', 'obs.txt'), 'log');
         writeFile(path.join(baseDir, 'obs-studio', 'bin', '64bit', 'obs64.exe'), 'exe');
         writeFile(path.join(baseDir, 'texthook', 'profiles.json'), '{"profiles":[]}');
+        writeFile(
+            path.join(
+                baseDir,
+                'dictionaries',
+                'hoshidicts',
+                'custom-dictionary.txt'
+            ),
+            '猫, ねこ, cat\n'
+        );
+        writeFile(
+            path.join(baseDir, 'dictionaries', 'hoshidicts', 'manifest.json'),
+            '{"generated":true}'
+        );
         writeFile(path.join(baseDir, 'texthook', 'luna_builds', 'LunaHost64.dll'), 'dll');
         writeFile(path.join(overlayDir, 'settings.json'), '{"fontSize":42}');
         writeFile(path.join(overlayDir, 'IndexedDB', 'ext.leveldb', '000003.log'), 'leveldb');
@@ -242,6 +258,29 @@ describe('settings backup archive', () => {
             false,
         );
         expect(fs.readFileSync(path.join(extractDir, 'gsm_overlay', 'settings.json'), 'utf8')).toBe('{"fontSize":42}');
+        expect(
+            fs.readFileSync(
+                path.join(
+                    extractDir,
+                    'GameSentenceMiner',
+                    'dictionaries',
+                    'hoshidicts',
+                    'custom-dictionary.txt'
+                ),
+                'utf8'
+            )
+        ).toBe('猫, ねこ, cat\n');
+        expect(
+            fs.existsSync(
+                path.join(
+                    extractDir,
+                    'GameSentenceMiner',
+                    'dictionaries',
+                    'hoshidicts',
+                    'manifest.json'
+                )
+            )
+        ).toBe(false);
         expect(fs.readFileSync(path.join(extractDir, 'gsm_overlay', 'IndexedDB', 'ext.leveldb', '000003.log'), 'utf8')).toBe(
             'leveldb',
         );
@@ -267,6 +306,10 @@ describe('settings backup archive', () => {
         writeFile(
             path.join(sourceBaseDir, 'dictionaries', 'hoshidicts', 'mining-profile.json'),
             '{"deck":"Restored"}',
+        );
+        writeFile(
+            path.join(sourceBaseDir, 'dictionaries', 'hoshidicts', 'tab-groups.json'),
+            '{"version":1,"groups":[{"id":"grammar","name":"Grammar","dictionaryIds":[]}]}',
         );
         writeFile(path.join(sourceBaseDir, 'ocr_config', 'Game.json'), '{"restored":true}');
         writeFile(path.join(sourceBaseDir, 'obs-studio', 'config', 'obs-studio', 'global.ini'), 'restored-global');
@@ -297,6 +340,10 @@ describe('settings backup archive', () => {
         writeFile(
             path.join(targetBaseDir, 'dictionaries', 'hoshidicts', 'manifest.json'),
             '{"keep":true}',
+        );
+        writeFile(
+            path.join(targetBaseDir, 'dictionaries', 'hoshidicts', 'tab-groups.json'),
+            '{"version":1,"groups":[{"id":"old","name":"Old","dictionaryIds":[]}]}',
         );
         writeFile(
             path.join(targetBaseDir, 'dictionaries', 'hoshidicts', 'generations', 'dict', 'blobs.bin'),
@@ -342,6 +389,11 @@ describe('settings backup archive', () => {
         expect(
             readText(targetBaseDir, 'dictionaries', 'hoshidicts', 'mining-profile.json'),
         ).toBe('{"deck":"Restored"}');
+        // Tab groups live in the Hoshidicts manifest, so this file is excluded
+        // from GSM settings backups and must survive a restore untouched.
+        expect(
+            readText(targetBaseDir, 'dictionaries', 'hoshidicts', 'tab-groups.json'),
+        ).toContain('"name":"Old"');
         expect(
             readText(targetBaseDir, 'dictionaries', 'hoshidicts', 'manifest.json'),
         ).toBe('{"keep":true}');

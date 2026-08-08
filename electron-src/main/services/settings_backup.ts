@@ -373,6 +373,20 @@ export function shouldIncludeGsmBackupPath(relativePath: string, isDirectory: bo
         return false;
     }
 
+    if (first === 'dictionaries') {
+        if (second !== 'hoshidicts') {
+            return false;
+        }
+        if (parts.length === 2) {
+            return isDirectory;
+        }
+        return (
+            parts.length === 3 &&
+            !isDirectory &&
+            parts[2] === 'custom-dictionary.txt'
+        );
+    }
+
     if (first === 'config' || first === 'agent-scripts' || first === 'scripts') {
         return isDirectory || !isRuntimeFileName(parts[parts.length - 1]);
     }

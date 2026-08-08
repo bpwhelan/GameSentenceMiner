@@ -3,89 +3,105 @@
 const { randomUUID } = require("node:crypto");
 const WebSocket = require("ws");
 
-const BUS_PROTOCOL_VERSION = 1;
-const OPEN_SETTINGS_TOPIC = "hoshidicts.openSettings";
-const READER_PREFERENCES_TOPIC = "hoshidicts.readerPreferences";
-const AUDIO_PROFILE_TOPIC = "hoshidicts.audioProfile";
-const READER_CLIENT_SUFFIX = ".hoshidicts-reader";
-const SETTINGS_CLIENT_SEGMENT = ".hoshidicts-settings.";
+const constants = require("./constants");
+const preferences = require("./preferences");
+
+const { BOUNDS, LIMITS } = constants;
+const CONTROL_VERSION = 1;
+const OPEN_SETTINGS_METHOD = "hoshidicts.openSettings";
+const READER_PREFERENCES_METHOD = "hoshidicts.readerPreferences";
+const AUDIO_PROFILE_METHOD = "hoshidicts.audioProfile";
+const ADD_CUSTOM_ENTRY_METHOD = "hoshidicts.addCustomEntry";
 const REQUEST_TIMEOUT_MS = 5000;
-const DEFAULT_HOSHIDICTS_ACTIVATION_KEY = "Shift";
+const DEFAULT_HOSHIDICTS_ACTIVATION_KEY = constants.DEFAULT_ACTIVATION_KEY;
 const HOSHIDICTS_ACTIVATION_HOTKEY_ID = "hoshidictsLookup";
-const HOSHIDICTS_NAMED_ACTIVATION_KEYS = new Map([
-  ["ctrl", "Ctrl"],
-  ["alt", "Alt"],
-  ["shift", "Shift"],
-  ["cmd", "Cmd"],
-  ["space", "Space"],
-  ["return", "Return"],
-  ["escape", "Escape"],
-  ["backspace", "Backspace"],
-  ["delete", "Delete"],
-  ["tab", "Tab"],
-  ["up", "Up"],
-  ["down", "Down"],
-  ["left", "Left"],
-  ["right", "Right"],
-  ["home", "Home"],
-  ["end", "End"],
-  ["pageup", "PageUp"],
-  ["pagedown", "PageDown"],
-  ["insert", "Insert"],
-]);
-const HOSHIDICTS_PUNCTUATION_ACTIVATION_KEYS = new Set([
-  "-", "=", "[", "]", "\\", ";", "'", ",", ".", "/", "`",
-]);
+
+function invalidPreferences() {
+  return new Error("Hoshidicts reader preferences are invalid.");
+}
 
 function normalizeHoshidictsActivationKey(
   value,
   fallback = DEFAULT_HOSHIDICTS_ACTIVATION_KEY
 ) {
-  if (typeof value !== "string") {
-    return fallback;
-  }
-  const token = value.trim();
-  if (HOSHIDICTS_PUNCTUATION_ACTIVATION_KEYS.has(token)) {
-    return token;
-  }
-  if (/^[a-z]$/iu.test(token)) {
-    return token.toUpperCase();
-  }
-  if (/^[0-9]$/u.test(token)) {
-    return token;
-  }
-  const functionKeyMatch = /^f([1-9]|1[0-9]|2[0-4])$/iu.exec(token);
-  if (functionKeyMatch) {
-    return `F${functionKeyMatch[1]}`;
-  }
-  return HOSHIDICTS_NAMED_ACTIVATION_KEYS.get(token.toLowerCase()) ?? fallback;
+  return preferences.normalizeActivationKey(value, fallback);
 }
 
-function normalizeHoshidictsReaderPreferences(preferences) {
-  const lookupMode = preferences && preferences.lookupMode;
-  const requestedActivationKey = preferences && preferences.activationKey;
-  const activationKey = requestedActivationKey === undefined
-    ? DEFAULT_HOSHIDICTS_ACTIVATION_KEY
-    : normalizeHoshidictsActivationKey(requestedActivationKey, null);
-  const sourceHighlightEnabled =
-    preferences && preferences.sourceHighlightEnabled;
-  const popupHideDelayMs = preferences && preferences.popupHideDelayMs;
-  if (
-    (lookupMode !== "shift" && lookupMode !== "hover") ||
-    activationKey === null ||
-    typeof sourceHighlightEnabled !== "boolean" ||
-    !Number.isInteger(popupHideDelayMs) ||
-    popupHideDelayMs < 0 ||
-    popupHideDelayMs > 5000
-  ) {
-    throw new Error("Hoshidicts reader preferences are invalid.");
+function normalizeHoshidictsExternalUrl(value) {
+  const url = preferences.normalizeExternalUrl(value);
+  if (!url) {
+    throw new Error("External link URL is invalid.");
   }
-  return {
-    lookupMode,
-    activationKey,
-    sourceHighlightEnabled,
-    popupHideDelayMs,
+  return url;
+}
+
+/** The complete reader-preference schema, shared with the overlay renderer. */
+function normalizeHoshidictsReaderPreferences(value) {
+  const normalized = preferences.normalizeReaderPreferences(value);
+  if (!normalized) {
+    throw invalidPreferences();
+  }
+  return normalized;
+}
+
+function normalizeHoshidictsAudioProfile(profile) {
+  const source = profile && typeof profile === "object"
+    ? (profile.audioProfile || profile)
+    : null;
+  if (
+    !source ||
+    source.version !== 1 ||
+    typeof source.enabled !== "boolean" ||
+    typeof source.autoPlay !== "boolean" ||
+    !Number.isInteger(source.volume) ||
+    source.volume < BOUNDS.audioVolume.min ||
+    source.volume > BOUNDS.audioVolume.max ||
+    !Array.isArray(source.sources) ||
+    source.sources.length > LIMITS.audioSources ||
+    !source.sources.every((entry) =>
+      entry &&
+      typeof entry.id === "string" &&
+      entry.id.length > 0 &&
+      entry.id.length <= LIMITS.audioSourceIdLength &&
+      constants.AUDIO_SOURCE_TYPE_SET.has(entry.type) &&
+      typeof entry.url === "string" &&
+      entry.url.length <= LIMITS.audioUrlLength &&
+      typeof entry.voice === "string" &&
+      entry.voice.length <= LIMITS.audioVoiceLength
+    )
+  ) {
+    throw new Error("Hoshidicts audio preferences are invalid.");
+  }
+  return source;
+}
+
+function isWithinUtf8JsonLimit(value, maxBytes) {
+  return Buffer.byteLength(JSON.stringify(value), "utf8") <= maxBytes + 2;
+}
+
+/** Trims and bounds one renderer-submitted custom dictionary entry. */
+function normalizeHoshidictsCustomEntry(payload) {
+  const text = (key) =>
+    payload && typeof payload[key] === "string" ? payload[key].trim() : "";
+  const entry = {
+    term: text("term"),
+    reading: text("reading"),
+    definition: text("definition"),
   };
+  if (!entry.term || !entry.reading || !entry.definition) {
+    throw new Error("Term, reading, and definition are required.");
+  }
+  if (entry.term.startsWith("#")) {
+    throw new Error("Custom dictionary terms cannot begin with #.");
+  }
+  if (
+    !isWithinUtf8JsonLimit(entry.term, LIMITS.customEntryTermBytes) ||
+    !isWithinUtf8JsonLimit(entry.reading, LIMITS.customEntryReadingBytes) ||
+    !isWithinUtf8JsonLimit(entry.definition, LIMITS.customEntryDefinitionBytes)
+  ) {
+    throw new Error("Custom dictionary entry is too large.");
+  }
+  return entry;
 }
 
 function createHoshidictsActivationHotkeyController(options = {}) {
@@ -186,25 +202,23 @@ function dispatchAppHotkeyInputServerMessage(message, registry) {
   return false;
 }
 
-function resolveDesktopBusConfig(env = process.env) {
-  const port = Number.parseInt(env.GSM_BROKER_PORT || "", 10);
-  const token = String(env.GSM_BROKER_TOKEN || "").trim();
-  const clientId = String(env.GSM_CLIENT_ID || "overlay").trim();
-  if (!Number.isInteger(port) || port < 1 || port > 65535 || !token || !clientId) {
+function resolveHoshidictsControlConfig(env = process.env) {
+  const configuredPort = String(env.GSM_HOSHIDICTS_CONTROL_PORT || "").trim();
+  if (!/^\d{1,5}$/u.test(configuredPort)) {
     return null;
   }
-  return { port, token, clientId };
+  const port = Number(configuredPort);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return null;
+  }
+  return { port };
 }
 
-function envelope(clientId, kind, topic, data) {
+function controlFrame(kind, fields = {}) {
   return {
-    v: BUS_PROTOCOL_VERSION,
-    id: randomUUID(),
-    src: clientId,
-    dst: "main",
+    version: CONTROL_VERSION,
     kind,
-    topic,
-    ...(data === undefined ? {} : { data }),
+    ...fields,
   };
 }
 
@@ -242,30 +256,38 @@ function createHoshidictsReaderPreferencesDelivery(deliver) {
 }
 
 function createHoshidictsReaderPreferencesBridge(options = {}) {
-  const config = resolveDesktopBusConfig(options.env);
+  const config = resolveHoshidictsControlConfig(options.env);
   if (!config) {
-    return { destroy() {} };
+    return {
+      requestAddCustomEntry() {
+        return Promise.reject(
+          new Error("Hoshidicts desktop control channel is unavailable.")
+        );
+      },
+      destroy() {},
+    };
   }
   const WebSocketImpl = options.WebSocketImpl || WebSocket;
   const requestHandlers = new Map([
     [
-      READER_PREFERENCES_TOPIC,
+      READER_PREFERENCES_METHOD,
       typeof options.onPreferences === "function"
         ? options.onPreferences
         : async () => undefined,
     ],
     [
-      AUDIO_PROFILE_TOPIC,
+      AUDIO_PROFILE_METHOD,
       typeof options.onAudioPreferences === "function"
         ? options.onAudioPreferences
         : async () => undefined,
     ],
   ]);
-  const readerClientId = `${config.clientId}${READER_CLIENT_SUFFIX}`;
   let socket = null;
   let reconnectTimer = null;
   let reconnectDelayMs = 750;
   let destroyed = false;
+  let ready = false;
+  const pendingRequests = new Map();
 
   function send(message) {
     if (socket && socket.readyState === WebSocketImpl.OPEN) {
@@ -282,19 +304,52 @@ function createHoshidictsReaderPreferencesBridge(options = {}) {
     reconnectDelayMs = Math.min(10_000, reconnectDelayMs * 2);
   }
 
-  function respond(message, ok, data, error) {
-    send({
-      v: BUS_PROTOCOL_VERSION,
+  function rejectPending(error) {
+    for (const pending of pendingRequests.values()) {
+      pending.reject(error);
+    }
+    pendingRequests.clear();
+  }
+
+  function request(method, data) {
+    if (destroyed) {
+      return Promise.reject(new Error("Hoshidicts desktop bridge is closed."));
+    }
+    if (
+      !ready ||
+      !socket ||
+      socket.readyState !== WebSocketImpl.OPEN
+    ) {
+      return Promise.reject(
+        new Error("Hoshidicts desktop control channel is unavailable.")
+      );
+    }
+    const message = controlFrame("request", {
       id: randomUUID(),
-      src: readerClientId,
-      dst: message.src,
-      kind: "response",
-      topic: message.topic,
-      corr: message.id,
-      ok,
-      ...(data === undefined ? {} : { data }),
-      ...(error ? { error } : {}),
+      method,
+      data,
     });
+
+    return new Promise((resolve, reject) => {
+      pendingRequests.set(message.id, { resolve, reject });
+      try {
+        socket.send(JSON.stringify(message));
+      } catch (error) {
+        pendingRequests.delete(message.id);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  }
+
+  function respond(message, ok, data, error) {
+    send(
+      controlFrame("response", {
+        id: message.id,
+        ok,
+        ...(data === undefined ? {} : { data }),
+        ...(error ? { error } : {}),
+      })
+    );
   }
 
   function connect() {
@@ -302,11 +357,7 @@ function createHoshidictsReaderPreferencesBridge(options = {}) {
     const nextSocket = new WebSocketImpl(`ws://127.0.0.1:${config.port}`);
     socket = nextSocket;
     nextSocket.on("open", () => {
-      send(envelope(readerClientId, "hello", "bus.hello", {
-        token: config.token,
-        pid: process.pid,
-        version: "1",
-      }));
+      send(controlFrame("reader-ready"));
     });
     nextSocket.on("message", (raw) => {
       let message;
@@ -315,12 +366,40 @@ function createHoshidictsReaderPreferencesBridge(options = {}) {
       } catch {
         return;
       }
-      if (message.kind === "ack" && message.topic === "bus.welcome") {
+      if (
+        message.version === CONTROL_VERSION &&
+        message.kind === "reader-ready"
+      ) {
+        ready = true;
         reconnectDelayMs = 750;
         return;
       }
-      const apply = requestHandlers.get(message.topic);
-      if (message.kind !== "request" || !apply) {
+      if (
+        message.version === CONTROL_VERSION &&
+        message.kind === "response" &&
+        typeof message.id === "string" &&
+        pendingRequests.has(message.id)
+      ) {
+        const pending = pendingRequests.get(message.id);
+        pendingRequests.delete(message.id);
+        if (message.ok === false) {
+          pending.reject(new Error(
+            typeof message.error === "string"
+              ? message.error
+              : `Desktop rejected ${message.method || "the request"}.`
+          ));
+        } else {
+          pending.resolve(message.data);
+        }
+        return;
+      }
+      const apply = requestHandlers.get(message.method);
+      if (
+        message.version !== CONTROL_VERSION ||
+        message.kind !== "request" ||
+        typeof message.id !== "string" ||
+        !apply
+      ) {
         return;
       }
       Promise.resolve().then(() => apply(message.data)).then(
@@ -336,12 +415,19 @@ function createHoshidictsReaderPreferencesBridge(options = {}) {
     nextSocket.on("error", () => {});
     nextSocket.on("close", () => {
       if (socket === nextSocket) socket = null;
+      ready = false;
+      rejectPending(
+        new Error("Hoshidicts desktop control channel closed unexpectedly.")
+      );
       scheduleReconnect();
     });
   }
 
   connect();
   return {
+    requestAddCustomEntry(entry) {
+      return request(ADD_CUSTOM_ENTRY_METHOD, entry);
+    },
     destroy() {
       destroyed = true;
       if (reconnectTimer !== null) {
@@ -352,12 +438,69 @@ function createHoshidictsReaderPreferencesBridge(options = {}) {
         socket.close();
         socket = null;
       }
+      ready = false;
+      rejectPending(new Error("Hoshidicts desktop bridge is closed."));
+    },
+  };
+}
+
+/**
+ * Connects the desktop control channel to one overlay window: validates every
+ * incoming reader/audio preference once and queues it until the renderer is
+ * ready to receive it.
+ */
+function createHoshidictsWindowBridge(options = {}) {
+  const getWebContents = options.getWebContents;
+  const requireWebContents = () => {
+    const webContents = getWebContents();
+    if (!webContents) {
+      throw new Error("Hoshidicts reader window is unavailable.");
+    }
+    return webContents;
+  };
+  const deliveryFor = (channel) =>
+    createHoshidictsReaderPreferencesDelivery((payload) => {
+      requireWebContents().send(channel, payload);
+    });
+  const readerDelivery = deliveryFor("hoshidicts-reader-preferences");
+  const audioDelivery = deliveryFor("hoshidicts-audio-preferences");
+  const bridge = createHoshidictsReaderPreferencesBridge({
+    env: options.env,
+    onPreferences(value) {
+      const normalized = normalizeHoshidictsReaderPreferences(value);
+      requireWebContents();
+      options.onReaderPreferences?.(normalized);
+      readerDelivery.enqueue(normalized);
+    },
+    onAudioPreferences(value) {
+      const profile = normalizeHoshidictsAudioProfile(value);
+      requireWebContents();
+      audioDelivery.enqueue(profile);
+    },
+  });
+
+  return {
+    destroy() {
+      bridge.destroy();
+      readerDelivery.clear();
+      audioDelivery.clear();
+    },
+    markNotReady() {
+      readerDelivery.markNotReady();
+      audioDelivery.markNotReady();
+    },
+    markReady() {
+      readerDelivery.markReady();
+      audioDelivery.markReady();
+    },
+    requestAddCustomEntry(payload) {
+      return bridge.requestAddCustomEntry(normalizeHoshidictsCustomEntry(payload));
     },
   };
 }
 
 function requestHoshidictsSettingsOpen(options = {}) {
-  const config = resolveDesktopBusConfig(options.env);
+  const config = resolveHoshidictsControlConfig(options.env);
   if (!config) {
     return Promise.reject(
       new Error("GameSentenceMiner desktop control channel is unavailable.")
@@ -367,10 +510,8 @@ function requestHoshidictsSettingsOpen(options = {}) {
   const WebSocketImpl = options.WebSocketImpl || WebSocket;
   return new Promise((resolve, reject) => {
     const socket = new WebSocketImpl(`ws://127.0.0.1:${config.port}`);
-    const requestClientId =
-      `${config.clientId}${SETTINGS_CLIENT_SEGMENT}${process.pid}.${randomUUID()}`;
     let settled = false;
-    let requestId = null;
+    const requestId = randomUUID();
     const timeout = setTimeout(() => {
       finish(new Error("Timed out opening Hoshidicts settings."));
     }, options.timeoutMs || REQUEST_TIMEOUT_MS);
@@ -389,12 +530,14 @@ function requestHoshidictsSettingsOpen(options = {}) {
     }
 
     socket.on("open", () => {
-      const hello = envelope(requestClientId, "hello", "bus.hello", {
-        token: config.token,
-        pid: process.pid,
-        version: "1",
-      });
-      socket.send(JSON.stringify(hello));
+      socket.send(
+        JSON.stringify(
+          controlFrame("request", {
+            id: requestId,
+            method: OPEN_SETTINGS_METHOD,
+          })
+        )
+      );
     });
 
     socket.on("message", (raw) => {
@@ -406,21 +549,10 @@ function requestHoshidictsSettingsOpen(options = {}) {
         return;
       }
 
-      if (message.kind === "ack" && message.topic === "bus.welcome") {
-        const request = envelope(
-          requestClientId,
-          "request",
-          OPEN_SETTINGS_TOPIC
-        );
-        requestId = request.id;
-        socket.send(JSON.stringify(request));
-        return;
-      }
-
       if (
-        requestId &&
+        message.version === CONTROL_VERSION &&
         message.kind === "response" &&
-        message.corr === requestId
+        message.id === requestId
       ) {
         if (message.ok === false) {
           finish(
@@ -452,19 +584,22 @@ function requestHoshidictsSettingsOpen(options = {}) {
 }
 
 module.exports = {
-  AUDIO_PROFILE_TOPIC,
+  ADD_CUSTOM_ENTRY_METHOD,
+  AUDIO_PROFILE_METHOD,
   createHoshidictsActivationHotkeyController,
   createHoshidictsReaderPreferencesDelivery,
   createHoshidictsReaderPreferencesBridge,
+  createHoshidictsWindowBridge,
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   dispatchAppHotkeyInputServerMessage,
   HOSHIDICTS_ACTIVATION_HOTKEY_ID,
   normalizeHoshidictsActivationKey,
+  normalizeHoshidictsAudioProfile,
+  normalizeHoshidictsCustomEntry,
+  normalizeHoshidictsExternalUrl,
   normalizeHoshidictsReaderPreferences,
-  OPEN_SETTINGS_TOPIC,
-  READER_CLIENT_SUFFIX,
-  READER_PREFERENCES_TOPIC,
-  SETTINGS_CLIENT_SEGMENT,
+  OPEN_SETTINGS_METHOD,
+  READER_PREFERENCES_METHOD,
   requestHoshidictsSettingsOpen,
-  resolveDesktopBusConfig,
+  resolveHoshidictsControlConfig,
 };
