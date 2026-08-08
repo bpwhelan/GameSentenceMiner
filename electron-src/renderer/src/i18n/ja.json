@@ -644,6 +644,8 @@
         "restoreHoshidicts": "Hoshidictsバックアップを復元...",
         "exporting": "Hoshidictsバックアップをエクスポート中...",
         "restoring": "Hoshidictsバックアップを復元中...",
+        "importingYomitanDictionaries": "Yomitanから辞書をインポート中…",
+        "importingYomitanSettings": "Yomitanから設定をインポート中…",
         "importDictionaries": "Yomitanから辞書をインポート...",
         "importSettings": "Yomitanから設定をインポート..."
       },

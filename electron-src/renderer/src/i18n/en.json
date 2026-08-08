@@ -662,6 +662,8 @@
         "restoreHoshidicts": "Restore Hoshidicts backup...",
         "exporting": "Exporting Hoshidicts backup...",
         "restoring": "Restoring Hoshidicts backup...",
+        "importingYomitanDictionaries": "Importing dictionaries from Yomitan…",
+        "importingYomitanSettings": "Importing settings from Yomitan…",
         "importDictionaries": "Import dictionaries from Yomitan...",
         "importSettings": "Import settings from Yomitan..."
       },

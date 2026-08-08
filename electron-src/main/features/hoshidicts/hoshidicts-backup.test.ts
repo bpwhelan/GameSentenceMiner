@@ -166,6 +166,55 @@ async function prepareRoundTrip(
 }
 
 describe('Hoshidicts full backups', () => {
+    it('atomically replaces an existing backup destination', async () => {
+        const workspace = makeTempDirectory('gsm-hoshidicts-backup-replace-');
+        const sourceRoot = path.join(workspace, 'source');
+        await writeTestRoot(sourceRoot);
+        const archivePath = path.join(workspace, 'existing-backup.zip');
+        await fsp.writeFile(archivePath, 'previous backup bytes');
+
+        await exportHoshidictsBackup({ rootDir: sourceRoot, outputPath: archivePath });
+
+        await expect(fsp.readFile(archivePath, 'utf8')).resolves.not.toBe(
+            'previous backup bytes',
+        );
+        const prepared = await prepareHoshidictsBackupRestore({
+            archivePath,
+            stagingParent: workspace,
+        });
+        await disposePreparedHoshidictsBackupRestore(prepared);
+        expect(await fsp.readdir(workspace)).not.toEqual(
+            expect.arrayContaining([
+                expect.stringMatching(/^\.existing-backup\.zip\.hoshidicts-backup-.*\.tmp$/u),
+            ]),
+        );
+    });
+
+    it('cleans its temporary archive when atomic replacement fails', async () => {
+        const workspace = makeTempDirectory('gsm-hoshidicts-backup-replace-failure-');
+        const sourceRoot = path.join(workspace, 'source');
+        await writeTestRoot(sourceRoot);
+        const archivePath = path.join(workspace, 'existing-backup.zip');
+        await fsp.mkdir(archivePath);
+        await fsp.writeFile(
+            path.join(archivePath, 'previous-backup'),
+            'known-good previous backup',
+        );
+
+        await expect(
+            exportHoshidictsBackup({ rootDir: sourceRoot, outputPath: archivePath }),
+        ).rejects.toThrow();
+
+        await expect(
+            fsp.readFile(path.join(archivePath, 'previous-backup'), 'utf8'),
+        ).resolves.toBe('known-good previous backup');
+        expect(await fsp.readdir(workspace)).not.toEqual(
+            expect.arrayContaining([
+                expect.stringMatching(/^\.existing-backup\.zip\.hoshidicts-backup-.*\.tmp$/u),
+            ]),
+        );
+    });
+
     it('round-trips manager state, settings, custom source, and dictionary files into fresh generations', async () => {
         const workspace = makeTempDirectory('gsm-hoshidicts-backup-roundtrip-');
         const sourceRoot = path.join(workspace, 'source');

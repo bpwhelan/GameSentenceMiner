@@ -644,6 +644,8 @@
         "restoreHoshidicts": "Відновити резервну копію Hoshidicts...",
         "exporting": "Експорт резервної копії Hoshidicts...",
         "restoring": "Відновлення резервної копії Hoshidicts...",
+        "importingYomitanDictionaries": "Імпорт словників із Yomitan…",
+        "importingYomitanSettings": "Імпорт налаштувань із Yomitan…",
         "importDictionaries": "Імпортувати словники з Yomitan...",
         "importSettings": "Імпортувати налаштування з Yomitan..."
       },

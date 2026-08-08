@@ -374,7 +374,11 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
   if (!state) return null;
 
   const recommendedExpanded =
-    recommendedExpandedOverride ?? state.dictionaries.length === 0;
+    recommendedExpandedOverride ??
+    (state.dictionaries.length === 0 && !state.customDictionaryActive);
+  const importingYomitan =
+    backupOperation === "importingYomitanDictionaries" ||
+    backupOperation === "importingYomitanSettings";
   const lastCheck = formatTimestamp(state.lastCheck);
   const nextCheck = formatTimestamp(state.nextCheck);
 
@@ -753,7 +757,9 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
               {t("settings.hoshidicts.checkNow")}
             </button>
           </div>
-          {state.busy && state.progress.phase === "importing" ? (
+          {state.busy &&
+          state.progress.phase === "importing" &&
+          !importingYomitan ? (
             <div
               className="hoshidicts-window__progress hoshidicts-dictionary-import-progress"
               role="status"

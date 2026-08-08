@@ -429,6 +429,91 @@ describe('Hoshidicts manager full backups', () => {
         });
     });
 
+    it('restores over a malformed live manifest and conservatively retains unknown generations', async () => {
+        const workspace = makeTempDirectory('gsm-hoshidicts-manager-backup-recovery-');
+        const archivesDirectory = path.join(workspace, 'archives');
+        const sourceBase = path.join(workspace, 'source');
+        const { manager: source } = createHarness(sourceBase, 'source');
+        await source.importDictionary(
+            writeArchive(archivesDirectory, 'source.zip', {
+                title: 'Recovery Dictionary',
+                revision: 'new',
+            }),
+        );
+        const backupPath = path.join(workspace, 'backup.zip');
+        await source.exportBackup(backupPath);
+
+        const targetBase = path.join(workspace, 'target');
+        const targetRoot = hoshidictsRoot(targetBase);
+        const unknownGeneration = path.join(
+            targetRoot,
+            'generations',
+            'unknown-dictionary',
+            'unknown-generation',
+        );
+        await fsp.mkdir(unknownGeneration, { recursive: true });
+        await fsp.writeFile(path.join(unknownGeneration, 'recovery.txt'), 'retain me');
+        await fsp.writeFile(path.join(targetRoot, 'manifest.json'), '{"version":1,"dictionaries":');
+        const { manager: target, reloadNative } = createHarness(targetBase, 'target');
+
+        const restored = await target.restoreBackup(backupPath);
+
+        expect(reloadNative).toHaveBeenCalledOnce();
+        expect(restored.dictionaries.map(({ title }) => title)).toEqual(['Recovery Dictionary']);
+        await expect(
+            fsp.readFile(path.join(unknownGeneration, 'recovery.txt'), 'utf8'),
+        ).resolves.toBe('retain me');
+    });
+
+    it('restores malformed raw state exactly when recovery activation fails', async () => {
+        const workspace = makeTempDirectory('gsm-hoshidicts-manager-backup-recovery-rollback-');
+        const archivesDirectory = path.join(workspace, 'archives');
+        const sourceBase = path.join(workspace, 'source');
+        const { manager: source } = createHarness(sourceBase, 'source');
+        await source.importDictionary(
+            writeArchive(archivesDirectory, 'source.zip', {
+                title: 'Recovery Dictionary',
+                revision: 'new',
+            }),
+        );
+        const backupPath = path.join(workspace, 'backup.zip');
+        await source.exportBackup(backupPath);
+
+        const targetBase = path.join(workspace, 'target');
+        const targetRoot = hoshidictsRoot(targetBase);
+        const unknownGeneration = path.join(
+            targetRoot,
+            'generations',
+            'unknown-dictionary',
+            'unknown-generation',
+        );
+        await fsp.mkdir(unknownGeneration, { recursive: true });
+        await fsp.writeFile(path.join(unknownGeneration, 'recovery.txt'), 'retain me');
+        const malformedManifest = Buffer.from('{"version":1,"dictionaries":');
+        await fsp.writeFile(path.join(targetRoot, 'manifest.json'), malformedManifest);
+        await fsp.writeFile(path.join(targetRoot, 'mining-profile.json'), '{broken mining');
+        await fsp.writeFile(path.join(targetRoot, 'audio-profile.json'), '{broken audio');
+        await fsp.writeFile(path.join(targetRoot, 'custom-dictionary.txt'), 'raw custom bytes\n');
+        const previousState = await readStateFiles(targetBase);
+        const { manager: target, reloadNative } = createHarness(targetBase, 'target');
+        reloadNative.mockRejectedValueOnce(new Error('native reload failed'));
+
+        await expect(target.restoreBackup(backupPath)).rejects.toMatchObject({
+            rollbackRestored: true,
+        });
+
+        expect(reloadNative).toHaveBeenCalledOnce();
+        expect(await readStateFiles(targetBase)).toEqual(previousState);
+        await expect(
+            fsp.readFile(path.join(unknownGeneration, 'recovery.txt'), 'utf8'),
+        ).resolves.toBe('retain me');
+        expect(
+            (await listGenerationRoots(targetBase)).filter(
+                (root) => root !== unknownGeneration,
+            ),
+        ).toEqual([]);
+    });
+
     it('rejects malformed archives without mutating persisted state', async () => {
         const workspace = makeTempDirectory('gsm-hoshidicts-manager-backup-malformed-');
         const baseDirectory = path.join(workspace, 'live');

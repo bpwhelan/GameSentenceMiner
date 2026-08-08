@@ -816,6 +816,109 @@ describe("HoshidictsSettingsWindow", () => {
     expect(container.textContent).toContain("Hoshidicts backup restored.");
   });
 
+  it("shows each Yomitan import beside the backup controls", async () => {
+    const dictionariesJob = deferred<HoshidictsActionResult>();
+    const settingsJob = deferred<HoshidictsActionResult>();
+    invokeMock.mockImplementation(
+      async (channel: string): Promise<unknown> => {
+        if (channel === HOSHIDICTS_CHANNELS.getState) return baseState;
+        if (channel === HOSHIDICTS_CHANNELS.importYomitanDictionaries) {
+          return dictionariesJob.promise;
+        }
+        if (channel === HOSHIDICTS_CHANNELS.importYomitanSettings) {
+          return settingsJob.promise;
+        }
+        throw new Error(`Unexpected IPC channel: ${channel}`);
+      }
+    );
+    await render();
+
+    const sections = Array.from(
+      container.querySelectorAll<HTMLElement>(".hoshidicts-section")
+    );
+    const backups = sections[sections.length - 1];
+    const backupButton = (label: string) =>
+      Array.from(backups?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+        .find((button) => button.textContent?.trim() === label);
+    const backupStatus = () =>
+      backups?.querySelector<HTMLElement>(
+        '.hoshidicts-backups__status[role="status"]'
+      );
+
+    await act(async () => {
+      backupButton("Import dictionaries from Yomitan...")?.click();
+      await Promise.resolve();
+    });
+
+    expect(backupStatus()?.textContent).toBe(
+      "Importing dictionaries from Yomitan…"
+    );
+    expect(
+      Array.from(backups?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+        .every((button) => button.disabled)
+    ).toBe(true);
+
+    await act(async () => {
+      listeners.get(HOSHIDICTS_CHANNELS.progress)?.[0]?.({}, {
+        ...baseState,
+        revision: baseState.revision + 1,
+        busy: true,
+        progress: { phase: "importing", completed: 1, total: 2 }
+      });
+      await Promise.resolve();
+    });
+    expect(backupStatus()?.textContent).toBe(
+      "Importing dictionaries from Yomitan…"
+    );
+    expect(
+      container.querySelector(".hoshidicts-dictionary-import-progress")
+    ).toBeNull();
+
+    await act(async () => {
+      dictionariesJob.resolve({
+        success: true,
+        outcome: { code: "yomitanDictionariesImported" },
+        yomitanReport: {
+          imported: 2,
+          replaced: 0,
+          failed: 0,
+          settings: [],
+          warnings: []
+        },
+        state: { ...baseState, revision: baseState.revision + 2 }
+      });
+      await dictionariesJob.promise;
+      await Promise.resolve();
+    });
+    expect(backupStatus()).toBeNull();
+
+    await act(async () => {
+      backupButton("Import settings from Yomitan...")?.click();
+      await Promise.resolve();
+    });
+    expect(backupStatus()?.textContent).toBe(
+      "Importing settings from Yomitan…"
+    );
+
+    await act(async () => {
+      settingsJob.resolve({
+        success: true,
+        outcome: { code: "yomitanSettingsImported" },
+        yomitanReport: {
+          imported: 0,
+          replaced: 0,
+          failed: 0,
+          settings: [],
+          warnings: []
+        },
+        state: { ...baseState, revision: baseState.revision + 3 }
+      });
+      await settingsJob.promise;
+      await Promise.resolve();
+    });
+    expect(backupStatus()).toBeNull();
+  });
+
   it("collapses recommended dictionaries when dictionaries are installed", async () => {
     await render();
     const recommendedList = container.querySelector<HTMLElement>(
@@ -870,6 +973,38 @@ describe("HoshidictsSettingsWindow", () => {
 
     expect(recommendedList?.hidden).toBe(false);
     expect(collapse?.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("collapses recommended dictionaries when the custom dictionary is active", async () => {
+    const state = {
+      ...baseState,
+      dictionaries: [],
+      customDictionaryActive: true
+    };
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === HOSHIDICTS_CHANNELS.getState) return state;
+      if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
+        return miningOptions;
+      }
+      return { success: true, state };
+    });
+
+    await render();
+    const recommendedList = container.querySelector<HTMLElement>(
+      "#hoshidicts-recommended-list"
+    );
+    const expand = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Expand recommended dictionaries"]'
+    );
+
+    expect(recommendedList?.hidden).toBe(true);
+    expect(expand?.getAttribute("aria-expanded")).toBe("false");
+
+    await act(async () => {
+      expand?.click();
+      await Promise.resolve();
+    });
+    expect(recommendedList?.hidden).toBe(false);
   });
 
   it("moves a dictionary directly to a selected search position", async () => {

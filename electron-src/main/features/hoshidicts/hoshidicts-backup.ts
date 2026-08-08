@@ -653,22 +653,23 @@ async function writeArchive(
     files: readonly SourceFile[],
 ): Promise<void> {
     await fsp.mkdir(path.dirname(outputPath), { recursive: true });
-    let outputCreated = false;
+    const temporaryPath = path.join(
+        path.dirname(outputPath),
+        `.${path.basename(outputPath)}.hoshidicts-backup-${randomUUID()}.tmp`,
+    );
     try {
         await new Promise<void>((resolve, reject) => {
             let settled = false;
-            const output = fs.createWriteStream(outputPath, { flags: 'wx', mode: 0o600 });
+            const output = fs.createWriteStream(temporaryPath, { flags: 'wx', mode: 0o600 });
             const archive = archiver('zip', { zlib: { level: 6 } });
             const fail = (error: unknown) => {
                 if (!settled) {
                     settled = true;
+                    archive.abort();
                     output.destroy();
                     reject(error);
                 }
             };
-            output.once('open', () => {
-                outputCreated = true;
-            });
             output.once('close', () => {
                 if (!settled) {
                     settled = true;
@@ -689,10 +690,15 @@ async function writeArchive(
             }
             void archive.finalize().catch(fail);
         });
-    } catch (error) {
-        if (outputCreated) {
-            await fsp.rm(outputPath, { force: true }).catch(() => undefined);
+        const handle = await fsp.open(temporaryPath, 'r');
+        try {
+            await handle.sync();
+        } finally {
+            await handle.close();
         }
+        await fsp.rename(temporaryPath, outputPath);
+    } catch (error) {
+        await fsp.rm(temporaryPath, { force: true }).catch(() => undefined);
         throw error;
     }
 }
@@ -1097,8 +1103,12 @@ async function currentDictionaryPaths(targetRootDir: string): Promise<string[]> 
             ),
         );
         return manifest.dictionaries.map((dictionary) => dictionary.path);
-    } catch (error) {
-        throw new Error(`Current Hoshidicts state cannot be replaced: ${errorMessage(error)}`);
+    } catch {
+        // Backup restore is also the recovery path for a malformed live manifest.
+        // Its raw bytes are snapshotted below for rollback, but its generation
+        // references cannot be trusted. Retain those unknown generations instead
+        // of either deleting them or preventing a valid backup from being restored.
+        return [];
     }
 }
 
