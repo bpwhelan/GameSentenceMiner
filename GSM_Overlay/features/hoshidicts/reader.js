@@ -52,6 +52,7 @@
   const LOOKUP_MAX_RESULTS = 16;
   const INITIAL_VISIBLE_RESULTS = 6;
   const DEFAULT_POPUP_HIDE_DELAY_MS = 300;
+  const POPUP_TRANSFER_GRACE_MS = 80;
   const DEFAULT_POPUP_MIN_HEIGHT_PX = 250;
   const DEFAULT_ACTIVATION_KEY = "Shift";
   const DEFAULT_SOURCE_HIGHLIGHT_ENABLED = false;
@@ -158,9 +159,11 @@
   const MAX_STRUCTURED_DATA_KEY_LENGTH = 64;
   const MAX_STRUCTURED_DATA_VALUE_LENGTH = 4096;
   const ALLOWED_MEDIA_TYPES = new Set([
+    "image/avif",
     "image/gif",
     "image/jpeg",
     "image/png",
+    "image/svg+xml",
     "image/webp",
   ]);
   const STRUCTURED_STYLE_PROPERTIES = new Map([
@@ -785,8 +788,81 @@
     if (!path || typeof state.resolveMedia !== "function") {
       return;
     }
+
+    const width = Number.isFinite(Number(value.width)) && Number(value.width) > 0
+      ? Number(value.width)
+      : 100;
+    const height = Number.isFinite(Number(value.height)) && Number(value.height) > 0
+      ? Number(value.height)
+      : 100;
+    const preferredWidth = Number.isFinite(Number(value.preferredWidth)) &&
+      Number(value.preferredWidth) > 0
+      ? Number(value.preferredWidth)
+      : null;
+    const preferredHeight = Number.isFinite(Number(value.preferredHeight)) &&
+      Number(value.preferredHeight) > 0
+      ? Number(value.preferredHeight)
+      : null;
+    const aspectWidth = preferredWidth || width;
+    const aspectHeight = preferredHeight || height;
+    const usedWidth = preferredWidth || (
+      preferredHeight ? preferredHeight * width / height : width
+    );
+    const units = value.sizeUnits === "em" ? "em" : "px";
+    const maximumSize = units === "em" ? 64 : MAX_MEDIA_DISPLAY_SIZE;
+    const displayWidth = Math.max(0.1, Math.min(maximumSize, usedWidth));
+
+    const link = documentRef.createElement("a");
+    link.className = "gloss-image-link";
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.dataset.path = path;
+    link.dataset.imageLoadState = "not-loaded";
+    link.dataset.hasAspectRatio = "true";
+    link.dataset.imageRendering = typeof value.imageRendering === "string"
+      ? value.imageRendering
+      : value.pixelated === true
+        ? "pixelated"
+        : "auto";
+    link.dataset.appearance = typeof value.appearance === "string"
+      ? value.appearance
+      : "auto";
+    link.dataset.background = String(
+      typeof value.background === "boolean" ? value.background : true
+    );
+    link.dataset.collapsed = String(value.collapsed === true);
+    link.dataset.collapsible = String(value.collapsible !== false);
+    if (typeof value.verticalAlign === "string") {
+      link.dataset.verticalAlign = value.verticalAlign;
+    }
+    if (preferredWidth !== null || preferredHeight !== null || units === "em") {
+      link.dataset.sizeUnits = units;
+    }
+
+    const container = documentRef.createElement("span");
+    container.className = "gloss-image-container";
+    container.style.width = `${displayWidth}${units}`;
+    container.style.aspectRatio = `${aspectWidth} / ${aspectHeight}`;
+    if (typeof value.title === "string" && value.title.length <= 4096) {
+      container.title = value.title;
+    }
+    if (isSafeCssToken(value.border)) {
+      container.style.border = value.border;
+    }
+    const borderRadius = normalizeLengthSequence(value.borderRadius);
+    if (borderRadius !== null) {
+      container.style.borderRadius = borderRadius;
+    }
+
+    const sizer = documentRef.createElement("span");
+    sizer.className = "gloss-image-sizer";
+    sizer.style.paddingTop = `${Math.min(10_000, aspectHeight / aspectWidth * 100)}%`;
+    const background = documentRef.createElement("span");
+    background.className = "gloss-image-background";
+    const overlay = documentRef.createElement("span");
+    overlay.className = "gloss-image-container-overlay";
     const image = documentRef.createElement("img");
-    image.className = "gsm-hoshidicts-structured-image";
+    image.className = "gloss-image gsm-hoshidicts-structured-image";
     image.alt = isRecord(value.data) && typeof value.data.alt === "string"
       ? value.data.alt.slice(0, 1024)
       : typeof value.alt === "string"
@@ -794,39 +870,44 @@
         : "";
     image.decoding = "async";
     image.draggable = false;
-    const units = typeof value.sizeUnits === "string" ? value.sizeUnits : "px";
-    if (units === "px") {
-      for (const property of ["width", "height"]) {
-        const size = Number(value[property]);
-        if (Number.isFinite(size) && size > 0) {
-          image.style.setProperty(
-            property,
-            `${Math.max(1, Math.min(MAX_MEDIA_DISPLAY_SIZE, Math.round(size)))}px`
-          );
-        }
-      }
-    }
+    image.style.width = "100%";
+    image.style.height = "100%";
+    container.append(sizer, background, overlay, image);
+    link.appendChild(container);
+    const linkText = documentRef.createElement("span");
+    linkText.className = "gloss-image-link-text";
+    linkText.textContent = "Image";
+    link.appendChild(linkText);
     const onLayoutChange = typeof state.onLayoutChange === "function"
       ? state.onLayoutChange
       : () => {};
-    image.addEventListener("load", onLayoutChange);
-    image.addEventListener("error", () => {
-      image.hidden = true;
+    image.addEventListener("load", () => {
+      link.dataset.imageLoadState = "loaded";
       onLayoutChange();
     });
-    parent.appendChild(image);
+    image.addEventListener("error", () => {
+      image.hidden = true;
+      link.removeAttribute("href");
+      link.dataset.imageLoadState = "load-error";
+      onLayoutChange();
+    });
+    parent.appendChild(link);
     let mediaPromise;
     try {
-      mediaPromise = Promise.resolve(state.resolveMedia({ path }));
+      mediaPromise = Promise.resolve(state.resolveMedia({ path, width, height }));
     } catch (error) {
       mediaPromise = Promise.reject(error);
     }
     mediaPromise.then((url) => {
       if (image.isConnected && typeof url === "string" && url.startsWith("blob:")) {
         image.src = url;
+        link.href = url;
+        link.dataset.imageLoadState = "loaded";
+        background.style.setProperty("--image", `url("${url}")`);
       }
     }).catch(() => {
       image.hidden = true;
+      link.dataset.imageLoadState = "load-error";
       onLayoutChange();
     });
   }
@@ -1089,10 +1170,12 @@
         onInternalLink: options.onInternalLink,
         onLayoutChange: options.onLayoutChange,
         resolveMedia: typeof options.resolveMedia === "function"
-          ? ({ path }) => options.resolveMedia({
+          ? ({ path, width, height }) => options.resolveMedia({
               dictionary: options.dictionary,
               generation: options.generation,
+              height,
               path,
+              width,
             })
           : null,
       },
@@ -1123,6 +1206,30 @@
       }
       const header = String.fromCharCode(...bytes.slice(0, 6));
       return header === "GIF87a" || header === "GIF89a";
+    }
+    if (mediaType === "image/avif") {
+      if (
+        bytes.length < 20 ||
+        String.fromCharCode(...bytes.slice(4, 8)) !== "ftyp"
+      ) {
+        return false;
+      }
+      for (let offset = 8; offset + 4 <= Math.min(bytes.length, 128); offset += 4) {
+        if (offset === 12) {
+          continue;
+        }
+        const brand = String.fromCharCode(...bytes.slice(offset, offset + 4));
+        if (brand === "avif" || brand === "avis") {
+          return true;
+        }
+      }
+      return false;
+    }
+    if (mediaType === "image/svg+xml") {
+      const prefix = String.fromCharCode(...bytes.slice(0, Math.min(bytes.length, 4096)))
+        .replace(/^\ufeff/u, "");
+      const svgOffset = prefix.search(/<svg(?:\s|>)/iu);
+      return svgOffset >= 0 && !/<(?:script|iframe|object|embed)(?:\s|>)/iu.test(prefix);
     }
     return mediaType === "image/webp" &&
       bytes.length >= 12 &&
@@ -1815,6 +1922,7 @@
     let lookupTimeoutTimer = null;
     let hideTimer = null;
     let descendantHideTimer = null;
+    let popupTransferTimer = null;
     let pendingHideReason = "pointer-left";
     let pendingPruneDepth = 1;
     let destroyed = false;
@@ -1858,6 +1966,7 @@
     let lastHoveredSource = null;
     let lastHoveredTargetDepth = null;
     const popupLevels = [];
+    const hoveredPopupDepths = new Set();
     const dictionaryStyleElements = [];
     const renderedSignatures = new Map();
     const noticeSignatures = new Map();
@@ -2066,6 +2175,13 @@
       }
     }
 
+    function clearPopupTransferTimer() {
+      if (popupTransferTimer !== null) {
+        clearTimeoutFn(popupTransferTimer);
+        popupTransferTimer = null;
+      }
+    }
+
     function clearDescendantHideTimer() {
       if (descendantHideTimer !== null) {
         clearTimeoutFn(descendantHideTimer);
@@ -2186,6 +2302,7 @@
         dictionaryStyleElements.push(style);
       }
       dictionaryStylesGeneration = generation;
+      positionPopupAndDescendants(0);
     }
 
     function requestDictionaryStyles(generation) {
@@ -2474,21 +2591,110 @@
         : null;
     }
 
+    function pointInsideRect(clientX, clientY, rect, padding = 0) {
+      return Number.isFinite(clientX) && Number.isFinite(clientY) &&
+        clientX >= rect.left - padding && clientX <= rect.right + padding &&
+        clientY >= rect.top - padding && clientY <= rect.bottom + padding;
+    }
+
+    function pointInsidePopupChain(clientX, clientY) {
+      const visibleLevels = popupLevels.filter((level) => level.visible);
+      const rects = visibleLevels.map((level) => ({
+        depth: level.depth,
+        rect: level.popup.getBoundingClientRect(),
+      }));
+      if (rects.some(({ rect }) => pointInsideRect(clientX, clientY, rect))) {
+        return true;
+      }
+      for (let index = 1; index < rects.length; index += 1) {
+        const parent = rects[index - 1].rect;
+        const child = rects[index].rect;
+        const top = Math.max(parent.top, child.top) - 4;
+        const bottom = Math.min(parent.bottom, child.bottom) + 4;
+        if (top > bottom) {
+          continue;
+        }
+        let left;
+        let right;
+        if (parent.right <= child.left) {
+          left = parent.right;
+          right = child.left;
+        } else if (child.right <= parent.left) {
+          left = child.right;
+          right = parent.left;
+        } else {
+          continue;
+        }
+        if (
+          clientX >= left - 2 && clientX <= right + 2 &&
+          clientY >= top && clientY <= bottom
+        ) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function targetInsidePopupChain(target) {
+      return getPopupDepthForTarget(target) !== null || Boolean(
+        target instanceof windowRef.Element &&
+        target.closest(".gsm-hoshidicts-audio-menu")
+      );
+    }
+
+    function schedulePopupTransferCheck(reason) {
+      clearPopupTransferTimer();
+      popupTransferTimer = setTimeoutFn(() => {
+        popupTransferTimer = null;
+        if (
+          hoveredPopupDepths.size > 0 ||
+          targetInsidePopupChain(lastPointer?.target) ||
+          pointInsidePopupChain(lastPointer?.clientX, lastPointer?.clientY)
+        ) {
+          return;
+        }
+        pointerInPopup = false;
+        pointerPopupDepth = null;
+        scheduleHide(reason);
+      }, POPUP_TRANSFER_GRACE_MS);
+    }
+
     function onPopupPointerEnter(depth) {
+      // Popup levels are sibling overlays, so the pointer can only occupy one
+      // level at a time. Clear stale ownership in case a removed popup never
+      // delivered its matching pointerleave event.
+      hoveredPopupDepths.clear();
+      hoveredPopupDepths.add(depth);
       pointerInPopup = true;
       pointerPopupDepth = depth;
+      clearPopupTransferTimer();
       clearHideTimer();
       if (descendantHideTimer !== null && depth >= pendingPruneDepth) {
         clearDescendantHideTimer();
       }
     }
 
-    function onPopupPointerLeave(depth) {
+    function onPopupPointerLeave(depth, event) {
+      hoveredPopupDepths.delete(depth);
       if (pointerPopupDepth === depth) {
-        pointerPopupDepth = null;
+        pointerPopupDepth = hoveredPopupDepths.size > 0
+          ? Math.max(...hoveredPopupDepths)
+          : null;
       }
-      pointerInPopup = false;
-      scheduleHide("popup-left");
+      pointerInPopup = hoveredPopupDepths.size > 0;
+      if (targetInsidePopupChain(event?.relatedTarget)) {
+        clearPopupTransferTimer();
+        clearHideTimer();
+        return;
+      }
+      if (pointerInPopup) {
+        return;
+      }
+      if (popupLevels.filter((level) => level.visible).length > 1) {
+        schedulePopupTransferCheck("popup-left");
+      } else {
+        scheduleHide("popup-left");
+      }
     }
 
     function createPopupLevel(depth) {
@@ -2506,7 +2712,7 @@
       }
       const stopPropagation = (event) => event.stopPropagation();
       const pointerEnter = () => onPopupPointerEnter(depth);
-      const pointerLeave = () => onPopupPointerLeave(depth);
+      const pointerLeave = (event) => onPopupPointerLeave(depth, event);
       const definitionPointerOver = (event) => onDefinitionPointerOver(depth, event);
       popup.addEventListener("pointerdown", stopPropagation);
       popup.addEventListener("click", stopPropagation);
@@ -2624,6 +2830,7 @@
         invalidateLookup();
       }
       for (let index = popupLevels.length - 1; index >= startDepth; index -= 1) {
+        hoveredPopupDepths.delete(index);
         const level = popupLevels[index];
         invalidateDefinitionBlur(level);
         level.lookupStatsRequestGeneration += 1;
@@ -2651,8 +2858,10 @@
         popupLevels.length = startDepth;
       }
       if (pointerPopupDepth !== null && pointerPopupDepth >= startDepth) {
-        pointerPopupDepth = null;
-        pointerInPopup = false;
+        pointerPopupDepth = hoveredPopupDepths.size > 0
+          ? Math.max(...hoveredPopupDepths)
+          : null;
+        pointerInPopup = hoveredPopupDepths.size > 0;
       }
       audioController.dismissPopup();
       syncAudioRenderedResults(null, false);
@@ -2662,6 +2871,8 @@
     function hide(reason = "hide") {
       clearHideTimer();
       clearDescendantHideTimer();
+      clearPopupTransferTimer();
+      hoveredPopupDepths.clear();
       invalidateLookup();
       preparePopupContent("popup_hidden");
       pruneFromDepth(0, reason);
@@ -3929,17 +4140,33 @@
       if (pointer.target.closest(".gsm-hoshidicts-audio-menu")) {
         pointerInPopup = true;
         pointerPopupDepth = null;
+        clearPopupTransferTimer();
         clearHideTimer();
         return;
       }
       const popupDepth = getPopupDepthForTarget(pointer.target);
-      pointerInPopup = popupDepth !== null;
-      pointerPopupDepth = popupDepth;
       if (popupDepth !== null) {
+        hoveredPopupDepths.clear();
+        hoveredPopupDepths.add(popupDepth);
+        pointerInPopup = true;
+        pointerPopupDepth = popupDepth;
+        clearPopupTransferTimer();
         clearHideTimer();
         if (descendantHideTimer !== null && popupDepth >= pendingPruneDepth) {
           clearDescendantHideTimer();
         }
+      } else if (pointInsidePopupChain(pointer.clientX, pointer.clientY)) {
+        hoveredPopupDepths.clear();
+        pointerInPopup = true;
+        pointerPopupDepth = null;
+        clearPopupTransferTimer();
+        clearHideTimer();
+        return;
+      } else {
+        hoveredPopupDepths.clear();
+        pointerInPopup = false;
+        pointerPopupDepth = null;
+        clearPopupTransferTimer();
       }
       if (noteEditing) {
         clearHideTimer();

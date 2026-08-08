@@ -1142,6 +1142,13 @@ describe("Hoshidicts safe popup rendering", () => {
             width: 67,
             height: 100,
             sizeUnits: "px",
+            appearance: "monochrome",
+            background: false,
+            collapsed: true,
+            collapsible: true,
+            imageRendering: "pixelated",
+            title: "Character portrait",
+            verticalAlign: "middle",
             data: { alt: "Character portrait" }
           },
           { tag: "img", path: "https://example.test/tracker.png" },
@@ -1169,7 +1176,7 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(badge.dataset.scCode).toBe("name");
     expect(badge.dataset.scContent).toBe("part-of-speech-info");
     expect(parent.querySelector<HTMLElement>("li")?.style.listStyleType).toBe('"①"');
-    const links = parent.querySelectorAll<HTMLAnchorElement>("a");
+    const links = parent.querySelectorAll<HTMLAnchorElement>("a.gloss-link");
     expect(links).toHaveLength(2);
     expect(links[0].dataset.hoshidictsQuery).toBe("猫");
     expect(links[0].dataset.hoshidictsReading).toBe("ねこ");
@@ -1190,15 +1197,30 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(hostile.style.fontSize).toBe("");
     expect(hostile.style.marginTop).toBe("");
     const image = parent.querySelector<HTMLImageElement>("img")!;
+    const imageLink = image.closest<HTMLAnchorElement>(".gloss-image-link")!;
+    const imageContainer = image.closest<HTMLElement>(".gloss-image-container")!;
     expect(image.alt).toBe("Character portrait");
-    expect(image.style.width).toBe("67px");
-    expect(image.style.height).toBe("100px");
+    expect(image.classList.contains("gloss-image")).toBe(true);
+    expect(imageLink.dataset.appearance).toBe("monochrome");
+    expect(imageLink.dataset.background).toBe("false");
+    expect(imageLink.dataset.collapsed).toBe("true");
+    expect(imageLink.dataset.collapsible).toBe("true");
+    expect(imageLink.dataset.imageRendering).toBe("pixelated");
+    expect(imageLink.dataset.verticalAlign).toBe("middle");
+    expect(imageContainer.style.width).toBe("67px");
+    expect(imageContainer.style.aspectRatio).toBe("67 / 100");
+    expect(imageContainer.title).toBe("Character portrait");
+    expect(image.style.width).toBe("100%");
+    expect(image.style.height).toBe("100%");
     expect(image.src).toBe("blob:reference-image");
+    expect(imageLink.href).toBe("blob:reference-image");
     expect(resolveMedia).toHaveBeenCalledTimes(1);
     expect(resolveMedia).toHaveBeenCalledWith({
       dictionary: "Character Names",
       generation: 7,
-      path: "img/character.jpg"
+      height: 100,
+      path: "img/character.jpg",
+      width: 67
     });
 
     parent.querySelector("details")!.dispatchEvent(new dom.window.Event("toggle"));
@@ -1293,6 +1315,7 @@ describe("Hoshidicts safe popup rendering", () => {
       document: dom.window.document,
       WebSocket: FakeWebSocket,
       lookupMode: "hover",
+      popupHideDelayMs: 0,
       popupNestingMaxDepth: 2,
       logger: { debug() {}, info() {}, warn() {} }
     });
@@ -1341,6 +1364,31 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(popups).toHaveLength(2);
     expect(popups[0].textContent).toContain("猫");
     expect(popups[1].textContent).toContain("cat");
+
+    setRect(popups[0], { left: 100, top: 100, right: 200, bottom: 300 });
+    setRect(popups[1], { left: 206, top: 110, right: 306, bottom: 310 });
+    popups[0].dispatchEvent(new dom.window.MouseEvent("pointerenter"));
+    popups[0].dispatchEvent(new dom.window.MouseEvent("pointerleave"));
+    expect(reader.isVisible()).toBe(true);
+    dom.window.document.body.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 203,
+      clientY: 150
+    }));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(reader.getPopupElements()).toHaveLength(2);
+    popups[1].dispatchEvent(new dom.window.MouseEvent("pointerenter"));
+    popups[1].dispatchEvent(new dom.window.MouseEvent("pointerleave"));
+    popups[0].dispatchEvent(new dom.window.MouseEvent("pointerenter"));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(reader.getPopupElements()).toHaveLength(2);
+
+    dom.window.document.body.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 400,
+      clientY: 400
+    }));
+    expect(reader.isVisible()).toBe(false);
     reader.destroy();
   });
 
@@ -4001,6 +4049,109 @@ describe("Hoshidicts Shift-hover scanner", () => {
 
     reader.destroy();
     await flushPromises();
+  });
+
+  it("renders the AVIF and SVG media used by current Jitendex", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const createObjectURL = vi.fn()
+      .mockReturnValueOnce("blob:jitendex-avif")
+      .mockReturnValueOnce("blob:jitendex-svg");
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      Blob: dom.window.Blob,
+      createObjectURL,
+      revokeObjectURL: vi.fn(),
+      logger: { debug() {}, info() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances.at(-1)!;
+    socket.open();
+
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const lookup = socket.sent
+      .map((value) => JSON.parse(value))
+      .findLast((value) => value.type === "hoshidicts_lookup");
+    socket.receive(lookupResult(
+      lookup.requestId,
+      "麻の葉",
+      JSON.stringify({
+        type: "structured-content",
+        content: [
+          { tag: "img", path: "jitendex/pattern.avif", width: 153, height: 250 },
+          {
+            tag: "img",
+            path: "jitendex/glyph.svg",
+            width: 1,
+            height: 1,
+            sizeUnits: "em",
+            appearance: "monochrome"
+          }
+        ]
+      }),
+      21
+    ));
+    const requests = socket.sent
+      .map((value) => JSON.parse(value))
+      .filter((value) => value.type === "hoshidicts_media");
+    expect(requests).toHaveLength(2);
+
+    const avif = Buffer.from([
+      0, 0, 0, 24,
+      0x66, 0x74, 0x79, 0x70,
+      0x61, 0x76, 0x69, 0x66,
+      0, 0, 0, 0,
+      0x61, 0x76, 0x69, 0x66,
+      0x6d, 0x69, 0x66, 0x31
+    ]);
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"></svg>');
+    for (const [request, mediaType, bytes, width, height] of [
+      [requests[0], "image/avif", avif, 153, 250],
+      [requests[1], "image/svg+xml", svg, 1, 1]
+    ] as const) {
+      socket.receive({
+        type: "hoshidicts_media_result",
+        requestId: request.requestId,
+        success: true,
+        generation: 21,
+        dictionary: "JMdict",
+        path: request.path,
+        mediaType,
+        byteLength: bytes.byteLength,
+        width,
+        height,
+        dataBase64: bytes.toString("base64"),
+        featureDisabled: false,
+        staleGeneration: false,
+        error: null
+      });
+    }
+    await flushPromises();
+
+    const images = Array.from(
+      reader.getPopupElement().querySelectorAll<HTMLImageElement>("img.gloss-image")
+    );
+    expect(images.map((image) => image.src)).toEqual([
+      "blob:jitendex-avif",
+      "blob:jitendex-svg"
+    ]);
+    expect(createObjectURL.mock.calls.map(([blob]) => blob.type)).toEqual([
+      "image/avif",
+      "image/svg+xml"
+    ]);
+    expect(images[1].closest<HTMLElement>(".gloss-image-link")?.dataset.appearance)
+      .toBe("monochrome");
+    reader.destroy();
   });
 
   it("enforces an aggregate decoded-pixel budget for the active popup", async () => {
