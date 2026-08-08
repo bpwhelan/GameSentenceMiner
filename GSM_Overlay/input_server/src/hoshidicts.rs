@@ -19,11 +19,15 @@ pub const MAX_MEDIA_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_MEDIA_RESPONSE_BYTES: usize = 6 * 1024 * 1024;
 pub const MAX_MEDIA_DIMENSION: u32 = 4096;
 pub const MAX_MEDIA_PIXELS: u64 = 16 * 1024 * 1024;
+pub const MAX_STYLES_RESPONSE_BYTES: usize = 3 * 1024 * 1024;
 
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 const MAX_DICTIONARIES: usize = 256;
 const MAX_NATIVE_STRING_BYTES: usize = 128 * 1024;
 const MAX_NATIVE_AGGREGATE_STRINGS: usize = 4096;
+const MAX_DICTIONARY_STYLE_BYTES: usize = 256 * 1024;
+const MAX_DICTIONARY_STYLES_BYTES: usize = 2 * 1024 * 1024;
+const MAX_STYLE_DICTIONARY_BYTES: usize = 1024;
 const MAX_GLOSSARIES: usize = 64;
 const MAX_TRACE_STEPS: usize = 32;
 const MAX_FREQUENCY_ENTRIES: usize = 64;
@@ -70,6 +74,11 @@ struct HdKanjiResults {
     _private: [u8; 0],
 }
 
+#[repr(C)]
+struct HdStyles {
+    _private: [u8; 0],
+}
+
 #[derive(Clone, Copy)]
 #[repr(C)]
 struct HdMediaFile {
@@ -82,6 +91,13 @@ struct HdMediaFile {
 struct HdStr {
     ptr: *const c_char,
     len: usize,
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct HdDictionaryStyle {
+    dict_name: HdStr,
+    styles: HdStr,
 }
 
 #[derive(Clone, Copy)]
@@ -221,6 +237,12 @@ extern "C" {
         dict_name: *const c_char,
         media_path: *const c_char,
     ) -> HdMediaFile;
+    fn hd_query_get_styles(
+        query: *const HdQuery,
+        out_styles: *mut *const HdDictionaryStyle,
+        out_count: *mut usize,
+    ) -> *mut HdStyles;
+    fn hd_styles_free(styles: *mut HdStyles);
 
     fn hd_lookup_new(query: *mut HdQuery, deinflector: *mut HdDeinflector) -> *mut HdLookup;
     fn hd_lookup_free(lookup: *mut HdLookup);
@@ -329,6 +351,28 @@ pub struct MediaFile {
     pub data: Vec<u8>,
     pub width: u32,
     pub height: u32,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DictionaryStyle {
+    pub dictionary: String,
+    pub styles: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StylesError {
+    StaleGeneration,
+    Internal(String),
+}
+
+impl StylesError {
+    pub const fn code(&self) -> &'static str {
+        match self {
+            Self::StaleGeneration => "stale_generation",
+            Self::Internal(_) => "internal_error",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -458,6 +502,16 @@ impl Drop for KanjiResultsGuard {
     fn drop(&mut self) {
         if !self.0.is_null() {
             unsafe { hd_kanji_results_free(self.0) };
+        }
+    }
+}
+
+struct StylesGuard(*mut HdStyles);
+
+impl Drop for StylesGuard {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe { hd_styles_free(self.0) };
         }
     }
 }
@@ -1360,6 +1414,18 @@ impl NativeEngine {
             height,
         })
     }
+
+    fn styles(&self) -> Result<Vec<DictionaryStyle>, String> {
+        let mut styles_pointer = ptr::null();
+        let mut styles_count = 0usize;
+        let owned_styles =
+            unsafe { hd_query_get_styles(self.query, &mut styles_pointer, &mut styles_count) };
+        if owned_styles.is_null() {
+            return Err("native Hoshidicts dictionary styles lookup failed".into());
+        }
+        let _owned_styles = StylesGuard(owned_styles);
+        unsafe { copy_dictionary_styles(styles_pointer, styles_count) }
+    }
 }
 
 impl Drop for NativeEngine {
@@ -1397,17 +1463,72 @@ unsafe fn checked_slice<'a, T>(
 }
 
 unsafe fn copy_hd_string(value: HdStr, label: &str) -> Result<String, String> {
+    copy_hd_string_with_limit(value, label, MAX_NATIVE_STRING_BYTES)
+}
+
+unsafe fn copy_hd_string_with_limit(
+    value: HdStr,
+    label: &str,
+    maximum_bytes: usize,
+) -> Result<String, String> {
     if value.len == 0 {
         return Ok(String::new());
     }
     if value.ptr.is_null() {
         return Err(format!("native {label} pointer was null"));
     }
-    if value.len > MAX_NATIVE_STRING_BYTES {
+    if value.len > maximum_bytes {
         return Err(format!("native {label} exceeds the permitted size"));
     }
     let bytes = slice::from_raw_parts(value.ptr.cast::<u8>(), value.len);
     String::from_utf8(bytes.to_vec()).map_err(|_| format!("native {label} was not valid UTF-8"))
+}
+
+unsafe fn copy_dictionary_styles(
+    pointer: *const HdDictionaryStyle,
+    count: usize,
+) -> Result<Vec<DictionaryStyle>, String> {
+    if count > MAX_DICTIONARIES {
+        return Err("native Hoshidicts returned too many dictionary styles".into());
+    }
+    let native_styles = checked_slice(pointer, count, "dictionary styles")?;
+    let mut aggregate_bytes = 0usize;
+    native_styles
+        .iter()
+        .map(|style| {
+            if style.dict_name.len > MAX_STYLE_DICTIONARY_BYTES {
+                return Err("native style dictionary exceeds the permitted size".into());
+            }
+            if style.styles.len > MAX_DICTIONARY_STYLE_BYTES {
+                return Err("native dictionary stylesheet exceeds the permitted size".into());
+            }
+            let style_bytes = style
+                .dict_name
+                .len
+                .checked_add(style.styles.len)
+                .ok_or_else(|| {
+                    "native dictionary styles exceed the aggregate response limit".to_string()
+                })?;
+            aggregate_bytes = aggregate_bytes.checked_add(style_bytes).ok_or_else(|| {
+                "native dictionary styles exceed the aggregate response limit".to_string()
+            })?;
+            if aggregate_bytes > MAX_DICTIONARY_STYLES_BYTES {
+                return Err("native dictionary styles exceed the aggregate response limit".into());
+            }
+            Ok(DictionaryStyle {
+                dictionary: copy_hd_string_with_limit(
+                    style.dict_name,
+                    "style dictionary",
+                    MAX_STYLE_DICTIONARY_BYTES,
+                )?,
+                styles: copy_hd_string_with_limit(
+                    style.styles,
+                    "dictionary stylesheet",
+                    MAX_DICTIONARY_STYLE_BYTES,
+                )?,
+            })
+        })
+        .collect()
 }
 
 struct NativeCopyBudget {
@@ -1791,6 +1912,17 @@ impl HoshidictsService {
             .media(dictionary, path)
     }
 
+    pub fn styles(&self, generation: u64) -> Result<Vec<DictionaryStyle>, StylesError> {
+        if generation != self.generation || self.engine.is_none() {
+            return Err(StylesError::StaleGeneration);
+        }
+        self.engine
+            .as_ref()
+            .expect("loaded engine checked above")
+            .styles()
+            .map_err(StylesError::Internal)
+    }
+
     pub fn generation(&self) -> u64 {
         self.generation
     }
@@ -2071,6 +2203,26 @@ mod tests {
         );
     }
 
+    fn write_styled_archive(path: &Path) {
+        write_zip_archive(
+            path,
+            &[
+                (
+                    "index.json",
+                    r#"{"title":"Styled Dictionary","revision":"1","format":3,"sourceLanguage":"ja"}"#,
+                ),
+                (
+                    "term_bank_1.json",
+                    r#"[["綺麗","きれい","","",0,["pretty"],1,""]]"#,
+                ),
+                (
+                    "styles.css",
+                    ".glossary[data-dictionary=\"Styled Dictionary\"] { color: rebeccapurple; }",
+                ),
+            ],
+        );
+    }
+
     #[test]
     fn request_ids_and_lookup_text_are_bounded() {
         assert!(RequestId::Number(42).validate().is_ok());
@@ -2117,6 +2269,51 @@ mod tests {
                     .expect_err("aggregate item limit must fail")
                     .contains("aggregate response limit")
             );
+        }
+    }
+
+    #[test]
+    fn dictionary_style_copy_enforces_count_per_style_and_aggregate_limits() {
+        unsafe {
+            assert!(copy_dictionary_styles(ptr::null(), MAX_DICTIONARIES + 1)
+                .expect_err("style count limit must fail")
+                .contains("too many dictionary styles"));
+        }
+
+        let dictionary = b"Test";
+        let oversized_css = vec![b'x'; MAX_DICTIONARY_STYLE_BYTES + 1];
+        let oversized = [HdDictionaryStyle {
+            dict_name: HdStr {
+                ptr: dictionary.as_ptr().cast::<c_char>(),
+                len: dictionary.len(),
+            },
+            styles: HdStr {
+                ptr: oversized_css.as_ptr().cast::<c_char>(),
+                len: oversized_css.len(),
+            },
+        }];
+        unsafe {
+            assert!(copy_dictionary_styles(oversized.as_ptr(), oversized.len())
+                .expect_err("per-style limit must fail")
+                .contains("stylesheet exceeds the permitted size"));
+        }
+
+        let css = vec![b'x'; MAX_DICTIONARY_STYLE_BYTES];
+        let repeated = HdDictionaryStyle {
+            dict_name: HdStr {
+                ptr: dictionary.as_ptr().cast::<c_char>(),
+                len: dictionary.len(),
+            },
+            styles: HdStr {
+                ptr: css.as_ptr().cast::<c_char>(),
+                len: css.len(),
+            },
+        };
+        let aggregate = vec![repeated; MAX_DICTIONARY_STYLES_BYTES / css.len() + 1];
+        unsafe {
+            assert!(copy_dictionary_styles(aggregate.as_ptr(), aggregate.len())
+                .expect_err("aggregate style limit must fail")
+                .contains("aggregate response limit"));
         }
     }
 
@@ -2653,6 +2850,44 @@ mod tests {
     }
 
     #[test]
+    fn ffi_dictionary_styles_are_owned_and_generation_checked() {
+        let root = TestDir::new("ffi-styles");
+        let archive_path = root.0.join("styled.zip");
+        write_styled_archive(&archive_path);
+
+        let report = import_dictionary(&archive_path, &root.0);
+        assert!(report.success, "dictionary import failed: {}", report.error);
+        fs::write(
+            root.0.join(MANIFEST_FILE_NAME),
+            r#"{"version":1,"dictionaries":[{"id":"styled","path":"Styled Dictionary"}]}"#,
+        )
+        .expect("write manifest");
+
+        let mut service = HoshidictsService::new(root.0.clone());
+        assert_eq!(service.activate().expect("activate dictionary"), 1);
+        let generation = service.generation();
+        assert_eq!(
+            service.styles(generation),
+            Ok(vec![DictionaryStyle {
+                dictionary: "Styled Dictionary".into(),
+                styles:
+                    ".glossary[data-dictionary=\"Styled Dictionary\"] { color: rebeccapurple; }"
+                        .into(),
+            }])
+        );
+        assert_eq!(
+            service.styles(generation.wrapping_add(1)),
+            Err(StylesError::StaleGeneration)
+        );
+
+        assert_eq!(service.reload().expect("reload dictionary"), 1);
+        assert_eq!(
+            service.styles(generation),
+            Err(StylesError::StaleGeneration)
+        );
+    }
+
+    #[test]
     fn imported_hiragana_reading_matches_kana_and_kanji_variants() {
         let root = TestDir::new("kana-width");
         let archive_path = root.0.join("kana.zip");
@@ -2669,7 +2904,8 @@ mod tests {
 
         let mut service = HoshidictsService::new(root.0.clone());
         assert_eq!(service.activate().expect("activate dictionary"), 1);
-        for source in ["ワガハイ", "ﾜｶﾞﾊｲ", "ワガハイ", "わがはい", "我輩"] {
+        for source in ["ワガハイ", "ﾜｶﾞﾊｲ", "ワガハイ", "わがはい", "我輩"]
+        {
             let result = service
                 .lookup(source)
                 .expect("katakana lookup")

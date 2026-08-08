@@ -7,9 +7,9 @@ use features::{FeatureRegistry, ServiceFeature, PROTOCOL_VERSION};
 use futures_util::{SinkExt, StreamExt};
 use gilrs::{Axis, Button, Event, EventType, GamepadId, Gilrs};
 use hoshidicts::{
-    HoshidictsService, LookupKanji, LookupResult, MediaError, MediaFile, RequestId,
-    MAX_LOOKUP_RESPONSE_BYTES, MAX_MEDIA_DICTIONARY_BYTES, MAX_MEDIA_PATH_BYTES,
-    MAX_MEDIA_RESPONSE_BYTES,
+    DictionaryStyle, HoshidictsService, LookupKanji, LookupResult, MediaError, MediaFile,
+    RequestId, StylesError, MAX_LOOKUP_RESPONSE_BYTES, MAX_MEDIA_DICTIONARY_BYTES,
+    MAX_MEDIA_PATH_BYTES, MAX_MEDIA_RESPONSE_BYTES, MAX_STYLES_RESPONSE_BYTES,
 };
 use rdev::{
     listen as listen_global_keyboard, Event as KeyboardEvent, EventType as KeyboardEventType,
@@ -1783,6 +1783,13 @@ enum ClientMsg {
         path: String,
     },
 
+    #[serde(rename = "hoshidicts_styles")]
+    HoshidictsStyles {
+        #[serde(rename = "requestId")]
+        request_id: RequestId,
+        generation: u64,
+    },
+
     #[serde(rename = "hoshidicts_reload")]
     HoshidictsReload {
         #[serde(rename = "requestId")]
@@ -2487,6 +2494,101 @@ async fn hoshidicts_lookup_payload(
     }
 }
 
+fn hoshidicts_styles_result(
+    request_id: Value,
+    generation: u64,
+    styles: Vec<DictionaryStyle>,
+    feature_disabled: bool,
+    error: Option<&str>,
+) -> String {
+    json!({
+        "type": "hoshidicts_styles_result",
+        "requestId": request_id,
+        "success": error.is_none(),
+        "generation": generation,
+        "styles": styles,
+        "featureDisabled": feature_disabled,
+        "staleGeneration": error == Some(StylesError::StaleGeneration.code()),
+        "error": error,
+    })
+    .to_string()
+}
+
+fn hoshidicts_styles_success_result(
+    request_id: Value,
+    generation: u64,
+    styles: Vec<DictionaryStyle>,
+) -> String {
+    let payload = hoshidicts_styles_result(request_id.clone(), generation, styles, false, None);
+    if payload.len() <= MAX_STYLES_RESPONSE_BYTES {
+        payload
+    } else {
+        hoshidicts_styles_result(
+            request_id,
+            generation,
+            Vec::new(),
+            false,
+            Some("response_too_large"),
+        )
+    }
+}
+
+async fn hoshidicts_styles_payload(
+    request_id: RequestId,
+    generation: u64,
+    features: &FeatureRegistry,
+    hoshidicts: &SharedHoshidicts,
+) -> String {
+    if request_id.validate().is_err() {
+        return hoshidicts_styles_result(
+            Value::Null,
+            generation,
+            Vec::new(),
+            false,
+            Some("invalid_request_id"),
+        );
+    }
+    let request_id = serde_json::to_value(request_id).unwrap_or(Value::Null);
+    if !features.is_enabled(ServiceFeature::Hoshidicts) {
+        return hoshidicts_styles_result(
+            request_id,
+            generation,
+            Vec::new(),
+            true,
+            Some("feature_disabled"),
+        );
+    }
+
+    match hoshidicts
+        .run_blocking(move |service| service.styles(generation))
+        .await
+    {
+        Ok(Ok(styles)) => hoshidicts_styles_success_result(request_id, generation, styles),
+        Ok(Err(error)) => {
+            if let StylesError::Internal(message) = &error {
+                warn!("failed to copy Hoshidicts dictionary styles: {message}");
+            }
+            hoshidicts_styles_result(
+                request_id,
+                generation,
+                Vec::new(),
+                false,
+                Some(error.code()),
+            )
+        }
+        Err(error) => {
+            warn!("failed to read Hoshidicts dictionary styles: {error}");
+            hoshidicts_styles_result(
+                request_id,
+                generation,
+                Vec::new(),
+                false,
+                Some("internal_error"),
+            )
+        }
+    }
+}
+
 enum HoshidictsMediaOutcome<'a> {
     Success {
         media_type: &'a str,
@@ -3079,6 +3181,21 @@ async fn handle_socket(
                                     generation,
                                     dictionary,
                                     path,
+                                    &features,
+                                    &hoshidicts,
+                                )
+                                .await;
+                                if ws_sink.send(Message::Text(payload)).await.is_err() {
+                                    break;
+                                }
+                            }
+                            Ok(ClientMsg::HoshidictsStyles {
+                                request_id,
+                                generation,
+                            }) => {
+                                let payload = hoshidicts_styles_payload(
+                                    request_id,
+                                    generation,
                                     &features,
                                     &hoshidicts,
                                 )
@@ -3929,6 +4046,18 @@ mod tests {
                 && dictionary == "Japanese Character Names"
                 && path == "img/c123.jpg"
         ));
+
+        let styles = serde_json::from_str::<ClientMsg>(
+            r#"{"type":"hoshidicts_styles","requestId":"styles-1","generation":7}"#,
+        )
+        .expect("styles request should deserialize");
+        assert!(matches!(
+            styles,
+            ClientMsg::HoshidictsStyles {
+                request_id: RequestId::Text(ref id),
+                generation: 7,
+            } if id == "styles-1"
+        ));
     }
 
     #[tokio::test]
@@ -3969,6 +4098,86 @@ mod tests {
         assert_eq!(value["featureDisabled"], false);
         assert_eq!(value["results"], json!([]));
         assert_eq!(value["kanji"], Value::Null);
+    }
+
+    #[tokio::test]
+    async fn hoshidicts_styles_runs_through_blocking_boundary_with_stable_shape() {
+        let features = FeatureRegistry::new([ServiceFeature::Hoshidicts]);
+        let service = SharedHoshidicts::new(PathBuf::from("unused"));
+        let generation = service
+            .run_blocking(|service| {
+                service.activate().expect("activate empty service");
+                service.generation()
+            })
+            .await
+            .expect("blocking styles setup");
+        let payload = hoshidicts_styles_payload(
+            RequestId::Text("styles-2".into()),
+            generation,
+            &features,
+            &service,
+        )
+        .await;
+        let value: Value = serde_json::from_str(&payload).expect("valid styles response");
+        assert_eq!(value["type"], "hoshidicts_styles_result");
+        assert_eq!(value["requestId"], "styles-2");
+        assert_eq!(value["success"], true);
+        assert_eq!(value["generation"], generation);
+        assert_eq!(value["styles"], json!([]));
+        assert_eq!(value["featureDisabled"], false);
+        assert_eq!(value["staleGeneration"], false);
+        assert_eq!(value["error"], Value::Null);
+    }
+
+    #[tokio::test]
+    async fn hoshidicts_styles_reports_feature_disabled_without_native_work() {
+        let features = FeatureRegistry::new([]);
+        let service = SharedHoshidicts::new(PathBuf::from("unused"));
+        let payload = hoshidicts_styles_payload(RequestId::Number(9), 3, &features, &service).await;
+        let value: Value = serde_json::from_str(&payload).expect("valid styles response");
+        assert_eq!(value["requestId"], 9);
+        assert_eq!(value["success"], false);
+        assert_eq!(value["generation"], 3);
+        assert_eq!(value["styles"], json!([]));
+        assert_eq!(value["featureDisabled"], true);
+        assert_eq!(value["staleGeneration"], false);
+        assert_eq!(value["error"], "feature_disabled");
+    }
+
+    #[tokio::test]
+    async fn hoshidicts_styles_rejects_stale_generation() {
+        let features = FeatureRegistry::new([ServiceFeature::Hoshidicts]);
+        let service = SharedHoshidicts::new(PathBuf::from("unused"));
+        let payload =
+            hoshidicts_styles_payload(RequestId::Number(10), 99, &features, &service).await;
+        let value: Value = serde_json::from_str(&payload).expect("valid styles response");
+        assert_eq!(value["requestId"], 10);
+        assert_eq!(value["success"], false);
+        assert_eq!(value["generation"], 99);
+        assert_eq!(value["styles"], json!([]));
+        assert_eq!(value["featureDisabled"], false);
+        assert_eq!(value["staleGeneration"], true);
+        assert_eq!(value["error"], "stale_generation");
+    }
+
+    #[test]
+    fn hoshidicts_styles_response_rejects_json_escape_expansion() {
+        let styles = (0..7)
+            .map(|index| DictionaryStyle {
+                dictionary: format!("Dictionary {index}"),
+                styles: "\0".repeat(256 * 1024),
+            })
+            .collect();
+        let payload = hoshidicts_styles_success_result(json!("styles-large"), 12, styles);
+        assert!(payload.len() <= MAX_STYLES_RESPONSE_BYTES);
+        let value: Value = serde_json::from_str(&payload).expect("valid styles response");
+        assert_eq!(value["requestId"], "styles-large");
+        assert_eq!(value["success"], false);
+        assert_eq!(value["generation"], 12);
+        assert_eq!(value["styles"], json!([]));
+        assert_eq!(value["featureDisabled"], false);
+        assert_eq!(value["staleGeneration"], false);
+        assert_eq!(value["error"], "response_too_large");
     }
 
     #[test]
