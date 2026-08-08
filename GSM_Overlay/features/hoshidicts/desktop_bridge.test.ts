@@ -75,6 +75,11 @@ const {
     sourceHighlightEnabled: boolean;
     popupHideDelayMs: number;
     popupNestingMaxDepth: number;
+    dictionaryPresentation: Array<{
+      title: string;
+      favorite: boolean;
+      displayMode: "always" | "fallback";
+    }>;
   };
 };
 
@@ -123,13 +128,28 @@ describe("Hoshidicts desktop bridge", () => {
       sourceHighlightEnabled: true,
       popupHideDelayMs: 850,
       popupNestingMaxDepth: 4,
+      dictionaryPresentation: [
+        { title: "Monolingual", favorite: false, displayMode: "always" },
+        { title: "Bilingual", favorite: true, displayMode: "fallback" },
+      ],
     })).toEqual({
       lookupMode: "hover",
       activationKey: "F8",
       sourceHighlightEnabled: true,
       popupHideDelayMs: 850,
       popupNestingMaxDepth: 4,
+      dictionaryPresentation: [
+        { title: "Monolingual", favorite: false, displayMode: "always" },
+        { title: "Bilingual", favorite: true, displayMode: "fallback" },
+      ],
     });
+    expect(normalizeHoshidictsReaderPreferences({
+      lookupMode: "hover",
+      activationKey: "F8",
+      sourceHighlightEnabled: true,
+      popupHideDelayMs: 850,
+      popupNestingMaxDepth: 4,
+    }).dictionaryPresentation).toEqual([]);
     expect(() => normalizeHoshidictsReaderPreferences({
       lookupMode: "hover",
       activationKey: "F8",
@@ -149,6 +169,27 @@ describe("Hoshidicts desktop bridge", () => {
       sourceHighlightEnabled: true,
       popupHideDelayMs: 850,
       popupNestingMaxDepth: -1,
+    })).toThrow("Hoshidicts reader preferences are invalid.");
+    expect(() => normalizeHoshidictsReaderPreferences({
+      lookupMode: "hover",
+      activationKey: "F8",
+      sourceHighlightEnabled: true,
+      popupHideDelayMs: 850,
+      popupNestingMaxDepth: 4,
+      dictionaryPresentation: [
+        { title: "Broken", favorite: true, displayMode: "sometimes" },
+      ],
+    })).toThrow("Hoshidicts reader preferences are invalid.");
+    expect(() => normalizeHoshidictsReaderPreferences({
+      lookupMode: "hover",
+      activationKey: "F8",
+      sourceHighlightEnabled: true,
+      popupHideDelayMs: 850,
+      popupNestingMaxDepth: 4,
+      dictionaryPresentation: [
+        { title: "Repeated", favorite: true, displayMode: "always" },
+        { title: "Repeated", favorite: false, displayMode: "fallback" },
+      ],
     })).toThrow("Hoshidicts reader preferences are invalid.");
   });
 

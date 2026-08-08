@@ -86,6 +86,7 @@
     Number.isSafeInteger(configuredHoshidictsPopupNestingMaxDepth) &&
     configuredHoshidictsPopupNestingMaxDepth >= 0
   ) ? configuredHoshidictsPopupNestingMaxDepth : 10;
+  window.gsmHoshidictsDictionaryPresentation = [];
   if (window.gsmHoshidictsReaderEnabled) {
     document.documentElement.classList.add('gsm-hoshidicts-enabled');
     document.documentElement.dataset.gsmHoshidictsEnabled = 'true';
@@ -5103,6 +5104,35 @@ background: rgba(202, 12, 12, 0.692);
     };
   }
 
+  function validateHoshidictsDictionaryPresentation(value) {
+    if (!Array.isArray(value) || value.length > 256) {
+      return null;
+    }
+    const titles = new Set();
+    const normalized = [];
+    for (const entry of value) {
+      const title = entry && typeof entry.title === 'string'
+        ? entry.title
+        : '';
+      if (
+        !title.trim() ||
+        title.length > 4096 ||
+        titles.has(title) ||
+        typeof entry.favorite !== 'boolean' ||
+        (entry.displayMode !== 'always' && entry.displayMode !== 'fallback')
+      ) {
+        return null;
+      }
+      titles.add(title);
+      normalized.push({
+        title,
+        favorite: entry.favorite,
+        displayMode: entry.displayMode,
+      });
+    }
+    return normalized;
+  }
+
   function configureHoshidictsReader(settings) {
     if (
       !window.gsmHoshidictsReaderEnabled ||
@@ -5140,6 +5170,7 @@ background: rgba(202, 12, 12, 0.692);
       showLookupCounts: window.gsmHoshidictsShowLookupCounts,
       definitionBlur: window.gsmHoshidictsDefinitionBlur,
       popupNestingMaxDepth: window.gsmHoshidictsPopupNestingMaxDepth,
+      dictionaryPresentation: window.gsmHoshidictsDictionaryPresentation,
       audioClient,
       audioPreferences: window.gsmHoshidictsAudioPreferences,
       onPopupStateChange: handleHoshidictsPopupState,
@@ -5168,7 +5199,12 @@ background: rgba(202, 12, 12, 0.692);
       return;
     }
     const definitionBlur = validateHoshidictsDefinitionBlur(preferences.definitionBlur);
-    if (!definitionBlur) {
+    const dictionaryPresentation = validateHoshidictsDictionaryPresentation(
+      preferences.dictionaryPresentation === undefined
+        ? []
+        : preferences.dictionaryPresentation
+    );
+    if (!definitionBlur || !dictionaryPresentation) {
       return;
     }
     window.gsmHoshidictsDefinitionBlur = definitionBlur;
@@ -5186,6 +5222,7 @@ background: rgba(202, 12, 12, 0.692);
       Number.isInteger(hideDelay) && hideDelay >= 0 && hideDelay <= 5000
     ) ? hideDelay : 300;
     window.gsmHoshidictsShowLookupCounts = preferences.showLookupCounts !== false;
+    window.gsmHoshidictsDictionaryPresentation = dictionaryPresentation;
     const popupNestingMaxDepth = Number(preferences.popupNestingMaxDepth);
     window.gsmHoshidictsPopupNestingMaxDepth = (
       Number.isSafeInteger(popupNestingMaxDepth) && popupNestingMaxDepth >= 0
@@ -5202,6 +5239,7 @@ background: rgba(202, 12, 12, 0.692);
         showLookupCounts: window.gsmHoshidictsShowLookupCounts,
         definitionBlur: window.gsmHoshidictsDefinitionBlur,
         popupNestingMaxDepth: window.gsmHoshidictsPopupNestingMaxDepth,
+        dictionaryPresentation: window.gsmHoshidictsDictionaryPresentation,
       });
     }
   });

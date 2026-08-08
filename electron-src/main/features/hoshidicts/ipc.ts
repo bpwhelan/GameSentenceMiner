@@ -11,6 +11,7 @@ import {
     HOSHIDICTS_CHANNELS,
     DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
     HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
+    hoshidictsReaderPreferencesFromSnapshot,
     isHoshidictsActivationKey,
     MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES,
     MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
@@ -25,6 +26,7 @@ import {
     type HoshidictsSaveCustomDictionaryRequest,
     type HoshidictsDesktopSnapshot,
     type HoshidictsDictionaryEnabledRequest,
+    type HoshidictsDictionaryPresentationRequest,
     type HoshidictsInstallRecommendedRequest,
     type HoshidictsManagerSnapshot,
     type HoshidictsLookupMode,
@@ -139,6 +141,33 @@ function readerPreferencesMatchOverlay(
             preferences.definitionBlur
         )
     );
+}
+
+async function applyReaderSnapshot(
+    snapshot: HoshidictsManagerSnapshot,
+    deps: HoshidictsIPCDependencies
+): Promise<void> {
+    const applied = await deps.applyReaderPreferences(
+        hoshidictsReaderPreferencesFromSnapshot(snapshot)
+    );
+    if (
+        !applied &&
+        deps.getConfiguredFeatureEnabled() &&
+        deps.getOverlayRuntimeState().isRunning
+    ) {
+        let restarted = false;
+        try {
+            restarted = await deps.restartOverlay();
+        } catch {
+            // Report the same actionable error for a rejected restart and a
+            // restart operation which returned false.
+        }
+        if (!restarted) {
+            throw new Error(
+                'Dictionary changes were saved, but could not be applied to the running overlay. Restart the overlay to use them.'
+            );
+        }
+    }
 }
 
 function isRecommendedDictionaryId(
@@ -352,7 +381,13 @@ export function registerHoshidictsIPC(
         }
         return await runAction(
             deps,
-            async () => await manager.importDictionary(result.filePaths[0]),
+            async () => {
+                const state = await manager.importDictionary(
+                    result.filePaths[0]
+                );
+                await applyReaderSnapshot(state, deps);
+                return state;
+            },
             { code: 'dictionaryImported' }
         );
     });
@@ -370,7 +405,12 @@ export function registerHoshidictsIPC(
             ).length;
             return await runAction(
                 deps,
-                async () => await manager.installRecommendedDictionaries(),
+                async () => {
+                    const state =
+                        await manager.installRecommendedDictionaries();
+                    await applyReaderSnapshot(state, deps);
+                    return state;
+                },
                 { code: 'recommendedInstalled', count: missingCount }
             );
         }
@@ -395,7 +435,12 @@ export function registerHoshidictsIPC(
             }
             return await runAction(
                 deps,
-                async () => await manager.installRecommendedDictionary(id),
+                async () => {
+                    const state =
+                        await manager.installRecommendedDictionary(id);
+                    await applyReaderSnapshot(state, deps);
+                    return state;
+                },
                 { code: 'recommendedInstalled', count: 1 }
             );
         }
@@ -405,6 +450,10 @@ export function registerHoshidictsIPC(
         assertSettingsSender(event, deps);
         return await runAction(deps, async () => {
             const state = await manager.checkForUpdates(true);
+            // Earlier dictionaries may already have updated even when a later
+            // update reports an error, so publish the returned ordering/titles
+            // before surfacing that error to settings.
+            await applyReaderSnapshot(state, deps);
             if (state.lastError) {
                 throw new Error(state.lastError);
             }
@@ -456,7 +505,11 @@ export function registerHoshidictsIPC(
             }
             return await runAction(
                 deps,
-                async () => await manager.removeDictionary(id),
+                async () => {
+                    const next = await manager.removeDictionary(id);
+                    await applyReaderSnapshot(next, deps);
+                    return next;
+                },
                 { code: 'dictionaryRemoved', title: dictionary.title }
             );
         }
@@ -528,7 +581,7 @@ export function registerHoshidictsIPC(
             return await runAction(
                 deps,
                 async () => {
-                    const preferences: HoshidictsReaderPreferences = {
+                    const requestPreferences: HoshidictsReaderPreferencesRequest = {
                         lookupMode: value.lookupMode as HoshidictsLookupMode,
                         activationKey: value.activationKey as HoshidictsActivationKey,
                         sourceHighlightEnabled:
@@ -542,14 +595,20 @@ export function registerHoshidictsIPC(
                         } as HoshidictsDefinitionBlurPreferences,
                     };
                     const state = await manager.setReaderPreferences(
-                        preferences.lookupMode,
-                        preferences.popupHideDelayMs,
-                        preferences.activationKey,
-                        preferences.sourceHighlightEnabled,
-                        preferences.popupNestingMaxDepth,
-                        preferences.definitionBlur,
-                        preferences.showLookupCounts
+                        requestPreferences.lookupMode,
+                        requestPreferences.popupHideDelayMs,
+                        requestPreferences.activationKey,
+                        requestPreferences.sourceHighlightEnabled,
+                        requestPreferences.popupNestingMaxDepth,
+                        requestPreferences.definitionBlur,
+                        requestPreferences.showLookupCounts
                     );
+                    const preferences: HoshidictsReaderPreferences = {
+                        ...requestPreferences,
+                        dictionaryPresentation:
+                            hoshidictsReaderPreferencesFromSnapshot(state)
+                                .dictionaryPresentation,
+                    };
                     const applied = await deps.applyReaderPreferences(
                         preferences
                     );
@@ -644,6 +703,42 @@ export function registerHoshidictsIPC(
     );
 
     ipcMain.handle(
+        HOSHIDICTS_CHANNELS.setDictionaryPresentation,
+        async (event, request: unknown) => {
+            assertSettingsSender(event, deps);
+            const value = request as
+                | Partial<HoshidictsDictionaryPresentationRequest>
+                | null;
+            if (
+                !value ||
+                typeof value.id !== 'string' ||
+                typeof value.favorite !== 'boolean' ||
+                (value.displayMode !== 'always' &&
+                    value.displayMode !== 'fallback')
+            ) {
+                return {
+                    success: false,
+                    error: 'Dictionary presentation request is invalid.',
+                    state: await currentState(deps),
+                } satisfies HoshidictsActionResult;
+            }
+            return await runAction(
+                deps,
+                async () => {
+                    const state = await manager.setDictionaryPresentation(
+                        value.id as string,
+                        value.favorite as boolean,
+                        value.displayMode as 'always' | 'fallback'
+                    );
+                    await applyReaderSnapshot(state, deps);
+                    return state;
+                },
+                { code: 'dictionaryChanged' }
+            );
+        }
+    );
+
+    ipcMain.handle(
         HOSHIDICTS_CHANNELS.moveDictionary,
         async (event, request: unknown) => {
             assertSettingsSender(event, deps);
@@ -663,11 +758,14 @@ export function registerHoshidictsIPC(
             }
             return await runAction(
                 deps,
-                async () =>
-                    await manager.moveDictionary(
+                async () => {
+                    const state = await manager.moveDictionary(
                         value.id as string,
                         value.direction as -1 | 1
-                    ),
+                    );
+                    await applyReaderSnapshot(state, deps);
+                    return state;
+                },
                 { code: 'dictionaryChanged' }
             );
         }

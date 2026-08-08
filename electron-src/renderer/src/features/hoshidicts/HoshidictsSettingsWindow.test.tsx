@@ -49,6 +49,8 @@ const baseState: HoshidictsDesktopSnapshot = {
       id: "jmdict-id",
       title: "JMdict",
       enabled: true,
+      favorite: false,
+      displayMode: "always",
       revision: "2026-08-06",
       isUpdatable: true,
       indexUrl: "https://example.test/jmdict.json",
@@ -65,6 +67,8 @@ const baseState: HoshidictsDesktopSnapshot = {
       id: "custom-id",
       title: "Custom",
       enabled: false,
+      favorite: false,
+      displayMode: "always",
       revision: "one",
       isUpdatable: false,
       indexUrl: null,
@@ -491,6 +495,105 @@ describe("HoshidictsSettingsWindow", () => {
     expect(
       container.textContent?.match(/Frequency mode:/g) ?? []
     ).toHaveLength(2);
+  });
+
+  it("configures favourites and fallback display only for term dictionaries", async () => {
+    await render();
+
+    expect(container.textContent).toContain(
+      "A fallback dictionary appears only when the always-shown dictionary above it has no entry."
+    );
+    const favorite = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Add JMdict to favourites"]'
+    );
+    expect(favorite?.getAttribute("aria-pressed")).toBe("false");
+    expect(
+      container.querySelector('button[aria-label="Add Custom to favourites"]')
+    ).toBeNull();
+
+    const displayMode = container.querySelector<HTMLSelectElement>(
+      'select[aria-label="Display mode for JMdict"]'
+    );
+    expect(displayMode?.value).toBe("always");
+    expect(
+      Array.from(displayMode?.options ?? []).map((option) => option.textContent)
+    ).toEqual(["Always show", "Fallback"]);
+    expect(
+      container.querySelector('select[aria-label="Display mode for Custom"]')
+    ).toBeNull();
+    expect(
+      container.querySelectorAll(".hoshidicts-dictionary-favorite-placeholder")
+    ).toHaveLength(1);
+
+    await act(async () => {
+      favorite?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.setDictionaryPresentation,
+      {
+        id: "jmdict-id",
+        favorite: true,
+        displayMode: "always"
+      }
+    );
+
+    await act(async () => {
+      setSelectValue(
+        container.querySelector<HTMLSelectElement>(
+          'select[aria-label="Display mode for JMdict"]'
+        ),
+        "fallback"
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.setDictionaryPresentation,
+      {
+        id: "jmdict-id",
+        favorite: false,
+        displayMode: "fallback"
+      }
+    );
+  });
+
+  it("renders a favourited fallback dictionary with a filled star", async () => {
+    const state = {
+      ...baseState,
+      dictionaries: [
+        {
+          ...baseState.dictionaries[0],
+          favorite: true,
+          displayMode: "fallback" as const
+        },
+        baseState.dictionaries[1]
+      ]
+    };
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === HOSHIDICTS_CHANNELS.getState) return state;
+      return {
+        success: true,
+        outcome: { code: "dictionaryChanged" },
+        state
+      };
+    });
+
+    await render();
+
+    const favorite = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Remove JMdict from favourites"]'
+    );
+    expect(favorite?.getAttribute("aria-pressed")).toBe("true");
+    expect(favorite?.querySelector("svg")?.getAttribute("fill")).toBe(
+      "currentColor"
+    );
+    expect(
+      container.querySelector<HTMLSelectElement>(
+        'select[aria-label="Display mode for JMdict"]'
+      )?.value
+    ).toBe("fallback");
   });
 
   it.each([
@@ -1497,7 +1600,9 @@ describe("HoshidictsSettingsWindow", () => {
       "繰り返し検索した定義をぼかす",
       "フィールド",
       "値",
-      "既出回数と検索回数を表示"
+      "既出回数と検索回数を表示",
+      "表示方法",
+      "フォールバック辞書は、上にある「常に表示」の辞書に項目がない場合のみ表示されます。"
     ],
     [
       "ukr",
@@ -1512,7 +1617,9 @@ describe("HoshidictsSettingsWindow", () => {
       "Розмивати визначення після повторних пошуків",
       "Поле",
       "Значення",
-      "Показувати кількість зустрічей і пошуків"
+      "Показувати кількість зустрічей і пошуків",
+      "Режим відображення",
+      "Резервний словник з’являється, лише якщо у словнику «Завжди показувати» над ним немає запису."
     ]
   ])(
     "localizes the standalone window in %s",
@@ -1529,7 +1636,9 @@ describe("HoshidictsSettingsWindow", () => {
       definitionBlur,
       fieldHeader,
       valueHeader,
-      lookupCounts
+      lookupCounts,
+      displayMode,
+      fallbackHint
     ) => {
       await render(locale);
       expect(container.textContent).toContain(subtitle);
@@ -1542,6 +1651,8 @@ describe("HoshidictsSettingsWindow", () => {
       expect(container.textContent).toContain(popupScanning);
       expect(container.textContent).toContain(definitionBlur);
       expect(container.textContent).toContain(lookupCounts);
+      expect(container.textContent).toContain(displayMode);
+      expect(container.textContent).toContain(fallbackHint);
       await openMining();
       expect(
         Array.from(
@@ -1566,6 +1677,8 @@ describe("HoshidictsSettingsWindow", () => {
         {
           ...baseState.dictionaries[0],
           enabled: undefined,
+          favorite: undefined,
+          displayMode: "invalid",
           frequencyCount: undefined,
           pitchCount: undefined,
           kanjiCount: undefined,
@@ -1588,6 +1701,8 @@ describe("HoshidictsSettingsWindow", () => {
     expect(normalized.popupNestingMaxDepth).toBe(10);
     expect(normalized.dictionaries[0].enabled).toBe(true);
     expect(normalized.dictionaries[0]).toMatchObject({
+      favorite: false,
+      displayMode: "always",
       frequencyCount: 0,
       pitchCount: 0,
       kanjiCount: 0,

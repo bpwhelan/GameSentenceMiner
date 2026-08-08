@@ -19,6 +19,7 @@ import type {
     HoshidictsCustomEntryRequest,
     HoshidictsDictionaryState,
     HoshidictsDefinitionBlurPreferences,
+    HoshidictsDictionaryDisplayMode,
     HoshidictsActivationKey,
     HoshidictsFrequencyMode,
     HoshidictsManagerSnapshot,
@@ -397,6 +398,12 @@ function normalizeSchedule(value: unknown): HoshidictsSchedule {
         : 'off';
 }
 
+function normalizeDictionaryDisplayMode(
+    value: unknown
+): HoshidictsDictionaryDisplayMode {
+    return value === 'fallback' ? 'fallback' : 'always';
+}
+
 function normalizePopupHideDelay(value: unknown): number {
     return Number.isInteger(value) &&
         (value as number) >= 0 &&
@@ -772,6 +779,8 @@ function dictionaryStateFromIndex(
         id,
         path: relativePath,
         enabled,
+        favorite: false,
+        displayMode: 'always',
         recommendedId,
         title: index.title,
         revision: index.revision,
@@ -1549,6 +1558,52 @@ export class HoshidictsManager {
         return await this.getSnapshot();
     }
 
+    async setDictionaryPresentation(
+        id: string,
+        favorite: boolean,
+        displayMode: HoshidictsDictionaryDisplayMode
+    ): Promise<HoshidictsManagerSnapshot> {
+        await this.enqueue('saving', async () => {
+            if (!SAFE_ID_PATTERN.test(id)) {
+                throw new Error('Dictionary id is invalid.');
+            }
+            if (id === HOSHIDICTS_CUSTOM_DICTIONARY_ID) {
+                throw new Error(
+                    'The custom dictionary presentation is managed automatically.'
+                );
+            }
+            if (typeof favorite !== 'boolean') {
+                throw new Error('Dictionary favorite state is invalid.');
+            }
+            if (displayMode !== 'always' && displayMode !== 'fallback') {
+                throw new Error('Dictionary display mode is invalid.');
+            }
+            const manifest = await this.readManifest();
+            const index = manifest.dictionaries.findIndex(
+                (dictionary) => dictionary.id === id
+            );
+            if (index < 0) {
+                throw new Error('Dictionary is not installed.');
+            }
+            const current = manifest.dictionaries[index];
+            if (
+                current.favorite === favorite &&
+                current.displayMode === displayMode
+            ) {
+                return;
+            }
+            const dictionaries = manifest.dictionaries.map((dictionary) => ({
+                ...dictionary,
+            }));
+            dictionaries[index].favorite = favorite;
+            dictionaries[index].displayMode = displayMode;
+            // Presentation is renderer-only. Avoid a native reload while still
+            // using the manifest's atomic persistence path.
+            await this.atomicWriteManifest({ ...manifest, dictionaries });
+        });
+        return await this.getSnapshot();
+    }
+
     async moveDictionary(
         id: string,
         direction: -1 | 1
@@ -1969,6 +2024,8 @@ export class HoshidictsManager {
                         id,
                         title,
                         enabled,
+                        favorite,
+                        displayMode,
                         revision,
                         isUpdatable,
                         indexUrl,
@@ -1984,6 +2041,8 @@ export class HoshidictsManager {
                         id,
                         title,
                         enabled,
+                        favorite,
+                        displayMode,
                         revision,
                         isUpdatable,
                         indexUrl,
@@ -2315,16 +2374,20 @@ export class HoshidictsManager {
                 ? value.recommendedId
                 : null;
             await validateNativeMediaFiles(dictionaryPath, index.mediaCount);
-            dictionaries.push(
-                dictionaryStateFromIndex(
+            dictionaries.push({
+                ...dictionaryStateFromIndex(
                     value.id,
                     relativePath,
                     value.enabled !== false,
                     index,
                     this.deps.now(),
                     recommendedId
-                )
-            );
+                ),
+                favorite: value.favorite === true,
+                displayMode: normalizeDictionaryDisplayMode(
+                    value.displayMode
+                ),
+            });
         }
 
         return {
@@ -2550,6 +2613,8 @@ export class HoshidictsManager {
             dictionaries[existingIndex] = {
                 ...staged.dictionary,
                 enabled: dictionaries[existingIndex].enabled,
+                favorite: dictionaries[existingIndex].favorite,
+                displayMode: dictionaries[existingIndex].displayMode,
             };
         } else {
             dictionaries.push(staged.dictionary);

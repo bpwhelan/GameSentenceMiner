@@ -26,6 +26,7 @@ import {
     restartOverlay,
 } from '../../ui/front.js';
 import {
+    hoshidictsReaderPreferencesFromSnapshot,
     type HoshidictsAudioProfile,
     type HoshidictsCustomEntryRequest,
     type HoshidictsReaderPreferences,
@@ -149,15 +150,7 @@ async function synchronizeConnectedReader(): Promise<void> {
     const profileRevision = audioProfileRevision;
     const snapshot = await getHoshidictsManager().getSnapshot();
     await deliverReaderPreferences(
-        {
-            lookupMode: snapshot.lookupMode,
-            activationKey: snapshot.activationKey,
-            sourceHighlightEnabled: snapshot.sourceHighlightEnabled,
-            popupHideDelayMs: snapshot.popupHideDelayMs,
-            showLookupCounts: snapshot.showLookupCounts,
-            popupNestingMaxDepth: snapshot.popupNestingMaxDepth,
-            definitionBlur: snapshot.definitionBlur,
-        },
+        hoshidictsReaderPreferencesFromSnapshot(snapshot),
         preferencesRevision
     );
     await deliverAudioProfile(snapshot.audioProfile, profileRevision);

@@ -42,6 +42,7 @@ const harness = vi.hoisted(() => ({
         setMiningProfile: vi.fn(),
         setAudioProfile: vi.fn(),
         setDictionaryEnabled: vi.fn(),
+        setDictionaryPresentation: vi.fn(),
         moveDictionary: vi.fn(),
         getCustomDictionaryDocument: vi.fn(),
         saveCustomDictionary: vi.fn(),
@@ -124,6 +125,32 @@ const snapshot = {
     progress: { phase: 'idle' },
 } as const;
 
+function definitionDictionary(
+    id: string,
+    title: string,
+    favorite: boolean,
+    displayMode: 'always' | 'fallback'
+) {
+    return {
+        id,
+        title,
+        enabled: true,
+        favorite,
+        displayMode,
+        revision: 'one',
+        isUpdatable: false,
+        indexUrl: null,
+        downloadUrl: null,
+        language: 'ja',
+        termCount: 1,
+        frequencyCount: 0,
+        pitchCount: 0,
+        kanjiCount: 0,
+        frequencyMode: null,
+        installedAt: '2026-08-08T00:00:00.000Z',
+    } as const;
+}
+
 async function registerHarness() {
     vi.resetModules();
     harness.handlers.clear();
@@ -133,11 +160,16 @@ async function registerHarness() {
         return () => {};
     });
     harness.manager.getSnapshot.mockResolvedValue(snapshot);
+    harness.manager.importDictionary.mockResolvedValue(snapshot);
     harness.manager.installRecommendedDictionaries.mockResolvedValue(snapshot);
     harness.manager.installRecommendedDictionary.mockResolvedValue(snapshot);
+    harness.manager.checkForUpdates.mockResolvedValue(snapshot);
+    harness.manager.removeDictionary.mockResolvedValue(snapshot);
     harness.manager.setLookupMode.mockResolvedValue(snapshot);
     harness.manager.setReaderPreferences.mockResolvedValue(snapshot);
     harness.manager.setAudioProfile.mockResolvedValue(snapshot);
+    harness.manager.setDictionaryPresentation.mockResolvedValue(snapshot);
+    harness.manager.moveDictionary.mockResolvedValue(snapshot);
     const customDocument = {
         text: '',
         revision: 'empty-revision',
@@ -566,6 +598,322 @@ describe('Hoshidicts settings IPC', () => {
         );
     });
 
+    it('validates, persists, and applies ordered dictionary presentation live', async () => {
+        const presentationState = {
+            ...snapshot,
+            dictionaries: [
+                {
+                    id: 'alpha',
+                    title: 'Alpha',
+                    enabled: true,
+                    favorite: true,
+                    displayMode: 'always',
+                    revision: 'one',
+                    isUpdatable: false,
+                    indexUrl: null,
+                    downloadUrl: null,
+                    language: 'ja',
+                    termCount: 1,
+                    frequencyCount: 0,
+                    pitchCount: 0,
+                    kanjiCount: 0,
+                    frequencyMode: null,
+                    installedAt: '2026-08-08T00:00:00.000Z',
+                },
+                {
+                    id: 'frequency',
+                    title: 'Frequency only',
+                    enabled: true,
+                    favorite: true,
+                    displayMode: 'fallback',
+                    revision: 'one',
+                    isUpdatable: false,
+                    indexUrl: null,
+                    downloadUrl: null,
+                    language: 'ja',
+                    termCount: 0,
+                    frequencyCount: 1,
+                    pitchCount: 0,
+                    kanjiCount: 0,
+                    frequencyMode: 'rank-based',
+                    installedAt: '2026-08-08T00:00:00.000Z',
+                },
+            ],
+        } as const;
+        harness.manager.setDictionaryPresentation.mockResolvedValueOnce(
+            presentationState
+        );
+        const context = await registerHarness();
+        const setPresentation = harness.handlers.get(
+            'hoshidicts.setDictionaryPresentation'
+        );
+        const moveDictionary = harness.handlers.get(
+            'hoshidicts.moveDictionary'
+        );
+
+        await expect(
+            setPresentation?.(
+                { sender: context.settingsContents },
+                { id: 'alpha', favorite: true, displayMode: 'always' }
+            )
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'dictionaryChanged' },
+        });
+        expect(harness.manager.setDictionaryPresentation).toHaveBeenCalledWith(
+            'alpha',
+            true,
+            'always'
+        );
+        expect(context.applyReaderPreferences).toHaveBeenCalledWith(
+            expect.objectContaining({
+                dictionaryPresentation: [
+                    {
+                        title: 'Alpha',
+                        favorite: true,
+                        displayMode: 'always',
+                    },
+                ],
+            })
+        );
+
+        await expect(
+            setPresentation?.(
+                { sender: context.settingsContents },
+                { id: 'alpha', favorite: 'yes', displayMode: 'sometimes' }
+            )
+        ).resolves.toMatchObject({
+            success: false,
+            error: 'Dictionary presentation request is invalid.',
+        });
+        expect(harness.manager.setDictionaryPresentation).toHaveBeenCalledOnce();
+
+        harness.manager.moveDictionary.mockResolvedValueOnce(presentationState);
+        context.applyReaderPreferences.mockResolvedValueOnce(false);
+        await expect(
+            moveDictionary?.(
+                { sender: context.settingsContents },
+                { id: 'alpha', direction: 1 }
+            )
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'dictionaryChanged' },
+        });
+        expect(harness.manager.moveDictionary).toHaveBeenCalledWith('alpha', 1);
+        expect(context.applyReaderPreferences).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                dictionaryPresentation: expect.any(Array),
+            })
+        );
+        expect(context.restartOverlay).toHaveBeenCalledOnce();
+    });
+
+    it('refreshes live presentation after every dictionary collection mutation', async () => {
+        const primary = definitionDictionary(
+            'primary',
+            'Primary',
+            true,
+            'always'
+        );
+        const backup = definitionDictionary(
+            'backup',
+            'Backup',
+            false,
+            'fallback'
+        );
+        const initialState = {
+            ...snapshot,
+            dictionaries: [primary, backup],
+        } as const;
+        const renamedState = {
+            ...snapshot,
+            dictionaries: [
+                { ...primary, title: 'Primary 2026' },
+                backup,
+            ],
+        } as const;
+        const removedAnchorState = {
+            ...snapshot,
+            dictionaries: [backup],
+        } as const;
+        const context = await registerHarness();
+        harness.manager.getSnapshot.mockResolvedValue(initialState);
+        harness.manager.importDictionary.mockResolvedValueOnce(initialState);
+        harness.manager.installRecommendedDictionaries.mockResolvedValueOnce(
+            initialState
+        );
+        harness.manager.installRecommendedDictionary.mockResolvedValueOnce(
+            initialState
+        );
+        harness.manager.checkForUpdates.mockResolvedValueOnce(renamedState);
+        harness.manager.removeDictionary.mockResolvedValueOnce(
+            removedAnchorState
+        );
+        harness.showOpenDialog.mockResolvedValueOnce({
+            canceled: false,
+            filePaths: ['/tmp/import.zip'],
+        });
+        harness.showMessageBox.mockResolvedValueOnce({ response: 0 });
+
+        const settingsEvent = { sender: context.settingsContents };
+        await expect(
+            harness.handlers.get('hoshidicts.import')?.(settingsEvent)
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'dictionaryImported' },
+        });
+        await expect(
+            harness.handlers.get('hoshidicts.installAllRecommended')?.(
+                settingsEvent
+            )
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'recommendedInstalled' },
+        });
+        await expect(
+            harness.handlers.get('hoshidicts.installRecommended')?.(
+                settingsEvent,
+                { id: 'jitendex' }
+            )
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'recommendedInstalled', count: 1 },
+        });
+        await expect(
+            harness.handlers.get('hoshidicts.checkUpdates')?.(settingsEvent)
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'updatesChecked' },
+        });
+        await expect(
+            harness.handlers.get('hoshidicts.remove')?.(
+                settingsEvent,
+                primary.id
+            )
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: {
+                code: 'dictionaryRemoved',
+                title: primary.title,
+            },
+        });
+
+        expect(harness.manager.importDictionary).toHaveBeenCalledOnce();
+        expect(
+            harness.manager.installRecommendedDictionaries
+        ).toHaveBeenCalledOnce();
+        expect(
+            harness.manager.installRecommendedDictionary
+        ).toHaveBeenCalledOnce();
+        expect(harness.manager.checkForUpdates).toHaveBeenCalledOnce();
+        expect(harness.manager.removeDictionary).toHaveBeenCalledOnce();
+        expect(context.applyReaderPreferences).toHaveBeenCalledTimes(5);
+        expect(context.applyReaderPreferences.mock.calls[3]?.[0]).toMatchObject({
+            dictionaryPresentation: [
+                expect.objectContaining({ title: 'Primary 2026' }),
+                expect.objectContaining({ title: 'Backup' }),
+            ],
+        });
+        expect(context.applyReaderPreferences).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                dictionaryPresentation: [
+                    {
+                        title: 'Backup',
+                        favorite: false,
+                        displayMode: 'fallback',
+                    },
+                ],
+            })
+        );
+    });
+
+    it('reports when a saved dictionary mutation cannot refresh the running overlay', async () => {
+        const primary = definitionDictionary(
+            'primary',
+            'Primary',
+            true,
+            'always'
+        );
+        const backup = definitionDictionary(
+            'backup',
+            'Backup',
+            false,
+            'fallback'
+        );
+        const initialState = {
+            ...snapshot,
+            dictionaries: [primary, backup],
+        } as const;
+        const removedAnchorState = {
+            ...snapshot,
+            dictionaries: [backup],
+        } as const;
+        const context = await registerHarness();
+        harness.manager.getSnapshot
+            .mockResolvedValueOnce(initialState)
+            .mockResolvedValue(removedAnchorState);
+        harness.manager.removeDictionary.mockResolvedValueOnce(
+            removedAnchorState
+        );
+        harness.showMessageBox.mockResolvedValueOnce({ response: 0 });
+        context.applyReaderPreferences.mockResolvedValueOnce(false);
+        context.restartOverlay.mockResolvedValueOnce(false);
+
+        await expect(
+            harness.handlers.get('hoshidicts.remove')?.(
+                { sender: context.settingsContents },
+                primary.id
+            )
+        ).resolves.toMatchObject({
+            success: false,
+            error: expect.stringContaining(
+                'changes were saved, but could not be applied'
+            ),
+            state: { dictionaries: [backup] },
+        });
+        expect(harness.manager.removeDictionary).toHaveBeenCalledOnce();
+        expect(context.applyReaderPreferences).toHaveBeenCalledOnce();
+        expect(context.restartOverlay).toHaveBeenCalledOnce();
+    });
+
+    it('publishes partially successful update changes before reporting a later failure', async () => {
+        const updated = definitionDictionary(
+            'primary',
+            'Primary 2026',
+            true,
+            'always'
+        );
+        const partialUpdateState = {
+            ...snapshot,
+            dictionaries: [updated],
+            lastError: 'Backup dictionary update failed.',
+        } as const;
+        const context = await registerHarness();
+        harness.manager.checkForUpdates.mockResolvedValueOnce(
+            partialUpdateState
+        );
+
+        await expect(
+            harness.handlers.get('hoshidicts.checkUpdates')?.({
+                sender: context.settingsContents,
+            })
+        ).resolves.toMatchObject({
+            success: false,
+            error: 'Backup dictionary update failed.',
+        });
+        expect(context.applyReaderPreferences).toHaveBeenCalledWith(
+            expect.objectContaining({
+                dictionaryPresentation: [
+                    {
+                        title: 'Primary 2026',
+                        favorite: true,
+                        displayMode: 'always',
+                    },
+                ],
+            })
+        );
+    });
+
     it('installs all recommendations, validates lookup mode, and discovers Anki options', async () => {
         const context = await registerHarness();
         const installAll = harness.handlers.get(
@@ -670,6 +1018,7 @@ describe('Hoshidicts settings IPC', () => {
                 revealMode: 'hover',
                 revealDelayMs: 6000,
             },
+            dictionaryPresentation: [],
         });
 
         await expect(

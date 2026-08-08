@@ -669,6 +669,15 @@
       "updatable": "Automatic updates",
       "manualOnly": "Manual updates only",
       "priorityHint": "Higher dictionaries are searched first.",
+      "dictionaryPresentation": {
+        "addFavorite": "Add {title} to favourites",
+        "removeFavorite": "Remove {title} from favourites",
+        "displayMode": "Display mode",
+        "displayModeFor": "Display mode for {title}",
+        "alwaysExpanded": "Always show",
+        "fallback": "Fallback",
+        "fallbackHint": "A fallback dictionary appears only when the always-shown dictionary above it has no entry. Each always-shown dictionary starts a new fallback group."
+      },
       "enableDictionary": "Enable {title}",
       "moveUp": "Move up",
       "moveDown": "Move down",

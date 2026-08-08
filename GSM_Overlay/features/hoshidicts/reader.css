@@ -416,7 +416,16 @@ html.gsm-hoshidicts-enabled #btn-yomitan {
 .gsm-hoshidicts-mine-button {
   border: 1px solid var(--accent-color);
   color: var(--accent-color);
-  font: 700 20px/34px "Segoe UI", sans-serif;
+  font: 700 20px/1 "Segoe UI", sans-serif;
+}
+
+.gsm-hoshidicts-mine-icon {
+  display: block;
+  line-height: 1;
+}
+
+.gsm-hoshidicts-mine-button[data-state="ready"] .gsm-hoshidicts-mine-icon {
+  transform: translateY(-1px);
 }
 
 .gsm-hoshidicts-mine-button:hover:not(:disabled) {

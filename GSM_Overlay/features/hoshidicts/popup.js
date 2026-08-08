@@ -222,7 +222,10 @@
       unavailable: "Anki mining is unavailable",
     }[state] || "Mine to Anki";
     button.setAttribute("aria-label", button.title);
-    button.textContent = {
+    const icon = button.ownerDocument.createElement("span");
+    icon.className = "gsm-hoshidicts-mine-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = {
       checking: "…",
       ready: "+",
       mining: "⟳",
@@ -231,6 +234,7 @@
       duplicate: "•",
       unavailable: "-",
     }[state] || "-";
+    button.replaceChildren(icon);
   }
 
   function formatLookupCount(label, value) {
@@ -426,6 +430,64 @@
         clearRenderedHighlight();
       },
     };
+  }
+
+  function collectGlossaryDictionaries(results) {
+    const dictionaries = [];
+    const seen = new Set();
+    for (const result of results) {
+      for (const glossary of result.term.glossaries) {
+        if (!seen.has(glossary.dictionary)) {
+          seen.add(glossary.dictionary);
+          dictionaries.push(glossary.dictionary);
+        }
+      }
+    }
+    return dictionaries;
+  }
+
+  function createDictionaryPresentationGroups(dictionaryPresentation) {
+    const groups = [];
+    let currentGroup = null;
+    for (const preference of dictionaryPresentation) {
+      if (preference.displayMode === "always" || currentGroup === null) {
+        currentGroup = [];
+        groups.push(currentGroup);
+      }
+      currentGroup.push(preference.title);
+    }
+    return groups;
+  }
+
+  function applyDictionaryPresentation(results, dictionaryPresentation) {
+    if (dictionaryPresentation.length === 0) {
+      return results;
+    }
+    const configuredDictionaries = new Set(
+      dictionaryPresentation.map(({ title }) => title)
+    );
+    const groups = createDictionaryPresentationGroups(dictionaryPresentation);
+    const available = new Set(collectGlossaryDictionaries(results));
+    const selected = new Set(
+      [...available].filter(
+        (dictionary) => !configuredDictionaries.has(dictionary)
+      )
+    );
+    for (const group of groups) {
+      const dictionary = group.find((title) => available.has(title));
+      if (dictionary) {
+        selected.add(dictionary);
+      }
+    }
+    return results.map((result) => ({
+      ...result,
+      term: {
+        ...result.term,
+        glossaries: result.term.glossaries.filter(
+          ({ dictionary }) => selected.has(dictionary)
+        ),
+      },
+    })).filter((result) => result.term.glossaries.length > 0);
   }
 
   function createPopupView(options) {
@@ -889,17 +951,7 @@
     }
 
     function collectDictionaries(results) {
-      const dictionaries = [];
-      const seen = new Set();
-      for (const result of results) {
-        for (const glossary of result.term.glossaries) {
-          if (!seen.has(glossary.dictionary)) {
-            seen.add(glossary.dictionary);
-            dictionaries.push(glossary.dictionary);
-          }
-        }
-      }
-      return dictionaries;
+      return collectGlossaryDictionaries(results);
     }
 
     function projectResults(results, dictionary) {
@@ -1191,20 +1243,40 @@
       setDefinitionBlurState(renderContext.definitionBlurState);
       const dictionaries = collectDictionaries(results);
       const dictionaryDisplayNames = createDictionaryDisplayNames(dictionaries);
-      const tabList = documentRef.createElement("div");
-      tabList.className = "gsm-hoshidicts-tab-list";
-      tabList.setAttribute("role", "tablist");
-      tabList.setAttribute("aria-label", "Dictionaries");
-      tabList.setAttribute("aria-orientation", "horizontal");
+      const dictionaryPresentation = Array.isArray(
+        renderContext.dictionaryPresentation
+      ) ? renderContext.dictionaryPresentation : [];
+      const availableDictionaries = new Set(dictionaries);
+      const favoriteDictionaries = dictionaryPresentation
+        .filter(({ favorite, title }) =>
+          favorite === true && availableDictionaries.has(title)
+        )
+        .map(({ title }) => title);
+      const tabList = favoriteDictionaries.length > 0
+        ? documentRef.createElement("div")
+        : null;
+      if (tabList) {
+        tabList.className = "gsm-hoshidicts-tab-list";
+        tabList.setAttribute("role", "tablist");
+        tabList.setAttribute("aria-label", "Dictionaries");
+        tabList.setAttribute("aria-orientation", "horizontal");
+      }
+      const allResults = applyDictionaryPresentation(
+        results,
+        dictionaryPresentation
+      );
 
       const panel = documentRef.createElement("div");
       panel.id = `${idPrefix}-tab-panel`;
       panel.className = "gsm-hoshidicts-tab-panel";
-      panel.setAttribute("role", "tabpanel");
+      if (tabList) {
+        panel.setAttribute("role", "tabpanel");
+      }
 
+      const initialResult = allResults[0] || results[0];
       const noteControls = createNoteControls({
-        term: results[0].term.expression,
-        reading: results[0].term.reading,
+        term: initialResult.term.expression,
+        reading: initialResult.term.reading,
         definition: "",
       });
       const primaryHeader = documentRef.createElement("header");
@@ -1216,14 +1288,15 @@
         panel
       );
 
-      const tabValues = [null, ...dictionaries];
+      const tabValues = [null, ...favoriteDictionaries];
       const tabButtons = [];
       let activeIndex = 0;
       let hasRendered = false;
       let rendered = null;
 
       function activateTab(index, focusTab = false) {
-        if (index < 0 || index >= tabButtons.length) {
+        const tablessAllView = tabButtons.length === 0 && index === 0;
+        if (!tablessAllView && (index < 0 || index >= tabButtons.length)) {
           return;
         }
         if (hasRendered && index === activeIndex) {
@@ -1241,17 +1314,23 @@
           button.setAttribute("aria-selected", String(selected));
           button.tabIndex = selected ? 0 : -1;
         });
-        const activeTab = tabButtons[activeIndex];
-        panel.setAttribute("aria-labelledby", activeTab.id);
-        if (focusTab) {
-          activeTab.focus();
-        }
-        if (!popup.hidden && typeof activeTab.scrollIntoView === "function") {
-          activeTab.scrollIntoView({ block: "nearest", inline: "nearest" });
+        const activeTab = tabButtons[activeIndex] || null;
+        if (activeTab) {
+          panel.setAttribute("aria-labelledby", activeTab.id);
+          if (focusTab) {
+            activeTab.focus();
+          }
+          if (!popup.hidden && typeof activeTab.scrollIntoView === "function") {
+            activeTab.scrollIntoView({ block: "nearest", inline: "nearest" });
+          }
+        } else {
+          panel.removeAttribute("aria-labelledby");
         }
 
         popup.scrollTop = 0;
-        const projectedResults = projectResults(results, tabValues[activeIndex]);
+        const projectedResults = activeIndex === 0
+          ? allResults
+          : projectResults(results, tabValues[activeIndex]);
         rendered = renderResultPanel(
           panel,
           projectedResults,
@@ -1278,6 +1357,9 @@
       }
 
       tabValues.forEach((dictionary, index) => {
+        if (!tabList) {
+          return;
+        }
         const button = documentRef.createElement("button");
         button.type = "button";
         button.id = `${idPrefix}-tab-${index}`;
@@ -1316,7 +1398,7 @@
         tabList.appendChild(button);
       });
 
-      tabList.addEventListener("wheel", (event) => {
+      tabList?.addEventListener("wheel", (event) => {
         if (
           Math.abs(event.deltaY) > Math.abs(event.deltaX)
           && tabList.scrollWidth > tabList.clientWidth
@@ -1350,6 +1432,7 @@
   }
 
   return {
+    applyDictionaryPresentation,
     createSourceHighlighter,
     createPopupView,
     setMiningButtonState,

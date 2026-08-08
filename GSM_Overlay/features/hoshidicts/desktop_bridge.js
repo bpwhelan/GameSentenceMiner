@@ -35,6 +35,42 @@ const HOSHIDICTS_NAMED_ACTIVATION_KEYS = new Map([
 const HOSHIDICTS_PUNCTUATION_ACTIVATION_KEYS = new Set([
   "-", "=", "[", "]", "\\", ";", "'", ",", ".", "/", "`",
 ]);
+const MAX_HOSHIDICTS_DICTIONARY_PRESENTATION = 256;
+const MAX_HOSHIDICTS_DICTIONARY_TITLE_LENGTH = 4096;
+
+function normalizeHoshidictsDictionaryPresentation(value) {
+  if (value === undefined) {
+    return [];
+  }
+  if (
+    !Array.isArray(value) ||
+    value.length > MAX_HOSHIDICTS_DICTIONARY_PRESENTATION
+  ) {
+    throw new Error("Hoshidicts reader preferences are invalid.");
+  }
+  const titles = new Set();
+  return value.map((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error("Hoshidicts reader preferences are invalid.");
+    }
+    const title = typeof entry.title === "string" ? entry.title : "";
+    if (
+      !title.trim() ||
+      title.length > MAX_HOSHIDICTS_DICTIONARY_TITLE_LENGTH ||
+      titles.has(title) ||
+      typeof entry.favorite !== "boolean" ||
+      (entry.displayMode !== "always" && entry.displayMode !== "fallback")
+    ) {
+      throw new Error("Hoshidicts reader preferences are invalid.");
+    }
+    titles.add(title);
+    return {
+      title,
+      favorite: entry.favorite,
+      displayMode: entry.displayMode,
+    };
+  });
+}
 
 function normalizeHoshidictsActivationKey(
   value,
@@ -73,6 +109,9 @@ function normalizeHoshidictsReaderPreferences(preferences) {
   const popupHideDelayMs = preferences && preferences.popupHideDelayMs;
   const popupNestingMaxDepth =
     preferences && preferences.popupNestingMaxDepth;
+  const dictionaryPresentation = normalizeHoshidictsDictionaryPresentation(
+    preferences && preferences.dictionaryPresentation
+  );
   if (
     (lookupMode !== "shift" && lookupMode !== "hover") ||
     activationKey === null ||
@@ -91,6 +130,7 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     sourceHighlightEnabled,
     popupHideDelayMs,
     popupNestingMaxDepth,
+    dictionaryPresentation,
   };
 }
 
@@ -528,6 +568,7 @@ module.exports = {
   dispatchAppHotkeyInputServerMessage,
   HOSHIDICTS_ACTIVATION_HOTKEY_ID,
   normalizeHoshidictsActivationKey,
+  normalizeHoshidictsDictionaryPresentation,
   normalizeHoshidictsReaderPreferences,
   OPEN_SETTINGS_METHOD,
   READER_PREFERENCES_METHOD,

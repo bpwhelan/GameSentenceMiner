@@ -33,6 +33,26 @@ const harness = vi.hoisted(() => ({
     })),
     addCustomEntry: vi.fn(async () => ({})),
     managerSnapshot: {
+        dictionaries: [
+            {
+                title: 'Primary',
+                termCount: 1,
+                favorite: true,
+                displayMode: 'always' as const,
+            },
+            {
+                title: 'Frequency only',
+                termCount: 0,
+                favorite: true,
+                displayMode: 'fallback' as const,
+            },
+            {
+                title: 'Backup',
+                termCount: 1,
+                favorite: false,
+                displayMode: 'fallback' as const,
+            },
+        ],
         lookupMode: 'hover',
         activationKey: 'F8',
         sourceHighlightEnabled: true,
@@ -249,6 +269,18 @@ describe('Hoshidicts feature registration', () => {
                     showLookupCounts: false,
                     popupNestingMaxDepth: 4,
                     definitionBlur: harness.managerSnapshot.definitionBlur,
+                    dictionaryPresentation: [
+                        {
+                            title: 'Primary',
+                            favorite: true,
+                            displayMode: 'always',
+                        },
+                        {
+                            title: 'Backup',
+                            favorite: false,
+                            displayMode: 'fallback',
+                        },
+                    ],
                 },
                 2000
             );

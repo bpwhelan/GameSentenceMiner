@@ -17,6 +17,8 @@ import {
   type HoshidictsAudioProfile,
   type HoshidictsCustomDictionaryDocument,
   type HoshidictsDesktopSnapshot,
+  type HoshidictsDictionaryDisplayMode,
+  type HoshidictsDictionaryPresentationRequest,
   type HoshidictsLookupMode,
   type HoshidictsMiningOptions,
   type HoshidictsMiningProfile,
@@ -612,6 +614,23 @@ export function useHoshidictsSettingsController() {
               id,
               enabled
             }),
+          "settings.hoshidicts.errors.operation"
+        ),
+      setDictionaryPresentation: (
+        id: string,
+        favorite: boolean,
+        displayMode: HoshidictsDictionaryDisplayMode
+      ) =>
+        runAction(
+          () =>
+            invokeIpc(
+              HOSHIDICTS_CHANNELS.setDictionaryPresentation,
+              {
+                id,
+                favorite,
+                displayMode
+              } satisfies HoshidictsDictionaryPresentationRequest
+            ),
           "settings.hoshidicts.errors.operation"
         ),
       moveDictionary: (id: string, direction: HoshidictsMoveDirection) =>

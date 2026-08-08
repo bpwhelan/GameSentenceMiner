@@ -14,6 +14,7 @@ export const HOSHIDICTS_CHANNELS = {
     setAudioProfile: 'hoshidicts.setAudioProfile',
     getMiningOptions: 'hoshidicts.getMiningOptions',
     setDictionaryEnabled: 'hoshidicts.setDictionaryEnabled',
+    setDictionaryPresentation: 'hoshidicts.setDictionaryPresentation',
     moveDictionary: 'hoshidicts.moveDictionary',
     getCustomDictionary: 'hoshidicts.getCustomDictionary',
     saveCustomDictionary: 'hoshidicts.saveCustomDictionary',
@@ -24,6 +25,7 @@ export type HoshidictsSchedule = 'off' | 'daily' | 'weekly' | 'monthly';
 export type HoshidictsLookupMode = 'shift' | 'hover';
 export type HoshidictsDefinitionBlurRevealMode = 'timed' | 'hover';
 export type HoshidictsFrequencyMode = 'occurrence-based' | 'rank-based';
+export type HoshidictsDictionaryDisplayMode = 'always' | 'fallback';
 export const HOSHIDICTS_ACTIVATION_KEYS = [
     'Ctrl',
     'Alt',
@@ -318,7 +320,7 @@ export const DEFAULT_HOSHIDICTS_DEFINITION_BLUR = {
     revealDelayMs: 5000,
 } as const satisfies HoshidictsDefinitionBlurPreferences;
 
-export interface HoshidictsReaderPreferences {
+export interface HoshidictsReaderPreferencesRequest {
     lookupMode: HoshidictsLookupMode;
     activationKey: HoshidictsActivationKey;
     sourceHighlightEnabled: boolean;
@@ -326,6 +328,19 @@ export interface HoshidictsReaderPreferences {
     showLookupCounts: boolean;
     popupNestingMaxDepth: number;
     definitionBlur: HoshidictsDefinitionBlurPreferences;
+}
+
+export interface HoshidictsDictionaryPresentation {
+    title: string;
+    favorite: boolean;
+    displayMode: HoshidictsDictionaryDisplayMode;
+}
+
+export interface HoshidictsReaderPreferences
+    extends HoshidictsReaderPreferencesRequest {
+    // Optional at the cross-process boundary for compatibility with an older
+    // overlay. Current desktop deliveries always include a normalized array.
+    dictionaryPresentation?: HoshidictsDictionaryPresentation[];
 }
 
 export interface HoshidictsAudioSource {
@@ -399,6 +414,8 @@ export interface HoshidictsDictionaryState {
     id: string;
     title: string;
     enabled: boolean;
+    favorite: boolean;
+    displayMode: HoshidictsDictionaryDisplayMode;
     revision: string;
     isUpdatable: boolean;
     indexUrl: string | null;
@@ -454,6 +471,27 @@ export interface HoshidictsManagerSnapshot {
     progress: HoshidictsProgress;
 }
 
+export function hoshidictsReaderPreferencesFromSnapshot(
+    snapshot: HoshidictsManagerSnapshot
+): HoshidictsReaderPreferences {
+    return {
+        lookupMode: snapshot.lookupMode,
+        activationKey: snapshot.activationKey,
+        sourceHighlightEnabled: snapshot.sourceHighlightEnabled,
+        popupHideDelayMs: snapshot.popupHideDelayMs,
+        showLookupCounts: snapshot.showLookupCounts,
+        popupNestingMaxDepth: snapshot.popupNestingMaxDepth,
+        definitionBlur: { ...snapshot.definitionBlur },
+        dictionaryPresentation: (snapshot.dictionaries ?? [])
+            .filter((dictionary) => dictionary.termCount > 0)
+            .map(({ title, favorite, displayMode }) => ({
+                title,
+                favorite,
+                displayMode,
+            })),
+    };
+}
+
 export interface HoshidictsDesktopSnapshot extends HoshidictsManagerSnapshot {
     effectiveEnabled: boolean;
     overlay: {
@@ -485,11 +523,15 @@ export interface HoshidictsActionResult {
     state: HoshidictsDesktopSnapshot;
 }
 
-export type HoshidictsReaderPreferencesRequest = HoshidictsReaderPreferences;
-
 export interface HoshidictsDictionaryEnabledRequest {
     id: string;
     enabled: boolean;
+}
+
+export interface HoshidictsDictionaryPresentationRequest {
+    id: string;
+    favorite: boolean;
+    displayMode: HoshidictsDictionaryDisplayMode;
 }
 
 export interface HoshidictsMoveDictionaryRequest {

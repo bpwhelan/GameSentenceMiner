@@ -138,6 +138,14 @@ function readManifest(baseDir: string): any {
     return readHoshidictsJson(baseDir, 'manifest.json');
 }
 
+function writeManifest(baseDir: string, manifest: unknown): void {
+    fs.writeFileSync(
+        path.join(baseDir, 'dictionaries', 'hoshidicts', 'manifest.json'),
+        JSON.stringify(manifest),
+        'utf8'
+    );
+}
+
 function readMiningProfile(baseDir: string): any {
     return readHoshidictsJson(baseDir, 'mining-profile.json');
 }
@@ -282,7 +290,7 @@ afterEach(() => {
 });
 
 describe('Hoshidicts immutable generations', () => {
-    it('replaces a reimported dictionary without changing its ordering or enabled state', async () => {
+    it('replaces a reimported dictionary without changing its ordering, enabled state, or presentation', async () => {
         const baseDir = makeTempDir();
         const archivesDir = makeTempDir();
         const first = writeArchive(archivesDir, 'alpha-1.zip', {
@@ -306,6 +314,7 @@ describe('Hoshidicts immutable generations', () => {
         await manager.importDictionary(second);
         const alphaId = (await manager.getSnapshot()).dictionaries[0].id;
         await manager.setDictionaryEnabled(alphaId, false);
+        await manager.setDictionaryPresentation(alphaId, true, 'fallback');
         const oldManifest = readManifest(baseDir);
         const oldAlphaPath = oldManifest.dictionaries[0].path;
         await manager.importDictionary(replacement);
@@ -323,6 +332,10 @@ describe('Hoshidicts immutable generations', () => {
             false,
             true,
         ]);
+        expect(snapshot.dictionaries[0]).toMatchObject({
+            favorite: true,
+            displayMode: 'fallback',
+        });
         expect(snapshot.dictionaries[0]).toMatchObject({
             termCount: 1,
             frequencyCount: 0,
@@ -519,6 +532,78 @@ describe('Hoshidicts immutable generations', () => {
             alphaId,
         ]);
         expect(reloadNative).toHaveBeenCalledTimes(4);
+    });
+
+    it('persists dictionary presentation without reloading native dictionaries', async () => {
+        const baseDir = makeTempDir();
+        const archive = writeArchive(makeTempDir(), 'alpha.zip', {
+            title: 'Alpha',
+            revision: 'one',
+            sourceLanguage: 'ja',
+        });
+        const { manager, reloadNative } = createHarness(baseDir);
+        await manager.importDictionary(archive);
+        const dictionaryId = (await manager.getSnapshot()).dictionaries[0].id;
+        reloadNative.mockClear();
+
+        const snapshot = await manager.setDictionaryPresentation(
+            dictionaryId,
+            true,
+            'fallback'
+        );
+
+        expect(snapshot.dictionaries[0]).toMatchObject({
+            favorite: true,
+            displayMode: 'fallback',
+        });
+        expect(readManifest(baseDir).dictionaries[0]).toMatchObject({
+            favorite: true,
+            displayMode: 'fallback',
+        });
+        expect(reloadNative).not.toHaveBeenCalled();
+    });
+
+    it('defaults presentation fields from older and malformed version-one manifests', async () => {
+        const baseDir = makeTempDir();
+        const archive = writeArchive(makeTempDir(), 'alpha.zip', {
+            title: 'Alpha',
+            revision: 'one',
+            sourceLanguage: 'ja',
+        });
+        const { manager } = createHarness(baseDir);
+        await manager.importDictionary(archive);
+        const manifest = readManifest(baseDir);
+        delete manifest.dictionaries[0].favorite;
+        manifest.dictionaries[0].displayMode = 'sometimes';
+        writeManifest(baseDir, manifest);
+
+        expect((await manager.getSnapshot()).dictionaries[0]).toMatchObject({
+            favorite: false,
+            displayMode: 'always',
+        });
+    });
+
+    it('validates dictionary presentation changes', async () => {
+        const baseDir = makeTempDir();
+        const archive = writeArchive(makeTempDir(), 'alpha.zip', {
+            title: 'Alpha',
+            revision: 'one',
+            sourceLanguage: 'ja',
+        });
+        const { manager } = createHarness(baseDir);
+        await manager.importDictionary(archive);
+        const dictionaryId = (await manager.getSnapshot()).dictionaries[0].id;
+
+        await expect(
+            manager.setDictionaryPresentation('missing', false, 'always')
+        ).rejects.toThrow('not installed');
+        await expect(
+            manager.setDictionaryPresentation(
+                dictionaryId,
+                false,
+                'sometimes' as 'always'
+            )
+        ).rejects.toThrow('display mode is invalid');
     });
 
     it('rolls back a failed dictionary enablement reload', async () => {

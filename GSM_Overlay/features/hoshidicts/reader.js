@@ -25,6 +25,7 @@
 
   if (
     !popupApi ||
+    typeof popupApi.applyDictionaryPresentation !== "function" ||
     typeof popupApi.createPopupView !== "function" ||
     typeof popupApi.createSourceHighlighter !== "function"
   ) {
@@ -33,7 +34,12 @@
   if (!audioApi || typeof audioApi.createHoshidictsAudioController !== "function") {
     throw new Error("Hoshidicts audio support must load before the reader.");
   }
-  const { createPopupView, createSourceHighlighter, setMiningButtonState } = popupApi;
+  const {
+    applyDictionaryPresentation,
+    createPopupView,
+    createSourceHighlighter,
+    setMiningButtonState,
+  } = popupApi;
   const {
     canonicalizeAudioTerm,
     createHoshidictsAudioClient,
@@ -92,6 +98,8 @@
   const RECONNECT_MAX_DELAY_MS = 12 * 1000;
   const MINING_STATUS_CACHE_MS = 5 * 1000;
   const MAX_VISIBLE_METADATA_TAGS = 12;
+  const MAX_DICTIONARY_PRESENTATION_ENTRIES = 256;
+  const MAX_DICTIONARY_PRESENTATION_TITLE_LENGTH = 4096;
   const SOURCE_HIGHLIGHT_NAME = "gsm-hoshidicts-match";
   const JAPANESE_TEXT_PATTERN =
     /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u{20000}-\u{2fa1f}]/u;
@@ -1371,6 +1379,38 @@
     return Math.max(0, Math.min(MAX_POPUP_HIDE_DELAY_MS, Math.trunc(value)));
   }
 
+  function normalizeDictionaryPresentation(value, fallback = []) {
+    if (!Array.isArray(value)) {
+      return fallback.map((entry) => ({ ...entry }));
+    }
+    const normalized = [];
+    const titles = new Set();
+    for (const entry of value.slice(0, MAX_DICTIONARY_PRESENTATION_ENTRIES)) {
+      if (!isRecord(entry)) {
+        continue;
+      }
+      const title = boundedString(
+        entry.title,
+        MAX_DICTIONARY_PRESENTATION_TITLE_LENGTH
+      );
+      if (
+        !title.trim() ||
+        titles.has(title) ||
+        typeof entry.favorite !== "boolean" ||
+        (entry.displayMode !== "always" && entry.displayMode !== "fallback")
+      ) {
+        continue;
+      }
+      titles.add(title);
+      normalized.push({
+        title,
+        favorite: entry.favorite,
+        displayMode: entry.displayMode,
+      });
+    }
+    return normalized;
+  }
+
   function normalizeDefinitionBlurPreferences(
     value,
     fallback = DEFAULT_DEFINITION_BLUR_PREFERENCES
@@ -1486,6 +1526,9 @@
       definitionBlur: normalizeDefinitionBlurPreferences(options.definitionBlur),
       popupNestingMaxDepth: normalizePopupNestingMaxDepth(
         options.popupNestingMaxDepth
+      ),
+      dictionaryPresentation: normalizeDictionaryPresentation(
+        options.dictionaryPresentation
       ),
     };
     let socket = null;
@@ -2404,9 +2447,14 @@
       signature
     ) {
       preparePopupContent("lookup_results", targetDepth);
+      const presentedResults = applyDictionaryPresentation(
+        results,
+        preferences.dictionaryPresentation
+      );
+      const primaryResult = presentedResults[0] || results[0];
       expandCandidateAnchor(
         candidate,
-        results[0].matched || results[0].term.expression
+        primaryResult.matched || primaryResult.term.expression
       );
       const level = ensurePopupLevel(targetDepth);
       const definitionBlurContext = beginDefinitionBlur(level);
@@ -2416,7 +2464,7 @@
         results,
         candidate,
         dictionaryGeneration,
-        highlightText: results[0].matched || results[0].term.expression,
+        highlightText: primaryResult.matched || primaryResult.term.expression,
         signature,
         definitionBlurContext,
       };
@@ -2424,6 +2472,7 @@
         definitionBlurState: getDefinitionBlurState(definitionBlurContext),
         generation: dictionaryGeneration,
         showLookupCounts: preferences.showLookupCounts && Boolean(onLookup),
+        dictionaryPresentation: preferences.dictionaryPresentation,
         resolveMedia: dictionaryGeneration === null
           ? null
           : (request) => resolveMedia({ ...request, depth: targetDepth }),
@@ -2436,7 +2485,7 @@
       level.audioItems = rendered.audioItems;
       showPopup(candidate, targetDepth);
       startDefinitionBlurDeadline(definitionBlurContext);
-      recordLookup(results[0], definitionBlurContext, level);
+      recordLookup(primaryResult, definitionBlurContext, level);
       syncAudioRenderedResults(targetDepth, true);
       void refreshMiningButtons(level, rendered.miningButtons, rendered.feedback);
     }
@@ -2461,6 +2510,7 @@
         definitionBlurState: getDefinitionBlurState(definitionBlurContext),
         generation: dictionaryGeneration,
         showLookupCounts: preferences.showLookupCounts && Boolean(onLookup),
+        dictionaryPresentation: preferences.dictionaryPresentation,
         resolveMedia: dictionaryGeneration === null
           ? null
           : (request) => resolveMedia({ ...request, depth: targetDepth }),
@@ -3450,6 +3500,12 @@
               preferences.popupNestingMaxDepth
             )
           : preferences.popupNestingMaxDepth,
+        dictionaryPresentation: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "dictionaryPresentation"
+        )
+          ? normalizeDictionaryPresentation(nextPreferences.dictionaryPresentation)
+          : preferences.dictionaryPresentation,
       };
       if (definitionBlurWasEnabled && !preferences.definitionBlur.enabled) {
         for (const level of popupLevels) {
@@ -3503,6 +3559,9 @@
       return {
         ...preferences,
         definitionBlur: { ...preferences.definitionBlur },
+        dictionaryPresentation: preferences.dictionaryPresentation.map(
+          (entry) => ({ ...entry })
+        ),
       };
     }
 
@@ -3599,6 +3658,9 @@
       getPreferences: () => ({
         ...preferences,
         definitionBlur: { ...preferences.definitionBlur },
+        dictionaryPresentation: preferences.dictionaryPresentation.map(
+          (entry) => ({ ...entry })
+        ),
       }),
       getAudioPreferences: () => audioController.getPreferences(),
       positionPopup: positionAllPopups,
