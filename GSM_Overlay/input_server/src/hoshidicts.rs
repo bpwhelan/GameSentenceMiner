@@ -17,6 +17,7 @@ pub const MAX_REQUEST_ID_BYTES: usize = 128;
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 const MAX_DICTIONARIES: usize = 256;
 const MAX_NATIVE_STRING_BYTES: usize = 128 * 1024;
+const MAX_NATIVE_AGGREGATE_STRINGS: usize = 4096;
 const MAX_GLOSSARIES: usize = 64;
 const MAX_TRACE_STEPS: usize = 32;
 const MAX_FREQUENCY_ENTRIES: usize = 64;
@@ -25,6 +26,9 @@ const MAX_PITCH_ENTRIES: usize = 64;
 const MAX_PITCHES_PER_ENTRY: usize = 64;
 const MAX_PITCH_MARKERS: usize = 128;
 const MAX_TRANSCRIPTIONS_PER_ENTRY: usize = 64;
+const MAX_KANJI_ENTRIES: usize = 64;
+const MAX_KANJI_DEFINITIONS_PER_ENTRY: usize = 64;
+const MAX_KANJI_STATS_PER_ENTRY: usize = 128;
 const MAX_ARCHIVE_INDEX_BYTES: u64 = 1024 * 1024;
 const REQUIRED_DICTIONARY_FILES: [&str; 3] = ["hash.table", "bloom.filter", "blobs.bin"];
 const HOSHIDICTS_MARKERS: [&str; 3] = [".hoshidicts_3", ".hoshidicts_2", ".hoshidicts_1"];
@@ -51,6 +55,11 @@ struct HdLookup {
 
 #[repr(C)]
 struct HdLookupResults {
+    _private: [u8; 0],
+}
+
+#[repr(C)]
+struct HdKanjiResults {
     _private: [u8; 0],
 }
 
@@ -139,6 +148,26 @@ struct HdLookupResult {
     preprocessor_steps: i32,
 }
 
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct HdKanjiStat {
+    key: HdStr,
+    value: HdStr,
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct HdKanjiEntry {
+    dict_name: HdStr,
+    onyomi: HdStr,
+    kunyomi: HdStr,
+    tags: HdStr,
+    definitions: *const HdStr,
+    definitions_count: usize,
+    stats: *const HdKanjiStat,
+    stats_count: usize,
+}
+
 extern "C" {
     fn hd_import(
         zip_path: *const c_char,
@@ -165,6 +194,13 @@ extern "C" {
     fn hd_query_add_freq_dict(query: *mut HdQuery, path: *const c_char) -> c_int;
     fn hd_query_add_pitch_dict(query: *mut HdQuery, path: *const c_char) -> c_int;
     fn hd_query_add_kanji_dict(query: *mut HdQuery, path: *const c_char) -> c_int;
+    fn hd_query_run_kanji(
+        query: *const HdQuery,
+        kanji: *const c_char,
+        out_entries: *mut *const HdKanjiEntry,
+        out_count: *mut usize,
+    ) -> *mut HdKanjiResults;
+    fn hd_kanji_results_free(results: *mut HdKanjiResults);
 
     fn hd_lookup_new(query: *mut HdQuery, deinflector: *mut HdDeinflector) -> *mut HdLookup;
     fn hd_lookup_free(lookup: *mut HdLookup);
@@ -269,6 +305,31 @@ pub struct LookupResult {
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct LookupKanjiStat {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LookupKanjiEntry {
+    pub dictionary: String,
+    pub onyomi: String,
+    pub kunyomi: String,
+    pub tags: String,
+    pub definitions: Vec<String>,
+    pub stats: Vec<LookupKanjiStat>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LookupKanji {
+    pub character: String,
+    pub entries: Vec<LookupKanjiEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct ImportReport {
     pub success: bool,
     pub title: String,
@@ -330,6 +391,16 @@ impl Drop for LookupResultsGuard {
     fn drop(&mut self) {
         if !self.0.is_null() {
             unsafe { hd_lookup_results_free(self.0) };
+        }
+    }
+}
+
+struct KanjiResultsGuard(*mut HdKanjiResults);
+
+impl Drop for KanjiResultsGuard {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe { hd_kanji_results_free(self.0) };
         }
     }
 }
@@ -504,9 +575,31 @@ struct ItemCount {
 #[derive(Debug)]
 struct DictionarySpec {
     path: PathBuf,
+    has_terms: bool,
     has_frequency: bool,
     has_pitch: bool,
     has_kanji: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DictionaryKind {
+    Term,
+    Frequency,
+    Pitch,
+    Kanji,
+}
+
+impl DictionarySpec {
+    fn query_kinds(&self) -> impl Iterator<Item = DictionaryKind> {
+        [
+            self.has_terms.then_some(DictionaryKind::Term),
+            self.has_frequency.then_some(DictionaryKind::Frequency),
+            self.has_pitch.then_some(DictionaryKind::Pitch),
+            self.has_kanji.then_some(DictionaryKind::Kanji),
+        ]
+        .into_iter()
+        .flatten()
+    }
 }
 
 fn validate_relative_dictionary_path(path: &str) -> Result<PathBuf, String> {
@@ -588,19 +681,24 @@ fn validate_dictionary_directory(dictionary_path: &Path) -> Result<DictionarySpe
             dictionary_path.display()
         ));
     }
-    if index.counts.terms.total == 0 {
+    let has_terms = index.counts.terms.total > 0;
+    let has_frequency = index.counts.term_meta.get("freq").copied().unwrap_or(0) > 0;
+    let has_pitch = index.counts.term_meta.get("pitch").copied().unwrap_or(0) > 0
+        || index.counts.term_meta.get("ipa").copied().unwrap_or(0) > 0;
+    let has_kanji = index.counts.kanji.total > 0;
+    if !has_terms && !has_frequency && !has_pitch && !has_kanji {
         return Err(format!(
-            "dictionary has no term entries: {}",
+            "dictionary has no queryable entries: {}",
             dictionary_path.display()
         ));
     }
 
     Ok(DictionarySpec {
         path: dictionary_path.to_path_buf(),
-        has_frequency: index.counts.term_meta.get("freq").copied().unwrap_or(0) > 0,
-        has_pitch: index.counts.term_meta.get("pitch").copied().unwrap_or(0) > 0
-            || index.counts.term_meta.get("ipa").copied().unwrap_or(0) > 0,
-        has_kanji: index.counts.kanji.total > 0,
+        has_terms,
+        has_frequency,
+        has_pitch,
+        has_kanji,
     })
 }
 
@@ -718,34 +816,20 @@ impl NativeEngine {
                     ))
                 }
             };
-            if let Err(error) = add("term", hd_query_add_term_dict)
-                .and_then(|_| {
-                    if dictionary.has_frequency {
-                        add("frequency", hd_query_add_freq_dict)
-                    } else {
-                        Ok(())
+            for kind in dictionary.query_kinds() {
+                let result = match kind {
+                    DictionaryKind::Term => add("term", hd_query_add_term_dict),
+                    DictionaryKind::Frequency => add("frequency", hd_query_add_freq_dict),
+                    DictionaryKind::Pitch => add("pitch", hd_query_add_pitch_dict),
+                    DictionaryKind::Kanji => add("kanji", hd_query_add_kanji_dict),
+                };
+                if let Err(error) = result {
+                    unsafe {
+                        hd_deinflector_free(deinflector);
+                        hd_query_free(query);
                     }
-                })
-                .and_then(|_| {
-                    if dictionary.has_pitch {
-                        add("pitch", hd_query_add_pitch_dict)
-                    } else {
-                        Ok(())
-                    }
-                })
-                .and_then(|_| {
-                    if dictionary.has_kanji {
-                        add("kanji", hd_query_add_kanji_dict)
-                    } else {
-                        Ok(())
-                    }
-                })
-            {
-                unsafe {
-                    hd_deinflector_free(deinflector);
-                    hd_query_free(query);
+                    return Err(error);
                 }
-                return Err(error);
             }
         }
 
@@ -850,6 +934,91 @@ impl NativeEngine {
             })
             .collect()
     }
+
+    fn lookup_kanji(&self, character: &str) -> Result<LookupKanji, String> {
+        validate_lookup_text(character)?;
+        let kanji = CString::new(character)
+            .map_err(|_| "kanji lookup text contains an embedded NUL byte")?;
+        let mut entry_pointer = ptr::null();
+        let mut entry_count = 0usize;
+        let owned_results = unsafe {
+            hd_query_run_kanji(
+                self.query,
+                kanji.as_ptr(),
+                &mut entry_pointer,
+                &mut entry_count,
+            )
+        };
+        if owned_results.is_null() {
+            return Err("native Hoshidicts kanji lookup failed".into());
+        }
+        let _owned_results = KanjiResultsGuard(owned_results);
+        if entry_count > MAX_KANJI_ENTRIES {
+            return Err("native Hoshidicts returned too many kanji entries".into());
+        }
+        let mut copy_budget = NativeCopyBudget::new();
+        let entries = unsafe { checked_slice(entry_pointer, entry_count, "kanji entries")? }
+            .iter()
+            .map(|entry| unsafe {
+                let definitions = checked_slice(
+                    entry.definitions,
+                    entry.definitions_count.min(MAX_KANJI_DEFINITIONS_PER_ENTRY),
+                    "kanji definitions",
+                )?
+                .iter()
+                .map(|definition| {
+                    copy_hd_string_bounded(*definition, "kanji definition", &mut copy_budget)
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+                let mut stats = checked_slice(
+                    entry.stats,
+                    entry.stats_count.min(MAX_KANJI_STATS_PER_ENTRY),
+                    "kanji stats",
+                )?
+                .iter()
+                .map(|stat| {
+                    Ok(LookupKanjiStat {
+                        name: copy_hd_string_bounded(
+                            stat.key,
+                            "kanji stat name",
+                            &mut copy_budget,
+                        )?,
+                        value: copy_hd_string_bounded(
+                            stat.value,
+                            "kanji stat value",
+                            &mut copy_budget,
+                        )?,
+                    })
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+                stats.sort_by(|left, right| {
+                    left.name
+                        .cmp(&right.name)
+                        .then_with(|| left.value.cmp(&right.value))
+                });
+                Ok(LookupKanjiEntry {
+                    dictionary: copy_hd_string_bounded(
+                        entry.dict_name,
+                        "kanji dictionary",
+                        &mut copy_budget,
+                    )?,
+                    onyomi: copy_hd_string_bounded(entry.onyomi, "kanji onyomi", &mut copy_budget)?,
+                    kunyomi: copy_hd_string_bounded(
+                        entry.kunyomi,
+                        "kanji kunyomi",
+                        &mut copy_budget,
+                    )?,
+                    tags: copy_hd_string_bounded(entry.tags, "kanji tags", &mut copy_budget)?,
+                    definitions,
+                    stats,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        Ok(LookupKanji {
+            character: character.to_owned(),
+            entries,
+        })
+    }
 }
 
 impl Drop for NativeEngine {
@@ -898,6 +1067,48 @@ unsafe fn copy_hd_string(value: HdStr, label: &str) -> Result<String, String> {
     }
     let bytes = slice::from_raw_parts(value.ptr.cast::<u8>(), value.len);
     String::from_utf8(bytes.to_vec()).map_err(|_| format!("native {label} was not valid UTF-8"))
+}
+
+struct NativeCopyBudget {
+    bytes: usize,
+    strings: usize,
+}
+
+impl NativeCopyBudget {
+    fn new() -> Self {
+        Self {
+            bytes: 0,
+            strings: 0,
+        }
+    }
+
+    fn claim(&mut self, bytes: usize, label: &str) -> Result<(), String> {
+        let next_bytes = self
+            .bytes
+            .checked_add(bytes)
+            .ok_or_else(|| format!("native {label} exceeds the aggregate response limit"))?;
+        let next_strings = self
+            .strings
+            .checked_add(1)
+            .ok_or_else(|| format!("native {label} exceeds the aggregate response limit"))?;
+        if next_bytes > MAX_LOOKUP_RESPONSE_BYTES || next_strings > MAX_NATIVE_AGGREGATE_STRINGS {
+            return Err(format!(
+                "native {label} exceeds the aggregate response limit"
+            ));
+        }
+        self.bytes = next_bytes;
+        self.strings = next_strings;
+        Ok(())
+    }
+}
+
+unsafe fn copy_hd_string_bounded(
+    value: HdStr,
+    label: &str,
+    budget: &mut NativeCopyBudget,
+) -> Result<String, String> {
+    budget.claim(value.len, label)?;
+    copy_hd_string(value, label)
 }
 
 unsafe fn copy_frequency_entries(
@@ -1032,6 +1243,14 @@ impl HoshidictsService {
             .lookup(text)
     }
 
+    pub fn lookup_kanji(&mut self, character: &str) -> Result<LookupKanji, String> {
+        self.activate()?;
+        self.engine
+            .as_ref()
+            .expect("engine was activated")
+            .lookup_kanji(character)
+    }
+
     #[cfg(test)]
     pub fn is_loaded(&self) -> bool {
         self.engine.is_some()
@@ -1079,18 +1298,38 @@ mod tests {
         }
     }
 
-    fn write_dictionary(root: &Path, relative: &str, terms: u64) -> PathBuf {
+    fn write_dictionary(root: &Path, relative: &str, terms: u64, kanji: u64) -> PathBuf {
+        write_dictionary_with_counts(root, relative, terms, &[], kanji)
+    }
+
+    fn write_dictionary_with_counts(
+        root: &Path,
+        relative: &str,
+        terms: u64,
+        term_meta: &[(&str, u64)],
+        kanji: u64,
+    ) -> PathBuf {
         let dictionary = root.join(relative);
         fs::create_dir_all(&dictionary).expect("create dictionary");
         fs::write(dictionary.join(".hoshidicts_3"), []).expect("write marker");
         fs::write(dictionary.join("hash.table"), [1]).expect("write hash");
         fs::write(dictionary.join("bloom.filter"), [1]).expect("write bloom");
         fs::write(dictionary.join("blobs.bin"), [1]).expect("write blobs");
+        let term_meta = term_meta
+            .iter()
+            .map(|(kind, count)| ((*kind).to_string(), serde_json::Value::from(*count)))
+            .collect::<serde_json::Map<String, serde_json::Value>>();
         fs::write(
             dictionary.join("index.json"),
-            format!(
-                r#"{{"title":"Test","counts":{{"terms":{{"total":{terms}}},"termMeta":{{"total":0}},"kanji":{{"total":0}}}}}}"#
-            ),
+            serde_json::json!({
+                "title": "Test",
+                "counts": {
+                    "terms": { "total": terms },
+                    "termMeta": term_meta,
+                    "kanji": { "total": kanji },
+                },
+            })
+            .to_string(),
         )
         .expect("write index");
         dictionary
@@ -1104,7 +1343,20 @@ mod tests {
         .expect("write manifest");
     }
 
-    fn write_test_archive(path: &Path) {
+    fn write_test_archive(path: &Path, include_terms: bool) {
+        write_test_archive_with_title(path, "Test Dictionary", include_terms);
+    }
+
+    fn write_test_archive_with_title(path: &Path, title: &str, include_terms: bool) {
+        write_test_archive_with_kanji_entries(path, title, include_terms, 1);
+    }
+
+    fn write_test_archive_with_kanji_entries(
+        path: &Path,
+        title: &str,
+        include_terms: bool,
+        kanji_entry_count: usize,
+    ) {
         let file = fs::File::create(path).expect("create archive");
         let mut archive = zip::ZipWriter::new(file);
         let options =
@@ -1112,26 +1364,50 @@ mod tests {
         archive
             .start_file("index.json", options)
             .expect("start index");
+        let index = serde_json::json!({
+            "title": title,
+            "revision": "1",
+            "format": 3,
+            "sequenced": false,
+            "sourceLanguage": "ja",
+        })
+        .to_string();
+        archive.write_all(index.as_bytes()).expect("write index");
+        if include_terms {
+            archive
+                .start_file("term_bank_1.json", options)
+                .expect("start term bank");
+            archive
+                .write_all(r#"[["食べる","たべる","","v1",0,["to eat"],1,""]]"#.as_bytes())
+                .expect("write term bank");
+            archive
+                .start_file("term_meta_bank_1.json", options)
+                .expect("start term metadata bank");
+            archive
+                .write_all(
+                    r#"[["食べる","freq",{"reading":"たべる","frequency":{"value":123,"displayValue":"123 ★"}}],["食べる","pitch",{"reading":"たべる","pitches":[{"position":2,"nasal":[1],"devoice":[2]}]}]]"#
+                        .as_bytes(),
+                )
+                .expect("write term metadata bank");
+        }
+        archive
+            .start_file("kanji_bank_1.json", options)
+            .expect("start kanji bank");
+        let kanji_entry = serde_json::json!([
+            "食",
+            "ショク ジキ",
+            "く.う た.べる",
+            "jouyou",
+            ["eat", "food"],
+            { "strokes": "9", "grade": "2" }
+        ]);
         archive
             .write_all(
-                br#"{"title":"Test Dictionary","revision":"1","format":3,"sequenced":false,"sourceLanguage":"ja"}"#,
-            )
-            .expect("write index");
-        archive
-            .start_file("term_bank_1.json", options)
-            .expect("start term bank");
-        archive
-            .write_all(r#"[["食べる","たべる","","v1",0,["to eat"],1,""]]"#.as_bytes())
-            .expect("write term bank");
-        archive
-            .start_file("term_meta_bank_1.json", options)
-            .expect("start term metadata bank");
-        archive
-            .write_all(
-                r#"[["食べる","freq",{"reading":"たべる","frequency":{"value":123,"displayValue":"123 ★"}}],["食べる","pitch",{"reading":"たべる","pitches":[{"position":2,"nasal":[1],"devoice":[2]}]}]]"#
+                serde_json::to_string(&vec![kanji_entry; kanji_entry_count])
+                    .expect("serialize kanji bank")
                     .as_bytes(),
             )
-            .expect("write term metadata bank");
+            .expect("write kanji bank");
         archive.finish().expect("finish archive");
     }
 
@@ -1147,9 +1423,47 @@ mod tests {
     }
 
     #[test]
+    fn native_copy_budget_rejects_oversized_aggregate_kanji_results() {
+        let chunk = vec![b'x'; MAX_NATIVE_STRING_BYTES];
+        let value = HdStr {
+            ptr: chunk.as_ptr().cast::<c_char>(),
+            len: chunk.len(),
+        };
+        let mut byte_budget = NativeCopyBudget::new();
+        unsafe {
+            copy_hd_string_bounded(value, "test value", &mut byte_budget)
+                .expect("first bounded string");
+            copy_hd_string_bounded(value, "test value", &mut byte_budget)
+                .expect("second bounded string");
+            assert!(
+                copy_hd_string_bounded(value, "test value", &mut byte_budget)
+                    .expect_err("aggregate byte limit must fail")
+                    .contains("aggregate response limit")
+            );
+        }
+
+        let empty = HdStr {
+            ptr: ptr::null(),
+            len: 0,
+        };
+        let mut item_budget = NativeCopyBudget::new();
+        unsafe {
+            for _ in 0..MAX_NATIVE_AGGREGATE_STRINGS {
+                copy_hd_string_bounded(empty, "test value", &mut item_budget)
+                    .expect("bounded empty string");
+            }
+            assert!(
+                copy_hd_string_bounded(empty, "test value", &mut item_budget)
+                    .expect_err("aggregate item limit must fail")
+                    .contains("aggregate response limit")
+            );
+        }
+    }
+
+    #[test]
     fn manifest_validation_requires_marker_index_terms_and_native_files() {
         let root = TestDir::new("validation");
-        let dictionary = write_dictionary(&root.0, "generations/test/1/Test", 1);
+        let dictionary = write_dictionary(&root.0, "generations/test/1/Test", 1, 0);
         write_manifest(&root.0, "generations/test/1/Test");
         assert_eq!(
             load_dictionary_specs(&root.0)
@@ -1162,6 +1476,90 @@ mod tests {
         assert!(load_dictionary_specs(&root.0)
             .expect_err("missing marker must fail")
             .contains("format marker"));
+    }
+
+    #[test]
+    fn dictionary_index_classifies_term_only_content() {
+        let root = TestDir::new("term-only");
+        let dictionary = write_dictionary_with_counts(&root.0, "dictionary", 1, &[], 0);
+
+        let spec = validate_dictionary_directory(&dictionary).expect("term-only dictionary");
+        assert!(spec.has_terms);
+        assert!(!spec.has_frequency);
+        assert!(!spec.has_pitch);
+        assert!(!spec.has_kanji);
+        assert_eq!(
+            spec.query_kinds().collect::<Vec<_>>(),
+            [DictionaryKind::Term]
+        );
+    }
+
+    #[test]
+    fn dictionary_index_classifies_frequency_only_content() {
+        let root = TestDir::new("frequency-only");
+        let dictionary = write_dictionary_with_counts(&root.0, "dictionary", 0, &[("freq", 1)], 0);
+
+        let spec = validate_dictionary_directory(&dictionary).expect("frequency-only dictionary");
+        assert!(!spec.has_terms);
+        assert!(spec.has_frequency);
+        assert!(!spec.has_pitch);
+        assert!(!spec.has_kanji);
+        assert_eq!(
+            spec.query_kinds().collect::<Vec<_>>(),
+            [DictionaryKind::Frequency]
+        );
+    }
+
+    #[test]
+    fn dictionary_index_classifies_pitch_only_content() {
+        let root = TestDir::new("pitch-only");
+        let dictionary = write_dictionary_with_counts(&root.0, "dictionary", 0, &[("pitch", 1)], 0);
+
+        let spec = validate_dictionary_directory(&dictionary).expect("pitch-only dictionary");
+        assert!(!spec.has_terms);
+        assert!(!spec.has_frequency);
+        assert!(spec.has_pitch);
+        assert!(!spec.has_kanji);
+        assert_eq!(
+            spec.query_kinds().collect::<Vec<_>>(),
+            [DictionaryKind::Pitch]
+        );
+
+        let ipa_dictionary =
+            write_dictionary_with_counts(&root.0, "ipa-dictionary", 0, &[("ipa", 1)], 0);
+        let ipa_spec = validate_dictionary_directory(&ipa_dictionary).expect("IPA-only dictionary");
+        assert!(ipa_spec.has_pitch);
+    }
+
+    #[test]
+    fn dictionary_index_classifies_kanji_only_content() {
+        let root = TestDir::new("kanji-only-index");
+        let dictionary = write_dictionary_with_counts(&root.0, "dictionary", 0, &[], 1);
+
+        let spec = validate_dictionary_directory(&dictionary).expect("kanji-only dictionary");
+        assert!(!spec.has_terms);
+        assert!(!spec.has_frequency);
+        assert!(!spec.has_pitch);
+        assert!(spec.has_kanji);
+        assert_eq!(
+            spec.query_kinds().collect::<Vec<_>>(),
+            [DictionaryKind::Kanji]
+        );
+    }
+
+    #[test]
+    fn dictionary_index_rejects_empty_or_unsupported_content() {
+        let root = TestDir::new("empty");
+        let empty_dictionary = write_dictionary_with_counts(&root.0, "empty", 0, &[], 0);
+        assert!(validate_dictionary_directory(&empty_dictionary)
+            .expect_err("empty dictionary must fail")
+            .contains("no queryable entries"));
+
+        let unsupported_dictionary =
+            write_dictionary_with_counts(&root.0, "unsupported", 0, &[("unknown", 1)], 0);
+        assert!(validate_dictionary_directory(&unsupported_dictionary)
+            .expect_err("unsupported dictionary must fail")
+            .contains("no queryable entries"));
     }
 
     #[test]
@@ -1194,7 +1592,7 @@ mod tests {
     fn ffi_import_lookup_and_owned_drop_order_work_end_to_end() {
         let root = TestDir::new("ffi");
         let archive_path = root.0.join("dictionary.zip");
-        write_test_archive(&archive_path);
+        write_test_archive(&archive_path, true);
 
         let report = import_dictionary(&archive_path, &root.0);
         assert_eq!(
@@ -1206,7 +1604,7 @@ mod tests {
                 meta_count: 2,
                 frequency_count: 1,
                 pitch_count: 1,
-                kanji_count: 0,
+                kanji_count: 1,
                 media_count: 0,
                 error: String::new(),
             }
@@ -1247,7 +1645,109 @@ mod tests {
                 transcriptions: Vec::new(),
             }]
         );
+        assert_eq!(
+            service.lookup_kanji("食").expect("kanji lookup"),
+            LookupKanji {
+                character: "食".into(),
+                entries: vec![LookupKanjiEntry {
+                    dictionary: "Test Dictionary".into(),
+                    onyomi: "ショク ジキ".into(),
+                    kunyomi: "く.う た.べる".into(),
+                    tags: "jouyou".into(),
+                    definitions: vec!["eat".into(), "food".into()],
+                    stats: vec![
+                        LookupKanjiStat {
+                            name: "grade".into(),
+                            value: "2".into(),
+                        },
+                        LookupKanjiStat {
+                            name: "strokes".into(),
+                            value: "9".into(),
+                        },
+                    ],
+                }],
+            }
+        );
         drop(service);
+    }
+
+    #[test]
+    fn pure_kanji_dictionary_activates_without_a_term_role() {
+        let root = TestDir::new("kanji-only");
+        let archive_path = root.0.join("kanji.zip");
+        write_test_archive(&archive_path, false);
+        let report = import_dictionary(&archive_path, &root.0);
+        assert!(report.success);
+        assert_eq!(report.term_count, 0);
+        assert_eq!(report.kanji_count, 1);
+        fs::write(
+            root.0.join(MANIFEST_FILE_NAME),
+            r#"{"version":1,"dictionaries":[{"id":"kanji","path":"Test Dictionary"}]}"#,
+        )
+        .expect("write manifest");
+
+        let mut service = HoshidictsService::new(root.0.clone());
+        assert_eq!(service.activate().expect("activate kanji dictionary"), 1);
+        assert!(service.lookup("食").expect("term lookup").is_empty());
+        assert_eq!(
+            service
+                .lookup_kanji("食")
+                .expect("kanji lookup")
+                .entries
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn unicode_paths_and_titles_round_trip_through_native_import_and_lookup() {
+        let root = TestDir::new("unicode-㋕");
+        let archive_path = root.0.join("JPDBv2㋕.zip");
+        write_test_archive_with_title(&archive_path, "JPDBv2㋕", true);
+
+        let report = import_dictionary(&archive_path, &root.0);
+        assert!(report.success, "{}", report.error);
+        assert_eq!(report.title, "JPDBv2㋕");
+        fs::write(
+            root.0.join(MANIFEST_FILE_NAME),
+            r#"{"version":1,"dictionaries":[{"id":"jpdb","path":"JPDBv2㋕"}]}"#,
+        )
+        .expect("write manifest");
+
+        let mut service = HoshidictsService::new(root.0.clone());
+        assert_eq!(service.activate().expect("activate Unicode dictionary"), 1);
+        assert!(service
+            .lookup("食べた")
+            .expect("lookup Unicode dictionary")
+            .iter()
+            .any(|result| result.term.expression == "食べる"));
+    }
+
+    #[test]
+    fn native_kanji_query_rejects_oversized_materialization_before_ffi_copy() {
+        let root = TestDir::new("bounded-native-kanji");
+        let archive_path = root.0.join("duplicate-kanji.zip");
+        write_test_archive_with_kanji_entries(
+            &archive_path,
+            "Duplicate Kanji",
+            false,
+            MAX_KANJI_ENTRIES + 1,
+        );
+
+        let report = import_dictionary(&archive_path, &root.0);
+        assert!(report.success, "{}", report.error);
+        fs::write(
+            root.0.join(MANIFEST_FILE_NAME),
+            r#"{"version":1,"dictionaries":[{"id":"bounded","path":"Duplicate Kanji"}]}"#,
+        )
+        .expect("write manifest");
+
+        let mut service = HoshidictsService::new(root.0.clone());
+        assert_eq!(service.activate().expect("activate dictionary"), 1);
+        assert!(service
+            .lookup_kanji("食")
+            .expect_err("native query must enforce its entry budget")
+            .contains("native Hoshidicts kanji lookup failed"));
     }
 
     #[test]

@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS } from '../../../shared/features/hoshidicts.js';
 import {
     defaultHoshidictsMiningProfile,
     HoshidictsManager,
@@ -22,9 +23,56 @@ interface TestArchive {
     sourceLanguage?: string | null;
     japanese?: boolean;
     terms?: number;
+    frequencies?: number;
+    pitches?: number;
+    kanji?: number;
     isUpdatable?: boolean;
     indexUrl?: string;
     downloadUrl?: string;
+}
+
+type RecommendedDictionary =
+    (typeof RECOMMENDED_HOSHIDICTS_DICTIONARIES)[number];
+
+function archiveForRecommended(
+    recommended: RecommendedDictionary
+): TestArchive {
+    const titles: Record<RecommendedDictionary['id'], string> = {
+        jitendex: 'Jitendex.org [2026-08-08]',
+        jmdict: 'JMdict [2026-08-08]',
+        jmnedict: 'JMnedict [2026-08-08]',
+        bccwj: 'BCCWJ',
+        'jpdbv2-kana': 'JPDBv2㋕',
+        jiten: 'Jiten',
+        'kanjium-pitch': 'Kanjium Pitch Accents',
+        kanjidic: 'KANJIDIC [2026-220]',
+    };
+    const title =
+        recommended.expectedTitle ?? titles[recommended.id];
+    return {
+        title,
+        revision: `${recommended.id}.2026-08-08`,
+        sourceLanguage: 'ja',
+        terms: recommended.kind === 'term' ? 1 : 0,
+        frequencies: recommended.kind === 'frequency' ? 1 : 0,
+        pitches: recommended.kind === 'pitch' ? 1 : 0,
+        kanji: recommended.kind === 'kanji' ? 1 : 0,
+        isUpdatable: recommended.indexUrl !== null,
+        indexUrl: recommended.indexUrl ?? undefined,
+        downloadUrl: recommended.downloadUrl,
+    };
+}
+
+function writeRecommendedArchive(
+    outputPath: string,
+    recommended: RecommendedDictionary
+): void {
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+    fs.writeFileSync(
+        outputPath,
+        JSON.stringify(archiveForRecommended(recommended)),
+        'utf8'
+    );
 }
 
 const tempDirs: string[] = [];
@@ -107,8 +155,12 @@ function writeImportedDictionary(outputDir: string, archive: TestArchive): void 
             importDate: Date.now(),
             counts: {
                 terms: { total: archive.terms ?? 1 },
-                termMeta: {},
-                kanji: { total: 0 },
+                termMeta: {
+                    total: (archive.frequencies ?? 0) + (archive.pitches ?? 0),
+                    freq: archive.frequencies ?? 0,
+                    pitch: archive.pitches ?? 0,
+                },
+                kanji: { total: archive.kanji ?? 0 },
             },
         }),
         'utf8'
@@ -133,7 +185,13 @@ function createHarness(baseDir: string, overrides: Partial<HoshidictsManagerDepe
             return {
                 sourceLanguage: archive.sourceLanguage ?? null,
                 hasTermBank: (archive.terms ?? 1) > 0,
-                hasJapaneseTerm: archive.japanese !== false,
+                hasSupportedBank:
+                    (archive.terms ?? 1) +
+                        (archive.frequencies ?? 0) +
+                        (archive.pitches ?? 0) +
+                        (archive.kanji ?? 0) >
+                    0,
+                hasJapaneseEntry: archive.japanese !== false,
             };
         }
     );
@@ -148,6 +206,9 @@ function createHarness(baseDir: string, overrides: Partial<HoshidictsManagerDepe
                 success: true,
                 title: archive.title,
                 termCount: archive.terms ?? 1,
+                frequencyCount: archive.frequencies ?? 0,
+                pitchCount: archive.pitches ?? 0,
+                kanjiCount: archive.kanji ?? 0,
                 error: '',
             };
         }
@@ -363,6 +424,9 @@ describe('Hoshidicts immutable generations', () => {
                     success: true,
                     title: archive.title,
                     termCount: archive.terms ?? 1,
+                    frequencyCount: archive.frequencies ?? 0,
+                    pitchCount: archive.pitches ?? 0,
+                    kanjiCount: archive.kanji ?? 0,
                     error: '',
                 };
             },
@@ -677,6 +741,66 @@ describe('Hoshidicts snapshots', () => {
 });
 
 describe('Hoshidicts import policy', () => {
+    it('offers the Japanese dictionaries curated by Yomitan plus Kanjium pitch accents', () => {
+        expect(
+            RECOMMENDED_HOSHIDICTS_DICTIONARIES.map((dictionary) => dictionary.id)
+        ).toEqual([
+            'jitendex',
+            'jmdict',
+            'jmnedict',
+            'bccwj',
+            'jpdbv2-kana',
+            'jiten',
+            'kanjium-pitch',
+            'kanjidic',
+        ]);
+        expect(
+            RECOMMENDED_HOSHIDICTS_DICTIONARIES.map(
+                (dictionary) => dictionary.downloadUrl
+            )
+        ).toEqual([
+            expect.stringContaining('jitendex-yomitan.zip'),
+            expect.stringContaining('JMdict_english_without_proper_names.zip'),
+            expect.stringContaining('JMnedict.zip'),
+            expect.stringContaining('BCCWJ_SUW_LUW_combined.zip'),
+            expect.stringContaining('JPDB_v2.2_Frequency_Kana.zip'),
+            expect.stringContaining('jiten.moe/api/frequency-list/download'),
+            expect.stringContaining('kanjium_pitch_accents.zip'),
+            expect.stringContaining('KANJIDIC_english.zip'),
+        ]);
+        expect(
+            DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.every((id) =>
+                RECOMMENDED_HOSHIDICTS_DICTIONARIES.some(
+                    (dictionary) => dictionary.id === id
+                )
+            )
+        ).toBe(true);
+    });
+
+    it.each([
+        ['frequency', 'term_meta_bank_1.json', [['食べる', 'freq', 123]]],
+        [
+            'pitch',
+            'term_meta_bank_1.json',
+            [['食べる', 'pitch', { reading: 'たべる', pitches: [{ position: 2 }] }]],
+        ],
+        ['kanji', 'kanji_bank_1.json', [['食', 'ショク', 'た.べる', '', [], {}]]],
+    ])(
+        'recognizes a Japanese %s-only Yomitan archive as supported',
+        async (_kind, bankName, bank) => {
+            const archive = await writeZipArchive(makeTempDir(), `${_kind}.zip`, {
+                'index.json': { title: _kind, revision: 'one' },
+                [bankName]: bank,
+            });
+
+            await expect(inspectHoshidictsArchive(archive)).resolves.toMatchObject({
+                sourceLanguage: null,
+                hasSupportedBank: true,
+                hasJapaneseEntry: true,
+            });
+        }
+    );
+
     it('installs one selected recommended dictionary', async () => {
         const baseDir = makeTempDir();
         const downloadArchive = vi.fn(async (url: string, outputPath: string) => {
@@ -686,36 +810,55 @@ describe('Hoshidicts import policy', () => {
             if (!recommended) {
                 throw new Error(`Unexpected recommended dictionary URL: ${url}`);
             }
-            fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-            fs.writeFileSync(
-                outputPath,
-                JSON.stringify({
-                    title: 'JMdict',
-                    revision: 'jmdict.2026-08-06',
-                    sourceLanguage: 'ja',
-                    isUpdatable: true,
-                    indexUrl: recommended.indexUrl,
-                    downloadUrl: recommended.downloadUrl,
-                }),
-                'utf8'
-            );
+            writeRecommendedArchive(outputPath, recommended);
         });
         const { manager } = createHarness(baseDir, { downloadArchive });
 
         const snapshot = await manager.installRecommendedDictionary('jmdict');
+        const jmdict = RECOMMENDED_HOSHIDICTS_DICTIONARIES.find(
+            (dictionary) => dictionary.id === 'jmdict'
+        );
 
         expect(downloadArchive).toHaveBeenCalledTimes(1);
         expect(downloadArchive).toHaveBeenCalledWith(
-            RECOMMENDED_HOSHIDICTS_DICTIONARIES[0].downloadUrl,
+            jmdict?.downloadUrl,
             expect.any(String)
         );
-        expect(snapshot.recommendedDictionaries).toEqual([
-            { id: 'jmdict', installed: true },
-            { id: 'jmnedict', installed: false },
-        ]);
+        expect(
+            snapshot.recommendedDictionaries.find(
+                (dictionary) => dictionary.id === 'jmdict'
+            )
+        ).toEqual({ id: 'jmdict', installed: true });
     });
 
-    it('installs the recommended JMdict and JMnedict pair without KANJIDIC', async () => {
+    it('trusts a catalog download with an oversized legacy bank only after import kind validation', async () => {
+        const baseDir = makeTempDir();
+        const bccwj = RECOMMENDED_HOSHIDICTS_DICTIONARIES.find(
+            (dictionary) => dictionary.id === 'bccwj'
+        );
+        const downloadArchive = vi.fn(async (_url: string, outputPath: string) => {
+            writeRecommendedArchive(outputPath, bccwj!);
+        });
+        const { manager } = createHarness(baseDir, {
+            downloadArchive,
+            inspectArchive: async () => ({
+                sourceLanguage: null,
+                hasTermBank: false,
+                hasSupportedBank: true,
+                hasJapaneseEntry: false,
+            }),
+        });
+
+        const snapshot = await manager.installRecommendedDictionary('bccwj');
+
+        expect(snapshot.dictionaries[0]).toMatchObject({
+            title: 'BCCWJ',
+            termCount: 0,
+            frequencyCount: 1,
+        });
+    });
+
+    it('installs the expanded default bundle without the duplicate JMdict alternative', async () => {
         const baseDir = makeTempDir();
         const downloadArchive = vi.fn(async (url: string, outputPath: string) => {
             const recommended = RECOMMENDED_HOSHIDICTS_DICTIONARIES.find(
@@ -724,52 +867,34 @@ describe('Hoshidicts import policy', () => {
             if (!recommended) {
                 throw new Error(`Unexpected recommended dictionary URL: ${url}`);
             }
-            fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-            fs.writeFileSync(
-                outputPath,
-                JSON.stringify({
-                    title:
-                        recommended.id === 'jmdict'
-                            ? 'JMdict [2026-08-05]'
-                            : 'JMnedict [2026-08-05]',
-                    revision: `${recommended.id}.2026-08-05`,
-                    sourceLanguage: 'ja',
-                    isUpdatable: true,
-                    indexUrl: recommended.indexUrl,
-                    downloadUrl: recommended.downloadUrl,
-                }),
-                'utf8'
-            );
+            writeRecommendedArchive(outputPath, recommended);
         });
         const { manager } = createHarness(baseDir, { downloadArchive });
 
         const snapshot = await manager.installRecommendedDictionaries();
+        const defaults = RECOMMENDED_HOSHIDICTS_DICTIONARIES.filter(
+            (dictionary) =>
+                DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.some(
+                    (id) => id === dictionary.id
+                )
+        );
 
         expect(
-            RECOMMENDED_HOSHIDICTS_DICTIONARIES.map(
-                (dictionary) => dictionary.downloadUrl
-            )
-        ).toEqual([
-            expect.stringContaining('JMdict_english_without_proper_names.zip'),
-            expect.stringContaining('JMnedict.zip'),
-        ]);
-        expect(
-            RECOMMENDED_HOSHIDICTS_DICTIONARIES.some((dictionary) =>
-                dictionary.downloadUrl.includes('KANJIDIC')
-            )
-        ).toBe(false);
-        expect(downloadArchive).toHaveBeenCalledTimes(2);
-        expect(snapshot.dictionaries.map((dictionary) => dictionary.title)).toEqual([
-            'JMdict [2026-08-05]',
-            'JMnedict [2026-08-05]',
-        ]);
-        expect(snapshot.recommendedDictionaries).toEqual([
-            { id: 'jmdict', installed: true },
-            { id: 'jmnedict', installed: true },
-        ]);
+            downloadArchive.mock.calls.map(([url]) => url)
+        ).toEqual(defaults.map((dictionary) => dictionary.downloadUrl));
+        expect(downloadArchive).toHaveBeenCalledTimes(7);
+        expect(snapshot.dictionaries).toHaveLength(7);
+        expect(snapshot.recommendedDictionaries).toEqual(
+            RECOMMENDED_HOSHIDICTS_DICTIONARIES.map((dictionary) => ({
+                id: dictionary.id,
+                installed: DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.some(
+                    (id) => id === dictionary.id
+                ),
+            }))
+        );
 
         await manager.installRecommendedDictionaries();
-        expect(downloadArchive).toHaveBeenCalledTimes(2);
+        expect(downloadArchive).toHaveBeenCalledTimes(7);
     });
 
     it('resumes a partial recommended install without downloading completed dictionaries again', async () => {
@@ -785,47 +910,37 @@ describe('Hoshidicts import policy', () => {
             if (recommended.id === 'jmnedict' && jmnedictAttempts++ === 0) {
                 throw new Error('temporary download failure');
             }
-            fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-            fs.writeFileSync(
-                outputPath,
-                JSON.stringify({
-                    title:
-                        recommended.id === 'jmdict'
-                            ? 'JMdict [2026-08-05]'
-                            : 'JMnedict [2026-08-05]',
-                    revision: `${recommended.id}.2026-08-05`,
-                    sourceLanguage: 'ja',
-                    isUpdatable: true,
-                    indexUrl: recommended.indexUrl,
-                    downloadUrl: recommended.downloadUrl,
-                }),
-                'utf8'
-            );
+            writeRecommendedArchive(outputPath, recommended);
         });
         const { manager } = createHarness(baseDir, { downloadArchive });
 
         await expect(manager.installRecommendedDictionaries()).rejects.toThrow(
             'temporary download failure'
         );
-        expect((await manager.getSnapshot()).recommendedDictionaries).toEqual([
-            { id: 'jmdict', installed: true },
-            { id: 'jmnedict', installed: false },
-        ]);
+        const partial = await manager.getSnapshot();
+        expect(
+            partial.recommendedDictionaries.find(
+                (dictionary) => dictionary.id === 'jitendex'
+            )?.installed
+        ).toBe(true);
+        expect(
+            partial.recommendedDictionaries.find(
+                (dictionary) => dictionary.id === 'jmnedict'
+            )?.installed
+        ).toBe(false);
 
         await manager.installRecommendedDictionaries();
 
-        expect(
-            downloadArchive.mock.calls.filter(
-                ([url]) =>
-                    url === RECOMMENDED_HOSHIDICTS_DICTIONARIES[0].downloadUrl
-            )
-        ).toHaveLength(1);
-        expect(
-            downloadArchive.mock.calls.filter(
-                ([url]) =>
-                    url === RECOMMENDED_HOSHIDICTS_DICTIONARIES[1].downloadUrl
-            )
-        ).toHaveLength(2);
+        const attempts = (id: RecommendedDictionary['id']) => {
+            const recommended = RECOMMENDED_HOSHIDICTS_DICTIONARIES.find(
+                (dictionary) => dictionary.id === id
+            );
+            return downloadArchive.mock.calls.filter(
+                ([url]) => url === recommended?.downloadUrl
+            ).length;
+        };
+        expect(attempts('jitendex')).toBe(1);
+        expect(attempts('jmnedict')).toBe(2);
     });
 
     it('inspects source language and Japanese terms from a real ZIP archive', async () => {
@@ -840,7 +955,8 @@ describe('Hoshidicts import policy', () => {
         await expect(inspectHoshidictsArchive(archive)).resolves.toEqual({
             sourceLanguage: null,
             hasTermBank: true,
-            hasJapaneseTerm: true,
+            hasSupportedBank: true,
+            hasJapaneseEntry: true,
         });
     });
 
@@ -864,12 +980,12 @@ describe('Hoshidicts import policy', () => {
             'source language must be ja'
         );
         await expect(manager.importDictionary(legacy)).rejects.toThrow(
-            'must contain Japanese terms'
+            'must contain Japanese entries'
         );
         expect(runImport).not.toHaveBeenCalled();
     });
 
-    it('rejects archives without term entries', async () => {
+    it('rejects archives without supported entries', async () => {
         const baseDir = makeTempDir();
         const archive = writeArchive(makeTempDir(), 'empty.zip', {
             title: 'Empty',
@@ -881,12 +997,13 @@ describe('Hoshidicts import policy', () => {
             inspectArchive: async () => ({
                 sourceLanguage: 'ja',
                 hasTermBank: true,
-                hasJapaneseTerm: true,
+                hasSupportedBank: true,
+                hasJapaneseEntry: true,
             }),
         });
 
         await expect(manager.importDictionary(archive)).rejects.toThrow(
-            'does not contain term entries'
+            'does not contain supported entries'
         );
         expect((await manager.getSnapshot()).dictionaries).toEqual([]);
     });
@@ -903,6 +1020,9 @@ describe('Hoshidicts import policy', () => {
                 success: true,
                 title: '../Unsafe',
                 termCount: 1,
+                frequencyCount: 0,
+                pitchCount: 0,
+                kanjiCount: 0,
                 error: '',
             }),
         });
@@ -914,6 +1034,71 @@ describe('Hoshidicts import policy', () => {
 });
 
 describe('Hoshidicts updates and schedule', () => {
+    it('rejects a wrong-kind update for an installed recommendation', async () => {
+        const baseDir = makeTempDir();
+        const jitendex = RECOMMENDED_HOSHIDICTS_DICTIONARIES.find(
+            (dictionary) => dictionary.id === 'jitendex'
+        )!;
+        let downloadCount = 0;
+        const downloadArchive = vi.fn(async (_url: string, outputPath: string) => {
+            const archive =
+                downloadCount++ === 0
+                    ? archiveForRecommended(jitendex)
+                    : {
+                          ...archiveForRecommended(jitendex),
+                          revision: 'wrong-kind-update',
+                          terms: 0,
+                          frequencies: 1,
+                      };
+            fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+            fs.writeFileSync(outputPath, JSON.stringify(archive), 'utf8');
+        });
+        const { manager } = createHarness(baseDir, {
+            downloadArchive,
+            fetchRemoteIndex: async () => ({
+                revision: 'wrong-kind-update',
+                downloadUrl: jitendex.downloadUrl,
+            }),
+        });
+
+        await manager.installRecommendedDictionary('jitendex');
+        const snapshot = await manager.checkForUpdates();
+
+        expect(snapshot.lastError).toContain('did not contain term entries');
+        expect(snapshot.dictionaries[0]).toMatchObject({
+            revision: 'jitendex.2026-08-08',
+            termCount: 1,
+            frequencyCount: 0,
+        });
+    });
+
+    it('rejects a manual wrong-kind replacement of an installed recommendation', async () => {
+        const baseDir = makeTempDir();
+        const jitendex = RECOMMENDED_HOSHIDICTS_DICTIONARIES.find(
+            (dictionary) => dictionary.id === 'jitendex'
+        )!;
+        const downloadArchive = vi.fn(async (_url: string, outputPath: string) => {
+            writeRecommendedArchive(outputPath, jitendex);
+        });
+        const { manager } = createHarness(baseDir, { downloadArchive });
+        await manager.installRecommendedDictionary('jitendex');
+        const wrongKind = writeArchive(makeTempDir(), 'wrong-kind.zip', {
+            ...archiveForRecommended(jitendex),
+            revision: 'manual-wrong-kind',
+            terms: 0,
+            frequencies: 1,
+        });
+
+        await expect(manager.importDictionary(wrongKind)).rejects.toThrow(
+            'did not contain term entries'
+        );
+        expect((await manager.getSnapshot()).dictionaries[0]).toMatchObject({
+            revision: 'jitendex.2026-08-08',
+            termCount: 1,
+            frequencyCount: 0,
+        });
+    });
+
     it('treats revisions as opaque and updates through the staged import path', async () => {
         const baseDir = makeTempDir();
         const archivesDir = makeTempDir();
