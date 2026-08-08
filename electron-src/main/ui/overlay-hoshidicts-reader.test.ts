@@ -1896,6 +1896,7 @@ describe("Hoshidicts dictionary tabs", () => {
       '<img src=x onerror="window.hacked=true">'
     ]);
     expect(tabs[0]?.getAttribute("aria-selected")).toBe("true");
+    expect(tablist?.getAttribute("aria-multiselectable")).toBe("true");
     expect(tablist?.getAttribute("aria-orientation")).toBe("horizontal");
     expect(tablist?.textContent).not.toContain("Frequency");
     expect(tablist?.textContent).not.toContain("Pitch");
@@ -2007,6 +2008,55 @@ describe("Hoshidicts dictionary tabs", () => {
       "to take food"
     );
     expect(jitendexTab?.getAttribute("aria-selected")).toBe("true");
+    reader.destroy();
+  });
+
+  it("selects multiple dictionaries and filters to their combined glossaries", async () => {
+    const { lookup, reader, socket } = createLookupHarness();
+    const { popup } = await lookup((requestId) =>
+      lookupResultWithDictionaries(requestId, [
+        { dictionary: "Alpha", glossary: "alpha definition" },
+        { dictionary: "Beta", glossary: "beta definition" },
+        { dictionary: "Gamma", glossary: "gamma definition" }
+      ])
+    );
+    const sentBeforeSelection = socket.sent.length;
+    const buttons = Array.from(
+      popup.querySelectorAll<HTMLButtonElement>(".gsm-hoshidicts-tab")
+    );
+    const all = buttons.find((button) => button.textContent === "All")!;
+    const alpha = buttons.find((button) => button.textContent === "Alpha")!;
+    const beta = buttons.find((button) => button.textContent === "Beta")!;
+
+    alpha.click();
+    beta.click();
+
+    expect(socket.sent).toHaveLength(sentBeforeSelection);
+    expect(all.getAttribute("aria-selected")).toBe("false");
+    expect(alpha.getAttribute("aria-selected")).toBe("true");
+    expect(beta.getAttribute("aria-selected")).toBe("true");
+    expect(
+      popup.querySelector(".gsm-hoshidicts-tab-panel")
+        ?.getAttribute("aria-labelledby")
+    ).toBe(`${alpha.id} ${beta.id}`);
+    expect(popup.querySelector(".gsm-hoshidicts-tab-panel")?.textContent)
+      .toContain("alpha definition");
+    expect(popup.querySelector(".gsm-hoshidicts-tab-panel")?.textContent)
+      .toContain("beta definition");
+    expect(popup.querySelector(".gsm-hoshidicts-tab-panel")?.textContent)
+      .not.toContain("gamma definition");
+
+    alpha.click();
+    expect(alpha.getAttribute("aria-selected")).toBe("false");
+    expect(beta.getAttribute("aria-selected")).toBe("true");
+    expect(popup.querySelector(".gsm-hoshidicts-tab-panel")?.textContent)
+      .not.toContain("alpha definition");
+
+    beta.click();
+    expect(all.getAttribute("aria-selected")).toBe("true");
+    expect(beta.getAttribute("aria-selected")).toBe("false");
+    expect(popup.querySelector(".gsm-hoshidicts-tab-panel")?.textContent)
+      .toContain("gamma definition");
     reader.destroy();
   });
 
@@ -2159,6 +2209,25 @@ describe("Hoshidicts dictionary tabs", () => {
     ]);
     expect(payload.result.term.pitches).toEqual([
       expect.objectContaining({ dictionary: "Pitch" })
+    ]);
+
+    const jmdictTab = Array.from(
+      popup.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+    ).find((tab) => tab.textContent === "JMdict");
+    jmdictTab?.click();
+    await flushPromises();
+    popup
+      .querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")
+      ?.click();
+    await flushPromises();
+
+    expect(mine).toHaveBeenCalledTimes(3);
+    expect(mine.mock.calls[2][0].result.term.glossaries).toEqual([
+      expect.objectContaining({ dictionary: "JMdict", glossary: "to eat" }),
+      expect.objectContaining({
+        dictionary: "Jitendex.org [2026-08-08]",
+        glossary: "to consume"
+      })
     ]);
     reader.destroy();
   });

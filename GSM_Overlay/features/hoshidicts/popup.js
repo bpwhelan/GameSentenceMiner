@@ -913,14 +913,14 @@
       return collectGlossaryDictionaries(results);
     }
 
-    function projectResults(results, dictionary) {
-      if (dictionary === null) {
+    function projectResults(results, dictionaries) {
+      if (dictionaries.size === 0) {
         return results;
       }
       const projected = [];
       for (const result of results) {
         const glossaries = result.term.glossaries.filter(
-          (glossary) => glossary.dictionary === dictionary
+          (glossary) => dictionaries.has(glossary.dictionary)
         );
         if (glossaries.length === 0) {
           continue;
@@ -1226,6 +1226,7 @@
         tabList.className = "gsm-hoshidicts-tab-list";
         tabList.setAttribute("role", "tablist");
         tabList.setAttribute("aria-label", "Dictionaries");
+        tabList.setAttribute("aria-multiselectable", "true");
         tabList.setAttribute("aria-orientation", "horizontal");
       }
       const panel = documentRef.createElement("div");
@@ -1252,47 +1253,72 @@
 
       const tabValues = [null, ...favoriteDictionaries];
       const tabButtons = [];
-      let activeIndex = 0;
+      const selectedDictionaries = new Set();
+      let focusedIndex = 0;
       let hasRendered = false;
       let rendered = null;
 
-      function activateTab(index, focusTab = false) {
+      function updateTabState() {
+        const selectedButtonIds = [];
+        tabButtons.forEach((button, buttonIndex) => {
+          const dictionary = tabValues[buttonIndex];
+          const selected = dictionary === null
+            ? selectedDictionaries.size === 0
+            : selectedDictionaries.has(dictionary);
+          button.setAttribute("aria-selected", String(selected));
+          button.tabIndex = buttonIndex === focusedIndex ? 0 : -1;
+          if (selected) {
+            selectedButtonIds.push(button.id);
+          }
+        });
+        if (selectedButtonIds.length > 0) {
+          panel.setAttribute("aria-labelledby", selectedButtonIds.join(" "));
+        } else {
+          panel.removeAttribute("aria-labelledby");
+        }
+      }
+
+      function activateTab(index, focusButton = false) {
         const tablessAllView = tabButtons.length === 0 && index === 0;
         if (!tablessAllView && (index < 0 || index >= tabButtons.length)) {
           return;
         }
-        if (hasRendered && index === activeIndex) {
-          if (focusTab) {
-            tabButtons[index].focus();
+        const previousSelection = new Set(selectedDictionaries);
+        focusedIndex = index;
+        const dictionary = tabValues[index];
+        if (dictionary === null) {
+          selectedDictionaries.clear();
+        } else if (selectedDictionaries.size === 0) {
+          selectedDictionaries.add(dictionary);
+        } else if (selectedDictionaries.has(dictionary)) {
+          selectedDictionaries.delete(dictionary);
+        } else {
+          selectedDictionaries.add(dictionary);
+        }
+        updateTabState();
+        const button = tabButtons[index];
+        if (focusButton && button) {
+          button.focus();
+        }
+        const selectionChanged =
+          previousSelection.size !== selectedDictionaries.size ||
+          [...previousSelection].some(
+            (selectedDictionary) => !selectedDictionaries.has(selectedDictionary)
+          );
+        if (hasRendered && !selectionChanged) {
+          if (
+            button && !popup.hidden
+            && typeof button.scrollIntoView === "function"
+          ) {
+            button.scrollIntoView({ block: "nearest", inline: "nearest" });
           }
           return;
         }
         if (hasRendered) {
           onBeforeResultsRendered();
         }
-        activeIndex = index;
-        tabButtons.forEach((button, buttonIndex) => {
-          const selected = buttonIndex === activeIndex;
-          button.setAttribute("aria-selected", String(selected));
-          button.tabIndex = selected ? 0 : -1;
-        });
-        const activeTab = tabButtons[activeIndex] || null;
-        if (activeTab) {
-          panel.setAttribute("aria-labelledby", activeTab.id);
-          if (focusTab) {
-            activeTab.focus();
-          }
-          if (!popup.hidden && typeof activeTab.scrollIntoView === "function") {
-            activeTab.scrollIntoView({ block: "nearest", inline: "nearest" });
-          }
-        } else {
-          panel.removeAttribute("aria-labelledby");
-        }
-
         popup.scrollTop = 0;
-        const projectedResults = activeIndex === 0
-          ? results
-          : projectResults(results, tabValues[activeIndex]);
+        const projectedResults = projectResults(results, selectedDictionaries);
         rendered = renderResultPanel(
           panel,
           projectedResults,
@@ -1303,7 +1329,8 @@
             // line on the All tab so a dictionary projection cannot attach the
             // original term's count to a different expression.
             showLookupCounts:
-              activeIndex === 0 && renderContext.showLookupCounts === true,
+              selectedDictionaries.size === 0
+              && renderContext.showLookupCounts === true,
           },
           {
             dictionaryDisplayNames,
