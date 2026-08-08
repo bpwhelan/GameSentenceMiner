@@ -22,12 +22,14 @@ import {
 import {
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
+  HOSHIDICTS_FIELD_OVERWRITE_MODES,
   MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
   MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
   MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
   type HoshidictsActivationKey,
+  type HoshidictsFieldOverwriteMode,
   type HoshidictsSchedule
 } from "../../../../shared/features/hoshidicts";
 import { useTranslation } from "../../i18n";
@@ -48,6 +50,15 @@ import { HoshidictsSaveIndicator } from "./HoshidictsSaveIndicator";
 import type { useHoshidictsSettingsController } from "./useHoshidictsSettingsController";
 
 type Controller = ReturnType<typeof useHoshidictsSettingsController>;
+
+const OVERWRITE_MODE_KEYS: Record<HoshidictsFieldOverwriteMode, string> = {
+  coalesce: "settings.hoshidicts.mining.overwriteModes.coalesce",
+  "coalesce-new": "settings.hoshidicts.mining.overwriteModes.coalesceNew",
+  skip: "settings.hoshidicts.mining.overwriteModes.skip",
+  append: "settings.hoshidicts.mining.overwriteModes.append",
+  prepend: "settings.hoshidicts.mining.overwriteModes.prepend",
+  overwrite: "settings.hoshidicts.mining.overwriteModes.overwrite"
+};
 
 function CustomDictionarySaveIndicator({
   status
@@ -1117,6 +1128,9 @@ export function MiningPanel({ controller }: { controller: Controller }) {
     ).map(({ labelKey }) => t(labelKey));
     return { backend: miningOptions.warnings, missingOverrides };
   }, [miningDraft.fields, miningOptions, t]);
+  const showOverwriteModes =
+    miningDraft.checkForDuplicates &&
+    miningDraft.duplicateBehavior === "overwrite";
 
   return (
     <section className="hoshidicts-section hoshidicts-mining">
@@ -1284,29 +1298,109 @@ export function MiningPanel({ controller }: { controller: Controller }) {
           />
         </label>
 
-        <label>
-          <span>{t("settings.hoshidicts.mining.duplicates")}</span>
-          <select
-            id="hoshidicts-mining-duplicates"
-            value={miningDraft.duplicatePolicy}
+      </div>
+
+      <fieldset className="hoshidicts-mining-duplicates">
+        <legend>{t("settings.hoshidicts.mining.duplicateHandling")}</legend>
+        <label className="hoshidicts-mining-duplicates__toggle">
+          <input
+            id="hoshidicts-mining-check-duplicates"
+            type="checkbox"
+            checked={miningDraft.checkForDuplicates}
             disabled={miningBusy}
             onChange={(event) =>
               updateMiningDraft((current) => ({
                 ...current,
-                duplicatePolicy:
-                  event.target.value === "allow" ? "allow" : "prevent"
+                checkForDuplicates: event.target.checked
               }))
             }
-          >
-            <option value="prevent">
-              {t("settings.hoshidicts.mining.preventDuplicates")}
-            </option>
-            <option value="allow">
-              {t("settings.hoshidicts.mining.allowDuplicates")}
-            </option>
-          </select>
+          />
+          <span>{t("settings.hoshidicts.mining.checkForDuplicates")}</span>
         </label>
-      </div>
+        <p>{t("settings.hoshidicts.mining.duplicateCheckHint")}</p>
+
+        <div className="hoshidicts-mining-duplicates__options">
+          <label>
+            <span>{t("settings.hoshidicts.mining.duplicateScope")}</span>
+            <select
+              id="hoshidicts-mining-duplicate-scope"
+              value={miningDraft.duplicateScope}
+              disabled={miningBusy || !miningDraft.checkForDuplicates}
+              onChange={(event) =>
+                updateMiningDraft((current) => ({
+                  ...current,
+                  duplicateScope:
+                    event.target.value === "deck" ||
+                    event.target.value === "deck-root"
+                      ? event.target.value
+                      : "collection"
+                }))
+              }
+            >
+              <option value="collection">
+                {t("settings.hoshidicts.mining.scopeCollection")}
+              </option>
+              <option value="deck">
+                {t("settings.hoshidicts.mining.scopeDeck")}
+              </option>
+              <option value="deck-root">
+                {t("settings.hoshidicts.mining.scopeDeckRoot")}
+              </option>
+            </select>
+          </label>
+
+          <label>
+            <span>{t("settings.hoshidicts.mining.whenDuplicateDetected")}</span>
+            <select
+              id="hoshidicts-mining-duplicate-behavior"
+              value={miningDraft.duplicateBehavior}
+              disabled={miningBusy || !miningDraft.checkForDuplicates}
+              onChange={(event) =>
+                updateMiningDraft((current) => ({
+                  ...current,
+                  duplicateBehavior:
+                    event.target.value === "overwrite" ||
+                    event.target.value === "new"
+                      ? event.target.value
+                      : "prevent"
+                }))
+              }
+            >
+              <option value="prevent">
+                {t("settings.hoshidicts.mining.preventAdding")}
+              </option>
+              <option value="overwrite">
+                {t("settings.hoshidicts.mining.allowOverwriting")}
+              </option>
+              <option value="new">
+                {t("settings.hoshidicts.mining.allowAdding")}
+              </option>
+            </select>
+          </label>
+        </div>
+
+        <label className="hoshidicts-mining-duplicates__toggle">
+          <input
+            id="hoshidicts-mining-check-all-note-types"
+            type="checkbox"
+            checked={miningDraft.duplicateScopeCheckAllModels}
+            disabled={miningBusy || !miningDraft.checkForDuplicates}
+            onChange={(event) =>
+              updateMiningDraft((current) => ({
+                ...current,
+                duplicateScopeCheckAllModels: event.target.checked
+              }))
+            }
+          />
+          <span>{t("settings.hoshidicts.mining.checkAllNoteTypes")}</span>
+        </label>
+        <p>{t("settings.hoshidicts.mining.checkAllNoteTypesHint")}</p>
+        {showOverwriteModes ? (
+          <p className="hoshidicts-mining-duplicates__warning" role="note">
+            {t("settings.hoshidicts.mining.overwriteWarning")}
+          </p>
+        ) : null}
+      </fieldset>
 
       <details className="hoshidicts-mining-fields" open>
         <summary>{t("settings.hoshidicts.mining.fieldMappings")}</summary>
@@ -1319,13 +1413,21 @@ export function MiningPanel({ controller }: { controller: Controller }) {
           </span>
           <span>{t("settings.hoshidicts.mining.mappingHint")}</span>
         </div>
-        <div className="hoshidicts-mining-field-grid">
+        <div
+          className="hoshidicts-mining-field-grid"
+          data-overwrite={showOverwriteModes}
+        >
           <span className="hoshidicts-mining-field-grid__header">
             {t("settings.hoshidicts.mining.mappingFieldHeader")}
           </span>
           <span className="hoshidicts-mining-field-grid__header">
             {t("settings.hoshidicts.mining.mappingValueHeader")}
           </span>
+          {showOverwriteModes ? (
+            <span className="hoshidicts-mining-field-grid__header">
+              {t("settings.hoshidicts.mining.overwriteModeHeader")}
+            </span>
+          ) : null}
           {MINING_FIELDS.map((field) => {
             const target = automaticFieldTarget(miningOptions, field.id);
             const choice = getFieldChoice(miningDraft, field.id);
@@ -1366,6 +1468,37 @@ export function MiningPanel({ controller }: { controller: Controller }) {
                     </option>
                   ))}
                 </select>
+                {showOverwriteModes ? (
+                  <select
+                    id={`hoshidicts-mining-overwrite-${field.id}`}
+                    aria-label={t(
+                      "settings.hoshidicts.mining.overwriteFieldLabel",
+                      { field: t(field.labelKey) }
+                    )}
+                    value={miningDraft.fieldOverwriteModes[field.id]}
+                    disabled={miningBusy}
+                    onChange={(event) => {
+                      const mode = event.target
+                        .value as HoshidictsFieldOverwriteMode;
+                      if (!HOSHIDICTS_FIELD_OVERWRITE_MODES.includes(mode)) {
+                        return;
+                      }
+                      updateMiningDraft((current) => ({
+                        ...current,
+                        fieldOverwriteModes: {
+                          ...current.fieldOverwriteModes,
+                          [field.id]: mode
+                        }
+                      }));
+                    }}
+                  >
+                    {HOSHIDICTS_FIELD_OVERWRITE_MODES.map((mode) => (
+                      <option value={mode} key={mode}>
+                        {t(OVERWRITE_MODE_KEYS[mode])}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
               </Fragment>
             );
           })}

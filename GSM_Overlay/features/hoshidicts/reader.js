@@ -2702,9 +2702,13 @@
         if (!isLiveMiningRender(level, generation, feedback)) {
           return;
         }
-        const duplicatePolicy = duplicateInfo.duplicatePolicy === "allow"
-          ? "allow"
-          : "prevent";
+        const duplicateBehavior = ["prevent", "overwrite", "new"].includes(
+          duplicateInfo.duplicateBehavior
+        )
+          ? duplicateInfo.duplicateBehavior
+          : duplicateInfo.duplicatePolicy === "allow"
+            ? "new"
+            : "prevent";
         miningItems.forEach(({ button }, index) => {
           const noteInfo = isRecord(duplicateInfo.results[index])
             ? duplicateInfo.results[index]
@@ -2715,13 +2719,20 @@
           const duplicate = noteInfo.duplicate === true ||
             noteInfo.state === "duplicate";
           if (duplicate) {
+            const duplicateState = noteInfo.canAdd === true
+              ? duplicateBehavior === "overwrite"
+                ? "overwrite"
+                : "add-duplicate"
+              : "duplicate";
             setMiningButtonState(
               button,
-              duplicatePolicy === "allow" ? "add-duplicate" : "duplicate",
+              duplicateState,
               message || (
-                duplicatePolicy === "allow"
-                  ? "Add duplicate to Anki"
-                  : "Note already exists"
+                duplicateState === "overwrite"
+                  ? "Overwrite note in Anki"
+                  : duplicateState === "add-duplicate"
+                    ? "Add duplicate to Anki"
+                    : "Note already exists"
               )
             );
           } else if (
@@ -2756,7 +2767,9 @@
       if (
         !onMine ||
         miningInFlight ||
-        !["ready", "add-duplicate", "error"].includes(button.dataset.state)
+        !["ready", "add-duplicate", "overwrite", "error"].includes(
+          button.dataset.state
+        )
       ) {
         return;
       }
@@ -2765,7 +2778,12 @@
         return;
       }
       miningInFlight = true;
-      level.view.setFeedback(feedback, "Adding note to Anki…");
+      level.view.setFeedback(
+        feedback,
+        button.dataset.state === "overwrite"
+          ? "Overwriting note in Anki…"
+          : "Adding note to Anki…"
+      );
       const buttons = popupLevels.flatMap((entry) =>
         Array.from(entry.popup.querySelectorAll(".gsm-hoshidicts-mine-button"))
       );
@@ -2799,7 +2817,11 @@
         const audioOutcome = isRecord(response.audio) ? response.audio : null;
         const audioFailed = audioOutcome &&
           ["unavailable", "failed"].includes(audioOutcome.status);
-        const feedbackParts = ["Added to Anki."];
+        const feedbackParts = [
+          response.overwritten === true
+            ? "Overwritten in Anki."
+            : "Added to Anki."
+        ];
         if (audioFailed) {
           feedbackParts.push(
             boundedString(audioOutcome.warning, 1024).trim() ||

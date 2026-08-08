@@ -189,7 +189,61 @@ def test_profile_defaults_and_normalization(tmp_path):
     assert profile["fields"]["reading"] == "Kana"
     assert profile["disabledFields"] == ["pitch", "frequency"]
     assert profile["tags"] == ["hoshidicts", "custom"]
-    assert profile["duplicatePolicy"] == "allow"
+    assert profile["version"] == 2
+    assert profile["checkForDuplicates"] is True
+    assert profile["duplicateScope"] == "collection"
+    assert profile["duplicateScopeCheckAllModels"] is False
+    assert profile["duplicateBehavior"] == "new"
+    assert set(profile["fieldOverwriteModes"].values()) == {"coalesce"}
+
+
+def test_profile_normalizes_yomitan_duplicate_settings_and_overwrite_modes():
+    profile = hoshidicts_mining.normalize_hoshidicts_mining_profile(
+        {
+            "version": 2,
+            "checkForDuplicates": False,
+            "duplicateScope": "deck-root",
+            "duplicateScopeCheckAllModels": True,
+            "duplicateBehavior": "overwrite",
+            "fieldOverwriteModes": {
+                "expression": "overwrite",
+                "reading": "skip",
+                "definition": "append",
+                "sentence": "prepend",
+                "frequency": "coalesce-new",
+            },
+        }
+    )
+
+    assert profile["checkForDuplicates"] is False
+    assert profile["duplicateScope"] == "deck-root"
+    assert profile["duplicateScopeCheckAllModels"] is True
+    assert profile["duplicateBehavior"] == "overwrite"
+    assert profile["fieldOverwriteModes"] == {
+        "expression": "overwrite",
+        "reading": "skip",
+        "definition": "append",
+        "sentence": "prepend",
+        "frequency": "coalesce-new",
+        "pitch": "coalesce",
+        "audio": "coalesce",
+    }
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"duplicateScope": "note"}, "duplicate scope"),
+        ({"duplicateBehavior": "allow"}, "duplicate behavior"),
+        (
+            {"fieldOverwriteModes": {"expression": "replace"}},
+            "overwrite mode",
+        ),
+    ],
+)
+def test_profile_rejects_invalid_duplicate_settings(overrides, message):
+    with pytest.raises(hoshidicts_mining.HoshidictsMiningError, match=message):
+        hoshidicts_mining.normalize_hoshidicts_mining_profile(overrides)
 
 
 def test_status_inherits_gsm_fields_and_auto_maps_dictionary_fields(monkeypatch):
@@ -511,7 +565,9 @@ def test_mining_honors_profile_overrides(monkeypatch):
             "pitch": "Accent",
         },
         tags=["dictionary"],
-        duplicatePolicy="allow",
+        duplicateBehavior="new",
+        duplicateScope="deck-root",
+        duplicateScopeCheckAllModels=True,
     )
     _wire(monkeypatch, fake_anki, profile)
 
@@ -530,11 +586,11 @@ def test_mining_honors_profile_overrides(monkeypatch):
     }
     assert add_note["options"] == {
         "allowDuplicate": True,
-        "duplicateScope": "collection",
+        "duplicateScope": "deck",
         "duplicateScopeOptions": {
-            "deckName": None,
-            "checkChildren": False,
-            "checkAllModels": False,
+            "deckName": "Mining",
+            "checkChildren": True,
+            "checkAllModels": True,
         },
     }
     assert "dictionary" in add_note["tags"]
@@ -846,7 +902,8 @@ def test_duplicate_check_uses_first_model_field_and_error_detail(monkeypatch):
 
     assert result == {
         "success": True,
-        "duplicatePolicy": "prevent",
+        "checkForDuplicates": True,
+        "duplicateBehavior": "prevent",
         "results": [
             {"state": "addable", "canAdd": True, "duplicate": False},
             {"state": "duplicate", "canAdd": False, "duplicate": True},
@@ -872,7 +929,7 @@ def test_duplicate_check_uses_first_model_field_and_error_detail(monkeypatch):
     }
 
 
-def test_duplicate_check_still_detects_duplicates_when_policy_allows_them(monkeypatch):
+def test_duplicate_check_still_detects_duplicates_when_new_notes_are_allowed(monkeypatch):
     class DetailAnki(FakeAnki):
         def invoke(self, action, **kwargs):
             if action == "canAddNotesWithErrorDetail":
@@ -887,15 +944,235 @@ def test_duplicate_check_still_detects_duplicates_when_policy_allows_them(monkey
             return super().invoke(action, **kwargs)
 
     fake_anki = DetailAnki()
-    _wire(monkeypatch, fake_anki, _profile(duplicatePolicy="allow"))
+    _wire(monkeypatch, fake_anki, _profile(duplicateBehavior="new"))
 
     result = hoshidicts_mining.check_hoshidicts_notes({"notes": [_payload()]})
 
     assert result == {
         "success": True,
-        "duplicatePolicy": "allow",
+        "checkForDuplicates": True,
+        "duplicateBehavior": "new",
         "results": [
             {"state": "duplicate", "canAdd": True, "duplicate": True},
+        ],
+    }
+
+
+def test_duplicate_check_can_be_disabled_without_calling_ankiconnect(monkeypatch):
+    fake_anki = FakeAnki()
+    _wire(
+        monkeypatch,
+        fake_anki,
+        _profile(checkForDuplicates=False, duplicateBehavior="prevent"),
+    )
+
+    result = hoshidicts_mining.check_hoshidicts_notes({"notes": [_payload()]})
+
+    assert result == {
+        "success": True,
+        "checkForDuplicates": False,
+        "duplicateBehavior": "prevent",
+        "results": [
+            {"state": "addable", "canAdd": True, "duplicate": False},
+        ],
+    }
+    assert not any(action in {"canAddNotes", "canAddNotesWithErrorDetail"} for action, _kwargs in fake_anki.calls)
+
+
+@pytest.mark.parametrize(
+    ("mode", "existing", "new", "expected"),
+    [
+        ("overwrite", "old", "new", "new"),
+        ("skip", "old", "new", "old"),
+        ("append", "old", "new", "oldnew"),
+        ("prepend", "old", "new", "newold"),
+        ("coalesce", "old", "new", "old"),
+        ("coalesce", "", "new", "new"),
+        ("coalesce-new", "old", "new", "new"),
+        ("coalesce-new", "old", "", "old"),
+    ],
+)
+def test_yomitan_overwrite_field_modes(mode, existing, new, expected):
+    assert hoshidicts_mining._overwrite_field(existing, new, mode) == expected
+
+
+def test_mining_overwrites_first_same_type_duplicate_in_exact_deck(monkeypatch):
+    class OverwriteAnki(FakeAnki):
+        def invoke(self, action, **kwargs):
+            if action == "canAddNotesWithErrorDetail":
+                self.calls.append((action, kwargs))
+                return [
+                    {
+                        "canAdd": False,
+                        "error": "cannot create note because it is a duplicate",
+                    }
+                ]
+            if action == "findNotes":
+                self.calls.append((action, kwargs))
+                assert kwargs["query"] == '"deck:Mining" "expression:食べる"'
+                return [41, 42]
+            if action == "notesInfo":
+                self.calls.append((action, kwargs))
+                return [
+                    {
+                        "noteId": 41,
+                        "modelName": "Mining",
+                        "cards": [410],
+                        "fields": {
+                            field: {"value": f"child {field}", "order": index}
+                            for index, field in enumerate(self.fields)
+                        },
+                    },
+                    {
+                        "noteId": 42,
+                        "modelName": "Mining",
+                        "cards": [420],
+                        "fields": {
+                            "Expression": {"value": "old expression", "order": 0},
+                            "Reading": {"value": "old reading", "order": 1},
+                            "Definition": {"value": "old definition", "order": 2},
+                            "Sentence": {"value": "old sentence", "order": 3},
+                            "Frequency": {"value": "old frequency", "order": 4},
+                            "PitchAccent": {"value": "old pitch", "order": 5},
+                        },
+                    },
+                ]
+            if action == "cardsInfo":
+                self.calls.append((action, kwargs))
+                return [
+                    {"cardId": 410, "note": 41, "deckName": "Mining::Child"},
+                    {"cardId": 420, "note": 42, "deckName": "Mining"},
+                ]
+            if action == "addNote":
+                raise AssertionError("a duplicate note must be updated, not added")
+            return super().invoke(action, **kwargs)
+
+    fake_anki = OverwriteAnki(decks=["Default", "Mining", "Mining::Child"])
+    overwrite_modes = {
+        **_profile()["fieldOverwriteModes"],
+        "expression": "overwrite",
+        "reading": "skip",
+        "definition": "append",
+        "sentence": "prepend",
+        "frequency": "coalesce-new",
+        "pitch": "coalesce",
+    }
+    _wire(
+        monkeypatch,
+        fake_anki,
+        _profile(
+            deck="Mining",
+            duplicateScope="deck",
+            duplicateBehavior="overwrite",
+            fieldOverwriteModes=overwrite_modes,
+        ),
+    )
+
+    result = hoshidicts_mining.mine_hoshidicts_note(_payload())
+
+    assert result["noteId"] == 42
+    assert result["overwritten"] is True
+    assert result["audio"] == {"status": "skipped"}
+    update = next(kwargs["note"] for action, kwargs in fake_anki.calls if action == "updateNoteFields")
+    assert update["id"] == 42
+    assert update["fields"]["Expression"] == "食べる"
+    assert update["fields"]["Reading"] == "old reading"
+    assert update["fields"]["Definition"].startswith("old definition")
+    assert update["fields"]["Sentence"].endswith("old sentence")
+    assert update["fields"]["Frequency"] != "old frequency"
+    assert update["fields"]["PitchAccent"] == "old pitch"
+    assert fake_anki.events == []
+
+
+def test_overwrite_rejects_a_duplicate_from_another_note_type(monkeypatch):
+    class OtherModelAnki(FakeAnki):
+        def invoke(self, action, **kwargs):
+            if action == "canAddNotesWithErrorDetail":
+                self.calls.append((action, kwargs))
+                return [
+                    {
+                        "canAdd": False,
+                        "error": "cannot create note because it is a duplicate",
+                    }
+                ]
+            if action == "findNotes":
+                self.calls.append((action, kwargs))
+                return [99]
+            if action == "notesInfo":
+                self.calls.append((action, kwargs))
+                return [
+                    {
+                        "noteId": 99,
+                        "modelName": "Different note type",
+                        "cards": [990],
+                        "fields": {"Expression": {"value": "食べる", "order": 0}},
+                    }
+                ]
+            if action in {"addNote", "updateNoteFields"}:
+                raise AssertionError("a cross-note-type duplicate cannot be changed")
+            return super().invoke(action, **kwargs)
+
+    fake_anki = OtherModelAnki()
+    _wire(
+        monkeypatch,
+        fake_anki,
+        _profile(
+            duplicateBehavior="overwrite",
+            duplicateScopeCheckAllModels=True,
+        ),
+    )
+
+    with pytest.raises(
+        hoshidicts_mining.HoshidictsMiningError,
+        match="different note type",
+    ) as error:
+        hoshidicts_mining.mine_hoshidicts_note(_payload())
+
+    assert error.value.status_code == 409
+
+
+def test_duplicate_check_only_offers_overwrite_for_a_resolvable_note(monkeypatch):
+    class OverwriteCheckAnki(FakeAnki):
+        def invoke(self, action, **kwargs):
+            if action == "canAddNotesWithErrorDetail":
+                self.calls.append((action, kwargs))
+                return [
+                    {
+                        "canAdd": False,
+                        "error": "cannot create note because it is a duplicate",
+                    }
+                ]
+            if action == "findNotes":
+                self.calls.append((action, kwargs))
+                return [42]
+            if action == "notesInfo":
+                self.calls.append((action, kwargs))
+                return [
+                    {
+                        "noteId": 42,
+                        "modelName": "Mining",
+                        "cards": [420],
+                        "fields": {"Expression": {"value": "食べる", "order": 0}},
+                    }
+                ]
+            return super().invoke(action, **kwargs)
+
+    fake_anki = OverwriteCheckAnki()
+    _wire(monkeypatch, fake_anki, _profile(duplicateBehavior="overwrite"))
+
+    result = hoshidicts_mining.check_hoshidicts_notes({"notes": [_payload()]})
+
+    assert result == {
+        "success": True,
+        "checkForDuplicates": True,
+        "duplicateBehavior": "overwrite",
+        "results": [
+            {
+                "state": "duplicate",
+                "canAdd": True,
+                "duplicate": True,
+                "action": "overwrite",
+            }
         ],
     }
 
@@ -979,7 +1256,7 @@ def test_hoshidicts_routes_expose_status_and_mining_errors(monkeypatch):
         "check_hoshidicts_notes",
         lambda payload: {
             "success": True,
-            "duplicatePolicy": "prevent",
+            "duplicateBehavior": "prevent",
             "results": [],
             "payload": payload,
         },
@@ -993,7 +1270,7 @@ def test_hoshidicts_routes_expose_status_and_mining_errors(monkeypatch):
     }
     assert client.post("/api/hoshidicts/mining/check", json={"notes": []}).get_json() == {
         "success": True,
-        "duplicatePolicy": "prevent",
+        "duplicateBehavior": "prevent",
         "results": [],
         "payload": {"notes": []},
     }

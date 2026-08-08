@@ -274,7 +274,6 @@ export function parseHoshidictsCustomDictionary(
     return { entries, ignoredLines, ignoredLineCount };
 }
 export type HoshidictsMoveDirection = -1 | 1;
-export type HoshidictsDuplicatePolicy = 'prevent' | 'allow';
 export const HOSHIDICTS_AUDIO_SOURCE_TYPES = [
     'jpod101',
     'language-pod-101',
@@ -307,6 +306,47 @@ export interface HoshidictsMiningFields {
 }
 
 export type HoshidictsMiningFieldName = keyof HoshidictsMiningFields;
+
+export const HOSHIDICTS_DUPLICATE_SCOPES = [
+    'collection',
+    'deck',
+    'deck-root',
+] as const;
+export type HoshidictsDuplicateScope =
+    (typeof HOSHIDICTS_DUPLICATE_SCOPES)[number];
+export const HOSHIDICTS_DUPLICATE_BEHAVIORS = [
+    'prevent',
+    'overwrite',
+    'new',
+] as const;
+export type HoshidictsDuplicateBehavior =
+    (typeof HOSHIDICTS_DUPLICATE_BEHAVIORS)[number];
+export const HOSHIDICTS_FIELD_OVERWRITE_MODES = [
+    'coalesce',
+    'coalesce-new',
+    'skip',
+    'append',
+    'prepend',
+    'overwrite',
+] as const;
+export type HoshidictsFieldOverwriteMode =
+    (typeof HOSHIDICTS_FIELD_OVERWRITE_MODES)[number];
+export type HoshidictsFieldOverwriteModes = Record<
+    HoshidictsMiningFieldName,
+    HoshidictsFieldOverwriteMode
+>;
+
+export function createDefaultHoshidictsFieldOverwriteModes(): HoshidictsFieldOverwriteModes {
+    return {
+        expression: 'coalesce',
+        reading: 'coalesce',
+        definition: 'coalesce',
+        sentence: 'coalesce',
+        frequency: 'coalesce',
+        pitch: 'coalesce',
+        audio: 'coalesce',
+    };
+}
 
 export interface HoshidictsDefinitionBlurPreferences {
     enabled: boolean;
@@ -388,14 +428,18 @@ export function isHoshidictsAudioSourceType(
 }
 
 export interface HoshidictsMiningProfile {
-    version: 1;
+    version: 2;
     enabled: boolean;
     deck: string;
     model: string;
     fields: HoshidictsMiningFields;
     disabledFields: HoshidictsMiningFieldName[];
     tags: string[];
-    duplicatePolicy: HoshidictsDuplicatePolicy;
+    checkForDuplicates: boolean;
+    duplicateScope: HoshidictsDuplicateScope;
+    duplicateScopeCheckAllModels: boolean;
+    duplicateBehavior: HoshidictsDuplicateBehavior;
+    fieldOverwriteModes: HoshidictsFieldOverwriteModes;
 }
 
 export interface HoshidictsMiningOptions {

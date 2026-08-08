@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createDefaultHoshidictsAudioProfile } from '../../../shared/features/hoshidicts.js';
+import {
+    createDefaultHoshidictsAudioProfile,
+    createDefaultHoshidictsFieldOverwriteModes,
+} from '../../../shared/features/hoshidicts.js';
 
 const harness = vi.hoisted(() => ({
     handlers: new Map<string, (...args: any[]) => any>(),
@@ -97,7 +100,7 @@ const snapshot = {
         { id: 'kanjidic', installed: false },
     ],
     miningProfile: {
-        version: 1,
+        version: 2,
         enabled: true,
         deck: 'Default',
         model: '',
@@ -112,7 +115,11 @@ const snapshot = {
         },
         disabledFields: [],
         tags: ['hoshidicts'],
-        duplicatePolicy: 'prevent',
+        checkForDuplicates: true,
+        duplicateScope: 'collection',
+        duplicateScopeCheckAllModels: false,
+        duplicateBehavior: 'prevent',
+        fieldOverwriteModes: createDefaultHoshidictsFieldOverwriteModes(),
     },
     audioProfile: createDefaultHoshidictsAudioProfile(),
     lookupMode: 'shift',

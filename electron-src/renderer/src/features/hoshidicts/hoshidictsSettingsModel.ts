@@ -1,11 +1,15 @@
 import {
   createDefaultHoshidictsAudioProfile,
+  createDefaultHoshidictsFieldOverwriteModes,
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
   DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
   DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
   HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
+  HOSHIDICTS_DUPLICATE_BEHAVIORS,
+  HOSHIDICTS_DUPLICATE_SCOPES,
+  HOSHIDICTS_FIELD_OVERWRITE_MODES,
   isHoshidictsActivationKey,
   isHoshidictsAudioSourceType,
   MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
@@ -19,6 +23,8 @@ import {
   type HoshidictsAudioSource,
   type HoshidictsDesktopSnapshot,
   type HoshidictsFrequencyMode,
+  type HoshidictsFieldOverwriteMode,
+  type HoshidictsFieldOverwriteModes,
   type HoshidictsMiningFieldName,
   type HoshidictsMiningFields,
   type HoshidictsMiningOptions,
@@ -162,14 +168,18 @@ const EMPTY_FIELDS: HoshidictsMiningFields = {
 };
 
 export const DEFAULT_MINING_PROFILE: HoshidictsMiningProfile = {
-  version: 1,
+  version: 2,
   enabled: true,
   deck: "Default",
   model: "",
   fields: { ...EMPTY_FIELDS },
   disabledFields: [],
   tags: ["hoshidicts"],
-  duplicatePolicy: "prevent"
+  checkForDuplicates: true,
+  duplicateScope: "collection",
+  duplicateScopeCheckAllModels: false,
+  duplicateBehavior: "prevent",
+  fieldOverwriteModes: createDefaultHoshidictsFieldOverwriteModes()
 };
 
 export const DEFAULT_MINING_OPTIONS: HoshidictsMiningOptions = {
@@ -255,12 +265,30 @@ function miningFields(value: unknown): MiningField[] {
   return result;
 }
 
+function fieldOverwriteModes(value: unknown): HoshidictsFieldOverwriteModes {
+  const result = createDefaultHoshidictsFieldOverwriteModes();
+  if (!value || typeof value !== "object") return result;
+  const candidate = value as Partial<HoshidictsFieldOverwriteModes>;
+  for (const { id } of MINING_FIELDS) {
+    const mode = candidate[id];
+    if (
+      HOSHIDICTS_FIELD_OVERWRITE_MODES.includes(
+        mode as HoshidictsFieldOverwriteMode
+      )
+    ) {
+      result[id] = mode as HoshidictsFieldOverwriteMode;
+    }
+  }
+  return result;
+}
+
 export function copyMiningProfile(
   profile: HoshidictsMiningProfile = DEFAULT_MINING_PROFILE
 ): HoshidictsMiningProfile {
   return {
     ...profile,
     fields: { ...profile.fields },
+    fieldOverwriteModes: { ...profile.fieldOverwriteModes },
     disabledFields: [...profile.disabledFields],
     tags: [...profile.tags]
   };
@@ -268,9 +296,11 @@ export function copyMiningProfile(
 
 export function normalizeMiningProfile(value: unknown): HoshidictsMiningProfile {
   if (!value || typeof value !== "object") return copyMiningProfile();
-  const candidate = value as Partial<HoshidictsMiningProfile>;
+  const candidate = value as Partial<HoshidictsMiningProfile> & {
+    duplicatePolicy?: unknown;
+  };
   return {
-    version: 1,
+    version: 2,
     enabled: candidate.enabled !== false,
     deck:
       typeof candidate.deck === "string" && candidate.deck.length > 0
@@ -280,7 +310,22 @@ export function normalizeMiningProfile(value: unknown): HoshidictsMiningProfile 
     fields: fieldValues(candidate.fields),
     disabledFields: miningFields(candidate.disabledFields),
     tags: Array.isArray(candidate.tags) ? strings(candidate.tags) : ["hoshidicts"],
-    duplicatePolicy: candidate.duplicatePolicy === "allow" ? "allow" : "prevent"
+    checkForDuplicates: candidate.checkForDuplicates !== false,
+    duplicateScope: HOSHIDICTS_DUPLICATE_SCOPES.includes(
+      candidate.duplicateScope as HoshidictsMiningProfile["duplicateScope"]
+    )
+      ? (candidate.duplicateScope as HoshidictsMiningProfile["duplicateScope"])
+      : "collection",
+    duplicateScopeCheckAllModels:
+      candidate.duplicateScopeCheckAllModels === true,
+    duplicateBehavior: HOSHIDICTS_DUPLICATE_BEHAVIORS.includes(
+      candidate.duplicateBehavior as HoshidictsMiningProfile["duplicateBehavior"]
+    )
+      ? (candidate.duplicateBehavior as HoshidictsMiningProfile["duplicateBehavior"])
+      : candidate.duplicatePolicy === "allow"
+        ? "new"
+        : "prevent",
+    fieldOverwriteModes: fieldOverwriteModes(candidate.fieldOverwriteModes)
   };
 }
 
@@ -535,6 +580,7 @@ export function draftToProfile(
   return {
     ...draft,
     fields: { ...draft.fields },
+    fieldOverwriteModes: { ...draft.fieldOverwriteModes },
     disabledFields: [...draft.disabledFields],
     tags: draft.tags
       .split(",")

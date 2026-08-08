@@ -6435,6 +6435,51 @@ describe("Hoshidicts Shift-hover scanner", () => {
     harness.reader.destroy();
   });
 
+  it("shows and submits Yomitan-style overwrite actions for duplicates", async () => {
+    const checkMiningNotes = vi.fn(async () => ({
+      success: true,
+      checkForDuplicates: true,
+      duplicateBehavior: "overwrite",
+      results: [{
+        state: "duplicate",
+        canAdd: true,
+        duplicate: true,
+        action: "overwrite"
+      }]
+    }));
+    const mine = vi.fn(async () => ({
+      success: true,
+      noteId: 123,
+      overwritten: true,
+      audio: { status: "preserved" }
+    }));
+    const harness = createReaderHarness({
+      checkMiningNotes,
+      getMiningStatus: async () => ({ available: true }),
+      onMine: mine
+    });
+    await renderFirstLookup(harness);
+
+    const popup = harness.reader.getPopupElement();
+    const button = popup.querySelector<HTMLButtonElement>(
+      ".gsm-hoshidicts-mine-button"
+    )!;
+    expect(button.dataset.state).toBe("overwrite");
+    expect(button.disabled).toBe(false);
+    expect(button.title).toBe("Overwrite note in Anki");
+    expect(button.querySelector<HTMLElement>(".gsm-hoshidicts-mine-icon")
+      ?.dataset.icon).toBe("overwrite-big-circle");
+
+    button.click();
+    await flushPromises();
+
+    expect(mine).toHaveBeenCalledTimes(1);
+    expect(checkMiningNotes).toHaveBeenCalledTimes(2);
+    expect(popup.querySelector(".gsm-hoshidicts-mining-feedback")?.textContent)
+      .toBe("Overwritten in Anki.");
+    harness.reader.destroy();
+  });
+
   it("uses structured duplicate errors instead of matching English text", async () => {
     const duplicateError = Object.assign(
       new Error("The card was rejected."),

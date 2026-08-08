@@ -1171,7 +1171,7 @@ describe('Hoshidicts mining profile', () => {
         });
 
         expect(snapshot.miningProfile).toEqual({
-            version: 1,
+            version: 2,
             enabled: false,
             deck: 'Mining',
             model: 'Custom',
@@ -1186,7 +1186,19 @@ describe('Hoshidicts mining profile', () => {
             },
             disabledFields: [],
             tags: ['hoshidicts', 'custom'],
-            duplicatePolicy: 'allow',
+            checkForDuplicates: true,
+            duplicateScope: 'collection',
+            duplicateScopeCheckAllModels: false,
+            duplicateBehavior: 'new',
+            fieldOverwriteModes: {
+                expression: 'coalesce',
+                reading: 'coalesce',
+                definition: 'coalesce',
+                sentence: 'coalesce',
+                frequency: 'coalesce',
+                pitch: 'coalesce',
+                audio: 'coalesce',
+            },
         });
         expect(readMiningProfile(baseDir)).toEqual(snapshot.miningProfile);
         expect(
@@ -1207,12 +1219,42 @@ describe('Hoshidicts mining profile', () => {
         expect(snapshot.dictionaries).toEqual([]);
     });
 
-    it('rejects unsupported duplicate policies', () => {
+    it('normalizes Yomitan duplicate options and rejects unsupported values', () => {
+        expect(
+            normalizeHoshidictsMiningProfile({
+                version: 2,
+                checkForDuplicates: false,
+                duplicateScope: 'deck-root',
+                duplicateScopeCheckAllModels: true,
+                duplicateBehavior: 'overwrite',
+                fieldOverwriteModes: {
+                    expression: 'overwrite',
+                    reading: 'skip',
+                },
+            })
+        ).toMatchObject({
+            version: 2,
+            checkForDuplicates: false,
+            duplicateScope: 'deck-root',
+            duplicateScopeCheckAllModels: true,
+            duplicateBehavior: 'overwrite',
+            fieldOverwriteModes: {
+                expression: 'overwrite',
+                reading: 'skip',
+                definition: 'coalesce',
+            },
+        });
+        expect(() =>
+            normalizeHoshidictsMiningProfile({ duplicateScope: 'note' })
+        ).toThrow('duplicate scope is invalid');
+        expect(() =>
+            normalizeHoshidictsMiningProfile({ duplicateBehavior: 'allow' })
+        ).toThrow('duplicate behavior is invalid');
         expect(() =>
             normalizeHoshidictsMiningProfile({
-                duplicatePolicy: 'overwrite',
+                fieldOverwriteModes: { expression: 'replace' },
             })
-        ).toThrow('duplicate policy is invalid');
+        ).toThrow('overwrite mode is invalid');
     });
 
     it('normalizes explicit do-not-fill mining fields without pinning automatic fields', () => {

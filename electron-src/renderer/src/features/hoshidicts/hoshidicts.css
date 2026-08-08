@@ -863,12 +863,69 @@
   gap: 14px 18px;
 }
 
+.hoshidicts-mining-duplicates {
+  display: grid;
+  gap: 10px;
+  margin: 22px 0 0;
+  padding: 16px;
+  border: 1px solid var(--gsm-border-default);
+  border-radius: 8px;
+}
+
+.hoshidicts-mining-duplicates legend {
+  padding: 0 6px;
+  color: var(--gsm-text-primary);
+  font-weight: 650;
+}
+
+.hoshidicts-mining-duplicates > p {
+  margin: -4px 0 2px 26px;
+  color: var(--gsm-text-muted);
+  font-size: 0.8rem;
+}
+
+.hoshidicts-mining-duplicates__toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--gsm-text-secondary);
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.hoshidicts-mining-duplicates__options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 18px;
+  margin: 4px 0;
+}
+
+.hoshidicts-mining-duplicates__options label {
+  display: grid;
+  gap: 6px;
+  color: var(--gsm-text-secondary);
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.hoshidicts-mining-duplicates > .hoshidicts-mining-duplicates__warning {
+  margin: 2px 0 0;
+  padding: 9px 11px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--gsm-warning-text) 10%, transparent);
+  color: var(--gsm-warning-text);
+}
+
 .hoshidicts-mining-field-grid {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
   align-items: center;
   width: 100%;
   gap: 8px 12px;
+}
+
+.hoshidicts-mining-field-grid[data-overwrite="true"] {
+  grid-template-columns: max-content minmax(0, 1fr) minmax(140px, 0.72fr);
 }
 
 .hoshidicts-mining-field-grid__header {
@@ -1186,6 +1243,7 @@
 
   .hoshidicts-section--toolbar,
   .hoshidicts-mining-grid,
+  .hoshidicts-mining-duplicates__options,
   .hoshidicts-reader-mode,
   .hoshidicts-definition-blur__controls,
   .hoshidicts-audio-controls,

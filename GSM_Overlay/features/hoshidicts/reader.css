@@ -440,6 +440,10 @@ html.gsm-hoshidicts-enabled #btn-yomitan {
   background-image: url("icons/add-duplicate-big-circle.svg");
 }
 
+.gsm-hoshidicts-mine-icon[data-icon="overwrite-big-circle"] {
+  background-image: url("icons/overwrite-big-circle.svg");
+}
+
 .gsm-hoshidicts-mine-button:hover:not(:disabled) {
   background: rgba(74, 145, 237, 0.14);
 }

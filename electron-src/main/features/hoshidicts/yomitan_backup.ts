@@ -9,13 +9,18 @@ import Assembler from 'stream-json/assembler.js';
 import type { Token } from 'stream-json/parser.js';
 
 import {
+    createDefaultHoshidictsFieldOverwriteModes,
     HOSHIDICTS_AUDIO_SOURCE_TYPES,
+    HOSHIDICTS_DUPLICATE_BEHAVIORS,
+    HOSHIDICTS_DUPLICATE_SCOPES,
+    HOSHIDICTS_FIELD_OVERWRITE_MODES,
     MAX_HOSHIDICTS_AUDIO_SOURCES,
     type HoshidictsActivationKey,
     type HoshidictsAudioProfile,
     type HoshidictsAudioSource,
     type HoshidictsAudioSourceType,
     type HoshidictsManagerSnapshot,
+    type HoshidictsFieldOverwriteMode,
     type HoshidictsMiningFieldName,
     type HoshidictsMiningFields,
     type HoshidictsMiningProfile,
@@ -466,6 +471,15 @@ function templateValue(value: unknown): string {
     return isRecord(value) ? stringValue(value.value) : '';
 }
 
+function templateOverwriteMode(value: unknown): HoshidictsFieldOverwriteMode {
+    const mode = isRecord(value) ? value.overwriteMode : undefined;
+    return HOSHIDICTS_FIELD_OVERWRITE_MODES.includes(
+        mode as HoshidictsFieldOverwriteMode
+    )
+        ? (mode as HoshidictsFieldOverwriteMode)
+        : 'coalesce';
+}
+
 function miningFieldForTemplate(template: string): HoshidictsMiningFieldName | null {
     const markers = [...template.toLowerCase().matchAll(/\{([^{}]+)\}/gu)].map((match) => match[1]);
     const has = (needle: string): boolean => markers.some((marker) => marker.includes(needle));
@@ -479,7 +493,7 @@ function miningFieldForTemplate(template: string): HoshidictsMiningFieldName | n
     return null;
 }
 
-function miningProfile(anki: JsonRecord, warnings: string[]): HoshidictsMiningProfile | null {
+function miningProfile(anki: JsonRecord): HoshidictsMiningProfile | null {
     const modern = Array.isArray(anki.cardFormats)
         ? anki.cardFormats.find(
               (value) =>
@@ -504,19 +518,26 @@ function miningProfile(anki: JsonRecord, warnings: string[]): HoshidictsMiningPr
         pitch: '',
         audio: '',
     };
+    const fieldOverwriteModes = createDefaultHoshidictsFieldOverwriteModes();
     for (const [target, rawTemplate] of Object.entries(rawFields)) {
         const field = miningFieldForTemplate(templateValue(rawTemplate));
         if (field && !fields[field]) {
             fields[field] = target;
+            fieldOverwriteModes[field] = templateOverwriteMode(rawTemplate);
         }
     }
-    if (anki.duplicateBehavior === 'overwrite') {
-        warnings.push(
-            'Yomitan duplicate overwrite is not supported; duplicate prevention was used.',
-        );
-    }
+    const duplicateScope = HOSHIDICTS_DUPLICATE_SCOPES.includes(
+        anki.duplicateScope as HoshidictsMiningProfile['duplicateScope']
+    )
+        ? (anki.duplicateScope as HoshidictsMiningProfile['duplicateScope'])
+        : 'collection';
+    const duplicateBehavior = HOSHIDICTS_DUPLICATE_BEHAVIORS.includes(
+        anki.duplicateBehavior as HoshidictsMiningProfile['duplicateBehavior']
+    )
+        ? (anki.duplicateBehavior as HoshidictsMiningProfile['duplicateBehavior'])
+        : 'new';
     return normalizeHoshidictsMiningProfile({
-        version: 1,
+        version: 2,
         enabled: anki.enable === true,
         deck: stringValue(card.deck) || 'Default',
         model: stringValue(card.model),
@@ -525,10 +546,12 @@ function miningProfile(anki: JsonRecord, warnings: string[]): HoshidictsMiningPr
         tags: Array.isArray(anki.tags)
             ? anki.tags.filter((value): value is string => typeof value === 'string')
             : [],
-        duplicatePolicy:
-            anki.checkForDuplicates === false || anki.duplicateBehavior === 'new'
-                ? 'allow'
-                : 'prevent',
+        checkForDuplicates: anki.checkForDuplicates !== false,
+        duplicateScope,
+        duplicateScopeCheckAllModels:
+            anki.duplicateScopeCheckAllModels === true,
+        duplicateBehavior,
+        fieldOverwriteModes,
     });
 }
 
@@ -671,7 +694,7 @@ export function parseYomitanSettingsBackup(
         : [];
     if (dictionaries.length > 0) groups.push('dictionaries');
 
-    const parsedMining = isRecord(options.anki) ? miningProfile(options.anki, warnings) : null;
+    const parsedMining = isRecord(options.anki) ? miningProfile(options.anki) : null;
     if (parsedMining) groups.push('anki');
     const parsedAudio = isRecord(options.audio) ? audioProfile(options.audio, warnings) : null;
     if (parsedAudio) groups.push('audio');

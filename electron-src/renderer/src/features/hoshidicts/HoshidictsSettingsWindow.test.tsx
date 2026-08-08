@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createDefaultHoshidictsAudioProfile,
+  createDefaultHoshidictsFieldOverwriteModes,
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
   HOSHIDICTS_CHANNELS,
@@ -86,7 +87,7 @@ const baseState: HoshidictsDesktopSnapshot = {
     { id: "jmnedict", installed: false }
   ],
   miningProfile: {
-    version: 1,
+    version: 2,
     enabled: true,
     deck: "Default",
     model: "",
@@ -101,7 +102,11 @@ const baseState: HoshidictsDesktopSnapshot = {
     },
     disabledFields: [],
     tags: ["hoshidicts"],
-    duplicatePolicy: "prevent"
+    checkForDuplicates: true,
+    duplicateScope: "collection",
+    duplicateScopeCheckAllModels: false,
+    duplicateBehavior: "prevent",
+    fieldOverwriteModes: createDefaultHoshidictsFieldOverwriteModes()
   },
   audioProfile: createDefaultHoshidictsAudioProfile(),
   lookupMode: "shift",
@@ -1579,6 +1584,65 @@ describe("HoshidictsSettingsWindow", () => {
     ]);
     expect(labels.map((label) => label.htmlFor)).toEqual(
       selects.map((select) => select.id)
+    );
+  });
+
+  it("auto-saves duplicate scope, note-type checks, behavior, and field overwrite modes", async () => {
+    vi.useFakeTimers();
+    await render();
+    await openMining();
+
+    const checkAllNoteTypes = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-mining-check-all-note-types"
+    );
+    await act(async () => {
+      setSelectValue(
+        container.querySelector<HTMLSelectElement>(
+          "#hoshidicts-mining-duplicate-scope"
+        ),
+        "deck-root"
+      );
+      setSelectValue(
+        container.querySelector<HTMLSelectElement>(
+          "#hoshidicts-mining-duplicate-behavior"
+        ),
+        "overwrite"
+      );
+      checkAllNoteTypes?.click();
+      await Promise.resolve();
+    });
+
+    expect(
+      Array.from(
+        container.querySelectorAll(".hoshidicts-mining-field-grid__header")
+      ).map((header) => header.textContent)
+    ).toEqual(["Field", "Value", "On overwrite"]);
+    expect(
+      container.querySelectorAll('[id^="hoshidicts-mining-overwrite-"]')
+    ).toHaveLength(7);
+
+    await act(async () => {
+      setSelectValue(
+        container.querySelector<HTMLSelectElement>(
+          "#hoshidicts-mining-overwrite-expression"
+        ),
+        "overwrite"
+      );
+      await flushAutosave();
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.setMiningProfile,
+      expect.objectContaining({
+        checkForDuplicates: true,
+        duplicateScope: "deck-root",
+        duplicateScopeCheckAllModels: true,
+        duplicateBehavior: "overwrite",
+        fieldOverwriteModes: expect.objectContaining({
+          expression: "overwrite",
+          reading: "coalesce"
+        })
+      })
     );
   });
 

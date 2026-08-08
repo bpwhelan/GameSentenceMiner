@@ -74,6 +74,7 @@ function copyMiningDraft(draft: MiningProfileDraft): MiningProfileDraft {
   return {
     ...draft,
     fields: { ...draft.fields },
+    fieldOverwriteModes: { ...draft.fieldOverwriteModes },
     disabledFields: [...draft.disabledFields]
   };
 }

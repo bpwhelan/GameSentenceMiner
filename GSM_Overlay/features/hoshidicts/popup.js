@@ -211,11 +211,12 @@
 
   function setMiningButtonState(button, state, message = "") {
     button.dataset.state = state;
-    button.disabled = !["ready", "add-duplicate", "error"].includes(state);
+    button.disabled = !["ready", "add-duplicate", "overwrite", "error"].includes(state);
     button.title = message || {
       checking: "Checking Anki availability",
       ready: "Mine to Anki",
       "add-duplicate": "Add duplicate to Anki",
+      overwrite: "Overwrite note in Anki",
       mining: "Adding note",
       success: "Note added",
       error: "Could not add note",
@@ -229,6 +230,7 @@
     const iconName = {
       ready: "big-circle",
       "add-duplicate": "add-duplicate-big-circle",
+      overwrite: "overwrite-big-circle",
       duplicate: "add-duplicate-big-circle",
     }[state];
     if (iconName) {
