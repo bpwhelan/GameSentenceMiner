@@ -39,7 +39,10 @@ import {
     type HoshidictsYomitanImportReport,
 } from '../../../shared/features/hoshidicts.js';
 import { getHoshidictsManager } from './manager.js';
-import { prepareYomitanBackupFiles } from './yomitan_backup.js';
+import {
+    prepareYomitanDictionaryBackup,
+    prepareYomitanSettingsBackup,
+} from './yomitan_backup.js';
 
 export interface HoshidictsIPCDependencies {
     getMainWindow: () => BrowserWindow | null;
@@ -394,13 +397,13 @@ export function registerHoshidictsIPC(
         );
     });
 
-    ipcMain.handle(HOSHIDICTS_CHANNELS.importYomitanBackup, async (event) => {
+    ipcMain.handle(HOSHIDICTS_CHANNELS.importYomitanDictionaries, async (event) => {
         assertSettingsSender(event, deps);
         const settingsWindow = deps.getSettingsWindow();
         const options: OpenDialogOptions = {
-            title: 'Import from Yomitan',
-            properties: ['openFile', 'multiSelections'],
-            filters: [{ name: 'Yomitan Backup', extensions: ['json'] }],
+            title: 'Import Dictionaries from Yomitan',
+            properties: ['openFile'],
+            filters: [{ name: 'Yomitan Dictionary Backup', extensions: ['json'] }],
         };
         const result = settingsWindow
             ? await dialog.showOpenDialog(settingsWindow, options)
@@ -414,14 +417,11 @@ export function registerHoshidictsIPC(
         }
 
         let prepared: Awaited<
-            ReturnType<typeof prepareYomitanBackupFiles>
+            ReturnType<typeof prepareYomitanDictionaryBackup>
         > | null = null;
         try {
             const before = await manager.getSnapshot();
-            prepared = await prepareYomitanBackupFiles(
-                result.filePaths,
-                before
-            );
+            prepared = await prepareYomitanDictionaryBackup(result.filePaths[0]);
             const installedTitles = new Set(
                 before.dictionaries.map((dictionary) => dictionary.title)
             );
@@ -429,8 +429,8 @@ export function registerHoshidictsIPC(
                 imported: 0,
                 replaced: 0,
                 failed: 0,
-                settings: prepared.settings?.groups ?? [],
-                warnings: [...(prepared.settings?.warnings ?? [])],
+                settings: [],
+                warnings: [],
             };
             let state = before;
             for (const dictionary of prepared.dictionaries) {
@@ -452,52 +452,95 @@ export function registerHoshidictsIPC(
                 }
             }
 
-            const settings = prepared.settings;
-            if (settings) {
-                if (settings.dictionaries.length > 0) {
-                    state = await manager.applyYomitanDictionaryPreferences(
-                        settings.dictionaries
-                    );
-                }
-                if (settings.miningProfile) {
-                    state = await manager.setMiningProfile(
-                        settings.miningProfile
-                    );
-                }
-                if (settings.audioProfile) {
-                    state = await manager.setAudioProfile(
-                        settings.audioProfile
-                    );
-                    await deps.applyAudioProfile(state.audioProfile);
-                }
-                if (settings.readerPreferences) {
-                    const reader = settings.readerPreferences;
-                    state = await manager.setReaderPreferences(
-                        reader.lookupMode,
-                        reader.popupHideDelayMs,
-                        reader.activationKey,
-                        reader.sourceHighlightEnabled,
-                        reader.popupNestingMaxDepth,
-                        reader.definitionBlur,
-                        reader.showLookupCounts
-                    );
-                }
-            }
             await applyReaderSnapshot(state, deps);
-            if (
-                report.imported + report.replaced === 0 &&
-                report.settings.length === 0
-            ) {
+            if (report.imported + report.replaced === 0) {
                 throw new Error(
                     report.warnings[0] ||
-                        'The Yomitan backup did not contain anything to import.'
+                        'The Yomitan backup did not contain dictionaries to import.'
                 );
             }
             return {
                 success: true,
                 outcome: {
-                    code: 'yomitanBackupImported',
+                    code: 'yomitanDictionariesImported',
                     count: report.imported + report.replaced,
+                },
+                yomitanReport: report,
+                state: withDesktopState(state, deps),
+            } satisfies HoshidictsActionResult;
+        } catch (error) {
+            return {
+                success: false,
+                error: errorMessage(error),
+                state: await currentState(deps),
+            } satisfies HoshidictsActionResult;
+        } finally {
+            await prepared?.cleanup();
+        }
+    });
+
+    ipcMain.handle(HOSHIDICTS_CHANNELS.importYomitanSettings, async (event) => {
+        assertSettingsSender(event, deps);
+        const settingsWindow = deps.getSettingsWindow();
+        const options: OpenDialogOptions = {
+            title: 'Import Settings from Yomitan',
+            properties: ['openFile'],
+            filters: [{ name: 'Yomitan Settings Backup', extensions: ['json'] }],
+        };
+        const result = settingsWindow
+            ? await dialog.showOpenDialog(settingsWindow, options)
+            : await dialog.showOpenDialog(options);
+        if (result.canceled || result.filePaths.length === 0) {
+            return {
+                success: false,
+                canceled: true,
+                state: await currentState(deps),
+            } satisfies HoshidictsActionResult;
+        }
+
+        let prepared: Awaited<ReturnType<typeof prepareYomitanSettingsBackup>> | null = null;
+        try {
+            let state = await manager.getSnapshot();
+            prepared = await prepareYomitanSettingsBackup(result.filePaths[0], state);
+            const settings = prepared.settings;
+            if (!settings || settings.groups.length === 0) {
+                throw new Error('The Yomitan backup did not contain supported settings to import.');
+            }
+            const report: HoshidictsYomitanImportReport = {
+                imported: 0,
+                replaced: 0,
+                failed: 0,
+                settings: settings.groups,
+                warnings: [...settings.warnings],
+            };
+            if (settings.dictionaries.length > 0) {
+                state = await manager.applyYomitanDictionaryPreferences(settings.dictionaries);
+            }
+            if (settings.miningProfile) {
+                state = await manager.setMiningProfile(settings.miningProfile);
+            }
+            if (settings.audioProfile) {
+                state = await manager.setAudioProfile(settings.audioProfile);
+                await deps.applyAudioProfile(state.audioProfile);
+            }
+            if (settings.readerPreferences) {
+                const reader = settings.readerPreferences;
+                state = await manager.setReaderPreferences(
+                    reader.lookupMode,
+                    reader.popupHideDelayMs,
+                    reader.activationKey,
+                    reader.sourceHighlightEnabled,
+                    reader.popupNestingMaxDepth,
+                    reader.definitionBlur,
+                    reader.showLookupCounts
+                );
+            }
+            await applyReaderSnapshot(state, deps);
+            return {
+                success: true,
+                outcome: {
+                    code: 'yomitanSettingsImported',
+                    count: report.settings.length,
                 },
                 yomitanReport: report,
                 state: withDesktopState(state, deps),

@@ -3,7 +3,8 @@ export const HOSHIDICTS_CHANNELS = {
     getState: 'hoshidicts.getState',
     progress: 'hoshidicts.progress',
     importDictionary: 'hoshidicts.import',
-    importYomitanBackup: 'hoshidicts.importYomitanBackup',
+    importYomitanDictionaries: 'hoshidicts.importYomitanDictionaries',
+    importYomitanSettings: 'hoshidicts.importYomitanSettings',
     installAllRecommended: 'hoshidicts.installAllRecommended',
     installRecommended: 'hoshidicts.installRecommended',
     checkUpdates: 'hoshidicts.checkUpdates',
@@ -526,7 +527,8 @@ export interface HoshidictsActionResult {
             | 'miningProfileSaved'
             | 'audioProfileSaved'
             | 'dictionaryImported'
-            | 'yomitanBackupImported'
+            | 'yomitanDictionariesImported'
+            | 'yomitanSettingsImported'
             | 'recommendedInstalled'
             | 'updatesChecked'
             | 'dictionaryRemoved'

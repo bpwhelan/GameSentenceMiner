@@ -622,7 +622,12 @@
         "hoverHint": "Yomitanのように、ホバーした文字を自動的に検索します。"
       },
       "import": "辞書をインポート...",
-      "importYomitan": "Yomitanバックアップをインポート...",
+      "backups": {
+        "title": "バックアップ",
+        "subtitle": "YomitanのJSONバックアップから辞書または対応する設定を復元します。",
+        "importDictionaries": "Yomitanから辞書をインポート...",
+        "importSettings": "Yomitanから設定をインポート..."
+      },
       "checkNow": "今すぐアップデートを確認",
       "schedule": "共通アップデート間隔:",
       "schedules": {
@@ -794,7 +799,8 @@
         "audioProfileSaved": "音声設定を保存しました。",
         "miningProfileSaved": "マイニングプロファイルを保存しました。",
         "dictionaryImported": "辞書をインポートしました。",
-        "yomitanBackupImported": "Yomitanから辞書{dictionaries}件、設定グループ{settings}件をインポートしました（警告{warnings}件）。",
+        "yomitanDictionariesImported": "Yomitanから辞書{dictionaries}件をインポートしました（警告{warnings}件）。",
+        "yomitanSettingsImported": "Yomitanから設定グループ{settings}件をインポートしました（警告{warnings}件）。",
         "recommendedInstalled": "おすすめの辞書を{count}件インストールしました。",
         "updatesChecked": "辞書のアップデート確認が完了しました。",
         "dictionaryRemoved": "{title}を削除しました。",
@@ -816,7 +822,8 @@
         "load": "Hoshidictsの状態を読み込めませんでした。",
         "operation": "Hoshidictsの操作に失敗しました。",
         "import": "辞書のインポートに失敗しました。",
-        "importYomitan": "Yomitanバックアップのインポートに失敗しました。",
+        "importYomitanDictionaries": "Yomitan辞書のインポートに失敗しました。",
+        "importYomitanSettings": "Yomitan設定のインポートに失敗しました。",
         "remove": "辞書の削除に失敗しました。",
         "update": "辞書のアップデート確認に失敗しました。",
         "schedule": "辞書のアップデート間隔を保存できませんでした。",

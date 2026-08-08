@@ -597,12 +597,24 @@ export function useHoshidictsSettingsController() {
           () => invokeIpc(HOSHIDICTS_CHANNELS.importDictionary),
           "settings.hoshidicts.errors.import"
         ),
-      importYomitanBackup: async () => {
+      importYomitanDictionaries: async () => {
         setImportingYomitan(true);
         try {
           return await runAction(
-            () => invokeIpc(HOSHIDICTS_CHANNELS.importYomitanBackup),
-            "settings.hoshidicts.errors.importYomitan",
+            () => invokeIpc(HOSHIDICTS_CHANNELS.importYomitanDictionaries),
+            "settings.hoshidicts.errors.importYomitanDictionaries",
+            true
+          );
+        } finally {
+          setImportingYomitan(false);
+        }
+      },
+      importYomitanSettings: async () => {
+        setImportingYomitan(true);
+        try {
+          return await runAction(
+            () => invokeIpc(HOSHIDICTS_CHANNELS.importYomitanSettings),
+            "settings.hoshidicts.errors.importYomitanSettings",
             true
           );
         } finally {

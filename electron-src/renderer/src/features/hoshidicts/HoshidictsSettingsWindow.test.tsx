@@ -636,7 +636,8 @@ describe("HoshidictsSettingsWindow", () => {
 
     await act(async () => {
       buttonContaining("Import Dictionary")?.click();
-      buttonContaining("Import Yomitan Backup")?.click();
+      buttonContaining("Import dictionaries from Yomitan")?.click();
+      buttonContaining("Import settings from Yomitan")?.click();
       buttonContaining("Check for Updates")?.click();
       buttonContaining("Install default set")?.click();
       buttons.find((button) => button.textContent?.trim() === "Install")?.click();
@@ -656,7 +657,10 @@ describe("HoshidictsSettingsWindow", () => {
       HOSHIDICTS_CHANNELS.importDictionary
     );
     expect(invokeMock).toHaveBeenCalledWith(
-      HOSHIDICTS_CHANNELS.importYomitanBackup
+      HOSHIDICTS_CHANNELS.importYomitanDictionaries
+    );
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.importYomitanSettings
     );
     expect(invokeMock).toHaveBeenCalledWith(HOSHIDICTS_CHANNELS.checkUpdates);
     expect(invokeMock).toHaveBeenCalledWith(
@@ -682,6 +686,11 @@ describe("HoshidictsSettingsWindow", () => {
       HOSHIDICTS_CHANNELS.setSchedule,
       "monthly"
     );
+
+    const sections = Array.from(
+      container.querySelectorAll<HTMLElement>(".hoshidicts-section")
+    );
+    expect(sections.at(-1)?.textContent).toContain("Backups");
   });
 
   it("auto-saves reader preferences atomically", async () => {

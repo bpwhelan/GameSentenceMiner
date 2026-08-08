@@ -598,15 +598,6 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
           <button
             type="button"
             className="secondary"
-            onClick={() => void actions.importYomitanBackup()}
-            disabled={dictionaryBusy}
-          >
-            <FileJson size={17} aria-hidden="true" />
-            {t("settings.hoshidicts.importYomitan")}
-          </button>
-          <button
-            type="button"
-            className="secondary"
             onClick={() => void actions.checkUpdates()}
             disabled={dictionaryBusy}
           >
@@ -881,6 +872,35 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
             ))}
           </div>
         )}
+      </section>
+
+      <section className="hoshidicts-section hoshidicts-backups">
+        <div className="hoshidicts-section__heading">
+          <div>
+            <h2>{t("settings.hoshidicts.backups.title")}</h2>
+            <p>{t("settings.hoshidicts.backups.subtitle")}</p>
+          </div>
+        </div>
+        <div className="hoshidicts-actions">
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => void actions.importYomitanDictionaries()}
+            disabled={dictionaryBusy}
+          >
+            <FileArchive size={17} aria-hidden="true" />
+            {t("settings.hoshidicts.backups.importDictionaries")}
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => void actions.importYomitanSettings()}
+            disabled={dictionaryBusy}
+          >
+            <FileJson size={17} aria-hidden="true" />
+            {t("settings.hoshidicts.backups.importSettings")}
+          </button>
+        </div>
       </section>
     </div>
   );

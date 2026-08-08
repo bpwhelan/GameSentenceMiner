@@ -3,6 +3,10 @@ import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { Readable } from 'node:stream';
+import parserStream from 'stream-json';
+import Assembler from 'stream-json/assembler.js';
+import type { Token } from 'stream-json/parser.js';
 
 import {
     HOSHIDICTS_AUDIO_SOURCE_TYPES,
@@ -56,8 +60,6 @@ export interface PreparedYomitanBackup {
     settings: ParsedYomitanSettings | null;
     cleanup: () => Promise<void>;
 }
-
-const BANK_CHUNK_SIZE = 1_000;
 
 function isRecord(value: unknown): value is JsonRecord {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -204,6 +206,101 @@ function mediaBuffer(value: unknown): Buffer | null {
     return null;
 }
 
+function addDictionarySummary(
+    dictionaries: Map<string, ParsedYomitanDictionary>,
+    row: unknown,
+    inbound: boolean
+): void {
+    const summary = exportRowValue(row, inbound);
+    if (!isRecord(summary)) {
+        return;
+    }
+    const title = stringValue(summary.title);
+    if (!title) {
+        return;
+    }
+    dictionaries.set(title, {
+        title,
+        index: dictionaryIndex(summary),
+        banks: emptyBanks(),
+        styles: stringValue(summary.styles),
+        media: new Map(),
+    });
+}
+
+function addDictionaryRow(
+    dictionaries: Map<string, ParsedYomitanDictionary>,
+    tableName: string,
+    row: unknown,
+    inbound: boolean
+): void {
+    const item = exportRowValue(row, inbound);
+    if (!isRecord(item)) {
+        return;
+    }
+    const dictionary = dictionaries.get(stringValue(item.dictionary));
+    if (!dictionary) {
+        return;
+    }
+    switch (tableName) {
+        case 'terms':
+            dictionary.banks.term.push([
+                stringValue(item.expression),
+                stringValue(item.reading),
+                stringValue(item.definitionTags ?? item.tags),
+                stringValue(item.rules),
+                typeof item.score === 'number' ? item.score : 0,
+                Array.isArray(item.glossary)
+                    ? restoreGlossaryValue(item.glossary)
+                    : [],
+                typeof item.sequence === 'number' ? item.sequence : -1,
+                stringValue(item.termTags),
+            ]);
+            break;
+        case 'termMeta':
+            dictionary.banks.termMeta.push([
+                stringValue(item.expression),
+                stringValue(item.mode),
+                item.data,
+            ]);
+            break;
+        case 'kanji':
+            dictionary.banks.kanji.push([
+                stringValue(item.character),
+                stringValue(item.onyomi),
+                stringValue(item.kunyomi),
+                stringValue(item.tags),
+                Array.isArray(item.meanings) ? item.meanings : [],
+                isRecord(item.stats) ? item.stats : {},
+            ]);
+            break;
+        case 'kanjiMeta':
+            dictionary.banks.kanjiMeta.push([
+                stringValue(item.character),
+                stringValue(item.mode),
+                item.data,
+            ]);
+            break;
+        case 'tagMeta':
+            dictionary.banks.tag.push([
+                stringValue(item.name),
+                stringValue(item.category),
+                typeof item.order === 'number' ? item.order : 0,
+                stringValue(item.notes),
+                typeof item.score === 'number' ? item.score : 0,
+            ]);
+            break;
+        case 'media': {
+            const content = mediaBuffer(item.content);
+            const mediaPath = stringValue(item.path);
+            if (content && mediaPath) {
+                dictionary.media.set(mediaPath, content);
+            }
+            break;
+        }
+    }
+}
+
 export function parseYomitanDictionaryBackup(value: unknown): ParsedYomitanDictionary[] {
     if (!isRecord(value)) {
         throw new Error('The selected file is not a Yomitan dictionary backup.');
@@ -215,21 +312,7 @@ export function parseYomitanDictionaryBackup(value: unknown): ParsedYomitanDicti
             continue;
         }
         for (const row of table.rows) {
-            const summary = exportRowValue(row, table.inbound);
-            if (!isRecord(summary)) {
-                continue;
-            }
-            const title = stringValue(summary.title);
-            if (!title) {
-                continue;
-            }
-            dictionaries.set(title, {
-                title,
-                index: dictionaryIndex(summary),
-                banks: emptyBanks(),
-                styles: stringValue(summary.styles),
-                media: new Map(),
-            });
+            addDictionarySummary(dictionaries, row, table.inbound);
         }
     }
     if (dictionaries.size === 0) {
@@ -241,71 +324,138 @@ export function parseYomitanDictionaryBackup(value: unknown): ParsedYomitanDicti
             continue;
         }
         for (const row of table.rows) {
-            const item = exportRowValue(row, table.inbound);
-            if (!isRecord(item)) {
-                continue;
-            }
-            const dictionary = dictionaries.get(stringValue(item.dictionary));
-            if (!dictionary) {
-                continue;
-            }
-            switch (table.tableName) {
-                case 'terms':
-                    dictionary.banks.term.push([
-                        stringValue(item.expression),
-                        stringValue(item.reading),
-                        stringValue(item.definitionTags ?? item.tags),
-                        stringValue(item.rules),
-                        typeof item.score === 'number' ? item.score : 0,
-                        Array.isArray(item.glossary) ? restoreGlossaryValue(item.glossary) : [],
-                        typeof item.sequence === 'number' ? item.sequence : -1,
-                        stringValue(item.termTags),
-                    ]);
-                    break;
-                case 'termMeta':
-                    dictionary.banks.termMeta.push([
-                        stringValue(item.expression),
-                        stringValue(item.mode),
-                        item.data,
-                    ]);
-                    break;
-                case 'kanji':
-                    dictionary.banks.kanji.push([
-                        stringValue(item.character),
-                        stringValue(item.onyomi),
-                        stringValue(item.kunyomi),
-                        stringValue(item.tags),
-                        Array.isArray(item.meanings) ? item.meanings : [],
-                        isRecord(item.stats) ? item.stats : {},
-                    ]);
-                    break;
-                case 'kanjiMeta':
-                    dictionary.banks.kanjiMeta.push([
-                        stringValue(item.character),
-                        stringValue(item.mode),
-                        item.data,
-                    ]);
-                    break;
-                case 'tagMeta':
-                    dictionary.banks.tag.push([
-                        stringValue(item.name),
-                        stringValue(item.category),
-                        typeof item.order === 'number' ? item.order : 0,
-                        stringValue(item.notes),
-                        typeof item.score === 'number' ? item.score : 0,
-                    ]);
-                    break;
-                case 'media': {
-                    const content = mediaBuffer(item.content);
-                    const mediaPath = stringValue(item.path);
-                    if (content && mediaPath) {
-                        dictionary.media.set(mediaPath, content);
-                    }
-                    break;
-                }
-            }
+            addDictionaryRow(dictionaries, table.tableName, row, table.inbound);
         }
     }
+    return [...dictionaries.values()];
+}
+
+interface DictionaryBackupSignature {
+    formatName: string;
+    formatVersion: number | null;
+    databaseName: string;
+}
+
+function isTablePath(pathValue: readonly (string | number)[]): boolean {
+    return (
+        pathValue.length === 3 &&
+        pathValue[0] === 'data' &&
+        pathValue[1] === 'data' &&
+        typeof pathValue[2] === 'number'
+    );
+}
+
+function isRowPath(pathValue: readonly (string | number)[]): boolean {
+    return (
+        pathValue.length === 5 &&
+        isTablePath(pathValue.slice(0, 3)) &&
+        pathValue[3] === 'rows' &&
+        typeof pathValue[4] === 'number'
+    );
+}
+
+async function streamDictionaryRows(
+    source: Readable,
+    onRow: (tableName: string, inbound: boolean, row: unknown) => void
+): Promise<DictionaryBackupSignature> {
+    const tokens = source.pipe(
+        parserStream({
+            streamKeys: false,
+            packKeys: true,
+            streamValues: false,
+            packValues: true,
+        })
+    );
+    const assembler = new Assembler();
+    const signature: DictionaryBackupSignature = {
+        formatName: '',
+        formatVersion: null,
+        databaseName: '',
+    };
+    let tableName = '';
+    let inbound = false;
+
+    for await (const rawToken of tokens) {
+        const token = rawToken as Token;
+        const currentPath = assembler.path;
+        const currentKey = assembler.key;
+        if (token.name === 'stringValue') {
+            if (currentPath.length === 0 && currentKey === 'formatName') {
+                signature.formatName = token.value;
+            } else if (
+                currentPath.length === 1 &&
+                currentPath[0] === 'data' &&
+                currentKey === 'databaseName'
+            ) {
+                signature.databaseName = token.value;
+            } else if (isTablePath(currentPath) && currentKey === 'tableName') {
+                tableName = token.value;
+            }
+        } else if (
+            token.name === 'numberValue' &&
+            currentPath.length === 0 &&
+            currentKey === 'formatVersion'
+        ) {
+            signature.formatVersion = Number(token.value);
+        } else if (
+            (token.name === 'trueValue' || token.name === 'falseValue') &&
+            isTablePath(currentPath) &&
+            currentKey === 'inbound'
+        ) {
+            inbound = token.name === 'trueValue';
+        }
+
+        if (
+            (token.name === 'endObject' || token.name === 'endArray') &&
+            isRowPath(currentPath)
+        ) {
+            const row = assembler.current;
+            assembler.consume(token);
+            onRow(tableName, inbound, row);
+            if (Array.isArray(assembler.current)) {
+                assembler.current.length = 0;
+            }
+            continue;
+        }
+
+        const closingTable =
+            token.name === 'endObject' && isTablePath(currentPath);
+        assembler.consume(token);
+        if (closingTable) {
+            if (Array.isArray(assembler.current)) {
+                assembler.current.length = 0;
+            }
+            tableName = '';
+            inbound = false;
+        }
+    }
+    if (
+        signature.formatName !== 'dexie' ||
+        signature.formatVersion !== 1 ||
+        signature.databaseName !== 'dict'
+    ) {
+        throw new Error('The selected file is not a Yomitan dictionary backup.');
+    }
+    return signature;
+}
+
+export async function parseYomitanDictionaryBackupStream(
+    createSource: () => Readable
+): Promise<ParsedYomitanDictionary[]> {
+    const dictionaries = new Map<string, ParsedYomitanDictionary>();
+    await streamDictionaryRows(createSource(), (tableName, inbound, row) => {
+        if (tableName === 'dictionaries') {
+            addDictionarySummary(dictionaries, row, inbound);
+        }
+    });
+    if (dictionaries.size === 0) {
+        throw new Error('The Yomitan backup does not contain dictionaries.');
+    }
+    await streamDictionaryRows(createSource(), (tableName, inbound, row) => {
+        if (tableName !== 'dictionaries') {
+            addDictionaryRow(dictionaries, tableName, row, inbound);
+        }
+    });
     return [...dictionaries.values()];
 }
 
@@ -563,9 +713,18 @@ async function writeDictionaryArchive(
             for (
                 let offset = 0, bankNumber = 1;
                 offset < entries.length;
-                offset += BANK_CHUNK_SIZE, bankNumber += 1
+                offset += 1_000, bankNumber += 1
             ) {
-                archive.append(JSON.stringify(entries.slice(offset, offset + BANK_CHUNK_SIZE)), {
+                const end = Math.min(offset + 1_000, entries.length);
+                const chunks = (function* (): Generator<string> {
+                    yield '[';
+                    for (let index = offset; index < end; index += 1) {
+                        if (index > offset) yield ',';
+                        yield JSON.stringify(entries[index]);
+                    }
+                    yield ']';
+                })();
+                archive.append(Readable.from(chunks), {
                     name: `${filePrefix}_${bankNumber}.json`,
                 });
             }
@@ -580,48 +739,23 @@ async function writeDictionaryArchive(
     });
 }
 
-export async function prepareYomitanBackupFiles(
-    filePaths: readonly string[],
-    current: HoshidictsManagerSnapshot,
+export async function prepareYomitanDictionaryBackup(
+    filePath: string
 ): Promise<PreparedYomitanBackup> {
-    let dictionaryBackup: unknown = null;
-    let settingsBackup: unknown = null;
-    for (const filePath of filePaths) {
-        const value: unknown = JSON.parse(await fsp.readFile(filePath, 'utf8'));
-        if (isRecord(value) && value.formatName === 'dexie') {
-            if (dictionaryBackup !== null) {
-                throw new Error('Select only one Yomitan dictionary backup.');
-            }
-            dictionaryBackup = value;
-        } else if (isRecord(value) && isRecord(value.options)) {
-            if (settingsBackup !== null) {
-                throw new Error('Select only one Yomitan settings backup.');
-            }
-            settingsBackup = value;
-        } else {
-            throw new Error('The selected JSON file is not a Yomitan backup.');
-        }
-    }
-    if (dictionaryBackup === null && settingsBackup === null) {
-        throw new Error('Select a Yomitan backup JSON file.');
-    }
-
     const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'gsm-yomitan-'));
     try {
         const dictionaries: Array<{ title: string; archivePath: string }> = [];
-        if (dictionaryBackup !== null) {
-            const parsed = parseYomitanDictionaryBackup(dictionaryBackup);
-            for (let index = 0; index < parsed.length; index += 1) {
-                const archivePath = path.join(root, `dictionary-${index + 1}.zip`);
-                await writeDictionaryArchive(parsed[index], archivePath);
-                dictionaries.push({ title: parsed[index].title, archivePath });
-            }
+        const parsed = await parseYomitanDictionaryBackupStream(() =>
+            fs.createReadStream(filePath)
+        );
+        for (let index = 0; index < parsed.length; index += 1) {
+            const archivePath = path.join(root, `dictionary-${index + 1}.zip`);
+            await writeDictionaryArchive(parsed[index], archivePath);
+            dictionaries.push({ title: parsed[index].title, archivePath });
         }
-        const settings =
-            settingsBackup === null ? null : parseYomitanSettingsBackup(settingsBackup, current);
         return {
             dictionaries,
-            settings,
+            settings: null,
             cleanup: async () => {
                 await fsp.rm(root, { recursive: true, force: true });
             },
@@ -630,4 +764,16 @@ export async function prepareYomitanBackupFiles(
         await fsp.rm(root, { recursive: true, force: true });
         throw error;
     }
+}
+
+export async function prepareYomitanSettingsBackup(
+    filePath: string,
+    current: HoshidictsManagerSnapshot
+): Promise<PreparedYomitanBackup> {
+    const value: unknown = JSON.parse(await fsp.readFile(filePath, 'utf8'));
+    return {
+        dictionaries: [],
+        settings: parseYomitanSettingsBackup(value, current),
+        cleanup: async () => undefined,
+    };
 }

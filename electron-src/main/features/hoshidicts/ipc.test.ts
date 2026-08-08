@@ -7,7 +7,8 @@ const harness = vi.hoisted(() => ({
     fromWebContents: vi.fn(),
     showMessageBox: vi.fn(),
     showOpenDialog: vi.fn(),
-    prepareYomitanBackupFiles: vi.fn(),
+    prepareYomitanDictionaryBackup: vi.fn(),
+    prepareYomitanSettingsBackup: vi.fn(),
     subscriber: null as ((snapshot: any) => void) | null,
     configuredEnabled: true,
     enabledAtLaunch: false as boolean | null,
@@ -75,7 +76,8 @@ vi.mock('./manager.js', () => ({
 }));
 
 vi.mock('./yomitan_backup.js', () => ({
-    prepareYomitanBackupFiles: harness.prepareYomitanBackupFiles,
+    prepareYomitanDictionaryBackup: harness.prepareYomitanDictionaryBackup,
+    prepareYomitanSettingsBackup: harness.prepareYomitanSettingsBackup,
 }));
 
 const snapshot = {
@@ -307,7 +309,7 @@ describe('Hoshidicts settings IPC', () => {
 
     it('imports a selected Yomitan dictionary backup through the existing manager', async () => {
         const cleanup = vi.fn(async () => undefined);
-        harness.prepareYomitanBackupFiles.mockResolvedValueOnce({
+        harness.prepareYomitanDictionaryBackup.mockResolvedValueOnce({
             dictionaries: [
                 { title: 'JMdict', archivePath: '/tmp/jmdict.zip' },
             ],
@@ -321,17 +323,54 @@ describe('Hoshidicts settings IPC', () => {
         const context = await registerHarness();
 
         await expect(
-            harness.handlers.get('hoshidicts.importYomitanBackup')?.({
+            harness.handlers.get('hoshidicts.importYomitanDictionaries')?.({
                 sender: context.settingsContents,
             })
         ).resolves.toMatchObject({
             success: true,
-            outcome: { code: 'yomitanBackupImported', count: 1 },
+            outcome: { code: 'yomitanDictionariesImported', count: 1 },
             yomitanReport: { imported: 1, replaced: 0, failed: 0 },
         });
         expect(harness.manager.importDictionary).toHaveBeenCalledWith(
             '/tmp/jmdict.zip'
         );
+        expect(cleanup).toHaveBeenCalledOnce();
+    });
+
+    it('imports a selected Yomitan settings backup without importing dictionaries', async () => {
+        const cleanup = vi.fn(async () => undefined);
+        harness.prepareYomitanSettingsBackup.mockResolvedValueOnce({
+            dictionaries: [],
+            settings: {
+                profileName: 'Mining',
+                dictionaries: [],
+                readerPreferences: null,
+                miningProfile: snapshot.miningProfile,
+                audioProfile: null,
+                groups: ['anki'],
+                warnings: [],
+            },
+            cleanup,
+        });
+        harness.showOpenDialog.mockResolvedValueOnce({
+            canceled: false,
+            filePaths: ['/tmp/yomitan-settings.json'],
+        });
+        const context = await registerHarness();
+
+        await expect(
+            harness.handlers.get('hoshidicts.importYomitanSettings')?.({
+                sender: context.settingsContents,
+            })
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'yomitanSettingsImported', count: 1 },
+            yomitanReport: { settings: ['anki'] },
+        });
+        expect(harness.manager.setMiningProfile).toHaveBeenCalledWith(
+            snapshot.miningProfile
+        );
+        expect(harness.manager.importDictionary).not.toHaveBeenCalled();
         expect(cleanup).toHaveBeenCalledOnce();
     });
 
