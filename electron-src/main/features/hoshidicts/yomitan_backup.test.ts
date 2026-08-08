@@ -1,12 +1,15 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { Readable } from 'node:stream';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
     parseYomitanDictionaryBackup,
+    parseYomitanDictionaryBackupStream,
     parseYomitanSettingsBackup,
-    prepareYomitanBackupFiles,
+    prepareYomitanDictionaryBackup,
+    prepareYomitanSettingsBackup,
 } from './yomitan_backup.js';
 import type { HoshidictsManagerSnapshot } from '../../../shared/features/hoshidicts.js';
 import {
@@ -358,10 +361,7 @@ describe('parseYomitanDictionaryBackup', () => {
             })
         );
 
-        const prepared = await prepareYomitanBackupFiles(
-            [inputPath],
-            currentState()
-        );
+        const prepared = await prepareYomitanDictionaryBackup(inputPath);
         const archivePath = prepared.dictionaries[0].archivePath;
         const temporaryRoot = path.dirname(archivePath);
         expect(fs.readFileSync(archivePath).subarray(0, 2).toString()).toBe(
@@ -369,5 +369,74 @@ describe('parseYomitanDictionaryBackup', () => {
         );
         await prepared.cleanup();
         expect(fs.existsSync(temporaryRoot)).toBe(false);
+    });
+
+    it('parses dictionary backups incrementally across input chunks', async () => {
+        const text = JSON.stringify({
+            formatName: 'dexie',
+            formatVersion: 1,
+            data: {
+                databaseName: 'dict',
+                data: [
+                    {
+                        tableName: 'dictionaries',
+                        inbound: true,
+                        rows: [{ title: 'Streamed', revision: '1' }],
+                    },
+                    {
+                        tableName: 'terms',
+                        inbound: true,
+                        rows: [
+                            {
+                                dictionary: 'Streamed',
+                                expression: '猫',
+                                reading: 'ねこ',
+                                glossary: ['cat'],
+                            },
+                        ],
+                    },
+                ],
+            },
+        });
+        const chunks = text.match(/.{1,7}/gu) ?? [];
+
+        const parsed = await parseYomitanDictionaryBackupStream(
+            () => Readable.from(chunks)
+        );
+
+        expect(parsed[0].banks.term).toEqual([
+            ['猫', 'ねこ', '', '', 0, ['cat'], -1, ''],
+        ]);
+    });
+
+    it('prepares settings separately from dictionary backups', async () => {
+        const inputRoot = fs.mkdtempSync(
+            path.join(os.tmpdir(), 'gsm-yomitan-settings-test-')
+        );
+        tempDirs.push(inputRoot);
+        const inputPath = path.join(inputRoot, 'settings.json');
+        fs.writeFileSync(
+            inputPath,
+            JSON.stringify({
+                version: 0,
+                options: {
+                    profileCurrent: 0,
+                    profiles: [
+                        {
+                            name: 'Imported',
+                            options: { dictionaries: [] },
+                        },
+                    ],
+                },
+            })
+        );
+
+        const prepared = await prepareYomitanSettingsBackup(
+            inputPath,
+            currentState()
+        );
+        expect(prepared.dictionaries).toEqual([]);
+        expect(prepared.settings?.profileName).toBe('Imported');
+        await prepared.cleanup();
     });
 });
