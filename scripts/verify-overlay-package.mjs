@@ -197,6 +197,8 @@ async function main() {
   verifyAsarEntries(overlayAsarPath, [
     'features/hoshidicts/desktop_bridge.js',
     'features/hoshidicts/diagnostics.js',
+    'features/hoshidicts/icons/add-duplicate-big-circle.svg',
+    'features/hoshidicts/icons/big-circle.svg',
     'features/hoshidicts/reader.css',
     'features/hoshidicts/audio.js',
     'features/hoshidicts/popup.js',

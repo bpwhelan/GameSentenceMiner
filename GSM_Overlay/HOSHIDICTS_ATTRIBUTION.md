@@ -17,10 +17,11 @@ the following projects:
   GPL-3.0-or-later.
 - [Yomitan GSM](https://github.com/bpwhelan/yomitan-gsm/tree/006dd464a50a468c71093dc8a8311f6110bf1996),
   the pinned source base for the bundled Yomitan extension and the dark popup
-  palette adapted by `features/hoshidicts/reader.css`. Yomitan GSM is licensed under
-  GPL-3.0-or-later.
+  palette adapted by `features/hoshidicts/reader.css`. Its Anki add and duplicate
+  icons are copied into `features/hoshidicts/icons`. Yomitan GSM is licensed
+  under GPL-3.0-or-later.
 
-The adapted reader sources and stylesheet carry
+The adapted reader sources, stylesheet, and copied icons carry
 `SPDX-License-Identifier: GPL-3.0-or-later` headers. The repository's root
 `LICENSE` contains the full GNU GPL version 3 text.
 
