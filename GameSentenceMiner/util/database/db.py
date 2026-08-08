@@ -2075,6 +2075,7 @@ from GameSentenceMiner.util.database.game_daily_rollup_table import GameDailyRol
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable  # noqa: E402
 from GameSentenceMiner.util.database.stats_export_state_table import StatsExportStateTable  # noqa: E402
 from GameSentenceMiner.util.database.third_party_stats_table import ThirdPartyStatsTable  # noqa: E402
+from GameSentenceMiner.util.database.term_lookup_stats_table import TermLookupStatsTable  # noqa: E402
 
 for cls in [
     AIModelsTable,
@@ -2086,6 +2087,7 @@ for cls in [
     StatsRollupTable,
     StatsExportStateTable,
     ThirdPartyStatsTable,
+    TermLookupStatsTable,
 ]:
     cls.set_db(gsm_db)
     # Uncomment to start fresh every time

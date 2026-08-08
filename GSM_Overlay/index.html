@@ -5031,8 +5031,12 @@ background: rgba(202, 12, 12, 0.692);
     const serverPort = Number.isFinite(port) && port > 0 && port <= 65535
       ? port
       : 7276;
+    const apiBaseUrl = window.GSMHoshidictsReader.resolveGsmApiBaseUrl(settings);
     const miningClient = window.GSMHoshidictsReader.createHoshidictsMiningClient({
-      baseUrl: window.GSMHoshidictsReader.resolveGsmApiBaseUrl(settings),
+      baseUrl: apiBaseUrl,
+    });
+    const lookupStatsClient = window.GSMHoshidictsReader.createHoshidictsLookupStatsClient({
+      baseUrl: apiBaseUrl,
     });
     window.gsmHoshidictsReader = window.GSMHoshidictsReader.createHoshidictsReader({
       serverUrl: `ws://127.0.0.1:${serverPort}`,
@@ -5044,6 +5048,9 @@ background: rgba(202, 12, 12, 0.692);
       },
       async onMine(payload) {
         return await miningClient.mine(payload);
+      },
+      onLookup(payload) {
+        return lookupStatsClient.record(payload);
       },
     });
 

@@ -42,6 +42,9 @@
   const MAX_TEXT_LENGTH = 128 * 1024;
   const MAX_MINING_REQUEST_BYTES = 256 * 1024;
   const MINING_REQUEST_TIMEOUT_MS = 10 * 1000;
+  const MAX_LOOKUP_STATS_REQUEST_BYTES = 4 * 1024;
+  const MAX_LOOKUP_STATS_TEXT_LENGTH = 256;
+  const LOOKUP_STATS_REQUEST_TIMEOUT_MS = 2 * 1000;
   const MAX_STRUCTURED_DEPTH = 24;
   const MAX_STRUCTURED_NODES = 4096;
   const RECONNECT_INITIAL_DELAY_MS = 750;
@@ -681,6 +684,81 @@
     };
   }
 
+  function createHoshidictsLookupStatsClient(options = {}) {
+    const baseUrl =
+      normalizeLocalHttpBaseUrl(options.baseUrl) ||
+      "http://127.0.0.1:7275";
+    const fetchImpl =
+      typeof options.fetch === "function"
+        ? options.fetch
+        : typeof fetch === "function"
+          ? fetch.bind(globalThis)
+          : null;
+    const timeoutMs =
+      Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
+        ? Math.trunc(options.timeoutMs)
+        : LOOKUP_STATS_REQUEST_TIMEOUT_MS;
+
+    return {
+      async record(payload) {
+        if (!fetchImpl) {
+          throw new Error("GSM lookup statistics are unavailable.");
+        }
+        if (!isRecord(payload)) {
+          throw new Error("A lookup statistics payload is required.");
+        }
+        const term = typeof payload.term === "string" ? payload.term : "";
+        const reading = typeof payload.reading === "string" ? payload.reading : "";
+        if (
+          term.length === 0 ||
+          term.length > MAX_LOOKUP_STATS_TEXT_LENGTH ||
+          reading.length > MAX_LOOKUP_STATS_TEXT_LENGTH
+        ) {
+          throw new Error("The lookup statistics payload is invalid.");
+        }
+        const body = JSON.stringify({ term, reading });
+        if (utf8Length(body) > MAX_LOOKUP_STATS_REQUEST_BYTES) {
+          throw new Error("The lookup statistics payload is too large.");
+        }
+        const controller =
+          typeof AbortController === "function" ? new AbortController() : null;
+        const timeoutId = controller
+          ? setTimeout(() => controller.abort(), timeoutMs)
+          : null;
+        try {
+          const response = await fetchImpl(
+            `${baseUrl}/api/hoshidicts/lookup-stats`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body,
+              signal: controller ? controller.signal : undefined,
+            }
+          );
+          let responsePayload;
+          try {
+            responsePayload = await response.json();
+          } catch {
+            throw new Error("GSM returned an invalid lookup statistics response.");
+          }
+          if (!response.ok || !isRecord(responsePayload) || responsePayload.success !== true) {
+            throw new Error("GSM could not record the lookup.");
+          }
+          return responsePayload;
+        } catch (error) {
+          if (error && error.name === "AbortError") {
+            throw new Error("GSM lookup statistics request timed out.");
+          }
+          throw error;
+        } finally {
+          if (timeoutId !== null) {
+            clearTimeout(timeoutId);
+          }
+        }
+      },
+    };
+  }
+
   function normalizePopupHideDelay(value, fallback = DEFAULT_POPUP_HIDE_DELAY_MS) {
     if (!Number.isFinite(value)) {
       return fallback;
@@ -705,6 +783,10 @@
     const onMine =
       typeof options.onMine === "function"
         ? options.onMine
+        : null;
+    const onLookup =
+      typeof options.onLookup === "function"
+        ? options.onLookup
         : null;
     const logger = options.logger || console;
     const serverUrl = String(options.serverUrl || "ws://127.0.0.1:7276");
@@ -1040,6 +1122,24 @@
       }
     }
 
+    function recordLookup(result) {
+      if (!onLookup) {
+        return;
+      }
+      const term = result.term.expression;
+      const reading = result.term.reading;
+      void Promise.resolve()
+        .then(() => onLookup({ term, reading }))
+        .catch((error) => {
+          diagnostic("warn", "lookup.record-failed", {
+            error: boundedString(
+              error instanceof Error ? error.message : String(error),
+              1024
+            ),
+          });
+        });
+    }
+
     function handleLookupResponse(rawData) {
       const serialized = typeof rawData === "string"
         ? rawData
@@ -1110,6 +1210,7 @@
       }
       const rendered = popupView.renderResults(results, candidate);
       showPopup(candidate);
+      recordLookup(results[0]);
       void refreshMiningButtons(rendered.miningButtons, rendered.feedback);
       diagnostic("info", "lookup.rendered", {
         requestId,
@@ -1462,6 +1563,7 @@
     appendTextOnlyGlossary,
     calculatePopupPosition,
     createHoshidictsMiningClient,
+    createHoshidictsLookupStatsClient,
     createHoshidictsReader,
     normalizePopupHideDelay,
     normalizeLookupResults,
