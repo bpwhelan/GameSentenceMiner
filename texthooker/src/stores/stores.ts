@@ -52,6 +52,7 @@ export const defaultSettings: Settings = {
 	flashOnMissedLine$: true,
 	displayVertical$: false,
 	reverseLineOrder$: false,
+	alwaysScrollToNewest$: false,
 	preserveWhitespace$: true,
 	removeAllWhitespace$: false,
 	showTimer$: true,
@@ -90,21 +91,21 @@ export const websocketUrl$ = writableStringSubject()('bannou-texthooker-websocke
 
 export const secondaryWebsocketUrl$ = writableStringSubject()(
 	'bannou-texthooker-secondary-websocketUrl',
-	defaultSettings.secondaryWebsocketUrl$
+	defaultSettings.secondaryWebsocketUrl$,
 );
 
 export const fontSize$ = writableNumberSubject()('bannou-texthooker-fontSize', defaultSettings.fontSize$);
 
 export const characterMilestone$ = writableNumberSubject()(
 	'bannou-texthooker-characterMilestone',
-	defaultSettings.characterMilestone$
+	defaultSettings.characterMilestone$,
 );
 
 export const onlineFont$ = writableStringSubject()('bannou-texthooker-onlineFont', defaultSettings.onlineFont$);
 
 export const preventLastDuplicate$ = writableNumberSubject()(
 	'bannou-texthooker-preventLastDuplicate',
-	defaultSettings.preventLastDuplicate$
+	defaultSettings.preventLastDuplicate$,
 );
 
 export const maxLines$ = writableNumberSubject()('bannou-texthooker-maxLines', defaultSettings.maxLines$);
@@ -113,29 +114,28 @@ if (maxLines$.getValue() == 0) {
 	maxLines$.next(1000);
 }
 
-
 export const maxPipLines$ = writableNumberSubject()('bannou-texthooker-maxPipLines', defaultSettings.maxPipLines$);
 
 export const afkTimer$ = writableNumberSubject()('bannou-texthooker-afkTimer', defaultSettings.afkTimer$);
 
 export const adjustTimerOnAfk$ = writableBooleanSubject()(
 	'bannou-texthooker-adjustTimerOnAfk',
-	defaultSettings.adjustTimerOnAfk$
+	defaultSettings.adjustTimerOnAfk$,
 );
 
 export const enableExternalClipboardMonitor$ = writableBooleanSubject()(
 	'bannou-texthooker-enableExternalClipboardMonitor',
-	defaultSettings.enableExternalClipboardMonitor$
+	defaultSettings.enableExternalClipboardMonitor$,
 );
 
 export const showPresetQuickSwitch$ = writableBooleanSubject()(
 	'bannou-texthooker-showPresetQuickSwitch',
-	defaultSettings.showPresetQuickSwitch$
+	defaultSettings.showPresetQuickSwitch$,
 );
 
 export const skipResetConfirmations$ = writableBooleanSubject()(
 	'bannou-texthooker-skipResetConfirmations',
-	defaultSettings.skipResetConfirmations$
+	defaultSettings.skipResetConfirmations$,
 );
 
 export const persistStats$ = writableBooleanSubject()('bannou-texthooker-persistStats', defaultSettings.persistStats$);
@@ -146,74 +146,79 @@ export const persistLines$ = writableBooleanSubject()('bannou-texthooker-persist
 
 export const persistActionHistory$ = writableBooleanSubject()(
 	'bannou-texthooker-persistActionHistory',
-	defaultSettings.persistActionHistory$
+	defaultSettings.persistActionHistory$,
 );
 
 export const enablePaste$ = writableBooleanSubject()('bannou-texthooker-enablePaste', defaultSettings.enablePaste$);
 
 export const blockCopyOnPage$ = writableBooleanSubject()(
 	'bannou-texthooker-blockCopyOnPage',
-	defaultSettings.blockCopyOnPage$
+	defaultSettings.blockCopyOnPage$,
 );
 
 export const allowPasteDuringPause$ = writableBooleanSubject()(
 	'bannou-texthooker-allowPasteDuringPause',
-	defaultSettings.allowPasteDuringPause$
+	defaultSettings.allowPasteDuringPause$,
 );
 
 export const allowNewLineDuringPause$ = writableBooleanSubject()(
 	'bannou-texthooker-allowNewLineDuringPause',
-	defaultSettings.allowNewLineDuringPause$
+	defaultSettings.allowNewLineDuringPause$,
 );
 
 export const autoStartTimerDuringPausePaste$ = writableBooleanSubject()(
 	'bannou-texthooker-autoStartTimerDuringPausePaste',
-	defaultSettings.autoStartTimerDuringPausePaste$
+	defaultSettings.autoStartTimerDuringPausePaste$,
 );
 
 export const autoStartTimerDuringPause$ = writableBooleanSubject()(
 	'bannou-texthooker-autoStartTimerDuringPause',
-	defaultSettings.autoStartTimerDuringPause$
+	defaultSettings.autoStartTimerDuringPause$,
 );
 
 export const preventGlobalDuplicate$ = writableBooleanSubject()(
 	'bannou-texthooker-preventGlobalDuplicate',
-	defaultSettings.preventGlobalDuplicate$
+	defaultSettings.preventGlobalDuplicate$,
 );
 
 export const mergeEqualLineStarts$ = writableBooleanSubject()(
 	'bannou-texthooker-mergeEqualLineStarts',
-	defaultSettings.mergeEqualLineStarts$
+	defaultSettings.mergeEqualLineStarts$,
 );
 
 export const filterNonCJKLines$ = writableBooleanSubject()(
 	'bannou-texthooker-filterNonCJKLines',
-	defaultSettings.mergeEqualLineStarts$
+	defaultSettings.mergeEqualLineStarts$,
 );
 
 export const flashOnMissedLine$ = writableBooleanSubject()(
 	'bannou-texthooker-flashOnMissedLine',
-	defaultSettings.flashOnMissedLine$
+	defaultSettings.flashOnMissedLine$,
 );
 
 export const displayVertical$ = writableBooleanSubject()(
 	'bannou-texthooker-displayVertical',
-	defaultSettings.displayVertical$
+	defaultSettings.displayVertical$,
 );
 
 export const reverseLineOrder$ = writableBooleanSubject()(
 	'bannou-texthooker-reverseLineOrder',
-	defaultSettings.reverseLineOrder$
+	defaultSettings.reverseLineOrder$,
+);
+
+export const alwaysScrollToNewest$ = writableBooleanSubject()(
+	'bannou-texthooker-alwaysScrollToNewest',
+	defaultSettings.alwaysScrollToNewest$,
 );
 
 export const preserveWhitespace$ = writableBooleanSubject()(
 	'bannou-texthooker-preserveWhitespace',
-	defaultSettings.preserveWhitespace$
+	defaultSettings.preserveWhitespace$,
 );
 
 export const removeAllWhitespace$ = writableBooleanSubject()(
 	'bannou-texthooker-removeAllWhitespace',
-	defaultSettings.removeAllWhitespace$
+	defaultSettings.removeAllWhitespace$,
 );
 
 export const showTimer$ = writableBooleanSubject()('bannou-texthooker-showTimer', defaultSettings.showTimer$);
@@ -222,12 +227,12 @@ export const showSpeed$ = writableBooleanSubject()('bannou-texthooker-showSpeed'
 
 export const showCharacterCount$ = writableBooleanSubject()(
 	'bannou-texthooker-showCharacterCount',
-	defaultSettings.showCharacterCount$
+	defaultSettings.showCharacterCount$,
 );
 
 export const showLineCount$ = writableBooleanSubject()(
 	'bannou-texthooker-showLineCount',
-	defaultSettings.showLineCount$
+	defaultSettings.showLineCount$,
 );
 
 export const blurStats$ = writableBooleanSubject()('bannou-texthooker-blurStats', defaultSettings.blurStats$);
@@ -239,27 +244,27 @@ export const syncTextFeedPauseWithGSMStats$ = writableBooleanSubject()(
 
 export const enableLineAnimation$ = writableBooleanSubject()(
 	'bannou-texthooker-enableLineAnimation',
-	defaultSettings.enableLineAnimation$
+	defaultSettings.enableLineAnimation$,
 );
 
 export const enableAfkBlur$ = writableBooleanSubject()(
 	'bannou-texthooker-enableAfkBlur',
-	defaultSettings.enableAfkBlur$
+	defaultSettings.enableAfkBlur$,
 );
 
 export const enableAfkBlurRestart$ = writableBooleanSubject()(
 	'bannou-texthooker-enableAfkBlurRestart',
-	defaultSettings.enableAfkBlurRestart$
+	defaultSettings.enableAfkBlurRestart$,
 );
 
 export const continuousReconnect$ = writableBooleanSubject()(
 	'bannou-texthooker-continuousReconnect',
-	defaultSettings.continuousReconnect$
+	defaultSettings.continuousReconnect$,
 );
 
 export const showConnectionErrors$ = writableBooleanSubject()(
 	'bannou-texthooker-showConnectionErrors',
-	defaultSettings.showConnectionErrors$
+	defaultSettings.showConnectionErrors$,
 );
 
 export const customCSS$ = writableStringSubject()('bannou-texthooker-customCSS', defaultSettings.customCSS$);
@@ -276,7 +281,7 @@ export const socketState$ = writableSubject<number>(-1);
 
 export const secondarySocketState$ = writableSubject<number>(-1);
 
-export const openDialog$ = writableSubject<Record<string, any>>(undefined);
+export const openDialog$ = writableSubject<Record<string, any> | undefined>(undefined);
 
 export const dialogOpen$ = writableSubject<boolean>(false);
 
@@ -293,10 +298,10 @@ export const milestoneLines$ = writable<Map<string, string>>(new Map<string, str
 export const actionHistory$ = writeableArraySubject<LineItem[]>()(
 	'bannou-texthooker-actionHistory',
 	[],
-	persistActionHistory$
+	persistActionHistory$,
 );
 
-export const flashOnPauseTimeout$ = writable<number>(undefined);
+export const flashOnPauseTimeout$ = writable<number | undefined>(undefined);
 
 export const isPaused$ = writableSubject<boolean>(true);
 
@@ -330,7 +335,10 @@ export const showTrimVideoButton$ = writableBooleanSubject()('bannou-texthooker-
 
 export const trimVideoWithVAD$ = writableBooleanSubject()('bannou-texthooker-trimVideoWithVAD', false);
 
-export const showTrimmedVideoInExplorer$ = writableBooleanSubject()('bannou-texthooker-showTrimmedVideoInExplorer', false);
+export const showTrimmedVideoInExplorer$ = writableBooleanSubject()(
+	'bannou-texthooker-showTrimmedVideoInExplorer',
+	false,
+);
 
 export const showGSMCheckboxes$ = writableBooleanSubject()('bannou-texthooker-showGSMCheckboxes', true);
 
@@ -398,6 +406,7 @@ export async function resetAllData() {
 	flashOnMissedLine$.next(defaultSettings.flashOnMissedLine$);
 	displayVertical$.next(defaultSettings.displayVertical$);
 	reverseLineOrder$.next(defaultSettings.reverseLineOrder$);
+	alwaysScrollToNewest$.next(defaultSettings.alwaysScrollToNewest$);
 	preserveWhitespace$.next(defaultSettings.preserveWhitespace$);
 	removeAllWhitespace$.next(defaultSettings.removeAllWhitespace$);
 	showTimer$.next(defaultSettings.showTimer$);

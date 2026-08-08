@@ -27,6 +27,7 @@
 	import { fade, fly } from 'svelte/transition';
 	import {
 		actionHistory$,
+		alwaysScrollToNewest$,
 		allowNewLineDuringPause$,
 		allowPasteDuringPause$,
 		autoStartTimerDuringPause$,
@@ -87,10 +88,12 @@
 		applyCustomCSS,
 		applyReplacements,
 		generateRandomUUID,
+		getErrorMessage,
 		isScrolledToEnd,
 		newLineCharacter,
 		reduceToEmptyString,
 		setAutoScrollStick,
+		shouldAutoScroll,
 		updateScroll
 	} from '../util';
 	import DialogManager from './DialogManager.svelte';
@@ -185,11 +188,11 @@
 			return false;
 		}),
 		tap((newLine: [string, LineType, string, Partial<LineItem>?]) => {
-			const [lineContent] = newLine;
-			const type = newLine.at(1) || LineType.SOCKET;
+			const [lineContent, requestedType, requestedId, requestedLineMeta] = newLine;
+			const type = requestedType || LineType.SOCKET;
 			const text = transformLine(lineContent, type !== LineType.TL);
-			const id = newLine.at(2) || generateRandomUUID();
-			const lineMeta: Partial<LineItem> = { gsmStatus: 'external', ...(newLine[3] ?? {}) };
+			const id = requestedId || generateRandomUUID();
+			const lineMeta: Partial<LineItem> = { gsmStatus: 'external', ...(requestedLineMeta ?? {}) };
 
 			if ($lineData$?.some(line => line.id === id)) {
 				console.warn(`Skipping new line with duplicate ID: '${id}'`);
@@ -203,13 +206,20 @@
 			if (text) {
 				// Capture before render: content grows, so a later check is too late.
 				const mainAtEnd = isScrolledToEnd(window, lineContainer, $reverseLineOrder$, $displayVertical$);
-				setAutoScrollStick(false, mainAtEnd);
+				const mainShouldScroll = shouldAutoScroll($alwaysScrollToNewest$, mainAtEnd);
+				setAutoScrollStick(false, mainShouldScroll);
 				if (pipWindow) {
-					setAutoScrollStick(true, isScrolledToEnd(pipWindow, pipContainer, $reverseLineOrder$, false));
+					setAutoScrollStick(
+						true,
+						shouldAutoScroll(
+							$alwaysScrollToNewest$,
+							isScrolledToEnd(pipWindow, pipContainer, $reverseLineOrder$, false),
+						),
+					);
 				}
 
 				// Tally lines that skipped autoscroll so the indicator can show them.
-				if (!mainAtEnd) {
+				if (!mainShouldScroll) {
 					newLinesBelow += 1;
 				}
 
@@ -228,8 +238,8 @@
 	);
 
 	const pasteHandler$ = enablePaste$.pipe(
-		switchMap((enablePaste) => (enablePaste ? fromEvent(document, 'paste') : NEVER)),
-		tap((event: ClipboardEvent) => newLine$.next([event.clipboardData.getData('text/plain'), LineType.PASTE, ''])),
+		switchMap((enablePaste) => (enablePaste ? fromEvent<ClipboardEvent>(document, 'paste') : NEVER)),
+		tap((event) => newLine$.next([event.clipboardData?.getData('text/plain') ?? '', LineType.PASTE, ''])),
 		reduceToEmptyString(),
 	);
 
@@ -313,8 +323,9 @@
 		const key = (event.key || '')?.toLowerCase();
 
 		if (key === 'delete') {
-			if (window.getSelection()?.toString().trim()) {
-				const range = window.getSelection().getRangeAt(0);
+			const selection = window.getSelection();
+			if (selection?.toString().trim() && selection.rangeCount) {
+				const range = selection.getRangeAt(0);
 
 				for (let index = 0, { length } = lineElements; index < length; index += 1) {
 					const lineElement = lineElements[index];
@@ -418,24 +429,25 @@
 	}
 
 	function initializeAudioElement() {
-		audioElement = new Audio();
-		audioElement.preload = 'auto';
-		audioElement.addEventListener('play', () => {
+		const createdAudioElement = new Audio();
+		audioElement = createdAudioElement;
+		createdAudioElement.preload = 'auto';
+		createdAudioElement.addEventListener('play', () => {
 			lastBrowserAudioStartAt = Date.now();
 			browserAudioPlaying = true;
 		});
-		audioElement.addEventListener('pause', () => {
+		createdAudioElement.addEventListener('pause', () => {
 			browserAudioPlaying = false;
 		});
-		audioElement.addEventListener('ended', () => {
+		createdAudioElement.addEventListener('ended', () => {
 			browserAudioPlaying = false;
 			audioCurrentTime = 0;
 		});
-		audioElement.addEventListener('timeupdate', () => {
-			audioCurrentTime = audioElement?.currentTime || 0;
+		createdAudioElement.addEventListener('timeupdate', () => {
+			audioCurrentTime = createdAudioElement.currentTime || 0;
 		});
-		audioElement.addEventListener('loadedmetadata', () => {
-			audioDuration = Number.isFinite(audioElement?.duration) ? audioElement.duration : 0;
+		createdAudioElement.addEventListener('loadedmetadata', () => {
+			audioDuration = Number.isFinite(createdAudioElement.duration) ? createdAudioElement.duration : 0;
 		});
 	}
 
@@ -780,6 +792,9 @@
 		}
 
 		const linesToRevert = $actionHistory$.pop();
+		if (!linesToRevert) {
+			return;
+		}
 
 		let lineToRevert = linesToRevert.pop();
 
@@ -787,7 +802,8 @@
 			const text = transformLine(lineToRevert.text, false);
 
 			if (text) {
-				const { id, index } = lineToRevert;
+				const { id } = lineToRevert;
+				const index = lineToRevert.index ?? $lineData$.length;
 
 				if (index > $lineData$.length - 1) {
 					$lineData$.push({ ...lineToRevert, id, text });
@@ -876,13 +892,14 @@
 		if (!pipWindow) {
 			return;
 		}
+		const activePipWindow = pipWindow;
 
-		pipWindow.document.body.appendChild(pipContainer);
+		activePipWindow.document.body.appendChild(pipContainer);
 
-		pipWindow.addEventListener('pagehide', onPipHide, { once: true });
-		pipWindow.addEventListener('resize', onPipResize, false);
-		pipWindow.addEventListener('blur', onPipFocusBlur, false);
-		pipWindow.addEventListener('focus', onPipFocusBlur, false);
+		activePipWindow.addEventListener('pagehide', onPipHide, { once: true });
+		activePipWindow.addEventListener('resize', onPipResize, false);
+		activePipWindow.addEventListener('blur', onPipFocusBlur, false);
+		activePipWindow.addEventListener('focus', onPipFocusBlur, false);
 
 		[...document.styleSheets].forEach((styleSheet) => {
 			if (styleSheet.ownerNode instanceof Element && styleSheet.ownerNode.id === 'user-css') {
@@ -894,25 +911,31 @@
 				const style = document.createElement('style');
 
 				style.textContent = cssRules;
-				pipWindow.document.head.appendChild(style);
+				activePipWindow.document.head.appendChild(style);
 			} catch (_error) {
 				const link = document.createElement('link');
 
 				link.rel = 'stylesheet';
 				link.type = styleSheet.type;
 				link.media = styleSheet.media.toString();
-				link.href = styleSheet.href;
-				pipWindow.document.head.appendChild(link);
+				if (styleSheet.href) {
+					link.href = styleSheet.href;
+				}
+				activePipWindow.document.head.appendChild(link);
 			}
 		});
 	}
 
 	function onPipHide() {
+		const closingPipWindow = pipWindow;
+		if (!closingPipWindow) {
+			return;
+		}
 		updatePipDimensions();
 
-		pipWindow.removeEventListener('resize', onPipResize, false);
-		pipWindow.removeEventListener('blur', onPipFocusBlur, false);
-		pipWindow.removeEventListener('focus', onPipFocusBlur, false);
+		closingPipWindow.removeEventListener('resize', onPipResize, false);
+		closingPipWindow.removeEventListener('blur', onPipFocusBlur, false);
+		closingPipWindow.removeEventListener('focus', onPipFocusBlur, false);
 
 		hasPipFocus = false;
 		pipWindow = undefined;
@@ -1004,18 +1027,17 @@
 		return canAppend ? lineToAppend : undefined;
 	}
 
-	function handleLineEdit(event) {
-		const { inEdit, data } = event.detail as LineItemEditEvent;
+	function handleLineEdit(event: CustomEvent<LineItemEditEvent>) {
+		const { inEdit, data } = event.detail;
 
 		if (data && data.originalText !== data.newText) {
 			const text = transformLine(data.newText);
 
-			$lineData$[data.lineIndex] = {
-				...data.line,
-				text,
-			};
-
 			if (text) {
+				$lineData$[data.lineIndex] = {
+					...data.line,
+					text,
+				};
 				$actionHistory$ = [...$actionHistory$, [{ ...data.line, index: data.lineIndex }]];
 				$uniqueLines$.delete(data.originalText);
 				$uniqueLines$.add(text);
@@ -1084,10 +1106,10 @@
 				message: `Operation executed`,
 				showCancel: false,
 			};
-		} catch ({ message }) {
+		} catch (error) {
 			$openDialog$ = {
 				type: 'error',
-				message: `An Error occured: ${message}`,
+				message: `An Error occured: ${getErrorMessage(error)}`,
 				showCancel: false,
 			};
 		}

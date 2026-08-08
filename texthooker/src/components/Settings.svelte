@@ -17,6 +17,7 @@
 		actionHistory$,
 		adjustTimerOnAfk$,
 		afkTimer$,
+		alwaysScrollToNewest$,
 		allowNewLineDuringPause$,
 		allowPasteDuringPause$,
 		autoStartTimerDuringPause$,
@@ -218,7 +219,11 @@
 		let styleElement = document.getElementById('user-css');
 
 		if (styleElement) {
-			styleElement.replaceChild(textNode, styleElement.firstChild);
+			if (styleElement.firstChild) {
+				styleElement.replaceChild(textNode, styleElement.firstChild);
+			} else {
+				styleElement.appendChild(textNode);
+			}
 		} else {
 			styleElement = document.createElement('style');
 			styleElement.id = 'user-css';
@@ -366,7 +371,7 @@
 			}
 		}
 
-		dataFileInput.value = null;
+		dataFileInput.value = '';
 	}
 
 	async function handleSettingsFileChange() {
@@ -387,7 +392,7 @@
 			}
 		}
 
-		settingsFileInput.value = null;
+		settingsFileInput.value = '';
 	}
 
 	async function handlePresetFileChange() {
@@ -413,7 +418,7 @@
 			presetComponent.updateSettingsWithPreset(data);
 		}
 
-		presetFileInput.value = null;
+		presetFileInput.value = '';
 	}
 
 	async function handlePersistenceChange(settingEnabled: boolean, message: String, storageKey: string) {
@@ -454,7 +459,7 @@
 		}
 	}
 
-	function handleCharacterMilestoneBlur(event) {
+	function handleCharacterMilestoneBlur(event: FocusEvent) {
 		const target = event.target as HTMLInputElement;
 		const value = Number.parseInt(target.value || '0');
 
@@ -471,7 +476,7 @@
 		target.value = `${$characterMilestone$}`;
 	}
 
-	function handlePreventLastDuplicateBlur(event) {
+	function handlePreventLastDuplicateBlur(event: FocusEvent) {
 		const target = event.target as HTMLInputElement;
 		const value = Number.parseInt(target.value || '0');
 		const wasChange = value !== $preventLastDuplicate$;
@@ -526,7 +531,7 @@
 		selectedLineIds = selectedLineIds.filter((selectedLineId) => !removedIds.has(selectedLineId));
 	}
 
-	function handleMaxLinesBlur(event) {
+	function handleMaxLinesBlur(event: FocusEvent) {
 		const target = event.target as HTMLInputElement;
 		const value = Number.parseInt(target.value || '0');
 		const wasChange = value !== $maxLines$;
@@ -544,7 +549,7 @@
 		}
 	}
 
-	function handleMaxPipLinesBlur(event) {
+	function handleMaxPipLinesBlur(event: FocusEvent) {
 		const target = event.target as HTMLInputElement;
 		const value = Number.parseInt(target.value || '0');
 
@@ -668,7 +673,7 @@
 
 	function loadFile<T>(inputElement: HTMLInputElement) {
 		return new Promise<T | void>((resolve, reject) => {
-			const [file] = inputElement.files;
+			const file = inputElement.files?.[0];
 			const fileReader = new FileReader();
 
 			if (!file) {
@@ -682,13 +687,13 @@
 					showCancel: false,
 				};
 
-				inputElement.value = null;
+				inputElement.value = '';
 				return resolve();
 			}
 
 			fileReader.addEventListener('loadend', (event) => {
 				try {
-					const data = JSON.parse(event.target.result as string);
+					const data = JSON.parse(String(event.target?.result ?? ''));
 
 					resolve(data);
 				} catch (error) {
@@ -1021,6 +1026,8 @@
 			bind:checked={$reverseLineOrder$}
 			on:change={() => dispatch('layoutChange')}
 		/>
+		<span class="label-text">Always scroll to newest line</span>
+		<input type="checkbox" class="checkbox checkbox-primary ml-2" bind:checked={$alwaysScrollToNewest$} />
 		<span class="label-text">Preserve Whitespace</span>
 		<input type="checkbox" class="checkbox checkbox-primary ml-2" bind:checked={$preserveWhitespace$} />
 		<span class="label-text">Remove all Whitespace</span>

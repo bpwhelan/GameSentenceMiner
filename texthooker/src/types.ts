@@ -72,6 +72,7 @@ export interface Settings {
 	flashOnMissedLine$: boolean;
 	displayVertical$: boolean;
 	reverseLineOrder$: boolean;
+	alwaysScrollToNewest$: boolean;
 	preserveWhitespace$: boolean;
 	removeAllWhitespace$: boolean;
 	showTimer$: boolean;

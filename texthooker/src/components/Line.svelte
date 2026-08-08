@@ -3,6 +3,7 @@
 	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import {
+		alwaysScrollToNewest$,
 		displayVertical$,
 		enableLineAnimation$,
 		preserveWhitespace$,
@@ -22,14 +23,21 @@
 		settingsOpen$,
 	} from '../stores/stores';
 	import type { LineItem, LineItemEditEvent } from '../types';
-	import { dummyFn, getAutoScrollStick, isScrolledToEnd, newLineCharacter, updateScroll } from '../util';
+	import {
+		dummyFn,
+		getAutoScrollStick,
+		isScrolledToEnd,
+		newLineCharacter,
+		shouldAutoScroll,
+		updateScroll,
+	} from '../util';
 	import Icon from './Icon.svelte';
 	import { getGSMEndpoint } from '../gsm';
 
 	export let line: LineItem;
 	export let index: number;
 	export let isLast: boolean;
-	export let pipWindow: Window = undefined;
+	export let pipWindow: Window | undefined = undefined;
 	export let audioLineId = '';
 	export let audioIsPlaying = false;
 	export let audioPendingLineId = '';
@@ -69,11 +77,11 @@
 
 	onMount(() => {
 		if (isLast) {
-			// Don't yank a reader who scrolled up.
-			if (getAutoScrollStick(!!pipWindow)) {
+			// Keep the reader's position unless continuous following is enabled.
+			if (shouldAutoScroll($alwaysScrollToNewest$, getAutoScrollStick(!!pipWindow))) {
 				updateScroll(
 					pipWindow || window,
-					paragraph.parentElement.parentElement,
+					paragraph.parentElement?.parentElement ?? null,
 					$reverseLineOrder$,
 					isVerticalDisplay,
 					$enableLineAnimation$ ? 'smooth' : 'auto',
@@ -252,14 +260,17 @@
 			})
 			.then((data) => {
 				if (action === 'TL') {
-					// Capture before render; a slow TL landing must not yank a scrolled-up reader.
-					const wasAtEnd =
+					// Capture before render so a delayed translation respects the selected scroll behavior.
+					const shouldFollowTranslation =
 						isLast &&
-						isScrolledToEnd(
-							pipWindow || window,
-							paragraph.parentElement.parentElement,
-							$reverseLineOrder$,
-							isVerticalDisplay,
+						shouldAutoScroll(
+							$alwaysScrollToNewest$,
+							isScrolledToEnd(
+								pipWindow || window,
+								paragraph.parentElement?.parentElement ?? null,
+								$reverseLineOrder$,
+								isVerticalDisplay,
+							),
 						);
 
 					line.translation = data['TL'];
@@ -277,8 +288,10 @@
 					if (!line.text.endsWith('\n')) {
 						line.text += '\n';
 					}
-					$lineData$[line.index] = line;
-					if (wasAtEnd) {
+					if (line.index !== undefined) {
+						$lineData$[line.index] = line;
+					}
+					if (shouldFollowTranslation) {
 						tick().then(() => {
 							const behavior = $enableLineAnimation$ ? 'smooth' : 'auto';
 							paragraph?.scrollIntoView({
@@ -329,25 +342,26 @@
 		>
 			{line.text}
 			{#if line.translation}
-				<p
+				<span
 					class:blur-translation={line.blurTranslation}
 					style="color: #888; padding-bottom: 16px; padding-top: 16px; width: 100%; {line.blurTranslation
 						? 'filter: blur(8px); transition: filter 0.2s;'
 						: ''}"
 					on:mouseenter={line.blurTranslation
-						? function () {
-								this.style.filter = 'blur(0px)';
-								this.style.transition = 'filter 0.3s';
+						? function (event: MouseEvent) {
+								const target = event.currentTarget as HTMLElement;
+								target.style.filter = 'blur(0px)';
+								target.style.transition = 'filter 0.3s';
 							}
 						: undefined}
 					on:mouseleave={line.blurTranslation
-						? function () {
-								this.style.filter = 'blur(8px)';
+						? function (event: MouseEvent) {
+								(event.currentTarget as HTMLElement).style.filter = 'blur(8px)';
 							}
 						: undefined}
 				>
 					<i>{line.translation}</i>
-				</p>
+				</span>
 			{/if}
 		</p>
 		<div class="line-actions-container" class:hidden={$settingsOpen$}>

@@ -21,7 +21,7 @@ import { LineType } from './types';
 export class SocketConnection {
 	private isPrimary: boolean;
 
-	private websocketUrl: string;
+	private websocketUrl = '';
 
 	private socket: WebSocket | undefined;
 
@@ -66,7 +66,7 @@ export class SocketConnection {
 	}
 
 	connect() {
-		if (this.socket?.readyState < 2) {
+		if ((this.socket?.readyState ?? WebSocket.CLOSED) < WebSocket.CLOSING) {
 			return;
 		}
 
@@ -192,7 +192,7 @@ export class SocketConnection {
 
 		line = payload?.sentence || event.data;
 		const isGSMLine = payload?.event === 'text_received' && typeof payload?.data?.id === 'string';
-		const id = isGSMLine ? payload.data.id : '';
+		const id = isGSMLine && payload ? payload.data.id : '';
 		const lineMeta =
 			payload?.data && typeof payload.data === 'object'
 				? {

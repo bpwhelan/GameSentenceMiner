@@ -139,7 +139,7 @@
 					(event) => {
 						event.stopPropagation();
 
-						window.getSelection().removeAllRanges();
+						window.getSelection()?.removeAllRanges();
 
 						dispatch('afkBlur', false);
 

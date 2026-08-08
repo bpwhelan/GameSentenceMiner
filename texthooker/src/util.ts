@@ -7,7 +7,7 @@ export function dummyFn() {}
 export function reduceToEmptyString() {
 	return pipe(
 		map((): '' => ''),
-		filter((_, index) => !index)
+		filter((_, index) => !index),
 	);
 }
 
@@ -27,13 +27,21 @@ export function getAutoScrollStick(isPip: boolean) {
 	return isPip ? stickToBottomPip : stickToBottomMain;
 }
 
+export function shouldAutoScroll(alwaysScrollToNewest: boolean, wasAtNewest: boolean) {
+	return alwaysScrollToNewest || wasAtNewest;
+}
+
+export function getErrorMessage(error: unknown) {
+	return error instanceof Error ? error.message : String(error);
+}
+
 // Within `threshold` px of the newest line, across all four layout modes.
 export function isScrolledToEnd(
 	window: Window,
-	scrollElement: HTMLElement,
+	scrollElement: HTMLElement | null,
 	reverseLineOrder: boolean,
 	displayVertical: boolean,
-	threshold = 150
+	threshold = 150,
 ): boolean {
 	if (!scrollElement) {
 		return true;
@@ -53,10 +61,10 @@ export function isScrolledToEnd(
 
 export function updateScroll(
 	window: Window,
-	scrollElement: HTMLElement,
+	scrollElement: HTMLElement | null,
 	reverseLineOrder: boolean,
 	displayVertical: boolean,
-	behavior: ScrollBehavior = 'auto'
+	behavior: ScrollBehavior = 'auto',
 ) {
 	if (!scrollElement) {
 		return;
@@ -123,7 +131,7 @@ export function applyReplacements(originalText: string, replacements: Replacemen
 
 		adjustedText = adjustedText.replace(
 			new RegExp(replacement.pattern, replacement.flags.join('')),
-			replacement.replaces.replace(/\\t/gm, '\t').replace(/\\n/gm, '\n')
+			replacement.replaces.replace(/\\t/gm, '\t').replace(/\\n/gm, '\n'),
 		);
 	}
 
@@ -136,7 +144,11 @@ export function applyCustomCSS(document: Document, customCSS: string) {
 	let styleElement = document.getElementById('user-css');
 
 	if (styleElement) {
-		styleElement.replaceChild(textNode, styleElement.firstChild);
+		if (styleElement.firstChild) {
+			styleElement.replaceChild(textNode, styleElement.firstChild);
+		} else {
+			styleElement.appendChild(textNode);
+		}
 	} else {
 		styleElement = document.createElement('style');
 		styleElement.id = 'user-css';
@@ -151,7 +163,7 @@ export function applyAfkBlur(document: Document, isAfk: boolean) {
 		document.body.style.filter = 'blur(8px)';
 		document.body.style.pointerEvents = 'none';
 	} else {
-		document.body.style.filter = null;
+		document.body.style.filter = '';
 		document.body.style.pointerEvents = 'auto';
 	}
 }
