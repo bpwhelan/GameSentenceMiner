@@ -246,8 +246,12 @@ describe('Hoshidicts full backups', () => {
         const bloomPath = path.join(sourceRoot, ...dictionaryPath.split('/'), 'bloom.filter');
         const blobPath = path.join(sourceRoot, ...dictionaryPath.split('/'), 'blobs.bin');
         const bloomBytes = Buffer.alloc(2_097_168);
-        for (let index = 0; index < bloomBytes.length; index += 1) {
-            bloomBytes[index] = (index * 31 + (index >>> 8)) & 0xff;
+        let bloomState = 0x12345678;
+        for (let offset = 0; offset < bloomBytes.length; offset += 4) {
+            bloomState ^= bloomState << 13;
+            bloomState ^= bloomState >>> 17;
+            bloomState ^= bloomState << 5;
+            bloomBytes.writeUInt32LE(bloomState >>> 0, offset);
         }
         await fsp.writeFile(bloomPath, bloomBytes);
         const handle = await fsp.open(blobPath, 'w');
