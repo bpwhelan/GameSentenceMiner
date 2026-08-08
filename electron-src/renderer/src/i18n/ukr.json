@@ -762,6 +762,8 @@
         "fieldOverrides": "Перевизначення полів",
         "inheritHint": "Порожні значення використовують поточне зіставлення GSM або сумісне поле вибраного типу нотатки.",
         "fieldMappings": "Зіставлення полів",
+        "mappingFieldHeader": "Поле",
+        "mappingValueHeader": "Значення",
         "mappingHint": "Автоматичний режим використовує сумісне поле вибраного типу нотатки.",
         "mappingCount": "Зіставлено {mapped} з {total} полів",
         "automaticField": "Автоматично → {name}",

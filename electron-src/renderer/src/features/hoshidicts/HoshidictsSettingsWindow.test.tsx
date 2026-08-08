@@ -330,6 +330,17 @@ describe("HoshidictsSettingsWindow", () => {
     });
   }
 
+  async function openMining() {
+    const miningTab = container.querySelector<HTMLButtonElement>(
+      ".hoshidicts-window__tabs button:last-child"
+    );
+    await act(async () => {
+      miningTab?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+
   it("owns viewport scrolling even though the shared renderer body is fixed", () => {
     const rootRule =
       /\.hoshidicts-window\s*\{(?<declarations>[^}]*)\}/.exec(
@@ -1286,6 +1297,43 @@ describe("HoshidictsSettingsWindow", () => {
     });
   });
 
+  it("renders compact field and value mapping rows with accessible labels", async () => {
+    await render();
+    await openMining();
+
+    const grid = container.querySelector(".hoshidicts-mining-field-grid");
+    expect(grid).not.toBeNull();
+    expect(
+      Array.from(
+        grid?.querySelectorAll(".hoshidicts-mining-field-grid__header") ?? []
+      ).map((header) => header.textContent)
+    ).toEqual(["Field", "Value"]);
+
+    const labels = Array.from(grid?.querySelectorAll("label") ?? []);
+    const selects = Array.from(
+      grid?.querySelectorAll<HTMLSelectElement>("select") ?? []
+    );
+    expect(labels.map((label) => label.textContent)).toEqual([
+      "Expression",
+      "Reading",
+      "Definition",
+      "Sentence",
+      "Frequency",
+      "Pitch accent"
+    ]);
+    expect(selects.map((select) => select.id)).toEqual([
+      "hoshidicts-mining-field-expression",
+      "hoshidicts-mining-field-reading",
+      "hoshidicts-mining-field-definition",
+      "hoshidicts-mining-field-sentence",
+      "hoshidicts-mining-field-frequency",
+      "hoshidicts-mining-field-pitch"
+    ]);
+    expect(labels.map((label) => label.htmlFor)).toEqual(
+      selects.map((select) => select.id)
+    );
+  });
+
   it("auto-saves automatic, disabled, and explicit field choices", async () => {
     vi.useFakeTimers();
     await render();
@@ -1413,7 +1461,9 @@ describe("HoshidictsSettingsWindow", () => {
       "頻度モード: 順位順",
       "カスタム",
       "ポップアップの内容を検索可能にする",
-      "繰り返し検索した定義をぼかす"
+      "繰り返し検索した定義をぼかす",
+      "フィールド",
+      "値"
     ],
     [
       "ukr",
@@ -1425,7 +1475,9 @@ describe("HoshidictsSettingsWindow", () => {
       "Режим частоти: За рангом",
       "Власний",
       "Дозволити пошук у вмісті спливних вікон",
-      "Розмивати визначення після повторних пошуків"
+      "Розмивати визначення після повторних пошуків",
+      "Поле",
+      "Значення"
     ]
   ])(
     "localizes the standalone window in %s",
@@ -1439,7 +1491,9 @@ describe("HoshidictsSettingsWindow", () => {
       frequencyMode,
       custom,
       popupScanning,
-      definitionBlur
+      definitionBlur,
+      fieldHeader,
+      valueHeader
     ) => {
       await render(locale);
       expect(container.textContent).toContain(subtitle);
@@ -1451,6 +1505,12 @@ describe("HoshidictsSettingsWindow", () => {
       expect(container.textContent).toContain(custom);
       expect(container.textContent).toContain(popupScanning);
       expect(container.textContent).toContain(definitionBlur);
+      await openMining();
+      expect(
+        Array.from(
+          container.querySelectorAll(".hoshidicts-mining-field-grid__header")
+        ).map((header) => header.textContent)
+      ).toEqual([fieldHeader, valueHeader]);
     }
   );
 

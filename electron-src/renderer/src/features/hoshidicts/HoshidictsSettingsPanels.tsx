@@ -9,6 +9,7 @@ import {
   Trash2
 } from "lucide-react";
 import {
+  Fragment,
   useMemo,
   useState,
   type KeyboardEvent as ReactKeyboardEvent
@@ -1048,16 +1049,23 @@ export function MiningPanel({ controller }: { controller: Controller }) {
           </span>
           <span>{t("settings.hoshidicts.mining.mappingHint")}</span>
         </div>
-        <div className="hoshidicts-mining-grid">
+        <div className="hoshidicts-mining-field-grid">
+          <span className="hoshidicts-mining-field-grid__header">
+            {t("settings.hoshidicts.mining.mappingFieldHeader")}
+          </span>
+          <span className="hoshidicts-mining-field-grid__header">
+            {t("settings.hoshidicts.mining.mappingValueHeader")}
+          </span>
           {MINING_FIELDS.map((field) => {
             const target = automaticFieldTarget(miningOptions, field.id);
             const choice = getFieldChoice(miningDraft, field.id);
             const explicitValue = miningDraft.fields[field.id];
+            const selectId = `hoshidicts-mining-field-${field.id}`;
             return (
-              <label key={field.id}>
-                <span>{t(field.labelKey)}</span>
+              <Fragment key={field.id}>
+                <label htmlFor={selectId}>{t(field.labelKey)}</label>
                 <select
-                  id={`hoshidicts-mining-field-${field.id}`}
+                  id={selectId}
                   value={choice}
                   disabled={miningBusy}
                   onChange={(event) =>
@@ -1088,7 +1096,7 @@ export function MiningPanel({ controller }: { controller: Controller }) {
                     </option>
                   ))}
                 </select>
-              </label>
+              </Fragment>
             );
           })}
         </div>

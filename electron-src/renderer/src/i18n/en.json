@@ -780,6 +780,8 @@
         "fieldOverrides": "Field overrides",
         "inheritHint": "Blank values use the current GSM mapping or a compatible field in the selected note type.",
         "fieldMappings": "Field mappings",
+        "mappingFieldHeader": "Field",
+        "mappingValueHeader": "Value",
         "mappingHint": "Automatic uses a compatible field from the selected note type.",
         "mappingCount": "{mapped} of {total} fields mapped",
         "automaticField": "Automatic → {name}",

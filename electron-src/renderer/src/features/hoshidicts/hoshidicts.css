@@ -697,6 +697,35 @@
   gap: 14px 18px;
 }
 
+.hoshidicts-mining-field-grid {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  width: 100%;
+  gap: 8px 12px;
+}
+
+.hoshidicts-mining-field-grid__header {
+  padding-inline: 4px;
+  color: var(--gsm-text-primary);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.hoshidicts-mining-field-grid > label {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  padding-inline: 4px;
+  color: var(--gsm-text-secondary);
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.hoshidicts-mining-field-grid > select {
+  min-width: 0;
+}
+
 .hoshidicts-anki-status {
   display: flex;
   align-items: center;

@@ -762,6 +762,8 @@
         "fieldOverrides": "フィールドの上書き",
         "inheritHint": "空欄の場合は、現在のGSMマッピングまたは選択したノートタイプの互換フィールドを使用します。",
         "fieldMappings": "フィールドのマッピング",
+        "mappingFieldHeader": "フィールド",
+        "mappingValueHeader": "値",
         "mappingHint": "自動では、選択したノートタイプの互換フィールドを使用します。",
         "mappingCount": "{total}フィールド中{mapped}フィールドをマッピング済み",
         "automaticField": "自動 → {name}",
