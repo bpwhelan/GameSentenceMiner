@@ -64,6 +64,12 @@ jobs:
           workspaces: |
             GSM_Overlay/input_server -> GSM_Overlay/input_server/target
 
+      - name: Verify Hoshidicts native integration
+        run: >-
+          cargo test --locked
+          --manifest-path GSM_Overlay/input_server/Cargo.toml
+          hoshidicts::tests
+
       - name: Cache Electron binaries
         uses: actions/cache@v4
         with:

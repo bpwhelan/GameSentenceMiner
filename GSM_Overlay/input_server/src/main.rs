@@ -5,7 +5,9 @@ use clap::{Parser, Subcommand};
 use features::{FeatureRegistry, ServiceFeature, PROTOCOL_VERSION};
 use futures_util::{SinkExt, StreamExt};
 use gilrs::{Axis, Button, Event, EventType, GamepadId, Gilrs};
-use hoshidicts::{HoshidictsService, RequestId, MAX_LOOKUP_RESPONSE_BYTES};
+use hoshidicts::{
+    HoshidictsService, LookupKanji, LookupResult, RequestId, MAX_LOOKUP_RESPONSE_BYTES,
+};
 use rdev::{
     listen as listen_global_keyboard, Event as KeyboardEvent, EventType as KeyboardEventType,
     Key as KeyboardKey,
@@ -38,6 +40,14 @@ use tokio::time;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 use tracing::{debug, error, info, warn};
 use zip::ZipArchive;
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+enum HoshidictsLookupRequestMode {
+    #[default]
+    TermFirst,
+    Kanji,
+}
 
 /// GSM shared input and high-performance services host (Rust)
 ///
@@ -1757,6 +1767,8 @@ enum ClientMsg {
         request_id: RequestId,
         #[serde(default)]
         text: String,
+        #[serde(default)]
+        mode: HoshidictsLookupRequestMode,
     },
 
     #[serde(rename = "hoshidicts_reload")]
@@ -2327,9 +2339,27 @@ fn feature_status_payload(features: &FeatureRegistry) -> Value {
     })
 }
 
+fn is_han_character(character: char) -> bool {
+    matches!(
+        character as u32,
+        0x3400..=0x4dbf
+            | 0x4e00..=0x9fff
+            | 0xf900..=0xfaff
+            | 0x20000..=0x2fa1f
+    )
+}
+
+fn first_han_character(text: &str) -> Option<String> {
+    text.chars()
+        .next()
+        .filter(|character| is_han_character(*character))
+        .map(|character| character.to_string())
+}
+
 async fn hoshidicts_lookup_payload(
     request_id: RequestId,
     text: String,
+    mode: HoshidictsLookupRequestMode,
     features: &FeatureRegistry,
     hoshidicts: &SharedHoshidicts,
 ) -> String {
@@ -2339,6 +2369,7 @@ async fn hoshidicts_lookup_payload(
             "requestId": Value::Null,
             "success": false,
             "results": [],
+            "kanji": Value::Null,
             "dictionaryCount": 0,
             "featureDisabled": false,
             "error": error,
@@ -2351,6 +2382,7 @@ async fn hoshidicts_lookup_payload(
             "requestId": request_id,
             "success": false,
             "results": [],
+            "kanji": Value::Null,
             "dictionaryCount": 0,
             "featureDisabled": true,
             "error": "Hoshidicts is not enabled for this connection",
@@ -2360,7 +2392,35 @@ async fn hoshidicts_lookup_payload(
 
     let (result, dictionary_count) = match hoshidicts
         .run_blocking(move |service| {
-            let result = service.lookup(&text);
+            let result = (|| -> Result<(Vec<LookupResult>, Option<LookupKanji>), String> {
+                match mode {
+                    HoshidictsLookupRequestMode::TermFirst => {
+                        service.lookup(&text).and_then(|terms| {
+                            if !terms.is_empty() {
+                                return Ok((terms, None));
+                            }
+                            let kanji = match first_han_character(&text) {
+                                Some(character) => {
+                                    let result = service.lookup_kanji(&character)?;
+                                    (!result.entries.is_empty()).then_some(result)
+                                }
+                                None => None,
+                            };
+                            Ok((terms, kanji))
+                        })
+                    }
+                    HoshidictsLookupRequestMode::Kanji => {
+                        let kanji = match first_han_character(&text) {
+                            Some(character) => {
+                                let result = service.lookup_kanji(&character)?;
+                                (!result.entries.is_empty()).then_some(result)
+                            }
+                            None => None,
+                        };
+                        Ok((Vec::new(), kanji))
+                    }
+                }
+            })();
             (result, service.dictionary_count())
         })
         .await
@@ -2369,11 +2429,12 @@ async fn hoshidicts_lookup_payload(
         Err(error) => (Err(error), 0),
     };
     let payload = match result {
-        Ok(results) => json!({
+        Ok((results, kanji)) => json!({
             "type": "hoshidicts_lookup_result",
             "requestId": request_id,
             "success": true,
             "results": results,
+            "kanji": kanji,
             "dictionaryCount": dictionary_count,
             "featureDisabled": false,
             "error": Value::Null,
@@ -2383,6 +2444,7 @@ async fn hoshidicts_lookup_payload(
             "requestId": request_id,
             "success": false,
             "results": [],
+            "kanji": Value::Null,
             "dictionaryCount": dictionary_count,
             "featureDisabled": false,
             "error": error,
@@ -2397,6 +2459,7 @@ async fn hoshidicts_lookup_payload(
             "requestId": request_id,
             "success": false,
             "results": [],
+            "kanji": Value::Null,
             "dictionaryCount": dictionary_count,
             "featureDisabled": false,
             "error": format!(
@@ -2781,10 +2844,15 @@ async fn handle_socket(
                                     break;
                                 }
                             }
-                            Ok(ClientMsg::HoshidictsLookup { request_id, text }) => {
+                            Ok(ClientMsg::HoshidictsLookup {
+                                request_id,
+                                text,
+                                mode,
+                            }) => {
                                 let payload = hoshidicts_lookup_payload(
                                     request_id,
                                     text,
+                                    mode,
                                     &features,
                                     &hoshidicts,
                                 )
@@ -3594,7 +3662,20 @@ mod tests {
             ClientMsg::HoshidictsLookup {
                 request_id: RequestId::Text(ref id),
                 ref text,
+                mode: HoshidictsLookupRequestMode::TermFirst,
             } if id == "lookup-1" && text == "食べた"
+        ));
+
+        let kanji_lookup = serde_json::from_str::<ClientMsg>(
+            r#"{"type":"hoshidicts_lookup","requestId":"lookup-kanji","text":"食","mode":"kanji"}"#,
+        )
+        .expect("kanji lookup request should deserialize");
+        assert!(matches!(
+            kanji_lookup,
+            ClientMsg::HoshidictsLookup {
+                mode: HoshidictsLookupRequestMode::Kanji,
+                ..
+            }
         ));
 
         let reload =
@@ -3615,6 +3696,7 @@ mod tests {
         let payload = hoshidicts_lookup_payload(
             RequestId::Text("lookup-2".into()),
             "食べる".into(),
+            HoshidictsLookupRequestMode::TermFirst,
             &features,
             &service,
         )
@@ -3629,15 +3711,29 @@ mod tests {
     async fn hoshidicts_lookup_runs_through_blocking_boundary_and_preserves_correlation() {
         let features = FeatureRegistry::new([ServiceFeature::Hoshidicts]);
         let service = SharedHoshidicts::new(PathBuf::from("unused"));
-        let payload =
-            hoshidicts_lookup_payload(RequestId::Number(42), "食べる".into(), &features, &service)
-                .await;
+        let payload = hoshidicts_lookup_payload(
+            RequestId::Number(42),
+            "食べる".into(),
+            HoshidictsLookupRequestMode::TermFirst,
+            &features,
+            &service,
+        )
+        .await;
         let value: Value = serde_json::from_str(&payload).expect("valid lookup response");
         assert_eq!(value["requestId"], 42);
         assert_eq!(value["success"], true);
         assert_eq!(value["dictionaryCount"], 0);
         assert_eq!(value["featureDisabled"], false);
         assert_eq!(value["results"], json!([]));
+        assert_eq!(value["kanji"], Value::Null);
+    }
+
+    #[test]
+    fn hoshidicts_kanji_fallback_uses_only_the_first_han_character() {
+        assert_eq!(first_han_character("食べる").as_deref(), Some("食"));
+        assert_eq!(first_han_character("𠮟る").as_deref(), Some("𠮟"));
+        assert_eq!(first_han_character("べる"), None);
+        assert_eq!(first_han_character("。食"), None);
     }
 
     #[tokio::test(flavor = "current_thread")]

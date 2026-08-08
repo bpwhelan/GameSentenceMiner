@@ -28,7 +28,27 @@ export type HoshidictsSchedule = 'off' | 'daily' | 'weekly' | 'monthly';
 export type HoshidictsLookupMode = 'shift' | 'hover';
 export const DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS = 300;
 export const MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS = 5000;
-export type HoshidictsRecommendedDictionaryId = 'jmdict' | 'jmnedict';
+export const HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS = [
+    'jitendex',
+    'jmdict',
+    'jmnedict',
+    'bccwj',
+    'jpdbv2-kana',
+    'jiten',
+    'kanjium-pitch',
+    'kanjidic',
+] as const;
+export type HoshidictsRecommendedDictionaryId =
+    (typeof HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS)[number];
+export const DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS = [
+    'jitendex',
+    'jmnedict',
+    'bccwj',
+    'jpdbv2-kana',
+    'jiten',
+    'kanjium-pitch',
+    'kanjidic',
+] as const satisfies readonly HoshidictsRecommendedDictionaryId[];
 export type HoshidictsMoveDirection = -1 | 1;
 export type HoshidictsDuplicatePolicy = 'prevent' | 'allow';
 export type HoshidictsProgressPhase =
@@ -90,6 +110,9 @@ export interface HoshidictsDictionaryState {
     downloadUrl: string | null;
     language: string | null;
     termCount: number;
+    frequencyCount: number;
+    pitchCount: number;
+    kanjiCount: number;
     installedAt: string;
 }
 

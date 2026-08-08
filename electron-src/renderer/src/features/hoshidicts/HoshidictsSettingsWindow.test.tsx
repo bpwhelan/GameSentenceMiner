@@ -37,6 +37,9 @@ const baseState: HoshidictsDesktopSnapshot = {
       downloadUrl: "https://example.test/jmdict.zip",
       language: "ja",
       termCount: 123,
+      frequencyCount: 0,
+      pitchCount: 0,
+      kanjiCount: 0,
       installedAt: "2026-08-06T10:00:00.000Z"
     },
     {
@@ -49,6 +52,9 @@ const baseState: HoshidictsDesktopSnapshot = {
       downloadUrl: null,
       language: "ja",
       termCount: 20,
+      frequencyCount: 0,
+      pitchCount: 0,
+      kanjiCount: 0,
       installedAt: "2026-08-06T11:00:00.000Z"
     }
   ],
@@ -297,6 +303,31 @@ describe("HoshidictsSettingsWindow", () => {
         }))
       }).kind
     ).toBe("noEnabledDictionaries");
+    expect(
+      getReadiness({
+        ...baseState,
+        dictionaries: [
+          {
+            ...baseState.dictionaries[0],
+            termCount: 0,
+            frequencyCount: 500
+          }
+        ]
+      }).kind
+    ).toBe("noEnabledLookupDictionary");
+    expect(
+      getReadiness({
+        ...baseState,
+        dictionaries: [
+          {
+            ...baseState.dictionaries[0],
+            termCount: 0,
+            frequencyCount: 0,
+            kanjiCount: 1
+          }
+        ]
+      }).kind
+    ).toBe("ready");
     expect(getReadiness(baseState).kind).toBe("ready");
   });
 
@@ -329,7 +360,7 @@ describe("HoshidictsSettingsWindow", () => {
     await act(async () => {
       buttonContaining("Import Dictionary")?.click();
       buttonContaining("Check for Updates")?.click();
-      buttonContaining("Install JMdict + JMnedict")?.click();
+      buttonContaining("Install default set")?.click();
       buttons.find((button) => button.textContent?.trim() === "Install")?.click();
       container.querySelector<HTMLButtonElement>('button[aria-label="Move down"]')
         ?.click();
@@ -352,7 +383,7 @@ describe("HoshidictsSettingsWindow", () => {
     );
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.installRecommended,
-      { id: "jmnedict" }
+      { id: "jitendex" }
     );
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.moveDictionary,
@@ -558,7 +589,15 @@ describe("HoshidictsSettingsWindow", () => {
       ...baseState,
       revision: undefined,
       popupHideDelayMs: undefined,
-      dictionaries: [{ ...baseState.dictionaries[0], enabled: undefined }],
+      dictionaries: [
+        {
+          ...baseState.dictionaries[0],
+          enabled: undefined,
+          frequencyCount: undefined,
+          pitchCount: undefined,
+          kanjiCount: undefined
+        }
+      ],
       miningProfile: {
         ...baseState.miningProfile,
         disabledFields: undefined
@@ -567,6 +606,21 @@ describe("HoshidictsSettingsWindow", () => {
     expect(normalized.revision).toBe(0);
     expect(normalized.popupHideDelayMs).toBe(300);
     expect(normalized.dictionaries[0].enabled).toBe(true);
+    expect(normalized.dictionaries[0]).toMatchObject({
+      frequencyCount: 0,
+      pitchCount: 0,
+      kanjiCount: 0
+    });
+    expect(normalized.recommendedDictionaries.map(({ id }) => id)).toEqual([
+      "jitendex",
+      "jmdict",
+      "jmnedict",
+      "bccwj",
+      "jpdbv2-kana",
+      "jiten",
+      "kanjium-pitch",
+      "kanjidic"
+    ]);
     expect(normalized.miningProfile.disabledFields).toEqual([]);
   });
 });
