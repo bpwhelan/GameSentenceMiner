@@ -29,18 +29,20 @@ This is the implementation and validation checklist for the Hoshidicts feature b
 
 ## Popup rendering and appearance
 
-- [ ] Compare default Jitendex/JMdict/JMnedict/KANJIDIC rendering against current Yomitan and native Hoshidicts.
-- [ ] Test CharacterDictionary.tokyo structured content and media through import, lookup, and nested popup rendering.
-- [ ] Render all supported Yomitan structured-content elements, styles, images, ruby, tables, lists, tags, links, and collapsible sections cleanly.
-- [ ] Support Jitendex hyperlinks/cross-references to other dictionary definitions and open them as child Hoshidicts lookups without closing the parent popup.
-- [ ] Distinguish internal definition links from genuine external attribution/source links; keep external links usable without treating them as dictionary queries.
-- [ ] Scope dictionary CSS so one dictionary cannot visually corrupt another dictionary or the popup shell.
+- [x] Import the current default Jitendex and preserve its structured definitions, stylesheet, links, and media through native lookup and popup rendering.
+- [ ] Compare JMdict/JMnedict/KANJIDIC rendering side by side against current Yomitan and native Hoshidicts.
+- [x] Test a real CharacterDictionary.tokyo v17 archive through import, lookup, structured-content rendering, inline styles, and media loading.
+- [x] Render supported Yomitan structured-content elements, inline styles, images, ruby, tables, lists, tags, links, and collapsible sections cleanly.
+- [x] Support Jitendex hyperlinks/cross-references to other dictionary definitions and open them as child Hoshidicts lookups without closing the parent popup.
+- [x] Distinguish internal definition links from genuine external attribution/source links; keep external links usable without treating them as dictionary queries.
+- [x] Scope dictionary CSS to its dictionary card so it cannot visually corrupt another dictionary or the popup shell.
 - [ ] Provide attractive fallback styling when a dictionary has no stylesheet.
 - [ ] Keep the popup at a stable configured width and height instead of resizing for each word.
 - [ ] Add user-configurable popup width and height settings with sensible limits and a reset action.
 - [ ] Keep popup placement inside the viewport at every configured size and for horizontal and vertical text.
-- [ ] Treat a parent popup and all of its child popups as one hover-safe chain: moving into a child must not close the parent, and hide/prune only after the cursor has left both the parent and every descendant.
-- [ ] Cover parent-to-child pointer travel, child-to-parent travel, sibling children, nested depth, delayed hiding, and re-entry with regression tests.
+- [x] Treat a parent popup and its child popup chain as one hover-safe region: moving into a child does not close the parent, and leaving the chain prunes it after the configured delay.
+- [x] Cover direct parent-to-child and child-to-parent pointer travel, delayed hiding, re-entry, nested depth limits, and live pruning with regression tests.
+- [ ] Add exhaustive sibling-child pointer-travel coverage across every supported nesting depth.
 - [ ] Add Hoshidicts themes in settings, including Default, High contrast, Autumnal, and Cyber.
 - [ ] Reuse GSM theme tokens where they fit while keeping dictionary-provided CSS readable in every theme.
 - [ ] Check contrast, keyboard focus, hover states, nested popups, media, and long definitions in every theme.
@@ -56,11 +58,22 @@ This is the implementation and validation checklist for the Hoshidicts feature b
 
 ## Required validation
 
-- [ ] Import multiple ordinary Yomitan ZIPs in one selection.
-- [ ] Import a large Yomitan dictionary backup without `Invalid string length`.
-- [ ] Import and render the current default recommended dictionaries.
-- [ ] Import and render a CharacterDictionary.tokyo archive with its real stylesheet and media.
+- [x] Import multiple ordinary Yomitan ZIPs in one selection.
+- [x] Import a large Yomitan dictionary backup without `Invalid string length`.
+- [x] Import and exercise the current default Jitendex archive with real lookups, CSS, links, AVIF, and SVG media.
+- [ ] Import and render the remaining default/recommended dictionaries.
+- [x] Import and exercise a real CharacterDictionary.tokyo archive with structured inline styles and media. The tested v17 archive does not contain a separate `styles.css`.
 - [ ] Compare representative entries side by side with Yomitan.
 - [ ] Exercise lookup, media, nested lookup, mining, duplicate checks, rename, reorder, enable/disable, export, destructive restore rollback, and successful restore.
 - [ ] Run native Hoshidicts tests, Rust bridge tests, Electron main/renderer tests, overlay reader tests, builds, and changed-file lint/format checks.
 - [ ] Commit each coherent feature batch and push the feature branch.
+
+### Real-data evidence (2026-08-08)
+
+- Direct multi-ZIP import used Jitendex `2026.07.09.0` (38,545,572-byte ZIP; 540,565,403 bytes uncompressed) and CharacterDictionary.tokyo v17 revision `001786225697` (1,448,063-byte ZIP; 81,896,926 bytes uncompressed).
+- The combined import completed with 433,885 Jitendex terms and 250 media records plus 28,220 Character Dictionary terms and 13 media records. Both dictionaries activated together in their selected order without `Invalid string length`.
+- A schema-faithful 85,687,766-byte Yomitan Dexie backup containing all 28,220 real Character Dictionary entries and representative Jitendex entries, CSS, internal/external links, AVIF, and SVG data reconstructed into ZIPs, imported, activated, and searched successfully.
+- Live `ワガハイ` and half-width `ﾜｶﾞﾊｲ` lookups both resolved first to `我輩` / `わがはい` while preserving the original matched spelling. `麻の葉`, `締め切り日`, `アルハラ`, and `少年` verified AVIF, SVG, internal-link, and Character Dictionary structured-content paths respectively.
+- Native media retrieval passed for 262/262 real assets with no failures: 201 AVIF, 48 SVG, and 13 JPEG files. Jitendex also returned its complete 6,444-byte scoped stylesheet.
+- The relevant manager and Yomitan-backup test suites passed 80/80 tests.
+- Remaining evidence gaps: the tested Dexie backup was generated from the official archives in Yomitan's exported schema rather than created by clicking Export in a live Yomitan browser profile, and a screenshot-based side-by-side comparison with Yomitan has not yet been completed.
