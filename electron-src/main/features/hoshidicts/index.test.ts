@@ -6,6 +6,7 @@ const harness = vi.hoisted(() => ({
         token: string;
     } | null,
     busHandler: null as ((message: { src: string }) => Promise<unknown>) | null,
+    busConnectedHandler: null as ((clientId: string) => void) | null,
     openWindow: vi.fn(async () => ({})),
     registerIPC: vi.fn(),
     configureLookupModeProvider: vi.fn(),
@@ -13,6 +14,8 @@ const harness = vi.hoisted(() => ({
     configureSourceHighlightProvider: vi.fn(),
     configurePopupHideDelayProvider: vi.fn(),
     markPreferencesApplied: vi.fn(() => true),
+    markAudioApplied: vi.fn(() => true),
+    markAudioSyncFailed: vi.fn(() => true),
     busRequest: vi.fn(async () => ({ applied: true })),
     startManager: vi.fn(async () => undefined),
     managerSnapshot: {
@@ -20,6 +23,20 @@ const harness = vi.hoisted(() => ({
         activationKey: 'F8',
         sourceHighlightEnabled: true,
         popupHideDelayMs: 850,
+        audioProfile: {
+            version: 1 as const,
+            enabled: true,
+            autoPlay: false,
+            volume: 100,
+            sources: [
+                {
+                    id: 'jpod101',
+                    type: 'jpod101' as const,
+                    url: '',
+                    voice: '',
+                },
+            ],
+        },
     },
 }));
 
@@ -36,6 +53,17 @@ vi.mock('../../runtime/bus_client.js', () => ({
         ),
         isConnected: vi.fn(() => true),
         request: harness.busRequest,
+        on: vi.fn(
+            (
+                event: string,
+                handler: (clientId: string) => void
+            ) => {
+                if (event === 'client-connected') {
+                    harness.busConnectedHandler = handler;
+                }
+                return () => {};
+            }
+        ),
     },
     getBusConnectInfo: () => harness.busInfo,
 }));
@@ -58,6 +86,7 @@ vi.mock('../../ui/front.js', () => ({
     getOverlayHoshidictsActivationKeyAtLaunch: () => 'Shift',
     getOverlayHoshidictsSourceHighlightEnabledAtLaunch: () => false,
     getOverlayHoshidictsPopupHideDelayAtLaunch: () => 300,
+    getOverlayHoshidictsAudioProfileRestartRequired: () => false,
     getOverlayRuntimeState: () => ({
         isRunning: false,
         source: null,
@@ -65,6 +94,9 @@ vi.mock('../../ui/front.js', () => ({
     restartOverlay: vi.fn(async () => true),
     markOverlayHoshidictsReaderPreferencesApplied:
         harness.markPreferencesApplied,
+    markOverlayHoshidictsAudioProfileApplied: harness.markAudioApplied,
+    markOverlayHoshidictsAudioProfileSyncFailed:
+        harness.markAudioSyncFailed,
 }));
 
 vi.mock('./ipc.js', () => ({
@@ -90,6 +122,7 @@ describe('Hoshidicts feature registration', () => {
         vi.clearAllMocks();
         harness.busInfo = { port: 1234, token: 'token' };
         harness.busHandler = null;
+        harness.busConnectedHandler = null;
         harness.configureLookupModeProvider.mockReset();
         harness.configureActivationKeyProvider.mockReset();
         harness.configureSourceHighlightProvider.mockReset();
@@ -146,6 +179,20 @@ describe('Hoshidicts feature registration', () => {
             sourceHighlightEnabled: true,
             popupHideDelayMs: 850,
         });
+        await expect(
+            harness.registerIPC.mock.calls[0][0].applyAudioProfile(
+                harness.managerSnapshot.audioProfile
+            )
+        ).resolves.toBe(true);
+        expect(harness.busRequest).toHaveBeenCalledWith(
+            'overlay.hoshidicts-reader',
+            'hoshidicts.audioProfile',
+            harness.managerSnapshot.audioProfile,
+            2000
+        );
+        expect(harness.markAudioApplied).toHaveBeenCalledWith(
+            harness.managerSnapshot.audioProfile
+        );
         expect(harness.busHandler).not.toBeNull();
 
         await expect(
@@ -157,6 +204,30 @@ describe('Hoshidicts feature registration', () => {
             })
         ).resolves.toEqual({ opened: true });
         expect(harness.openWindow).toHaveBeenCalledOnce();
+
+        harness.busRequest.mockClear();
+        harness.busConnectedHandler?.('backend');
+        expect(harness.busRequest).not.toHaveBeenCalled();
+        harness.busConnectedHandler?.('overlay.hoshidicts-reader');
+        await vi.waitFor(() => {
+            expect(harness.busRequest).toHaveBeenCalledWith(
+                'overlay.hoshidicts-reader',
+                'hoshidicts.readerPreferences',
+                {
+                    lookupMode: 'hover',
+                    activationKey: 'F8',
+                    sourceHighlightEnabled: true,
+                    popupHideDelayMs: 850,
+                },
+                2000
+            );
+            expect(harness.busRequest).toHaveBeenCalledWith(
+                'overlay.hoshidicts-reader',
+                'hoshidicts.audioProfile',
+                harness.managerSnapshot.audioProfile,
+                2000
+            );
+        });
     });
 
     it('wires the persisted lookup mode into overlay launches after startup', async () => {
@@ -182,6 +253,25 @@ describe('Hoshidicts feature registration', () => {
         const delayProvider =
             harness.configurePopupHideDelayProvider.mock.calls[0][0];
         await expect(delayProvider()).resolves.toBe(850);
+    });
+
+    it('marks a running reader stale when live audio delivery fails', async () => {
+        harness.busRequest.mockRejectedValueOnce(new Error('reader unavailable'));
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const { registerHoshidictsFeature } = await import('./index.js');
+
+        registerHoshidictsFeature({ getMainWindow: () => null });
+
+        await expect(
+            harness.registerIPC.mock.calls[0][0].applyAudioProfile(
+                harness.managerSnapshot.audioProfile
+            )
+        ).resolves.toBe(false);
+        expect(harness.markAudioSyncFailed).toHaveBeenCalledOnce();
+        expect(warn).toHaveBeenCalledWith(
+            expect.stringContaining('audio settings'),
+            expect.any(Error)
+        );
     });
 
     it('keeps local settings IPC available if the desktop bus failed to start', async () => {

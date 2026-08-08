@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { createDefaultHoshidictsAudioProfile } from '../../../shared/features/hoshidicts.js';
+
 const harness = vi.hoisted(() => ({
     handlers: new Map<string, (...args: any[]) => any>(),
     fromWebContents: vi.fn(),
@@ -12,6 +14,7 @@ const harness = vi.hoisted(() => ({
     activationKeyAtLaunch: 'Shift' as string | null,
     sourceHighlightEnabledAtLaunch: false as boolean | null,
     popupHideDelayAtLaunch: 300 as number | null,
+    audioProfileRestartRequired: false,
     manager: {
         subscribe: vi.fn(),
         getSnapshot: vi.fn(),
@@ -24,6 +27,7 @@ const harness = vi.hoisted(() => ({
         setLookupMode: vi.fn(),
         setReaderPreferences: vi.fn(),
         setMiningProfile: vi.fn(),
+        setAudioProfile: vi.fn(),
         setDictionaryEnabled: vi.fn(),
         moveDictionary: vi.fn(),
     },
@@ -77,11 +81,13 @@ const snapshot = {
             sentence: '',
             frequency: '',
             pitch: '',
+            audio: '',
         },
         disabledFields: [],
         tags: ['hoshidicts'],
         duplicatePolicy: 'prevent',
     },
+    audioProfile: createDefaultHoshidictsAudioProfile(),
     lookupMode: 'shift',
     activationKey: 'Shift',
     sourceHighlightEnabled: false,
@@ -107,6 +113,7 @@ async function registerHarness() {
     harness.manager.installRecommendedDictionary.mockResolvedValue(snapshot);
     harness.manager.setLookupMode.mockResolvedValue(snapshot);
     harness.manager.setReaderPreferences.mockResolvedValue(snapshot);
+    harness.manager.setAudioProfile.mockResolvedValue(snapshot);
 
     const settingsContents = { id: 'settings' };
     const mainContents = { id: 'main' };
@@ -125,6 +132,7 @@ async function registerHarness() {
     const openSettingsWindow = vi.fn(async () => settingsWindow);
     const restartOverlay = vi.fn(async () => true);
     const applyReaderPreferences = vi.fn(async () => true);
+    const applyAudioProfile = vi.fn(async () => true);
     const getMiningOptions = vi.fn(async () => ({
         connected: true,
         gsmAnkiEnabled: true,
@@ -139,6 +147,7 @@ async function registerHarness() {
             sentence: '',
             frequency: '',
             pitch: '',
+            audio: '',
         },
         resolvedFields: {
             expression: 'Expression',
@@ -147,6 +156,7 @@ async function registerHarness() {
             sentence: '',
             frequency: '',
             pitch: '',
+            audio: '',
         },
         warnings: [],
         error: null,
@@ -169,7 +179,10 @@ async function registerHarness() {
             harness.sourceHighlightEnabledAtLaunch,
         getOverlayPopupHideDelayAtLaunch: () =>
             harness.popupHideDelayAtLaunch,
+        getOverlayAudioProfileRestartRequired: () =>
+            harness.audioProfileRestartRequired,
         applyReaderPreferences,
+        applyAudioProfile,
         getMiningOptions,
         restartOverlay,
     });
@@ -183,6 +196,7 @@ async function registerHarness() {
         settingsWindow,
         getMiningOptions,
         applyReaderPreferences,
+        applyAudioProfile,
     };
 }
 
@@ -195,6 +209,39 @@ describe('Hoshidicts settings IPC', () => {
         harness.activationKeyAtLaunch = 'Shift';
         harness.sourceHighlightEnabledAtLaunch = false;
         harness.popupHideDelayAtLaunch = 300;
+        harness.audioProfileRestartRequired = false;
+    });
+
+    it('saves audio profiles, applies them live, and exposes failed sync restart state', async () => {
+        harness.enabledAtLaunch = true;
+        const context = await registerHarness();
+        const setAudioProfile = harness.handlers.get(
+            'hoshidicts.setAudioProfile'
+        );
+        const getState = harness.handlers.get('hoshidicts.getState');
+
+        await expect(
+            setAudioProfile?.(
+                { sender: context.settingsContents },
+                snapshot.audioProfile
+            )
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'audioProfileSaved' },
+        });
+        expect(harness.manager.setAudioProfile).toHaveBeenCalledWith(
+            snapshot.audioProfile
+        );
+        expect(context.applyAudioProfile).toHaveBeenCalledWith(
+            snapshot.audioProfile
+        );
+
+        harness.audioProfileRestartRequired = true;
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: true },
+        });
     });
 
     it('requires an overlay restart when the persisted lookup mode changed', async () => {

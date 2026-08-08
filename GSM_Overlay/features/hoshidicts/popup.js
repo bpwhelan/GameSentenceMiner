@@ -288,6 +288,7 @@
       feedback.hidden = true;
       popup.appendChild(feedback);
       const miningButtons = [];
+      const audioItems = [];
 
       results.forEach((result, resultIndex) => {
         const entry = documentRef.createElement("article");
@@ -310,6 +311,18 @@
         );
         header.appendChild(expression);
 
+        const actions = documentRef.createElement("div");
+        actions.className = "gsm-hoshidicts-entry-actions";
+        const audioButton = documentRef.createElement("button");
+        audioButton.type = "button";
+        audioButton.className = "gsm-hoshidicts-audio-button";
+        audioButton.dataset.state = "ready";
+        audioButton.title = "Play pronunciation";
+        audioButton.setAttribute("aria-label", audioButton.title);
+        audioButton.textContent = "🔊";
+        actions.appendChild(audioButton);
+        audioItems.push({ button: audioButton, result });
+
         const mineButton = documentRef.createElement("button");
         mineButton.type = "button";
         mineButton.className = "gsm-hoshidicts-mine-button";
@@ -317,7 +330,8 @@
         mineButton.addEventListener("click", () => {
           onMineClick(mineButton, result, candidate, feedback);
         });
-        header.appendChild(mineButton);
+        actions.appendChild(mineButton);
+        header.appendChild(actions);
         miningButtons.push(mineButton);
         entry.appendChild(header);
 
@@ -416,7 +430,7 @@
           currentSourceHighlight.matchedText
         );
       }
-      return { feedback, miningButtons };
+      return { audioItems, feedback, miningButtons };
     }
 
     function renderKanji(kanji, candidate, renderOptions = {}) {
