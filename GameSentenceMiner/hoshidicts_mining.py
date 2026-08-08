@@ -1022,6 +1022,8 @@ def _overwrite_field(existing_value: str, new_value: str, mode: str) -> str:
 def _resolved_overwrite_modes(resolved: dict[str, Any]) -> dict[str, str]:
     modes = {}
     for key in FIELD_KEYS:
+        if key == "audio":
+            continue
         target = resolved["fields"].get(key)
         if target and target not in modes:
             modes[target] = resolved["profile"]["fieldOverwriteModes"][key]
@@ -1037,10 +1039,10 @@ def _overwritten_note_fields(
     return {
         field: _overwrite_field(
             existing_fields.get(field, ""),
-            new_value,
-            modes.get(field, "coalesce"),
+            note["fields"].get(field, ""),
+            mode,
         )
-        for field, new_value in note["fields"].items()
+        for field, mode in modes.items()
     }
 
 

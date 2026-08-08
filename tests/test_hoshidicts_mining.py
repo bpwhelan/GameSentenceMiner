@@ -996,6 +996,23 @@ def test_yomitan_overwrite_field_modes(mode, existing, new, expected):
     assert hoshidicts_mining._overwrite_field(existing, new, mode) == expected
 
 
+def test_overwrite_mode_can_clear_a_mapped_field_when_the_new_value_is_empty():
+    profile = _profile()
+    profile["fieldOverwriteModes"]["reading"] = "overwrite"
+    fields = {key: "" for key in hoshidicts_mining.FIELD_KEYS}
+    fields["expression"] = "Expression"
+    fields["reading"] = "Reading"
+    resolved = {"profile": profile, "fields": fields}
+
+    overwritten = hoshidicts_mining._overwritten_note_fields(
+        {"fields": {"Expression": "食べる"}},
+        {"Expression": "old expression", "Reading": "old reading"},
+        resolved,
+    )
+
+    assert overwritten == {"Expression": "old expression", "Reading": ""}
+
+
 def test_mining_overwrites_first_same_type_duplicate_in_exact_deck(monkeypatch):
     class OverwriteAnki(FakeAnki):
         def invoke(self, action, **kwargs):
@@ -1175,6 +1192,112 @@ def test_duplicate_check_only_offers_overwrite_for_a_resolvable_note(monkeypatch
             }
         ],
     }
+
+
+def test_overwrite_coalesce_preserves_existing_audio_without_downloading(monkeypatch):
+    class AudioOverwriteAnki(FakeAnki):
+        def invoke(self, action, **kwargs):
+            if action == "canAddNotesWithErrorDetail":
+                self.calls.append((action, kwargs))
+                return [
+                    {
+                        "canAdd": False,
+                        "error": "cannot create note because it is a duplicate",
+                    }
+                ]
+            if action == "findNotes":
+                self.calls.append((action, kwargs))
+                return [42]
+            if action == "notesInfo":
+                self.calls.append((action, kwargs))
+                return [
+                    {
+                        "noteId": 42,
+                        "modelName": "Mining",
+                        "cards": [420],
+                        "fields": {
+                            **{field: {"value": "", "order": index} for index, field in enumerate(self.fields)},
+                            "Expression": {"value": "食べる", "order": 0},
+                            "WordAudio": {
+                                "value": "[sound:existing.mp3]",
+                                "order": len(self.fields) - 1,
+                            },
+                        },
+                    }
+                ]
+            return super().invoke(action, **kwargs)
+
+    fake_anki = AudioOverwriteAnki(fields=[*FakeAnki().fields, "WordAudio"])
+
+    def unexpected_audio(*_args, **_kwargs):
+        raise AssertionError("coalesce must preserve existing audio without a download")
+
+    _wire_audio(
+        monkeypatch,
+        fake_anki,
+        mining_profile=_profile(duplicateBehavior="overwrite"),
+        resolver=unexpected_audio,
+    )
+
+    result = hoshidicts_mining.mine_hoshidicts_note(_payload())
+
+    assert result["overwritten"] is True
+    assert result["audio"] == {"status": "preserved"}
+    assert not any(action == "storeMediaFile" for action, _kwargs in fake_anki.calls)
+
+
+def test_overwrite_append_adds_new_audio_after_existing_audio(monkeypatch):
+    class AudioAppendAnki(FakeAnki):
+        def invoke(self, action, **kwargs):
+            if action == "canAddNotesWithErrorDetail":
+                self.calls.append((action, kwargs))
+                return [
+                    {
+                        "canAdd": False,
+                        "error": "cannot create note because it is a duplicate",
+                    }
+                ]
+            if action == "findNotes":
+                self.calls.append((action, kwargs))
+                return [42]
+            if action == "notesInfo":
+                self.calls.append((action, kwargs))
+                return [
+                    {
+                        "noteId": 42,
+                        "modelName": "Mining",
+                        "cards": [420],
+                        "fields": {
+                            **{field: {"value": "", "order": index} for index, field in enumerate(self.fields)},
+                            "Expression": {"value": "食べる", "order": 0},
+                            "WordAudio": {
+                                "value": "[sound:existing.mp3]",
+                                "order": len(self.fields) - 1,
+                            },
+                        },
+                    }
+                ]
+            return super().invoke(action, **kwargs)
+
+    fake_anki = AudioAppendAnki(fields=[*FakeAnki().fields, "WordAudio"])
+    profile = _profile(duplicateBehavior="overwrite")
+    profile["fieldOverwriteModes"]["audio"] = "append"
+    _wire_audio(monkeypatch, fake_anki, mining_profile=profile)
+
+    result = hoshidicts_mining.mine_hoshidicts_note(_payload())
+
+    assert result["audio"]["status"] == "stored"
+    audio_update = [
+        kwargs["note"]
+        for action, kwargs in fake_anki.calls
+        if action == "updateNoteFields" and "WordAudio" in kwargs["note"]["fields"]
+    ]
+    assert audio_update == [
+        {
+            "id": 42,
+            "fields": {"WordAudio": (f"[sound:existing.mp3][sound:{result['audio']['filename']}]")},
+        }
+    ]
 
 
 def test_duplicate_check_falls_back_to_paired_can_add_notes_for_older_ankiconnect(monkeypatch):
