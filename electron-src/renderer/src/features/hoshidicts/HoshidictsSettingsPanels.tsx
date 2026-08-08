@@ -586,24 +586,43 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
       </section>
 
       <section className="hoshidicts-section hoshidicts-section--toolbar">
-        <div className="hoshidicts-actions">
-          <button
-            type="button"
-            onClick={() => void actions.importDictionary()}
-            disabled={dictionaryBusy}
-          >
-            <FileArchive size={17} aria-hidden="true" />
-            {t("settings.hoshidicts.import")}
-          </button>
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => void actions.checkUpdates()}
-            disabled={dictionaryBusy}
-          >
-            <RefreshCw size={17} aria-hidden="true" />
-            {t("settings.hoshidicts.checkNow")}
-          </button>
+        <div className="hoshidicts-dictionary-import">
+          <div className="hoshidicts-actions">
+            <button
+              type="button"
+              onClick={() => void actions.importDictionary()}
+              disabled={dictionaryBusy}
+            >
+              <FileArchive size={17} aria-hidden="true" />
+              {t("settings.hoshidicts.import")}
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => void actions.checkUpdates()}
+              disabled={dictionaryBusy}
+            >
+              <RefreshCw size={17} aria-hidden="true" />
+              {t("settings.hoshidicts.checkNow")}
+            </button>
+          </div>
+          {state.busy && state.progress.phase === "importing" ? (
+            <div
+              className="hoshidicts-window__progress hoshidicts-dictionary-import-progress"
+              role="status"
+            >
+              <span>{t("settings.hoshidicts.progress.importing")}</span>
+              {typeof state.progress.total === "number" &&
+              state.progress.total > 0 ? (
+                <span>
+                  {t("settings.hoshidicts.progress.count", {
+                    completed: state.progress.completed ?? 0,
+                    total: state.progress.total
+                  })}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         <label className="hoshidicts-schedule">

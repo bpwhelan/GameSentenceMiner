@@ -133,6 +133,8 @@ export function HoshidictsSettingsWindow() {
 
   const readiness = state ? getReadiness(state) : null;
   const displayedError = actionError ?? state?.lastError ?? null;
+  const importProgressIsLocal =
+    view === "dictionaries" && state?.progress.phase === "importing";
 
   return (
     <div className="hoshidicts-window">
@@ -177,7 +179,7 @@ export function HoshidictsSettingsWindow() {
       </nav>
 
       <main className="hoshidicts-window__content">
-        {state?.busy ? (
+        {state?.busy && !importProgressIsLocal ? (
           <div className="hoshidicts-window__progress" role="status">
             <span>{progressLabel}</span>
             {typeof state.progress.total === "number" &&

@@ -354,6 +354,37 @@ describe("HoshidictsSettingsWindow", () => {
     expect(rootRule).toMatch(/\boverflow-y:\s*auto\s*;/);
   });
 
+  it("shows dictionary import progress beside the dictionary import controls", async () => {
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === HOSHIDICTS_CHANNELS.getState) {
+        return {
+          ...baseState,
+          busy: true,
+          progress: { phase: "importing", completed: 1, total: 3 }
+        };
+      }
+      if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
+        return miningOptions;
+      }
+      return {
+        success: true,
+        state: { ...baseState, revision: ++revision }
+      };
+    });
+
+    await render();
+
+    const localProgress = container.querySelector(
+      ".hoshidicts-dictionary-import-progress"
+    );
+    expect(localProgress?.textContent).toContain("Importing dictionary...");
+    expect(localProgress?.textContent).toContain("1 / 3");
+    expect(localProgress?.closest(".hoshidicts-section--toolbar")).not.toBeNull();
+    expect(
+      container.querySelector(":scope .hoshidicts-window__content > .hoshidicts-window__progress")
+    ).toBeNull();
+  });
+
   it.each([
     ["KeyA", "A"],
     ["Digit1", "1"],

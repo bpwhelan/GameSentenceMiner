@@ -552,6 +552,17 @@
   gap: 8px;
 }
 
+.hoshidicts-dictionary-import {
+  display: grid;
+  gap: 8px;
+}
+
+.hoshidicts-dictionary-import-progress {
+  min-height: 36px;
+  margin: 0;
+  padding: 6px 9px;
+}
+
 .hoshidicts-schedule,
 .hoshidicts-mining-grid label {
   display: grid;
