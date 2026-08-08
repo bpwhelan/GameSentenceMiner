@@ -34,6 +34,7 @@ export interface HoshidictsIPCDependencies {
     getOverlayFeatureEnabledAtLaunch: () => boolean | null;
     getOverlayLookupModeAtLaunch: () => HoshidictsLookupMode | null;
     getOverlayPopupHideDelayAtLaunch: () => number | null;
+    getOverlayPopupNestingMaxDepthAtLaunch: () => number | null;
     applyReaderPreferences: (
         preferences: HoshidictsReaderPreferences
     ) => Promise<boolean>;
@@ -94,6 +95,8 @@ function withDesktopState(
     const enabledAtLaunch = deps.getOverlayFeatureEnabledAtLaunch();
     const lookupModeAtLaunch = deps.getOverlayLookupModeAtLaunch();
     const popupHideDelayAtLaunch = deps.getOverlayPopupHideDelayAtLaunch();
+    const popupNestingMaxDepthAtLaunch =
+        deps.getOverlayPopupNestingMaxDepthAtLaunch();
     const effectiveEnabled = deps.getConfiguredFeatureEnabled();
     return {
         ...snapshot,
@@ -109,7 +112,11 @@ function withDesktopState(
                         lookupModeAtLaunch !== snapshot.lookupMode) ||
                     (effectiveEnabled &&
                         popupHideDelayAtLaunch !== null &&
-                        popupHideDelayAtLaunch !== snapshot.popupHideDelayMs)),
+                        popupHideDelayAtLaunch !== snapshot.popupHideDelayMs) ||
+                    (effectiveEnabled &&
+                        popupNestingMaxDepthAtLaunch !== null &&
+                        popupNestingMaxDepthAtLaunch !==
+                            snapshot.popupNestingMaxDepth)),
         },
     };
 }
@@ -349,7 +356,9 @@ export function registerHoshidictsIPC(
                 !Number.isInteger(value.popupHideDelayMs) ||
                 (value.popupHideDelayMs as number) < 0 ||
                 (value.popupHideDelayMs as number) >
-                    MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS
+                    MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS ||
+                !Number.isSafeInteger(value.popupNestingMaxDepth) ||
+                (value.popupNestingMaxDepth as number) < 0
             ) {
                 return {
                     success: false,
@@ -363,10 +372,13 @@ export function registerHoshidictsIPC(
                     const preferences: HoshidictsReaderPreferences = {
                         lookupMode: value.lookupMode as HoshidictsLookupMode,
                         popupHideDelayMs: value.popupHideDelayMs as number,
+                        popupNestingMaxDepth:
+                            value.popupNestingMaxDepth as number,
                     };
                     const state = await manager.setReaderPreferences(
                         preferences.lookupMode,
-                        preferences.popupHideDelayMs
+                        preferences.popupHideDelayMs,
+                        preferences.popupNestingMaxDepth
                     );
                     await deps.applyReaderPreferences(preferences);
                     return state;

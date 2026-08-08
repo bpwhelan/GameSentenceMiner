@@ -5,9 +5,11 @@ import { bus, getBusConnectInfo } from '../../runtime/bus_client.js';
 import {
     configureHoshidictsLookupModeProvider,
     configureHoshidictsPopupHideDelayProvider,
+    configureHoshidictsPopupNestingMaxDepthProvider,
     getOverlayHoshidictsEnabledAtLaunch,
     getOverlayHoshidictsLookupModeAtLaunch,
     getOverlayHoshidictsPopupHideDelayAtLaunch,
+    getOverlayHoshidictsPopupNestingMaxDepthAtLaunch,
     getOverlayRuntimeState,
     markOverlayHoshidictsReaderPreferencesApplied,
     restartOverlay,
@@ -75,6 +77,8 @@ export function registerHoshidictsFeature(deps: {
             getOverlayHoshidictsLookupModeAtLaunch,
         getOverlayPopupHideDelayAtLaunch:
             getOverlayHoshidictsPopupHideDelayAtLaunch,
+        getOverlayPopupNestingMaxDepthAtLaunch:
+            getOverlayHoshidictsPopupNestingMaxDepthAtLaunch,
         applyReaderPreferences,
         getMiningOptions: fetchHoshidictsMiningOptions,
         restartOverlay,
@@ -105,6 +109,10 @@ export async function startHoshidictsManager(): Promise<void> {
     configureHoshidictsPopupHideDelayProvider(
         async () =>
             (await getHoshidictsManager().getSnapshot()).popupHideDelayMs
+    );
+    configureHoshidictsPopupNestingMaxDepthProvider(
+        async () =>
+            (await getHoshidictsManager().getSnapshot()).popupNestingMaxDepth
     );
 }
 

@@ -154,6 +154,7 @@ describe('runOverlayWithSource', () => {
                 GSM_CLIENT_ID: 'overlay',
                 GSM_HOSHIDICTS_ENABLED: '0',
                 GSM_HOSHIDICTS_LOOKUP_MODE: 'shift',
+                GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH: '10',
             }),
         });
         expect(getOverlayRuntimeState()).toEqual({
@@ -179,6 +180,7 @@ describe('runOverlayWithSource', () => {
         expect(startInProcessOverlayMock).toHaveBeenCalledTimes(1);
         expect(process.env.GSM_HOSHIDICTS_ENABLED).toBe('1');
         expect(process.env.GSM_HOSHIDICTS_LOOKUP_MODE).toBe('shift');
+        expect(process.env.GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH).toBe('10');
         expect(process.env.GSM_BROKER_PORT).toBe('4567');
         expect(process.env.GSM_BROKER_TOKEN).toBe('overlay-bus-token');
         expect(process.env.GSM_CLIENT_ID).toBe('overlay');
@@ -206,6 +208,7 @@ describe('runOverlayWithSource', () => {
         const front = await loadFrontModule();
         front.configureHoshidictsLookupModeProvider(async () => 'hover');
         front.configureHoshidictsPopupHideDelayProvider(async () => 850);
+        front.configureHoshidictsPopupNestingMaxDepthProvider(async () => 4);
 
         await expect(front.runOverlayWithSource('manual')).resolves.toBe(true);
 
@@ -213,17 +216,21 @@ describe('runOverlayWithSource', () => {
             GSM_HOSHIDICTS_ENABLED: '1',
             GSM_HOSHIDICTS_LOOKUP_MODE: 'hover',
             GSM_HOSHIDICTS_POPUP_HIDE_DELAY_MS: '850',
+            GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH: '4',
         });
         expect(front.getOverlayHoshidictsLookupModeAtLaunch()).toBe('hover');
         expect(front.getOverlayHoshidictsPopupHideDelayAtLaunch()).toBe(850);
+        expect(front.getOverlayHoshidictsPopupNestingMaxDepthAtLaunch()).toBe(4);
         expect(
             front.markOverlayHoshidictsReaderPreferencesApplied({
                 lookupMode: 'shift',
                 popupHideDelayMs: 1200,
+                popupNestingMaxDepth: 0,
             })
         ).toBe(true);
         expect(front.getOverlayHoshidictsLookupModeAtLaunch()).toBe('shift');
         expect(front.getOverlayHoshidictsPopupHideDelayAtLaunch()).toBe(1200);
+        expect(front.getOverlayHoshidictsPopupNestingMaxDepthAtLaunch()).toBe(0);
     });
 
     it('stops the whole Windows process tree for source-launched overlays', async () => {

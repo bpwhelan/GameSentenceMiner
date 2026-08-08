@@ -25,7 +25,7 @@
   if (!popupApi || typeof popupApi.createPopupView !== "function") {
     throw new Error("Hoshidicts popup support must load before the reader.");
   }
-  const { createPopupView, setMiningButtonState } = popupApi;
+  const { createPopupView, createSourceHighlighter, setMiningButtonState } = popupApi;
 
   const LOOKUP_DEBOUNCE_MS = 20;
   const LOOKUP_REQUEST_TIMEOUT_MS = 4 * 1000;
@@ -33,6 +33,7 @@
   const LOOKUP_MAX_RESULTS = 16;
   const INITIAL_VISIBLE_RESULTS = 6;
   const DEFAULT_POPUP_HIDE_DELAY_MS = 300;
+  const DEFAULT_POPUP_NESTING_MAX_DEPTH = 10;
   const MAX_POPUP_HIDE_DELAY_MS = 5 * 1000;
   const MAX_RESPONSE_BYTES = 256 * 1024;
   const MAX_GLOSSARIES = 64;
@@ -496,6 +497,105 @@
     return Array.from(text.slice(utf16Offset)).slice(0, count).join("");
   }
 
+  function createTextRangeForOffsets(documentRef, root, startOffset, endOffset) {
+    const showText = documentRef.defaultView && documentRef.defaultView.NodeFilter
+      ? documentRef.defaultView.NodeFilter.SHOW_TEXT
+      : 4;
+    const walker = documentRef.createTreeWalker(root, showText);
+    const boundaries = [];
+    let consumed = 0;
+    let node = walker.nextNode();
+    while (node) {
+      const length = (node.nodeValue || "").length;
+      boundaries.push({ node, start: consumed, end: consumed + length });
+      consumed += length;
+      node = walker.nextNode();
+    }
+    function findBoundary(offset) {
+      for (const boundary of boundaries) {
+        if (offset <= boundary.end) {
+          return {
+            node: boundary.node,
+            offset: Math.max(0, Math.min(
+              (boundary.node.nodeValue || "").length,
+              offset - boundary.start
+            )),
+          };
+        }
+      }
+      const last = boundaries.at(-1);
+      return last
+        ? { node: last.node, offset: (last.node.nodeValue || "").length }
+        : null;
+    }
+    const start = findBoundary(Math.max(0, startOffset));
+    const end = findBoundary(Math.max(startOffset, endOffset));
+    if (!start || !end) {
+      return null;
+    }
+    try {
+      const range = documentRef.createRange();
+      range.setStart(start.node, start.offset);
+      range.setEnd(end.node, end.offset);
+      return range;
+    } catch {
+      return null;
+    }
+  }
+
+  function resolveGlossaryLookupCandidate(
+    windowRef,
+    documentRef,
+    eventTarget,
+    clientX,
+    clientY,
+    sourceDepth
+  ) {
+    if (!(eventTarget instanceof windowRef.Element)) {
+      return null;
+    }
+    const glossary = eventTarget.closest(".gsm-hoshidicts-glossary-content");
+    if (!glossary) {
+      return null;
+    }
+    const sentence = glossary.textContent || "";
+    const caretRange = typeof documentRef.caretRangeFromPoint === "function"
+      ? documentRef.caretRangeFromPoint(clientX, clientY)
+      : null;
+    if (!caretRange || !glossary.contains(caretRange.startContainer)) {
+      return null;
+    }
+    let matchOffset;
+    try {
+      const prefixRange = documentRef.createRange();
+      prefixRange.selectNodeContents(glossary);
+      prefixRange.setEnd(caretRange.startContainer, caretRange.startOffset);
+      matchOffset = prefixRange.toString().length;
+    } catch {
+      return null;
+    }
+    const query = sliceCodePoints(sentence, matchOffset, LOOKUP_SCAN_LENGTH);
+    if (!query || !JAPANESE_TEXT_PATTERN.test(query)) {
+      return null;
+    }
+    const firstCodePointLength = Array.from(query)[0].length;
+    return {
+      anchor: glossary,
+      anchorRange: createTextRangeForOffsets(
+        documentRef,
+        glossary,
+        matchOffset,
+        matchOffset + firstCodePointLength
+      ),
+      sourceElements: [glossary],
+      sentence,
+      matchOffset,
+      query,
+      sourceDepth,
+      vertical: windowRef.getComputedStyle(glossary).writingMode.startsWith("vertical"),
+    };
+  }
+
   function resolveLookupCandidate(windowRef, documentRef, eventTarget, clientX, clientY) {
     if (!(eventTarget instanceof windowRef.Element)) {
       return null;
@@ -526,6 +626,7 @@
         sentence,
         matchOffset,
         query,
+        sourceDepth: -1,
         vertical: windowRef.getComputedStyle(textBox).writingMode.startsWith("vertical"),
       };
     }
@@ -555,6 +656,7 @@
       sentence,
       matchOffset,
       query,
+      sourceDepth: -1,
       vertical: false,
     };
   }
@@ -688,6 +790,13 @@
     return Math.max(0, Math.min(MAX_POPUP_HIDE_DELAY_MS, Math.trunc(value)));
   }
 
+  function normalizePopupNestingMaxDepth(
+    value,
+    fallback = DEFAULT_POPUP_NESTING_MAX_DEPTH
+  ) {
+    return Number.isSafeInteger(value) && value >= 0 ? value : fallback;
+  }
+
   function createHoshidictsReader(options = {}) {
     const windowRef = options.window || window;
     const documentRef = options.document || document;
@@ -702,10 +811,7 @@
       typeof options.getMiningStatus === "function"
         ? options.getMiningStatus
         : async () => ({ available: false });
-    const onMine =
-      typeof options.onMine === "function"
-        ? options.onMine
-        : null;
+    const onMine = typeof options.onMine === "function" ? options.onMine : null;
     const logger = options.logger || console;
     const serverUrl = String(options.serverUrl || "ws://127.0.0.1:7276");
     const lookupTimeoutMs =
@@ -725,6 +831,9 @@
     let preferences = {
       lookupMode: options.lookupMode === "hover" ? "hover" : "shift",
       popupHideDelayMs: normalizePopupHideDelay(options.popupHideDelayMs),
+      popupNestingMaxDepth: normalizePopupNestingMaxDepth(
+        options.popupNestingMaxDepth
+      ),
     };
     let socket = null;
     let reconnectTimer = null;
@@ -732,26 +841,39 @@
     let debounceTimer = null;
     let lookupTimeoutTimer = null;
     let hideTimer = null;
+    let descendantHideTimer = null;
     let pendingHideReason = "pointer-left";
+    let pendingPruneDepth = 1;
     let destroyed = false;
     let shiftPressed = false;
     let pointerInPopup = false;
+    let pointerPopupDepth = null;
     let lastPointer = null;
     let requestSequence = 0;
     let latestRequestId = null;
     let latestCandidate = null;
+    let latestCandidateSignature = "";
+    let latestTargetDepth = 0;
     let latestGeneration = 0;
-    let lastCandidateSignature = "";
     let popupVisible = false;
-    let popupAnchor = null;
-    let popupVertical = false;
     let miningInFlight = false;
-    let miningStatusGeneration = 0;
     let miningStatusCache = null;
     let miningStatusCacheExpiresAt = 0;
     let miningStatusPromise = null;
     let shiftRequirementLogged = false;
     let candidateMissLogged = false;
+    let candidateSourceSequence = 0;
+    let lastHoveredSource = null;
+    let lastHoveredTargetDepth = null;
+    const popupLevels = [];
+    const renderedSignatures = new Map();
+    const noticeSignatures = new Map();
+    const candidateSourceIds = new WeakMap();
+    const chainHighlighter = createSourceHighlighter(
+      windowRef,
+      documentRef,
+      SOURCE_HIGHLIGHT_NAME
+    );
 
     function diagnostic(level, event, details = {}) {
       const sink = typeof logger[level] === "function"
@@ -779,36 +901,11 @@
 
     function isReadableHoverTarget(target) {
       return target instanceof windowRef.Element && Boolean(
-        target.closest('.text-box[data-selectable="true"], #text')
+        target.closest(
+          '.text-box[data-selectable="true"], #text, .gsm-hoshidicts-glossary-content'
+        )
       );
     }
-
-    const popup = documentRef.createElement("section");
-    popup.id = "gsm-hoshidicts-popup";
-    popup.className = "gsm-hoshidicts-popup interactive";
-    popup.setAttribute("role", "dialog");
-    popup.setAttribute("aria-label", "Hoshidicts lookup");
-    popup.hidden = true;
-    popup.addEventListener("pointerdown", (event) => event.stopPropagation());
-    popup.addEventListener("click", (event) => event.stopPropagation());
-    documentRef.body.appendChild(popup);
-    documentRef.documentElement.classList.add("gsm-hoshidicts-enabled");
-    documentRef.documentElement.dataset.gsmHoshidictsEnabled = "true";
-    const popupView = createPopupView({
-      window: windowRef,
-      document: documentRef,
-      popup,
-      appendExpressionRuby,
-      appendTextOnlyGlossary,
-      parseTagList,
-      initialResultCount: INITIAL_VISIBLE_RESULTS,
-      maxMetadataTags: MAX_VISIBLE_METADATA_TAGS,
-      highlightName: SOURCE_HIGHLIGHT_NAME,
-      positionPopup,
-      onMineClick(button, result, candidate, feedback) {
-        void mineResult(button, result, candidate, feedback);
-      },
-    });
 
     function publishPopupState(visible) {
       if (popupVisible === visible) {
@@ -825,6 +922,13 @@
       }
     }
 
+    function clearDescendantHideTimer() {
+      if (descendantHideTimer !== null) {
+        clearTimeoutFn(descendantHideTimer);
+        descendantHideTimer = null;
+      }
+    }
+
     function clearLookupTimeout() {
       if (lookupTimeoutTimer !== null) {
         clearTimeoutFn(lookupTimeoutTimer);
@@ -836,7 +940,7 @@
       latestGeneration += 1;
       latestRequestId = null;
       latestCandidate = null;
-      lastCandidateSignature = "";
+      latestCandidateSignature = "";
       clearLookupTimeout();
       if (debounceTimer !== null) {
         clearTimeoutFn(debounceTimer);
@@ -844,19 +948,135 @@
       }
     }
 
-    function dismissPopup(reason) {
+    function getPopupDepthForTarget(target) {
+      if (!(target instanceof windowRef.Element)) {
+        return null;
+      }
+      const popup = target.closest(".gsm-hoshidicts-popup[data-hoshidicts-depth]");
+      if (!popup) {
+        return null;
+      }
+      const depth = Number.parseInt(popup.dataset.hoshidictsDepth || "", 10);
+      return Number.isInteger(depth) && popupLevels[depth]?.popup === popup
+        ? depth
+        : null;
+    }
+
+    function onPopupPointerEnter(depth) {
+      pointerInPopup = true;
+      pointerPopupDepth = depth;
       clearHideTimer();
-      miningStatusGeneration += 1;
-      popupAnchor = null;
-      popupView.clear();
+      if (descendantHideTimer !== null && depth >= pendingPruneDepth) {
+        clearDescendantHideTimer();
+      }
+    }
+
+    function onPopupPointerLeave(depth) {
+      if (pointerPopupDepth === depth) {
+        pointerPopupDepth = null;
+      }
+      pointerInPopup = false;
+      scheduleHide("popup-left");
+    }
+
+    function createPopupLevel(depth) {
+      const popup = documentRef.createElement("section");
+      popup.id = depth === 0
+        ? "gsm-hoshidicts-popup"
+        : `gsm-hoshidicts-popup-${depth}`;
+      popup.className = "gsm-hoshidicts-popup interactive";
+      popup.dataset.hoshidictsDepth = String(depth);
+      popup.setAttribute("role", "dialog");
+      popup.setAttribute("aria-label", "Hoshidicts lookup");
       popup.hidden = true;
-      publishPopupState(false);
-      diagnostic("debug", "popup.hidden", { reason });
+      if (depth > 0) {
+        popup.style.zIndex = "2147483647";
+      }
+      const stopPropagation = (event) => event.stopPropagation();
+      const pointerEnter = () => onPopupPointerEnter(depth);
+      const pointerLeave = () => onPopupPointerLeave(depth);
+      popup.addEventListener("pointerdown", stopPropagation);
+      popup.addEventListener("click", stopPropagation);
+      popup.addEventListener("pointerenter", pointerEnter);
+      popup.addEventListener("pointerleave", pointerLeave);
+      documentRef.body.appendChild(popup);
+      const level = {
+        depth,
+        popup,
+        view: null,
+        visible: false,
+        candidate: null,
+        miningStatusGeneration: 0,
+        cleanup() {
+          popup.removeEventListener("pointerdown", stopPropagation);
+          popup.removeEventListener("click", stopPropagation);
+          popup.removeEventListener("pointerenter", pointerEnter);
+          popup.removeEventListener("pointerleave", pointerLeave);
+        },
+      };
+      level.view = createPopupView({
+        window: windowRef,
+        document: documentRef,
+        popup,
+        appendExpressionRuby,
+        appendTextOnlyGlossary,
+        parseTagList,
+        initialResultCount: INITIAL_VISIBLE_RESULTS,
+        maxMetadataTags: MAX_VISIBLE_METADATA_TAGS,
+        sourceHighlighter: chainHighlighter.scope(depth),
+        positionPopup: () => positionPopupAndDescendants(depth),
+        onMineClick(button, result, candidate, feedback) {
+          void mineResult(button, result, candidate, feedback);
+        },
+      });
+      return level;
+    }
+
+    function ensurePopupLevel(depth) {
+      while (popupLevels.length <= depth) {
+        popupLevels.push(createPopupLevel(popupLevels.length));
+      }
+      return popupLevels[depth];
+    }
+
+    function pruneFromDepth(depth, reason = "descendants-pruned") {
+      const startDepth = Math.max(0, Math.trunc(depth));
+      clearDescendantHideTimer();
+      if (latestCandidate && latestTargetDepth >= startDepth) {
+        invalidateLookup();
+      }
+      for (let index = popupLevels.length - 1; index >= startDepth; index -= 1) {
+        const level = popupLevels[index];
+        level.miningStatusGeneration += 1;
+        level.candidate = null;
+        level.view.clear();
+        level.popup.hidden = true;
+        level.visible = false;
+        renderedSignatures.delete(index);
+        noticeSignatures.delete(index);
+        if (index > 0) {
+          level.cleanup();
+          level.popup.remove();
+        }
+      }
+      if (startDepth === 0) {
+        popupLevels.length = Math.min(1, popupLevels.length);
+        publishPopupState(false);
+      } else if (popupLevels.length > startDepth) {
+        popupLevels.length = startDepth;
+      }
+      if (pointerPopupDepth !== null && pointerPopupDepth >= startDepth) {
+        pointerPopupDepth = null;
+        pointerInPopup = false;
+      }
+      diagnostic("debug", "popup.pruned", { depth: startDepth, reason });
     }
 
     function hide(reason = "hide") {
+      clearHideTimer();
+      clearDescendantHideTimer();
       invalidateLookup();
-      dismissPopup(reason);
+      pruneFromDepth(0, reason);
       return true;
     }
 
@@ -878,44 +1098,141 @@
       }, preferences.popupHideDelayMs);
     }
 
-    function positionPopup() {
-      if (!popupVisible || !popupAnchor || !popupAnchor.isConnected) {
-        if (popupVisible) {
+    function schedulePruneFromDepth(depth, reason = "ancestor-hovered") {
+      if (popupLevels.length <= depth) {
+        return;
+      }
+      pendingPruneDepth = depth;
+      clearDescendantHideTimer();
+      if (preferences.popupHideDelayMs === 0) {
+        pruneFromDepth(depth, reason);
+        return;
+      }
+      descendantHideTimer = setTimeoutFn(() => {
+        descendantHideTimer = null;
+        if (pointerPopupDepth === null || pointerPopupDepth < depth) {
+          pruneFromDepth(depth, reason);
+        }
+      }, preferences.popupHideDelayMs);
+    }
+
+    function isCandidateAnchorConnected(candidate) {
+      if (!candidate || !candidate.anchor || !candidate.anchor.isConnected) {
+        return false;
+      }
+      return !candidate.anchorRange || candidate.anchorRange.startContainer.isConnected;
+    }
+
+    function getCandidateAnchorRect(candidate) {
+      if (
+        candidate.anchorRange &&
+        typeof candidate.anchorRange.getBoundingClientRect === "function"
+      ) {
+        try {
+          const rangeRect = candidate.anchorRange.getBoundingClientRect();
+          if (rangeRect && Number.isFinite(rangeRect.left)) {
+            return rangeRect;
+          }
+        } catch {
+          // Fall back to the containing definition element.
+        }
+      }
+      return candidate.anchor.getBoundingClientRect();
+    }
+
+    function calculateChildPosition(anchorRect, popupSize, parentRect) {
+      const padding = 6;
+      const gap = 6;
+      const viewport = { width: windowRef.innerWidth, height: windowRef.innerHeight };
+      const width = Math.min(
+        Math.max(1, popupSize.width),
+        Math.max(1, viewport.width - padding * 2)
+      );
+      const height = Math.min(
+        Math.max(1, popupSize.height),
+        Math.max(1, viewport.height - padding * 2)
+      );
+      const spaceRight = viewport.width - parentRect.right - gap;
+      const spaceLeft = parentRect.left - gap;
+      const preferredLeft = spaceRight >= width || spaceRight >= spaceLeft
+        ? parentRect.right + gap
+        : parentRect.left - gap - width;
+      const clamp = (value, minimum, maximum) =>
+        Math.max(minimum, Math.min(value, maximum));
+      return {
+        left: Math.round(clamp(preferredLeft, padding, viewport.width - width - padding)),
+        top: Math.round(clamp(anchorRect.top, padding, viewport.height - height - padding)),
+        width,
+        height,
+      };
+    }
+
+    function positionPopup(depth = 0) {
+      const level = popupLevels[depth];
+      if (!level || !level.visible) {
+        return;
+      }
+      if (!isCandidateAnchorConnected(level.candidate)) {
+        if (depth === 0) {
           hide("anchor-removed");
+        } else {
+          pruneFromDepth(depth, "anchor-removed");
         }
         return;
       }
-      const anchorRect = popupAnchor.getBoundingClientRect();
-      const measuredRect = popup.getBoundingClientRect();
+      const anchorRect = getCandidateAnchorRect(level.candidate);
+      const measuredRect = level.popup.getBoundingClientRect();
       const popupSize = {
         width: measuredRect.width || Math.min(420, windowRef.innerWidth - 12),
         height: measuredRect.height || Math.min(420, windowRef.innerHeight * 0.6),
       };
-      const position = calculatePopupPosition(
-        anchorRect,
-        popupSize,
-        { width: windowRef.innerWidth, height: windowRef.innerHeight },
-        { vertical: popupVertical }
-      );
-      popup.style.left = `${position.left}px`;
-      popup.style.top = `${position.top}px`;
-      popup.style.maxWidth = `${position.width}px`;
-      popup.style.maxHeight = `${position.height}px`;
+      const parentLevel = depth > 0 ? popupLevels[depth - 1] : null;
+      const position = parentLevel && parentLevel.visible
+        ? calculateChildPosition(
+            anchorRect,
+            popupSize,
+            parentLevel.popup.getBoundingClientRect()
+          )
+        : calculatePopupPosition(
+            anchorRect,
+            popupSize,
+            { width: windowRef.innerWidth, height: windowRef.innerHeight },
+            { vertical: level.candidate.vertical }
+          );
+      level.popup.style.left = `${position.left}px`;
+      level.popup.style.top = `${position.top}px`;
+      level.popup.style.maxWidth = `${position.width}px`;
+      level.popup.style.maxHeight = `${position.height}px`;
     }
 
-    function showPopup(candidate) {
+    function positionPopupAndDescendants(startDepth = 0) {
+      for (let depth = startDepth; depth < popupLevels.length; depth += 1) {
+        positionPopup(depth);
+      }
+    }
+
+    function positionAllPopups() {
+      positionPopupAndDescendants(0);
+    }
+
+    function showPopup(candidate, targetDepth) {
       clearHideTimer();
-      popupAnchor = candidate.anchor;
-      popupVertical = candidate.vertical;
-      popup.hidden = false;
-      popup.scrollTop = 0;
+      const level = ensurePopupLevel(targetDepth);
+      level.candidate = candidate;
+      level.popup.hidden = false;
+      level.popup.scrollTop = 0;
+      level.visible = true;
       publishPopupState(true);
-      positionPopup();
+      positionPopup(targetDepth);
+      return level;
     }
 
-    function renderLookupNotice(candidate, message) {
-      popupView.renderNotice(message);
-      showPopup(candidate);
+    function renderLookupNotice(candidate, message, targetDepth, signature) {
+      const level = ensurePopupLevel(targetDepth);
+      level.view.renderNotice(message);
+      renderedSignatures.set(targetDepth, signature);
+      noticeSignatures.set(targetDepth, signature);
+      showPopup(candidate, targetDepth);
     }
 
     async function getCachedMiningStatus() {
@@ -945,10 +1262,14 @@
       return miningStatusCache;
     }
 
-    async function refreshMiningButtons(buttons, feedback) {
-      const generation = ++miningStatusGeneration;
+    async function refreshMiningButtons(level, buttons, feedback) {
+      const generation = ++level.miningStatusGeneration;
       const status = await getCachedMiningStatus();
-      if (destroyed || generation !== miningStatusGeneration || !feedback.isConnected) {
+      if (
+        destroyed ||
+        generation !== level.miningStatusGeneration ||
+        !feedback.isConnected
+      ) {
         return;
       }
       if (status && status.available === true && onMine) {
@@ -959,7 +1280,7 @@
         const unmapped = Array.isArray(status.unmappedFields)
           ? status.unmappedFields.filter((field) => typeof field === "string")
           : [];
-        popupView.setFeedback(
+        level.view.setFeedback(
           feedback,
           unmapped.length > 0
             ? `Optional Anki fields not mapped: ${unmapped.join(", ")}.`
@@ -975,7 +1296,11 @@
         button.hidden = true;
         setMiningButtonState(button, "unavailable", reason);
       }
-      popupView.setFeedback(feedback, `Anki mining unavailable: ${reason}`, "warning");
+      level.view.setFeedback(
+        feedback,
+        `Anki mining unavailable: ${reason}`,
+        "warning"
+      );
     }
 
     async function mineResult(button, result, candidate, feedback) {
@@ -986,16 +1311,17 @@
       ) {
         return;
       }
+      const level = popupLevels.find((entry) => entry.popup.contains(button));
+      if (!level) {
+        return;
+      }
       miningInFlight = true;
-      popupView.setFeedback(feedback, "Adding note to Anki…");
-      const buttons = Array.from(
-        popup.querySelectorAll(".gsm-hoshidicts-mine-button")
+      level.view.setFeedback(feedback, "Adding note to Anki…");
+      const buttons = popupLevels.flatMap((entry) =>
+        Array.from(entry.popup.querySelectorAll(".gsm-hoshidicts-mine-button"))
       );
       for (const current of buttons) {
-        setMiningButtonState(
-          current,
-          current === button ? "mining" : "checking"
-        );
+        setMiningButtonState(current, current === button ? "mining" : "checking");
       }
       try {
         const response = await onMine({
@@ -1014,7 +1340,7 @@
         const unmapped = Array.isArray(response.unmappedFields)
           ? response.unmappedFields.filter((field) => typeof field === "string")
           : [];
-        popupView.setFeedback(
+        level.view.setFeedback(
           feedback,
           unmapped.length > 0
             ? `Added to Anki. Optional fields not filled: ${unmapped.join(", ")}.`
@@ -1025,7 +1351,7 @@
         const message = error instanceof Error ? error.message : String(error);
         const duplicate = /already exists|duplicate/iu.test(message);
         setMiningButtonState(button, duplicate ? "duplicate" : "error", message);
-        popupView.setFeedback(
+        level.view.setFeedback(
           feedback,
           duplicate ? "Already in Anki." : `Could not add to Anki: ${message}`,
           duplicate ? "info" : "error"
@@ -1038,6 +1364,18 @@
           }
         }
       }
+    }
+
+    function expandCandidateAnchor(candidate, matchedText) {
+      if (!candidate.anchorRange || candidate.sourceElements.length !== 1) {
+        return;
+      }
+      candidate.anchorRange = createTextRangeForOffsets(
+        documentRef,
+        candidate.sourceElements[0],
+        candidate.matchOffset,
+        candidate.matchOffset + matchedText.length
+      ) || candidate.anchorRange;
     }
 
     function handleLookupResponse(rawData) {
@@ -1072,16 +1410,23 @@
       }
       clearLookupTimeout();
       const candidate = latestCandidate;
+      const signature = latestCandidateSignature;
+      const targetDepth = latestTargetDepth;
       const requestId = latestRequestId;
       latestRequestId = null;
-      if (!candidate) {
-        diagnostic("warn", "lookup.missing-candidate", { requestId });
-        hide("lookup-error");
+      if (!candidate || !isCandidateAnchorConnected(candidate)) {
+        diagnostic("warn", "lookup.missing-candidate", { requestId, targetDepth });
+        pruneFromDepth(targetDepth, "lookup-error");
+        return;
+      }
+      if (targetDepth > preferences.popupNestingMaxDepth) {
+        pruneFromDepth(targetDepth, "depth-limit-changed");
         return;
       }
       if (payload.success !== true) {
         diagnostic("warn", "lookup.failed", {
           requestId,
+          targetDepth,
           dictionaryCount: Number.isFinite(payload.dictionaryCount)
             ? Math.trunc(payload.dictionaryCount)
             : null,
@@ -1093,26 +1438,36 @@
           : payload.dictionaryCount === 0
             ? "No Hoshidicts dictionaries are enabled. Open Hoshidicts Settings."
             : `Dictionary lookup failed: ${boundedString(payload.error, 1024) || "try again"}`;
-        renderLookupNotice(candidate, message);
+        renderLookupNotice(candidate, message, targetDepth, signature);
         return;
       }
       const results = normalizeLookupResults(payload);
       if (results.length === 0) {
         diagnostic("info", "lookup.empty", {
           requestId,
+          targetDepth,
           dictionaryCount: Number.isFinite(payload.dictionaryCount)
             ? Math.trunc(payload.dictionaryCount)
             : null,
           query: candidate.query,
         });
-        hide("no-results");
+        latestCandidate = null;
+        pruneFromDepth(targetDepth, "no-results");
         return;
       }
-      const rendered = popupView.renderResults(results, candidate);
-      showPopup(candidate);
-      void refreshMiningButtons(rendered.miningButtons, rendered.feedback);
+      expandCandidateAnchor(
+        candidate,
+        results[0].matched || results[0].term.expression
+      );
+      const level = ensurePopupLevel(targetDepth);
+      const rendered = level.view.renderResults(results, candidate);
+      renderedSignatures.set(targetDepth, signature);
+      noticeSignatures.delete(targetDepth);
+      showPopup(candidate, targetDepth);
+      void refreshMiningButtons(level, rendered.miningButtons, rendered.feedback);
       diagnostic("info", "lookup.rendered", {
         requestId,
+        targetDepth,
         dictionaryCount: Number.isFinite(payload.dictionaryCount)
           ? Math.trunc(payload.dictionaryCount)
           : null,
@@ -1164,7 +1519,12 @@
           }));
           diagnostic("info", "socket.open", { serverUrl });
           if (latestCandidate && latestRequestId === null) {
-            sendLookup(latestCandidate, latestGeneration);
+            sendLookup(
+              latestCandidate,
+              latestGeneration,
+              latestTargetDepth,
+              latestCandidateSignature
+            );
           }
         });
         nextSocket.addEventListener("message", (event) => {
@@ -1177,11 +1537,7 @@
             return;
           }
           socket = null;
-          latestRequestId = null;
-          clearLookupTimeout();
-          if (popupVisible) {
-            dismissPopup("socket-closed");
-          }
+          hide("socket-closed");
           diagnostic("warn", "socket.closed", {
             serverUrl,
             code: Number.isFinite(event && event.code) ? Math.trunc(event.code) : null,
@@ -1203,11 +1559,18 @@
       }
     }
 
-    function sendLookup(candidate, generation) {
-      if (destroyed || generation !== latestGeneration) {
+    function sendLookup(candidate, generation, targetDepth, signature) {
+      if (
+        destroyed ||
+        generation !== latestGeneration ||
+        targetDepth > preferences.popupNestingMaxDepth ||
+        !isCandidateAnchorConnected(candidate)
+      ) {
         return;
       }
       latestCandidate = candidate;
+      latestTargetDepth = targetDepth;
+      latestCandidateSignature = signature;
       if (lookupTimeoutTimer === null) {
         lookupTimeoutTimer = setTimeoutFn(() => {
           lookupTimeoutTimer = null;
@@ -1218,10 +1581,13 @@
           latestRequestId = null;
           renderLookupNotice(
             candidate,
-            "Dictionary lookup timed out. Check that the overlay service is running."
+            "Dictionary lookup timed out. Check that the overlay service is running.",
+            targetDepth,
+            signature
           );
           diagnostic("warn", "lookup.timed-out", {
             requestId,
+            targetDepth,
             query: candidate.query,
           });
         }, lookupTimeoutMs);
@@ -1229,6 +1595,7 @@
       if (!socket || socket.readyState !== WebSocketImpl.OPEN) {
         diagnostic("debug", "lookup.waiting-for-socket", {
           query: candidate.query,
+          targetDepth,
           socketState: socket ? socket.readyState : null,
         });
         connect();
@@ -1243,45 +1610,87 @@
       }));
       diagnostic("debug", "lookup.sent", {
         requestId,
+        targetDepth,
         query: candidate.query,
         matchOffset: candidate.matchOffset,
       });
     }
 
-    function queueLookup(candidate) {
+    function queueLookup(candidate, targetDepth) {
+      let sourceId = candidateSourceIds.get(candidate.anchor);
+      if (sourceId === undefined) {
+        sourceId = ++candidateSourceSequence;
+        candidateSourceIds.set(candidate.anchor, sourceId);
+      }
       const signature = [
+        targetDepth,
+        sourceId,
         candidate.sentence,
         candidate.matchOffset,
         candidate.query,
       ].join("\u0000");
       clearHideTimer();
-      if (signature === lastCandidateSignature) {
+      clearDescendantHideTimer();
+      if (
+        signature === latestCandidateSignature &&
+        latestTargetDepth === targetDepth &&
+        (latestRequestId !== null || debounceTimer !== null)
+      ) {
+        return;
+      }
+      if (renderedSignatures.get(targetDepth) === signature) {
+        invalidateLookup();
+        schedulePruneFromDepth(targetDepth + 1, "ancestor-hovered");
         return;
       }
       invalidateLookup();
-      if (popupVisible) {
-        dismissPopup("candidate-changed");
-      }
-      lastCandidateSignature = signature;
+      pruneFromDepth(targetDepth, "candidate-changed");
       latestCandidate = candidate;
+      latestTargetDepth = targetDepth;
+      latestCandidateSignature = signature;
       const generation = latestGeneration;
       debounceTimer = setTimeoutFn(() => {
         debounceTimer = null;
-        sendLookup(candidate, generation);
+        sendLookup(candidate, generation, targetDepth, signature);
       }, LOOKUP_DEBOUNCE_MS);
+    }
+
+    function clearHoveredSource() {
+      lastHoveredSource = null;
+      lastHoveredTargetDepth = null;
+    }
+
+    function queueHoveredLookup(candidate, targetDepth) {
+      const enteredSource =
+        lastHoveredSource !== candidate.anchor ||
+        lastHoveredTargetDepth !== targetDepth;
+      lastHoveredSource = candidate.anchor;
+      lastHoveredTargetDepth = targetDepth;
+      if (
+        enteredSource &&
+        noticeSignatures.has(targetDepth) &&
+        noticeSignatures.get(targetDepth) === renderedSignatures.get(targetDepth)
+      ) {
+        renderedSignatures.delete(targetDepth);
+      }
+      queueLookup(candidate, targetDepth);
     }
 
     function scanPointer(pointer, modifierActive) {
       if (!pointer || !(pointer.target instanceof windowRef.Element)) {
         return;
       }
-      if (popup.contains(pointer.target)) {
-        pointerInPopup = true;
+      const popupDepth = getPopupDepthForTarget(pointer.target);
+      pointerInPopup = popupDepth !== null;
+      pointerPopupDepth = popupDepth;
+      if (popupDepth !== null) {
         clearHideTimer();
-        return;
+        if (descendantHideTimer !== null && popupDepth >= pendingPruneDepth) {
+          clearDescendantHideTimer();
+        }
       }
-      pointerInPopup = false;
       if (requiresShift() && !modifierActive) {
+        clearHoveredSource();
         if (!shiftRequirementLogged && isReadableHoverTarget(pointer.target)) {
           shiftRequirementLogged = true;
           diagnostic("info", "hover.shift-required", {
@@ -1292,6 +1701,34 @@
         scheduleHide("shift-not-held");
         return;
       }
+
+      if (popupDepth !== null) {
+        const targetDepth = popupDepth + 1;
+        if (targetDepth > preferences.popupNestingMaxDepth) {
+          clearHoveredSource();
+          invalidateLookup();
+          schedulePruneFromDepth(targetDepth, "depth-limit");
+          return;
+        }
+        const candidate = resolveGlossaryLookupCandidate(
+          windowRef,
+          documentRef,
+          pointer.target,
+          pointer.clientX,
+          pointer.clientY,
+          popupDepth
+        );
+        if (candidate) {
+          candidateMissLogged = false;
+          queueHoveredLookup(candidate, targetDepth);
+        } else {
+          clearHoveredSource();
+          invalidateLookup();
+          schedulePruneFromDepth(targetDepth, "ancestor-hovered");
+        }
+        return;
+      }
+
       const candidate = resolveLookupCandidate(
         windowRef,
         documentRef,
@@ -1301,9 +1738,10 @@
       );
       if (candidate) {
         candidateMissLogged = false;
-        queueLookup(candidate);
+        queueHoveredLookup(candidate, 0);
         return;
       }
+      clearHoveredSource();
       if (!candidateMissLogged) {
         candidateMissLogged = true;
         diagnostic("debug", "hover.no-candidate", {
@@ -1345,19 +1783,10 @@
       }
     }
 
-    function onPopupPointerEnter() {
-      pointerInPopup = true;
-      clearHideTimer();
-    }
-
-    function onPopupPointerLeave() {
-      pointerInPopup = false;
-      scheduleHide("popup-left");
-    }
-
     function updatePreferences(nextPreferences = {}) {
       const hadHideTimer = hideTimer !== null;
       const previousMode = preferences.lookupMode;
+      const previousMaxDepth = preferences.popupNestingMaxDepth;
       preferences = {
         lookupMode: Object.prototype.hasOwnProperty.call(nextPreferences, "lookupMode")
           ? nextPreferences.lookupMode === "hover" ? "hover" : "shift"
@@ -1371,10 +1800,25 @@
               preferences.popupHideDelayMs
             )
           : preferences.popupHideDelayMs,
+        popupNestingMaxDepth: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "popupNestingMaxDepth"
+        )
+          ? normalizePopupNestingMaxDepth(
+              nextPreferences.popupNestingMaxDepth,
+              preferences.popupNestingMaxDepth
+            )
+          : preferences.popupNestingMaxDepth,
       };
       if (hadHideTimer) {
         clearHideTimer();
         scheduleHide(pendingHideReason);
+      }
+      if (preferences.popupNestingMaxDepth < previousMaxDepth) {
+        pruneFromDepth(
+          preferences.popupNestingMaxDepth + 1,
+          "depth-limit-changed"
+        );
       }
       if (previousMode !== preferences.lookupMode) {
         shiftRequirementLogged = false;
@@ -1391,8 +1835,8 @@
 
     function onWindowBlur() {
       shiftPressed = false;
-      invalidateLookup();
-      scheduleHide("window-blurred");
+      clearHoveredSource();
+      hide("window-blurred");
     }
 
     function destroy() {
@@ -1407,34 +1851,40 @@
         reconnectTimer = null;
       }
       if (socket) {
-        socket.close();
+        const currentSocket = socket;
         socket = null;
+        currentSocket.close();
       }
       documentRef.removeEventListener("mousemove", onMouseMove, true);
       documentRef.removeEventListener("keydown", onKeyDown, true);
       documentRef.removeEventListener("keyup", onKeyUp, true);
-      popup.removeEventListener("pointerenter", onPopupPointerEnter);
-      popup.removeEventListener("pointerleave", onPopupPointerLeave);
-      windowRef.removeEventListener("resize", positionPopup);
-      windowRef.removeEventListener("scroll", positionPopup, true);
+      windowRef.removeEventListener("resize", positionAllPopups);
+      windowRef.removeEventListener("scroll", positionAllPopups, true);
       windowRef.removeEventListener("blur", onWindowBlur);
-      popup.remove();
+      for (const level of popupLevels) {
+        level.cleanup();
+        level.popup.remove();
+      }
+      popupLevels.length = 0;
+      chainHighlighter.clearAll();
       documentRef.documentElement.classList.remove("gsm-hoshidicts-enabled");
       delete documentRef.documentElement.dataset.gsmHoshidictsEnabled;
     }
 
+    documentRef.documentElement.classList.add("gsm-hoshidicts-enabled");
+    documentRef.documentElement.dataset.gsmHoshidictsEnabled = "true";
+    ensurePopupLevel(0);
     documentRef.addEventListener("mousemove", onMouseMove, true);
     documentRef.addEventListener("keydown", onKeyDown, true);
     documentRef.addEventListener("keyup", onKeyUp, true);
-    popup.addEventListener("pointerenter", onPopupPointerEnter);
-    popup.addEventListener("pointerleave", onPopupPointerLeave);
-    windowRef.addEventListener("resize", positionPopup);
-    windowRef.addEventListener("scroll", positionPopup, true);
+    windowRef.addEventListener("resize", positionAllPopups);
+    windowRef.addEventListener("scroll", positionAllPopups, true);
     windowRef.addEventListener("blur", onWindowBlur);
     diagnostic("info", "reader.initialized", {
       serverUrl,
       requiresShift: requiresShift(),
       popupHideDelayMs: preferences.popupHideDelayMs,
+      popupNestingMaxDepth: preferences.popupNestingMaxDepth,
       scanLength: LOOKUP_SCAN_LENGTH,
     });
     connect();
@@ -1443,15 +1893,19 @@
       destroy,
       hide,
       isVisible: () => popupVisible,
-      getPopupElement: () => popup,
+      getPopupElement: () => popupLevels[0]?.popup || null,
+      getPopupElements: () => popupLevels
+        .filter((level) => level.visible)
+        .map((level) => level.popup),
       getPreferences: () => ({ ...preferences }),
-      positionPopup,
+      positionPopup: positionAllPopups,
       updatePreferences,
     };
   }
 
   return {
     DEFAULT_POPUP_HIDE_DELAY_MS,
+    DEFAULT_POPUP_NESTING_MAX_DEPTH,
     INITIAL_VISIBLE_RESULTS,
     LOOKUP_DEBOUNCE_MS,
     LOOKUP_MAX_RESULTS,
@@ -1464,9 +1918,11 @@
     createHoshidictsMiningClient,
     createHoshidictsReader,
     normalizePopupHideDelay,
+    normalizePopupNestingMaxDepth,
     normalizeLookupResults,
     resolveGsmApiBaseUrl,
     resolveLookupCandidate,
+    resolveGlossaryLookupCandidate,
     segmentFurigana,
     setMiningButtonState,
   };

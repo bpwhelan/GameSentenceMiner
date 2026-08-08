@@ -25,6 +25,18 @@
     configuredHoshidictsHideDelay >= 0 &&
     configuredHoshidictsHideDelay <= 5000
   ) ? configuredHoshidictsHideDelay : 300;
+  const configuredHoshidictsPopupNestingMaxDepth = Number(
+    typeof process !== 'undefined' &&
+    process.env &&
+    typeof process.env.GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH === 'string' &&
+    process.env.GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH.trim() !== ''
+      ? process.env.GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH
+      : Number.NaN
+  );
+  window.gsmHoshidictsPopupNestingMaxDepth = (
+    Number.isSafeInteger(configuredHoshidictsPopupNestingMaxDepth) &&
+    configuredHoshidictsPopupNestingMaxDepth >= 0
+  ) ? configuredHoshidictsPopupNestingMaxDepth : 10;
   if (window.gsmHoshidictsReaderEnabled) {
     document.documentElement.classList.add('gsm-hoshidicts-enabled');
     document.documentElement.dataset.gsmHoshidictsEnabled = 'true';
@@ -5038,6 +5050,7 @@ background: rgba(202, 12, 12, 0.692);
       serverUrl: `ws://127.0.0.1:${serverPort}`,
       lookupMode: window.gsmHoshidictsLookupMode === 'hover' ? 'hover' : 'shift',
       popupHideDelayMs: window.gsmHoshidictsPopupHideDelayMs,
+      popupNestingMaxDepth: window.gsmHoshidictsPopupNestingMaxDepth,
       onPopupStateChange: handleHoshidictsPopupState,
       async getMiningStatus() {
         return await miningClient.getStatus();
@@ -5064,6 +5077,10 @@ background: rgba(202, 12, 12, 0.692);
     window.gsmHoshidictsPopupHideDelayMs = (
       Number.isInteger(hideDelay) && hideDelay >= 0 && hideDelay <= 5000
     ) ? hideDelay : 300;
+    const popupNestingMaxDepth = Number(preferences.popupNestingMaxDepth);
+    window.gsmHoshidictsPopupNestingMaxDepth = (
+      Number.isSafeInteger(popupNestingMaxDepth) && popupNestingMaxDepth >= 0
+    ) ? popupNestingMaxDepth : 10;
     if (
       window.gsmHoshidictsReader &&
       typeof window.gsmHoshidictsReader.updatePreferences === 'function'
@@ -5071,6 +5088,7 @@ background: rgba(202, 12, 12, 0.692);
       window.gsmHoshidictsReader.updatePreferences({
         lookupMode: window.gsmHoshidictsLookupMode,
         popupHideDelayMs: window.gsmHoshidictsPopupHideDelayMs,
+        popupNestingMaxDepth: window.gsmHoshidictsPopupNestingMaxDepth,
       });
     }
   });

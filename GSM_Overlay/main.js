@@ -6659,11 +6659,15 @@ async function startOverlayAppImpl() {
       onPreferences(preferences) {
         const lookupMode = preferences && preferences.lookupMode;
         const popupHideDelayMs = preferences && preferences.popupHideDelayMs;
+        const popupNestingMaxDepth =
+          preferences && preferences.popupNestingMaxDepth;
         if (
           (lookupMode !== 'shift' && lookupMode !== 'hover') ||
           !Number.isInteger(popupHideDelayMs) ||
           popupHideDelayMs < 0 ||
-          popupHideDelayMs > 5000
+          popupHideDelayMs > 5000 ||
+          !Number.isSafeInteger(popupNestingMaxDepth) ||
+          popupNestingMaxDepth < 0
         ) {
           throw new Error('Hoshidicts reader preferences are invalid.');
         }
@@ -6673,6 +6677,7 @@ async function startOverlayAppImpl() {
         const normalizedPreferences = {
           lookupMode,
           popupHideDelayMs,
+          popupNestingMaxDepth,
         };
         hoshidictsReaderPreferencesDelivery.enqueue(normalizedPreferences);
       },

@@ -57,9 +57,10 @@
   }
 
   function createSourceHighlighter(windowRef, documentRef, highlightName) {
-    let highlightedSourceElements = [];
+    const matches = new Map();
+    let highlightedSourceElements = new Set();
 
-    function clear() {
+    function clearRenderedHighlight() {
       const highlights = windowRef.CSS && windowRef.CSS.highlights;
       if (highlights && typeof highlights.delete === "function") {
         highlights.delete(highlightName);
@@ -67,39 +68,23 @@
       for (const element of highlightedSourceElements) {
         element.classList.remove("gsm-hoshidicts-source-match");
       }
-      highlightedSourceElements = [];
+      highlightedSourceElements = new Set();
     }
 
-    function apply(candidate, matchedText) {
-      clear();
+    function createMatchRange(candidate, matchedText) {
       const matchLength = typeof matchedText === "string" ? matchedText.length : 0;
       if (matchLength <= 0 || !Array.isArray(candidate.sourceElements)) {
-        return;
+        return null;
       }
       const startOffset = Math.max(0, candidate.matchOffset);
       const endOffset = Math.min(candidate.sentence.length, startOffset + matchLength);
       if (endOffset <= startOffset) {
-        return;
+        return null;
       }
 
       const sourceElements = candidate.sourceElements.filter(
         (element) => element instanceof windowRef.Element && element.isConnected
       );
-      let elementStart = 0;
-      for (const element of sourceElements) {
-        const elementEnd = elementStart + (element.textContent || "").length;
-        if (elementEnd > startOffset && elementStart < endOffset) {
-          element.classList.add("gsm-hoshidicts-source-match");
-          highlightedSourceElements.push(element);
-        }
-        elementStart = elementEnd;
-      }
-
-      const highlights = windowRef.CSS && windowRef.CSS.highlights;
-      const HighlightImpl = windowRef.Highlight;
-      if (!highlights || typeof highlights.set !== "function" || !HighlightImpl) {
-        return;
-      }
       const textNodes = [];
       const showText = windowRef.NodeFilter ? windowRef.NodeFilter.SHOW_TEXT : 4;
       for (const element of sourceElements) {
@@ -124,23 +109,96 @@
       const start = findBoundary(startOffset);
       const end = findBoundary(endOffset);
       if (!start || !end) {
-        return;
+        return { range: null, sourceElements, startOffset, endOffset };
       }
       try {
         const range = documentRef.createRange();
         range.setStart(start.node, start.offset);
         range.setEnd(end.node, end.offset);
-        highlights.set(highlightName, new HighlightImpl(range));
-        for (const element of highlightedSourceElements) {
-          element.classList.remove("gsm-hoshidicts-source-match");
-        }
-        highlightedSourceElements = [];
+        return { range, sourceElements, startOffset, endOffset };
       } catch {
-        // Keep the non-mutating element-class fallback when exact ranges fail.
+        return { range: null, sourceElements, startOffset, endOffset };
       }
     }
 
-    return { apply, clear };
+    function applyElementFallback(match) {
+      let elementStart = 0;
+      for (const element of match.sourceElements) {
+        const elementEnd = elementStart + (element.textContent || "").length;
+        if (elementEnd > match.startOffset && elementStart < match.endOffset) {
+          element.classList.add("gsm-hoshidicts-source-match");
+          highlightedSourceElements.add(element);
+        }
+        elementStart = elementEnd;
+      }
+    }
+
+    function render() {
+      clearRenderedHighlight();
+      const highlights = windowRef.CSS && windowRef.CSS.highlights;
+      const HighlightImpl = windowRef.Highlight;
+      const canUseRanges = Boolean(
+        highlights && typeof highlights.set === "function" && HighlightImpl
+      );
+      const ranges = [];
+      for (const { candidate, matchedText } of matches.values()) {
+        const match = createMatchRange(candidate, matchedText);
+        if (!match) {
+          continue;
+        }
+        if (canUseRanges && match.range) {
+          ranges.push(match.range);
+        } else {
+          applyElementFallback(match);
+        }
+      }
+      if (canUseRanges && ranges.length > 0) {
+        try {
+          highlights.set(highlightName, new HighlightImpl(...ranges));
+        } catch {
+          for (const { candidate, matchedText } of matches.values()) {
+            const match = createMatchRange(candidate, matchedText);
+            if (match) {
+              applyElementFallback(match);
+            }
+          }
+        }
+      }
+    }
+
+    function applyFor(key, candidate, matchedText) {
+      matches.set(key, { candidate, matchedText });
+      render();
+    }
+
+    function clearFor(key) {
+      if (matches.delete(key)) {
+        render();
+      }
+    }
+
+    return {
+      apply(candidate, matchedText) {
+        applyFor("default", candidate, matchedText);
+      },
+      clear() {
+        clearFor("default");
+      },
+      scope(key) {
+        return {
+          apply(candidate, matchedText) {
+            applyFor(key, candidate, matchedText);
+          },
+          clear() {
+            clearFor(key);
+          },
+        };
+      },
+      clearAll() {
+        matches.clear();
+        clearRenderedHighlight();
+      },
+    };
   }
 
   function createPopupView(options) {
@@ -158,7 +216,7 @@
     const maxMetadataTags = Number.isInteger(options.maxMetadataTags)
       ? Math.max(1, options.maxMetadataTags)
       : DEFAULT_MAX_METADATA_TAGS;
-    const sourceHighlighter = createSourceHighlighter(
+    const sourceHighlighter = options.sourceHighlighter || createSourceHighlighter(
       windowRef,
       documentRef,
       options.highlightName || DEFAULT_HIGHLIGHT_NAME
@@ -367,6 +425,7 @@
   }
 
   return {
+    createSourceHighlighter,
     createPopupView,
     setMiningButtonState,
   };
