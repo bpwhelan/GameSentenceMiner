@@ -3,6 +3,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
+import type { Readable } from 'node:stream';
+import { inflateRaw } from 'node:zlib';
 
 import WebSocket from 'ws';
 import yauzl, { type Entry, type ZipFile } from 'yauzl';
@@ -790,12 +792,32 @@ function dictionaryStateFromIndex(
     };
 }
 
+function inflateZipEntry(contents: Buffer, maxBytes: number): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+        inflateRaw(contents, { maxOutputLength: maxBytes }, (error, result) => {
+            if (error) {
+                reject(error);
+                return;
+            }
+            resolve(result);
+        });
+    });
+}
+
 async function readZipEntry(zip: ZipFile, entry: Entry, maxBytes: number): Promise<Buffer> {
     if (entry.uncompressedSize > maxBytes) {
         throw new Error(`Archive entry ${entry.fileName} is too large.`);
     }
-    return await new Promise<Buffer>((resolve, reject) => {
-        zip.openReadStream(entry, (openError, stream) => {
+    // Reading deflated data through yauzl's streaming inflater can stall on
+    // highly-compressible Yomitan banks. Read the bounded compressed bytes first,
+    // then inflate them with Node's buffered API and verify the declared size.
+    const compressed = entry.compressionMethod === 8;
+    const maxCompressedBytes = maxBytes + 64 * 1024;
+    if (entry.compressedSize > maxCompressedBytes) {
+        throw new Error(`Archive entry ${entry.fileName} is too large.`);
+    }
+    const contents = await new Promise<Buffer>((resolve, reject) => {
+        const onOpen = (openError: Error | null, stream: Readable) => {
             if (openError || !stream) {
                 reject(openError ?? new Error(`Could not open ${entry.fileName}.`));
                 return;
@@ -804,16 +826,35 @@ async function readZipEntry(zip: ZipFile, entry: Entry, maxBytes: number): Promi
             let size = 0;
             stream.on('data', (chunk: Buffer) => {
                 size += chunk.length;
-                if (size > maxBytes) {
-                    stream.destroy(new Error(`Archive entry ${entry.fileName} is too large.`));
+                if (size > maxCompressedBytes) {
+                    reject(new Error(`Archive entry ${entry.fileName} is too large.`));
+                    stream.destroy();
                     return;
                 }
                 chunks.push(chunk);
             });
             stream.once('error', reject);
-            stream.once('end', () => resolve(Buffer.concat(chunks)));
-        });
+            stream.once('end', () => resolve(Buffer.concat(chunks, size)));
+        };
+        if (compressed) {
+            zip.openReadStream(
+                entry,
+                { decompress: false, decrypt: null, start: null, end: null },
+                onOpen
+            );
+        } else {
+            zip.openReadStream(entry, onOpen);
+        }
     });
+    const result = compressed
+        ? await inflateZipEntry(contents, maxBytes)
+        : contents;
+    if (result.length !== entry.uncompressedSize) {
+        throw new Error(
+            `Archive entry ${entry.fileName} has an invalid uncompressed size.`
+        );
+    }
+    return result;
 }
 
 function openZip(archivePath: string): Promise<ZipFile> {

@@ -1818,6 +1818,24 @@ describe('Hoshidicts import policy', () => {
         });
     });
 
+    it('inspects a highly-compressible Yomitan bank without stalling', async () => {
+        const archive = await writeZipArchive(makeTempDir(), 'compressed.zip', {
+            'index.json': {
+                title: 'Compressed',
+                revision: 'one',
+            },
+            'term_bank_1.json': [
+                ['猫', 'ねこ', '', '', 0, ['x'.repeat(8 * 1024 * 1024)], 1, ''],
+            ],
+        });
+
+        await expect(inspectHoshidictsArchive(archive)).resolves.toEqual({
+            sourceLanguage: null,
+            hasSupportedBank: true,
+            hasJapaneseEntry: true,
+        });
+    });
+
     it('imports and rehydrates frequency-only state from generated index metadata', async () => {
         const baseDir = makeTempDir();
         const archive = writeArchive(makeTempDir(), 'frequency.zip', {
