@@ -9,9 +9,6 @@ from flask import Flask
 from GameSentenceMiner import hoshidicts_audio
 from GameSentenceMiner.web import hoshidicts_api
 
-BROKER_TOKEN = "a" * 64
-AUTH_HEADERS = {"Authorization": f"Bearer {BROKER_TOKEN}"}
-
 
 class FakeResponse:
     def __init__(
@@ -57,7 +54,6 @@ def _mp3(payload: bytes = b"pronunciation") -> bytes:
 
 @pytest.fixture(autouse=True)
 def _stable_public_dns(monkeypatch):
-    monkeypatch.setenv("GSM_BROKER_TOKEN", BROKER_TOKEN)
     hoshidicts_audio.clear_audio_cache()
 
     def getaddrinfo(host, port, *_args, **_kwargs):
@@ -149,7 +145,7 @@ def test_jpod101_candidate_matches_yomitan_kana_behavior(monkeypatch):
 
     assert candidates[0]["index"] == 0
     assert candidates[0]["name"] == ""
-    assert len(candidates[0]["token"]) == 64
+    assert len(candidates[0]["candidateId"]) == 64
     assert hoshidicts_audio._resolve_source_candidates(profile["sources"][0], "食べる", "たべる")[0]["url"] == (
         "https://assets.languagepod101.com/dictionary/japanese/"
         "audiomp3.php?kanji=%E9%A3%9F%E3%81%B9%E3%82%8B&kana=%E3%81%9F%E3%81%B9%E3%82%8B"
@@ -158,7 +154,7 @@ def test_jpod101_candidate_matches_yomitan_kana_behavior(monkeypatch):
         "?kana=%E3%81%8B%E3%81%AA"
     )
     assert kana_candidates[0]["index"] == 0
-    assert len(kana_candidates[0]["token"]) == 64
+    assert len(kana_candidates[0]["candidateId"]) == 64
 
 
 def test_languagepod101_and_jisho_discover_only_matching_audio(monkeypatch):
@@ -396,7 +392,7 @@ def test_explicit_loopback_provider_cannot_pivot_to_another_private_origin(monke
     assert calls == [("GET", "http://127.0.0.1:9000/%E9%A3%9F%E3%81%B9%E3%82%8B.mp3")]
 
 
-def test_private_custom_json_cannot_authorize_a_different_private_origin(monkeypatch):
+def test_private_custom_json_cannot_permit_a_different_private_origin(monkeypatch):
     calls = []
 
     def request(method, url, **_kwargs):
@@ -421,7 +417,7 @@ def test_private_custom_json_cannot_authorize_a_different_private_origin(monkeyp
             "たべる",
             "local-json",
             candidate["index"],
-            candidate["token"],
+            candidate["candidateId"],
             profile=profile,
         )
 
@@ -463,7 +459,7 @@ def test_provider_stream_has_an_overall_deadline(monkeypatch):
         hoshidicts_audio._request_bytes("GET", "https://audio.test/slow", maximum=1024)
 
 
-def test_candidate_token_rejects_a_reordered_dynamic_list(monkeypatch):
+def test_candidate_id_rejects_a_reordered_dynamic_list(monkeypatch):
     responses = [
         FakeResponse(
             json.dumps({"type": "audioSourceList", "audioSources": [{"url": "https://cdn.test/a.mp3"}]}).encode(),
@@ -489,7 +485,7 @@ def test_candidate_token_rejects_a_reordered_dynamic_list(monkeypatch):
             "たべる",
             "json",
             candidate["index"],
-            candidate["token"],
+            candidate["candidateId"],
             profile=profile,
         )
 
@@ -528,14 +524,14 @@ def test_provider_errors_do_not_echo_secret_urls(monkeypatch):
         hoshidicts_audio,
         "_pinned_request",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            hoshidicts_audio.requests.ConnectionError("failed https://audio.test/file?token=super-secret")
+            hoshidicts_audio.requests.ConnectionError("failed https://audio.test/file?apiKey=super-secret")
         ),
     )
 
     with pytest.raises(hoshidicts_audio.HoshidictsAudioError) as error:
         hoshidicts_audio._request_bytes(
             "GET",
-            "https://audio.test/file?token=super-secret",
+            "https://audio.test/file?apiKey=super-secret",
             maximum=1024,
         )
 
@@ -566,7 +562,7 @@ def test_audio_routes_never_accept_a_remote_url_from_the_client(monkeypatch, aud
     monkeypatch.setattr(
         hoshidicts_api,
         "get_audio_media",
-        lambda term, reading, source_id, candidate_index, candidate_token, *, profile: hoshidicts_audio.AudioMedia(
+        lambda term, reading, source_id, candidate_index, candidate_id, *, profile: hoshidicts_audio.AudioMedia(
             data=_mp3(),
             content_type="audio/mpeg",
             extension="mp3",
@@ -575,13 +571,12 @@ def test_audio_routes_never_accept_a_remote_url_from_the_client(monkeypatch, aud
     candidates = audio_api_client.post(
         "/api/hoshidicts/audio/candidates",
         json={"term": "食べる", "reading": "たべる", "sourceId": "safe"},
-        headers=AUTH_HEADERS,
     )
     assert candidates.status_code == 200
     candidate = candidates.get_json()["candidates"][0]
     assert candidate["index"] == 0
     assert candidate["name"] == ""
-    assert len(candidate["token"]) == 64
+    assert len(candidate["candidateId"]) == 64
 
     rejected = audio_api_client.post(
         "/api/hoshidicts/audio/media",
@@ -590,27 +585,25 @@ def test_audio_routes_never_accept_a_remote_url_from_the_client(monkeypatch, aud
             "reading": "たべる",
             "sourceId": "safe",
             "candidateIndex": 0,
-            "candidateToken": candidate["token"],
+            "candidateId": candidate["candidateId"],
             "url": "https://attacker.test/audio.mp3",
         },
-        headers=AUTH_HEADERS,
     )
     assert rejected.status_code == 400
     assert "unexpected" in rejected.get_json()["error"]
 
-    null_token = audio_api_client.post(
+    null_candidate_id = audio_api_client.post(
         "/api/hoshidicts/audio/media",
         json={
             "term": "食べる",
             "reading": "たべる",
             "sourceId": "safe",
             "candidateIndex": 0,
-            "candidateToken": None,
+            "candidateId": None,
         },
-        headers=AUTH_HEADERS,
     )
-    assert null_token.status_code == 400
-    assert "candidate token" in null_token.get_json()["error"]
+    assert null_candidate_id.status_code == 400
+    assert "candidate ID" in null_candidate_id.get_json()["error"]
 
     media = audio_api_client.post(
         "/api/hoshidicts/audio/media",
@@ -619,9 +612,8 @@ def test_audio_routes_never_accept_a_remote_url_from_the_client(monkeypatch, aud
             "reading": "たべる",
             "sourceId": "safe",
             "candidateIndex": 0,
-            "candidateToken": candidate["token"],
+            "candidateId": candidate["candidateId"],
         },
-        headers=AUTH_HEADERS,
     )
     assert media.status_code == 200
     assert media.mimetype == "audio/mpeg"
@@ -630,42 +622,20 @@ def test_audio_routes_never_accept_a_remote_url_from_the_client(monkeypatch, aud
     remote = audio_api_client.post(
         "/api/hoshidicts/audio/candidates",
         json={"term": "食べる", "reading": "たべる", "sourceId": "safe"},
-        headers=AUTH_HEADERS,
         environ_base={"REMOTE_ADDR": "192.168.1.25"},
     )
     assert remote.status_code == 403
 
 
-def test_audio_routes_require_the_session_token_and_json_content_type(monkeypatch, audio_api_client):
-    token = "b" * 64
-    monkeypatch.setenv("GSM_BROKER_TOKEN", token)
+def test_audio_routes_require_json_content_type(audio_api_client):
     payload = {"term": "食べる", "reading": "たべる", "sourceId": "jpod101"}
-
-    missing_token = audio_api_client.post("/api/hoshidicts/audio/candidates", json=payload)
-    assert missing_token.status_code == 401
-
-    wrong_token = audio_api_client.post(
-        "/api/hoshidicts/audio/candidates",
-        json=payload,
-        headers={"Authorization": f"Bearer {'c' * 64}"},
-    )
-    assert wrong_token.status_code == 401
 
     wrong_content_type = audio_api_client.post(
         "/api/hoshidicts/audio/candidates",
         data=json.dumps(payload),
-        headers={"Authorization": f"Bearer {token}"},
         content_type="text/plain",
     )
     assert wrong_content_type.status_code == 415
-
-    monkeypatch.delenv("GSM_BROKER_TOKEN")
-    missing_server_token = audio_api_client.post(
-        "/api/hoshidicts/audio/candidates",
-        json=payload,
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert missing_server_token.status_code == 503
 
 
 def test_profile_path_uses_the_hoshidicts_data_directory(monkeypatch, tmp_path):

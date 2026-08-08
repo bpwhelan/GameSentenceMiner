@@ -15,7 +15,7 @@ MAX_METADATA_VALUES = 64
 MAX_AUDIO_SOURCE_ID_LENGTH = 128
 MAX_AUDIO_CANDIDATES = 32
 _AUDIO_SOURCE_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
-_AUDIO_CANDIDATE_TOKEN_PATTERN = re.compile(r"^[a-f0-9]{64}$")
+_AUDIO_CANDIDATE_ID_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 
 IGNORED_STRUCTURED_TAGS = {
     "audio",
@@ -270,7 +270,7 @@ def validate_hoshidicts_mining_request(value: Any) -> dict[str, Any]:
         if not isinstance(audio_selection, dict) or set(audio_selection) != {
             "sourceId",
             "candidateIndex",
-            "candidateToken",
+            "candidateId",
         }:
             raise HoshidictsMiningError("Hoshidicts audio selection is invalid.")
         source_id = bounded_string(
@@ -280,20 +280,20 @@ def validate_hoshidicts_mining_request(value: Any) -> dict[str, Any]:
             allow_empty=False,
         )
         candidate_index = audio_selection.get("candidateIndex")
-        candidate_token = audio_selection.get("candidateToken")
+        candidate_id = audio_selection.get("candidateId")
         if (
             _AUDIO_SOURCE_ID_PATTERN.fullmatch(source_id) is None
             or not isinstance(candidate_index, int)
             or isinstance(candidate_index, bool)
             or not 0 <= candidate_index < MAX_AUDIO_CANDIDATES
-            or not isinstance(candidate_token, str)
-            or _AUDIO_CANDIDATE_TOKEN_PATTERN.fullmatch(candidate_token) is None
+            or not isinstance(candidate_id, str)
+            or _AUDIO_CANDIDATE_ID_PATTERN.fullmatch(candidate_id) is None
         ):
             raise HoshidictsMiningError("Hoshidicts audio selection is invalid.")
         audio_selection = {
             "sourceId": source_id,
             "candidateIndex": candidate_index,
-            "candidateToken": candidate_token,
+            "candidateId": candidate_id,
         }
 
     normalized = {

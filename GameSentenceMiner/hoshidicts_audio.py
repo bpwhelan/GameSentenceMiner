@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import hmac
 import ipaddress
 import json
 import re
@@ -56,7 +55,7 @@ CUSTOM_SOURCE_TYPES = frozenset({"custom", "custom-json"})
 TTS_SOURCE_TYPES = frozenset({"text-to-speech", "text-to-speech-reading"})
 DOWNLOADABLE_SOURCE_TYPES = BUILTIN_SOURCE_TYPES | CUSTOM_SOURCE_TYPES
 _SOURCE_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
-_CANDIDATE_TOKEN_PATTERN = re.compile(r"^[a-f0-9]{64}$")
+_CANDIDATE_ID_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 _PLACEHOLDER_PATTERN = re.compile(r"\{([^}]*)\}")
 _INVALID_JPOD101_DIGEST = "ae6398b5a27bc8c0a771df6c907ade794be15518174773c58c7c7ddd17098906"
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
@@ -120,7 +119,7 @@ def _validate_http_url(url: str, *, label: str = "Hoshidicts audio URL") -> str:
         or port is not None
         and not 1 <= port <= 65535
     ):
-        raise HoshidictsAudioError(f"{label} must be an absolute credential-free HTTP(S) URL.")
+        raise HoshidictsAudioError(f"{label} must be an absolute HTTP(S) URL without a username or password.")
     if "{" in parsed.netloc or "}" in parsed.netloc:
         raise HoshidictsAudioError(f"{label} cannot use placeholders in its authority.")
     return url
@@ -772,7 +771,7 @@ def _private_candidates(
         _candidate_cache.put(cache_key, cached, ttl=CANDIDATE_CACHE_SECONDS, size=size)
     candidates = []
     for index, (url, name, private_network_origin) in enumerate(cached):
-        token_payload = json.dumps(
+        candidate_id_payload = json.dumps(
             {
                 "source": source,
                 "term": term,
@@ -790,7 +789,7 @@ def _private_candidates(
                 "index": index,
                 "url": url,
                 "name": name,
-                "token": hashlib.sha256(token_payload).hexdigest(),
+                "candidateId": hashlib.sha256(candidate_id_payload).hexdigest(),
                 "privateNetworkOrigin": private_network_origin,
             }
         )
@@ -817,7 +816,7 @@ def get_audio_candidates(
         source_id,
         deadline=_deadline,
     )
-    return [{"index": item["index"], "name": item["name"], "token": item["token"]} for item in candidates]
+    return [{"index": item["index"], "name": item["name"], "candidateId": item["candidateId"]} for item in candidates]
 
 
 def _has_mp3_frame(data: bytes) -> bool:
@@ -1000,7 +999,7 @@ def get_audio_media(
     reading: Any,
     source_id: Any,
     candidate_index: Any,
-    candidate_token: Any = None,
+    candidate_id: Any = None,
     *,
     profile: dict[str, Any] | None = None,
     _deadline: float | None = None,
@@ -1016,10 +1015,10 @@ def get_audio_media(
     normalized_profile = (
         normalize_hoshidicts_audio_profile(profile) if profile is not None else load_hoshidicts_audio_profile()
     )
-    if candidate_token is not None and (
-        not isinstance(candidate_token, str) or _CANDIDATE_TOKEN_PATTERN.fullmatch(candidate_token) is None
+    if candidate_id is not None and (
+        not isinstance(candidate_id, str) or _CANDIDATE_ID_PATTERN.fullmatch(candidate_id) is None
     ):
-        raise HoshidictsAudioError("Hoshidicts audio candidate token is invalid.")
+        raise HoshidictsAudioError("Hoshidicts audio candidate ID is invalid.")
     source, candidates = _private_candidates(
         normalized_profile,
         term,
@@ -1030,7 +1029,7 @@ def get_audio_media(
     candidate = next((item for item in candidates if item["index"] == candidate_index), None)
     if candidate is None:
         raise HoshidictsAudioError("Hoshidicts audio candidate does not exist.", 404)
-    if candidate_token is not None and not hmac.compare_digest(candidate["token"], candidate_token):
+    if candidate_id is not None and candidate["candidateId"] != candidate_id:
         raise HoshidictsAudioError("Hoshidicts audio candidate changed; play it again before mining.", 409)
     return _download_candidate(candidate, source, deadline=_deadline)
 
@@ -1057,7 +1056,7 @@ def get_mining_audio(
             reading,
             selection["sourceId"],
             selection["candidateIndex"],
-            selection["candidateToken"],
+            selection["candidateId"],
             profile=normalized_profile,
             _deadline=deadline,
         )
@@ -1086,7 +1085,7 @@ def get_mining_audio(
                     reading,
                     source["id"],
                     candidate["index"],
-                    candidate["token"],
+                    candidate["candidateId"],
                     profile=normalized_profile,
                     _deadline=deadline,
                 )
@@ -1103,7 +1102,7 @@ def get_mining_audio(
 def validate_audio_api_request(value: Any, *, include_candidate: bool) -> dict[str, Any]:
     required = {"term", "reading", "sourceId"}
     if include_candidate:
-        required.update({"candidateIndex", "candidateToken"})
+        required.update({"candidateIndex", "candidateId"})
     if not isinstance(value, dict) or set(value) != required:
         raise HoshidictsAudioError("Hoshidicts audio request contains unexpected or missing fields.")
     if include_candidate:
@@ -1114,7 +1113,7 @@ def validate_audio_api_request(value: Any, *, include_candidate: bool) -> dict[s
             or not 0 <= candidate_index < MAX_AUDIO_SOURCES
         ):
             raise HoshidictsAudioError("Hoshidicts audio candidate index is invalid.")
-        candidate_token = value["candidateToken"]
-        if not isinstance(candidate_token, str) or _CANDIDATE_TOKEN_PATTERN.fullmatch(candidate_token) is None:
-            raise HoshidictsAudioError("Hoshidicts audio candidate token is invalid.")
+        candidate_id = value["candidateId"]
+        if not isinstance(candidate_id, str) or _CANDIDATE_ID_PATTERN.fullmatch(candidate_id) is None:
+            raise HoshidictsAudioError("Hoshidicts audio candidate ID is invalid.")
     return value
