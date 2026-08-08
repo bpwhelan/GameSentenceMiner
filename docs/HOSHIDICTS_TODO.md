@@ -12,11 +12,11 @@ This is the implementation and validation checklist for the Hoshidicts feature b
 - [x] Avoid JavaScript `Invalid string length` failures when large dictionary backups are parsed.
 - [x] Collapse Recommended dictionaries when at least one dictionary is installed; expand them when none are installed.
 - [x] Add a three-dot dictionary menu with Move to position.
-- [ ] Add Rename dictionary to each dictionary's three-dot menu and persist the display name without changing its native identity.
-- [ ] Export a complete Hoshidicts backup from the Backups section.
-- [ ] Restore a complete Hoshidicts backup from the Backups section.
-- [ ] Include every installed dictionary, dictionary order/enabled/favourite/name state, reader settings, themes, popup dimensions, mining settings, audio settings, and custom dictionary data in the backup.
-- [ ] Make restore transactional: validate the entire archive first and leave the current installation unchanged on failure.
+- [x] Add Rename dictionary to each dictionary's three-dot menu and persist the display name without changing its native identity.
+- [x] Export a complete Hoshidicts backup from the Backups section.
+- [x] Restore a complete Hoshidicts backup from the Backups section.
+- [x] Include every installed dictionary, dictionary order/enabled/favourite/name state, reader settings, themes, popup dimensions, mining settings, audio settings, and custom dictionary data in the backup.
+- [x] Make restore transactional: validate the entire archive first and leave the current installation unchanged on failure.
 
 ## Lookup correctness
 
