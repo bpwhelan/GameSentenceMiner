@@ -2055,6 +2055,22 @@ mod tests {
         );
     }
 
+    fn write_kana_lookup_archive(path: &Path) {
+        write_zip_archive(
+            path,
+            &[
+                (
+                    "index.json",
+                    r#"{"title":"Kana Lookup","revision":"1","format":3,"sourceLanguage":"ja"}"#,
+                ),
+                (
+                    "term_bank_1.json",
+                    r#"[["我輩","わがはい","","",0,["I; me; myself"],1606640,""]]"#,
+                ),
+            ],
+        );
+    }
+
     #[test]
     fn request_ids_and_lookup_text_are_bounded() {
         assert!(RequestId::Number(42).validate().is_ok());
@@ -2634,6 +2650,36 @@ mod tests {
             Err(MediaError::StaleGeneration)
         );
         drop(service);
+    }
+
+    #[test]
+    fn imported_hiragana_reading_matches_kana_and_kanji_variants() {
+        let root = TestDir::new("kana-width");
+        let archive_path = root.0.join("kana.zip");
+        write_kana_lookup_archive(&archive_path);
+
+        let report = import_dictionary(&archive_path, &root.0);
+        assert!(report.success, "dictionary import failed: {}", report.error);
+        assert_eq!(report.term_count, 1);
+        fs::write(
+            root.0.join(MANIFEST_FILE_NAME),
+            r#"{"version":1,"dictionaries":[{"id":"kana","path":"Kana Lookup"}]}"#,
+        )
+        .expect("write manifest");
+
+        let mut service = HoshidictsService::new(root.0.clone());
+        assert_eq!(service.activate().expect("activate dictionary"), 1);
+        for source in ["ワガハイ", "ﾜｶﾞﾊｲ", "ワガハイ", "わがはい", "我輩"] {
+            let result = service
+                .lookup(source)
+                .expect("katakana lookup")
+                .into_iter()
+                .find(|candidate| {
+                    candidate.term.expression == "我輩" && candidate.term.reading == "わがはい"
+                })
+                .expect("katakana should match the hiragana reading");
+            assert_eq!(result.matched, source);
+        }
     }
 
     #[test]
