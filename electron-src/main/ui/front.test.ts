@@ -1,5 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { createDefaultHoshidictsReaderPreferences } from '../../shared/features/hoshidicts.js';
+import { makeHoshidictsReaderPreferences } from '../features/hoshidicts/test_helpers.js';
+
+/** Mirrors buildHoshidictsOverlayEnvironment: everything but customPopupCss. */
+function hoshidictsEnvironmentFor(
+    preferences: Record<string, unknown>
+): { GSM_HOSHIDICTS_READER_PREFERENCES: string } {
+    const { customPopupCss: _customPopupCss, ...carried } = preferences;
+    return { GSM_HOSHIDICTS_READER_PREFERENCES: JSON.stringify(carried) };
+}
+
 const existsSyncMock = vi.fn();
 const spawnMock = vi.fn();
 const execFileMock = vi.fn();
@@ -84,11 +95,9 @@ vi.mock('../main.js', () => ({
     sendOpenTexthooker: vi.fn(),
 }));
 
-vi.mock('../runtime/bus_client.js', () => ({
-    getBusConnectInfo: () => ({
-        port: 4567,
-        token: 'overlay-bus-token',
-    }),
+vi.mock('../features/hoshidicts/control_channel.js', () => ({
+    getHoshidictsControlPort: () => 4567,
+    HOSHIDICTS_CONTROL_ENV: 'GSM_HOSHIDICTS_CONTROL_PORT',
 }));
 
 vi.mock('../gsm_config.js', () => ({
@@ -115,6 +124,19 @@ async function loadFrontModule() {
     return import('./front.js');
 }
 
+/**
+ * Must be called after loadFrontModule so the test shares the runtime-state
+ * instance front.js configured with its overlay-liveness provider.
+ */
+async function loadHoshidictsRuntime() {
+    return import('../features/hoshidicts/runtime_state.js');
+}
+
+/** The launch environment produced by the default reader preferences. */
+const DEFAULT_HOSHIDICTS_ENVIRONMENT = hoshidictsEnvironmentFor(
+    createDefaultHoshidictsReaderPreferences()
+);
+
 describe('runOverlayWithSource', () => {
     beforeEach(() => {
         isDevValue = false;
@@ -133,6 +155,20 @@ describe('runOverlayWithSource', () => {
         });
     });
 
+    it('strips inherited desktop-control state from overlay environments', async () => {
+        const { buildOverlayProcessEnvironment } = await loadFrontModule();
+
+        expect(
+            buildOverlayProcessEnvironment({
+                PATH: 'safe-path',
+                GSM_BROKER_PORT: '1234',
+                GSM_BROKER_SESSION: 'not-for-the-overlay',
+                GSM_CLIENT_ID: 'desktop',
+                GSM_HOSHIDICTS_CONTROL_PORT: 'stale-port',
+            })
+        ).toEqual({ PATH: 'safe-path' });
+    });
+
     it('runs npm start in GSM_Overlay when launched from source', async () => {
         isDevValue = true;
         existsSyncMock.mockReturnValue(true);
@@ -149,15 +185,14 @@ describe('runOverlayWithSource', () => {
             detached: false,
             stdio: 'ignore',
             env: expect.objectContaining({
-                GSM_BROKER_PORT: '4567',
-                GSM_BROKER_TOKEN: 'overlay-bus-token',
-                GSM_CLIENT_ID: 'overlay',
+                ...DEFAULT_HOSHIDICTS_ENVIRONMENT,
+                GSM_HOSHIDICTS_CONTROL_PORT: '4567',
                 GSM_HOSHIDICTS_ENABLED: '0',
-                GSM_HOSHIDICTS_LOOKUP_MODE: 'shift',
-                GSM_HOSHIDICTS_ACTIVATION_KEY: 'Shift',
-                GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED: '0',
             }),
         });
+        expect(
+            spawnMock.mock.calls[0][2].env.GSM_HOSHIDICTS_POPUP_BUTTONS
+        ).toBeUndefined();
         expect(getOverlayRuntimeState()).toEqual({
             isRunning: true,
             source: 'startup',
@@ -179,13 +214,11 @@ describe('runOverlayWithSource', () => {
         await expect(runOverlayWithSource('startup')).resolves.toBe(true);
 
         expect(startInProcessOverlayMock).toHaveBeenCalledTimes(1);
-        expect(process.env.GSM_HOSHIDICTS_ENABLED).toBe('1');
-        expect(process.env.GSM_HOSHIDICTS_LOOKUP_MODE).toBe('shift');
-        expect(process.env.GSM_HOSHIDICTS_ACTIVATION_KEY).toBe('Shift');
-        expect(process.env.GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED).toBe('0');
-        expect(process.env.GSM_BROKER_PORT).toBe('4567');
-        expect(process.env.GSM_BROKER_TOKEN).toBe('overlay-bus-token');
-        expect(process.env.GSM_CLIENT_ID).toBe('overlay');
+        expect(process.env).toMatchObject({
+            ...DEFAULT_HOSHIDICTS_ENVIRONMENT,
+            GSM_HOSHIDICTS_ENABLED: '1',
+            GSM_HOSHIDICTS_CONTROL_PORT: '4567',
+        });
         expect(spawnMock).not.toHaveBeenCalled();
         expect(getOverlayRuntimeState()).toEqual({
             isRunning: true,
@@ -200,7 +233,7 @@ describe('runOverlayWithSource', () => {
         expect(waitForInProcessOverlayShutdownMock).toHaveBeenCalledTimes(1);
     });
 
-    it('launches with and records the configured Hoshidicts lookup mode', async () => {
+    it('launches with and records configured Hoshidicts reader preferences', async () => {
         isDevValue = true;
         hoshidictsEnabledValue = true;
         existsSyncMock.mockReturnValue(true);
@@ -208,60 +241,160 @@ describe('runOverlayWithSource', () => {
         spawnMock.mockReturnValue(processHandle);
 
         const front = await loadFrontModule();
+        const runtime = await loadHoshidictsRuntime();
         const syncCustomDictionary = vi.fn(async () => undefined);
-        front.configureHoshidictsLookupModeProvider(async () => 'hover');
-        front.configureHoshidictsActivationKeyProvider(async () => 'F8');
-        front.configureHoshidictsSourceHighlightProvider(async () => true);
-        front.configureHoshidictsPopupHideDelayProvider(async () => 850);
-        front.configureHoshidictsCustomDictionarySyncProvider(
-            syncCustomDictionary
-        );
+        const configured = makeHoshidictsReaderPreferences({
+            lookupMode: 'hover',
+            scanLength: 24,
+            maxResults: 48,
+            sortFrequencyDictionary: 'Frequency',
+            sortFrequencyDictionaryOrder: 'ascending',
+            averageFrequency: true,
+            showFrequencyDictionaryNames: false,
+            activationKey: 'F8',
+            sourceHighlightEnabled: true,
+            popupHideDelayMs: 850,
+            showLookupCounts: false,
+            showCompactDefinitionSummary: true,
+            compactDefinitionSummaryCount: 5,
+            compactDefinitionSummaryDictionary: 'Jitendex',
+            showPitchAccentFurigana: false,
+            pitchAccentFuriganaDictionary: 'Kanjium Pitch Accents',
+            showPitchAccentBadge: true,
+            hidePopupGrammarTags: false,
+            popupNestingMaxDepth: 4,
+            definitionBlur: {
+                enabled: true,
+                lookupThreshold: 8,
+                revealMode: 'hover',
+                revealDelayMs: 7000,
+            },
+            popupWidthPx: 720,
+            popupHeightPx: 520,
+            popupColumns: 3,
+            theme: 'cyberpunk',
+            popupOpacityPercent: 70,
+            popupBackdropBlurPx: 24,
+            popupToolbarPosition: 'bottom',
+        });
+        runtime.configureHoshidictsRuntime({
+            readerPreferences: async () => configured,
+            customDictionarySync: syncCustomDictionary,
+        });
 
         await expect(front.runOverlayWithSource('manual')).resolves.toBe(true);
 
         expect(spawnMock.mock.calls[0][2].env).toMatchObject({
             GSM_HOSHIDICTS_ENABLED: '1',
-            GSM_HOSHIDICTS_LOOKUP_MODE: 'hover',
-            GSM_HOSHIDICTS_ACTIVATION_KEY: 'F8',
-            GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED: '1',
-            GSM_HOSHIDICTS_POPUP_HIDE_DELAY_MS: '850',
+            ...hoshidictsEnvironmentFor(configured),
         });
-        expect(front.getOverlayHoshidictsLookupModeAtLaunch()).toBe('hover');
-        expect(front.getOverlayHoshidictsActivationKeyAtLaunch()).toBe('F8');
-        expect(front.getOverlayHoshidictsSourceHighlightEnabledAtLaunch()).toBe(true);
-        expect(front.getOverlayHoshidictsPopupHideDelayAtLaunch()).toBe(850);
+        expect(runtime.getHoshidictsEnabledAtLaunch()).toBe(true);
+        expect(runtime.getAppliedHoshidictsReaderPreferences()).toEqual(
+            configured
+        );
         expect(syncCustomDictionary).toHaveBeenCalledOnce();
-        expect(
-            front.getOverlayHoshidictsAudioProfileRestartRequired()
-        ).toBe(false);
-        expect(front.markOverlayHoshidictsAudioProfileSyncFailed()).toBe(true);
-        expect(
-            front.getOverlayHoshidictsAudioProfileRestartRequired()
-        ).toBe(true);
-        expect(
-            front.markOverlayHoshidictsAudioProfileApplied({
-                version: 1,
-                enabled: true,
-                autoPlay: false,
-                volume: 100,
-                sources: [],
-            })
-        ).toBe(true);
-        expect(
-            front.getOverlayHoshidictsAudioProfileRestartRequired()
-        ).toBe(false);
-        expect(
-            front.markOverlayHoshidictsReaderPreferencesApplied({
-                lookupMode: 'shift',
-                activationKey: 'Space',
-                sourceHighlightEnabled: false,
-                popupHideDelayMs: 1200,
-            })
-        ).toBe(true);
-        expect(front.getOverlayHoshidictsLookupModeAtLaunch()).toBe('shift');
-        expect(front.getOverlayHoshidictsActivationKeyAtLaunch()).toBe('Space');
-        expect(front.getOverlayHoshidictsSourceHighlightEnabledAtLaunch()).toBe(false);
-        expect(front.getOverlayHoshidictsPopupHideDelayAtLaunch()).toBe(1200);
+
+        // The audio-restart drive and the markApplied round-trip are pinned in
+        // runtime_state.test.ts; what is front-specific is that a spawned
+        // overlay exiting clears the recorded launch state.
+        processHandle.emit('exit');
+        expect(runtime.getAppliedHoshidictsReaderPreferences()).toBeNull();
+        expect(runtime.getHoshidictsEnabledAtLaunch()).toBeNull();
+    });
+
+    it('keeps the launch configuration at defaults while the feature is off', async () => {
+        isDevValue = true;
+        hoshidictsEnabledValue = false;
+        existsSyncMock.mockReturnValue(true);
+        spawnMock.mockReturnValue(createProcessHandle());
+
+        const front = await loadFrontModule();
+        const runtime = await loadHoshidictsRuntime();
+        const readerPreferences = vi.fn(async () =>
+            makeHoshidictsReaderPreferences({ lookupMode: 'hover' })
+        );
+        const syncCustomDictionary = vi.fn(async () => undefined);
+        runtime.configureHoshidictsRuntime({
+            readerPreferences,
+            customDictionarySync: syncCustomDictionary,
+        });
+
+        await expect(front.runOverlayWithSource('manual')).resolves.toBe(true);
+
+        expect(readerPreferences).not.toHaveBeenCalled();
+        expect(syncCustomDictionary).not.toHaveBeenCalled();
+        expect(spawnMock.mock.calls[0][2].env).toMatchObject({
+            ...DEFAULT_HOSHIDICTS_ENVIRONMENT,
+            GSM_HOSHIDICTS_ENABLED: '0',
+        });
+        expect(runtime.getHoshidictsEnabledAtLaunch()).toBe(false);
+    });
+
+    it('falls back to safe launch defaults for out-of-range preferences', async () => {
+        isDevValue = true;
+        hoshidictsEnabledValue = true;
+        existsSyncMock.mockReturnValue(true);
+        spawnMock.mockReturnValue(createProcessHandle());
+
+        const front = await loadFrontModule();
+        const runtime = await loadHoshidictsRuntime();
+        runtime.configureHoshidictsRuntime({
+            readerPreferences: async () =>
+                makeHoshidictsReaderPreferences({
+                    definitionBlur: {
+                        enabled: true,
+                        lookupThreshold: 0,
+                        revealMode: 'hover',
+                        revealDelayMs: 999,
+                    },
+                    compactDefinitionSummaryDictionary: '   ',
+                    compactDefinitionSummaryCount: 99,
+                }),
+        });
+
+        await expect(front.runOverlayWithSource('manual')).resolves.toBe(true);
+
+        // buildHoshidictsOverlayEnvironment normalizes before serializing, so a
+        // field the spec table rejects reaches the overlay as its default.
+        const carried = JSON.parse(
+            spawnMock.mock.calls[0][2].env.GSM_HOSHIDICTS_READER_PREFERENCES
+        );
+        const defaults = createDefaultHoshidictsReaderPreferences();
+        expect(carried.definitionBlur).toEqual(defaults.definitionBlur);
+        expect(carried.compactDefinitionSummaryCount).toBe(
+            defaults.compactDefinitionSummaryCount
+        );
+        expect(carried.compactDefinitionSummaryDictionary).toBe(
+            defaults.compactDefinitionSummaryDictionary
+        );
+    });
+
+    it('falls back to launch defaults when the preference provider rejects', async () => {
+        isDevValue = true;
+        hoshidictsEnabledValue = true;
+        existsSyncMock.mockReturnValue(true);
+        spawnMock.mockReturnValue(createProcessHandle());
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        const front = await loadFrontModule();
+        const runtime = await loadHoshidictsRuntime();
+        runtime.configureHoshidictsRuntime({
+            readerPreferences: async () => {
+                throw new Error('manifest unreadable');
+            },
+        });
+
+        await expect(front.runOverlayWithSource('manual')).resolves.toBe(true);
+
+        expect(spawnMock.mock.calls[0][2].env).toMatchObject({
+            ...DEFAULT_HOSHIDICTS_ENVIRONMENT,
+            GSM_HOSHIDICTS_ENABLED: '1',
+        });
+        expect(warn).toHaveBeenCalledWith(
+            expect.stringContaining('using defaults'),
+            expect.any(Error)
+        );
+        warn.mockRestore();
     });
 
     it('does not wait for custom dictionary synchronization before launching', async () => {
@@ -277,9 +410,10 @@ describe('runOverlayWithSource', () => {
                 })
         );
         const front = await loadFrontModule();
-        front.configureHoshidictsCustomDictionarySyncProvider(
-            syncCustomDictionary
-        );
+        const runtime = await loadHoshidictsRuntime();
+        runtime.configureHoshidictsRuntime({
+            customDictionarySync: syncCustomDictionary,
+        });
 
         const launch = front.runOverlayWithSource('manual');
 
@@ -300,8 +434,11 @@ describe('runOverlayWithSource', () => {
         spawnMock.mockReturnValue(createProcessHandle());
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const front = await loadFrontModule();
-        front.configureHoshidictsCustomDictionarySyncProvider(async () => {
-            throw new Error('custom refresh failed');
+        const runtime = await loadHoshidictsRuntime();
+        runtime.configureHoshidictsRuntime({
+            customDictionarySync: async () => {
+                throw new Error('custom refresh failed');
+            },
         });
 
         await expect(front.runOverlayWithSource('manual')).resolves.toBe(true);
@@ -353,9 +490,7 @@ describe('runOverlayWithSource', () => {
             detached: false,
             stdio: 'ignore',
             env: expect.objectContaining({
-                GSM_BROKER_PORT: '4567',
-                GSM_BROKER_TOKEN: 'overlay-bus-token',
-                GSM_CLIENT_ID: 'overlay',
+                GSM_HOSHIDICTS_CONTROL_PORT: '4567',
                 GSM_OVERLAY_CHILD: '1',
                 GSM_OVERLAY_SHARED_RUNTIME: '1',
                 GSM_OVERLAY_RESOURCES_PATH: 'C:\\overlay-out\\resources',
@@ -384,9 +519,7 @@ describe('runOverlayWithSource', () => {
             detached: false,
             stdio: 'ignore',
             env: expect.objectContaining({
-                GSM_BROKER_PORT: '4567',
-                GSM_BROKER_TOKEN: 'overlay-bus-token',
-                GSM_CLIENT_ID: 'overlay',
+                GSM_HOSHIDICTS_CONTROL_PORT: '4567',
                 GSM_HOSHIDICTS_ENABLED: '0',
             }),
         });
