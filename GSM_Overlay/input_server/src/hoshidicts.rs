@@ -663,7 +663,10 @@ fn load_dictionary_specs(root: &Path) -> Result<Vec<DictionarySpec>, String> {
                 dictionary_path.display()
             ));
         }
-        specs.push(validate_dictionary_directory(&canonical_dictionary)?);
+        // Keep the canonical path for containment checks, but pass the regular
+        // Windows path to Hoshidicts. Its native loader appends filenames with
+        // `/`, which does not work after Rust adds the `\\?\` verbatim prefix.
+        specs.push(validate_dictionary_directory(&dictionary_path)?);
     }
     Ok(specs)
 }
