@@ -391,6 +391,10 @@ describe("Hoshidicts safe popup rendering", () => {
     const popupRule = /\.gsm-hoshidicts-popup\s*\{(?<declarations>[^}]*)\}/.exec(
       css
     )?.groups?.declarations;
+    const popupScrollbarRule =
+      /\.gsm-hoshidicts-popup::\-webkit-scrollbar\s*\{(?<declarations>[^}]*)\}/.exec(
+        css
+      )?.groups?.declarations;
     const glossaryRule =
       /\.gsm-hoshidicts-glossary-card\s*\{(?<declarations>[^}]*)\}/.exec(
         css
@@ -405,7 +409,10 @@ describe("Hoshidicts safe popup rendering", () => {
     );
     expect(popupRule).toContain("color: var(--text-color)");
     expect(popupRule).toContain("color-scheme: dark");
+    expect(popupRule).toContain("overflow-y: auto");
+    expect(popupRule).toContain("scrollbar-width: none");
     expect(popupRule).not.toMatch(/(?:^|;)\s*opacity\s*:/);
+    expect(popupScrollbarRule).toContain("display: none");
     expect(glossaryRule).toContain("background: rgba(10, 10, 14, 0.42)");
   });
 
