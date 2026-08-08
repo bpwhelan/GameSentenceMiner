@@ -1632,7 +1632,7 @@ describe("Hoshidicts definition blur", () => {
     reader.destroy();
   });
 
-  it("permanently reveals every definition when one is hovered", async () => {
+  it("always reveals on hover while keeping the timed fallback optional", async () => {
     vi.useFakeTimers();
     const dom = createDom();
     const api = loadReaderModule(dom.window as unknown as Window);
@@ -1646,7 +1646,7 @@ describe("Hoshidicts definition blur", () => {
       definitionBlur: {
         enabled: true,
         lookupThreshold: 5,
-        revealMode: "hover",
+        revealMode: "timed",
         revealDelayMs: 5000
       },
       onLookup: async () => ({ success: true, lookupCount: 8 }),
@@ -1677,21 +1677,56 @@ describe("Hoshidicts definition blur", () => {
     expect(definitions.every(
       (element) => element.dataset.definitionBlurState === "blurred"
     )).toBe(true);
-    reader.updatePreferences({
-      definitionBlur: {
-        enabled: true,
-        lookupThreshold: 5,
-        revealMode: "timed",
-        revealDelayMs: 1000
-      }
-    });
     await vi.advanceTimersByTimeAsync(1000);
     expect(definitions.every(
       (element) => element.dataset.definitionBlurState === "blurred"
     )).toBe(true);
-    definitions[1].dispatchEvent(new dom.window.Event("pointerover", { bubbles: true }));
-    definitions[1].dispatchEvent(new dom.window.Event("pointerout", { bubbles: true }));
+    definitions[1].dispatchEvent(
+      new dom.window.Event("pointerover", { bubbles: true })
+    );
+    definitions[1].dispatchEvent(
+      new dom.window.Event("pointerout", { bubbles: true })
+    );
     expect(definitions.every(
+      (element) => element.dataset.definitionBlurState === undefined
+    )).toBe(true);
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(definitions.every(
+      (element) => element.dataset.definitionBlurState === undefined
+    )).toBe(true);
+
+    reader.hide("hover-only");
+    reader.updatePreferences({
+      definitionBlur: {
+        enabled: true,
+        lookupThreshold: 5,
+        revealMode: "hover",
+        revealDelayMs: 5000
+      }
+    });
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const nextRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(nextRequest.requestId, "食べる"));
+    await flushPromises();
+    const hoverOnlyDefinitions = Array.from<HTMLElement>(
+      reader.getPopupElement().querySelectorAll(".gsm-hoshidicts-definitions")
+    );
+    expect(hoverOnlyDefinitions.every(
+      (element) => element.dataset.definitionBlurState === "blurred"
+    )).toBe(true);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(hoverOnlyDefinitions.every(
+      (element) => element.dataset.definitionBlurState === "blurred"
+    )).toBe(true);
+    hoverOnlyDefinitions[0].dispatchEvent(
+      new dom.window.Event("pointerover", { bubbles: true })
+    );
+    expect(hoverOnlyDefinitions.every(
       (element) => element.dataset.definitionBlurState === undefined
     )).toBe(true);
     reader.destroy();

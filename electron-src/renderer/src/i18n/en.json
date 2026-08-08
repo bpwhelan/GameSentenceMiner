@@ -616,15 +616,15 @@
         "milliseconds": "ms",
         "definitionBlur": {
           "title": "Blur definitions after repeated lookups",
-          "hint": "Once a word reaches the lookup threshold, blur only its definitions.",
+          "hint": "Once a word reaches the lookup threshold, blur only its definitions. Hovering always reveals them.",
           "threshold": "Lookup threshold",
           "lookups": "lookups",
-          "reveal": "Reveal definitions",
-          "timed": "After a delay",
-          "hover": "On hover",
-          "delay": "Reveal delay",
+          "reveal": "Reveal behavior",
+          "timed": "On hover or after a delay",
+          "hover": "On hover only",
+          "delay": "Automatic reveal delay",
           "seconds": "seconds",
-          "delayHint": "Time from showing the popup until its definitions are revealed."
+          "delayHint": "Definitions always reveal on hover. Otherwise, they reveal automatically after this delay."
         }
       },
       "saveStatus": {

@@ -1772,7 +1772,7 @@
         revealDefinitions(context, "timed-deadline-reached");
         return;
       }
-      if (context.preferences.revealMode === "hover" && context.hovered) {
+      if (context.hovered) {
         revealDefinitions(context, "definition-hovered");
         return;
       }
@@ -1789,7 +1789,6 @@
       const context = popupLevels[depth]?.definitionBlurContext;
       if (
         !isActiveDefinitionBlur(context) ||
-        context.preferences.revealMode !== "hover" ||
         !(event.target instanceof windowRef.Element) ||
         !event.target.closest(".gsm-hoshidicts-definitions")
       ) {
