@@ -52,9 +52,11 @@
   const MAX_VISIBLE_METADATA_TAGS = 12;
   const SOURCE_HIGHLIGHT_NAME = "gsm-hoshidicts-match";
   const JAPANESE_TEXT_PATTERN =
-    /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/u;
+    /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u{20000}-\u{2fa1f}]/u;
+  const HAN_CHARACTER_PATTERN =
+    /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u{20000}-\u{2fa1f}]/u;
   const KANJI_SEGMENT_PATTERN =
-    /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u3005]+|[^\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u3005]+/gu;
+    /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u{20000}-\u{2fa1f}\u3005]+|[^\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u{20000}-\u{2fa1f}\u3005]+/gu;
   const KANA_PATTERN = /[\u3040-\u30ff\uff66-\uff9f]/u;
   const ALLOWED_STRUCTURED_TAGS = new Set([
     "br",
@@ -257,6 +259,44 @@
     }).filter((result) => result.term.expression.length > 0);
   }
 
+  function normalizeKanjiLookup(payload) {
+    if (!isRecord(payload) || payload.success !== true || !isRecord(payload.kanji)) {
+      return null;
+    }
+    const character = Array.from(boundedString(payload.kanji.character, 16))[0] || "";
+    if (!HAN_CHARACTER_PATTERN.test(character)) {
+      return null;
+    }
+    const entries = Array.isArray(payload.kanji.entries)
+      ? payload.kanji.entries.slice(0, 64).map((rawEntry) => {
+          const entry = isRecord(rawEntry) ? rawEntry : {};
+          const readings = (value) => parseTagList(boundedString(value, 4096));
+          return {
+            dictionary: boundedString(entry.dictionary, 4096) || "Dictionary",
+            onyomi: readings(entry.onyomi),
+            kunyomi: readings(entry.kunyomi),
+            tags: readings(entry.tags),
+            definitions: Array.isArray(entry.definitions)
+              ? entry.definitions.slice(0, 64)
+                  .map((value) => boundedString(value))
+                  .filter(Boolean)
+              : [],
+            stats: Array.isArray(entry.stats)
+              ? entry.stats.slice(0, 128).map((rawStat) => {
+                  const stat = isRecord(rawStat) ? rawStat : {};
+                  return {
+                    name: boundedString(stat.name, 4096),
+                    value: boundedString(stat.value, 4096),
+                  };
+                }).filter((stat) => stat.name && stat.value)
+                .sort((left, right) => left.name.localeCompare(right.name))
+              : [],
+          };
+        })
+      : [];
+    return entries.length > 0 ? { character, entries } : null;
+  }
+
   function toHiragana(text) {
     return String(text || "").replace(
       /[\u30a1-\u30f6]/gu,
@@ -376,14 +416,33 @@
       : segments;
   }
 
-  function appendExpressionRuby(documentRef, parent, expression, reading) {
+  function appendExpressionRuby(documentRef, parent, expression, reading, onKanjiClick) {
+    const appendText = (target, text) => {
+      for (const character of Array.from(text)) {
+        if (!HAN_CHARACTER_PATTERN.test(character) || typeof onKanjiClick !== "function") {
+          target.appendChild(documentRef.createTextNode(character));
+          continue;
+        }
+        const button = documentRef.createElement("button");
+        button.type = "button";
+        button.className = "gsm-hoshidicts-kanji-link";
+        button.textContent = character;
+        button.setAttribute("aria-label", `Look up kanji ${character}`);
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onKanjiClick(character);
+        });
+        target.appendChild(button);
+      }
+    };
     for (const segment of segmentFurigana(expression, reading)) {
       if (!segment.reading) {
-        parent.appendChild(documentRef.createTextNode(segment.text));
+        appendText(parent, segment.text);
         continue;
       }
       const ruby = documentRef.createElement("ruby");
-      ruby.appendChild(documentRef.createTextNode(segment.text));
+      appendText(ruby, segment.text);
       const rt = documentRef.createElement("rt");
       rt.textContent = segment.reading;
       ruby.appendChild(rt);
@@ -791,6 +850,9 @@
     let latestRequestId = null;
     let latestCandidate = null;
     let latestGeneration = 0;
+    let latestRequestMode = "term-first";
+    let latestRequestText = "";
+    let cachedTermView = null;
     let lastCandidateSignature = "";
     let popupVisible = false;
     let popupAnchor = null;
@@ -869,6 +931,9 @@
       onMineClick(button, result, candidate, feedback) {
         void mineResult(button, result, candidate, feedback);
       },
+      onKanjiClick(character, _result, candidate) {
+        requestKanji(character, candidate);
+      },
     });
 
     function publishPopupState(visible) {
@@ -897,6 +962,8 @@
       latestGeneration += 1;
       latestRequestId = null;
       latestCandidate = null;
+      latestRequestMode = "term-first";
+      latestRequestText = "";
       lastCandidateSignature = "";
       clearLookupTimeout();
       if (debounceTimer !== null) {
@@ -908,6 +975,7 @@
     function dismissPopup(reason) {
       clearHideTimer();
       miningStatusGeneration += 1;
+      cachedTermView = null;
       popupAnchor = null;
       popupView.clear();
       popup.hidden = true;
@@ -977,6 +1045,41 @@
     function renderLookupNotice(candidate, message) {
       popupView.renderNotice(message);
       showPopup(candidate);
+    }
+
+    function renderTermResults(results, candidate) {
+      cachedTermView = {
+        results,
+        candidate,
+        highlightText: results[0].matched || results[0].term.expression,
+      };
+      const rendered = popupView.renderResults(results, candidate);
+      for (const button of rendered.miningButtons) {
+        button.hidden = true;
+      }
+      showPopup(candidate);
+      void refreshMiningButtons(rendered.miningButtons, rendered.feedback);
+    }
+
+    function restoreTermView() {
+      if (!cachedTermView) return;
+      const { results, candidate } = cachedTermView;
+      latestCandidate = candidate;
+      latestRequestMode = "term-first";
+      latestRequestText = candidate.query;
+      const rendered = popupView.renderResults(results, candidate);
+      for (const button of rendered.miningButtons) {
+        button.hidden = true;
+      }
+      showPopup(candidate);
+      void refreshMiningButtons(rendered.miningButtons, rendered.feedback);
+    }
+
+    function requestKanji(character, candidate) {
+      const kanji = Array.from(String(character || ""))[0] || "";
+      if (!HAN_CHARACTER_PATTERN.test(kanji)) return;
+      clearLookupTimeout();
+      sendLookup(candidate, latestGeneration, "kanji", kanji);
     }
 
     async function getCachedMiningStatus() {
@@ -1137,6 +1240,7 @@
       clearLookupTimeout();
       const candidate = latestCandidate;
       const requestId = latestRequestId;
+      const requestMode = latestRequestMode;
       latestRequestId = null;
       if (!candidate) {
         diagnostic("warn", "lookup.missing-candidate", { requestId });
@@ -1152,6 +1256,10 @@
           featureDisabled: payload.featureDisabled === true,
           error: boundedString(payload.error, 4096) || "unknown lookup error",
         });
+        if (requestMode === "kanji" && cachedTermView) {
+          restoreTermView();
+          return;
+        }
         const message = payload.featureDisabled === true
           ? "Hoshidicts is off. Enable it in Hoshidicts Settings."
           : payload.dictionaryCount === 0
@@ -1161,6 +1269,39 @@
         return;
       }
       const results = normalizeLookupResults(payload);
+      if (results.length > 0) {
+        renderTermResults(results, candidate);
+        diagnostic("info", "lookup.rendered", {
+          requestId,
+          dictionaryCount: Number.isFinite(payload.dictionaryCount)
+            ? Math.trunc(payload.dictionaryCount)
+            : null,
+          resultCount: results.length,
+          query: candidate.query,
+          firstExpression: results[0].term.expression,
+        });
+        return;
+      }
+      const kanji = normalizeKanjiLookup(payload);
+      if (kanji) {
+        popupView.renderKanji(kanji, candidate, {
+          onBack: requestMode === "kanji" && cachedTermView ? restoreTermView : null,
+          highlightText: requestMode === "kanji" && cachedTermView
+            ? cachedTermView.highlightText
+            : kanji.character,
+        });
+        showPopup(candidate);
+        diagnostic("info", "lookup.kanji-rendered", {
+          requestId,
+          dictionaryCount: Number.isFinite(payload.dictionaryCount)
+            ? Math.trunc(payload.dictionaryCount)
+            : null,
+          entryCount: kanji.entries.length,
+          character: kanji.character,
+          mode: requestMode,
+        });
+        return;
+      }
       if (results.length === 0) {
         diagnostic("info", "lookup.empty", {
           requestId,
@@ -1169,24 +1310,13 @@
             : null,
           query: candidate.query,
         });
+        if (requestMode === "kanji" && cachedTermView) {
+          restoreTermView();
+          return;
+        }
         hide("no-results");
         return;
       }
-      const rendered = popupView.renderResults(results, candidate);
-      for (const button of rendered.miningButtons) {
-        button.hidden = true;
-      }
-      showPopup(candidate);
-      void refreshMiningButtons(rendered.miningButtons, rendered.feedback);
-      diagnostic("info", "lookup.rendered", {
-        requestId,
-        dictionaryCount: Number.isFinite(payload.dictionaryCount)
-          ? Math.trunc(payload.dictionaryCount)
-          : null,
-        resultCount: results.length,
-        query: candidate.query,
-        firstExpression: results[0].term.expression,
-      });
     }
 
     function scheduleReconnect() {
@@ -1231,7 +1361,12 @@
           }));
           diagnostic("info", "socket.open", { serverUrl });
           if (latestCandidate && latestRequestId === null) {
-            sendLookup(latestCandidate, latestGeneration);
+            sendLookup(
+              latestCandidate,
+              latestGeneration,
+              latestRequestMode,
+              latestRequestText || latestCandidate.query
+            );
           }
         });
         nextSocket.addEventListener("message", (event) => {
@@ -1270,11 +1405,13 @@
       }
     }
 
-    function sendLookup(candidate, generation) {
+    function sendLookup(candidate, generation, mode = "term-first", text = candidate.query) {
       if (destroyed || generation !== latestGeneration) {
         return;
       }
       latestCandidate = candidate;
+      latestRequestMode = mode;
+      latestRequestText = text;
       if (lookupTimeoutTimer === null) {
         lookupTimeoutTimer = setTimeoutFn(() => {
           lookupTimeoutTimer = null;
@@ -1283,10 +1420,14 @@
           }
           const requestId = latestRequestId;
           latestRequestId = null;
-          renderLookupNotice(
-            candidate,
-            "Dictionary lookup timed out. Check that the overlay service is running."
-          );
+          if (mode === "kanji" && cachedTermView) {
+            restoreTermView();
+          } else {
+            renderLookupNotice(
+              candidate,
+              "Dictionary lookup timed out. Check that the overlay service is running."
+            );
+          }
           diagnostic("warn", "lookup.timed-out", {
             requestId,
             query: candidate.query,
@@ -1306,11 +1447,13 @@
       socket.send(JSON.stringify({
         type: "hoshidicts_lookup",
         requestId,
-        text: candidate.query,
+        text,
+        ...(mode === "kanji" ? { mode: "kanji" } : {}),
       }));
       diagnostic("debug", "lookup.sent", {
         requestId,
-        query: candidate.query,
+        query: text,
+        mode,
         matchOffset: candidate.matchOffset,
       });
     }
@@ -1413,7 +1556,9 @@
       ) {
         localShiftPressed = false;
         if (requiresActivationKey() && !globalActivationKeyPressed) {
-          invalidateLookup();
+          if (!pointerInPopup) {
+            invalidateLookup();
+          }
           scheduleHide("activation-key-released");
         }
       }
@@ -1589,6 +1734,7 @@
     createHoshidictsReader,
     normalizeActivationKey,
     normalizePopupHideDelay,
+    normalizeKanjiLookup,
     normalizeLookupResults,
     resolveGsmApiBaseUrl,
     resolveLookupCandidate,

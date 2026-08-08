@@ -56,8 +56,14 @@ const snapshot = {
     revision: 1,
     dictionaries: [],
     recommendedDictionaries: [
+        { id: 'jitendex', installed: false },
         { id: 'jmdict', installed: false },
         { id: 'jmnedict', installed: false },
+        { id: 'bccwj', installed: false },
+        { id: 'jpdbv2-kana', installed: false },
+        { id: 'jiten', installed: false },
+        { id: 'kanjium-pitch', installed: false },
+        { id: 'kanjidic', installed: false },
     ],
     miningProfile: {
         version: 1,
@@ -98,6 +104,7 @@ async function registerHarness() {
     });
     harness.manager.getSnapshot.mockResolvedValue(snapshot);
     harness.manager.installRecommendedDictionaries.mockResolvedValue(snapshot);
+    harness.manager.installRecommendedDictionary.mockResolvedValue(snapshot);
     harness.manager.setLookupMode.mockResolvedValue(snapshot);
     harness.manager.setReaderPreferences.mockResolvedValue(snapshot);
 
@@ -406,5 +413,46 @@ describe('Hoshidicts settings IPC', () => {
             )
         ).resolves.toMatchObject({ connected: true, noteTypes: ['Kiku'] });
         expect(context.getMiningOptions).toHaveBeenCalledWith('Kiku');
+    });
+
+    it('accepts every curated recommendation id and rejects unknown ids', async () => {
+        const context = await registerHarness();
+        const installRecommended = harness.handlers.get(
+            'hoshidicts.installRecommended'
+        );
+        const ids = [
+            'jitendex',
+            'jmdict',
+            'jmnedict',
+            'bccwj',
+            'jpdbv2-kana',
+            'jiten',
+            'kanjium-pitch',
+            'kanjidic',
+        ];
+
+        for (const id of ids) {
+            await expect(
+                installRecommended?.(
+                    { sender: context.settingsContents },
+                    { id }
+                )
+            ).resolves.toMatchObject({ success: true });
+        }
+        expect(
+            harness.manager.installRecommendedDictionary.mock.calls.map(
+                ([id]) => id
+            )
+        ).toEqual(ids);
+
+        await expect(
+            installRecommended?.(
+                { sender: context.settingsContents },
+                { id: 'unknown' }
+            )
+        ).resolves.toMatchObject({
+            success: false,
+            error: 'Recommended dictionary id is invalid.',
+        });
     });
 });

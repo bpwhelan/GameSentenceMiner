@@ -14,6 +14,7 @@ import {
 
 import {
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
+  DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   type HoshidictsActivationKey,
   type HoshidictsSchedule
@@ -335,9 +336,13 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
             className="secondary"
             disabled={
               dictionaryBusy ||
-              state.recommendedDictionaries.every(
-                (dictionary) => dictionary.installed
-              )
+              state.recommendedDictionaries
+                .filter((dictionary) =>
+                  DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.some(
+                    (dictionaryId) => dictionaryId === dictionary.id
+                  )
+                )
+                .every((dictionary) => dictionary.installed)
             }
             onClick={() => void actions.installAllRecommended()}
           >
@@ -426,11 +431,34 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                           t("settings.hoshidicts.legacyJapanese")
                       })}
                     </span>
-                    <span>
-                      {t("settings.hoshidicts.terms", {
-                        count: dictionary.termCount
-                      })}
-                    </span>
+                    {dictionary.termCount > 0 ? (
+                      <span>
+                        {t("settings.hoshidicts.terms", {
+                          count: dictionary.termCount
+                        })}
+                      </span>
+                    ) : null}
+                    {dictionary.frequencyCount > 0 ? (
+                      <span>
+                        {t("settings.hoshidicts.frequencies", {
+                          count: dictionary.frequencyCount
+                        })}
+                      </span>
+                    ) : null}
+                    {dictionary.pitchCount > 0 ? (
+                      <span>
+                        {t("settings.hoshidicts.pitches", {
+                          count: dictionary.pitchCount
+                        })}
+                      </span>
+                    ) : null}
+                    {dictionary.kanjiCount > 0 ? (
+                      <span>
+                        {t("settings.hoshidicts.kanjiEntries", {
+                          count: dictionary.kanjiCount
+                        })}
+                      </span>
+                    ) : null}
                     <span>
                       {dictionary.isUpdatable
                         ? t("settings.hoshidicts.updatable")

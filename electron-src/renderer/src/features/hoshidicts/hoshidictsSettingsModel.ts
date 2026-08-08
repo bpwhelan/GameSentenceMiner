@@ -2,6 +2,7 @@ import {
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
+  HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   isHoshidictsActivationKey,
   type HoshidictsActivationKey,
@@ -104,8 +105,14 @@ export const RECOMMENDED_KEYS: Record<
   HoshidictsRecommendedDictionaryId,
   string
 > = {
+  jitendex: "settings.hoshidicts.recommended.jitendex",
   jmdict: "settings.hoshidicts.recommended.jmdict",
-  jmnedict: "settings.hoshidicts.recommended.jmnedict"
+  jmnedict: "settings.hoshidicts.recommended.jmnedict",
+  bccwj: "settings.hoshidicts.recommended.bccwj",
+  "jpdbv2-kana": "settings.hoshidicts.recommended.jpdbv2Kana",
+  jiten: "settings.hoshidicts.recommended.jiten",
+  "kanjium-pitch": "settings.hoshidicts.recommended.kanjiumPitch",
+  kanjidic: "settings.hoshidicts.recommended.kanjidic"
 };
 
 export const MINING_FIELDS: Array<{
@@ -157,10 +164,10 @@ const DEFAULT_STATE: HoshidictsDesktopSnapshot = {
   revision: 0,
   effectiveEnabled: false,
   dictionaries: [],
-  recommendedDictionaries: [
-    { id: "jmdict", installed: false },
-    { id: "jmnedict", installed: false }
-  ],
+  recommendedDictionaries: HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.map((id) => ({
+    id,
+    installed: false
+  })),
   miningProfile: DEFAULT_MINING_PROFILE,
   lookupMode: "shift",
   activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
@@ -181,6 +188,12 @@ function strings(value: unknown): string[] {
         (item): item is string => typeof item === "string" && item.length > 0
       )
     : [];
+}
+
+function count(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, Math.trunc(value))
+    : 0;
 }
 
 function fieldValues(value: unknown): HoshidictsMiningFields {
@@ -316,12 +329,14 @@ export function normalizeHoshidictsDesktopState(
           )
           .map((dictionary) => ({
             ...dictionary,
-            enabled: dictionary.enabled !== false
+            enabled: dictionary.enabled !== false,
+            termCount: count(dictionary.termCount),
+            frequencyCount: count(dictionary.frequencyCount),
+            pitchCount: count(dictionary.pitchCount),
+            kanjiCount: count(dictionary.kanjiCount)
           }))
       : [],
-    recommendedDictionaries: (
-      ["jmdict", "jmnedict"] as HoshidictsRecommendedDictionaryId[]
-    ).map((id) => ({
+    recommendedDictionaries: HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.map((id) => ({
       id,
       installed:
         candidate.recommendedDictionaries?.some(
@@ -441,6 +456,7 @@ export type ReadinessKind =
   | "overlayStopped"
   | "restartRequired"
   | "noEnabledDictionaries"
+  | "noEnabledLookupDictionary"
   | "ready";
 
 export interface HoshidictsReadiness {
@@ -455,6 +471,11 @@ export function getReadiness(
   const installed = state.dictionaries.length;
   const enabled = state.dictionaries.filter((dictionary) => dictionary.enabled)
     .length;
+  const enabledLookupDictionaries = state.dictionaries.filter(
+    (dictionary) =>
+      dictionary.enabled &&
+      (dictionary.termCount > 0 || dictionary.kanjiCount > 0)
+  ).length;
   const kind: ReadinessKind = !state.effectiveEnabled
     ? "featureOff"
     : !state.overlay.running
@@ -463,6 +484,8 @@ export function getReadiness(
         ? "restartRequired"
         : enabled === 0
           ? "noEnabledDictionaries"
+          : enabledLookupDictionaries === 0
+            ? "noEnabledLookupDictionary"
           : "ready";
   return { kind, installed, enabled };
 }
