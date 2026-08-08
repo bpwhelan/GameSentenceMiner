@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+  DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
   HOSHIDICTS_CHANNELS,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   type HoshidictsActionResult,
+  type HoshidictsActivationKey,
   type HoshidictsDesktopSnapshot,
   type HoshidictsLookupMode,
   type HoshidictsMiningOptions,
@@ -46,6 +49,8 @@ export function useHoshidictsSettingsController() {
 
   const initialReaderPreferences: HoshidictsReaderPreferences = {
     lookupMode: "shift",
+    activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
+    sourceHighlightEnabled: DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
     popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS
   };
   const [readerDraft, setReaderDraft] = useState(initialReaderPreferences);
@@ -95,6 +100,8 @@ export function useHoshidictsSettingsController() {
       initializedRef.current = true;
       const reader = {
         lookupMode: normalized.lookupMode,
+        activationKey: normalized.activationKey,
+        sourceHighlightEnabled: normalized.sourceHighlightEnabled,
         popupHideDelayMs: normalized.popupHideDelayMs
       };
       const mining = profileToDraft(normalized.miningProfile);
@@ -108,6 +115,8 @@ export function useHoshidictsSettingsController() {
     if (!readerDirtyRef.current && !readerSavingRef.current) {
       const reader = {
         lookupMode: normalized.lookupMode,
+        activationKey: normalized.activationKey,
+        sourceHighlightEnabled: normalized.sourceHighlightEnabled,
         popupHideDelayMs: normalized.popupHideDelayMs
       };
       readerDraftRef.current = reader;
@@ -246,6 +255,20 @@ export function useHoshidictsSettingsController() {
   const setLookupMode = useCallback(
     (lookupMode: HoshidictsLookupMode) => {
       updateReaderPreferences({ lookupMode });
+    },
+    [updateReaderPreferences]
+  );
+
+  const setActivationKey = useCallback(
+    (activationKey: HoshidictsActivationKey) => {
+      updateReaderPreferences({ activationKey });
+    },
+    [updateReaderPreferences]
+  );
+
+  const setSourceHighlightEnabled = useCallback(
+    (sourceHighlightEnabled: boolean) => {
+      updateReaderPreferences({ sourceHighlightEnabled });
     },
     [updateReaderPreferences]
   );
@@ -482,6 +505,8 @@ export function useHoshidictsSettingsController() {
     readerDraft,
     readerSaveStatus,
     setLookupMode,
+    setActivationKey,
+    setSourceHighlightEnabled,
     setPopupHideDelayMs,
     miningDraft,
     miningOptions,

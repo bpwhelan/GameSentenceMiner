@@ -13,6 +13,7 @@ import {
 } from '../../services/input_server.js';
 import type {
     HoshidictsDictionaryState,
+    HoshidictsActivationKey,
     HoshidictsManagerSnapshot,
     HoshidictsLookupMode,
     HoshidictsMiningProfile,
@@ -23,7 +24,10 @@ import type {
     HoshidictsSchedule,
 } from '../../../shared/features/hoshidicts.js';
 import {
+    DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
     DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+    DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
+    isHoshidictsActivationKey,
     MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
 } from '../../../shared/features/hoshidicts.js';
 import {
@@ -59,6 +63,8 @@ interface PersistedDictionary extends HoshidictsDictionaryState {
 interface PersistedManifest {
     version: 1;
     lookupMode: HoshidictsLookupMode;
+    activationKey: HoshidictsActivationKey;
+    sourceHighlightEnabled: boolean;
     popupHideDelayMs: number;
     schedule: HoshidictsSchedule;
     lastCheck: string | null;
@@ -170,6 +176,9 @@ function emptyManifest(): PersistedManifest {
     return {
         version: MANIFEST_VERSION,
         lookupMode: 'shift',
+        activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
+        sourceHighlightEnabled:
+            DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
         popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
         schedule: 'off',
         lastCheck: null,
@@ -1102,13 +1111,18 @@ export class HoshidictsManager {
         const snapshot = await this.getSnapshot();
         return await this.setReaderPreferences(
             lookupMode,
-            snapshot.popupHideDelayMs
+            snapshot.popupHideDelayMs,
+            snapshot.activationKey,
+            snapshot.sourceHighlightEnabled
         );
     }
 
     async setReaderPreferences(
         lookupMode: HoshidictsLookupMode,
-        popupHideDelayMs: number
+        popupHideDelayMs: number,
+        activationKey: HoshidictsActivationKey,
+        sourceHighlightEnabled: boolean =
+            DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED
     ): Promise<HoshidictsManagerSnapshot> {
         if (lookupMode !== 'shift' && lookupMode !== 'hover') {
             throw new Error('Hoshidicts lookup mode is invalid.');
@@ -1120,15 +1134,27 @@ export class HoshidictsManager {
         ) {
             throw new Error('Hoshidicts popup hide delay is invalid.');
         }
+        if (!isHoshidictsActivationKey(activationKey)) {
+            throw new Error('Hoshidicts activation key is invalid.');
+        }
+        if (typeof sourceHighlightEnabled !== 'boolean') {
+            throw new Error(
+                'Hoshidicts source highlight preference is invalid.'
+            );
+        }
         await this.enqueue('saving', async () => {
             const manifest = await this.readManifest();
             if (
                 manifest.lookupMode !== lookupMode ||
-                manifest.popupHideDelayMs !== popupHideDelayMs
+                manifest.popupHideDelayMs !== popupHideDelayMs ||
+                manifest.activationKey !== activationKey ||
+                manifest.sourceHighlightEnabled !== sourceHighlightEnabled
             ) {
                 await this.atomicWriteManifest({
                     ...manifest,
                     lookupMode,
+                    activationKey,
+                    sourceHighlightEnabled,
                     popupHideDelayMs,
                 });
             }
@@ -1350,6 +1376,8 @@ export class HoshidictsManager {
             recommendedDictionaries: recommendedDictionaryStates(manifest),
             miningProfile,
             lookupMode: manifest.lookupMode,
+            activationKey: manifest.activationKey,
+            sourceHighlightEnabled: manifest.sourceHighlightEnabled,
             popupHideDelayMs: manifest.popupHideDelayMs,
             schedule: manifest.schedule,
             lastCheck: manifest.lastCheck,
@@ -1442,6 +1470,10 @@ export class HoshidictsManager {
         return {
             version: MANIFEST_VERSION,
             lookupMode: parsed.lookupMode === 'hover' ? 'hover' : 'shift',
+            activationKey: isHoshidictsActivationKey(parsed.activationKey)
+                ? parsed.activationKey
+                : DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
+            sourceHighlightEnabled: parsed.sourceHighlightEnabled === true,
             popupHideDelayMs: normalizePopupHideDelay(parsed.popupHideDelayMs),
             schedule: normalizeSchedule(parsed.schedule),
             lastCheck: normalizeDate(parsed.lastCheck),
@@ -1472,6 +1504,10 @@ export class HoshidictsManager {
         return {
             version: MANIFEST_VERSION,
             lookupMode: parsed.lookupMode === 'hover' ? 'hover' : 'shift',
+            activationKey: isHoshidictsActivationKey(parsed.activationKey)
+                ? parsed.activationKey
+                : DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
+            sourceHighlightEnabled: parsed.sourceHighlightEnabled === true,
             popupHideDelayMs: normalizePopupHideDelay(parsed.popupHideDelayMs),
             schedule: normalizeSchedule(parsed.schedule),
             lastCheck: normalizeDate(parsed.lastCheck),

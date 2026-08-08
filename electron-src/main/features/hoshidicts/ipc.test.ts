@@ -9,6 +9,8 @@ const harness = vi.hoisted(() => ({
     configuredEnabled: true,
     enabledAtLaunch: false as boolean | null,
     lookupModeAtLaunch: 'shift' as 'shift' | 'hover' | null,
+    activationKeyAtLaunch: 'Shift' as string | null,
+    sourceHighlightEnabledAtLaunch: false as boolean | null,
     popupHideDelayAtLaunch: 300 as number | null,
     manager: {
         subscribe: vi.fn(),
@@ -75,6 +77,8 @@ const snapshot = {
         duplicatePolicy: 'prevent',
     },
     lookupMode: 'shift',
+    activationKey: 'Shift',
+    sourceHighlightEnabled: false,
     popupHideDelayMs: 300,
     schedule: 'off',
     lastCheck: null,
@@ -152,6 +156,10 @@ async function registerHarness() {
         getConfiguredFeatureEnabled: () => harness.configuredEnabled,
         getOverlayFeatureEnabledAtLaunch: () => harness.enabledAtLaunch,
         getOverlayLookupModeAtLaunch: () => harness.lookupModeAtLaunch,
+        getOverlayActivationKeyAtLaunch: () =>
+            harness.activationKeyAtLaunch,
+        getOverlaySourceHighlightEnabledAtLaunch: () =>
+            harness.sourceHighlightEnabledAtLaunch,
         getOverlayPopupHideDelayAtLaunch: () =>
             harness.popupHideDelayAtLaunch,
         applyReaderPreferences,
@@ -177,6 +185,8 @@ describe('Hoshidicts settings IPC', () => {
         harness.configuredEnabled = true;
         harness.enabledAtLaunch = false;
         harness.lookupModeAtLaunch = 'shift';
+        harness.activationKeyAtLaunch = 'Shift';
+        harness.sourceHighlightEnabledAtLaunch = false;
         harness.popupHideDelayAtLaunch = 300;
     });
 
@@ -197,6 +207,21 @@ describe('Hoshidicts settings IPC', () => {
             getState?.({ sender: context.settingsContents })
         ).resolves.toMatchObject({
             overlay: { running: true, restartRequired: false },
+        });
+
+        harness.activationKeyAtLaunch = 'F8';
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: true },
+        });
+
+        harness.activationKeyAtLaunch = 'Shift';
+        harness.sourceHighlightEnabledAtLaunch = true;
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: true },
         });
     });
 
@@ -320,7 +345,12 @@ describe('Hoshidicts settings IPC', () => {
         await expect(
             setReaderPreferences?.(
                 { sender: context.settingsContents },
-                { lookupMode: 'hover', popupHideDelayMs: 850 }
+                {
+                    lookupMode: 'hover',
+                    activationKey: 'F8',
+                    sourceHighlightEnabled: true,
+                    popupHideDelayMs: 850,
+                }
             )
         ).resolves.toMatchObject({
             success: true,
@@ -328,11 +358,45 @@ describe('Hoshidicts settings IPC', () => {
         });
         expect(harness.manager.setReaderPreferences).toHaveBeenCalledWith(
             'hover',
-            850
+            850,
+            'F8',
+            true
         );
         expect(context.applyReaderPreferences).toHaveBeenCalledWith({
             lookupMode: 'hover',
+            activationKey: 'F8',
+            sourceHighlightEnabled: true,
             popupHideDelayMs: 850,
+        });
+
+        await expect(
+            setReaderPreferences?.(
+                { sender: context.settingsContents },
+                {
+                    lookupMode: 'shift',
+                    activationKey: 'MediaPlayPause',
+                    sourceHighlightEnabled: false,
+                    popupHideDelayMs: 300,
+                }
+            )
+        ).resolves.toMatchObject({
+            success: false,
+            error: 'Hoshidicts reader preferences are invalid.',
+        });
+
+        await expect(
+            setReaderPreferences?.(
+                { sender: context.settingsContents },
+                {
+                    lookupMode: 'shift',
+                    activationKey: 'Shift',
+                    sourceHighlightEnabled: 'yes',
+                    popupHideDelayMs: 300,
+                }
+            )
+        ).resolves.toMatchObject({
+            success: false,
+            error: 'Hoshidicts reader preferences are invalid.',
         });
 
         await expect(

@@ -2,13 +2,20 @@ import {
   ArrowDown,
   ArrowUp,
   FileArchive,
+  Keyboard,
   RefreshCw,
   Trash2
 } from "lucide-react";
-import { useMemo } from "react";
+import {
+  useMemo,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent
+} from "react";
 
 import {
+  DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+  type HoshidictsActivationKey,
   type HoshidictsSchedule
 } from "../../../../shared/features/hoshidicts";
 import { useTranslation } from "../../i18n";
@@ -17,6 +24,7 @@ import {
   DISABLED_FIELD_VALUE,
   MINING_FIELDS,
   RECOMMENDED_KEYS,
+  activationKeyFromKeyboardCode,
   automaticFieldTarget,
   formatTimestamp,
   getFieldChoice,
@@ -45,6 +53,102 @@ function SaveIndicator({
   );
 }
 
+function ActivationKeyControl({
+  activationKey,
+  disabled,
+  onChange
+}: {
+  activationKey: HoshidictsActivationKey;
+  disabled: boolean;
+  onChange: (activationKey: HoshidictsActivationKey) => void;
+}) {
+  const t = useTranslation();
+  const [capturing, setCapturing] = useState(false);
+  const [unsupported, setUnsupported] = useState(false);
+  const hintId = "hoshidicts-activation-key-hint";
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (!capturing) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.repeat) return;
+
+    const next = activationKeyFromKeyboardCode(event.code);
+    if (!next) {
+      setUnsupported(true);
+      return;
+    }
+
+    setCapturing(false);
+    setUnsupported(false);
+    onChange(next);
+  };
+
+  return (
+    <div className="hoshidicts-activation-key">
+      <span>{t("settings.hoshidicts.reader.activationKey")}</span>
+      <div className="hoshidicts-activation-key__controls">
+        <output
+          className="hoshidicts-activation-key__current"
+          aria-live="polite"
+        >
+          <span>{t("settings.hoshidicts.reader.currentKey")}</span>
+          <kbd>{activationKey}</kbd>
+        </output>
+        <button
+          id="hoshidicts-activation-key-capture"
+          type="button"
+          className="secondary hoshidicts-activation-key__capture"
+          data-capturing={capturing}
+          aria-pressed={capturing}
+          aria-describedby={hintId}
+          disabled={disabled}
+          onClick={() => {
+            setCapturing(true);
+            setUnsupported(false);
+          }}
+          onKeyDown={handleKeyDown}
+          onBlur={() => {
+            setCapturing(false);
+            setUnsupported(false);
+          }}
+        >
+          <Keyboard size={16} aria-hidden="true" />
+          {capturing
+            ? t("settings.hoshidicts.reader.capturingKey")
+            : t("settings.hoshidicts.reader.changeKey")}
+        </button>
+        <button
+          id="hoshidicts-activation-key-reset"
+          type="button"
+          className="secondary"
+          disabled={
+            disabled || activationKey === DEFAULT_HOSHIDICTS_ACTIVATION_KEY
+          }
+          onClick={() => {
+            setCapturing(false);
+            setUnsupported(false);
+            onChange(DEFAULT_HOSHIDICTS_ACTIVATION_KEY);
+          }}
+        >
+          {t("settings.hoshidicts.reader.resetKey")}
+        </button>
+      </div>
+      <small
+        id={hintId}
+        className={unsupported ? "is-error" : ""}
+        aria-live="polite"
+      >
+        {unsupported
+          ? t("settings.hoshidicts.reader.unsupportedKey")
+          : capturing
+            ? t("settings.hoshidicts.reader.capturingKeyHint")
+            : t("settings.hoshidicts.reader.activationKeyHint")}
+      </small>
+    </div>
+  );
+}
+
 export function DictionariesPanel({ controller }: { controller: Controller }) {
   const t = useTranslation();
   const {
@@ -52,6 +156,8 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
     readerDraft,
     readerSaveStatus,
     setLookupMode,
+    setActivationKey,
+    setSourceHighlightEnabled,
     setPopupHideDelayMs,
     dictionaryBusy,
     preferencesBusy,
@@ -86,8 +192,16 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
               onChange={() => setLookupMode("shift")}
             />
             <span>
-              <strong>{t("settings.hoshidicts.reader.holdShift")}</strong>
-              <small>{t("settings.hoshidicts.reader.holdShiftHint")}</small>
+              <strong>
+                {t("settings.hoshidicts.reader.holdKey", {
+                  key: readerDraft.activationKey
+                })}
+              </strong>
+              <small>
+                {t("settings.hoshidicts.reader.holdKeyHint", {
+                  key: readerDraft.activationKey
+                })}
+              </small>
             </span>
           </label>
           <label>
@@ -106,6 +220,30 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
             </span>
           </label>
         </fieldset>
+
+        <ActivationKeyControl
+          activationKey={readerDraft.activationKey}
+          disabled={preferencesBusy}
+          onChange={setActivationKey}
+        />
+
+        <label className="hoshidicts-reader-highlight">
+          <input
+            id="hoshidicts-source-highlight-enabled"
+            type="checkbox"
+            checked={readerDraft.sourceHighlightEnabled}
+            disabled={preferencesBusy}
+            onChange={(event) =>
+              setSourceHighlightEnabled(event.currentTarget.checked)
+            }
+          />
+          <span>
+            <strong>{t("settings.hoshidicts.reader.sourceHighlight")}</strong>
+            <small>
+              {t("settings.hoshidicts.reader.sourceHighlightHint")}
+            </small>
+          </span>
+        </label>
 
         <label className="hoshidicts-reader-delay">
           <span>{t("settings.hoshidicts.reader.hideDelay")}</span>

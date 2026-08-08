@@ -1,6 +1,10 @@
 import {
+  DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+  DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+  isHoshidictsActivationKey,
+  type HoshidictsActivationKey,
   type HoshidictsDesktopSnapshot,
   type HoshidictsMiningFieldName,
   type HoshidictsMiningFields,
@@ -20,6 +24,71 @@ export type MiningProfileDraft = Omit<HoshidictsMiningProfile, "tags"> & {
 
 export const AUTO_FIELD_VALUE = "__hoshidicts_auto__";
 export const DISABLED_FIELD_VALUE = "__hoshidicts_disabled__";
+
+const ACTIVATION_KEY_BY_CODE: Readonly<
+  Record<string, HoshidictsActivationKey>
+> = {
+  ShiftLeft: "Shift",
+  ShiftRight: "Shift",
+  ControlLeft: "Ctrl",
+  ControlRight: "Ctrl",
+  AltLeft: "Alt",
+  AltRight: "Alt",
+  MetaLeft: "Cmd",
+  MetaRight: "Cmd",
+  OSLeft: "Cmd",
+  OSRight: "Cmd",
+  Space: "Space",
+  Enter: "Return",
+  NumpadEnter: "Return",
+  Escape: "Escape",
+  Backspace: "Backspace",
+  Delete: "Delete",
+  Tab: "Tab",
+  ArrowUp: "Up",
+  ArrowDown: "Down",
+  ArrowLeft: "Left",
+  ArrowRight: "Right",
+  Home: "Home",
+  End: "End",
+  PageUp: "PageUp",
+  PageDown: "PageDown",
+  Insert: "Insert",
+  Minus: "-",
+  NumpadSubtract: "-",
+  Equal: "=",
+  NumpadEqual: "=",
+  BracketLeft: "[",
+  BracketRight: "]",
+  Backslash: "\\",
+  IntlBackslash: "\\",
+  Semicolon: ";",
+  Quote: "'",
+  Comma: ",",
+  Period: ".",
+  NumpadDecimal: ".",
+  Slash: "/",
+  NumpadDivide: "/",
+  Backquote: "`"
+};
+
+export function activationKeyFromKeyboardCode(
+  code: string
+): HoshidictsActivationKey | null {
+  const mapped = ACTIVATION_KEY_BY_CODE[code];
+  if (mapped) return mapped;
+
+  const keyCode = /^Key([A-Z])$/.exec(code)?.[1];
+  if (isHoshidictsActivationKey(keyCode)) return keyCode;
+
+  const digitCode = /^(?:Digit|Numpad)([0-9])$/.exec(code)?.[1];
+  if (isHoshidictsActivationKey(digitCode)) return digitCode;
+
+  return /^F(?:[1-9]|1[0-9]|2[0-4])$/.test(code) &&
+    isHoshidictsActivationKey(code)
+    ? code
+    : null;
+}
 
 export const PROGRESS_KEYS: Record<HoshidictsProgressPhase, string> = {
   idle: "settings.hoshidicts.progress.idle",
@@ -94,6 +163,8 @@ const DEFAULT_STATE: HoshidictsDesktopSnapshot = {
   ],
   miningProfile: DEFAULT_MINING_PROFILE,
   lookupMode: "shift",
+  activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
+  sourceHighlightEnabled: DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
   popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   schedule: "off",
   lastCheck: null,
@@ -259,6 +330,10 @@ export function normalizeHoshidictsDesktopState(
     })),
     miningProfile: normalizeMiningProfile(candidate.miningProfile),
     lookupMode: candidate.lookupMode === "hover" ? "hover" : "shift",
+    activationKey: isHoshidictsActivationKey(candidate.activationKey)
+      ? candidate.activationKey
+      : DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
+    sourceHighlightEnabled: candidate.sourceHighlightEnabled === true,
     popupHideDelayMs,
     schedule,
     lastCheck:

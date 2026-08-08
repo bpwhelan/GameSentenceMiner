@@ -547,7 +547,10 @@ describe('Hoshidicts lookup mode', () => {
             'utf8'
         );
 
-        expect((await manager.getSnapshot()).lookupMode).toBe('shift');
+        const snapshot = await manager.getSnapshot();
+        expect(snapshot.lookupMode).toBe('shift');
+        expect(snapshot.activationKey).toBe('Shift');
+        expect(snapshot.sourceHighlightEnabled).toBe(false);
     });
 
     it('defaults new state to Shift and persists hover lookup', async () => {
@@ -555,18 +558,36 @@ describe('Hoshidicts lookup mode', () => {
         const { manager } = createHarness(baseDir);
 
         expect((await manager.getSnapshot()).lookupMode).toBe('shift');
+        expect((await manager.getSnapshot()).activationKey).toBe('Shift');
+        expect((await manager.getSnapshot()).sourceHighlightEnabled).toBe(false);
         expect((await manager.getSnapshot()).popupHideDelayMs).toBe(300);
 
-        const snapshot = await manager.setReaderPreferences('hover', 850);
+        const snapshot = await manager.setReaderPreferences(
+            'hover',
+            850,
+            'F8',
+            true
+        );
 
         expect(snapshot.lookupMode).toBe('hover');
+        expect(snapshot.activationKey).toBe('F8');
+        expect(snapshot.sourceHighlightEnabled).toBe(true);
         expect(snapshot.popupHideDelayMs).toBe(850);
         expect(readManifest(baseDir).lookupMode).toBe('hover');
+        expect(readManifest(baseDir).activationKey).toBe('F8');
+        expect(readManifest(baseDir).sourceHighlightEnabled).toBe(true);
         expect(readManifest(baseDir).popupHideDelayMs).toBe(850);
 
         const reloaded = createHarness(baseDir).manager;
         expect((await reloaded.getSnapshot()).lookupMode).toBe('hover');
+        expect((await reloaded.getSnapshot()).activationKey).toBe('F8');
+        expect((await reloaded.getSnapshot()).sourceHighlightEnabled).toBe(true);
         expect((await reloaded.getSnapshot()).popupHideDelayMs).toBe(850);
+
+        const shifted = await reloaded.setLookupMode('shift');
+        expect(shifted.lookupMode).toBe('shift');
+        expect(shifted.activationKey).toBe('F8');
+        expect(shifted.sourceHighlightEnabled).toBe(true);
     });
 
     it('rejects unsupported lookup modes', async () => {
@@ -582,12 +603,30 @@ describe('Hoshidicts lookup mode', () => {
         const baseDir = makeTempDir();
         const { manager } = createHarness(baseDir);
 
-        await expect(manager.setReaderPreferences('hover', -1)).rejects.toThrow(
+        await expect(manager.setReaderPreferences('hover', -1, 'Shift')).rejects.toThrow(
             'hide delay is invalid'
         );
-        await expect(manager.setReaderPreferences('hover', 5001)).rejects.toThrow(
+        await expect(manager.setReaderPreferences('hover', 5001, 'Shift')).rejects.toThrow(
             'hide delay is invalid'
         );
+    });
+
+    it('rejects unsupported activation keys', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+
+        await expect(
+            manager.setReaderPreferences('shift', 300, 'MediaPlayPause' as never)
+        ).rejects.toThrow('activation key is invalid');
+    });
+
+    it('rejects non-boolean source highlighting preferences', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+
+        await expect(
+            manager.setReaderPreferences('shift', 300, 'Shift', 'yes' as never)
+        ).rejects.toThrow('source highlight preference is invalid');
     });
 });
 
@@ -605,7 +644,7 @@ describe('Hoshidicts snapshots', () => {
     it('preserves reader and mining preferences when dictionary hydration fails', async () => {
         const baseDir = makeTempDir();
         const { manager } = createHarness(baseDir);
-        await manager.setReaderPreferences('hover', 900);
+        await manager.setReaderPreferences('hover', 900, 'Space', true);
         await manager.setMiningProfile({
             deck: 'Mining',
             model: 'Kiku',
@@ -625,6 +664,8 @@ describe('Hoshidicts snapshots', () => {
         const snapshot = await manager.getSnapshot();
 
         expect(snapshot.lookupMode).toBe('hover');
+        expect(snapshot.activationKey).toBe('Space');
+        expect(snapshot.sourceHighlightEnabled).toBe(true);
         expect(snapshot.popupHideDelayMs).toBe(900);
         expect(snapshot.miningProfile).toMatchObject({
             deck: 'Mining',

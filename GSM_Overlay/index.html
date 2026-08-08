@@ -14,6 +14,18 @@
     process.env &&
     process.env.GSM_HOSHIDICTS_LOOKUP_MODE === 'hover'
   ) ? 'hover' : 'shift';
+  const configuredHoshidictsActivationKey = (
+    typeof process !== 'undefined' && process.env
+      ? String(process.env.GSM_HOSHIDICTS_ACTIVATION_KEY || '').trim()
+      : ''
+  );
+  window.gsmHoshidictsActivationKey = configuredHoshidictsActivationKey || 'Shift';
+  window.gsmHoshidictsActivationKeyPressed = false;
+  window.gsmHoshidictsSourceHighlightEnabled = (
+    typeof process !== 'undefined' &&
+    process.env &&
+    process.env.GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED === '1'
+  );
   const configuredHoshidictsHideDelay = Number.parseInt(
     typeof process !== 'undefined' && process.env
       ? process.env.GSM_HOSHIDICTS_POPUP_HIDE_DELAY_MS
@@ -5034,9 +5046,16 @@ background: rgba(202, 12, 12, 0.692);
     const miningClient = window.GSMHoshidictsReader.createHoshidictsMiningClient({
       baseUrl: window.GSMHoshidictsReader.resolveGsmApiBaseUrl(settings),
     });
+    window.gsmHoshidictsActivationKey =
+      window.GSMHoshidictsReader.normalizeActivationKey(
+        window.gsmHoshidictsActivationKey
+      );
     window.gsmHoshidictsReader = window.GSMHoshidictsReader.createHoshidictsReader({
       serverUrl: `ws://127.0.0.1:${serverPort}`,
       lookupMode: window.gsmHoshidictsLookupMode === 'hover' ? 'hover' : 'shift',
+      activationKey: window.gsmHoshidictsActivationKey,
+      activationKeyPressed: window.gsmHoshidictsActivationKeyPressed === true,
+      sourceHighlightEnabled: window.gsmHoshidictsSourceHighlightEnabled === true,
       popupHideDelayMs: window.gsmHoshidictsPopupHideDelayMs,
       onPopupStateChange: handleHoshidictsPopupState,
       async getMiningStatus() {
@@ -5060,6 +5079,12 @@ background: rgba(202, 12, 12, 0.692);
     window.gsmHoshidictsLookupMode = preferences.lookupMode === 'hover'
       ? 'hover'
       : 'shift';
+    window.gsmHoshidictsActivationKey =
+      window.GSMHoshidictsReader.normalizeActivationKey(
+        preferences.activationKey
+      );
+    window.gsmHoshidictsSourceHighlightEnabled =
+      preferences.sourceHighlightEnabled === true;
     const hideDelay = Number(preferences.popupHideDelayMs);
     window.gsmHoshidictsPopupHideDelayMs = (
       Number.isInteger(hideDelay) && hideDelay >= 0 && hideDelay <= 5000
@@ -5070,8 +5095,22 @@ background: rgba(202, 12, 12, 0.692);
     ) {
       window.gsmHoshidictsReader.updatePreferences({
         lookupMode: window.gsmHoshidictsLookupMode,
+        activationKey: window.gsmHoshidictsActivationKey,
+        sourceHighlightEnabled: window.gsmHoshidictsSourceHighlightEnabled,
         popupHideDelayMs: window.gsmHoshidictsPopupHideDelayMs,
       });
+    }
+  });
+
+  ipcRenderer.on('hoshidicts-activation-key-state', (_event, pressed) => {
+    window.gsmHoshidictsActivationKeyPressed = pressed === true;
+    if (
+      window.gsmHoshidictsReader &&
+      typeof window.gsmHoshidictsReader.setActivationKeyPressed === 'function'
+    ) {
+      window.gsmHoshidictsReader.setActivationKeyPressed(
+        window.gsmHoshidictsActivationKeyPressed
+      );
     }
   });
 </script>

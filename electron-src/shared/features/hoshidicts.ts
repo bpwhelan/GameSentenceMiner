@@ -26,7 +26,117 @@ export const HOSHIDICTS_READER_CLIENT_ID = 'overlay.hoshidicts-reader';
 
 export type HoshidictsSchedule = 'off' | 'daily' | 'weekly' | 'monthly';
 export type HoshidictsLookupMode = 'shift' | 'hover';
+export const HOSHIDICTS_ACTIVATION_KEYS = [
+    'Ctrl',
+    'Alt',
+    'Shift',
+    'Cmd',
+    'A',
+    'B',
+    'C',
+    'D',
+    'E',
+    'F',
+    'G',
+    'H',
+    'I',
+    'J',
+    'K',
+    'L',
+    'M',
+    'N',
+    'O',
+    'P',
+    'Q',
+    'R',
+    'S',
+    'T',
+    'U',
+    'V',
+    'W',
+    'X',
+    'Y',
+    'Z',
+    '0',
+    '1',
+    '2',
+    '3',
+    '4',
+    '5',
+    '6',
+    '7',
+    '8',
+    '9',
+    'Space',
+    'Return',
+    'Escape',
+    'Backspace',
+    'Delete',
+    'Tab',
+    'Up',
+    'Down',
+    'Left',
+    'Right',
+    'Home',
+    'End',
+    'PageUp',
+    'PageDown',
+    'Insert',
+    'F1',
+    'F2',
+    'F3',
+    'F4',
+    'F5',
+    'F6',
+    'F7',
+    'F8',
+    'F9',
+    'F10',
+    'F11',
+    'F12',
+    'F13',
+    'F14',
+    'F15',
+    'F16',
+    'F17',
+    'F18',
+    'F19',
+    'F20',
+    'F21',
+    'F22',
+    'F23',
+    'F24',
+    '-',
+    '=',
+    '[',
+    ']',
+    '\\',
+    ';',
+    "'",
+    ',',
+    '.',
+    '/',
+    '`',
+] as const;
+export type HoshidictsActivationKey =
+    (typeof HOSHIDICTS_ACTIVATION_KEYS)[number];
+export const DEFAULT_HOSHIDICTS_ACTIVATION_KEY: HoshidictsActivationKey =
+    'Shift';
+const HOSHIDICTS_ACTIVATION_KEY_SET = new Set<string>(
+    HOSHIDICTS_ACTIVATION_KEYS
+);
+
+export function isHoshidictsActivationKey(
+    value: unknown
+): value is HoshidictsActivationKey {
+    return (
+        typeof value === 'string' &&
+        HOSHIDICTS_ACTIVATION_KEY_SET.has(value)
+    );
+}
+
 export const DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS = 300;
+export const DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED = false;
 export const MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS = 5000;
 export type HoshidictsRecommendedDictionaryId = 'jmdict' | 'jmnedict';
 export type HoshidictsMoveDirection = -1 | 1;
@@ -53,6 +163,8 @@ export type HoshidictsMiningFieldName = keyof HoshidictsMiningFields;
 
 export interface HoshidictsReaderPreferences {
     lookupMode: HoshidictsLookupMode;
+    activationKey: HoshidictsActivationKey;
+    sourceHighlightEnabled: boolean;
     popupHideDelayMs: number;
 }
 
@@ -112,6 +224,8 @@ export interface HoshidictsManagerSnapshot {
     recommendedDictionaries: HoshidictsRecommendedDictionaryState[];
     miningProfile: HoshidictsMiningProfile;
     lookupMode: HoshidictsLookupMode;
+    activationKey: HoshidictsActivationKey;
+    sourceHighlightEnabled: boolean;
     popupHideDelayMs: number;
     schedule: HoshidictsSchedule;
     lastCheck: string | null;
