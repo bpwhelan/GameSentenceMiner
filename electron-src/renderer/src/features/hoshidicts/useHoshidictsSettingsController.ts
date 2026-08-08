@@ -31,6 +31,7 @@ import {
   type HoshidictsPopupButtons,
   type HoshidictsProfileIdRequest,
   type HoshidictsReaderPreferences,
+  type HoshidictsRenameDictionaryRequest,
   type HoshidictsRecommendedDictionaryId,
   type HoshidictsRenameDictionaryRequest,
   type HoshidictsRenameProfileRequest,
@@ -853,6 +854,18 @@ export function useHoshidictsSettingsController() {
           HOSHIDICTS_CHANNELS.renameDictionary,
           "settings.hoshidicts.errors.rename",
           { id, displayName } satisfies HoshidictsRenameDictionaryRequest
+        ),
+      renameDictionary: (id: string, displayName: string | null) =>
+        runAction(
+          () =>
+            invokeIpc(
+              HOSHIDICTS_CHANNELS.renameDictionary,
+              {
+                id,
+                displayName
+              } satisfies HoshidictsRenameDictionaryRequest
+            ),
+          "settings.hoshidicts.errors.rename"
         ),
       moveDictionary: (id: string, direction: HoshidictsMoveDirection) =>
         ipcAction(
