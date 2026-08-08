@@ -18,6 +18,7 @@ import {
   MINING_FIELDS,
   RECOMMENDED_KEYS,
   automaticFieldTarget,
+  frequencyModeKey,
   formatTimestamp,
   getFieldChoice,
   resolvedDraftField
@@ -293,6 +294,18 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                         count: dictionary.termCount
                       })}
                     </span>
+                    <span>
+                      {t("settings.hoshidicts.frequencies", {
+                        count: dictionary.frequencyCount
+                      })}
+                    </span>
+                    {dictionary.frequencyCount > 0 ? (
+                      <span>
+                        {t("settings.hoshidicts.frequencyMode", {
+                          mode: t(frequencyModeKey(dictionary.frequencyMode))
+                        })}
+                      </span>
+                    ) : null}
                     <span>
                       {dictionary.isUpdatable
                         ? t("settings.hoshidicts.updatable")

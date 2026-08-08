@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import json
+import math
 from typing import Any
 
 MAX_REQUEST_BYTES = 256 * 1024
@@ -105,16 +106,26 @@ def _validate_frequency_group(value: Any) -> dict[str, Any]:
         "Hoshidicts frequencies",
         MAX_METADATA_VALUES,
     ):
-        if not isinstance(item, dict) or not isinstance(item.get("value"), int) or isinstance(item.get("value"), bool):
+        if not isinstance(item, dict):
             raise HoshidictsMiningError("Hoshidicts frequency is invalid.")
+        frequency_value = item.get("value")
+        if (
+            isinstance(frequency_value, bool)
+            or not isinstance(frequency_value, (int, float))
+            or (isinstance(frequency_value, float) and not math.isfinite(frequency_value))
+        ):
+            raise HoshidictsMiningError("Hoshidicts frequency is invalid.")
+        display_value = item.get("displayValue")
+        if display_value is not None:
+            display_value = bounded_string(
+                display_value,
+                "Hoshidicts frequency display value",
+                MAX_TERM_LENGTH,
+            )
         frequencies.append(
             {
-                "value": item["value"],
-                "displayValue": bounded_string(
-                    item.get("displayValue", ""),
-                    "Hoshidicts frequency display value",
-                    MAX_TERM_LENGTH,
-                ),
+                "value": frequency_value,
+                "displayValue": display_value,
             }
         )
     return {
@@ -400,7 +411,10 @@ def definition_html(result: dict[str, Any]) -> str:
 def frequency_html(result: dict[str, Any]) -> str:
     groups = []
     for group in result["term"]["frequencies"]:
-        values = [frequency["displayValue"] or str(frequency["value"]) for frequency in group["frequencies"]]
+        values = [
+            frequency["displayValue"] if frequency["displayValue"] is not None else str(frequency["value"])
+            for frequency in group["frequencies"]
+        ]
         if values:
             groups.append(
                 f"<b>{html.escape(group['dictionary'])}</b>: " + ", ".join(html.escape(value) for value in values)

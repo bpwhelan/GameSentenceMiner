@@ -572,12 +572,13 @@
         "overlayStoppedHint": "Start the overlay to use dictionary lookup.",
         "restartRequired": "Restart required",
         "restartRequiredHint": "Restart the overlay to apply the latest reader changes.",
-        "noEnabledDictionaries": "No enabled dictionaries",
-        "noEnabledDictionariesHint": "Install or enable a dictionary before looking up words.",
+        "noEnabledDictionaries": "No enabled term dictionaries",
+        "noEnabledDictionariesHint": "Install or enable a term dictionary before looking up words. Frequency-only dictionaries enhance lookup results but cannot find words on their own.",
         "ready": "Ready",
         "readyHint": "Hover Japanese text in the overlay to look up words.",
         "dictionaryCounts": "{installed} installed · {enabled} enabled",
-        "enableDictionary": "Enable a Dictionary"
+        "enableTermDictionary": "Enable {title}",
+        "installTermDictionary": "Install a Term Dictionary"
       },
       "tabs": {
         "dictionaries": "Dictionaries",
@@ -624,6 +625,13 @@
       "revision": "Revision: {revision}",
       "language": "Language: {language}",
       "terms": "{count} terms",
+      "frequencies": "{count} frequency entries",
+      "frequencyMode": "Frequency mode: {mode}",
+      "frequencyModes": {
+        "automatic": "Automatic",
+        "occurrenceBased": "Occurrence-based",
+        "rankBased": "Rank-based"
+      },
       "updatable": "Automatic updates",
       "manualOnly": "Manual updates only",
       "priorityHint": "Higher dictionaries are searched first.",

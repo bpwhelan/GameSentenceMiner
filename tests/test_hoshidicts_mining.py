@@ -507,6 +507,39 @@ def test_validation_uses_the_overlay_utf16_offset():
     assert hoshidicts_mining._highlight_sentence_match(validated) == ("&lt;<b>食べた</b>&amp;")
 
 
+def test_validation_preserves_decimal_and_nullable_frequency_displays():
+    payload = _payload()
+    payload["result"]["term"]["frequencies"][0]["frequencies"] = [
+        {"value": 12.75, "displayValue": None},
+        {"value": 8, "displayValue": ""},
+        {"value": -1.5, "displayValue": "<rare>"},
+    ]
+
+    validated = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+
+    assert validated["term"]["frequencies"][0]["frequencies"] == [
+        {"value": 12.75, "displayValue": None},
+        {"value": 8, "displayValue": ""},
+        {"value": -1.5, "displayValue": "<rare>"},
+    ]
+    assert hoshidicts_mining._frequency_html(validated) == ("<b>Frequency</b>: 12.75, , &lt;rare&gt;")
+
+
+@pytest.mark.parametrize(
+    "value",
+    [True, float("nan"), float("inf"), float("-inf")],
+)
+def test_validation_rejects_non_finite_or_boolean_frequency_values(value):
+    payload = _payload()
+    payload["result"]["term"]["frequencies"][0]["frequencies"] = [{"value": value, "displayValue": None}]
+
+    with pytest.raises(
+        hoshidicts_mining.HoshidictsMiningError,
+        match="frequency is invalid",
+    ):
+        hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+
+
 def test_duplicate_rejection_returns_a_conflict(monkeypatch):
     fake_anki = FakeAnki(note_id=None)
     _wire(monkeypatch, fake_anki)

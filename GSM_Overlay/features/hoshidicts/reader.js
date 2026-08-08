@@ -144,9 +144,11 @@
                       const frequency = isRecord(rawFrequency) ? rawFrequency : {};
                       return {
                         value: Number.isFinite(frequency.value)
-                          ? Math.trunc(frequency.value)
+                          ? frequency.value
                           : null,
-                        displayValue: boundedString(frequency.displayValue, 4096),
+                        displayValue: typeof frequency.displayValue === "string"
+                          ? frequency.displayValue.slice(0, 4096)
+                          : null,
                       };
                     })
                     .filter((frequency) => frequency.value !== null)
