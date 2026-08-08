@@ -48,6 +48,18 @@
   const DEFAULT_SOURCE_HIGHLIGHT_ENABLED = false;
   const MAX_POPUP_HIDE_DELAY_MS = 5 * 1000;
   const MAX_RESPONSE_BYTES = 256 * 1024;
+  const MAX_MEDIA_RESPONSE_BYTES = 6 * 1024 * 1024;
+  const MAX_MEDIA_BYTES = 4 * 1024 * 1024;
+  const MAX_MEDIA_DIMENSION = 4096;
+  const MAX_MEDIA_PIXELS = 16 * 1024 * 1024;
+  const MAX_MEDIA_CACHE_BYTES = 16 * 1024 * 1024;
+  const MAX_MEDIA_CACHE_ENTRIES = 64;
+  const MAX_MEDIA_CONCURRENT_REQUESTS = 4;
+  const MAX_MEDIA_PENDING_REQUESTS = 128;
+  const MAX_POPUP_MEDIA_IMAGES = 128;
+  const MAX_POPUP_MEDIA_PIXELS = 32 * 1024 * 1024;
+  const MEDIA_REQUEST_TIMEOUT_MS = 4 * 1000;
+  const MAX_MEDIA_DISPLAY_SIZE = 1024;
   const MAX_GLOSSARIES = 64;
   const MAX_TRACE_STEPS = 32;
   const MAX_METADATA_GROUPS = 64;
@@ -72,8 +84,10 @@
   const ALLOWED_STRUCTURED_TAGS = new Set([
     "br",
     "code",
+    "details",
     "div",
     "em",
+    "img",
     "li",
     "ol",
     "p",
@@ -84,6 +98,7 @@
     "span",
     "strong",
     "sub",
+    "summary",
     "sup",
     "table",
     "tbody",
@@ -95,18 +110,38 @@
     "ul",
   ]);
   const IGNORED_STRUCTURED_TAGS = new Set([
-    "a",
     "audio",
     "button",
     "canvas",
     "iframe",
-    "img",
     "input",
     "script",
     "source",
     "style",
     "svg",
     "video",
+  ]);
+  const STRUCTURED_TAGS_WITHOUT_CONTENT = new Set(["br", "img"]);
+  const ALLOWED_MEDIA_TYPES = new Set([
+    "image/gif",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+  ]);
+  const STRUCTURED_STYLE_PROPERTIES = new Map([
+    ["background", ["background", "color"]],
+    ["borderColor", ["border-color", "color"]],
+    ["borderRadius", ["border-radius", "length-sequence"]],
+    ["borderStyle", ["border-style", "border-style"]],
+    ["borderWidth", ["border-width", "length-sequence"]],
+    ["color", ["color", "color"]],
+    ["fontSize", ["font-size", "length"]],
+    ["fontStyle", ["font-style", "font-style"]],
+    ["fontWeight", ["font-weight", "font-weight"]],
+    ["marginBottom", ["margin-bottom", "signed-length"]],
+    ["marginTop", ["margin-top", "signed-length"]],
+    ["padding", ["padding", "length-sequence"]],
+    ["paddingLeft", ["padding-left", "length"]],
   ]);
   const NAMED_ACTIVATION_KEYS = new Map([
     ["ctrl", "Ctrl"],
@@ -468,6 +503,197 @@
     return String(value || "").split(/\s+/u).filter(Boolean);
   }
 
+  function isSafeCssToken(value) {
+    return (
+      typeof value === "string" &&
+      value.length > 0 &&
+      value.length <= 128 &&
+      !/[\u0000-\u001f\u007f;{}]/u.test(value) &&
+      !/(?:url|expression|var)\s*\(/iu.test(value)
+    );
+  }
+
+  function normalizeColor(value) {
+    if (!isSafeCssToken(value)) {
+      return null;
+    }
+    const trimmed = value.trim();
+    if (
+      /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/iu.test(trimmed) ||
+      /^(?:rgb|rgba|hsl|hsla)\([0-9.,%+\-\s/]+\)$/iu.test(trimmed) ||
+      /^(?:[a-z]+|currentColor|transparent)$/iu.test(trimmed)
+    ) {
+      return trimmed;
+    }
+    return null;
+  }
+
+  function normalizeLengthToken(value, allowNegative = false) {
+    if (typeof value === "number") {
+      if (!Number.isFinite(value) || Math.abs(value) > 256 || (!allowNegative && value < 0)) {
+        return null;
+      }
+      return `${value}px`;
+    }
+    if (!isSafeCssToken(value)) {
+      return null;
+    }
+    const trimmed = value.trim();
+    const match = /^(-?(?:0|[0-9]+(?:\.[0-9]+)?))(px|em|rem|%)?$/u.exec(trimmed);
+    if (!match) {
+      return null;
+    }
+    const amount = Number(match[1]);
+    const unit = match[2] || (amount === 0 ? "" : "px");
+    const limit = unit === "em" || unit === "rem"
+      ? 16
+      : unit === "%"
+        ? 100
+        : 256;
+    if (!Number.isFinite(amount) || Math.abs(amount) > limit || (!allowNegative && amount < 0)) {
+      return null;
+    }
+    return `${match[1]}${unit}`;
+  }
+
+  function normalizeLengthSequence(value) {
+    if (typeof value === "number") {
+      return normalizeLengthToken(value);
+    }
+    if (!isSafeCssToken(value)) {
+      return null;
+    }
+    const tokens = value.trim().split(/\s+/u);
+    if (tokens.length < 1 || tokens.length > 4) {
+      return null;
+    }
+    const normalized = tokens.map((token) => normalizeLengthToken(token));
+    return normalized.every((token) => token !== null) ? normalized.join(" ") : null;
+  }
+
+  function normalizeStructuredStyleValue(kind, value) {
+    if (kind === "color") {
+      return normalizeColor(value);
+    }
+    if (kind === "length") {
+      return normalizeLengthToken(value);
+    }
+    if (kind === "signed-length") {
+      return normalizeLengthToken(value, true);
+    }
+    if (kind === "length-sequence") {
+      return normalizeLengthSequence(value);
+    }
+    if (kind === "border-style") {
+      return typeof value === "string" &&
+        /^(?:none|hidden|dotted|dashed|solid|double)$/u.test(value)
+        ? value
+        : null;
+    }
+    if (kind === "font-style") {
+      return typeof value === "string" && /^(?:normal|italic)$/u.test(value)
+        ? value
+        : null;
+    }
+    if (kind === "font-weight") {
+      if (
+        typeof value === "string" &&
+        /^(?:normal|bold|bolder|lighter|[1-9]00)$/u.test(value)
+      ) {
+        return value;
+      }
+      if (Number.isInteger(value) && value >= 100 && value <= 900 && value % 100 === 0) {
+        return String(value);
+      }
+    }
+    return null;
+  }
+
+  function applyStructuredStyle(element, rawStyle) {
+    if (!isRecord(rawStyle)) {
+      return;
+    }
+    for (const [property, value] of Object.entries(rawStyle)) {
+      const definition = STRUCTURED_STYLE_PROPERTIES.get(property);
+      if (!definition) {
+        continue;
+      }
+      const [cssProperty, kind] = definition;
+      const normalized = normalizeStructuredStyleValue(kind, value);
+      if (normalized !== null) {
+        element.style.setProperty(cssProperty, normalized);
+      }
+    }
+  }
+
+  function normalizeMediaPath(value) {
+    if (
+      typeof value !== "string" ||
+      value.length < 1 ||
+      value.length > 4096 ||
+      /[\\\u0000-\u001f\u007f]/u.test(value) ||
+      value.startsWith("/") ||
+      /^[A-Za-z][A-Za-z0-9+.-]*:/u.test(value)
+    ) {
+      return null;
+    }
+    const components = value.split("/");
+    return components.some((component) => !component || component === "." || component === "..")
+      ? null
+      : value;
+  }
+
+  function appendStructuredImage(documentRef, parent, value, state) {
+    const path = normalizeMediaPath(value.path);
+    if (!path || typeof state.resolveMedia !== "function") {
+      return;
+    }
+    const image = documentRef.createElement("img");
+    image.className = "gsm-hoshidicts-structured-image";
+    image.alt = isRecord(value.data) && typeof value.data.alt === "string"
+      ? value.data.alt.slice(0, 1024)
+      : typeof value.alt === "string"
+        ? value.alt.slice(0, 1024)
+        : "";
+    image.decoding = "async";
+    image.draggable = false;
+    const units = typeof value.sizeUnits === "string" ? value.sizeUnits : "px";
+    if (units === "px") {
+      for (const property of ["width", "height"]) {
+        const size = Number(value[property]);
+        if (Number.isFinite(size) && size > 0) {
+          image.style.setProperty(
+            property,
+            `${Math.max(1, Math.min(MAX_MEDIA_DISPLAY_SIZE, Math.round(size)))}px`
+          );
+        }
+      }
+    }
+    const onLayoutChange = typeof state.onLayoutChange === "function"
+      ? state.onLayoutChange
+      : () => {};
+    image.addEventListener("load", onLayoutChange);
+    image.addEventListener("error", () => {
+      image.hidden = true;
+      onLayoutChange();
+    });
+    parent.appendChild(image);
+    let mediaPromise;
+    try {
+      mediaPromise = Promise.resolve(state.resolveMedia({ path }));
+    } catch (error) {
+      mediaPromise = Promise.reject(error);
+    }
+    mediaPromise.then((url) => {
+      if (image.isConnected && typeof url === "string" && url.startsWith("blob:")) {
+        image.src = url;
+      }
+    }).catch(() => {
+      image.hidden = true;
+      onLayoutChange();
+    });
+  }
+
   function appendStructuredValue(documentRef, parent, value, state, depth) {
     if (state.nodes >= MAX_STRUCTURED_NODES || depth > MAX_STRUCTURED_DEPTH) {
       return;
@@ -495,6 +721,24 @@
       return;
     }
 
+    if (value.type === "structured-content") {
+      appendStructuredValue(documentRef, parent, value.content, state, depth + 1);
+      return;
+    }
+    if (value.type === "text") {
+      appendStructuredValue(
+        documentRef,
+        parent,
+        Object.prototype.hasOwnProperty.call(value, "text") ? value.text : value.content,
+        state,
+        depth + 1
+      );
+      return;
+    }
+    if (value.type === "image") {
+      value = { ...value, tag: "img" };
+    }
+
     const tag = typeof value.tag === "string" ? value.tag.toLowerCase() : "";
     if (IGNORED_STRUCTURED_TAGS.has(tag)) {
       return;
@@ -506,8 +750,23 @@
       return;
     }
 
+    if (tag === "img") {
+      state.nodes += 1;
+      appendStructuredImage(documentRef, parent, value, state);
+      return;
+    }
+
     const element = documentRef.createElement(tag);
     state.nodes += 1;
+    applyStructuredStyle(element, value.style);
+    if (
+      isRecord(value.data) &&
+      typeof value.data.id === "string" &&
+      value.data.id.length <= 256 &&
+      !/[\u0000-\u001f\u007f]/u.test(value.data.id)
+    ) {
+      element.dataset.scId = value.data.id;
+    }
     if (
       typeof value.lang === "string" &&
       /^[A-Za-z0-9-]{1,35}$/u.test(value.lang)
@@ -525,13 +784,19 @@
         }
       }
     }
-    if (tag !== "br" && Object.prototype.hasOwnProperty.call(value, "content")) {
+    if (tag === "details" && typeof state.onLayoutChange === "function") {
+      element.addEventListener("toggle", state.onLayoutChange);
+    }
+    if (
+      !STRUCTURED_TAGS_WITHOUT_CONTENT.has(tag) &&
+      Object.prototype.hasOwnProperty.call(value, "content")
+    ) {
       appendStructuredValue(documentRef, element, value.content, state, depth + 1);
     }
     parent.appendChild(element);
   }
 
-  function appendTextOnlyGlossary(documentRef, parent, rawGlossary) {
+  function appendTextOnlyGlossary(documentRef, parent, rawGlossary, options = {}) {
     const value = boundedString(rawGlossary);
     if (!value) {
       return;
@@ -546,9 +811,101 @@
       documentRef,
       parent,
       parsed,
-      { nodes: 0 },
+      {
+        nodes: 0,
+        onLayoutChange: options.onLayoutChange,
+        resolveMedia: typeof options.resolveMedia === "function"
+          ? ({ path }) => options.resolveMedia({
+              dictionary: options.dictionary,
+              generation: options.generation,
+              path,
+            })
+          : null,
+      },
       0
     );
+  }
+
+  function normalizeDictionaryGeneration(value) {
+    return Number.isSafeInteger(value) && value >= 0 ? value : null;
+  }
+
+  function mediaTypeMatchesSignature(mediaType, bytes) {
+    if (!(bytes instanceof Uint8Array)) {
+      return false;
+    }
+    if (mediaType === "image/jpeg") {
+      return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+    }
+    if (mediaType === "image/png") {
+      const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+      return bytes.length >= signature.length && signature.every(
+        (value, index) => bytes[index] === value
+      );
+    }
+    if (mediaType === "image/gif") {
+      if (bytes.length < 6) {
+        return false;
+      }
+      const header = String.fromCharCode(...bytes.slice(0, 6));
+      return header === "GIF87a" || header === "GIF89a";
+    }
+    return mediaType === "image/webp" &&
+      bytes.length >= 12 &&
+      String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" &&
+      String.fromCharCode(...bytes.slice(8, 12)) === "WEBP";
+  }
+
+  function validateMediaPayloadMetadata(payload) {
+    const mediaType = typeof payload.mediaType === "string"
+      ? payload.mediaType.toLowerCase()
+      : "";
+    if (!ALLOWED_MEDIA_TYPES.has(mediaType)) {
+      throw new Error("unsupported_media_type");
+    }
+    const byteLength = Number(payload.byteLength);
+    const width = Number(payload.width);
+    const height = Number(payload.height);
+    const encoded = payload.dataBase64;
+    if (
+      !Number.isSafeInteger(byteLength) ||
+      byteLength < 1 ||
+      byteLength > MAX_MEDIA_BYTES ||
+      !Number.isSafeInteger(width) ||
+      width < 1 ||
+      width > MAX_MEDIA_DIMENSION ||
+      !Number.isSafeInteger(height) ||
+      height < 1 ||
+      height > MAX_MEDIA_DIMENSION ||
+      width * height > MAX_MEDIA_PIXELS ||
+      typeof encoded !== "string" ||
+      encoded.length > Math.ceil(MAX_MEDIA_BYTES / 3) * 4 + 4 ||
+      !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(encoded)
+    ) {
+      throw new Error("invalid_media_payload");
+    }
+    return { byteLength, encoded, height, mediaType, pixelCount: width * height, width };
+  }
+
+  function decodeMediaPayload(windowRef, metadata) {
+    const { byteLength, encoded, height, mediaType, pixelCount, width } = metadata;
+    let decoded;
+    try {
+      decoded = windowRef.atob(encoded);
+    } catch {
+      throw new Error("invalid_media_payload");
+    }
+    if (decoded.length !== byteLength) {
+      throw new Error("invalid_media_payload");
+    }
+    const bytes = new Uint8Array(byteLength);
+    for (let index = 0; index < byteLength; index += 1) {
+      bytes[index] = decoded.charCodeAt(index);
+    }
+    if (!mediaTypeMatchesSignature(mediaType, bytes)) {
+      throw new Error("invalid_media_signature");
+    }
+    return { bytes, byteLength, height, mediaType, pixelCount, width };
   }
 
   function calculatePopupPosition(anchorRect, popupSize, viewport, options = {}) {
@@ -828,6 +1185,29 @@
       options.reconnectMaxDelayMs >= reconnectInitialDelayMs
         ? Math.trunc(options.reconnectMaxDelayMs)
         : RECONNECT_MAX_DELAY_MS;
+    const mediaRequestTimeoutMs =
+      Number.isFinite(options.mediaRequestTimeoutMs) && options.mediaRequestTimeoutMs > 0
+        ? Math.trunc(options.mediaRequestTimeoutMs)
+        : MEDIA_REQUEST_TIMEOUT_MS;
+    const mediaCacheMaxEntries =
+      Number.isInteger(options.mediaCacheMaxEntries) && options.mediaCacheMaxEntries > 0
+        ? options.mediaCacheMaxEntries
+        : MAX_MEDIA_CACHE_ENTRIES;
+    const mediaCacheMaxBytes =
+      Number.isInteger(options.mediaCacheMaxBytes) && options.mediaCacheMaxBytes > 0
+        ? options.mediaCacheMaxBytes
+        : MAX_MEDIA_CACHE_BYTES;
+    const BlobImpl = options.Blob || windowRef.Blob;
+    const createObjectURL = typeof options.createObjectURL === "function"
+      ? options.createObjectURL
+      : windowRef.URL && typeof windowRef.URL.createObjectURL === "function"
+        ? windowRef.URL.createObjectURL.bind(windowRef.URL)
+        : null;
+    const revokeObjectURL = typeof options.revokeObjectURL === "function"
+      ? options.revokeObjectURL
+      : windowRef.URL && typeof windowRef.URL.revokeObjectURL === "function"
+        ? windowRef.URL.revokeObjectURL.bind(windowRef.URL)
+        : () => {};
 
     let preferences = {
       lookupMode: options.lookupMode === "hover" ? "hover" : "shift",
@@ -854,6 +1234,16 @@
     let latestRequestMode = "term-first";
     let latestRequestText = "";
     let cachedTermView = null;
+    let activeDictionaryGeneration = null;
+    let mediaRequestSequence = 0;
+    let activeMediaRequestCount = 0;
+    let mediaCacheBytes = 0;
+    let popupMediaPixels = 0;
+    const mediaCache = new Map();
+    const mediaInFlight = new Map();
+    const mediaPendingByRequestId = new Map();
+    const popupMediaKeys = new Map();
+    let mediaQueue = [];
     let lastCandidateSignature = "";
     let popupVisible = false;
     let popupAnchor = null;
@@ -977,6 +1367,244 @@
       }
     }
 
+    function mediaCacheKey(generation, dictionary, path) {
+      return JSON.stringify([generation, dictionary, path]);
+    }
+
+    function revokeCachedMedia(entry) {
+      try {
+        revokeObjectURL(entry.url);
+      } catch {
+        // Blob URL cleanup is best-effort across Electron versions.
+      }
+    }
+
+    function clearMediaCache() {
+      for (const entry of mediaCache.values()) {
+        revokeCachedMedia(entry);
+      }
+      mediaCache.clear();
+      mediaCacheBytes = 0;
+    }
+
+    function rejectMediaJob(job, error) {
+      if (job.settled) {
+        return;
+      }
+      job.settled = true;
+      if (job.timeoutTimer !== null) {
+        clearTimeoutFn(job.timeoutTimer);
+        job.timeoutTimer = null;
+      }
+      if (job.requestId !== null) {
+        mediaPendingByRequestId.delete(job.requestId);
+      }
+      mediaInFlight.delete(job.key);
+      if (job.active) {
+        activeMediaRequestCount = Math.max(0, activeMediaRequestCount - 1);
+      }
+      job.reject(error instanceof Error ? error : new Error(String(error)));
+    }
+
+    function cancelMediaRequests(reason) {
+      const jobs = [...mediaInFlight.values()];
+      mediaQueue = [];
+      for (const job of jobs) {
+        rejectMediaJob(job, new Error(reason));
+      }
+      mediaPendingByRequestId.clear();
+      activeMediaRequestCount = 0;
+    }
+
+    function clearMediaState(reason) {
+      cancelMediaRequests(reason);
+      clearMediaCache();
+    }
+
+    function resetPopupMediaBudget() {
+      popupMediaKeys.clear();
+      popupMediaPixels = 0;
+    }
+
+    function preparePopupContent(reason) {
+      cancelMediaRequests(reason);
+      resetPopupMediaBudget();
+    }
+
+    function reservePopupMedia(key, pixelCount) {
+      if (popupMediaKeys.has(key)) {
+        return true;
+      }
+      if (
+        popupMediaKeys.size >= MAX_POPUP_MEDIA_IMAGES ||
+        popupMediaPixels + pixelCount > MAX_POPUP_MEDIA_PIXELS
+      ) {
+        return false;
+      }
+      popupMediaKeys.set(key, pixelCount);
+      popupMediaPixels += pixelCount;
+      return true;
+    }
+
+    function isPopupMediaBudgetFull() {
+      return (
+        popupMediaKeys.size >= MAX_POPUP_MEDIA_IMAGES ||
+        popupMediaPixels >= MAX_POPUP_MEDIA_PIXELS
+      );
+    }
+
+    function releasePopupMedia(key) {
+      const pixelCount = popupMediaKeys.get(key);
+      if (pixelCount === undefined) {
+        return;
+      }
+      popupMediaKeys.delete(key);
+      popupMediaPixels = Math.max(0, popupMediaPixels - pixelCount);
+    }
+
+    function updateDictionaryGeneration(generation) {
+      if (activeDictionaryGeneration === generation) {
+        return;
+      }
+      clearMediaState("dictionary_generation_changed");
+      activeDictionaryGeneration = generation;
+    }
+
+    function cacheMedia(job, url, byteLength, pixelCount) {
+      const existing = mediaCache.get(job.key);
+      if (existing) {
+        mediaCacheBytes -= existing.byteLength;
+        revokeCachedMedia(existing);
+        mediaCache.delete(job.key);
+      }
+      const entry = { byteLength, pixelCount, url };
+      mediaCache.set(job.key, entry);
+      mediaCacheBytes += byteLength;
+      while (
+        mediaCache.size > mediaCacheMaxEntries ||
+        mediaCacheBytes > mediaCacheMaxBytes
+      ) {
+        const oldestKey = mediaCache.keys().next().value;
+        const oldest = mediaCache.get(oldestKey);
+        mediaCache.delete(oldestKey);
+        mediaCacheBytes -= oldest.byteLength;
+        revokeCachedMedia(oldest);
+      }
+    }
+
+    function resolveMediaJob(job, url, byteLength, pixelCount) {
+      if (job.settled) {
+        return;
+      }
+      job.settled = true;
+      if (job.timeoutTimer !== null) {
+        clearTimeoutFn(job.timeoutTimer);
+        job.timeoutTimer = null;
+      }
+      mediaPendingByRequestId.delete(job.requestId);
+      mediaInFlight.delete(job.key);
+      activeMediaRequestCount = Math.max(0, activeMediaRequestCount - 1);
+      cacheMedia(job, url, byteLength, pixelCount);
+      job.resolve(url);
+    }
+
+    function pumpMediaQueue() {
+      while (
+        mediaQueue.length > 0 &&
+        activeMediaRequestCount < MAX_MEDIA_CONCURRENT_REQUESTS
+      ) {
+        const job = mediaQueue.shift();
+        if (
+          destroyed ||
+          job.generation !== activeDictionaryGeneration ||
+          !socket ||
+          socket.readyState !== WebSocketImpl.OPEN
+        ) {
+          rejectMediaJob(job, new Error("media_unavailable"));
+          continue;
+        }
+        job.active = true;
+        activeMediaRequestCount += 1;
+        job.requestId = `overlay-media-${++mediaRequestSequence}`;
+        mediaPendingByRequestId.set(job.requestId, job);
+        job.timeoutTimer = setTimeoutFn(() => {
+          rejectMediaJob(job, new Error("media_request_timed_out"));
+          pumpMediaQueue();
+        }, mediaRequestTimeoutMs);
+        try {
+          socket.send(JSON.stringify({
+            type: "hoshidicts_media",
+            requestId: job.requestId,
+            generation: job.generation,
+            dictionary: job.dictionary,
+            path: job.path,
+          }));
+        } catch {
+          rejectMediaJob(job, new Error("media_send_failed"));
+        }
+      }
+    }
+
+    function resolveMedia({ dictionary, generation, path }) {
+      const normalizedGeneration = normalizeDictionaryGeneration(generation);
+      const normalizedPath = normalizeMediaPath(path);
+      if (
+        normalizedGeneration === null ||
+        normalizedGeneration !== activeDictionaryGeneration ||
+        typeof dictionary !== "string" ||
+        dictionary.length < 1 ||
+        dictionary.length > 1024 ||
+        /[\u0000-\u001f\u007f]/u.test(dictionary) ||
+        !normalizedPath ||
+        !BlobImpl ||
+        !createObjectURL
+      ) {
+        return Promise.reject(new Error("invalid_media_reference"));
+      }
+      const key = mediaCacheKey(normalizedGeneration, dictionary, normalizedPath);
+      const cached = mediaCache.get(key);
+      if (cached) {
+        if (!reservePopupMedia(key, cached.pixelCount)) {
+          cancelMediaRequests("media_pixel_budget_exceeded");
+          return Promise.reject(new Error("media_pixel_budget_exceeded"));
+        }
+        mediaCache.delete(key);
+        mediaCache.set(key, cached);
+        if (isPopupMediaBudgetFull()) {
+          cancelMediaRequests("media_pixel_budget_exhausted");
+        }
+        return Promise.resolve(cached.url);
+      }
+      if (isPopupMediaBudgetFull()) {
+        return Promise.reject(new Error("media_pixel_budget_exhausted"));
+      }
+      const inFlight = mediaInFlight.get(key);
+      if (inFlight) {
+        return inFlight.promise;
+      }
+      if (mediaInFlight.size >= MAX_MEDIA_PENDING_REQUESTS) {
+        return Promise.reject(new Error("media_queue_full"));
+      }
+      const job = {
+        active: false,
+        dictionary,
+        generation: normalizedGeneration,
+        key,
+        path: normalizedPath,
+        requestId: null,
+        settled: false,
+        timeoutTimer: null,
+      };
+      job.promise = new Promise((resolve, reject) => {
+        job.resolve = resolve;
+        job.reject = reject;
+      });
+      mediaInFlight.set(key, job);
+      mediaQueue.push(job);
+      pumpMediaQueue();
+      return job.promise;
+    }
+
     function invalidateLookup() {
       latestGeneration += 1;
       latestRequestId = null;
@@ -997,6 +1625,7 @@
       cachedTermView = null;
       popupAnchor = null;
       audioController.dismissPopup();
+      preparePopupContent("popup_dismissed");
       popupView.clear();
       popup.hidden = true;
       publishPopupState(false);
@@ -1063,17 +1692,23 @@
     }
 
     function renderLookupNotice(candidate, message) {
+      preparePopupContent("lookup_notice");
       popupView.renderNotice(message, candidate);
       showPopup(candidate);
     }
 
-    function renderTermResults(results, candidate) {
+    function renderTermResults(results, candidate, dictionaryGeneration) {
+      preparePopupContent("lookup_results");
       cachedTermView = {
         results,
         candidate,
+        dictionaryGeneration,
         highlightText: results[0].matched || results[0].term.expression,
       };
-      const rendered = popupView.renderResults(results, candidate);
+      const rendered = popupView.renderResults(results, candidate, {
+        generation: dictionaryGeneration,
+        resolveMedia: dictionaryGeneration === null ? null : resolveMedia,
+      });
       for (const button of rendered.miningButtons) {
         button.hidden = true;
       }
@@ -1084,11 +1719,15 @@
 
     function restoreTermView() {
       if (!cachedTermView) return;
-      const { results, candidate } = cachedTermView;
+      const { results, candidate, dictionaryGeneration } = cachedTermView;
       latestCandidate = candidate;
       latestRequestMode = "term-first";
       latestRequestText = candidate.query;
-      const rendered = popupView.renderResults(results, candidate);
+      preparePopupContent("restore_term_results");
+      const rendered = popupView.renderResults(results, candidate, {
+        generation: dictionaryGeneration,
+        resolveMedia: dictionaryGeneration === null ? null : resolveMedia,
+      });
       for (const button of rendered.miningButtons) {
         button.hidden = true;
       }
@@ -1256,17 +1895,93 @@
       }
     }
 
+    function handleMediaResponse(payload) {
+      const requestId = typeof payload.requestId === "string" ? payload.requestId : "";
+      const job = mediaPendingByRequestId.get(requestId);
+      if (!job) {
+        return;
+      }
+      const matchesRequest =
+        payload.generation === job.generation &&
+        payload.dictionary === job.dictionary &&
+        payload.path === job.path;
+      if (!matchesRequest) {
+        rejectMediaJob(job, new Error("invalid_media_response"));
+        pumpMediaQueue();
+        return;
+      }
+      if (payload.success !== true) {
+        const invalidateMediaState =
+          payload.staleGeneration === true || payload.featureDisabled === true;
+        rejectMediaJob(
+          job,
+          new Error(payload.staleGeneration === true
+            ? "stale_generation"
+            : payload.featureDisabled === true
+              ? "feature_disabled"
+            : boundedString(payload.error, 256) || "media_lookup_failed")
+        );
+        if (invalidateMediaState) {
+          clearMediaState(
+            payload.staleGeneration === true ? "stale_generation" : "feature_disabled"
+          );
+          activeDictionaryGeneration = null;
+        } else {
+          pumpMediaQueue();
+        }
+        return;
+      }
+      let metadata;
+      try {
+        metadata = validateMediaPayloadMetadata(payload);
+      } catch (error) {
+        rejectMediaJob(job, error);
+        pumpMediaQueue();
+        return;
+      }
+      const alreadyReserved = popupMediaKeys.has(job.key);
+      if (!reservePopupMedia(job.key, metadata.pixelCount)) {
+        rejectMediaJob(job, new Error("media_pixel_budget_exceeded"));
+        cancelMediaRequests("media_pixel_budget_exceeded");
+        return;
+      }
+      let media;
+      let url;
+      try {
+        media = decodeMediaPayload(windowRef, metadata);
+        const blob = new BlobImpl([media.bytes], { type: media.mediaType });
+        url = createObjectURL(blob);
+        if (typeof url !== "string" || !url.startsWith("blob:")) {
+          throw new Error("invalid_blob_url");
+        }
+      } catch (error) {
+        if (!alreadyReserved) {
+          releasePopupMedia(job.key);
+        }
+        rejectMediaJob(job, error);
+        pumpMediaQueue();
+        return;
+      }
+      resolveMediaJob(job, url, media.byteLength, media.pixelCount);
+      if (isPopupMediaBudgetFull()) {
+        cancelMediaRequests("media_pixel_budget_exhausted");
+      } else {
+        pumpMediaQueue();
+      }
+    }
+
     function handleLookupResponse(rawData) {
       const serialized = typeof rawData === "string"
         ? rawData
         : rawData instanceof windowRef.ArrayBuffer
           ? new windowRef.TextDecoder().decode(rawData)
           : String(rawData);
-      if (serialized.length > MAX_RESPONSE_BYTES) {
+      if (serialized.length > MAX_MEDIA_RESPONSE_BYTES) {
         diagnostic("warn", "response.too-large", {
           bytes: serialized.length,
-          maxBytes: MAX_RESPONSE_BYTES,
+          maxBytes: MAX_MEDIA_RESPONSE_BYTES,
         });
+        cancelMediaRequests("media_response_too_large");
         return;
       }
       let payload;
@@ -1276,7 +1991,21 @@
         diagnostic("warn", "response.invalid-json", { bytes: serialized.length });
         return;
       }
-      if (!isRecord(payload) || payload.type !== "hoshidicts_lookup_result") {
+      if (!isRecord(payload)) {
+        return;
+      }
+      if (payload.type === "hoshidicts_media_result") {
+        handleMediaResponse(payload);
+        return;
+      }
+      if (serialized.length > MAX_RESPONSE_BYTES) {
+        diagnostic("warn", "lookup-response.too-large", {
+          bytes: serialized.length,
+          maxBytes: MAX_RESPONSE_BYTES,
+        });
+        return;
+      }
+      if (payload.type !== "hoshidicts_lookup_result") {
         return;
       }
       if (payload.requestId !== latestRequestId) {
@@ -1317,9 +2046,17 @@
         renderLookupNotice(candidate, message);
         return;
       }
+      const dictionaryGeneration = normalizeDictionaryGeneration(payload.generation);
+      if (dictionaryGeneration === null) {
+        diagnostic("warn", "lookup.media-generation-unavailable", { requestId });
+        clearMediaState("dictionary_generation_unavailable");
+        activeDictionaryGeneration = null;
+      } else {
+        updateDictionaryGeneration(dictionaryGeneration);
+      }
       const results = normalizeLookupResults(payload);
       if (results.length > 0) {
-        renderTermResults(results, candidate);
+        renderTermResults(results, candidate, dictionaryGeneration);
         diagnostic("info", "lookup.rendered", {
           requestId,
           dictionaryCount: Number.isFinite(payload.dictionaryCount)
@@ -1333,6 +2070,7 @@
       }
       const kanji = normalizeKanjiLookup(payload);
       if (kanji) {
+        preparePopupContent("kanji_results");
         audioController.setRenderedResults([]);
         popupView.renderKanji(kanji, candidate, {
           onBack: requestMode === "kanji" && cachedTermView ? restoreTermView : null,
@@ -1434,6 +2172,8 @@
           socket = null;
           latestRequestId = null;
           clearLookupTimeout();
+          clearMediaState("socket_closed");
+          activeDictionaryGeneration = null;
           if (popupVisible) {
             dismissPopup("socket-closed");
           }
@@ -1757,6 +2497,8 @@
       diagnostic("info", "reader.destroyed");
       hide("destroy");
       audioController.destroy();
+      clearMediaState("reader_destroyed");
+      activeDictionaryGeneration = null;
       if (reconnectTimer !== null) {
         clearTimeoutFn(reconnectTimer);
         reconnectTimer = null;

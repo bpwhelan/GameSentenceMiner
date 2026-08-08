@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::ffi::{c_char, c_int, CStr, CString};
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Component, Path, PathBuf};
 use std::ptr;
 use std::slice;
@@ -13,6 +13,12 @@ pub const LOOKUP_MAX_RESULTS: c_int = 16;
 pub const MAX_LOOKUP_TEXT_BYTES: usize = 4 * 1024;
 pub const MAX_LOOKUP_RESPONSE_BYTES: usize = 256 * 1024;
 pub const MAX_REQUEST_ID_BYTES: usize = 128;
+pub const MAX_MEDIA_DICTIONARY_BYTES: usize = 1024;
+pub const MAX_MEDIA_PATH_BYTES: usize = 4 * 1024;
+pub const MAX_MEDIA_BYTES: usize = 4 * 1024 * 1024;
+pub const MAX_MEDIA_RESPONSE_BYTES: usize = 6 * 1024 * 1024;
+pub const MAX_MEDIA_DIMENSION: u32 = 4096;
+pub const MAX_MEDIA_PIXELS: u64 = 16 * 1024 * 1024;
 
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 const MAX_DICTIONARIES: usize = 256;
@@ -30,6 +36,7 @@ const MAX_KANJI_ENTRIES: usize = 64;
 const MAX_KANJI_DEFINITIONS_PER_ENTRY: usize = 64;
 const MAX_KANJI_STATS_PER_ENTRY: usize = 128;
 const MAX_ARCHIVE_INDEX_BYTES: u64 = 1024 * 1024;
+const MAX_MEDIA_RECORDS: u64 = 1_000_000;
 const REQUIRED_DICTIONARY_FILES: [&str; 3] = ["hash.table", "bloom.filter", "blobs.bin"];
 const HOSHIDICTS_MARKERS: [&str; 3] = [".hoshidicts_3", ".hoshidicts_2", ".hoshidicts_1"];
 
@@ -61,6 +68,13 @@ struct HdLookupResults {
 #[repr(C)]
 struct HdKanjiResults {
     _private: [u8; 0],
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct HdMediaFile {
+    data: *const u8,
+    size: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -202,6 +216,11 @@ extern "C" {
         out_count: *mut usize,
     ) -> *mut HdKanjiResults;
     fn hd_kanji_results_free(results: *mut HdKanjiResults);
+    fn hd_query_get_media_file(
+        query: *const HdQuery,
+        dict_name: *const c_char,
+        media_path: *const c_char,
+    ) -> HdMediaFile;
 
     fn hd_lookup_new(query: *mut HdQuery, deinflector: *mut HdDeinflector) -> *mut HdLookup;
     fn hd_lookup_free(lookup: *mut HdLookup);
@@ -302,6 +321,43 @@ pub struct LookupResult {
     pub trace: Vec<LookupTrace>,
     pub term: LookupTerm,
     pub preprocessor_steps: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MediaFile {
+    pub media_type: &'static str,
+    pub data: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaError {
+    InvalidRequestId,
+    InvalidDictionary,
+    InvalidPath,
+    NotFound,
+    UnsupportedMediaType,
+    MediaTooLarge,
+    InvalidDimensions,
+    StaleGeneration,
+    InternalError,
+}
+
+impl MediaError {
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::InvalidRequestId => "invalid_request_id",
+            Self::InvalidDictionary => "invalid_dictionary",
+            Self::InvalidPath => "invalid_path",
+            Self::NotFound => "not_found",
+            Self::UnsupportedMediaType => "unsupported_media_type",
+            Self::MediaTooLarge => "media_too_large",
+            Self::InvalidDimensions => "invalid_dimensions",
+            Self::StaleGeneration => "stale_generation",
+            Self::InternalError => "internal_error",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -565,6 +621,7 @@ struct DictionaryCounts {
     terms: ItemCount,
     term_meta: HashMap<String, u64>,
     kanji: ItemCount,
+    media: ItemCount,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -648,6 +705,261 @@ fn read_dictionary_index(dictionary_path: &Path) -> Result<DictionaryIndex, Stri
     })
 }
 
+#[derive(Debug)]
+struct MediaRecordMetadata {
+    path: String,
+    end: u64,
+}
+
+fn read_exact_at(
+    file: &mut fs::File,
+    offset: u64,
+    buffer: &mut [u8],
+    file_path: &Path,
+    label: &str,
+) -> Result<(), String> {
+    file.seek(SeekFrom::Start(offset)).map_err(|error| {
+        format!(
+            "failed to seek to {label} in {}: {error}",
+            file_path.display()
+        )
+    })?;
+    file.read_exact(buffer).map_err(|error| {
+        format!(
+            "failed to read {label} from {}: {error}",
+            file_path.display()
+        )
+    })
+}
+
+fn read_media_record_metadata(
+    media_file: &mut fs::File,
+    media_path: &Path,
+    media_size: u64,
+    record_offset: u64,
+) -> Result<MediaRecordMetadata, String> {
+    let path_length_end = record_offset
+        .checked_add(2)
+        .ok_or_else(|| "dictionary media record offset overflowed".to_string())?;
+    if path_length_end > media_size {
+        return Err(format!(
+            "dictionary media record at offset {record_offset} has a truncated path length header"
+        ));
+    }
+
+    let mut path_length_bytes = [0u8; 2];
+    read_exact_at(
+        media_file,
+        record_offset,
+        &mut path_length_bytes,
+        media_path,
+        "media path length",
+    )?;
+    let path_length = usize::from(u16::from_le_bytes(path_length_bytes));
+    if path_length == 0 || path_length > MAX_MEDIA_PATH_BYTES {
+        return Err(format!(
+            "dictionary media record at offset {record_offset} has an invalid path length"
+        ));
+    }
+
+    let path_end = path_length_end
+        .checked_add(path_length as u64)
+        .ok_or_else(|| "dictionary media path length overflowed".to_string())?;
+    let blob_length_end = path_end
+        .checked_add(4)
+        .ok_or_else(|| "dictionary media blob header offset overflowed".to_string())?;
+    if blob_length_end > media_size {
+        return Err(format!(
+            "dictionary media record at offset {record_offset} has a truncated path or blob length header"
+        ));
+    }
+
+    let mut path_bytes = vec![0u8; path_length];
+    read_exact_at(
+        media_file,
+        path_length_end,
+        &mut path_bytes,
+        media_path,
+        "media path",
+    )?;
+    let path = String::from_utf8(path_bytes).map_err(|_| {
+        format!("dictionary media record at offset {record_offset} has a non-UTF-8 path")
+    })?;
+    validate_media_path(&path).map_err(|_| {
+        format!("dictionary media record at offset {record_offset} has a non-normalized path")
+    })?;
+
+    let mut blob_length_bytes = [0u8; 4];
+    read_exact_at(
+        media_file,
+        path_end,
+        &mut blob_length_bytes,
+        media_path,
+        "media blob length",
+    )?;
+    let blob_length = u64::from(u32::from_le_bytes(blob_length_bytes));
+    if blob_length == 0 || blob_length > MAX_MEDIA_BYTES as u64 {
+        return Err(format!(
+            "dictionary media record at offset {record_offset} has an invalid blob length"
+        ));
+    }
+    let end = blob_length_end
+        .checked_add(blob_length)
+        .ok_or_else(|| "dictionary media blob length overflowed".to_string())?;
+    if end > media_size {
+        return Err(format!(
+            "dictionary media record at offset {record_offset} extends past the end of media.bin"
+        ));
+    }
+
+    Ok(MediaRecordMetadata { path, end })
+}
+
+fn validate_native_media_files(dictionary_path: &Path, declared_count: u64) -> Result<(), String> {
+    let index_path = dictionary_path.join("media.idx");
+    let media_path = dictionary_path.join("media.bin");
+
+    if declared_count == 0 {
+        for file_path in [&index_path, &media_path] {
+            match fs::metadata(file_path) {
+                Ok(_) => {
+                    return Err(format!(
+                        "dictionary declares no media but contains {}",
+                        file_path.display()
+                    ));
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(format!(
+                        "failed to inspect dictionary media file {}: {error}",
+                        file_path.display()
+                    ));
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    if declared_count > MAX_MEDIA_RECORDS {
+        return Err(format!(
+            "dictionary media count exceeds the {MAX_MEDIA_RECORDS}-record limit"
+        ));
+    }
+    let expected_count = u32::try_from(declared_count)
+        .map_err(|_| "dictionary media count exceeds the native index format".to_string())?;
+    let expected_index_size = declared_count
+        .checked_mul(8)
+        .and_then(|size| size.checked_add(4))
+        .ok_or_else(|| "dictionary media index size overflowed".to_string())?;
+
+    let index_metadata = fs::metadata(&index_path).map_err(|error| {
+        format!(
+            "dictionary with media is missing required file {}: {error}",
+            index_path.display()
+        )
+    })?;
+    if !index_metadata.is_file() || index_metadata.len() != expected_index_size {
+        return Err(format!(
+            "dictionary media.idx has size {}, expected exactly {expected_index_size} bytes for {declared_count} records: {}",
+            index_metadata.len(),
+            index_path.display()
+        ));
+    }
+
+    let media_metadata = fs::metadata(&media_path).map_err(|error| {
+        format!(
+            "dictionary with media is missing required file {}: {error}",
+            media_path.display()
+        )
+    })?;
+    if !media_metadata.is_file() || media_metadata.len() == 0 {
+        return Err(format!(
+            "dictionary media.bin is empty or not a file: {}",
+            media_path.display()
+        ));
+    }
+    let media_size = media_metadata.len();
+
+    let mut index_file = fs::File::open(&index_path).map_err(|error| {
+        format!(
+            "failed to open dictionary media index {}: {error}",
+            index_path.display()
+        )
+    })?;
+    let mut count_bytes = [0u8; 4];
+    index_file.read_exact(&mut count_bytes).map_err(|error| {
+        format!(
+            "failed to read dictionary media index count {}: {error}",
+            index_path.display()
+        )
+    })?;
+    let indexed_count = u32::from_le_bytes(count_bytes);
+    if indexed_count != expected_count {
+        return Err(format!(
+            "dictionary media.idx count {indexed_count} does not match declared media count {declared_count}"
+        ));
+    }
+
+    let count = usize::try_from(declared_count)
+        .map_err(|_| "dictionary media count cannot fit in memory".to_string())?;
+    let mut records = Vec::new();
+    records
+        .try_reserve_exact(count)
+        .map_err(|_| "dictionary media index is too large to validate".to_string())?;
+    for index in 0..count {
+        let mut offset_bytes = [0u8; 8];
+        index_file.read_exact(&mut offset_bytes).map_err(|error| {
+            format!(
+                "failed to read dictionary media index offset {index} from {}: {error}",
+                index_path.display()
+            )
+        })?;
+        records.push((u64::from_le_bytes(offset_bytes), 0u64));
+    }
+
+    let mut media_file = fs::File::open(&media_path).map_err(|error| {
+        format!(
+            "failed to open dictionary media data {}: {error}",
+            media_path.display()
+        )
+    })?;
+    let mut previous_path: Option<String> = None;
+    for (offset, end) in &mut records {
+        let record = read_media_record_metadata(&mut media_file, &media_path, media_size, *offset)?;
+        if previous_path
+            .as_ref()
+            .is_some_and(|previous| previous > &record.path)
+        {
+            return Err("dictionary media.idx paths are not sorted".into());
+        }
+        previous_path = Some(record.path);
+        *end = record.end;
+    }
+
+    records.sort_unstable_by_key(|(offset, _)| *offset);
+    let mut expected_offset = 0u64;
+    for (offset, end) in records {
+        if offset != expected_offset {
+            let problem = if offset < expected_offset {
+                "overlapping or duplicate"
+            } else {
+                "non-contiguous"
+            };
+            return Err(format!(
+                "dictionary media.idx contains {problem} record offsets: expected {expected_offset}, found {offset}"
+            ));
+        }
+        expected_offset = end;
+    }
+    if expected_offset != media_size {
+        return Err(format!(
+            "dictionary media records do not cover media.bin: covered {expected_offset} of {media_size} bytes"
+        ));
+    }
+
+    Ok(())
+}
+
 fn validate_dictionary_directory(dictionary_path: &Path) -> Result<DictionarySpec, String> {
     let marker_exists = HOSHIDICTS_MARKERS
         .iter()
@@ -693,6 +1005,7 @@ fn validate_dictionary_directory(dictionary_path: &Path) -> Result<DictionarySpe
             dictionary_path.display()
         ));
     }
+    validate_native_media_files(dictionary_path, index.counts.media.total)?;
 
     Ok(DictionarySpec {
         path: dictionary_path.to_path_buf(),
@@ -1020,6 +1333,33 @@ impl NativeEngine {
             entries,
         })
     }
+
+    fn media(&self, dictionary: &str, path: &str) -> Result<MediaFile, MediaError> {
+        validate_media_dictionary(dictionary)?;
+        validate_media_path(path)?;
+        let dictionary = CString::new(dictionary).map_err(|_| MediaError::InvalidDictionary)?;
+        let path = CString::new(path).map_err(|_| MediaError::InvalidPath)?;
+        let native =
+            unsafe { hd_query_get_media_file(self.query, dictionary.as_ptr(), path.as_ptr()) };
+        if native.data.is_null() || native.size == 0 {
+            return Err(MediaError::NotFound);
+        }
+        if native.size > MAX_MEDIA_BYTES {
+            return Err(MediaError::MediaTooLarge);
+        }
+
+        // The C API returns a view into query-owned mmap data. Copy it before
+        // returning so no borrowed native pointer escapes the serialized call.
+        let data = unsafe { slice::from_raw_parts(native.data, native.size) }.to_vec();
+        let (media_type, width, height) = raster_metadata(&data)?;
+        validate_media_dimensions(width, height)?;
+        Ok(MediaFile {
+            media_type,
+            data,
+            width,
+            height,
+        })
+    }
 }
 
 impl Drop for NativeEngine {
@@ -1218,31 +1558,203 @@ pub fn validate_lookup_text(text: &str) -> Result<(), String> {
     Ok(())
 }
 
+pub fn validate_media_dictionary(dictionary: &str) -> Result<(), MediaError> {
+    if dictionary.is_empty()
+        || dictionary.len() > MAX_MEDIA_DICTIONARY_BYTES
+        || dictionary.chars().any(char::is_control)
+    {
+        return Err(MediaError::InvalidDictionary);
+    }
+    Ok(())
+}
+
+pub fn validate_media_path(path: &str) -> Result<(), MediaError> {
+    if path.is_empty()
+        || path.len() > MAX_MEDIA_PATH_BYTES
+        || path.starts_with('/')
+        || path.contains('\\')
+        || path.chars().any(char::is_control)
+        || path
+            .split('/')
+            .any(|component| component.is_empty() || component == "." || component == "..")
+    {
+        return Err(MediaError::InvalidPath);
+    }
+    Ok(())
+}
+
+fn validate_media_dimensions(width: u32, height: u32) -> Result<(), MediaError> {
+    if width == 0
+        || height == 0
+        || width > MAX_MEDIA_DIMENSION
+        || height > MAX_MEDIA_DIMENSION
+        || u64::from(width) * u64::from(height) > MAX_MEDIA_PIXELS
+    {
+        return Err(MediaError::InvalidDimensions);
+    }
+    Ok(())
+}
+
+fn raster_metadata(data: &[u8]) -> Result<(&'static str, u32, u32), MediaError> {
+    if data.starts_with(b"\x89PNG\r\n\x1a\n") {
+        if data.len() < 33 || &data[8..12] != b"\0\0\0\r" || &data[12..16] != b"IHDR" {
+            return Err(MediaError::UnsupportedMediaType);
+        }
+        return Ok((
+            "image/png",
+            u32::from_be_bytes(data[16..20].try_into().unwrap()),
+            u32::from_be_bytes(data[20..24].try_into().unwrap()),
+        ));
+    }
+    if data.starts_with(b"GIF87a") || data.starts_with(b"GIF89a") {
+        if data.len() < 10 {
+            return Err(MediaError::UnsupportedMediaType);
+        }
+        return Ok((
+            "image/gif",
+            u16::from_le_bytes(data[6..8].try_into().unwrap()).into(),
+            u16::from_le_bytes(data[8..10].try_into().unwrap()).into(),
+        ));
+    }
+    if data.starts_with(&[0xff, 0xd8]) {
+        let (width, height) = jpeg_dimensions(data)?;
+        return Ok(("image/jpeg", width, height));
+    }
+    if data.len() >= 12 && data.starts_with(b"RIFF") && &data[8..12] == b"WEBP" {
+        let riff_size = u32::from_le_bytes(data[4..8].try_into().unwrap()) as usize;
+        if riff_size.checked_add(8) != Some(data.len()) {
+            return Err(MediaError::UnsupportedMediaType);
+        }
+        let (width, height) = webp_dimensions(data)?;
+        return Ok(("image/webp", width, height));
+    }
+    Err(MediaError::UnsupportedMediaType)
+}
+
+fn jpeg_dimensions(data: &[u8]) -> Result<(u32, u32), MediaError> {
+    let mut offset = 2usize;
+    while offset < data.len() {
+        while offset < data.len() && data[offset] != 0xff {
+            offset += 1;
+        }
+        while offset < data.len() && data[offset] == 0xff {
+            offset += 1;
+        }
+        let marker = *data.get(offset).ok_or(MediaError::UnsupportedMediaType)?;
+        offset += 1;
+        if marker == 0xd9 || marker == 0xda {
+            break;
+        }
+        if marker == 0x01 || (0xd0..=0xd8).contains(&marker) {
+            continue;
+        }
+        let length_bytes = data
+            .get(offset..offset + 2)
+            .ok_or(MediaError::UnsupportedMediaType)?;
+        let length = usize::from(u16::from_be_bytes(length_bytes.try_into().unwrap()));
+        if length < 2 || offset + length > data.len() {
+            return Err(MediaError::UnsupportedMediaType);
+        }
+        if matches!(
+            marker,
+            0xc0 | 0xc1
+                | 0xc2
+                | 0xc3
+                | 0xc5
+                | 0xc6
+                | 0xc7
+                | 0xc9
+                | 0xca
+                | 0xcb
+                | 0xcd
+                | 0xce
+                | 0xcf
+        ) {
+            if length < 8 {
+                return Err(MediaError::UnsupportedMediaType);
+            }
+            let height = u16::from_be_bytes(data[offset + 3..offset + 5].try_into().unwrap());
+            let width = u16::from_be_bytes(data[offset + 5..offset + 7].try_into().unwrap());
+            return Ok((width.into(), height.into()));
+        }
+        offset += length;
+    }
+    Err(MediaError::UnsupportedMediaType)
+}
+
+fn webp_dimensions(data: &[u8]) -> Result<(u32, u32), MediaError> {
+    let mut offset = 12usize;
+    while offset + 8 <= data.len() {
+        let chunk = &data[offset..offset + 4];
+        let length = u32::from_le_bytes(data[offset + 4..offset + 8].try_into().unwrap()) as usize;
+        let payload_start = offset + 8;
+        let payload_end = payload_start
+            .checked_add(length)
+            .ok_or(MediaError::UnsupportedMediaType)?;
+        let payload = data
+            .get(payload_start..payload_end)
+            .ok_or(MediaError::UnsupportedMediaType)?;
+        match chunk {
+            b"VP8 " if payload.len() >= 10 && payload[3..6] == [0x9d, 0x01, 0x2a] => {
+                let width = u16::from_le_bytes(payload[6..8].try_into().unwrap()) & 0x3fff;
+                let height = u16::from_le_bytes(payload[8..10].try_into().unwrap()) & 0x3fff;
+                return Ok((width.into(), height.into()));
+            }
+            b"VP8L" if payload.len() >= 5 && payload[0] == 0x2f => {
+                let bits = u32::from_le_bytes(payload[1..5].try_into().unwrap());
+                return Ok(((bits & 0x3fff) + 1, ((bits >> 14) & 0x3fff) + 1));
+            }
+            b"VP8X" if payload.len() >= 10 => {
+                let width = 1
+                    + u32::from(payload[4])
+                    + (u32::from(payload[5]) << 8)
+                    + (u32::from(payload[6]) << 16);
+                let height = 1
+                    + u32::from(payload[7])
+                    + (u32::from(payload[8]) << 8)
+                    + (u32::from(payload[9]) << 16);
+                return Ok((width, height));
+            }
+            _ => {}
+        }
+        offset = payload_end + (length & 1);
+    }
+    Err(MediaError::UnsupportedMediaType)
+}
+
 pub struct HoshidictsService {
     root: PathBuf,
     engine: Option<NativeEngine>,
+    generation: u64,
 }
 
 impl HoshidictsService {
     pub fn new(root: PathBuf) -> Self {
-        Self { root, engine: None }
+        Self {
+            root,
+            engine: None,
+            generation: 0,
+        }
     }
 
     pub fn activate(&mut self) -> Result<usize, String> {
         if self.engine.is_none() {
             self.engine = Some(NativeEngine::load(&self.root)?);
+            self.advance_generation();
         }
         Ok(self.dictionary_count())
     }
 
     pub fn deactivate(&mut self) {
         self.engine = None;
+        self.advance_generation();
     }
 
     pub fn reload(&mut self) -> Result<usize, String> {
         let replacement = NativeEngine::load(&self.root)?;
         let dictionary_count = replacement.dictionary_count;
         self.engine = Some(replacement);
+        self.advance_generation();
         Ok(dictionary_count)
     }
 
@@ -1260,6 +1772,34 @@ impl HoshidictsService {
             .as_ref()
             .expect("engine was activated")
             .lookup_kanji(character)
+    }
+
+    pub fn media(
+        &self,
+        generation: u64,
+        dictionary: &str,
+        path: &str,
+    ) -> Result<MediaFile, MediaError> {
+        validate_media_dictionary(dictionary)?;
+        validate_media_path(path)?;
+        if generation != self.generation || self.engine.is_none() {
+            return Err(MediaError::StaleGeneration);
+        }
+        self.engine
+            .as_ref()
+            .expect("loaded engine checked above")
+            .media(dictionary, path)
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    fn advance_generation(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
+        if self.generation == 0 {
+            self.generation = 1;
+        }
     }
 
     #[cfg(test)]
@@ -1284,6 +1824,8 @@ mod tests {
     use zip::write::SimpleFileOptions;
 
     static NEXT_TEST_DIR: AtomicU64 = AtomicU64::new(1);
+    const TEST_PNG: &[u8] =
+        b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x02\0\0\0\x03\x08\x06\0\0\0\0\0\0\0";
 
     struct TestDir(PathBuf);
 
@@ -1354,6 +1896,58 @@ mod tests {
         .expect("write manifest");
     }
 
+    fn set_dictionary_media_count(dictionary: &Path, count: u64) {
+        let mut index: serde_json::Value = serde_json::from_slice(
+            &fs::read(dictionary.join("index.json")).expect("read dictionary index"),
+        )
+        .expect("parse dictionary index");
+        index["counts"]["media"]["total"] = count.into();
+        fs::write(
+            dictionary.join("index.json"),
+            serde_json::to_vec(&index).expect("serialize dictionary index"),
+        )
+        .expect("write media count");
+    }
+
+    fn write_native_media_files(dictionary: &Path, entries: &[(&str, &[u8])]) {
+        let mut media = Vec::new();
+        let mut offsets = Vec::new();
+        for (path, blob) in entries {
+            let offset = u64::try_from(media.len()).expect("media offset");
+            let path_length = u16::try_from(path.len()).expect("media path length");
+            let blob_length = u32::try_from(blob.len()).expect("media blob length");
+            media.extend_from_slice(&path_length.to_le_bytes());
+            media.extend_from_slice(path.as_bytes());
+            media.extend_from_slice(&blob_length.to_le_bytes());
+            media.extend_from_slice(blob);
+            offsets.push((path.to_string(), offset));
+        }
+        fs::write(dictionary.join("media.bin"), media).expect("write media data");
+
+        offsets.sort_by(|left, right| left.0.cmp(&right.0));
+        let mut index = Vec::new();
+        index.extend_from_slice(
+            &u32::try_from(offsets.len())
+                .expect("media count")
+                .to_le_bytes(),
+        );
+        for (_, offset) in offsets {
+            index.extend_from_slice(&offset.to_le_bytes());
+        }
+        fs::write(dictionary.join("media.idx"), index).expect("write media index");
+    }
+
+    fn media_dictionary(root: &Path, entries: &[(&str, &[u8])]) -> PathBuf {
+        let dictionary = write_dictionary(root, "Test", 1, 0);
+        write_manifest(root, "Test");
+        set_dictionary_media_count(
+            &dictionary,
+            u64::try_from(entries.len()).expect("media count"),
+        );
+        write_native_media_files(&dictionary, entries);
+        dictionary
+    }
+
     fn write_zip_archive(path: &Path, entries: &[(&str, &str)]) {
         let file = fs::File::create(path).expect("create archive");
         let mut archive = zip::ZipWriter::new(file);
@@ -1405,7 +1999,10 @@ mod tests {
                 .start_file("term_bank_1.json", options)
                 .expect("start term bank");
             archive
-                .write_all(r#"[["食べる","たべる","","v1",0,["to eat"],1,""]]"#.as_bytes())
+                .write_all(
+                    r#"[["食べる","たべる","","v1",0,[{"type":"structured-content","content":[{"tag":"span","content":"to eat"},{"tag":"img","path":"img/test.png","width":2,"height":3,"sizeUnits":"px"}]}],1,""]]"#
+                        .as_bytes(),
+                )
                 .expect("write term bank");
             archive
                 .start_file("term_meta_bank_1.json", options)
@@ -1416,6 +2013,10 @@ mod tests {
                         .as_bytes(),
                 )
                 .expect("write term metadata bank");
+            archive
+                .start_file("img/test.png", options)
+                .expect("start media");
+            archive.write_all(TEST_PNG).expect("write media");
         }
         archive
             .start_file("kanji_bank_1.json", options)
@@ -1585,6 +2186,50 @@ mod tests {
     }
 
     #[test]
+    fn media_paths_and_raster_metadata_are_strictly_validated() {
+        assert!(validate_media_dictionary("Japanese Character Names").is_ok());
+        assert_eq!(
+            validate_media_dictionary("bad\0dictionary"),
+            Err(MediaError::InvalidDictionary)
+        );
+        assert!(validate_media_path("img/c123.jpg").is_ok());
+        for path in [
+            "",
+            "/img/a.png",
+            "img\\a.png",
+            "img//a.png",
+            "img/../a.png",
+            "./a.png",
+        ] {
+            assert_eq!(validate_media_path(path), Err(MediaError::InvalidPath));
+        }
+
+        assert_eq!(raster_metadata(TEST_PNG), Ok(("image/png", 2, 3)));
+        assert_eq!(
+            raster_metadata(b"GIF89a\x02\0\x03\0"),
+            Ok(("image/gif", 2, 3))
+        );
+        assert_eq!(
+            raster_metadata(&[
+                0xff, 0xd8, 0xff, 0xc0, 0, 11, 8, 0, 3, 0, 2, 1, 1, 0x11, 0, 0xff, 0xd9,
+            ]),
+            Ok(("image/jpeg", 2, 3))
+        );
+        assert_eq!(
+            raster_metadata(b"RIFF\x16\0\0\0WEBPVP8X\x0a\0\0\0\0\0\0\0\x01\0\0\x02\0\0"),
+            Ok(("image/webp", 2, 3))
+        );
+        assert_eq!(
+            raster_metadata(b"<svg></svg>"),
+            Err(MediaError::UnsupportedMediaType)
+        );
+        assert_eq!(
+            validate_media_dimensions(MAX_MEDIA_DIMENSION + 1, 1),
+            Err(MediaError::InvalidDimensions)
+        );
+    }
+
+    #[test]
     fn manifest_validation_requires_marker_index_content_and_native_files() {
         let root = TestDir::new("validation");
         let dictionary = write_dictionary(&root.0, "generations/test/1/Test", 1, 0);
@@ -1619,6 +2264,24 @@ mod tests {
     }
 
     #[test]
+    fn dictionary_with_media_requires_a_valid_native_media_layout() {
+        let root = TestDir::new("media-validation");
+        let dictionary = write_dictionary(&root.0, "Test", 1, 0);
+        write_manifest(&root.0, "Test");
+        set_dictionary_media_count(&dictionary, 2);
+        let error = load_dictionary_specs(&root.0).expect_err("missing media files must fail");
+        assert!(error.contains("media.idx"));
+
+        write_native_media_files(&dictionary, &[("img/b.png", &[2, 3]), ("img/a.png", &[1])]);
+        assert_eq!(
+            load_dictionary_specs(&root.0)
+                .expect("media layout is valid")
+                .len(),
+            1
+        );
+    }
+
+    #[test]
     fn dictionary_index_classifies_frequency_only_content() {
         let root = TestDir::new("frequency-only");
         let dictionary = write_dictionary_with_counts(&root.0, "dictionary", 0, &[("freq", 1)], 0);
@@ -1631,6 +2294,120 @@ mod tests {
         assert_eq!(
             spec.query_kinds().collect::<Vec<_>>(),
             [DictionaryKind::Frequency]
+        );
+    }
+
+    #[test]
+    fn media_index_count_and_exact_size_are_validated() {
+        let root = TestDir::new("media-index-size");
+        let dictionary = media_dictionary(&root.0, &[("img/a.png", &[1]), ("img/b.png", &[2])]);
+        let index_path = dictionary.join("media.idx");
+        let valid_index = fs::read(&index_path).expect("read valid index");
+
+        fs::write(&index_path, &valid_index[..valid_index.len() - 1])
+            .expect("write truncated index");
+        assert!(load_dictionary_specs(&root.0)
+            .expect_err("truncated index must fail")
+            .contains("expected exactly"));
+
+        let mut wrong_count = valid_index;
+        wrong_count[..4].copy_from_slice(&1u32.to_le_bytes());
+        fs::write(&index_path, wrong_count).expect("write wrong count");
+        assert!(load_dictionary_specs(&root.0)
+            .expect_err("wrong index count must fail")
+            .contains("does not match declared media count"));
+    }
+
+    #[test]
+    fn media_index_offsets_must_reference_sorted_contiguous_records() {
+        let root = TestDir::new("media-index-offsets");
+        let dictionary = media_dictionary(&root.0, &[("img/a.png", &[1]), ("img/b.png", &[2])]);
+        let index_path = dictionary.join("media.idx");
+        let media_path = dictionary.join("media.bin");
+        let valid_index = fs::read(&index_path).expect("read valid index");
+        let media_size = fs::metadata(&media_path).expect("media metadata").len();
+
+        let mut out_of_bounds = valid_index.clone();
+        out_of_bounds[4..12].copy_from_slice(&media_size.to_le_bytes());
+        fs::write(&index_path, out_of_bounds).expect("write out-of-bounds offset");
+        assert!(load_dictionary_specs(&root.0)
+            .expect_err("out-of-bounds offset must fail")
+            .contains("truncated path length header"));
+
+        let mut unsorted = valid_index.clone();
+        let first = unsorted[4..12].to_vec();
+        let second = unsorted[12..20].to_vec();
+        unsorted[4..12].copy_from_slice(&second);
+        unsorted[12..20].copy_from_slice(&first);
+        fs::write(&index_path, unsorted).expect("write unsorted offsets");
+        assert!(load_dictionary_specs(&root.0)
+            .expect_err("unsorted indexed paths must fail")
+            .contains("paths are not sorted"));
+
+        let mut media = fs::read(&media_path).expect("read media data");
+        let second_offset = u64::from_le_bytes(valid_index[12..20].try_into().unwrap());
+        media.insert(usize::try_from(second_offset).unwrap(), 0xff);
+        let mut gapped_index = valid_index;
+        gapped_index[12..20].copy_from_slice(&(second_offset + 1).to_le_bytes());
+        fs::write(&media_path, media).expect("write gapped media data");
+        fs::write(&index_path, gapped_index).expect("write gapped index");
+        assert!(load_dictionary_specs(&root.0)
+            .expect_err("non-contiguous media records must fail")
+            .contains("non-contiguous"));
+    }
+
+    #[test]
+    fn media_records_reject_truncated_headers_invalid_paths_and_blob_sizes() {
+        let root = TestDir::new("media-record-corruption");
+        let dictionary = media_dictionary(&root.0, &[("a", &[1])]);
+        let media_path = dictionary.join("media.bin");
+
+        fs::write(&media_path, [1, 0, b'a', 1, 0]).expect("write truncated blob header");
+        assert!(load_dictionary_specs(&root.0)
+            .expect_err("truncated blob header must fail")
+            .contains("truncated path or blob length header"));
+
+        fs::write(&media_path, [1, 0, 0xff, 1, 0, 0, 0, 1]).expect("write invalid UTF-8 path");
+        assert!(load_dictionary_specs(&root.0)
+            .expect_err("invalid UTF-8 path must fail")
+            .contains("non-UTF-8 path"));
+
+        let mut oversized_blob = vec![1, 0, b'a'];
+        oversized_blob.extend_from_slice(
+            &u32::try_from(MAX_MEDIA_BYTES + 1)
+                .expect("oversized blob length")
+                .to_le_bytes(),
+        );
+        fs::write(&media_path, oversized_blob).expect("write oversized blob header");
+        assert!(load_dictionary_specs(&root.0)
+            .expect_err("oversized blob must fail")
+            .contains("invalid blob length"));
+    }
+
+    #[test]
+    fn undeclared_native_media_files_are_rejected_before_loading() {
+        let root = TestDir::new("undeclared-media");
+        let dictionary = write_dictionary(&root.0, "Test", 1, 0);
+        write_manifest(&root.0, "Test");
+        fs::write(dictionary.join("media.idx"), 0u32.to_le_bytes())
+            .expect("write unexpected media index");
+        fs::write(dictionary.join("media.bin"), []).expect("write unexpected media data");
+
+        assert!(load_dictionary_specs(&root.0)
+            .expect_err("undeclared media files must fail")
+            .contains("declares no media"));
+    }
+
+    #[test]
+    fn duplicate_adjacent_media_paths_remain_compatible() {
+        let root = TestDir::new("duplicate-media-paths");
+        media_dictionary(&root.0, &[("img/a.png", &[1]), ("img/a.png", &[2])]);
+
+        assert_eq!(
+            load_dictionary_specs(&root.0)
+                .expect("duplicate sorted media paths are supported")
+                .len(),
+            1
         );
     }
 
@@ -1687,6 +2464,18 @@ mod tests {
     }
 
     #[test]
+    fn declared_media_count_is_bounded_before_file_allocation() {
+        let root = TestDir::new("media-count-limit");
+        let dictionary = write_dictionary(&root.0, "Test", 1, 0);
+        write_manifest(&root.0, "Test");
+        set_dictionary_media_count(&dictionary, MAX_MEDIA_RECORDS + 1);
+
+        assert!(load_dictionary_specs(&root.0)
+            .expect_err("oversized declared media count must fail")
+            .contains("record limit"));
+    }
+
+    #[test]
     fn manifest_rejects_paths_outside_the_fixed_root() {
         let root = TestDir::new("path-escape");
         write_manifest(&root.0, "../outside");
@@ -1701,10 +2490,13 @@ mod tests {
         let mut service = HoshidictsService::new(root.0.clone());
         assert_eq!(service.activate().expect("activate empty engine"), 0);
         assert!(service.is_loaded());
+        let active_generation = service.generation();
+        assert_ne!(active_generation, 0);
 
         fs::write(root.0.join(MANIFEST_FILE_NAME), "{not-json").expect("write bad manifest");
         assert!(service.reload().is_err());
         assert!(service.is_loaded());
+        assert_eq!(service.generation(), active_generation);
         assert_eq!(service.dictionary_count(), 0);
         assert!(service
             .lookup("食べる")
@@ -1731,7 +2523,7 @@ mod tests {
                 frequency_count: 1,
                 pitch_count: 1,
                 kanji_count: 1,
-                media_count: 0,
+                media_count: 1,
                 error: String::new(),
             }
         );
@@ -1757,6 +2549,7 @@ mod tests {
 
         let mut service = HoshidictsService::new(root.0.clone());
         assert_eq!(service.activate().expect("activate dictionaries"), 2);
+        let generation = service.generation();
         let results = service.lookup("食べた").expect("deinflected lookup");
         let result = results
             .iter()
@@ -1816,6 +2609,29 @@ mod tests {
                     ],
                 }],
             }
+        );
+        assert!(result.term.glossaries[0]
+            .glossary
+            .contains("structured-content"));
+        let media = service
+            .media(generation, "Test Dictionary", "img/test.png")
+            .expect("copied media");
+        assert_eq!(media.media_type, "image/png");
+        assert_eq!((media.width, media.height), (2, 3));
+        assert_eq!(media.data, TEST_PNG);
+        assert_eq!(
+            service.media(generation, "Test Dictionary", "../test.png"),
+            Err(MediaError::InvalidPath)
+        );
+        assert_eq!(
+            service.media(generation + 1, "Test Dictionary", "img/test.png"),
+            Err(MediaError::StaleGeneration)
+        );
+        assert_eq!(service.reload().expect("reload dictionaries"), 2);
+        assert_ne!(service.generation(), generation);
+        assert_eq!(
+            service.media(generation, "Test Dictionary", "img/test.png"),
+            Err(MediaError::StaleGeneration)
         );
         drop(service);
     }

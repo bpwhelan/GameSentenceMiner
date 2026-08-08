@@ -117,6 +117,7 @@ interface GeneratedIndex {
     pitchCount: number;
     kanjiCount: number;
     frequencyMode: HoshidictsFrequencyMode | null;
+    mediaCount: number;
     importDate: number | null;
 }
 
@@ -129,6 +130,8 @@ export interface ArchiveInspection {
 export interface HoshidictsImportReport {
     success: boolean;
     title: string;
+    termCount: number;
+    mediaCount?: number;
     error: string;
 }
 
@@ -186,6 +189,7 @@ const RELOAD_TIMEOUT_MS = 15 * 1000;
 const RELOAD_CONNECT_RETRY_MS = 100;
 const SCHEDULER_INTERVAL_MS = 60 * 60 * 1000;
 const REQUIRED_DICTIONARY_FILES = ['hash.table', 'bloom.filter', 'blobs.bin'] as const;
+const REQUIRED_MEDIA_FILES = ['media.idx', 'media.bin'] as const;
 const HOSHIDICTS_MARKERS = ['.hoshidicts_3', '.hoshidicts_2', '.hoshidicts_1'] as const;
 const JAPANESE_TEXT_PATTERN =
     /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u{20000}-\u{2fa1f}]/u;
@@ -618,11 +622,13 @@ async function readGeneratedIndex(dictionaryPath: string): Promise<GeneratedInde
     const terms = isRecord(counts.terms) ? counts.terms : {};
     const termMeta = isRecord(counts.termMeta) ? counts.termMeta : {};
     const kanji = isRecord(counts.kanji) ? counts.kanji : {};
+    const media = isRecord(counts.media) ? counts.media : {};
     const termCount = normalizeCount(terms.total);
     const frequencyCount = normalizeCount(termMeta.freq);
     const pitchCount =
         normalizeCount(termMeta.pitch) + normalizeCount(termMeta.ipa);
     const kanjiCount = normalizeCount(kanji.total);
+    const mediaCount = normalizeCount(media.total);
     return {
         title: parsed.title,
         revision: typeof parsed.revision === 'string' ? parsed.revision : '',
@@ -635,6 +641,7 @@ async function readGeneratedIndex(dictionaryPath: string): Promise<GeneratedInde
         pitchCount,
         kanjiCount,
         frequencyMode: normalizeFrequencyMode(parsed.frequencyMode),
+        mediaCount,
         importDate:
             typeof parsed.importDate === 'number' && Number.isFinite(parsed.importDate)
                 ? parsed.importDate
@@ -657,6 +664,24 @@ async function validateNativeDictionaryFiles(dictionaryPath: string): Promise<vo
     }
 
     for (const fileName of REQUIRED_DICTIONARY_FILES) {
+        const filePath = path.join(dictionaryPath, fileName);
+        const stat = await fsp.stat(filePath).catch((error) => {
+            throw new Error(`Dictionary is missing ${fileName}: ${errorMessage(error)}`);
+        });
+        if (!stat.isFile() || stat.size === 0) {
+            throw new Error(`Dictionary file ${fileName} is empty or not a file.`);
+        }
+    }
+}
+
+async function validateNativeMediaFiles(
+    dictionaryPath: string,
+    mediaCount: number
+): Promise<void> {
+    if (mediaCount <= 0) {
+        return;
+    }
+    for (const fileName of REQUIRED_MEDIA_FILES) {
         const filePath = path.join(dictionaryPath, fileName);
         const stat = await fsp.stat(filePath).catch((error) => {
             throw new Error(`Dictionary is missing ${fileName}: ${errorMessage(error)}`);
@@ -861,6 +886,8 @@ function parseImportReport(stdout: string): HoshidictsImportReport {
     return {
         success: parsed.success === true,
         title: typeof parsed.title === 'string' ? parsed.title : '',
+        termCount: normalizeCount(parsed.termCount),
+        mediaCount: normalizeCount(parsed.mediaCount),
         error: typeof parsed.error === 'string' ? parsed.error : '',
     };
 }
@@ -2155,6 +2182,7 @@ export class HoshidictsManager {
             const recommendedId = isRecommendedDictionaryId(value.recommendedId)
                 ? value.recommendedId
                 : null;
+            await validateNativeMediaFiles(dictionaryPath, index.mediaCount);
             dictionaries.push(
                 dictionaryStateFromIndex(
                     value.id,
@@ -2253,6 +2281,10 @@ export class HoshidictsManager {
             const outputDictionaryPath = path.join(outputDir, directoryName);
             await validateNativeDictionaryFiles(outputDictionaryPath);
             const index = await readGeneratedIndex(outputDictionaryPath);
+            await validateNativeMediaFiles(
+                outputDictionaryPath,
+                Math.max(index.mediaCount, normalizeCount(report.mediaCount))
+            );
             if (index.title !== report.title) {
                 throw new Error('Imported dictionary title did not match generated index.json.');
             }

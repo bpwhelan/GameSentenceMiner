@@ -314,11 +314,13 @@ function setRect(
 function lookupResult(
   requestId: string,
   expression: string,
-  glossary: string = "to eat"
+  glossary: string = "to eat",
+  generation: number = 1
 ) {
   return {
     type: "hoshidicts_lookup_result",
     requestId,
+    generation,
     success: true,
     dictionaryCount: 1,
     featureDisabled: false,
@@ -702,6 +704,111 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(parent.textContent).toBe("safe text");
   });
 
+  it("renders the reference structured subset while dropping active content and CSS", async () => {
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const parent = dom.window.document.createElement("div");
+    dom.window.document.body.appendChild(parent);
+    const resolveMedia = vi.fn(async () => "blob:reference-image");
+    const onLayoutChange = vi.fn();
+
+    api.appendTextOnlyGlossary(
+      dom.window.document,
+      parent,
+      JSON.stringify({
+        type: "structured-content",
+        content: [
+          { type: "text", text: "Character " },
+          {
+            tag: "span",
+            data: { id: "role-badge" },
+            style: {
+              background: "#334455",
+              borderRadius: "4px",
+              color: "#ffffff",
+              fontWeight: 700,
+              padding: "2px 4px",
+              position: "fixed"
+            },
+            onclick: "window.hacked=true",
+            content: "Hero"
+          },
+          {
+            tag: "details",
+            content: [
+              { tag: "summary", content: "Voice actor" },
+              { tag: "ul", content: [{ tag: "li", content: "Example" }] }
+            ]
+          },
+          { tag: "a", href: "https://example.test", content: "safe link text" },
+          { tag: "script", content: "window.hacked=true" },
+          {
+            tag: "div",
+            style: {
+              background: "url(file:///secret)",
+              color: "expression(alert(1))",
+              fontSize: "17em",
+              marginTop: "257px",
+              paddingLeft: "calc(100vw)"
+            },
+            content: "still readable"
+          },
+          {
+            type: "image",
+            path: "img/character.jpg",
+            width: 67,
+            height: 100,
+            sizeUnits: "px",
+            data: { alt: "Character portrait" }
+          },
+          { tag: "img", path: "https://example.test/tracker.png" },
+          { tag: "img", path: "../outside.png" }
+        ]
+      }),
+      {
+        dictionary: "Character Names",
+        generation: 7,
+        onLayoutChange,
+        resolveMedia
+      }
+    );
+    await flushPromises();
+
+    const badge = parent.querySelector<HTMLElement>('[data-sc-id="role-badge"]')!;
+    expect(badge.textContent).toBe("Hero");
+    expect(badge.style.background).not.toBe("");
+    expect(badge.style.borderRadius).toBe("4px");
+    expect(badge.style.fontWeight).toBe("700");
+    expect(badge.style.position).toBe("");
+    expect(badge.getAttribute("onclick")).toBeNull();
+    expect(parent.querySelector("a")).toBeNull();
+    expect(parent.textContent).toContain("safe link text");
+    expect(parent.textContent).not.toContain("window.hacked");
+    const hostile = Array.from(parent.querySelectorAll<HTMLElement>("div"))
+      .find((element) => element.textContent === "still readable")!;
+    expect(hostile.getAttribute("style")).toBeNull();
+    expect(hostile.style.fontSize).toBe("");
+    expect(hostile.style.marginTop).toBe("");
+    const image = parent.querySelector<HTMLImageElement>("img")!;
+    expect(image.alt).toBe("Character portrait");
+    expect(image.style.width).toBe("67px");
+    expect(image.style.height).toBe("100px");
+    expect(image.src).toBe("blob:reference-image");
+    expect(resolveMedia).toHaveBeenCalledTimes(1);
+    expect(resolveMedia).toHaveBeenCalledWith({
+      dictionary: "Character Names",
+      generation: 7,
+      path: "img/character.jpg"
+    });
+
+    parent.querySelector("details")!.dispatchEvent(new dom.window.Event("toggle"));
+    image.dispatchEvent(new dom.window.Event("load"));
+    image.dispatchEvent(new dom.window.Event("error"));
+    expect(image.hidden).toBe(true);
+    expect(parent.textContent).toContain("still readable");
+    expect(onLayoutChange).toHaveBeenCalledTimes(3);
+  });
+
   it("clamps the popup beside the anchor inside the viewport", () => {
     const dom = createDom();
     const api = loadReaderModule(dom.window as unknown as Window);
@@ -958,6 +1065,63 @@ describe("Hoshidicts Shift-hover scanner", () => {
     socket.receive(lookupResult(request.requestId, "食べる"));
     expect(logger.info).toHaveBeenCalledWith(
       expect.stringContaining("[HoshidictsReader] lookup.rendered")
+    );
+    reader.destroy();
+  });
+
+  it("keeps text lookups working with a legacy server that omits generation", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn() };
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      Blob: dom.window.Blob,
+      createObjectURL: vi.fn(() => "blob:unused"),
+      revokeObjectURL: vi.fn(),
+      logger
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const request = JSON.parse(socket.sent.at(-1)!);
+    const legacyResponse = lookupResult(
+      request.requestId,
+      "食べる",
+      JSON.stringify({
+        type: "structured-content",
+        content: [
+          { tag: "span", content: "Legacy definition" },
+          { tag: "img", path: "img/unavailable.jpg" }
+        ]
+      })
+    );
+    delete (legacyResponse as Partial<typeof legacyResponse>).generation;
+    socket.receive(legacyResponse);
+
+    expect(reader.isVisible()).toBe(true);
+    expect(reader.getPopupElement().textContent).toContain("Legacy definition");
+    expect(reader.getPopupElement().querySelector("img")).toBeNull();
+    expect(
+      socket.sent
+        .map((value) => JSON.parse(value))
+        .filter((value) => value.type === "hoshidicts_media")
+    ).toHaveLength(0);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining("lookup.media-generation-unavailable")
     );
     reader.destroy();
   });
@@ -1527,6 +1691,560 @@ describe("Hoshidicts Shift-hover scanner", () => {
     popup.dispatchEvent(new dom.window.Event("pointerleave"));
     await vi.advanceTimersByTimeAsync(300);
     expect(reader.isVisible()).toBe(false);
+    reader.destroy();
+  });
+
+  it("deduplicates media requests and revokes cached Blob URLs on generation changes", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    const second = dom.window.document.getElementById("second")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    setRect(second, { left: 30, top: 10, right: 90, bottom: 30 });
+    const createObjectURL = vi.fn(() => "blob:portrait-1");
+    const revokeObjectURL = vi.fn();
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      Blob: dom.window.Blob,
+      createObjectURL,
+      revokeObjectURL,
+      logger: { debug() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    const glossary = JSON.stringify({
+      type: "structured-content",
+      content: [
+        { tag: "img", path: "img/c35252.jpg", width: 67, height: 100 },
+        { tag: "img", path: "img/c35252.jpg", width: 67, height: 100 },
+        { tag: "span", content: "Kurisu Makise" }
+      ]
+    });
+
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const lookup = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(lookup.requestId, "食べる", glossary, 7));
+    const mediaRequests = socket.sent
+      .map((value) => JSON.parse(value))
+      .filter((value) => value.type === "hoshidicts_media");
+    expect(mediaRequests).toEqual([
+      expect.objectContaining({
+        generation: 7,
+        dictionary: "JMdict",
+        path: "img/c35252.jpg"
+      })
+    ]);
+
+    socket.receive({
+      type: "hoshidicts_media_result",
+      requestId: mediaRequests[0].requestId,
+      success: true,
+      generation: 7,
+      dictionary: "JMdict",
+      path: "img/c35252.jpg",
+      mediaType: "image/jpeg",
+      byteLength: 5,
+      width: 67,
+      height: 100,
+      dataBase64: "/9j/4AA=",
+      featureDisabled: false,
+      staleGeneration: false,
+      error: null
+    });
+    await flushPromises();
+
+    const images = Array.from(
+      reader.getPopupElement().querySelectorAll<HTMLImageElement>("img")
+    );
+    expect(images).toHaveLength(2);
+    expect(images.every((image) => image.src === "blob:portrait-1")).toBe(true);
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(createObjectURL.mock.calls[0][0]).toBeInstanceOf(dom.window.Blob);
+
+    second.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 31,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const secondLookup = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(secondLookup.requestId, "べる", glossary, 8));
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:portrait-1");
+    expect(
+      socket.sent
+        .map((value) => JSON.parse(value))
+        .filter((value) => value.type === "hoshidicts_media")
+    ).toHaveLength(2);
+    expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({
+      type: "hoshidicts_media",
+      generation: 8
+    });
+
+    reader.destroy();
+    await flushPromises();
+  });
+
+  it("enforces an aggregate decoded-pixel budget for the active popup", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    let blobSequence = 0;
+    const createObjectURL = vi.fn(() => `blob:large-${++blobSequence}`);
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      Blob: dom.window.Blob,
+      createObjectURL,
+      revokeObjectURL: vi.fn(),
+      logger: { debug() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const lookup = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(
+      lookup.requestId,
+      "食べる",
+      JSON.stringify({
+        type: "structured-content",
+        content: [0, 1, 2].map((index) => ({
+          tag: "img",
+          path: `img/large-${index}.jpg`
+        }))
+      }),
+      9
+    ));
+    const requests = socket.sent
+      .map((value) => JSON.parse(value))
+      .filter((value) => value.type === "hoshidicts_media");
+    expect(requests).toHaveLength(3);
+
+    for (const request of requests) {
+      socket.receive({
+        type: "hoshidicts_media_result",
+        requestId: request.requestId,
+        success: true,
+        generation: request.generation,
+        dictionary: request.dictionary,
+        path: request.path,
+        mediaType: "image/jpeg",
+        byteLength: 5,
+        width: 4096,
+        height: 4096,
+        dataBase64: "/9j/4AA=",
+        featureDisabled: false,
+        staleGeneration: false,
+        error: null
+      });
+    }
+    await flushPromises();
+
+    const images = Array.from(
+      reader.getPopupElement().querySelectorAll<HTMLImageElement>("img")
+    );
+    expect(images).toHaveLength(3);
+    expect(images.filter((image) => image.src.startsWith("blob:"))).toHaveLength(2);
+    expect(images.filter((image) => image.hidden)).toHaveLength(1);
+    expect(createObjectURL).toHaveBeenCalledTimes(2);
+    reader.destroy();
+  });
+
+  it("stops decoding and pumping requests when the popup pixel budget is full", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const atobSpy = vi.spyOn(dom.window, "atob");
+    let blobSequence = 0;
+    const createObjectURL = vi.fn(() => `blob:budget-${++blobSequence}`);
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      Blob: dom.window.Blob,
+      createObjectURL,
+      revokeObjectURL: vi.fn(),
+      logger: { debug() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const lookup = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(
+      lookup.requestId,
+      "食べる",
+      JSON.stringify({
+        type: "structured-content",
+        content: Array.from({ length: 8 }, (_, index) => ({
+          tag: "img",
+          path: `img/budget-${index}.jpg`
+        }))
+      }),
+      10
+    ));
+
+    const mediaRequests = () => socket.sent
+      .map((value) => JSON.parse(value))
+      .filter((value) => value.type === "hoshidicts_media");
+    const respondWithLargeImage = (
+      request: Record<string, unknown>,
+      dataBase64 = "/9j/4AA=",
+      byteLength = 5
+    ) => {
+      socket.receive({
+        type: "hoshidicts_media_result",
+        requestId: request.requestId,
+        success: true,
+        generation: request.generation,
+        dictionary: request.dictionary,
+        path: request.path,
+        mediaType: "image/jpeg",
+        byteLength,
+        width: 4096,
+        height: 4096,
+        dataBase64,
+        featureDisabled: false,
+        staleGeneration: false,
+        error: null
+      });
+    };
+
+    const initialRequests = mediaRequests();
+    expect(initialRequests).toHaveLength(4);
+    respondWithLargeImage(initialRequests[0], "AAAA", 3);
+    expect(mediaRequests()).toHaveLength(5);
+
+    respondWithLargeImage(initialRequests[1]);
+    expect(mediaRequests()).toHaveLength(6);
+
+    respondWithLargeImage(initialRequests[2]);
+    const requestsAfterBudgetFilled = mediaRequests();
+    expect(requestsAfterBudgetFilled).toHaveLength(6);
+
+    for (const request of requestsAfterBudgetFilled.slice(3)) {
+      respondWithLargeImage(request);
+    }
+    await flushPromises();
+
+    expect(mediaRequests()).toHaveLength(6);
+    expect(atobSpy).toHaveBeenCalledTimes(3);
+    expect(createObjectURL).toHaveBeenCalledTimes(2);
+    const images = Array.from(
+      reader.getPopupElement().querySelectorAll<HTMLImageElement>("img")
+    );
+    expect(images).toHaveLength(8);
+    expect(images.filter((image) => image.src.startsWith("blob:"))).toHaveLength(2);
+    expect(images.filter((image) => image.hidden)).toHaveLength(6);
+    reader.destroy();
+  });
+
+  it("stops queued media work when the feature is disabled", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      Blob: dom.window.Blob,
+      createObjectURL: vi.fn(() => "blob:unused"),
+      revokeObjectURL: vi.fn(),
+      logger: { debug() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const lookup = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(
+      lookup.requestId,
+      "食べる",
+      JSON.stringify({
+        type: "structured-content",
+        content: Array.from({ length: 6 }, (_, index) => ({
+          tag: "img",
+          path: `img/${index}.jpg`
+        }))
+      }),
+      10
+    ));
+    const requests = socket.sent
+      .map((value) => JSON.parse(value))
+      .filter((value) => value.type === "hoshidicts_media");
+    expect(requests).toHaveLength(4);
+    socket.receive({
+      type: "hoshidicts_media_result",
+      requestId: requests[0].requestId,
+      success: false,
+      generation: requests[0].generation,
+      dictionary: requests[0].dictionary,
+      path: requests[0].path,
+      mediaType: null,
+      byteLength: 0,
+      width: null,
+      height: null,
+      dataBase64: null,
+      featureDisabled: true,
+      staleGeneration: false,
+      error: "feature_disabled"
+    });
+    await flushPromises();
+
+    expect(
+      socket.sent
+        .map((value) => JSON.parse(value))
+        .filter((value) => value.type === "hoshidicts_media")
+    ).toHaveLength(4);
+    reader.destroy();
+  });
+
+  it("keeps surrounding text when media decoding fails or times out", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      mediaRequestTimeoutMs: 50,
+      Blob: dom.window.Blob,
+      createObjectURL: vi.fn(() => "blob:late"),
+      revokeObjectURL: vi.fn(),
+      logger: { debug() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const request = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(
+      request.requestId,
+      "食べる",
+      JSON.stringify({
+        type: "structured-content",
+        content: [
+          { tag: "img", path: "img/broken.jpg" },
+          { tag: "img", path: "img/missing.jpg" },
+          { tag: "span", content: "Definition remains readable" }
+        ]
+      }),
+      3
+    ));
+    const mediaRequests = socket.sent
+      .map((value) => JSON.parse(value))
+      .filter((value) => value.type === "hoshidicts_media");
+    expect(mediaRequests).toHaveLength(2);
+    socket.receive({
+      type: "hoshidicts_media_result",
+      requestId: mediaRequests[0].requestId,
+      success: true,
+      generation: 3,
+      dictionary: "JMdict",
+      path: "img/broken.jpg",
+      mediaType: "image/jpeg",
+      byteLength: 3,
+      width: 1,
+      height: 1,
+      dataBase64: "AAAA",
+      featureDisabled: false,
+      staleGeneration: false,
+      error: null
+    });
+    await vi.advanceTimersByTimeAsync(50);
+    await flushPromises();
+
+    const popup = reader.getPopupElement();
+    expect(popup.textContent).toContain("Definition remains readable");
+    expect(
+      Array.from(popup.querySelectorAll<HTMLImageElement>("img"))
+        .every((image) => image.hidden)
+    ).toBe(true);
+    reader.destroy();
+  });
+
+  it("cancels pending media when the popup is dismissed", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      Blob: dom.window.Blob,
+      createObjectURL: vi.fn(() => "blob:portrait"),
+      revokeObjectURL: vi.fn(),
+      logger: { debug() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    const glossary = JSON.stringify({
+      type: "structured-content",
+      content: [{ tag: "img", path: "img/pending.jpg" }]
+    });
+
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const firstLookup = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(firstLookup.requestId, "食べる", glossary, 5));
+    expect(
+      socket.sent
+        .map((value) => JSON.parse(value))
+        .filter((value) => value.type === "hoshidicts_media")
+    ).toHaveLength(1);
+
+    reader.hide("test-dismissal");
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const secondLookup = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(secondLookup.requestId, "食べる", glossary, 5));
+    expect(
+      socket.sent
+        .map((value) => JSON.parse(value))
+        .filter((value) => value.type === "hoshidicts_media")
+    ).toHaveLength(2);
+
+    reader.destroy();
+    await flushPromises();
+  });
+
+  it("bounds unique media work for an image-heavy definition", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      Blob: dom.window.Blob,
+      createObjectURL: vi.fn(() => "blob:unused"),
+      revokeObjectURL: vi.fn(),
+      logger: { debug() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const lookup = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(
+      lookup.requestId,
+      "食べる",
+      JSON.stringify({
+        type: "structured-content",
+        content: Array.from({ length: 132 }, (_, index) => ({
+          tag: "img",
+          path: `img/${index}.jpg`
+        }))
+      }),
+      6
+    ));
+
+    let processed = 0;
+    while (true) {
+      const requests = socket.sent
+        .map((value) => JSON.parse(value))
+        .filter((value) => value.type === "hoshidicts_media");
+      if (processed >= requests.length) {
+        expect(requests).toHaveLength(128);
+        break;
+      }
+      const request = requests[processed];
+      processed += 1;
+      socket.receive({
+        type: "hoshidicts_media_result",
+        requestId: request.requestId,
+        success: false,
+        generation: request.generation,
+        dictionary: request.dictionary,
+        path: request.path,
+        mediaType: null,
+        byteLength: 0,
+        dataBase64: null,
+        featureDisabled: false,
+        staleGeneration: false,
+        error: "not_found"
+      });
+    }
+
+    await flushPromises();
     reader.destroy();
   });
 
@@ -2123,6 +2841,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
     socket.receive({
       type: "hoshidicts_lookup_result",
       requestId: secondRequest.requestId,
+      generation: 1,
       success: true,
       error: null,
       results: []
