@@ -518,6 +518,27 @@ html.gsm-hoshidicts-enabled #btn-yomitan {
   padding-left: 20px;
 }
 
+.gsm-hoshidicts-glossary-content details {
+  margin: 3px 0;
+}
+
+.gsm-hoshidicts-glossary-content summary {
+  cursor: pointer;
+}
+
+.gsm-hoshidicts-structured-image {
+  display: inline-block;
+  max-width: min(100%, 1024px);
+  height: auto;
+  margin: 2px 6px 2px 0;
+  object-fit: contain;
+  vertical-align: top;
+}
+
+.gsm-hoshidicts-structured-image[hidden] {
+  display: none;
+}
+
 .gsm-hoshidicts-glossary-content table {
   max-width: 100%;
   border-collapse: collapse;

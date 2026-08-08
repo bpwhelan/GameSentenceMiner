@@ -605,6 +605,7 @@ dependencies = [
 name = "gsm_overlay_server"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "clap",
  "cmake",
  "futures-util",
