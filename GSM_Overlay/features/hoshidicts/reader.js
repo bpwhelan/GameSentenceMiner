@@ -1334,6 +1334,13 @@
         noteEditing = editing;
         clearHideTimer();
       },
+      onResultsRendered({ audioItems, feedback, miningButtons }) {
+        for (const button of miningButtons) {
+          button.hidden = true;
+        }
+        audioController.setRenderedResults(audioItems);
+        void refreshMiningButtons(miningButtons, feedback);
+      },
     });
     audioController = options.audioController || createHoshidictsAudioController({
       window: windowRef,
@@ -1788,7 +1795,11 @@
       if (status && status.available === true && onMine) {
         for (const button of buttons) {
           button.hidden = false;
-          setMiningButtonState(button, "ready");
+          setMiningButtonState(
+            button,
+            miningInFlight ? "checking" : "ready",
+            miningInFlight ? "Another note is being added" : ""
+          );
         }
         const unmapped = Array.isArray(status.unmappedFields)
           ? status.unmappedFields.filter((field) => typeof field === "string")
@@ -1887,7 +1898,10 @@
         );
       } finally {
         miningInFlight = false;
-        for (const current of buttons) {
+        const liveButtons = Array.from(
+          popup.querySelectorAll(".gsm-hoshidicts-mine-button")
+        );
+        for (const current of liveButtons) {
           if (current !== button && current.isConnected) {
             setMiningButtonState(current, "ready");
           }

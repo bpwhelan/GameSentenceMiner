@@ -201,6 +201,9 @@
       typeof options.onNoteEditingChange === "function"
         ? options.onNoteEditingChange
         : () => {};
+    const onResultsRendered = typeof options.onResultsRendered === "function"
+      ? options.onResultsRendered
+      : () => {};
     const initialResultCount = Number.isInteger(options.initialResultCount)
       ? Math.max(1, options.initialResultCount)
       : DEFAULT_INITIAL_RESULT_COUNT;
@@ -424,6 +427,7 @@
           }
         }
       });
+      return toolbar;
     }
 
     function renderNotice(message, candidate) {
@@ -479,19 +483,51 @@
       }
     }
 
-    function renderResults(results, candidate, renderContext = {}) {
-      clear();
-      appendNoteControls({
-        term: results[0].term.expression,
-        reading: results[0].term.reading,
-        definition: "",
-      });
+    function collectDictionaries(results) {
+      const dictionaries = [];
+      const seen = new Set();
+      for (const result of results) {
+        for (const glossary of result.term.glossaries) {
+          if (!seen.has(glossary.dictionary)) {
+            seen.add(glossary.dictionary);
+            dictionaries.push(glossary.dictionary);
+          }
+        }
+      }
+      return dictionaries;
+    }
+
+    function projectResults(results, dictionary) {
+      if (dictionary === null) {
+        return results;
+      }
+      const projected = [];
+      for (const result of results) {
+        const glossaries = result.term.glossaries.filter(
+          (glossary) => glossary.dictionary === dictionary
+        );
+        if (glossaries.length === 0) {
+          continue;
+        }
+        projected.push({
+          ...result,
+          term: {
+            ...result.term,
+            glossaries,
+          },
+        });
+      }
+      return projected;
+    }
+
+    function renderResultPanel(panel, results, candidate, renderContext) {
+      panel.replaceChildren();
       const feedback = documentRef.createElement("div");
       feedback.className = "gsm-hoshidicts-mining-feedback";
       feedback.setAttribute("role", "status");
       feedback.setAttribute("aria-live", "polite");
       feedback.hidden = true;
-      popup.appendChild(feedback);
+      panel.appendChild(feedback);
       const miningButtons = [];
       const audioItems = [];
 
@@ -613,7 +649,7 @@
           entry.appendChild(details);
           dictionaryIndex += 1;
         }
-        popup.appendChild(entry);
+        panel.appendChild(entry);
       });
 
       if (results.length > initialResultCount) {
@@ -622,13 +658,13 @@
         showMore.className = "gsm-hoshidicts-show-more";
         showMore.textContent = `Show ${results.length - initialResultCount} more`;
         showMore.addEventListener("click", () => {
-          for (const entry of popup.querySelectorAll(".gsm-hoshidicts-entry[hidden]")) {
+          for (const entry of panel.querySelectorAll(".gsm-hoshidicts-entry[hidden]")) {
             entry.hidden = false;
           }
           showMore.remove();
           positionPopup();
         });
-        popup.appendChild(showMore);
+        panel.appendChild(showMore);
       }
 
       currentSourceHighlight = {
@@ -743,6 +779,122 @@
         candidate,
         renderOptions.highlightText || kanji.character
       );
+    }
+
+    function renderResults(results, candidate, renderContext = {}) {
+      clear();
+      const dictionaries = collectDictionaries(results);
+      const tabList = documentRef.createElement("div");
+      tabList.className = "gsm-hoshidicts-tab-list";
+      tabList.setAttribute("role", "tablist");
+      tabList.setAttribute("aria-label", "Dictionaries");
+      tabList.setAttribute("aria-orientation", "horizontal");
+
+      const panel = documentRef.createElement("div");
+      panel.id = "gsm-hoshidicts-tab-panel";
+      panel.className = "gsm-hoshidicts-tab-panel";
+      panel.setAttribute("role", "tabpanel");
+
+      const toolbar = appendNoteControls({
+        term: results[0].term.expression,
+        reading: results[0].term.reading,
+        definition: "",
+      });
+      toolbar.insertBefore(tabList, toolbar.firstChild);
+      popup.appendChild(panel);
+
+      const tabValues = [null, ...dictionaries];
+      const tabButtons = [];
+      let activeIndex = 0;
+      let hasRendered = false;
+      let rendered = null;
+
+      function activateTab(index, focusTab = false) {
+        if (index < 0 || index >= tabButtons.length) {
+          return;
+        }
+        activeIndex = index;
+        tabButtons.forEach((button, buttonIndex) => {
+          const selected = buttonIndex === activeIndex;
+          button.setAttribute("aria-selected", String(selected));
+          button.tabIndex = selected ? 0 : -1;
+        });
+        const activeTab = tabButtons[activeIndex];
+        panel.setAttribute("aria-labelledby", activeTab.id);
+        if (focusTab) {
+          activeTab.focus();
+        }
+        if (!popup.hidden && typeof activeTab.scrollIntoView === "function") {
+          activeTab.scrollIntoView({ block: "nearest", inline: "nearest" });
+        }
+
+        popup.scrollTop = 0;
+        const projectedResults = projectResults(results, tabValues[activeIndex]);
+        rendered = renderResultPanel(
+          panel,
+          projectedResults,
+          candidate,
+          renderContext
+        );
+        if (hasRendered) {
+          onResultsRendered(rendered);
+        }
+        hasRendered = true;
+        positionPopup();
+      }
+
+      tabValues.forEach((dictionary, index) => {
+        const button = documentRef.createElement("button");
+        button.type = "button";
+        button.id = `gsm-hoshidicts-tab-${index}`;
+        button.className = "gsm-hoshidicts-tab";
+        button.setAttribute("role", "tab");
+        button.setAttribute("aria-controls", panel.id);
+        button.setAttribute("aria-selected", "false");
+        button.tabIndex = -1;
+        button.textContent = dictionary === null ? "All" : dictionary;
+        button.title = dictionary === null ? "All dictionaries" : dictionary;
+        button.addEventListener("click", () => activateTab(index));
+        button.addEventListener("keydown", (event) => {
+          let nextIndex = null;
+          if (event.key === "ArrowRight") {
+            nextIndex = (index + 1) % tabButtons.length;
+          } else if (event.key === "ArrowLeft") {
+            nextIndex = (index - 1 + tabButtons.length) % tabButtons.length;
+          } else if (event.key === "Home") {
+            nextIndex = 0;
+          } else if (event.key === "End") {
+            nextIndex = tabButtons.length - 1;
+          }
+          if (nextIndex !== null) {
+            event.preventDefault();
+            event.stopPropagation();
+            activateTab(nextIndex, true);
+          }
+        });
+        tabButtons.push(button);
+        tabList.appendChild(button);
+      });
+
+      tabList.addEventListener("wheel", (event) => {
+        if (
+          Math.abs(event.deltaY) > Math.abs(event.deltaX)
+          && tabList.scrollWidth > tabList.clientWidth
+        ) {
+          const maximumScrollLeft = tabList.scrollWidth - tabList.clientWidth;
+          const nextScrollLeft = Math.max(
+            0,
+            Math.min(maximumScrollLeft, tabList.scrollLeft + event.deltaY)
+          );
+          if (nextScrollLeft !== tabList.scrollLeft) {
+            tabList.scrollLeft = nextScrollLeft;
+            event.preventDefault();
+          }
+        }
+      }, { passive: false });
+
+      activateTab(0);
+      return rendered;
     }
 
     return {
