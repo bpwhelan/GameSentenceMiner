@@ -34,6 +34,7 @@ const GSM_TOP_LEVEL_FILES = new Set([
 const GSM_TRAVERSABLE_DIRS = new Set([
     'agent-scripts',
     'config',
+    'dictionaries',
     'electron',
     'obs-studio',
     'ocr_config',
@@ -353,6 +354,20 @@ export function shouldIncludeGsmBackupPath(relativePath: string, isDirectory: bo
             return TEXTHOOK_SETTINGS_FILES.has(second);
         }
         return false;
+    }
+
+    if (first === 'dictionaries') {
+        if (second !== 'hoshidicts') {
+            return false;
+        }
+        if (parts.length === 2) {
+            return isDirectory;
+        }
+        return (
+            parts.length === 3 &&
+            !isDirectory &&
+            parts[2] === 'custom-dictionary.txt'
+        );
     }
 
     if (first === 'config' || first === 'agent-scripts' || first === 'scripts') {

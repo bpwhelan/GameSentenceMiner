@@ -6,6 +6,7 @@ const WebSocket = require("ws");
 const BUS_PROTOCOL_VERSION = 1;
 const OPEN_SETTINGS_TOPIC = "hoshidicts.openSettings";
 const READER_PREFERENCES_TOPIC = "hoshidicts.readerPreferences";
+const ADD_CUSTOM_ENTRY_TOPIC = "hoshidicts.addCustomEntry";
 const READER_CLIENT_SUFFIX = ".hoshidicts-reader";
 const SETTINGS_CLIENT_SEGMENT = ".hoshidicts-settings.";
 const REQUEST_TIMEOUT_MS = 5000;
@@ -69,7 +70,14 @@ function createHoshidictsReaderPreferencesDelivery(deliver) {
 function createHoshidictsReaderPreferencesBridge(options = {}) {
   const config = resolveDesktopBusConfig(options.env);
   if (!config) {
-    return { destroy() {} };
+    return {
+      requestAddCustomEntry() {
+        return Promise.reject(
+          new Error("Hoshidicts desktop control channel is unavailable.")
+        );
+      },
+      destroy() {},
+    };
   }
   const WebSocketImpl = options.WebSocketImpl || WebSocket;
   const onPreferences =
@@ -81,6 +89,8 @@ function createHoshidictsReaderPreferencesBridge(options = {}) {
   let reconnectTimer = null;
   let reconnectDelayMs = 750;
   let destroyed = false;
+  let welcomed = false;
+  const pendingRequests = new Map();
 
   function send(message) {
     if (socket && socket.readyState === WebSocketImpl.OPEN) {
@@ -95,6 +105,39 @@ function createHoshidictsReaderPreferencesBridge(options = {}) {
       connect();
     }, reconnectDelayMs);
     reconnectDelayMs = Math.min(10_000, reconnectDelayMs * 2);
+  }
+
+  function rejectPending(error) {
+    for (const pending of pendingRequests.values()) {
+      pending.reject(error);
+    }
+    pendingRequests.clear();
+  }
+
+  function request(topic, data) {
+    if (destroyed) {
+      return Promise.reject(new Error("Hoshidicts desktop bridge is closed."));
+    }
+    if (
+      !welcomed ||
+      !socket ||
+      socket.readyState !== WebSocketImpl.OPEN
+    ) {
+      return Promise.reject(
+        new Error("Hoshidicts desktop control channel is unavailable.")
+      );
+    }
+    const message = envelope(readerClientId, "request", topic, data);
+
+    return new Promise((resolve, reject) => {
+      pendingRequests.set(message.id, { resolve, reject });
+      try {
+        socket.send(JSON.stringify(message));
+      } catch (error) {
+        pendingRequests.delete(message.id);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
   }
 
   function respond(message, ok, data, error) {
@@ -134,7 +177,26 @@ function createHoshidictsReaderPreferencesBridge(options = {}) {
         return;
       }
       if (message.kind === "ack" && message.topic === "bus.welcome") {
+        welcomed = true;
         reconnectDelayMs = 750;
+        return;
+      }
+      if (
+        message.kind === "response" &&
+        typeof message.corr === "string" &&
+        pendingRequests.has(message.corr)
+      ) {
+        const pending = pendingRequests.get(message.corr);
+        pendingRequests.delete(message.corr);
+        if (message.ok === false) {
+          pending.reject(new Error(
+            typeof message.error === "string"
+              ? message.error
+              : `Desktop rejected ${message.topic || "the request"}.`
+          ));
+        } else {
+          pending.resolve(message.data);
+        }
         return;
       }
       if (
@@ -156,12 +218,19 @@ function createHoshidictsReaderPreferencesBridge(options = {}) {
     nextSocket.on("error", () => {});
     nextSocket.on("close", () => {
       if (socket === nextSocket) socket = null;
+      welcomed = false;
+      rejectPending(
+        new Error("Hoshidicts desktop control channel closed unexpectedly.")
+      );
       scheduleReconnect();
     });
   }
 
   connect();
   return {
+    requestAddCustomEntry(entry) {
+      return request(ADD_CUSTOM_ENTRY_TOPIC, entry);
+    },
     destroy() {
       destroyed = true;
       if (reconnectTimer !== null) {
@@ -172,6 +241,8 @@ function createHoshidictsReaderPreferencesBridge(options = {}) {
         socket.close();
         socket = null;
       }
+      welcomed = false;
+      rejectPending(new Error("Hoshidicts desktop bridge is closed."));
     },
   };
 }
@@ -272,6 +343,7 @@ function requestHoshidictsSettingsOpen(options = {}) {
 }
 
 module.exports = {
+  ADD_CUSTOM_ENTRY_TOPIC,
   createHoshidictsReaderPreferencesDelivery,
   createHoshidictsReaderPreferencesBridge,
   OPEN_SETTINGS_TOPIC,

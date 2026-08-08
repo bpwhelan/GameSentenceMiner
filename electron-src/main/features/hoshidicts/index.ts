@@ -5,6 +5,7 @@ import { bus, getBusConnectInfo } from '../../runtime/bus_client.js';
 import {
     configureHoshidictsLookupModeProvider,
     configureHoshidictsPopupHideDelayProvider,
+    configureHoshidictsCustomDictionarySyncProvider,
     getOverlayHoshidictsEnabledAtLaunch,
     getOverlayHoshidictsLookupModeAtLaunch,
     getOverlayHoshidictsPopupHideDelayAtLaunch,
@@ -15,6 +16,7 @@ import {
 import {
     HOSHIDICTS_BUS_TOPICS,
     HOSHIDICTS_READER_CLIENT_ID,
+    type HoshidictsCustomEntryRequest,
     type HoshidictsReaderPreferences,
 } from '../../../shared/features/hoshidicts.js';
 import { registerHoshidictsIPC } from './ipc.js';
@@ -30,6 +32,25 @@ import {
 } from './window.js';
 
 let featureRegistered = false;
+
+function customEntryFromPayload(value: unknown): HoshidictsCustomEntryRequest {
+    if (!value || typeof value !== 'object') {
+        throw new Error('Custom dictionary entry must be an object.');
+    }
+    const candidate = value as Partial<HoshidictsCustomEntryRequest>;
+    if (
+        typeof candidate.term !== 'string' ||
+        typeof candidate.reading !== 'string' ||
+        typeof candidate.definition !== 'string'
+    ) {
+        throw new Error('Custom dictionary entry fields must be strings.');
+    }
+    return {
+        term: candidate.term,
+        reading: candidate.reading,
+        definition: candidate.definition,
+    };
+}
 
 async function applyReaderPreferences(
     preferences: HoshidictsReaderPreferences
@@ -90,6 +111,17 @@ export function registerHoshidictsFeature(deps: {
             await openHoshidictsSettingsWindow();
             return { opened: true };
         });
+        bus.handle(HOSHIDICTS_BUS_TOPICS.addCustomEntry, async (message) => {
+            if (message.src !== HOSHIDICTS_READER_CLIENT_ID) {
+                throw new Error(
+                    'Only the Hoshidicts overlay reader may add custom definitions.'
+                );
+            }
+            await getHoshidictsManager().addCustomEntry(
+                customEntryFromPayload(message.data)
+            );
+            return { saved: true };
+        });
     } else {
         console.warn(
             '[Hoshidicts] Desktop message bus is unavailable; overlay settings shortcut is disabled.'
@@ -98,14 +130,23 @@ export function registerHoshidictsFeature(deps: {
 }
 
 export async function startHoshidictsManager(): Promise<void> {
+    const manager = getHoshidictsManager();
+    void manager.syncCustomDictionary().catch((error) => {
+        console.warn(
+            '[Hoshidicts] Could not synchronize the custom dictionary during startup; using the last active version.',
+            error
+        );
+    });
     await startManager();
     configureHoshidictsLookupModeProvider(
-        async () => (await getHoshidictsManager().getSnapshot()).lookupMode
+        async () => (await manager.getSnapshot()).lookupMode
     );
     configureHoshidictsPopupHideDelayProvider(
-        async () =>
-            (await getHoshidictsManager().getSnapshot()).popupHideDelayMs
+        async () => (await manager.getSnapshot()).popupHideDelayMs
     );
+    configureHoshidictsCustomDictionarySyncProvider(async () => {
+        await manager.syncCustomDictionary();
+    });
 }
 
 export { getHoshidictsManager, stopHoshidictsManager };

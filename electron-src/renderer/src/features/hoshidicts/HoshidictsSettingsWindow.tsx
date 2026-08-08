@@ -3,6 +3,7 @@ import { useMemo } from "react";
 
 import { useTranslation } from "../../i18n";
 import {
+  CustomDictionaryPanel,
   DictionariesPanel,
   MiningPanel
 } from "./HoshidictsSettingsPanels";
@@ -16,6 +17,12 @@ import { useHoshidictsSettingsController } from "./useHoshidictsSettingsControll
 import "./hoshidicts.css";
 
 export { normalizeHoshidictsDesktopState } from "./hoshidictsSettingsModel";
+
+const TABS = [
+  { id: "dictionaries", labelKey: "settings.hoshidicts.tabs.dictionaries" },
+  { id: "custom", labelKey: "settings.hoshidicts.tabs.custom" },
+  { id: "mining", labelKey: "settings.hoshidicts.tabs.mining" }
+] as const;
 
 function ReadinessBanner({
   controller
@@ -139,22 +146,17 @@ export function HoshidictsSettingsWindow() {
         className="hoshidicts-window__tabs"
         aria-label={t("settings.hoshidicts.appTitle")}
       >
-        <button
-          type="button"
-          className={view === "dictionaries" ? "is-active" : ""}
-          aria-selected={view === "dictionaries"}
-          onClick={() => setView("dictionaries")}
-        >
-          {t("settings.hoshidicts.tabs.dictionaries")}
-        </button>
-        <button
-          type="button"
-          className={view === "mining" ? "is-active" : ""}
-          aria-selected={view === "mining"}
-          onClick={() => setView("mining")}
-        >
-          {t("settings.hoshidicts.tabs.mining")}
-        </button>
+        {TABS.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            className={view === tab.id ? "is-active" : ""}
+            aria-selected={view === tab.id}
+            onClick={() => setView(tab.id)}
+          >
+            {t(tab.labelKey)}
+          </button>
+        ))}
       </nav>
 
       <main className="hoshidicts-window__content">
@@ -190,6 +192,8 @@ export function HoshidictsSettingsWindow() {
           </div>
         ) : view === "dictionaries" ? (
           <DictionariesPanel controller={controller} />
+        ) : view === "custom" ? (
+          <CustomDictionaryPanel controller={controller} />
         ) : (
           <MiningPanel controller={controller} />
         )}

@@ -706,6 +706,10 @@
       typeof options.onMine === "function"
         ? options.onMine
         : null;
+    const onAddCustomEntry =
+      typeof options.onAddCustomEntry === "function"
+        ? options.onAddCustomEntry
+        : null;
     const logger = options.logger || console;
     const serverUrl = String(options.serverUrl || "ws://127.0.0.1:7276");
     const lookupTimeoutMs =
@@ -745,6 +749,7 @@
     let popupVisible = false;
     let popupAnchor = null;
     let popupVertical = false;
+    let noteEditing = false;
     let miningInFlight = false;
     let miningStatusGeneration = 0;
     let miningStatusCache = null;
@@ -808,6 +813,13 @@
       onMineClick(button, result, candidate, feedback) {
         void mineResult(button, result, candidate, feedback);
       },
+      onAddCustomEntry(entry) {
+        return addCustomEntryAndRefresh(entry);
+      },
+      onNoteEditingChange(editing) {
+        noteEditing = editing;
+        clearHideTimer();
+      },
     });
 
     function publishPopupState(visible) {
@@ -863,7 +875,7 @@
     function scheduleHide(reason = "pointer-left") {
       pendingHideReason = reason;
       clearHideTimer();
-      if (pointerInPopup || !popupVisible) {
+      if (noteEditing || pointerInPopup || !popupVisible) {
         return;
       }
       if (preferences.popupHideDelayMs === 0) {
@@ -914,8 +926,17 @@
     }
 
     function renderLookupNotice(candidate, message) {
-      popupView.renderNotice(message);
+      popupView.renderNotice(message, candidate);
       showPopup(candidate);
+    }
+
+    async function addCustomEntryAndRefresh(entry) {
+      if (!onAddCustomEntry) {
+        throw new Error("The custom dictionary is unavailable.");
+      }
+      const response = await onAddCustomEntry(entry);
+      repeatCurrentLookup();
+      return response;
     }
 
     async function getCachedMiningStatus() {
@@ -1105,7 +1126,10 @@
             : null,
           query: candidate.query,
         });
-        hide("no-results");
+        renderLookupNotice(
+          candidate,
+          "No definitions found. Add one with the Note button."
+        );
         return;
       }
       const rendered = popupView.renderResults(results, candidate);
@@ -1248,23 +1272,36 @@
       });
     }
 
-    function queueLookup(candidate) {
+    function repeatCurrentLookup() {
+      const candidate = latestCandidate;
+      if (!candidate || !candidate.anchor || !candidate.anchor.isConnected) {
+        return false;
+      }
+      queueLookup(candidate, true);
+      return true;
+    }
+
+    function queueLookup(candidate, immediate = false) {
       const signature = [
         candidate.sentence,
         candidate.matchOffset,
         candidate.query,
       ].join("\u0000");
       clearHideTimer();
-      if (signature === lastCandidateSignature) {
+      if (!immediate && signature === lastCandidateSignature) {
         return;
       }
       invalidateLookup();
-      if (popupVisible) {
+      if (!immediate && popupVisible) {
         dismissPopup("candidate-changed");
       }
       lastCandidateSignature = signature;
       latestCandidate = candidate;
       const generation = latestGeneration;
+      if (immediate) {
+        sendLookup(candidate, generation);
+        return;
+      }
       debounceTimer = setTimeoutFn(() => {
         debounceTimer = null;
         sendLookup(candidate, generation);
@@ -1273,6 +1310,11 @@
 
     function scanPointer(pointer, modifierActive) {
       if (!pointer || !(pointer.target instanceof windowRef.Element)) {
+        return;
+      }
+      if (noteEditing) {
+        pointerInPopup = popup.contains(pointer.target);
+        clearHideTimer();
         return;
       }
       if (popup.contains(pointer.target)) {
@@ -1338,7 +1380,7 @@
     function onKeyUp(event) {
       if (event.key === "Shift") {
         shiftPressed = false;
-        if (requiresShift()) {
+        if (requiresShift() && !noteEditing) {
           invalidateLookup();
           scheduleHide("shift-released");
         }
@@ -1391,6 +1433,10 @@
 
     function onWindowBlur() {
       shiftPressed = false;
+      if (noteEditing) {
+        clearHideTimer();
+        return;
+      }
       invalidateLookup();
       scheduleHide("window-blurred");
     }
