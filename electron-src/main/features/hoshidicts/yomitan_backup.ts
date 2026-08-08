@@ -551,7 +551,9 @@ function audioProfile(audio: JsonRecord, warnings: string[]): HoshidictsAudioPro
         sources.push({
             id: `${type}-${index + 1}`,
             type,
-            url: isUrl ? stringValue(raw.url) : '',
+            url: isUrl
+                ? stringValue(raw.url).replaceAll('{expression}', '{term}')
+                : '',
             voice: isTts ? stringValue(raw.voice) : '',
         });
     }

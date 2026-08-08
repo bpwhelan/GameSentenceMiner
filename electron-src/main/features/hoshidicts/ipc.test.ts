@@ -375,8 +375,22 @@ describe('Hoshidicts settings IPC', () => {
         expect(cleanup).toHaveBeenCalledOnce();
     });
 
-    it('imports a selected Yomitan settings backup without importing dictionaries', async () => {
+    it('imports Yomitan settings and applies local audio server sources live', async () => {
         const cleanup = vi.fn(async () => undefined);
+        const localAudioProfile = {
+            version: 1 as const,
+            enabled: true,
+            autoPlay: false,
+            volume: 100,
+            sources: [
+                {
+                    id: 'custom-json-1',
+                    type: 'custom-json' as const,
+                    url: 'http://127.0.0.1:5050/?term={term}&reading={reading}',
+                    voice: '',
+                },
+            ],
+        };
         harness.prepareYomitanSettingsBackup.mockResolvedValueOnce({
             dictionaries: [],
             settings: {
@@ -384,8 +398,8 @@ describe('Hoshidicts settings IPC', () => {
                 dictionaries: [],
                 readerPreferences: null,
                 miningProfile: snapshot.miningProfile,
-                audioProfile: null,
-                groups: ['anki'],
+                audioProfile: localAudioProfile,
+                groups: ['anki', 'audio'],
                 warnings: [],
             },
             cleanup,
@@ -394,6 +408,9 @@ describe('Hoshidicts settings IPC', () => {
             canceled: false,
             filePaths: ['/tmp/yomitan-settings.json'],
         });
+        harness.manager.setAudioProfile.mockImplementationOnce(
+            async (profile) => ({ ...snapshot, audioProfile: profile })
+        );
         const context = await registerHarness();
 
         await expect(
@@ -402,11 +419,17 @@ describe('Hoshidicts settings IPC', () => {
             })
         ).resolves.toMatchObject({
             success: true,
-            outcome: { code: 'yomitanSettingsImported', count: 1 },
-            yomitanReport: { settings: ['anki'] },
+            outcome: { code: 'yomitanSettingsImported', count: 2 },
+            yomitanReport: { settings: ['anki', 'audio'] },
         });
         expect(harness.manager.setMiningProfile).toHaveBeenCalledWith(
             snapshot.miningProfile
+        );
+        expect(harness.manager.setAudioProfile).toHaveBeenCalledWith(
+            localAudioProfile
+        );
+        expect(context.applyAudioProfile).toHaveBeenCalledWith(
+            localAudioProfile
         );
         expect(harness.manager.importDictionary).not.toHaveBeenCalled();
         expect(cleanup).toHaveBeenCalledOnce();

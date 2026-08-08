@@ -192,6 +192,7 @@ def _remaining_request_seconds(deadline: float) -> float:
 def _substitute_custom_url(url: str, term: str, reading: str) -> str:
     values = {
         "term": quote(term, safe=""),
+        "expression": quote(term, safe=""),
         "reading": quote(reading, safe=""),
         "language": "ja",
     }
@@ -604,14 +605,12 @@ def _validate_custom_audio_list(value: Any) -> list[dict[str, str]]:
     if not isinstance(value, dict) or set(value) != {"type", "audioSources"}:
         raise HoshidictsAudioError("Hoshidicts custom JSON audio response is invalid.", 502)
     raw_sources = value.get("audioSources")
-    if (
-        value.get("type") != "audioSourceList"
-        or not isinstance(raw_sources, list)
-        or len(raw_sources) > MAX_AUDIO_SOURCES
-    ):
+    if value.get("type") != "audioSourceList" or not isinstance(raw_sources, list):
         raise HoshidictsAudioError("Hoshidicts custom JSON audio response is invalid.", 502)
     candidates = []
-    for item in raw_sources:
+    # Yomitan's schema and local audio server do not cap this list. Preserve
+    # source priority while limiting Hoshidicts to the recordings it can expose.
+    for item in raw_sources[:MAX_AUDIO_SOURCES]:
         if not isinstance(item, dict) or "url" not in item or not set(item) <= {"url", "name"}:
             raise HoshidictsAudioError("Hoshidicts custom JSON audio response is invalid.", 502)
         url = _profile_string(item["url"], "Hoshidicts custom JSON audio URL", MAX_URL_LENGTH)
