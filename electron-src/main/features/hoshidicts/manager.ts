@@ -31,6 +31,7 @@ import type {
     HoshidictsRecommendedDictionaryId,
     HoshidictsRecommendedDictionaryState,
     HoshidictsSchedule,
+    HoshidictsTheme,
     HoshidictsYomitanDictionaryPreference,
 } from '../../../shared/features/hoshidicts.js';
 import {
@@ -38,15 +39,23 @@ import {
     DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
     DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
     DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+    DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
     DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
+    DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
     DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
+    DEFAULT_HOSHIDICTS_THEME,
     isHoshidictsActivationKey,
+    isHoshidictsTheme,
     MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES,
     MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
     MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+    MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
+    MAX_HOSHIDICTS_POPUP_WIDTH_PX,
     MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
+    MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
+    MIN_HOSHIDICTS_POPUP_WIDTH_PX,
 } from '../../../shared/features/hoshidicts.js';
 import {
     defaultHoshidictsAudioProfile,
@@ -112,6 +121,9 @@ interface PersistedManifest {
     showLookupCounts: boolean;
     popupNestingMaxDepth: number;
     definitionBlur: HoshidictsDefinitionBlurPreferences;
+    popupWidthPx: number;
+    popupHeightPx: number;
+    theme: HoshidictsTheme;
     schedule: HoshidictsSchedule;
     lastCheck: string | null;
     nextCheck: string | null;
@@ -342,6 +354,9 @@ function emptyManifest(): PersistedManifest {
         showLookupCounts: true,
         popupNestingMaxDepth: DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
         definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
+        popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
+        popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+        theme: DEFAULT_HOSHIDICTS_THEME,
         schedule: 'off',
         lastCheck: null,
         nextCheck: null,
@@ -412,6 +427,26 @@ function normalizePopupNestingMaxDepth(value: unknown): number {
     return Number.isSafeInteger(value) && (value as number) >= 0
         ? (value as number)
         : DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH;
+}
+
+function normalizePopupWidth(value: unknown): number {
+    return Number.isInteger(value) &&
+        (value as number) >= MIN_HOSHIDICTS_POPUP_WIDTH_PX &&
+        (value as number) <= MAX_HOSHIDICTS_POPUP_WIDTH_PX
+        ? (value as number)
+        : DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX;
+}
+
+function normalizePopupHeight(value: unknown): number {
+    return Number.isInteger(value) &&
+        (value as number) >= MIN_HOSHIDICTS_POPUP_HEIGHT_PX &&
+        (value as number) <= MAX_HOSHIDICTS_POPUP_HEIGHT_PX
+        ? (value as number)
+        : DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX;
+}
+
+function normalizeTheme(value: unknown): HoshidictsTheme {
+    return isHoshidictsTheme(value) ? value : DEFAULT_HOSHIDICTS_THEME;
 }
 
 function normalizeDefinitionBlur(
@@ -1850,7 +1885,10 @@ export class HoshidictsManager {
         popupNestingMaxDepth: number =
             DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
         definitionBlur?: HoshidictsDefinitionBlurPreferences,
-        showLookupCounts = true
+        showLookupCounts = true,
+        popupWidthPx?: number,
+        popupHeightPx?: number,
+        theme?: HoshidictsTheme
     ): Promise<HoshidictsManagerSnapshot> {
         if (lookupMode !== 'shift' && lookupMode !== 'hover') {
             throw new Error('Hoshidicts lookup mode is invalid.');
@@ -1888,6 +1926,25 @@ export class HoshidictsManager {
             );
         }
         if (
+            popupWidthPx !== undefined &&
+            (!Number.isInteger(popupWidthPx) ||
+                popupWidthPx < MIN_HOSHIDICTS_POPUP_WIDTH_PX ||
+                popupWidthPx > MAX_HOSHIDICTS_POPUP_WIDTH_PX)
+        ) {
+            throw new Error('Hoshidicts popup width is invalid.');
+        }
+        if (
+            popupHeightPx !== undefined &&
+            (!Number.isInteger(popupHeightPx) ||
+                popupHeightPx < MIN_HOSHIDICTS_POPUP_HEIGHT_PX ||
+                popupHeightPx > MAX_HOSHIDICTS_POPUP_HEIGHT_PX)
+        ) {
+            throw new Error('Hoshidicts popup height is invalid.');
+        }
+        if (theme !== undefined && !isHoshidictsTheme(theme)) {
+            throw new Error('Hoshidicts theme is invalid.');
+        }
+        if (
             definitionBlur !== undefined &&
             (!Number.isInteger(definitionBlur.lookupThreshold) ||
                 definitionBlur.lookupThreshold <
@@ -1922,6 +1979,10 @@ export class HoshidictsManager {
             const manifest = await this.readManifest();
             const effectiveDefinitionBlur =
                 definitionBlur ?? manifest.definitionBlur;
+            const effectivePopupWidthPx = popupWidthPx ?? manifest.popupWidthPx;
+            const effectivePopupHeightPx =
+                popupHeightPx ?? manifest.popupHeightPx;
+            const effectiveTheme = theme ?? manifest.theme;
             if (
                 manifest.lookupMode !== lookupMode ||
                 manifest.popupHideDelayMs !== popupHideDelayMs ||
@@ -1929,6 +1990,9 @@ export class HoshidictsManager {
                 manifest.sourceHighlightEnabled !== sourceHighlightEnabled ||
                 manifest.showLookupCounts !== showLookupCounts ||
                 manifest.popupNestingMaxDepth !== popupNestingMaxDepth ||
+                manifest.popupWidthPx !== effectivePopupWidthPx ||
+                manifest.popupHeightPx !== effectivePopupHeightPx ||
+                manifest.theme !== effectiveTheme ||
                 !definitionBlurPreferencesEqual(
                     manifest.definitionBlur,
                     effectiveDefinitionBlur
@@ -1943,6 +2007,9 @@ export class HoshidictsManager {
                     showLookupCounts,
                     popupNestingMaxDepth,
                     definitionBlur: { ...effectiveDefinitionBlur },
+                    popupWidthPx: effectivePopupWidthPx,
+                    popupHeightPx: effectivePopupHeightPx,
+                    theme: effectiveTheme,
                 });
             }
         }, 'preferences');
@@ -2202,6 +2269,9 @@ export class HoshidictsManager {
             showLookupCounts: manifest.showLookupCounts,
             popupNestingMaxDepth: manifest.popupNestingMaxDepth,
             definitionBlur: { ...manifest.definitionBlur },
+            popupWidthPx: manifest.popupWidthPx,
+            popupHeightPx: manifest.popupHeightPx,
+            theme: manifest.theme,
             schedule: manifest.schedule,
             lastCheck: manifest.lastCheck,
             nextCheck: manifest.nextCheck,
@@ -2535,6 +2605,9 @@ export class HoshidictsManager {
                 parsed.popupNestingMaxDepth
             ),
             definitionBlur: normalizeDefinitionBlur(parsed.definitionBlur),
+            popupWidthPx: normalizePopupWidth(parsed.popupWidthPx),
+            popupHeightPx: normalizePopupHeight(parsed.popupHeightPx),
+            theme: normalizeTheme(parsed.theme),
             schedule: normalizeSchedule(parsed.schedule),
             lastCheck: normalizeDate(parsed.lastCheck),
             nextCheck: normalizeDate(parsed.nextCheck),
@@ -2566,6 +2639,9 @@ export class HoshidictsManager {
                 parsed.popupNestingMaxDepth
             ),
             definitionBlur: normalizeDefinitionBlur(parsed.definitionBlur),
+            popupWidthPx: normalizePopupWidth(parsed.popupWidthPx),
+            popupHeightPx: normalizePopupHeight(parsed.popupHeightPx),
+            theme: normalizeTheme(parsed.theme),
             schedule: normalizeSchedule(parsed.schedule),
             lastCheck: normalizeDate(parsed.lastCheck),
             nextCheck: normalizeDate(parsed.nextCheck),

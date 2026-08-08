@@ -53,7 +53,19 @@
   const INITIAL_VISIBLE_RESULTS = 6;
   const DEFAULT_POPUP_HIDE_DELAY_MS = 300;
   const POPUP_TRANSFER_GRACE_MS = 80;
-  const DEFAULT_POPUP_MIN_HEIGHT_PX = 250;
+  const DEFAULT_POPUP_WIDTH_PX = 560;
+  const DEFAULT_POPUP_HEIGHT_PX = 420;
+  const MIN_POPUP_WIDTH_PX = 280;
+  const MAX_POPUP_WIDTH_PX = 1200;
+  const MIN_POPUP_HEIGHT_PX = 200;
+  const MAX_POPUP_HEIGHT_PX = 900;
+  const DEFAULT_THEME = "default";
+  const THEMES = new Set([
+    "default",
+    "high-contrast",
+    "autumn",
+    "cyberpunk",
+  ]);
   const DEFAULT_ACTIVATION_KEY = "Shift";
   const DEFAULT_SOURCE_HIGHLIGHT_ENABLED = false;
   const DEFAULT_POPUP_NESTING_MAX_DEPTH = 10;
@@ -1292,17 +1304,8 @@
   function calculatePopupPosition(anchorRect, popupSize, viewport, options = {}) {
     const gap = Number.isFinite(options.gap) ? options.gap : 4;
     const padding = Number.isFinite(options.padding) ? options.padding : 6;
-    const minimumHeight = Number.isFinite(options.minimumHeight)
-      ? Math.max(1, options.minimumHeight)
-      : DEFAULT_POPUP_MIN_HEIGHT_PX;
-    const width = Math.min(
-      Math.max(1, popupSize.width),
-      Math.max(1, viewport.width - padding * 2)
-    );
-    let height = Math.min(
-      Math.max(1, popupSize.height, minimumHeight),
-      Math.max(1, viewport.height - padding * 2)
-    );
+    const width = Math.max(1, popupSize.width);
+    const height = Math.max(1, popupSize.height);
     const clamp = (value, minimum, maximum) =>
       Math.max(minimum, Math.min(value, maximum));
 
@@ -1316,14 +1319,10 @@
         : anchorRect.left - gap - width;
       top = anchorRect.top;
     } else {
-      const spaceBelow = Math.max(
-        0,
-        viewport.height - padding - anchorRect.bottom - gap
-      );
+      const spaceBelow = Math.max(0, viewport.height - padding - anchorRect.bottom - gap);
       const spaceAbove = Math.max(0, anchorRect.top - gap - padding);
       const placeBelow = spaceBelow >= height ||
         (spaceAbove < height && spaceBelow > spaceAbove);
-      height = Math.min(height, Math.max(1, placeBelow ? spaceBelow : spaceAbove));
       top = placeBelow
         ? anchorRect.bottom + gap
         : anchorRect.top - gap - height;
@@ -1832,6 +1831,26 @@
     return Number.isSafeInteger(value) && value >= 0 ? value : fallback;
   }
 
+  function normalizePopupWidth(value, fallback = DEFAULT_POPUP_WIDTH_PX) {
+    return Number.isInteger(value) &&
+      value >= MIN_POPUP_WIDTH_PX &&
+      value <= MAX_POPUP_WIDTH_PX
+      ? value
+      : fallback;
+  }
+
+  function normalizePopupHeight(value, fallback = DEFAULT_POPUP_HEIGHT_PX) {
+    return Number.isInteger(value) &&
+      value >= MIN_POPUP_HEIGHT_PX &&
+      value <= MAX_POPUP_HEIGHT_PX
+      ? value
+      : fallback;
+  }
+
+  function normalizeTheme(value, fallback = DEFAULT_THEME) {
+    return THEMES.has(value) ? value : fallback;
+  }
+
   function createHoshidictsReader(options = {}) {
     const windowRef = options.window || window;
     const documentRef = options.document || document;
@@ -1911,6 +1930,9 @@
       popupNestingMaxDepth: normalizePopupNestingMaxDepth(
         options.popupNestingMaxDepth
       ),
+      popupWidthPx: normalizePopupWidth(options.popupWidthPx),
+      popupHeightPx: normalizePopupHeight(options.popupHeightPx),
+      theme: normalizeTheme(options.theme),
       dictionaryPresentation: normalizeDictionaryPresentation(
         options.dictionaryPresentation
       ),
@@ -1985,6 +2007,26 @@
       setTimeout: setTimeoutFn,
       clearTimeout: clearTimeoutFn,
     });
+
+    function applyAppearancePreferences(reposition = true) {
+      const rootElement = documentRef.documentElement;
+      rootElement.dataset.hoshidictsTheme = preferences.theme;
+      rootElement.style.setProperty(
+        "--gsm-hoshidicts-popup-width",
+        `${preferences.popupWidthPx}px`
+      );
+      rootElement.style.setProperty(
+        "--gsm-hoshidicts-popup-height",
+        `${preferences.popupHeightPx}px`
+      );
+      for (const level of popupLevels) {
+        level.popup.style.width = `${preferences.popupWidthPx}px`;
+        level.popup.style.height = `${preferences.popupHeightPx}px`;
+      }
+      if (reposition) {
+        positionAllPopups();
+      }
+    }
 
     function diagnostic(level, event, details = {}) {
       const sink = typeof logger[level] === "function"
@@ -2704,6 +2746,8 @@
         : `gsm-hoshidicts-popup-${depth}`;
       popup.className = "gsm-hoshidicts-popup interactive";
       popup.dataset.hoshidictsDepth = String(depth);
+      popup.style.width = `${preferences.popupWidthPx}px`;
+      popup.style.height = `${preferences.popupHeightPx}px`;
       popup.setAttribute("role", "dialog");
       popup.setAttribute("aria-label", "Hoshidicts lookup");
       popup.hidden = true;
@@ -2943,14 +2987,8 @@
       const padding = 6;
       const gap = 6;
       const viewport = { width: windowRef.innerWidth, height: windowRef.innerHeight };
-      const width = Math.min(
-        Math.max(1, popupSize.width),
-        Math.max(1, viewport.width - padding * 2)
-      );
-      const height = Math.min(
-        Math.max(1, popupSize.height),
-        Math.max(1, viewport.height - padding * 2)
-      );
+      const width = Math.max(1, popupSize.width);
+      const height = Math.max(1, popupSize.height);
       const spaceRight = viewport.width - parentRect.right - gap;
       const spaceLeft = parentRect.left - gap;
       const preferredLeft = spaceRight >= width || spaceRight >= spaceLeft
@@ -2980,16 +3018,9 @@
         return;
       }
       const anchorRect = getCandidateAnchorRect(level.candidate);
-      level.popup.style.maxWidth = "";
-      level.popup.style.maxHeight = "";
-      level.popup.style.minHeight = "";
-      const measuredRect = level.popup.getBoundingClientRect();
       const popupSize = {
-        width: measuredRect.width || Math.min(560, windowRef.innerWidth - 12),
-        height: Math.max(
-          measuredRect.height || Math.min(420, windowRef.innerHeight * 0.6),
-          DEFAULT_POPUP_MIN_HEIGHT_PX
-        ),
+        width: preferences.popupWidthPx,
+        height: preferences.popupHeightPx,
       };
       const parentLevel = depth > 0 ? popupLevels[depth - 1] : null;
       const position = parentLevel && parentLevel.visible
@@ -3006,12 +3037,11 @@
           );
       level.popup.style.left = `${position.left}px`;
       level.popup.style.top = `${position.top}px`;
-      level.popup.style.maxWidth = `${position.width}px`;
-      level.popup.style.maxHeight = `${position.height}px`;
-      level.popup.style.minHeight = `${Math.min(
-        DEFAULT_POPUP_MIN_HEIGHT_PX,
-        position.height
-      )}px`;
+      level.popup.style.width = `${position.width}px`;
+      level.popup.style.height = `${position.height}px`;
+      level.popup.style.maxWidth = "none";
+      level.popup.style.maxHeight = "none";
+      level.popup.style.minHeight = "0";
     }
 
     function positionPopupAndDescendants(startDepth = 0) {
@@ -4302,6 +4332,9 @@
       const previousSourceHighlightEnabled = preferences.sourceHighlightEnabled;
       const previousShowLookupCounts = preferences.showLookupCounts;
       const previousMaxDepth = preferences.popupNestingMaxDepth;
+      const previousPopupWidthPx = preferences.popupWidthPx;
+      const previousPopupHeightPx = preferences.popupHeightPx;
+      const previousTheme = preferences.theme;
       preferences = {
         lookupMode: Object.prototype.hasOwnProperty.call(nextPreferences, "lookupMode")
           ? nextPreferences.lookupMode === "hover" ? "hover" : "shift"
@@ -4351,6 +4384,21 @@
               preferences.popupNestingMaxDepth
             )
           : preferences.popupNestingMaxDepth,
+        popupWidthPx: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "popupWidthPx"
+        )
+          ? normalizePopupWidth(nextPreferences.popupWidthPx, preferences.popupWidthPx)
+          : preferences.popupWidthPx,
+        popupHeightPx: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "popupHeightPx"
+        )
+          ? normalizePopupHeight(nextPreferences.popupHeightPx, preferences.popupHeightPx)
+          : preferences.popupHeightPx,
+        theme: Object.prototype.hasOwnProperty.call(nextPreferences, "theme")
+          ? normalizeTheme(nextPreferences.theme, preferences.theme)
+          : preferences.theme,
         dictionaryPresentation: Object.prototype.hasOwnProperty.call(
           nextPreferences,
           "dictionaryPresentation"
@@ -4396,6 +4444,13 @@
           preferences.popupNestingMaxDepth + 1,
           "depth-limit-changed"
         );
+      }
+      if (
+        previousPopupWidthPx !== preferences.popupWidthPx ||
+        previousPopupHeightPx !== preferences.popupHeightPx ||
+        previousTheme !== preferences.theme
+      ) {
+        applyAppearancePreferences();
       }
       if (previousMode !== preferences.lookupMode || activationKeyChanged) {
         activationRequirementLogged = false;
@@ -4476,10 +4531,18 @@
       chainHighlighter.clearAll();
       documentRef.documentElement.classList.remove("gsm-hoshidicts-enabled");
       delete documentRef.documentElement.dataset.gsmHoshidictsEnabled;
+      delete documentRef.documentElement.dataset.hoshidictsTheme;
+      documentRef.documentElement.style.removeProperty(
+        "--gsm-hoshidicts-popup-width"
+      );
+      documentRef.documentElement.style.removeProperty(
+        "--gsm-hoshidicts-popup-height"
+      );
     }
 
     documentRef.documentElement.classList.add("gsm-hoshidicts-enabled");
     documentRef.documentElement.dataset.gsmHoshidictsEnabled = "true";
+    applyAppearancePreferences(false);
     ensurePopupLevel(0);
     documentRef.addEventListener("mousemove", onMouseMove, true);
     documentRef.addEventListener("keydown", onKeyDown, true);
@@ -4495,6 +4558,9 @@
       popupHideDelayMs: preferences.popupHideDelayMs,
       showLookupCounts: preferences.showLookupCounts,
       popupNestingMaxDepth: preferences.popupNestingMaxDepth,
+      popupWidthPx: preferences.popupWidthPx,
+      popupHeightPx: preferences.popupHeightPx,
+      theme: preferences.theme,
       scanLength: LOOKUP_SCAN_LENGTH,
     });
     connect();
@@ -4526,18 +4592,25 @@
     DEFAULT_DEFINITION_BLUR_PREFERENCES,
     DEFAULT_ACTIVATION_KEY,
     DEFAULT_POPUP_HIDE_DELAY_MS,
+    DEFAULT_POPUP_HEIGHT_PX,
     DEFAULT_POPUP_NESTING_MAX_DEPTH,
+    DEFAULT_POPUP_WIDTH_PX,
     DEFAULT_SOURCE_HIGHLIGHT_ENABLED,
+    DEFAULT_THEME,
     INITIAL_VISIBLE_RESULTS,
     LOOKUP_DEBOUNCE_MS,
     LOOKUP_MAX_RESULTS,
     LOOKUP_REQUEST_TIMEOUT_MS,
     LOOKUP_SCAN_LENGTH,
     MAX_POPUP_HIDE_DELAY_MS,
+    MAX_POPUP_HEIGHT_PX,
+    MAX_POPUP_WIDTH_PX,
     MAX_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MAX_DEFINITION_BLUR_REVEAL_DELAY_MS,
     MIN_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MIN_DEFINITION_BLUR_REVEAL_DELAY_MS,
+    MIN_POPUP_HEIGHT_PX,
+    MIN_POPUP_WIDTH_PX,
     appendExpressionRuby,
     appendTextOnlyGlossary,
     calculatePopupPosition,
@@ -4549,8 +4622,11 @@
     normalizeAudioProfile,
     normalizeDefinitionBlurPreferences,
     normalizePopupHideDelay,
+    normalizePopupHeight,
     normalizeKanjiLookup,
     normalizePopupNestingMaxDepth,
+    normalizePopupWidth,
+    normalizeTheme,
     normalizeLookupResults,
     resolveGsmApiBaseUrl,
     resolveLookupCandidate,

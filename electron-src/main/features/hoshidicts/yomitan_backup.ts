@@ -605,6 +605,9 @@ function currentReaderPreferences(current: HoshidictsManagerSnapshot): Hoshidict
         showLookupCounts: current.showLookupCounts,
         popupNestingMaxDepth: current.popupNestingMaxDepth,
         definitionBlur: { ...current.definitionBlur },
+        popupWidthPx: current.popupWidthPx,
+        popupHeightPx: current.popupHeightPx,
+        theme: current.theme,
     };
 }
 

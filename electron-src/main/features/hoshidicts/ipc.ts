@@ -13,12 +13,17 @@ import {
     HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
     hoshidictsReaderPreferencesFromSnapshot,
     isHoshidictsActivationKey,
+    isHoshidictsTheme,
     MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES,
     MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
     MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+    MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
+    MAX_HOSHIDICTS_POPUP_WIDTH_PX,
     MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
+    MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
+    MIN_HOSHIDICTS_POPUP_WIDTH_PX,
     type HoshidictsActionResult,
     type HoshidictsActivationKey,
     type HoshidictsAudioProfile,
@@ -37,6 +42,7 @@ import {
     type HoshidictsReaderPreferencesRequest,
     type HoshidictsRecommendedDictionaryId,
     type HoshidictsSchedule,
+    type HoshidictsTheme,
     type HoshidictsYomitanImportReport,
 } from '../../../shared/features/hoshidicts.js';
 import { getHoshidictsManager } from './manager.js';
@@ -62,6 +68,9 @@ export interface HoshidictsIPCDependencies {
     getOverlayDefinitionBlurAtLaunch: () =>
         | HoshidictsDefinitionBlurPreferences
         | null;
+    getOverlayPopupWidthAtLaunch: () => number | null;
+    getOverlayPopupHeightAtLaunch: () => number | null;
+    getOverlayThemeAtLaunch: () => HoshidictsTheme | null;
     applyReaderPreferences: (
         preferences: HoshidictsReaderPreferences
     ) => Promise<boolean>;
@@ -141,6 +150,9 @@ function readerPreferencesMatchOverlay(
             preferences.showLookupCounts &&
         deps.getOverlayPopupNestingMaxDepthAtLaunch() ===
             preferences.popupNestingMaxDepth &&
+        deps.getOverlayPopupWidthAtLaunch() === preferences.popupWidthPx &&
+        deps.getOverlayPopupHeightAtLaunch() === preferences.popupHeightPx &&
+        deps.getOverlayThemeAtLaunch() === preferences.theme &&
         definitionBlurAtLaunch !== null &&
         definitionBlurPreferencesEqual(
             definitionBlurAtLaunch,
@@ -220,6 +232,9 @@ function withDesktopState(
     const popupNestingMaxDepthAtLaunch =
         deps.getOverlayPopupNestingMaxDepthAtLaunch();
     const definitionBlurAtLaunch = deps.getOverlayDefinitionBlurAtLaunch();
+    const popupWidthAtLaunch = deps.getOverlayPopupWidthAtLaunch();
+    const popupHeightAtLaunch = deps.getOverlayPopupHeightAtLaunch();
+    const themeAtLaunch = deps.getOverlayThemeAtLaunch();
     const effectiveEnabled = deps.getConfiguredFeatureEnabled();
     return {
         ...snapshot,
@@ -256,6 +271,15 @@ function withDesktopState(
                             definitionBlurAtLaunch,
                             snapshot.definitionBlur
                         )) ||
+                    (effectiveEnabled &&
+                        popupWidthAtLaunch !== null &&
+                        popupWidthAtLaunch !== snapshot.popupWidthPx) ||
+                    (effectiveEnabled &&
+                        popupHeightAtLaunch !== null &&
+                        popupHeightAtLaunch !== snapshot.popupHeightPx) ||
+                    (effectiveEnabled &&
+                        themeAtLaunch !== null &&
+                        themeAtLaunch !== snapshot.theme) ||
                     (effectiveEnabled &&
                         deps.getOverlayAudioProfileRestartRequired())),
         },
@@ -531,7 +555,10 @@ export function registerHoshidictsIPC(
                     reader.sourceHighlightEnabled,
                     reader.popupNestingMaxDepth,
                     reader.definitionBlur,
-                    reader.showLookupCounts
+                    reader.showLookupCounts,
+                    reader.popupWidthPx,
+                    reader.popupHeightPx,
+                    reader.theme
                 );
             }
             await applyReaderSnapshot(state, deps);
@@ -733,6 +760,17 @@ export function registerHoshidictsIPC(
                     MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS ||
                 !Number.isSafeInteger(value.popupNestingMaxDepth) ||
                 (value.popupNestingMaxDepth as number) < 0 ||
+                !Number.isInteger(value.popupWidthPx) ||
+                (value.popupWidthPx as number) <
+                    MIN_HOSHIDICTS_POPUP_WIDTH_PX ||
+                (value.popupWidthPx as number) >
+                    MAX_HOSHIDICTS_POPUP_WIDTH_PX ||
+                !Number.isInteger(value.popupHeightPx) ||
+                (value.popupHeightPx as number) <
+                    MIN_HOSHIDICTS_POPUP_HEIGHT_PX ||
+                (value.popupHeightPx as number) >
+                    MAX_HOSHIDICTS_POPUP_HEIGHT_PX ||
+                !isHoshidictsTheme(value.theme) ||
                 !isDefinitionBlurPreferences(value.definitionBlur)
             ) {
                 return {
@@ -756,6 +794,9 @@ export function registerHoshidictsIPC(
                         definitionBlur: {
                             ...value.definitionBlur,
                         } as HoshidictsDefinitionBlurPreferences,
+                        popupWidthPx: value.popupWidthPx as number,
+                        popupHeightPx: value.popupHeightPx as number,
+                        theme: value.theme as HoshidictsTheme,
                     };
                     const state = await manager.setReaderPreferences(
                         requestPreferences.lookupMode,
@@ -764,7 +805,10 @@ export function registerHoshidictsIPC(
                         requestPreferences.sourceHighlightEnabled,
                         requestPreferences.popupNestingMaxDepth,
                         requestPreferences.definitionBlur,
-                        requestPreferences.showLookupCounts
+                        requestPreferences.showLookupCounts,
+                        requestPreferences.popupWidthPx,
+                        requestPreferences.popupHeightPx,
+                        requestPreferences.theme
                     );
                     const preferences: HoshidictsReaderPreferences = {
                         ...requestPreferences,

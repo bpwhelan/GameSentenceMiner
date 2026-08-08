@@ -37,6 +37,16 @@ const HOSHIDICTS_PUNCTUATION_ACTIVATION_KEYS = new Set([
 ]);
 const MAX_HOSHIDICTS_DICTIONARY_PRESENTATION = 256;
 const MAX_HOSHIDICTS_DICTIONARY_TITLE_LENGTH = 4096;
+const MIN_HOSHIDICTS_POPUP_WIDTH_PX = 280;
+const MAX_HOSHIDICTS_POPUP_WIDTH_PX = 1200;
+const MIN_HOSHIDICTS_POPUP_HEIGHT_PX = 200;
+const MAX_HOSHIDICTS_POPUP_HEIGHT_PX = 900;
+const HOSHIDICTS_THEMES = new Set([
+  "default",
+  "high-contrast",
+  "autumn",
+  "cyberpunk",
+]);
 
 function normalizeHoshidictsDictionaryPresentation(value) {
   if (value === undefined) {
@@ -107,6 +117,9 @@ function normalizeHoshidictsReaderPreferences(preferences) {
   const popupHideDelayMs = preferences && preferences.popupHideDelayMs;
   const popupNestingMaxDepth =
     preferences && preferences.popupNestingMaxDepth;
+  const popupWidthPx = preferences && preferences.popupWidthPx;
+  const popupHeightPx = preferences && preferences.popupHeightPx;
+  const theme = preferences && preferences.theme;
   const dictionaryPresentation = normalizeHoshidictsDictionaryPresentation(
     preferences && preferences.dictionaryPresentation
   );
@@ -118,7 +131,14 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     popupHideDelayMs < 0 ||
     popupHideDelayMs > 5000 ||
     !Number.isSafeInteger(popupNestingMaxDepth) ||
-    popupNestingMaxDepth < 0
+    popupNestingMaxDepth < 0 ||
+    !Number.isInteger(popupWidthPx) ||
+    popupWidthPx < MIN_HOSHIDICTS_POPUP_WIDTH_PX ||
+    popupWidthPx > MAX_HOSHIDICTS_POPUP_WIDTH_PX ||
+    !Number.isInteger(popupHeightPx) ||
+    popupHeightPx < MIN_HOSHIDICTS_POPUP_HEIGHT_PX ||
+    popupHeightPx > MAX_HOSHIDICTS_POPUP_HEIGHT_PX ||
+    !HOSHIDICTS_THEMES.has(theme)
   ) {
     throw new Error("Hoshidicts reader preferences are invalid.");
   }
@@ -128,6 +148,9 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     sourceHighlightEnabled,
     popupHideDelayMs,
     popupNestingMaxDepth,
+    popupWidthPx,
+    popupHeightPx,
+    theme,
     dictionaryPresentation,
   };
 }

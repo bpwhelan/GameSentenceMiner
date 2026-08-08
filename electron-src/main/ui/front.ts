@@ -43,17 +43,26 @@ import {
     DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
     DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
     DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+    DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
     DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
+    DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
     DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
+    DEFAULT_HOSHIDICTS_THEME,
     isHoshidictsActivationKey,
+    isHoshidictsTheme,
     MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
     MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+    MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
+    MAX_HOSHIDICTS_POPUP_WIDTH_PX,
     MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
+    MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
+    MIN_HOSHIDICTS_POPUP_WIDTH_PX,
     type HoshidictsActivationKey,
     type HoshidictsDefinitionBlurPreferences,
     type HoshidictsLookupMode,
+    type HoshidictsTheme,
     type HoshidictsAudioProfile,
     type HoshidictsReaderPreferences,
 } from '../../shared/features/hoshidicts.js';
@@ -71,6 +80,9 @@ let overlayHoshidictsShowLookupCountsAtLaunch: boolean | null = null;
 let overlayHoshidictsAudioProfileRestartRequired = false;
 let overlayHoshidictsPopupNestingMaxDepthAtLaunch: number | null = null;
 let overlayHoshidictsDefinitionBlurAtLaunch: HoshidictsDefinitionBlurPreferences | null = null;
+let overlayHoshidictsPopupWidthAtLaunch: number | null = null;
+let overlayHoshidictsPopupHeightAtLaunch: number | null = null;
+let overlayHoshidictsThemeAtLaunch: HoshidictsTheme | null = null;
 let hoshidictsLookupModeProvider: () => Promise<HoshidictsLookupMode> =
     async () => 'shift';
 let hoshidictsActivationKeyProvider: () => Promise<HoshidictsActivationKey> =
@@ -85,6 +97,12 @@ let hoshidictsPopupNestingMaxDepthProvider: () => Promise<number> =
     async () => DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH;
 let hoshidictsDefinitionBlurProvider: () => Promise<HoshidictsDefinitionBlurPreferences> =
     async () => ({ ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR });
+let hoshidictsPopupWidthProvider: () => Promise<number> =
+    async () => DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX;
+let hoshidictsPopupHeightProvider: () => Promise<number> =
+    async () => DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX;
+let hoshidictsThemeProvider: () => Promise<HoshidictsTheme> =
+    async () => DEFAULT_HOSHIDICTS_THEME;
 let hoshidictsCustomDictionarySyncProvider: () => Promise<void> =
     async () => undefined;
 
@@ -135,6 +153,24 @@ export function configureHoshidictsDefinitionBlurProvider(
     hoshidictsDefinitionBlurProvider = provider;
 }
 
+export function configureHoshidictsPopupWidthProvider(
+    provider: () => Promise<number>
+): void {
+    hoshidictsPopupWidthProvider = provider;
+}
+
+export function configureHoshidictsPopupHeightProvider(
+    provider: () => Promise<number>
+): void {
+    hoshidictsPopupHeightProvider = provider;
+}
+
+export function configureHoshidictsThemeProvider(
+    provider: () => Promise<HoshidictsTheme>
+): void {
+    hoshidictsThemeProvider = provider;
+}
+
 export function configureHoshidictsCustomDictionarySyncProvider(
     provider: () => Promise<void>
 ): void {
@@ -169,6 +205,17 @@ function normalizeHoshidictsDefinitionBlur(
         return { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR };
     }
     return { ...preferences };
+}
+
+function normalizeHoshidictsPopupDimension(
+    value: number,
+    minimum: number,
+    maximum: number,
+    fallback: number
+): number {
+    return Number.isInteger(value) && value >= minimum && value <= maximum
+        ? value
+        : fallback;
 }
 
 interface StopOverlayOptions {
@@ -283,6 +330,9 @@ export function getOverlayRuntimeState(): OverlayRuntimeState {
         overlayHoshidictsAudioProfileRestartRequired = false;
         overlayHoshidictsPopupNestingMaxDepthAtLaunch = null;
         overlayHoshidictsDefinitionBlurAtLaunch = null;
+        overlayHoshidictsPopupWidthAtLaunch = null;
+        overlayHoshidictsPopupHeightAtLaunch = null;
+        overlayHoshidictsThemeAtLaunch = null;
     }
     return {
         isRunning,
@@ -332,6 +382,21 @@ export function getOverlayHoshidictsDefinitionBlurAtLaunch(): HoshidictsDefiniti
         : null;
 }
 
+export function getOverlayHoshidictsPopupWidthAtLaunch(): number | null {
+    getOverlayRuntimeState();
+    return overlayHoshidictsPopupWidthAtLaunch;
+}
+
+export function getOverlayHoshidictsPopupHeightAtLaunch(): number | null {
+    getOverlayRuntimeState();
+    return overlayHoshidictsPopupHeightAtLaunch;
+}
+
+export function getOverlayHoshidictsThemeAtLaunch(): HoshidictsTheme | null {
+    getOverlayRuntimeState();
+    return overlayHoshidictsThemeAtLaunch;
+}
+
 export function getOverlayHoshidictsAudioProfileRestartRequired(): boolean {
     return getOverlayRuntimeState().isRunning &&
         overlayHoshidictsAudioProfileRestartRequired;
@@ -354,6 +419,9 @@ export function markOverlayHoshidictsReaderPreferencesApplied(
     overlayHoshidictsDefinitionBlurAtLaunch = {
         ...preferences.definitionBlur,
     };
+    overlayHoshidictsPopupWidthAtLaunch = preferences.popupWidthPx;
+    overlayHoshidictsPopupHeightAtLaunch = preferences.popupHeightPx;
+    overlayHoshidictsThemeAtLaunch = preferences.theme;
     return true;
 }
 
@@ -396,6 +464,9 @@ export function stopOverlay(options: StopOverlayOptions = {}): boolean {
             overlayHoshidictsAudioProfileRestartRequired = false;
             overlayHoshidictsPopupNestingMaxDepthAtLaunch = null;
             overlayHoshidictsDefinitionBlurAtLaunch = null;
+            overlayHoshidictsPopupWidthAtLaunch = null;
+            overlayHoshidictsPopupHeightAtLaunch = null;
+            overlayHoshidictsThemeAtLaunch = null;
         }
         return stopRequested;
     }
@@ -412,6 +483,9 @@ export function stopOverlay(options: StopOverlayOptions = {}): boolean {
         overlayHoshidictsAudioProfileRestartRequired = false;
         overlayHoshidictsPopupNestingMaxDepthAtLaunch = null;
         overlayHoshidictsDefinitionBlurAtLaunch = null;
+        overlayHoshidictsPopupWidthAtLaunch = null;
+        overlayHoshidictsPopupHeightAtLaunch = null;
+        overlayHoshidictsThemeAtLaunch = null;
         return false;
     }
 
@@ -495,7 +569,10 @@ function registerOverlayProcess(
     hoshidictsSourceHighlightEnabled: boolean,
     hoshidictsPopupNestingMaxDepth: number,
     hoshidictsDefinitionBlur: HoshidictsDefinitionBlurPreferences,
-    hoshidictsShowLookupCounts: boolean
+    hoshidictsShowLookupCounts: boolean,
+    hoshidictsPopupWidthPx: number,
+    hoshidictsPopupHeightPx: number,
+    hoshidictsTheme: HoshidictsTheme
 ): void {
     overlayProcess = processHandle;
     overlayLaunchSource = source;
@@ -512,6 +589,9 @@ function registerOverlayProcess(
     overlayHoshidictsDefinitionBlurAtLaunch = {
         ...hoshidictsDefinitionBlur,
     };
+    overlayHoshidictsPopupWidthAtLaunch = hoshidictsPopupWidthPx;
+    overlayHoshidictsPopupHeightAtLaunch = hoshidictsPopupHeightPx;
+    overlayHoshidictsThemeAtLaunch = hoshidictsTheme;
     overlayProcess.once('exit', () => {
         overlayProcess = null;
         overlayLaunchSource = null;
@@ -524,6 +604,9 @@ function registerOverlayProcess(
         overlayHoshidictsAudioProfileRestartRequired = false;
         overlayHoshidictsPopupNestingMaxDepthAtLaunch = null;
         overlayHoshidictsDefinitionBlurAtLaunch = null;
+        overlayHoshidictsPopupWidthAtLaunch = null;
+        overlayHoshidictsPopupHeightAtLaunch = null;
+        overlayHoshidictsThemeAtLaunch = null;
     });
     overlayProcess.once('error', (error: Error) => {
         console.error('Overlay process error:', error);
@@ -538,6 +621,9 @@ function registerOverlayProcess(
         overlayHoshidictsAudioProfileRestartRequired = false;
         overlayHoshidictsPopupNestingMaxDepthAtLaunch = null;
         overlayHoshidictsDefinitionBlurAtLaunch = null;
+        overlayHoshidictsPopupWidthAtLaunch = null;
+        overlayHoshidictsPopupHeightAtLaunch = null;
+        overlayHoshidictsThemeAtLaunch = null;
     });
 }
 
@@ -551,7 +637,10 @@ export function buildHoshidictsOverlayEnvironment(
     definitionBlur: HoshidictsDefinitionBlurPreferences = {
         ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
     },
-    showLookupCounts = true
+    showLookupCounts = true,
+    popupWidthPx = DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
+    popupHeightPx = DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+    theme: HoshidictsTheme = DEFAULT_HOSHIDICTS_THEME
 ): Record<string, string> {
     const normalizedDefinitionBlur =
         normalizeHoshidictsDefinitionBlur(definitionBlur);
@@ -576,6 +665,25 @@ export function buildHoshidictsOverlayEnvironment(
         GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS: String(
             normalizedDefinitionBlur.revealDelayMs
         ),
+        GSM_HOSHIDICTS_POPUP_WIDTH_PX: String(
+            normalizeHoshidictsPopupDimension(
+                popupWidthPx,
+                MIN_HOSHIDICTS_POPUP_WIDTH_PX,
+                MAX_HOSHIDICTS_POPUP_WIDTH_PX,
+                DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX
+            )
+        ),
+        GSM_HOSHIDICTS_POPUP_HEIGHT_PX: String(
+            normalizeHoshidictsPopupDimension(
+                popupHeightPx,
+                MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
+                MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
+                DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX
+            )
+        ),
+        GSM_HOSHIDICTS_THEME: isHoshidictsTheme(theme)
+            ? theme
+            : DEFAULT_HOSHIDICTS_THEME,
     };
 }
 
@@ -683,6 +791,9 @@ export async function runOverlayWithSource(
     let hoshidictsDefinitionBlur: HoshidictsDefinitionBlurPreferences = {
         ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
     };
+    let hoshidictsPopupWidthPx = DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX;
+    let hoshidictsPopupHeightPx = DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX;
+    let hoshidictsTheme: HoshidictsTheme = DEFAULT_HOSHIDICTS_THEME;
     if (hoshidictsEnabled) {
         try {
             void hoshidictsCustomDictionarySyncProvider().catch(
@@ -724,6 +835,22 @@ export async function runOverlayWithSource(
             hoshidictsDefinitionBlur = normalizeHoshidictsDefinitionBlur(
                 await hoshidictsDefinitionBlurProvider()
             );
+            hoshidictsPopupWidthPx = normalizeHoshidictsPopupDimension(
+                await hoshidictsPopupWidthProvider(),
+                MIN_HOSHIDICTS_POPUP_WIDTH_PX,
+                MAX_HOSHIDICTS_POPUP_WIDTH_PX,
+                DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX
+            );
+            hoshidictsPopupHeightPx = normalizeHoshidictsPopupDimension(
+                await hoshidictsPopupHeightProvider(),
+                MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
+                MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
+                DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX
+            );
+            const configuredTheme = await hoshidictsThemeProvider();
+            hoshidictsTheme = isHoshidictsTheme(configuredTheme)
+                ? configuredTheme
+                : DEFAULT_HOSHIDICTS_THEME;
         } catch (error) {
             console.warn(
                 '[Hoshidicts] Could not load reader preferences; using defaults.',
@@ -739,7 +866,10 @@ export async function runOverlayWithSource(
         hoshidictsSourceHighlightEnabled,
         hoshidictsPopupNestingMaxDepth,
         hoshidictsDefinitionBlur,
-        hoshidictsShowLookupCounts
+        hoshidictsShowLookupCounts,
+        hoshidictsPopupWidthPx,
+        hoshidictsPopupHeightPx,
+        hoshidictsTheme
     );
     const hoshidictsControlEnvironment = buildHoshidictsControlEnvironment();
     const overlayProcessEnvironment = buildOverlayProcessEnvironment();
@@ -781,6 +911,13 @@ export async function runOverlayWithSource(
         overlayHoshidictsDefinitionBlurAtLaunch = started
             ? { ...hoshidictsDefinitionBlur }
             : null;
+        overlayHoshidictsPopupWidthAtLaunch = started
+            ? hoshidictsPopupWidthPx
+            : null;
+        overlayHoshidictsPopupHeightAtLaunch = started
+            ? hoshidictsPopupHeightPx
+            : null;
+        overlayHoshidictsThemeAtLaunch = started ? hoshidictsTheme : null;
         return started;
     }
 
@@ -831,7 +968,10 @@ export async function runOverlayWithSource(
             hoshidictsSourceHighlightEnabled,
             hoshidictsPopupNestingMaxDepth,
             hoshidictsDefinitionBlur,
-            hoshidictsShowLookupCounts
+            hoshidictsShowLookupCounts,
+            hoshidictsPopupWidthPx,
+            hoshidictsPopupHeightPx,
+            hoshidictsTheme
         );
         console.log('Overlay launched successfully from source.');
         return true;
@@ -858,7 +998,10 @@ export async function runOverlayWithSource(
                 hoshidictsSourceHighlightEnabled,
                 hoshidictsPopupNestingMaxDepth,
                 hoshidictsDefinitionBlur,
-                hoshidictsShowLookupCounts
+                hoshidictsShowLookupCounts,
+                hoshidictsPopupWidthPx,
+                hoshidictsPopupHeightPx,
+                hoshidictsTheme
             );
             console.log('Overlay launched successfully with shared Electron runtime.');
             return true;
@@ -892,7 +1035,10 @@ export async function runOverlayWithSource(
                 hoshidictsSourceHighlightEnabled,
                 hoshidictsPopupNestingMaxDepth,
                 hoshidictsDefinitionBlur,
-                hoshidictsShowLookupCounts
+                hoshidictsShowLookupCounts,
+                hoshidictsPopupWidthPx,
+                hoshidictsPopupHeightPx,
+                hoshidictsTheme
             );
             console.log('Overlay launched successfully with legacy standalone runtime.');
             return true;

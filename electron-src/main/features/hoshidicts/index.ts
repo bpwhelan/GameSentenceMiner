@@ -6,18 +6,24 @@ import {
     configureHoshidictsDefinitionBlurProvider,
     configureHoshidictsLookupModeProvider,
     configureHoshidictsPopupHideDelayProvider,
+    configureHoshidictsPopupHeightProvider,
     configureHoshidictsPopupNestingMaxDepthProvider,
+    configureHoshidictsPopupWidthProvider,
     configureHoshidictsShowLookupCountsProvider,
     configureHoshidictsSourceHighlightProvider,
+    configureHoshidictsThemeProvider,
     configureHoshidictsCustomDictionarySyncProvider,
     getOverlayHoshidictsEnabledAtLaunch,
     getOverlayHoshidictsActivationKeyAtLaunch,
     getOverlayHoshidictsDefinitionBlurAtLaunch,
     getOverlayHoshidictsLookupModeAtLaunch,
     getOverlayHoshidictsPopupHideDelayAtLaunch,
+    getOverlayHoshidictsPopupHeightAtLaunch,
     getOverlayHoshidictsPopupNestingMaxDepthAtLaunch,
     getOverlayHoshidictsShowLookupCountsAtLaunch,
     getOverlayHoshidictsSourceHighlightEnabledAtLaunch,
+    getOverlayHoshidictsPopupWidthAtLaunch,
+    getOverlayHoshidictsThemeAtLaunch,
     getOverlayHoshidictsAudioProfileRestartRequired,
     getOverlayRuntimeState,
     markOverlayHoshidictsAudioProfileApplied,
@@ -188,6 +194,11 @@ export function registerHoshidictsFeature(deps: {
             getOverlayHoshidictsPopupNestingMaxDepthAtLaunch,
         getOverlayDefinitionBlurAtLaunch:
             getOverlayHoshidictsDefinitionBlurAtLaunch,
+        getOverlayPopupWidthAtLaunch:
+            getOverlayHoshidictsPopupWidthAtLaunch,
+        getOverlayPopupHeightAtLaunch:
+            getOverlayHoshidictsPopupHeightAtLaunch,
+        getOverlayThemeAtLaunch: getOverlayHoshidictsThemeAtLaunch,
         applyReaderPreferences,
         applyAudioProfile,
         getMiningOptions: fetchHoshidictsMiningOptions,
@@ -227,6 +238,15 @@ export async function startHoshidictsManager(): Promise<void> {
     );
     configureHoshidictsDefinitionBlurProvider(
         async () => (await manager.getSnapshot()).definitionBlur
+    );
+    configureHoshidictsPopupWidthProvider(
+        async () => (await manager.getSnapshot()).popupWidthPx
+    );
+    configureHoshidictsPopupHeightProvider(
+        async () => (await manager.getSnapshot()).popupHeightPx
+    );
+    configureHoshidictsThemeProvider(
+        async () => (await manager.getSnapshot()).theme
     );
     configureHoshidictsCustomDictionarySyncProvider(async () => {
         await manager.syncCustomDictionary();

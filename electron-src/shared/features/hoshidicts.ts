@@ -139,6 +139,25 @@ export function isHoshidictsActivationKey(
 export const DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS = 300;
 export const DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED = false;
 export const MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS = 5000;
+export const DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX = 560;
+export const DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX = 420;
+export const MIN_HOSHIDICTS_POPUP_WIDTH_PX = 280;
+export const MAX_HOSHIDICTS_POPUP_WIDTH_PX = 1200;
+export const MIN_HOSHIDICTS_POPUP_HEIGHT_PX = 200;
+export const MAX_HOSHIDICTS_POPUP_HEIGHT_PX = 900;
+export const HOSHIDICTS_THEMES = [
+    'default',
+    'high-contrast',
+    'autumn',
+    'cyberpunk',
+] as const;
+export type HoshidictsTheme = (typeof HOSHIDICTS_THEMES)[number];
+export const DEFAULT_HOSHIDICTS_THEME: HoshidictsTheme = 'default';
+const HOSHIDICTS_THEME_SET = new Set<string>(HOSHIDICTS_THEMES);
+
+export function isHoshidictsTheme(value: unknown): value is HoshidictsTheme {
+    return typeof value === 'string' && HOSHIDICTS_THEME_SET.has(value);
+}
 export const MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD = 1;
 export const MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD = 1_000_000;
 export const MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS = 1000;
@@ -370,6 +389,9 @@ export interface HoshidictsReaderPreferencesRequest {
     showLookupCounts: boolean;
     popupNestingMaxDepth: number;
     definitionBlur: HoshidictsDefinitionBlurPreferences;
+    popupWidthPx: number;
+    popupHeightPx: number;
+    theme: HoshidictsTheme;
 }
 
 export interface HoshidictsDictionaryPresentation {
@@ -526,6 +548,9 @@ export interface HoshidictsManagerSnapshot {
     showLookupCounts: boolean;
     popupNestingMaxDepth: number;
     definitionBlur: HoshidictsDefinitionBlurPreferences;
+    popupWidthPx: number;
+    popupHeightPx: number;
+    theme: HoshidictsTheme;
     schedule: HoshidictsSchedule;
     lastCheck: string | null;
     nextCheck: string | null;
@@ -545,6 +570,9 @@ export function hoshidictsReaderPreferencesFromSnapshot(
         showLookupCounts: snapshot.showLookupCounts,
         popupNestingMaxDepth: snapshot.popupNestingMaxDepth,
         definitionBlur: { ...snapshot.definitionBlur },
+        popupWidthPx: snapshot.popupWidthPx,
+        popupHeightPx: snapshot.popupHeightPx,
+        theme: snapshot.theme,
         dictionaryPresentation: (snapshot.dictionaries ?? [])
             .filter((dictionary) => dictionary.termCount > 0)
             .map(({ title, favorite }) => ({
