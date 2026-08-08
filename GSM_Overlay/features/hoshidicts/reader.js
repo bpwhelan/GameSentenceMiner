@@ -1304,8 +1304,14 @@
   function calculatePopupPosition(anchorRect, popupSize, viewport, options = {}) {
     const gap = Number.isFinite(options.gap) ? options.gap : 4;
     const padding = Number.isFinite(options.padding) ? options.padding : 6;
-    const width = Math.max(1, popupSize.width);
-    const height = Math.max(1, popupSize.height);
+    const width = Math.min(
+      Math.max(1, popupSize.width),
+      Math.max(1, viewport.width - padding * 2)
+    );
+    const height = Math.min(
+      Math.max(1, popupSize.height),
+      Math.max(1, viewport.height - padding * 2)
+    );
     const clamp = (value, minimum, maximum) =>
       Math.max(minimum, Math.min(value, maximum));
 
@@ -3004,8 +3010,14 @@
       const padding = 6;
       const gap = 6;
       const viewport = { width: windowRef.innerWidth, height: windowRef.innerHeight };
-      const width = Math.max(1, popupSize.width);
-      const height = Math.max(1, popupSize.height);
+      const width = Math.min(
+        Math.max(1, popupSize.width),
+        Math.max(1, viewport.width - padding * 2)
+      );
+      const height = Math.min(
+        Math.max(1, popupSize.height),
+        Math.max(1, viewport.height - padding * 2)
+      );
       const spaceRight = viewport.width - parentRect.right - gap;
       const spaceLeft = parentRect.left - gap;
       const preferredLeft = spaceRight >= width || spaceRight >= spaceLeft

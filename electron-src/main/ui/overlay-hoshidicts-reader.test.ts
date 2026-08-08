@@ -1524,6 +1524,24 @@ describe("Hoshidicts safe popup rendering", () => {
     });
   });
 
+  it("fits the stable popup size inside viewports smaller than the preference", () => {
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+
+    expect(
+      api.calculatePopupPosition(
+        { left: 120, right: 160, top: 100, bottom: 130 },
+        { width: 560, height: 420 },
+        { width: 320, height: 240 }
+      )
+    ).toEqual({
+      left: 6,
+      top: 6,
+      width: 308,
+      height: 228
+    });
+  });
+
   it("uses one exact popup size instead of a stale measured height", async () => {
     const { dom, first, reader, socket } = createReaderHarness();
     Object.defineProperties(dom.window, {
