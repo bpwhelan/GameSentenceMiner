@@ -589,7 +589,14 @@ describe("Hoshidicts safe popup rendering", () => {
       /\.gsm-hoshidicts-audio-button\s*\{(?<declarations>[^}]*)\}/.exec(css)
         ?.groups?.declarations;
     const mineIconRule =
-      /\.gsm-hoshidicts-mine-button\[data-state="ready"\]\s+\.gsm-hoshidicts-mine-icon,\s*\.gsm-hoshidicts-mine-button\[data-state="add-duplicate"\]\s+\.gsm-hoshidicts-mine-icon\s*\{(?<declarations>[^}]*)\}/.exec(
+      /\.gsm-hoshidicts-mine-icon\s*\{(?<declarations>[^}]*)\}/.exec(css)
+        ?.groups?.declarations;
+    const readyMineIconRule =
+      /\.gsm-hoshidicts-mine-icon\[data-icon="big-circle"\]\s*\{(?<declarations>[^}]*)\}/.exec(
+        css
+      )?.groups?.declarations;
+    const duplicateMineIconRule =
+      /\.gsm-hoshidicts-mine-icon\[data-icon="add-duplicate-big-circle"\]\s*\{(?<declarations>[^}]*)\}/.exec(
         css
       )?.groups?.declarations;
     const rubyReadingRule =
@@ -639,7 +646,26 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(tabListRule).toContain("overflow-x: auto");
     expect(actionRule).toContain("width: 36px");
     expect(actionRule).toContain("height: 36px");
-    expect(mineIconRule).toContain("transform: translateY(-1px)");
+    expect(mineIconRule).toContain("display: inline-flex");
+    expect(mineIconRule).toContain("align-items: center");
+    expect(mineIconRule).toContain("justify-content: center");
+    expect(mineIconRule).toContain("width: 16px");
+    expect(mineIconRule).toContain("height: 16px");
+    expect(mineIconRule).not.toContain("transform:");
+    expect(readyMineIconRule).toContain(
+      'url("icons/big-circle.svg")'
+    );
+    expect(duplicateMineIconRule).toContain(
+      'url("icons/add-duplicate-big-circle.svg")'
+    );
+    expect(fs.existsSync(path.resolve(
+      process.cwd(),
+      "GSM_Overlay/features/hoshidicts/icons/big-circle.svg"
+    ))).toBe(true);
+    expect(fs.existsSync(path.resolve(
+      process.cwd(),
+      "GSM_Overlay/features/hoshidicts/icons/add-duplicate-big-circle.svg"
+    ))).toBe(true);
     expect(audioActionRule).toContain("border: 1px solid transparent");
     expect(rubyReadingRule).toContain("color: var(--text-color-light1)");
     expect(rubyReadingRule).toContain("font-size: 15px");
@@ -668,6 +694,27 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(blurRule?.groups?.declarations).toContain("filter: blur(5px)");
     expect(blurRule?.groups?.declarations).toContain("user-select: none");
     expect(blurRule?.[0]).not.toContain("definition-tags");
+  });
+
+  it("uses Yomitan card icons for new and duplicate mining states", () => {
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const button = dom.window.document.createElement("button");
+
+    api.setMiningButtonState(button, "ready");
+    expect(button.querySelector<HTMLElement>(".gsm-hoshidicts-mine-icon")
+      ?.dataset.icon).toBe("big-circle");
+    expect(button.textContent).toBe("");
+
+    api.setMiningButtonState(button, "add-duplicate");
+    expect(button.querySelector<HTMLElement>(".gsm-hoshidicts-mine-icon")
+      ?.dataset.icon).toBe("add-duplicate-big-circle");
+    expect(button.textContent).toBe("");
+
+    api.setMiningButtonState(button, "duplicate");
+    expect(button.querySelector<HTMLElement>(".gsm-hoshidicts-mine-icon")
+      ?.dataset.icon).toBe("add-duplicate-big-circle");
+    expect(button.textContent).toBe("");
   });
 
   it("segments supplementary-plane kanji separately from trailing kana", () => {
@@ -6347,7 +6394,9 @@ describe("Hoshidicts Shift-hover scanner", () => {
     expect(button.disabled).toBe(false);
     expect(button.title).toBe("Add duplicate to Anki");
     expect(button.getAttribute("aria-label")).toBe("Add duplicate to Anki");
-    expect(button.textContent).toBe("+");
+    expect(button.querySelector<HTMLElement>(".gsm-hoshidicts-mine-icon")
+      ?.dataset.icon).toBe("add-duplicate-big-circle");
+    expect(button.textContent).toBe("");
     harness.reader.destroy();
   });
 

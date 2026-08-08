@@ -420,13 +420,24 @@ html.gsm-hoshidicts-enabled #btn-yomitan {
 }
 
 .gsm-hoshidicts-mine-icon {
-  display: block;
+  display: inline-flex;
+  flex: 0 0 16px;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 16px 16px;
   line-height: 1;
 }
 
-.gsm-hoshidicts-mine-button[data-state="ready"] .gsm-hoshidicts-mine-icon,
-.gsm-hoshidicts-mine-button[data-state="add-duplicate"] .gsm-hoshidicts-mine-icon {
-  transform: translateY(-1px);
+.gsm-hoshidicts-mine-icon[data-icon="big-circle"] {
+  background-image: url("icons/big-circle.svg");
+}
+
+.gsm-hoshidicts-mine-icon[data-icon="add-duplicate-big-circle"] {
+  background-image: url("icons/add-duplicate-big-circle.svg");
 }
 
 .gsm-hoshidicts-mine-button:hover:not(:disabled) {
@@ -445,6 +456,11 @@ html.gsm-hoshidicts-enabled #btn-yomitan {
 .gsm-hoshidicts-mine-button[data-state="duplicate"] {
   border-color: #a8a8a8;
   color: #a8a8a8;
+}
+
+.gsm-hoshidicts-mine-button[data-state="duplicate"] .gsm-hoshidicts-mine-icon {
+  filter: grayscale(100%);
+  opacity: 0.55;
 }
 
 .gsm-hoshidicts-note-button {

@@ -226,16 +226,22 @@
     const icon = button.ownerDocument.createElement("span");
     icon.className = "gsm-hoshidicts-mine-icon";
     icon.setAttribute("aria-hidden", "true");
-    icon.textContent = {
-      checking: "…",
-      ready: "+",
-      "add-duplicate": "+",
-      mining: "⟳",
-      success: "✓",
-      error: "!",
-      duplicate: "•",
-      unavailable: "-",
-    }[state] || "-";
+    const iconName = {
+      ready: "big-circle",
+      "add-duplicate": "add-duplicate-big-circle",
+      duplicate: "add-duplicate-big-circle",
+    }[state];
+    if (iconName) {
+      icon.dataset.icon = iconName;
+    } else {
+      icon.textContent = {
+        checking: "…",
+        mining: "⟳",
+        success: "✓",
+        error: "!",
+        unavailable: "-",
+      }[state] || "-";
+    }
     button.replaceChildren(icon);
   }
 
