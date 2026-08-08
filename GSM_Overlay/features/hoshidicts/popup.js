@@ -1039,6 +1039,9 @@
           details.appendChild(summary);
           const definitions = documentRef.createElement("ol");
           definitions.className = "gsm-hoshidicts-definitions";
+          if (glossaries.length === 1) {
+            definitions.classList.add("gsm-hoshidicts-definitions-single");
+          }
           applyDefinitionBlurState(definitions);
           for (const glossary of glossaries) {
             const definition = documentRef.createElement("li");
@@ -1055,9 +1058,11 @@
             }
             const content = documentRef.createElement("div");
             content.className = "gsm-hoshidicts-glossary-content";
+            content.dataset.hoshidictsDictionary = dictionary;
             appendTextOnlyGlossary(documentRef, content, glossary.glossary, {
               dictionary,
               generation: renderContext.generation,
+              onInternalLink: renderContext.onInternalLink,
               onLayoutChange: positionPopup,
               resolveMedia: renderContext.resolveMedia,
             });

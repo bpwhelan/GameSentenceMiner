@@ -747,6 +747,11 @@ html.gsm-hoshidicts-enabled #btn-yomitan {
   padding-left: 26px;
 }
 
+.gsm-hoshidicts-definitions-single {
+  padding-left: 0;
+  list-style: none;
+}
+
 .gsm-hoshidicts-definitions[data-definition-blur-state="pending"]
   .gsm-hoshidicts-glossary-content,
 .gsm-hoshidicts-definitions[data-definition-blur-state="blurred"]
@@ -786,6 +791,36 @@ html.gsm-hoshidicts-enabled #btn-yomitan {
 
 .gsm-hoshidicts-glossary-content summary {
   cursor: pointer;
+}
+
+.gsm-hoshidicts-structured-link {
+  color: #7db7ff;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: rgba(125, 183, 255, 0.55);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.gsm-hoshidicts-structured-link:hover,
+.gsm-hoshidicts-structured-link:focus-visible {
+  color: #a9d0ff;
+  text-decoration-color: currentColor;
+  outline: none;
+}
+
+.gloss-link-external-icon {
+  margin-left: 0.2em;
+  font-size: 0.72em;
+  opacity: 0.72;
+  vertical-align: 0.12em;
+}
+
+.gloss-sc-table-container {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
 }
 
 .gsm-hoshidicts-structured-image {

@@ -1069,12 +1069,13 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(parent.textContent).toBe("safe text");
   });
 
-  it("renders the reference structured subset while dropping active content and CSS", async () => {
+  it("renders Yomitan data attributes and dictionary links while dropping active content", async () => {
     const dom = createDom();
     const api = loadReaderModule(dom.window as unknown as Window);
     const parent = dom.window.document.createElement("div");
     dom.window.document.body.appendChild(parent);
     const resolveMedia = vi.fn(async () => "blob:reference-image");
+    const onInternalLink = vi.fn();
     const onLayoutChange = vi.fn();
 
     api.appendTextOnlyGlossary(
@@ -1086,7 +1087,12 @@ describe("Hoshidicts safe popup rendering", () => {
           { type: "text", text: "Character " },
           {
             tag: "span",
-            data: { id: "role-badge" },
+            data: {
+              id: "role-badge",
+              class: "tag",
+              code: "name",
+              content: "part-of-speech-info"
+            },
             style: {
               background: "#334455",
               borderRadius: "4px",
@@ -1102,10 +1108,22 @@ describe("Hoshidicts safe popup rendering", () => {
             tag: "details",
             content: [
               { tag: "summary", content: "Voice actor" },
-              { tag: "ul", content: [{ tag: "li", content: "Example" }] }
+              {
+                tag: "ul",
+                content: [{
+                  tag: "li",
+                  style: { listStyleType: '"①"' },
+                  content: "Example"
+                }]
+              }
             ]
           },
-          { tag: "a", href: "https://example.test", content: "safe link text" },
+          {
+            tag: "a",
+            href: "?query=%E7%8C%AB&wildcards=off&primary_reading=%E3%81%AD%E3%81%93",
+            content: "猫"
+          },
+          { tag: "a", href: "https://example.test/reference", content: "source" },
           { tag: "script", content: "window.hacked=true" },
           {
             tag: "div",
@@ -1133,6 +1151,7 @@ describe("Hoshidicts safe popup rendering", () => {
       {
         dictionary: "Character Names",
         generation: 7,
+        onInternalLink,
         onLayoutChange,
         resolveMedia
       }
@@ -1146,8 +1165,24 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(badge.style.fontWeight).toBe("700");
     expect(badge.style.position).toBe("");
     expect(badge.getAttribute("onclick")).toBeNull();
-    expect(parent.querySelector("a")).toBeNull();
-    expect(parent.textContent).toContain("safe link text");
+    expect(badge.dataset.scClass).toBe("tag");
+    expect(badge.dataset.scCode).toBe("name");
+    expect(badge.dataset.scContent).toBe("part-of-speech-info");
+    expect(parent.querySelector<HTMLElement>("li")?.style.listStyleType).toBe('"①"');
+    const links = parent.querySelectorAll<HTMLAnchorElement>("a");
+    expect(links).toHaveLength(2);
+    expect(links[0].dataset.hoshidictsQuery).toBe("猫");
+    expect(links[0].dataset.hoshidictsReading).toBe("ねこ");
+    expect(links[0].getAttribute("href")).toBe("#");
+    links[0].dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    expect(onInternalLink).toHaveBeenCalledTimes(1);
+    expect(onInternalLink.mock.calls[0][0].anchor).toBe(links[0]);
+    expect(onInternalLink.mock.calls[0][0].primaryReading).toBe("ねこ");
+    expect(onInternalLink.mock.calls[0][0].query).toBe("猫");
+    expect(parent.textContent).toContain("猫");
+    expect(links[1].href).toBe("https://example.test/reference");
+    expect(links[1].target).toBe("_blank");
+    expect(links[1].rel).toContain("noopener");
     expect(parent.textContent).not.toContain("window.hacked");
     const hostile = Array.from(parent.querySelectorAll<HTMLElement>("div"))
       .find((element) => element.textContent === "still readable")!;
@@ -1172,6 +1207,141 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(image.hidden).toBe(true);
     expect(parent.textContent).toContain("still readable");
     expect(onLayoutChange).toHaveBeenCalledTimes(3);
+  });
+
+  it("requests and scopes each dictionary stylesheet once per generation", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      logger: { debug() {}, info() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances.at(-1)!;
+    socket.open();
+
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const lookupRequest = socket.sent
+      .map((value) => JSON.parse(value))
+      .findLast((value) => value.type === "hoshidicts_lookup");
+    socket.receive(lookupResult(
+      lookupRequest.requestId,
+      "食べる",
+      JSON.stringify({
+        type: "structured-content",
+        content: {
+          tag: "span",
+          data: { content: "part-of-speech-info" },
+          content: "verb"
+        }
+      }),
+      17
+    ));
+
+    const stylesRequest = socket.sent
+      .map((value) => JSON.parse(value))
+      .findLast((value) => value.type === "hoshidicts_styles");
+    expect(stylesRequest).toMatchObject({ generation: 17 });
+    socket.receive({
+      type: "hoshidicts_styles_result",
+      requestId: stylesRequest.requestId,
+      generation: 17,
+      success: true,
+      featureDisabled: false,
+      staleGeneration: false,
+      error: null,
+      styles: [{
+        dictionary: "JMdict",
+        styles: 'span[data-sc-content="part-of-speech-info"] { color: red; }'
+      }]
+    });
+
+    const glossary = reader.getPopupElement().querySelector<HTMLElement>(
+      '.gsm-hoshidicts-glossary-content[data-hoshidicts-dictionary="JMdict"]'
+    );
+    expect(glossary?.querySelector("[data-sc-content=part-of-speech-info]")?.textContent)
+      .toBe("verb");
+    const style = dom.window.document.head.querySelector<HTMLStyleElement>(
+      'style[data-hoshidicts-dictionary-style="JMdict"]'
+    );
+    expect(style?.dataset.hoshidictsGeneration).toBe("17");
+    expect(style?.textContent).toContain("@scope");
+    expect(style?.textContent).toContain('span[data-sc-content="part-of-speech-info"]');
+
+    reader.destroy();
+    expect(style?.isConnected).toBe(false);
+  });
+
+  it("opens a Jitendex internal definition link in a child popup", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      popupNestingMaxDepth: 2,
+      logger: { debug() {}, info() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances.at(-1)!;
+    socket.open();
+
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const parentRequest = socket.sent
+      .map((value) => JSON.parse(value))
+      .findLast((value) => value.type === "hoshidicts_lookup");
+    socket.receive(lookupResult(
+      parentRequest.requestId,
+      "食べる",
+      JSON.stringify({
+        type: "structured-content",
+        content: {
+          tag: "a",
+          href: "?query=%E7%8C%AB&wildcards=off&primary_reading=%E3%81%AD%E3%81%93",
+          content: "猫"
+        }
+      }),
+      4
+    ));
+
+    const link = reader.getPopupElement().querySelector<HTMLAnchorElement>(
+      "a[data-hoshidicts-query]"
+    )!;
+    setRect(link, { left: 100, top: 100, right: 130, bottom: 120 });
+    link.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    const childRequest = socket.sent
+      .map((value) => JSON.parse(value))
+      .findLast((value) => value.type === "hoshidicts_lookup");
+    expect(childRequest.text).toBe("猫");
+    expect(childRequest.primaryReading).toBe("ねこ");
+    expect(childRequest.requestId).not.toBe(parentRequest.requestId);
+    const childResponse = lookupResult(childRequest.requestId, "猫", "cat", 4);
+    childResponse.results[0].term.reading = "ねこ";
+    socket.receive(childResponse);
+
+    const popups = reader.getPopupElements();
+    expect(popups).toHaveLength(2);
+    expect(popups[0].textContent).toContain("猫");
+    expect(popups[1].textContent).toContain("cat");
+    reader.destroy();
   });
 
   it("clamps the popup beside the anchor inside the viewport", () => {

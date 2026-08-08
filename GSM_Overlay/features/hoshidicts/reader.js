@@ -68,7 +68,12 @@
   const MIN_DEFINITION_BLUR_REVEAL_DELAY_MS = 1000;
   const MAX_DEFINITION_BLUR_REVEAL_DELAY_MS = 60 * 60 * 1000;
   const MAX_RESPONSE_BYTES = 256 * 1024;
+  const MAX_LOOKUP_TEXT_BYTES = 4 * 1024;
   const MAX_MEDIA_RESPONSE_BYTES = 6 * 1024 * 1024;
+  const MAX_STYLES_RESPONSE_BYTES = 3 * 1024 * 1024;
+  const MAX_DICTIONARY_STYLES = 256;
+  const MAX_DICTIONARY_STYLE_BYTES = 256 * 1024;
+  const MAX_DICTIONARY_STYLES_BYTES = 2 * 1024 * 1024;
   const MAX_MEDIA_BYTES = 4 * 1024 * 1024;
   const MAX_MEDIA_DIMENSION = 4096;
   const MAX_MEDIA_PIXELS = 16 * 1024 * 1024;
@@ -108,6 +113,7 @@
     /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u{20000}-\u{2fa1f}\u3005]+|[^\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u{20000}-\u{2fa1f}\u3005]+/gu;
   const KANA_PATTERN = /[\u3040-\u30ff\uff66-\uff9f]/u;
   const ALLOWED_STRUCTURED_TAGS = new Set([
+    "a",
     "br",
     "code",
     "details",
@@ -148,6 +154,9 @@
     "video",
   ]);
   const STRUCTURED_TAGS_WITHOUT_CONTENT = new Set(["br", "img"]);
+  const MAX_STRUCTURED_DATA_ATTRIBUTES = 64;
+  const MAX_STRUCTURED_DATA_KEY_LENGTH = 64;
+  const MAX_STRUCTURED_DATA_VALUE_LENGTH = 4096;
   const ALLOWED_MEDIA_TYPES = new Set([
     "image/gif",
     "image/jpeg",
@@ -156,18 +165,37 @@
   ]);
   const STRUCTURED_STYLE_PROPERTIES = new Map([
     ["background", ["background", "color"]],
+    ["backgroundColor", ["background-color", "color"]],
     ["borderColor", ["border-color", "color"]],
     ["borderRadius", ["border-radius", "length-sequence"]],
     ["borderStyle", ["border-style", "border-style"]],
     ["borderWidth", ["border-width", "length-sequence"]],
+    ["clipPath", ["clip-path", "clip-path"]],
     ["color", ["color", "color"]],
+    ["cursor", ["cursor", "cursor"]],
     ["fontSize", ["font-size", "length"]],
     ["fontStyle", ["font-style", "font-style"]],
     ["fontWeight", ["font-weight", "font-weight"]],
+    ["listStyleType", ["list-style-type", "list-style-type"]],
+    ["margin", ["margin", "signed-length-sequence"]],
     ["marginBottom", ["margin-bottom", "signed-length"]],
+    ["marginLeft", ["margin-left", "signed-length"]],
+    ["marginRight", ["margin-right", "signed-length"]],
     ["marginTop", ["margin-top", "signed-length"]],
     ["padding", ["padding", "length-sequence"]],
+    ["paddingBottom", ["padding-bottom", "length"]],
     ["paddingLeft", ["padding-left", "length"]],
+    ["paddingRight", ["padding-right", "length"]],
+    ["paddingTop", ["padding-top", "length"]],
+    ["textAlign", ["text-align", "text-align"]],
+    ["textDecorationColor", ["text-decoration-color", "color"]],
+    ["textDecorationLine", ["text-decoration-line", "text-decoration-line"]],
+    ["textDecorationStyle", ["text-decoration-style", "text-decoration-style"]],
+    ["textEmphasis", ["text-emphasis", "safe-css-token"]],
+    ["textShadow", ["text-shadow", "safe-css-token"]],
+    ["verticalAlign", ["vertical-align", "vertical-align"]],
+    ["whiteSpace", ["white-space", "white-space"]],
+    ["wordBreak", ["word-break", "word-break"]],
   ]);
   const NAMED_ACTIVATION_KEYS = new Map([
     ["ctrl", "Ctrl"],
@@ -597,6 +625,21 @@
     return normalized.every((token) => token !== null) ? normalized.join(" ") : null;
   }
 
+  function normalizeSignedLengthSequence(value) {
+    if (typeof value === "number") {
+      return normalizeLengthToken(value, true);
+    }
+    if (!isSafeCssToken(value)) {
+      return null;
+    }
+    const tokens = value.trim().split(/\s+/u);
+    if (tokens.length < 1 || tokens.length > 4) {
+      return null;
+    }
+    const normalized = tokens.map((token) => normalizeLengthToken(token, true));
+    return normalized.every((token) => token !== null) ? normalized.join(" ") : null;
+  }
+
   function normalizeStructuredStyleValue(kind, value) {
     if (kind === "color") {
       return normalizeColor(value);
@@ -605,10 +648,18 @@
       return normalizeLengthToken(value);
     }
     if (kind === "signed-length") {
+      if (typeof value === "number") {
+        return Number.isFinite(value) && Math.abs(value) <= 16
+          ? `${value}em`
+          : null;
+      }
       return normalizeLengthToken(value, true);
     }
     if (kind === "length-sequence") {
       return normalizeLengthSequence(value);
+    }
+    if (kind === "signed-length-sequence") {
+      return normalizeSignedLengthSequence(value);
     }
     if (kind === "border-style") {
       return typeof value === "string" &&
@@ -631,6 +682,66 @@
       if (Number.isInteger(value) && value >= 100 && value <= 900 && value % 100 === 0) {
         return String(value);
       }
+    }
+    if (kind === "list-style-type") {
+      return isSafeCssToken(value) && value.trim().length <= 64
+        ? value.trim()
+        : null;
+    }
+    if (kind === "text-align") {
+      return typeof value === "string" &&
+        /^(?:start|end|left|right|center|justify|match-parent)$/u.test(value)
+        ? value
+        : null;
+    }
+    if (kind === "text-decoration-line") {
+      const values = Array.isArray(value) ? value : [value];
+      return values.length >= 1 && values.length <= 4 && values.every(
+        (item) => typeof item === "string" &&
+          /^(?:none|underline|overline|line-through|blink)$/u.test(item)
+      ) ? values.join(" ") : null;
+    }
+    if (kind === "text-decoration-style") {
+      return typeof value === "string" &&
+        /^(?:solid|double|dotted|dashed|wavy)$/u.test(value)
+        ? value
+        : null;
+    }
+    if (kind === "vertical-align") {
+      if (
+        typeof value === "string" &&
+        /^(?:baseline|sub|super|text-top|text-bottom|middle|top|bottom)$/u.test(value)
+      ) {
+        return value;
+      }
+      return normalizeLengthToken(value, true);
+    }
+    if (kind === "white-space") {
+      return typeof value === "string" &&
+        /^(?:normal|nowrap|pre|pre-wrap|pre-line|break-spaces)$/u.test(value)
+        ? value
+        : null;
+    }
+    if (kind === "word-break") {
+      return typeof value === "string" &&
+        /^(?:normal|break-all|keep-all|break-word)$/u.test(value)
+        ? value
+        : null;
+    }
+    if (kind === "cursor") {
+      return typeof value === "string" &&
+        /^(?:auto|default|pointer|help|text|wait|progress|not-allowed|zoom-in|zoom-out)$/u.test(value)
+        ? value
+        : null;
+    }
+    if (kind === "clip-path") {
+      return typeof value === "string" &&
+        /^(?:circle|ellipse|inset)\([0-9.,%+\-\s]+\)$/u.test(value)
+        ? value
+        : null;
+    }
+    if (kind === "safe-css-token") {
+      return isSafeCssToken(value) ? value.trim() : null;
     }
     return null;
   }
@@ -720,6 +831,93 @@
     });
   }
 
+  function structuredDataAttributeName(rawKey) {
+    if (
+      typeof rawKey !== "string" ||
+      rawKey.length === 0 ||
+      rawKey.length > MAX_STRUCTURED_DATA_KEY_LENGTH ||
+      !/^[A-Za-z0-9_-]+$/u.test(rawKey)
+    ) {
+      return null;
+    }
+    const key = rawKey
+      .replace(/([a-z0-9])([A-Z])/gu, "$1-$2")
+      .replace(/_+/gu, "-")
+      .toLowerCase();
+    return key && !key.startsWith("-") ? `data-sc-${key}` : null;
+  }
+
+  function applyStructuredData(element, data) {
+    if (!isRecord(data)) {
+      return;
+    }
+    let count = 0;
+    for (const [key, rawValue] of Object.entries(data)) {
+      if (count >= MAX_STRUCTURED_DATA_ATTRIBUTES) {
+        break;
+      }
+      if (
+        typeof rawValue !== "string" &&
+        typeof rawValue !== "number" &&
+        typeof rawValue !== "boolean"
+      ) {
+        continue;
+      }
+      const attribute = structuredDataAttributeName(key);
+      const value = String(rawValue);
+      if (
+        !attribute ||
+        value.length > MAX_STRUCTURED_DATA_VALUE_LENGTH ||
+        /[\u0000-\u001f\u007f]/u.test(value)
+      ) {
+        continue;
+      }
+      element.setAttribute(attribute, value);
+      count += 1;
+    }
+  }
+
+  function parseStructuredLink(href) {
+    if (typeof href !== "string" || href.length === 0 || href.length > 4096) {
+      return null;
+    }
+    if (href.startsWith("?")) {
+      const params = new Map();
+      try {
+        for (const part of href.slice(1).split("&")) {
+          const separator = part.indexOf("=");
+          const rawKey = separator < 0 ? part : part.slice(0, separator);
+          const rawValue = separator < 0 ? "" : part.slice(separator + 1);
+          const key = decodeURIComponent(rawKey.replace(/\+/gu, " "));
+          if (!params.has(key)) {
+            params.set(
+              key,
+              decodeURIComponent(rawValue.replace(/\+/gu, " "))
+            );
+          }
+        }
+      } catch {
+        return null;
+      }
+      const query = boundedString(params.get("query"), MAX_LOOKUP_TEXT_BYTES).trim();
+      if (!query) {
+        return null;
+      }
+      return {
+        internal: true,
+        primaryReading: boundedString(
+          params.get("primary_reading"),
+          MAX_LOOKUP_TEXT_BYTES
+        ).trim(),
+        query,
+      };
+    }
+    if (/^https?:\/\//iu.test(href)) {
+      return { href, internal: false };
+    }
+    return null;
+  }
+
   function appendStructuredValue(documentRef, parent, value, state, depth) {
     if (state.nodes >= MAX_STRUCTURED_NODES || depth > MAX_STRUCTURED_DEPTH) {
       return;
@@ -783,16 +981,10 @@
     }
 
     const element = documentRef.createElement(tag);
+    element.classList.add(`gloss-sc-${tag}`);
     state.nodes += 1;
     applyStructuredStyle(element, value.style);
-    if (
-      isRecord(value.data) &&
-      typeof value.data.id === "string" &&
-      value.data.id.length <= 256 &&
-      !/[\u0000-\u001f\u007f]/u.test(value.data.id)
-    ) {
-      element.dataset.scId = value.data.id;
-    }
+    applyStructuredData(element, value.data);
     if (
       typeof value.lang === "string" &&
       /^[A-Za-z0-9-]{1,35}$/u.test(value.lang)
@@ -813,13 +1005,65 @@
     if (tag === "details" && typeof state.onLayoutChange === "function") {
       element.addEventListener("toggle", state.onLayoutChange);
     }
+    if (typeof value.title === "string" && value.title.length <= 4096) {
+      element.title = value.title;
+    }
+    if (tag === "details" && value.open === true) {
+      element.open = true;
+    }
+    if (tag === "a") {
+      element.classList.add("gloss-link", "gsm-hoshidicts-structured-link");
+      const link = parseStructuredLink(value.href);
+      if (link?.internal) {
+        element.setAttribute("href", "#");
+        element.dataset.hoshidictsQuery = link.query;
+        if (link.primaryReading) {
+          element.dataset.hoshidictsReading = link.primaryReading;
+        }
+        element.addEventListener("click", (event) => {
+          event.preventDefault();
+          if (typeof state.onInternalLink === "function") {
+            state.onInternalLink({
+              anchor: element,
+              primaryReading: link.primaryReading,
+              query: link.query,
+            });
+          }
+        });
+      } else if (link) {
+        element.href = link.href;
+        element.target = "_blank";
+        element.rel = "noopener noreferrer";
+        element.dataset.external = "true";
+      }
+    }
+    let contentParent = element;
+    if (tag === "a") {
+      contentParent = documentRef.createElement("span");
+      contentParent.className = "gloss-link-text";
+      element.appendChild(contentParent);
+    }
     if (
       !STRUCTURED_TAGS_WITHOUT_CONTENT.has(tag) &&
       Object.prototype.hasOwnProperty.call(value, "content")
     ) {
-      appendStructuredValue(documentRef, element, value.content, state, depth + 1);
+      appendStructuredValue(documentRef, contentParent, value.content, state, depth + 1);
     }
-    parent.appendChild(element);
+    if (tag === "a" && element.dataset.external === "true") {
+      const icon = documentRef.createElement("span");
+      icon.className = "gloss-link-external-icon";
+      icon.setAttribute("aria-hidden", "true");
+      icon.textContent = "↗";
+      element.appendChild(icon);
+    }
+    if (tag === "table") {
+      const container = documentRef.createElement("div");
+      container.className = "gloss-sc-table-container";
+      container.appendChild(element);
+      parent.appendChild(container);
+    } else {
+      parent.appendChild(element);
+    }
   }
 
   function appendTextOnlyGlossary(documentRef, parent, rawGlossary, options = {}) {
@@ -833,12 +1077,16 @@
     } catch {
       // Plain glossary strings are rendered literally, including any HTML-like text.
     }
+    if (isRecord(parsed) && parsed.type === "structured-content") {
+      parent.classList.add("structured-content");
+    }
     appendStructuredValue(
       documentRef,
       parent,
       parsed,
       {
         nodes: 0,
+        onInternalLink: options.onInternalLink,
         onLayoutChange: options.onLayoutChange,
         resolveMedia: typeof options.resolveMedia === "function"
           ? ({ path }) => options.resolveMedia({
@@ -1576,6 +1824,9 @@
     let pointerPopupDepth = null;
     let lastPointer = null;
     let requestSequence = 0;
+    let stylesRequestSequence = 0;
+    let pendingStylesRequest = null;
+    let dictionaryStylesGeneration = null;
     let latestRequestId = null;
     let latestCandidate = null;
     let latestCandidateSignature = "";
@@ -1584,6 +1835,7 @@
     let lookupStatsGeneration = 0;
     let latestRequestMode = "term-first";
     let latestRequestText = "";
+    let latestRequestPrimaryReading = "";
     let activeDictionaryGeneration = null;
     let mediaRequestSequence = 0;
     let activeMediaRequestCount = 0;
@@ -1606,6 +1858,7 @@
     let lastHoveredSource = null;
     let lastHoveredTargetDepth = null;
     const popupLevels = [];
+    const dictionaryStyleElements = [];
     const renderedSignatures = new Map();
     const noticeSignatures = new Map();
     const candidateSourceIds = new WeakMap();
@@ -1904,6 +2157,108 @@
       pumpMediaQueue();
     }
 
+    function clearDictionaryStyles() {
+      pendingStylesRequest = null;
+      dictionaryStylesGeneration = null;
+      for (const element of dictionaryStyleElements.splice(0)) {
+        element.remove();
+      }
+    }
+
+    function cssAttributeString(value) {
+      return `"${value
+        .replace(/\\/gu, "\\\\")
+        .replace(/"/gu, '\\"')}"`;
+    }
+
+    function applyDictionaryStyles(generation, entries) {
+      clearDictionaryStyles();
+      for (const entry of entries) {
+        const style = documentRef.createElement("style");
+        style.dataset.hoshidictsDictionaryStyle = entry.dictionary;
+        style.dataset.hoshidictsGeneration = String(generation);
+        style.textContent = [
+          `@scope (.gsm-hoshidicts-glossary-content[data-hoshidicts-dictionary=${cssAttributeString(entry.dictionary)}]) {`,
+          entry.styles,
+          "}",
+        ].join("\n");
+        documentRef.head.appendChild(style);
+        dictionaryStyleElements.push(style);
+      }
+      dictionaryStylesGeneration = generation;
+    }
+
+    function requestDictionaryStyles(generation) {
+      if (
+        destroyed ||
+        dictionaryStylesGeneration === generation ||
+        pendingStylesRequest?.generation === generation ||
+        !socket ||
+        socket.readyState !== WebSocketImpl.OPEN
+      ) {
+        return;
+      }
+      const requestId = `overlay-styles-${++stylesRequestSequence}`;
+      pendingStylesRequest = { generation, requestId };
+      socket.send(JSON.stringify({
+        type: "hoshidicts_styles",
+        requestId,
+        generation,
+      }));
+    }
+
+    function handleDictionaryStylesResponse(payload, serializedLength) {
+      const pending = pendingStylesRequest;
+      if (!pending || payload.requestId !== pending.requestId) {
+        return;
+      }
+      pendingStylesRequest = null;
+      if (
+        serializedLength > MAX_STYLES_RESPONSE_BYTES ||
+        payload.success !== true ||
+        payload.generation !== pending.generation ||
+        payload.generation !== activeDictionaryGeneration ||
+        !Array.isArray(payload.styles) ||
+        payload.styles.length > MAX_DICTIONARY_STYLES
+      ) {
+        diagnostic("warn", "styles.rejected", {
+          generation: payload.generation,
+          success: payload.success === true,
+        });
+        return;
+      }
+      let totalBytes = 0;
+      const entries = [];
+      const dictionaries = new Set();
+      for (const rawEntry of payload.styles) {
+        if (!isRecord(rawEntry)) {
+          return;
+        }
+        const dictionary = boundedString(rawEntry.dictionary, 4096);
+        const styles = boundedString(rawEntry.styles, MAX_DICTIONARY_STYLE_BYTES + 1);
+        const styleBytes = utf8Length(styles);
+        totalBytes += styleBytes;
+        if (
+          !dictionary ||
+          dictionaries.has(dictionary) ||
+          styleBytes > MAX_DICTIONARY_STYLE_BYTES ||
+          totalBytes > MAX_DICTIONARY_STYLES_BYTES
+        ) {
+          diagnostic("warn", "styles.invalid-entry", { dictionary });
+          return;
+        }
+        dictionaries.add(dictionary);
+        if (styles) {
+          entries.push({ dictionary, styles });
+        }
+      }
+      applyDictionaryStyles(pending.generation, entries);
+      diagnostic("info", "styles.applied", {
+        generation: pending.generation,
+        styleCount: entries.length,
+      });
+    }
+
     function reservePopupMedia(depth, key, pixelCount) {
       const reservationKey = mediaDepthKey(depth, key);
       if (popupMediaKeys.has(reservationKey)) {
@@ -1939,10 +2294,13 @@
 
     function updateDictionaryGeneration(generation) {
       if (activeDictionaryGeneration === generation) {
+        requestDictionaryStyles(generation);
         return;
       }
       clearMediaState("dictionary_generation_changed");
+      clearDictionaryStyles();
       activeDictionaryGeneration = generation;
+      requestDictionaryStyles(generation);
     }
 
     function cacheMedia(job, url, byteLength, pixelCount) {
@@ -2093,6 +2451,7 @@
       latestCandidate = null;
       latestRequestMode = "term-first";
       latestRequestText = "";
+      latestRequestPrimaryReading = "";
       latestCandidateSignature = "";
       clearLookupTimeout();
       if (debounceTimer !== null) {
@@ -2511,6 +2870,7 @@
         generation: dictionaryGeneration,
         showLookupCounts: preferences.showLookupCounts && Boolean(onLookup),
         dictionaryPresentation: preferences.dictionaryPresentation,
+        onInternalLink: (link) => openStructuredLink(link, targetDepth),
         resolveMedia: dictionaryGeneration === null
           ? null
           : (request) => resolveMedia({ ...request, depth: targetDepth }),
@@ -2551,6 +2911,7 @@
         generation: dictionaryGeneration,
         showLookupCounts: preferences.showLookupCounts && Boolean(onLookup),
         dictionaryPresentation: preferences.dictionaryPresentation,
+        onInternalLink: (link) => openStructuredLink(link, targetDepth),
         resolveMedia: dictionaryGeneration === null
           ? null
           : (request) => resolveMedia({ ...request, depth: targetDepth }),
@@ -3101,6 +3462,10 @@
         handleMediaResponse(payload);
         return;
       }
+      if (payload.type === "hoshidicts_styles_result") {
+        handleDictionaryStylesResponse(payload, serialized.length);
+        return;
+      }
       if (serialized.length > MAX_RESPONSE_BYTES) {
         diagnostic("warn", "lookup-response.too-large", {
           bytes: serialized.length,
@@ -3124,6 +3489,7 @@
       const targetDepth = latestTargetDepth;
       const requestId = latestRequestId;
       const requestMode = latestRequestMode;
+      const requestPrimaryReading = latestRequestPrimaryReading;
       latestRequestId = null;
       if (!candidate || !isCandidateAnchorConnected(candidate)) {
         diagnostic("warn", "lookup.missing-candidate", { requestId, targetDepth });
@@ -3160,11 +3526,23 @@
       if (dictionaryGeneration === null) {
         diagnostic("warn", "lookup.media-generation-unavailable", { requestId });
         clearMediaState("dictionary_generation_unavailable");
+        clearDictionaryStyles();
         activeDictionaryGeneration = null;
       } else {
         updateDictionaryGeneration(dictionaryGeneration);
       }
-      const results = normalizeLookupResults(payload);
+      const filteredPayload = requestPrimaryReading && Array.isArray(payload.results)
+        ? {
+            ...payload,
+            results: payload.results.filter((rawResult) => {
+              const term = isRecord(rawResult) && isRecord(rawResult.term)
+                ? rawResult.term
+                : null;
+              return term?.reading === requestPrimaryReading;
+            }),
+          }
+        : payload;
+      const results = normalizeLookupResults(filteredPayload);
       if (results.length > 0) {
         renderTermResults(
           results,
@@ -3322,6 +3700,7 @@
           latestRequestId = null;
           clearLookupTimeout();
           clearMediaState("socket_closed");
+          clearDictionaryStyles();
           activeDictionaryGeneration = null;
           hide("socket-closed");
           if (
@@ -3377,6 +3756,10 @@
       latestCandidateSignature = signature;
       latestRequestMode = mode;
       latestRequestText = text;
+      latestRequestPrimaryReading = boundedString(
+        candidate.primaryReading,
+        MAX_LOOKUP_TEXT_BYTES
+      );
       if (lookupTimeoutTimer === null) {
         lookupTimeoutTimer = setTimeoutFn(() => {
           lookupTimeoutTimer = null;
@@ -3417,6 +3800,9 @@
         type: "hoshidicts_lookup",
         requestId,
         text,
+        ...(latestRequestPrimaryReading
+          ? { primaryReading: latestRequestPrimaryReading }
+          : {}),
         ...(mode === "kanji" ? { mode: "kanji" } : {}),
       }));
       diagnostic("debug", "lookup.sent", {
@@ -3434,6 +3820,35 @@
         return false;
       }
       queueLookup(candidate, targetDepth, true);
+      return true;
+    }
+
+    function openStructuredLink(link, sourceDepth) {
+      const anchor = link?.anchor;
+      const query = boundedString(link?.query, MAX_LOOKUP_TEXT_BYTES).trim();
+      const targetDepth = sourceDepth + 1;
+      if (
+        !(anchor instanceof windowRef.Element) ||
+        !anchor.isConnected ||
+        !query ||
+        targetDepth > preferences.popupNestingMaxDepth
+      ) {
+        return false;
+      }
+      clearHoveredSource();
+      queueLookup({
+        anchor,
+        sourceElements: [anchor],
+        sentence: query,
+        matchOffset: 0,
+        query,
+        primaryReading: boundedString(
+          link.primaryReading,
+          MAX_LOOKUP_TEXT_BYTES
+        ),
+        sourceDepth,
+        vertical: windowRef.getComputedStyle(anchor).writingMode.startsWith("vertical"),
+      }, targetDepth, true);
       return true;
     }
 
@@ -3809,6 +4224,7 @@
       hide("destroy");
       audioController.destroy();
       clearMediaState("reader_destroyed");
+      clearDictionaryStyles();
       activeDictionaryGeneration = null;
       if (reconnectTimer !== null) {
         clearTimeoutFn(reconnectTimer);
