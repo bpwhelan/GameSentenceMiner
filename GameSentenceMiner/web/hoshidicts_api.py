@@ -20,7 +20,9 @@ from GameSentenceMiner.hoshidicts_audio import (
 
 from GameSentenceMiner.hoshidicts_mining import (
     HoshidictsMiningError,
+    MAX_DUPLICATE_CHECK_REQUEST_BYTES,
     MAX_REQUEST_BYTES,
+    check_hoshidicts_notes,
     get_hoshidicts_mining_options,
     get_hoshidicts_mining_status,
     mine_hoshidicts_note,
@@ -248,6 +250,33 @@ def register_hoshidicts_api_routes(app) -> None:
     def api_hoshidicts_mining_options():
         return jsonify(get_hoshidicts_mining_options(request.args.get("model")))
 
+    @app.post("/api/hoshidicts/mining/check")
+    @local_hoshidicts_only
+    def api_hoshidicts_mining_check():
+        try:
+            payload = read_bounded_json(
+                MAX_DUPLICATE_CHECK_REQUEST_BYTES,
+                HoshidictsMiningError,
+                "Duplicate check",
+            )
+            return jsonify(check_hoshidicts_notes(payload))
+        except HoshidictsMiningError as exc:
+            response = {"success": False, "error": str(exc)}
+            if exc.status_code == 409:
+                response["code"] = "duplicate"
+            return jsonify(response), exc.status_code
+        except Exception as exc:
+            logger.exception(f"Hoshidicts duplicate check failed: {exc}")
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": "Hoshidicts could not check the note through GSM.",
+                    }
+                ),
+                500,
+            )
+
     @app.post("/api/hoshidicts/mine")
     @local_hoshidicts_only
     def api_hoshidicts_mine():
@@ -255,10 +284,10 @@ def register_hoshidicts_api_routes(app) -> None:
             payload = read_bounded_json(MAX_REQUEST_BYTES, HoshidictsMiningError, "Mining")
             return jsonify(mine_hoshidicts_note(payload))
         except HoshidictsMiningError as exc:
-            return (
-                jsonify({"success": False, "error": str(exc)}),
-                exc.status_code,
-            )
+            response = {"success": False, "error": str(exc)}
+            if exc.status_code == 409:
+                response["code"] = "duplicate"
+            return jsonify(response), exc.status_code
         except Exception as exc:
             logger.exception(f"Hoshidicts mining failed: {exc}")
             return (

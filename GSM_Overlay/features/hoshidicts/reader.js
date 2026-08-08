@@ -88,6 +88,7 @@
   const MAX_METADATA_VALUES = 64;
   const MAX_TEXT_LENGTH = 128 * 1024;
   const MAX_MINING_REQUEST_BYTES = 256 * 1024;
+  const MAX_DUPLICATE_CHECK_REQUEST_BYTES = 4 * 1024 * 1024;
   const MINING_REQUEST_TIMEOUT_MS = 90 * 1000;
   const MAX_LOOKUP_STATS_REQUEST_BYTES = 4 * 1024;
   const MAX_LOOKUP_STATS_TEXT_LENGTH = 256;
@@ -1194,6 +1195,17 @@
       : value.length;
   }
 
+  function createMiningRequestError(message, code = null, status = null) {
+    const error = new Error(message);
+    if (typeof code === "string" && code) {
+      error.code = code;
+    }
+    if (Number.isInteger(status)) {
+      error.status = status;
+    }
+    return error;
+  }
+
   function createHoshidictsMiningClient(options = {}) {
     const baseUrl =
       normalizeLocalHttpBaseUrl(options.baseUrl) ||
@@ -1227,16 +1239,22 @@
         try {
           payload = await response.json();
         } catch {
-          throw new Error(`GSM returned an invalid response (HTTP ${response.status}).`);
+          throw createMiningRequestError(
+            `GSM returned an invalid response (HTTP ${response.status}).`,
+            null,
+            response.status
+          );
         }
         if (!isRecord(payload)) {
           throw new Error("GSM returned an invalid mining response.");
         }
         if (!response.ok) {
-          throw new Error(
+          throw createMiningRequestError(
             typeof payload.error === "string"
               ? payload.error
-              : `GSM mining failed (HTTP ${response.status}).`
+              : `GSM mining failed (HTTP ${response.status}).`,
+            payload.code,
+            response.status
           );
         }
         return payload;
@@ -1255,6 +1273,17 @@
     return {
       async getStatus() {
         return await request("/api/hoshidicts/mining/status");
+      },
+      async check(payload) {
+        const body = JSON.stringify(payload);
+        if (utf8Length(body) > MAX_DUPLICATE_CHECK_REQUEST_BYTES) {
+          throw new Error("Hoshidicts duplicate check is too large.");
+        }
+        return await request("/api/hoshidicts/mining/check", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        });
       },
       async mine(payload) {
         const body = JSON.stringify(payload);
@@ -1466,6 +1495,10 @@
       typeof options.getMiningStatus === "function"
         ? options.getMiningStatus
         : async () => ({ available: false });
+    const checkMiningNotes =
+      typeof options.checkMiningNotes === "function"
+        ? options.checkMiningNotes
+        : null;
     const onMine =
       typeof options.onMine === "function"
         ? options.onMine
@@ -2139,6 +2172,8 @@
         lookupStatsPayload: null,
         lookupStatsRequestGeneration: 0,
         miningStatusGeneration: 0,
+        miningItems: [],
+        miningFeedback: null,
         cleanup() {
           popup.removeEventListener("pointerdown", stopPropagation);
           popup.removeEventListener("click", stopPropagation);
@@ -2177,7 +2212,13 @@
           pruneFromDepth(depth + 1, "dictionary-tab-changed");
           preparePopupContent("dictionary_tab_changed", depth);
         },
-        onResultsRendered({ audioItems, feedback, lookupStats, miningButtons }) {
+        onResultsRendered({
+          audioItems,
+          feedback,
+          lookupStats,
+          miningButtons,
+          miningItems,
+        }) {
           for (const button of miningButtons) {
             button.hidden = true;
           }
@@ -2189,8 +2230,10 @@
             level.view.setLookupStats(lookupStats, level.lookupStatsPayload);
           }
           level.audioItems = audioItems;
+          level.miningItems = miningItems;
+          level.miningFeedback = feedback;
           syncAudioRenderedResults(depth, true);
-          void refreshMiningButtons(level, miningButtons, feedback);
+          void refreshMiningButtons(level, miningItems, feedback);
         },
       });
       return level;
@@ -2232,6 +2275,8 @@
         level.lookupStatsRequestGeneration += 1;
         level.lookupStatsPayload = null;
         level.miningStatusGeneration += 1;
+        level.miningItems = [];
+        level.miningFeedback = null;
         level.candidate = null;
         level.termView = null;
         level.audioItems = [];
@@ -2432,6 +2477,8 @@
       invalidateDefinitionBlur(level);
       level.termView = null;
       level.audioItems = [];
+      level.miningItems = [];
+      level.miningFeedback = null;
       level.view.renderNotice(message, candidate);
       renderedSignatures.set(targetDepth, signature);
       noticeSignatures.set(targetDepth, signature);
@@ -2483,11 +2530,13 @@
       renderedSignatures.set(targetDepth, signature);
       noticeSignatures.delete(targetDepth);
       level.audioItems = rendered.audioItems;
+      level.miningItems = rendered.miningItems;
+      level.miningFeedback = rendered.feedback;
       showPopup(candidate, targetDepth);
       startDefinitionBlurDeadline(definitionBlurContext);
       recordLookup(primaryResult, definitionBlurContext, level);
       syncAudioRenderedResults(targetDepth, true);
-      void refreshMiningButtons(level, rendered.miningButtons, rendered.feedback);
+      void refreshMiningButtons(level, rendered.miningItems, rendered.feedback);
     }
 
     function restoreTermView(targetDepth) {
@@ -2528,9 +2577,11 @@
       renderedSignatures.set(targetDepth, signature);
       noticeSignatures.delete(targetDepth);
       level.audioItems = rendered.audioItems;
+      level.miningItems = rendered.miningItems;
+      level.miningFeedback = rendered.feedback;
       showPopup(candidate, targetDepth);
       syncAudioRenderedResults(targetDepth, true);
-      void refreshMiningButtons(level, rendered.miningButtons, rendered.feedback);
+      void refreshMiningButtons(level, rendered.miningItems, rendered.feedback);
     }
 
     function requestKanji(character, candidate, targetDepth) {
@@ -2584,32 +2635,123 @@
       return miningStatusCache;
     }
 
-    async function refreshMiningButtons(level, buttons, feedback) {
+    function createMiningPayload(item) {
+      return {
+        result: item.result,
+        sentence: item.candidate.sentence,
+        matchOffset: item.candidate.matchOffset,
+      };
+    }
+
+    function isLiveMiningRender(level, generation, feedback) {
+      return (
+        !destroyed &&
+        popupLevels[level.depth] === level &&
+        generation === level.miningStatusGeneration &&
+        level.miningFeedback === feedback &&
+        feedback.isConnected
+      );
+    }
+
+    async function refreshMiningButtons(level, miningItems, feedback) {
       const generation = ++level.miningStatusGeneration;
       const status = await getCachedMiningStatus();
-      if (
-        destroyed ||
-        generation !== level.miningStatusGeneration ||
-        !feedback.isConnected
-      ) {
+      if (!isLiveMiningRender(level, generation, feedback)) {
         return;
       }
       if (status && status.available === true && onMine) {
-        for (const button of buttons) {
+        for (const { button } of miningItems) {
           button.hidden = false;
           setMiningButtonState(
             button,
-            miningInFlight ? "checking" : "ready",
+            "checking",
             miningInFlight ? "Another note is being added" : ""
           );
         }
-        level.view.setFeedback(feedback, "");
+        if (miningInFlight) {
+          return;
+        }
+        if (!checkMiningNotes) {
+          for (const { button } of miningItems) {
+            setMiningButtonState(button, "ready");
+          }
+          return;
+        }
+        let duplicateInfo;
+        try {
+          duplicateInfo = await checkMiningNotes({
+            notes: miningItems.map(createMiningPayload),
+          });
+          if (
+            !isRecord(duplicateInfo) ||
+            duplicateInfo.success !== true ||
+            !Array.isArray(duplicateInfo.results) ||
+            duplicateInfo.results.length !== miningItems.length
+          ) {
+            throw createMiningRequestError(
+              isRecord(duplicateInfo) && typeof duplicateInfo.error === "string"
+                ? duplicateInfo.error
+                : "GSM returned an invalid duplicate-check response.",
+              isRecord(duplicateInfo) ? duplicateInfo.code : null,
+              isRecord(duplicateInfo) ? duplicateInfo.status : null
+            );
+          }
+        } catch (error) {
+          if (!isLiveMiningRender(level, generation, feedback)) {
+            return;
+          }
+          const message = error && typeof error.message === "string"
+            ? error.message
+            : String(error);
+          for (const { button } of miningItems) {
+            setMiningButtonState(button, "error", message);
+          }
+          return;
+        }
+        if (!isLiveMiningRender(level, generation, feedback)) {
+          return;
+        }
+        const duplicatePolicy = duplicateInfo.duplicatePolicy === "allow"
+          ? "allow"
+          : "prevent";
+        miningItems.forEach(({ button }, index) => {
+          const noteInfo = isRecord(duplicateInfo.results[index])
+            ? duplicateInfo.results[index]
+            : {};
+          const message = typeof noteInfo.error === "string"
+            ? noteInfo.error
+            : "";
+          const duplicate = noteInfo.duplicate === true ||
+            noteInfo.state === "duplicate";
+          if (duplicate) {
+            setMiningButtonState(
+              button,
+              duplicatePolicy === "allow" ? "add-duplicate" : "duplicate",
+              message || (
+                duplicatePolicy === "allow"
+                  ? "Add duplicate to Anki"
+                  : "Note already exists"
+              )
+            );
+          } else if (
+            noteInfo.state === "addable" &&
+            noteInfo.canAdd === true
+          ) {
+            setMiningButtonState(button, "ready");
+          } else {
+            setMiningButtonState(
+              button,
+              "error",
+              message || "Anki cannot add this note."
+            );
+          }
+        });
         return;
       }
       const reason = status && typeof status.error === "string"
         ? status.error
         : "Set up Anki mining in Hoshidicts Settings.";
-      for (const button of buttons) {
+      for (const { button } of miningItems) {
         button.hidden = true;
         setMiningButtonState(button, "unavailable", reason);
       }
@@ -2623,7 +2765,7 @@
       if (
         !onMine ||
         miningInFlight ||
-        !["ready", "error"].includes(button.dataset.state)
+        !["ready", "add-duplicate", "error"].includes(button.dataset.state)
       ) {
         return;
       }
@@ -2636,9 +2778,15 @@
       const buttons = popupLevels.flatMap((entry) =>
         Array.from(entry.popup.querySelectorAll(".gsm-hoshidicts-mine-button"))
       );
+      const previousButtonStates = new Map(buttons.map((current) => [
+        current,
+        { message: current.title, state: current.dataset.state },
+      ]));
       for (const current of buttons) {
         setMiningButtonState(current, current === button ? "mining" : "checking");
       }
+      let added = false;
+      let duplicateRejected = false;
       try {
         const audioSelection = audioController.getSelection(result);
         const response = await onMine({
@@ -2648,13 +2796,15 @@
           ...(audioSelection ? { audioSelection } : {}),
         });
         if (!response || response.success !== true) {
-          throw new Error(
+          throw createMiningRequestError(
             response && typeof response.error === "string"
               ? response.error
-              : "Could not add the note."
+              : "Could not add the note.",
+            response && response.code,
+            response && response.status
           );
         }
-        setMiningButtonState(button, "success");
+        added = true;
         const audioOutcome = isRecord(response.audio) ? response.audio : null;
         const audioFailed = audioOutcome &&
           ["unavailable", "failed"].includes(audioOutcome.status);
@@ -2665,30 +2815,74 @@
               "Pronunciation audio could not be added."
           );
         }
-        level.view.setFeedback(
-          feedback,
-          feedbackParts.join(" "),
-          audioFailed ? "warning" : "success"
-        );
+        if (
+          popupLevels[level.depth] === level &&
+          level.miningFeedback === feedback &&
+          feedback.isConnected &&
+          button.isConnected
+        ) {
+          setMiningButtonState(button, "success");
+          level.view.setFeedback(
+            feedback,
+            feedbackParts.join(" "),
+            audioFailed ? "warning" : "success"
+          );
+        }
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        const duplicate = /already exists|duplicate/iu.test(message);
-        setMiningButtonState(button, duplicate ? "duplicate" : "error", message);
-        level.view.setFeedback(
-          feedback,
-          duplicate ? "Already in Anki." : `Could not add to Anki: ${message}`,
-          duplicate ? "info" : "error"
+        const message = error && typeof error.message === "string"
+          ? error.message
+          : String(error);
+        const duplicate = error && (
+          error.code === "duplicate" || error.status === 409
         );
+        duplicateRejected = duplicate === true;
+        if (
+          popupLevels[level.depth] === level &&
+          level.miningFeedback === feedback &&
+          feedback.isConnected &&
+          button.isConnected
+        ) {
+          setMiningButtonState(button, duplicate ? "duplicate" : "error", message);
+          level.view.setFeedback(
+            feedback,
+            duplicate ? "Already in Anki." : `Could not add to Anki: ${message}`,
+            duplicate ? "info" : "error"
+          );
+        }
       } finally {
         miningInFlight = false;
-        const liveButtons = popupLevels.flatMap((entry) =>
-          Array.from(
-            entry.popup.querySelectorAll(".gsm-hoshidicts-mine-button")
-          )
-        );
-        for (const current of liveButtons) {
-          if (current !== button && current.isConnected) {
-            setMiningButtonState(current, "ready");
+        for (const currentLevel of popupLevels) {
+          if (
+            !currentLevel.visible ||
+            !currentLevel.miningFeedback?.isConnected ||
+            currentLevel.miningItems.length === 0
+          ) {
+            continue;
+          }
+          const hasReplacementButtons = currentLevel.miningItems.some(
+            ({ button: current }) => !previousButtonStates.has(current)
+          );
+          if (
+            checkMiningNotes &&
+            (added || duplicateRejected || hasReplacementButtons)
+          ) {
+            void refreshMiningButtons(
+              currentLevel,
+              currentLevel.miningItems,
+              currentLevel.miningFeedback
+            );
+            continue;
+          }
+          for (const { button: current } of currentLevel.miningItems) {
+            if (current === button || !current.isConnected) {
+              continue;
+            }
+            const previous = previousButtonStates.get(current);
+            if (previous && typeof previous.state === "string") {
+              setMiningButtonState(current, previous.state, previous.message);
+            } else {
+              setMiningButtonState(current, "ready");
+            }
           }
         }
       }
@@ -2987,6 +3181,8 @@
           invalidateDefinitionBlur(level);
         }
         level.audioItems = [];
+        level.miningItems = [];
+        level.miningFeedback = null;
         level.view.renderKanji(kanji, candidate, {
           onBack: requestMode === "kanji" && termView
             ? () => restoreTermView(targetDepth)

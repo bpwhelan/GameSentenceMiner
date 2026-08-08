@@ -384,7 +384,16 @@ def test_mining_preserves_dictionary_metadata_and_queues_gsm_enrichment(monkeypa
     assert "LHL" in add_note["fields"]["PitchAccent"]
     assert "nasal 1" in add_note["fields"]["PitchAccent"]
     assert "tabeɾɯ" in add_note["fields"]["PitchAccent"]
-    assert add_note["options"] == {"allowDuplicate": False}
+    assert list(add_note["fields"]) == fake_anki.fields
+    assert add_note["options"] == {
+        "allowDuplicate": False,
+        "duplicateScope": "collection",
+        "duplicateScopeOptions": {
+            "deckName": None,
+            "checkChildren": False,
+            "checkAllModels": False,
+        },
+    }
     assert add_note["tags"] == [
         "GSM",
         "Game::Test",
@@ -519,7 +528,15 @@ def test_mining_honors_profile_overrides(monkeypatch):
         "Rank",
         "Accent",
     }
-    assert add_note["options"] == {"allowDuplicate": True}
+    assert add_note["options"] == {
+        "allowDuplicate": True,
+        "duplicateScope": "collection",
+        "duplicateScopeOptions": {
+            "deckName": None,
+            "checkChildren": False,
+            "checkAllModels": False,
+        },
+    }
     assert "dictionary" in add_note["tags"]
 
 
@@ -662,7 +679,14 @@ def test_mining_auto_maps_standard_audio_but_not_sentence_audio(monkeypatch):
 
 
 def test_duplicate_note_rejection_happens_before_audio_download(monkeypatch):
-    fake_anki = FakeAnki(fields=[*FakeAnki().fields, "Pronunciation"], note_id=None)
+    class DuplicateAnki(FakeAnki):
+        def invoke(self, action, **kwargs):
+            if action == "addNote":
+                self.calls.append((action, kwargs))
+                raise RuntimeError("cannot create note because it is a duplicate")
+            return super().invoke(action, **kwargs)
+
+    fake_anki = DuplicateAnki(fields=[*FakeAnki().fields, "Pronunciation"])
     called = False
 
     def get_mining_audio(*_args, **_kwargs):
@@ -764,7 +788,14 @@ def test_validation_rejects_non_finite_or_boolean_frequency_values(value):
 
 
 def test_duplicate_rejection_returns_a_conflict(monkeypatch):
-    fake_anki = FakeAnki(note_id=None)
+    class DuplicateAnki(FakeAnki):
+        def invoke(self, action, **kwargs):
+            if action == "addNote":
+                self.calls.append((action, kwargs))
+                raise RuntimeError("cannot create note because it is a duplicate")
+            return super().invoke(action, **kwargs)
+
+    fake_anki = DuplicateAnki()
     _wire(monkeypatch, fake_anki)
 
     with pytest.raises(
@@ -775,6 +806,152 @@ def test_duplicate_rejection_returns_a_conflict(monkeypatch):
 
     assert error.value.status_code == 409
     assert fake_anki.events == []
+
+
+def test_null_add_note_result_is_not_misclassified_as_a_duplicate(monkeypatch):
+    fake_anki = FakeAnki(note_id=None)
+    _wire(monkeypatch, fake_anki)
+
+    with pytest.raises(
+        hoshidicts_mining.HoshidictsMiningError,
+        match="did not return a note ID",
+    ) as error:
+        hoshidicts_mining.mine_hoshidicts_note(_payload())
+
+    assert error.value.status_code == 502
+    assert fake_anki.events == []
+
+
+def test_duplicate_check_uses_first_model_field_and_error_detail(monkeypatch):
+    class DetailAnki(FakeAnki):
+        def invoke(self, action, **kwargs):
+            if action == "canAddNotesWithErrorDetail":
+                self.calls.append((action, kwargs))
+                return [
+                    {"canAdd": True, "error": None},
+                    {
+                        "canAdd": False,
+                        "error": "cannot create note because it is a duplicate",
+                    },
+                    {"canAdd": False, "error": "first field is empty"},
+                ]
+            return super().invoke(action, **kwargs)
+
+    fields = ["Sentence", "Expression", "Reading", "Definition", "Frequency", "PitchAccent"]
+    fake_anki = DetailAnki(fields=fields)
+    _wire(monkeypatch, fake_anki)
+    notes = [_payload(), _payload(), _payload()]
+
+    result = hoshidicts_mining.check_hoshidicts_notes({"notes": notes})
+
+    assert result == {
+        "success": True,
+        "duplicatePolicy": "prevent",
+        "results": [
+            {"state": "addable", "canAdd": True, "duplicate": False},
+            {"state": "duplicate", "canAdd": False, "duplicate": True},
+            {
+                "state": "invalid",
+                "canAdd": False,
+                "duplicate": False,
+                "error": "first field is empty",
+            },
+        ],
+    }
+    check_notes = next(kwargs["notes"] for action, kwargs in fake_anki.calls if action == "canAddNotesWithErrorDetail")
+    assert [list(note["fields"]) for note in check_notes] == [["Sentence"]] * 3
+    assert check_notes[0]["fields"]["Sentence"] == "昨日、<b>食べた</b>。"
+    assert check_notes[0]["options"] == {
+        "allowDuplicate": False,
+        "duplicateScope": "collection",
+        "duplicateScopeOptions": {
+            "deckName": None,
+            "checkChildren": False,
+            "checkAllModels": False,
+        },
+    }
+
+
+def test_duplicate_check_still_detects_duplicates_when_policy_allows_them(monkeypatch):
+    class DetailAnki(FakeAnki):
+        def invoke(self, action, **kwargs):
+            if action == "canAddNotesWithErrorDetail":
+                self.calls.append((action, kwargs))
+                assert kwargs["notes"][0]["options"]["allowDuplicate"] is False
+                return [
+                    {
+                        "canAdd": False,
+                        "error": "cannot create note because it is a duplicate",
+                    }
+                ]
+            return super().invoke(action, **kwargs)
+
+    fake_anki = DetailAnki()
+    _wire(monkeypatch, fake_anki, _profile(duplicatePolicy="allow"))
+
+    result = hoshidicts_mining.check_hoshidicts_notes({"notes": [_payload()]})
+
+    assert result == {
+        "success": True,
+        "duplicatePolicy": "allow",
+        "results": [
+            {"state": "duplicate", "canAdd": True, "duplicate": True},
+        ],
+    }
+
+
+def test_duplicate_check_falls_back_to_paired_can_add_notes_for_older_ankiconnect(monkeypatch):
+    class LegacyAnki(FakeAnki):
+        def invoke(self, action, **kwargs):
+            if action == "canAddNotesWithErrorDetail":
+                self.calls.append((action, kwargs))
+                raise RuntimeError("unsupported action")
+            if action == "canAddNotes":
+                self.calls.append((action, kwargs))
+                allow_duplicate = kwargs["notes"][0]["options"]["allowDuplicate"]
+                return [True] if allow_duplicate else [False]
+            return super().invoke(action, **kwargs)
+
+    fake_anki = LegacyAnki()
+    _wire(monkeypatch, fake_anki)
+
+    result = hoshidicts_mining.check_hoshidicts_notes({"notes": [_payload()]})
+
+    assert result["results"] == [{"state": "duplicate", "canAdd": False, "duplicate": True}]
+    can_add_calls = [
+        kwargs["notes"][0]["options"]["allowDuplicate"] for action, kwargs in fake_anki.calls if action == "canAddNotes"
+    ]
+    assert can_add_calls == [True, False]
+
+
+def test_duplicate_check_does_not_hide_non_compatibility_errors(monkeypatch):
+    class BrokenAnki(FakeAnki):
+        def invoke(self, action, **kwargs):
+            if action == "canAddNotesWithErrorDetail":
+                self.calls.append((action, kwargs))
+                raise RuntimeError("collection is unavailable")
+            return super().invoke(action, **kwargs)
+
+    fake_anki = BrokenAnki()
+    _wire(monkeypatch, fake_anki)
+
+    with pytest.raises(RuntimeError, match="collection is unavailable"):
+        hoshidicts_mining.check_hoshidicts_notes({"notes": [_payload()]})
+
+    assert not any(action == "canAddNotes" for action, _kwargs in fake_anki.calls)
+
+
+def test_duplicate_check_rejects_oversized_batches(monkeypatch):
+    fake_anki = FakeAnki()
+    _wire(monkeypatch, fake_anki)
+
+    with pytest.raises(
+        hoshidicts_mining.HoshidictsMiningError,
+        match="between 1 and 16",
+    ):
+        hoshidicts_mining.check_hoshidicts_notes({"notes": [_payload()] * 17})
+
+    assert fake_anki.calls == []
 
 
 def test_hoshidicts_routes_expose_status_and_mining_errors(monkeypatch):
@@ -797,6 +974,16 @@ def test_hoshidicts_routes_expose_status_and_mining_errors(monkeypatch):
         raise hoshidicts_mining.HoshidictsMiningError("duplicate", 409)
 
     monkeypatch.setattr(hoshidicts_api, "mine_hoshidicts_note", mine)
+    monkeypatch.setattr(
+        hoshidicts_api,
+        "check_hoshidicts_notes",
+        lambda payload: {
+            "success": True,
+            "duplicatePolicy": "prevent",
+            "results": [],
+            "payload": payload,
+        },
+    )
 
     client = app.test_client()
     assert client.get("/api/hoshidicts/mining/status").get_json() == {"available": True}
@@ -804,7 +991,17 @@ def test_hoshidicts_routes_expose_status_and_mining_errors(monkeypatch):
         "connected": True,
         "selectedNoteType": "Kiku",
     }
+    assert client.post("/api/hoshidicts/mining/check", json={"notes": []}).get_json() == {
+        "success": True,
+        "duplicatePolicy": "prevent",
+        "results": [],
+        "payload": {"notes": []},
+    }
     response = client.post("/api/hoshidicts/mine", json={})
     assert response.status_code == 409
-    assert response.get_json() == {"success": False, "error": "duplicate"}
+    assert response.get_json() == {
+        "success": False,
+        "error": "duplicate",
+        "code": "duplicate",
+    }
     assert mining_calls == [{}]

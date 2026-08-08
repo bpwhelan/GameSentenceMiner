@@ -136,7 +136,9 @@ function runHoshidictsReaderConfiguration(
   };
   const createHoshidictsReader = vi.fn(() => reader);
   const createHoshidictsAudioClient = vi.fn(() => ({ kind: "audio" }));
+  const checkMining = vi.fn(async () => ({ success: true, results: [] }));
   const createHoshidictsMiningClient = vi.fn(() => ({
+    check: checkMining,
     getStatus: vi.fn(),
     mine: vi.fn()
   }));
@@ -184,6 +186,7 @@ function runHoshidictsReaderConfiguration(
   context.configureHoshidictsReader({ gamepadServerPort: 7276 });
 
   return {
+    checkMining,
     createHoshidictsAudioClient,
     createHoshidictsLookupStatsClient,
     createHoshidictsMiningClient,
@@ -586,7 +589,7 @@ describe("Hoshidicts safe popup rendering", () => {
       /\.gsm-hoshidicts-audio-button\s*\{(?<declarations>[^}]*)\}/.exec(css)
         ?.groups?.declarations;
     const mineIconRule =
-      /\.gsm-hoshidicts-mine-button\[data-state="ready"\]\s+\.gsm-hoshidicts-mine-icon\s*\{(?<declarations>[^}]*)\}/.exec(
+      /\.gsm-hoshidicts-mine-button\[data-state="ready"\]\s+\.gsm-hoshidicts-mine-icon,\s*\.gsm-hoshidicts-mine-button\[data-state="add-duplicate"\]\s+\.gsm-hoshidicts-mine-icon\s*\{(?<declarations>[^}]*)\}/.exec(
         css
       )?.groups?.declarations;
     const rubyReadingRule =
@@ -785,6 +788,9 @@ describe("Hoshidicts safe popup rendering", () => {
       baseUrl: "http://127.0.0.1:7275"
     });
     const options = configured.createHoshidictsReader.mock.calls[0][0];
+    const duplicateCheck = { notes: [{ sentence: "食べる" }] };
+    await options.checkMiningNotes(duplicateCheck);
+    expect(configured.checkMining).toHaveBeenCalledWith(duplicateCheck);
     options.onLookup({ term: "食べる", reading: "たべる" });
     expect(configured.recordLookup).toHaveBeenCalledWith({
       term: "食べる",
@@ -1232,10 +1238,19 @@ describe("Hoshidicts safe popup rendering", () => {
     const fetchMock = vi.fn(async (url: string, init: RequestInit = {}) => ({
       ok: true,
       status: 200,
-      json: async () =>
-        url.endsWith("/status")
-          ? { available: true, model: "Mining" }
-          : { success: true, noteId: 42, requestBody: init.body }
+      json: async () => {
+        if (url.endsWith("/status")) {
+          return { available: true, model: "Mining" };
+        }
+        if (url.endsWith("/check")) {
+          return {
+            success: true,
+            duplicatePolicy: "prevent",
+            results: [{ state: "addable", canAdd: true, duplicate: false }]
+          };
+        }
+        return { success: true, noteId: 42, requestBody: init.body };
+      }
     }));
 
     expect(
@@ -1261,6 +1276,11 @@ describe("Hoshidicts safe popup rendering", () => {
     await expect(client.getStatus()).resolves.toMatchObject({
       available: true
     });
+    const duplicateCheck = { notes: [{ sentence: "食べる" }] };
+    await expect(client.check(duplicateCheck)).resolves.toMatchObject({
+      success: true,
+      duplicatePolicy: "prevent"
+    });
     await expect(client.mine({ sentence: "食べる" })).resolves.toMatchObject({
       success: true,
       noteId: 42
@@ -1283,6 +1303,17 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(fetchMock.mock.calls[0][1]).not.toHaveProperty("headers");
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
+      "http://127.0.0.1:8123/api/hoshidicts/mining/check",
+      expect.objectContaining({
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(duplicateCheck)
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
       "http://127.0.0.1:8123/api/hoshidicts/mine",
       expect.objectContaining({
         method: "POST",
@@ -1293,7 +1324,7 @@ describe("Hoshidicts safe popup rendering", () => {
       })
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
+      4,
       "http://127.0.0.1:8123/api/hoshidicts/lookup-stats",
       expect.objectContaining({
         method: "POST",
@@ -1304,6 +1335,28 @@ describe("Hoshidicts safe popup rendering", () => {
         signal: expect.any(AbortSignal)
       })
     );
+  });
+
+  it("preserves structured duplicate errors from the mining API", async () => {
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const client = api.createHoshidictsMiningClient({
+      fetch: vi.fn(async () => ({
+        ok: false,
+        status: 409,
+        json: async () => ({
+          success: false,
+          code: "duplicate",
+          error: "This note already exists."
+        })
+      }))
+    });
+
+    await expect(client.mine({ sentence: "食べる" })).rejects.toMatchObject({
+      code: "duplicate",
+      message: "This note already exists.",
+      status: 409
+    });
   });
 
   it("serializes lookup-stat writes per canonical term while keeping other terms concurrent", async () => {
@@ -6300,6 +6353,234 @@ describe("Hoshidicts Shift-hover scanner", () => {
       popup.querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")
         ?.dataset.state
     ).toBe("ready");
+    harness.reader.destroy();
+  });
+
+  it("disables an existing note when duplicate prevention is enabled", async () => {
+    const checkMiningNotes = vi.fn(async () => ({
+      success: true,
+      duplicatePolicy: "prevent",
+      results: [{
+        state: "duplicate",
+        canAdd: false,
+        duplicate: true
+      }, {
+        state: "addable",
+        canAdd: true,
+        duplicate: false
+      }]
+    }));
+    const harness = createReaderHarness({
+      checkMiningNotes,
+      getMiningStatus: async () => ({ available: true }),
+      onMine: vi.fn()
+    });
+    await renderFirstLookup(harness, {
+      transform(response) {
+        response.results.push({
+          ...response.results[0],
+          matched: "食う",
+          term: {
+            ...response.results[0].term,
+            expression: "食う",
+            reading: "くう"
+          }
+        });
+      }
+    });
+
+    const buttons = Array.from(harness.reader.getPopupElement()
+      .querySelectorAll<HTMLButtonElement>(".gsm-hoshidicts-mine-button"));
+    const button = buttons[0]!;
+    expect(button.dataset.state).toBe("duplicate");
+    expect(button.disabled).toBe(true);
+    expect(button.title).toBe("Note already exists");
+    expect(buttons[1]!.dataset.state).toBe("ready");
+    expect(checkMiningNotes).toHaveBeenCalledTimes(1);
+    expect(checkMiningNotes).toHaveBeenCalledWith({
+      notes: [expect.objectContaining({
+        sentence: "食べる",
+        matchOffset: 0,
+        result: expect.objectContaining({
+          term: expect.objectContaining({ expression: "食べる" })
+        })
+      }), expect.objectContaining({
+        result: expect.objectContaining({
+          term: expect.objectContaining({ expression: "食う" })
+        })
+      })]
+    });
+    expect(checkMiningNotes.mock.calls[0][0].notes[0])
+      .not.toHaveProperty("audioSelection");
+    harness.reader.destroy();
+  });
+
+  it("keeps an existing note addable with a distinct duplicate state", async () => {
+    const harness = createReaderHarness({
+      checkMiningNotes: async () => ({
+        success: true,
+        duplicatePolicy: "allow",
+        results: [{
+          state: "duplicate",
+          canAdd: true,
+          duplicate: true
+        }]
+      }),
+      getMiningStatus: async () => ({ available: true }),
+      onMine: vi.fn()
+    });
+    await renderFirstLookup(harness);
+
+    const button = harness.reader.getPopupElement()
+      .querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")!;
+    expect(button.dataset.state).toBe("add-duplicate");
+    expect(button.disabled).toBe(false);
+    expect(button.title).toBe("Add duplicate to Anki");
+    expect(button.getAttribute("aria-label")).toBe("Add duplicate to Anki");
+    expect(button.textContent).toBe("+");
+    harness.reader.destroy();
+  });
+
+  it("uses structured duplicate errors instead of matching English text", async () => {
+    const duplicateError = Object.assign(
+      new Error("The card was rejected."),
+      { code: "duplicate" }
+    );
+    const checkMiningNotes = vi.fn()
+      .mockResolvedValueOnce({
+        success: true,
+        duplicatePolicy: "prevent",
+        results: [{ state: "addable", canAdd: true, duplicate: false }]
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        duplicatePolicy: "prevent",
+        results: [{ state: "duplicate", canAdd: false, duplicate: true }]
+      });
+    const harness = createReaderHarness({
+      checkMiningNotes,
+      getMiningStatus: async () => ({ available: true }),
+      onMine: vi.fn(async () => { throw duplicateError; })
+    });
+    await renderFirstLookup(harness);
+
+    const popup = harness.reader.getPopupElement();
+    const button = popup.querySelector<HTMLButtonElement>(
+      ".gsm-hoshidicts-mine-button"
+    )!;
+    button.click();
+    await flushPromises();
+
+    expect(button.dataset.state).toBe("duplicate");
+    expect(button.disabled).toBe(true);
+    expect(checkMiningNotes).toHaveBeenCalledTimes(2);
+    expect(popup.querySelector(".gsm-hoshidicts-mining-feedback")?.textContent)
+      .toBe("Already in Anki.");
+    harness.reader.destroy();
+  });
+
+  it("does not infer duplicates from an unstructured error message", async () => {
+    const harness = createReaderHarness({
+      getMiningStatus: async () => ({ available: true }),
+      onMine: vi.fn(async () => {
+        throw new Error("The duplicate-check service stopped responding.");
+      })
+    });
+    await renderFirstLookup(harness);
+
+    const button = harness.reader.getPopupElement()
+      .querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")!;
+    button.click();
+    await flushPromises();
+
+    expect(button.dataset.state).toBe("error");
+    expect(button.disabled).toBe(false);
+    harness.reader.destroy();
+  });
+
+  it("ignores duplicate-check results from a replaced lookup", async () => {
+    const firstCheck = deferred<Record<string, unknown>>();
+    const secondCheck = deferred<Record<string, unknown>>();
+    const checkMiningNotes = vi.fn()
+      .mockImplementationOnce(() => firstCheck.promise)
+      .mockImplementationOnce(() => secondCheck.promise);
+    const harness = createReaderHarness({
+      checkMiningNotes,
+      getMiningStatus: async () => ({ available: true }),
+      lookupMode: "hover",
+      onMine: vi.fn()
+    });
+    const second = harness.dom.window.document.getElementById("second")!;
+    setRect(second, { left: 30, top: 10, right: 90, bottom: 30 });
+    await renderFirstLookup(harness, { shiftKey: false });
+
+    second.dispatchEvent(new harness.dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 31,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const request = JSON.parse(harness.socket.sent.at(-1)!);
+    harness.socket.receive(lookupResult(request.requestId, "べる"));
+    await flushPromises();
+
+    secondCheck.resolve({
+      success: true,
+      duplicatePolicy: "prevent",
+      results: [{ state: "addable", canAdd: true, duplicate: false }]
+    });
+    await flushPromises();
+    const currentButton = harness.reader.getPopupElement()
+      .querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")!;
+    expect(currentButton.dataset.state).toBe("ready");
+
+    firstCheck.resolve({
+      success: true,
+      duplicatePolicy: "prevent",
+      results: [{ state: "duplicate", canAdd: false, duplicate: true }]
+    });
+    await flushPromises();
+    expect(currentButton.dataset.state).toBe("ready");
+    harness.reader.destroy();
+  });
+
+  it("submits one note for a direct double click and rechecks after success", async () => {
+    const finishMine = deferred<{ success: boolean; noteId: number }>();
+    const checkMiningNotes = vi.fn()
+      .mockResolvedValueOnce({
+        success: true,
+        duplicatePolicy: "prevent",
+        results: [{ state: "addable", canAdd: true, duplicate: false }]
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        duplicatePolicy: "prevent",
+        results: [{ state: "duplicate", canAdd: false, duplicate: true }]
+      });
+    const mine = vi.fn(() => finishMine.promise);
+    const harness = createReaderHarness({
+      checkMiningNotes,
+      getMiningStatus: async () => ({ available: true }),
+      onMine: mine
+    });
+    await renderFirstLookup(harness);
+
+    const button = harness.reader.getPopupElement()
+      .querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")!;
+    button.click();
+    button.dispatchEvent(new harness.dom.window.MouseEvent("click", {
+      bubbles: true
+    }));
+    await flushPromises();
+    expect(mine).toHaveBeenCalledTimes(1);
+
+    finishMine.resolve({ success: true, noteId: 123 });
+    await flushPromises();
+    expect(checkMiningNotes).toHaveBeenCalledTimes(2);
+    expect(button.dataset.state).toBe("duplicate");
+    expect(harness.reader.getPopupElement()
+      .querySelector(".gsm-hoshidicts-mining-feedback")?.textContent)
+      .toBe("Added to Anki.");
     harness.reader.destroy();
   });
 

@@ -424,7 +424,8 @@ html.gsm-hoshidicts-enabled #btn-yomitan {
   line-height: 1;
 }
 
-.gsm-hoshidicts-mine-button[data-state="ready"] .gsm-hoshidicts-mine-icon {
+.gsm-hoshidicts-mine-button[data-state="ready"] .gsm-hoshidicts-mine-icon,
+.gsm-hoshidicts-mine-button[data-state="add-duplicate"] .gsm-hoshidicts-mine-icon {
   transform: translateY(-1px);
 }
 

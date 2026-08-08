@@ -211,10 +211,11 @@
 
   function setMiningButtonState(button, state, message = "") {
     button.dataset.state = state;
-    button.disabled = state !== "ready" && state !== "error";
+    button.disabled = !["ready", "add-duplicate", "error"].includes(state);
     button.title = message || {
       checking: "Checking Anki availability",
       ready: "Mine to Anki",
+      "add-duplicate": "Add duplicate to Anki",
       mining: "Adding note",
       success: "Note added",
       error: "Could not add note",
@@ -228,6 +229,7 @@
     icon.textContent = {
       checking: "…",
       ready: "+",
+      "add-duplicate": "+",
       mining: "⟳",
       success: "✓",
       error: "!",
@@ -946,6 +948,7 @@
       return {
         audioItems: [{ button: audioButton, result }],
         element: header,
+        miningItems: [{ button: mineButton, result, candidate }],
         miningButtons: [mineButton],
       };
     }
@@ -992,6 +995,7 @@
       feedback.hidden = true;
       panel.appendChild(feedback);
       const miningButtons = [];
+      const miningItems = [];
       const audioItems = [];
       let lookupStats = null;
 
@@ -1009,6 +1013,7 @@
           primary: resultIndex === 0,
         });
         audioItems.push(...renderedHeader.audioItems);
+        miningItems.push(...renderedHeader.miningItems);
         miningButtons.push(...renderedHeader.miningButtons);
         if (resultIndex !== 0) {
           entry.appendChild(renderedHeader.element);
@@ -1126,7 +1131,13 @@
           currentSourceHighlight.matchedText
         );
       }
-      return { audioItems, feedback, lookupStats, miningButtons };
+      return {
+        audioItems,
+        feedback,
+        lookupStats,
+        miningButtons,
+        miningItems,
+      };
     }
 
     function renderKanji(kanji, candidate, renderOptions = {}) {
