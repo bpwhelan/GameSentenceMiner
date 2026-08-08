@@ -28,6 +28,7 @@ export type HoshidictsSchedule = 'off' | 'daily' | 'weekly' | 'monthly';
 export type HoshidictsLookupMode = 'shift' | 'hover';
 export const DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS = 300;
 export const MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS = 5000;
+export const DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH = 10;
 export type HoshidictsRecommendedDictionaryId = 'jmdict' | 'jmnedict';
 export type HoshidictsMoveDirection = -1 | 1;
 export type HoshidictsDuplicatePolicy = 'prevent' | 'allow';
@@ -54,6 +55,7 @@ export type HoshidictsMiningFieldName = keyof HoshidictsMiningFields;
 export interface HoshidictsReaderPreferences {
     lookupMode: HoshidictsLookupMode;
     popupHideDelayMs: number;
+    popupNestingMaxDepth: number;
 }
 
 export interface HoshidictsMiningProfile {
@@ -113,6 +115,7 @@ export interface HoshidictsManagerSnapshot {
     miningProfile: HoshidictsMiningProfile;
     lookupMode: HoshidictsLookupMode;
     popupHideDelayMs: number;
+    popupNestingMaxDepth: number;
     schedule: HoshidictsSchedule;
     lastCheck: string | null;
     nextCheck: string | null;

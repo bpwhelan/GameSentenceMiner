@@ -7,7 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   HOSHIDICTS_CHANNELS,
   type HoshidictsDesktopSnapshot,
-  type HoshidictsMiningOptions
+  type HoshidictsMiningOptions,
+  type HoshidictsReaderPreferences
 } from "../../../../shared/features/hoshidicts";
 import { I18nProvider } from "../../i18n";
 import {
@@ -75,6 +76,7 @@ const baseState: HoshidictsDesktopSnapshot = {
   },
   lookupMode: "shift",
   popupHideDelayMs: 300,
+  popupNestingMaxDepth: 10,
   schedule: "weekly",
   lastCheck: "2026-08-06T10:00:00.000Z",
   nextCheck: "2026-08-13T10:00:00.000Z",
@@ -164,10 +166,7 @@ describe("HoshidictsSettingsWindow", () => {
           return miningOptions;
         }
         if (channel === HOSHIDICTS_CHANNELS.setReaderPreferences) {
-          const preferences = args[0] as {
-            lookupMode: "shift" | "hover";
-            popupHideDelayMs: number;
-          };
+          const preferences = args[0] as HoshidictsReaderPreferences;
           return {
             success: true,
             outcome: { code: "preferencesSaved" },
@@ -381,10 +380,14 @@ describe("HoshidictsSettingsWindow", () => {
     const delay = container.querySelector<HTMLInputElement>(
       "#hoshidicts-popup-hide-delay"
     );
+    const maxDepth = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-popup-nesting-max-depth"
+    );
 
     await act(async () => {
       hover?.click();
       setInputValue(delay, "850");
+      setInputValue(maxDepth, "12");
       await vi.advanceTimersByTimeAsync(450);
       await Promise.resolve();
       await Promise.resolve();
@@ -392,13 +395,76 @@ describe("HoshidictsSettingsWindow", () => {
 
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.setReaderPreferences,
-      { lookupMode: "hover", popupHideDelayMs: 850 }
+      {
+        lookupMode: "hover",
+        popupHideDelayMs: 850,
+        popupNestingMaxDepth: 12
+      }
     );
     expect(invokeMock).not.toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.setLookupMode,
       expect.anything()
     );
     expect(container.textContent).toContain("Saved");
+  });
+
+  it("toggles popup-content scanning and restores one child level", async () => {
+    vi.useFakeTimers();
+    await render();
+
+    const toggle = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-popup-content-scanning"
+    );
+    const initialDepth = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-popup-nesting-max-depth"
+    );
+    expect(toggle?.checked).toBe(true);
+    expect(initialDepth?.value).toBe("10");
+    expect(initialDepth?.min).toBe("1");
+    expect(initialDepth?.step).toBe("1");
+    expect(initialDepth?.hasAttribute("max")).toBe(false);
+
+    await act(async () => {
+      toggle?.click();
+      await vi.advanceTimersByTimeAsync(450);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(invokeMock).toHaveBeenLastCalledWith(
+      HOSHIDICTS_CHANNELS.setReaderPreferences,
+      {
+        lookupMode: "shift",
+        popupHideDelayMs: 300,
+        popupNestingMaxDepth: 0
+      }
+    );
+    expect(
+      container.querySelector("#hoshidicts-popup-nesting-max-depth")
+    ).toBeNull();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLInputElement>("#hoshidicts-popup-content-scanning")
+        ?.click();
+      await vi.advanceTimersByTimeAsync(450);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(invokeMock).toHaveBeenLastCalledWith(
+      HOSHIDICTS_CHANNELS.setReaderPreferences,
+      {
+        lookupMode: "shift",
+        popupHideDelayMs: 300,
+        popupNestingMaxDepth: 1
+      }
+    );
+    expect(
+      container.querySelector<HTMLInputElement>(
+        "#hoshidicts-popup-nesting-max-depth"
+      )?.value
+    ).toBe("1");
   });
 
   it("loads Anki on entry without dirtying or pinning automatic mappings", async () => {
@@ -545,19 +611,34 @@ describe("HoshidictsSettingsWindow", () => {
   });
 
   it.each([
-    ["ja", "辞書とマイニングの設定", "おすすめの辞書"],
-    ["ukr", "Налаштування словників і видобування", "Рекомендовані словники"]
-  ])("localizes the standalone window in %s", async (locale, subtitle, recommended) => {
-    await render(locale);
-    expect(container.textContent).toContain(subtitle);
-    expect(container.textContent).toContain(recommended);
-  });
+    [
+      "ja",
+      "辞書とマイニングの設定",
+      "おすすめの辞書",
+      "ポップアップの内容を検索可能にする"
+    ],
+    [
+      "ukr",
+      "Налаштування словників і видобування",
+      "Рекомендовані словники",
+      "Дозволити пошук у вмісті спливних вікон"
+    ]
+  ])(
+    "localizes the standalone window in %s",
+    async (locale, subtitle, recommended, popupScanning) => {
+      await render(locale);
+      expect(container.textContent).toContain(subtitle);
+      expect(container.textContent).toContain(recommended);
+      expect(container.textContent).toContain(popupScanning);
+    }
+  );
 
   it("normalizes legacy snapshots without dirtying new preferences", () => {
     const normalized = normalizeHoshidictsDesktopState({
       ...baseState,
       revision: undefined,
       popupHideDelayMs: undefined,
+      popupNestingMaxDepth: undefined,
       dictionaries: [{ ...baseState.dictionaries[0], enabled: undefined }],
       miningProfile: {
         ...baseState.miningProfile,
@@ -566,7 +647,29 @@ describe("HoshidictsSettingsWindow", () => {
     });
     expect(normalized.revision).toBe(0);
     expect(normalized.popupHideDelayMs).toBe(300);
+    expect(normalized.popupNestingMaxDepth).toBe(10);
     expect(normalized.dictionaries[0].enabled).toBe(true);
     expect(normalized.miningProfile.disabledFields).toEqual([]);
+  });
+
+  it.each([-1, 1.5, Number.MAX_SAFE_INTEGER + 1, "3"])(
+    "normalizes invalid popup nesting depth %s",
+    (popupNestingMaxDepth) => {
+      expect(
+        normalizeHoshidictsDesktopState({
+          ...baseState,
+          popupNestingMaxDepth
+        }).popupNestingMaxDepth
+      ).toBe(10);
+    }
+  );
+
+  it("preserves zero as the disabled popup nesting depth", () => {
+    expect(
+      normalizeHoshidictsDesktopState({
+        ...baseState,
+        popupNestingMaxDepth: 0
+      }).popupNestingMaxDepth
+    ).toBe(0);
   });
 });

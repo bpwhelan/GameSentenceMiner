@@ -53,6 +53,8 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
     readerSaveStatus,
     setLookupMode,
     setPopupHideDelayMs,
+    setPopupContentScanningEnabled,
+    setPopupNestingMaxDepth,
     dictionaryBusy,
     preferencesBusy,
     actions
@@ -126,6 +128,48 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
           </div>
           <small>{t("settings.hoshidicts.reader.hideDelayHint")}</small>
         </label>
+
+        <div className="hoshidicts-reader-popup-scanning">
+          <label className="hoshidicts-reader-popup-scanning__toggle">
+            <input
+              id="hoshidicts-popup-content-scanning"
+              type="checkbox"
+              checked={readerDraft.popupNestingMaxDepth > 0}
+              disabled={preferencesBusy}
+              onChange={(event) =>
+                setPopupContentScanningEnabled(event.currentTarget.checked)
+              }
+            />
+            <span>
+              <strong>
+                {t("settings.hoshidicts.reader.allowPopupContentScanning")}
+              </strong>
+              <small>
+                {t("settings.hoshidicts.reader.allowPopupContentScanningHint")}
+              </small>
+            </span>
+          </label>
+
+          {readerDraft.popupNestingMaxDepth > 0 ? (
+            <label className="hoshidicts-reader-depth">
+              <span>{t("settings.hoshidicts.reader.maxChildPopups")}</span>
+              <input
+                id="hoshidicts-popup-nesting-max-depth"
+                type="number"
+                min={1}
+                step={1}
+                value={readerDraft.popupNestingMaxDepth}
+                disabled={preferencesBusy}
+                onChange={(event) =>
+                  setPopupNestingMaxDepth(event.currentTarget.valueAsNumber)
+                }
+              />
+              <small>
+                {t("settings.hoshidicts.reader.maxChildPopupsHint")}
+              </small>
+            </label>
+          ) : null}
+        </div>
       </section>
 
       <section className="hoshidicts-section hoshidicts-section--toolbar">

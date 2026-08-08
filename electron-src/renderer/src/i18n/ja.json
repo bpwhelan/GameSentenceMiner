@@ -575,6 +575,10 @@
         "automaticHoverHint": "カーソルを日本語テキストに合わせると自動的に検索します。",
         "hideDelay": "ポップアップを閉じるまでの時間",
         "hideDelayHint": "単語から定義へカーソルを移動するときもポップアップを操作できます。",
+        "allowPopupContentScanning": "ポップアップの内容を検索可能にする",
+        "allowPopupContentScanningHint": "辞書の定義内にある日本語の単語を検索できます。",
+        "maxChildPopups": "子ポップアップの最大数",
+        "maxChildPopupsHint": "最初の検索から開ける定義ポップアップの数を制限します。",
         "milliseconds": "ミリ秒"
       },
       "saveStatus": {

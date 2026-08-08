@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+  DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
   HOSHIDICTS_CHANNELS,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   type HoshidictsActionResult,
@@ -36,6 +37,16 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
+function readerPreferencesFromState(
+  state: HoshidictsDesktopSnapshot
+): HoshidictsReaderPreferences {
+  return {
+    lookupMode: state.lookupMode,
+    popupHideDelayMs: state.popupHideDelayMs,
+    popupNestingMaxDepth: state.popupNestingMaxDepth
+  };
+}
+
 export function useHoshidictsSettingsController() {
   const t = useTranslation();
   const [view, setView] = useState<HoshidictsView>("dictionaries");
@@ -46,7 +57,8 @@ export function useHoshidictsSettingsController() {
 
   const initialReaderPreferences: HoshidictsReaderPreferences = {
     lookupMode: "shift",
-    popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS
+    popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+    popupNestingMaxDepth: DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH
   };
   const [readerDraft, setReaderDraft] = useState(initialReaderPreferences);
   const readerDraftRef = useRef(initialReaderPreferences);
@@ -93,10 +105,7 @@ export function useHoshidictsSettingsController() {
 
     if (!initializedRef.current) {
       initializedRef.current = true;
-      const reader = {
-        lookupMode: normalized.lookupMode,
-        popupHideDelayMs: normalized.popupHideDelayMs
-      };
+      const reader = readerPreferencesFromState(normalized);
       const mining = profileToDraft(normalized.miningProfile);
       readerDraftRef.current = reader;
       miningDraftRef.current = mining;
@@ -106,10 +115,7 @@ export function useHoshidictsSettingsController() {
     }
 
     if (!readerDirtyRef.current && !readerSavingRef.current) {
-      const reader = {
-        lookupMode: normalized.lookupMode,
-        popupHideDelayMs: normalized.popupHideDelayMs
-      };
+      const reader = readerPreferencesFromState(normalized);
       readerDraftRef.current = reader;
       setReaderDraft(reader);
     }
@@ -257,6 +263,29 @@ export function useHoshidictsSettingsController() {
         popupHideDelayMs: Math.min(
           MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
           Math.max(0, Math.round(popupHideDelayMs))
+        )
+      });
+    },
+    [updateReaderPreferences]
+  );
+
+  const setPopupContentScanningEnabled = useCallback(
+    (enabled: boolean) => {
+      const currentDepth = readerDraftRef.current.popupNestingMaxDepth;
+      updateReaderPreferences({
+        popupNestingMaxDepth: enabled ? Math.max(1, currentDepth) : 0
+      });
+    },
+    [updateReaderPreferences]
+  );
+
+  const setPopupNestingMaxDepth = useCallback(
+    (popupNestingMaxDepth: number) => {
+      if (!Number.isFinite(popupNestingMaxDepth)) return;
+      updateReaderPreferences({
+        popupNestingMaxDepth: Math.min(
+          Number.MAX_SAFE_INTEGER,
+          Math.max(1, Math.round(popupNestingMaxDepth))
         )
       });
     },
@@ -483,6 +512,8 @@ export function useHoshidictsSettingsController() {
     readerSaveStatus,
     setLookupMode,
     setPopupHideDelayMs,
+    setPopupContentScanningEnabled,
+    setPopupNestingMaxDepth,
     miningDraft,
     miningOptions,
     miningOptionsLoading,

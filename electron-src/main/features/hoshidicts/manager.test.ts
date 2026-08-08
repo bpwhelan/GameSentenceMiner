@@ -4,6 +4,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('electron', () => ({
+    app: { isPackaged: false },
+}));
+
 import {
     defaultHoshidictsMiningProfile,
     HoshidictsManager,
@@ -548,6 +552,7 @@ describe('Hoshidicts lookup mode', () => {
         );
 
         expect((await manager.getSnapshot()).lookupMode).toBe('shift');
+        expect((await manager.getSnapshot()).popupNestingMaxDepth).toBe(10);
     });
 
     it('defaults new state to Shift and persists hover lookup', async () => {
@@ -556,17 +561,21 @@ describe('Hoshidicts lookup mode', () => {
 
         expect((await manager.getSnapshot()).lookupMode).toBe('shift');
         expect((await manager.getSnapshot()).popupHideDelayMs).toBe(300);
+        expect((await manager.getSnapshot()).popupNestingMaxDepth).toBe(10);
 
-        const snapshot = await manager.setReaderPreferences('hover', 850);
+        const snapshot = await manager.setReaderPreferences('hover', 850, 12);
 
         expect(snapshot.lookupMode).toBe('hover');
         expect(snapshot.popupHideDelayMs).toBe(850);
+        expect(snapshot.popupNestingMaxDepth).toBe(12);
         expect(readManifest(baseDir).lookupMode).toBe('hover');
         expect(readManifest(baseDir).popupHideDelayMs).toBe(850);
+        expect(readManifest(baseDir).popupNestingMaxDepth).toBe(12);
 
         const reloaded = createHarness(baseDir).manager;
         expect((await reloaded.getSnapshot()).lookupMode).toBe('hover');
         expect((await reloaded.getSnapshot()).popupHideDelayMs).toBe(850);
+        expect((await reloaded.getSnapshot()).popupNestingMaxDepth).toBe(12);
     });
 
     it('rejects unsupported lookup modes', async () => {
@@ -582,12 +591,44 @@ describe('Hoshidicts lookup mode', () => {
         const baseDir = makeTempDir();
         const { manager } = createHarness(baseDir);
 
-        await expect(manager.setReaderPreferences('hover', -1)).rejects.toThrow(
+        await expect(manager.setReaderPreferences('hover', -1, 10)).rejects.toThrow(
             'hide delay is invalid'
         );
-        await expect(manager.setReaderPreferences('hover', 5001)).rejects.toThrow(
+        await expect(manager.setReaderPreferences('hover', 5001, 10)).rejects.toThrow(
             'hide delay is invalid'
         );
+    });
+
+    it('defaults invalid persisted popup nesting depths and rejects invalid updates', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+        fs.mkdirSync(path.dirname(manager.manifestPath), { recursive: true });
+        fs.writeFileSync(
+            manager.manifestPath,
+            JSON.stringify({
+                version: 1,
+                lookupMode: 'hover',
+                popupHideDelayMs: 850,
+                popupNestingMaxDepth: -1,
+                schedule: 'off',
+                lastCheck: null,
+                nextCheck: null,
+                lastError: null,
+                dictionaries: [],
+            }),
+            'utf8'
+        );
+
+        expect((await manager.getSnapshot()).popupNestingMaxDepth).toBe(10);
+        await expect(
+            manager.setReaderPreferences('hover', 850, -1)
+        ).rejects.toThrow('nesting depth is invalid');
+        await expect(
+            manager.setReaderPreferences('hover', 850, 1.5)
+        ).rejects.toThrow('nesting depth is invalid');
+        await expect(
+            manager.setReaderPreferences('hover', 850, Number.MAX_SAFE_INTEGER + 1)
+        ).rejects.toThrow('nesting depth is invalid');
     });
 });
 
@@ -605,7 +646,7 @@ describe('Hoshidicts snapshots', () => {
     it('preserves reader and mining preferences when dictionary hydration fails', async () => {
         const baseDir = makeTempDir();
         const { manager } = createHarness(baseDir);
-        await manager.setReaderPreferences('hover', 900);
+        await manager.setReaderPreferences('hover', 900, 0);
         await manager.setMiningProfile({
             deck: 'Mining',
             model: 'Kiku',
@@ -626,6 +667,7 @@ describe('Hoshidicts snapshots', () => {
 
         expect(snapshot.lookupMode).toBe('hover');
         expect(snapshot.popupHideDelayMs).toBe(900);
+        expect(snapshot.popupNestingMaxDepth).toBe(0);
         expect(snapshot.miningProfile).toMatchObject({
             deck: 'Mining',
             model: 'Kiku',

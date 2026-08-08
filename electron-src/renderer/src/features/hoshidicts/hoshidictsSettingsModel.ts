@@ -1,5 +1,6 @@
 import {
   DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+  DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   type HoshidictsDesktopSnapshot,
   type HoshidictsMiningFieldName,
@@ -95,6 +96,7 @@ const DEFAULT_STATE: HoshidictsDesktopSnapshot = {
   miningProfile: DEFAULT_MINING_PROFILE,
   lookupMode: "shift",
   popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+  popupNestingMaxDepth: DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
   schedule: "off",
   lastCheck: null,
   nextCheck: null,
@@ -228,6 +230,11 @@ export function normalizeHoshidictsDesktopState(
       MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS
       ? (candidate.popupHideDelayMs as number)
       : DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS;
+  const popupNestingMaxDepth =
+    Number.isSafeInteger(candidate.popupNestingMaxDepth) &&
+    (candidate.popupNestingMaxDepth as number) >= 0
+      ? (candidate.popupNestingMaxDepth as number)
+      : DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH;
 
   return {
     revision:
@@ -260,6 +267,7 @@ export function normalizeHoshidictsDesktopState(
     miningProfile: normalizeMiningProfile(candidate.miningProfile),
     lookupMode: candidate.lookupMode === "hover" ? "hover" : "shift",
     popupHideDelayMs,
+    popupNestingMaxDepth,
     schedule,
     lastCheck:
       typeof candidate.lastCheck === "string" ? candidate.lastCheck : null,

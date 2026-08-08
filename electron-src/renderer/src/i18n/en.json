@@ -593,6 +593,10 @@
         "automaticHoverHint": "Look up Japanese text as the pointer moves over it.",
         "hideDelay": "Popup hide delay",
         "hideDelayHint": "Keeps the popup reachable when moving from the word into its definitions.",
+        "allowPopupContentScanning": "Allow scanning popup content",
+        "allowPopupContentScanningHint": "Look up Japanese words inside dictionary definitions.",
+        "maxChildPopups": "Maximum number of child popups",
+        "maxChildPopupsHint": "Limits how many definition popups can open beyond the original lookup.",
         "milliseconds": "ms"
       },
       "saveStatus": {
