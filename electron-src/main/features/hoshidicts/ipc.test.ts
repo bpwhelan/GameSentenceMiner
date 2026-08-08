@@ -470,7 +470,7 @@ describe('Hoshidicts settings IPC', () => {
     it('exports a complete Hoshidicts backup with a ZIP save dialog', async () => {
         harness.showSaveDialog.mockResolvedValueOnce({
             canceled: false,
-            filePath: '/tmp/hoshidicts-backup.zip',
+            filePath: '/tmp/hoshidicts-backup',
         });
         const context = await registerHarness();
 

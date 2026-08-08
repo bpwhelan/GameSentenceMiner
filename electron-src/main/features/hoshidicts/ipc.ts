@@ -651,7 +651,10 @@ export function registerHoshidictsIPC(
         }
 
         try {
-            await manager.exportBackup(result.filePath);
+            const outputPath = result.filePath.toLowerCase().endsWith('.zip')
+                ? result.filePath
+                : `${result.filePath}.zip`;
+            await manager.exportBackup(outputPath);
             return {
                 success: true,
                 outcome: { code: 'backupExported' },
