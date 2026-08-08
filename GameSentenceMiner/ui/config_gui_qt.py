@@ -254,7 +254,7 @@ class ConfigWindow(QWidget):
         # --- Window Setup ---
         self._update_window_title()
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.Window)  # Ensure it's a standalone window
-        self.resize(800, 700)
+        self.resize(800, 800)
         self.setMinimumSize(640, 480)
 
         # Set window icon explicitly
