@@ -32,6 +32,7 @@ import {
     type HoshidictsLookupMode,
     type HoshidictsMiningOptions,
     type HoshidictsMoveDictionaryRequest,
+    type HoshidictsMoveDictionaryToPositionRequest,
     type HoshidictsReaderPreferences,
     type HoshidictsReaderPreferencesRequest,
     type HoshidictsRecommendedDictionaryId,
@@ -923,6 +924,40 @@ export function registerHoshidictsIPC(
                     const state = await manager.moveDictionary(
                         value.id as string,
                         value.direction as -1 | 1
+                    );
+                    await applyReaderSnapshot(state, deps);
+                    return state;
+                },
+                { code: 'dictionaryChanged' }
+            );
+        }
+    );
+
+    ipcMain.handle(
+        HOSHIDICTS_CHANNELS.moveDictionaryToPosition,
+        async (event, request: unknown) => {
+            assertSettingsSender(event, deps);
+            const value = request as
+                | Partial<HoshidictsMoveDictionaryToPositionRequest>
+                | null;
+            if (
+                !value ||
+                typeof value.id !== 'string' ||
+                !Number.isInteger(value.position) ||
+                (value.position as number) < 1
+            ) {
+                return {
+                    success: false,
+                    error: 'Dictionary position request is invalid.',
+                    state: await currentState(deps),
+                } satisfies HoshidictsActionResult;
+            }
+            return await runAction(
+                deps,
+                async () => {
+                    const state = await manager.moveDictionaryToPosition(
+                        value.id as string,
+                        value.position as number
                     );
                     await applyReaderSnapshot(state, deps);
                     return state;

@@ -47,6 +47,7 @@ const harness = vi.hoisted(() => ({
         setDictionaryEnabled: vi.fn(),
         setDictionaryPresentation: vi.fn(),
         moveDictionary: vi.fn(),
+        moveDictionaryToPosition: vi.fn(),
         getCustomDictionaryDocument: vi.fn(),
         saveCustomDictionary: vi.fn(),
     },
@@ -180,6 +181,7 @@ async function registerHarness() {
     harness.manager.setMiningProfile.mockResolvedValue(snapshot);
     harness.manager.setDictionaryPresentation.mockResolvedValue(snapshot);
     harness.manager.moveDictionary.mockResolvedValue(snapshot);
+    harness.manager.moveDictionaryToPosition.mockResolvedValue(snapshot);
     const customDocument = {
         text: '',
         revision: 'empty-revision',
@@ -779,6 +781,38 @@ describe('Hoshidicts settings IPC', () => {
             })
         );
         expect(context.restartOverlay).toHaveBeenCalledOnce();
+
+        const moveDictionaryToPosition = harness.handlers.get(
+            'hoshidicts.moveDictionaryToPosition'
+        );
+        harness.manager.moveDictionaryToPosition.mockResolvedValueOnce(
+            presentationState
+        );
+        await expect(
+            moveDictionaryToPosition?.(
+                { sender: context.settingsContents },
+                { id: 'alpha', position: 3 }
+            )
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'dictionaryChanged' },
+        });
+        expect(
+            harness.manager.moveDictionaryToPosition
+        ).toHaveBeenCalledWith('alpha', 3);
+
+        await expect(
+            moveDictionaryToPosition?.(
+                { sender: context.settingsContents },
+                { id: 'alpha', position: 0 }
+            )
+        ).resolves.toMatchObject({
+            success: false,
+            error: 'Dictionary position request is invalid.',
+        });
+        expect(
+            harness.manager.moveDictionaryToPosition
+        ).toHaveBeenCalledOnce();
     });
 
     it('refreshes live presentation after every dictionary collection mutation', async () => {

@@ -1,6 +1,7 @@
 import {
   ArrowDown,
   ArrowUp,
+  EllipsisVertical,
   Eraser,
   FileArchive,
   FileJson,
@@ -316,6 +317,10 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
     preferencesBusy,
     actions
   } = controller;
+  const [positionMove, setPositionMove] = useState<{
+    id: string;
+    value: string;
+  } | null>(null);
   if (!state) return null;
 
   const lastCheck = formatTimestamp(state.lastCheck);
@@ -850,42 +855,167 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                   </div>
                 </div>
                 <div className="hoshidicts-dictionary-actions">
-                  <button
-                    type="button"
-                    className="hoshidicts-icon-button secondary"
-                    title={t("settings.hoshidicts.moveUp")}
-                    aria-label={t("settings.hoshidicts.moveUp")}
-                    disabled={dictionaryBusy || index === 0}
-                    onClick={() =>
-                      void actions.moveDictionary(dictionary.id, -1)
-                    }
-                  >
-                    <ArrowUp size={17} aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    className="hoshidicts-icon-button secondary"
-                    title={t("settings.hoshidicts.moveDown")}
-                    aria-label={t("settings.hoshidicts.moveDown")}
-                    disabled={
-                      dictionaryBusy || index === state.dictionaries.length - 1
-                    }
-                    onClick={() =>
-                      void actions.moveDictionary(dictionary.id, 1)
-                    }
-                  >
-                    <ArrowDown size={17} aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    className="hoshidicts-icon-button danger"
-                    title={t("settings.hoshidicts.remove")}
-                    aria-label={t("settings.hoshidicts.remove")}
-                    disabled={dictionaryBusy}
-                    onClick={() => void actions.removeDictionary(dictionary.id)}
-                  >
-                    <Trash2 size={17} aria-hidden="true" />
-                  </button>
+                  <details className="hoshidicts-dictionary-menu">
+                    <summary
+                      className="hoshidicts-icon-button secondary"
+                      title={t("settings.hoshidicts.dictionaryActions.menu", {
+                        title: dictionary.title
+                      })}
+                      aria-label={t(
+                        "settings.hoshidicts.dictionaryActions.menu",
+                        { title: dictionary.title }
+                      )}
+                      aria-disabled={dictionaryBusy}
+                      aria-haspopup="menu"
+                      onClick={(event) => {
+                        if (dictionaryBusy) event.preventDefault();
+                      }}
+                    >
+                      <EllipsisVertical size={18} aria-hidden="true" />
+                    </summary>
+                    <div className="hoshidicts-dictionary-menu__popover">
+                      {positionMove?.id === dictionary.id ? (
+                        <form
+                          className="hoshidicts-dictionary-position"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            const position = Number(positionMove.value);
+                            if (
+                              !Number.isInteger(position) ||
+                              position < 1 ||
+                              position > state.dictionaries.length
+                            ) {
+                              return;
+                            }
+                            setPositionMove(null);
+                            event.currentTarget
+                              .closest("details")
+                              ?.removeAttribute("open");
+                            void actions.moveDictionaryToPosition(
+                              dictionary.id,
+                              position
+                            );
+                          }}
+                        >
+                          <label>
+                            <span>
+                              {t(
+                                "settings.hoshidicts.dictionaryActions.position"
+                              )}
+                            </span>
+                            <input
+                              type="number"
+                              min={1}
+                              max={state.dictionaries.length}
+                              step={1}
+                              autoFocus
+                              value={positionMove.value}
+                              onChange={(event) =>
+                                setPositionMove({
+                                  id: dictionary.id,
+                                  value: event.currentTarget.value
+                                })
+                              }
+                            />
+                          </label>
+                          <small>
+                            {t(
+                              "settings.hoshidicts.dictionaryActions.positionHint"
+                            )}
+                          </small>
+                          <div>
+                            <button
+                              type="submit"
+                              disabled={
+                                dictionaryBusy ||
+                                !Number.isInteger(Number(positionMove.value)) ||
+                                Number(positionMove.value) < 1 ||
+                                Number(positionMove.value) >
+                                  state.dictionaries.length
+                              }
+                            >
+                              {t(
+                                "settings.hoshidicts.dictionaryActions.move"
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              className="secondary"
+                              onClick={() => setPositionMove(null)}
+                            >
+                              {t(
+                                "settings.hoshidicts.dictionaryActions.cancel"
+                              )}
+                            </button>
+                          </div>
+                        </form>
+                      ) : (
+                        <div role="menu" className="hoshidicts-dictionary-menu__items">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            disabled={dictionaryBusy || index === 0}
+                            onClick={(event) => {
+                              event.currentTarget
+                                .closest("details")
+                                ?.removeAttribute("open");
+                              void actions.moveDictionary(dictionary.id, -1);
+                            }}
+                          >
+                            <ArrowUp size={16} aria-hidden="true" />
+                            {t("settings.hoshidicts.moveUp")}
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            disabled={
+                              dictionaryBusy ||
+                              index === state.dictionaries.length - 1
+                            }
+                            onClick={(event) => {
+                              event.currentTarget
+                                .closest("details")
+                                ?.removeAttribute("open");
+                              void actions.moveDictionary(dictionary.id, 1);
+                            }}
+                          >
+                            <ArrowDown size={16} aria-hidden="true" />
+                            {t("settings.hoshidicts.moveDown")}
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            disabled={dictionaryBusy}
+                            onClick={() =>
+                              setPositionMove({
+                                id: dictionary.id,
+                                value: String(index + 1)
+                              })
+                            }
+                          >
+                            {t(
+                              "settings.hoshidicts.dictionaryActions.moveToPosition"
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="danger"
+                            disabled={dictionaryBusy}
+                            onClick={(event) => {
+                              event.currentTarget
+                                .closest("details")
+                                ?.removeAttribute("open");
+                              void actions.removeDictionary(dictionary.id);
+                            }}
+                          >
+                            <Trash2 size={16} aria-hidden="true" />
+                            {t("settings.hoshidicts.remove")}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </details>
                 </div>
               </div>
             ))}

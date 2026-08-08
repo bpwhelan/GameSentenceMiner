@@ -18,6 +18,7 @@ export const HOSHIDICTS_CHANNELS = {
     setDictionaryEnabled: 'hoshidicts.setDictionaryEnabled',
     setDictionaryPresentation: 'hoshidicts.setDictionaryPresentation',
     moveDictionary: 'hoshidicts.moveDictionary',
+    moveDictionaryToPosition: 'hoshidicts.moveDictionaryToPosition',
     getCustomDictionary: 'hoshidicts.getCustomDictionary',
     saveCustomDictionary: 'hoshidicts.saveCustomDictionary',
     restartOverlay: 'hoshidicts.restartOverlay',
@@ -556,6 +557,11 @@ export interface HoshidictsDictionaryPresentationRequest {
 export interface HoshidictsMoveDictionaryRequest {
     id: string;
     direction: HoshidictsMoveDirection;
+}
+
+export interface HoshidictsMoveDictionaryToPositionRequest {
+    id: string;
+    position: number;
 }
 
 export interface HoshidictsInstallRecommendedRequest {

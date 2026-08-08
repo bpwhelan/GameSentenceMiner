@@ -743,6 +743,95 @@
   gap: 6px;
 }
 
+.hoshidicts-dictionary-menu {
+  position: relative;
+}
+
+.hoshidicts-dictionary-menu > summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  list-style: none;
+  border: 1px solid var(--gsm-border-default);
+  border-radius: 6px;
+  background: var(--gsm-surface-2);
+  color: var(--gsm-text-primary);
+  cursor: pointer;
+}
+
+.hoshidicts-dictionary-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.hoshidicts-dictionary-menu > summary:hover,
+.hoshidicts-dictionary-menu[open] > summary {
+  background: var(--gsm-surface-hover);
+}
+
+.hoshidicts-dictionary-menu > summary[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hoshidicts-dictionary-menu__popover {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  right: 0;
+  width: min(280px, calc(100vw - 48px));
+  padding: 6px;
+  border: 1px solid var(--gsm-border-default);
+  border-radius: 7px;
+  background: var(--gsm-surface-1);
+  box-shadow: 0 12px 28px rgb(0 0 0 / 28%);
+}
+
+.hoshidicts-dictionary-menu__items {
+  display: grid;
+  gap: 2px;
+}
+
+.hoshidicts-window .hoshidicts-dictionary-menu__items button {
+  width: 100%;
+  justify-content: flex-start;
+  border-color: transparent;
+  background: transparent;
+  color: var(--gsm-text-primary);
+}
+
+.hoshidicts-window .hoshidicts-dictionary-menu__items button:hover:not(:disabled) {
+  background: var(--gsm-surface-hover);
+}
+
+.hoshidicts-window .hoshidicts-dictionary-menu__items button.danger {
+  color: var(--gsm-danger-text);
+}
+
+.hoshidicts-dictionary-position {
+  display: grid;
+  gap: 8px;
+  padding: 6px;
+}
+
+.hoshidicts-dictionary-position label {
+  display: grid;
+  gap: 5px;
+  color: var(--gsm-text-secondary);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.hoshidicts-dictionary-position small {
+  color: var(--gsm-text-muted);
+  font-size: 0.76rem;
+}
+
+.hoshidicts-dictionary-position > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 .hoshidicts-window .hoshidicts-icon-button {
   width: 36px;
   height: 36px;

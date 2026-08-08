@@ -661,6 +661,14 @@
         "addFavorite": "Додати {title} до обраного",
         "removeFavorite": "Вилучити {title} з обраного"
       },
+      "dictionaryActions": {
+        "menu": "Дії зі словником {title}",
+        "moveToPosition": "Перемістити словник на позицію...",
+        "position": "Позиція",
+        "positionHint": "Словник на позиції 1 шукається першим.",
+        "move": "Перемістити",
+        "cancel": "Скасувати"
+      },
       "enableDictionary": "Увімкнути {title}",
       "moveUp": "Перемістити вгору",
       "moveDown": "Перемістити вниз",

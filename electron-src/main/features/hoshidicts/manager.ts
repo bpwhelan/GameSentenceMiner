@@ -1668,6 +1668,57 @@ export class HoshidictsManager {
         return await this.getSnapshot();
     }
 
+    async moveDictionaryToPosition(
+        id: string,
+        position: number
+    ): Promise<HoshidictsManagerSnapshot> {
+        await this.enqueue('saving', async () => {
+            if (!SAFE_ID_PATTERN.test(id)) {
+                throw new Error('Dictionary id is invalid.');
+            }
+            if (id === HOSHIDICTS_CUSTOM_DICTIONARY_ID) {
+                throw new Error('The custom dictionary is always first.');
+            }
+            if (!Number.isInteger(position) || position < 1) {
+                throw new Error('Dictionary position is invalid.');
+            }
+            const manifest = await this.readManifest();
+            const currentIndex = manifest.dictionaries.findIndex(
+                (dictionary) => dictionary.id === id
+            );
+            if (currentIndex < 0) {
+                throw new Error('Dictionary is not installed.');
+            }
+            if (position > manifest.dictionaries.length) {
+                throw new Error(
+                    `Dictionary position must be between 1 and ${manifest.dictionaries.length}.`
+                );
+            }
+            const targetIndex = position - 1;
+            if (currentIndex === targetIndex) {
+                return;
+            }
+            if (
+                manifest.dictionaries[targetIndex].id ===
+                HOSHIDICTS_CUSTOM_DICTIONARY_ID
+            ) {
+                throw new Error('The custom dictionary is always first.');
+            }
+            const dictionaries = manifest.dictionaries.map((dictionary) => ({
+                ...dictionary,
+            }));
+            const [dictionary] = dictionaries.splice(currentIndex, 1);
+            dictionaries.splice(targetIndex, 0, dictionary);
+            await this.commitManifestChange(
+                manifest,
+                { ...manifest, dictionaries },
+                null,
+                null
+            );
+        });
+        return await this.getSnapshot();
+    }
+
     async setSchedule(schedule: HoshidictsSchedule): Promise<HoshidictsManagerSnapshot> {
         await this.enqueue('saving', async () => {
             if (!['off', 'daily', 'weekly', 'monthly'].includes(schedule)) {

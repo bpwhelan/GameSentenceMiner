@@ -672,10 +672,6 @@ describe("HoshidictsSettingsWindow", () => {
       buttonContaining("Check for Updates")?.click();
       buttonContaining("Install default set")?.click();
       buttons.find((button) => button.textContent?.trim() === "Install")?.click();
-      container.querySelector<HTMLButtonElement>('button[aria-label="Move down"]')
-        ?.click();
-      container.querySelector<HTMLButtonElement>('button[aria-label="Remove"]')
-        ?.click();
       container.querySelectorAll<HTMLInputElement>(
         ".hoshidicts-dictionary-row__toggle input"
       )[1]?.click();
@@ -683,6 +679,25 @@ describe("HoshidictsSettingsWindow", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+
+    const clickDictionaryMenuItem = async (label: string) => {
+      await act(async () => {
+        container
+          .querySelector<HTMLElement>(
+            '[aria-label="Dictionary actions for JMdict"]'
+          )
+          ?.click();
+        Array.from(
+          container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
+        )
+          .find((button) => button.textContent?.trim() === label)
+          ?.click();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+    };
+    await clickDictionaryMenuItem("Move down");
+    await clickDictionaryMenuItem("Remove");
 
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.importDictionary
@@ -722,6 +737,42 @@ describe("HoshidictsSettingsWindow", () => {
       container.querySelectorAll<HTMLElement>(".hoshidicts-section")
     );
     expect(sections.at(-1)?.textContent).toContain("Backups");
+  });
+
+  it("moves a dictionary directly to a selected search position", async () => {
+    await render();
+    const menu = container.querySelector<HTMLElement>(
+      '[aria-label="Dictionary actions for JMdict"]'
+    );
+
+    await act(async () => {
+      menu?.click();
+      await Promise.resolve();
+    });
+    const moveToPosition = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Move dict to position")
+    );
+    await act(async () => {
+      moveToPosition?.click();
+      await Promise.resolve();
+    });
+
+    const position = container.querySelector<HTMLInputElement>(
+      '.hoshidicts-dictionary-position input[type="number"]'
+    );
+    setInputValue(position, "2");
+    await act(async () => {
+      position?.closest("form")?.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true })
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      "hoshidicts.moveDictionaryToPosition",
+      { id: "jmdict-id", position: 2 }
+    );
   });
 
   it("auto-saves reader preferences atomically", async () => {

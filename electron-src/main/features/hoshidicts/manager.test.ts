@@ -565,6 +565,44 @@ describe('Hoshidicts immutable generations', () => {
         expect(reloadNative).toHaveBeenCalledTimes(4);
     });
 
+    it('moves a dictionary directly to a one-based search position', async () => {
+        const baseDir = makeTempDir();
+        const archivesDir = makeTempDir();
+        const alpha = writeArchive(archivesDir, 'alpha.zip', {
+            title: 'Alpha',
+            revision: 'one',
+            sourceLanguage: 'ja',
+        });
+        const beta = writeArchive(archivesDir, 'beta.zip', {
+            title: 'Beta',
+            revision: 'one',
+            sourceLanguage: 'ja',
+        });
+        const gamma = writeArchive(archivesDir, 'gamma.zip', {
+            title: 'Gamma',
+            revision: 'one',
+            sourceLanguage: 'ja',
+        });
+        const { manager } = createHarness(baseDir);
+
+        await manager.importDictionary(alpha);
+        await manager.importDictionary(beta);
+        await manager.importDictionary(gamma);
+        const initial = await manager.getSnapshot();
+        const gammaId = initial.dictionaries[2].id;
+
+        await manager.moveDictionaryToPosition(gammaId, 1);
+
+        expect(
+            (await manager.getSnapshot()).dictionaries.map(
+                (dictionary) => dictionary.title
+            )
+        ).toEqual(['Gamma', 'Alpha', 'Beta']);
+        await expect(
+            manager.moveDictionaryToPosition(gammaId, 4)
+        ).rejects.toThrow('Dictionary position must be between 1 and 3.');
+    });
+
     it('persists dictionary presentation without reloading native dictionaries', async () => {
         const baseDir = makeTempDir();
         const archive = writeArchive(makeTempDir(), 'alpha.zip', {

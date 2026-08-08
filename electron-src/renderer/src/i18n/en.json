@@ -679,6 +679,14 @@
         "addFavorite": "Add {title} to favourites",
         "removeFavorite": "Remove {title} from favourites"
       },
+      "dictionaryActions": {
+        "menu": "Dictionary actions for {title}",
+        "moveToPosition": "Move dict to position...",
+        "position": "Position",
+        "positionHint": "Position 1 is searched first.",
+        "move": "Move",
+        "cancel": "Cancel"
+      },
       "enableDictionary": "Enable {title}",
       "moveUp": "Move up",
       "moveDown": "Move down",

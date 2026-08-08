@@ -22,6 +22,7 @@ import {
   type HoshidictsMiningOptions,
   type HoshidictsMiningProfile,
   type HoshidictsMoveDirection,
+  type HoshidictsMoveDictionaryToPositionRequest,
   type HoshidictsReaderPreferences,
   type HoshidictsRecommendedDictionaryId,
   type HoshidictsSaveCustomDictionaryRequest,
@@ -666,6 +667,15 @@ export function useHoshidictsSettingsController() {
         runAction(
           () =>
             invokeIpc(HOSHIDICTS_CHANNELS.moveDictionary, { id, direction }),
+          "settings.hoshidicts.errors.operation"
+        ),
+      moveDictionaryToPosition: (id: string, position: number) =>
+        runAction(
+          () =>
+            invokeIpc(
+              HOSHIDICTS_CHANNELS.moveDictionaryToPosition,
+              { id, position } satisfies HoshidictsMoveDictionaryToPositionRequest
+            ),
           "settings.hoshidicts.errors.operation"
         ),
       setSchedule: (schedule: HoshidictsSchedule) =>
