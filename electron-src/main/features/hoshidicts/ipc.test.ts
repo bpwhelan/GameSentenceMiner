@@ -134,15 +134,13 @@ const snapshot = {
 function definitionDictionary(
     id: string,
     title: string,
-    favorite: boolean,
-    displayMode: 'always' | 'fallback'
+    favorite: boolean
 ) {
     return {
         id,
         title,
         enabled: true,
         favorite,
-        displayMode,
         revision: 'one',
         isUpdatable: false,
         indexUrl: null,
@@ -647,7 +645,6 @@ describe('Hoshidicts settings IPC', () => {
                     title: 'Alpha',
                     enabled: true,
                     favorite: true,
-                    displayMode: 'always',
                     revision: 'one',
                     isUpdatable: false,
                     indexUrl: null,
@@ -665,7 +662,6 @@ describe('Hoshidicts settings IPC', () => {
                     title: 'Frequency only',
                     enabled: true,
                     favorite: true,
-                    displayMode: 'fallback',
                     revision: 'one',
                     isUpdatable: false,
                     indexUrl: null,
@@ -694,7 +690,7 @@ describe('Hoshidicts settings IPC', () => {
         await expect(
             setPresentation?.(
                 { sender: context.settingsContents },
-                { id: 'alpha', favorite: true, displayMode: 'always' }
+                { id: 'alpha', favorite: true }
             )
         ).resolves.toMatchObject({
             success: true,
@@ -702,8 +698,7 @@ describe('Hoshidicts settings IPC', () => {
         });
         expect(harness.manager.setDictionaryPresentation).toHaveBeenCalledWith(
             'alpha',
-            true,
-            'always'
+            true
         );
         expect(context.applyReaderPreferences).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -711,7 +706,6 @@ describe('Hoshidicts settings IPC', () => {
                     {
                         title: 'Alpha',
                         favorite: true,
-                        displayMode: 'always',
                     },
                 ],
             })
@@ -720,7 +714,7 @@ describe('Hoshidicts settings IPC', () => {
         await expect(
             setPresentation?.(
                 { sender: context.settingsContents },
-                { id: 'alpha', favorite: 'yes', displayMode: 'sometimes' }
+                { id: 'alpha', favorite: 'yes' }
             )
         ).resolves.toMatchObject({
             success: false,
@@ -749,18 +743,8 @@ describe('Hoshidicts settings IPC', () => {
     });
 
     it('refreshes live presentation after every dictionary collection mutation', async () => {
-        const primary = definitionDictionary(
-            'primary',
-            'Primary',
-            true,
-            'always'
-        );
-        const backup = definitionDictionary(
-            'backup',
-            'Backup',
-            false,
-            'fallback'
-        );
+        const primary = definitionDictionary('primary', 'Primary', true);
+        const backup = definitionDictionary('backup', 'Backup', false);
         const initialState = {
             ...snapshot,
             dictionaries: [primary, backup],
@@ -860,7 +844,6 @@ describe('Hoshidicts settings IPC', () => {
                     {
                         title: 'Backup',
                         favorite: false,
-                        displayMode: 'fallback',
                     },
                 ],
             })
@@ -868,18 +851,8 @@ describe('Hoshidicts settings IPC', () => {
     });
 
     it('reports when a saved dictionary mutation cannot refresh the running overlay', async () => {
-        const primary = definitionDictionary(
-            'primary',
-            'Primary',
-            true,
-            'always'
-        );
-        const backup = definitionDictionary(
-            'backup',
-            'Backup',
-            false,
-            'fallback'
-        );
+        const primary = definitionDictionary('primary', 'Primary', true);
+        const backup = definitionDictionary('backup', 'Backup', false);
         const initialState = {
             ...snapshot,
             dictionaries: [primary, backup],
@@ -917,12 +890,7 @@ describe('Hoshidicts settings IPC', () => {
     });
 
     it('publishes partially successful update changes before reporting a later failure', async () => {
-        const updated = definitionDictionary(
-            'primary',
-            'Primary 2026',
-            true,
-            'always'
-        );
+        const updated = definitionDictionary('primary', 'Primary 2026', true);
         const partialUpdateState = {
             ...snapshot,
             dictionaries: [updated],
@@ -947,7 +915,6 @@ describe('Hoshidicts settings IPC', () => {
                     {
                         title: 'Primary 2026',
                         favorite: true,
-                        displayMode: 'always',
                     },
                 ],
             })

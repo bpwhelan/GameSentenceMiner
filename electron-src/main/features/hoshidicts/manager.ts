@@ -19,7 +19,6 @@ import type {
     HoshidictsCustomEntryRequest,
     HoshidictsDictionaryState,
     HoshidictsDefinitionBlurPreferences,
-    HoshidictsDictionaryDisplayMode,
     HoshidictsActivationKey,
     HoshidictsFrequencyMode,
     HoshidictsManagerSnapshot,
@@ -399,12 +398,6 @@ function normalizeSchedule(value: unknown): HoshidictsSchedule {
         : 'off';
 }
 
-function normalizeDictionaryDisplayMode(
-    value: unknown
-): HoshidictsDictionaryDisplayMode {
-    return value === 'fallback' ? 'fallback' : 'always';
-}
-
 function normalizePopupHideDelay(value: unknown): number {
     return Number.isInteger(value) &&
         (value as number) >= 0 &&
@@ -781,7 +774,6 @@ function dictionaryStateFromIndex(
         path: relativePath,
         enabled,
         favorite: false,
-        displayMode: 'always',
         recommendedId,
         title: index.title,
         revision: index.revision,
@@ -1594,8 +1586,7 @@ export class HoshidictsManager {
 
     async setDictionaryPresentation(
         id: string,
-        favorite: boolean,
-        displayMode: HoshidictsDictionaryDisplayMode
+        favorite: boolean
     ): Promise<HoshidictsManagerSnapshot> {
         await this.enqueue('saving', async () => {
             if (!SAFE_ID_PATTERN.test(id)) {
@@ -1609,9 +1600,6 @@ export class HoshidictsManager {
             if (typeof favorite !== 'boolean') {
                 throw new Error('Dictionary favorite state is invalid.');
             }
-            if (displayMode !== 'always' && displayMode !== 'fallback') {
-                throw new Error('Dictionary display mode is invalid.');
-            }
             const manifest = await this.readManifest();
             const index = manifest.dictionaries.findIndex(
                 (dictionary) => dictionary.id === id
@@ -1620,17 +1608,13 @@ export class HoshidictsManager {
                 throw new Error('Dictionary is not installed.');
             }
             const current = manifest.dictionaries[index];
-            if (
-                current.favorite === favorite &&
-                current.displayMode === displayMode
-            ) {
+            if (current.favorite === favorite) {
                 return;
             }
             const dictionaries = manifest.dictionaries.map((dictionary) => ({
                 ...dictionary,
             }));
             dictionaries[index].favorite = favorite;
-            dictionaries[index].displayMode = displayMode;
             // Presentation is renderer-only. Avoid a native reload while still
             // using the manifest's atomic persistence path.
             await this.atomicWriteManifest({ ...manifest, dictionaries });
@@ -2059,7 +2043,6 @@ export class HoshidictsManager {
                         title,
                         enabled,
                         favorite,
-                        displayMode,
                         revision,
                         isUpdatable,
                         indexUrl,
@@ -2076,7 +2059,6 @@ export class HoshidictsManager {
                         title,
                         enabled,
                         favorite,
-                        displayMode,
                         revision,
                         isUpdatable,
                         indexUrl,
@@ -2418,9 +2400,6 @@ export class HoshidictsManager {
                     recommendedId
                 ),
                 favorite: value.favorite === true,
-                displayMode: normalizeDictionaryDisplayMode(
-                    value.displayMode
-                ),
             });
         }
 
@@ -2648,7 +2627,6 @@ export class HoshidictsManager {
                 ...staged.dictionary,
                 enabled: dictionaries[existingIndex].enabled,
                 favorite: dictionaries[existingIndex].favorite,
-                displayMode: dictionaries[existingIndex].displayMode,
             };
         } else {
             dictionaries.push(staged.dictionary);

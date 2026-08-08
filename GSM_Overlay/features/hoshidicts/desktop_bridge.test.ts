@@ -78,7 +78,6 @@ const {
     dictionaryPresentation: Array<{
       title: string;
       favorite: boolean;
-      displayMode: "always" | "fallback";
     }>;
   };
 };
@@ -129,8 +128,8 @@ describe("Hoshidicts desktop bridge", () => {
       popupHideDelayMs: 850,
       popupNestingMaxDepth: 4,
       dictionaryPresentation: [
-        { title: "Monolingual", favorite: false, displayMode: "always" },
-        { title: "Bilingual", favorite: true, displayMode: "fallback" },
+        { title: "Monolingual", favorite: false },
+        { title: "Bilingual", favorite: true, displayMode: "legacy-value" },
       ],
     })).toEqual({
       lookupMode: "hover",
@@ -139,8 +138,8 @@ describe("Hoshidicts desktop bridge", () => {
       popupHideDelayMs: 850,
       popupNestingMaxDepth: 4,
       dictionaryPresentation: [
-        { title: "Monolingual", favorite: false, displayMode: "always" },
-        { title: "Bilingual", favorite: true, displayMode: "fallback" },
+        { title: "Monolingual", favorite: false },
+        { title: "Bilingual", favorite: true },
       ],
     });
     expect(normalizeHoshidictsReaderPreferences({
@@ -177,7 +176,7 @@ describe("Hoshidicts desktop bridge", () => {
       popupHideDelayMs: 850,
       popupNestingMaxDepth: 4,
       dictionaryPresentation: [
-        { title: "Broken", favorite: true, displayMode: "sometimes" },
+        { title: "Broken", favorite: "yes" },
       ],
     })).toThrow("Hoshidicts reader preferences are invalid.");
     expect(() => normalizeHoshidictsReaderPreferences({
@@ -187,8 +186,8 @@ describe("Hoshidicts desktop bridge", () => {
       popupHideDelayMs: 850,
       popupNestingMaxDepth: 4,
       dictionaryPresentation: [
-        { title: "Repeated", favorite: true, displayMode: "always" },
-        { title: "Repeated", favorite: false, displayMode: "fallback" },
+        { title: "Repeated", favorite: true },
+        { title: "Repeated", favorite: false },
       ],
     })).toThrow("Hoshidicts reader preferences are invalid.");
   });

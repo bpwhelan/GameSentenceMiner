@@ -38,19 +38,16 @@ const harness = vi.hoisted(() => ({
                 title: 'Primary',
                 termCount: 1,
                 favorite: true,
-                displayMode: 'always' as const,
             },
             {
                 title: 'Frequency only',
                 termCount: 0,
                 favorite: true,
-                displayMode: 'fallback' as const,
             },
             {
                 title: 'Backup',
                 termCount: 1,
                 favorite: false,
-                displayMode: 'fallback' as const,
             },
         ],
         lookupMode: 'hover',
@@ -273,12 +270,10 @@ describe('Hoshidicts feature registration', () => {
                         {
                             title: 'Primary',
                             favorite: true,
-                            displayMode: 'always',
                         },
                         {
                             title: 'Backup',
                             favorite: false,
-                            displayMode: 'fallback',
                         },
                     ],
                 },

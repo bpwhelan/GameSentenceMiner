@@ -58,8 +58,7 @@ function normalizeHoshidictsDictionaryPresentation(value) {
       !title.trim() ||
       title.length > MAX_HOSHIDICTS_DICTIONARY_TITLE_LENGTH ||
       titles.has(title) ||
-      typeof entry.favorite !== "boolean" ||
-      (entry.displayMode !== "always" && entry.displayMode !== "fallback")
+      typeof entry.favorite !== "boolean"
     ) {
       throw new Error("Hoshidicts reader preferences are invalid.");
     }
@@ -67,7 +66,6 @@ function normalizeHoshidictsDictionaryPresentation(value) {
     return {
       title,
       favorite: entry.favorite,
-      displayMode: entry.displayMode,
     };
   });
 }

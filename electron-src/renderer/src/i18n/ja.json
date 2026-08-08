@@ -654,12 +654,7 @@
       "priorityHint": "上にある辞書から優先して検索します。",
       "dictionaryPresentation": {
         "addFavorite": "{title}をお気に入りに追加",
-        "removeFavorite": "{title}をお気に入りから削除",
-        "displayMode": "表示方法",
-        "displayModeFor": "{title}の表示方法",
-        "alwaysExpanded": "常に表示",
-        "fallback": "フォールバック",
-        "fallbackHint": "フォールバック辞書は、上にある「常に表示」の辞書に項目がない場合のみ表示されます。「常に表示」の辞書ごとに新しいフォールバックグループが始まります。"
+        "removeFavorite": "{title}をお気に入りから削除"
       },
       "enableDictionary": "{title}を有効化",
       "moveUp": "上へ移動",

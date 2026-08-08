@@ -717,29 +717,6 @@
   box-shadow: 0 0 0 2px var(--gsm-accent-soft);
 }
 
-.hoshidicts-dictionary-display-mode {
-  display: flex;
-  align-items: center;
-  width: min(100%, 340px);
-  gap: 9px;
-  margin-top: 5px;
-  color: var(--gsm-text-muted);
-  font-size: 0.78rem;
-  font-weight: 600;
-}
-
-.hoshidicts-dictionary-display-mode > span {
-  flex: 0 0 auto;
-}
-
-.hoshidicts-window .hoshidicts-dictionary-display-mode select {
-  width: auto;
-  min-width: 0;
-  min-height: 34px;
-  flex: 1 1 180px;
-  padding-block: 5px;
-}
-
 .hoshidicts-dictionary-meta {
   display: flex;
   flex-wrap: wrap;

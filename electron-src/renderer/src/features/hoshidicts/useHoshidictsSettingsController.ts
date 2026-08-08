@@ -17,7 +17,6 @@ import {
   type HoshidictsAudioProfile,
   type HoshidictsCustomDictionaryDocument,
   type HoshidictsDesktopSnapshot,
-  type HoshidictsDictionaryDisplayMode,
   type HoshidictsDictionaryPresentationRequest,
   type HoshidictsLookupMode,
   type HoshidictsMiningOptions,
@@ -639,19 +638,14 @@ export function useHoshidictsSettingsController() {
             }),
           "settings.hoshidicts.errors.operation"
         ),
-      setDictionaryPresentation: (
-        id: string,
-        favorite: boolean,
-        displayMode: HoshidictsDictionaryDisplayMode
-      ) =>
+      setDictionaryPresentation: (id: string, favorite: boolean) =>
         runAction(
           () =>
             invokeIpc(
               HOSHIDICTS_CHANNELS.setDictionaryPresentation,
               {
                 id,
-                favorite,
-                displayMode
+                favorite
               } satisfies HoshidictsDictionaryPresentationRequest
             ),
           "settings.hoshidicts.errors.operation"

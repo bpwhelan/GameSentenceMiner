@@ -348,7 +348,7 @@ describe('Hoshidicts immutable generations', () => {
         await manager.importDictionary(second);
         const alphaId = (await manager.getSnapshot()).dictionaries[0].id;
         await manager.setDictionaryEnabled(alphaId, false);
-        await manager.setDictionaryPresentation(alphaId, true, 'fallback');
+        await manager.setDictionaryPresentation(alphaId, true);
         const oldManifest = readManifest(baseDir);
         const oldAlphaPath = oldManifest.dictionaries[0].path;
         await manager.importDictionary(replacement);
@@ -366,10 +366,7 @@ describe('Hoshidicts immutable generations', () => {
             false,
             true,
         ]);
-        expect(snapshot.dictionaries[0]).toMatchObject({
-            favorite: true,
-            displayMode: 'fallback',
-        });
+        expect(snapshot.dictionaries[0].favorite).toBe(true);
         expect(snapshot.dictionaries[0]).toMatchObject({
             termCount: 1,
             frequencyCount: 0,
@@ -580,24 +577,14 @@ describe('Hoshidicts immutable generations', () => {
         const dictionaryId = (await manager.getSnapshot()).dictionaries[0].id;
         reloadNative.mockClear();
 
-        const snapshot = await manager.setDictionaryPresentation(
-            dictionaryId,
-            true,
-            'fallback'
-        );
+        const snapshot = await manager.setDictionaryPresentation(dictionaryId, true);
 
-        expect(snapshot.dictionaries[0]).toMatchObject({
-            favorite: true,
-            displayMode: 'fallback',
-        });
-        expect(readManifest(baseDir).dictionaries[0]).toMatchObject({
-            favorite: true,
-            displayMode: 'fallback',
-        });
+        expect(snapshot.dictionaries[0].favorite).toBe(true);
+        expect(readManifest(baseDir).dictionaries[0].favorite).toBe(true);
         expect(reloadNative).not.toHaveBeenCalled();
     });
 
-    it('defaults presentation fields from older and malformed version-one manifests', async () => {
+    it('defaults favorite state from older version-one manifests', async () => {
         const baseDir = makeTempDir();
         const archive = writeArchive(makeTempDir(), 'alpha.zip', {
             title: 'Alpha',
@@ -608,13 +595,9 @@ describe('Hoshidicts immutable generations', () => {
         await manager.importDictionary(archive);
         const manifest = readManifest(baseDir);
         delete manifest.dictionaries[0].favorite;
-        manifest.dictionaries[0].displayMode = 'sometimes';
         writeManifest(baseDir, manifest);
 
-        expect((await manager.getSnapshot()).dictionaries[0]).toMatchObject({
-            favorite: false,
-            displayMode: 'always',
-        });
+        expect((await manager.getSnapshot()).dictionaries[0].favorite).toBe(false);
     });
 
     it('validates dictionary presentation changes', async () => {
@@ -629,15 +612,14 @@ describe('Hoshidicts immutable generations', () => {
         const dictionaryId = (await manager.getSnapshot()).dictionaries[0].id;
 
         await expect(
-            manager.setDictionaryPresentation('missing', false, 'always')
+            manager.setDictionaryPresentation('missing', false)
         ).rejects.toThrow('not installed');
         await expect(
             manager.setDictionaryPresentation(
                 dictionaryId,
-                false,
-                'sometimes' as 'always'
+                'yes' as unknown as boolean
             )
-        ).rejects.toThrow('display mode is invalid');
+        ).rejects.toThrow('favorite state is invalid');
     });
 
     it('rolls back a failed dictionary enablement reload', async () => {

@@ -25,7 +25,6 @@
 
   if (
     !popupApi ||
-    typeof popupApi.applyDictionaryPresentation !== "function" ||
     typeof popupApi.createPopupView !== "function" ||
     typeof popupApi.createSourceHighlighter !== "function"
   ) {
@@ -35,7 +34,6 @@
     throw new Error("Hoshidicts audio support must load before the reader.");
   }
   const {
-    applyDictionaryPresentation,
     createPopupView,
     createSourceHighlighter,
     setMiningButtonState,
@@ -1425,8 +1423,7 @@
       if (
         !title.trim() ||
         titles.has(title) ||
-        typeof entry.favorite !== "boolean" ||
-        (entry.displayMode !== "always" && entry.displayMode !== "fallback")
+        typeof entry.favorite !== "boolean"
       ) {
         continue;
       }
@@ -1434,7 +1431,6 @@
       normalized.push({
         title,
         favorite: entry.favorite,
-        displayMode: entry.displayMode,
       });
     }
     return normalized;
@@ -2494,11 +2490,7 @@
       signature
     ) {
       preparePopupContent("lookup_results", targetDepth);
-      const presentedResults = applyDictionaryPresentation(
-        results,
-        preferences.dictionaryPresentation
-      );
-      const primaryResult = presentedResults[0] || results[0];
+      const primaryResult = results[0];
       expandCandidateAnchor(
         candidate,
         primaryResult.matched || primaryResult.term.expression

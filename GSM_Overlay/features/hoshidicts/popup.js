@@ -448,50 +448,6 @@
     return dictionaries;
   }
 
-  function createDictionaryPresentationGroups(dictionaryPresentation) {
-    const groups = [];
-    let currentGroup = null;
-    for (const preference of dictionaryPresentation) {
-      if (preference.displayMode === "always" || currentGroup === null) {
-        currentGroup = [];
-        groups.push(currentGroup);
-      }
-      currentGroup.push(preference.title);
-    }
-    return groups;
-  }
-
-  function applyDictionaryPresentation(results, dictionaryPresentation) {
-    if (dictionaryPresentation.length === 0) {
-      return results;
-    }
-    const configuredDictionaries = new Set(
-      dictionaryPresentation.map(({ title }) => title)
-    );
-    const groups = createDictionaryPresentationGroups(dictionaryPresentation);
-    const available = new Set(collectGlossaryDictionaries(results));
-    const selected = new Set(
-      [...available].filter(
-        (dictionary) => !configuredDictionaries.has(dictionary)
-      )
-    );
-    for (const group of groups) {
-      const dictionary = group.find((title) => available.has(title));
-      if (dictionary) {
-        selected.add(dictionary);
-      }
-    }
-    return results.map((result) => ({
-      ...result,
-      term: {
-        ...result.term,
-        glossaries: result.term.glossaries.filter(
-          ({ dictionary }) => selected.has(dictionary)
-        ),
-      },
-    })).filter((result) => result.term.glossaries.length > 0);
-  }
-
   function createPopupView(options) {
     const documentRef = options.document;
     const windowRef = options.window;
@@ -1272,11 +1228,6 @@
         tabList.setAttribute("aria-label", "Dictionaries");
         tabList.setAttribute("aria-orientation", "horizontal");
       }
-      const allResults = applyDictionaryPresentation(
-        results,
-        dictionaryPresentation
-      );
-
       const panel = documentRef.createElement("div");
       panel.id = `${idPrefix}-tab-panel`;
       panel.className = "gsm-hoshidicts-tab-panel";
@@ -1284,7 +1235,7 @@
         panel.setAttribute("role", "tabpanel");
       }
 
-      const initialResult = allResults[0] || results[0];
+      const initialResult = results[0];
       const noteControls = createNoteControls({
         term: initialResult.term.expression,
         reading: initialResult.term.reading,
@@ -1340,7 +1291,7 @@
 
         popup.scrollTop = 0;
         const projectedResults = activeIndex === 0
-          ? allResults
+          ? results
           : projectResults(results, tabValues[activeIndex]);
         rendered = renderResultPanel(
           panel,
@@ -1443,7 +1394,6 @@
   }
 
   return {
-    applyDictionaryPresentation,
     createSourceHighlighter,
     createPopupView,
     setMiningButtonState,

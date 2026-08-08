@@ -833,9 +833,7 @@ export function registerHoshidictsIPC(
             if (
                 !value ||
                 typeof value.id !== 'string' ||
-                typeof value.favorite !== 'boolean' ||
-                (value.displayMode !== 'always' &&
-                    value.displayMode !== 'fallback')
+                typeof value.favorite !== 'boolean'
             ) {
                 return {
                     success: false,
@@ -848,8 +846,7 @@ export function registerHoshidictsIPC(
                 async () => {
                     const state = await manager.setDictionaryPresentation(
                         value.id as string,
-                        value.favorite as boolean,
-                        value.displayMode as 'always' | 'fallback'
+                        value.favorite as boolean
                     );
                     await applyReaderSnapshot(state, deps);
                     return state;

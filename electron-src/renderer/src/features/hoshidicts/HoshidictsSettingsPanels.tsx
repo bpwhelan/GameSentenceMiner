@@ -707,7 +707,6 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
           <div>
             <h2>{t("settings.hoshidicts.installed")}</h2>
             <p>{t("settings.hoshidicts.priorityHint")}</p>
-            <p>{t("settings.hoshidicts.dictionaryPresentation.fallbackHint")}</p>
           </div>
           <span className="hoshidicts-section__count">
             {state.dictionaries.length}
@@ -766,8 +765,7 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                         onClick={() =>
                           void actions.setDictionaryPresentation(
                             dictionary.id,
-                            !dictionary.favorite,
-                            dictionary.displayMode
+                            !dictionary.favorite
                           )
                         }
                       >
@@ -785,43 +783,6 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                     )}
                     <strong>{dictionary.title}</strong>
                   </div>
-                  {dictionary.termCount > 0 ? (
-                    <label className="hoshidicts-dictionary-display-mode">
-                      <span>
-                        {t(
-                          "settings.hoshidicts.dictionaryPresentation.displayMode"
-                        )}
-                      </span>
-                      <select
-                        value={dictionary.displayMode}
-                        aria-label={t(
-                          "settings.hoshidicts.dictionaryPresentation.displayModeFor",
-                          { title: dictionary.title }
-                        )}
-                        disabled={dictionaryBusy}
-                        onChange={(event) =>
-                          void actions.setDictionaryPresentation(
-                            dictionary.id,
-                            dictionary.favorite,
-                            event.currentTarget.value === "fallback"
-                              ? "fallback"
-                              : "always"
-                          )
-                        }
-                      >
-                        <option value="always">
-                          {t(
-                            "settings.hoshidicts.dictionaryPresentation.alwaysExpanded"
-                          )}
-                        </option>
-                        <option value="fallback">
-                          {t(
-                            "settings.hoshidicts.dictionaryPresentation.fallback"
-                          )}
-                        </option>
-                      </select>
-                    </label>
-                  ) : null}
                   <div className="hoshidicts-dictionary-meta">
                     <span>
                       {t("settings.hoshidicts.revision", {

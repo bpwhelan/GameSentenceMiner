@@ -26,7 +26,6 @@ export type HoshidictsSchedule = 'off' | 'daily' | 'weekly' | 'monthly';
 export type HoshidictsLookupMode = 'shift' | 'hover';
 export type HoshidictsDefinitionBlurRevealMode = 'timed' | 'hover';
 export type HoshidictsFrequencyMode = 'occurrence-based' | 'rank-based';
-export type HoshidictsDictionaryDisplayMode = 'always' | 'fallback';
 export const HOSHIDICTS_ACTIVATION_KEYS = [
     'Ctrl',
     'Alt',
@@ -334,7 +333,6 @@ export interface HoshidictsReaderPreferencesRequest {
 export interface HoshidictsDictionaryPresentation {
     title: string;
     favorite: boolean;
-    displayMode: HoshidictsDictionaryDisplayMode;
 }
 
 export interface HoshidictsReaderPreferences
@@ -416,7 +414,6 @@ export interface HoshidictsDictionaryState {
     title: string;
     enabled: boolean;
     favorite: boolean;
-    displayMode: HoshidictsDictionaryDisplayMode;
     revision: string;
     isUpdatable: boolean;
     indexUrl: string | null;
@@ -504,10 +501,9 @@ export function hoshidictsReaderPreferencesFromSnapshot(
         definitionBlur: { ...snapshot.definitionBlur },
         dictionaryPresentation: (snapshot.dictionaries ?? [])
             .filter((dictionary) => dictionary.termCount > 0)
-            .map(({ title, favorite, displayMode }) => ({
+            .map(({ title, favorite }) => ({
                 title,
                 favorite,
-                displayMode,
             })),
     };
 }
@@ -553,7 +549,6 @@ export interface HoshidictsDictionaryEnabledRequest {
 export interface HoshidictsDictionaryPresentationRequest {
     id: string;
     favorite: boolean;
-    displayMode: HoshidictsDictionaryDisplayMode;
 }
 
 export interface HoshidictsMoveDictionaryRequest {

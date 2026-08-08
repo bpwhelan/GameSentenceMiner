@@ -452,8 +452,6 @@ export function normalizeHoshidictsDesktopState(
             ...dictionary,
             enabled: dictionary.enabled !== false,
             favorite: dictionary.favorite === true,
-            displayMode:
-              dictionary.displayMode === "fallback" ? "fallback" : "always",
             termCount: count(dictionary.termCount),
             frequencyCount: count(dictionary.frequencyCount),
             pitchCount: count(dictionary.pitchCount),

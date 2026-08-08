@@ -860,8 +860,8 @@ describe("Hoshidicts safe popup rendering", () => {
       showLookupCounts: false,
       popupNestingMaxDepth: 3,
       dictionaryPresentation: [
-        { title: "Primary", favorite: false, displayMode: "always" },
-        { title: "Backup", favorite: true, displayMode: "fallback" }
+        { title: "Primary", favorite: false },
+        { title: "Backup", favorite: true }
       ],
       definitionBlur: {
         enabled: true,
@@ -1776,8 +1776,7 @@ describe("Hoshidicts dictionary tabs", () => {
         reader.updatePreferences({
           dictionaryPresentation: titles.map((title) => ({
             title,
-            favorite: true,
-            displayMode: "always"
+            favorite: true
           }))
         });
       }
@@ -1814,82 +1813,11 @@ describe("Hoshidicts dictionary tabs", () => {
     harness.reader.destroy();
   });
 
-  it("uses the rendered All-view primary when the raw first fallback is suppressed", async () => {
-    const onLookup = vi.fn(async () => ({
-      success: true,
-      seenCount: 0,
-      lookupCount: 5
-    }));
-    const harness = createReaderHarness({
-      lookupMode: "hover",
-      sourceHighlightEnabled: true,
-      onLookup,
-      definitionBlur: {
-        enabled: true,
-        lookupThreshold: 5,
-        revealMode: "hover",
-        revealDelayMs: 5000
-      },
-      dictionaryPresentation: [
-        { title: "Primary", favorite: false, displayMode: "always" },
-        { title: "Fallback", favorite: false, displayMode: "fallback" }
-      ]
-    });
-    await renderFirstLookup(harness, {
-      shiftKey: false,
-      transform(response) {
-        const fallback = response.results[0];
-        fallback.matched = "食";
-        fallback.term.expression = "食";
-        fallback.term.reading = "しょく";
-        fallback.term.glossaries[0].dictionary = "Fallback";
-        fallback.term.glossaries[0].glossary = "suppressed fallback";
-        response.results.push({
-          ...fallback,
-          matched: "食べる",
-          term: {
-            ...fallback.term,
-            expression: "食べる",
-            reading: "たべる",
-            glossaries: [{
-              ...fallback.term.glossaries[0],
-              dictionary: "Primary",
-              glossary: "rendered primary"
-            }]
-          }
-        });
-      }
-    });
-
-    const popup = harness.reader.getPopupElement();
-    expect(popup.querySelectorAll(".gsm-hoshidicts-entry")).toHaveLength(1);
-    expect(popup.querySelector<HTMLElement>(".gsm-hoshidicts-entry")
-      ?.dataset.expression).toBe("食べる");
-    expect(popup.querySelector(".gsm-hoshidicts-expression")
-      ?.getAttribute("aria-label")).toBe("食べる, たべる");
-    expect(popup.querySelector<HTMLInputElement>(".gsm-hoshidicts-note-term")
-      ?.value).toBe("食べる");
-    expect(popup.querySelector<HTMLInputElement>(".gsm-hoshidicts-note-reading")
-      ?.value).toBe("たべる");
-    expect(popup.textContent).toContain("rendered primary");
-    expect(popup.textContent).not.toContain("suppressed fallback");
-    expect(onLookup).toHaveBeenCalledWith({ term: "食べる", reading: "たべる" });
-    expect(popup.querySelector(".gsm-hoshidicts-lookup-stats")?.textContent)
-      .toBe("Seen 0 times · Looked up 5 times");
-    expect(popup.querySelector<HTMLElement>(".gsm-hoshidicts-definitions")
-      ?.dataset.definitionBlurState).toBe("blurred");
-    expect(harness.first.classList.contains("gsm-hoshidicts-source-match"))
-      .toBe(true);
-    expect(harness.dom.window.document.getElementById("second")
-      ?.classList.contains("gsm-hoshidicts-source-match")).toBe(true);
-    harness.reader.destroy();
-  });
-
   it("hides the tab strip when no matching dictionary is favorited", async () => {
     const { lookup, reader } = createLookupHarness({
       dictionaryPresentation: [
-        { title: "JMdict", favorite: false, displayMode: "always" },
-        { title: "Missing favorite", favorite: true, displayMode: "always" }
+        { title: "JMdict", favorite: false },
+        { title: "Missing favorite", favorite: true }
       ]
     });
     const { popup } = await lookup((requestId) =>
@@ -1908,98 +1836,11 @@ describe("Hoshidicts dictionary tabs", () => {
     reader.destroy();
   });
 
-  it("selects one dictionary from each ordered fallback group across the lookup", async () => {
+  it("shows every dictionary in All while a favorite tab filters locally", async () => {
     const { lookup, reader } = createLookupHarness({
       dictionaryPresentation: [
-        { title: "Mono main", favorite: false, displayMode: "always" },
-        { title: "Mono fallback 1", favorite: false, displayMode: "fallback" },
-        { title: "Mono fallback 2", favorite: false, displayMode: "fallback" },
-        { title: "Bilingual main", favorite: false, displayMode: "always" },
-        { title: "Bilingual fallback", favorite: false, displayMode: "fallback" },
-        { title: "Grammar main", favorite: false, displayMode: "always" },
-        { title: "Grammar fallback 1", favorite: false, displayMode: "fallback" },
-        { title: "Grammar fallback 2", favorite: false, displayMode: "fallback" }
-      ]
-    });
-    const { popup } = await lookup((requestId) => {
-      const response = lookupResultWithDictionaries(requestId, [
-        { dictionary: "Mono main", glossary: "mono primary" },
-        { dictionary: "Mono fallback 1", glossary: "mono backup" },
-        { dictionary: "Bilingual fallback", glossary: "bilingual backup" },
-        { dictionary: "Grammar fallback 2", glossary: "grammar backup" },
-        { dictionary: "Unconfigured", glossary: "always visible" }
-      ]);
-      response.results.push({
-        ...response.results[0],
-        term: {
-          ...response.results[0].term,
-          expression: "食す",
-          reading: "しょくす",
-          glossaries: [
-            {
-              dictionary: "Mono fallback 2",
-              glossary: "later mono backup",
-              definitionTags: "",
-              termTags: ""
-            },
-            {
-              dictionary: "Bilingual main",
-              glossary: "bilingual primary",
-              definitionTags: "",
-              termTags: ""
-            },
-            {
-              dictionary: "Bilingual fallback",
-              glossary: "hidden bilingual backup",
-              definitionTags: "",
-              termTags: ""
-            }
-          ]
-        }
-      });
-      response.results.push({
-        ...response.results[0],
-        term: {
-          ...response.results[0].term,
-          expression: "喫する",
-          reading: "きっする",
-          glossaries: [
-            {
-              dictionary: "Mono fallback 2",
-              glossary: "suppressed fallback-only result",
-              definitionTags: "",
-              termTags: ""
-            }
-          ]
-        }
-      });
-      return response;
-    });
-
-    const entries = Array.from(
-      popup.querySelectorAll<HTMLElement>(".gsm-hoshidicts-entry")
-    );
-    expect(entries).toHaveLength(2);
-    expect(Array.from(entries[0].querySelectorAll("summary"), (summary) =>
-      summary.textContent
-    )).toEqual(["Mono main", "Grammar fallback 2", "Unconfigured"]);
-    expect(Array.from(entries[1].querySelectorAll("summary"), (summary) =>
-      summary.textContent
-    )).toEqual(["Bilingual main"]);
-    expect(popup.textContent).not.toContain("mono backup");
-    expect(popup.textContent).not.toContain("later mono backup");
-    expect(popup.textContent).not.toContain("bilingual backup");
-    expect(popup.textContent).not.toContain("hidden bilingual backup");
-    expect(popup.textContent).not.toContain("suppressed fallback-only result");
-    expect(popup.textContent).toContain("grammar backup");
-    reader.destroy();
-  });
-
-  it("lets a favorite tab reveal a fallback suppressed in the All view", async () => {
-    const { lookup, reader } = createLookupHarness({
-      dictionaryPresentation: [
-        { title: "Main", favorite: false, displayMode: "always" },
-        { title: "Backup", favorite: true, displayMode: "fallback" }
+        { title: "Main", favorite: false },
+        { title: "Backup", favorite: true }
       ]
     });
     const { popup } = await lookup((requestId) =>
@@ -2015,7 +1856,7 @@ describe("Hoshidicts dictionary tabs", () => {
     expect(popup.querySelector('[role="tabpanel"]')?.textContent)
       .toContain("main definition");
     expect(popup.querySelector('[role="tabpanel"]')?.textContent)
-      .not.toContain("backup definition");
+      .toContain("backup definition");
 
     popup.querySelectorAll<HTMLButtonElement>('[role="tab"]')[1]?.click();
     expect(popup.querySelector('[role="tabpanel"]')?.textContent)
@@ -4833,10 +4674,10 @@ describe("Hoshidicts Shift-hover scanner", () => {
       lookupMode: "hover",
       popupNestingMaxDepth: 1,
       dictionaryPresentation: [
-        { title: "Visual", favorite: true, displayMode: "always" },
-        { title: "Text", favorite: true, displayMode: "always" },
-        { title: "Child A", favorite: true, displayMode: "always" },
-        { title: "Child B", favorite: true, displayMode: "always" }
+        { title: "Visual", favorite: true },
+        { title: "Text", favorite: true },
+        { title: "Child A", favorite: true },
+        { title: "Child B", favorite: true }
       ],
       Blob: dom.window.Blob,
       createObjectURL: vi.fn(() => "blob:root-image"),
