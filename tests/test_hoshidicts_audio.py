@@ -52,6 +52,11 @@ def _mp3(payload: bytes = b"pronunciation") -> bytes:
     return b"ID3\x04\x00\x00\x00\x00\x00\x00" + frame.ljust(417, b"\x00")
 
 
+def _opus(payload: bytes = b"pronunciation") -> bytes:
+    packet = b"OpusHead" + payload
+    return b"OggS" + (b"\x00" * 22) + bytes((1, len(packet))) + packet
+
+
 @pytest.fixture(autouse=True)
 def _stable_public_dns(monkeypatch):
     hoshidicts_audio.clear_audio_cache()
@@ -204,6 +209,11 @@ def test_custom_url_substitution_encodes_values_and_custom_json_is_exact(monkeyp
         == "https://audio.test/play?term=%E9%A3%9F%20%26%3F%23%2F%E3%81%B9%E3%82%8B"
         "&reading=%E3%81%9F%2F%E3%81%B9%3F%E3%82%8B&lang=ja&x={unknown}"
     )
+    assert hoshidicts_audio._substitute_custom_url(
+        "http://127.0.0.1:5050/?expression={expression}&reading={reading}",
+        "食べる",
+        "たべる",
+    ) == ("http://127.0.0.1:5050/?expression=%E9%A3%9F%E3%81%B9%E3%82%8B&reading=%E3%81%9F%E3%81%B9%E3%82%8B")
 
     response = FakeResponse(
         json.dumps(
@@ -242,6 +252,97 @@ def test_custom_url_substitution_encodes_values_and_custom_json_is_exact(monkeyp
             "食べる",
             "たべる",
         )
+
+
+def test_local_audio_yomichan_contract_discovers_and_downloads_opus(monkeypatch):
+    discovery_url = "http://127.0.0.1:5050/?term=%E9%A3%9F%E3%81%B9%E3%82%8B&reading=%E3%81%9F%E3%81%B9%E3%82%8B"
+    media_url = "http://127.0.0.1:5050/nhk16/taberu.opus"
+    audio = _opus()
+    calls = []
+
+    def request(method, url, **_kwargs):
+        calls.append((method, url))
+        if url == discovery_url:
+            return FakeResponse(
+                json.dumps(
+                    {
+                        "type": "audioSourceList",
+                        "audioSources": [{"name": "NHK16", "url": media_url}],
+                    }
+                ).encode(),
+                content_type="application/json",
+            )
+        if url == media_url:
+            return FakeResponse(audio, content_type="audio/ogg")
+        raise AssertionError(f"Unexpected local audio URL: {url}")
+
+    monkeypatch.setattr(hoshidicts_audio, "_pinned_request", request)
+    profile = _profile(
+        _source(
+            "local-audio",
+            "custom-json",
+            url="http://127.0.0.1:5050/?term={term}&reading={reading}",
+        )
+    )
+
+    candidates = hoshidicts_audio.get_audio_candidates("食べる", "たべる", "local-audio", profile=profile)
+    media = hoshidicts_audio.get_audio_media(
+        "食べる",
+        "たべる",
+        "local-audio",
+        candidates[0]["index"],
+        candidates[0]["candidateId"],
+        profile=profile,
+    )
+
+    assert candidates == [
+        {
+            "index": 0,
+            "name": "NHK16",
+            "candidateId": candidates[0]["candidateId"],
+        }
+    ]
+    assert media == hoshidicts_audio.AudioMedia(
+        data=audio,
+        content_type="audio/ogg",
+        extension="ogg",
+    )
+    assert calls == [("GET", discovery_url), ("GET", media_url)]
+
+
+def test_custom_json_truncates_large_yomitan_audio_lists(monkeypatch):
+    response = FakeResponse(
+        json.dumps(
+            {
+                "type": "audioSourceList",
+                "audioSources": [
+                    {
+                        "name": f"Recording {index}",
+                        "url": f"http://127.0.0.1:5050/jpod/{index}.mp3",
+                    }
+                    for index in range(hoshidicts_audio.MAX_AUDIO_SOURCES + 1)
+                ],
+            }
+        ).encode(),
+        content_type="application/json",
+    )
+    monkeypatch.setattr(
+        hoshidicts_audio,
+        "_pinned_request",
+        lambda *_args, **_kwargs: response,
+    )
+    profile = _profile(
+        _source(
+            "local-audio",
+            "custom-json",
+            url="http://127.0.0.1:5050/?term={term}&reading={reading}",
+        )
+    )
+
+    candidates = hoshidicts_audio.get_audio_candidates("食べる", "たべる", "local-audio", profile=profile)
+
+    assert len(candidates) == hoshidicts_audio.MAX_AUDIO_SOURCES
+    assert candidates[-1]["name"] == "Recording 31"
 
 
 def test_media_download_is_bounded_validated_and_cached(monkeypatch):

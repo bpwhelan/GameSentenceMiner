@@ -224,6 +224,66 @@ describe('parseYomitanSettingsBackup', () => {
             },
         });
     });
+
+    it('imports local-audio-yomichan from the active Yomitan profile', () => {
+        const parsed = parseYomitanSettingsBackup(
+            {
+                version: 0,
+                options: {
+                    profileCurrent: 0,
+                    profiles: [
+                        {
+                            name: 'Japanese',
+                            options: {
+                                audio: {
+                                    enabled: true,
+                                    autoPlay: false,
+                                    volume: 100,
+                                    enableDefaultAudioSources: false,
+                                    sources: [
+                                        {
+                                            type: 'custom-json',
+                                            url: 'http://127.0.0.1:5050/?term={term}&reading={reading}',
+                                            voice: '',
+                                        },
+                                        {
+                                            type: 'custom-json',
+                                            url: 'http://127.0.0.1:5050/?expression={expression}&reading={reading}',
+                                            voice: '',
+                                        },
+                                    ],
+                                },
+                            },
+                        },
+                    ],
+                },
+            },
+            currentState(),
+        );
+
+        expect(parsed.groups).toEqual(['audio']);
+        expect(parsed.audioProfile).toEqual({
+            version: 1,
+            enabled: true,
+            autoPlay: false,
+            volume: 100,
+            sources: [
+                {
+                    id: 'custom-json-1',
+                    type: 'custom-json',
+                    url: 'http://127.0.0.1:5050/?term={term}&reading={reading}',
+                    voice: '',
+                },
+                {
+                    id: 'custom-json-2',
+                    type: 'custom-json',
+                    url: 'http://127.0.0.1:5050/?expression={term}&reading={reading}',
+                    voice: '',
+                },
+            ],
+        });
+        expect(parsed.warnings).toEqual([]);
+    });
 });
 
 describe('parseYomitanDictionaryBackup', () => {
