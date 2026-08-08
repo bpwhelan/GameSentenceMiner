@@ -74,6 +74,12 @@ import {
     HOSHIDICTS_MINING_PROFILE_FILE_NAME,
     normalizeHoshidictsMiningProfile,
 } from './profile.js';
+import {
+    commitPreparedHoshidictsBackupRestore,
+    disposePreparedHoshidictsBackupRestore,
+    exportHoshidictsBackup,
+    prepareHoshidictsBackupRestore,
+} from './hoshidicts-backup.js';
 
 export {
     defaultHoshidictsAudioProfile,
@@ -1858,6 +1864,73 @@ export class HoshidictsManager {
         return await this.getSnapshot();
     }
 
+    async exportBackup(outputPath: string): Promise<void> {
+        if (typeof outputPath !== 'string' || outputPath.trim().length === 0) {
+            throw new Error('Hoshidicts backup destination is invalid.');
+        }
+        await this.enqueue(
+            'saving',
+            async () => {
+                // A brand-new installation has useful in-memory defaults but no
+                // files yet. Persist normalized state so its first backup is a
+                // complete, restorable snapshot too.
+                const manifest = await this.readManifest();
+                const miningProfile = await this.readMiningProfile();
+                const audioProfile = await this.readAudioProfile();
+                await this.atomicWriteManifest(manifest);
+                await this.atomicWriteMiningProfile(miningProfile);
+                await this.atomicWriteAudioProfile(audioProfile);
+                await exportHoshidictsBackup({
+                    rootDir: this.rootDir,
+                    outputPath,
+                    now: this.deps.now,
+                });
+            },
+            'preferences',
+        );
+    }
+
+    async restoreBackup(archivePath: string): Promise<HoshidictsManagerSnapshot> {
+        if (typeof archivePath !== 'string' || archivePath.trim().length === 0) {
+            throw new Error('Hoshidicts backup archive is invalid.');
+        }
+        await this.enqueue('importing', async () => {
+            const prepared = await prepareHoshidictsBackupRestore({
+                archivePath,
+                stagingParent: path.join(this.rootDir, '.staging'),
+            });
+            try {
+                const committed = await commitPreparedHoshidictsBackupRestore(prepared, {
+                    targetRootDir: this.rootDir,
+                    freshGenerationId: (_dictionary, index) =>
+                        `restore-${this.deps
+                            .now()
+                            .getTime()
+                            .toString(36)}-${index}-${this.deps.randomId()}`,
+                    activate: async () => {
+                        this.setProgress({ phase: 'reloading' });
+                        // Keep manager-level schema and native-file validation
+                        // inside the transaction so any failure still rolls
+                        // all state and generations back together.
+                        await Promise.all([
+                            this.readManifest(),
+                            this.readMiningProfile(),
+                            this.readAudioProfile(),
+                        ]);
+                        await this.deps.reloadNative();
+                    },
+                });
+                await this.removeUnreferencedBackupGenerations(
+                    committed.previousDictionaryPaths,
+                    committed.installedGenerationRoots,
+                );
+            } finally {
+                await disposePreparedHoshidictsBackupRestore(prepared);
+            }
+        });
+        return await this.getSnapshot();
+    }
+
     async setLookupMode(
         lookupMode: HoshidictsLookupMode
     ): Promise<HoshidictsManagerSnapshot> {
@@ -2988,6 +3061,66 @@ export class HoshidictsManager {
                 error
             );
         });
+    }
+
+    private async removeUnreferencedBackupGenerations(
+        previousDictionaryPaths: readonly string[],
+        installedGenerationRoots: readonly string[],
+    ): Promise<void> {
+        let current: PersistedManifest;
+        try {
+            current = await this.readManifest();
+        } catch (error) {
+            console.warn(
+                '[Hoshidicts] Could not verify restored dictionary references; retaining old generations:',
+                error,
+            );
+            return;
+        }
+
+        const generationRoot = (relativePath: string): string | null => {
+            const components = normalizeRelativePath(relativePath).split('/');
+            if (
+                components.length !== 4 ||
+                components[0] !== 'generations' ||
+                !SAFE_ID_PATTERN.test(components[1]) ||
+                !SAFE_ID_PATTERN.test(components[2])
+            ) {
+                return null;
+            }
+            return path.resolve(this.rootDir, ...components.slice(0, 3));
+        };
+        const referencedRoots = new Set(
+            current.dictionaries
+                .map((dictionary) => generationRoot(dictionary.path))
+                .filter((value): value is string => value !== null),
+        );
+        const protectedRoots = new Set(installedGenerationRoots.map((root) => path.resolve(root)));
+        const removedRoots = new Set<string>();
+        for (const previousPath of previousDictionaryPaths) {
+            let root: string | null;
+            try {
+                root = generationRoot(previousPath);
+            } catch (error) {
+                console.warn(
+                    `[Hoshidicts] Could not validate old backup generation path ${previousPath}:`,
+                    error,
+                );
+                continue;
+            }
+            if (
+                root === null ||
+                referencedRoots.has(root) ||
+                protectedRoots.has(root) ||
+                removedRoots.has(root)
+            ) {
+                continue;
+            }
+            removedRoots.add(root);
+            await fsp.rm(root, { recursive: true, force: true }).catch((error) => {
+                console.warn(`[Hoshidicts] Could not clean old backup generation ${root}:`, error);
+            });
+        }
     }
 
     private async readManifestRaw(): Promise<Buffer | null> {
