@@ -21,15 +21,23 @@ import {
 
 import {
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
+  DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+  DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
   DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
+  HOSHIDICTS_THEMES,
   HOSHIDICTS_FIELD_OVERWRITE_MODES,
   MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
   MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+  MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
+  MAX_HOSHIDICTS_POPUP_WIDTH_PX,
   MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
   MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
+  MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
+  MIN_HOSHIDICTS_POPUP_WIDTH_PX,
   type HoshidictsActivationKey,
   type HoshidictsFieldOverwriteMode,
+  type HoshidictsTheme,
   type HoshidictsSchedule
 } from "../../../../shared/features/hoshidicts";
 import { useTranslation } from "../../i18n";
@@ -58,6 +66,14 @@ const OVERWRITE_MODE_KEYS: Record<HoshidictsFieldOverwriteMode, string> = {
   append: "settings.hoshidicts.mining.overwriteModes.append",
   prepend: "settings.hoshidicts.mining.overwriteModes.prepend",
   overwrite: "settings.hoshidicts.mining.overwriteModes.overwrite"
+};
+
+const THEME_KEYS: Record<HoshidictsTheme, string> = {
+  default: "settings.hoshidicts.reader.appearance.themes.default",
+  "high-contrast":
+    "settings.hoshidicts.reader.appearance.themes.highContrast",
+  autumn: "settings.hoshidicts.reader.appearance.themes.autumn",
+  cyberpunk: "settings.hoshidicts.reader.appearance.themes.cyberpunk"
 };
 
 function CustomDictionarySaveIndicator({
@@ -318,6 +334,10 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
     setActivationKey,
     setSourceHighlightEnabled,
     setPopupHideDelayMs,
+    setPopupWidthPx,
+    setPopupHeightPx,
+    setTheme,
+    resetPopupSize,
     setShowLookupCounts,
     setDefinitionBlurEnabled,
     setDefinitionBlurLookupThreshold,
@@ -400,6 +420,96 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
           disabled={preferencesBusy}
           onChange={setActivationKey}
         />
+
+        <div className="hoshidicts-reader-appearance">
+          <div className="hoshidicts-reader-appearance__heading">
+            <strong>
+              {t("settings.hoshidicts.reader.appearance.title")}
+            </strong>
+            <small>
+              {t("settings.hoshidicts.reader.appearance.hint")}
+            </small>
+          </div>
+          <div className="hoshidicts-reader-appearance__controls">
+            <label>
+              <span>
+                {t("settings.hoshidicts.reader.appearance.theme")}
+              </span>
+              <select
+                id="hoshidicts-popup-theme"
+                value={readerDraft.theme}
+                disabled={preferencesBusy}
+                onChange={(event) =>
+                  setTheme(event.currentTarget.value as HoshidictsTheme)
+                }
+              >
+                {HOSHIDICTS_THEMES.map((theme) => (
+                  <option key={theme} value={theme}>
+                    {t(THEME_KEYS[theme])}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>
+                {t("settings.hoshidicts.reader.appearance.width")}
+              </span>
+              <div className="hoshidicts-reader-appearance__number">
+                <input
+                  id="hoshidicts-popup-width"
+                  type="number"
+                  min={MIN_HOSHIDICTS_POPUP_WIDTH_PX}
+                  max={MAX_HOSHIDICTS_POPUP_WIDTH_PX}
+                  step={10}
+                  value={readerDraft.popupWidthPx}
+                  disabled={preferencesBusy}
+                  onChange={(event) =>
+                    setPopupWidthPx(event.currentTarget.valueAsNumber)
+                  }
+                />
+                <span>
+                  {t("settings.hoshidicts.reader.appearance.pixels")}
+                </span>
+              </div>
+            </label>
+            <label>
+              <span>
+                {t("settings.hoshidicts.reader.appearance.height")}
+              </span>
+              <div className="hoshidicts-reader-appearance__number">
+                <input
+                  id="hoshidicts-popup-height"
+                  type="number"
+                  min={MIN_HOSHIDICTS_POPUP_HEIGHT_PX}
+                  max={MAX_HOSHIDICTS_POPUP_HEIGHT_PX}
+                  step={10}
+                  value={readerDraft.popupHeightPx}
+                  disabled={preferencesBusy}
+                  onChange={(event) =>
+                    setPopupHeightPx(event.currentTarget.valueAsNumber)
+                  }
+                />
+                <span>
+                  {t("settings.hoshidicts.reader.appearance.pixels")}
+                </span>
+              </div>
+            </label>
+            <button
+              type="button"
+              className="secondary hoshidicts-reader-appearance__reset"
+              disabled={
+                preferencesBusy ||
+                (readerDraft.popupWidthPx ===
+                  DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX &&
+                  readerDraft.popupHeightPx ===
+                    DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX)
+              }
+              onClick={resetPopupSize}
+            >
+              {t("settings.hoshidicts.reader.appearance.resetSize")}
+            </button>
+          </div>
+        </div>
 
         <label className="hoshidicts-reader-highlight">
           <input

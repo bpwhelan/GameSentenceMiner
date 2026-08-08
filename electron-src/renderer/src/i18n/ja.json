@@ -596,6 +596,21 @@
         "maxChildPopups": "子ポップアップの最大数",
         "maxChildPopupsHint": "最初の検索から開ける定義ポップアップの数を制限します。",
         "milliseconds": "ミリ秒",
+        "appearance": {
+          "title": "ポップアップの外観",
+          "hint": "すべての辞書ポップアップを同じサイズで表示します。",
+          "theme": "テーマ",
+          "width": "幅",
+          "height": "高さ",
+          "pixels": "px",
+          "resetSize": "サイズをリセット",
+          "themes": {
+            "default": "デフォルト",
+            "highContrast": "ハイコントラスト",
+            "autumn": "秋",
+            "cyberpunk": "サイバー"
+          }
+        },
         "definitionBlur": {
           "title": "繰り返し検索した定義をぼかす",
           "hint": "同じ単語の検索回数がしきい値に達すると、定義のみをぼかします。定義にカーソルを合わせると常に表示されます。",

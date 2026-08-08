@@ -4,14 +4,21 @@ import {
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
   DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+  DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
   DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
+  DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
   DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
+  DEFAULT_HOSHIDICTS_THEME,
   HOSHIDICTS_CHANNELS,
   MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
   MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+  MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
+  MAX_HOSHIDICTS_POPUP_WIDTH_PX,
   MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
   MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
+  MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
+  MIN_HOSHIDICTS_POPUP_WIDTH_PX,
   type HoshidictsActionResult,
   type HoshidictsActivationKey,
   type HoshidictsAudioProfile,
@@ -26,7 +33,8 @@ import {
   type HoshidictsReaderPreferences,
   type HoshidictsRecommendedDictionaryId,
   type HoshidictsSaveCustomDictionaryRequest,
-  type HoshidictsSchedule
+  type HoshidictsSchedule,
+  type HoshidictsTheme
 } from "../../../../shared/features/hoshidicts";
 import { useTranslation } from "../../i18n";
 import { invokeIpc, onIpc } from "../../lib/ipc";
@@ -58,7 +66,10 @@ const defaultReaderPreferences = (): HoshidictsReaderPreferences => ({
   popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   showLookupCounts: true,
   popupNestingMaxDepth: DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
-  definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR }
+  definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
+  popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
+  popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+  theme: DEFAULT_HOSHIDICTS_THEME
 });
 
 function copyReaderPreferences(
@@ -155,7 +166,10 @@ export function useHoshidictsSettingsController() {
       popupHideDelayMs: normalized.popupHideDelayMs,
       showLookupCounts: normalized.showLookupCounts,
       popupNestingMaxDepth: normalized.popupNestingMaxDepth,
-      definitionBlur: { ...normalized.definitionBlur }
+      definitionBlur: { ...normalized.definitionBlur },
+      popupWidthPx: normalized.popupWidthPx,
+      popupHeightPx: normalized.popupHeightPx,
+      theme: normalized.theme
     };
     const mining = profileToDraft(normalized.miningProfile);
     const audio = copyAudioProfile(normalized.audioProfile);
@@ -473,6 +487,44 @@ export function useHoshidictsSettingsController() {
     [updateReaderPreferences]
   );
 
+  const setPopupWidthPx = useCallback(
+    (popupWidthPx: number) => {
+      if (!Number.isFinite(popupWidthPx)) return;
+      updateReaderPreferences({
+        popupWidthPx: Math.min(
+          MAX_HOSHIDICTS_POPUP_WIDTH_PX,
+          Math.max(MIN_HOSHIDICTS_POPUP_WIDTH_PX, Math.round(popupWidthPx))
+        )
+      });
+    },
+    [updateReaderPreferences]
+  );
+
+  const setPopupHeightPx = useCallback(
+    (popupHeightPx: number) => {
+      if (!Number.isFinite(popupHeightPx)) return;
+      updateReaderPreferences({
+        popupHeightPx: Math.min(
+          MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
+          Math.max(MIN_HOSHIDICTS_POPUP_HEIGHT_PX, Math.round(popupHeightPx))
+        )
+      });
+    },
+    [updateReaderPreferences]
+  );
+
+  const setTheme = useCallback(
+    (theme: HoshidictsTheme) => updateReaderPreferences({ theme }),
+    [updateReaderPreferences]
+  );
+
+  const resetPopupSize = useCallback(() => {
+    updateReaderPreferences({
+      popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
+      popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX
+    });
+  }, [updateReaderPreferences]);
+
   const setShowLookupCounts = useCallback(
     (showLookupCounts: boolean) => {
       updateReaderPreferences({ showLookupCounts });
@@ -725,6 +777,10 @@ export function useHoshidictsSettingsController() {
     setActivationKey,
     setSourceHighlightEnabled,
     setPopupHideDelayMs,
+    setPopupWidthPx,
+    setPopupHeightPx,
+    setTheme,
+    resetPopupSize,
     setShowLookupCounts,
     setDefinitionBlurEnabled,
     setDefinitionBlurLookupThreshold,

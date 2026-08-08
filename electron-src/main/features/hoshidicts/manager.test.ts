@@ -1382,6 +1382,9 @@ describe('Hoshidicts reader preferences', () => {
         expect(snapshot.sourceHighlightEnabled).toBe(false);
         expect(snapshot.showLookupCounts).toBe(true);
         expect(snapshot.popupNestingMaxDepth).toBe(10);
+        expect(snapshot.popupWidthPx).toBe(560);
+        expect(snapshot.popupHeightPx).toBe(420);
+        expect(snapshot.theme).toBe('default');
         expect(snapshot.definitionBlur).toEqual({
             enabled: false,
             lookupThreshold: 5,
@@ -1400,6 +1403,9 @@ describe('Hoshidicts reader preferences', () => {
         expect((await manager.getSnapshot()).popupHideDelayMs).toBe(300);
         expect((await manager.getSnapshot()).showLookupCounts).toBe(true);
         expect((await manager.getSnapshot()).popupNestingMaxDepth).toBe(10);
+        expect((await manager.getSnapshot()).popupWidthPx).toBe(560);
+        expect((await manager.getSnapshot()).popupHeightPx).toBe(420);
+        expect((await manager.getSnapshot()).theme).toBe('default');
         expect((await manager.getSnapshot()).definitionBlur).toEqual({
             enabled: false,
             lookupThreshold: 5,
@@ -1419,7 +1425,10 @@ describe('Hoshidicts reader preferences', () => {
                 revealMode: 'hover',
                 revealDelayMs: 7000,
             },
-            false
+            false,
+            720,
+            520,
+            'autumn'
         );
 
         expect(snapshot.lookupMode).toBe('hover');
@@ -1428,6 +1437,9 @@ describe('Hoshidicts reader preferences', () => {
         expect(snapshot.popupHideDelayMs).toBe(850);
         expect(snapshot.showLookupCounts).toBe(false);
         expect(snapshot.popupNestingMaxDepth).toBe(12);
+        expect(snapshot.popupWidthPx).toBe(720);
+        expect(snapshot.popupHeightPx).toBe(520);
+        expect(snapshot.theme).toBe('autumn');
         expect(snapshot.definitionBlur).toEqual({
             enabled: true,
             lookupThreshold: 8,
@@ -1440,6 +1452,9 @@ describe('Hoshidicts reader preferences', () => {
         expect(readManifest(baseDir).popupHideDelayMs).toBe(850);
         expect(readManifest(baseDir).showLookupCounts).toBe(false);
         expect(readManifest(baseDir).popupNestingMaxDepth).toBe(12);
+        expect(readManifest(baseDir).popupWidthPx).toBe(720);
+        expect(readManifest(baseDir).popupHeightPx).toBe(520);
+        expect(readManifest(baseDir).theme).toBe('autumn');
         expect(readManifest(baseDir).definitionBlur).toEqual({
             enabled: true,
             lookupThreshold: 8,
@@ -1454,6 +1469,9 @@ describe('Hoshidicts reader preferences', () => {
         expect((await reloaded.getSnapshot()).popupHideDelayMs).toBe(850);
         expect((await reloaded.getSnapshot()).showLookupCounts).toBe(false);
         expect((await reloaded.getSnapshot()).popupNestingMaxDepth).toBe(12);
+        expect((await reloaded.getSnapshot()).popupWidthPx).toBe(720);
+        expect((await reloaded.getSnapshot()).popupHeightPx).toBe(520);
+        expect((await reloaded.getSnapshot()).theme).toBe('autumn');
         expect((await reloaded.getSnapshot()).definitionBlur).toEqual({
             enabled: true,
             lookupThreshold: 8,
@@ -1468,6 +1486,9 @@ describe('Hoshidicts reader preferences', () => {
         expect(shifted.showLookupCounts).toBe(false);
         expect(readManifest(baseDir).showLookupCounts).toBe(false);
         expect(shifted.popupNestingMaxDepth).toBe(12);
+        expect(shifted.popupWidthPx).toBe(720);
+        expect(shifted.popupHeightPx).toBe(520);
+        expect(shifted.theme).toBe('autumn');
         expect(shifted.definitionBlur).toEqual({
             enabled: true,
             lookupThreshold: 8,
@@ -1495,6 +1516,28 @@ describe('Hoshidicts reader preferences', () => {
         await expect(manager.setReaderPreferences('hover', 5001, 'Shift')).rejects.toThrow(
             'hide delay is invalid'
         );
+    });
+
+    it('rejects popup dimensions and themes outside appearance bounds', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+
+        await expect(
+            manager.setReaderPreferences(
+                'hover', 300, 'Shift', false, 10, undefined, true, 279
+            )
+        ).rejects.toThrow('popup width is invalid');
+        await expect(
+            manager.setReaderPreferences(
+                'hover', 300, 'Shift', false, 10, undefined, true, 560, 901
+            )
+        ).rejects.toThrow('popup height is invalid');
+        await expect(
+            manager.setReaderPreferences(
+                'hover', 300, 'Shift', false, 10, undefined, true, 560, 420,
+                'neon' as never
+            )
+        ).rejects.toThrow('theme is invalid');
     });
 
     it('rejects unsupported activation keys', async () => {

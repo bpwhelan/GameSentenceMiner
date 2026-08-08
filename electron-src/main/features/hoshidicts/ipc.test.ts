@@ -22,6 +22,14 @@ const harness = vi.hoisted(() => ({
     showLookupCountsAtLaunch: true as boolean | null,
     audioProfileRestartRequired: false,
     popupNestingMaxDepthAtLaunch: 10 as number | null,
+    popupWidthAtLaunch: 560 as number | null,
+    popupHeightAtLaunch: 420 as number | null,
+    themeAtLaunch: 'default' as
+        | 'default'
+        | 'high-contrast'
+        | 'autumn'
+        | 'cyberpunk'
+        | null,
     definitionBlurAtLaunch: {
         enabled: false,
         lookupThreshold: 5,
@@ -128,6 +136,9 @@ const snapshot = {
     popupHideDelayMs: 300,
     showLookupCounts: true,
     popupNestingMaxDepth: 10,
+    popupWidthPx: 560,
+    popupHeightPx: 420,
+    theme: 'default',
     definitionBlur: {
         enabled: false,
         lookupThreshold: 5,
@@ -279,6 +290,9 @@ async function registerHarness() {
             harness.popupNestingMaxDepthAtLaunch,
         getOverlayDefinitionBlurAtLaunch: () =>
             harness.definitionBlurAtLaunch,
+        getOverlayPopupWidthAtLaunch: () => harness.popupWidthAtLaunch,
+        getOverlayPopupHeightAtLaunch: () => harness.popupHeightAtLaunch,
+        getOverlayThemeAtLaunch: () => harness.themeAtLaunch,
         applyReaderPreferences,
         applyAudioProfile,
         getMiningOptions,
@@ -310,6 +324,9 @@ describe('Hoshidicts settings IPC', () => {
         harness.showLookupCountsAtLaunch = true;
         harness.audioProfileRestartRequired = false;
         harness.popupNestingMaxDepthAtLaunch = 10;
+        harness.popupWidthAtLaunch = 560;
+        harness.popupHeightAtLaunch = 420;
+        harness.themeAtLaunch = 'default';
         harness.definitionBlurAtLaunch = {
             enabled: false,
             lookupThreshold: 5,
@@ -542,6 +559,9 @@ describe('Hoshidicts settings IPC', () => {
                     popupHideDelayMs: 300,
                     showLookupCounts: true,
                     popupNestingMaxDepth: 10,
+                    popupWidthPx: 560,
+                    popupHeightPx: 420,
+                    theme: 'default',
                     definitionBlur: snapshot.definitionBlur,
                 }
             )
@@ -570,6 +590,9 @@ describe('Hoshidicts settings IPC', () => {
                     popupHideDelayMs: 300,
                     showLookupCounts: true,
                     popupNestingMaxDepth: 10,
+                    popupWidthPx: 560,
+                    popupHeightPx: 420,
+                    theme: 'default',
                     definitionBlur: snapshot.definitionBlur,
                 }
             )
@@ -603,6 +626,9 @@ describe('Hoshidicts settings IPC', () => {
                     popupHideDelayMs: 300,
                     showLookupCounts: true,
                     popupNestingMaxDepth: 10,
+                    popupWidthPx: 560,
+                    popupHeightPx: 420,
+                    theme: 'default',
                     definitionBlur: snapshot.definitionBlur,
                 }
             )
@@ -1106,6 +1132,9 @@ describe('Hoshidicts settings IPC', () => {
                     popupHideDelayMs: 850,
                     showLookupCounts: 'yes',
                     popupNestingMaxDepth: 4,
+                    popupWidthPx: 560,
+                    popupHeightPx: 420,
+                    theme: 'default',
                     definitionBlur: snapshot.definitionBlur,
                 }
             )
@@ -1125,6 +1154,9 @@ describe('Hoshidicts settings IPC', () => {
                     popupHideDelayMs: 850,
                     showLookupCounts: false,
                     popupNestingMaxDepth: 4,
+                    popupWidthPx: 560,
+                    popupHeightPx: 420,
+                    theme: 'default',
                     definitionBlur: {
                         enabled: true,
                         lookupThreshold: 7,
@@ -1149,7 +1181,10 @@ describe('Hoshidicts settings IPC', () => {
                 revealMode: 'hover',
                 revealDelayMs: 6000,
             },
-            false
+            false,
+            560,
+            420,
+            'default'
         );
         expect(context.applyReaderPreferences).toHaveBeenCalledWith({
             lookupMode: 'hover',
@@ -1158,6 +1193,9 @@ describe('Hoshidicts settings IPC', () => {
             popupHideDelayMs: 850,
             showLookupCounts: false,
             popupNestingMaxDepth: 4,
+            popupWidthPx: 560,
+            popupHeightPx: 420,
+            theme: 'default',
             definitionBlur: {
                 enabled: true,
                 lookupThreshold: 7,
@@ -1174,6 +1212,9 @@ describe('Hoshidicts settings IPC', () => {
                     lookupMode: 'hover',
                     popupHideDelayMs: 850,
                     popupNestingMaxDepth: Number.MAX_SAFE_INTEGER + 1,
+                    popupWidthPx: 560,
+                    popupHeightPx: 420,
+                    theme: 'default',
                 }
             )
         ).resolves.toMatchObject({
@@ -1321,6 +1362,9 @@ describe('Hoshidicts settings IPC', () => {
             popupHideDelayMs: 850,
             showLookupCounts: true,
             popupNestingMaxDepth: 4,
+            popupWidthPx: 560,
+            popupHeightPx: 420,
+            theme: 'default',
             definitionBlur: {
                 enabled: true,
                 lookupThreshold: 5,

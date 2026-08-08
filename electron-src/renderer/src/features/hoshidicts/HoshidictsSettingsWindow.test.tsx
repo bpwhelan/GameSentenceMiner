@@ -12,6 +12,9 @@ import {
   createDefaultHoshidictsFieldOverwriteModes,
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
+  DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+  DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
+  DEFAULT_HOSHIDICTS_THEME,
   HOSHIDICTS_CHANNELS,
   type HoshidictsActionResult,
   type HoshidictsCustomDictionaryDocument,
@@ -116,6 +119,9 @@ const baseState: HoshidictsDesktopSnapshot = {
   showLookupCounts: true,
   definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
   popupNestingMaxDepth: 10,
+  popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
+  popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+  theme: DEFAULT_HOSHIDICTS_THEME,
   schedule: "weekly",
   lastCheck: "2026-08-06T10:00:00.000Z",
   nextCheck: "2026-08-13T10:00:00.000Z",
@@ -872,6 +878,9 @@ describe("HoshidictsSettingsWindow", () => {
         popupHideDelayMs: 850,
         showLookupCounts: false,
         popupNestingMaxDepth: 12,
+        popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
+        popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+        theme: DEFAULT_HOSHIDICTS_THEME,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
     );
@@ -895,6 +904,57 @@ describe("HoshidictsSettingsWindow", () => {
     expect(hideDelay).not.toBeNull();
     expect(countsToggle?.closest(".hoshidicts-section")).toBe(
       hideDelay?.closest(".hoshidicts-section")
+    );
+  });
+
+  it("auto-saves popup dimensions and theme and resets the size", async () => {
+    vi.useFakeTimers();
+    await render();
+    const theme = container.querySelector<HTMLSelectElement>(
+      "#hoshidicts-popup-theme"
+    );
+    const width = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-popup-width"
+    );
+    const height = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-popup-height"
+    );
+    const reset = container.querySelector<HTMLButtonElement>(
+      ".hoshidicts-reader-appearance__reset"
+    );
+
+    expect(theme?.value).toBe("default");
+    expect(width?.value).toBe("560");
+    expect(height?.value).toBe("420");
+    expect(reset?.disabled).toBe(true);
+
+    await act(async () => {
+      setSelectValue(theme, "cyberpunk");
+      setInputValue(width, "720");
+      setInputValue(height, "520");
+      await flushAutosave();
+    });
+    expect(invokeMock).toHaveBeenLastCalledWith(
+      HOSHIDICTS_CHANNELS.setReaderPreferences,
+      expect.objectContaining({
+        popupWidthPx: 720,
+        popupHeightPx: 520,
+        theme: "cyberpunk"
+      })
+    );
+    expect(reset?.disabled).toBe(false);
+
+    await act(async () => {
+      reset?.click();
+      await flushAutosave();
+    });
+    expect(invokeMock).toHaveBeenLastCalledWith(
+      HOSHIDICTS_CHANNELS.setReaderPreferences,
+      expect.objectContaining({
+        popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
+        popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+        theme: "cyberpunk"
+      })
     );
   });
 
@@ -925,6 +985,9 @@ describe("HoshidictsSettingsWindow", () => {
         popupHideDelayMs: 300,
         showLookupCounts: true,
         popupNestingMaxDepth: 10,
+        popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
+        popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+        theme: DEFAULT_HOSHIDICTS_THEME,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
     );
@@ -969,6 +1032,9 @@ describe("HoshidictsSettingsWindow", () => {
         popupHideDelayMs: 300,
         showLookupCounts: true,
         popupNestingMaxDepth: 10,
+        popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
+        popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+        theme: DEFAULT_HOSHIDICTS_THEME,
         definitionBlur: {
           enabled: true,
           lookupThreshold: 12,
@@ -1090,6 +1156,9 @@ describe("HoshidictsSettingsWindow", () => {
         popupHideDelayMs: 300,
         showLookupCounts: true,
         popupNestingMaxDepth: 0,
+        popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
+        popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+        theme: DEFAULT_HOSHIDICTS_THEME,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
     );
@@ -1113,6 +1182,9 @@ describe("HoshidictsSettingsWindow", () => {
         popupHideDelayMs: 300,
         showLookupCounts: true,
         popupNestingMaxDepth: 1,
+        popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
+        popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+        theme: DEFAULT_HOSHIDICTS_THEME,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
     );
@@ -1175,6 +1247,9 @@ describe("HoshidictsSettingsWindow", () => {
         popupHideDelayMs: 300,
         showLookupCounts: true,
         popupNestingMaxDepth: 10,
+        popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
+        popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+        theme: DEFAULT_HOSHIDICTS_THEME,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
     );
@@ -1202,6 +1277,9 @@ describe("HoshidictsSettingsWindow", () => {
         popupHideDelayMs: 300,
         showLookupCounts: true,
         popupNestingMaxDepth: 10,
+        popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
+        popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+        theme: DEFAULT_HOSHIDICTS_THEME,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
     );

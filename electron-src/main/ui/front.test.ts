@@ -168,6 +168,9 @@ describe('runOverlayWithSource', () => {
                 GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED: '0',
                 GSM_HOSHIDICTS_SHOW_LOOKUP_COUNTS: '1',
                 GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH: '10',
+                GSM_HOSHIDICTS_POPUP_WIDTH_PX: '560',
+                GSM_HOSHIDICTS_POPUP_HEIGHT_PX: '420',
+                GSM_HOSHIDICTS_THEME: 'default',
                 GSM_HOSHIDICTS_DEFINITION_BLUR_ENABLED: '0',
                 GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD: '5',
                 GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_MODE: 'timed',
@@ -201,6 +204,9 @@ describe('runOverlayWithSource', () => {
         expect(process.env.GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED).toBe('0');
         expect(process.env.GSM_HOSHIDICTS_SHOW_LOOKUP_COUNTS).toBe('1');
         expect(process.env.GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH).toBe('10');
+        expect(process.env.GSM_HOSHIDICTS_POPUP_WIDTH_PX).toBe('560');
+        expect(process.env.GSM_HOSHIDICTS_POPUP_HEIGHT_PX).toBe('420');
+        expect(process.env.GSM_HOSHIDICTS_THEME).toBe('default');
         expect(process.env.GSM_HOSHIDICTS_DEFINITION_BLUR_ENABLED).toBe('0');
         expect(process.env.GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD).toBe('5');
         expect(process.env.GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_MODE).toBe('timed');
@@ -244,6 +250,9 @@ describe('runOverlayWithSource', () => {
             revealMode: 'hover',
             revealDelayMs: 7000,
         }));
+        front.configureHoshidictsPopupWidthProvider(async () => 720);
+        front.configureHoshidictsPopupHeightProvider(async () => 520);
+        front.configureHoshidictsThemeProvider(async () => 'cyberpunk');
 
         await expect(front.runOverlayWithSource('manual')).resolves.toBe(true);
 
@@ -255,6 +264,9 @@ describe('runOverlayWithSource', () => {
             GSM_HOSHIDICTS_POPUP_HIDE_DELAY_MS: '850',
             GSM_HOSHIDICTS_SHOW_LOOKUP_COUNTS: '0',
             GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH: '4',
+            GSM_HOSHIDICTS_POPUP_WIDTH_PX: '720',
+            GSM_HOSHIDICTS_POPUP_HEIGHT_PX: '520',
+            GSM_HOSHIDICTS_THEME: 'cyberpunk',
             GSM_HOSHIDICTS_DEFINITION_BLUR_ENABLED: '1',
             GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD: '8',
             GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_MODE: 'hover',
@@ -266,6 +278,9 @@ describe('runOverlayWithSource', () => {
         expect(front.getOverlayHoshidictsPopupHideDelayAtLaunch()).toBe(850);
         expect(front.getOverlayHoshidictsShowLookupCountsAtLaunch()).toBe(false);
         expect(front.getOverlayHoshidictsPopupNestingMaxDepthAtLaunch()).toBe(4);
+        expect(front.getOverlayHoshidictsPopupWidthAtLaunch()).toBe(720);
+        expect(front.getOverlayHoshidictsPopupHeightAtLaunch()).toBe(520);
+        expect(front.getOverlayHoshidictsThemeAtLaunch()).toBe('cyberpunk');
         expect(front.getOverlayHoshidictsDefinitionBlurAtLaunch()).toEqual({
             enabled: true,
             lookupThreshold: 8,
@@ -306,6 +321,9 @@ describe('runOverlayWithSource', () => {
                     revealMode: 'timed',
                     revealDelayMs: 9000,
                 },
+                popupWidthPx: 680,
+                popupHeightPx: 480,
+                theme: 'autumn',
             })
         ).toBe(true);
         expect(front.getOverlayHoshidictsLookupModeAtLaunch()).toBe('shift');
@@ -314,6 +332,9 @@ describe('runOverlayWithSource', () => {
         expect(front.getOverlayHoshidictsPopupHideDelayAtLaunch()).toBe(1200);
         expect(front.getOverlayHoshidictsShowLookupCountsAtLaunch()).toBe(true);
         expect(front.getOverlayHoshidictsPopupNestingMaxDepthAtLaunch()).toBe(0);
+        expect(front.getOverlayHoshidictsPopupWidthAtLaunch()).toBe(680);
+        expect(front.getOverlayHoshidictsPopupHeightAtLaunch()).toBe(480);
+        expect(front.getOverlayHoshidictsThemeAtLaunch()).toBe('autumn');
         expect(front.getOverlayHoshidictsDefinitionBlurAtLaunch()).toEqual({
             enabled: false,
             lookupThreshold: 10,

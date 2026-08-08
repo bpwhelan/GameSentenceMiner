@@ -614,6 +614,21 @@
         "maxChildPopups": "Maximum number of child popups",
         "maxChildPopupsHint": "Limits how many definition popups can open beyond the original lookup.",
         "milliseconds": "ms",
+        "appearance": {
+          "title": "Popup appearance",
+          "hint": "Use one consistent size for every dictionary popup.",
+          "theme": "Theme",
+          "width": "Width",
+          "height": "Height",
+          "pixels": "px",
+          "resetSize": "Reset size",
+          "themes": {
+            "default": "Default",
+            "highContrast": "High contrast",
+            "autumn": "Autumnal",
+            "cyberpunk": "Cyber"
+          }
+        },
         "definitionBlur": {
           "title": "Blur definitions after repeated lookups",
           "hint": "Once a word reaches the lookup threshold, blur only its definitions. Hovering always reveals them.",

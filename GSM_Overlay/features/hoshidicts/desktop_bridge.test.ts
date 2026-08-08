@@ -75,6 +75,9 @@ const {
     sourceHighlightEnabled: boolean;
     popupHideDelayMs: number;
     popupNestingMaxDepth: number;
+    popupWidthPx: number;
+    popupHeightPx: number;
+    theme: "default" | "high-contrast" | "autumn" | "cyberpunk";
     dictionaryPresentation: Array<{
       title: string;
       favorite: boolean;
@@ -109,6 +112,12 @@ async function startControlChannel(options: {
 }
 
 describe("Hoshidicts desktop bridge", () => {
+  const popupAppearance = {
+    popupWidthPx: 680,
+    popupHeightPx: 500,
+    theme: "autumn" as const,
+  };
+
   it("normalizes only canonical single-key accelerators supported by the input server", () => {
     expect(normalizeHoshidictsActivationKey(undefined)).toBe("Shift");
     expect(normalizeHoshidictsActivationKey(" f24 ")).toBe("F24");
@@ -127,6 +136,7 @@ describe("Hoshidicts desktop bridge", () => {
       sourceHighlightEnabled: true,
       popupHideDelayMs: 850,
       popupNestingMaxDepth: 4,
+      ...popupAppearance,
       dictionaryPresentation: [
         { title: "Monolingual", favorite: false },
         { title: "Bilingual", favorite: true, displayMode: "legacy-value" },
@@ -137,6 +147,7 @@ describe("Hoshidicts desktop bridge", () => {
       sourceHighlightEnabled: true,
       popupHideDelayMs: 850,
       popupNestingMaxDepth: 4,
+      ...popupAppearance,
       dictionaryPresentation: [
         { title: "Monolingual", favorite: false },
         { title: "Bilingual", favorite: true },
@@ -148,6 +159,7 @@ describe("Hoshidicts desktop bridge", () => {
       sourceHighlightEnabled: true,
       popupHideDelayMs: 850,
       popupNestingMaxDepth: 4,
+      ...popupAppearance,
     }).dictionaryPresentation).toEqual([]);
     expect(() => normalizeHoshidictsReaderPreferences({
       lookupMode: "hover",
@@ -155,12 +167,14 @@ describe("Hoshidicts desktop bridge", () => {
       sourceHighlightEnabled: "true",
       popupHideDelayMs: 850,
       popupNestingMaxDepth: 4,
+      ...popupAppearance,
     })).toThrow("Hoshidicts reader preferences are invalid.");
     expect(() => normalizeHoshidictsReaderPreferences({
       lookupMode: "hover",
       activationKey: "F8",
       popupHideDelayMs: 850,
       popupNestingMaxDepth: 4,
+      ...popupAppearance,
     })).toThrow("Hoshidicts reader preferences are invalid.");
     expect(() => normalizeHoshidictsReaderPreferences({
       lookupMode: "hover",
@@ -168,6 +182,7 @@ describe("Hoshidicts desktop bridge", () => {
       sourceHighlightEnabled: true,
       popupHideDelayMs: 850,
       popupNestingMaxDepth: -1,
+      ...popupAppearance,
     })).toThrow("Hoshidicts reader preferences are invalid.");
     expect(() => normalizeHoshidictsReaderPreferences({
       lookupMode: "hover",
@@ -175,6 +190,7 @@ describe("Hoshidicts desktop bridge", () => {
       sourceHighlightEnabled: true,
       popupHideDelayMs: 850,
       popupNestingMaxDepth: 4,
+      ...popupAppearance,
       dictionaryPresentation: [
         { title: "Broken", favorite: "yes" },
       ],
@@ -185,10 +201,29 @@ describe("Hoshidicts desktop bridge", () => {
       sourceHighlightEnabled: true,
       popupHideDelayMs: 850,
       popupNestingMaxDepth: 4,
+      ...popupAppearance,
       dictionaryPresentation: [
         { title: "Repeated", favorite: true },
         { title: "Repeated", favorite: false },
       ],
+    })).toThrow("Hoshidicts reader preferences are invalid.");
+    expect(() => normalizeHoshidictsReaderPreferences({
+      lookupMode: "hover",
+      activationKey: "F8",
+      sourceHighlightEnabled: true,
+      popupHideDelayMs: 850,
+      popupNestingMaxDepth: 4,
+      ...popupAppearance,
+      popupWidthPx: 279,
+    })).toThrow("Hoshidicts reader preferences are invalid.");
+    expect(() => normalizeHoshidictsReaderPreferences({
+      lookupMode: "hover",
+      activationKey: "F8",
+      sourceHighlightEnabled: true,
+      popupHideDelayMs: 850,
+      popupNestingMaxDepth: 4,
+      ...popupAppearance,
+      theme: "neon",
     })).toThrow("Hoshidicts reader preferences are invalid.");
   });
 

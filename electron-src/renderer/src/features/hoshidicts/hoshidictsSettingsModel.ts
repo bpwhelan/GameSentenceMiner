@@ -4,19 +4,27 @@ import {
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
   DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+  DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
   DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
+  DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
   DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
+  DEFAULT_HOSHIDICTS_THEME,
   HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
   HOSHIDICTS_DUPLICATE_BEHAVIORS,
   HOSHIDICTS_DUPLICATE_SCOPES,
   HOSHIDICTS_FIELD_OVERWRITE_MODES,
   isHoshidictsActivationKey,
   isHoshidictsAudioSourceType,
+  isHoshidictsTheme,
   MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
   MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+  MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
+  MAX_HOSHIDICTS_POPUP_WIDTH_PX,
   MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
   MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
+  MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
+  MIN_HOSHIDICTS_POPUP_WIDTH_PX,
   parseHoshidictsCustomDictionary,
   type HoshidictsActivationKey,
   type HoshidictsAudioProfile,
@@ -213,6 +221,9 @@ const DEFAULT_STATE: HoshidictsDesktopSnapshot = {
   showLookupCounts: true,
   definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
   popupNestingMaxDepth: DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
+  popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
+  popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+  theme: DEFAULT_HOSHIDICTS_THEME,
   schedule: "off",
   lastCheck: null,
   nextCheck: null,
@@ -478,6 +489,18 @@ export function normalizeHoshidictsDesktopState(
     (candidate.popupNestingMaxDepth as number) >= 0
       ? (candidate.popupNestingMaxDepth as number)
       : DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH;
+  const popupWidthPx =
+    Number.isInteger(candidate.popupWidthPx) &&
+    (candidate.popupWidthPx as number) >= MIN_HOSHIDICTS_POPUP_WIDTH_PX &&
+    (candidate.popupWidthPx as number) <= MAX_HOSHIDICTS_POPUP_WIDTH_PX
+      ? (candidate.popupWidthPx as number)
+      : DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX;
+  const popupHeightPx =
+    Number.isInteger(candidate.popupHeightPx) &&
+    (candidate.popupHeightPx as number) >= MIN_HOSHIDICTS_POPUP_HEIGHT_PX &&
+    (candidate.popupHeightPx as number) <= MAX_HOSHIDICTS_POPUP_HEIGHT_PX
+      ? (candidate.popupHeightPx as number)
+      : DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX;
 
   return {
     revision:
@@ -527,6 +550,11 @@ export function normalizeHoshidictsDesktopState(
     showLookupCounts: candidate.showLookupCounts !== false,
     definitionBlur: normalizeDefinitionBlur(candidate.definitionBlur),
     popupNestingMaxDepth,
+    popupWidthPx,
+    popupHeightPx,
+    theme: isHoshidictsTheme(candidate.theme)
+      ? candidate.theme
+      : DEFAULT_HOSHIDICTS_THEME,
     schedule,
     lastCheck:
       typeof candidate.lastCheck === "string" ? candidate.lastCheck : null,
