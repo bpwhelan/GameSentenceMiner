@@ -955,6 +955,7 @@
     },
     "debug": {
       "title": "Extra & Debug Tools",
+      "advancedDebugLogging": "Advanced Debug Logging:",
       "ignoreRun1Logs": "Ignore \"OCR Run 1\" Logs:",
       "processPriority": "Process Priority:",
       "defaultFuriganaSensitivity": "Default Furigana Sensitivity:",
@@ -1033,6 +1034,7 @@
       "compactBoxes": "Experimental. When multiple OCR areas are set, packs them together (removing transparent dead space) before running detection, while preserving their relative layout. Can improve engines that struggle with large empty regions, e.g. a black-hole box at the top of a menu with dialogue at the bottom. Coordinates are mapped back to the original frame automatically.",
       "compactBoxesGap": "Transparent padding kept between packed OCR areas, in pixels.",
       "ignoreRun1Logs": "Hides OCR terminal lines containing \"OCR Run 1: Text recognized...\" to reduce duplicate output noise when two-pass OCR is enabled. Run 2 lines stay highlighted in green.",
+      "advancedDebugLogging": "Writes structured JSON Lines for OCR capture, stability, OCR2 flush decisions, queueing, filtering, deduplication, and delivery to a dedicated file for each OCR run. The console shows the file path when logging starts.",
       "installDependency": "Install optional OCR dependencies into the GSM Python environment. If unsure, choose a recommended option.",
       "uninstallDependency": "Remove optional OCR dependencies from the GSM Python environment.",
       "replacements": "Open the OCR replacement rules page for fixing recurring OCR mistakes after recognition.",

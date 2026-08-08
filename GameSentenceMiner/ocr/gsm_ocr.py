@@ -34,6 +34,12 @@ from GameSentenceMiner.ocr.compare import (
     is_evolving_text,
     normalize_for_comparison,
 )
+from GameSentenceMiner.ocr.debug_logging import (
+    close_ocr_debug_log,
+    emit_ocr_debug,
+    start_ocr_debug_log,
+    text_preview,
+)
 from GameSentenceMiner import obs
 from GameSentenceMiner.ocr.composite_layout import CompositeLayout
 from GameSentenceMiner.ocr.gsm_ocr_config import (
@@ -100,6 +106,7 @@ from GameSentenceMiner.util.config.electron_config import (
     get_ocr_truncation_similarity_margin,
     get_ocr_truncation_strict_threshold_min,
     get_ocr_text_appears_instantly,
+    get_ocr_advanced_debug_logging,
     get_ocr_whole_window_ocr_hotkey,
     get_ocr_whole_window_ocr_gamepad,
 )
@@ -194,6 +201,7 @@ class TwoPassConfig:
     ocr2_engine_readable: str = ""
     optimize_second_scan: bool = True
     text_appears_instantly: bool = False
+    advanced_debug_logging: bool = False
     keep_newline: bool = False
     language: str = "ja"
     duplicate_threshold: int = 80
@@ -280,6 +288,23 @@ class TwoPassOCRController:
         self._meiki = _MeikiTracker()
         self._instant_last_processed_text: str = ""
         self._instant_last_processed_chunks: list = []
+        self._debug_frame_id: int = 0
+        self._debug(
+            "session.config",
+            two_pass_enabled=self.config.two_pass_enabled,
+            ocr1_engine=self.config.ocr1_engine,
+            ocr2_engine=self.config.ocr2_engine,
+            same_engine=self.config.same_engine,
+            optimize_second_scan=self.config.optimize_second_scan,
+            text_appears_instantly=self.config.text_appears_instantly,
+            duplicate_threshold=self.config.duplicate_threshold,
+            change_threshold=self.config.change_threshold,
+        )
+
+    def _debug(self, event: str, **fields: Any) -> None:
+        if self._debug_frame_id and "frame_id" not in fields:
+            fields["frame_id"] = self._debug_frame_id
+        emit_ocr_debug(self.config.advanced_debug_logging, event, **fields)
 
     def reset(self) -> None:
         """Reset all state to initial values."""
@@ -290,6 +315,8 @@ class TwoPassOCRController:
         self._meiki = _MeikiTracker()
         self._instant_last_processed_text = ""
         self._instant_last_processed_chunks = []
+        self._debug("session.reset", reason="controller_reset")
+        self._debug_frame_id = 0
 
     def set_force_stable(self, value: bool) -> None:
         self.force_stable = value
@@ -621,12 +648,14 @@ class TwoPassOCRController:
     ) -> bool:
         """Finalize a second-pass result."""
         if not text:
+            self._debug("delivery.suppressed", reason="empty_ocr2_result")
             return False
         last_sent = self.last_sent_result
         if last_sent and len(text) > len(last_sent):
             if text.startswith(last_sent):
                 text = text[len(last_sent) :].strip()
             if not text:
+                self._debug("delivery.suppressed", reason="empty_after_prefix_trim")
                 return False
         if self._is_duplicate_candidate(
             self.last_sent_result,
@@ -635,12 +664,27 @@ class TwoPassOCRController:
             prev_chunks=self.last_ocr2_result,
             new_chunks=orig_text,
         ):
+            self._debug(
+                "delivery.suppressed",
+                reason="post_ocr2_duplicate",
+                threshold=self.config.duplicate_threshold,
+                previous_text=text_preview(self.last_sent_result),
+                candidate_text=text_preview(text),
+                comparison_mode="chunks" if self.last_ocr2_result and orig_text else "text",
+            )
             return False
 
         self._save_image(img)
         self.last_ocr2_result = [x for x in (orig_text or []) if x is not None]
         self.last_sent_result = text
         self._send_result(text, time, response_dict=response_dict, source=source)
+        self._debug(
+            "delivery.sent",
+            source=source,
+            text=text_preview(text),
+            chunk_count=len(orig_text or []),
+            has_geometry=bool(response_dict),
+        )
         return True
 
     def _is_duplicate_candidate(
@@ -693,7 +737,15 @@ class TwoPassOCRController:
         source: str = "ocr",
     ) -> bool:
         if self._queue_second_pass is None:
+            self._debug("ocr2.queue", outcome="unavailable", fallback="inline")
             return False
+        self._debug(
+            "ocr2.queue",
+            outcome="enqueue_requested",
+            text=text_preview(ocr1_text),
+            image_size=getattr(img, "size", None),
+            source=source,
+        )
         result = self._queue_second_pass(
             ocr1_text,
             time,
@@ -707,8 +759,11 @@ class TwoPassOCRController:
             source,
         )
         if result is None:
+            self._debug("ocr2.queue", outcome="enqueued")
             return True
-        return bool(result)
+        queued = bool(result)
+        self._debug("ocr2.queue", outcome="enqueued" if queued else "rejected")
+        return queued
 
     def _execute_second_pass(
         self,
@@ -722,9 +777,18 @@ class TwoPassOCRController:
     ) -> bool:
         """Run OCR2 immediately and dispatch the result."""
         if self._run_second_ocr is None:
+            self._debug("ocr2.execution", outcome="unavailable")
             return False
 
         ocr2_img = self._build_ocr2_image(crop_coords, img)
+        started = perf_counter()
+        self._debug(
+            "ocr2.execution",
+            outcome="started",
+            engine=self.config.ocr2_engine,
+            crop_coords=crop_coords,
+            image_size=getattr(ocr2_img, "size", None),
+        )
         result = self._run_second_ocr(
             ocr2_img,
             self.last_ocr2_result,
@@ -734,6 +798,14 @@ class TwoPassOCRController:
         )
 
         final_payload = _select_second_pass_payload(response_dict, result.response_dict)
+        self._debug(
+            "ocr2.execution",
+            outcome="completed",
+            engine=self.config.ocr2_engine,
+            duration_ms=round((perf_counter() - started) * 1000, 3),
+            text=text_preview(result.text),
+            chunk_count=len(result.orig_text or []),
+        )
         return self._dispatch_second_pass_result(
             result.text,
             result.orig_text,
@@ -1050,19 +1122,34 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
         manual: bool = False,
         raw_text: str | None = None,
     ) -> None:
+        self._debug_frame_id += 1
         orig_text_string = "".join(item for item in orig_text if item is not None) if orig_text else ""
         orig_text_list = [item for item in (orig_text or []) if item is not None]
         raw_text_string = str(raw_text if raw_text is not None else (text or ""))
         current_time = time or datetime.now()
+        active_detection_boxes = detection_boxes if detection_boxes is not None else meiki_boxes
+        self._debug(
+            "frame.received",
+            text=text_preview(text),
+            raw_text=text_preview(raw_text_string),
+            chunk_count=len(orig_text_list),
+            crop_coords=crop_coords,
+            detection_box_count=len(active_detection_boxes or []),
+            source=source,
+            manual=manual,
+            came_from_screenshot=came_from_ss,
+            image_size=getattr(img, "size", None),
+        )
 
         if came_from_ss:
+            self._debug("pipeline.route", route="screenshot_direct")
             self._save_image(img)
             self._send_result(text, current_time, response_dict=response_dict, source=source)
             self._clear_v2_pending()
             return
 
-        active_detection_boxes = detection_boxes if detection_boxes is not None else meiki_boxes
         if active_detection_boxes is not None or _looks_like_detection_payload(response_dict):
+            self._debug("pipeline.route", route="detection_stability")
             if self._handle_v2_detection(
                 text=text,
                 detection_boxes=active_detection_boxes,
@@ -1075,6 +1162,11 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
                 return
 
         if manual or not self.config.two_pass_enabled:
+            self._debug(
+                "pipeline.route",
+                route="direct",
+                reason="manual" if manual else "two_pass_disabled",
+            )
             self._send_direct(
                 text,
                 current_time,
@@ -1086,6 +1178,7 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
             self._clear_v2_pending()
             return
 
+        self._debug("pipeline.route", route="text_stability")
         self._handle_v2_text(
             text=text or "",
             orig_text_string=orig_text_string,
@@ -1128,11 +1221,17 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
                 self._v2_last_box_trigger_coords = None
 
         if not text and not candidate_text.strip():
-            self._flush_v2_pending_text()
+            self._debug("ocr2.flush_requested", reason="text_disappeared")
+            self._flush_v2_pending_text(reason="text_disappeared")
             return
 
         if self.config.text_appears_instantly:
             if self._v2_is_already_processed_text(candidate_text, orig_text_list):
+                self._debug(
+                    "ocr2.no_flush",
+                    reason="already_processed_instant_text",
+                    candidate_text=text_preview(candidate_text),
+                )
                 self._v2_pending_text = None
                 return
             self._store_v2_pending_text(
@@ -1148,15 +1247,21 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
                 stable_frames=self.stable_frame_count,
                 line_boxes=line_boxes,
             )
-            self._flush_v2_pending_text()
+            self._flush_v2_pending_text(reason="instant_mode")
             return
 
         if self.force_stable and self._v2_pending_text is not None:
-            self._flush_v2_pending_text()
+            self._flush_v2_pending_text(reason="force_stable")
             if self._v2_is_already_processed_text(candidate_text, orig_text_list):
+                self._debug("ocr2.no_flush", reason="already_processed_after_force_stable")
                 return
 
         if self._v2_is_already_processed_text(candidate_text, orig_text_list):
+            self._debug(
+                "ocr2.no_flush",
+                reason="already_processed_text",
+                candidate_text=text_preview(candidate_text),
+            )
             self._v2_pending_text = None
             return
 
@@ -1175,6 +1280,13 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
                 stable_frames=1,
                 line_boxes=line_boxes,
             )
+            self._debug(
+                "ocr2.no_flush",
+                reason="waiting_for_stable_text",
+                stable_frames=1,
+                required_stable_frames=self.stable_frame_count,
+                candidate_text=text_preview(candidate_text),
+            )
             return
 
         # Track when this line first appeared so a line that keeps "evolving"
@@ -1183,7 +1295,29 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
         first_seen = pending.first_seen
         stale = self._v2_pending_is_stale(pending, current_time)
 
-        if _v2_texts_stable(pending.orig_text, candidate_text, self.config.duplicate_threshold):
+        previous_normalized = _v2_normalized_text(pending.orig_text)
+        candidate_normalized = _v2_normalized_text(candidate_text)
+        similarity = (
+            round(
+                SequenceMatcher(None, previous_normalized, candidate_normalized, autojunk=False).ratio() * 100,
+                3,
+            )
+            if previous_normalized and candidate_normalized
+            else 0.0
+        )
+        texts_stable = _v2_texts_stable(pending.orig_text, candidate_text, self.config.duplicate_threshold)
+        self._debug(
+            "stability.text_comparison",
+            previous=text_preview(pending.orig_text),
+            candidate=text_preview(candidate_text),
+            previous_normalized=text_preview(previous_normalized),
+            candidate_normalized=text_preview(candidate_normalized),
+            similarity=similarity,
+            threshold=max(90, int(self.config.duplicate_threshold or 90)),
+            stable=texts_stable,
+            pending_age_ms=round(self._v2_pending_age_seconds(pending, current_time) * 1000, 3),
+        )
+        if texts_stable:
             stable_frames = pending.stable_frames + 1
             self._store_v2_pending_text(
                 text=text,
@@ -1200,22 +1334,37 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
                 line_boxes=line_boxes,
             )
             if stable_frames >= self.stable_frame_count or stale:
-                self._flush_v2_pending_text()
+                self._flush_v2_pending_text(
+                    reason="text_stable" if stable_frames >= self.stable_frame_count else "max_pending_age"
+                )
                 return
-            self._v2_flush_if_box_stable()
+            if not self._v2_flush_if_box_stable():
+                self._debug(
+                    "ocr2.no_flush",
+                    reason="waiting_for_stable_text",
+                    stable_frames=stable_frames,
+                    required_stable_frames=self.stable_frame_count,
+                )
             return
 
         # A clean prefix-evolution, or (lean fallback) a frame that still shares
         # a long literal prefix with the pending text — treat both as the same
         # line continuing rather than flushing a partial frame as a new line.
-        if _v2_text_is_evolving(
-            pending.orig_text, candidate_text, self.config.compare_settings
-        ) or _v2_looks_like_same_line(
+        clean_evolution = _v2_text_is_evolving(pending.orig_text, candidate_text, self.config.compare_settings)
+        lean_evolution = _v2_looks_like_same_line(
             pending.orig_text,
             candidate_text,
             min_ratio=self.lean_prefix_ratio,
             min_chars=self.lean_prefix_min_chars,
-        ):
+        )
+        if clean_evolution or lean_evolution:
+            self._debug(
+                "stability.text_classification",
+                classification="evolving",
+                rule="clean_prefix" if clean_evolution else "lean_prefix",
+                previous_length=_v2_normalized_len(pending.orig_text),
+                candidate_length=_v2_normalized_len(candidate_text),
+            )
             replace_pending = _v2_normalized_len(candidate_text) >= _v2_normalized_len(pending.orig_text)
             if replace_pending:
                 self._store_v2_pending_text(
@@ -1235,9 +1384,14 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
             else:
                 pending.stable_frames = 1
             if stale:
-                self._flush_v2_pending_text()
+                self._flush_v2_pending_text(reason="max_pending_age")
                 return
-            self._v2_flush_if_box_stable()
+            if not self._v2_flush_if_box_stable():
+                self._debug(
+                    "ocr2.no_flush",
+                    reason="text_evolving",
+                    rule="clean_prefix" if clean_evolution else "lean_prefix",
+                )
             return
 
         # Disjoint from the pending text, but the pending was never confirmed
@@ -1250,8 +1404,15 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
         # whole region even with optimized second-scan cropping) and let the
         # stable/box/age triggers fire once the text actually stops changing.
         if self._v2_is_already_processed_text(candidate_text, orig_text_list):
+            self._debug("ocr2.no_flush", reason="already_processed_disjoint_text")
             self._v2_pending_text = None
             return
+        self._debug(
+            "stability.text_classification",
+            classification="disjoint_replacement",
+            previous=text_preview(pending.orig_text),
+            candidate=text_preview(candidate_text),
+        )
         self._store_v2_pending_text(
             text=text,
             raw_text=raw_text,
@@ -1266,9 +1427,10 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
             line_boxes=line_boxes,
         )
         if stale:
-            self._flush_v2_pending_text()
+            self._flush_v2_pending_text(reason="max_pending_age")
             return
-        self._v2_flush_if_box_stable()
+        if not self._v2_flush_if_box_stable():
+            self._debug("ocr2.no_flush", reason="disjoint_frame_replaced_pending")
 
     def _store_v2_pending_text(
         self,
@@ -1324,6 +1486,15 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
             stable_box_frames=stable_box_frames,
             line_boxes=line_boxes,
         )
+        self._debug(
+            "pending.updated",
+            text=text_preview(orig_text_string),
+            stable_frames=stable_frames,
+            stable_box_frames=stable_box_frames,
+            crop_coords=crop_coords,
+            line_box_count=len(line_boxes or []),
+            first_seen=first_seen or current_time,
+        )
 
     def _v2_flush_if_box_stable(self) -> bool:
         """Flush when the text region's bounding box has held still long enough.
@@ -1335,8 +1506,21 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
         """
         pending = self._v2_pending_text
         if pending is None or not self.require_box_stability:
+            self._debug(
+                "stability.box_comparison",
+                outcome="unavailable",
+                reason="no_pending" if pending is None else "box_stability_disabled",
+            )
             return False
         coords = _coerce_four_coords(pending.crop_coords)
+        self._debug(
+            "stability.box_comparison",
+            outcome="stable" if pending.stable_box_frames >= self.stable_frame_count else "waiting",
+            coords=coords,
+            stable_box_frames=pending.stable_box_frames,
+            required_stable_frames=self.stable_frame_count,
+            tolerance=self.box_stability_tol,
+        )
         if coords is None or pending.stable_box_frames < self.stable_frame_count:
             return False
         # Latch: don't keep re-firing OCR2 on a persistent box while OCR1 text
@@ -1345,8 +1529,15 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
         if self._v2_last_box_trigger_coords and _coords_close(
             coords, self._v2_last_box_trigger_coords, self.box_stability_tol
         ):
+            self._debug(
+                "ocr2.no_flush",
+                reason="box_trigger_latched",
+                coords=coords,
+                latch_coords=self._v2_last_box_trigger_coords,
+                tolerance=self.box_stability_tol,
+            )
             return False
-        flushed = self._flush_v2_pending_text()
+        flushed = self._flush_v2_pending_text(reason="box_stable")
         if flushed:
             self._v2_last_box_trigger_coords = coords
         return flushed
@@ -1375,15 +1566,25 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
             ) and len(chunks) == len(self._v2_last_processed_chunks)
         return _v2_texts_stable(self._v2_last_processed_text, text, self.config.duplicate_threshold)
 
-    def _flush_v2_pending_text(self) -> bool:
+    def _flush_v2_pending_text(self, *, reason: str = "unspecified") -> bool:
         pending = self._v2_pending_text
         if pending is None:
             if self.force_stable:
                 self.force_stable = False
+            self._debug("ocr2.no_flush", reason="no_pending_text", requested_reason=reason)
             return False
 
         self._v2_pending_text = None
         self.force_stable = False
+        self._debug(
+            "ocr2.flush",
+            reason=reason,
+            pending_text=text_preview(pending.orig_text),
+            pending_age_ms=round(self._v2_pending_age_seconds(pending, datetime.now()) * 1000, 3),
+            stable_frames=pending.stable_frames,
+            stable_box_frames=pending.stable_box_frames,
+            crop_coords=pending.crop_coords,
+        )
 
         if self._is_duplicate_candidate(
             self.last_sent_result,
@@ -1392,11 +1593,20 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
             prev_chunks=self.last_ocr2_result,
             new_chunks=pending.orig_text_list,
         ):
+            self._debug(
+                "ocr2.suppressed",
+                reason="pre_queue_duplicate",
+                threshold=self.config.duplicate_threshold,
+                previous_text=text_preview(self.last_sent_result),
+                pending_text=text_preview(pending.text),
+                comparison_mode="chunks" if self.last_ocr2_result and pending.orig_text_list else "text",
+            )
             self._v2_last_processed_text = pending.orig_text
             self._v2_last_processed_chunks = list(pending.orig_text_list or [])
             return False
 
         if self.config.same_engine:
+            self._debug("pipeline.route", route="same_engine_bypass")
             self._send_same_engine_filtered(
                 pending.orig_text_list,
                 pending.start_time,
@@ -1410,6 +1620,13 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
             return True
 
         ocr2_img = self._build_ocr2_image(pending.crop_coords, pending.img)
+        self._debug(
+            "ocr2.crop",
+            optimize_second_scan=self.config.optimize_second_scan,
+            requested_coords=pending.crop_coords,
+            source_image_size=getattr(pending.img, "size", None),
+            output_image_size=getattr(ocr2_img, "size", None),
+        )
         queued = self._queue_second_pass_task(
             pending.text,
             pending.start_time,
@@ -1445,6 +1662,12 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
     ) -> bool:
         resolved_crop = _resolve_detection_crop_coords(crop_coords, detection_boxes, response_dict)
         if resolved_crop is None:
+            self._debug(
+                "detection.state",
+                outcome="no_flush",
+                reason="no_detection_crop",
+                box_count=len(detection_boxes or []),
+            )
             self._v2_pending_detection = None
             self._v2_inflight_detection_crop_coords = None
             self._v2_duplicate_detection_crop_coords = None
@@ -1453,8 +1676,22 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
             return True
 
         current_box_list = _extract_sorted_box_list(detection_boxes, response_dict)
+        self._debug(
+            "detection.state",
+            outcome="observed",
+            crop_coords=resolved_crop,
+            boxes=current_box_list,
+            tolerance=self.MEIKI_TOL,
+        )
 
         if self._is_v2_detection_suppressed(resolved_crop):
+            self._debug(
+                "ocr2.no_flush",
+                reason="detection_inflight_or_duplicate_suppression",
+                crop_coords=resolved_crop,
+                inflight_coords=self._v2_inflight_detection_crop_coords,
+                duplicate_coords=self._v2_duplicate_detection_crop_coords,
+            )
             self._v2_pending_detection = None
             return True
 
@@ -1481,6 +1718,15 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
             is_stable = False
 
         if not is_stable:
+            self._debug(
+                "ocr2.no_flush",
+                reason="waiting_for_stable_detection",
+                previous_crop=getattr(pending, "crop_coords", None),
+                current_crop=resolved_crop,
+                previous_boxes=getattr(pending, "box_list", None),
+                current_boxes=current_box_list,
+                tolerance=self.MEIKI_TOL,
+            )
             self._v2_pending_detection = _V2PendingDetectionState(
                 crop_coords=resolved_crop,
                 box_list=current_box_list or None,
@@ -1496,9 +1742,21 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
         if self._v2_last_detection_crop_coords and _coords_close(
             resolved_crop, self._v2_last_detection_crop_coords, self.MEIKI_TOL
         ):
+            self._debug(
+                "ocr2.no_flush",
+                reason="detection_crop_already_processed",
+                crop_coords=resolved_crop,
+                previous_crop=self._v2_last_detection_crop_coords,
+            )
             self._v2_pending_detection = None
             return True
 
+        self._debug(
+            "ocr2.flush",
+            reason="detection_stable",
+            crop_coords=resolved_crop,
+            boxes=current_box_list,
+        )
         queued = self._queue_second_pass_task(
             text,
             pending.start_time,
@@ -1536,6 +1794,7 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
         source: str,
     ) -> bool:
         if self._is_v2_detection_suppressed(resolved_crop):
+            self._debug("ocr2.no_flush", reason="instant_detection_suppressed", crop_coords=resolved_crop)
             self._v2_pending_detection = None
             return True
 
@@ -1547,6 +1806,12 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
             and self._v2_last_detection_box_list
             and _detection_boxes_stable(self._v2_last_detection_box_list, box_list, self.MEIKI_TOL)
         ):
+            self._debug(
+                "ocr2.no_flush",
+                reason="instant_detection_boxes_unchanged",
+                crop_coords=resolved_crop,
+                boxes=box_list,
+            )
             self._v2_pending_detection = None
             return True
 
@@ -1554,9 +1819,15 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
         if self._v2_last_detection_crop_coords and _coords_close(
             resolved_crop, self._v2_last_detection_crop_coords, self.MEIKI_TOL
         ):
+            self._debug(
+                "ocr2.no_flush",
+                reason="instant_detection_crop_unchanged",
+                crop_coords=resolved_crop,
+            )
             self._v2_pending_detection = None
             return True
 
+        self._debug("ocr2.flush", reason="instant_detection", crop_coords=resolved_crop, boxes=box_list)
         queued = self._queue_second_pass_task(
             text,
             time,
@@ -1601,6 +1872,7 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
     def mark_v2_detection_ocr2_complete(self, crop_coords: Any, *, duplicate: bool = False) -> None:
         resolved_crop = _coerce_four_coords(crop_coords)
         if resolved_crop is None:
+            self._debug("detection.completion", outcome="invalid_crop", duplicate=duplicate)
             self._v2_inflight_detection_crop_coords = None
             return
 
@@ -1612,6 +1884,11 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
             self._v2_inflight_detection_crop_coords = None
 
         self._v2_duplicate_detection_crop_coords = resolved_crop if duplicate else None
+        self._debug(
+            "detection.completion",
+            outcome="duplicate" if duplicate else "completed",
+            crop_coords=resolved_crop,
+        )
 
 
 def _copy_img(img: Any) -> Any:
@@ -2063,6 +2340,12 @@ def request_clean_shutdown(reason: str = "unknown") -> None:
 
     shutdown_requested = True
     done = True
+    emit_ocr_debug(
+        get_ocr_advanced_debug_logging(),
+        "session.shutdown",
+        reason=reason,
+    )
+    close_ocr_debug_log()
     logger.info(f"OCR clean shutdown requested ({reason})")
     _get_hotkey_manager().clear()
 
@@ -2115,6 +2398,12 @@ def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
             response["success"] = True
             response["paused"] = ocr_runtime.paused
             logger.info(f"Remote control: {'Paused' if ocr_runtime.paused else 'Unpaused'} OCR")
+            emit_ocr_debug(
+                get_ocr_advanced_debug_logging(),
+                "capture.state",
+                paused=ocr_runtime.paused,
+                command=command,
+            )
             if announce_ipc:
                 if ocr_runtime.paused:
                     ocr_ipc.announce_paused()
@@ -2127,6 +2416,12 @@ def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
             response["success"] = True
             response["paused"] = ocr_runtime.paused
             logger.info("IPC: Unpaused OCR")
+            emit_ocr_debug(
+                get_ocr_advanced_debug_logging(),
+                "capture.state",
+                paused=ocr_runtime.paused,
+                command=command,
+            )
             if announce_ipc:
                 ocr_ipc.announce_unpaused()
 
@@ -2135,6 +2430,12 @@ def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
             response["success"] = True
             response["paused"] = ocr_runtime.paused
             logger.info(f"IPC: Toggled to {'paused' if ocr_runtime.paused else 'unpaused'}")
+            emit_ocr_debug(
+                get_ocr_advanced_debug_logging(),
+                "capture.state",
+                paused=ocr_runtime.paused,
+                command=command,
+            )
             if announce_ipc:
                 if ocr_runtime.paused:
                     ocr_ipc.announce_paused()
@@ -2192,6 +2493,7 @@ def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
             response["success"] = True
             response["data"] = {"enabled": is_stable}
             logger.info(f"IPC: Force stable mode {'enabled' if is_stable else 'disabled'}")
+            get_controller()._debug("stability.force_stable", enabled=is_stable, command=command)
             if announce_ipc:
                 ocr_ipc.announce_force_stable_changed(is_stable)
 
@@ -2201,6 +2503,7 @@ def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
             response["success"] = True
             response["data"] = {"enabled": enabled}
             logger.info(f"IPC: Set force stable mode to {enabled}")
+            get_controller()._debug("stability.force_stable", enabled=enabled, command=command)
             if announce_ipc:
                 ocr_ipc.announce_force_stable_changed(enabled)
 
@@ -2820,6 +3123,19 @@ class OCRProcessor:
         source=TextSource.OCR,
     ):
         ctrl = get_controller()
+        debug_enabled = get_ocr_advanced_debug_logging()
+        ocr2_started = perf_counter()
+        emit_ocr_debug(
+            debug_enabled,
+            "ocr2.execution_runtime",
+            outcome="started",
+            engine=get_ocr_ocr2(),
+            ocr1_text=text_preview(ocr1_text),
+            source=source,
+            image_size=getattr(img, "size", None),
+            ignore_previous_result=ignore_previous_result,
+            ignore_furigana_filter=ignore_furigana_filter,
+        )
         detection_completion_crop = None
         should_mark_detection_completion = False
         detection_duplicate = False
@@ -2854,6 +3170,16 @@ class OCRProcessor:
                 # further restricts scene-coordinate filtering to OCR1.
                 apply_area_filters=(source == TextSource.OCR),
             )
+            emit_ocr_debug(
+                debug_enabled,
+                "ocr2.execution_runtime",
+                outcome="recognized",
+                engine=get_ocr_ocr2(),
+                duration_ms=round((perf_counter() - ocr2_started) * 1000, 3),
+                filtered_text=text_preview(text),
+                chunks=[text_preview(item) for item in (orig_text or [])],
+                has_geometry=bool(generated_payload),
+            )
 
             # Area-select / ad-hoc OCR (screen cropper, whole-window, secondary)
             # passes ignore_previous_result: the user explicitly chose this region,
@@ -2876,6 +3202,17 @@ class OCRProcessor:
                 )
             if is_duplicate:
                 detection_duplicate = True
+                emit_ocr_debug(
+                    debug_enabled,
+                    "delivery.suppressed",
+                    reason="post_ocr2_duplicate",
+                    threshold=ctrl.config.duplicate_threshold,
+                    comparison_mode="chunks" if ctrl.last_ocr2_result and orig_text else "text",
+                    previous_text=text_preview(ctrl.last_sent_result),
+                    candidate_text=text_preview(text),
+                    previous_chunks=[text_preview(item) for item in ctrl.last_ocr2_result],
+                    candidate_chunks=[text_preview(item) for item in (orig_text or [])],
+                )
                 if text:
                     logger.background("Duplicate text detected, skipping.")
                 return
@@ -2904,9 +3241,24 @@ class OCRProcessor:
                 response_dict=final_payload,
             )
             asyncio.run(send_result(text, time, response_dict=final_payload, source=source))
+            emit_ocr_debug(
+                debug_enabled,
+                "delivery.sent",
+                source=source,
+                text=text_preview(text),
+                has_geometry=bool(final_payload),
+                end_to_end_ms=round((perf_counter() - ocr2_started) * 1000, 3),
+            )
         except json.JSONDecodeError:
+            emit_ocr_debug(debug_enabled, "ocr2.exception", error="invalid_json")
             print("Invalid JSON received.")
         except Exception as e:
+            emit_ocr_debug(
+                debug_enabled,
+                "ocr2.exception",
+                error_type=type(e).__name__,
+                error=text_preview(e),
+            )
             logger.exception(e)
             print(f"Error processing message: {e}")
         finally:
@@ -3040,6 +3392,7 @@ def _build_two_pass_config() -> TwoPassConfig:
         ocr2_engine_readable=_resolve_engine_readable_name(ocr2_name),
         optimize_second_scan=get_ocr_optimize_second_scan(),
         text_appears_instantly=get_ocr_text_appears_instantly(),
+        advanced_debug_logging=get_ocr_advanced_debug_logging(),
         keep_newline=get_ocr_keep_newline(),
         language=get_ocr_language(),
         duplicate_threshold=get_ocr_duplicate_similarity_threshold(),
@@ -3128,6 +3481,8 @@ def _queue_second_pass_callback(
     response_dict=None,
     source=TextSource.OCR,
 ):
+    queue_id = time.monotonic_ns()
+    enqueued_at = perf_counter()
     second_ocr_queue.put(
         (
             ocr1_text,
@@ -3140,7 +3495,19 @@ def _queue_second_pass_callback(
             image_metadata,
             response_dict,
             source,
+            queue_id,
+            enqueued_at,
         )
+    )
+    emit_ocr_debug(
+        get_ocr_advanced_debug_logging(),
+        "ocr2.queue_runtime",
+        outcome="enqueued",
+        queue_id=queue_id,
+        queue_depth=second_ocr_queue.qsize(),
+        text=text_preview(ocr1_text),
+        source=source,
+        image_size=getattr(previous_img_local, "size", None),
     )
     if pre_crop_image is not None:
         try:
@@ -3208,6 +3575,18 @@ def apply_ipc_config_reload(data: dict | None = None) -> None:
 
         if section_changed:
             reload_electron_config()
+            if get_ocr_advanced_debug_logging():
+                debug_path, created = start_ocr_debug_log(get_temporary_directory(), max_files=3)
+                if created:
+                    logger.info("Advanced OCR debug log: {}", debug_path)
+            else:
+                close_ocr_debug_log()
+            emit_ocr_debug(
+                get_ocr_advanced_debug_logging(),
+                "session.config_reload",
+                changes=changes,
+                reload_area=reload_area,
+            )
             logger.info(f"IPC: OCR config changes applied: {changes}")
             hotkey_keys = {
                 "manualOcrHotkey",
@@ -3269,6 +3648,7 @@ def apply_ipc_config_reload(data: dict | None = None) -> None:
                     "language",
                     "furigana_filter_sensitivity",
                     "text_appears_instantly",
+                    "advanced_debug_logging",
                     "basic",
                     "advanced",
                 )
@@ -3401,10 +3781,22 @@ def get_ocr2_image(crop_coords, og_image: Image.Image, ocr2_engine=None, extra_p
             img = Image.open(io.BytesIO(og_image)).convert("RGB")
         except Exception:
             # If conversion fails, just return og_image as-is
+            emit_ocr_debug(
+                get_ocr_advanced_debug_logging(),
+                "ocr2.crop",
+                outcome="bytes_decode_failed",
+            )
             return og_image
 
     # If no crop coords or optimization disabled, return full image
     if not crop_coords or not get_ocr_optimize_second_scan():
+        emit_ocr_debug(
+            get_ocr_advanced_debug_logging(),
+            "ocr2.crop",
+            outcome="full_image",
+            reason="missing_coords" if not crop_coords else "optimization_disabled",
+            source_image_size=getattr(img, "size", None),
+        )
         return img
 
     # Apply cropping with padding
@@ -3430,7 +3822,19 @@ def get_ocr2_image(crop_coords, og_image: Image.Image, ocr2_engine=None, extra_p
         y2 = min(img.height, y1 + 1)
         y1 = max(0, y2 - 1)
 
-    return img.crop((x1, y1, x2, y2))
+    cropped = img.crop((x1, y1, x2, y2))
+    emit_ocr_debug(
+        get_ocr_advanced_debug_logging(),
+        "ocr2.crop",
+        outcome="cropped",
+        requested_coords=crop_coords,
+        padding=pad,
+        clamped_coords=(x1, y1, x2, y2),
+        source_image_size=getattr(img, "size", None),
+        output_image_size=getattr(cropped, "size", None),
+        engine=ocr2_engine,
+    )
+    return cropped
 
 
 def process_task_queue():
@@ -3443,7 +3847,7 @@ def process_task_queue():
             ignore_previous_result = False
             image_metadata = None
             response_dict = None
-            task = (list(task) + [None] * 10)[:10]
+            task = (list(task) + [None] * 12)[:12]
             (
                 ocr1_text,
                 stable_time,
@@ -3455,7 +3859,18 @@ def process_task_queue():
                 image_metadata,
                 response_dict,
                 source,
+                queue_id,
+                enqueued_at,
             ) = task
+            emit_ocr_debug(
+                get_ocr_advanced_debug_logging(),
+                "ocr2.queue_runtime",
+                outcome="dequeued",
+                queue_id=queue_id,
+                queue_depth=second_ocr_queue.qsize(),
+                queue_wait_ms=round((perf_counter() - enqueued_at) * 1000, 3) if enqueued_at is not None else None,
+                source=source,
+            )
             get_second_ocr_processor().do_second_ocr(
                 ocr1_text,
                 stable_time,
@@ -3477,6 +3892,10 @@ def process_task_queue():
 def _setup_ocr_process_logging(runtime_logger):
     try:
         start_ocr_process_log(runtime_logger, get_temporary_directory(), max_files=3)
+        if get_ocr_advanced_debug_logging():
+            debug_path, created = start_ocr_debug_log(get_temporary_directory(), max_files=3)
+            if created:
+                runtime_logger.info("Advanced OCR debug log: {}", debug_path)
     except Exception:
         runtime_logger.exception("Failed to initialize the dedicated OCR process log")
 

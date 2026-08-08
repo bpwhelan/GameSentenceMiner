@@ -10,14 +10,18 @@ os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")  # Suppress TensorFlow logs
 os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")  # Suppress transformers logs
 
 from GameSentenceMiner.ocr.coordinate_math import scale_percentage_rectangle_to_even_pixels
+from GameSentenceMiner.ocr.compare import compare_ocr_results
 from GameSentenceMiner.ocr.composite_layout import CompositeLayout, pack_rectangles
+from GameSentenceMiner.ocr.debug_logging import emit_ocr_debug, text_preview
 from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness, get_scene_ocr_config
 from GameSentenceMiner.util.gsm_utils import do_text_replacements, OCR_REPLACEMENTS_FILE
 from GameSentenceMiner.util.config.electron_config import (
     get_furigana_filter_sensitivity,
     get_ocr_base_scale,
+    get_ocr_advanced_debug_logging,
     get_ocr_compact_boxes,
     get_ocr_compact_boxes_gap,
+    get_ocr_duplicate_similarity_threshold,
     get_ocr_keep_newline,
     get_ocr_language,
     get_ocr_obs_capture_preprocess_mode,
@@ -3786,6 +3790,7 @@ def process_and_write_results(
     apply_area_filters=None,
 ):
     global engine_index
+    debug_enabled = get_ocr_advanced_debug_logging()
     # Area filters must run whenever we emit an automatic result, not only when
     # write_to is set. OCR2 returns via return value (write_to=None), so its caller
     # enables area filters explicitly; scene-coordinate black-hole and menu
@@ -3808,9 +3813,32 @@ def process_and_write_results(
     engine_color = config.get_general("engine_color")
 
     start_time = time.time()
+    emit_ocr_debug(
+        debug_enabled,
+        "ocr_engine.started",
+        pass_number=2 if is_second_ocr else 1,
+        engine=getattr(engine_instance, "name", engine),
+        readable_engine=getattr(engine_instance, "readable_name", ""),
+        image_size=getattr(img_or_path, "size", None),
+        furigana_filter_sensitivity=furigana_filter_sensitivity,
+        apply_area_filters=apply_area_filters,
+        source=source,
+    )
     result = engine_instance(img_or_path, furigana_filter_sensitivity)
     # logger.info(f"OCR Result from {engine_instance.readable_name}: {result}")
     res, text, coords, crop_coords_list, crop_coords, raw_response_dict = (list(result) + [None] * 6)[:6]
+    emit_ocr_debug(
+        debug_enabled,
+        "ocr_engine.raw_result",
+        pass_number=2 if is_second_ocr else 1,
+        engine=getattr(engine_instance, "name", engine),
+        success=bool(res),
+        raw_text=text_preview(text),
+        line_count=len(coords or []) if isinstance(coords, list) else 0,
+        crop_coords=crop_coords,
+        crop_line_count=len(crop_coords_list or []),
+        has_structured_response=bool(raw_response_dict),
+    )
 
     # ScreenAI can legitimately produce no detections for a frame; treat that as empty success, not an engine failure.
     if (
@@ -3827,6 +3855,13 @@ def process_and_write_results(
         raw_response_dict = None
 
     if not res and ocr_2 == engine and ocr_1 and ocr_1.lower() != engine.lower():
+        emit_ocr_debug(
+            debug_enabled,
+            "ocr_engine.fallback",
+            failed_engine=getattr(engine_instance, "name", engine),
+            fallback_engine=ocr_1,
+            error=text_preview(text),
+        )
         logger.opt(ansi=True).info(
             f"<{engine_color}>{engine_instance.readable_name}</{engine_color}> failed with message: {text}, trying <{engine_color}>{ocr_1}</{engine_color}>"
         )
@@ -3879,6 +3914,14 @@ def process_and_write_results(
                     raw_response_dict=raw_response_dict,
                 )
             ):
+                emit_ocr_debug(
+                    debug_enabled,
+                    "area_filter.suppressed",
+                    reason="black_hole",
+                    payload_type="detection",
+                    crop_coords=detection_payload.get("crop_coords"),
+                    box_count=len(detection_payload.get("boxes") or []),
+                )
                 logger.opt(ansi=True).info(BLACK_HOLE_SKIP_LOG_MESSAGE)
                 if return_payload:
                     return "", "", None
@@ -3890,6 +3933,13 @@ def process_and_write_results(
                     original_width=original_size.get("width"),
                     original_height=original_size.get("height"),
                 )
+                emit_ocr_debug(
+                    debug_enabled,
+                    "area_filter.exclusive",
+                    payload_type="detection",
+                    applied=bool(_exclusive_applied),
+                    remaining_box_count=len(detection_payload.get("boxes") or []),
+                )
             if (
                 apply_area_filters
                 and not is_second_ocr
@@ -3900,6 +3950,14 @@ def process_and_write_results(
                     crop_padding=detection_payload.get("crop_padding", 5),
                 )
             ):
+                emit_ocr_debug(
+                    debug_enabled,
+                    "area_filter.suppressed",
+                    reason="menu_only",
+                    payload_type="detection",
+                    crop_coords=detection_payload.get("crop_coords"),
+                    box_count=len(detection_payload.get("boxes") or []),
+                )
                 logger.opt(ansi=True).info("Text is identified as all menu items, skipping further processing.")
                 if return_payload:
                     return "", "", None
@@ -3950,6 +4008,7 @@ def process_and_write_results(
         )
         if rebuilt_text is not None:
             text = rebuilt_text
+        text_before_area_filters = text_preview(text)
 
         pipeline_metadata = _build_pipeline_metadata(
             image_metadata,
@@ -3969,6 +4028,15 @@ def process_and_write_results(
                 raw_response_dict=raw_response_dict,
             )
         ):
+            emit_ocr_debug(
+                debug_enabled,
+                "area_filter.suppressed",
+                reason="black_hole",
+                payload_type="text",
+                text=text_before_area_filters,
+                crop_coords=crop_coords,
+                line_count=len(crop_coords_list or []),
+            )
             logger.opt(ansi=True).info(BLACK_HOLE_SKIP_LOG_MESSAGE)
             if return_payload:
                 return "", "", None
@@ -3986,20 +4054,77 @@ def process_and_write_results(
                     original_height=original_size.get("height"),
                 )
             )
+            emit_ocr_debug(
+                debug_enabled,
+                "area_filter.exclusive",
+                payload_type="text",
+                applied=bool(_exclusive_applied),
+                before=text_before_area_filters,
+                after=text_preview(text),
+            )
 
+        text_before_replacements = text_preview(text)
         if isinstance(text, list):
             for i, line in enumerate(text):
                 text[i] = do_configured_ocr_replacements(line)
         else:
             text = do_configured_ocr_replacements(text)
+        text_after_replacements = text_preview(text)
 
+        raw_text_was_empty = not text or (isinstance(text, str) and not text.strip())
         raw_text_for_callback = str(text) if text is not None else ""
 
         if filtering:
             text, orig_text = filtering(text, last_result, engine=engine, is_second_ocr=is_second_ocr)
+        text_after_filtering = text_preview(text)
         ocr_language = get_ocr_language()
         if ocr_language in ("ja", "zh"):
             text = post_process(text, keep_blank_lines=get_ocr_keep_newline(source))
+
+        previous_chunks = []
+        if isinstance(last_result, list):
+            previous_chunks = last_result
+        elif (
+            isinstance(last_result, tuple)
+            and len(last_result) >= 2
+            and last_result[1] == engine_index
+            and isinstance(last_result[0], list)
+        ):
+            previous_chunks = last_result[0]
+
+        duplicate_suppressed_by_coverage = bool(
+            text
+            and previous_chunks
+            and compare_ocr_results(
+                previous_chunks,
+                [text],
+                threshold=get_ocr_duplicate_similarity_threshold(),
+            )
+        )
+        if duplicate_suppressed_by_coverage:
+            emit_ocr_debug(
+                debug_enabled,
+                "filtering.duplicate_suppressed",
+                pass_number=2 if is_second_ocr else 1,
+                engine=getattr(engine_instance, "name", engine),
+                previous_chunks=[text_preview(item) for item in previous_chunks],
+                candidate=text_preview(text),
+                comparison_mode="chunk_coverage",
+            )
+            text = ""
+        emit_ocr_debug(
+            debug_enabled,
+            "filtering.pipeline",
+            pass_number=2 if is_second_ocr else 1,
+            engine=getattr(engine_instance, "name", engine),
+            before_replacements=text_before_replacements,
+            after_replacements=text_after_replacements,
+            after_text_filtering=text_after_filtering,
+            after_post_process=text_preview(text),
+            chunks=[text_preview(item) for item in (orig_text or [])],
+            language=ocr_language,
+            keep_newline=get_ocr_keep_newline(source),
+        )
         if notify and config.get_general("notifications"):
             notifier.send(title="owocr", message="Text recognized: " + text)
 
@@ -4011,13 +4136,39 @@ def process_and_write_results(
 
         if apply_area_filters and not is_second_ocr:
             if check_text_is_all_menu(crop_coords, crop_coords_list, crop_offset=current_crop_offset):
+                emit_ocr_debug(
+                    debug_enabled,
+                    "area_filter.suppressed",
+                    reason="menu_only",
+                    payload_type="text",
+                    text=text_preview(text),
+                    crop_coords=crop_coords,
+                    line_count=len(crop_coords_list or []),
+                )
                 logger.opt(ansi=True).info("Text is identified as all menu items, skipping further processing.")
                 if return_payload:
                     return orig_text, "", None
                 return orig_text, ""
 
-        logger.opt(ansi=True).info(
-            f"OCR Run {1 if not is_second_ocr else 2}: Text recognized in {end_time - start_time:0.03f}s using <{engine_color}>{engine_instance.readable_name}</{engine_color}>: {text}"
+        # OCR filtering uses the previous result to remove duplicate blocks in
+        # either pass. Suppress only that kind of empty recognition; genuinely
+        # empty raw scans (and empties caused by unrelated filters) remain visible.
+        duplicate_filtered_to_empty = duplicate_suppressed_by_coverage or (
+            bool(last_result) and not raw_text_was_empty and not text and bool(orig_text)
+        )
+        if not duplicate_filtered_to_empty:
+            logger.opt(ansi=True).info(
+                f"OCR Run {1 if not is_second_ocr else 2}: Text recognized in {end_time - start_time:0.03f}s using <{engine_color}>{engine_instance.readable_name}</{engine_color}>: {text}"
+            )
+        emit_ocr_debug(
+            debug_enabled,
+            "ocr_engine.completed",
+            pass_number=2 if is_second_ocr else 1,
+            engine=getattr(engine_instance, "name", engine),
+            duration_ms=round((end_time - start_time) * 1000, 3),
+            text=text_preview(text),
+            chunk_count=len(orig_text or []),
+            crop_coords=crop_coords,
         )
 
         callback_payload = {
@@ -4647,6 +4798,11 @@ def run(
                     ocr_start_time = ocr_start_time - timedelta(seconds=adjusted_scan_rate - base_scan_rate)
 
         if img == 0:
+            emit_ocr_debug(
+                get_ocr_advanced_debug_logging(),
+                "capture.skipped",
+                reason="capture_window_closed",
+            )
             on_window_closed(False)
             terminated = True
             break
@@ -4655,6 +4811,14 @@ def run(
                 # Cheap blank-frame detector. Skips OCR when the capture is a
                 # solid color (game minimized, OBS scene blank, etc.).
                 if _is_capture_frame_empty(img):
+                    emit_ocr_debug(
+                        get_ocr_advanced_debug_logging(),
+                        "capture.skipped",
+                        reason="empty_frame",
+                        image_size=getattr(img, "size", None),
+                        scan_rate=base_scan_rate,
+                        backoff_seconds=round(sleep_time_to_add, 3),
+                    )
                     logger.background("Image is empty (all pixels same), sleeping.")
                     max_empty_add = max(0.0, EMPTY_FRAME_SCAN_RATE_CAP - base_scan_rate)
                     if sleep_reason != "empty":
@@ -4688,6 +4852,13 @@ def run(
                     image_metadata=image_metadata,
                 )
                 if not text:
+                    emit_ocr_debug(
+                        get_ocr_advanced_debug_logging(),
+                        "ocr1.no_text",
+                        reason="engine_or_filters_returned_empty",
+                        no_text_streak=no_text_streak + 1,
+                        image_size=getattr(img, "size", None),
+                    )
                     no_text_streak += 1
                     enough_idle_time = (time.time() - last_result_time) > IDLE_BACKOFF_AFTER_SECONDS
                     if no_text_streak > 1 and (not has_seen_text_result or enough_idle_time):

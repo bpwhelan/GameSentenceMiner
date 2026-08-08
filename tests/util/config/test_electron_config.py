@@ -131,6 +131,7 @@ def test_get_ocr_values_advanced_mode(monkeypatch):
                 "twoPassOCR": False,
                 "optimize_second_scan": False,
                 "text_appears_instantly": False,
+                "advanced_debug_logging": True,
                 "manualOcrHotkey": "Alt+M",
                 "menuOcrHotkey": "Alt+G",
             }
@@ -148,6 +149,7 @@ def test_get_ocr_values_advanced_mode(monkeypatch):
     assert electron_config.get_ocr_two_pass_ocr() is False
     assert electron_config.get_ocr_optimize_second_scan() is False
     assert electron_config.get_ocr_text_appears_instantly() is False
+    assert electron_config.get_ocr_advanced_debug_logging() is True
     assert electron_config.get_ocr_manual_ocr_hotkey() == "Alt+M"
     assert electron_config.get_ocr_menu_ocr_hotkey() == "Alt+G"
 

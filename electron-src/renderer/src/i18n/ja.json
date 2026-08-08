@@ -933,6 +933,7 @@
     },
     "debug": {
       "title": "追加＆デバッグツール",
+      "advancedDebugLogging": "高度なデバッグログ:",
       "ignoreRun1Logs": "「OCR Run 1」ログを無視:",
       "processPriority": "プロセス優先度:",
       "defaultFuriganaSensitivity": "デフォルトふりがな感度:",
@@ -1005,6 +1006,7 @@
       "defaultSceneFurigana": "シーンにまだ保存済み設定ファイルがない場合に使用されます。既存のシーンは各自の保存値を保持します。",
       "obsCapturePreprocess": "OCRの切り抜き前にOBSスクリーンショットへ前処理を適用します。グレースケール + 自動コントラスト + アンシャープは、ノイズの多い場面の字幕OCRを改善できます。",
       "ignoreRun1Logs": "\"OCR Run 1: Text recognized...\" を含むOCR端末行を隠し、2パスOCR時の重複出力ノイズを減らします。Run 2行は緑で強調表示されたままです。",
+      "advancedDebugLogging": "OCRのキャプチャ、安定性、OCR2へのフラッシュ判断、キュー、フィルタリング、重複排除、配信を、OCR実行ごとの専用ファイルへ構造化JSON Linesとして出力します。開始時にコンソールへファイルパスを表示します。",
       "installDependency": "任意のOCR依存関係をGSM Python環境へインストールします。迷った場合は推奨オプションを選んでください。",
       "uninstallDependency": "任意のOCR依存関係をGSM Python環境から削除します。",
       "replacements": "認識後に繰り返し発生するOCRミスを修正するためのOCR置換ルールページを開きます。",

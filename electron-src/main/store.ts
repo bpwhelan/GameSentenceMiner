@@ -57,6 +57,7 @@ interface OCRConfig {
     twoPassOCR: boolean;
     optimize_second_scan: boolean;
     text_appears_instantly?: boolean;
+    advanced_debug_logging?: boolean;
     ocr1: string;
     ocr2: string;
     scanRate: number;
@@ -257,6 +258,7 @@ export const store = new Store<StoreConfig>({
             twoPassOCR: true,
             optimize_second_scan: true,
             text_appears_instantly: false,
+            advanced_debug_logging: false,
             ocr1: DEFAULT_STABILITY_OCR,
             ocr2: "glens",
             language: "ja",

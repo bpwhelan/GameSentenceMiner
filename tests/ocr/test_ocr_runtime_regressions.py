@@ -13,6 +13,96 @@ from GameSentenceMiner.owocr.owocr.ocr import post_process
 from GameSentenceMiner.owocr.owocr import ocr_runtime as run_module
 
 
+@pytest.mark.parametrize(
+    (
+        "engine",
+        "raw_text",
+        "filtered_text",
+        "filtered_blocks",
+        "previous_result",
+        "expected_text",
+        "expect_recognized_log",
+    ),
+    [
+        ("ocr2", "same text", "", ["same text"], ["same text"], "", False),
+        (
+            None,
+            "「すげー、ちゃんと電源ついた」",
+            "",
+            ["「すげー、ちゃんと電源ついた」"],
+            (["「すげー、ちゃんと電源ついた」"], 0),
+            "",
+            False,
+        ),
+        (
+            None,
+            "日格国\nR-c For BCッR >-j3-Fe O\nAng\n「すげー、ちゃんと電源ついた」",
+            "「すげー、ちゃんと電源ついた」",
+            ["日格国", "R-c For BCッR >-j3-Fe O", "「すげー、ちゃんと電源ついた」"],
+            (["日格国", "R-c For BCッR >-j3-Fe O", "「すげー、ちゃんと電源ついた」"], 0),
+            "",
+            False,
+        ),
+        ("ocr2", "", "", [], [], "", True),
+        ("ocr2", "filtered text", "", [], [], "", True),
+    ],
+    ids=[
+        "ocr2_duplicate",
+        "ocr1_duplicate",
+        "ocr1_previous_chunk_subset",
+        "raw_ocr2_output_empty",
+        "nonduplicate_filter_empty",
+    ],
+)
+def test_ocr_suppresses_empty_recognition_log_only_for_duplicate_filtering(
+    monkeypatch,
+    engine,
+    raw_text,
+    filtered_text,
+    filtered_blocks,
+    previous_result,
+    expected_text,
+    expect_recognized_log,
+):
+    class FakeOCR:
+        name = "ocr2"
+        readable_name = "OCR 2"
+
+        def __call__(self, _img, _furigana_filter_sensitivity=0):
+            return True, raw_text, [], [], None, None
+
+    info_messages = []
+    log_sink = SimpleNamespace(info=lambda message, *_args, **_kwargs: info_messages.append(message))
+
+    monkeypatch.setattr(
+        run_module,
+        "config",
+        SimpleNamespace(get_general=lambda key: {"engine_color": "cyan", "notifications": False}.get(key)),
+    )
+    monkeypatch.setattr(run_module, "logger", SimpleNamespace(opt=lambda **_kwargs: log_sink))
+    monkeypatch.setattr(run_module, "engine_instances", [FakeOCR()], raising=False)
+    monkeypatch.setattr(run_module, "engine_index", 0, raising=False)
+    monkeypatch.setattr(run_module, "auto_pause_handler", None, raising=False)
+    monkeypatch.setattr(run_module, "get_ocr_language", lambda: "en")
+    monkeypatch.setattr(run_module, "get_ocr_advanced_debug_logging", lambda: False)
+    monkeypatch.setattr(run_module, "do_configured_ocr_replacements", lambda text: text)
+
+    _orig_text, returned_text, _payload = run_module.process_and_write_results(
+        Image.new("RGB", (2, 2), color=0),
+        last_result=previous_result,
+        filtering=lambda *_args, **_kwargs: (filtered_text, filtered_blocks),
+        engine=engine,
+        return_payload=True,
+    )
+
+    assert returned_text == expected_text
+    pass_number = 2 if engine else 1
+    recognized_logs = [
+        message for message in info_messages if message.startswith(f"OCR Run {pass_number}: Text recognized")
+    ]
+    assert bool(recognized_logs) is expect_recognized_log
+
+
 def test_resolve_requested_engines_prioritizes_cli_values():
     engines = run_module._resolve_requested_engines(
         "meikiocr",
