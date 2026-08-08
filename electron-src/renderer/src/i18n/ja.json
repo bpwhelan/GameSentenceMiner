@@ -575,7 +575,19 @@
         "automaticHoverHint": "カーソルを日本語テキストに合わせると自動的に検索します。",
         "hideDelay": "ポップアップを閉じるまでの時間",
         "hideDelayHint": "単語から定義へカーソルを移動するときもポップアップを操作できます。",
-        "milliseconds": "ミリ秒"
+        "milliseconds": "ミリ秒",
+        "definitionBlur": {
+          "title": "繰り返し検索した定義をぼかす",
+          "hint": "同じ単語の検索回数がしきい値に達すると、定義のみをぼかします。",
+          "threshold": "検索回数のしきい値",
+          "lookups": "回",
+          "reveal": "定義の表示方法",
+          "timed": "一定時間後",
+          "hover": "ホバー時",
+          "delay": "表示までの時間",
+          "seconds": "秒",
+          "delayHint": "ポップアップを表示してから定義を表示するまでの時間です。"
+        }
       },
       "saveStatus": {
         "saving": "保存中...",

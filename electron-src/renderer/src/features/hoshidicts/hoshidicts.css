@@ -297,7 +297,8 @@
 }
 
 .hoshidicts-reader-mode small,
-.hoshidicts-reader-delay small {
+.hoshidicts-reader-delay small,
+.hoshidicts-definition-blur small {
   color: var(--gsm-text-muted);
   font-size: 0.78rem;
   font-weight: 400;
@@ -319,6 +320,57 @@
 }
 
 .hoshidicts-reader-delay input {
+  width: 130px;
+}
+
+.hoshidicts-definition-blur {
+  display: grid;
+  gap: 14px;
+  padding-top: 16px;
+  border-top: 1px solid var(--gsm-border-default);
+}
+
+.hoshidicts-definition-blur__toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.hoshidicts-definition-blur__toggle input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: var(--gsm-accent);
+}
+
+.hoshidicts-definition-blur__toggle span {
+  display: grid;
+  gap: 4px;
+}
+
+.hoshidicts-definition-blur__controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.hoshidicts-definition-blur__controls > label {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  color: var(--gsm-text-secondary);
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.hoshidicts-definition-blur__number {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.hoshidicts-definition-blur__number input {
   width: 130px;
 }
 
@@ -591,7 +643,8 @@
 
   .hoshidicts-section--toolbar,
   .hoshidicts-mining-grid,
-  .hoshidicts-reader-mode {
+  .hoshidicts-reader-mode,
+  .hoshidicts-definition-blur__controls {
     grid-template-columns: 1fr;
   }
 

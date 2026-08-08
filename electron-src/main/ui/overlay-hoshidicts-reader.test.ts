@@ -46,7 +46,11 @@ function loadReaderModule(window: Window) {
   return readerModule.exports;
 }
 
-function runOverlayFeatureBootstrap(enabled: boolean, lookupMode?: string) {
+function runOverlayFeatureBootstrap(
+  enabled: boolean,
+  lookupMode?: string,
+  definitionBlurEnv: Record<string, string | undefined> = {}
+) {
   const html = fs.readFileSync(
     path.resolve(process.cwd(), "GSM_Overlay/index.html"),
     "utf8"
@@ -68,7 +72,8 @@ function runOverlayFeatureBootstrap(enabled: boolean, lookupMode?: string) {
     process: {
       env: {
         GSM_HOSHIDICTS_ENABLED: enabled ? "1" : "0",
-        GSM_HOSHIDICTS_LOOKUP_MODE: lookupMode
+        GSM_HOSHIDICTS_LOOKUP_MODE: lookupMode,
+        ...definitionBlurEnv
       }
     },
     window
@@ -76,7 +81,15 @@ function runOverlayFeatureBootstrap(enabled: boolean, lookupMode?: string) {
   return { addClass, documentElement, window };
 }
 
-function runHoshidictsReaderConfiguration(lookupMode: string) {
+function runHoshidictsReaderConfiguration(
+  lookupMode: string,
+  definitionBlur: Record<string, unknown> = {
+    enabled: false,
+    lookupThreshold: 5,
+    revealMode: "timed",
+    revealDelayMs: 5000
+  }
+) {
   const html = fs.readFileSync(
     path.resolve(process.cwd(), "GSM_Overlay/index.html"),
     "utf8"
@@ -93,8 +106,11 @@ function runHoshidictsReaderConfiguration(lookupMode: string) {
   const createHoshidictsLookupStatsClient = vi.fn(() => ({
     record: recordLookup
   }));
+  const ipcListeners = new Map<string, (...args: any[]) => void>();
   const window = {
+    gsmHoshidictsDefinitionBlur: definitionBlur,
     gsmHoshidictsLookupMode: lookupMode,
+    gsmHoshidictsPopupHideDelayMs: 300,
     gsmHoshidictsReaderEnabled: true,
     GSMHoshidictsReader: {
       createHoshidictsMiningClient: vi.fn(() => ({
@@ -108,7 +124,11 @@ function runHoshidictsReaderConfiguration(lookupMode: string) {
   } as Record<string, any>;
   const context = {
     console,
-    ipcRenderer: { on: vi.fn() },
+    ipcRenderer: {
+      on: vi.fn((channel: string, listener: (...args: any[]) => void) => {
+        ipcListeners.set(channel, listener);
+      })
+    },
     window
   } as Record<string, any>;
   vm.runInNewContext(script, context, {
@@ -119,9 +139,31 @@ function runHoshidictsReaderConfiguration(lookupMode: string) {
   return {
     createHoshidictsLookupStatsClient,
     createHoshidictsReader,
+    emitPreferences(preferences: unknown) {
+      ipcListeners.get("hoshidicts-reader-preferences")?.({}, preferences);
+    },
     recordLookup,
     window
   };
+}
+
+function loadOverlayMainReaderPreferencesNormalizer() {
+  const source = fs.readFileSync(
+    path.resolve(process.cwd(), "GSM_Overlay/main.js"),
+    "utf8"
+  );
+  const start = source.indexOf("function normalizeHoshidictsReaderPreferences");
+  const end = source.indexOf("\n\nconst IN_PROCESS_OVERLAY", start);
+  if (start < 0 || end < 0) {
+    throw new Error("Unable to find the overlay reader preference normalizer");
+  }
+  const context = {} as Record<string, any>;
+  vm.runInNewContext(source.slice(start, end), context, {
+    filename: "GSM_Overlay/main.js#normalizeHoshidictsReaderPreferences"
+  });
+  return context.normalizeHoshidictsReaderPreferences as (
+    preferences: unknown
+  ) => unknown;
 }
 
 function loadHoshidictsSettingsLinkWiring() {
@@ -320,6 +362,16 @@ async function flushPromises() {
   }
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
+}
+
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -371,7 +423,15 @@ describe("Hoshidicts safe popup rendering", () => {
 
     const configured = runHoshidictsReaderConfiguration("hover");
     expect(configured.createHoshidictsReader).toHaveBeenCalledWith(
-      expect.objectContaining({ lookupMode: "hover" })
+      expect.objectContaining({
+        lookupMode: "hover",
+        definitionBlur: {
+          enabled: false,
+          lookupThreshold: 5,
+          revealMode: "timed",
+          revealDelayMs: 5000
+        }
+      })
     );
     expect(configured.createHoshidictsLookupStatsClient).toHaveBeenCalledWith({
       baseUrl: "http://127.0.0.1:7275"
@@ -382,6 +442,99 @@ describe("Hoshidicts safe popup rendering", () => {
       term: "食べる",
       reading: "たべる"
     });
+  });
+
+  it("parses definition blur launch preferences with safe defaults", () => {
+    const configured = runOverlayFeatureBootstrap(true, "shift", {
+      GSM_HOSHIDICTS_DEFINITION_BLUR_ENABLED: "1",
+      GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD: "12",
+      GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_MODE: "hover",
+      GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS: "9000"
+    });
+    expect(configured.window.gsmHoshidictsDefinitionBlur).toEqual({
+      enabled: true,
+      lookupThreshold: 12,
+      revealMode: "hover",
+      revealDelayMs: 9000
+    });
+
+    const invalid = runOverlayFeatureBootstrap(true, "shift", {
+      GSM_HOSHIDICTS_DEFINITION_BLUR_ENABLED: "yes",
+      GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD: "12invalid",
+      GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_MODE: "invalid",
+      GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS: "3600001"
+    });
+    expect(invalid.window.gsmHoshidictsDefinitionBlur).toEqual({
+      enabled: false,
+      lookupThreshold: 5,
+      revealMode: "timed",
+      revealDelayMs: 5000
+    });
+  });
+
+  it("applies only valid live definition blur preferences", () => {
+    const reader = {
+      updatePreferences: vi.fn()
+    };
+    const configured = runHoshidictsReaderConfiguration("shift");
+    configured.window.gsmHoshidictsReader = reader;
+
+    configured.emitPreferences({
+      lookupMode: "hover",
+      popupHideDelayMs: 800,
+      definitionBlur: {
+        enabled: true,
+        lookupThreshold: 7,
+        revealMode: "hover",
+        revealDelayMs: 6000
+      }
+    });
+    expect(reader.updatePreferences).toHaveBeenLastCalledWith({
+      lookupMode: "hover",
+      popupHideDelayMs: 800,
+      definitionBlur: {
+        enabled: true,
+        lookupThreshold: 7,
+        revealMode: "hover",
+        revealDelayMs: 6000
+      }
+    });
+
+    configured.emitPreferences({
+      lookupMode: "shift",
+      popupHideDelayMs: 300,
+      definitionBlur: {
+        enabled: true,
+        lookupThreshold: 0,
+        revealMode: "timed",
+        revealDelayMs: 5000
+      }
+    });
+    expect(reader.updatePreferences).toHaveBeenCalledTimes(1);
+    expect(configured.window.gsmHoshidictsLookupMode).toBe("hover");
+  });
+
+  it("validates the whole reader preference payload in overlay main", () => {
+    const normalize = loadOverlayMainReaderPreferencesNormalizer();
+    const preferences = {
+      lookupMode: "hover",
+      popupHideDelayMs: 800,
+      definitionBlur: {
+        enabled: true,
+        lookupThreshold: 5,
+        revealMode: "timed",
+        revealDelayMs: 5000
+      }
+    };
+    expect(normalize(preferences)).toEqual(preferences);
+    expect(normalize({
+      ...preferences,
+      definitionBlur: { ...preferences.definitionBlur, lookupThreshold: 0 }
+    })).toBeNull();
+    expect(normalize({
+      ...preferences,
+      definitionBlur: { ...preferences.definitionBlur, revealDelayMs: 3_600_001 }
+    })).toBeNull();
   });
 
   it("renders plain HTML-like glossary text literally and allows only text tags", () => {
@@ -519,6 +672,378 @@ describe("Hoshidicts safe popup rendering", () => {
       })
     );
   });
+
+  it("serializes lookup-stat writes per canonical term while keeping other terms concurrent", async () => {
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = deferred<Response>();
+    const different = deferred<Response>();
+    const second = deferred<Response>();
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => different.promise)
+      .mockImplementationOnce(() => second.promise);
+    const response = (lookupCount: number) => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, lookupCount })
+    }) as Response;
+    const client = api.createHoshidictsLookupStatsClient({
+      baseUrl: "http://127.0.0.1:8123",
+      fetch: fetchMock
+    });
+
+    const firstLookup = client.record({ term: " が ", reading: " ガ " });
+    const secondLookup = client.record({ term: "か\u3099", reading: "カ\u3099" });
+    const differentLookup = client.record({ term: "飲む", reading: "のむ" });
+    await flushPromises();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    first.resolve(response(4));
+    different.resolve(response(1));
+    await expect(firstLookup).resolves.toMatchObject({ lookupCount: 4 });
+    await expect(differentLookup).resolves.toMatchObject({ lookupCount: 1 });
+    await flushPromises();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[0][1]).toEqual(expect.objectContaining({
+      body: JSON.stringify({ term: "が", reading: "ガ" })
+    }));
+    expect(fetchMock.mock.calls[2][1]).toEqual(expect.objectContaining({
+      body: JSON.stringify({ term: "が", reading: "ガ" })
+    }));
+
+    second.resolve(response(5));
+    await expect(secondLookup).resolves.toMatchObject({ lookupCount: 5 });
+  });
+});
+
+describe("Hoshidicts definition blur", () => {
+  it("renders every definition pending and fails open below the lookup threshold", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const lookupRecord = deferred<{ success: boolean; lookupCount: number }>();
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      definitionBlur: {
+        enabled: true,
+        lookupThreshold: 5,
+        revealMode: "timed",
+        revealDelayMs: 5000
+      },
+      onLookup: () => lookupRecord.promise,
+      logger: { debug() {}, info() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const request = JSON.parse(socket.sent.at(-1)!);
+    const response = lookupResult(request.requestId, "食べる");
+    response.results[0].term.glossaries.push({
+      dictionary: "Second dictionary",
+      glossary: "consume",
+      definitionTags: "",
+      termTags: ""
+    });
+    response.results = Array.from({ length: 7 }, (_, index) => ({
+      ...response.results[0],
+      term: {
+        ...response.results[0].term,
+        expression: `語${index}`,
+        reading: `ご${index}`
+      }
+    }));
+    socket.receive(response);
+
+    const popup = reader.getPopupElement();
+    const definitions = Array.from<HTMLElement>(
+      popup.querySelectorAll(".gsm-hoshidicts-definitions")
+    );
+    expect(definitions).toHaveLength(14);
+    expect(popup.querySelectorAll(".gsm-hoshidicts-entry[hidden]")).toHaveLength(1);
+    expect(definitions.every(
+      (element) => element.dataset.definitionBlurState === "pending"
+    )).toBe(true);
+    expect(popup.querySelector(".gsm-hoshidicts-expression")).not.toBeNull();
+    expect(popup.querySelector(".gsm-hoshidicts-expression")?.closest(
+      ".gsm-hoshidicts-definitions"
+    )).toBeNull();
+    expect(popup.querySelector("summary")?.textContent).toBe("JMdict");
+
+    lookupRecord.resolve({ success: true, lookupCount: 4 });
+    await flushPromises();
+    expect(definitions.every(
+      (element) => element.dataset.definitionBlurState === undefined
+    )).toBe(true);
+    reader.destroy();
+  });
+
+  it("reveals at the timed deadline measured from popup display at the threshold", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const lookupRecord = deferred<{ success: boolean; lookupCount: number }>();
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      definitionBlur: {
+        enabled: true,
+        lookupThreshold: 5,
+        revealMode: "timed",
+        revealDelayMs: 5000
+      },
+      onLookup: () => lookupRecord.promise,
+      logger: { debug() {}, info() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const request = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(request.requestId, "食べる"));
+    const definitions = reader.getPopupElement().querySelector<HTMLElement>(
+      ".gsm-hoshidicts-definitions"
+    )!;
+    expect(definitions.dataset.definitionBlurState).toBe("pending");
+
+    await vi.advanceTimersByTimeAsync(3000);
+    lookupRecord.resolve({ success: true, lookupCount: 5 });
+    await flushPromises();
+    expect(definitions.dataset.definitionBlurState).toBe("blurred");
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(definitions.dataset.definitionBlurState).toBe("blurred");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(definitions.dataset.definitionBlurState).toBeUndefined();
+
+    reader.hide("next-lookup");
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const nextRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(nextRequest.requestId, "食べる"));
+    await flushPromises();
+    const nextDefinitions = reader.getPopupElement().querySelector<HTMLElement>(
+      ".gsm-hoshidicts-definitions"
+    )!;
+    expect(nextDefinitions.dataset.definitionBlurState).toBe("blurred");
+    reader.updatePreferences({ definitionBlur: { enabled: false } });
+    expect(nextDefinitions.dataset.definitionBlurState).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(nextDefinitions.dataset.definitionBlurState).toBeUndefined();
+    reader.destroy();
+  });
+
+  it("lets the timed deadline win over a slow lookup-count response", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const lookupRecord = deferred<{ success: boolean; lookupCount: number }>();
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      definitionBlur: {
+        enabled: true,
+        lookupThreshold: 5,
+        revealMode: "timed",
+        revealDelayMs: 1000
+      },
+      onLookup: () => lookupRecord.promise,
+      logger: { debug() {}, info() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const request = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(request.requestId, "食べる"));
+    const definitions = reader.getPopupElement().querySelector<HTMLElement>(
+      ".gsm-hoshidicts-definitions"
+    )!;
+    expect(definitions.dataset.definitionBlurState).toBe("pending");
+
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(definitions.dataset.definitionBlurState).toBeUndefined();
+
+    lookupRecord.resolve({ success: true, lookupCount: 5 });
+    await flushPromises();
+    expect(definitions.dataset.definitionBlurState).toBeUndefined();
+    reader.destroy();
+  });
+
+  it("permanently reveals every definition when one is hovered", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      definitionBlur: {
+        enabled: true,
+        lookupThreshold: 5,
+        revealMode: "hover",
+        revealDelayMs: 5000
+      },
+      onLookup: async () => ({ success: true, lookupCount: 8 }),
+      logger: { debug() {}, info() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const request = JSON.parse(socket.sent.at(-1)!);
+    const response = lookupResult(request.requestId, "食べる");
+    response.results[0].term.glossaries.push({
+      dictionary: "Second dictionary",
+      glossary: "consume",
+      definitionTags: "",
+      termTags: ""
+    });
+    socket.receive(response);
+    await flushPromises();
+
+    const definitions = Array.from<HTMLElement>(
+      reader.getPopupElement().querySelectorAll(".gsm-hoshidicts-definitions")
+    );
+    expect(definitions.every(
+      (element) => element.dataset.definitionBlurState === "blurred"
+    )).toBe(true);
+    reader.updatePreferences({
+      definitionBlur: {
+        enabled: true,
+        lookupThreshold: 5,
+        revealMode: "timed",
+        revealDelayMs: 1000
+      }
+    });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(definitions.every(
+      (element) => element.dataset.definitionBlurState === "blurred"
+    )).toBe(true);
+    definitions[1].dispatchEvent(new dom.window.Event("pointerover", { bubbles: true }));
+    definitions[1].dispatchEvent(new dom.window.Event("pointerout", { bubbles: true }));
+    expect(definitions.every(
+      (element) => element.dataset.definitionBlurState === undefined
+    )).toBe(true);
+    reader.destroy();
+  });
+
+  it("fails open on a lookup-stat error and ignores a stale popup response", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const staleRecord = deferred<{ success: boolean; lookupCount: number }>();
+    const currentRecord = deferred<{ success: boolean; lookupCount: number }>();
+    const onLookup = vi.fn()
+      .mockReturnValueOnce(staleRecord.promise)
+      .mockReturnValueOnce(currentRecord.promise);
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      definitionBlur: {
+        enabled: true,
+        lookupThreshold: 5,
+        revealMode: "timed",
+        revealDelayMs: 5000
+      },
+      onLookup,
+      logger: { debug() {}, info() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    const moveToFirst = () => first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+
+    moveToFirst();
+    await vi.advanceTimersByTimeAsync(20);
+    let request = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(request.requestId, "old"));
+    expect(reader.getPopupElement().querySelector<HTMLElement>(
+      ".gsm-hoshidicts-definitions"
+    )?.dataset.definitionBlurState).toBe("pending");
+
+    reader.hide("replaced");
+    moveToFirst();
+    await vi.advanceTimersByTimeAsync(20);
+    request = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(request.requestId, "new"));
+    currentRecord.resolve({ success: true, lookupCount: 5 });
+    await flushPromises();
+    const currentDefinitions = reader.getPopupElement().querySelector<HTMLElement>(
+      ".gsm-hoshidicts-definitions"
+    )!;
+    expect(currentDefinitions.dataset.definitionBlurState).toBe("blurred");
+
+    staleRecord.resolve({ success: true, lookupCount: 1 });
+    await flushPromises();
+    expect(currentDefinitions.dataset.definitionBlurState).toBe("blurred");
+
+    reader.hide("network-error");
+    onLookup.mockRejectedValueOnce(new Error("offline"));
+    moveToFirst();
+    await vi.advanceTimersByTimeAsync(20);
+    request = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(request.requestId, "error"));
+    await flushPromises();
+    expect(reader.getPopupElement().querySelector<HTMLElement>(
+      ".gsm-hoshidicts-definitions"
+    )?.dataset.definitionBlurState).toBeUndefined();
+
+    reader.hide("invalid-response");
+    onLookup.mockResolvedValueOnce({ success: true, lookupCount: "five" });
+    moveToFirst();
+    await vi.advanceTimersByTimeAsync(20);
+    request = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(request.requestId, "invalid"));
+    await flushPromises();
+    expect(reader.getPopupElement().querySelector<HTMLElement>(
+      ".gsm-hoshidicts-definitions"
+    )?.dataset.definitionBlurState).toBeUndefined();
+    reader.destroy();
+  });
 });
 
 describe("Hoshidicts Shift-hover scanner", () => {
@@ -567,6 +1092,9 @@ describe("Hoshidicts Shift-hover scanner", () => {
       term: "食べる",
       reading: "たべる"
     });
+    expect(reader.getPopupElement().querySelector<HTMLElement>(
+      ".gsm-hoshidicts-definitions"
+    )?.dataset.definitionBlurState).toBeUndefined();
     reader.destroy();
   });
 
@@ -1126,14 +1654,44 @@ describe("Hoshidicts Shift-hover scanner", () => {
 
     expect(reader.getPreferences()).toEqual({
       lookupMode: "shift",
-      popupHideDelayMs: 300
+      popupHideDelayMs: 300,
+      definitionBlur: {
+        enabled: false,
+        lookupThreshold: 5,
+        revealMode: "timed",
+        revealDelayMs: 5000
+      }
     });
     expect(
-      reader.updatePreferences({ lookupMode: "hover", popupHideDelayMs: 9000 })
-    ).toEqual({ lookupMode: "hover", popupHideDelayMs: 5000 });
+      reader.updatePreferences({
+        lookupMode: "hover",
+        popupHideDelayMs: 9000,
+        definitionBlur: {
+          enabled: true,
+          lookupThreshold: 2_000_000,
+          revealMode: "hover",
+          revealDelayMs: 20
+        }
+      })
+    ).toEqual({
+      lookupMode: "hover",
+      popupHideDelayMs: 5000,
+      definitionBlur: {
+        enabled: true,
+        lookupThreshold: 1_000_000,
+        revealMode: "hover",
+        revealDelayMs: 1000
+      }
+    });
     expect(reader.updatePreferences({ popupHideDelayMs: -20 })).toEqual({
       lookupMode: "hover",
-      popupHideDelayMs: 0
+      popupHideDelayMs: 0,
+      definitionBlur: {
+        enabled: true,
+        lookupThreshold: 1_000_000,
+        revealMode: "hover",
+        revealDelayMs: 1000
+      }
     });
     reader.destroy();
   });

@@ -1,6 +1,11 @@
 import {
+  DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
   DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+  MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
+  MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+  MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
+  MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
   type HoshidictsDesktopSnapshot,
   type HoshidictsMiningFieldName,
   type HoshidictsMiningFields,
@@ -8,6 +13,7 @@ import {
   type HoshidictsMiningProfile,
   type HoshidictsProgressPhase,
   type HoshidictsRecommendedDictionaryId,
+  type HoshidictsReaderPreferences,
   type HoshidictsSchedule
 } from "../../../../shared/features/hoshidicts";
 
@@ -95,6 +101,7 @@ const DEFAULT_STATE: HoshidictsDesktopSnapshot = {
   miningProfile: DEFAULT_MINING_PROFILE,
   lookupMode: "shift",
   popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+  definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
   schedule: "off",
   lastCheck: null,
   nextCheck: null,
@@ -195,12 +202,48 @@ export function normalizeMiningOptions(value: unknown): HoshidictsMiningOptions 
   };
 }
 
+export function normalizeDefinitionBlur(
+  value: unknown
+): HoshidictsReaderPreferences["definitionBlur"] {
+  if (!value || typeof value !== "object") {
+    return { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR };
+  }
+
+  const candidate = value as Partial<
+    HoshidictsReaderPreferences["definitionBlur"]
+  >;
+  const lookupThreshold =
+    Number.isInteger(candidate.lookupThreshold) &&
+    (candidate.lookupThreshold as number) >=
+      MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD &&
+    (candidate.lookupThreshold as number) <=
+      MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD
+      ? (candidate.lookupThreshold as number)
+      : DEFAULT_HOSHIDICTS_DEFINITION_BLUR.lookupThreshold;
+  const revealDelayMs =
+    Number.isInteger(candidate.revealDelayMs) &&
+    (candidate.revealDelayMs as number) >=
+      MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS &&
+    (candidate.revealDelayMs as number) <=
+      MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS
+      ? (candidate.revealDelayMs as number)
+      : DEFAULT_HOSHIDICTS_DEFINITION_BLUR.revealDelayMs;
+
+  return {
+    enabled: candidate.enabled === true,
+    lookupThreshold,
+    revealMode: candidate.revealMode === "hover" ? "hover" : "timed",
+    revealDelayMs
+  };
+}
+
 export function normalizeHoshidictsDesktopState(
   value: unknown
 ): HoshidictsDesktopSnapshot {
   if (!value || typeof value !== "object") {
     return {
       ...DEFAULT_STATE,
+      definitionBlur: { ...DEFAULT_STATE.definitionBlur },
       miningProfile: copyMiningProfile(),
       recommendedDictionaries: DEFAULT_STATE.recommendedDictionaries.map(
         (dictionary) => ({ ...dictionary })
@@ -260,6 +303,7 @@ export function normalizeHoshidictsDesktopState(
     miningProfile: normalizeMiningProfile(candidate.miningProfile),
     lookupMode: candidate.lookupMode === "hover" ? "hover" : "shift",
     popupHideDelayMs,
+    definitionBlur: normalizeDefinitionBlur(candidate.definitionBlur),
     schedule,
     lastCheck:
       typeof candidate.lastCheck === "string" ? candidate.lastCheck : null,

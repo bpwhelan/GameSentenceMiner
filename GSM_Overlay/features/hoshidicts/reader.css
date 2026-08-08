@@ -265,6 +265,19 @@ html.gsm-hoshidicts-enabled iframe.yomitan-popup {
 .gsm-hoshidicts-definitions {
   margin: 4px 0 0;
   padding-left: 22px;
+  transition: filter 120ms ease-out;
+}
+
+.gsm-hoshidicts-definitions[data-definition-blur-state="pending"],
+.gsm-hoshidicts-definitions[data-definition-blur-state="blurred"] {
+  filter: blur(5px);
+  user-select: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gsm-hoshidicts-definitions {
+    transition: none;
+  }
 }
 
 .gsm-hoshidicts-definitions > li {

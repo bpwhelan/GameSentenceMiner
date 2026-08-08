@@ -26,8 +26,13 @@ export const HOSHIDICTS_READER_CLIENT_ID = 'overlay.hoshidicts-reader';
 
 export type HoshidictsSchedule = 'off' | 'daily' | 'weekly' | 'monthly';
 export type HoshidictsLookupMode = 'shift' | 'hover';
+export type HoshidictsDefinitionBlurRevealMode = 'timed' | 'hover';
 export const DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS = 300;
 export const MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS = 5000;
+export const MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD = 1;
+export const MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD = 1_000_000;
+export const MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS = 1000;
+export const MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS = 3_600_000;
 export type HoshidictsRecommendedDictionaryId = 'jmdict' | 'jmnedict';
 export type HoshidictsMoveDirection = -1 | 1;
 export type HoshidictsDuplicatePolicy = 'prevent' | 'allow';
@@ -51,9 +56,24 @@ export interface HoshidictsMiningFields {
 
 export type HoshidictsMiningFieldName = keyof HoshidictsMiningFields;
 
+export interface HoshidictsDefinitionBlurPreferences {
+    enabled: boolean;
+    lookupThreshold: number;
+    revealMode: HoshidictsDefinitionBlurRevealMode;
+    revealDelayMs: number;
+}
+
+export const DEFAULT_HOSHIDICTS_DEFINITION_BLUR = {
+    enabled: false,
+    lookupThreshold: 5,
+    revealMode: 'timed',
+    revealDelayMs: 5000,
+} as const satisfies HoshidictsDefinitionBlurPreferences;
+
 export interface HoshidictsReaderPreferences {
     lookupMode: HoshidictsLookupMode;
     popupHideDelayMs: number;
+    definitionBlur: HoshidictsDefinitionBlurPreferences;
 }
 
 export interface HoshidictsMiningProfile {
@@ -113,6 +133,7 @@ export interface HoshidictsManagerSnapshot {
     miningProfile: HoshidictsMiningProfile;
     lookupMode: HoshidictsLookupMode;
     popupHideDelayMs: number;
+    definitionBlur: HoshidictsDefinitionBlurPreferences;
     schedule: HoshidictsSchedule;
     lastCheck: string | null;
     nextCheck: string | null;

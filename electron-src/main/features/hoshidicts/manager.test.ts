@@ -529,8 +529,8 @@ describe('Hoshidicts mining profile', () => {
     });
 });
 
-describe('Hoshidicts lookup mode', () => {
-    it('loads manifests created before lookup mode was introduced as Shift', async () => {
+describe('Hoshidicts reader preferences', () => {
+    it('loads legacy manifests with reader defaults', async () => {
         const baseDir = makeTempDir();
         const { manager } = createHarness(baseDir);
         fs.mkdirSync(path.dirname(manager.manifestPath), { recursive: true });
@@ -547,26 +547,68 @@ describe('Hoshidicts lookup mode', () => {
             'utf8'
         );
 
-        expect((await manager.getSnapshot()).lookupMode).toBe('shift');
+        expect(await manager.getSnapshot()).toMatchObject({
+            lookupMode: 'shift',
+            popupHideDelayMs: 300,
+            definitionBlur: {
+                enabled: false,
+                lookupThreshold: 5,
+                revealMode: 'timed',
+                revealDelayMs: 5000,
+            },
+        });
     });
 
-    it('defaults new state to Shift and persists hover lookup', async () => {
+    it('defaults new state and persists reader preferences atomically', async () => {
         const baseDir = makeTempDir();
         const { manager } = createHarness(baseDir);
 
         expect((await manager.getSnapshot()).lookupMode).toBe('shift');
         expect((await manager.getSnapshot()).popupHideDelayMs).toBe(300);
+        expect((await manager.getSnapshot()).definitionBlur).toEqual({
+            enabled: false,
+            lookupThreshold: 5,
+            revealMode: 'timed',
+            revealDelayMs: 5000,
+        });
 
-        const snapshot = await manager.setReaderPreferences('hover', 850);
+        const snapshot = await manager.setReaderPreferences({
+            lookupMode: 'hover',
+            popupHideDelayMs: 850,
+            definitionBlur: {
+                enabled: true,
+                lookupThreshold: 8,
+                revealMode: 'hover',
+                revealDelayMs: 7000,
+            },
+        });
 
         expect(snapshot.lookupMode).toBe('hover');
         expect(snapshot.popupHideDelayMs).toBe(850);
+        expect(snapshot.definitionBlur).toEqual({
+            enabled: true,
+            lookupThreshold: 8,
+            revealMode: 'hover',
+            revealDelayMs: 7000,
+        });
         expect(readManifest(baseDir).lookupMode).toBe('hover');
         expect(readManifest(baseDir).popupHideDelayMs).toBe(850);
+        expect(readManifest(baseDir).definitionBlur).toEqual({
+            enabled: true,
+            lookupThreshold: 8,
+            revealMode: 'hover',
+            revealDelayMs: 7000,
+        });
 
         const reloaded = createHarness(baseDir).manager;
         expect((await reloaded.getSnapshot()).lookupMode).toBe('hover');
         expect((await reloaded.getSnapshot()).popupHideDelayMs).toBe(850);
+        expect((await reloaded.getSnapshot()).definitionBlur).toEqual({
+            enabled: true,
+            lookupThreshold: 8,
+            revealMode: 'hover',
+            revealDelayMs: 7000,
+        });
     });
 
     it('rejects unsupported lookup modes', async () => {
@@ -582,12 +624,78 @@ describe('Hoshidicts lookup mode', () => {
         const baseDir = makeTempDir();
         const { manager } = createHarness(baseDir);
 
-        await expect(manager.setReaderPreferences('hover', -1)).rejects.toThrow(
-            'hide delay is invalid'
-        );
-        await expect(manager.setReaderPreferences('hover', 5001)).rejects.toThrow(
-            'hide delay is invalid'
-        );
+        const definitionBlur = {
+            enabled: false,
+            lookupThreshold: 5,
+            revealMode: 'timed' as const,
+            revealDelayMs: 5000,
+        };
+        await expect(
+            manager.setReaderPreferences({
+                lookupMode: 'hover',
+                popupHideDelayMs: -1,
+                definitionBlur,
+            })
+        ).rejects.toThrow('hide delay is invalid');
+        await expect(
+            manager.setReaderPreferences({
+                lookupMode: 'hover',
+                popupHideDelayMs: 5001,
+                definitionBlur,
+            })
+        ).rejects.toThrow('hide delay is invalid');
+    });
+
+    it('rejects invalid definition blur preference bounds', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+        const preferences = {
+            lookupMode: 'shift' as const,
+            popupHideDelayMs: 300,
+            definitionBlur: {
+                enabled: true,
+                lookupThreshold: 5,
+                revealMode: 'timed' as const,
+                revealDelayMs: 5000,
+            },
+        };
+
+        await expect(
+            manager.setReaderPreferences({
+                ...preferences,
+                definitionBlur: {
+                    ...preferences.definitionBlur,
+                    lookupThreshold: 0,
+                },
+            })
+        ).rejects.toThrow('lookup threshold is invalid');
+        await expect(
+            manager.setReaderPreferences({
+                ...preferences,
+                definitionBlur: {
+                    ...preferences.definitionBlur,
+                    lookupThreshold: 1_000_001,
+                },
+            })
+        ).rejects.toThrow('lookup threshold is invalid');
+        await expect(
+            manager.setReaderPreferences({
+                ...preferences,
+                definitionBlur: {
+                    ...preferences.definitionBlur,
+                    revealDelayMs: 999,
+                },
+            })
+        ).rejects.toThrow('reveal delay is invalid');
+        await expect(
+            manager.setReaderPreferences({
+                ...preferences,
+                definitionBlur: {
+                    ...preferences.definitionBlur,
+                    revealDelayMs: 3_600_001,
+                },
+            })
+        ).rejects.toThrow('reveal delay is invalid');
     });
 });
 
@@ -605,7 +713,16 @@ describe('Hoshidicts snapshots', () => {
     it('preserves reader and mining preferences when dictionary hydration fails', async () => {
         const baseDir = makeTempDir();
         const { manager } = createHarness(baseDir);
-        await manager.setReaderPreferences('hover', 900);
+        await manager.setReaderPreferences({
+            lookupMode: 'hover',
+            popupHideDelayMs: 900,
+            definitionBlur: {
+                enabled: true,
+                lookupThreshold: 12,
+                revealMode: 'hover',
+                revealDelayMs: 6000,
+            },
+        });
         await manager.setMiningProfile({
             deck: 'Mining',
             model: 'Kiku',
@@ -626,6 +743,12 @@ describe('Hoshidicts snapshots', () => {
 
         expect(snapshot.lookupMode).toBe('hover');
         expect(snapshot.popupHideDelayMs).toBe(900);
+        expect(snapshot.definitionBlur).toEqual({
+            enabled: true,
+            lookupThreshold: 12,
+            revealMode: 'hover',
+            revealDelayMs: 6000,
+        });
         expect(snapshot.miningProfile).toMatchObject({
             deck: 'Mining',
             model: 'Kiku',

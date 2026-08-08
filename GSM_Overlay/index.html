@@ -25,6 +25,38 @@
     configuredHoshidictsHideDelay >= 0 &&
     configuredHoshidictsHideDelay <= 5000
   ) ? configuredHoshidictsHideDelay : 300;
+  const configuredHoshidictsDefinitionBlurThreshold = Number(
+    typeof process !== 'undefined' && process.env
+      ? process.env.GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD
+      : ''
+  );
+  const configuredHoshidictsDefinitionBlurDelay = Number(
+    typeof process !== 'undefined' && process.env
+      ? process.env.GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS
+      : ''
+  );
+  window.gsmHoshidictsDefinitionBlur = {
+    enabled: (
+      typeof process !== 'undefined' &&
+      process.env &&
+      process.env.GSM_HOSHIDICTS_DEFINITION_BLUR_ENABLED === '1'
+    ),
+    lookupThreshold: (
+      Number.isInteger(configuredHoshidictsDefinitionBlurThreshold) &&
+      configuredHoshidictsDefinitionBlurThreshold >= 1 &&
+      configuredHoshidictsDefinitionBlurThreshold <= 1000000
+    ) ? configuredHoshidictsDefinitionBlurThreshold : 5,
+    revealMode: (
+      typeof process !== 'undefined' &&
+      process.env &&
+      process.env.GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_MODE === 'hover'
+    ) ? 'hover' : 'timed',
+    revealDelayMs: (
+      Number.isInteger(configuredHoshidictsDefinitionBlurDelay) &&
+      configuredHoshidictsDefinitionBlurDelay >= 1000 &&
+      configuredHoshidictsDefinitionBlurDelay <= 3600000
+    ) ? configuredHoshidictsDefinitionBlurDelay : 5000,
+  };
   if (window.gsmHoshidictsReaderEnabled) {
     document.documentElement.classList.add('gsm-hoshidicts-enabled');
     document.documentElement.dataset.gsmHoshidictsEnabled = 'true';
@@ -5018,6 +5050,29 @@ background: rgba(202, 12, 12, 0.692);
     }
   }
 
+  function validateHoshidictsDefinitionBlur(preferences) {
+    if (
+      !preferences ||
+      typeof preferences !== 'object' ||
+      typeof preferences.enabled !== 'boolean' ||
+      !Number.isInteger(preferences.lookupThreshold) ||
+      preferences.lookupThreshold < 1 ||
+      preferences.lookupThreshold > 1000000 ||
+      (preferences.revealMode !== 'timed' && preferences.revealMode !== 'hover') ||
+      !Number.isInteger(preferences.revealDelayMs) ||
+      preferences.revealDelayMs < 1000 ||
+      preferences.revealDelayMs > 3600000
+    ) {
+      return null;
+    }
+    return {
+      enabled: preferences.enabled,
+      lookupThreshold: preferences.lookupThreshold,
+      revealMode: preferences.revealMode,
+      revealDelayMs: preferences.revealDelayMs,
+    };
+  }
+
   function configureHoshidictsReader(settings) {
     if (
       !window.gsmHoshidictsReaderEnabled ||
@@ -5042,6 +5097,7 @@ background: rgba(202, 12, 12, 0.692);
       serverUrl: `ws://127.0.0.1:${serverPort}`,
       lookupMode: window.gsmHoshidictsLookupMode === 'hover' ? 'hover' : 'shift',
       popupHideDelayMs: window.gsmHoshidictsPopupHideDelayMs,
+      definitionBlur: window.gsmHoshidictsDefinitionBlur,
       onPopupStateChange: handleHoshidictsPopupState,
       async getMiningStatus() {
         return await miningClient.getStatus();
@@ -5061,16 +5117,23 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   ipcRenderer.on('hoshidicts-reader-preferences', (_event, preferences) => {
-    if (!preferences || typeof preferences !== 'object') {
+    const definitionBlur = preferences && typeof preferences === 'object'
+      ? validateHoshidictsDefinitionBlur(preferences.definitionBlur)
+      : null;
+    if (
+      !preferences ||
+      typeof preferences !== 'object' ||
+      (preferences.lookupMode !== 'shift' && preferences.lookupMode !== 'hover') ||
+      !Number.isInteger(preferences.popupHideDelayMs) ||
+      preferences.popupHideDelayMs < 0 ||
+      preferences.popupHideDelayMs > 5000 ||
+      !definitionBlur
+    ) {
       return;
     }
-    window.gsmHoshidictsLookupMode = preferences.lookupMode === 'hover'
-      ? 'hover'
-      : 'shift';
-    const hideDelay = Number(preferences.popupHideDelayMs);
-    window.gsmHoshidictsPopupHideDelayMs = (
-      Number.isInteger(hideDelay) && hideDelay >= 0 && hideDelay <= 5000
-    ) ? hideDelay : 300;
+    window.gsmHoshidictsLookupMode = preferences.lookupMode;
+    window.gsmHoshidictsPopupHideDelayMs = preferences.popupHideDelayMs;
+    window.gsmHoshidictsDefinitionBlur = definitionBlur;
     if (
       window.gsmHoshidictsReader &&
       typeof window.gsmHoshidictsReader.updatePreferences === 'function'
@@ -5078,6 +5141,7 @@ background: rgba(202, 12, 12, 0.692);
       window.gsmHoshidictsReader.updatePreferences({
         lookupMode: window.gsmHoshidictsLookupMode,
         popupHideDelayMs: window.gsmHoshidictsPopupHideDelayMs,
+        definitionBlur: window.gsmHoshidictsDefinitionBlur,
       });
     }
   });
