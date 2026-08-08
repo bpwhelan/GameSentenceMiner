@@ -739,26 +739,16 @@ describe("HoshidictsSettingsWindow", () => {
     expect(sections.at(-1)?.textContent).toContain("Backups");
   });
 
-  it("collapses and expands the recommended dictionary list", async () => {
+  it("collapses recommended dictionaries when dictionaries are installed", async () => {
     await render();
     const recommendedList = container.querySelector<HTMLElement>(
       "#hoshidicts-recommended-list"
     );
-    const collapse = container.querySelector<HTMLButtonElement>(
-      '[aria-label="Collapse recommended dictionaries"]'
-    );
-
-    expect(recommendedList?.hidden).toBe(false);
-    expect(collapse?.getAttribute("aria-expanded")).toBe("true");
-    await act(async () => {
-      collapse?.click();
-      await Promise.resolve();
-    });
-
-    expect(recommendedList?.hidden).toBe(true);
     const expand = container.querySelector<HTMLButtonElement>(
       '[aria-label="Expand recommended dictionaries"]'
     );
+
+    expect(recommendedList?.hidden).toBe(true);
     expect(expand?.getAttribute("aria-expanded")).toBe("false");
     expect(
       Array.from(container.querySelectorAll("button")).find((button) =>
@@ -771,6 +761,38 @@ describe("HoshidictsSettingsWindow", () => {
       await Promise.resolve();
     });
     expect(recommendedList?.hidden).toBe(false);
+
+    await act(async () => {
+      listeners.get(HOSHIDICTS_CHANNELS.progress)?.[0]?.({}, {
+        ...baseState,
+        revision: baseState.revision + 1
+      });
+      await Promise.resolve();
+    });
+    expect(recommendedList?.hidden).toBe(false);
+  });
+
+  it("expands recommended dictionaries when none are installed", async () => {
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === HOSHIDICTS_CHANNELS.getState) {
+        return { ...baseState, dictionaries: [] };
+      }
+      if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
+        return miningOptions;
+      }
+      return { success: true, state: { ...baseState, dictionaries: [] } };
+    });
+
+    await render();
+    const recommendedList = container.querySelector<HTMLElement>(
+      "#hoshidicts-recommended-list"
+    );
+    const collapse = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Collapse recommended dictionaries"]'
+    );
+
+    expect(recommendedList?.hidden).toBe(false);
+    expect(collapse?.getAttribute("aria-expanded")).toBe("true");
   });
 
   it("moves a dictionary directly to a selected search position", async () => {

@@ -322,9 +322,12 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
     id: string;
     value: string;
   } | null>(null);
-  const [recommendedExpanded, setRecommendedExpanded] = useState(true);
+  const [recommendedExpandedOverride, setRecommendedExpandedOverride] =
+    useState<boolean | null>(null);
   if (!state) return null;
 
+  const recommendedExpanded =
+    recommendedExpandedOverride ?? state.dictionaries.length === 0;
   const lastCheck = formatTimestamp(state.lastCheck);
   const nextCheck = formatTimestamp(state.nextCheck);
 
@@ -708,7 +711,9 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
               )}
               aria-expanded={recommendedExpanded}
               aria-controls="hoshidicts-recommended-list"
-              onClick={() => setRecommendedExpanded((expanded) => !expanded)}
+              onClick={() =>
+                setRecommendedExpandedOverride(!recommendedExpanded)
+              }
             >
               <ChevronDown size={18} aria-hidden="true" />
             </button>
