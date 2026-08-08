@@ -81,16 +81,17 @@ struct HdGlossaryEntry {
 
 #[derive(Clone, Copy)]
 #[repr(C)]
-struct HdFrequency {
-    value: i32,
+struct HdFrequencyV2 {
+    value: f64,
     display_value: HdStr,
+    display_value_is_null: c_int,
 }
 
 #[derive(Clone, Copy)]
 #[repr(C)]
-struct HdFrequencyEntry {
+struct HdFrequencyEntryV2 {
     dict_name: HdStr,
-    frequencies: *const HdFrequency,
+    frequencies: *const HdFrequencyV2,
     frequencies_count: usize,
 }
 
@@ -117,14 +118,14 @@ struct HdPitchEntry {
 
 #[derive(Clone, Copy)]
 #[repr(C)]
-struct HdTermResult {
+struct HdTermResultV2 {
     expression: HdStr,
     reading: HdStr,
     rules: HdStr,
     score: i32,
     glossaries: *const HdGlossaryEntry,
     glossaries_count: usize,
-    frequencies: *const HdFrequencyEntry,
+    frequencies: *const HdFrequencyEntryV2,
     frequencies_count: usize,
     pitches: *const HdPitchEntry,
     pitches_count: usize,
@@ -139,12 +140,12 @@ struct HdTransformGroup {
 
 #[derive(Clone, Copy)]
 #[repr(C)]
-struct HdLookupResult {
+struct HdLookupResultV2 {
     matched: HdStr,
     deinflected: HdStr,
     trace: *const HdTransformGroup,
     trace_count: usize,
-    term: HdTermResult,
+    term: HdTermResultV2,
     preprocessor_steps: i32,
 }
 
@@ -204,12 +205,12 @@ extern "C" {
 
     fn hd_lookup_new(query: *mut HdQuery, deinflector: *mut HdDeinflector) -> *mut HdLookup;
     fn hd_lookup_free(lookup: *mut HdLookup);
-    fn hd_lookup_run(
+    fn hd_lookup_run_v2(
         lookup: *const HdLookup,
         lookup_string: *const c_char,
         max_results: c_int,
         scan_length: usize,
-        out_results: *mut *const HdLookupResult,
+        out_results: *mut *const HdLookupResultV2,
         out_count: *mut usize,
     ) -> *mut HdLookupResults;
     fn hd_lookup_results_free(results: *mut HdLookupResults);
@@ -250,14 +251,14 @@ pub struct LookupGlossary {
     pub term_tags: String,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct LookupFrequency {
-    pub value: i32,
-    pub display_value: String,
+    pub value: f64,
+    pub display_value: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct LookupFrequencyEntry {
     pub dictionary: String,
@@ -281,7 +282,7 @@ pub struct LookupPitchEntry {
     pub transcriptions: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct LookupTerm {
     pub expression: String,
@@ -293,7 +294,7 @@ pub struct LookupTerm {
     pub pitches: Vec<LookupPitchEntry>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct LookupResult {
     pub matched: String,
@@ -857,7 +858,7 @@ impl NativeEngine {
         let mut result_pointer = ptr::null();
         let mut result_count = 0usize;
         let owned_results = unsafe {
-            hd_lookup_run(
+            hd_lookup_run_v2(
                 self.lookup,
                 lookup_text.as_ptr(),
                 LOOKUP_MAX_RESULTS,
@@ -1112,7 +1113,7 @@ unsafe fn copy_hd_string_bounded(
 }
 
 unsafe fn copy_frequency_entries(
-    pointer: *const HdFrequencyEntry,
+    pointer: *const HdFrequencyEntryV2,
     count: usize,
 ) -> Result<Vec<LookupFrequencyEntry>, String> {
     checked_slice(
@@ -1129,9 +1130,19 @@ unsafe fn copy_frequency_entries(
         )?
         .iter()
         .map(|frequency| {
+            if !frequency.value.is_finite() {
+                return Err("native frequency value was not finite".into());
+            }
             Ok(LookupFrequency {
                 value: frequency.value,
-                display_value: copy_hd_string(frequency.display_value, "frequency display value")?,
+                display_value: if frequency.display_value_is_null != 0 {
+                    None
+                } else {
+                    Some(copy_hd_string(
+                        frequency.display_value,
+                        "frequency display value",
+                    )?)
+                },
             })
         })
         .collect::<Result<Vec<_>, String>>()?;
@@ -1343,6 +1354,22 @@ mod tests {
         .expect("write manifest");
     }
 
+    fn write_zip_archive(path: &Path, entries: &[(&str, &str)]) {
+        let file = fs::File::create(path).expect("create archive");
+        let mut archive = zip::ZipWriter::new(file);
+        let options =
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        for (name, contents) in entries {
+            archive
+                .start_file(*name, options)
+                .expect("start archive file");
+            archive
+                .write_all(contents.as_bytes())
+                .expect("write archive file");
+        }
+        archive.finish().expect("finish archive");
+    }
+
     fn write_test_archive(path: &Path, include_terms: bool) {
         write_test_archive_with_title(path, "Test Dictionary", include_terms);
     }
@@ -1385,7 +1412,7 @@ mod tests {
                 .expect("start term metadata bank");
             archive
                 .write_all(
-                    r#"[["食べる","freq",{"reading":"たべる","frequency":{"value":123,"displayValue":"123 ★"}}],["食べる","pitch",{"reading":"たべる","pitches":[{"position":2,"nasal":[1],"devoice":[2]}]}]]"#
+                    r#"[["食べる","freq",{"reading":"たべる","frequency":{"value":123.5,"displayValue":"123.5 ★"}}],["食べる","pitch",{"reading":"たべる","pitches":[{"position":2,"nasal":[1],"devoice":[2]}]}]]"#
                         .as_bytes(),
                 )
                 .expect("write term metadata bank");
@@ -1409,6 +1436,22 @@ mod tests {
             )
             .expect("write kanji bank");
         archive.finish().expect("finish archive");
+    }
+
+    fn write_frequency_only_archive(path: &Path) {
+        write_zip_archive(
+            path,
+            &[
+                (
+                    "index.json",
+                    r#"{"title":"Standalone Frequency","revision":"1","format":3,"sourceLanguage":"ja","frequencyMode":"rank-based"}"#,
+                ),
+                (
+                    "term_meta_bank_1.json",
+                    r#"[["食べる","freq",{"reading":"たべる","frequency":"22.5 rank"}]]"#,
+                ),
+            ],
+        );
     }
 
     #[test]
@@ -1461,7 +1504,88 @@ mod tests {
     }
 
     #[test]
-    fn manifest_validation_requires_marker_index_terms_and_native_files() {
+    fn frequency_v2_preserves_fractional_values_and_nullable_display_values() {
+        let dictionary = b"Frequency Test";
+        let values = [
+            HdFrequencyV2 {
+                value: 12.5,
+                display_value: HdStr {
+                    ptr: ptr::null(),
+                    len: 0,
+                },
+                display_value_is_null: 1,
+            },
+            HdFrequencyV2 {
+                value: 7.25,
+                display_value: HdStr {
+                    ptr: ptr::null(),
+                    len: 0,
+                },
+                display_value_is_null: 0,
+            },
+        ];
+        let entries = [HdFrequencyEntryV2 {
+            dict_name: HdStr {
+                ptr: dictionary.as_ptr().cast(),
+                len: dictionary.len(),
+            },
+            frequencies: values.as_ptr(),
+            frequencies_count: values.len(),
+        }];
+
+        let copied = unsafe {
+            copy_frequency_entries(entries.as_ptr(), entries.len()).expect("valid frequencies")
+        };
+        assert_eq!(
+            copied,
+            vec![LookupFrequencyEntry {
+                dictionary: "Frequency Test".into(),
+                frequencies: vec![
+                    LookupFrequency {
+                        value: 12.5,
+                        display_value: None,
+                    },
+                    LookupFrequency {
+                        value: 7.25,
+                        display_value: Some(String::new()),
+                    },
+                ],
+            }]
+        );
+
+        let json = serde_json::to_value(&copied).expect("serialize frequencies");
+        assert!(json[0]["frequencies"][0]["displayValue"].is_null());
+        assert_eq!(json[0]["frequencies"][1]["displayValue"], "");
+    }
+
+    #[test]
+    fn frequency_v2_rejects_non_finite_values() {
+        let values = [HdFrequencyV2 {
+            value: f64::NAN,
+            display_value: HdStr {
+                ptr: ptr::null(),
+                len: 0,
+            },
+            display_value_is_null: 1,
+        }];
+        let entries = [HdFrequencyEntryV2 {
+            dict_name: HdStr {
+                ptr: ptr::null(),
+                len: 0,
+            },
+            frequencies: values.as_ptr(),
+            frequencies_count: values.len(),
+        }];
+
+        assert!(
+            unsafe { copy_frequency_entries(entries.as_ptr(), entries.len()) }
+                .expect_err("non-finite value must fail")
+                .contains("not finite")
+        );
+    }
+
+    #[test]
+    fn manifest_validation_requires_marker_index_content_and_native_files() {
         let root = TestDir::new("validation");
         let dictionary = write_dictionary(&root.0, "generations/test/1/Test", 1, 0);
         write_manifest(&root.0, "generations/test/1/Test");
@@ -1592,7 +1716,9 @@ mod tests {
     fn ffi_import_lookup_and_owned_drop_order_work_end_to_end() {
         let root = TestDir::new("ffi");
         let archive_path = root.0.join("dictionary.zip");
+        let frequency_archive_path = root.0.join("frequency.zip");
         write_test_archive(&archive_path, true);
+        write_frequency_only_archive(&frequency_archive_path);
 
         let report = import_dictionary(&archive_path, &root.0);
         assert_eq!(
@@ -1609,14 +1735,28 @@ mod tests {
                 error: String::new(),
             }
         );
+        assert_eq!(
+            import_dictionary(&frequency_archive_path, &root.0),
+            ImportReport {
+                success: true,
+                title: "Standalone Frequency".into(),
+                term_count: 0,
+                meta_count: 1,
+                frequency_count: 1,
+                pitch_count: 0,
+                kanji_count: 0,
+                media_count: 0,
+                error: String::new(),
+            }
+        );
         fs::write(
             root.0.join(MANIFEST_FILE_NAME),
-            r#"{"version":1,"dictionaries":[{"id":"test","path":"Test Dictionary"}]}"#,
+            r#"{"version":1,"dictionaries":[{"id":"test","path":"Test Dictionary"},{"id":"frequency","path":"Standalone Frequency"}]}"#,
         )
         .expect("write manifest");
 
         let mut service = HoshidictsService::new(root.0.clone());
-        assert_eq!(service.activate().expect("activate dictionary"), 1);
+        assert_eq!(service.activate().expect("activate dictionaries"), 2);
         let results = service.lookup("食べた").expect("deinflected lookup");
         let result = results
             .iter()
@@ -1624,13 +1764,22 @@ mod tests {
             .expect("term result");
         assert_eq!(
             result.term.frequencies,
-            vec![LookupFrequencyEntry {
-                dictionary: "Test Dictionary".into(),
-                frequencies: vec![LookupFrequency {
-                    value: 123,
-                    display_value: "123 ★".into(),
-                }],
-            }]
+            vec![
+                LookupFrequencyEntry {
+                    dictionary: "Test Dictionary".into(),
+                    frequencies: vec![LookupFrequency {
+                        value: 123.5,
+                        display_value: Some("123.5 ★".into()),
+                    }],
+                },
+                LookupFrequencyEntry {
+                    dictionary: "Standalone Frequency".into(),
+                    frequencies: vec![LookupFrequency {
+                        value: 22.5,
+                        display_value: Some("22.5 rank".into()),
+                    }],
+                }
+            ]
         );
         assert_eq!(
             result.term.pitches,

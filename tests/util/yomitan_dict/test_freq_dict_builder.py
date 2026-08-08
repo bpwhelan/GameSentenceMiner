@@ -7,8 +7,6 @@ import time
 import zipfile
 import io
 
-import pytest
-
 from GameSentenceMiner.util.yomitan_dict.freq_dict_builder import FrequencyDictBuilder
 
 
@@ -108,7 +106,6 @@ class TestBuildFromDb:
         fake_rows = [("食べる", "たべる", 5)]
         mock_db = type("MockDB", (), {"fetchall": lambda self, *a: fake_rows})()
 
-        import GameSentenceMiner.util.yomitan_dict.freq_dict_builder as mod
         from GameSentenceMiner.util.database.tokenization_tables import WordsTable
 
         original_db = getattr(WordsTable, "_db", None)

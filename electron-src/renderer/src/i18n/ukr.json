@@ -618,7 +618,13 @@
       "revision": "Ревізія: {revision}",
       "language": "Мова: {language}",
       "terms": "Термінів: {count}",
-      "frequencies": "Частот: {count}",
+      "frequencies": "Частотних записів: {count}",
+      "frequencyMode": "Режим частоти: {mode}",
+      "frequencyModes": {
+        "automatic": "Автоматичний",
+        "occurrenceBased": "За частотою появи",
+        "rankBased": "За рангом"
+      },
       "pitches": "Тональних наголосів: {count}",
       "kanjiEntries": "Кандзі: {count}",
       "updatable": "Автоматичні оновлення",

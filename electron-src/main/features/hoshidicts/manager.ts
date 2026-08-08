@@ -14,6 +14,7 @@ import {
 import type {
     HoshidictsDictionaryState,
     HoshidictsActivationKey,
+    HoshidictsFrequencyMode,
     HoshidictsManagerSnapshot,
     HoshidictsLookupMode,
     HoshidictsMiningProfile,
@@ -45,6 +46,7 @@ export {
 
 export type {
     HoshidictsDictionaryState,
+    HoshidictsFrequencyMode,
     HoshidictsManagerSnapshot,
     HoshidictsLookupMode,
     HoshidictsMiningFields,
@@ -86,12 +88,12 @@ interface GeneratedIndex {
     frequencyCount: number;
     pitchCount: number;
     kanjiCount: number;
+    frequencyMode: HoshidictsFrequencyMode | null;
     importDate: number | null;
 }
 
 export interface ArchiveInspection {
     sourceLanguage: string | null;
-    hasTermBank: boolean;
     hasSupportedBank: boolean;
     hasJapaneseEntry: boolean;
 }
@@ -99,10 +101,6 @@ export interface ArchiveInspection {
 export interface HoshidictsImportReport {
     success: boolean;
     title: string;
-    termCount: number;
-    frequencyCount: number;
-    pitchCount: number;
-    kanjiCount: number;
     error: string;
 }
 
@@ -301,6 +299,10 @@ function normalizeCount(value: unknown): number {
     return typeof value === 'number' && Number.isFinite(value)
         ? Math.max(0, Math.trunc(value))
         : 0;
+}
+
+function normalizeFrequencyMode(value: unknown): HoshidictsFrequencyMode | null {
+    return value === 'occurrence-based' || value === 'rank-based' ? value : null;
 }
 
 function normalizeRelativePath(value: unknown): string {
@@ -528,6 +530,7 @@ async function readGeneratedIndex(dictionaryPath: string): Promise<GeneratedInde
         frequencyCount,
         pitchCount,
         kanjiCount,
+        frequencyMode: normalizeFrequencyMode(parsed.frequencyMode),
         importDate:
             typeof parsed.importDate === 'number' && Number.isFinite(parsed.importDate)
                 ? parsed.importDate
@@ -588,6 +591,7 @@ function dictionaryStateFromIndex(
         frequencyCount: index.frequencyCount,
         pitchCount: index.pitchCount,
         kanjiCount: index.kanjiCount,
+        frequencyMode: index.frequencyMode,
         installedAt: installedAtFromIndex(index, fallbackDate),
     };
 }
@@ -655,7 +659,6 @@ export async function inspectHoshidictsArchive(
     return await new Promise<ArchiveInspection>((resolve, reject) => {
         let sourceLanguage: string | null = null;
         let foundIndex = false;
-        let hasTermBank = false;
         let hasSupportedBank = false;
         let hasJapaneseEntry = false;
         let scannedBanks = 0;
@@ -682,7 +685,6 @@ export async function inspectHoshidictsArchive(
             }
             resolve({
                 sourceLanguage,
-                hasTermBank,
                 hasSupportedBank,
                 hasJapaneseEntry,
             });
@@ -715,7 +717,6 @@ export async function inspectHoshidictsArchive(
                               ? 'termMeta'
                               : 'kanji';
                     hasSupportedBank = true;
-                    hasTermBank ||= bankType === 'term';
                     if (
                         sourceLanguage === null &&
                         !hasJapaneseEntry &&
@@ -756,10 +757,6 @@ function parseImportReport(stdout: string): HoshidictsImportReport {
     return {
         success: parsed.success === true,
         title: typeof parsed.title === 'string' ? parsed.title : '',
-        termCount: normalizeCount(parsed.termCount),
-        frequencyCount: normalizeCount(parsed.frequencyCount),
-        pitchCount: normalizeCount(parsed.pitchCount),
-        kanjiCount: normalizeCount(parsed.kanjiCount),
         error: typeof parsed.error === 'string' ? parsed.error : '',
     };
 }
@@ -1556,6 +1553,7 @@ export class HoshidictsManager {
                     frequencyCount,
                     pitchCount,
                     kanjiCount,
+                    frequencyMode,
                     installedAt,
                 }) => ({
                     id,
@@ -1570,6 +1568,7 @@ export class HoshidictsManager {
                     frequencyCount,
                     pitchCount,
                     kanjiCount,
+                    frequencyMode,
                     installedAt,
                 })
             ),
@@ -1757,12 +1756,7 @@ export class HoshidictsManager {
             if (!report.success) {
                 throw new Error(report.error || 'Hoshidicts import failed.');
             }
-            const reportEntryCount =
-                report.termCount +
-                report.frequencyCount +
-                report.pitchCount +
-                report.kanjiCount;
-            if (!report.title || reportEntryCount === 0) {
+            if (!report.title) {
                 throw new Error('Dictionary archive does not contain supported entries.');
             }
             const directoryName = dictionaryDirectoryName(report.title);
@@ -1849,8 +1843,6 @@ export class HoshidictsManager {
                 generation
             );
             const finalDictionaryPath = path.join(finalGenerationRoot, directoryName);
-            await fsp.mkdir(finalGenerationRoot, { recursive: true });
-            await fsp.rename(outputDictionaryPath, finalDictionaryPath);
             const dictionary = dictionaryStateFromIndex(
                 id,
                 relativePath,
@@ -1859,6 +1851,8 @@ export class HoshidictsManager {
                 this.deps.now(),
                 associatedRecommendation?.id ?? null
             );
+            await fsp.mkdir(finalGenerationRoot, { recursive: true });
+            await fsp.rename(outputDictionaryPath, finalDictionaryPath);
             return { dictionary, generationRoot: finalGenerationRoot };
         } catch (error) {
             if (finalGenerationRoot) {

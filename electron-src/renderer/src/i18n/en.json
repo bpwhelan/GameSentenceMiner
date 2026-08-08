@@ -636,7 +636,13 @@
       "revision": "Revision: {revision}",
       "language": "Language: {language}",
       "terms": "{count} terms",
-      "frequencies": "{count} frequencies",
+      "frequencies": "{count} frequency entries",
+      "frequencyMode": "Frequency mode: {mode}",
+      "frequencyModes": {
+        "automatic": "Automatic",
+        "occurrenceBased": "Occurrence-based",
+        "rankBased": "Rank-based"
+      },
       "pitches": "{count} pitch accents",
       "kanjiEntries": "{count} kanji",
       "updatable": "Automatic updates",

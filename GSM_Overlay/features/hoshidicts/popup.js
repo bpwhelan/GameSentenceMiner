@@ -246,8 +246,8 @@
       let count = 0;
       for (const group of result.term.frequencies) {
         for (const frequency of group.frequencies) {
-          const value = frequency.displayValue || String(frequency.value);
-          const key = `frequency:${group.dictionary}:${value}`;
+          const value = frequency.displayValue ?? String(frequency.value);
+          const key = JSON.stringify([group.dictionary, frequency.value, frequency.displayValue]);
           if (!seen.has(key) && count < maxMetadataTags) {
             seen.add(key);
             row.appendChild(createTag(

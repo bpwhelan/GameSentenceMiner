@@ -618,7 +618,13 @@
       "revision": "リビジョン: {revision}",
       "language": "言語: {language}",
       "terms": "{count}語",
-      "frequencies": "頻度 {count}件",
+      "frequencies": "頻度データ {count}件",
+      "frequencyMode": "頻度モード: {mode}",
+      "frequencyModes": {
+        "automatic": "自動判定",
+        "occurrenceBased": "出現頻度順",
+        "rankBased": "順位順"
+      },
       "pitches": "アクセント {count}件",
       "kanjiEntries": "漢字 {count}字",
       "updatable": "自動アップデート",

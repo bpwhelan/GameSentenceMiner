@@ -26,6 +26,7 @@ export const HOSHIDICTS_READER_CLIENT_ID = 'overlay.hoshidicts-reader';
 
 export type HoshidictsSchedule = 'off' | 'daily' | 'weekly' | 'monthly';
 export type HoshidictsLookupMode = 'shift' | 'hover';
+export type HoshidictsFrequencyMode = 'occurrence-based' | 'rank-based';
 export const HOSHIDICTS_ACTIVATION_KEYS = [
     'Ctrl',
     'Alt',
@@ -134,7 +135,6 @@ export function isHoshidictsActivationKey(
         HOSHIDICTS_ACTIVATION_KEY_SET.has(value)
     );
 }
-
 export const DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS = 300;
 export const DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED = false;
 export const MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS = 5000;
@@ -225,6 +225,7 @@ export interface HoshidictsDictionaryState {
     frequencyCount: number;
     pitchCount: number;
     kanjiCount: number;
+    frequencyMode: HoshidictsFrequencyMode | null;
     installedAt: string;
 }
 

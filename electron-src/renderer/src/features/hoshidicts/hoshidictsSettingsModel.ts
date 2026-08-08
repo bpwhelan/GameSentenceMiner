@@ -7,6 +7,7 @@ import {
   isHoshidictsActivationKey,
   type HoshidictsActivationKey,
   type HoshidictsDesktopSnapshot,
+  type HoshidictsFrequencyMode,
   type HoshidictsMiningFieldName,
   type HoshidictsMiningFields,
   type HoshidictsMiningOptions,
@@ -114,6 +115,16 @@ export const RECOMMENDED_KEYS: Record<
   "kanjium-pitch": "settings.hoshidicts.recommended.kanjiumPitch",
   kanjidic: "settings.hoshidicts.recommended.kanjidic"
 };
+
+export function frequencyModeKey(mode: HoshidictsFrequencyMode | null): string {
+  if (mode === "occurrence-based") {
+    return "settings.hoshidicts.frequencyModes.occurrenceBased";
+  }
+  if (mode === "rank-based") {
+    return "settings.hoshidicts.frequencyModes.rankBased";
+  }
+  return "settings.hoshidicts.frequencyModes.automatic";
+}
 
 export const MINING_FIELDS: Array<{
   id: MiningField;
@@ -333,7 +344,12 @@ export function normalizeHoshidictsDesktopState(
             termCount: count(dictionary.termCount),
             frequencyCount: count(dictionary.frequencyCount),
             pitchCount: count(dictionary.pitchCount),
-            kanjiCount: count(dictionary.kanjiCount)
+            kanjiCount: count(dictionary.kanjiCount),
+            frequencyMode:
+              dictionary.frequencyMode === "occurrence-based" ||
+              dictionary.frequencyMode === "rank-based"
+                ? dictionary.frequencyMode
+                : null
           }))
       : [],
     recommendedDictionaries: HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.map((id) => ({
@@ -486,7 +502,7 @@ export function getReadiness(
           ? "noEnabledDictionaries"
           : enabledLookupDictionaries === 0
             ? "noEnabledLookupDictionary"
-          : "ready";
+            : "ready";
   return { kind, installed, enabled };
 }
 

@@ -27,6 +27,7 @@ import {
   RECOMMENDED_KEYS,
   activationKeyFromKeyboardCode,
   automaticFieldTarget,
+  frequencyModeKey,
   formatTimestamp,
   getFieldChoice,
   resolvedDraftField
@@ -456,6 +457,13 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                       <span>
                         {t("settings.hoshidicts.kanjiEntries", {
                           count: dictionary.kanjiCount
+                        })}
+                      </span>
+                    ) : null}
+                    {dictionary.frequencyCount > 0 ? (
+                      <span>
+                        {t("settings.hoshidicts.frequencyMode", {
+                          mode: t(frequencyModeKey(dictionary.frequencyMode))
                         })}
                       </span>
                     ) : null}

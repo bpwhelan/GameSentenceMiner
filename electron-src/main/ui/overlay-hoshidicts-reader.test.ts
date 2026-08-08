@@ -1527,6 +1527,17 @@ describe("Hoshidicts Shift-hover scanner", () => {
         reading: `ご${index}`
       }
     }));
+    response.results[0].term.frequencies = [
+      {
+        ...response.results[0].term.frequencies[0],
+        frequencies: [
+          { value: 1.25, displayValue: null },
+          { value: 1.25, displayValue: null },
+          { value: 1.25, displayValue: "" },
+          { value: 1.25, displayValue: "1.25 ★" }
+        ]
+      }
+    ];
     socket.receive(response);
 
     const popup = reader.getPopupElement();
@@ -1534,13 +1545,35 @@ describe("Hoshidicts Shift-hover scanner", () => {
     expect(entries).toHaveLength(8);
     expect(entries.filter((entry) => entry.hidden)).toHaveLength(2);
     expect(entries.every((entry) => entry.querySelector("details")?.open)).toBe(true);
-    expect(popup.textContent).toContain("Freq 123 ★");
+    expect(
+      Array.from(
+        entries[0].querySelectorAll<HTMLElement>(".gsm-hoshidicts-tag-frequency")
+      ).map((tag) => tag.textContent)
+    ).toEqual(["Freq 1.25", "Freq ", "Freq 1.25 ★"]);
     expect(popup.textContent).toContain("Pitch 2 LHL");
 
     popup.querySelector<HTMLButtonElement>(".gsm-hoshidicts-show-more")!.click();
     expect(entries.some((entry) => entry.hidden)).toBe(false);
     expect(popup.querySelector(".gsm-hoshidicts-show-more")).toBeNull();
     reader.destroy();
+  });
+
+  it("keeps only finite numeric frequency values without truncating them", () => {
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const response = lookupResult("request", "食べる");
+    response.results[0].term.frequencies[0].frequencies = [
+      { value: 12.75, displayValue: null },
+      { value: true, displayValue: "boolean" },
+      { value: Number.NaN, displayValue: "nan" },
+      { value: Number.POSITIVE_INFINITY, displayValue: "infinity" }
+    ];
+
+    const normalized = api.normalizeLookupResults(response);
+
+    expect(normalized[0].term.frequencies[0].frequencies).toEqual([
+      { value: 12.75, displayValue: null }
+    ]);
   });
 
   it("shows an actionable timeout and ignores the late response", async () => {

@@ -51,9 +51,10 @@ const baseState: HoshidictsDesktopSnapshot = {
       downloadUrl: "https://example.test/jmdict.zip",
       language: "ja",
       termCount: 123,
-      frequencyCount: 0,
-      pitchCount: 0,
-      kanjiCount: 0,
+      frequencyCount: 12,
+      pitchCount: 3,
+      kanjiCount: 4,
+      frequencyMode: null,
       installedAt: "2026-08-06T10:00:00.000Z"
     },
     {
@@ -65,10 +66,11 @@ const baseState: HoshidictsDesktopSnapshot = {
       indexUrl: null,
       downloadUrl: null,
       language: "ja",
-      termCount: 20,
-      frequencyCount: 0,
+      termCount: 0,
+      frequencyCount: 456,
       pitchCount: 0,
       kanjiCount: 0,
+      frequencyMode: "rank-based",
       installedAt: "2026-08-06T11:00:00.000Z"
     }
   ],
@@ -348,7 +350,8 @@ describe("HoshidictsSettingsWindow", () => {
           {
             ...baseState.dictionaries[0],
             termCount: 0,
-            frequencyCount: 500
+            frequencyCount: 500,
+            kanjiCount: 0
           }
         ]
       }).kind
@@ -368,6 +371,76 @@ describe("HoshidictsSettingsWindow", () => {
     ).toBe("ready");
     expect(getReadiness(baseState).kind).toBe("ready");
   });
+
+  it("shows localized term and frequency capabilities and modes", async () => {
+    await render();
+
+    expect(container.textContent).toContain("123 terms");
+    expect(
+      container.textContent?.match(/12 frequency entries/g) ?? []
+    ).toHaveLength(1);
+    expect(container.textContent).toContain("3 pitch accents");
+    expect(container.textContent).toContain("4 kanji");
+    expect(container.textContent).toContain("Frequency mode: Automatic");
+    expect(
+      container.textContent?.match(/456 frequency entries/g) ?? []
+    ).toHaveLength(1);
+    expect(container.textContent).toContain("Frequency mode: Rank-based");
+    expect(
+      container.textContent?.match(/Frequency mode:/g) ?? []
+    ).toHaveLength(2);
+  });
+
+  it.each([
+    {
+      name: "enables the first lookup-capable dictionary, including kanji",
+      label: "Enable a Dictionary",
+      dictionaries: [
+        { ...baseState.dictionaries[1], enabled: true },
+        {
+          ...baseState.dictionaries[0],
+          enabled: false,
+          termCount: 0,
+          kanjiCount: 1
+        }
+      ],
+      invocation: [
+        HOSHIDICTS_CHANNELS.setDictionaryEnabled,
+        { id: "jmdict-id", enabled: true }
+      ]
+    },
+    {
+      name: "offers the default set when only frequency data is installed",
+      label: "Install default set",
+      dictionaries: [{ ...baseState.dictionaries[1], enabled: true }],
+      invocation: [HOSHIDICTS_CHANNELS.installAllRecommended]
+    }
+  ])(
+    "$name from the readiness action",
+    async ({ dictionaries, label, invocation }) => {
+      const state: HoshidictsDesktopSnapshot = { ...baseState, dictionaries };
+      invokeMock.mockImplementation(async (channel: string) => {
+        if (channel === HOSHIDICTS_CHANNELS.getState) return state;
+        if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
+          return miningOptions;
+        }
+        return { success: true, state };
+      });
+
+      await render();
+      const action = Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent?.trim() === label
+      );
+      expect(action).toBeDefined();
+
+      await act(async () => {
+        action?.click();
+        await Promise.resolve();
+      });
+
+      expect(invokeMock.mock.calls).toContainEqual(invocation);
+    }
+  );
 
   it("ignores progress snapshots older than the displayed revision", async () => {
     await render();
@@ -732,7 +805,8 @@ describe("HoshidictsSettingsWindow", () => {
       "おすすめの辞書",
       "キーを変更",
       "Shiftに戻す",
-      "検索語をハイライト"
+      "検索語をハイライト",
+      "頻度モード: 順位順"
     ],
     [
       "ukr",
@@ -740,23 +814,29 @@ describe("HoshidictsSettingsWindow", () => {
       "Рекомендовані словники",
       "Змінити клавішу",
       "Скинути до Shift",
-      "Підсвічувати знайдене слово"
+      "Підсвічувати знайдене слово",
+      "Режим частоти: За рангом"
     ]
-  ])("localizes the standalone window in %s", async (
-    locale,
-    subtitle,
-    recommended,
-    changeKey,
-    resetKey,
-    sourceHighlight
-  ) => {
-    await render(locale);
-    expect(container.textContent).toContain(subtitle);
-    expect(container.textContent).toContain(recommended);
-    expect(container.textContent).toContain(changeKey);
-    expect(container.textContent).toContain(resetKey);
-    expect(container.textContent).toContain(sourceHighlight);
-  });
+  ])(
+    "localizes the standalone window in %s",
+    async (
+      locale,
+      subtitle,
+      recommended,
+      changeKey,
+      resetKey,
+      sourceHighlight,
+      frequencyMode
+    ) => {
+      await render(locale);
+      expect(container.textContent).toContain(subtitle);
+      expect(container.textContent).toContain(recommended);
+      expect(container.textContent).toContain(changeKey);
+      expect(container.textContent).toContain(resetKey);
+      expect(container.textContent).toContain(sourceHighlight);
+      expect(container.textContent).toContain(frequencyMode);
+    }
+  );
 
   it("normalizes legacy snapshots without dirtying new preferences", () => {
     const normalized = normalizeHoshidictsDesktopState({
@@ -771,7 +851,8 @@ describe("HoshidictsSettingsWindow", () => {
           enabled: undefined,
           frequencyCount: undefined,
           pitchCount: undefined,
-          kanjiCount: undefined
+          kanjiCount: undefined,
+          frequencyMode: "invalid"
         }
       ],
       miningProfile: {
@@ -787,7 +868,8 @@ describe("HoshidictsSettingsWindow", () => {
     expect(normalized.dictionaries[0]).toMatchObject({
       frequencyCount: 0,
       pitchCount: 0,
-      kanjiCount: 0
+      kanjiCount: 0,
+      frequencyMode: null
     });
     expect(normalized.recommendedDictionaries.map(({ id }) => id)).toEqual([
       "jitendex",

@@ -26,6 +26,7 @@ interface TestArchive {
     frequencies?: number;
     pitches?: number;
     kanji?: number;
+    frequencyMode?: 'occurrence-based' | 'rank-based' | null;
     isUpdatable?: boolean;
     indexUrl?: string;
     downloadUrl?: string;
@@ -152,6 +153,7 @@ function writeImportedDictionary(outputDir: string, archive: TestArchive): void 
             isUpdatable: archive.isUpdatable === true,
             indexUrl: archive.indexUrl,
             downloadUrl: archive.downloadUrl,
+            frequencyMode: archive.frequencyMode,
             importDate: Date.now(),
             counts: {
                 terms: { total: archive.terms ?? 1 },
@@ -184,7 +186,6 @@ function createHarness(baseDir: string, overrides: Partial<HoshidictsManagerDepe
             const archive = readArchive(archivePath);
             return {
                 sourceLanguage: archive.sourceLanguage ?? null,
-                hasTermBank: (archive.terms ?? 1) > 0,
                 hasSupportedBank:
                     (archive.terms ?? 1) +
                         (archive.frequencies ?? 0) +
@@ -205,10 +206,6 @@ function createHarness(baseDir: string, overrides: Partial<HoshidictsManagerDepe
             return {
                 success: true,
                 title: archive.title,
-                termCount: archive.terms ?? 1,
-                frequencyCount: archive.frequencies ?? 0,
-                pitchCount: archive.pitches ?? 0,
-                kanjiCount: archive.kanji ?? 0,
                 error: '',
             };
         }
@@ -286,6 +283,11 @@ describe('Hoshidicts immutable generations', () => {
             false,
             true,
         ]);
+        expect(snapshot.dictionaries[0]).toMatchObject({
+            termCount: 1,
+            frequencyCount: 0,
+            frequencyMode: null,
+        });
 
         const manifest = readManifest(baseDir);
         expect(manifest.dictionaries[0].path).not.toBe(oldAlphaPath);
@@ -423,10 +425,6 @@ describe('Hoshidicts immutable generations', () => {
                 return {
                     success: true,
                     title: archive.title,
-                    termCount: archive.terms ?? 1,
-                    frequencyCount: archive.frequencies ?? 0,
-                    pitchCount: archive.pitches ?? 0,
-                    kanjiCount: archive.kanji ?? 0,
                     error: '',
                 };
             },
@@ -843,7 +841,6 @@ describe('Hoshidicts import policy', () => {
             downloadArchive,
             inspectArchive: async () => ({
                 sourceLanguage: null,
-                hasTermBank: false,
                 hasSupportedBank: true,
                 hasJapaneseEntry: false,
             }),
@@ -954,10 +951,34 @@ describe('Hoshidicts import policy', () => {
 
         await expect(inspectHoshidictsArchive(archive)).resolves.toEqual({
             sourceLanguage: null,
-            hasTermBank: true,
             hasSupportedBank: true,
             hasJapaneseEntry: true,
         });
+    });
+
+    it('imports and rehydrates frequency-only state from generated index metadata', async () => {
+        const baseDir = makeTempDir();
+        const archive = writeArchive(makeTempDir(), 'frequency.zip', {
+            title: 'Frequency',
+            revision: 'one',
+            sourceLanguage: null,
+            japanese: true,
+            terms: 0,
+            frequencies: 17,
+            frequencyMode: 'rank-based',
+        });
+        const { manager } = createHarness(baseDir);
+
+        const imported = await manager.importDictionary(archive);
+
+        const rehydrated = await createHarness(baseDir).manager.getSnapshot();
+        for (const snapshot of [imported, rehydrated]) {
+            expect(snapshot.dictionaries[0]).toMatchObject({
+                termCount: 0,
+                frequencyCount: 17,
+                frequencyMode: 'rank-based',
+            });
+        }
     });
 
     it('rejects explicit non-Japanese and unverifiable legacy dictionaries', async () => {
@@ -996,7 +1017,6 @@ describe('Hoshidicts import policy', () => {
         const { manager } = createHarness(baseDir, {
             inspectArchive: async () => ({
                 sourceLanguage: 'ja',
-                hasTermBank: true,
                 hasSupportedBank: true,
                 hasJapaneseEntry: true,
             }),
@@ -1019,10 +1039,6 @@ describe('Hoshidicts import policy', () => {
             runImport: async () => ({
                 success: true,
                 title: '../Unsafe',
-                termCount: 1,
-                frequencyCount: 0,
-                pitchCount: 0,
-                kanjiCount: 0,
                 error: '',
             }),
         });
