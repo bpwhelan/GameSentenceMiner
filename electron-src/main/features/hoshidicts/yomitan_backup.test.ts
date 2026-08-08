@@ -63,6 +63,9 @@ function currentState(): HoshidictsManagerSnapshot {
         showLookupCounts: true,
         popupNestingMaxDepth: 1,
         definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
+        popupWidthPx: 680,
+        popupHeightPx: 480,
+        theme: 'autumn',
         schedule: 'off',
         lastCheck: null,
         nextCheck: null,
@@ -171,6 +174,9 @@ describe('parseYomitanSettingsBackup', () => {
             lookupMode: 'hover',
             popupHideDelayMs: 250,
             popupNestingMaxDepth: 3,
+            popupWidthPx: 680,
+            popupHeightPx: 480,
+            theme: 'autumn',
         });
         expect(parsed.warnings).toContain('Skipped unsupported Yomitan audio source: wiktionary.');
     });
