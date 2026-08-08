@@ -117,6 +117,30 @@ function definitionBlurPreferencesEqual(
     );
 }
 
+function readerPreferencesMatchOverlay(
+    preferences: HoshidictsReaderPreferences,
+    deps: HoshidictsIPCDependencies
+): boolean {
+    const definitionBlurAtLaunch = deps.getOverlayDefinitionBlurAtLaunch();
+    return (
+        deps.getOverlayLookupModeAtLaunch() === preferences.lookupMode &&
+        deps.getOverlayActivationKeyAtLaunch() === preferences.activationKey &&
+        deps.getOverlaySourceHighlightEnabledAtLaunch() ===
+            preferences.sourceHighlightEnabled &&
+        deps.getOverlayPopupHideDelayAtLaunch() ===
+            preferences.popupHideDelayMs &&
+        deps.getOverlayShowLookupCountsAtLaunch() ===
+            preferences.showLookupCounts &&
+        deps.getOverlayPopupNestingMaxDepthAtLaunch() ===
+            preferences.popupNestingMaxDepth &&
+        definitionBlurAtLaunch !== null &&
+        definitionBlurPreferencesEqual(
+            definitionBlurAtLaunch,
+            preferences.definitionBlur
+        )
+    );
+}
+
 function isRecommendedDictionaryId(
     value: unknown
 ): value is HoshidictsRecommendedDictionaryId {
@@ -526,7 +550,16 @@ export function registerHoshidictsIPC(
                         preferences.definitionBlur,
                         preferences.showLookupCounts
                     );
-                    await deps.applyReaderPreferences(preferences);
+                    const applied = await deps.applyReaderPreferences(
+                        preferences
+                    );
+                    if (
+                        !applied &&
+                        deps.getOverlayRuntimeState().isRunning &&
+                        !readerPreferencesMatchOverlay(preferences, deps)
+                    ) {
+                        await deps.restartOverlay();
+                    }
                     return state;
                 },
                 { code: 'preferencesSaved' }

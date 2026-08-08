@@ -2332,7 +2332,7 @@
       level.popup.style.minHeight = "";
       const measuredRect = level.popup.getBoundingClientRect();
       const popupSize = {
-        width: measuredRect.width || Math.min(420, windowRef.innerWidth - 12),
+        width: measuredRect.width || Math.min(560, windowRef.innerWidth - 12),
         height: Math.max(
           measuredRect.height || Math.min(420, windowRef.innerHeight * 0.6),
           DEFAULT_POPUP_MIN_HEIGHT_PX
@@ -2553,16 +2553,7 @@
             miningInFlight ? "Another note is being added" : ""
           );
         }
-        const unmapped = Array.isArray(status.unmappedFields)
-          ? status.unmappedFields.filter((field) => typeof field === "string")
-          : [];
-        level.view.setFeedback(
-          feedback,
-          unmapped.length > 0
-            ? `Optional Anki fields not mapped: ${unmapped.join(", ")}.`
-            : "",
-          "warning"
-        );
+        level.view.setFeedback(feedback, "");
         return;
       }
       const reason = status && typeof status.error === "string"
@@ -2617,18 +2608,7 @@
         const audioOutcome = isRecord(response.audio) ? response.audio : null;
         const audioFailed = audioOutcome &&
           ["unavailable", "failed"].includes(audioOutcome.status);
-        const unmapped = Array.isArray(response.unmappedFields)
-          ? response.unmappedFields.filter((field) => typeof field === "string")
-          : [];
-        const visibleUnmapped = audioFailed
-          ? unmapped.filter((field) => field !== "audio")
-          : unmapped;
         const feedbackParts = ["Added to Anki."];
-        if (visibleUnmapped.length > 0) {
-          feedbackParts.push(
-            `Optional fields not filled: ${visibleUnmapped.join(", ")}.`
-          );
-        }
         if (audioFailed) {
           feedbackParts.push(
             boundedString(audioOutcome.warning, 1024).trim() ||
@@ -2638,7 +2618,7 @@
         level.view.setFeedback(
           feedback,
           feedbackParts.join(" "),
-          visibleUnmapped.length > 0 || audioFailed ? "warning" : "success"
+          audioFailed ? "warning" : "success"
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

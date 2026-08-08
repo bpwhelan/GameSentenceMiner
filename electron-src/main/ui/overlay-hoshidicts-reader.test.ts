@@ -582,8 +582,17 @@ describe("Hoshidicts safe popup rendering", () => {
       /\.gsm-hoshidicts-audio-button,\s*\.gsm-hoshidicts-mine-button,\s*\.gsm-hoshidicts-note-button\s*\{(?<declarations>[^}]*)\}/.exec(
         css
       )?.groups?.declarations;
-    const readingRule =
-      /\.gsm-hoshidicts-reading\s*\{(?<declarations>[^}]*)\}/.exec(css)
+    const audioActionRule =
+      /\.gsm-hoshidicts-audio-button\s*\{(?<declarations>[^}]*)\}/.exec(css)
+        ?.groups?.declarations;
+    const rubyReadingRule =
+      /\.gsm-hoshidicts-expression\s+rt\s*\{(?<declarations>[^}]*)\}/.exec(css)
+        ?.groups?.declarations;
+    const tagRule =
+      /\.gsm-hoshidicts-tag\s*\{(?<declarations>[^}]*)\}/.exec(css)
+        ?.groups?.declarations;
+    const lookupStatsRule =
+      /\.gsm-hoshidicts-lookup-stats\s*\{(?<declarations>[^}]*)\}/.exec(css)
         ?.groups?.declarations;
     const glossaryRule =
       /\.gsm-hoshidicts-glossary-card\s*\{(?<declarations>[^}]*)\}/.exec(
@@ -594,31 +603,45 @@ describe("Hoshidicts safe popup rendering", () => {
         css
       )?.groups?.declarations;
 
-    expect(popupRule).toContain("background: rgba(45, 45, 55, 0.85)");
-    expect(popupRule).toContain("backdrop-filter: blur(6px)");
-    expect(popupRule).toContain("-webkit-backdrop-filter: blur(6px)");
+    expect(popupRule).toContain("width: min(560px, calc(100vw - 12px))");
+    expect(popupRule).toContain("background: rgba(45, 45, 55, 0.95)");
+    expect(popupRule).toContain("backdrop-filter: blur(10px)");
+    expect(popupRule).toContain("-webkit-backdrop-filter: blur(10px)");
     expect(popupRule).toContain("border-radius: 12px");
     expect(popupRule).toContain(
       "border: 1px solid rgba(255, 255, 255, 0.2)"
     );
-    expect(popupRule).toContain("0 0 10px rgba(255, 255, 255, 0.5)");
+    expect(popupRule).toContain("0 12px 32px rgba(0, 0, 0, 0.55)");
+    expect(popupRule).not.toContain("0 0 10px rgba(255, 255, 255, 0.5)");
     expect(popupRule).toContain("color: var(--text-color)");
     expect(popupRule).toContain("color-scheme: dark");
     expect(popupRule).toContain("overflow-y: auto");
     expect(popupRule).toContain("scrollbar-width: thin");
+    expect(popupRule).toContain("font-size: 16px");
+    expect(popupRule).toContain("line-height: 1.5");
+    expect(popupRule).toContain('"Noto Sans CJK JP"');
     expect(popupRule).not.toMatch(/(?:^|;)\s*opacity\s*:/);
     expect(popupScrollbarRule).toContain("width: 8px");
     expect(popupScrollbarThumbRule).toContain("border-radius: 999px");
     expect(chromeRule).toContain("position: sticky");
-    expect(chromeRule).toContain("border-bottom: 1px solid #3f3f3f");
+    expect(chromeRule).toContain(
+      "border-bottom: 1px solid rgba(255, 255, 255, 0.12)"
+    );
+    expect(chromeRule).toContain("background: rgba(45, 45, 55, 0.97)");
     expect(tabListRule).toContain("width: 100%");
     expect(tabListRule).toContain("overflow-x: auto");
     expect(actionRule).toContain("width: 36px");
     expect(actionRule).toContain("height: 36px");
-    expect(readingRule).toContain("color: var(--text-color-light1)");
-    expect(readingRule).toContain("font-size: 13px");
-    expect(glossaryRule).toContain("background: rgba(10, 10, 14, 0.42)");
-    expect(glossarySummaryRule).toContain("font-size: 11px");
+    expect(audioActionRule).toContain("border: 1px solid transparent");
+    expect(rubyReadingRule).toContain("color: var(--text-color-light1)");
+    expect(rubyReadingRule).toContain("font-size: 15px");
+    expect(tagRule).toContain("font-size: 12px");
+    expect(lookupStatsRule).toContain("color: #e1e1e4");
+    expect(lookupStatsRule).toContain("font-size: 13px");
+    expect(lookupStatsRule).toContain("font-weight: 600");
+    expect(glossaryRule).toContain("border-radius: 10px");
+    expect(glossaryRule).toContain("background: rgba(18, 18, 24, 0.68)");
+    expect(glossarySummaryRule).toContain("font-size: 13px");
   });
 
   it("blurs glossary content without obscuring definition tags", () => {
@@ -2204,7 +2227,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
     reader.destroy();
   });
 
-  it("renders first-result seen and lookup counts without blocking the popup", async () => {
+  it("keeps zero-value seen and lookup counts visible without blocking the popup", async () => {
     vi.useFakeTimers();
     const dom = createDom();
     const api = loadReaderModule(dom.window as unknown as Window);
@@ -2249,14 +2272,16 @@ describe("Hoshidicts Shift-hover scanner", () => {
       .toBe(true);
     expect(entries[1].querySelector(".gsm-hoshidicts-lookup-stats")).toBeNull();
 
-    lookupStats.resolve({ success: true, seenCount: 38, lookupCount: 5 });
+    lookupStats.resolve({ success: true, seenCount: 0, lookupCount: 0 });
     await flushPromises();
 
     const countLine = entries[0].querySelector<HTMLElement>(
       ".gsm-hoshidicts-lookup-stats"
     );
     expect(countLine?.hidden).toBe(false);
-    expect(countLine?.textContent).toBe("Seen 38 times · Looked up 5 times");
+    expect(countLine?.textContent).toBe("Seen 0 times · Looked up 0 times");
+    expect(countLine?.getAttribute("role")).toBe("status");
+    expect(countLine?.getAttribute("aria-live")).toBe("polite");
     expect(onLookup).toHaveBeenCalledTimes(1);
     reader.destroy();
   });
@@ -2547,6 +2572,40 @@ describe("Hoshidicts Shift-hover scanner", () => {
     reader.destroy();
   });
 
+  it("starts an unmodified hover lookup when live preferences disable Shift", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "shift",
+      logger: { debug() {}, info() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    expect(socket.sent).toHaveLength(1);
+
+    reader.updatePreferences({ lookupMode: "hover" });
+    await vi.advanceTimersByTimeAsync(20);
+
+    expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({
+      type: "hoshidicts_lookup",
+      text: "食べる"
+    });
+    reader.destroy();
+  });
+
   it("treats an invalid lookup mode as Shift activation", async () => {
     vi.useFakeTimers();
     const dom = createDom();
@@ -2710,7 +2769,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
     reader.destroy();
   });
 
-  it("renders the mockup header, inline reading, tabs, and reusable popup lifecycle", async () => {
+  it("renders a Yomitan-style ruby header, tabs, and reusable popup lifecycle", async () => {
     vi.useFakeTimers();
     const dom = createDom();
     Object.defineProperty(dom.window, "innerWidth", { value: 1280 });
@@ -2777,11 +2836,15 @@ describe("Hoshidicts Shift-hover scanner", () => {
     expect(primaryHeader?.nextElementSibling === tablist).toBe(true);
     expect(chrome?.nextElementSibling === noteForm).toBe(true);
     expect(noteForm?.nextElementSibling === tabPanel).toBe(true);
-    expect(popup.querySelector("ruby")).toBeNull();
-    expect(primaryHeader?.querySelector(".gsm-hoshidicts-expression")?.textContent)
-      .toBe("食べる");
-    expect(primaryHeader?.querySelector(".gsm-hoshidicts-reading")?.textContent)
-      .toBe("たべる");
+    expect(primaryHeader?.querySelector("ruby")).not.toBeNull();
+    expect(primaryHeader?.querySelector("rt")?.textContent).toBe("た");
+    expect(primaryHeader?.querySelector(".gsm-hoshidicts-kanji-link")?.textContent)
+      .toBe("食");
+    expect(
+      primaryHeader?.querySelector(".gsm-hoshidicts-expression")
+        ?.getAttribute("aria-label")
+    ).toBe("食べる, たべる");
+    expect(primaryHeader?.querySelector(".gsm-hoshidicts-reading")).toBeNull();
     expect(
       popup.querySelector(".gsm-hoshidicts-tag-deinflection")?.getAttribute("title")
     ).toBe("Past tense");
@@ -2801,10 +2864,14 @@ describe("Hoshidicts Shift-hover scanner", () => {
     );
     expect(noteButton?.getAttribute("aria-expanded")).toBe("false");
     expect(
+      actions?.querySelector<HTMLButtonElement>(".gsm-hoshidicts-audio-button")
+        ?.textContent
+    ).toBe("");
+    expect(
       Array.from(actions?.children || [], (action) => action.className)
     ).toEqual([
-      "gsm-hoshidicts-audio-button",
       "gsm-hoshidicts-mine-button",
+      "gsm-hoshidicts-audio-button",
       "gsm-hoshidicts-note-button"
     ]);
     expect(states).toEqual([true]);
@@ -2830,6 +2897,29 @@ describe("Hoshidicts Shift-hover scanner", () => {
       .querySelector<HTMLButtonElement>(".gsm-hoshidicts-audio-button");
     expect(audioButton).not.toBeNull();
     expect(audioButton?.hidden).toBe(true);
+    harness.reader.destroy();
+  });
+
+  it("updates audio action visibility when the configured source list changes", async () => {
+    const harness = createReaderHarness({
+      audioPreferences: {
+        enabled: true,
+        sources: [{ id: "jisho", type: "jisho", url: "", voice: "" }]
+      }
+    });
+    await renderFirstLookup(harness);
+
+    const audioButton = harness.reader.getPopupElement()
+      .querySelector<HTMLButtonElement>(".gsm-hoshidicts-audio-button")!;
+    expect(audioButton.hidden).toBe(false);
+
+    harness.reader.updateAudioPreferences({ sources: [] });
+    expect(audioButton.hidden).toBe(true);
+
+    harness.reader.updateAudioPreferences({
+      sources: [{ id: "jisho", type: "jisho", url: "", voice: "" }]
+    });
+    expect(audioButton.hidden).toBe(false);
     harness.reader.destroy();
   });
 
@@ -5406,7 +5496,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
     reader.destroy();
   });
 
-  it("shows compact metadata, one open definition per result, and six results initially", async () => {
+  it("shows Hoshi-style metadata before tags and six results initially", async () => {
     vi.useFakeTimers();
     const dom = createDom();
     const api = loadReaderModule(dom.window as unknown as Window);
@@ -5457,14 +5547,32 @@ describe("Hoshidicts Shift-hover scanner", () => {
     expect(entries).toHaveLength(8);
     expect(entries.filter((entry) => entry.hidden)).toHaveLength(2);
     expect(entries.every((entry) => entry.querySelector("details")?.open)).toBe(true);
+    const metadataRows = entries[0].querySelectorAll<HTMLElement>(
+      ".gsm-hoshidicts-metadata"
+    );
+    expect(metadataRows).toHaveLength(2);
+    expect(metadataRows[0].querySelector(".gsm-hoshidicts-tag-frequency"))
+      .not.toBeNull();
+    expect(metadataRows[1].querySelector(".gsm-hoshidicts-tag-pitch"))
+      .not.toBeNull();
+    expect(
+      metadataRows[1].querySelector(".gsm-hoshidicts-pitch-source")?.textContent
+    ).toBe("Pitch");
+    expect(
+      metadataRows[1].querySelector(".gsm-hoshidicts-pitch-body")?.textContent
+    ).toBe("ご0 [2] LHL");
+    const children = Array.from(entries[0].children);
+    expect(children.indexOf(metadataRows[0])).toBeLessThan(
+      children.indexOf(entries[0].querySelector(".gsm-hoshidicts-tags")!)
+    );
     expect(
       Array.from(
         entries[0].querySelectorAll<HTMLElement>(".gsm-hoshidicts-tag-frequency")
       ).map((tag) =>
         tag.querySelector(".gsm-hoshidicts-frequency-body")?.textContent
       )
-    ).toEqual(["語0 ご0 1.25 · 1.25 ★"]);
-    expect(popup.textContent).toContain("Pitch 2 LHL");
+    ).toEqual(["1.25 · 1.25 ★"]);
+    expect(popup.textContent).toContain("ご0 [2] LHL");
 
     popup.querySelector<HTMLButtonElement>(".gsm-hoshidicts-show-more")!.click();
     expect(entries.some((entry) => entry.hidden)).toBe(false);
@@ -5472,7 +5580,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
     reader.destroy();
   });
 
-  it("labels frequency groups with kanji then kana and compacts numeric ranks", async () => {
+  it("shows ordered frequency ranks without repeating the headword", async () => {
     const harness = createReaderHarness();
     await renderFirstLookup(harness, {
       expression: "骨",
@@ -5506,10 +5614,8 @@ describe("Hoshidicts Shift-hover scanner", () => {
     expect(
       tags[0].querySelector(".gsm-hoshidicts-frequency-source")?.textContent
     ).toBe("JPDB Frequency");
-    expect(tags[0].querySelector(".gsm-hoshidicts-frequency-term")?.textContent)
-      .toBe("骨");
-    expect(tags[0].querySelector(".gsm-hoshidicts-frequency-reading")?.textContent)
-      .toBe("ほね");
+    expect(tags[0].querySelector(".gsm-hoshidicts-frequency-term")).toBeNull();
+    expect(tags[0].querySelector(".gsm-hoshidicts-frequency-reading")).toBeNull();
     expect(
       Array.from(
         tags[0].querySelectorAll<HTMLElement>(
@@ -5520,10 +5626,12 @@ describe("Hoshidicts Shift-hover scanner", () => {
     ).toEqual(["1.3k", "2.6k", "2k"]);
     expect(
       tags[0].querySelector(".gsm-hoshidicts-frequency-body")?.textContent
-    ).toBe("骨 ほね 1.3k · 2.6k · 2k");
+    ).toBe("1.3k · 2.6k · 2k");
+    expect(tags[0].textContent).not.toContain("骨");
+    expect(tags[0].textContent).not.toContain("ほね");
     expect(tags[0].title).toBe("JPDB Frequency");
     expect(tags[0].getAttribute("aria-label")).toBe(
-      "JPDB Frequency: 骨, ほね, 1.3k, 2.6k, 2k"
+      "JPDB Frequency: 1.3k, 2.6k, 2k"
     );
     expect(
       tags[0].querySelector<HTMLElement>(".gsm-hoshidicts-frequency-value")
@@ -5534,11 +5642,70 @@ describe("Hoshidicts Shift-hover scanner", () => {
     ).toBe("Styled Frequency");
     expect(
       tags[1].querySelector(".gsm-hoshidicts-frequency-body")?.textContent
-    ).toBe("骨 ほね 1,234 ★");
+    ).toBe("1,234 ★");
     expect(
       tags[1].querySelector<HTMLElement>(".gsm-hoshidicts-frequency-value")
         ?.dataset.frequency
     ).toBe("1234");
+    harness.reader.destroy();
+  });
+
+  it("shows Jiten kana frequency before kanji frequency with compact ranks", async () => {
+    const harness = createReaderHarness();
+    await renderFirstLookup(harness, {
+      expression: "食べる",
+      transform(response) {
+        response.results[0].term.reading = "たべる";
+        response.results[0].term.frequencies = [{
+          dictionary: "Jiten",
+          frequencies: [
+            { value: 194, displayValue: "194" },
+            { value: 13989, displayValue: "13989㋕" }
+          ]
+        }];
+      }
+    });
+
+    const tag = harness.reader.getPopupElement().querySelector<HTMLElement>(
+      ".gsm-hoshidicts-tag-frequency"
+    )!;
+    expect(
+      Array.from(
+        tag.querySelectorAll<HTMLElement>(".gsm-hoshidicts-frequency-value"),
+        (value) => ({
+          frequency: value.dataset.frequency,
+          text: value.textContent
+        })
+      )
+    ).toEqual([
+      { frequency: "13989", text: "14k㋕" },
+      { frequency: "194", text: "194" }
+    ]);
+    expect(tag.querySelector(".gsm-hoshidicts-frequency-body")?.textContent)
+      .toBe("14k㋕ · 194");
+    expect(tag.getAttribute("aria-label")).toBe("Jiten: 14k㋕, 194");
+    harness.reader.destroy();
+  });
+
+  it("opens every dictionary card in the All tab like the Hoshi reference", async () => {
+    const harness = createReaderHarness();
+    await renderFirstLookup(harness, {
+      transform(response) {
+        const baseGlossary = response.results[0].term.glossaries[0];
+        response.results[0].term.glossaries = [
+          { ...baseGlossary, dictionary: "Jitendex", glossary: "to eat" },
+          { ...baseGlossary, dictionary: "JMdict", glossary: "to consume" },
+          { ...baseGlossary, dictionary: "Meikyou", glossary: "eat a meal" }
+        ];
+      }
+    });
+
+    const cards = Array.from(
+      harness.reader.getPopupElement()
+        .querySelectorAll<HTMLDetailsElement>(".gsm-hoshidicts-glossary-card")
+    );
+    expect(cards).toHaveLength(3);
+    expect(cards.every((card) => card.open)).toBe(true);
     harness.reader.destroy();
   });
 
@@ -5838,6 +6005,55 @@ describe("Hoshidicts Shift-hover scanner", () => {
     reader.destroy();
   });
 
+  it("keeps optional Anki field mappings out of the lookup UI", async () => {
+    const harness = createReaderHarness({
+      getMiningStatus: async () => ({
+        available: true,
+        unmappedFields: ["audio", "pitch"]
+      }),
+      onMine: async () => ({ success: true, noteId: 123 })
+    });
+    await renderFirstLookup(harness);
+    await flushPromises();
+
+    const popup = harness.reader.getPopupElement();
+    const feedback = popup.querySelector<HTMLElement>(
+      ".gsm-hoshidicts-mining-feedback"
+    );
+    expect(feedback?.hidden).toBe(true);
+    expect(feedback?.textContent).toBe("");
+    expect(
+      popup.querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")
+        ?.dataset.state
+    ).toBe("ready");
+    harness.reader.destroy();
+  });
+
+  it("keeps optional fields out of successful mining feedback", async () => {
+    const harness = createReaderHarness({
+      getMiningStatus: async () => ({ available: true }),
+      onMine: async () => ({
+        success: true,
+        noteId: 123,
+        unmappedFields: ["pitch"]
+      })
+    });
+    await renderFirstLookup(harness);
+    await flushPromises();
+
+    harness.reader.getPopupElement()
+      .querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")!
+      .click();
+    await flushPromises();
+
+    const feedback = harness.reader.getPopupElement().querySelector<HTMLElement>(
+      ".gsm-hoshidicts-mining-feedback"
+    )!;
+    expect(feedback.textContent).toBe("Added to Anki.");
+    expect(feedback.dataset.kind).toBe("success");
+    harness.reader.destroy();
+  });
+
   it("keeps transient mining failures readable and retryable", async () => {
     const mine = vi.fn()
       .mockRejectedValueOnce(new Error("AnkiConnect stopped responding."))
@@ -5995,11 +6211,11 @@ describe("Hoshidicts Shift-hover scanner", () => {
       ".gsm-hoshidicts-mining-feedback"
     );
     expect(feedback?.dataset.kind).toBe("warning");
-    expect(feedback?.textContent).toContain("Optional fields not filled: pitch.");
     expect(feedback?.textContent).toContain(
       "The pronunciation provider did not respond."
     );
-    expect(feedback?.textContent).not.toContain("not filled: audio");
+    expect(feedback?.textContent).not.toContain("Optional");
+    expect(feedback?.textContent).not.toContain("pitch");
     reader.destroy();
   });
 });

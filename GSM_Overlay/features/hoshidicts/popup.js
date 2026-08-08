@@ -106,15 +106,28 @@
     return `${roundedValue}${unit.suffix}`;
   }
 
+  const JITEN_KANA_FREQUENCY_MARKER = "㋕";
+
+  function isKanaFrequency(frequency) {
+    return typeof frequency.displayValue === "string"
+      && frequency.displayValue.trim().endsWith(JITEN_KANA_FREQUENCY_MARKER);
+  }
+
   function formatFrequencyValue(frequency) {
     if (typeof frequency.displayValue === "string") {
       const displayValue = frequency.displayValue.trim();
       if (!displayValue) {
         return null;
       }
-      const numericDisplayValue = Number(displayValue.replaceAll(",", ""));
+      const numericText = isKanaFrequency(frequency)
+        ? displayValue.slice(0, -JITEN_KANA_FREQUENCY_MARKER.length)
+        : displayValue;
+      const numericDisplayValue = Number(numericText.replaceAll(",", ""));
       if (!Number.isFinite(numericDisplayValue) || numericDisplayValue !== frequency.value) {
         return displayValue;
+      }
+      if (isKanaFrequency(frequency)) {
+        return `${formatCompactFrequencyNumber(frequency.value)}${JITEN_KANA_FREQUENCY_MARKER}`;
       }
     }
     return formatCompactFrequencyNumber(frequency.value);
@@ -122,15 +135,12 @@
 
   function createFrequencyTag(
     documentRef,
-    result,
     group,
     dictionaryDisplayName,
     frequencies
   ) {
     const tag = createTag(documentRef, "", group.dictionary, "frequency");
     tag.dataset.dictionary = group.dictionary;
-    const expression = String(result.term.expression || "").trim();
-    const reading = String(result.term.reading || "").trim();
 
     const source = documentRef.createElement("span");
     source.className = "gsm-hoshidicts-frequency-source";
@@ -140,20 +150,10 @@
     const body = documentRef.createElement("span");
     body.className = "gsm-hoshidicts-frequency-body";
     tag.appendChild(body);
-    const term = documentRef.createElement("span");
-    term.className = "gsm-hoshidicts-frequency-term";
-    term.textContent = expression;
-    body.appendChild(term);
-    if (reading && reading !== expression) {
-      const readingElement = documentRef.createElement("span");
-      readingElement.className = "gsm-hoshidicts-frequency-reading";
-      readingElement.textContent = reading;
-      body.append(" ", readingElement);
-    }
 
     const values = documentRef.createElement("span");
     values.className = "gsm-hoshidicts-frequency-values";
-    body.append(" ", values);
+    body.appendChild(values);
     frequencies.forEach(({ display, frequency }, index) => {
       if (index > 0) {
         values.append(" · ");
@@ -168,11 +168,44 @@
       values.appendChild(value);
     });
 
-    tag.setAttribute("aria-label", [
-      `${group.dictionary}: ${expression}`,
-      ...(reading && reading !== expression ? [reading] : []),
-      ...frequencies.map(({ display }) => display),
-    ].join(", "));
+    tag.setAttribute(
+      "aria-label",
+      `${group.dictionary}: ${frequencies.map(({ display }) => display).join(", ")}`
+    );
+    return tag;
+  }
+
+  function createPitchTag(
+    documentRef,
+    group,
+    dictionaryDisplayName,
+    pitch,
+    reading
+  ) {
+    const bodyText = [
+      `${reading ? `${reading} ` : ""}[${pitch.position}]`,
+      pitch.pattern,
+    ].filter(Boolean).join(" ");
+    const description = [
+      group.dictionary,
+      pitch.pattern ? `Pattern ${pitch.pattern}` : "",
+      ...group.transcriptions,
+    ].filter(Boolean).join(" · ");
+    const tag = createTag(documentRef, "", description, "pitch");
+
+    const source = documentRef.createElement("span");
+    source.className = "gsm-hoshidicts-pitch-source";
+    source.textContent = dictionaryDisplayName;
+    tag.appendChild(source);
+
+    const body = documentRef.createElement("span");
+    body.className = "gsm-hoshidicts-pitch-body";
+    body.textContent = bodyText;
+    tag.appendChild(body);
+    tag.setAttribute(
+      "aria-label",
+      `${group.dictionary}: ${bodyText}`
+    );
     return tag;
   }
 
@@ -711,12 +744,19 @@
     }
 
     function appendMetadata(entry, result) {
-      const row = documentRef.createElement("div");
-      row.className = "gsm-hoshidicts-metadata";
+      const frequencyRow = documentRef.createElement("div");
+      frequencyRow.className =
+        "gsm-hoshidicts-metadata gsm-hoshidicts-frequency-metadata";
+      const pitchRow = documentRef.createElement("div");
+      pitchRow.className =
+        "gsm-hoshidicts-metadata gsm-hoshidicts-pitch-metadata";
       const seen = new Set();
       let count = 0;
       const frequencyDictionaryDisplayNames = createDictionaryDisplayNames(
         result.term.frequencies.map(({ dictionary }) => dictionary)
+      );
+      const pitchDictionaryDisplayNames = createDictionaryDisplayNames(
+        result.term.pitches.map(({ dictionary }) => dictionary)
       );
       for (const group of result.term.frequencies) {
         const frequencies = [];
@@ -732,15 +772,18 @@
             frequencies.push({ display, frequency });
           }
         }
+        frequencies.sort((left, right) =>
+          Number(isKanaFrequency(right.frequency))
+          - Number(isKanaFrequency(left.frequency))
+        );
         const key = JSON.stringify([
           group.dictionary,
           frequencies.map(({ display, frequency }) => [frequency.value, display]),
         ]);
         if (frequencies.length > 0 && !seen.has(key) && count < maxMetadataTags) {
           seen.add(key);
-          row.appendChild(createFrequencyTag(
+          frequencyRow.appendChild(createFrequencyTag(
             documentRef,
-            result,
             group,
             frequencyDictionaryDisplayNames.get(group.dictionary) || group.dictionary,
             frequencies
@@ -750,20 +793,33 @@
       }
       for (const group of result.term.pitches) {
         for (const pitch of group.pitches) {
-          const text = `Pitch ${pitch.position}${pitch.pattern ? ` ${pitch.pattern}` : ""}`;
-          const key = `pitch:${group.dictionary}:${text}`;
+          const reading = String(
+            result.term.reading || result.term.expression || ""
+          ).trim();
+          const key = JSON.stringify([
+            group.dictionary,
+            reading,
+            pitch.position,
+            pitch.pattern,
+          ]);
           if (!seen.has(key) && count < maxMetadataTags) {
             seen.add(key);
-            const description = [group.dictionary, ...group.transcriptions]
-              .filter(Boolean)
-              .join(" · ");
-            row.appendChild(createTag(documentRef, text, description, "pitch"));
+            pitchRow.appendChild(createPitchTag(
+              documentRef,
+              group,
+              pitchDictionaryDisplayNames.get(group.dictionary) || group.dictionary,
+              pitch,
+              reading
+            ));
             count += 1;
           }
         }
       }
-      if (row.childNodes.length > 0) {
-        entry.appendChild(row);
+      if (frequencyRow.childNodes.length > 0) {
+        entry.appendChild(frequencyRow);
+      }
+      if (pitchRow.childNodes.length > 0) {
+        entry.appendChild(pitchRow);
       }
     }
 
@@ -783,21 +839,22 @@
       headword.className = "gsm-hoshidicts-headword";
       const expression = documentRef.createElement("span");
       expression.className = "gsm-hoshidicts-expression";
+      const expressionText = String(result.term.expression || "").trim();
+      const readingText = String(result.term.reading || "").trim();
       appendExpressionRuby(
         documentRef,
         expression,
-        result.term.expression,
-        "",
+        expressionText,
+        readingText,
         (character) => onKanjiClick(character, result, candidate)
       );
+      expression.setAttribute(
+        "aria-label",
+        readingText && readingText !== expressionText
+          ? `${expressionText}, ${readingText}`
+          : expressionText
+      );
       headword.appendChild(expression);
-      const readingText = String(result.term.reading || "").trim();
-      if (readingText && readingText !== String(result.term.expression).trim()) {
-        const reading = documentRef.createElement("span");
-        reading.className = "gsm-hoshidicts-reading";
-        reading.textContent = readingText;
-        headword.appendChild(reading);
-      }
       header.appendChild(headword);
 
       const actions = documentRef.createElement("div");
@@ -809,8 +866,7 @@
       audioButton.hidden = true;
       audioButton.title = "Play pronunciation";
       audioButton.setAttribute("aria-label", audioButton.title);
-      audioButton.textContent = "🔊";
-      actions.appendChild(audioButton);
+      audioButton.textContent = "";
 
       const mineButton = documentRef.createElement("button");
       mineButton.type = "button";
@@ -820,6 +876,7 @@
         onMineClick(mineButton, result, candidate, feedback);
       });
       actions.appendChild(mineButton);
+      actions.appendChild(audioButton);
       if (noteButton) {
         actions.appendChild(noteButton);
       }
@@ -908,10 +965,13 @@
         if (resultIndex === 0 && renderContext.showLookupCounts === true) {
           lookupStats = documentRef.createElement("div");
           lookupStats.className = "gsm-hoshidicts-lookup-stats";
+          lookupStats.setAttribute("role", "status");
           lookupStats.setAttribute("aria-live", "polite");
           lookupStats.hidden = true;
           entry.appendChild(lookupStats);
         }
+
+        appendMetadata(entry, result);
 
         const tagRow = documentRef.createElement("div");
         tagRow.className = "gsm-hoshidicts-tags";
@@ -938,7 +998,6 @@
         if (tagRow.childNodes.length > 0) {
           entry.appendChild(tagRow);
         }
-        appendMetadata(entry, result);
 
         const groupedGlossaries = new Map();
         for (const glossary of result.term.glossaries) {
@@ -947,11 +1006,10 @@
           }
           groupedGlossaries.get(glossary.dictionary).push(glossary);
         }
-        let dictionaryIndex = 0;
         for (const [dictionary, glossaries] of groupedGlossaries) {
           const details = documentRef.createElement("details");
           details.className = "gsm-hoshidicts-glossary-card";
-          details.open = dictionaryIndex === 0;
+          details.open = true;
           details.addEventListener("toggle", positionPopup);
           const summary = documentRef.createElement("summary");
           summary.textContent = dictionaryDisplayNames?.get(dictionary) || dictionary;
@@ -987,7 +1045,6 @@
           }
           details.appendChild(definitions);
           entry.appendChild(details);
-          dictionaryIndex += 1;
         }
         panel.appendChild(entry);
       });

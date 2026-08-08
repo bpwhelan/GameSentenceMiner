@@ -347,6 +347,99 @@ describe('Hoshidicts settings IPC', () => {
         });
     });
 
+    it('restarts a running overlay when disabling Shift cannot apply live', async () => {
+        harness.enabledAtLaunch = true;
+        const context = await registerHarness();
+        const setReaderPreferences = harness.handlers.get(
+            'hoshidicts.setReaderPreferences'
+        );
+        context.applyReaderPreferences.mockResolvedValueOnce(false);
+
+        await expect(
+            setReaderPreferences?.(
+                { sender: context.settingsContents },
+                {
+                    lookupMode: 'hover',
+                    activationKey: 'Shift',
+                    sourceHighlightEnabled: false,
+                    popupHideDelayMs: 300,
+                    showLookupCounts: true,
+                    popupNestingMaxDepth: 10,
+                    definitionBlur: snapshot.definitionBlur,
+                }
+            )
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'preferencesSaved' },
+        });
+        expect(context.restartOverlay).toHaveBeenCalledOnce();
+    });
+
+    it('restarts when any running reader preference cannot apply live', async () => {
+        harness.enabledAtLaunch = true;
+        const context = await registerHarness();
+        const setReaderPreferences = harness.handlers.get(
+            'hoshidicts.setReaderPreferences'
+        );
+        context.applyReaderPreferences.mockResolvedValueOnce(false);
+
+        await expect(
+            setReaderPreferences?.(
+                { sender: context.settingsContents },
+                {
+                    lookupMode: 'shift',
+                    activationKey: 'Shift',
+                    sourceHighlightEnabled: true,
+                    popupHideDelayMs: 300,
+                    showLookupCounts: true,
+                    popupNestingMaxDepth: 10,
+                    definitionBlur: snapshot.definitionBlur,
+                }
+            )
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'preferencesSaved' },
+        });
+        expect(context.restartOverlay).toHaveBeenCalledOnce();
+    });
+
+    it('keeps preferences saved when an automatic overlay restart fails', async () => {
+        harness.enabledAtLaunch = true;
+        const context = await registerHarness();
+        const setReaderPreferences = harness.handlers.get(
+            'hoshidicts.setReaderPreferences'
+        );
+        context.applyReaderPreferences.mockResolvedValueOnce(false);
+        context.restartOverlay.mockResolvedValueOnce(false);
+        harness.manager.setReaderPreferences.mockResolvedValueOnce({
+            ...snapshot,
+            lookupMode: 'hover',
+        });
+
+        await expect(
+            setReaderPreferences?.(
+                { sender: context.settingsContents },
+                {
+                    lookupMode: 'hover',
+                    activationKey: 'Shift',
+                    sourceHighlightEnabled: false,
+                    popupHideDelayMs: 300,
+                    showLookupCounts: true,
+                    popupNestingMaxDepth: 10,
+                    definitionBlur: snapshot.definitionBlur,
+                }
+            )
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'preferencesSaved' },
+            state: {
+                lookupMode: 'hover',
+                overlay: { running: true, restartRequired: true },
+            },
+        });
+        expect(context.restartOverlay).toHaveBeenCalledOnce();
+    });
+
     it('requires an overlay restart when the persisted nesting depth changed', async () => {
         harness.enabledAtLaunch = true;
         harness.popupNestingMaxDepthAtLaunch = 4;
