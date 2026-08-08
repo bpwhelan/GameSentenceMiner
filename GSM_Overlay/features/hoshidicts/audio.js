@@ -325,13 +325,7 @@
       unavailable: "Pronunciation audio is disabled",
     }[state] || "Play pronunciation";
     button.setAttribute("aria-label", button.title);
-    button.textContent = {
-      ready: "🔊",
-      loading: "…",
-      playing: "🔊",
-      error: "!",
-      unavailable: "🔇",
-    }[state] || "🔊";
+    button.textContent = "";
   }
 
   function sourceLabel(source) {
