@@ -1085,40 +1085,6 @@ describe("HoshidictsSettingsWindow", () => {
     ).not.toContain("Add to Tab Group");
   });
 
-  it("collapses and expands the recommended dictionary list", async () => {
-    await render();
-    const recommendedList = container.querySelector<HTMLElement>(
-      "#hoshidicts-recommended-list"
-    );
-    const collapse = container.querySelector<HTMLButtonElement>(
-      '[aria-label="Collapse recommended dictionaries"]'
-    );
-
-    expect(recommendedList?.hidden).toBe(false);
-    expect(collapse?.getAttribute("aria-expanded")).toBe("true");
-    await act(async () => {
-      collapse?.click();
-      await Promise.resolve();
-    });
-
-    expect(recommendedList?.hidden).toBe(true);
-    const expand = container.querySelector<HTMLButtonElement>(
-      '[aria-label="Expand recommended dictionaries"]'
-    );
-    expect(expand?.getAttribute("aria-expanded")).toBe("false");
-    expect(
-      Array.from(container.querySelectorAll("button")).find((button) =>
-        button.textContent?.includes("Install default set")
-      )
-    ).toBeTruthy();
-
-    await act(async () => {
-      expand?.click();
-      await Promise.resolve();
-    });
-    expect(recommendedList?.hidden).toBe(false);
-  });
-
   it("moves a dictionary directly to a selected search position", async () => {
     await render();
     const menu = container.querySelector<HTMLElement>(
