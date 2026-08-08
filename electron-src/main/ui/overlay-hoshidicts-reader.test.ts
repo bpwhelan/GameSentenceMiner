@@ -402,6 +402,23 @@ function kanjiResult(requestId: string, character: string = "食") {
   };
 }
 
+function lookupResultWithDictionaries(
+  requestId: string,
+  dictionaries: Array<{ dictionary: string; glossary: string }>,
+  expression: string = "食べる"
+) {
+  const response = lookupResult(requestId, expression);
+  response.results[0].term.glossaries = dictionaries.map(
+    ({ dictionary, glossary }) => ({
+      dictionary,
+      glossary,
+      definitionTags: "",
+      termTags: ""
+    })
+  );
+  return response;
+}
+
 async function flushPromises() {
   for (let index = 0; index < 6; index += 1) {
     await Promise.resolve();
@@ -927,6 +944,428 @@ describe("Hoshidicts safe popup rendering", () => {
 
     await expect(client.getStatus()).rejects.toThrow(/authentication/iu);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("Hoshidicts dictionary tabs", () => {
+  function createLookupHarness(options: Record<string, unknown> = {}) {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    const second = dom.window.document.getElementById("second")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    setRect(second, { left: 30, top: 10, right: 90, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      logger: { debug() {}, warn() {} },
+      ...options
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    async function lookup(
+      buildResponse: (requestId: string) => ReturnType<typeof lookupResult>,
+      target: Element = first
+    ) {
+      target.dispatchEvent(
+        new dom.window.MouseEvent("mousemove", {
+          bubbles: true,
+          clientX: target === second ? 31 : 11,
+          clientY: 11
+        })
+      );
+      await vi.advanceTimersByTimeAsync(20);
+      const request = JSON.parse(socket.sent.at(-1)!);
+      const response = buildResponse(request.requestId);
+      socket.receive(response);
+      return { popup: reader.getPopupElement(), request, response };
+    }
+
+    return { dom, first, lookup, reader, second, socket };
+  }
+
+  it("shows All and unique glossary dictionaries, excluding metadata-only sources", async () => {
+    const { lookup, reader } = createLookupHarness();
+    const { popup } = await lookup((requestId) => {
+      const response = lookupResultWithDictionaries(requestId, [
+        { dictionary: "JMdict", glossary: "to eat" },
+        { dictionary: "Jitendex", glossary: "to consume" },
+        { dictionary: "JMdict", glossary: "to live on" },
+        {
+          dictionary: '<img src=x onerror="window.hacked=true">',
+          glossary: "untrusted dictionary name"
+        }
+      ]);
+      response.dictionaryCount = 256;
+      return response;
+    });
+
+    const tablist = popup.querySelector('[role="tablist"]');
+    const tabs = Array.from(
+      popup.querySelectorAll<HTMLElement>('[role="tab"]')
+    );
+    expect(tablist).not.toBeNull();
+    expect(tabs.map((tab) => tab.textContent)).toEqual([
+      "All",
+      "JMdict",
+      "Jitendex",
+      '<img src=x onerror="window.hacked=true">'
+    ]);
+    expect(tabs[0]?.getAttribute("aria-selected")).toBe("true");
+    expect(tablist?.getAttribute("aria-orientation")).toBe("horizontal");
+    expect(tablist?.textContent).not.toContain("Frequency");
+    expect(tablist?.textContent).not.toContain("Pitch");
+    expect(tablist?.querySelector("img")).toBeNull();
+    expect(tabs[2]?.title).toBe("Jitendex");
+    expect(popup.querySelectorAll('[role="tabpanel"]')).toHaveLength(1);
+    const panel = popup.querySelector<HTMLElement>('[role="tabpanel"]');
+    expect(tabs[0]?.getAttribute("aria-controls")).toBe(panel?.id);
+    expect(panel?.getAttribute("aria-labelledby")).toBe(tabs[0]?.id);
+    reader.destroy();
+  });
+
+  it("filters the existing result locally when a dictionary tab is clicked", async () => {
+    const { lookup, reader, socket } = createLookupHarness();
+    const { popup } = await lookup((requestId) => {
+      const response = lookupResultWithDictionaries(requestId, [
+        { dictionary: "JMdict", glossary: "to eat" },
+        { dictionary: "Jitendex", glossary: "to consume" }
+      ]);
+      response.results.push({
+        ...response.results[0],
+        term: {
+          ...response.results[0].term,
+          expression: "食す",
+          reading: "しょくす",
+          glossaries: [
+            {
+              dictionary: "JMdict",
+              glossary: "to take food",
+              definitionTags: "",
+              termTags: ""
+            }
+          ]
+        }
+      });
+      return response;
+    });
+    const sentBeforeTabClick = socket.sent.length;
+
+    const jitendexTab = Array.from(
+      popup.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+    ).find((tab) => tab.textContent === "Jitendex");
+    expect(jitendexTab).toBeDefined();
+    jitendexTab?.click();
+
+    const visibleEntries = Array.from(
+      popup.querySelectorAll<HTMLElement>(".gsm-hoshidicts-entry")
+    ).filter((entry) => !entry.hidden);
+    expect(socket.sent).toHaveLength(sentBeforeTabClick);
+    expect(visibleEntries.map((entry) => entry.dataset.expression)).toEqual([
+      "食べる"
+    ]);
+    expect(popup.querySelector('[role="tabpanel"]')?.textContent).toContain(
+      "to consume"
+    );
+    expect(popup.querySelector('[role="tabpanel"]')?.textContent).not.toContain(
+      "to eat"
+    );
+    expect(popup.querySelector('[role="tabpanel"]')?.textContent).not.toContain(
+      "to take food"
+    );
+    expect(jitendexTab?.getAttribute("aria-selected")).toBe("true");
+    reader.destroy();
+  });
+
+  it("resets expansion, scrolling, and highlighting for each dictionary", async () => {
+    const { first, lookup, reader, second } = createLookupHarness({
+      sourceHighlightEnabled: true
+    });
+    const { popup } = await lookup((requestId) => {
+      const response = lookupResultWithDictionaries(requestId, [
+        { dictionary: "JMdict", glossary: "first match" }
+      ]);
+      response.results[0].matched = "食";
+      response.results.push(
+        ...Array.from({ length: 8 }, (_, index) => ({
+          ...response.results[0],
+          matched: "食べる",
+          term: {
+            ...response.results[0].term,
+            expression: `食べる ${index + 1}`,
+            glossaries: [
+              {
+                dictionary: "Jitendex",
+                glossary: `filtered definition ${index + 1}`,
+                definitionTags: "",
+                termTags: ""
+              }
+            ]
+          }
+        }))
+      );
+      return response;
+    });
+
+    expect(first.classList.contains("gsm-hoshidicts-source-match")).toBe(true);
+    expect(second.classList.contains("gsm-hoshidicts-source-match")).toBe(false);
+    popup.scrollTop = 100;
+
+    const tabs = Array.from(
+      popup.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+    );
+    tabs.find((tab) => tab.textContent === "Jitendex")?.click();
+
+    let entries = Array.from(
+      popup.querySelectorAll<HTMLElement>(".gsm-hoshidicts-entry")
+    );
+    expect(entries).toHaveLength(8);
+    expect(entries.filter((entry) => entry.hidden)).toHaveLength(2);
+    expect(popup.querySelector(".gsm-hoshidicts-show-more")?.textContent).toBe(
+      "Show 2 more"
+    );
+    expect(popup.scrollTop).toBe(0);
+    expect(second.classList.contains("gsm-hoshidicts-source-match")).toBe(true);
+
+    popup
+      .querySelector<HTMLButtonElement>(".gsm-hoshidicts-show-more")
+      ?.click();
+    expect(entries.some((entry) => entry.hidden)).toBe(false);
+    tabs[0]?.click();
+    tabs.find((tab) => tab.textContent === "Jitendex")?.click();
+    entries = Array.from(
+      popup.querySelectorAll<HTMLElement>(".gsm-hoshidicts-entry")
+    );
+    expect(entries.filter((entry) => entry.hidden)).toHaveLength(2);
+    reader.destroy();
+  });
+
+  it("mines only the selected dictionary glossaries while preserving metadata", async () => {
+    const mine = vi.fn(async () => ({ success: true, noteId: 123 }));
+    const { lookup, reader } = createLookupHarness({
+      getMiningStatus: async () => ({ available: true }),
+      onMine: mine
+    });
+    const { popup } = await lookup((requestId) =>
+      lookupResultWithDictionaries(requestId, [
+        { dictionary: "JMdict", glossary: "to eat" },
+        { dictionary: "Jitendex", glossary: "to consume" }
+      ])
+    );
+    await flushPromises();
+
+    popup
+      .querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")
+      ?.click();
+    await flushPromises();
+    expect(mine.mock.calls[0][0].result.term.glossaries).toEqual([
+      expect.objectContaining({ dictionary: "JMdict", glossary: "to eat" }),
+      expect.objectContaining({
+        dictionary: "Jitendex",
+        glossary: "to consume"
+      })
+    ]);
+
+    const jitendexTab = Array.from(
+      popup.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+    ).find((tab) => tab.textContent === "Jitendex");
+    expect(jitendexTab).toBeDefined();
+    jitendexTab?.click();
+    await flushPromises();
+    popup
+      .querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")
+      ?.click();
+    await flushPromises();
+
+    expect(mine).toHaveBeenCalledTimes(2);
+    const payload = mine.mock.calls[1][0];
+    expect(payload.result.term.glossaries).toEqual([
+      expect.objectContaining({
+        dictionary: "Jitendex",
+        glossary: "to consume"
+      })
+    ]);
+    expect(payload.result.term.frequencies).toEqual([
+      {
+        dictionary: "Frequency",
+        frequencies: [{ value: 123, displayValue: "123 ★" }]
+      }
+    ]);
+    expect(payload.result.term.pitches).toEqual([
+      expect.objectContaining({ dictionary: "Pitch" })
+    ]);
+    reader.destroy();
+  });
+
+  it("keeps replacement-tab mining disabled until an in-flight note finishes", async () => {
+    let finishMine!: (value: { success: boolean; noteId: number }) => void;
+    const mine = vi.fn(
+      () =>
+        new Promise<{ success: boolean; noteId: number }>((resolve) => {
+          finishMine = resolve;
+        })
+    );
+    const { lookup, reader } = createLookupHarness({
+      getMiningStatus: async () => ({ available: true }),
+      onMine: mine
+    });
+    const { popup } = await lookup((requestId) =>
+      lookupResultWithDictionaries(requestId, [
+        { dictionary: "JMdict", glossary: "to eat" },
+        { dictionary: "Jitendex", glossary: "to consume" }
+      ])
+    );
+    await flushPromises();
+
+    popup
+      .querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")
+      ?.click();
+    Array.from(popup.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+      .find((tab) => tab.textContent === "Jitendex")
+      ?.click();
+    await flushPromises();
+
+    const replacementButton = popup.querySelector<HTMLButtonElement>(
+      ".gsm-hoshidicts-mine-button"
+    )!;
+    expect(replacementButton.dataset.state).toBe("checking");
+    expect(replacementButton.disabled).toBe(true);
+    replacementButton.click();
+    expect(mine).toHaveBeenCalledTimes(1);
+
+    finishMine({ success: true, noteId: 123 });
+    await flushPromises();
+    expect(replacementButton.dataset.state).toBe("ready");
+    expect(replacementButton.disabled).toBe(false);
+    reader.destroy();
+  });
+
+  it("resets the selected dictionary to All on the next lookup", async () => {
+    const { lookup, reader, second } = createLookupHarness();
+    const { popup: firstPopup } = await lookup((requestId) =>
+      lookupResultWithDictionaries(requestId, [
+        { dictionary: "JMdict", glossary: "to eat" },
+        { dictionary: "Jitendex", glossary: "to consume" }
+      ])
+    );
+    Array.from(firstPopup.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+      .find((tab) => tab.textContent === "Jitendex")
+      ?.click();
+
+    await lookup(
+      (requestId) =>
+      lookupResultWithDictionaries(
+        requestId,
+        [
+          { dictionary: "JMdict", glossary: "ending" },
+          { dictionary: "Bilingual", glossary: "to finish" }
+        ],
+        "終わる"
+      ),
+      second
+    );
+
+    const selectedTab = reader
+      .getPopupElement()
+      .querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+    expect(selectedTab?.textContent).toBe("All");
+    expect(selectedTab?.getAttribute("tabindex")).toBe("0");
+    reader.destroy();
+  });
+
+  it("supports automatic roving-tab keyboard selection", async () => {
+    const { dom, lookup, reader } = createLookupHarness();
+    const { popup } = await lookup((requestId) =>
+      lookupResultWithDictionaries(requestId, [
+        { dictionary: "Alpha", glossary: "alpha" },
+        { dictionary: "Beta", glossary: "beta" },
+        { dictionary: "Gamma", glossary: "gamma" }
+      ])
+    );
+
+    const tabs = Array.from(
+      popup.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+    );
+    expect(tabs.map((tab) => tab.tabIndex)).toEqual([0, -1, -1, -1]);
+
+    tabs[0]?.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", {
+        bubbles: true,
+        key: "ArrowRight"
+      })
+    );
+    expect(tabs[1]?.getAttribute("aria-selected")).toBe("true");
+    expect(dom.window.document.activeElement).toBe(tabs[1]);
+
+    tabs[1]?.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { bubbles: true, key: "End" })
+    );
+    expect(tabs[3]?.getAttribute("aria-selected")).toBe("true");
+
+    tabs[3]?.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { bubbles: true, key: "Home" })
+    );
+    expect(tabs[0]?.getAttribute("aria-selected")).toBe("true");
+
+    tabs[0]?.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", {
+        bubbles: true,
+        key: "ArrowLeft"
+      })
+    );
+    expect(tabs[3]?.getAttribute("aria-selected")).toBe("true");
+    expect(tabs.map((tab) => tab.tabIndex)).toEqual([-1, -1, -1, 0]);
+    reader.destroy();
+  });
+
+  it("bounds the tab strip to the 64 normalized glossary dictionaries", async () => {
+    const { dom, lookup, reader } = createLookupHarness();
+    const { popup } = await lookup((requestId) => {
+      const response = lookupResultWithDictionaries(
+        requestId,
+        Array.from({ length: 64 }, (_, index) => ({
+          dictionary: `Dictionary ${index + 1}`,
+          glossary: `Definition ${index + 1}`
+        }))
+      );
+      response.dictionaryCount = 256;
+      return response;
+    });
+
+    const labels = Array.from(
+      popup.querySelectorAll<HTMLElement>('[role="tab"]'),
+      (tab) => tab.textContent
+    );
+    expect(labels).toHaveLength(65);
+    expect(labels.slice(0, 3)).toEqual(["All", "Dictionary 1", "Dictionary 2"]);
+    expect(labels.at(-1)).toBe("Dictionary 64");
+
+    const tablist = popup.querySelector<HTMLElement>('[role="tablist"]')!;
+    Object.defineProperties(tablist, {
+      clientWidth: { configurable: true, value: 100 },
+      scrollWidth: { configurable: true, value: 1000 }
+    });
+    const scrollAcrossTabs = new dom.window.WheelEvent("wheel", {
+      cancelable: true,
+      deltaY: 100
+    });
+    tablist.dispatchEvent(scrollAcrossTabs);
+    expect(tablist.scrollLeft).toBe(100);
+    expect(scrollAcrossTabs.defaultPrevented).toBe(true);
+
+    tablist.scrollLeft = 900;
+    const scrollPastEnd = new dom.window.WheelEvent("wheel", {
+      cancelable: true,
+      deltaY: 100
+    });
+    tablist.dispatchEvent(scrollPastEnd);
+    expect(tablist.scrollLeft).toBe(900);
+    expect(scrollPastEnd.defaultPrevented).toBe(false);
+    reader.destroy();
   });
 });
 
@@ -2747,6 +3186,114 @@ describe("Hoshidicts Shift-hover scanner", () => {
     expect(rootPopup.textContent).toContain("食事を口に入れる");
     expect(first.classList.contains("gsm-hoshidicts-source-match")).toBe(true);
     expect(definition.classList.contains("gsm-hoshidicts-source-match")).toBe(false);
+    reader.destroy();
+  });
+
+  it("isolates nested tab IDs and resets descendant media on a parent tab switch", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupMode: "hover",
+      popupNestingMaxDepth: 1,
+      Blob: dom.window.Blob,
+      createObjectURL: vi.fn(() => "blob:root-image"),
+      revokeObjectURL: vi.fn(),
+      logger: { debug() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const rootRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResultWithDictionaries(rootRequest.requestId, [
+      {
+        dictionary: "Visual",
+        glossary: JSON.stringify({
+          type: "structured-content",
+          content: [
+            { tag: "span", content: "食事" },
+            { tag: "img", path: "img/root.jpg" }
+          ]
+        })
+      },
+      { dictionary: "Text", glossary: "plain definition" }
+    ]));
+
+    const rootPopup = reader.getPopupElement();
+    const definition = rootPopup.querySelector<HTMLElement>(
+      ".gsm-hoshidicts-glossary-content"
+    )!;
+    const caret = dom.window.document.createRange();
+    caret.setStart(definition.querySelector("span")!.firstChild!, 0);
+    caret.collapse(true);
+    Object.defineProperty(dom.window.document, "caretRangeFromPoint", {
+      configurable: true,
+      value: vi.fn(() => caret.cloneRange())
+    });
+    definition.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 40,
+      clientY: 40
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const childRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResultWithDictionaries(childRequest.requestId, [
+      { dictionary: "Child A", glossary: "meal" },
+      { dictionary: "Child B", glossary: "food" }
+    ], "食事"));
+
+    const popups = reader.getPopupElements();
+    expect(popups).toHaveLength(2);
+    expect(popups[0].querySelector('[role="tabpanel"]')?.id)
+      .toBe("gsm-hoshidicts-tab-panel");
+    expect(popups[1].querySelector('[role="tabpanel"]')?.id)
+      .toBe("gsm-hoshidicts-1-tab-panel");
+    const tabIds = Array.from(
+      dom.window.document.querySelectorAll<HTMLElement>(
+        '.gsm-hoshidicts-popup [role="tab"], '
+          + '.gsm-hoshidicts-popup [role="tabpanel"]'
+      ),
+      (element) => element.id
+    );
+    expect(new Set(tabIds).size).toBe(tabIds.length);
+    for (const popup of popups) {
+      const panel = popup.querySelector<HTMLElement>('[role="tabpanel"]')!;
+      for (const tab of popup.querySelectorAll<HTMLElement>('[role="tab"]')) {
+        expect(tab.getAttribute("aria-controls")).toBe(panel.id);
+      }
+      expect(panel.getAttribute("aria-labelledby")).toBe(
+        popup.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.id
+      );
+    }
+
+    const mediaRequests = () => socket.sent
+      .map((value) => JSON.parse(value))
+      .filter((value) => value.type === "hoshidicts_media");
+    expect(mediaRequests()).toHaveLength(1);
+    rootPopup.querySelector<HTMLButtonElement>('[role="tab"]')?.click();
+    expect(reader.getPopupElements()).toEqual(popups);
+    expect(mediaRequests()).toHaveLength(1);
+    Array.from(rootPopup.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+      .find((tab) => tab.textContent === "Text")
+      ?.click();
+    expect(reader.getPopupElements()).toEqual([rootPopup]);
+    expect(rootPopup.textContent).toContain("plain definition");
+    expect(mediaRequests()).toHaveLength(1);
+
+    rootPopup.querySelector<HTMLButtonElement>('[role="tab"]')?.click();
+    expect(mediaRequests()).toHaveLength(2);
+    expect(mediaRequests()[1].requestId).not.toBe(mediaRequests()[0].requestId);
     reader.destroy();
   });
 

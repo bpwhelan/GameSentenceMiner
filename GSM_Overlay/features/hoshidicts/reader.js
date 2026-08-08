@@ -1811,6 +1811,7 @@
         window: windowRef,
         document: documentRef,
         popup,
+        idPrefix: depth === 0 ? "gsm-hoshidicts" : `gsm-hoshidicts-${depth}`,
         appendExpressionRuby,
         appendTextOnlyGlossary,
         parseTagList,
@@ -1831,6 +1832,18 @@
         onNoteEditingChange(editing) {
           noteEditing = editing;
           clearHideTimer();
+        },
+        onBeforeResultsRendered() {
+          pruneFromDepth(depth + 1, "dictionary-tab-changed");
+          preparePopupContent("dictionary_tab_changed", depth);
+        },
+        onResultsRendered({ audioItems, feedback, miningButtons }) {
+          for (const button of miningButtons) {
+            button.hidden = true;
+          }
+          level.audioItems = audioItems;
+          syncAudioRenderedResults(depth, true);
+          void refreshMiningButtons(level, miningButtons, feedback);
         },
       });
       return level;
@@ -2198,7 +2211,11 @@
       if (status && status.available === true && onMine) {
         for (const button of buttons) {
           button.hidden = false;
-          setMiningButtonState(button, "ready");
+          setMiningButtonState(
+            button,
+            miningInFlight ? "checking" : "ready",
+            miningInFlight ? "Another note is being added" : ""
+          );
         }
         const unmapped = Array.isArray(status.unmappedFields)
           ? status.unmappedFields.filter((field) => typeof field === "string")
@@ -2298,7 +2315,12 @@
         );
       } finally {
         miningInFlight = false;
-        for (const current of buttons) {
+        const liveButtons = popupLevels.flatMap((entry) =>
+          Array.from(
+            entry.popup.querySelectorAll(".gsm-hoshidicts-mine-button")
+          )
+        );
+        for (const current of liveButtons) {
           if (current !== button && current.isConnected) {
             setMiningButtonState(current, "ready");
           }
