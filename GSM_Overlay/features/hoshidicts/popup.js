@@ -24,6 +24,58 @@
   const DEFINITION_BLUR_STATES = new Set(["pending", "blurred"]);
   const MAX_CUSTOM_DEFINITION_BYTES = 2 * 1024;
   const UTF8_ENCODER = new TextEncoder();
+  const DICTIONARY_DISPLAY_ALIASES = new Map([
+    ["Jitendex.org", "Jitendex"],
+  ]);
+  const DICTIONARY_DECORATION_PATTERN =
+    /\s+(?:\[([^\]]+)\]|\(([^()]*)\))\s*$/u;
+  const DICTIONARY_DATE_DECORATION_PATTERN =
+    /^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}$/u;
+  const DICTIONARY_VERSION_DECORATION_PATTERN =
+    /^(?:(?:version|ver(?:sion)?|v|revision|rev|release)\s*[:#.-]?\s*)?v?\d+(?:\.\d+)+(?:[-+][0-9a-z.-]+)?$/iu;
+  const DICTIONARY_LABELED_REVISION_PATTERN =
+    /^(?:version|ver(?:sion)?|v|revision|rev|release)\s*[:#.-]?\s*v?\d+(?:\.\d+)*(?:[-+][0-9a-z.-]+)?$/iu;
+
+  function isDictionaryDecoration(value) {
+    const decoration = String(value || "").trim();
+    return DICTIONARY_DATE_DECORATION_PATTERN.test(decoration) ||
+      DICTIONARY_VERSION_DECORATION_PATTERN.test(decoration) ||
+      DICTIONARY_LABELED_REVISION_PATTERN.test(decoration);
+  }
+
+  function cleanDictionaryDisplayName(value) {
+    const canonicalName = String(value || "").trim();
+    let displayName = canonicalName;
+    while (displayName) {
+      const suffix = DICTIONARY_DECORATION_PATTERN.exec(displayName);
+      const decoration = suffix && (suffix[1] ?? suffix[2]);
+      if (!suffix || !isDictionaryDecoration(decoration)) {
+        break;
+      }
+      displayName = displayName.slice(0, suffix.index).trimEnd();
+    }
+    displayName = DICTIONARY_DISPLAY_ALIASES.get(displayName) || displayName;
+    return displayName || canonicalName;
+  }
+
+  function createDictionaryDisplayNames(dictionaries) {
+    const cleanedNames = new Map();
+    const counts = new Map();
+    for (const dictionary of dictionaries) {
+      const cleanedName = cleanDictionaryDisplayName(dictionary);
+      cleanedNames.set(dictionary, cleanedName);
+      counts.set(cleanedName, (counts.get(cleanedName) || 0) + 1);
+    }
+    const displayNames = new Map();
+    for (const dictionary of dictionaries) {
+      const cleanedName = cleanedNames.get(dictionary);
+      displayNames.set(
+        dictionary,
+        counts.get(cleanedName) === 1 ? cleanedName : dictionary
+      );
+    }
+    return displayNames;
+  }
 
   function isJsonStringWithinUtf8Limit(value, maxBytes) {
     return UTF8_ENCODER.encode(JSON.stringify(value)).length <= maxBytes + 2;
@@ -36,6 +88,91 @@
     if (description) {
       tag.title = description;
     }
+    return tag;
+  }
+
+  function formatCompactFrequencyNumber(value) {
+    const absoluteValue = Math.abs(value);
+    const units = [
+      { minimum: 1_000_000_000, suffix: "b" },
+      { minimum: 1_000_000, suffix: "m" },
+      { minimum: 1_000, suffix: "k" },
+    ];
+    const unit = units.find(({ minimum }) => absoluteValue >= minimum);
+    if (!unit) {
+      return String(value);
+    }
+    const roundedValue = Math.round((value / unit.minimum) * 10) / 10;
+    return `${roundedValue}${unit.suffix}`;
+  }
+
+  function formatFrequencyValue(frequency) {
+    if (typeof frequency.displayValue === "string") {
+      const displayValue = frequency.displayValue.trim();
+      if (!displayValue) {
+        return null;
+      }
+      const numericDisplayValue = Number(displayValue.replaceAll(",", ""));
+      if (!Number.isFinite(numericDisplayValue) || numericDisplayValue !== frequency.value) {
+        return displayValue;
+      }
+    }
+    return formatCompactFrequencyNumber(frequency.value);
+  }
+
+  function createFrequencyTag(
+    documentRef,
+    result,
+    group,
+    dictionaryDisplayName,
+    frequencies
+  ) {
+    const tag = createTag(documentRef, "", group.dictionary, "frequency");
+    tag.dataset.dictionary = group.dictionary;
+    const expression = String(result.term.expression || "").trim();
+    const reading = String(result.term.reading || "").trim();
+
+    const source = documentRef.createElement("span");
+    source.className = "gsm-hoshidicts-frequency-source";
+    source.textContent = dictionaryDisplayName;
+    tag.appendChild(source);
+
+    const body = documentRef.createElement("span");
+    body.className = "gsm-hoshidicts-frequency-body";
+    tag.appendChild(body);
+    const term = documentRef.createElement("span");
+    term.className = "gsm-hoshidicts-frequency-term";
+    term.textContent = expression;
+    body.appendChild(term);
+    if (reading && reading !== expression) {
+      const readingElement = documentRef.createElement("span");
+      readingElement.className = "gsm-hoshidicts-frequency-reading";
+      readingElement.textContent = reading;
+      body.append(" ", readingElement);
+    }
+
+    const values = documentRef.createElement("span");
+    values.className = "gsm-hoshidicts-frequency-values";
+    body.append(" ", values);
+    frequencies.forEach(({ display, frequency }, index) => {
+      if (index > 0) {
+        values.append(" · ");
+      }
+      const value = documentRef.createElement("span");
+      value.className = "gsm-hoshidicts-frequency-value";
+      value.dataset.frequency = String(frequency.value);
+      value.textContent = display;
+      if (display !== String(frequency.value)) {
+        value.title = String(frequency.value);
+      }
+      values.appendChild(value);
+    });
+
+    tag.setAttribute("aria-label", [
+      `${group.dictionary}: ${expression}`,
+      ...(reading && reading !== expression ? [reading] : []),
+      ...frequencies.map(({ display }) => display),
+    ].join(", "));
     return tag;
   }
 
@@ -373,10 +510,7 @@
       }
     }
 
-    function appendNoteControls(prefill, selectTermOnOpen = false) {
-      const toolbar = documentRef.createElement("div");
-      toolbar.className = "gsm-hoshidicts-toolbar";
-
+    function createNoteControls(prefill, selectTermOnOpen = false) {
       const noteButton = documentRef.createElement("button");
       noteButton.type = "button";
       noteButton.className = "gsm-hoshidicts-note-button";
@@ -388,9 +522,7 @@
       noteIcon.className = "gsm-hoshidicts-note-icon";
       noteIcon.setAttribute("aria-hidden", "true");
       noteIcon.textContent = "\u270e";
-      noteButton.append(noteIcon, "Add definition");
-      toolbar.appendChild(noteButton);
-      popup.appendChild(toolbar);
+      noteButton.appendChild(noteIcon);
 
       const form = documentRef.createElement("form");
       form.className = "gsm-hoshidicts-note-form";
@@ -450,7 +582,6 @@
       saveButton.textContent = "Save";
       actions.append(cancelButton, saveButton);
       form.appendChild(actions);
-      popup.appendChild(form);
       let saving = false;
 
       function setSaving(nextSaving) {
@@ -545,15 +676,33 @@
           }
         }
       });
-      return toolbar;
+      return { button: noteButton, form };
+    }
+
+    function createResultChrome(primaryHeader, tabList = null) {
+      const chrome = documentRef.createElement("div");
+      chrome.className = "gsm-hoshidicts-result-chrome";
+      chrome.appendChild(primaryHeader);
+      if (tabList) {
+        chrome.appendChild(tabList);
+      }
+      return chrome;
     }
 
     function renderNotice(message, candidate) {
       clear();
-      appendNoteControls(
+      const noteControls = createNoteControls(
         { term: candidate?.query || "", reading: "", definition: "" },
         true
       );
+      const primaryHeader = documentRef.createElement("header");
+      primaryHeader.className =
+        "gsm-hoshidicts-entry-header gsm-hoshidicts-primary-header";
+      const actions = documentRef.createElement("div");
+      actions.className = "gsm-hoshidicts-entry-actions";
+      actions.appendChild(noteControls.button);
+      primaryHeader.appendChild(actions);
+      popup.append(createResultChrome(primaryHeader), noteControls.form);
       const notice = documentRef.createElement("div");
       notice.className = "gsm-hoshidicts-lookup-notice";
       notice.setAttribute("role", "status");
@@ -566,20 +715,37 @@
       row.className = "gsm-hoshidicts-metadata";
       const seen = new Set();
       let count = 0;
+      const frequencyDictionaryDisplayNames = createDictionaryDisplayNames(
+        result.term.frequencies.map(({ dictionary }) => dictionary)
+      );
       for (const group of result.term.frequencies) {
+        const frequencies = [];
+        const seenFrequencies = new Set();
         for (const frequency of group.frequencies) {
-          const value = frequency.displayValue ?? String(frequency.value);
-          const key = JSON.stringify([group.dictionary, frequency.value, frequency.displayValue]);
-          if (!seen.has(key) && count < maxMetadataTags) {
-            seen.add(key);
-            row.appendChild(createTag(
-              documentRef,
-              `Freq ${value}`,
-              group.dictionary,
-              "frequency"
-            ));
-            count += 1;
+          const display = formatFrequencyValue(frequency);
+          if (display === null) {
+            continue;
           }
+          const key = JSON.stringify([frequency.value, display]);
+          if (!seenFrequencies.has(key)) {
+            seenFrequencies.add(key);
+            frequencies.push({ display, frequency });
+          }
+        }
+        const key = JSON.stringify([
+          group.dictionary,
+          frequencies.map(({ display, frequency }) => [frequency.value, display]),
+        ]);
+        if (frequencies.length > 0 && !seen.has(key) && count < maxMetadataTags) {
+          seen.add(key);
+          row.appendChild(createFrequencyTag(
+            documentRef,
+            result,
+            group,
+            frequencyDictionaryDisplayNames.get(group.dictionary) || group.dictionary,
+            frequencies
+          ));
+          count += 1;
         }
       }
       for (const group of result.term.pitches) {
@@ -599,6 +765,70 @@
       if (row.childNodes.length > 0) {
         entry.appendChild(row);
       }
+    }
+
+    function createEntryHeader(
+      result,
+      candidate,
+      feedback,
+      { element = null, noteButton = null, primary = false } = {}
+    ) {
+      const header = element || documentRef.createElement("header");
+      header.className = primary
+        ? "gsm-hoshidicts-entry-header gsm-hoshidicts-primary-header"
+        : "gsm-hoshidicts-entry-header";
+      header.replaceChildren();
+
+      const headword = documentRef.createElement("div");
+      headword.className = "gsm-hoshidicts-headword";
+      const expression = documentRef.createElement("span");
+      expression.className = "gsm-hoshidicts-expression";
+      appendExpressionRuby(
+        documentRef,
+        expression,
+        result.term.expression,
+        "",
+        (character) => onKanjiClick(character, result, candidate)
+      );
+      headword.appendChild(expression);
+      const readingText = String(result.term.reading || "").trim();
+      if (readingText && readingText !== String(result.term.expression).trim()) {
+        const reading = documentRef.createElement("span");
+        reading.className = "gsm-hoshidicts-reading";
+        reading.textContent = readingText;
+        headword.appendChild(reading);
+      }
+      header.appendChild(headword);
+
+      const actions = documentRef.createElement("div");
+      actions.className = "gsm-hoshidicts-entry-actions";
+      const audioButton = documentRef.createElement("button");
+      audioButton.type = "button";
+      audioButton.className = "gsm-hoshidicts-audio-button";
+      audioButton.dataset.state = "ready";
+      audioButton.hidden = true;
+      audioButton.title = "Play pronunciation";
+      audioButton.setAttribute("aria-label", audioButton.title);
+      audioButton.textContent = "🔊";
+      actions.appendChild(audioButton);
+
+      const mineButton = documentRef.createElement("button");
+      mineButton.type = "button";
+      mineButton.className = "gsm-hoshidicts-mine-button";
+      setMiningButtonState(mineButton, "checking");
+      mineButton.addEventListener("click", () => {
+        onMineClick(mineButton, result, candidate, feedback);
+      });
+      actions.appendChild(mineButton);
+      if (noteButton) {
+        actions.appendChild(noteButton);
+      }
+      header.appendChild(actions);
+      return {
+        audioItems: [{ button: audioButton, result }],
+        element: header,
+        miningButtons: [mineButton],
+      };
     }
 
     function collectDictionaries(results) {
@@ -638,7 +868,13 @@
       return projected;
     }
 
-    function renderResultPanel(panel, results, candidate, renderContext) {
+    function renderResultPanel(
+      panel,
+      results,
+      candidate,
+      renderContext,
+      { dictionaryDisplayNames, noteButton, primaryHeader } = {}
+    ) {
       panel.replaceChildren();
       const feedback = documentRef.createElement("div");
       feedback.className = "gsm-hoshidicts-mining-feedback";
@@ -658,42 +894,16 @@
           entry.hidden = true;
         }
 
-        const header = documentRef.createElement("header");
-        header.className = "gsm-hoshidicts-entry-header";
-        const expression = documentRef.createElement("span");
-        expression.className = "gsm-hoshidicts-expression";
-        appendExpressionRuby(
-          documentRef,
-          expression,
-          result.term.expression,
-          result.term.reading,
-          (character) => onKanjiClick(character, result, candidate)
-        );
-        header.appendChild(expression);
-
-        const actions = documentRef.createElement("div");
-        actions.className = "gsm-hoshidicts-entry-actions";
-        const audioButton = documentRef.createElement("button");
-        audioButton.type = "button";
-        audioButton.className = "gsm-hoshidicts-audio-button";
-        audioButton.dataset.state = "ready";
-        audioButton.title = "Play pronunciation";
-        audioButton.setAttribute("aria-label", audioButton.title);
-        audioButton.textContent = "🔊";
-        actions.appendChild(audioButton);
-        audioItems.push({ button: audioButton, result });
-
-        const mineButton = documentRef.createElement("button");
-        mineButton.type = "button";
-        mineButton.className = "gsm-hoshidicts-mine-button";
-        setMiningButtonState(mineButton, "checking");
-        mineButton.addEventListener("click", () => {
-          onMineClick(mineButton, result, candidate, feedback);
+        const renderedHeader = createEntryHeader(result, candidate, feedback, {
+          element: resultIndex === 0 ? primaryHeader : null,
+          noteButton: resultIndex === 0 ? noteButton : null,
+          primary: resultIndex === 0,
         });
-        actions.appendChild(mineButton);
-        header.appendChild(actions);
-        miningButtons.push(mineButton);
-        entry.appendChild(header);
+        audioItems.push(...renderedHeader.audioItems);
+        miningButtons.push(...renderedHeader.miningButtons);
+        if (resultIndex !== 0) {
+          entry.appendChild(renderedHeader.element);
+        }
 
         if (resultIndex === 0 && renderContext.showLookupCounts === true) {
           lookupStats = documentRef.createElement("div");
@@ -744,7 +954,9 @@
           details.open = dictionaryIndex === 0;
           details.addEventListener("toggle", positionPopup);
           const summary = documentRef.createElement("summary");
-          summary.textContent = dictionary;
+          summary.textContent = dictionaryDisplayNames?.get(dictionary) || dictionary;
+          summary.title = dictionary;
+          summary.setAttribute("aria-label", dictionary);
           details.appendChild(summary);
           const definitions = documentRef.createElement("ol");
           definitions.className = "gsm-hoshidicts-definitions";
@@ -810,10 +1022,13 @@
 
     function renderKanji(kanji, candidate, renderOptions = {}) {
       clear();
-      appendNoteControls(
+      const noteControls = createNoteControls(
         { term: kanji.character, reading: "", definition: "" },
         true
       );
+      const primaryHeader = documentRef.createElement("header");
+      primaryHeader.className =
+        "gsm-hoshidicts-entry-header gsm-hoshidicts-primary-header";
       const navigation = documentRef.createElement("div");
       navigation.className = "gsm-hoshidicts-kanji-navigation";
       if (typeof renderOptions.onBack === "function") {
@@ -829,7 +1044,12 @@
       glyph.className = "gsm-hoshidicts-kanji-glyph";
       glyph.textContent = kanji.character;
       navigation.appendChild(glyph);
-      popup.appendChild(navigation);
+      primaryHeader.appendChild(navigation);
+      const actions = documentRef.createElement("div");
+      actions.className = "gsm-hoshidicts-entry-actions";
+      actions.appendChild(noteControls.button);
+      primaryHeader.appendChild(actions);
+      popup.append(createResultChrome(primaryHeader), noteControls.form);
 
       for (const kanjiEntry of kanji.entries) {
         const entry = documentRef.createElement("article");
@@ -913,6 +1133,7 @@
       clear();
       setDefinitionBlurState(renderContext.definitionBlurState);
       const dictionaries = collectDictionaries(results);
+      const dictionaryDisplayNames = createDictionaryDisplayNames(dictionaries);
       const tabList = documentRef.createElement("div");
       tabList.className = "gsm-hoshidicts-tab-list";
       tabList.setAttribute("role", "tablist");
@@ -924,13 +1145,19 @@
       panel.className = "gsm-hoshidicts-tab-panel";
       panel.setAttribute("role", "tabpanel");
 
-      const toolbar = appendNoteControls({
+      const noteControls = createNoteControls({
         term: results[0].term.expression,
         reading: results[0].term.reading,
         definition: "",
       });
-      toolbar.insertBefore(tabList, toolbar.firstChild);
-      popup.appendChild(panel);
+      const primaryHeader = documentRef.createElement("header");
+      primaryHeader.className =
+        "gsm-hoshidicts-entry-header gsm-hoshidicts-primary-header";
+      popup.append(
+        createResultChrome(primaryHeader, tabList),
+        noteControls.form,
+        panel
+      );
 
       const tabValues = [null, ...dictionaries];
       const tabButtons = [];
@@ -979,6 +1206,11 @@
             // original term's count to a different expression.
             showLookupCounts:
               activeIndex === 0 && renderContext.showLookupCounts === true,
+          },
+          {
+            dictionaryDisplayNames,
+            noteButton: noteControls.button,
+            primaryHeader,
           }
         );
         if (hasRendered) {
@@ -997,8 +1229,14 @@
         button.setAttribute("aria-controls", panel.id);
         button.setAttribute("aria-selected", "false");
         button.tabIndex = -1;
-        button.textContent = dictionary === null ? "All" : dictionary;
+        button.textContent = dictionary === null
+          ? "All"
+          : dictionaryDisplayNames.get(dictionary) || dictionary;
         button.title = dictionary === null ? "All dictionaries" : dictionary;
+        button.setAttribute(
+          "aria-label",
+          dictionary === null ? "All dictionaries" : dictionary
+        );
         button.addEventListener("click", () => activateTab(index));
         button.addEventListener("keydown", (event) => {
           let nextIndex = null;

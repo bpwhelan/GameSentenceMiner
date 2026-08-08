@@ -48,6 +48,7 @@
   const LOOKUP_MAX_RESULTS = 16;
   const INITIAL_VISIBLE_RESULTS = 6;
   const DEFAULT_POPUP_HIDE_DELAY_MS = 300;
+  const DEFAULT_POPUP_MIN_HEIGHT_PX = 250;
   const DEFAULT_ACTIVATION_KEY = "Shift";
   const DEFAULT_SOURCE_HIGHLIGHT_ENABLED = false;
   const DEFAULT_POPUP_NESTING_MAX_DEPTH = 10;
@@ -929,12 +930,15 @@
   function calculatePopupPosition(anchorRect, popupSize, viewport, options = {}) {
     const gap = Number.isFinite(options.gap) ? options.gap : 4;
     const padding = Number.isFinite(options.padding) ? options.padding : 6;
+    const minimumHeight = Number.isFinite(options.minimumHeight)
+      ? Math.max(1, options.minimumHeight)
+      : DEFAULT_POPUP_MIN_HEIGHT_PX;
     const width = Math.min(
       Math.max(1, popupSize.width),
       Math.max(1, viewport.width - padding * 2)
     );
-    const height = Math.min(
-      Math.max(1, popupSize.height),
+    let height = Math.min(
+      Math.max(1, popupSize.height, minimumHeight),
       Math.max(1, viewport.height - padding * 2)
     );
     const clamp = (value, minimum, maximum) =>
@@ -950,9 +954,15 @@
         : anchorRect.left - gap - width;
       top = anchorRect.top;
     } else {
-      const spaceBelow = viewport.height - anchorRect.bottom - gap;
-      const spaceAbove = anchorRect.top - gap;
-      top = spaceBelow >= height || spaceBelow >= spaceAbove
+      const spaceBelow = Math.max(
+        0,
+        viewport.height - padding - anchorRect.bottom - gap
+      );
+      const spaceAbove = Math.max(0, anchorRect.top - gap - padding);
+      const placeBelow = spaceBelow >= height ||
+        (spaceAbove < height && spaceBelow > spaceAbove);
+      height = Math.min(height, Math.max(1, placeBelow ? spaceBelow : spaceAbove));
+      top = placeBelow
         ? anchorRect.bottom + gap
         : anchorRect.top - gap - height;
       left = anchorRect.left;
@@ -2317,10 +2327,16 @@
         return;
       }
       const anchorRect = getCandidateAnchorRect(level.candidate);
+      level.popup.style.maxWidth = "";
+      level.popup.style.maxHeight = "";
+      level.popup.style.minHeight = "";
       const measuredRect = level.popup.getBoundingClientRect();
       const popupSize = {
         width: measuredRect.width || Math.min(420, windowRef.innerWidth - 12),
-        height: measuredRect.height || Math.min(420, windowRef.innerHeight * 0.6),
+        height: Math.max(
+          measuredRect.height || Math.min(420, windowRef.innerHeight * 0.6),
+          DEFAULT_POPUP_MIN_HEIGHT_PX
+        ),
       };
       const parentLevel = depth > 0 ? popupLevels[depth - 1] : null;
       const position = parentLevel && parentLevel.visible
@@ -2339,6 +2355,10 @@
       level.popup.style.top = `${position.top}px`;
       level.popup.style.maxWidth = `${position.width}px`;
       level.popup.style.maxHeight = `${position.height}px`;
+      level.popup.style.minHeight = `${Math.min(
+        DEFAULT_POPUP_MIN_HEIGHT_PX,
+        position.height
+      )}px`;
     }
 
     function positionPopupAndDescendants(startDepth = 0) {
