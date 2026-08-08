@@ -317,3 +317,91 @@ html.gsm-hoshidicts-enabled iframe.yomitan-popup {
   border-color: var(--accent-color);
   background: rgba(74, 145, 237, 0.12);
 }
+
+.gsm-hoshidicts-kanji-link {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px dotted currentColor;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}
+
+.gsm-hoshidicts-kanji-link:hover,
+.gsm-hoshidicts-kanji-link:focus-visible {
+  color: var(--accent-color);
+  outline: none;
+}
+
+.gsm-hoshidicts-kanji-navigation {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.gsm-hoshidicts-kanji-back {
+  padding: 4px 8px;
+  border: 1px solid #555555;
+  border-radius: 5px;
+  background: #292929;
+  color: var(--text-color);
+  font: inherit;
+  cursor: pointer;
+}
+
+.gsm-hoshidicts-kanji-glyph {
+  font-size: 56px;
+  line-height: 1;
+}
+
+.gsm-hoshidicts-kanji-entry {
+  padding: 8px 0;
+  border-top: 1px solid #444444;
+}
+
+.gsm-hoshidicts-kanji-dictionary,
+.gsm-hoshidicts-kanji-entry h4 {
+  margin: 0 0 5px;
+}
+
+.gsm-hoshidicts-kanji-readings {
+  display: grid;
+  gap: 3px;
+  margin: 6px 0;
+}
+
+.gsm-hoshidicts-kanji-reading-group {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  gap: 6px;
+}
+
+.gsm-hoshidicts-kanji-meanings {
+  margin: 4px 0 8px;
+  padding-left: 22px;
+}
+
+.gsm-hoshidicts-kanji-stats > summary {
+  color: var(--text-color-light1);
+  cursor: pointer;
+}
+
+.gsm-hoshidicts-kanji-stats dl {
+  display: grid;
+  grid-template-columns: minmax(80px, auto) 1fr;
+  gap: 2px 8px;
+  margin: 5px 0 0;
+}
+
+.gsm-hoshidicts-kanji-stats dt {
+  color: var(--text-color-light1);
+}
+
+.gsm-hoshidicts-kanji-stats dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}

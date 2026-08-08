@@ -304,6 +304,34 @@ function lookupResult(
   };
 }
 
+function kanjiResult(requestId: string, character: string = "食") {
+  return {
+    type: "hoshidicts_lookup_result",
+    requestId,
+    success: true,
+    dictionaryCount: 1,
+    featureDisabled: false,
+    error: null,
+    results: [],
+    kanji: {
+      character,
+      entries: [
+        {
+          dictionary: "KANJIDIC (English)",
+          onyomi: "ショク ジキ",
+          kunyomi: "く.う た.べる",
+          tags: "jouyou",
+          definitions: ["eat", "food"],
+          stats: [
+            { name: "grade", value: "2" },
+            { name: "strokes", value: "9" }
+          ]
+        }
+      ]
+    }
+  };
+}
+
 async function flushPromises() {
   for (let index = 0; index < 6; index += 1) {
     await Promise.resolve();
@@ -317,6 +345,21 @@ afterEach(() => {
 });
 
 describe("Hoshidicts safe popup rendering", () => {
+  it("segments supplementary-plane kanji separately from trailing kana", () => {
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+
+    expect(
+      Array.from(api.segmentFurigana("𠮟る", "しかる"), (segment: any) => ({
+        text: segment.text,
+        reading: segment.reading
+      }))
+    ).toEqual([
+      { text: "𠮟", reading: "しか" },
+      { text: "る", reading: "" }
+    ]);
+  });
+
   it("links to dedicated settings from Overlay Settings instead of the overlay toolbar", async () => {
     const { button, click, invoke, overlayHtml, settingsHtml } =
       loadHoshidictsSettingsLinkWiring();
@@ -706,6 +749,254 @@ describe("Hoshidicts Shift-hover scanner", () => {
     expect(dom.window.document.documentElement.dataset.gsmHoshidictsEnabled).toBe(
       undefined
     );
+  });
+
+  it("opens clicked kanji details and restores the cached term view", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      logger: { debug() {}, info() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        shiftKey: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const termRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(termRequest.requestId, "食べる"));
+    await flushPromises();
+
+    const popup = reader.getPopupElement();
+    const kanjiLink = popup.querySelector<HTMLButtonElement>(
+      ".gsm-hoshidicts-kanji-link"
+    );
+    expect(kanjiLink?.textContent).toBe("食");
+    kanjiLink?.click();
+    const directRequest = JSON.parse(socket.sent.at(-1)!);
+    expect(directRequest).toMatchObject({ text: "食", mode: "kanji" });
+
+    socket.receive(kanjiResult(directRequest.requestId));
+    expect(popup.querySelector(".gsm-hoshidicts-kanji-glyph")?.textContent).toBe("食");
+    expect(popup.textContent).toContain("KANJIDIC (English)");
+    expect(popup.textContent).toContain("ショク · ジキ");
+    expect(popup.textContent).toContain("eat");
+    expect(popup.querySelector(".gsm-hoshidicts-mine-button")).toBeNull();
+
+    popup.querySelector<HTMLButtonElement>(".gsm-hoshidicts-kanji-back")?.click();
+    expect(popup.textContent).toContain("to eat");
+    expect(popup.querySelector(".gsm-hoshidicts-entry")).not.toBeNull();
+    reader.destroy();
+  });
+
+  it("keeps a clicked kanji lookup active when Shift is released inside the popup", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      logger: { debug() {}, info() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    dom.window.document.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "Shift", bubbles: true })
+    );
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        shiftKey: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const termRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(termRequest.requestId, "食べる"));
+
+    const popup = reader.getPopupElement();
+    popup.dispatchEvent(new dom.window.Event("pointerenter"));
+    popup.querySelector<HTMLButtonElement>(".gsm-hoshidicts-kanji-link")?.click();
+    const directRequest = JSON.parse(socket.sent.at(-1)!);
+    expect(directRequest).toMatchObject({ text: "食", mode: "kanji" });
+
+    dom.window.document.dispatchEvent(
+      new dom.window.KeyboardEvent("keyup", { key: "Shift", bubbles: true })
+    );
+    socket.receive(kanjiResult(directRequest.requestId));
+
+    expect(popup.querySelector(".gsm-hoshidicts-kanji-glyph")?.textContent).toBe("食");
+    expect(reader.isVisible()).toBe(true);
+    reader.destroy();
+  });
+
+  it("restores cached term results after direct kanji misses, failures, and timeouts", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      lookupTimeoutMs: 50,
+      logger: { debug() {}, info() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        shiftKey: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const termRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(termRequest.requestId, "食べる"));
+    const popup = reader.getPopupElement();
+    const clickKanji = () => {
+      popup.querySelector<HTMLButtonElement>(".gsm-hoshidicts-kanji-link")?.click();
+      return JSON.parse(socket.sent.at(-1)!);
+    };
+    const expectTermView = () => {
+      expect(reader.isVisible()).toBe(true);
+      expect(popup.querySelector(".gsm-hoshidicts-entry")).not.toBeNull();
+      expect(popup.textContent).toContain("to eat");
+    };
+
+    const emptyRequest = clickKanji();
+    socket.receive({
+      type: "hoshidicts_lookup_result",
+      requestId: emptyRequest.requestId,
+      success: true,
+      dictionaryCount: 1,
+      featureDisabled: false,
+      error: null,
+      results: [],
+      kanji: null
+    });
+    expectTermView();
+
+    const failedRequest = clickKanji();
+    socket.receive({
+      type: "hoshidicts_lookup_result",
+      requestId: failedRequest.requestId,
+      success: false,
+      dictionaryCount: 1,
+      featureDisabled: false,
+      error: "kanji lookup failed",
+      results: [],
+      kanji: null
+    });
+    expectTermView();
+
+    clickKanji();
+    await vi.advanceTimersByTimeAsync(50);
+    expectTermView();
+    reader.destroy();
+  });
+
+  it("reconnects with the term query after returning from kanji details", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      reconnectInitialDelayMs: 1,
+      reconnectMaxDelayMs: 1,
+      logger: { debug() {}, info() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        shiftKey: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const termRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(termRequest.requestId, "食べる"));
+    const popup = reader.getPopupElement();
+    popup.querySelector<HTMLButtonElement>(".gsm-hoshidicts-kanji-link")?.click();
+    const directRequest = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(kanjiResult(directRequest.requestId));
+    popup.querySelector<HTMLButtonElement>(".gsm-hoshidicts-kanji-back")?.click();
+    expect(popup.textContent).toContain("to eat");
+
+    socket.close();
+    await vi.advanceTimersByTimeAsync(1);
+    const reconnected = FakeWebSocket.instances[1];
+    reconnected.open();
+    const retry = JSON.parse(reconnected.sent.at(-1)!);
+
+    expect(retry).toMatchObject({
+      type: "hoshidicts_lookup",
+      text: "食べる"
+    });
+    expect(retry.mode).toBeUndefined();
+    reader.destroy();
+  });
+
+  it("renders a term-first kanji fallback without a Back action", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      logger: { debug() {}, info() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    first.dispatchEvent(
+      new dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        shiftKey: true,
+        clientX: 11,
+        clientY: 11
+      })
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    const request = JSON.parse(socket.sent.at(-1)!);
+    expect(request.mode).toBeUndefined();
+
+    socket.receive(kanjiResult(request.requestId));
+    const popup = reader.getPopupElement();
+    expect(popup.querySelector(".gsm-hoshidicts-kanji-entry")).not.toBeNull();
+    expect(popup.querySelector(".gsm-hoshidicts-kanji-back")).toBeNull();
+    reader.destroy();
   });
 
   it("ignores stale responses so the latest hover request wins", async () => {

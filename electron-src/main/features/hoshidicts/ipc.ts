@@ -9,6 +9,8 @@ import {
 import type { OverlayRuntimeState } from '../../ui/front.js';
 import {
     HOSHIDICTS_CHANNELS,
+    DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
+    HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
     MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
     type HoshidictsActionResult,
     type HoshidictsDesktopSnapshot,
@@ -63,7 +65,9 @@ function isLookupMode(value: unknown): value is HoshidictsLookupMode {
 function isRecommendedDictionaryId(
     value: unknown
 ): value is HoshidictsRecommendedDictionaryId {
-    return value === 'jmdict' || value === 'jmnedict';
+    return HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.some(
+        (dictionaryId) => dictionaryId === value
+    );
 }
 
 function assertSettingsSender(
@@ -204,7 +208,10 @@ export function registerHoshidictsIPC(
             assertSettingsSender(event, deps);
             const before = await manager.getSnapshot();
             const missingCount = before.recommendedDictionaries.filter(
-                (dictionary) => !dictionary.installed
+                (dictionary) =>
+                    DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.some(
+                        (dictionaryId) => dictionaryId === dictionary.id
+                    ) && !dictionary.installed
             ).length;
             return await runAction(
                 deps,

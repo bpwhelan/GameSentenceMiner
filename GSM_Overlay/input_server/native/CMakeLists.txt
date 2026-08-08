@@ -19,8 +19,8 @@ add_subdirectory(
     "${CMAKE_CURRENT_BINARY_DIR}/hoshidicts"
 )
 
-# The pinned 7bfdc8c header uses uint64_t without directly including cstdint.
-# Keep the submodule immutable; the pending upstream UTF-8 path fix includes it.
+# The pinned Hoshidicts header uses uint64_t without directly including cstdint.
+# Keep the submodule immutable and supply the missing include from this wrapper.
 if(MSVC)
     target_compile_options(hoshidicts PRIVATE /FIcstdint /utf-8 /Zc:__cplusplus)
 else()
