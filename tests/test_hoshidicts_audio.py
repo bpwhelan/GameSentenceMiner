@@ -256,7 +256,9 @@ def test_custom_url_substitution_encodes_values_and_custom_json_is_exact(monkeyp
 
 def test_local_audio_yomichan_contract_discovers_and_downloads_opus(monkeypatch):
     discovery_url = "http://127.0.0.1:5050/?term=%E9%A3%9F%E3%81%B9%E3%82%8B&reading=%E3%81%9F%E3%81%B9%E3%82%8B"
-    media_url = "http://127.0.0.1:5050/nhk16/taberu.opus"
+    # Local Audio Server v1.7.0 can advertise localhost media URLs even when
+    # Yomitan configured discovery through 127.0.0.1.
+    media_url = "http://localhost:5050/nhk16/taberu.opus"
     audio = _opus()
     calls = []
 

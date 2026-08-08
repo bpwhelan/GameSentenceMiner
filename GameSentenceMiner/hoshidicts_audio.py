@@ -129,6 +129,12 @@ def _url_origin(url: str) -> str:
     parsed = urlsplit(url)
     scheme = parsed.scheme.lower()
     hostname = (parsed.hostname or "").rstrip(".").casefold()
+    try:
+        is_loopback = ipaddress.ip_address(hostname).is_loopback
+    except ValueError:
+        is_loopback = hostname == "localhost"
+    if is_loopback:
+        hostname = "loopback"
     port = parsed.port or (443 if scheme == "https" else 80)
     host = f"[{hostname}]" if ":" in hostname else hostname
     return f"{scheme}://{host}:{port}"
