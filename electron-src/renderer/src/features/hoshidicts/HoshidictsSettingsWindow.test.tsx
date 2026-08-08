@@ -1319,7 +1319,8 @@ describe("HoshidictsSettingsWindow", () => {
       "Definition",
       "Sentence",
       "Frequency",
-      "Pitch accent"
+      "Pitch accent",
+      "Pronunciation audio"
     ]);
     expect(selects.map((select) => select.id)).toEqual([
       "hoshidicts-mining-field-expression",
@@ -1327,7 +1328,8 @@ describe("HoshidictsSettingsWindow", () => {
       "hoshidicts-mining-field-definition",
       "hoshidicts-mining-field-sentence",
       "hoshidicts-mining-field-frequency",
-      "hoshidicts-mining-field-pitch"
+      "hoshidicts-mining-field-pitch",
+      "hoshidicts-mining-field-audio"
     ]);
     expect(labels.map((label) => label.htmlFor)).toEqual(
       selects.map((select) => select.id)
