@@ -21,6 +21,16 @@ function makeTempDir(prefix: string): string {
     return dir;
 }
 
+function writeRelative(root: string, relativePath: string, contents: string): void {
+    const filePath = path.join(root, ...relativePath.split('/'));
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, contents, 'utf-8');
+}
+
+function readRelative(root: string, relativePath: string): string {
+    return fs.readFileSync(path.join(root, ...relativePath.split('/')), 'utf-8');
+}
+
 beforeEach(() => {
     originalAppData = process.env.APPDATA;
     // Default base dir lives under APPDATA; isolate it so the pointer file lands in a temp dir.
@@ -205,22 +215,35 @@ describe('performDataMove', () => {
             'Japanese Dictionary',
         );
         fs.mkdirSync(dictionaryDir, { recursive: true });
-        fs.writeFileSync(
-            path.join(oldDir, 'dictionaries', 'hoshidicts', 'manifest.json'),
+        writeRelative(
+            oldDir,
+            'dictionaries/hoshidicts/manifest.json',
             '{"version":1,"dictionaries":[]}',
-            'utf-8',
+        );
+        writeRelative(
+            oldDir,
+            'dictionaries/hoshidicts/audio-profile.json',
+            '{"version":1,"volume":40}',
+        );
+        writeRelative(
+            oldDir,
+            'dictionaries/hoshidicts/mining-profile.json',
+            '{"version":1,"deck":"Mining"}',
         );
         fs.writeFileSync(path.join(dictionaryDir, 'blobs.bin'), 'dictionary', 'utf-8');
 
         const newDir = path.join(makeTempDir('gsm-hoshidicts-target-'), 'data');
         await performDataMove(oldDir, newDir);
 
+        expect(readRelative(newDir, 'dictionaries/hoshidicts/manifest.json')).toBe(
+            '{"version":1,"dictionaries":[]}',
+        );
         expect(
-            fs.readFileSync(
-                path.join(newDir, 'dictionaries', 'hoshidicts', 'manifest.json'),
-                'utf-8',
-            ),
-        ).toBe('{"version":1,"dictionaries":[]}');
+            readRelative(newDir, 'dictionaries/hoshidicts/audio-profile.json'),
+        ).toBe('{"version":1,"volume":40}');
+        expect(
+            readRelative(newDir, 'dictionaries/hoshidicts/mining-profile.json'),
+        ).toBe('{"version":1,"deck":"Mining"}');
         expect(
             fs.readFileSync(
                 path.join(

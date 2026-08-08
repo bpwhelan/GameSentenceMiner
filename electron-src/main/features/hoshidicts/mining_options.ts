@@ -1,4 +1,5 @@
 import { getConfiguredSinglePort } from '../../gsm_config.js';
+import { getBusConnectInfo } from '../../runtime/bus_client.js';
 import type {
     HoshidictsMiningFields,
     HoshidictsMiningOptions,
@@ -11,6 +12,7 @@ const EMPTY_FIELDS: HoshidictsMiningFields = {
     sentence: '',
     frequency: '',
     pitch: '',
+    audio: '',
 };
 
 function errorMessage(error: unknown): string {
@@ -81,6 +83,7 @@ export function normalizeHoshidictsMiningOptions(
             sentence: stringValue(suggested.sentence),
             frequency: stringValue(suggested.frequency),
             pitch: stringValue(suggested.pitch),
+            audio: stringValue(suggested.audio),
         },
         resolvedFields: {
             expression: stringValue(resolved.expression),
@@ -89,6 +92,7 @@ export function normalizeHoshidictsMiningOptions(
             sentence: stringValue(resolved.sentence),
             frequency: stringValue(resolved.frequency),
             pitch: stringValue(resolved.pitch),
+            audio: stringValue(resolved.audio),
         },
         warnings: stringList(candidate.warnings),
         error:
@@ -101,6 +105,10 @@ export function normalizeHoshidictsMiningOptions(
 export async function fetchHoshidictsMiningOptions(
     model?: string
 ): Promise<HoshidictsMiningOptions> {
+    const connectInfo = getBusConnectInfo();
+    if (!connectInfo || !/^[a-f0-9]{64}$/u.test(connectInfo.token)) {
+        return emptyOptions('Hoshidicts authentication is unavailable.');
+    }
     const url = new URL(
         `http://127.0.0.1:${getConfiguredSinglePort()}/api/hoshidicts/mining/options`
     );
@@ -109,6 +117,9 @@ export async function fetchHoshidictsMiningOptions(
     }
     try {
         const response = await fetch(url.toString(), {
+            headers: {
+                Authorization: `Bearer ${connectInfo.token}`,
+            },
             signal: AbortSignal.timeout(5_000),
         });
         if (!response.ok) {

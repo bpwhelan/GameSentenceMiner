@@ -12,20 +12,35 @@
 
 (function (root, factory) {
   const popupApi = root && root.GSMHoshidictsPopup;
-  const api = factory(popupApi);
+  const audioApi = root && root.GSMHoshidictsAudio;
+  const api = factory(popupApi, audioApi);
   if (typeof module !== "undefined" && module.exports) {
     module.exports = api;
   }
   if (root) {
     root.GSMHoshidictsReader = api;
   }
-}(typeof window !== "undefined" ? window : globalThis, function (popupApi) {
+}(typeof window !== "undefined" ? window : globalThis, function (popupApi, audioApi) {
   "use strict";
 
-  if (!popupApi || typeof popupApi.createPopupView !== "function") {
+  if (
+    !popupApi ||
+    typeof popupApi.createPopupView !== "function" ||
+    typeof popupApi.createSourceHighlighter !== "function"
+  ) {
     throw new Error("Hoshidicts popup support must load before the reader.");
   }
-  const { createPopupView, setMiningButtonState } = popupApi;
+  if (!audioApi || typeof audioApi.createHoshidictsAudioController !== "function") {
+    throw new Error("Hoshidicts audio support must load before the reader.");
+  }
+  const { createPopupView, createSourceHighlighter, setMiningButtonState } = popupApi;
+  const {
+    canonicalizeAudioTerm,
+    createHoshidictsAudioClient,
+    createHoshidictsAudioController,
+    normalizeLocalHttpBaseUrl,
+    normalizeAudioProfile,
+  } = audioApi;
 
   const LOOKUP_DEBOUNCE_MS = 20;
   const LOOKUP_REQUEST_TIMEOUT_MS = 4 * 1000;
@@ -33,6 +48,9 @@
   const LOOKUP_MAX_RESULTS = 16;
   const INITIAL_VISIBLE_RESULTS = 6;
   const DEFAULT_POPUP_HIDE_DELAY_MS = 300;
+  const DEFAULT_ACTIVATION_KEY = "Shift";
+  const DEFAULT_SOURCE_HIGHLIGHT_ENABLED = false;
+  const DEFAULT_POPUP_NESTING_MAX_DEPTH = 10;
   const MAX_POPUP_HIDE_DELAY_MS = 5 * 1000;
   const DEFAULT_DEFINITION_BLUR_PREFERENCES = Object.freeze({
     enabled: false,
@@ -45,13 +63,25 @@
   const MIN_DEFINITION_BLUR_REVEAL_DELAY_MS = 1000;
   const MAX_DEFINITION_BLUR_REVEAL_DELAY_MS = 60 * 60 * 1000;
   const MAX_RESPONSE_BYTES = 256 * 1024;
+  const MAX_MEDIA_RESPONSE_BYTES = 6 * 1024 * 1024;
+  const MAX_MEDIA_BYTES = 4 * 1024 * 1024;
+  const MAX_MEDIA_DIMENSION = 4096;
+  const MAX_MEDIA_PIXELS = 16 * 1024 * 1024;
+  const MAX_MEDIA_CACHE_BYTES = 16 * 1024 * 1024;
+  const MAX_MEDIA_CACHE_ENTRIES = 64;
+  const MAX_MEDIA_CONCURRENT_REQUESTS = 4;
+  const MAX_MEDIA_PENDING_REQUESTS = 128;
+  const MAX_POPUP_MEDIA_IMAGES = 128;
+  const MAX_POPUP_MEDIA_PIXELS = 32 * 1024 * 1024;
+  const MEDIA_REQUEST_TIMEOUT_MS = 4 * 1000;
+  const MAX_MEDIA_DISPLAY_SIZE = 1024;
   const MAX_GLOSSARIES = 64;
   const MAX_TRACE_STEPS = 32;
   const MAX_METADATA_GROUPS = 64;
   const MAX_METADATA_VALUES = 64;
   const MAX_TEXT_LENGTH = 128 * 1024;
   const MAX_MINING_REQUEST_BYTES = 256 * 1024;
-  const MINING_REQUEST_TIMEOUT_MS = 10 * 1000;
+  const MINING_REQUEST_TIMEOUT_MS = 90 * 1000;
   const MAX_LOOKUP_STATS_REQUEST_BYTES = 4 * 1024;
   const MAX_LOOKUP_STATS_TEXT_LENGTH = 256;
   const LOOKUP_STATS_REQUEST_TIMEOUT_MS = 2 * 1000;
@@ -63,15 +93,19 @@
   const MAX_VISIBLE_METADATA_TAGS = 12;
   const SOURCE_HIGHLIGHT_NAME = "gsm-hoshidicts-match";
   const JAPANESE_TEXT_PATTERN =
-    /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/u;
+    /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u{20000}-\u{2fa1f}]/u;
+  const HAN_CHARACTER_PATTERN =
+    /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u{20000}-\u{2fa1f}]/u;
   const KANJI_SEGMENT_PATTERN =
-    /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u3005]+|[^\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u3005]+/gu;
+    /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u{20000}-\u{2fa1f}\u3005]+|[^\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u{20000}-\u{2fa1f}\u3005]+/gu;
   const KANA_PATTERN = /[\u3040-\u30ff\uff66-\uff9f]/u;
   const ALLOWED_STRUCTURED_TAGS = new Set([
     "br",
     "code",
+    "details",
     "div",
     "em",
+    "img",
     "li",
     "ol",
     "p",
@@ -82,6 +116,7 @@
     "span",
     "strong",
     "sub",
+    "summary",
     "sup",
     "table",
     "tbody",
@@ -93,18 +128,62 @@
     "ul",
   ]);
   const IGNORED_STRUCTURED_TAGS = new Set([
-    "a",
     "audio",
     "button",
     "canvas",
     "iframe",
-    "img",
     "input",
     "script",
     "source",
     "style",
     "svg",
     "video",
+  ]);
+  const STRUCTURED_TAGS_WITHOUT_CONTENT = new Set(["br", "img"]);
+  const ALLOWED_MEDIA_TYPES = new Set([
+    "image/gif",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+  ]);
+  const STRUCTURED_STYLE_PROPERTIES = new Map([
+    ["background", ["background", "color"]],
+    ["borderColor", ["border-color", "color"]],
+    ["borderRadius", ["border-radius", "length-sequence"]],
+    ["borderStyle", ["border-style", "border-style"]],
+    ["borderWidth", ["border-width", "length-sequence"]],
+    ["color", ["color", "color"]],
+    ["fontSize", ["font-size", "length"]],
+    ["fontStyle", ["font-style", "font-style"]],
+    ["fontWeight", ["font-weight", "font-weight"]],
+    ["marginBottom", ["margin-bottom", "signed-length"]],
+    ["marginTop", ["margin-top", "signed-length"]],
+    ["padding", ["padding", "length-sequence"]],
+    ["paddingLeft", ["padding-left", "length"]],
+  ]);
+  const NAMED_ACTIVATION_KEYS = new Map([
+    ["ctrl", "Ctrl"],
+    ["alt", "Alt"],
+    ["shift", "Shift"],
+    ["cmd", "Cmd"],
+    ["space", "Space"],
+    ["return", "Return"],
+    ["escape", "Escape"],
+    ["backspace", "Backspace"],
+    ["delete", "Delete"],
+    ["tab", "Tab"],
+    ["up", "Up"],
+    ["down", "Down"],
+    ["left", "Left"],
+    ["right", "Right"],
+    ["home", "Home"],
+    ["end", "End"],
+    ["pageup", "PageUp"],
+    ["pagedown", "PageDown"],
+    ["insert", "Insert"],
+  ]);
+  const PUNCTUATION_ACTIVATION_KEYS = new Set([
+    "-", "=", "[", "]", "\\", ";", "'", ",", ".", "/", "`",
   ]);
 
   function isRecord(value) {
@@ -113,6 +192,27 @@
 
   function boundedString(value, maxLength = MAX_TEXT_LENGTH) {
     return typeof value === "string" ? value.slice(0, maxLength) : "";
+  }
+
+  function normalizeActivationKey(value, fallback = DEFAULT_ACTIVATION_KEY) {
+    if (typeof value !== "string") {
+      return fallback;
+    }
+    const token = value.trim();
+    if (PUNCTUATION_ACTIVATION_KEYS.has(token)) {
+      return token;
+    }
+    if (/^[a-z]$/iu.test(token)) {
+      return token.toUpperCase();
+    }
+    if (/^[0-9]$/u.test(token)) {
+      return token;
+    }
+    const functionKeyMatch = /^f([1-9]|1[0-9]|2[0-4])$/iu.exec(token);
+    if (functionKeyMatch) {
+      return `F${functionKeyMatch[1]}`;
+    }
+    return NAMED_ACTIVATION_KEYS.get(token.toLowerCase()) ?? fallback;
   }
 
   function normalizeLookupResults(payload) {
@@ -124,6 +224,7 @@
     return payload.results.slice(0, LOOKUP_MAX_RESULTS).map((rawResult) => {
       const result = isRecord(rawResult) ? rawResult : {};
       const rawTerm = isRecord(result.term) ? result.term : {};
+      const canonicalTerm = canonicalizeAudioTerm(rawTerm);
       const trace = Array.isArray(result.trace)
         ? result.trace.slice(0, MAX_TRACE_STEPS).map((rawStep) => {
             const step = isRecord(rawStep) ? rawStep : {};
@@ -157,9 +258,11 @@
                       const frequency = isRecord(rawFrequency) ? rawFrequency : {};
                       return {
                         value: Number.isFinite(frequency.value)
-                          ? Math.trunc(frequency.value)
+                          ? frequency.value
                           : null,
-                        displayValue: boundedString(frequency.displayValue, 4096),
+                        displayValue: typeof frequency.displayValue === "string"
+                          ? frequency.displayValue.slice(0, 4096)
+                          : null,
                       };
                     })
                     .filter((frequency) => frequency.value !== null)
@@ -211,8 +314,8 @@
           ? Math.trunc(result.preprocessorSteps)
           : 0,
         term: {
-          expression: boundedString(rawTerm.expression, 4096),
-          reading: boundedString(rawTerm.reading, 4096),
+          expression: canonicalTerm.expression,
+          reading: canonicalTerm.reading,
           rules: boundedString(rawTerm.rules, 4096),
           score: Number.isFinite(rawTerm.score) ? Math.trunc(rawTerm.score) : 0,
           glossaries,
@@ -221,6 +324,44 @@
         },
       };
     }).filter((result) => result.term.expression.length > 0);
+  }
+
+  function normalizeKanjiLookup(payload) {
+    if (!isRecord(payload) || payload.success !== true || !isRecord(payload.kanji)) {
+      return null;
+    }
+    const character = Array.from(boundedString(payload.kanji.character, 16))[0] || "";
+    if (!HAN_CHARACTER_PATTERN.test(character)) {
+      return null;
+    }
+    const entries = Array.isArray(payload.kanji.entries)
+      ? payload.kanji.entries.slice(0, 64).map((rawEntry) => {
+          const entry = isRecord(rawEntry) ? rawEntry : {};
+          const readings = (value) => parseTagList(boundedString(value, 4096));
+          return {
+            dictionary: boundedString(entry.dictionary, 4096) || "Dictionary",
+            onyomi: readings(entry.onyomi),
+            kunyomi: readings(entry.kunyomi),
+            tags: readings(entry.tags),
+            definitions: Array.isArray(entry.definitions)
+              ? entry.definitions.slice(0, 64)
+                  .map((value) => boundedString(value))
+                  .filter(Boolean)
+              : [],
+            stats: Array.isArray(entry.stats)
+              ? entry.stats.slice(0, 128).map((rawStat) => {
+                  const stat = isRecord(rawStat) ? rawStat : {};
+                  return {
+                    name: boundedString(stat.name, 4096),
+                    value: boundedString(stat.value, 4096),
+                  };
+                }).filter((stat) => stat.name && stat.value)
+                .sort((left, right) => left.name.localeCompare(right.name))
+              : [],
+          };
+        })
+      : [];
+    return entries.length > 0 ? { character, entries } : null;
   }
 
   function toHiragana(text) {
@@ -342,14 +483,33 @@
       : segments;
   }
 
-  function appendExpressionRuby(documentRef, parent, expression, reading) {
+  function appendExpressionRuby(documentRef, parent, expression, reading, onKanjiClick) {
+    const appendText = (target, text) => {
+      for (const character of Array.from(text)) {
+        if (!HAN_CHARACTER_PATTERN.test(character) || typeof onKanjiClick !== "function") {
+          target.appendChild(documentRef.createTextNode(character));
+          continue;
+        }
+        const button = documentRef.createElement("button");
+        button.type = "button";
+        button.className = "gsm-hoshidicts-kanji-link";
+        button.textContent = character;
+        button.setAttribute("aria-label", `Look up kanji ${character}`);
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onKanjiClick(character);
+        });
+        target.appendChild(button);
+      }
+    };
     for (const segment of segmentFurigana(expression, reading)) {
       if (!segment.reading) {
-        parent.appendChild(documentRef.createTextNode(segment.text));
+        appendText(parent, segment.text);
         continue;
       }
       const ruby = documentRef.createElement("ruby");
-      ruby.appendChild(documentRef.createTextNode(segment.text));
+      appendText(ruby, segment.text);
       const rt = documentRef.createElement("rt");
       rt.textContent = segment.reading;
       ruby.appendChild(rt);
@@ -359,6 +519,197 @@
 
   function parseTagList(value) {
     return String(value || "").split(/\s+/u).filter(Boolean);
+  }
+
+  function isSafeCssToken(value) {
+    return (
+      typeof value === "string" &&
+      value.length > 0 &&
+      value.length <= 128 &&
+      !/[\u0000-\u001f\u007f;{}]/u.test(value) &&
+      !/(?:url|expression|var)\s*\(/iu.test(value)
+    );
+  }
+
+  function normalizeColor(value) {
+    if (!isSafeCssToken(value)) {
+      return null;
+    }
+    const trimmed = value.trim();
+    if (
+      /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/iu.test(trimmed) ||
+      /^(?:rgb|rgba|hsl|hsla)\([0-9.,%+\-\s/]+\)$/iu.test(trimmed) ||
+      /^(?:[a-z]+|currentColor|transparent)$/iu.test(trimmed)
+    ) {
+      return trimmed;
+    }
+    return null;
+  }
+
+  function normalizeLengthToken(value, allowNegative = false) {
+    if (typeof value === "number") {
+      if (!Number.isFinite(value) || Math.abs(value) > 256 || (!allowNegative && value < 0)) {
+        return null;
+      }
+      return `${value}px`;
+    }
+    if (!isSafeCssToken(value)) {
+      return null;
+    }
+    const trimmed = value.trim();
+    const match = /^(-?(?:0|[0-9]+(?:\.[0-9]+)?))(px|em|rem|%)?$/u.exec(trimmed);
+    if (!match) {
+      return null;
+    }
+    const amount = Number(match[1]);
+    const unit = match[2] || (amount === 0 ? "" : "px");
+    const limit = unit === "em" || unit === "rem"
+      ? 16
+      : unit === "%"
+        ? 100
+        : 256;
+    if (!Number.isFinite(amount) || Math.abs(amount) > limit || (!allowNegative && amount < 0)) {
+      return null;
+    }
+    return `${match[1]}${unit}`;
+  }
+
+  function normalizeLengthSequence(value) {
+    if (typeof value === "number") {
+      return normalizeLengthToken(value);
+    }
+    if (!isSafeCssToken(value)) {
+      return null;
+    }
+    const tokens = value.trim().split(/\s+/u);
+    if (tokens.length < 1 || tokens.length > 4) {
+      return null;
+    }
+    const normalized = tokens.map((token) => normalizeLengthToken(token));
+    return normalized.every((token) => token !== null) ? normalized.join(" ") : null;
+  }
+
+  function normalizeStructuredStyleValue(kind, value) {
+    if (kind === "color") {
+      return normalizeColor(value);
+    }
+    if (kind === "length") {
+      return normalizeLengthToken(value);
+    }
+    if (kind === "signed-length") {
+      return normalizeLengthToken(value, true);
+    }
+    if (kind === "length-sequence") {
+      return normalizeLengthSequence(value);
+    }
+    if (kind === "border-style") {
+      return typeof value === "string" &&
+        /^(?:none|hidden|dotted|dashed|solid|double)$/u.test(value)
+        ? value
+        : null;
+    }
+    if (kind === "font-style") {
+      return typeof value === "string" && /^(?:normal|italic)$/u.test(value)
+        ? value
+        : null;
+    }
+    if (kind === "font-weight") {
+      if (
+        typeof value === "string" &&
+        /^(?:normal|bold|bolder|lighter|[1-9]00)$/u.test(value)
+      ) {
+        return value;
+      }
+      if (Number.isInteger(value) && value >= 100 && value <= 900 && value % 100 === 0) {
+        return String(value);
+      }
+    }
+    return null;
+  }
+
+  function applyStructuredStyle(element, rawStyle) {
+    if (!isRecord(rawStyle)) {
+      return;
+    }
+    for (const [property, value] of Object.entries(rawStyle)) {
+      const definition = STRUCTURED_STYLE_PROPERTIES.get(property);
+      if (!definition) {
+        continue;
+      }
+      const [cssProperty, kind] = definition;
+      const normalized = normalizeStructuredStyleValue(kind, value);
+      if (normalized !== null) {
+        element.style.setProperty(cssProperty, normalized);
+      }
+    }
+  }
+
+  function normalizeMediaPath(value) {
+    if (
+      typeof value !== "string" ||
+      value.length < 1 ||
+      value.length > 4096 ||
+      /[\\\u0000-\u001f\u007f]/u.test(value) ||
+      value.startsWith("/") ||
+      /^[A-Za-z][A-Za-z0-9+.-]*:/u.test(value)
+    ) {
+      return null;
+    }
+    const components = value.split("/");
+    return components.some((component) => !component || component === "." || component === "..")
+      ? null
+      : value;
+  }
+
+  function appendStructuredImage(documentRef, parent, value, state) {
+    const path = normalizeMediaPath(value.path);
+    if (!path || typeof state.resolveMedia !== "function") {
+      return;
+    }
+    const image = documentRef.createElement("img");
+    image.className = "gsm-hoshidicts-structured-image";
+    image.alt = isRecord(value.data) && typeof value.data.alt === "string"
+      ? value.data.alt.slice(0, 1024)
+      : typeof value.alt === "string"
+        ? value.alt.slice(0, 1024)
+        : "";
+    image.decoding = "async";
+    image.draggable = false;
+    const units = typeof value.sizeUnits === "string" ? value.sizeUnits : "px";
+    if (units === "px") {
+      for (const property of ["width", "height"]) {
+        const size = Number(value[property]);
+        if (Number.isFinite(size) && size > 0) {
+          image.style.setProperty(
+            property,
+            `${Math.max(1, Math.min(MAX_MEDIA_DISPLAY_SIZE, Math.round(size)))}px`
+          );
+        }
+      }
+    }
+    const onLayoutChange = typeof state.onLayoutChange === "function"
+      ? state.onLayoutChange
+      : () => {};
+    image.addEventListener("load", onLayoutChange);
+    image.addEventListener("error", () => {
+      image.hidden = true;
+      onLayoutChange();
+    });
+    parent.appendChild(image);
+    let mediaPromise;
+    try {
+      mediaPromise = Promise.resolve(state.resolveMedia({ path }));
+    } catch (error) {
+      mediaPromise = Promise.reject(error);
+    }
+    mediaPromise.then((url) => {
+      if (image.isConnected && typeof url === "string" && url.startsWith("blob:")) {
+        image.src = url;
+      }
+    }).catch(() => {
+      image.hidden = true;
+      onLayoutChange();
+    });
   }
 
   function appendStructuredValue(documentRef, parent, value, state, depth) {
@@ -388,6 +739,24 @@
       return;
     }
 
+    if (value.type === "structured-content") {
+      appendStructuredValue(documentRef, parent, value.content, state, depth + 1);
+      return;
+    }
+    if (value.type === "text") {
+      appendStructuredValue(
+        documentRef,
+        parent,
+        Object.prototype.hasOwnProperty.call(value, "text") ? value.text : value.content,
+        state,
+        depth + 1
+      );
+      return;
+    }
+    if (value.type === "image") {
+      value = { ...value, tag: "img" };
+    }
+
     const tag = typeof value.tag === "string" ? value.tag.toLowerCase() : "";
     if (IGNORED_STRUCTURED_TAGS.has(tag)) {
       return;
@@ -399,8 +768,23 @@
       return;
     }
 
+    if (tag === "img") {
+      state.nodes += 1;
+      appendStructuredImage(documentRef, parent, value, state);
+      return;
+    }
+
     const element = documentRef.createElement(tag);
     state.nodes += 1;
+    applyStructuredStyle(element, value.style);
+    if (
+      isRecord(value.data) &&
+      typeof value.data.id === "string" &&
+      value.data.id.length <= 256 &&
+      !/[\u0000-\u001f\u007f]/u.test(value.data.id)
+    ) {
+      element.dataset.scId = value.data.id;
+    }
     if (
       typeof value.lang === "string" &&
       /^[A-Za-z0-9-]{1,35}$/u.test(value.lang)
@@ -418,13 +802,19 @@
         }
       }
     }
-    if (tag !== "br" && Object.prototype.hasOwnProperty.call(value, "content")) {
+    if (tag === "details" && typeof state.onLayoutChange === "function") {
+      element.addEventListener("toggle", state.onLayoutChange);
+    }
+    if (
+      !STRUCTURED_TAGS_WITHOUT_CONTENT.has(tag) &&
+      Object.prototype.hasOwnProperty.call(value, "content")
+    ) {
       appendStructuredValue(documentRef, element, value.content, state, depth + 1);
     }
     parent.appendChild(element);
   }
 
-  function appendTextOnlyGlossary(documentRef, parent, rawGlossary) {
+  function appendTextOnlyGlossary(documentRef, parent, rawGlossary, options = {}) {
     const value = boundedString(rawGlossary);
     if (!value) {
       return;
@@ -439,9 +829,101 @@
       documentRef,
       parent,
       parsed,
-      { nodes: 0 },
+      {
+        nodes: 0,
+        onLayoutChange: options.onLayoutChange,
+        resolveMedia: typeof options.resolveMedia === "function"
+          ? ({ path }) => options.resolveMedia({
+              dictionary: options.dictionary,
+              generation: options.generation,
+              path,
+            })
+          : null,
+      },
       0
     );
+  }
+
+  function normalizeDictionaryGeneration(value) {
+    return Number.isSafeInteger(value) && value >= 0 ? value : null;
+  }
+
+  function mediaTypeMatchesSignature(mediaType, bytes) {
+    if (!(bytes instanceof Uint8Array)) {
+      return false;
+    }
+    if (mediaType === "image/jpeg") {
+      return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+    }
+    if (mediaType === "image/png") {
+      const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+      return bytes.length >= signature.length && signature.every(
+        (value, index) => bytes[index] === value
+      );
+    }
+    if (mediaType === "image/gif") {
+      if (bytes.length < 6) {
+        return false;
+      }
+      const header = String.fromCharCode(...bytes.slice(0, 6));
+      return header === "GIF87a" || header === "GIF89a";
+    }
+    return mediaType === "image/webp" &&
+      bytes.length >= 12 &&
+      String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" &&
+      String.fromCharCode(...bytes.slice(8, 12)) === "WEBP";
+  }
+
+  function validateMediaPayloadMetadata(payload) {
+    const mediaType = typeof payload.mediaType === "string"
+      ? payload.mediaType.toLowerCase()
+      : "";
+    if (!ALLOWED_MEDIA_TYPES.has(mediaType)) {
+      throw new Error("unsupported_media_type");
+    }
+    const byteLength = Number(payload.byteLength);
+    const width = Number(payload.width);
+    const height = Number(payload.height);
+    const encoded = payload.dataBase64;
+    if (
+      !Number.isSafeInteger(byteLength) ||
+      byteLength < 1 ||
+      byteLength > MAX_MEDIA_BYTES ||
+      !Number.isSafeInteger(width) ||
+      width < 1 ||
+      width > MAX_MEDIA_DIMENSION ||
+      !Number.isSafeInteger(height) ||
+      height < 1 ||
+      height > MAX_MEDIA_DIMENSION ||
+      width * height > MAX_MEDIA_PIXELS ||
+      typeof encoded !== "string" ||
+      encoded.length > Math.ceil(MAX_MEDIA_BYTES / 3) * 4 + 4 ||
+      !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(encoded)
+    ) {
+      throw new Error("invalid_media_payload");
+    }
+    return { byteLength, encoded, height, mediaType, pixelCount: width * height, width };
+  }
+
+  function decodeMediaPayload(windowRef, metadata) {
+    const { byteLength, encoded, height, mediaType, pixelCount, width } = metadata;
+    let decoded;
+    try {
+      decoded = windowRef.atob(encoded);
+    } catch {
+      throw new Error("invalid_media_payload");
+    }
+    if (decoded.length !== byteLength) {
+      throw new Error("invalid_media_payload");
+    }
+    const bytes = new Uint8Array(byteLength);
+    for (let index = 0; index < byteLength; index += 1) {
+      bytes[index] = decoded.charCodeAt(index);
+    }
+    if (!mediaTypeMatchesSignature(mediaType, bytes)) {
+      throw new Error("invalid_media_signature");
+    }
+    return { bytes, byteLength, height, mediaType, pixelCount, width };
   }
 
   function calculatePopupPosition(anchorRect, popupSize, viewport, options = {}) {
@@ -509,6 +991,105 @@
     return Array.from(text.slice(utf16Offset)).slice(0, count).join("");
   }
 
+  function createTextRangeForOffsets(documentRef, root, startOffset, endOffset) {
+    const showText = documentRef.defaultView && documentRef.defaultView.NodeFilter
+      ? documentRef.defaultView.NodeFilter.SHOW_TEXT
+      : 4;
+    const walker = documentRef.createTreeWalker(root, showText);
+    const boundaries = [];
+    let consumed = 0;
+    let node = walker.nextNode();
+    while (node) {
+      const length = (node.nodeValue || "").length;
+      boundaries.push({ node, start: consumed, end: consumed + length });
+      consumed += length;
+      node = walker.nextNode();
+    }
+    function findBoundary(offset) {
+      for (const boundary of boundaries) {
+        if (offset <= boundary.end) {
+          return {
+            node: boundary.node,
+            offset: Math.max(0, Math.min(
+              (boundary.node.nodeValue || "").length,
+              offset - boundary.start
+            )),
+          };
+        }
+      }
+      const last = boundaries.at(-1);
+      return last
+        ? { node: last.node, offset: (last.node.nodeValue || "").length }
+        : null;
+    }
+    const start = findBoundary(Math.max(0, startOffset));
+    const end = findBoundary(Math.max(startOffset, endOffset));
+    if (!start || !end) {
+      return null;
+    }
+    try {
+      const range = documentRef.createRange();
+      range.setStart(start.node, start.offset);
+      range.setEnd(end.node, end.offset);
+      return range;
+    } catch {
+      return null;
+    }
+  }
+
+  function resolveGlossaryLookupCandidate(
+    windowRef,
+    documentRef,
+    eventTarget,
+    clientX,
+    clientY,
+    sourceDepth
+  ) {
+    if (!(eventTarget instanceof windowRef.Element)) {
+      return null;
+    }
+    const glossary = eventTarget.closest(".gsm-hoshidicts-glossary-content");
+    if (!glossary) {
+      return null;
+    }
+    const sentence = glossary.textContent || "";
+    const caretRange = typeof documentRef.caretRangeFromPoint === "function"
+      ? documentRef.caretRangeFromPoint(clientX, clientY)
+      : null;
+    if (!caretRange || !glossary.contains(caretRange.startContainer)) {
+      return null;
+    }
+    let matchOffset;
+    try {
+      const prefixRange = documentRef.createRange();
+      prefixRange.selectNodeContents(glossary);
+      prefixRange.setEnd(caretRange.startContainer, caretRange.startOffset);
+      matchOffset = prefixRange.toString().length;
+    } catch {
+      return null;
+    }
+    const query = sliceCodePoints(sentence, matchOffset, LOOKUP_SCAN_LENGTH);
+    if (!query || !JAPANESE_TEXT_PATTERN.test(query)) {
+      return null;
+    }
+    const firstCodePointLength = Array.from(query)[0].length;
+    return {
+      anchor: glossary,
+      anchorRange: createTextRangeForOffsets(
+        documentRef,
+        glossary,
+        matchOffset,
+        matchOffset + firstCodePointLength
+      ),
+      sourceElements: [glossary],
+      sentence,
+      matchOffset,
+      query,
+      sourceDepth,
+      vertical: windowRef.getComputedStyle(glossary).writingMode.startsWith("vertical"),
+    };
+  }
+
   function resolveLookupCandidate(windowRef, documentRef, eventTarget, clientX, clientY) {
     if (!(eventTarget instanceof windowRef.Element)) {
       return null;
@@ -539,6 +1120,7 @@
         sentence,
         matchOffset,
         query,
+        sourceDepth: -1,
         vertical: windowRef.getComputedStyle(textBox).writingMode.startsWith("vertical"),
       };
     }
@@ -568,33 +1150,9 @@
       sentence,
       matchOffset,
       query,
+      sourceDepth: -1,
       vertical: false,
     };
-  }
-
-  function normalizeLocalHttpBaseUrl(value) {
-    if (typeof value !== "string" || value.length === 0) {
-      return null;
-    }
-    try {
-      const url = new URL(value);
-      if (url.protocol === "ws:") {
-        url.protocol = "http:";
-      } else if (url.protocol === "wss:") {
-        url.protocol = "https:";
-      }
-      if (
-        !["http:", "https:"].includes(url.protocol) ||
-        !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) ||
-        url.username ||
-        url.password
-      ) {
-        return null;
-      }
-      return url.origin;
-    } catch {
-      return null;
-    }
   }
 
   function resolveGsmApiBaseUrl(settings = {}) {
@@ -622,6 +1180,7 @@
     const baseUrl =
       normalizeLocalHttpBaseUrl(options.baseUrl) ||
       "http://127.0.0.1:7275";
+    const apiToken = boundedString(options.apiToken, 64).trim();
     const fetchImpl =
       typeof options.fetch === "function"
         ? options.fetch
@@ -637,6 +1196,9 @@
       if (!fetchImpl) {
         throw new Error("GSM mining is unavailable.");
       }
+      if (!/^[a-f0-9]{64}$/.test(apiToken)) {
+        throw new Error("GSM mining authentication is unavailable.");
+      }
       const controller =
         typeof AbortController === "function" ? new AbortController() : null;
       const timeoutId = controller
@@ -645,6 +1207,10 @@
       try {
         const response = await fetchImpl(`${baseUrl}${path}`, {
           ...init,
+          headers: {
+            ...(isRecord(init.headers) ? init.headers : {}),
+            "Authorization": `Bearer ${apiToken}`,
+          },
           signal: controller ? controller.signal : undefined,
         });
         let payload;
@@ -698,6 +1264,7 @@
     const baseUrl =
       normalizeLocalHttpBaseUrl(options.baseUrl) ||
       "http://127.0.0.1:7275";
+    const apiToken = boundedString(options.apiToken, 64).trim();
     const fetchImpl =
       typeof options.fetch === "function"
         ? options.fetch
@@ -721,7 +1288,10 @@
           `${baseUrl}/api/hoshidicts/lookup-stats`,
           {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Authorization": `Bearer ${apiToken}`,
+              "Content-Type": "application/json",
+            },
             body,
             signal: controller ? controller.signal : undefined,
           }
@@ -752,6 +1322,9 @@
       async record(payload) {
         if (!fetchImpl) {
           throw new Error("GSM lookup statistics are unavailable.");
+        }
+        if (!/^[a-f0-9]{64}$/.test(apiToken)) {
+          throw new Error("GSM lookup statistics authentication is unavailable.");
         }
         if (!isRecord(payload)) {
           throw new Error("A lookup statistics payload is required.");
@@ -835,6 +1408,13 @@
     };
   }
 
+  function normalizePopupNestingMaxDepth(
+    value,
+    fallback = DEFAULT_POPUP_NESTING_MAX_DEPTH
+  ) {
+    return Number.isSafeInteger(value) && value >= 0 ? value : fallback;
+  }
+
   function createHoshidictsReader(options = {}) {
     const windowRef = options.window || window;
     const documentRef = options.document || document;
@@ -857,6 +1437,10 @@
       typeof options.onLookup === "function"
         ? options.onLookup
         : null;
+    const onAddCustomEntry =
+      typeof options.onAddCustomEntry === "function"
+        ? options.onAddCustomEntry
+        : null;
     const logger = options.logger || console;
     const serverUrl = String(options.serverUrl || "ws://127.0.0.1:7276");
     const lookupTimeoutMs =
@@ -872,11 +1456,39 @@
       options.reconnectMaxDelayMs >= reconnectInitialDelayMs
         ? Math.trunc(options.reconnectMaxDelayMs)
         : RECONNECT_MAX_DELAY_MS;
+    const mediaRequestTimeoutMs =
+      Number.isFinite(options.mediaRequestTimeoutMs) && options.mediaRequestTimeoutMs > 0
+        ? Math.trunc(options.mediaRequestTimeoutMs)
+        : MEDIA_REQUEST_TIMEOUT_MS;
+    const mediaCacheMaxEntries =
+      Number.isInteger(options.mediaCacheMaxEntries) && options.mediaCacheMaxEntries > 0
+        ? options.mediaCacheMaxEntries
+        : MAX_MEDIA_CACHE_ENTRIES;
+    const mediaCacheMaxBytes =
+      Number.isInteger(options.mediaCacheMaxBytes) && options.mediaCacheMaxBytes > 0
+        ? options.mediaCacheMaxBytes
+        : MAX_MEDIA_CACHE_BYTES;
+    const BlobImpl = options.Blob || windowRef.Blob;
+    const createObjectURL = typeof options.createObjectURL === "function"
+      ? options.createObjectURL
+      : windowRef.URL && typeof windowRef.URL.createObjectURL === "function"
+        ? windowRef.URL.createObjectURL.bind(windowRef.URL)
+        : null;
+    const revokeObjectURL = typeof options.revokeObjectURL === "function"
+      ? options.revokeObjectURL
+      : windowRef.URL && typeof windowRef.URL.revokeObjectURL === "function"
+        ? windowRef.URL.revokeObjectURL.bind(windowRef.URL)
+        : () => {};
 
     let preferences = {
       lookupMode: options.lookupMode === "hover" ? "hover" : "shift",
+      activationKey: normalizeActivationKey(options.activationKey),
+      sourceHighlightEnabled: options.sourceHighlightEnabled === true,
       popupHideDelayMs: normalizePopupHideDelay(options.popupHideDelayMs),
       definitionBlur: normalizeDefinitionBlurPreferences(options.definitionBlur),
+      popupNestingMaxDepth: normalizePopupNestingMaxDepth(
+        options.popupNestingMaxDepth
+      ),
     };
     let socket = null;
     let reconnectTimer = null;
@@ -884,29 +1496,62 @@
     let debounceTimer = null;
     let lookupTimeoutTimer = null;
     let hideTimer = null;
-    let definitionRevealTimer = null;
+    let descendantHideTimer = null;
     let pendingHideReason = "pointer-left";
+    let pendingPruneDepth = 1;
     let destroyed = false;
-    let shiftPressed = false;
+    let localShiftPressed = false;
+    let globalActivationKeyPressed = options.activationKeyPressed === true;
     let pointerInPopup = false;
+    let pointerPopupDepth = null;
     let lastPointer = null;
     let requestSequence = 0;
     let latestRequestId = null;
     let latestCandidate = null;
+    let latestCandidateSignature = "";
+    let latestTargetDepth = 0;
     let latestGeneration = 0;
-    let lastCandidateSignature = "";
+    let latestRequestMode = "term-first";
+    let latestRequestText = "";
+    let activeDictionaryGeneration = null;
+    let mediaRequestSequence = 0;
+    let activeMediaRequestCount = 0;
+    let mediaCacheBytes = 0;
+    let popupMediaPixels = 0;
+    const mediaCache = new Map();
+    const mediaInFlight = new Map();
+    const mediaPendingByRequestId = new Map();
+    const popupMediaKeys = new Map();
+    let mediaQueue = [];
     let popupVisible = false;
-    let popupAnchor = null;
-    let popupVertical = false;
+    let noteEditing = false;
     let miningInFlight = false;
-    let miningStatusGeneration = 0;
     let miningStatusCache = null;
     let miningStatusCacheExpiresAt = 0;
     let miningStatusPromise = null;
-    let shiftRequirementLogged = false;
+    let activationRequirementLogged = false;
     let candidateMissLogged = false;
-    let definitionBlurGeneration = 0;
-    let activeDefinitionBlur = null;
+    let candidateSourceSequence = 0;
+    let lastHoveredSource = null;
+    let lastHoveredTargetDepth = null;
+    const popupLevels = [];
+    const renderedSignatures = new Map();
+    const noticeSignatures = new Map();
+    const candidateSourceIds = new WeakMap();
+    const chainHighlighter = createSourceHighlighter(
+      windowRef,
+      documentRef,
+      SOURCE_HIGHLIGHT_NAME
+    );
+    const audioController = options.audioController || createHoshidictsAudioController({
+      window: windowRef,
+      document: documentRef,
+      client: options.audioClient || null,
+      audioPreferences: options.audioPreferences || options.audioProfile,
+      logger,
+      setTimeout: setTimeoutFn,
+      clearTimeout: clearTimeoutFn,
+    });
 
     function diagnostic(level, event, details = {}) {
       const sink = typeof logger[level] === "function"
@@ -928,58 +1573,49 @@
       sink.call(logger, `[HoshidictsReader] ${event}${suffix}`);
     }
 
-    function requiresShift() {
+    function requiresActivationKey() {
       return preferences.lookupMode === "shift";
+    }
+
+    function isActivationKeyPressed(mouseShiftPressed = false) {
+      return (
+        globalActivationKeyPressed ||
+        (
+          preferences.activationKey === DEFAULT_ACTIVATION_KEY &&
+          (localShiftPressed || mouseShiftPressed)
+        )
+      );
     }
 
     function isReadableHoverTarget(target) {
       return target instanceof windowRef.Element && Boolean(
-        target.closest('.text-box[data-selectable="true"], #text')
+        target.closest(
+          '.text-box[data-selectable="true"], #text, .gsm-hoshidicts-glossary-content'
+        )
       );
     }
 
-    const popup = documentRef.createElement("section");
-    popup.id = "gsm-hoshidicts-popup";
-    popup.className = "gsm-hoshidicts-popup interactive";
-    popup.setAttribute("role", "dialog");
-    popup.setAttribute("aria-label", "Hoshidicts lookup");
-    popup.hidden = true;
-    popup.addEventListener("pointerdown", (event) => event.stopPropagation());
-    popup.addEventListener("click", (event) => event.stopPropagation());
-    documentRef.body.appendChild(popup);
-    documentRef.documentElement.classList.add("gsm-hoshidicts-enabled");
-    documentRef.documentElement.dataset.gsmHoshidictsEnabled = "true";
-    const popupView = createPopupView({
-      window: windowRef,
-      document: documentRef,
-      popup,
-      appendExpressionRuby,
-      appendTextOnlyGlossary,
-      parseTagList,
-      initialResultCount: INITIAL_VISIBLE_RESULTS,
-      maxMetadataTags: MAX_VISIBLE_METADATA_TAGS,
-      highlightName: SOURCE_HIGHLIGHT_NAME,
-      positionPopup,
-      onMineClick(button, result, candidate, feedback) {
-        void mineResult(button, result, candidate, feedback);
-      },
-    });
-
-    function clearDefinitionRevealTimer() {
-      if (definitionRevealTimer !== null) {
-        clearTimeoutFn(definitionRevealTimer);
-        definitionRevealTimer = null;
+    function clearDefinitionRevealTimer(context) {
+      if (context && context.timer !== null) {
+        clearTimeoutFn(context.timer);
+        context.timer = null;
       }
     }
 
     function isActiveDefinitionBlur(context) {
       return Boolean(
         context &&
-        activeDefinitionBlur === context &&
-        context.generation === definitionBlurGeneration &&
-        popupVisible &&
+        context.level.definitionBlurContext === context &&
+        context.level.visible &&
         !destroyed
       );
+    }
+
+    function getDefinitionBlurState(context) {
+      if (!context || context.revealed) {
+        return "revealed";
+      }
+      return context.lookupResolved ? "blurred" : "pending";
     }
 
     function revealDefinitions(context, reason) {
@@ -987,32 +1623,41 @@
         return false;
       }
       context.revealed = true;
-      clearDefinitionRevealTimer();
-      popupView.setDefinitionBlurState("revealed");
-      diagnostic("debug", "definitions.revealed", { reason });
+      clearDefinitionRevealTimer(context);
+      context.level.view.setDefinitionBlurState("revealed");
+      diagnostic("debug", "definitions.revealed", {
+        depth: context.level.depth,
+        reason,
+      });
       return true;
     }
 
-    function invalidateDefinitionBlur() {
-      definitionBlurGeneration += 1;
-      activeDefinitionBlur = null;
-      clearDefinitionRevealTimer();
-      popupView.setDefinitionBlurState("revealed");
+    function invalidateDefinitionBlur(level) {
+      if (!level) {
+        return;
+      }
+      clearDefinitionRevealTimer(level.definitionBlurContext);
+      level.definitionBlurContext = null;
+      if (level.view) {
+        level.view.setDefinitionBlurState("revealed");
+      }
     }
 
-    function beginDefinitionBlur() {
-      invalidateDefinitionBlur();
+    function beginDefinitionBlur(level) {
+      invalidateDefinitionBlur(level);
       if (!preferences.definitionBlur.enabled) {
         return null;
       }
       const context = {
-        generation: definitionBlurGeneration,
+        level,
         preferences: { ...preferences.definitionBlur },
         deadlineReached: false,
         hovered: false,
+        lookupResolved: false,
         revealed: false,
+        timer: null,
       };
-      activeDefinitionBlur = context;
+      level.definitionBlurContext = context;
       return context;
     }
 
@@ -1023,8 +1668,8 @@
       ) {
         return;
       }
-      definitionRevealTimer = setTimeoutFn(() => {
-        definitionRevealTimer = null;
+      context.timer = setTimeoutFn(() => {
+        context.timer = null;
         if (!isActiveDefinitionBlur(context)) {
           return;
         }
@@ -1048,6 +1693,7 @@
         revealDefinitions(context, "below-threshold");
         return;
       }
+      context.lookupResolved = true;
       if (
         context.preferences.revealMode === "timed" &&
         context.deadlineReached
@@ -1059,16 +1705,17 @@
         revealDefinitions(context, "definition-hovered");
         return;
       }
-      popupView.setDefinitionBlurState("blurred");
+      context.level.view.setDefinitionBlurState("blurred");
       diagnostic("debug", "definitions.blurred", {
+        depth: context.level.depth,
         lookupCount,
         lookupThreshold: context.preferences.lookupThreshold,
         revealMode: context.preferences.revealMode,
       });
     }
 
-    function onDefinitionPointerOver(event) {
-      const context = activeDefinitionBlur;
+    function onDefinitionPointerOver(depth, event) {
+      const context = popupLevels[depth]?.definitionBlurContext;
       if (
         !isActiveDefinitionBlur(context) ||
         context.preferences.revealMode !== "hover" ||
@@ -1096,6 +1743,13 @@
       }
     }
 
+    function clearDescendantHideTimer() {
+      if (descendantHideTimer !== null) {
+        clearTimeoutFn(descendantHideTimer);
+        descendantHideTimer = null;
+      }
+    }
+
     function clearLookupTimeout() {
       if (lookupTimeoutTimer !== null) {
         clearTimeoutFn(lookupTimeoutTimer);
@@ -1103,11 +1757,273 @@
       }
     }
 
+    function mediaCacheKey(generation, dictionary, path) {
+      return JSON.stringify([generation, dictionary, path]);
+    }
+
+    function mediaDepthKey(depth, key) {
+      return JSON.stringify([depth, key]);
+    }
+
+    function revokeCachedMedia(entry) {
+      try {
+        revokeObjectURL(entry.url);
+      } catch {
+        // Blob URL cleanup is best-effort across Electron versions.
+      }
+    }
+
+    function clearMediaCache() {
+      for (const entry of mediaCache.values()) {
+        revokeCachedMedia(entry);
+      }
+      mediaCache.clear();
+      mediaCacheBytes = 0;
+    }
+
+    function rejectMediaJob(job, error) {
+      if (job.settled) {
+        return;
+      }
+      job.settled = true;
+      if (job.timeoutTimer !== null) {
+        clearTimeoutFn(job.timeoutTimer);
+        job.timeoutTimer = null;
+      }
+      if (job.requestId !== null) {
+        mediaPendingByRequestId.delete(job.requestId);
+      }
+      mediaInFlight.delete(job.inFlightKey);
+      if (job.active) {
+        activeMediaRequestCount = Math.max(0, activeMediaRequestCount - 1);
+      }
+      job.reject(error instanceof Error ? error : new Error(String(error)));
+    }
+
+    function cancelMediaRequests(reason, minimumDepth = 0) {
+      const jobs = [...mediaInFlight.values()].filter(
+        (job) => job.depth >= minimumDepth
+      );
+      mediaQueue = mediaQueue.filter((job) => job.depth < minimumDepth);
+      for (const job of jobs) {
+        rejectMediaJob(job, new Error(reason));
+      }
+    }
+
+    function clearMediaState(reason) {
+      cancelMediaRequests(reason);
+      clearMediaCache();
+    }
+
+    function releasePopupMediaFromDepth(minimumDepth) {
+      for (const [reservationKey, reservation] of popupMediaKeys) {
+        if (reservation.depth < minimumDepth) {
+          continue;
+        }
+        popupMediaKeys.delete(reservationKey);
+        popupMediaPixels = Math.max(
+          0,
+          popupMediaPixels - reservation.pixelCount
+        );
+      }
+    }
+
+    function preparePopupContent(reason, targetDepth = 0) {
+      cancelMediaRequests(reason, targetDepth);
+      releasePopupMediaFromDepth(targetDepth);
+      pumpMediaQueue();
+    }
+
+    function reservePopupMedia(depth, key, pixelCount) {
+      const reservationKey = mediaDepthKey(depth, key);
+      if (popupMediaKeys.has(reservationKey)) {
+        return true;
+      }
+      if (
+        popupMediaKeys.size >= MAX_POPUP_MEDIA_IMAGES ||
+        popupMediaPixels + pixelCount > MAX_POPUP_MEDIA_PIXELS
+      ) {
+        return false;
+      }
+      popupMediaKeys.set(reservationKey, { depth, pixelCount });
+      popupMediaPixels += pixelCount;
+      return true;
+    }
+
+    function isPopupMediaBudgetFull() {
+      return (
+        popupMediaKeys.size >= MAX_POPUP_MEDIA_IMAGES ||
+        popupMediaPixels >= MAX_POPUP_MEDIA_PIXELS
+      );
+    }
+
+    function releasePopupMedia(depth, key) {
+      const reservationKey = mediaDepthKey(depth, key);
+      const reservation = popupMediaKeys.get(reservationKey);
+      if (!reservation) {
+        return;
+      }
+      popupMediaKeys.delete(reservationKey);
+      popupMediaPixels = Math.max(0, popupMediaPixels - reservation.pixelCount);
+    }
+
+    function updateDictionaryGeneration(generation) {
+      if (activeDictionaryGeneration === generation) {
+        return;
+      }
+      clearMediaState("dictionary_generation_changed");
+      activeDictionaryGeneration = generation;
+    }
+
+    function cacheMedia(job, url, byteLength, pixelCount) {
+      const existing = mediaCache.get(job.cacheKey);
+      if (existing) {
+        mediaCacheBytes -= existing.byteLength;
+        revokeCachedMedia(existing);
+        mediaCache.delete(job.cacheKey);
+      }
+      const entry = { byteLength, pixelCount, url };
+      mediaCache.set(job.cacheKey, entry);
+      mediaCacheBytes += byteLength;
+      while (
+        mediaCache.size > mediaCacheMaxEntries ||
+        mediaCacheBytes > mediaCacheMaxBytes
+      ) {
+        const oldestKey = mediaCache.keys().next().value;
+        const oldest = mediaCache.get(oldestKey);
+        mediaCache.delete(oldestKey);
+        mediaCacheBytes -= oldest.byteLength;
+        revokeCachedMedia(oldest);
+      }
+    }
+
+    function resolveMediaJob(job, url, byteLength, pixelCount) {
+      if (job.settled) {
+        return;
+      }
+      job.settled = true;
+      if (job.timeoutTimer !== null) {
+        clearTimeoutFn(job.timeoutTimer);
+        job.timeoutTimer = null;
+      }
+      mediaPendingByRequestId.delete(job.requestId);
+      mediaInFlight.delete(job.inFlightKey);
+      activeMediaRequestCount = Math.max(0, activeMediaRequestCount - 1);
+      if (mediaCache.get(job.cacheKey)?.url !== url) {
+        cacheMedia(job, url, byteLength, pixelCount);
+      }
+      job.resolve(url);
+    }
+
+    function pumpMediaQueue() {
+      while (
+        mediaQueue.length > 0 &&
+        activeMediaRequestCount < MAX_MEDIA_CONCURRENT_REQUESTS
+      ) {
+        const job = mediaQueue.shift();
+        if (
+          destroyed ||
+          job.generation !== activeDictionaryGeneration ||
+          !socket ||
+          socket.readyState !== WebSocketImpl.OPEN
+        ) {
+          rejectMediaJob(job, new Error("media_unavailable"));
+          continue;
+        }
+        job.active = true;
+        activeMediaRequestCount += 1;
+        job.requestId = `overlay-media-${++mediaRequestSequence}`;
+        mediaPendingByRequestId.set(job.requestId, job);
+        job.timeoutTimer = setTimeoutFn(() => {
+          rejectMediaJob(job, new Error("media_request_timed_out"));
+          pumpMediaQueue();
+        }, mediaRequestTimeoutMs);
+        try {
+          socket.send(JSON.stringify({
+            type: "hoshidicts_media",
+            requestId: job.requestId,
+            generation: job.generation,
+            dictionary: job.dictionary,
+            path: job.path,
+          }));
+        } catch {
+          rejectMediaJob(job, new Error("media_send_failed"));
+        }
+      }
+    }
+
+    function resolveMedia({ depth, dictionary, generation, path }) {
+      const normalizedGeneration = normalizeDictionaryGeneration(generation);
+      const normalizedPath = normalizeMediaPath(path);
+      if (
+        !Number.isSafeInteger(depth) ||
+        depth < 0 ||
+        normalizedGeneration === null ||
+        normalizedGeneration !== activeDictionaryGeneration ||
+        typeof dictionary !== "string" ||
+        dictionary.length < 1 ||
+        dictionary.length > 1024 ||
+        /[\u0000-\u001f\u007f]/u.test(dictionary) ||
+        !normalizedPath ||
+        !BlobImpl ||
+        !createObjectURL
+      ) {
+        return Promise.reject(new Error("invalid_media_reference"));
+      }
+      const key = mediaCacheKey(normalizedGeneration, dictionary, normalizedPath);
+      const cached = mediaCache.get(key);
+      if (cached) {
+        if (!reservePopupMedia(depth, key, cached.pixelCount)) {
+          cancelMediaRequests("media_pixel_budget_exceeded");
+          return Promise.reject(new Error("media_pixel_budget_exceeded"));
+        }
+        mediaCache.delete(key);
+        mediaCache.set(key, cached);
+        if (isPopupMediaBudgetFull()) {
+          cancelMediaRequests("media_pixel_budget_exhausted");
+        }
+        return Promise.resolve(cached.url);
+      }
+      if (isPopupMediaBudgetFull()) {
+        return Promise.reject(new Error("media_pixel_budget_exhausted"));
+      }
+      const inFlightKey = mediaDepthKey(depth, key);
+      const inFlight = mediaInFlight.get(inFlightKey);
+      if (inFlight) {
+        return inFlight.promise;
+      }
+      if (mediaInFlight.size >= MAX_MEDIA_PENDING_REQUESTS) {
+        return Promise.reject(new Error("media_queue_full"));
+      }
+      const job = {
+        active: false,
+        cacheKey: key,
+        depth,
+        dictionary,
+        generation: normalizedGeneration,
+        inFlightKey,
+        path: normalizedPath,
+        requestId: null,
+        settled: false,
+        timeoutTimer: null,
+      };
+      job.promise = new Promise((resolve, reject) => {
+        job.resolve = resolve;
+        job.reject = reject;
+      });
+      mediaInFlight.set(inFlightKey, job);
+      mediaQueue.push(job);
+      pumpMediaQueue();
+      return job.promise;
+    }
+
     function invalidateLookup() {
       latestGeneration += 1;
       latestRequestId = null;
       latestCandidate = null;
-      lastCandidateSignature = "";
+      latestRequestMode = "term-first";
+      latestRequestText = "";
+      latestCandidateSignature = "";
       clearLookupTimeout();
       if (debounceTimer !== null) {
         clearTimeoutFn(debounceTimer);
@@ -1115,27 +2031,195 @@
       }
     }
 
-    function dismissPopup(reason) {
+    function getPopupDepthForTarget(target) {
+      if (!(target instanceof windowRef.Element)) {
+        return null;
+      }
+      const popup = target.closest(".gsm-hoshidicts-popup[data-hoshidicts-depth]");
+      if (!popup) {
+        return null;
+      }
+      const depth = Number.parseInt(popup.dataset.hoshidictsDepth || "", 10);
+      return Number.isInteger(depth) && popupLevels[depth]?.popup === popup
+        ? depth
+        : null;
+    }
+
+    function onPopupPointerEnter(depth) {
+      pointerInPopup = true;
+      pointerPopupDepth = depth;
       clearHideTimer();
-      invalidateDefinitionBlur();
-      miningStatusGeneration += 1;
-      popupAnchor = null;
-      popupView.clear();
+      if (descendantHideTimer !== null && depth >= pendingPruneDepth) {
+        clearDescendantHideTimer();
+      }
+    }
+
+    function onPopupPointerLeave(depth) {
+      if (pointerPopupDepth === depth) {
+        pointerPopupDepth = null;
+      }
+      pointerInPopup = false;
+      scheduleHide("popup-left");
+    }
+
+    function createPopupLevel(depth) {
+      const popup = documentRef.createElement("section");
+      popup.id = depth === 0
+        ? "gsm-hoshidicts-popup"
+        : `gsm-hoshidicts-popup-${depth}`;
+      popup.className = "gsm-hoshidicts-popup interactive";
+      popup.dataset.hoshidictsDepth = String(depth);
+      popup.setAttribute("role", "dialog");
+      popup.setAttribute("aria-label", "Hoshidicts lookup");
       popup.hidden = true;
-      publishPopupState(false);
-      diagnostic("debug", "popup.hidden", { reason });
+      if (depth > 0) {
+        popup.style.zIndex = "2147483647";
+      }
+      const stopPropagation = (event) => event.stopPropagation();
+      const pointerEnter = () => onPopupPointerEnter(depth);
+      const pointerLeave = () => onPopupPointerLeave(depth);
+      const definitionPointerOver = (event) => onDefinitionPointerOver(depth, event);
+      popup.addEventListener("pointerdown", stopPropagation);
+      popup.addEventListener("click", stopPropagation);
+      popup.addEventListener("pointerenter", pointerEnter);
+      popup.addEventListener("pointerleave", pointerLeave);
+      popup.addEventListener("pointerover", definitionPointerOver);
+      documentRef.body.appendChild(popup);
+      const level = {
+        depth,
+        popup,
+        view: null,
+        visible: false,
+        candidate: null,
+        termView: null,
+        audioItems: [],
+        definitionBlurContext: null,
+        miningStatusGeneration: 0,
+        cleanup() {
+          popup.removeEventListener("pointerdown", stopPropagation);
+          popup.removeEventListener("click", stopPropagation);
+          popup.removeEventListener("pointerenter", pointerEnter);
+          popup.removeEventListener("pointerleave", pointerLeave);
+          popup.removeEventListener("pointerover", definitionPointerOver);
+        },
+      };
+      level.view = createPopupView({
+        window: windowRef,
+        document: documentRef,
+        popup,
+        idPrefix: depth === 0 ? "gsm-hoshidicts" : `gsm-hoshidicts-${depth}`,
+        appendExpressionRuby,
+        appendTextOnlyGlossary,
+        parseTagList,
+        initialResultCount: INITIAL_VISIBLE_RESULTS,
+        maxMetadataTags: MAX_VISIBLE_METADATA_TAGS,
+        sourceHighlighter: chainHighlighter.scope(depth),
+        sourceHighlightEnabled: preferences.sourceHighlightEnabled,
+        positionPopup: () => positionPopupAndDescendants(depth),
+        onMineClick(button, result, candidate, feedback) {
+          void mineResult(button, result, candidate, feedback);
+        },
+        onKanjiClick(character, _result, candidate) {
+          requestKanji(character, candidate, depth);
+        },
+        onAddCustomEntry(entry) {
+          return addCustomEntryAndRefresh(entry, depth);
+        },
+        onNoteEditingChange(editing) {
+          noteEditing = editing;
+          clearHideTimer();
+        },
+        onBeforeResultsRendered() {
+          pruneFromDepth(depth + 1, "dictionary-tab-changed");
+          preparePopupContent("dictionary_tab_changed", depth);
+        },
+        onResultsRendered({ audioItems, feedback, miningButtons }) {
+          for (const button of miningButtons) {
+            button.hidden = true;
+          }
+          level.audioItems = audioItems;
+          syncAudioRenderedResults(depth, true);
+          void refreshMiningButtons(level, miningButtons, feedback);
+        },
+      });
+      return level;
+    }
+
+    function ensurePopupLevel(depth) {
+      while (popupLevels.length <= depth) {
+        popupLevels.push(createPopupLevel(popupLevels.length));
+      }
+      return popupLevels[depth];
+    }
+
+    function syncAudioRenderedResults(preferredDepth = null, autoPlay = false) {
+      const visibleLevels = popupLevels.filter(
+        (level) => level.visible && level.audioItems.length > 0
+      );
+      const preferredLevel = Number.isInteger(preferredDepth)
+        ? visibleLevels.find((level) => level.depth === preferredDepth)
+        : null;
+      const orderedLevels = preferredLevel
+        ? [preferredLevel, ...visibleLevels.filter((level) => level !== preferredLevel)]
+        : visibleLevels;
+      audioController.setRenderedResults(
+        orderedLevels.flatMap((level) => level.audioItems),
+        { autoPlay }
+      );
+    }
+
+    function pruneFromDepth(depth, reason = "descendants-pruned") {
+      const startDepth = Math.max(0, Math.trunc(depth));
+      clearDescendantHideTimer();
+      preparePopupContent(reason, startDepth);
+      if (latestCandidate && latestTargetDepth >= startDepth) {
+        invalidateLookup();
+      }
+      for (let index = popupLevels.length - 1; index >= startDepth; index -= 1) {
+        const level = popupLevels[index];
+        invalidateDefinitionBlur(level);
+        level.miningStatusGeneration += 1;
+        level.candidate = null;
+        level.termView = null;
+        level.audioItems = [];
+        level.view.clear();
+        level.popup.hidden = true;
+        level.visible = false;
+        renderedSignatures.delete(index);
+        noticeSignatures.delete(index);
+        if (index > 0) {
+          level.cleanup();
+          level.popup.remove();
+        }
+      }
+      if (startDepth === 0) {
+        popupLevels.length = Math.min(1, popupLevels.length);
+        publishPopupState(false);
+      } else if (popupLevels.length > startDepth) {
+        popupLevels.length = startDepth;
+      }
+      if (pointerPopupDepth !== null && pointerPopupDepth >= startDepth) {
+        pointerPopupDepth = null;
+        pointerInPopup = false;
+      }
+      audioController.dismissPopup();
+      syncAudioRenderedResults(null, false);
+      diagnostic("debug", "popup.pruned", { depth: startDepth, reason });
     }
 
     function hide(reason = "hide") {
+      clearHideTimer();
+      clearDescendantHideTimer();
       invalidateLookup();
-      dismissPopup(reason);
+      preparePopupContent("popup_hidden");
+      pruneFromDepth(0, reason);
       return true;
     }
 
     function scheduleHide(reason = "pointer-left") {
       pendingHideReason = reason;
       clearHideTimer();
-      if (pointerInPopup || !popupVisible) {
+      if (noteEditing || pointerInPopup || !popupVisible) {
         return;
       }
       if (preferences.popupHideDelayMs === 0) {
@@ -1150,45 +2234,246 @@
       }, preferences.popupHideDelayMs);
     }
 
-    function positionPopup() {
-      if (!popupVisible || !popupAnchor || !popupAnchor.isConnected) {
-        if (popupVisible) {
+    function schedulePruneFromDepth(depth, reason = "ancestor-hovered") {
+      if (popupLevels.length <= depth) {
+        return;
+      }
+      pendingPruneDepth = depth;
+      clearDescendantHideTimer();
+      if (preferences.popupHideDelayMs === 0) {
+        pruneFromDepth(depth, reason);
+        return;
+      }
+      descendantHideTimer = setTimeoutFn(() => {
+        descendantHideTimer = null;
+        if (pointerPopupDepth === null || pointerPopupDepth < depth) {
+          pruneFromDepth(depth, reason);
+        }
+      }, preferences.popupHideDelayMs);
+    }
+
+    function isCandidateAnchorConnected(candidate) {
+      if (!candidate || !candidate.anchor || !candidate.anchor.isConnected) {
+        return false;
+      }
+      return !candidate.anchorRange || candidate.anchorRange.startContainer.isConnected;
+    }
+
+    function getCandidateAnchorRect(candidate) {
+      if (
+        candidate.anchorRange &&
+        typeof candidate.anchorRange.getBoundingClientRect === "function"
+      ) {
+        try {
+          const rangeRect = candidate.anchorRange.getBoundingClientRect();
+          if (rangeRect && Number.isFinite(rangeRect.left)) {
+            return rangeRect;
+          }
+        } catch {
+          // Fall back to the containing definition element.
+        }
+      }
+      return candidate.anchor.getBoundingClientRect();
+    }
+
+    function calculateChildPosition(anchorRect, popupSize, parentRect) {
+      const padding = 6;
+      const gap = 6;
+      const viewport = { width: windowRef.innerWidth, height: windowRef.innerHeight };
+      const width = Math.min(
+        Math.max(1, popupSize.width),
+        Math.max(1, viewport.width - padding * 2)
+      );
+      const height = Math.min(
+        Math.max(1, popupSize.height),
+        Math.max(1, viewport.height - padding * 2)
+      );
+      const spaceRight = viewport.width - parentRect.right - gap;
+      const spaceLeft = parentRect.left - gap;
+      const preferredLeft = spaceRight >= width || spaceRight >= spaceLeft
+        ? parentRect.right + gap
+        : parentRect.left - gap - width;
+      const clamp = (value, minimum, maximum) =>
+        Math.max(minimum, Math.min(value, maximum));
+      return {
+        left: Math.round(clamp(preferredLeft, padding, viewport.width - width - padding)),
+        top: Math.round(clamp(anchorRect.top, padding, viewport.height - height - padding)),
+        width,
+        height,
+      };
+    }
+
+    function positionPopup(depth = 0) {
+      const level = popupLevels[depth];
+      if (!level || !level.visible) {
+        return;
+      }
+      if (!isCandidateAnchorConnected(level.candidate)) {
+        if (depth === 0) {
           hide("anchor-removed");
+        } else {
+          pruneFromDepth(depth, "anchor-removed");
         }
         return;
       }
-      const anchorRect = popupAnchor.getBoundingClientRect();
-      const measuredRect = popup.getBoundingClientRect();
+      const anchorRect = getCandidateAnchorRect(level.candidate);
+      const measuredRect = level.popup.getBoundingClientRect();
       const popupSize = {
         width: measuredRect.width || Math.min(420, windowRef.innerWidth - 12),
         height: measuredRect.height || Math.min(420, windowRef.innerHeight * 0.6),
       };
-      const position = calculatePopupPosition(
-        anchorRect,
-        popupSize,
-        { width: windowRef.innerWidth, height: windowRef.innerHeight },
-        { vertical: popupVertical }
-      );
-      popup.style.left = `${position.left}px`;
-      popup.style.top = `${position.top}px`;
-      popup.style.maxWidth = `${position.width}px`;
-      popup.style.maxHeight = `${position.height}px`;
+      const parentLevel = depth > 0 ? popupLevels[depth - 1] : null;
+      const position = parentLevel && parentLevel.visible
+        ? calculateChildPosition(
+            anchorRect,
+            popupSize,
+            parentLevel.popup.getBoundingClientRect()
+          )
+        : calculatePopupPosition(
+            anchorRect,
+            popupSize,
+            { width: windowRef.innerWidth, height: windowRef.innerHeight },
+            { vertical: level.candidate.vertical }
+          );
+      level.popup.style.left = `${position.left}px`;
+      level.popup.style.top = `${position.top}px`;
+      level.popup.style.maxWidth = `${position.width}px`;
+      level.popup.style.maxHeight = `${position.height}px`;
     }
 
-    function showPopup(candidate) {
+    function positionPopupAndDescendants(startDepth = 0) {
+      for (let depth = startDepth; depth < popupLevels.length; depth += 1) {
+        positionPopup(depth);
+      }
+    }
+
+    function positionAllPopups() {
+      positionPopupAndDescendants(0);
+    }
+
+    function showPopup(candidate, targetDepth) {
       clearHideTimer();
-      popupAnchor = candidate.anchor;
-      popupVertical = candidate.vertical;
-      popup.hidden = false;
-      popup.scrollTop = 0;
+      const level = ensurePopupLevel(targetDepth);
+      level.candidate = candidate;
+      level.popup.hidden = false;
+      level.popup.scrollTop = 0;
+      level.visible = true;
       publishPopupState(true);
-      positionPopup();
+      positionPopup(targetDepth);
+      return level;
     }
 
-    function renderLookupNotice(candidate, message) {
-      invalidateDefinitionBlur();
-      popupView.renderNotice(message);
-      showPopup(candidate);
+    function renderLookupNotice(candidate, message, targetDepth, signature) {
+      preparePopupContent("lookup_notice", targetDepth);
+      const level = ensurePopupLevel(targetDepth);
+      invalidateDefinitionBlur(level);
+      level.termView = null;
+      level.audioItems = [];
+      level.view.renderNotice(message, candidate);
+      renderedSignatures.set(targetDepth, signature);
+      noticeSignatures.set(targetDepth, signature);
+      showPopup(candidate, targetDepth);
+      syncAudioRenderedResults(null, false);
+    }
+
+    function renderTermResults(
+      results,
+      candidate,
+      dictionaryGeneration,
+      targetDepth,
+      signature
+    ) {
+      preparePopupContent("lookup_results", targetDepth);
+      expandCandidateAnchor(
+        candidate,
+        results[0].matched || results[0].term.expression
+      );
+      const level = ensurePopupLevel(targetDepth);
+      const definitionBlurContext = beginDefinitionBlur(level);
+      level.termView = {
+        results,
+        candidate,
+        dictionaryGeneration,
+        highlightText: results[0].matched || results[0].term.expression,
+        signature,
+        definitionBlurContext,
+      };
+      const rendered = level.view.renderResults(results, candidate, {
+        definitionBlurState: getDefinitionBlurState(definitionBlurContext),
+        generation: dictionaryGeneration,
+        resolveMedia: dictionaryGeneration === null
+          ? null
+          : (request) => resolveMedia({ ...request, depth: targetDepth }),
+      });
+      for (const button of rendered.miningButtons) {
+        button.hidden = true;
+      }
+      renderedSignatures.set(targetDepth, signature);
+      noticeSignatures.delete(targetDepth);
+      level.audioItems = rendered.audioItems;
+      showPopup(candidate, targetDepth);
+      startDefinitionBlurDeadline(definitionBlurContext);
+      recordLookup(results[0], definitionBlurContext);
+      syncAudioRenderedResults(targetDepth, true);
+      void refreshMiningButtons(level, rendered.miningButtons, rendered.feedback);
+    }
+
+    function restoreTermView(targetDepth) {
+      const level = popupLevels[targetDepth];
+      if (!level || !level.termView) return;
+      const {
+        results,
+        candidate,
+        dictionaryGeneration,
+        signature,
+        definitionBlurContext,
+      } = level.termView;
+      latestCandidate = candidate;
+      latestCandidateSignature = signature;
+      latestTargetDepth = targetDepth;
+      latestRequestMode = "term-first";
+      latestRequestText = candidate.query;
+      preparePopupContent("restore_term_results", targetDepth);
+      const rendered = level.view.renderResults(results, candidate, {
+        definitionBlurState: getDefinitionBlurState(definitionBlurContext),
+        generation: dictionaryGeneration,
+        resolveMedia: dictionaryGeneration === null
+          ? null
+          : (request) => resolveMedia({ ...request, depth: targetDepth }),
+      });
+      for (const button of rendered.miningButtons) {
+        button.hidden = true;
+      }
+      renderedSignatures.set(targetDepth, signature);
+      noticeSignatures.delete(targetDepth);
+      level.audioItems = rendered.audioItems;
+      showPopup(candidate, targetDepth);
+      syncAudioRenderedResults(targetDepth, true);
+      void refreshMiningButtons(level, rendered.miningButtons, rendered.feedback);
+    }
+
+    function requestKanji(character, candidate, targetDepth) {
+      const kanji = Array.from(String(character || ""))[0] || "";
+      if (!HAN_CHARACTER_PATTERN.test(kanji)) return;
+      clearLookupTimeout();
+      const signature = renderedSignatures.get(targetDepth) || latestCandidateSignature;
+      sendLookup(
+        candidate,
+        latestGeneration,
+        targetDepth,
+        signature,
+        "kanji",
+        kanji
+      );
+    }
+
+    async function addCustomEntryAndRefresh(entry, targetDepth) {
+      if (!onAddCustomEntry) {
+        throw new Error("The custom dictionary is unavailable.");
+      }
+      const response = await onAddCustomEntry(entry);
+      repeatCurrentLookup(targetDepth);
+      return response;
     }
 
     async function getCachedMiningStatus() {
@@ -1218,21 +2503,29 @@
       return miningStatusCache;
     }
 
-    async function refreshMiningButtons(buttons, feedback) {
-      const generation = ++miningStatusGeneration;
+    async function refreshMiningButtons(level, buttons, feedback) {
+      const generation = ++level.miningStatusGeneration;
       const status = await getCachedMiningStatus();
-      if (destroyed || generation !== miningStatusGeneration || !feedback.isConnected) {
+      if (
+        destroyed ||
+        generation !== level.miningStatusGeneration ||
+        !feedback.isConnected
+      ) {
         return;
       }
       if (status && status.available === true && onMine) {
         for (const button of buttons) {
           button.hidden = false;
-          setMiningButtonState(button, "ready");
+          setMiningButtonState(
+            button,
+            miningInFlight ? "checking" : "ready",
+            miningInFlight ? "Another note is being added" : ""
+          );
         }
         const unmapped = Array.isArray(status.unmappedFields)
           ? status.unmappedFields.filter((field) => typeof field === "string")
           : [];
-        popupView.setFeedback(
+        level.view.setFeedback(
           feedback,
           unmapped.length > 0
             ? `Optional Anki fields not mapped: ${unmapped.join(", ")}.`
@@ -1248,7 +2541,10 @@
         button.hidden = true;
         setMiningButtonState(button, "unavailable", reason);
       }
-      popupView.setFeedback(feedback, `Anki mining unavailable: ${reason}`, "warning");
+      // Match Yomitan's quiet unavailable state: dictionary results remain the
+      // focus, with no setup warning or inert mining affordance. Errors from a
+      // real mining attempt still flow through mineResult below.
+      level.view.setFeedback(feedback, "");
     }
 
     async function mineResult(button, result, candidate, feedback) {
@@ -1259,22 +2555,25 @@
       ) {
         return;
       }
+      const level = popupLevels.find((entry) => entry.popup.contains(button));
+      if (!level) {
+        return;
+      }
       miningInFlight = true;
-      popupView.setFeedback(feedback, "Adding note to Anki…");
-      const buttons = Array.from(
-        popup.querySelectorAll(".gsm-hoshidicts-mine-button")
+      level.view.setFeedback(feedback, "Adding note to Anki…");
+      const buttons = popupLevels.flatMap((entry) =>
+        Array.from(entry.popup.querySelectorAll(".gsm-hoshidicts-mine-button"))
       );
       for (const current of buttons) {
-        setMiningButtonState(
-          current,
-          current === button ? "mining" : "checking"
-        );
+        setMiningButtonState(current, current === button ? "mining" : "checking");
       }
       try {
+        const audioSelection = audioController.getSelection(result);
         const response = await onMine({
           result,
           sentence: candidate.sentence,
           matchOffset: candidate.matchOffset,
+          ...(audioSelection ? { audioSelection } : {}),
         });
         if (!response || response.success !== true) {
           throw new Error(
@@ -1284,28 +2583,49 @@
           );
         }
         setMiningButtonState(button, "success");
+        const audioOutcome = isRecord(response.audio) ? response.audio : null;
+        const audioFailed = audioOutcome &&
+          ["unavailable", "failed"].includes(audioOutcome.status);
         const unmapped = Array.isArray(response.unmappedFields)
           ? response.unmappedFields.filter((field) => typeof field === "string")
           : [];
-        popupView.setFeedback(
+        const visibleUnmapped = audioFailed
+          ? unmapped.filter((field) => field !== "audio")
+          : unmapped;
+        const feedbackParts = ["Added to Anki."];
+        if (visibleUnmapped.length > 0) {
+          feedbackParts.push(
+            `Optional fields not filled: ${visibleUnmapped.join(", ")}.`
+          );
+        }
+        if (audioFailed) {
+          feedbackParts.push(
+            boundedString(audioOutcome.warning, 1024).trim() ||
+              "Pronunciation audio could not be added."
+          );
+        }
+        level.view.setFeedback(
           feedback,
-          unmapped.length > 0
-            ? `Added to Anki. Optional fields not filled: ${unmapped.join(", ")}.`
-            : "Added to Anki.",
-          unmapped.length > 0 ? "warning" : "success"
+          feedbackParts.join(" "),
+          visibleUnmapped.length > 0 || audioFailed ? "warning" : "success"
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         const duplicate = /already exists|duplicate/iu.test(message);
         setMiningButtonState(button, duplicate ? "duplicate" : "error", message);
-        popupView.setFeedback(
+        level.view.setFeedback(
           feedback,
           duplicate ? "Already in Anki." : `Could not add to Anki: ${message}`,
           duplicate ? "info" : "error"
         );
       } finally {
         miningInFlight = false;
-        for (const current of buttons) {
+        const liveButtons = popupLevels.flatMap((entry) =>
+          Array.from(
+            entry.popup.querySelectorAll(".gsm-hoshidicts-mine-button")
+          )
+        );
+        for (const current of liveButtons) {
           if (current !== button && current.isConnected) {
             setMiningButtonState(current, "ready");
           }
@@ -1336,17 +2656,124 @@
         });
     }
 
+    function handleMediaResponse(payload) {
+      const requestId = typeof payload.requestId === "string" ? payload.requestId : "";
+      const job = mediaPendingByRequestId.get(requestId);
+      if (!job) {
+        return;
+      }
+      const matchesRequest =
+        payload.generation === job.generation &&
+        payload.dictionary === job.dictionary &&
+        payload.path === job.path;
+      if (!matchesRequest) {
+        rejectMediaJob(job, new Error("invalid_media_response"));
+        pumpMediaQueue();
+        return;
+      }
+      if (payload.success !== true) {
+        const invalidateMediaState =
+          payload.staleGeneration === true || payload.featureDisabled === true;
+        rejectMediaJob(
+          job,
+          new Error(payload.staleGeneration === true
+            ? "stale_generation"
+            : payload.featureDisabled === true
+              ? "feature_disabled"
+            : boundedString(payload.error, 256) || "media_lookup_failed")
+        );
+        if (invalidateMediaState) {
+          clearMediaState(
+            payload.staleGeneration === true ? "stale_generation" : "feature_disabled"
+          );
+          activeDictionaryGeneration = null;
+        } else {
+          pumpMediaQueue();
+        }
+        return;
+      }
+      let metadata;
+      try {
+        metadata = validateMediaPayloadMetadata(payload);
+      } catch (error) {
+        rejectMediaJob(job, error);
+        pumpMediaQueue();
+        return;
+      }
+      const cached = mediaCache.get(job.cacheKey);
+      const pixelCount = cached ? cached.pixelCount : metadata.pixelCount;
+      const reservationKey = mediaDepthKey(job.depth, job.cacheKey);
+      const alreadyReserved = popupMediaKeys.has(reservationKey);
+      if (!reservePopupMedia(job.depth, job.cacheKey, pixelCount)) {
+        rejectMediaJob(job, new Error("media_pixel_budget_exceeded"));
+        cancelMediaRequests("media_pixel_budget_exceeded");
+        return;
+      }
+      if (cached) {
+        mediaCache.delete(job.cacheKey);
+        mediaCache.set(job.cacheKey, cached);
+        resolveMediaJob(
+          job,
+          cached.url,
+          cached.byteLength,
+          cached.pixelCount
+        );
+        if (isPopupMediaBudgetFull()) {
+          cancelMediaRequests("media_pixel_budget_exhausted");
+        } else {
+          pumpMediaQueue();
+        }
+        return;
+      }
+      let media;
+      let url;
+      try {
+        media = decodeMediaPayload(windowRef, metadata);
+        const blob = new BlobImpl([media.bytes], { type: media.mediaType });
+        url = createObjectURL(blob);
+        if (typeof url !== "string" || !url.startsWith("blob:")) {
+          throw new Error("invalid_blob_url");
+        }
+      } catch (error) {
+        if (!alreadyReserved) {
+          releasePopupMedia(job.depth, job.cacheKey);
+        }
+        rejectMediaJob(job, error);
+        pumpMediaQueue();
+        return;
+      }
+      resolveMediaJob(job, url, media.byteLength, media.pixelCount);
+      if (isPopupMediaBudgetFull()) {
+        cancelMediaRequests("media_pixel_budget_exhausted");
+      } else {
+        pumpMediaQueue();
+      }
+    }
+
+    function expandCandidateAnchor(candidate, matchedText) {
+      if (!candidate.anchorRange || candidate.sourceElements.length !== 1) {
+        return;
+      }
+      candidate.anchorRange = createTextRangeForOffsets(
+        documentRef,
+        candidate.sourceElements[0],
+        candidate.matchOffset,
+        candidate.matchOffset + matchedText.length
+      ) || candidate.anchorRange;
+    }
+
     function handleLookupResponse(rawData) {
       const serialized = typeof rawData === "string"
         ? rawData
         : rawData instanceof windowRef.ArrayBuffer
           ? new windowRef.TextDecoder().decode(rawData)
           : String(rawData);
-      if (serialized.length > MAX_RESPONSE_BYTES) {
+      if (serialized.length > MAX_MEDIA_RESPONSE_BYTES) {
         diagnostic("warn", "response.too-large", {
           bytes: serialized.length,
-          maxBytes: MAX_RESPONSE_BYTES,
+          maxBytes: MAX_MEDIA_RESPONSE_BYTES,
         });
+        cancelMediaRequests("media_response_too_large");
         return;
       }
       let payload;
@@ -1356,7 +2783,21 @@
         diagnostic("warn", "response.invalid-json", { bytes: serialized.length });
         return;
       }
-      if (!isRecord(payload) || payload.type !== "hoshidicts_lookup_result") {
+      if (!isRecord(payload)) {
+        return;
+      }
+      if (payload.type === "hoshidicts_media_result") {
+        handleMediaResponse(payload);
+        return;
+      }
+      if (serialized.length > MAX_RESPONSE_BYTES) {
+        diagnostic("warn", "lookup-response.too-large", {
+          bytes: serialized.length,
+          maxBytes: MAX_RESPONSE_BYTES,
+        });
+        return;
+      }
+      if (payload.type !== "hoshidicts_lookup_result") {
         return;
       }
       if (payload.requestId !== latestRequestId) {
@@ -1368,59 +2809,130 @@
       }
       clearLookupTimeout();
       const candidate = latestCandidate;
+      const signature = latestCandidateSignature;
+      const targetDepth = latestTargetDepth;
       const requestId = latestRequestId;
+      const requestMode = latestRequestMode;
       latestRequestId = null;
-      if (!candidate) {
-        diagnostic("warn", "lookup.missing-candidate", { requestId });
-        hide("lookup-error");
+      if (!candidate || !isCandidateAnchorConnected(candidate)) {
+        diagnostic("warn", "lookup.missing-candidate", { requestId, targetDepth });
+        pruneFromDepth(targetDepth, "lookup-error");
+        return;
+      }
+      if (targetDepth > preferences.popupNestingMaxDepth) {
+        pruneFromDepth(targetDepth, "depth-limit-changed");
         return;
       }
       if (payload.success !== true) {
         diagnostic("warn", "lookup.failed", {
           requestId,
+          targetDepth,
           dictionaryCount: Number.isFinite(payload.dictionaryCount)
             ? Math.trunc(payload.dictionaryCount)
             : null,
           featureDisabled: payload.featureDisabled === true,
           error: boundedString(payload.error, 4096) || "unknown lookup error",
         });
+        if (requestMode === "kanji" && popupLevels[targetDepth]?.termView) {
+          restoreTermView(targetDepth);
+          return;
+        }
         const message = payload.featureDisabled === true
           ? "Hoshidicts is off. Enable it in Hoshidicts Settings."
           : payload.dictionaryCount === 0
             ? "No Hoshidicts dictionaries are enabled. Open Hoshidicts Settings."
             : `Dictionary lookup failed: ${boundedString(payload.error, 1024) || "try again"}`;
-        renderLookupNotice(candidate, message);
+        renderLookupNotice(candidate, message, targetDepth, signature);
         return;
       }
+      const dictionaryGeneration = normalizeDictionaryGeneration(payload.generation);
+      if (dictionaryGeneration === null) {
+        diagnostic("warn", "lookup.media-generation-unavailable", { requestId });
+        clearMediaState("dictionary_generation_unavailable");
+        activeDictionaryGeneration = null;
+      } else {
+        updateDictionaryGeneration(dictionaryGeneration);
+      }
       const results = normalizeLookupResults(payload);
+      if (results.length > 0) {
+        renderTermResults(
+          results,
+          candidate,
+          dictionaryGeneration,
+          targetDepth,
+          signature
+        );
+        diagnostic("info", "lookup.rendered", {
+          requestId,
+          targetDepth,
+          dictionaryCount: Number.isFinite(payload.dictionaryCount)
+            ? Math.trunc(payload.dictionaryCount)
+            : null,
+          resultCount: results.length,
+          query: candidate.query,
+          firstExpression: results[0].term.expression,
+        });
+        return;
+      }
+      const kanji = normalizeKanjiLookup(payload);
+      if (kanji) {
+        preparePopupContent("kanji_results", targetDepth);
+        const level = ensurePopupLevel(targetDepth);
+        const termView = level.termView;
+        if (!termView) {
+          invalidateDefinitionBlur(level);
+        }
+        level.audioItems = [];
+        level.view.renderKanji(kanji, candidate, {
+          onBack: requestMode === "kanji" && termView
+            ? () => restoreTermView(targetDepth)
+            : null,
+          highlightText: requestMode === "kanji" && termView
+            ? termView.highlightText
+            : kanji.character,
+        });
+        renderedSignatures.set(targetDepth, signature);
+        noticeSignatures.delete(targetDepth);
+        showPopup(candidate, targetDepth);
+        syncAudioRenderedResults(null, false);
+        diagnostic("info", "lookup.kanji-rendered", {
+          requestId,
+          targetDepth,
+          dictionaryCount: Number.isFinite(payload.dictionaryCount)
+            ? Math.trunc(payload.dictionaryCount)
+            : null,
+          entryCount: kanji.entries.length,
+          character: kanji.character,
+          mode: requestMode,
+        });
+        return;
+      }
       if (results.length === 0) {
         diagnostic("info", "lookup.empty", {
           requestId,
+          targetDepth,
           dictionaryCount: Number.isFinite(payload.dictionaryCount)
             ? Math.trunc(payload.dictionaryCount)
             : null,
           query: candidate.query,
         });
-        hide("no-results");
+        if (requestMode === "kanji" && popupLevels[targetDepth]?.termView) {
+          restoreTermView(targetDepth);
+          return;
+        }
+        latestCandidate = null;
+        if (targetDepth > 0) {
+          pruneFromDepth(targetDepth, "no-results");
+        } else {
+          renderLookupNotice(
+            candidate,
+            "No definitions found. Add one with the Note button.",
+            targetDepth,
+            signature
+          );
+        }
         return;
       }
-      const definitionBlurContext = beginDefinitionBlur();
-      const rendered = popupView.renderResults(results, candidate, {
-        definitionBlurState: definitionBlurContext ? "pending" : "revealed",
-      });
-      showPopup(candidate);
-      startDefinitionBlurDeadline(definitionBlurContext);
-      recordLookup(results[0], definitionBlurContext);
-      void refreshMiningButtons(rendered.miningButtons, rendered.feedback);
-      diagnostic("info", "lookup.rendered", {
-        requestId,
-        dictionaryCount: Number.isFinite(payload.dictionaryCount)
-          ? Math.trunc(payload.dictionaryCount)
-          : null,
-        resultCount: results.length,
-        query: candidate.query,
-        firstExpression: results[0].term.expression,
-      });
     }
 
     function scheduleReconnect() {
@@ -1465,7 +2977,14 @@
           }));
           diagnostic("info", "socket.open", { serverUrl });
           if (latestCandidate && latestRequestId === null) {
-            sendLookup(latestCandidate, latestGeneration);
+            sendLookup(
+              latestCandidate,
+              latestGeneration,
+              latestTargetDepth,
+              latestCandidateSignature,
+              latestRequestMode,
+              latestRequestText || latestCandidate.query
+            );
           }
         });
         nextSocket.addEventListener("message", (event) => {
@@ -1477,11 +2996,31 @@
           if (socket !== nextSocket) {
             return;
           }
+          const reconnectLookup = latestCandidate
+            ? {
+                candidate: latestCandidate,
+                mode: latestRequestMode,
+                signature: latestCandidateSignature,
+                targetDepth: latestTargetDepth,
+                text: latestRequestText || latestCandidate.query,
+              }
+            : null;
           socket = null;
           latestRequestId = null;
           clearLookupTimeout();
-          if (popupVisible) {
-            dismissPopup("socket-closed");
+          clearMediaState("socket_closed");
+          activeDictionaryGeneration = null;
+          hide("socket-closed");
+          if (
+            reconnectLookup &&
+            reconnectLookup.targetDepth === 0 &&
+            isCandidateAnchorConnected(reconnectLookup.candidate)
+          ) {
+            latestCandidate = reconnectLookup.candidate;
+            latestCandidateSignature = reconnectLookup.signature;
+            latestTargetDepth = reconnectLookup.targetDepth;
+            latestRequestMode = reconnectLookup.mode;
+            latestRequestText = reconnectLookup.text;
           }
           diagnostic("warn", "socket.closed", {
             serverUrl,
@@ -1504,11 +3043,27 @@
       }
     }
 
-    function sendLookup(candidate, generation) {
-      if (destroyed || generation !== latestGeneration) {
+    function sendLookup(
+      candidate,
+      generation,
+      targetDepth,
+      signature,
+      mode = "term-first",
+      text = candidate.query
+    ) {
+      if (
+        destroyed ||
+        generation !== latestGeneration ||
+        targetDepth > preferences.popupNestingMaxDepth ||
+        !isCandidateAnchorConnected(candidate)
+      ) {
         return;
       }
       latestCandidate = candidate;
+      latestTargetDepth = targetDepth;
+      latestCandidateSignature = signature;
+      latestRequestMode = mode;
+      latestRequestText = text;
       if (lookupTimeoutTimer === null) {
         lookupTimeoutTimer = setTimeoutFn(() => {
           lookupTimeoutTimer = null;
@@ -1517,12 +3072,19 @@
           }
           const requestId = latestRequestId;
           latestRequestId = null;
-          renderLookupNotice(
-            candidate,
-            "Dictionary lookup timed out. Check that the overlay service is running."
-          );
+          if (mode === "kanji" && popupLevels[targetDepth]?.termView) {
+            restoreTermView(targetDepth);
+          } else {
+            renderLookupNotice(
+              candidate,
+              "Dictionary lookup timed out. Check that the overlay service is running.",
+              targetDepth,
+              signature
+            );
+          }
           diagnostic("warn", "lookup.timed-out", {
             requestId,
+            targetDepth,
             query: candidate.query,
           });
         }, lookupTimeoutMs);
@@ -1530,6 +3092,7 @@
       if (!socket || socket.readyState !== WebSocketImpl.OPEN) {
         diagnostic("debug", "lookup.waiting-for-socket", {
           query: candidate.query,
+          targetDepth,
           socketState: socket ? socket.readyState : null,
         });
         connect();
@@ -1540,59 +3103,161 @@
       socket.send(JSON.stringify({
         type: "hoshidicts_lookup",
         requestId,
-        text: candidate.query,
+        text,
+        ...(mode === "kanji" ? { mode: "kanji" } : {}),
       }));
       diagnostic("debug", "lookup.sent", {
         requestId,
-        query: candidate.query,
+        query: text,
+        mode,
+        targetDepth,
         matchOffset: candidate.matchOffset,
       });
     }
 
-    function queueLookup(candidate) {
+    function repeatCurrentLookup(targetDepth = latestTargetDepth) {
+      const candidate = popupLevels[targetDepth]?.candidate || latestCandidate;
+      if (!isCandidateAnchorConnected(candidate)) {
+        return false;
+      }
+      queueLookup(candidate, targetDepth, true);
+      return true;
+    }
+
+    function queueLookup(candidate, targetDepth, immediate = false) {
+      let sourceId = candidateSourceIds.get(candidate.anchor);
+      if (sourceId === undefined) {
+        sourceId = ++candidateSourceSequence;
+        candidateSourceIds.set(candidate.anchor, sourceId);
+      }
       const signature = [
+        targetDepth,
+        sourceId,
         candidate.sentence,
         candidate.matchOffset,
         candidate.query,
       ].join("\u0000");
       clearHideTimer();
-      if (signature === lastCandidateSignature) {
+      clearDescendantHideTimer();
+      if (
+        !immediate &&
+        signature === latestCandidateSignature &&
+        latestTargetDepth === targetDepth &&
+        (latestRequestId !== null || debounceTimer !== null)
+      ) {
+        return;
+      }
+      if (!immediate && renderedSignatures.get(targetDepth) === signature) {
+        invalidateLookup();
+        schedulePruneFromDepth(targetDepth + 1, "ancestor-hovered");
         return;
       }
       invalidateLookup();
-      if (popupVisible) {
-        dismissPopup("candidate-changed");
+      if (targetDepth === 0) {
+        audioController.beginLookup();
+      } else {
+        audioController.dismissPopup();
       }
-      lastCandidateSignature = signature;
+      pruneFromDepth(targetDepth, "candidate-changed");
       latestCandidate = candidate;
+      latestTargetDepth = targetDepth;
+      latestCandidateSignature = signature;
       const generation = latestGeneration;
+      if (immediate) {
+        sendLookup(candidate, generation, targetDepth, signature);
+        return;
+      }
       debounceTimer = setTimeoutFn(() => {
         debounceTimer = null;
-        sendLookup(candidate, generation);
+        sendLookup(candidate, generation, targetDepth, signature);
       }, LOOKUP_DEBOUNCE_MS);
+    }
+
+    function clearHoveredSource() {
+      lastHoveredSource = null;
+      lastHoveredTargetDepth = null;
+    }
+
+    function queueHoveredLookup(candidate, targetDepth) {
+      const enteredSource =
+        lastHoveredSource !== candidate.anchor ||
+        lastHoveredTargetDepth !== targetDepth;
+      lastHoveredSource = candidate.anchor;
+      lastHoveredTargetDepth = targetDepth;
+      if (
+        enteredSource &&
+        noticeSignatures.has(targetDepth) &&
+        noticeSignatures.get(targetDepth) === renderedSignatures.get(targetDepth)
+      ) {
+        renderedSignatures.delete(targetDepth);
+      }
+      queueLookup(candidate, targetDepth);
     }
 
     function scanPointer(pointer, modifierActive) {
       if (!pointer || !(pointer.target instanceof windowRef.Element)) {
         return;
       }
-      if (popup.contains(pointer.target)) {
+      if (pointer.target.closest(".gsm-hoshidicts-audio-menu")) {
         pointerInPopup = true;
+        pointerPopupDepth = null;
         clearHideTimer();
         return;
       }
-      pointerInPopup = false;
-      if (requiresShift() && !modifierActive) {
-        if (!shiftRequirementLogged && isReadableHoverTarget(pointer.target)) {
-          shiftRequirementLogged = true;
-          diagnostic("info", "hover.shift-required", {
-            message: "Hold Shift while hovering readable text to run a lookup.",
+      const popupDepth = getPopupDepthForTarget(pointer.target);
+      pointerInPopup = popupDepth !== null;
+      pointerPopupDepth = popupDepth;
+      if (popupDepth !== null) {
+        clearHideTimer();
+        if (descendantHideTimer !== null && popupDepth >= pendingPruneDepth) {
+          clearDescendantHideTimer();
+        }
+      }
+      if (noteEditing) {
+        clearHideTimer();
+        return;
+      }
+      if (requiresActivationKey() && !modifierActive) {
+        clearHoveredSource();
+        if (!activationRequirementLogged && isReadableHoverTarget(pointer.target)) {
+          activationRequirementLogged = true;
+          diagnostic("info", "hover.activation-key-required", {
+            activationKey: preferences.activationKey,
+            message: `Hold ${preferences.activationKey} while hovering readable text to run a lookup.`,
           });
         }
         invalidateLookup();
-        scheduleHide("shift-not-held");
+        scheduleHide("activation-key-not-held");
         return;
       }
+
+      if (popupDepth !== null) {
+        const targetDepth = popupDepth + 1;
+        if (targetDepth > preferences.popupNestingMaxDepth) {
+          clearHoveredSource();
+          invalidateLookup();
+          schedulePruneFromDepth(targetDepth, "depth-limit");
+          return;
+        }
+        const candidate = resolveGlossaryLookupCandidate(
+          windowRef,
+          documentRef,
+          pointer.target,
+          pointer.clientX,
+          pointer.clientY,
+          popupDepth
+        );
+        if (candidate) {
+          candidateMissLogged = false;
+          queueHoveredLookup(candidate, targetDepth);
+        } else {
+          clearHoveredSource();
+          invalidateLookup();
+          schedulePruneFromDepth(targetDepth, "ancestor-hovered");
+        }
+        return;
+      }
+
       const candidate = resolveLookupCandidate(
         windowRef,
         documentRef,
@@ -1602,9 +3267,10 @@
       );
       if (candidate) {
         candidateMissLogged = false;
-        queueLookup(candidate);
+        queueHoveredLookup(candidate, 0);
         return;
       }
+      clearHoveredSource();
       if (!candidateMissLogged) {
         candidateMissLogged = true;
         diagnostic("debug", "hover.no-candidate", {
@@ -1622,48 +3288,80 @@
         clientY: event.clientY,
         shiftKey: event.shiftKey,
       };
-      scanPointer(lastPointer, shiftPressed || event.shiftKey);
+      scanPointer(lastPointer, isActivationKeyPressed(event.shiftKey));
     }
 
     function onKeyDown(event) {
-      if (event.key !== "Shift") {
+      if (
+        preferences.activationKey !== DEFAULT_ACTIVATION_KEY ||
+        event.key !== DEFAULT_ACTIVATION_KEY
+      ) {
         return;
       }
-      const wasPressed = shiftPressed;
-      shiftPressed = true;
-      if (!wasPressed && requiresShift()) {
+      const wasPressed = localShiftPressed;
+      localShiftPressed = true;
+      if (!wasPressed && requiresActivationKey()) {
         scanPointer(lastPointer, true);
       }
     }
 
     function onKeyUp(event) {
-      if (event.key === "Shift") {
-        shiftPressed = false;
-        if (requiresShift()) {
-          invalidateLookup();
-          scheduleHide("shift-released");
+      if (
+        preferences.activationKey === DEFAULT_ACTIVATION_KEY &&
+        event.key === DEFAULT_ACTIVATION_KEY
+      ) {
+        localShiftPressed = false;
+        if (requiresActivationKey() && !globalActivationKeyPressed) {
+          if (!pointerInPopup && !noteEditing) {
+            invalidateLookup();
+          }
+          scheduleHide("activation-key-released");
         }
       }
     }
 
-    function onPopupPointerEnter() {
-      pointerInPopup = true;
-      clearHideTimer();
-    }
-
-    function onPopupPointerLeave() {
-      pointerInPopup = false;
-      scheduleHide("popup-left");
+    function setActivationKeyPressed(active) {
+      const nextPressed = active === true;
+      if (globalActivationKeyPressed === nextPressed) {
+        return false;
+      }
+      globalActivationKeyPressed = nextPressed;
+      if (!requiresActivationKey()) {
+        return true;
+      }
+      if (nextPressed) {
+        scanPointer(lastPointer, true);
+      } else {
+        localShiftPressed = false;
+        invalidateLookup();
+        scheduleHide("activation-key-released");
+      }
+      return true;
     }
 
     function updatePreferences(nextPreferences = {}) {
       const hadHideTimer = hideTimer !== null;
       const previousMode = preferences.lookupMode;
       const definitionBlurWasEnabled = preferences.definitionBlur.enabled;
+      const previousActivationKey = preferences.activationKey;
+      const previousSourceHighlightEnabled = preferences.sourceHighlightEnabled;
+      const previousMaxDepth = preferences.popupNestingMaxDepth;
       preferences = {
         lookupMode: Object.prototype.hasOwnProperty.call(nextPreferences, "lookupMode")
           ? nextPreferences.lookupMode === "hover" ? "hover" : "shift"
           : preferences.lookupMode,
+        activationKey: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "activationKey"
+        )
+          ? normalizeActivationKey(nextPreferences.activationKey)
+          : preferences.activationKey,
+        sourceHighlightEnabled: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "sourceHighlightEnabled"
+        )
+          ? nextPreferences.sourceHighlightEnabled === true
+          : preferences.sourceHighlightEnabled,
         popupHideDelayMs: Object.prototype.hasOwnProperty.call(
           nextPreferences,
           "popupHideDelayMs"
@@ -1682,21 +3380,48 @@
               preferences.definitionBlur
             )
           : preferences.definitionBlur,
+        popupNestingMaxDepth: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "popupNestingMaxDepth"
+        )
+          ? normalizePopupNestingMaxDepth(
+              nextPreferences.popupNestingMaxDepth,
+              preferences.popupNestingMaxDepth
+            )
+          : preferences.popupNestingMaxDepth,
       };
       if (definitionBlurWasEnabled && !preferences.definitionBlur.enabled) {
-        invalidateDefinitionBlur();
+        for (const level of popupLevels) {
+          invalidateDefinitionBlur(level);
+        }
       }
       if (hadHideTimer) {
         clearHideTimer();
         scheduleHide(pendingHideReason);
       }
-      if (previousMode !== preferences.lookupMode) {
-        shiftRequirementLogged = false;
-        if (requiresShift() && !shiftPressed) {
+      const activationKeyChanged = previousActivationKey !== preferences.activationKey;
+      if (activationKeyChanged) {
+        localShiftPressed = false;
+        globalActivationKeyPressed = false;
+      }
+      if (previousSourceHighlightEnabled !== preferences.sourceHighlightEnabled) {
+        for (const level of popupLevels) {
+          level.view.setSourceHighlightEnabled(preferences.sourceHighlightEnabled);
+        }
+      }
+      if (preferences.popupNestingMaxDepth < previousMaxDepth) {
+        pruneFromDepth(
+          preferences.popupNestingMaxDepth + 1,
+          "depth-limit-changed"
+        );
+      }
+      if (previousMode !== preferences.lookupMode || activationKeyChanged) {
+        activationRequirementLogged = false;
+        if (requiresActivationKey() && !isActivationKeyPressed()) {
           invalidateLookup();
-          scheduleHide("lookup-mode-changed");
+          scheduleHide(activationKeyChanged ? "activation-key-changed" : "lookup-mode-changed");
         } else {
-          scanPointer(lastPointer, true);
+          scanPointer(lastPointer, isActivationKeyPressed());
         }
       }
       diagnostic("info", "preferences.updated", preferences);
@@ -1706,10 +3431,28 @@
       };
     }
 
+    function updateAudioPreferences(nextPreferences = {}) {
+      const normalized = audioController.updatePreferences(nextPreferences);
+      diagnostic("info", "audio-preferences.updated", {
+        enabled: normalized.enabled,
+        autoPlay: normalized.autoPlay,
+        volume: normalized.volume,
+        sourceCount: normalized.sources.length,
+      });
+      return normalized;
+    }
+
     function onWindowBlur() {
-      shiftPressed = false;
-      invalidateLookup();
-      scheduleHide("window-blurred");
+      localShiftPressed = false;
+      clearHoveredSource();
+      if (noteEditing) {
+        clearHideTimer();
+        return;
+      }
+      if (!globalActivationKeyPressed) {
+        invalidateLookup();
+        scheduleHide("window-blurred");
+      }
     }
 
     function destroy() {
@@ -1717,43 +3460,54 @@
         return;
       }
       destroyed = true;
+      localShiftPressed = false;
+      globalActivationKeyPressed = false;
       diagnostic("info", "reader.destroyed");
       hide("destroy");
+      audioController.destroy();
+      clearMediaState("reader_destroyed");
+      activeDictionaryGeneration = null;
       if (reconnectTimer !== null) {
         clearTimeoutFn(reconnectTimer);
         reconnectTimer = null;
       }
       if (socket) {
-        socket.close();
+        const currentSocket = socket;
         socket = null;
+        currentSocket.close();
       }
       documentRef.removeEventListener("mousemove", onMouseMove, true);
       documentRef.removeEventListener("keydown", onKeyDown, true);
       documentRef.removeEventListener("keyup", onKeyUp, true);
-      popup.removeEventListener("pointerenter", onPopupPointerEnter);
-      popup.removeEventListener("pointerleave", onPopupPointerLeave);
-      popup.removeEventListener("pointerover", onDefinitionPointerOver);
-      windowRef.removeEventListener("resize", positionPopup);
-      windowRef.removeEventListener("scroll", positionPopup, true);
+      windowRef.removeEventListener("resize", positionAllPopups);
+      windowRef.removeEventListener("scroll", positionAllPopups, true);
       windowRef.removeEventListener("blur", onWindowBlur);
-      popup.remove();
+      for (const level of popupLevels) {
+        level.cleanup();
+        level.popup.remove();
+      }
+      popupLevels.length = 0;
+      chainHighlighter.clearAll();
       documentRef.documentElement.classList.remove("gsm-hoshidicts-enabled");
       delete documentRef.documentElement.dataset.gsmHoshidictsEnabled;
     }
 
+    documentRef.documentElement.classList.add("gsm-hoshidicts-enabled");
+    documentRef.documentElement.dataset.gsmHoshidictsEnabled = "true";
+    ensurePopupLevel(0);
     documentRef.addEventListener("mousemove", onMouseMove, true);
     documentRef.addEventListener("keydown", onKeyDown, true);
     documentRef.addEventListener("keyup", onKeyUp, true);
-    popup.addEventListener("pointerenter", onPopupPointerEnter);
-    popup.addEventListener("pointerleave", onPopupPointerLeave);
-    popup.addEventListener("pointerover", onDefinitionPointerOver);
-    windowRef.addEventListener("resize", positionPopup);
-    windowRef.addEventListener("scroll", positionPopup, true);
+    windowRef.addEventListener("resize", positionAllPopups);
+    windowRef.addEventListener("scroll", positionAllPopups, true);
     windowRef.addEventListener("blur", onWindowBlur);
     diagnostic("info", "reader.initialized", {
       serverUrl,
-      requiresShift: requiresShift(),
+      requiresShift: requiresActivationKey(),
+      activationKey: preferences.activationKey,
+      sourceHighlightEnabled: preferences.sourceHighlightEnabled,
       popupHideDelayMs: preferences.popupHideDelayMs,
+      popupNestingMaxDepth: preferences.popupNestingMaxDepth,
       scanLength: LOOKUP_SCAN_LENGTH,
     });
     connect();
@@ -1762,19 +3516,28 @@
       destroy,
       hide,
       isVisible: () => popupVisible,
-      getPopupElement: () => popup,
+      getPopupElement: () => popupLevels[0]?.popup || null,
+      getPopupElements: () => popupLevels
+        .filter((level) => level.visible)
+        .map((level) => level.popup),
       getPreferences: () => ({
         ...preferences,
         definitionBlur: { ...preferences.definitionBlur },
       }),
-      positionPopup,
+      getAudioPreferences: () => audioController.getPreferences(),
+      positionPopup: positionAllPopups,
+      setActivationKeyPressed,
+      updateAudioPreferences,
       updatePreferences,
     };
   }
 
   return {
     DEFAULT_DEFINITION_BLUR_PREFERENCES,
+    DEFAULT_ACTIVATION_KEY,
     DEFAULT_POPUP_HIDE_DELAY_MS,
+    DEFAULT_POPUP_NESTING_MAX_DEPTH,
+    DEFAULT_SOURCE_HIGHLIGHT_ENABLED,
     INITIAL_VISIBLE_RESULTS,
     LOOKUP_DEBOUNCE_MS,
     LOOKUP_MAX_RESULTS,
@@ -1790,12 +3553,18 @@
     calculatePopupPosition,
     createHoshidictsMiningClient,
     createHoshidictsLookupStatsClient,
+    createHoshidictsAudioClient,
     createHoshidictsReader,
+    normalizeActivationKey,
+    normalizeAudioProfile,
     normalizeDefinitionBlurPreferences,
     normalizePopupHideDelay,
+    normalizeKanjiLookup,
+    normalizePopupNestingMaxDepth,
     normalizeLookupResults,
     resolveGsmApiBaseUrl,
     resolveLookupCandidate,
+    resolveGlossaryLookupCandidate,
     segmentFurigana,
     setMiningButtonState,
   };

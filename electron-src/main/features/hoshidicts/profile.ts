@@ -13,6 +13,7 @@ const MINING_FIELD_NAMES: readonly HoshidictsMiningFieldName[] = [
     'sentence',
     'frequency',
     'pitch',
+    'audio',
 ];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -50,6 +51,7 @@ export function defaultHoshidictsMiningProfile(): HoshidictsMiningProfile {
             sentence: '',
             frequency: '',
             pitch: '',
+            audio: '',
         },
         disabledFields: [],
         tags: ['hoshidicts'],
@@ -151,6 +153,10 @@ export function normalizeHoshidictsMiningProfile(
             pitch: normalizeProfileString(
                 rawFields.pitch,
                 'Hoshidicts pitch field'
+            ),
+            audio: normalizeProfileString(
+                rawFields.audio,
+                'Hoshidicts audio field'
             ),
         },
         disabledFields,

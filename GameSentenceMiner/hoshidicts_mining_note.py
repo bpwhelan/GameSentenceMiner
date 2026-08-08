@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import html
 import json
+import math
+import re
 from typing import Any
 
 MAX_REQUEST_BYTES = 256 * 1024
@@ -10,6 +12,10 @@ MAX_TERM_LENGTH = 4096
 MAX_GLOSSARIES = 64
 MAX_METADATA_GROUPS = 64
 MAX_METADATA_VALUES = 64
+MAX_AUDIO_SOURCE_ID_LENGTH = 128
+MAX_AUDIO_CANDIDATES = 32
+_AUDIO_SOURCE_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
+_AUDIO_CANDIDATE_TOKEN_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 
 IGNORED_STRUCTURED_TAGS = {
     "audio",
@@ -105,16 +111,26 @@ def _validate_frequency_group(value: Any) -> dict[str, Any]:
         "Hoshidicts frequencies",
         MAX_METADATA_VALUES,
     ):
-        if not isinstance(item, dict) or not isinstance(item.get("value"), int) or isinstance(item.get("value"), bool):
+        if not isinstance(item, dict):
             raise HoshidictsMiningError("Hoshidicts frequency is invalid.")
+        frequency_value = item.get("value")
+        if (
+            isinstance(frequency_value, bool)
+            or not isinstance(frequency_value, (int, float))
+            or (isinstance(frequency_value, float) and not math.isfinite(frequency_value))
+        ):
+            raise HoshidictsMiningError("Hoshidicts frequency is invalid.")
+        display_value = item.get("displayValue")
+        if display_value is not None:
+            display_value = bounded_string(
+                display_value,
+                "Hoshidicts frequency display value",
+                MAX_TERM_LENGTH,
+            )
         frequencies.append(
             {
-                "value": item["value"],
-                "displayValue": bounded_string(
-                    item.get("displayValue", ""),
-                    "Hoshidicts frequency display value",
-                    MAX_TERM_LENGTH,
-                ),
+                "value": frequency_value,
+                "displayValue": display_value,
             }
         )
     return {
@@ -249,6 +265,37 @@ def validate_hoshidicts_mining_request(value: Any) -> dict[str, Any]:
     if not glossaries:
         raise HoshidictsMiningError("Hoshidicts lookup result has no definitions.")
 
+    audio_selection = value.get("audioSelection")
+    if audio_selection is not None:
+        if not isinstance(audio_selection, dict) or set(audio_selection) != {
+            "sourceId",
+            "candidateIndex",
+            "candidateToken",
+        }:
+            raise HoshidictsMiningError("Hoshidicts audio selection is invalid.")
+        source_id = bounded_string(
+            audio_selection.get("sourceId"),
+            "Hoshidicts audio source ID",
+            MAX_AUDIO_SOURCE_ID_LENGTH,
+            allow_empty=False,
+        )
+        candidate_index = audio_selection.get("candidateIndex")
+        candidate_token = audio_selection.get("candidateToken")
+        if (
+            _AUDIO_SOURCE_ID_PATTERN.fullmatch(source_id) is None
+            or not isinstance(candidate_index, int)
+            or isinstance(candidate_index, bool)
+            or not 0 <= candidate_index < MAX_AUDIO_CANDIDATES
+            or not isinstance(candidate_token, str)
+            or _AUDIO_CANDIDATE_TOKEN_PATTERN.fullmatch(candidate_token) is None
+        ):
+            raise HoshidictsMiningError("Hoshidicts audio selection is invalid.")
+        audio_selection = {
+            "sourceId": source_id,
+            "candidateIndex": candidate_index,
+            "candidateToken": candidate_token,
+        }
+
     normalized = {
         "matched": bounded_string(
             result.get("matched", ""),
@@ -318,6 +365,7 @@ def validate_hoshidicts_mining_request(value: Any) -> dict[str, Any]:
         },
         "sentence": sentence,
         "matchOffset": match_offset,
+        "audioSelection": audio_selection,
     }
     if not _utf16_suffix(sentence, match_offset).startswith(normalized["matched"]):
         raise HoshidictsMiningError("Hoshidicts match offset does not point at the matched text.")
@@ -400,7 +448,10 @@ def definition_html(result: dict[str, Any]) -> str:
 def frequency_html(result: dict[str, Any]) -> str:
     groups = []
     for group in result["term"]["frequencies"]:
-        values = [frequency["displayValue"] or str(frequency["value"]) for frequency in group["frequencies"]]
+        values = [
+            frequency["displayValue"] if frequency["displayValue"] is not None else str(frequency["value"])
+            for frequency in group["frequencies"]
+        ]
         if values:
             groups.append(
                 f"<b>{html.escape(group['dictionary'])}</b>: " + ", ".join(html.escape(value) for value in values)

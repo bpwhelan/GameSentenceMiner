@@ -90,6 +90,7 @@ async function main() {
     path.join(overlayResourcesDir, 'yomitan', 'manifest.json'),
     path.join(packagedResourcesDir, 'GameSentenceMiner', 'hoshidicts_mining.py'),
     path.join(packagedResourcesDir, 'GameSentenceMiner', 'hoshidicts_mining_note.py'),
+    path.join(packagedResourcesDir, 'GameSentenceMiner', 'hoshidicts_audio.py'),
     path.join(
       packagedResourcesDir,
       'GameSentenceMiner',
@@ -169,6 +170,7 @@ async function main() {
     'dist/main/features/hoshidicts/index.js',
     'dist/main/features/hoshidicts/ipc.js',
     'dist/main/features/hoshidicts/manager.js',
+    'dist/main/features/hoshidicts/audio_profile.js',
     'dist/main/features/hoshidicts/profile.js',
     'dist/main/features/hoshidicts/window.js',
     'dist/shared/features/hoshidicts.js',
@@ -195,6 +197,7 @@ async function main() {
     'features/hoshidicts/desktop_bridge.js',
     'features/hoshidicts/diagnostics.js',
     'features/hoshidicts/reader.css',
+    'features/hoshidicts/audio.js',
     'features/hoshidicts/popup.js',
     'features/hoshidicts/reader.js',
     'index.html',
@@ -212,13 +215,16 @@ async function main() {
     overlayIndexContents.includes('btn-hoshidicts-settings') ||
     !overlaySettingsContents.includes('openHoshidictsSettings') ||
     !overlaySettingsContents.includes('open-hoshidicts-settings') ||
+    !overlayIndexContents.includes('features/hoshidicts/audio.js') ||
     !overlayIndexContents.includes('features/hoshidicts/popup.js') ||
     !overlayIndexContents.includes('features/hoshidicts/reader.js') ||
+    overlayIndexContents.indexOf('features/hoshidicts/audio.js') >
+      overlayIndexContents.indexOf('features/hoshidicts/popup.js') ||
     overlayIndexContents.indexOf('features/hoshidicts/popup.js') >
       overlayIndexContents.indexOf('features/hoshidicts/reader.js')
   ) {
     throw new Error(
-      'Packaged overlay does not expose Hoshidicts from Overlay Settings only.'
+      'Packaged overlay does not expose the complete Hoshidicts reader in the required load order.'
     );
   }
 

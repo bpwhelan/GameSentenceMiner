@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { createDefaultHoshidictsAudioProfile } from '../../../shared/features/hoshidicts.js';
+
 const harness = vi.hoisted(() => ({
     handlers: new Map<string, (...args: any[]) => any>(),
     fromWebContents: vi.fn(),
@@ -9,7 +11,11 @@ const harness = vi.hoisted(() => ({
     configuredEnabled: true,
     enabledAtLaunch: false as boolean | null,
     lookupModeAtLaunch: 'shift' as 'shift' | 'hover' | null,
+    activationKeyAtLaunch: 'Shift' as string | null,
+    sourceHighlightEnabledAtLaunch: false as boolean | null,
     popupHideDelayAtLaunch: 300 as number | null,
+    audioProfileRestartRequired: false,
+    popupNestingMaxDepthAtLaunch: 10 as number | null,
     definitionBlurAtLaunch: {
         enabled: false,
         lookupThreshold: 5,
@@ -33,8 +39,11 @@ const harness = vi.hoisted(() => ({
         setLookupMode: vi.fn(),
         setReaderPreferences: vi.fn(),
         setMiningProfile: vi.fn(),
+        setAudioProfile: vi.fn(),
         setDictionaryEnabled: vi.fn(),
         moveDictionary: vi.fn(),
+        getCustomDictionaryDocument: vi.fn(),
+        saveCustomDictionary: vi.fn(),
     },
 }));
 
@@ -64,9 +73,16 @@ vi.mock('./manager.js', () => ({
 const snapshot = {
     revision: 1,
     dictionaries: [],
+    customDictionaryActive: false,
     recommendedDictionaries: [
+        { id: 'jitendex', installed: false },
         { id: 'jmdict', installed: false },
         { id: 'jmnedict', installed: false },
+        { id: 'bccwj', installed: false },
+        { id: 'jpdbv2-kana', installed: false },
+        { id: 'jiten', installed: false },
+        { id: 'kanjium-pitch', installed: false },
+        { id: 'kanjidic', installed: false },
     ],
     miningProfile: {
         version: 1,
@@ -80,13 +96,18 @@ const snapshot = {
             sentence: '',
             frequency: '',
             pitch: '',
+            audio: '',
         },
         disabledFields: [],
         tags: ['hoshidicts'],
         duplicatePolicy: 'prevent',
     },
+    audioProfile: createDefaultHoshidictsAudioProfile(),
     lookupMode: 'shift',
+    activationKey: 'Shift',
+    sourceHighlightEnabled: false,
     popupHideDelayMs: 300,
+    popupNestingMaxDepth: 10,
     definitionBlur: {
         enabled: false,
         lookupThreshold: 5,
@@ -111,8 +132,25 @@ async function registerHarness() {
     });
     harness.manager.getSnapshot.mockResolvedValue(snapshot);
     harness.manager.installRecommendedDictionaries.mockResolvedValue(snapshot);
+    harness.manager.installRecommendedDictionary.mockResolvedValue(snapshot);
     harness.manager.setLookupMode.mockResolvedValue(snapshot);
     harness.manager.setReaderPreferences.mockResolvedValue(snapshot);
+    harness.manager.setAudioProfile.mockResolvedValue(snapshot);
+    const customDocument = {
+        text: '',
+        revision: 'empty-revision',
+        exists: false,
+        filePath: '/tmp/custom-dictionary.txt',
+    };
+    harness.manager.getCustomDictionaryDocument.mockResolvedValue(
+        customDocument
+    );
+    harness.manager.saveCustomDictionary.mockResolvedValue({
+        ...customDocument,
+        text: '猫, ねこ, cat\n',
+        revision: 'saved-revision',
+        exists: true,
+    });
 
     const settingsContents = { id: 'settings' };
     const mainContents = { id: 'main' };
@@ -131,6 +169,7 @@ async function registerHarness() {
     const openSettingsWindow = vi.fn(async () => settingsWindow);
     const restartOverlay = vi.fn(async () => true);
     const applyReaderPreferences = vi.fn(async () => true);
+    const applyAudioProfile = vi.fn(async () => true);
     const getMiningOptions = vi.fn(async () => ({
         connected: true,
         gsmAnkiEnabled: true,
@@ -145,6 +184,7 @@ async function registerHarness() {
             sentence: '',
             frequency: '',
             pitch: '',
+            audio: '',
         },
         resolvedFields: {
             expression: 'Expression',
@@ -153,6 +193,7 @@ async function registerHarness() {
             sentence: '',
             frequency: '',
             pitch: '',
+            audio: '',
         },
         warnings: [],
         error: null,
@@ -169,11 +210,20 @@ async function registerHarness() {
         getConfiguredFeatureEnabled: () => harness.configuredEnabled,
         getOverlayFeatureEnabledAtLaunch: () => harness.enabledAtLaunch,
         getOverlayLookupModeAtLaunch: () => harness.lookupModeAtLaunch,
+        getOverlayActivationKeyAtLaunch: () =>
+            harness.activationKeyAtLaunch,
+        getOverlaySourceHighlightEnabledAtLaunch: () =>
+            harness.sourceHighlightEnabledAtLaunch,
         getOverlayPopupHideDelayAtLaunch: () =>
             harness.popupHideDelayAtLaunch,
+        getOverlayAudioProfileRestartRequired: () =>
+            harness.audioProfileRestartRequired,
+        getOverlayPopupNestingMaxDepthAtLaunch: () =>
+            harness.popupNestingMaxDepthAtLaunch,
         getOverlayDefinitionBlurAtLaunch: () =>
             harness.definitionBlurAtLaunch,
         applyReaderPreferences,
+        applyAudioProfile,
         getMiningOptions,
         restartOverlay,
     });
@@ -187,6 +237,7 @@ async function registerHarness() {
         settingsWindow,
         getMiningOptions,
         applyReaderPreferences,
+        applyAudioProfile,
     };
 }
 
@@ -196,13 +247,49 @@ describe('Hoshidicts settings IPC', () => {
         harness.configuredEnabled = true;
         harness.enabledAtLaunch = false;
         harness.lookupModeAtLaunch = 'shift';
+        harness.activationKeyAtLaunch = 'Shift';
+        harness.sourceHighlightEnabledAtLaunch = false;
         harness.popupHideDelayAtLaunch = 300;
+        harness.audioProfileRestartRequired = false;
+        harness.popupNestingMaxDepthAtLaunch = 10;
         harness.definitionBlurAtLaunch = {
             enabled: false,
             lookupThreshold: 5,
             revealMode: 'timed',
             revealDelayMs: 5000,
         };
+    });
+
+    it('saves audio profiles, applies them live, and exposes failed sync restart state', async () => {
+        harness.enabledAtLaunch = true;
+        const context = await registerHarness();
+        const setAudioProfile = harness.handlers.get(
+            'hoshidicts.setAudioProfile'
+        );
+        const getState = harness.handlers.get('hoshidicts.getState');
+
+        await expect(
+            setAudioProfile?.(
+                { sender: context.settingsContents },
+                snapshot.audioProfile
+            )
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'audioProfileSaved' },
+        });
+        expect(harness.manager.setAudioProfile).toHaveBeenCalledWith(
+            snapshot.audioProfile
+        );
+        expect(context.applyAudioProfile).toHaveBeenCalledWith(
+            snapshot.audioProfile
+        );
+
+        harness.audioProfileRestartRequired = true;
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: true },
+        });
     });
 
     it('requires an overlay restart when the persisted lookup mode changed', async () => {
@@ -218,6 +305,41 @@ describe('Hoshidicts settings IPC', () => {
         });
 
         harness.lookupModeAtLaunch = 'shift';
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: false },
+        });
+
+        harness.activationKeyAtLaunch = 'F8';
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: true },
+        });
+
+        harness.activationKeyAtLaunch = 'Shift';
+        harness.sourceHighlightEnabledAtLaunch = true;
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: true },
+        });
+    });
+
+    it('requires an overlay restart when the persisted nesting depth changed', async () => {
+        harness.enabledAtLaunch = true;
+        harness.popupNestingMaxDepthAtLaunch = 4;
+        const context = await registerHarness();
+        const getState = harness.handlers.get('hoshidicts.getState');
+
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: true },
+        });
+
+        harness.popupNestingMaxDepthAtLaunch = 10;
         await expect(
             getState?.({ sender: context.settingsContents })
         ).resolves.toMatchObject({
@@ -372,7 +494,10 @@ describe('Hoshidicts settings IPC', () => {
                 { sender: context.settingsContents },
                 {
                     lookupMode: 'hover',
+                    activationKey: 'F8',
+                    sourceHighlightEnabled: true,
                     popupHideDelayMs: 850,
+                    popupNestingMaxDepth: 4,
                     definitionBlur: {
                         enabled: true,
                         lookupThreshold: 7,
@@ -385,9 +510,25 @@ describe('Hoshidicts settings IPC', () => {
             success: true,
             outcome: { code: 'preferencesSaved' },
         });
-        expect(harness.manager.setReaderPreferences).toHaveBeenCalledWith({
+        expect(harness.manager.setReaderPreferences).toHaveBeenCalledWith(
+            'hover',
+            850,
+            'F8',
+            true,
+            4,
+            {
+                enabled: true,
+                lookupThreshold: 7,
+                revealMode: 'hover',
+                revealDelayMs: 6000,
+            }
+        );
+        expect(context.applyReaderPreferences).toHaveBeenCalledWith({
             lookupMode: 'hover',
+            activationKey: 'F8',
+            sourceHighlightEnabled: true,
             popupHideDelayMs: 850,
+            popupNestingMaxDepth: 4,
             definitionBlur: {
                 enabled: true,
                 lookupThreshold: 7,
@@ -395,15 +536,49 @@ describe('Hoshidicts settings IPC', () => {
                 revealDelayMs: 6000,
             },
         });
-        expect(context.applyReaderPreferences).toHaveBeenCalledWith({
-            lookupMode: 'hover',
-            popupHideDelayMs: 850,
-            definitionBlur: {
-                enabled: true,
-                lookupThreshold: 7,
-                revealMode: 'hover',
-                revealDelayMs: 6000,
-            },
+
+        await expect(
+            setReaderPreferences?.(
+                { sender: context.settingsContents },
+                {
+                    lookupMode: 'hover',
+                    popupHideDelayMs: 850,
+                    popupNestingMaxDepth: Number.MAX_SAFE_INTEGER + 1,
+                }
+            )
+        ).resolves.toMatchObject({
+            success: false,
+            error: 'Hoshidicts reader preferences are invalid.',
+        });
+
+        await expect(
+            setReaderPreferences?.(
+                { sender: context.settingsContents },
+                {
+                    lookupMode: 'shift',
+                    activationKey: 'MediaPlayPause',
+                    sourceHighlightEnabled: false,
+                    popupHideDelayMs: 300,
+                }
+            )
+        ).resolves.toMatchObject({
+            success: false,
+            error: 'Hoshidicts reader preferences are invalid.',
+        });
+
+        await expect(
+            setReaderPreferences?.(
+                { sender: context.settingsContents },
+                {
+                    lookupMode: 'shift',
+                    activationKey: 'Shift',
+                    sourceHighlightEnabled: 'yes',
+                    popupHideDelayMs: 300,
+                }
+            )
+        ).resolves.toMatchObject({
+            success: false,
+            error: 'Hoshidicts reader preferences are invalid.',
         });
 
         await expect(
@@ -415,6 +590,95 @@ describe('Hoshidicts settings IPC', () => {
         expect(context.getMiningOptions).toHaveBeenCalledWith('Kiku');
     });
 
+    it('accepts every curated recommendation id and rejects unknown ids', async () => {
+        const context = await registerHarness();
+        const installRecommended = harness.handlers.get(
+            'hoshidicts.installRecommended'
+        );
+        const ids = [
+            'jitendex',
+            'jmdict',
+            'jmnedict',
+            'bccwj',
+            'jpdbv2-kana',
+            'jiten',
+            'kanjium-pitch',
+            'kanjidic',
+        ];
+
+        for (const id of ids) {
+            await expect(
+                installRecommended?.(
+                    { sender: context.settingsContents },
+                    { id }
+                )
+            ).resolves.toMatchObject({ success: true });
+        }
+        expect(
+            harness.manager.installRecommendedDictionary.mock.calls.map(
+                ([id]) => id
+            )
+        ).toEqual(ids);
+
+        await expect(
+            installRecommended?.(
+                { sender: context.settingsContents },
+                { id: 'unknown' }
+            )
+        ).resolves.toMatchObject({
+            success: false,
+            error: 'Recommended dictionary id is invalid.',
+        });
+    });
+
+    it('loads and explicitly saves the managed custom dictionary document', async () => {
+        const context = await registerHarness();
+        const getCustom = harness.handlers.get(
+            'hoshidicts.getCustomDictionary'
+        );
+        const saveCustom = harness.handlers.get(
+            'hoshidicts.saveCustomDictionary'
+        );
+
+        await expect(
+            getCustom?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            revision: 'empty-revision',
+            exists: false,
+        });
+        await expect(
+            getCustom?.({ sender: context.foreignContents })
+        ).rejects.toThrow('invalid window');
+
+        await expect(
+            saveCustom?.(
+                { sender: context.settingsContents },
+                {
+                    text: '猫, ねこ, cat\n',
+                    expectedRevision: 'empty-revision',
+                }
+            )
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'customDictionarySaved' },
+            document: { exists: true, text: '猫, ねこ, cat\n' },
+        });
+        expect(harness.manager.saveCustomDictionary).toHaveBeenCalledWith(
+            '猫, ねこ, cat\n',
+            'empty-revision'
+        );
+
+        await expect(
+            saveCustom?.(
+                { sender: context.settingsContents },
+                { text: '猫, ねこ, cat', expectedRevision: 42 }
+            )
+        ).resolves.toMatchObject({
+            success: false,
+            error: expect.stringContaining('invalid'),
+        });
+    });
+
     it('rejects malformed definition blur reader preferences', async () => {
         const context = await registerHarness();
         const setReaderPreferences = harness.handlers.get(
@@ -422,7 +686,10 @@ describe('Hoshidicts settings IPC', () => {
         );
         const valid = {
             lookupMode: 'hover',
+            activationKey: 'F8',
+            sourceHighlightEnabled: true,
             popupHideDelayMs: 850,
+            popupNestingMaxDepth: 4,
             definitionBlur: {
                 enabled: true,
                 lookupThreshold: 5,

@@ -9,13 +9,20 @@ import {
 import type { OverlayRuntimeState } from '../../ui/front.js';
 import {
     HOSHIDICTS_CHANNELS,
+    DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
+    HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
+    isHoshidictsActivationKey,
+    MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES,
     MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
     MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
     MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
     type HoshidictsActionResult,
+    type HoshidictsActivationKey,
+    type HoshidictsAudioProfile,
     type HoshidictsDefinitionBlurPreferences,
+    type HoshidictsSaveCustomDictionaryRequest,
     type HoshidictsDesktopSnapshot,
     type HoshidictsDictionaryEnabledRequest,
     type HoshidictsInstallRecommendedRequest,
@@ -38,13 +45,18 @@ export interface HoshidictsIPCDependencies {
     getConfiguredFeatureEnabled: () => boolean;
     getOverlayFeatureEnabledAtLaunch: () => boolean | null;
     getOverlayLookupModeAtLaunch: () => HoshidictsLookupMode | null;
+    getOverlayActivationKeyAtLaunch: () => HoshidictsActivationKey | null;
+    getOverlaySourceHighlightEnabledAtLaunch: () => boolean | null;
     getOverlayPopupHideDelayAtLaunch: () => number | null;
+    getOverlayAudioProfileRestartRequired: () => boolean;
+    getOverlayPopupNestingMaxDepthAtLaunch: () => number | null;
     getOverlayDefinitionBlurAtLaunch: () =>
         | HoshidictsDefinitionBlurPreferences
         | null;
     applyReaderPreferences: (
         preferences: HoshidictsReaderPreferences
     ) => Promise<boolean>;
+    applyAudioProfile: (profile: HoshidictsAudioProfile) => Promise<boolean>;
     getMiningOptions: (model?: string) => Promise<HoshidictsMiningOptions>;
     restartOverlay: () => Promise<boolean>;
 }
@@ -107,7 +119,9 @@ function definitionBlurPreferencesEqual(
 function isRecommendedDictionaryId(
     value: unknown
 ): value is HoshidictsRecommendedDictionaryId {
-    return value === 'jmdict' || value === 'jmnedict';
+    return HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.some(
+        (dictionaryId) => dictionaryId === value
+    );
 }
 
 function assertSettingsSender(
@@ -137,7 +151,12 @@ function withDesktopState(
     const overlay = deps.getOverlayRuntimeState();
     const enabledAtLaunch = deps.getOverlayFeatureEnabledAtLaunch();
     const lookupModeAtLaunch = deps.getOverlayLookupModeAtLaunch();
+    const activationKeyAtLaunch = deps.getOverlayActivationKeyAtLaunch();
+    const sourceHighlightEnabledAtLaunch =
+        deps.getOverlaySourceHighlightEnabledAtLaunch();
     const popupHideDelayAtLaunch = deps.getOverlayPopupHideDelayAtLaunch();
+    const popupNestingMaxDepthAtLaunch =
+        deps.getOverlayPopupNestingMaxDepthAtLaunch();
     const definitionBlurAtLaunch = deps.getOverlayDefinitionBlurAtLaunch();
     const effectiveEnabled = deps.getConfiguredFeatureEnabled();
     return {
@@ -153,14 +172,27 @@ function withDesktopState(
                         lookupModeAtLaunch !== null &&
                         lookupModeAtLaunch !== snapshot.lookupMode) ||
                     (effectiveEnabled &&
+                        activationKeyAtLaunch !== null &&
+                        activationKeyAtLaunch !== snapshot.activationKey) ||
+                    (effectiveEnabled &&
+                        sourceHighlightEnabledAtLaunch !== null &&
+                        sourceHighlightEnabledAtLaunch !==
+                            snapshot.sourceHighlightEnabled) ||
+                    (effectiveEnabled &&
                         popupHideDelayAtLaunch !== null &&
                         popupHideDelayAtLaunch !== snapshot.popupHideDelayMs) ||
+                    (effectiveEnabled &&
+                        popupNestingMaxDepthAtLaunch !== null &&
+                        popupNestingMaxDepthAtLaunch !==
+                            snapshot.popupNestingMaxDepth) ||
                     (effectiveEnabled &&
                         definitionBlurAtLaunch !== null &&
                         !definitionBlurPreferencesEqual(
                             definitionBlurAtLaunch,
                             snapshot.definitionBlur
-                        ))),
+                        )) ||
+                    (effectiveEnabled &&
+                        deps.getOverlayAudioProfileRestartRequired())),
         },
     };
 }
@@ -224,6 +256,52 @@ export function registerHoshidictsIPC(
         return await currentState(deps);
     });
 
+    ipcMain.handle(HOSHIDICTS_CHANNELS.getCustomDictionary, async (event) => {
+        assertSettingsSender(event, deps);
+        return await manager.getCustomDictionaryDocument();
+    });
+
+    ipcMain.handle(
+        HOSHIDICTS_CHANNELS.saveCustomDictionary,
+        async (event, request: unknown) => {
+            assertSettingsSender(event, deps);
+            const value = request as
+                | Partial<HoshidictsSaveCustomDictionaryRequest>
+                | null;
+            if (
+                !value ||
+                typeof value.text !== 'string' ||
+                typeof value.expectedRevision !== 'string' ||
+                Buffer.byteLength(value.text, 'utf8') >
+                    MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES
+            ) {
+                return {
+                    success: false,
+                    error: 'Custom dictionary save request is invalid or too large.',
+                    state: await currentState(deps),
+                } satisfies HoshidictsActionResult;
+            }
+            try {
+                const document = await manager.saveCustomDictionary(
+                    value.text,
+                    value.expectedRevision
+                );
+                return {
+                    success: true,
+                    outcome: { code: 'customDictionarySaved' },
+                    document,
+                    state: await currentState(deps),
+                } satisfies HoshidictsActionResult;
+            } catch (error) {
+                return {
+                    success: false,
+                    error: errorMessage(error),
+                    state: await currentState(deps),
+                } satisfies HoshidictsActionResult;
+            }
+        }
+    );
+
     ipcMain.handle(HOSHIDICTS_CHANNELS.importDictionary, async (event) => {
         assertSettingsSender(event, deps);
         const settingsWindow = deps.getSettingsWindow();
@@ -255,7 +333,10 @@ export function registerHoshidictsIPC(
             assertSettingsSender(event, deps);
             const before = await manager.getSnapshot();
             const missingCount = before.recommendedDictionaries.filter(
-                (dictionary) => !dictionary.installed
+                (dictionary) =>
+                    DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.some(
+                        (dictionaryId) => dictionaryId === dictionary.id
+                    ) && !dictionary.installed
             ).length;
             return await runAction(
                 deps,
@@ -397,10 +478,14 @@ export function registerHoshidictsIPC(
             if (
                 !value ||
                 !isLookupMode(value.lookupMode) ||
+                !isHoshidictsActivationKey(value.activationKey) ||
+                typeof value.sourceHighlightEnabled !== 'boolean' ||
                 !Number.isInteger(value.popupHideDelayMs) ||
                 (value.popupHideDelayMs as number) < 0 ||
                 (value.popupHideDelayMs as number) >
                     MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS ||
+                !Number.isSafeInteger(value.popupNestingMaxDepth) ||
+                (value.popupNestingMaxDepth as number) < 0 ||
                 !isDefinitionBlurPreferences(value.definitionBlur)
             ) {
                 return {
@@ -414,12 +499,24 @@ export function registerHoshidictsIPC(
                 async () => {
                     const preferences: HoshidictsReaderPreferences = {
                         lookupMode: value.lookupMode as HoshidictsLookupMode,
+                        activationKey: value.activationKey as HoshidictsActivationKey,
+                        sourceHighlightEnabled:
+                            value.sourceHighlightEnabled as boolean,
                         popupHideDelayMs: value.popupHideDelayMs as number,
+                        popupNestingMaxDepth:
+                            value.popupNestingMaxDepth as number,
                         definitionBlur: {
                             ...value.definitionBlur,
                         } as HoshidictsDefinitionBlurPreferences,
                     };
-                    const state = await manager.setReaderPreferences(preferences);
+                    const state = await manager.setReaderPreferences(
+                        preferences.lookupMode,
+                        preferences.popupHideDelayMs,
+                        preferences.activationKey,
+                        preferences.sourceHighlightEnabled,
+                        preferences.popupNestingMaxDepth,
+                        preferences.definitionBlur
+                    );
                     await deps.applyReaderPreferences(preferences);
                     return state;
                 },
@@ -436,6 +533,22 @@ export function registerHoshidictsIPC(
                 deps,
                 async () => await manager.setMiningProfile(profile),
                 { code: 'miningProfileSaved' }
+            );
+        }
+    );
+
+    ipcMain.handle(
+        HOSHIDICTS_CHANNELS.setAudioProfile,
+        async (event, profile: unknown) => {
+            assertSettingsSender(event, deps);
+            return await runAction(
+                deps,
+                async () => {
+                    const state = await manager.setAudioProfile(profile);
+                    await deps.applyAudioProfile(state.audioProfile);
+                    return state;
+                },
+                { code: 'audioProfileSaved' }
             );
         }
     );

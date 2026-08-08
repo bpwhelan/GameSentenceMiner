@@ -1,19 +1,39 @@
 import { BookOpen, RotateCw } from "lucide-react";
 import { useMemo } from "react";
 
-import { useTranslation } from "../../i18n";
 import {
+  HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
+  type HoshidictsRecommendedDictionaryId
+} from "../../../../shared/features/hoshidicts";
+import { useTranslation } from "../../i18n";
+import { HoshidictsAudioPanel } from "./HoshidictsAudioPanel";
+import {
+  CustomDictionaryPanel,
   DictionariesPanel,
   MiningPanel
 } from "./HoshidictsSettingsPanels";
 import {
   PROGRESS_KEYS,
   RECOMMENDED_KEYS,
+  type HoshidictsView,
   getReadiness,
   normalizeHoshidictsDesktopState
 } from "./hoshidictsSettingsModel";
 import { useHoshidictsSettingsController } from "./useHoshidictsSettingsController";
 import "./hoshidicts.css";
+
+const HOSHIDICTS_TABS: Array<{
+  view: HoshidictsView;
+  labelKey: string;
+}> = [
+  {
+    view: "dictionaries",
+    labelKey: "settings.hoshidicts.tabs.dictionaries"
+  },
+  { view: "custom", labelKey: "settings.hoshidicts.tabs.custom" },
+  { view: "audio", labelKey: "settings.hoshidicts.tabs.audio" },
+  { view: "mining", labelKey: "settings.hoshidicts.tabs.mining" }
+];
 
 export { normalizeHoshidictsDesktopState } from "./hoshidictsSettingsModel";
 
@@ -40,7 +60,9 @@ function ReadinessBanner({
   }
 
   const readiness = getReadiness(state);
-  const firstDictionary = state.dictionaries[0];
+  const firstLookupDictionary = state.dictionaries.find(
+    (dictionary) => dictionary.termCount > 0 || dictionary.kanjiCount > 0
+  );
   const label = t(`settings.hoshidicts.readiness.${readiness.kind}`);
   const hint = t(`settings.hoshidicts.readiness.${readiness.kind}Hint`);
 
@@ -71,19 +93,20 @@ function ReadinessBanner({
             ? t("settings.hoshidicts.restarting")
             : t("settings.hoshidicts.restartNow")}
         </button>
-      ) : readiness.kind === "noEnabledDictionaries" ? (
+      ) : readiness.kind === "noEnabledDictionaries" ||
+        readiness.kind === "noEnabledLookupDictionary" ? (
         <button
           type="button"
           disabled={dictionaryBusy}
           onClick={() => {
-            if (firstDictionary) {
-              void actions.setDictionaryEnabled(firstDictionary.id, true);
+            if (firstLookupDictionary) {
+              void actions.setDictionaryEnabled(firstLookupDictionary.id, true);
             } else {
               void actions.installAllRecommended();
             }
           }}
         >
-          {firstDictionary
+          {firstLookupDictionary
             ? t("settings.hoshidicts.readiness.enableDictionary")
             : t("settings.hoshidicts.recommended.install")}
         </button>
@@ -99,11 +122,12 @@ export function HoshidictsSettingsWindow() {
 
   const progressLabel = useMemo(() => {
     if (!state) return "";
-    const title =
-      state.progress.title === "jmdict" ||
-      state.progress.title === "jmnedict"
-        ? t(RECOMMENDED_KEYS[state.progress.title])
-        : (state.progress.title ?? "");
+    const recommendedId = HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.find(
+      (dictionaryId) => dictionaryId === state.progress.title
+    ) as HoshidictsRecommendedDictionaryId | undefined;
+    const title = recommendedId
+      ? t(RECOMMENDED_KEYS[recommendedId])
+      : (state.progress.title ?? "");
     return t(PROGRESS_KEYS[state.progress.phase], { title });
   }, [state, t]);
 
@@ -139,22 +163,17 @@ export function HoshidictsSettingsWindow() {
         className="hoshidicts-window__tabs"
         aria-label={t("settings.hoshidicts.appTitle")}
       >
-        <button
-          type="button"
-          className={view === "dictionaries" ? "is-active" : ""}
-          aria-selected={view === "dictionaries"}
-          onClick={() => setView("dictionaries")}
-        >
-          {t("settings.hoshidicts.tabs.dictionaries")}
-        </button>
-        <button
-          type="button"
-          className={view === "mining" ? "is-active" : ""}
-          aria-selected={view === "mining"}
-          onClick={() => setView("mining")}
-        >
-          {t("settings.hoshidicts.tabs.mining")}
-        </button>
+        {HOSHIDICTS_TABS.map((tab) => (
+          <button
+            type="button"
+            className={view === tab.view ? "is-active" : ""}
+            aria-selected={view === tab.view}
+            onClick={() => setView(tab.view)}
+            key={tab.view}
+          >
+            {t(tab.labelKey)}
+          </button>
+        ))}
       </nav>
 
       <main className="hoshidicts-window__content">
@@ -190,6 +209,10 @@ export function HoshidictsSettingsWindow() {
           </div>
         ) : view === "dictionaries" ? (
           <DictionariesPanel controller={controller} />
+        ) : view === "audio" ? (
+          <HoshidictsAudioPanel controller={controller} />
+        ) : view === "custom" ? (
+          <CustomDictionaryPanel controller={controller} />
         ) : (
           <MiningPanel controller={controller} />
         )}

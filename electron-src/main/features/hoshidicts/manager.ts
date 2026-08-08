@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
+import { constants as fsConstants } from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 
@@ -12,8 +13,14 @@ import {
     resolveInputServerExecutable,
 } from '../../services/input_server.js';
 import type {
+    HoshidictsAudioProfile,
+    HoshidictsCustomDictionaryEntry,
+    HoshidictsCustomDictionaryDocument,
+    HoshidictsCustomEntryRequest,
     HoshidictsDictionaryState,
     HoshidictsDefinitionBlurPreferences,
+    HoshidictsActivationKey,
+    HoshidictsFrequencyMode,
     HoshidictsManagerSnapshot,
     HoshidictsLookupMode,
     HoshidictsMiningProfile,
@@ -21,12 +28,17 @@ import type {
     HoshidictsProgressPhase,
     HoshidictsRecommendedDictionaryId,
     HoshidictsRecommendedDictionaryState,
-    HoshidictsReaderPreferences,
     HoshidictsSchedule,
 } from '../../../shared/features/hoshidicts.js';
 import {
+    DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
     DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
+    DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
     DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+    DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
+    DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
+    isHoshidictsActivationKey,
+    MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES,
     MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
     MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
@@ -34,11 +46,28 @@ import {
     MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
 } from '../../../shared/features/hoshidicts.js';
 import {
+    defaultHoshidictsAudioProfile,
+    HOSHIDICTS_AUDIO_PROFILE_FILE_NAME,
+    normalizeHoshidictsAudioProfile,
+} from './audio_profile.js';
+import {
+    customDictionarySourceRevision,
+    parseCustomDictionary,
+    serializeCustomDictionaryEntry,
+    writeCustomDictionaryArchive,
+    type ParsedCustomDictionary,
+} from './custom_dictionary.js';
+import {
     defaultHoshidictsMiningProfile,
     HOSHIDICTS_MINING_PROFILE_FILE_NAME,
     normalizeHoshidictsMiningProfile,
 } from './profile.js';
 
+export {
+    defaultHoshidictsAudioProfile,
+    HOSHIDICTS_AUDIO_PROFILE_FILE_NAME,
+    normalizeHoshidictsAudioProfile,
+} from './audio_profile.js';
 export {
     defaultHoshidictsMiningProfile,
     HOSHIDICTS_MINING_PROFILE_FILE_NAME,
@@ -46,8 +75,14 @@ export {
 } from './profile.js';
 
 export type {
+    HoshidictsAudioProfile,
+    HoshidictsAudioSource,
+    HoshidictsAudioSourceType,
+    HoshidictsCustomDictionaryDocument,
+    HoshidictsCustomEntryRequest,
     HoshidictsDictionaryState,
     HoshidictsDefinitionBlurPreferences,
+    HoshidictsFrequencyMode,
     HoshidictsManagerSnapshot,
     HoshidictsLookupMode,
     HoshidictsMiningFields,
@@ -56,19 +91,22 @@ export type {
     HoshidictsProgressPhase,
     HoshidictsRecommendedDictionaryId,
     HoshidictsRecommendedDictionaryState,
-    HoshidictsReaderPreferences,
     HoshidictsSchedule,
 } from '../../../shared/features/hoshidicts.js';
 
 interface PersistedDictionary extends HoshidictsDictionaryState {
     path: string;
     enabled: boolean;
+    recommendedId: HoshidictsRecommendedDictionaryId | null;
 }
 
 interface PersistedManifest {
     version: 1;
     lookupMode: HoshidictsLookupMode;
+    activationKey: HoshidictsActivationKey;
+    sourceHighlightEnabled: boolean;
     popupHideDelayMs: number;
+    popupNestingMaxDepth: number;
     definitionBlur: HoshidictsDefinitionBlurPreferences;
     schedule: HoshidictsSchedule;
     lastCheck: string | null;
@@ -85,25 +123,37 @@ interface GeneratedIndex {
     downloadUrl: string | null;
     sourceLanguage: string | null;
     termCount: number;
+    frequencyCount: number;
+    pitchCount: number;
+    kanjiCount: number;
+    frequencyMode: HoshidictsFrequencyMode | null;
+    mediaCount: number;
     importDate: number | null;
 }
 
 export interface ArchiveInspection {
     sourceLanguage: string | null;
-    hasTermBank: boolean;
-    hasJapaneseTerm: boolean;
+    hasSupportedBank: boolean;
+    hasJapaneseEntry: boolean;
 }
 
 export interface HoshidictsImportReport {
     success: boolean;
     title: string;
     termCount: number;
+    mediaCount?: number;
     error: string;
 }
 
 interface StagedDictionary {
     dictionary: PersistedDictionary;
     generationRoot: string;
+}
+
+interface CustomDictionarySource {
+    text: string;
+    raw: Buffer | null;
+    parsed: ParsedCustomDictionary;
 }
 
 export interface HoshidictsRemoteIndex {
@@ -122,6 +172,12 @@ export interface HoshidictsManagerDependencies {
     reloadNative: () => Promise<number>;
     fetchRemoteIndex: (url: string) => Promise<HoshidictsRemoteIndex>;
     downloadArchive: (url: string, outputPath: string) => Promise<void>;
+    writeCustomArchive: (
+        outputPath: string,
+        title: string,
+        revision: string,
+        entries: readonly HoshidictsCustomDictionaryEntry[]
+    ) => Promise<void>;
     setInterval: typeof setInterval;
     clearInterval: typeof clearInterval;
     schedulerIntervalMs: number;
@@ -131,6 +187,7 @@ const MANIFEST_FILE_NAME = 'manifest.json';
 const MANIFEST_VERSION = 1;
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 const MAX_MINING_PROFILE_BYTES = 64 * 1024;
+const MAX_AUDIO_PROFILE_BYTES = 64 * 1024;
 const MAX_ARCHIVE_INDEX_BYTES = 1024 * 1024;
 const MAX_TERM_BANK_BYTES = 32 * 1024 * 1024;
 const MAX_SCANNED_TERM_BANKS = 32;
@@ -139,36 +196,130 @@ const MAX_DOWNLOAD_BYTES = 2 * 1024 * 1024 * 1024;
 const MAX_IMPORT_OUTPUT_BYTES = 1024 * 1024;
 const IMPORT_TIMEOUT_MS = 30 * 60 * 1000;
 const RELOAD_TIMEOUT_MS = 15 * 1000;
+const RELOAD_CONNECT_RETRY_MS = 100;
 const SCHEDULER_INTERVAL_MS = 60 * 60 * 1000;
 const REQUIRED_DICTIONARY_FILES = ['hash.table', 'bloom.filter', 'blobs.bin'] as const;
+const REQUIRED_MEDIA_FILES = ['media.idx', 'media.bin'] as const;
 const HOSHIDICTS_MARKERS = ['.hoshidicts_3', '.hoshidicts_2', '.hoshidicts_1'] as const;
 const JAPANESE_TEXT_PATTERN =
-    /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/u;
+    /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u{20000}-\u{2fa1f}]/u;
 const SAFE_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
+
+type RecommendedHoshidictsDictionaryKind =
+    | 'term'
+    | 'frequency'
+    | 'pitch'
+    | 'kanji';
+
+async function readBoundedJsonFile(
+    filePath: string,
+    maximumBytes: number,
+    label: string,
+    defaultValue: () => unknown
+): Promise<unknown> {
+    let raw: string;
+    try {
+        const stat = await fsp.stat(filePath);
+        if (!stat.isFile() || stat.size === 0 || stat.size > maximumBytes) {
+            throw new Error(`${label} is empty, oversized, or not a file.`);
+        }
+        raw = await fsp.readFile(filePath, 'utf8');
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            return defaultValue();
+        }
+        throw error;
+    }
+    return JSON.parse(raw.replace(/^\uFEFF/, '')) as unknown;
+}
+
+export const HOSHIDICTS_CUSTOM_DICTIONARY_FILE_NAME = 'custom-dictionary.txt';
+export const HOSHIDICTS_CUSTOM_DICTIONARY_TITLE = 'GSM Custom Dictionary';
+export const HOSHIDICTS_CUSTOM_DICTIONARY_ID = 'gsm-managed-custom-dictionary-v1';
 
 interface RecommendedHoshidictsDictionary {
     id: HoshidictsRecommendedDictionaryId;
-    indexUrl: string;
+    kind: RecommendedHoshidictsDictionaryKind;
+    indexUrl: string | null;
     downloadUrl: string;
+    expectedTitle: string | null;
 }
 
 export const RECOMMENDED_HOSHIDICTS_DICTIONARIES: readonly RecommendedHoshidictsDictionary[] =
     [
         {
+            id: 'jitendex',
+            kind: 'term',
+            indexUrl: 'https://jitendex.org/static/yomitan.json',
+            downloadUrl:
+                'https://github.com/stephenmk/stephenmk.github.io/releases/latest/download/jitendex-yomitan.zip',
+            expectedTitle: null,
+        },
+        {
             id: 'jmdict',
+            kind: 'term',
             indexUrl:
                 'https://github.com/yomidevs/jmdict-yomitan/releases/latest/download/JMdict_english_without_proper_names.json',
             downloadUrl:
                 'https://github.com/yomidevs/jmdict-yomitan/releases/latest/download/JMdict_english_without_proper_names.zip',
+            expectedTitle: null,
         },
         {
             id: 'jmnedict',
+            kind: 'term',
             indexUrl:
                 'https://github.com/yomidevs/jmdict-yomitan/releases/latest/download/JMnedict.json',
             downloadUrl:
                 'https://github.com/yomidevs/jmdict-yomitan/releases/latest/download/JMnedict.zip',
+            expectedTitle: null,
+        },
+        {
+            id: 'bccwj',
+            kind: 'frequency',
+            indexUrl: null,
+            downloadUrl:
+                'https://github.com/Kuuuube/yomitan-dictionaries/releases/download/yomitan-permalink/BCCWJ_SUW_LUW_combined.zip',
+            expectedTitle: 'BCCWJ',
+        },
+        {
+            id: 'jpdbv2-kana',
+            kind: 'frequency',
+            indexUrl: null,
+            downloadUrl:
+                'https://github.com/Kuuuube/yomitan-dictionaries/releases/download/yomitan-permalink/JPDB_v2.2_Frequency_Kana.zip',
+            expectedTitle: 'JPDBv2㋕',
+        },
+        {
+            id: 'jiten',
+            kind: 'frequency',
+            indexUrl: 'https://api.jiten.moe/api/frequency-list/index',
+            downloadUrl:
+                'https://api.jiten.moe/api/frequency-list/download?downloadType=yomitan',
+            expectedTitle: null,
+        },
+        {
+            id: 'kanjium-pitch',
+            kind: 'pitch',
+            indexUrl: null,
+            downloadUrl:
+                'https://github.com/toasted-nutbread/yomichan-pitch-accent-dictionary/releases/download/1.0.0/kanjium_pitch_accents.zip',
+            expectedTitle: 'Kanjium Pitch Accents',
+        },
+        {
+            id: 'kanjidic',
+            kind: 'kanji',
+            indexUrl:
+                'https://github.com/yomidevs/jmdict-yomitan/releases/latest/download/KANJIDIC_english.json',
+            downloadUrl:
+                'https://github.com/yomidevs/jmdict-yomitan/releases/latest/download/KANJIDIC_english.zip',
+            expectedTitle: null,
         },
     ];
+
+// The bundled Yomitan catalog also contains GSM Character Dictionary. It is
+// intentionally managed by Yomitan's existing sync path because it is generated
+// dynamically from a loopback-only HTTP endpoint; Hoshidicts downloads remain
+// HTTPS-only.
 
 const SCHEDULE_INTERVALS: Record<Exclude<HoshidictsSchedule, 'off'>, number> = {
     daily: 24 * 60 * 60 * 1000,
@@ -180,7 +331,11 @@ function emptyManifest(): PersistedManifest {
     return {
         version: MANIFEST_VERSION,
         lookupMode: 'shift',
+        activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
+        sourceHighlightEnabled:
+            DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
         popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+        popupNestingMaxDepth: DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
         definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
         schedule: 'off',
         lastCheck: null,
@@ -190,12 +345,48 @@ function emptyManifest(): PersistedManifest {
     };
 }
 
+function pinCustomDictionary(manifest: PersistedManifest): PersistedManifest {
+    const customIndex = manifest.dictionaries.findIndex(
+        (dictionary) => dictionary.id === HOSHIDICTS_CUSTOM_DICTIONARY_ID
+    );
+    if (customIndex < 0) {
+        return manifest;
+    }
+    if (customIndex === 0 && manifest.dictionaries[0].enabled) {
+        return manifest;
+    }
+    const dictionaries = [...manifest.dictionaries];
+    const [custom] = dictionaries.splice(customIndex, 1);
+    dictionaries.unshift({ ...custom, enabled: true });
+    return { ...manifest, dictionaries };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
+}
+
+class ManifestCommitError extends Error {
+    constructor(
+        message: string,
+        readonly manifestRollbackRestored: boolean
+    ) {
+        super(message);
+        this.name = 'ManifestCommitError';
+    }
+}
+
+function customSourcesMatch(
+    first: CustomDictionarySource,
+    second: CustomDictionarySource
+): boolean {
+    if (first.raw === null || second.raw === null) {
+        return first.raw === second.raw;
+    }
+    return first.raw.equals(second.raw);
 }
 
 function normalizeSchedule(value: unknown): HoshidictsSchedule {
@@ -210,6 +401,12 @@ function normalizePopupHideDelay(value: unknown): number {
         (value as number) <= MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS
         ? (value as number)
         : DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS;
+}
+
+function normalizePopupNestingMaxDepth(value: unknown): number {
+    return Number.isSafeInteger(value) && (value as number) >= 0
+        ? (value as number)
+        : DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH;
 }
 
 function normalizeDefinitionBlur(
@@ -267,6 +464,16 @@ function normalizeOptionalString(value: unknown): string | null {
     return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
+function normalizeCount(value: unknown): number {
+    return typeof value === 'number' && Number.isFinite(value)
+        ? Math.max(0, Math.trunc(value))
+        : 0;
+}
+
+function normalizeFrequencyMode(value: unknown): HoshidictsFrequencyMode | null {
+    return value === 'occurrence-based' || value === 'rank-based' ? value : null;
+}
+
 function normalizeRelativePath(value: unknown): string {
     if (typeof value !== 'string' || value.length === 0 || value.length > 4096) {
         throw new Error('Dictionary manifest path is empty or too long.');
@@ -320,16 +527,88 @@ function parseHttpsUrl(value: unknown): string | null {
     }
 }
 
+function manifestHasRecommendedDictionary(
+    manifest: PersistedManifest,
+    recommended: RecommendedHoshidictsDictionary
+): boolean {
+    return manifest.dictionaries.some(
+        (dictionary) =>
+            dictionary.recommendedId === recommended.id ||
+            (recommended.indexUrl !== null &&
+                parseHttpsUrl(dictionary.indexUrl) === recommended.indexUrl)
+    );
+}
+
+function recommendedDictionaryForPersisted(
+    dictionary: PersistedDictionary
+): RecommendedHoshidictsDictionary | null {
+    return (
+        RECOMMENDED_HOSHIDICTS_DICTIONARIES.find(
+            (recommended) =>
+                dictionary.recommendedId === recommended.id ||
+                (recommended.indexUrl !== null &&
+                    parseHttpsUrl(dictionary.indexUrl) === recommended.indexUrl)
+        ) ?? null
+    );
+}
+
+function isDefaultRecommendedDictionary(
+    id: HoshidictsRecommendedDictionaryId
+): boolean {
+    return DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.some(
+        (defaultId) => defaultId === id
+    );
+}
+
 function recommendedDictionaryStates(
     manifest: PersistedManifest
 ): HoshidictsRecommendedDictionaryState[] {
     return RECOMMENDED_HOSHIDICTS_DICTIONARIES.map((recommended) => ({
         id: recommended.id,
-        installed: manifest.dictionaries.some(
-            (dictionary) =>
-                parseHttpsUrl(dictionary.indexUrl) === recommended.indexUrl
-        ),
+        installed: manifestHasRecommendedDictionary(manifest, recommended),
     }));
+}
+
+function isRecommendedDictionaryId(
+    value: unknown
+): value is HoshidictsRecommendedDictionaryId {
+    return RECOMMENDED_HOSHIDICTS_DICTIONARIES.some(
+        (dictionary) => dictionary.id === value
+    );
+}
+
+function generatedIndexEntryCount(index: GeneratedIndex): number {
+    return (
+        index.termCount +
+        index.frequencyCount +
+        index.pitchCount +
+        index.kanjiCount
+    );
+}
+
+function generatedIndexMatchesKind(
+    index: GeneratedIndex,
+    kind: RecommendedHoshidictsDictionaryKind
+): boolean {
+    switch (kind) {
+        case 'term':
+            return index.termCount > 0;
+        case 'frequency':
+            return index.frequencyCount > 0;
+        case 'pitch':
+            return index.pitchCount > 0;
+        case 'kanji':
+            return index.kanjiCount > 0;
+    }
+}
+
+function generatedIndexMatchesRecommendationIdentity(
+    index: GeneratedIndex,
+    recommended: RecommendedHoshidictsDictionary
+): boolean {
+    return recommended.indexUrl !== null
+        ? parseHttpsUrl(index.indexUrl) === recommended.indexUrl
+        : index.title === recommended.expectedTitle;
 }
 
 export function getHoshidictsScheduleIntervalMs(
@@ -402,10 +681,15 @@ async function readGeneratedIndex(dictionaryPath: string): Promise<GeneratedInde
     }
     const counts = isRecord(parsed.counts) ? parsed.counts : {};
     const terms = isRecord(counts.terms) ? counts.terms : {};
-    const termCount =
-        typeof terms.total === 'number' && Number.isFinite(terms.total)
-            ? Math.max(0, Math.trunc(terms.total))
-            : 0;
+    const termMeta = isRecord(counts.termMeta) ? counts.termMeta : {};
+    const kanji = isRecord(counts.kanji) ? counts.kanji : {};
+    const media = isRecord(counts.media) ? counts.media : {};
+    const termCount = normalizeCount(terms.total);
+    const frequencyCount = normalizeCount(termMeta.freq);
+    const pitchCount =
+        normalizeCount(termMeta.pitch) + normalizeCount(termMeta.ipa);
+    const kanjiCount = normalizeCount(kanji.total);
+    const mediaCount = normalizeCount(media.total);
     return {
         title: parsed.title,
         revision: typeof parsed.revision === 'string' ? parsed.revision : '',
@@ -414,6 +698,11 @@ async function readGeneratedIndex(dictionaryPath: string): Promise<GeneratedInde
         downloadUrl: normalizeOptionalString(parsed.downloadUrl),
         sourceLanguage: normalizeOptionalString(parsed.sourceLanguage),
         termCount,
+        frequencyCount,
+        pitchCount,
+        kanjiCount,
+        frequencyMode: normalizeFrequencyMode(parsed.frequencyMode),
+        mediaCount,
         importDate:
             typeof parsed.importDate === 'number' && Number.isFinite(parsed.importDate)
                 ? parsed.importDate
@@ -446,20 +735,42 @@ async function validateNativeDictionaryFiles(dictionaryPath: string): Promise<vo
     }
 }
 
+async function validateNativeMediaFiles(
+    dictionaryPath: string,
+    mediaCount: number
+): Promise<void> {
+    if (mediaCount <= 0) {
+        return;
+    }
+    for (const fileName of REQUIRED_MEDIA_FILES) {
+        const filePath = path.join(dictionaryPath, fileName);
+        const stat = await fsp.stat(filePath).catch((error) => {
+            throw new Error(`Dictionary is missing ${fileName}: ${errorMessage(error)}`);
+        });
+        if (!stat.isFile() || stat.size === 0) {
+            throw new Error(`Dictionary file ${fileName} is empty or not a file.`);
+        }
+    }
+}
+
 function dictionaryStateFromIndex(
     id: string,
     relativePath: string,
     enabled: boolean,
     index: GeneratedIndex,
-    fallbackDate: Date
+    fallbackDate: Date,
+    recommendedId: HoshidictsRecommendedDictionaryId | null = null
 ): PersistedDictionary {
-    if (index.termCount === 0) {
-        throw new Error(`Dictionary "${index.title}" does not contain term entries.`);
+    if (generatedIndexEntryCount(index) === 0) {
+        throw new Error(
+            `Dictionary "${index.title}" does not contain supported entries.`
+        );
     }
     return {
         id,
         path: relativePath,
         enabled,
+        recommendedId,
         title: index.title,
         revision: index.revision,
         isUpdatable: index.isUpdatable,
@@ -467,6 +778,10 @@ function dictionaryStateFromIndex(
         downloadUrl: index.downloadUrl,
         language: index.sourceLanguage,
         termCount: index.termCount,
+        frequencyCount: index.frequencyCount,
+        pitchCount: index.pitchCount,
+        kanjiCount: index.kanjiCount,
+        frequencyMode: index.frequencyMode,
         installedAt: installedAtFromIndex(index, fallbackDate),
     };
 }
@@ -509,7 +824,10 @@ function openZip(archivePath: string): Promise<ZipFile> {
     });
 }
 
-function termBankContainsJapanese(value: unknown): boolean {
+function dictionaryBankContainsJapanese(
+    value: unknown,
+    bankType: 'term' | 'termMeta' | 'kanji'
+): boolean {
     if (!Array.isArray(value)) {
         return false;
     }
@@ -517,7 +835,8 @@ function termBankContainsJapanese(value: unknown): boolean {
         if (!Array.isArray(entry)) {
             return false;
         }
-        return [entry[0], entry[1]].some(
+        const candidates = bankType === 'term' ? [entry[0], entry[1]] : [entry[0]];
+        return candidates.some(
             (term) => typeof term === 'string' && JAPANESE_TEXT_PATTERN.test(term)
         );
     });
@@ -530,9 +849,9 @@ export async function inspectHoshidictsArchive(
     return await new Promise<ArchiveInspection>((resolve, reject) => {
         let sourceLanguage: string | null = null;
         let foundIndex = false;
-        let hasTermBank = false;
-        let hasJapaneseTerm = false;
-        let scannedTermBanks = 0;
+        let hasSupportedBank = false;
+        let hasJapaneseEntry = false;
+        let scannedBanks = 0;
         let settled = false;
 
         const fail = (error: unknown) => {
@@ -554,7 +873,11 @@ export async function inspectHoshidictsArchive(
                 reject(new Error('Dictionary archive does not contain index.json.'));
                 return;
             }
-            resolve({ sourceLanguage, hasTermBank, hasJapaneseTerm });
+            resolve({
+                sourceLanguage,
+                hasSupportedBank,
+                hasJapaneseEntry,
+            });
         });
         zip.on('entry', (entry: Entry) => {
             void (async () => {
@@ -569,20 +892,36 @@ export async function inspectHoshidictsArchive(
                     }
                     foundIndex = true;
                     sourceLanguage = normalizeOptionalString(parsed.sourceLanguage);
-                } else if (/^term_bank_\d+\.json$/u.test(normalizedName)) {
-                    hasTermBank = true;
+                } else {
+                    const bankMatch = /^(term_bank|term_meta_bank|kanji_bank)_\d+\.json$/u.exec(
+                        normalizedName
+                    );
+                    if (!bankMatch) {
+                        zip.readEntry();
+                        return;
+                    }
+                    const bankType =
+                        bankMatch[1] === 'term_bank'
+                            ? 'term'
+                            : bankMatch[1] === 'term_meta_bank'
+                              ? 'termMeta'
+                              : 'kanji';
+                    hasSupportedBank = true;
                     if (
                         sourceLanguage === null &&
-                        !hasJapaneseTerm &&
-                        scannedTermBanks < MAX_SCANNED_TERM_BANKS &&
+                        !hasJapaneseEntry &&
+                        scannedBanks < MAX_SCANNED_TERM_BANKS &&
                         entry.uncompressedSize <= MAX_TERM_BANK_BYTES
                     ) {
-                        scannedTermBanks += 1;
+                        scannedBanks += 1;
                         const contents = await readZipEntry(zip, entry, MAX_TERM_BANK_BYTES);
                         const parsed: unknown = JSON.parse(
                             contents.toString('utf8').replace(/^\uFEFF/, '')
                         );
-                        hasJapaneseTerm = termBankContainsJapanese(parsed);
+                        hasJapaneseEntry = dictionaryBankContainsJapanese(
+                            parsed,
+                            bankType
+                        );
                     }
                 }
                 zip.readEntry();
@@ -608,10 +947,8 @@ function parseImportReport(stdout: string): HoshidictsImportReport {
     return {
         success: parsed.success === true,
         title: typeof parsed.title === 'string' ? parsed.title : '',
-        termCount:
-            typeof parsed.termCount === 'number' && Number.isFinite(parsed.termCount)
-                ? Math.max(0, Math.trunc(parsed.termCount))
-                : 0,
+        termCount: normalizeCount(parsed.termCount),
+        mediaCount: normalizeCount(parsed.mediaCount),
         error: typeof parsed.error === 'string' ? parsed.error : '',
     };
 }
@@ -701,7 +1038,8 @@ export async function reloadHoshidictsNativeState(): Promise<number> {
     const requestId = `desktop-reload-${randomUUID()}`;
     const url = `ws://127.0.0.1:${DEFAULT_INPUT_SERVER_PORT}`;
     return await new Promise<number>((resolve, reject) => {
-        const socket = new WebSocket(url);
+        let socket: WebSocket | null = null;
+        let retryTimer: ReturnType<typeof setTimeout> | null = null;
         let settled = false;
         const finish = (error: Error | null, dictionaryCount = 0) => {
             if (settled) {
@@ -709,7 +1047,11 @@ export async function reloadHoshidictsNativeState(): Promise<number> {
             }
             settled = true;
             clearTimeout(timeout);
-            socket.close();
+            if (retryTimer) {
+                clearTimeout(retryTimer);
+                retryTimer = null;
+            }
+            socket?.close();
             if (error) {
                 reject(error);
             } else {
@@ -720,56 +1062,85 @@ export async function reloadHoshidictsNativeState(): Promise<number> {
             () => finish(new Error('Timed out reloading native Hoshidicts state.')),
             RELOAD_TIMEOUT_MS
         );
-        socket.once('open', () => {
-            socket.send(
-                JSON.stringify({
-                    type: 'configure_features',
-                    features: ['hoshidicts'],
-                })
-            );
-            socket.send(
-                JSON.stringify({
-                    type: 'hoshidicts_reload',
-                    requestId,
-                })
-            );
-        });
-        socket.on('message', (data) => {
-            try {
-                const parsed: unknown = JSON.parse(data.toString());
-                if (
-                    !isRecord(parsed) ||
-                    parsed.type !== 'hoshidicts_reload_result' ||
-                    parsed.requestId !== requestId
-                ) {
+
+        const connect = () => {
+            if (settled) {
+                return;
+            }
+            const nextSocket = new WebSocket(url);
+            socket = nextSocket;
+            let retryScheduled = false;
+            const retry = () => {
+                if (settled || retryScheduled) {
                     return;
                 }
-                if (parsed.success !== true) {
-                    finish(
-                        new Error(
-                            typeof parsed.error === 'string'
-                                ? parsed.error
-                                : 'Native Hoshidicts reload failed.'
-                        )
+                retryScheduled = true;
+                if (socket === nextSocket) {
+                    socket = null;
+                }
+                try {
+                    nextSocket.close();
+                } catch {
+                    // A connection attempt may fail before the socket can close cleanly.
+                }
+                retryTimer = setTimeout(() => {
+                    retryTimer = null;
+                    connect();
+                }, RELOAD_CONNECT_RETRY_MS);
+            };
+            nextSocket.once('open', () => {
+                try {
+                    nextSocket.send(
+                        JSON.stringify({
+                            type: 'configure_features',
+                            features: ['hoshidicts'],
+                        })
                     );
-                    return;
+                    nextSocket.send(
+                        JSON.stringify({
+                            type: 'hoshidicts_reload',
+                            requestId,
+                        })
+                    );
+                } catch {
+                    retry();
                 }
-                finish(
-                    null,
-                    typeof parsed.dictionaryCount === 'number'
-                        ? Math.max(0, Math.trunc(parsed.dictionaryCount))
-                        : 0
-                );
-            } catch {
-                // Other service messages are unrelated to this correlated reload.
-            }
-        });
-        socket.once('error', (error) => finish(error));
-        socket.once('close', () => {
-            if (!settled) {
-                finish(new Error('Input service closed before Hoshidicts reload completed.'));
-            }
-        });
+            });
+            nextSocket.on('message', (data) => {
+                try {
+                    const parsed: unknown = JSON.parse(data.toString());
+                    if (
+                        !isRecord(parsed) ||
+                        parsed.type !== 'hoshidicts_reload_result' ||
+                        parsed.requestId !== requestId
+                    ) {
+                        return;
+                    }
+                    if (parsed.success !== true) {
+                        finish(
+                            new Error(
+                                typeof parsed.error === 'string'
+                                    ? parsed.error
+                                    : 'Native Hoshidicts reload failed.'
+                            )
+                        );
+                        return;
+                    }
+                    finish(
+                        null,
+                        typeof parsed.dictionaryCount === 'number'
+                            ? Math.max(0, Math.trunc(parsed.dictionaryCount))
+                            : 0
+                    );
+                } catch {
+                    // Other service messages are unrelated to this correlated reload.
+                }
+            });
+            nextSocket.once('error', retry);
+            nextSocket.once('close', retry);
+        };
+
+        connect();
     });
 }
 
@@ -884,6 +1255,7 @@ function defaultDependencies(): HoshidictsManagerDependencies {
         reloadNative: reloadHoshidictsNativeState,
         fetchRemoteIndex: fetchHoshidictsRemoteIndex,
         downloadArchive: downloadHoshidictsArchive,
+        writeCustomArchive: writeCustomDictionaryArchive,
         setInterval,
         clearInterval,
         schedulerIntervalMs: SCHEDULER_INTERVAL_MS,
@@ -896,6 +1268,8 @@ export class HoshidictsManager {
     readonly rootDir: string;
     readonly manifestPath: string;
     readonly miningProfilePath: string;
+    readonly audioProfilePath: string;
+    readonly customDictionaryPath: string;
 
     private readonly deps: HoshidictsManagerDependencies;
     private operationQueue: Promise<void> = Promise.resolve();
@@ -915,6 +1289,14 @@ export class HoshidictsManager {
         this.miningProfilePath = path.join(
             this.rootDir,
             HOSHIDICTS_MINING_PROFILE_FILE_NAME
+        );
+        this.audioProfilePath = path.join(
+            this.rootDir,
+            HOSHIDICTS_AUDIO_PROFILE_FILE_NAME
+        );
+        this.customDictionaryPath = path.join(
+            this.rootDir,
+            HOSHIDICTS_CUSTOM_DICTIONARY_FILE_NAME
         );
         this.deps = { ...defaultDependencies(), ...dependencies };
     }
@@ -946,16 +1328,95 @@ export class HoshidictsManager {
             manifest = await this.readManifestPreferences().catch(() => emptyManifest());
         }
         let miningProfile = defaultHoshidictsMiningProfile();
-        let profileError: string | null = null;
+        let miningProfileError: string | null = null;
         try {
             miningProfile = await this.readMiningProfile();
         } catch (error) {
-            profileError = errorMessage(error);
+            miningProfileError = errorMessage(error);
+        }
+        let audioProfile = defaultHoshidictsAudioProfile();
+        let audioProfileError: string | null = null;
+        try {
+            audioProfile = await this.readAudioProfile();
+        } catch (error) {
+            audioProfileError = errorMessage(error);
         }
         return this.snapshotFromManifest(
             manifest,
             miningProfile,
-            manifestError ?? profileError
+            audioProfile,
+            manifestError ?? miningProfileError ?? audioProfileError
+        );
+    }
+
+    async getCustomDictionaryDocument(): Promise<HoshidictsCustomDictionaryDocument> {
+        return await this.enqueueRead(async () => {
+            const source = await this.readCustomDictionarySource();
+            return this.customDictionaryDocument(source);
+        });
+    }
+
+    async saveCustomDictionary(
+        text: string,
+        expectedRevision: string
+    ): Promise<HoshidictsCustomDictionaryDocument> {
+        return await this.enqueue(
+            'saving',
+            async () => {
+                const previous = await this.readCustomDictionarySource();
+                if (
+                    customDictionarySourceRevision(
+                        previous.text,
+                        previous.raw !== null
+                    ) !== expectedRevision
+                ) {
+                    throw new Error(
+                        'The custom dictionary changed after it was opened. Reload it before saving.'
+                    );
+                }
+                const next = this.customDictionarySourceFromText(text, true);
+                await this.applyCustomDictionarySource(next, previous, true);
+                return this.customDictionaryDocument(next);
+            },
+            'custom'
+        );
+    }
+
+    async addCustomEntry(
+        entry: HoshidictsCustomEntryRequest
+    ): Promise<HoshidictsCustomDictionaryDocument> {
+        const serializedEntry = serializeCustomDictionaryEntry(entry);
+        return await this.enqueue(
+            'saving',
+            async () => {
+                // Read after entering the operation queue so simultaneous note saves append
+                // to the latest successfully committed source.
+                const previous = await this.readCustomDictionarySource();
+                const newline = previous.text.includes('\r\n') ? '\r\n' : '\n';
+                const separator =
+                    previous.text.length === 0 || /[\r\n]$/u.test(previous.text)
+                        ? ''
+                        : newline;
+                const next = this.customDictionarySourceFromText(
+                    `${previous.text}${separator}${serializedEntry}${newline}`,
+                    true
+                );
+                await this.applyCustomDictionarySource(next, previous, true);
+                return this.customDictionaryDocument(next);
+            },
+            'custom'
+        );
+    }
+
+    async syncCustomDictionary(): Promise<HoshidictsCustomDictionaryDocument> {
+        return await this.enqueue(
+            'saving',
+            async () => {
+                const source = await this.readCustomDictionarySource();
+                await this.applyCustomDictionarySource(source, source, false);
+                return this.customDictionaryDocument(source);
+            },
+            'custom'
         );
     }
 
@@ -980,11 +1441,9 @@ export class HoshidictsManager {
         await this.enqueue('downloading', async () => {
             let manifest = await this.readManifest();
             const missing = RECOMMENDED_HOSHIDICTS_DICTIONARIES.filter(
-                (recommended) => !manifest.dictionaries.some(
-                    (dictionary) =>
-                        parseHttpsUrl(dictionary.indexUrl) ===
-                        recommended.indexUrl
-                )
+                (recommended) =>
+                    isDefaultRecommendedDictionary(recommended.id) &&
+                    !manifestHasRecommendedDictionary(manifest, recommended)
             );
             for (let index = 0; index < missing.length; index += 1) {
                 const recommended = missing[index];
@@ -1010,9 +1469,9 @@ export class HoshidictsManager {
                 throw new Error('Recommended dictionary id is invalid.');
             }
             const manifest = await this.readManifest();
-            const installed = manifest.dictionaries.some(
-                (dictionary) =>
-                    parseHttpsUrl(dictionary.indexUrl) === recommended.indexUrl
+            const installed = manifestHasRecommendedDictionary(
+                manifest,
+                recommended
             );
             if (!installed) {
                 await this.installRecommendedDictionaryLocked(
@@ -1030,6 +1489,9 @@ export class HoshidictsManager {
         await this.enqueue('removing', async () => {
             if (!SAFE_ID_PATTERN.test(id)) {
                 throw new Error('Dictionary id is invalid.');
+            }
+            if (id === HOSHIDICTS_CUSTOM_DICTIONARY_ID) {
+                throw new Error('The custom dictionary is managed from its editor.');
             }
             const manifest = await this.readManifest();
             const existingIndex = manifest.dictionaries.findIndex(
@@ -1057,6 +1519,9 @@ export class HoshidictsManager {
         await this.enqueue('saving', async () => {
             if (!SAFE_ID_PATTERN.test(id)) {
                 throw new Error('Dictionary id is invalid.');
+            }
+            if (id === HOSHIDICTS_CUSTOM_DICTIONARY_ID) {
+                throw new Error('The custom dictionary is always enabled.');
             }
             const manifest = await this.readManifest();
             const index = manifest.dictionaries.findIndex(
@@ -1090,6 +1555,9 @@ export class HoshidictsManager {
             if (!SAFE_ID_PATTERN.test(id)) {
                 throw new Error('Dictionary id is invalid.');
             }
+            if (id === HOSHIDICTS_CUSTOM_DICTIONARY_ID) {
+                throw new Error('The custom dictionary is always first.');
+            }
             if (direction !== -1 && direction !== 1) {
                 throw new Error('Dictionary move direction is invalid.');
             }
@@ -1103,6 +1571,12 @@ export class HoshidictsManager {
             const targetIndex = currentIndex + direction;
             if (targetIndex < 0 || targetIndex >= manifest.dictionaries.length) {
                 return;
+            }
+            if (
+                manifest.dictionaries[targetIndex].id ===
+                HOSHIDICTS_CUSTOM_DICTIONARY_ID
+            ) {
+                throw new Error('The custom dictionary is always first.');
             }
             const dictionaries = manifest.dictionaries.map((dictionary) => ({
                 ...dictionary,
@@ -1147,6 +1621,14 @@ export class HoshidictsManager {
         return await this.getSnapshot();
     }
 
+    async setAudioProfile(value: unknown): Promise<HoshidictsManagerSnapshot> {
+        const profile = normalizeHoshidictsAudioProfile(value);
+        await this.enqueue('saving', async () => {
+            await this.atomicWriteAudioProfile(profile);
+        }, 'audio');
+        return await this.getSnapshot();
+    }
+
     async setLookupMode(
         lookupMode: HoshidictsLookupMode
     ): Promise<HoshidictsManagerSnapshot> {
@@ -1154,17 +1636,25 @@ export class HoshidictsManager {
             throw new Error('Hoshidicts lookup mode is invalid.');
         }
         const snapshot = await this.getSnapshot();
-        return await this.setReaderPreferences({
+        return await this.setReaderPreferences(
             lookupMode,
-            popupHideDelayMs: snapshot.popupHideDelayMs,
-            definitionBlur: snapshot.definitionBlur,
-        });
+            snapshot.popupHideDelayMs,
+            snapshot.activationKey,
+            snapshot.sourceHighlightEnabled,
+            snapshot.popupNestingMaxDepth
+        );
     }
 
     async setReaderPreferences(
-        preferences: HoshidictsReaderPreferences
+        lookupMode: HoshidictsLookupMode,
+        popupHideDelayMs: number,
+        activationKey: HoshidictsActivationKey,
+        sourceHighlightEnabled: boolean =
+            DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
+        popupNestingMaxDepth: number =
+            DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
+        definitionBlur?: HoshidictsDefinitionBlurPreferences
     ): Promise<HoshidictsManagerSnapshot> {
-        const { lookupMode, popupHideDelayMs, definitionBlur } = preferences;
         if (lookupMode !== 'shift' && lookupMode !== 'hover') {
             throw new Error('Hoshidicts lookup mode is invalid.');
         }
@@ -1175,34 +1665,54 @@ export class HoshidictsManager {
         ) {
             throw new Error('Hoshidicts popup hide delay is invalid.');
         }
-        if (!definitionBlur || typeof definitionBlur.enabled !== 'boolean') {
+        if (!isHoshidictsActivationKey(activationKey)) {
+            throw new Error('Hoshidicts activation key is invalid.');
+        }
+        if (typeof sourceHighlightEnabled !== 'boolean') {
+            throw new Error(
+                'Hoshidicts source highlight preference is invalid.'
+            );
+        }
+        if (
+            !Number.isSafeInteger(popupNestingMaxDepth) ||
+            popupNestingMaxDepth < 0
+        ) {
+            throw new Error('Hoshidicts popup nesting depth is invalid.');
+        }
+        if (
+            definitionBlur !== undefined &&
+            typeof definitionBlur.enabled !== 'boolean'
+        ) {
             throw new Error(
                 'Hoshidicts definition blur enabled state is invalid.'
             );
         }
         if (
-            !Number.isInteger(definitionBlur.lookupThreshold) ||
-            definitionBlur.lookupThreshold <
-                MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD ||
-            definitionBlur.lookupThreshold >
-                MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD
+            definitionBlur !== undefined &&
+            (!Number.isInteger(definitionBlur.lookupThreshold) ||
+                definitionBlur.lookupThreshold <
+                    MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD ||
+                definitionBlur.lookupThreshold >
+                    MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD)
         ) {
             throw new Error(
                 'Hoshidicts definition blur lookup threshold is invalid.'
             );
         }
         if (
+            definitionBlur !== undefined &&
             definitionBlur.revealMode !== 'timed' &&
             definitionBlur.revealMode !== 'hover'
         ) {
             throw new Error('Hoshidicts definition blur reveal mode is invalid.');
         }
         if (
-            !Number.isInteger(definitionBlur.revealDelayMs) ||
-            definitionBlur.revealDelayMs <
-                MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS ||
-            definitionBlur.revealDelayMs >
-                MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS
+            definitionBlur !== undefined &&
+            (!Number.isInteger(definitionBlur.revealDelayMs) ||
+                definitionBlur.revealDelayMs <
+                    MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS ||
+                definitionBlur.revealDelayMs >
+                    MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS)
         ) {
             throw new Error(
                 'Hoshidicts definition blur reveal delay is invalid.'
@@ -1210,19 +1720,27 @@ export class HoshidictsManager {
         }
         await this.enqueue('saving', async () => {
             const manifest = await this.readManifest();
+            const effectiveDefinitionBlur =
+                definitionBlur ?? manifest.definitionBlur;
             if (
                 manifest.lookupMode !== lookupMode ||
                 manifest.popupHideDelayMs !== popupHideDelayMs ||
+                manifest.activationKey !== activationKey ||
+                manifest.sourceHighlightEnabled !== sourceHighlightEnabled ||
+                manifest.popupNestingMaxDepth !== popupNestingMaxDepth ||
                 !definitionBlurPreferencesEqual(
                     manifest.definitionBlur,
-                    definitionBlur
+                    effectiveDefinitionBlur
                 )
             ) {
                 await this.atomicWriteManifest({
                     ...manifest,
                     lookupMode,
+                    activationKey,
+                    sourceHighlightEnabled,
                     popupHideDelayMs,
-                    definitionBlur: { ...definitionBlur },
+                    popupNestingMaxDepth,
+                    definitionBlur: { ...effectiveDefinitionBlur },
                 });
             }
         }, 'preferences');
@@ -1294,10 +1812,13 @@ export class HoshidictsManager {
                     });
                     try {
                         await this.deps.downloadArchive(downloadUrl, archivePath);
+                        const recommendation =
+                            recommendedDictionaryForPersisted(current);
                         const staged = await this.stageArchive(
                             archivePath,
                             manifest.dictionaries,
-                            current.id
+                            current.id,
+                            recommendation
                         );
                         if (staged.dictionary.revision !== remote.revision) {
                             await this.discardStagedDictionary(staged);
@@ -1391,6 +1912,15 @@ export class HoshidictsManager {
         return await run;
     }
 
+    private async enqueueRead<T>(operation: () => Promise<T>): Promise<T> {
+        const run = this.operationQueue.then(operation);
+        this.operationQueue = run.then(
+            () => undefined,
+            () => undefined
+        );
+        return await run;
+    }
+
     private setProgress(progress: HoshidictsProgress): void {
         const scope = progress.scope ?? this.progress.scope;
         this.progress = scope ? { ...progress, scope } : progress;
@@ -1411,39 +1941,61 @@ export class HoshidictsManager {
     private snapshotFromManifest(
         manifest: PersistedManifest,
         miningProfile: HoshidictsMiningProfile,
+        audioProfile: HoshidictsAudioProfile,
         profileError: string | null = null
     ): HoshidictsManagerSnapshot {
+        const customDictionary = manifest.dictionaries.find(
+            (dictionary) => dictionary.id === HOSHIDICTS_CUSTOM_DICTIONARY_ID
+        );
         return {
             revision: ++this.snapshotRevision,
-            dictionaries: manifest.dictionaries.map(
-                ({
-                    id,
-                    title,
-                    enabled,
-                    revision,
-                    isUpdatable,
-                    indexUrl,
-                    downloadUrl,
-                    language,
-                    termCount,
-                    installedAt,
-                }) => ({
-                    id,
-                    title,
-                    enabled,
-                    revision,
-                    isUpdatable,
-                    indexUrl,
-                    downloadUrl,
-                    language,
-                    termCount,
-                    installedAt,
-                })
-            ),
+            dictionaries: manifest.dictionaries
+                .filter(
+                    (dictionary) =>
+                        dictionary.id !== HOSHIDICTS_CUSTOM_DICTIONARY_ID
+                )
+                .map(
+                    ({
+                        id,
+                        title,
+                        enabled,
+                        revision,
+                        isUpdatable,
+                        indexUrl,
+                        downloadUrl,
+                        language,
+                        termCount,
+                        frequencyCount,
+                        pitchCount,
+                        kanjiCount,
+                        frequencyMode,
+                        installedAt,
+                    }) => ({
+                        id,
+                        title,
+                        enabled,
+                        revision,
+                        isUpdatable,
+                        indexUrl,
+                        downloadUrl,
+                        language,
+                        termCount,
+                        frequencyCount,
+                        pitchCount,
+                        kanjiCount,
+                        frequencyMode,
+                        installedAt,
+                    })
+                ),
+            customDictionaryActive: customDictionary?.enabled === true,
             recommendedDictionaries: recommendedDictionaryStates(manifest),
             miningProfile,
+            audioProfile,
             lookupMode: manifest.lookupMode,
+            activationKey: manifest.activationKey,
+            sourceHighlightEnabled: manifest.sourceHighlightEnabled,
             popupHideDelayMs: manifest.popupHideDelayMs,
+            popupNestingMaxDepth: manifest.popupNestingMaxDepth,
             definitionBlur: { ...manifest.definitionBlur },
             schedule: manifest.schedule,
             lastCheck: manifest.lastCheck,
@@ -1454,47 +2006,273 @@ export class HoshidictsManager {
         };
     }
 
-    private async readMiningProfile(): Promise<HoshidictsMiningProfile> {
-        let raw: string;
+    private validateCustomDictionaryText(text: string): void {
+        if (typeof text !== 'string') {
+            throw new Error('Custom dictionary text must be a string.');
+        }
+        if (
+            Buffer.byteLength(text, 'utf8') >
+            MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES
+        ) {
+            throw new Error('Custom dictionary file exceeded its size limit.');
+        }
+    }
+
+    private customDictionarySourceFromText(
+        text: string,
+        exists: boolean
+    ): CustomDictionarySource {
+        this.validateCustomDictionaryText(text);
+        return {
+            text,
+            raw: exists ? Buffer.from(text, 'utf8') : null,
+            parsed: parseCustomDictionary(text),
+        };
+    }
+
+    private async readCustomDictionarySource(): Promise<CustomDictionarySource> {
+        let handle: fsp.FileHandle | null = null;
+        let raw: Buffer;
         try {
-            const stat = await fsp.stat(this.miningProfilePath);
+            const openFlags =
+                fsConstants.O_RDONLY |
+                (process.platform === 'win32' ? 0 : fsConstants.O_NONBLOCK);
+            handle = await fsp.open(this.customDictionaryPath, openFlags);
+            const stat = await handle.stat();
             if (
                 !stat.isFile() ||
-                stat.size === 0 ||
-                stat.size > MAX_MINING_PROFILE_BYTES
+                stat.size > MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES
             ) {
                 throw new Error(
-                    'Hoshidicts mining profile is empty, oversized, or not a file.'
+                    'Custom dictionary is oversized or is not a regular file.'
                 );
             }
-            raw = await fsp.readFile(this.miningProfilePath, 'utf8');
+            raw = await handle.readFile();
+            if (raw.length > MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES) {
+                throw new Error('Custom dictionary file exceeded its size limit.');
+            }
         } catch (error) {
             if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-                return defaultHoshidictsMiningProfile();
+                return this.customDictionarySourceFromText('', false);
+            }
+            throw error;
+        } finally {
+            await handle?.close();
+        }
+
+        let text: string;
+        try {
+            text = new TextDecoder('utf-8', {
+                fatal: true,
+                ignoreBOM: true,
+            }).decode(raw);
+        } catch {
+            throw new Error('Custom dictionary must contain valid UTF-8 text.');
+        }
+        return {
+            text,
+            raw,
+            parsed: parseCustomDictionary(text),
+        };
+    }
+
+    private customDictionaryDocument(
+        source: CustomDictionarySource
+    ): HoshidictsCustomDictionaryDocument {
+        return {
+            text: source.text,
+            revision: customDictionarySourceRevision(
+                source.text,
+                source.raw !== null
+            ),
+            exists: source.raw !== null,
+            filePath: this.customDictionaryPath,
+        };
+    }
+
+    private async stageCustomDictionary(
+        source: CustomDictionarySource,
+        manifest: PersistedManifest
+    ): Promise<StagedDictionary> {
+        const archiveRoot = path.join(
+            this.rootDir,
+            '.staging',
+            `custom-${this.deps.randomId()}`
+        );
+        const archivePath = path.join(archiveRoot, 'custom-dictionary.zip');
+        try {
+            await this.deps.writeCustomArchive(
+                archivePath,
+                HOSHIDICTS_CUSTOM_DICTIONARY_TITLE,
+                source.parsed.semanticRevision,
+                source.parsed.entries
+            );
+            const existing = manifest.dictionaries.some(
+                (dictionary) =>
+                    dictionary.id === HOSHIDICTS_CUSTOM_DICTIONARY_ID
+            );
+            const staged = await this.stageArchive(
+                archivePath,
+                manifest.dictionaries,
+                existing ? HOSHIDICTS_CUSTOM_DICTIONARY_ID : undefined,
+                null,
+                true
+            );
+            if (
+                staged.dictionary.revision !== source.parsed.semanticRevision ||
+                staged.dictionary.termCount !== source.parsed.entries.length
+            ) {
+                await this.discardStagedDictionary(staged);
+                throw new Error(
+                    'Compiled custom dictionary did not match its source entries.'
+                );
+            }
+            return staged;
+        } finally {
+            await fsp.rm(archiveRoot, { recursive: true, force: true });
+        }
+    }
+
+    private async applyCustomDictionarySource(
+        source: CustomDictionarySource,
+        previousSource: CustomDictionarySource,
+        writeSource: boolean
+    ): Promise<void> {
+        const manifest = await this.readManifest();
+        const existingIndex = manifest.dictionaries.findIndex(
+            (dictionary) => dictionary.id === HOSHIDICTS_CUSTOM_DICTIONARY_ID
+        );
+        const existing = manifest.dictionaries[existingIndex];
+        const needsGeneration =
+            source.parsed.entries.length > 0 &&
+            (!existing ||
+                existing.title !== HOSHIDICTS_CUSTOM_DICTIONARY_TITLE ||
+                existing.revision !== source.parsed.semanticRevision);
+        const needsPin =
+            existing !== undefined &&
+            (existingIndex !== 0 || existing.enabled !== true);
+        let staged: StagedDictionary | null = null;
+        if (needsGeneration) {
+            staged = await this.stageCustomDictionary(source, manifest);
+        }
+
+        const sourceChanged =
+            writeSource && !customSourcesMatch(source, previousSource);
+        try {
+            if (writeSource) {
+                const currentSource = await this.readCustomDictionarySource();
+                if (!customSourcesMatch(currentSource, previousSource)) {
+                    throw new Error(
+                        'The custom dictionary changed while the update was being prepared. Try again.'
+                    );
+                }
+                if (sourceChanged && source.raw) {
+                    await this.atomicWriteBuffer(
+                        source.raw,
+                        this.customDictionaryPath,
+                        '.custom-dictionary-'
+                    );
+                }
+            }
+        } catch (error) {
+            if (staged) {
+                await this.discardStagedDictionary(staged);
             }
             throw error;
         }
+
+        try {
+            if (source.parsed.entries.length === 0 && existing) {
+                const next: PersistedManifest = {
+                    ...manifest,
+                    dictionaries: manifest.dictionaries.filter(
+                        (dictionary) =>
+                            dictionary.id !== HOSHIDICTS_CUSTOM_DICTIONARY_ID
+                    ),
+                };
+                await this.commitManifestChange(
+                    manifest,
+                    next,
+                    null,
+                    existing.path
+                );
+            } else if (staged) {
+                await this.installStagedDictionary(manifest, staged);
+            } else if (needsPin) {
+                await this.commitManifestChange(
+                    manifest,
+                    pinCustomDictionary(manifest),
+                    null,
+                    null
+                );
+            }
+        } catch (error) {
+            let sourceRollbackError: unknown = null;
+            const manifestKeptNewSource =
+                error instanceof ManifestCommitError &&
+                !error.manifestRollbackRestored;
+            if (sourceChanged && !manifestKeptNewSource) {
+                try {
+                    await this.restoreCustomDictionarySource(previousSource.raw);
+                } catch (rollbackError) {
+                    sourceRollbackError = rollbackError;
+                }
+            }
+            if (staged) {
+                await this.discardStagedDictionaryIfUnreferenced(staged);
+            }
+            if (sourceRollbackError) {
+                throw new Error(
+                    `Custom dictionary update failed and its source rollback failed: ${errorMessage(
+                        error
+                    )}. Source rollback error: ${errorMessage(sourceRollbackError)}`
+                );
+            }
+            throw error;
+        }
+    }
+
+    private async restoreCustomDictionarySource(raw: Buffer | null): Promise<void> {
+        if (raw === null) {
+            await fsp.rm(this.customDictionaryPath, { force: true });
+            return;
+        }
+        await this.atomicWriteBuffer(
+            raw,
+            this.customDictionaryPath,
+            '.custom-dictionary-rollback-'
+        );
+    }
+
+    private async readMiningProfile(): Promise<HoshidictsMiningProfile> {
         return normalizeHoshidictsMiningProfile(
-            JSON.parse(raw.replace(/^\uFEFF/, ''))
+            await readBoundedJsonFile(
+                this.miningProfilePath,
+                MAX_MINING_PROFILE_BYTES,
+                'Hoshidicts mining profile',
+                defaultHoshidictsMiningProfile
+            )
+        );
+    }
+
+    private async readAudioProfile(): Promise<HoshidictsAudioProfile> {
+        return normalizeHoshidictsAudioProfile(
+            await readBoundedJsonFile(
+                this.audioProfilePath,
+                MAX_AUDIO_PROFILE_BYTES,
+                'Hoshidicts audio profile',
+                defaultHoshidictsAudioProfile
+            )
         );
     }
 
     private async readManifest(): Promise<PersistedManifest> {
-        let raw: string;
-        try {
-            const stat = await fsp.stat(this.manifestPath);
-            if (!stat.isFile() || stat.size === 0 || stat.size > MAX_MANIFEST_BYTES) {
-                throw new Error('Hoshidicts manifest is empty, oversized, or not a file.');
-            }
-            raw = await fsp.readFile(this.manifestPath, 'utf8');
-        } catch (error) {
-            if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-                return emptyManifest();
-            }
-            throw error;
-        }
-
-        const parsed: unknown = JSON.parse(raw.replace(/^\uFEFF/, ''));
+        const parsed = await readBoundedJsonFile(
+            this.manifestPath,
+            MAX_MANIFEST_BYTES,
+            'Hoshidicts manifest',
+            emptyManifest
+        );
         if (!isRecord(parsed) || parsed.version !== MANIFEST_VERSION) {
             throw new Error('Hoshidicts manifest has an unsupported version.');
         }
@@ -1522,13 +2300,18 @@ export class HoshidictsManager {
             const dictionaryPath = path.join(this.rootDir, ...relativePath.split('/'));
             await validateNativeDictionaryFiles(dictionaryPath);
             const index = await readGeneratedIndex(dictionaryPath);
+            const recommendedId = isRecommendedDictionaryId(value.recommendedId)
+                ? value.recommendedId
+                : null;
+            await validateNativeMediaFiles(dictionaryPath, index.mediaCount);
             dictionaries.push(
                 dictionaryStateFromIndex(
                     value.id,
                     relativePath,
                     value.enabled !== false,
                     index,
-                    this.deps.now()
+                    this.deps.now(),
+                    recommendedId
                 )
             );
         }
@@ -1536,7 +2319,14 @@ export class HoshidictsManager {
         return {
             version: MANIFEST_VERSION,
             lookupMode: parsed.lookupMode === 'hover' ? 'hover' : 'shift',
+            activationKey: isHoshidictsActivationKey(parsed.activationKey)
+                ? parsed.activationKey
+                : DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
+            sourceHighlightEnabled: parsed.sourceHighlightEnabled === true,
             popupHideDelayMs: normalizePopupHideDelay(parsed.popupHideDelayMs),
+            popupNestingMaxDepth: normalizePopupNestingMaxDepth(
+                parsed.popupNestingMaxDepth
+            ),
             definitionBlur: normalizeDefinitionBlur(parsed.definitionBlur),
             schedule: normalizeSchedule(parsed.schedule),
             lastCheck: normalizeDate(parsed.lastCheck),
@@ -1547,27 +2337,26 @@ export class HoshidictsManager {
     }
 
     private async readManifestPreferences(): Promise<PersistedManifest> {
-        let raw: string;
-        try {
-            const stat = await fsp.stat(this.manifestPath);
-            if (!stat.isFile() || stat.size === 0 || stat.size > MAX_MANIFEST_BYTES) {
-                throw new Error('Hoshidicts manifest is empty, oversized, or not a file.');
-            }
-            raw = await fsp.readFile(this.manifestPath, 'utf8');
-        } catch (error) {
-            if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-                return emptyManifest();
-            }
-            throw error;
-        }
-        const parsed: unknown = JSON.parse(raw.replace(/^\uFEFF/, ''));
+        const parsed = await readBoundedJsonFile(
+            this.manifestPath,
+            MAX_MANIFEST_BYTES,
+            'Hoshidicts manifest',
+            emptyManifest
+        );
         if (!isRecord(parsed) || parsed.version !== MANIFEST_VERSION) {
             throw new Error('Hoshidicts manifest has an unsupported version.');
         }
         return {
             version: MANIFEST_VERSION,
             lookupMode: parsed.lookupMode === 'hover' ? 'hover' : 'shift',
+            activationKey: isHoshidictsActivationKey(parsed.activationKey)
+                ? parsed.activationKey
+                : DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
+            sourceHighlightEnabled: parsed.sourceHighlightEnabled === true,
             popupHideDelayMs: normalizePopupHideDelay(parsed.popupHideDelayMs),
+            popupNestingMaxDepth: normalizePopupNestingMaxDepth(
+                parsed.popupNestingMaxDepth
+            ),
             definitionBlur: normalizeDefinitionBlur(parsed.definitionBlur),
             schedule: normalizeSchedule(parsed.schedule),
             lastCheck: normalizeDate(parsed.lastCheck),
@@ -1580,7 +2369,9 @@ export class HoshidictsManager {
     private async stageArchive(
         archivePath: string,
         installedDictionaries: PersistedDictionary[] = [],
-        expectedId?: string
+        expectedId?: string,
+        recommended: RecommendedHoshidictsDictionary | null = null,
+        customDictionary = false
     ): Promise<StagedDictionary> {
         const inspection = await this.deps.inspectArchive(archivePath);
         const explicitLanguage = inspection.sourceLanguage?.toLowerCase() ?? null;
@@ -1589,12 +2380,16 @@ export class HoshidictsManager {
                 `Dictionary source language must be ja, not ${inspection.sourceLanguage}.`
             );
         }
-        if (!inspection.hasTermBank) {
-            throw new Error('Dictionary archive does not contain term entries.');
+        if (!inspection.hasSupportedBank) {
+            throw new Error('Dictionary archive does not contain supported entries.');
         }
-        if (explicitLanguage === null && !inspection.hasJapaneseTerm) {
+        if (
+            explicitLanguage === null &&
+            !inspection.hasJapaneseEntry &&
+            recommended === null
+        ) {
             throw new Error(
-                'Legacy dictionaries without sourceLanguage must contain Japanese terms.'
+                'Legacy dictionaries without sourceLanguage must contain Japanese entries.'
             );
         }
 
@@ -1608,18 +2403,22 @@ export class HoshidictsManager {
             if (!report.success) {
                 throw new Error(report.error || 'Hoshidicts import failed.');
             }
-            if (!report.title || report.termCount === 0) {
-                throw new Error('Dictionary archive does not contain term entries.');
+            if (!report.title) {
+                throw new Error('Dictionary archive does not contain supported entries.');
             }
             const directoryName = dictionaryDirectoryName(report.title);
             const outputDictionaryPath = path.join(outputDir, directoryName);
             await validateNativeDictionaryFiles(outputDictionaryPath);
             const index = await readGeneratedIndex(outputDictionaryPath);
+            await validateNativeMediaFiles(
+                outputDictionaryPath,
+                Math.max(index.mediaCount, normalizeCount(report.mediaCount))
+            );
             if (index.title !== report.title) {
                 throw new Error('Imported dictionary title did not match generated index.json.');
             }
-            if (index.termCount === 0) {
-                throw new Error('Dictionary archive does not contain term entries.');
+            if (generatedIndexEntryCount(index) === 0) {
+                throw new Error('Dictionary archive does not contain supported entries.');
             }
             const generatedLanguage = index.sourceLanguage?.toLowerCase() ?? null;
             if (generatedLanguage !== null && generatedLanguage !== 'ja') {
@@ -1629,6 +2428,12 @@ export class HoshidictsManager {
             }
 
             const generatedId = stableHoshidictsDictionaryId(index.title);
+            if (
+                customDictionary &&
+                index.title !== HOSHIDICTS_CUSTOM_DICTIONARY_TITLE
+            ) {
+                throw new Error('Compiled custom dictionary identity did not match.');
+            }
             const generatedIndexUrl = parseHttpsUrl(index.indexUrl);
             const existing = expectedId
                 ? installedDictionaries.find(
@@ -1640,11 +2445,35 @@ export class HoshidictsManager {
                             parseHttpsUrl(dictionary.indexUrl) ===
                             generatedIndexUrl
                     )
-                  : undefined;
+                  : installedDictionaries.find(
+                        (dictionary) => dictionary.id === generatedId
+                    );
             if (expectedId && !existing) {
                 throw new Error('Updated dictionary is not installed.');
             }
-            if (existing) {
+            const associatedRecommendation =
+                recommended ??
+                (existing ? recommendedDictionaryForPersisted(existing) : null);
+            if (
+                associatedRecommendation &&
+                !generatedIndexMatchesKind(index, associatedRecommendation.kind)
+            ) {
+                throw new Error(
+                    `Downloaded ${associatedRecommendation.id} archive did not contain ${associatedRecommendation.kind} entries.`
+                );
+            }
+            if (
+                associatedRecommendation &&
+                !generatedIndexMatchesRecommendationIdentity(
+                    index,
+                    associatedRecommendation
+                )
+            ) {
+                throw new Error(
+                    `Downloaded ${associatedRecommendation.id} archive did not match its trusted identity.`
+                );
+            }
+            if (existing && !customDictionary) {
                 const existingIndexUrl = parseHttpsUrl(existing.indexUrl);
                 const sameDictionary =
                     existingIndexUrl !== null
@@ -1656,7 +2485,9 @@ export class HoshidictsManager {
                     );
                 }
             }
-            const id = existing?.id ?? generatedId;
+            const id = customDictionary
+                ? HOSHIDICTS_CUSTOM_DICTIONARY_ID
+                : (existing?.id ?? generatedId);
             const generation = `${this.deps.now().getTime().toString(36)}-${operationId}`;
             const relativePath = path.posix.join(
                 'generations',
@@ -1671,15 +2502,16 @@ export class HoshidictsManager {
                 generation
             );
             const finalDictionaryPath = path.join(finalGenerationRoot, directoryName);
-            await fsp.mkdir(finalGenerationRoot, { recursive: true });
-            await fsp.rename(outputDictionaryPath, finalDictionaryPath);
             const dictionary = dictionaryStateFromIndex(
                 id,
                 relativePath,
                 true,
                 index,
-                this.deps.now()
+                this.deps.now(),
+                associatedRecommendation?.id ?? null
             );
+            await fsp.mkdir(finalGenerationRoot, { recursive: true });
+            await fsp.rename(outputDictionaryPath, finalDictionaryPath);
             return { dictionary, generationRoot: finalGenerationRoot };
         } catch (error) {
             if (finalGenerationRoot) {
@@ -1750,15 +2582,19 @@ export class HoshidictsManager {
             });
             const staged = await this.stageArchive(
                 archivePath,
-                manifest.dictionaries
+                manifest.dictionaries,
+                undefined,
+                recommended
             );
-            if (
-                parseHttpsUrl(staged.dictionary.indexUrl) !==
-                recommended.indexUrl
-            ) {
+            const identityMatches =
+                recommended.indexUrl !== null
+                    ? parseHttpsUrl(staged.dictionary.indexUrl) ===
+                      recommended.indexUrl
+                    : staged.dictionary.title === recommended.expectedTitle;
+            if (!identityMatches) {
                 await this.discardStagedDictionary(staged);
                 throw new Error(
-                    `Downloaded ${recommended.id} archive did not match its trusted update URL.`
+                    `Downloaded ${recommended.id} archive did not match its trusted identity.`
                 );
             }
             try {
@@ -1781,6 +2617,7 @@ export class HoshidictsManager {
         newGenerationRoot: string | null,
         oldDictionaryPath: string | null
     ): Promise<void> {
+        next = pinCustomDictionary(next);
         const previousRaw = await this.readManifestRaw();
         await this.atomicWriteManifest(next);
         this.setProgress({ phase: 'reloading' });
@@ -1800,21 +2637,23 @@ export class HoshidictsManager {
                 await fsp.rm(newGenerationRoot, { recursive: true, force: true });
             }
             if (!rollbackManifestRestored) {
-                throw new Error(
+                throw new ManifestCommitError(
                     `Native Hoshidicts reload failed and manifest rollback failed: ${errorMessage(
                         reloadError
                     )}. The new dictionary generation was retained for recovery. Rollback error: ${errorMessage(
                         rollbackError
-                    )}`
+                    )}`,
+                    false
                 );
             }
             const suffix = rollbackError
                 ? ` Native rollback reload also failed: ${errorMessage(rollbackError)}.`
                 : '';
-            throw new Error(
+            throw new ManifestCommitError(
                 `Native Hoshidicts reload failed; the previous dictionaries were restored: ${errorMessage(
                     reloadError
-                )}.${suffix}`
+                )}.${suffix}`,
+                true
             );
         }
 
@@ -1901,28 +2740,54 @@ export class HoshidictsManager {
     }
 
     private async atomicWriteManifest(manifest: PersistedManifest): Promise<void> {
-        const serialized = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-        if (serialized.length > MAX_MANIFEST_BYTES) {
-            throw new Error('Hoshidicts manifest exceeded its size limit.');
-        }
-        await this.atomicWriteBuffer(serialized);
+        await this.atomicWriteJson(
+            manifest,
+            this.manifestPath,
+            MAX_MANIFEST_BYTES,
+            'Hoshidicts manifest',
+            '.manifest-'
+        );
     }
 
     private async atomicWriteMiningProfile(
         profile: HoshidictsMiningProfile
     ): Promise<void> {
-        const serialized = Buffer.from(
-            `${JSON.stringify(profile, null, 2)}\n`,
-            'utf8'
-        );
-        if (serialized.length > MAX_MINING_PROFILE_BYTES) {
-            throw new Error('Hoshidicts mining profile exceeded its size limit.');
-        }
-        await this.atomicWriteBuffer(
-            serialized,
+        await this.atomicWriteJson(
+            profile,
             this.miningProfilePath,
+            MAX_MINING_PROFILE_BYTES,
+            'Hoshidicts mining profile',
             '.mining-profile-'
         );
+    }
+
+    private async atomicWriteAudioProfile(
+        profile: HoshidictsAudioProfile
+    ): Promise<void> {
+        await this.atomicWriteJson(
+            profile,
+            this.audioProfilePath,
+            MAX_AUDIO_PROFILE_BYTES,
+            'Hoshidicts audio profile',
+            '.audio-profile-'
+        );
+    }
+
+    private async atomicWriteJson(
+        value: unknown,
+        destination: string,
+        maximumBytes: number,
+        label: string,
+        temporaryPrefix: string
+    ): Promise<void> {
+        const serialized = Buffer.from(
+            `${JSON.stringify(value, null, 2)}\n`,
+            'utf8'
+        );
+        if (serialized.length > maximumBytes) {
+            throw new Error(`${label} exceeded its size limit.`);
+        }
+        await this.atomicWriteBuffer(serialized, destination, temporaryPrefix);
     }
 
     private async atomicWriteBuffer(

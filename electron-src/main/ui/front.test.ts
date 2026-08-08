@@ -154,6 +154,9 @@ describe('runOverlayWithSource', () => {
                 GSM_CLIENT_ID: 'overlay',
                 GSM_HOSHIDICTS_ENABLED: '0',
                 GSM_HOSHIDICTS_LOOKUP_MODE: 'shift',
+                GSM_HOSHIDICTS_ACTIVATION_KEY: 'Shift',
+                GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED: '0',
+                GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH: '10',
                 GSM_HOSHIDICTS_DEFINITION_BLUR_ENABLED: '0',
                 GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD: '5',
                 GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_MODE: 'timed',
@@ -183,6 +186,13 @@ describe('runOverlayWithSource', () => {
         expect(startInProcessOverlayMock).toHaveBeenCalledTimes(1);
         expect(process.env.GSM_HOSHIDICTS_ENABLED).toBe('1');
         expect(process.env.GSM_HOSHIDICTS_LOOKUP_MODE).toBe('shift');
+        expect(process.env.GSM_HOSHIDICTS_ACTIVATION_KEY).toBe('Shift');
+        expect(process.env.GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED).toBe('0');
+        expect(process.env.GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH).toBe('10');
+        expect(process.env.GSM_HOSHIDICTS_DEFINITION_BLUR_ENABLED).toBe('0');
+        expect(process.env.GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD).toBe('5');
+        expect(process.env.GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_MODE).toBe('timed');
+        expect(process.env.GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS).toBe('5000');
         expect(process.env.GSM_BROKER_PORT).toBe('4567');
         expect(process.env.GSM_BROKER_TOKEN).toBe('overlay-bus-token');
         expect(process.env.GSM_CLIENT_ID).toBe('overlay');
@@ -208,8 +218,15 @@ describe('runOverlayWithSource', () => {
         spawnMock.mockReturnValue(processHandle);
 
         const front = await loadFrontModule();
+        const syncCustomDictionary = vi.fn(async () => undefined);
         front.configureHoshidictsLookupModeProvider(async () => 'hover');
+        front.configureHoshidictsActivationKeyProvider(async () => 'F8');
+        front.configureHoshidictsSourceHighlightProvider(async () => true);
         front.configureHoshidictsPopupHideDelayProvider(async () => 850);
+        front.configureHoshidictsCustomDictionarySyncProvider(
+            syncCustomDictionary
+        );
+        front.configureHoshidictsPopupNestingMaxDepthProvider(async () => 4);
         front.configureHoshidictsDefinitionBlurProvider(async () => ({
             enabled: true,
             lookupThreshold: 8,
@@ -222,24 +239,53 @@ describe('runOverlayWithSource', () => {
         expect(spawnMock.mock.calls[0][2].env).toMatchObject({
             GSM_HOSHIDICTS_ENABLED: '1',
             GSM_HOSHIDICTS_LOOKUP_MODE: 'hover',
+            GSM_HOSHIDICTS_ACTIVATION_KEY: 'F8',
+            GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED: '1',
             GSM_HOSHIDICTS_POPUP_HIDE_DELAY_MS: '850',
+            GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH: '4',
             GSM_HOSHIDICTS_DEFINITION_BLUR_ENABLED: '1',
             GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD: '8',
             GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_MODE: 'hover',
             GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS: '7000',
         });
         expect(front.getOverlayHoshidictsLookupModeAtLaunch()).toBe('hover');
+        expect(front.getOverlayHoshidictsActivationKeyAtLaunch()).toBe('F8');
+        expect(front.getOverlayHoshidictsSourceHighlightEnabledAtLaunch()).toBe(true);
         expect(front.getOverlayHoshidictsPopupHideDelayAtLaunch()).toBe(850);
+        expect(front.getOverlayHoshidictsPopupNestingMaxDepthAtLaunch()).toBe(4);
         expect(front.getOverlayHoshidictsDefinitionBlurAtLaunch()).toEqual({
             enabled: true,
             lookupThreshold: 8,
             revealMode: 'hover',
             revealDelayMs: 7000,
         });
+        expect(syncCustomDictionary).toHaveBeenCalledOnce();
+        expect(
+            front.getOverlayHoshidictsAudioProfileRestartRequired()
+        ).toBe(false);
+        expect(front.markOverlayHoshidictsAudioProfileSyncFailed()).toBe(true);
+        expect(
+            front.getOverlayHoshidictsAudioProfileRestartRequired()
+        ).toBe(true);
+        expect(
+            front.markOverlayHoshidictsAudioProfileApplied({
+                version: 1,
+                enabled: true,
+                autoPlay: false,
+                volume: 100,
+                sources: [],
+            })
+        ).toBe(true);
+        expect(
+            front.getOverlayHoshidictsAudioProfileRestartRequired()
+        ).toBe(false);
         expect(
             front.markOverlayHoshidictsReaderPreferencesApplied({
                 lookupMode: 'shift',
+                activationKey: 'Space',
+                sourceHighlightEnabled: false,
                 popupHideDelayMs: 1200,
+                popupNestingMaxDepth: 0,
                 definitionBlur: {
                     enabled: false,
                     lookupThreshold: 10,
@@ -249,7 +295,10 @@ describe('runOverlayWithSource', () => {
             })
         ).toBe(true);
         expect(front.getOverlayHoshidictsLookupModeAtLaunch()).toBe('shift');
+        expect(front.getOverlayHoshidictsActivationKeyAtLaunch()).toBe('Space');
+        expect(front.getOverlayHoshidictsSourceHighlightEnabledAtLaunch()).toBe(false);
         expect(front.getOverlayHoshidictsPopupHideDelayAtLaunch()).toBe(1200);
+        expect(front.getOverlayHoshidictsPopupNestingMaxDepthAtLaunch()).toBe(0);
         expect(front.getOverlayHoshidictsDefinitionBlurAtLaunch()).toEqual({
             enabled: false,
             lookupThreshold: 10,
@@ -280,6 +329,56 @@ describe('runOverlayWithSource', () => {
             GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_MODE: 'timed',
             GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS: '5000',
         });
+    });
+
+    it('does not wait for custom dictionary synchronization before launching', async () => {
+        isDevValue = true;
+        hoshidictsEnabledValue = true;
+        existsSyncMock.mockReturnValue(true);
+        spawnMock.mockReturnValue(createProcessHandle());
+        let finishSync!: () => void;
+        const syncCustomDictionary = vi.fn(
+            () =>
+                new Promise<void>((resolve) => {
+                    finishSync = resolve;
+                })
+        );
+        const front = await loadFrontModule();
+        front.configureHoshidictsCustomDictionarySyncProvider(
+            syncCustomDictionary
+        );
+
+        const launch = front.runOverlayWithSource('manual');
+
+        try {
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            expect(syncCustomDictionary).toHaveBeenCalledOnce();
+            expect(spawnMock).toHaveBeenCalledOnce();
+            await expect(launch).resolves.toBe(true);
+        } finally {
+            finishSync();
+        }
+    });
+
+    it('uses the last compiled custom dictionary if pre-launch synchronization fails', async () => {
+        isDevValue = true;
+        hoshidictsEnabledValue = true;
+        existsSyncMock.mockReturnValue(true);
+        spawnMock.mockReturnValue(createProcessHandle());
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const front = await loadFrontModule();
+        front.configureHoshidictsCustomDictionarySyncProvider(async () => {
+            throw new Error('custom refresh failed');
+        });
+
+        await expect(front.runOverlayWithSource('manual')).resolves.toBe(true);
+
+        expect(spawnMock).toHaveBeenCalledOnce();
+        expect(warn).toHaveBeenCalledWith(
+            expect.stringContaining('last active version'),
+            expect.any(Error)
+        );
+        warn.mockRestore();
     });
 
     it('stops the whole Windows process tree for source-launched overlays', async () => {

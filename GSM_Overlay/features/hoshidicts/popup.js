@@ -22,6 +22,12 @@
   const DEFAULT_MAX_METADATA_TAGS = 12;
   const DEFAULT_HIGHLIGHT_NAME = "gsm-hoshidicts-match";
   const DEFINITION_BLUR_STATES = new Set(["pending", "blurred"]);
+  const MAX_CUSTOM_DEFINITION_BYTES = 2 * 1024;
+  const UTF8_ENCODER = new TextEncoder();
+
+  function isJsonStringWithinUtf8Limit(value, maxBytes) {
+    return UTF8_ENCODER.encode(JSON.stringify(value)).length <= maxBytes + 2;
+  }
 
   function createTag(documentRef, text, description, kind) {
     const tag = documentRef.createElement("span");
@@ -58,9 +64,10 @@
   }
 
   function createSourceHighlighter(windowRef, documentRef, highlightName) {
-    let highlightedSourceElements = [];
+    const matches = new Map();
+    let highlightedSourceElements = new Set();
 
-    function clear() {
+    function clearRenderedHighlight() {
       const highlights = windowRef.CSS && windowRef.CSS.highlights;
       if (highlights && typeof highlights.delete === "function") {
         highlights.delete(highlightName);
@@ -68,80 +75,180 @@
       for (const element of highlightedSourceElements) {
         element.classList.remove("gsm-hoshidicts-source-match");
       }
-      highlightedSourceElements = [];
+      highlightedSourceElements = new Set();
     }
 
-    function apply(candidate, matchedText) {
-      clear();
+    function createMatchRanges(candidate, matchedText) {
       const matchLength = typeof matchedText === "string" ? matchedText.length : 0;
       if (matchLength <= 0 || !Array.isArray(candidate.sourceElements)) {
-        return;
+        return null;
       }
       const startOffset = Math.max(0, candidate.matchOffset);
       const endOffset = Math.min(candidate.sentence.length, startOffset + matchLength);
       if (endOffset <= startOffset) {
-        return;
+        return null;
       }
 
-      const sourceElements = candidate.sourceElements.filter(
-        (element) => element instanceof windowRef.Element && element.isConnected
-      );
+      const sourceElements = candidate.sourceElements;
+      if (
+        sourceElements.some(
+          (element) => !(element instanceof windowRef.Element) || !element.isConnected
+        ) ||
+        sourceElements.map((element) => element.textContent || "").join("") !==
+          candidate.sentence
+      ) {
+        return null;
+      }
+      const showText = windowRef.NodeFilter ? windowRef.NodeFilter.SHOW_TEXT : 4;
+      const ranges = [];
+      const rangedSourceElements = new Set();
       let elementStart = 0;
       for (const element of sourceElements) {
         const elementEnd = elementStart + (element.textContent || "").length;
-        if (elementEnd > startOffset && elementStart < endOffset) {
-          element.classList.add("gsm-hoshidicts-source-match");
-          highlightedSourceElements.push(element);
+        if (elementEnd <= startOffset || elementStart >= endOffset) {
+          elementStart = elementEnd;
+          continue;
         }
-        elementStart = elementEnd;
-      }
-
-      const highlights = windowRef.CSS && windowRef.CSS.highlights;
-      const HighlightImpl = windowRef.Highlight;
-      if (!highlights || typeof highlights.set !== "function" || !HighlightImpl) {
-        return;
-      }
-      const textNodes = [];
-      const showText = windowRef.NodeFilter ? windowRef.NodeFilter.SHOW_TEXT : 4;
-      for (const element of sourceElements) {
+        const textNodes = [];
         const walker = documentRef.createTreeWalker(element, showText);
         let node = walker.nextNode();
         while (node) {
           textNodes.push(node);
           node = walker.nextNode();
         }
-      }
-      function findBoundary(offset) {
-        let consumed = 0;
-        for (const node of textNodes) {
-          const length = (node.nodeValue || "").length;
-          if (offset <= consumed + length) {
-            return { node, offset: Math.max(0, offset - consumed) };
+
+        function findBoundary(offset, preferFollowingNode) {
+          let consumed = 0;
+          for (let index = 0; index < textNodes.length; index += 1) {
+            const textNode = textNodes[index];
+            const length = (textNode.nodeValue || "").length;
+            const nodeEnd = consumed + length;
+            if (
+              offset < nodeEnd ||
+              (
+                offset === nodeEnd &&
+                (!preferFollowingNode || index === textNodes.length - 1)
+              )
+            ) {
+              return {
+                node: textNode,
+                offset: Math.max(0, Math.min(length, offset - consumed)),
+              };
+            }
+            consumed = nodeEnd;
           }
-          consumed += length;
+          return null;
         }
-        return null;
-      }
-      const start = findBoundary(startOffset);
-      const end = findBoundary(endOffset);
-      if (!start || !end) {
-        return;
-      }
-      try {
-        const range = documentRef.createRange();
-        range.setStart(start.node, start.offset);
-        range.setEnd(end.node, end.offset);
-        highlights.set(highlightName, new HighlightImpl(range));
-        for (const element of highlightedSourceElements) {
-          element.classList.remove("gsm-hoshidicts-source-match");
+
+        const localStart = Math.max(0, startOffset - elementStart);
+        const localEnd = Math.min(elementEnd, endOffset) - elementStart;
+        const start = findBoundary(localStart, true);
+        const end = findBoundary(localEnd, false);
+        if (start && end) {
+          try {
+            const range = documentRef.createRange();
+            range.setStart(start.node, start.offset);
+            range.setEnd(end.node, end.offset);
+            ranges.push(range);
+            rangedSourceElements.add(element);
+          } catch {
+            // The class fallback below handles invalid ranges.
+          }
         }
-        highlightedSourceElements = [];
-      } catch {
-        // Keep the non-mutating element-class fallback when exact ranges fail.
+        elementStart = elementEnd;
+      }
+      return {
+        ranges,
+        rangedSourceElements,
+        sourceElements,
+        startOffset,
+        endOffset,
+      };
+    }
+
+    function applyElementFallback(match, skippedElements = new Set()) {
+      let elementStart = 0;
+      for (const element of match.sourceElements) {
+        const elementEnd = elementStart + (element.textContent || "").length;
+        if (
+          !skippedElements.has(element) &&
+          elementEnd > match.startOffset &&
+          elementStart < match.endOffset
+        ) {
+          element.classList.add("gsm-hoshidicts-source-match");
+          highlightedSourceElements.add(element);
+        }
+        elementStart = elementEnd;
       }
     }
 
-    return { apply, clear };
+    function render() {
+      clearRenderedHighlight();
+      const highlights = windowRef.CSS && windowRef.CSS.highlights;
+      const HighlightImpl = windowRef.Highlight;
+      const canUseRanges = Boolean(
+        highlights && typeof highlights.set === "function" && HighlightImpl
+      );
+      const ranges = [];
+      for (const { candidate, matchedText } of matches.values()) {
+        const match = createMatchRanges(candidate, matchedText);
+        if (!match) {
+          continue;
+        }
+        if (canUseRanges && match.ranges.length > 0) {
+          ranges.push(...match.ranges);
+          applyElementFallback(match, match.rangedSourceElements);
+        } else {
+          applyElementFallback(match);
+        }
+      }
+      if (canUseRanges && ranges.length > 0) {
+        try {
+          highlights.set(highlightName, new HighlightImpl(...ranges));
+        } catch {
+          for (const { candidate, matchedText } of matches.values()) {
+            const match = createMatchRanges(candidate, matchedText);
+            if (match) {
+              applyElementFallback(match);
+            }
+          }
+        }
+      }
+    }
+
+    function applyFor(key, candidate, matchedText) {
+      matches.set(key, { candidate, matchedText });
+      render();
+    }
+
+    function clearFor(key) {
+      if (matches.delete(key)) {
+        render();
+      }
+    }
+
+    return {
+      apply(candidate, matchedText) {
+        applyFor("default", candidate, matchedText);
+      },
+      clear() {
+        clearFor("default");
+      },
+      scope(key) {
+        return {
+          apply(candidate, matchedText) {
+            applyFor(key, candidate, matchedText);
+          },
+          clear() {
+            clearFor(key);
+          },
+        };
+      },
+      clearAll() {
+        matches.clear();
+        clearRenderedHighlight();
+      },
+    };
   }
 
   function createPopupView(options) {
@@ -153,18 +260,39 @@
     const parseTagList = options.parseTagList;
     const positionPopup = options.positionPopup;
     const onMineClick = options.onMineClick;
+    const onKanjiClick = typeof options.onKanjiClick === "function"
+      ? options.onKanjiClick
+      : () => {};
+    const onAddCustomEntry = options.onAddCustomEntry;
+    const onNoteEditingChange =
+      typeof options.onNoteEditingChange === "function"
+        ? options.onNoteEditingChange
+        : () => {};
+    const onBeforeResultsRendered =
+      typeof options.onBeforeResultsRendered === "function"
+        ? options.onBeforeResultsRendered
+        : () => {};
+    const onResultsRendered = typeof options.onResultsRendered === "function"
+      ? options.onResultsRendered
+      : () => {};
+    const idPrefix = typeof options.idPrefix === "string" && options.idPrefix
+      ? options.idPrefix
+      : "gsm-hoshidicts";
     const initialResultCount = Number.isInteger(options.initialResultCount)
       ? Math.max(1, options.initialResultCount)
       : DEFAULT_INITIAL_RESULT_COUNT;
     const maxMetadataTags = Number.isInteger(options.maxMetadataTags)
       ? Math.max(1, options.maxMetadataTags)
       : DEFAULT_MAX_METADATA_TAGS;
-    const sourceHighlighter = createSourceHighlighter(
+    const sourceHighlighter = options.sourceHighlighter || createSourceHighlighter(
       windowRef,
       documentRef,
       options.highlightName || DEFAULT_HIGHLIGHT_NAME
     );
     let definitionBlurState = "revealed";
+    let sourceHighlightEnabled = options.sourceHighlightEnabled === true;
+    let currentSourceHighlight = null;
+    let noteEditing = false;
 
     function applyDefinitionBlurState(element) {
       if (DEFINITION_BLUR_STATES.has(definitionBlurState)) {
@@ -187,11 +315,35 @@
       return definitionBlurState;
     }
 
+    function setNoteEditing(editing) {
+      const nextEditing = Boolean(editing);
+      if (noteEditing === nextEditing) {
+        return;
+      }
+      noteEditing = nextEditing;
+      onNoteEditingChange(nextEditing);
+    }
+
     function clear() {
+      setNoteEditing(false);
       sourceHighlighter.clear();
+      currentSourceHighlight = null;
       popup.replaceChildren();
       popup.scrollTop = 0;
       setDefinitionBlurState("revealed");
+    }
+
+    function setSourceHighlightEnabled(enabled) {
+      sourceHighlightEnabled = enabled === true;
+      if (!sourceHighlightEnabled) {
+        sourceHighlighter.clear();
+      } else if (currentSourceHighlight) {
+        sourceHighlighter.apply(
+          currentSourceHighlight.candidate,
+          currentSourceHighlight.matchedText
+        );
+      }
+      return sourceHighlightEnabled;
     }
 
     function setFeedback(feedback, message, kind = "info") {
@@ -200,8 +352,187 @@
       feedback.textContent = message;
     }
 
-    function renderNotice(message) {
+    function appendNoteControls(prefill, selectTermOnOpen = false) {
+      const toolbar = documentRef.createElement("div");
+      toolbar.className = "gsm-hoshidicts-toolbar";
+
+      const noteButton = documentRef.createElement("button");
+      noteButton.type = "button";
+      noteButton.className = "gsm-hoshidicts-note-button";
+      noteButton.title = "Add a custom definition";
+      noteButton.setAttribute("aria-label", noteButton.title);
+      noteButton.setAttribute("aria-expanded", "false");
+
+      const noteIcon = documentRef.createElement("span");
+      noteIcon.className = "gsm-hoshidicts-note-icon";
+      noteIcon.setAttribute("aria-hidden", "true");
+      noteIcon.textContent = "\u270e";
+      noteButton.append(noteIcon, "Add definition");
+      toolbar.appendChild(noteButton);
+      popup.appendChild(toolbar);
+
+      const form = documentRef.createElement("form");
+      form.className = "gsm-hoshidicts-note-form";
+      form.hidden = true;
+
+      function appendField(labelText, field) {
+        const label = documentRef.createElement("label");
+        label.className = "gsm-hoshidicts-note-field";
+        const labelCaption = documentRef.createElement("span");
+        labelCaption.textContent = labelText;
+        label.appendChild(labelCaption);
+        label.appendChild(field);
+        form.appendChild(label);
+      }
+
+      const termInput = documentRef.createElement("input");
+      termInput.className = "gsm-hoshidicts-note-term";
+      termInput.type = "text";
+      termInput.required = true;
+      termInput.maxLength = 1024;
+      termInput.autocomplete = "off";
+      termInput.value = String(prefill?.term || "");
+      appendField("Term", termInput);
+
+      const readingInput = documentRef.createElement("input");
+      readingInput.className = "gsm-hoshidicts-note-reading";
+      readingInput.type = "text";
+      readingInput.required = true;
+      readingInput.maxLength = 1024;
+      readingInput.autocomplete = "off";
+      readingInput.value = String(prefill?.reading || "");
+      appendField("Reading", readingInput);
+
+      const definitionInput = documentRef.createElement("textarea");
+      definitionInput.className = "gsm-hoshidicts-note-definition";
+      definitionInput.required = true;
+      definitionInput.maxLength = MAX_CUSTOM_DEFINITION_BYTES;
+      definitionInput.rows = 3;
+      definitionInput.value = String(prefill?.definition || "");
+      appendField("Definition", definitionInput);
+
+      const error = documentRef.createElement("div");
+      error.className = "gsm-hoshidicts-note-error";
+      error.setAttribute("role", "alert");
+      error.hidden = true;
+      form.appendChild(error);
+
+      const actions = documentRef.createElement("div");
+      actions.className = "gsm-hoshidicts-note-actions";
+      const cancelButton = documentRef.createElement("button");
+      cancelButton.type = "button";
+      cancelButton.className = "gsm-hoshidicts-note-cancel";
+      cancelButton.textContent = "Cancel";
+      const saveButton = documentRef.createElement("button");
+      saveButton.type = "submit";
+      saveButton.className = "gsm-hoshidicts-note-save";
+      saveButton.textContent = "Save";
+      actions.append(cancelButton, saveButton);
+      form.appendChild(actions);
+      popup.appendChild(form);
+      let saving = false;
+
+      function setSaving(nextSaving) {
+        saving = nextSaving;
+        termInput.disabled = saving;
+        readingInput.disabled = saving;
+        definitionInput.disabled = saving;
+        cancelButton.disabled = saving;
+        saveButton.disabled = saving;
+        saveButton.textContent = saving ? "Saving\u2026" : "Save";
+      }
+
+      function closeForm(force = false) {
+        if (saving && !force) {
+          return;
+        }
+        form.hidden = true;
+        noteButton.setAttribute("aria-expanded", "false");
+        setNoteEditing(false);
+        positionPopup();
+      }
+
+      function openForm() {
+        form.hidden = false;
+        noteButton.setAttribute("aria-expanded", "true");
+        setNoteEditing(true);
+        popup.scrollTop = 0;
+        termInput.focus();
+        if (selectTermOnOpen) {
+          termInput.select();
+        }
+        positionPopup();
+      }
+
+      noteButton.addEventListener("click", openForm);
+      cancelButton.addEventListener("click", closeForm);
+      form.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        closeForm();
+        noteButton.focus();
+      });
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const entry = {
+          term: termInput.value.trim(),
+          reading: readingInput.value.trim(),
+          definition: definitionInput.value.trim(),
+        };
+        if (!entry.term || !entry.reading || !entry.definition) {
+          error.textContent = "Term, reading, and definition are required.";
+          error.hidden = false;
+          return;
+        }
+        if (entry.term.startsWith("#")) {
+          error.textContent = "Custom dictionary terms cannot begin with #.";
+          error.hidden = false;
+          return;
+        }
+        if (!isJsonStringWithinUtf8Limit(
+          entry.definition,
+          MAX_CUSTOM_DEFINITION_BYTES
+        )) {
+          error.textContent =
+            "The definition must be no larger than 2 KiB when saved.";
+          error.hidden = false;
+          return;
+        }
+        if (typeof onAddCustomEntry !== "function") {
+          error.textContent = "The custom dictionary is unavailable.";
+          error.hidden = false;
+          return;
+        }
+
+        error.hidden = true;
+        setSaving(true);
+        try {
+          await onAddCustomEntry(entry);
+          closeForm(true);
+        } catch (saveError) {
+          error.textContent = saveError && typeof saveError.message === "string"
+            ? saveError.message
+            : String(saveError);
+          error.hidden = false;
+        } finally {
+          if (saveButton.isConnected) {
+            setSaving(false);
+            positionPopup();
+          }
+        }
+      });
+      return toolbar;
+    }
+
+    function renderNotice(message, candidate) {
       clear();
+      appendNoteControls(
+        { term: candidate?.query || "", reading: "", definition: "" },
+        true
+      );
       const notice = documentRef.createElement("div");
       notice.className = "gsm-hoshidicts-lookup-notice";
       notice.setAttribute("role", "status");
@@ -216,8 +547,8 @@
       let count = 0;
       for (const group of result.term.frequencies) {
         for (const frequency of group.frequencies) {
-          const value = frequency.displayValue || String(frequency.value);
-          const key = `frequency:${group.dictionary}:${value}`;
+          const value = frequency.displayValue ?? String(frequency.value);
+          const key = JSON.stringify([group.dictionary, frequency.value, frequency.displayValue]);
           if (!seen.has(key) && count < maxMetadataTags) {
             seen.add(key);
             row.appendChild(createTag(
@@ -249,16 +580,53 @@
       }
     }
 
-    function renderResults(results, candidate, renderOptions = {}) {
-      clear();
-      setDefinitionBlurState(renderOptions.definitionBlurState);
+    function collectDictionaries(results) {
+      const dictionaries = [];
+      const seen = new Set();
+      for (const result of results) {
+        for (const glossary of result.term.glossaries) {
+          if (!seen.has(glossary.dictionary)) {
+            seen.add(glossary.dictionary);
+            dictionaries.push(glossary.dictionary);
+          }
+        }
+      }
+      return dictionaries;
+    }
+
+    function projectResults(results, dictionary) {
+      if (dictionary === null) {
+        return results;
+      }
+      const projected = [];
+      for (const result of results) {
+        const glossaries = result.term.glossaries.filter(
+          (glossary) => glossary.dictionary === dictionary
+        );
+        if (glossaries.length === 0) {
+          continue;
+        }
+        projected.push({
+          ...result,
+          term: {
+            ...result.term,
+            glossaries,
+          },
+        });
+      }
+      return projected;
+    }
+
+    function renderResultPanel(panel, results, candidate, renderContext) {
+      panel.replaceChildren();
       const feedback = documentRef.createElement("div");
       feedback.className = "gsm-hoshidicts-mining-feedback";
       feedback.setAttribute("role", "status");
       feedback.setAttribute("aria-live", "polite");
       feedback.hidden = true;
-      popup.appendChild(feedback);
+      panel.appendChild(feedback);
       const miningButtons = [];
+      const audioItems = [];
 
       results.forEach((result, resultIndex) => {
         const entry = documentRef.createElement("article");
@@ -276,9 +644,22 @@
           documentRef,
           expression,
           result.term.expression,
-          result.term.reading
+          result.term.reading,
+          (character) => onKanjiClick(character, result, candidate)
         );
         header.appendChild(expression);
+
+        const actions = documentRef.createElement("div");
+        actions.className = "gsm-hoshidicts-entry-actions";
+        const audioButton = documentRef.createElement("button");
+        audioButton.type = "button";
+        audioButton.className = "gsm-hoshidicts-audio-button";
+        audioButton.dataset.state = "ready";
+        audioButton.title = "Play pronunciation";
+        audioButton.setAttribute("aria-label", audioButton.title);
+        audioButton.textContent = "🔊";
+        actions.appendChild(audioButton);
+        audioItems.push({ button: audioButton, result });
 
         const mineButton = documentRef.createElement("button");
         mineButton.type = "button";
@@ -287,7 +668,8 @@
         mineButton.addEventListener("click", () => {
           onMineClick(mineButton, result, candidate, feedback);
         });
-        header.appendChild(mineButton);
+        actions.appendChild(mineButton);
+        header.appendChild(actions);
         miningButtons.push(mineButton);
         entry.appendChild(header);
 
@@ -330,6 +712,7 @@
           const details = documentRef.createElement("details");
           details.className = "gsm-hoshidicts-glossary-card";
           details.open = dictionaryIndex === 0;
+          details.addEventListener("toggle", positionPopup);
           const summary = documentRef.createElement("summary");
           summary.textContent = dictionary;
           details.appendChild(summary);
@@ -351,7 +734,12 @@
             }
             const content = documentRef.createElement("div");
             content.className = "gsm-hoshidicts-glossary-content";
-            appendTextOnlyGlossary(documentRef, content, glossary.glossary);
+            appendTextOnlyGlossary(documentRef, content, glossary.glossary, {
+              dictionary,
+              generation: renderContext.generation,
+              onLayoutChange: positionPopup,
+              resolveMedia: renderContext.resolveMedia,
+            });
             definition.appendChild(content);
             definitions.appendChild(definition);
           }
@@ -359,7 +747,7 @@
           entry.appendChild(details);
           dictionaryIndex += 1;
         }
-        popup.appendChild(entry);
+        panel.appendChild(entry);
       });
 
       if (results.length > initialResultCount) {
@@ -368,32 +756,268 @@
         showMore.className = "gsm-hoshidicts-show-more";
         showMore.textContent = `Show ${results.length - initialResultCount} more`;
         showMore.addEventListener("click", () => {
-          for (const entry of popup.querySelectorAll(".gsm-hoshidicts-entry[hidden]")) {
+          for (const entry of panel.querySelectorAll(".gsm-hoshidicts-entry[hidden]")) {
             entry.hidden = false;
           }
           showMore.remove();
           positionPopup();
         });
-        popup.appendChild(showMore);
+        panel.appendChild(showMore);
+      }
+
+      currentSourceHighlight = {
+        candidate,
+        matchedText: results[0].matched || results[0].term.expression,
+      };
+      if (sourceHighlightEnabled) {
+        sourceHighlighter.apply(
+          currentSourceHighlight.candidate,
+          currentSourceHighlight.matchedText
+        );
+      }
+      return { audioItems, feedback, miningButtons };
+    }
+
+    function renderKanji(kanji, candidate, renderOptions = {}) {
+      clear();
+      appendNoteControls(
+        { term: kanji.character, reading: "", definition: "" },
+        true
+      );
+      const navigation = documentRef.createElement("div");
+      navigation.className = "gsm-hoshidicts-kanji-navigation";
+      if (typeof renderOptions.onBack === "function") {
+        const back = documentRef.createElement("button");
+        back.type = "button";
+        back.className = "gsm-hoshidicts-kanji-back";
+        back.textContent = "Back";
+        back.setAttribute("aria-label", "Back to term results");
+        back.addEventListener("click", renderOptions.onBack);
+        navigation.appendChild(back);
+      }
+      const glyph = documentRef.createElement("div");
+      glyph.className = "gsm-hoshidicts-kanji-glyph";
+      glyph.textContent = kanji.character;
+      navigation.appendChild(glyph);
+      popup.appendChild(navigation);
+
+      for (const kanjiEntry of kanji.entries) {
+        const entry = documentRef.createElement("article");
+        entry.className = "gsm-hoshidicts-kanji-entry";
+        entry.dataset.dictionary = kanjiEntry.dictionary;
+
+        const dictionary = documentRef.createElement("h3");
+        dictionary.className = "gsm-hoshidicts-kanji-dictionary";
+        dictionary.textContent = kanjiEntry.dictionary;
+        entry.appendChild(dictionary);
+
+        if (kanjiEntry.tags.length > 0) {
+          const tags = documentRef.createElement("div");
+          tags.className = "gsm-hoshidicts-tags";
+          for (const tag of kanjiEntry.tags) {
+            tags.appendChild(createTag(documentRef, tag, "", "term"));
+          }
+          entry.appendChild(tags);
+        }
+
+        const readings = documentRef.createElement("div");
+        readings.className = "gsm-hoshidicts-kanji-readings";
+        for (const [label, values] of [
+          ["On", kanjiEntry.onyomi],
+          ["Kun", kanjiEntry.kunyomi],
+        ]) {
+          if (values.length === 0) continue;
+          const group = documentRef.createElement("div");
+          group.className = "gsm-hoshidicts-kanji-reading-group";
+          const heading = documentRef.createElement("strong");
+          heading.textContent = label;
+          group.appendChild(heading);
+          const value = documentRef.createElement("span");
+          value.textContent = values.join(" · ");
+          group.appendChild(value);
+          readings.appendChild(group);
+        }
+        if (readings.childNodes.length > 0) entry.appendChild(readings);
+
+        if (kanjiEntry.definitions.length > 0) {
+          const meaningsHeading = documentRef.createElement("h4");
+          meaningsHeading.textContent = "Meanings";
+          entry.appendChild(meaningsHeading);
+          const meanings = documentRef.createElement("ol");
+          meanings.className = "gsm-hoshidicts-kanji-meanings";
+          for (const meaning of kanjiEntry.definitions) {
+            const item = documentRef.createElement("li");
+            item.textContent = meaning;
+            meanings.appendChild(item);
+          }
+          entry.appendChild(meanings);
+        }
+
+        if (kanjiEntry.stats.length > 0) {
+          const details = documentRef.createElement("details");
+          details.className = "gsm-hoshidicts-kanji-stats";
+          const summary = documentRef.createElement("summary");
+          summary.textContent = "Details";
+          details.appendChild(summary);
+          const list = documentRef.createElement("dl");
+          for (const stat of kanjiEntry.stats) {
+            const name = documentRef.createElement("dt");
+            name.textContent = stat.name;
+            const value = documentRef.createElement("dd");
+            value.textContent = stat.value;
+            list.append(name, value);
+          }
+          details.appendChild(list);
+          entry.appendChild(details);
+        }
+        popup.appendChild(entry);
       }
 
       sourceHighlighter.apply(
         candidate,
-        results[0].matched || results[0].term.expression
+        renderOptions.highlightText || kanji.character
       );
-      return { feedback, miningButtons };
+    }
+
+    function renderResults(results, candidate, renderContext = {}) {
+      clear();
+      setDefinitionBlurState(renderContext.definitionBlurState);
+      const dictionaries = collectDictionaries(results);
+      const tabList = documentRef.createElement("div");
+      tabList.className = "gsm-hoshidicts-tab-list";
+      tabList.setAttribute("role", "tablist");
+      tabList.setAttribute("aria-label", "Dictionaries");
+      tabList.setAttribute("aria-orientation", "horizontal");
+
+      const panel = documentRef.createElement("div");
+      panel.id = `${idPrefix}-tab-panel`;
+      panel.className = "gsm-hoshidicts-tab-panel";
+      panel.setAttribute("role", "tabpanel");
+
+      const toolbar = appendNoteControls({
+        term: results[0].term.expression,
+        reading: results[0].term.reading,
+        definition: "",
+      });
+      toolbar.insertBefore(tabList, toolbar.firstChild);
+      popup.appendChild(panel);
+
+      const tabValues = [null, ...dictionaries];
+      const tabButtons = [];
+      let activeIndex = 0;
+      let hasRendered = false;
+      let rendered = null;
+
+      function activateTab(index, focusTab = false) {
+        if (index < 0 || index >= tabButtons.length) {
+          return;
+        }
+        if (hasRendered && index === activeIndex) {
+          if (focusTab) {
+            tabButtons[index].focus();
+          }
+          return;
+        }
+        if (hasRendered) {
+          onBeforeResultsRendered();
+        }
+        activeIndex = index;
+        tabButtons.forEach((button, buttonIndex) => {
+          const selected = buttonIndex === activeIndex;
+          button.setAttribute("aria-selected", String(selected));
+          button.tabIndex = selected ? 0 : -1;
+        });
+        const activeTab = tabButtons[activeIndex];
+        panel.setAttribute("aria-labelledby", activeTab.id);
+        if (focusTab) {
+          activeTab.focus();
+        }
+        if (!popup.hidden && typeof activeTab.scrollIntoView === "function") {
+          activeTab.scrollIntoView({ block: "nearest", inline: "nearest" });
+        }
+
+        popup.scrollTop = 0;
+        const projectedResults = projectResults(results, tabValues[activeIndex]);
+        rendered = renderResultPanel(
+          panel,
+          projectedResults,
+          candidate,
+          renderContext
+        );
+        if (hasRendered) {
+          onResultsRendered(rendered);
+        }
+        hasRendered = true;
+        positionPopup();
+      }
+
+      tabValues.forEach((dictionary, index) => {
+        const button = documentRef.createElement("button");
+        button.type = "button";
+        button.id = `${idPrefix}-tab-${index}`;
+        button.className = "gsm-hoshidicts-tab";
+        button.setAttribute("role", "tab");
+        button.setAttribute("aria-controls", panel.id);
+        button.setAttribute("aria-selected", "false");
+        button.tabIndex = -1;
+        button.textContent = dictionary === null ? "All" : dictionary;
+        button.title = dictionary === null ? "All dictionaries" : dictionary;
+        button.addEventListener("click", () => activateTab(index));
+        button.addEventListener("keydown", (event) => {
+          let nextIndex = null;
+          if (event.key === "ArrowRight") {
+            nextIndex = (index + 1) % tabButtons.length;
+          } else if (event.key === "ArrowLeft") {
+            nextIndex = (index - 1 + tabButtons.length) % tabButtons.length;
+          } else if (event.key === "Home") {
+            nextIndex = 0;
+          } else if (event.key === "End") {
+            nextIndex = tabButtons.length - 1;
+          }
+          if (nextIndex !== null) {
+            event.preventDefault();
+            event.stopPropagation();
+            activateTab(nextIndex, true);
+          }
+        });
+        tabButtons.push(button);
+        tabList.appendChild(button);
+      });
+
+      tabList.addEventListener("wheel", (event) => {
+        if (
+          Math.abs(event.deltaY) > Math.abs(event.deltaX)
+          && tabList.scrollWidth > tabList.clientWidth
+        ) {
+          const maximumScrollLeft = tabList.scrollWidth - tabList.clientWidth;
+          const nextScrollLeft = Math.max(
+            0,
+            Math.min(maximumScrollLeft, tabList.scrollLeft + event.deltaY)
+          );
+          if (nextScrollLeft !== tabList.scrollLeft) {
+            tabList.scrollLeft = nextScrollLeft;
+            event.preventDefault();
+          }
+        }
+      }, { passive: false });
+
+      activateTab(0);
+      return rendered;
     }
 
     return {
       clear,
       renderNotice,
       renderResults,
+      renderKanji,
       setDefinitionBlurState,
       setFeedback,
+      setSourceHighlightEnabled,
     };
   }
 
   return {
+    createSourceHighlighter,
     createPopupView,
     setMiningButtonState,
   };

@@ -1,18 +1,28 @@
 import {
   ArrowDown,
   ArrowUp,
+  Eraser,
   FileArchive,
+  Keyboard,
   RefreshCw,
+  Save,
   Trash2
 } from "lucide-react";
-import { useMemo } from "react";
+import {
+  useMemo,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent
+} from "react";
 
 import {
+  DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
+  DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
   MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
   MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
   MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
+  type HoshidictsActivationKey,
   type HoshidictsSchedule
 } from "../../../../shared/features/hoshidicts";
 import { useTranslation } from "../../i18n";
@@ -21,31 +31,264 @@ import {
   DISABLED_FIELD_VALUE,
   MINING_FIELDS,
   RECOMMENDED_KEYS,
+  activationKeyFromKeyboardCode,
   automaticFieldTarget,
+  frequencyModeKey,
   formatTimestamp,
   getFieldChoice,
-  resolvedDraftField
+  resolvedDraftField,
+  summarizeCustomDictionaryText
 } from "./hoshidictsSettingsModel";
+import { HoshidictsSaveIndicator } from "./HoshidictsSaveIndicator";
 import type { useHoshidictsSettingsController } from "./useHoshidictsSettingsController";
 
 type Controller = ReturnType<typeof useHoshidictsSettingsController>;
 
-function SaveIndicator({
+function CustomDictionarySaveIndicator({
   status
 }: {
-  status: Controller["readerSaveStatus"];
+  status: Controller["customSaveStatus"];
 }) {
   const t = useTranslation();
   if (status === "idle") return null;
-  const visibleStatus = status === "dirty" ? "saving" : status;
   return (
     <span
       className="hoshidicts-save-status"
-      data-status={visibleStatus}
+      data-status={status}
       role="status"
     >
-      {t(`settings.hoshidicts.saveStatus.${visibleStatus}`)}
+      {t(`settings.hoshidicts.saveStatus.${status}`)}
     </span>
+  );
+}
+
+function ActivationKeyControl({
+  activationKey,
+  disabled,
+  onChange
+}: {
+  activationKey: HoshidictsActivationKey;
+  disabled: boolean;
+  onChange: (activationKey: HoshidictsActivationKey) => void;
+}) {
+  const t = useTranslation();
+  const [capturing, setCapturing] = useState(false);
+  const [unsupported, setUnsupported] = useState(false);
+  const hintId = "hoshidicts-activation-key-hint";
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (!capturing) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.repeat) return;
+
+    const next = activationKeyFromKeyboardCode(event.code);
+    if (!next) {
+      setUnsupported(true);
+      return;
+    }
+
+    setCapturing(false);
+    setUnsupported(false);
+    onChange(next);
+  };
+
+  return (
+    <div className="hoshidicts-activation-key">
+      <span>{t("settings.hoshidicts.reader.activationKey")}</span>
+      <div className="hoshidicts-activation-key__controls">
+        <output
+          className="hoshidicts-activation-key__current"
+          aria-live="polite"
+        >
+          <span>{t("settings.hoshidicts.reader.currentKey")}</span>
+          <kbd>{activationKey}</kbd>
+        </output>
+        <button
+          id="hoshidicts-activation-key-capture"
+          type="button"
+          className="secondary hoshidicts-activation-key__capture"
+          data-capturing={capturing}
+          aria-pressed={capturing}
+          aria-describedby={hintId}
+          disabled={disabled}
+          onClick={() => {
+            setCapturing(true);
+            setUnsupported(false);
+          }}
+          onKeyDown={handleKeyDown}
+          onBlur={() => {
+            setCapturing(false);
+            setUnsupported(false);
+          }}
+        >
+          <Keyboard size={16} aria-hidden="true" />
+          {capturing
+            ? t("settings.hoshidicts.reader.capturingKey")
+            : t("settings.hoshidicts.reader.changeKey")}
+        </button>
+        <button
+          id="hoshidicts-activation-key-reset"
+          type="button"
+          className="secondary"
+          disabled={
+            disabled || activationKey === DEFAULT_HOSHIDICTS_ACTIVATION_KEY
+          }
+          onClick={() => {
+            setCapturing(false);
+            setUnsupported(false);
+            onChange(DEFAULT_HOSHIDICTS_ACTIVATION_KEY);
+          }}
+        >
+          {t("settings.hoshidicts.reader.resetKey")}
+        </button>
+      </div>
+      <small
+        id={hintId}
+        className={unsupported ? "is-error" : ""}
+        aria-live="polite"
+      >
+        {unsupported
+          ? t("settings.hoshidicts.reader.unsupportedKey")
+          : capturing
+            ? t("settings.hoshidicts.reader.capturingKeyHint")
+            : t("settings.hoshidicts.reader.activationKeyHint")}
+      </small>
+    </div>
+  );
+}
+
+export function CustomDictionaryPanel({
+  controller
+}: {
+  controller: Controller;
+}) {
+  const t = useTranslation();
+  const {
+    customDocument,
+    customDraft,
+    customDirty,
+    customLoading,
+    customSaveStatus,
+    updateCustomDraft,
+    saveCustomDictionary,
+    reloadCustomDictionary,
+    customBusy
+  } = controller;
+  const summary = useMemo(
+    () => summarizeCustomDictionaryText(customDraft),
+    [customDraft]
+  );
+
+  return (
+    <section className="hoshidicts-section hoshidicts-custom">
+      <div className="hoshidicts-section__heading">
+        <div>
+          <h2>{t("settings.hoshidicts.custom.title")}</h2>
+          <p>{t("settings.hoshidicts.custom.subtitle")}</p>
+        </div>
+        <CustomDictionarySaveIndicator status={customSaveStatus} />
+      </div>
+
+      {customDocument ? (
+        <>
+          <div className="hoshidicts-custom__path">
+            <span>{t("settings.hoshidicts.custom.path")}</span>
+            <code>{customDocument.filePath}</code>
+          </div>
+
+          <label className="hoshidicts-custom__editor">
+            <span>{t("settings.hoshidicts.custom.editorLabel")}</span>
+            <textarea
+              id="hoshidicts-custom-dictionary-editor"
+              value={customDraft}
+              disabled={customBusy}
+              spellCheck={false}
+              placeholder={t("settings.hoshidicts.custom.placeholder")}
+              onChange={(event) => updateCustomDraft(event.currentTarget.value)}
+            />
+          </label>
+
+          <div className="hoshidicts-custom__summary" role="status">
+            <span>
+              {t("settings.hoshidicts.custom.entries", {
+                count: summary.entryCount
+              })}
+            </span>
+            <span>
+              {customDocument.exists
+                ? t("settings.hoshidicts.custom.fileExists")
+                : t("settings.hoshidicts.custom.fileNotCreated")}
+            </span>
+          </div>
+
+          {summary.ignoredLineCount > 0 ? (
+            <p className="hoshidicts-custom__warning" role="alert">
+              {t("settings.hoshidicts.custom.skippedLines", {
+                count: summary.ignoredLineCount,
+                lines: summary.ignoredLines.join(", ")
+              })}
+            </p>
+          ) : null}
+
+          <div className="hoshidicts-custom__hint">
+            <strong>{t("settings.hoshidicts.custom.formatTitle")}</strong>
+            <code>{t("settings.hoshidicts.custom.formatExample")}</code>
+            <span>{t("settings.hoshidicts.custom.formatHint")}</span>
+            <span>{t("settings.hoshidicts.custom.newlineHint")}</span>
+          </div>
+
+          <div className="hoshidicts-custom__actions">
+            <button
+              type="button"
+              className="secondary"
+              disabled={customBusy}
+              onClick={() => void reloadCustomDictionary()}
+            >
+              <RefreshCw size={17} aria-hidden="true" />
+              {t("settings.hoshidicts.custom.reload")}
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              disabled={customBusy || customDraft.length === 0}
+              onClick={() => updateCustomDraft("")}
+            >
+              <Eraser size={17} aria-hidden="true" />
+              {t("settings.hoshidicts.custom.clear")}
+            </button>
+            <button
+              type="button"
+              disabled={customBusy || !customDirty}
+              onClick={() => void saveCustomDictionary()}
+            >
+              <Save size={17} aria-hidden="true" />
+              {customSaveStatus === "saving"
+                ? t("settings.hoshidicts.custom.saving")
+                : t("settings.hoshidicts.custom.save")}
+            </button>
+          </div>
+        </>
+      ) : (
+        <div className="hoshidicts-custom__loading" role="status">
+          <span>
+            {customLoading
+              ? t("settings.hoshidicts.custom.loading")
+              : t("settings.hoshidicts.custom.loadFailed")}
+          </span>
+          {!customLoading ? (
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => void reloadCustomDictionary(false)}
+            >
+              <RefreshCw size={16} aria-hidden="true" />
+              {t("settings.hoshidicts.custom.retry")}
+            </button>
+          ) : null}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -56,11 +299,15 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
     readerDraft,
     readerSaveStatus,
     setLookupMode,
+    setActivationKey,
+    setSourceHighlightEnabled,
     setPopupHideDelayMs,
     setDefinitionBlurEnabled,
     setDefinitionBlurLookupThreshold,
     setDefinitionBlurRevealMode,
     setDefinitionBlurRevealDelayMs,
+    setPopupContentScanningEnabled,
+    setPopupNestingMaxDepth,
     dictionaryBusy,
     preferencesBusy,
     actions
@@ -78,7 +325,7 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
             <h2>{t("settings.hoshidicts.reader.title")}</h2>
             <p>{t("settings.hoshidicts.reader.subtitle")}</p>
           </div>
-          <SaveIndicator status={readerSaveStatus} />
+          <HoshidictsSaveIndicator status={readerSaveStatus} />
         </div>
 
         <fieldset className="hoshidicts-reader-mode">
@@ -94,8 +341,16 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
               onChange={() => setLookupMode("shift")}
             />
             <span>
-              <strong>{t("settings.hoshidicts.reader.holdShift")}</strong>
-              <small>{t("settings.hoshidicts.reader.holdShiftHint")}</small>
+              <strong>
+                {t("settings.hoshidicts.reader.holdKey", {
+                  key: readerDraft.activationKey
+                })}
+              </strong>
+              <small>
+                {t("settings.hoshidicts.reader.holdKeyHint", {
+                  key: readerDraft.activationKey
+                })}
+              </small>
             </span>
           </label>
           <label>
@@ -114,6 +369,30 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
             </span>
           </label>
         </fieldset>
+
+        <ActivationKeyControl
+          activationKey={readerDraft.activationKey}
+          disabled={preferencesBusy}
+          onChange={setActivationKey}
+        />
+
+        <label className="hoshidicts-reader-highlight">
+          <input
+            id="hoshidicts-source-highlight-enabled"
+            type="checkbox"
+            checked={readerDraft.sourceHighlightEnabled}
+            disabled={preferencesBusy}
+            onChange={(event) =>
+              setSourceHighlightEnabled(event.currentTarget.checked)
+            }
+          />
+          <span>
+            <strong>{t("settings.hoshidicts.reader.sourceHighlight")}</strong>
+            <small>
+              {t("settings.hoshidicts.reader.sourceHighlightHint")}
+            </small>
+          </span>
+        </label>
 
         <label className="hoshidicts-reader-delay">
           <span>{t("settings.hoshidicts.reader.hideDelay")}</span>
@@ -240,6 +519,48 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
             ) : null}
           </div>
         </div>
+
+        <div className="hoshidicts-reader-popup-scanning">
+          <label className="hoshidicts-reader-popup-scanning__toggle">
+            <input
+              id="hoshidicts-popup-content-scanning"
+              type="checkbox"
+              checked={readerDraft.popupNestingMaxDepth > 0}
+              disabled={preferencesBusy}
+              onChange={(event) =>
+                setPopupContentScanningEnabled(event.currentTarget.checked)
+              }
+            />
+            <span>
+              <strong>
+                {t("settings.hoshidicts.reader.allowPopupContentScanning")}
+              </strong>
+              <small>
+                {t("settings.hoshidicts.reader.allowPopupContentScanningHint")}
+              </small>
+            </span>
+          </label>
+
+          {readerDraft.popupNestingMaxDepth > 0 ? (
+            <label className="hoshidicts-reader-depth">
+              <span>{t("settings.hoshidicts.reader.maxChildPopups")}</span>
+              <input
+                id="hoshidicts-popup-nesting-max-depth"
+                type="number"
+                min={1}
+                step={1}
+                value={readerDraft.popupNestingMaxDepth}
+                disabled={preferencesBusy}
+                onChange={(event) =>
+                  setPopupNestingMaxDepth(event.currentTarget.valueAsNumber)
+                }
+              />
+              <small>
+                {t("settings.hoshidicts.reader.maxChildPopupsHint")}
+              </small>
+            </label>
+          ) : null}
+        </div>
       </section>
 
       <section className="hoshidicts-section hoshidicts-section--toolbar">
@@ -311,9 +632,13 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
             className="secondary"
             disabled={
               dictionaryBusy ||
-              state.recommendedDictionaries.every(
-                (dictionary) => dictionary.installed
-              )
+              state.recommendedDictionaries
+                .filter((dictionary) =>
+                  DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.some(
+                    (dictionaryId) => dictionaryId === dictionary.id
+                  )
+                )
+                .every((dictionary) => dictionary.installed)
             }
             onClick={() => void actions.installAllRecommended()}
           >
@@ -402,11 +727,41 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                           t("settings.hoshidicts.legacyJapanese")
                       })}
                     </span>
-                    <span>
-                      {t("settings.hoshidicts.terms", {
-                        count: dictionary.termCount
-                      })}
-                    </span>
+                    {dictionary.termCount > 0 ? (
+                      <span>
+                        {t("settings.hoshidicts.terms", {
+                          count: dictionary.termCount
+                        })}
+                      </span>
+                    ) : null}
+                    {dictionary.frequencyCount > 0 ? (
+                      <span>
+                        {t("settings.hoshidicts.frequencies", {
+                          count: dictionary.frequencyCount
+                        })}
+                      </span>
+                    ) : null}
+                    {dictionary.pitchCount > 0 ? (
+                      <span>
+                        {t("settings.hoshidicts.pitches", {
+                          count: dictionary.pitchCount
+                        })}
+                      </span>
+                    ) : null}
+                    {dictionary.kanjiCount > 0 ? (
+                      <span>
+                        {t("settings.hoshidicts.kanjiEntries", {
+                          count: dictionary.kanjiCount
+                        })}
+                      </span>
+                    ) : null}
+                    {dictionary.frequencyCount > 0 ? (
+                      <span>
+                        {t("settings.hoshidicts.frequencyMode", {
+                          mode: t(frequencyModeKey(dictionary.frequencyMode))
+                        })}
+                      </span>
+                    ) : null}
                     <span>
                       {dictionary.isUpdatable
                         ? t("settings.hoshidicts.updatable")
@@ -500,7 +855,7 @@ export function MiningPanel({ controller }: { controller: Controller }) {
           <p>{t("settings.hoshidicts.mining.autoSaveHint")}</p>
         </div>
         <div className="hoshidicts-section__status-actions">
-          <SaveIndicator status={miningSaveStatus} />
+          <HoshidictsSaveIndicator status={miningSaveStatus} />
           <label className="hoshidicts-mining__toggle">
             <input
               id="hoshidicts-mining-enabled"
