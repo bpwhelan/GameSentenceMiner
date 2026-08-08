@@ -39,6 +39,7 @@ const harness = vi.hoisted(() => ({
         dictionaries: [
             {
                 title: 'Primary',
+                displayName: 'Core lexicon',
                 termCount: 1,
                 favorite: true,
             },
@@ -298,6 +299,7 @@ describe('Hoshidicts feature registration', () => {
                         {
                             title: 'Primary',
                             favorite: true,
+                            displayName: 'Core lexicon',
                         },
                         {
                             title: 'Backup',

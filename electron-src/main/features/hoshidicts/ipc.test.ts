@@ -61,6 +61,7 @@ const harness = vi.hoisted(() => ({
         setAudioProfile: vi.fn(),
         setDictionaryEnabled: vi.fn(),
         setDictionaryPresentation: vi.fn(),
+        renameDictionary: vi.fn(),
         moveDictionary: vi.fn(),
         moveDictionaryToPosition: vi.fn(),
         getCustomDictionaryDocument: vi.fn(),
@@ -206,6 +207,7 @@ async function registerHarness() {
     harness.manager.setAudioProfile.mockResolvedValue(snapshot);
     harness.manager.setMiningProfile.mockResolvedValue(snapshot);
     harness.manager.setDictionaryPresentation.mockResolvedValue(snapshot);
+    harness.manager.renameDictionary.mockResolvedValue(snapshot);
     harness.manager.moveDictionary.mockResolvedValue(snapshot);
     harness.manager.moveDictionaryToPosition.mockResolvedValue(snapshot);
     const customDocument = {
@@ -1064,6 +1066,82 @@ describe('Hoshidicts settings IPC', () => {
         expect(
             harness.manager.moveDictionaryToPosition
         ).toHaveBeenCalledOnce();
+    });
+
+    it('renames a dictionary for presentation without changing its canonical title', async () => {
+        const renamedState = {
+            ...snapshot,
+            dictionaries: [
+                {
+                    ...definitionDictionary('alpha', 'Alpha Dictionary', true),
+                    displayName: 'Friendly Alpha',
+                },
+            ],
+        } as const;
+        const context = await registerHarness();
+        harness.manager.renameDictionary.mockResolvedValueOnce(renamedState);
+        const renameDictionary = harness.handlers.get(
+            'hoshidicts.renameDictionary'
+        );
+
+        await expect(
+            renameDictionary?.(
+                { sender: context.settingsContents },
+                { id: 'alpha', displayName: 'Friendly Alpha' }
+            )
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'dictionaryChanged' },
+            state: {
+                dictionaries: [
+                    {
+                        id: 'alpha',
+                        title: 'Alpha Dictionary',
+                        displayName: 'Friendly Alpha',
+                    },
+                ],
+            },
+        });
+        expect(harness.manager.renameDictionary).toHaveBeenCalledWith(
+            'alpha',
+            'Friendly Alpha'
+        );
+        expect(context.applyReaderPreferences).toHaveBeenCalledWith(
+            expect.objectContaining({
+                dictionaryPresentation: [
+                    {
+                        title: 'Alpha Dictionary',
+                        favorite: true,
+                        displayName: 'Friendly Alpha',
+                    },
+                ],
+            })
+        );
+
+        await expect(
+            renameDictionary?.(
+                { sender: context.settingsContents },
+                { id: 'alpha', displayName: null }
+            )
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'dictionaryChanged' },
+        });
+        expect(harness.manager.renameDictionary).toHaveBeenLastCalledWith(
+            'alpha',
+            null
+        );
+
+        await expect(
+            renameDictionary?.(
+                { sender: context.settingsContents },
+                { id: 'alpha', displayName: 42 }
+            )
+        ).resolves.toMatchObject({
+            success: false,
+            error: 'Dictionary rename request is invalid.',
+        });
+        expect(harness.manager.renameDictionary).toHaveBeenCalledTimes(2);
     });
 
     it('refreshes live presentation after every dictionary collection mutation', async () => {

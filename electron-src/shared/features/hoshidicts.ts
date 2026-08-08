@@ -19,6 +19,7 @@ export const HOSHIDICTS_CHANNELS = {
     getMiningOptions: 'hoshidicts.getMiningOptions',
     setDictionaryEnabled: 'hoshidicts.setDictionaryEnabled',
     setDictionaryPresentation: 'hoshidicts.setDictionaryPresentation',
+    renameDictionary: 'hoshidicts.renameDictionary',
     moveDictionary: 'hoshidicts.moveDictionary',
     moveDictionaryToPosition: 'hoshidicts.moveDictionaryToPosition',
     getCustomDictionary: 'hoshidicts.getCustomDictionary',
@@ -399,6 +400,7 @@ export interface HoshidictsReaderPreferencesRequest {
 export interface HoshidictsDictionaryPresentation {
     title: string;
     favorite: boolean;
+    displayName?: string;
 }
 
 export interface HoshidictsReaderPreferences
@@ -482,6 +484,7 @@ export interface HoshidictsMiningOptions {
 export interface HoshidictsDictionaryState {
     id: string;
     title: string;
+    displayName: string | null;
     enabled: boolean;
     favorite: boolean;
     revision: string;
@@ -577,10 +580,11 @@ export function hoshidictsReaderPreferencesFromSnapshot(
         theme: snapshot.theme,
         dictionaryPresentation: (snapshot.dictionaries ?? [])
             .filter((dictionary) => dictionary.termCount > 0)
-            .map(({ title, favorite }) => ({
-                title,
-                favorite,
-            })),
+            .map(({ title, displayName, favorite }) =>
+                displayName
+                    ? { title, favorite, displayName }
+                    : { title, favorite }
+            ),
     };
 }
 
@@ -628,6 +632,11 @@ export interface HoshidictsDictionaryEnabledRequest {
 export interface HoshidictsDictionaryPresentationRequest {
     id: string;
     favorite: boolean;
+}
+
+export interface HoshidictsRenameDictionaryRequest {
+    id: string;
+    displayName: string | null;
 }
 
 export interface HoshidictsMoveDictionaryRequest {

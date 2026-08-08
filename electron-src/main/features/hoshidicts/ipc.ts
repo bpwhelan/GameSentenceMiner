@@ -41,6 +41,7 @@ import {
     type HoshidictsMoveDictionaryToPositionRequest,
     type HoshidictsReaderPreferences,
     type HoshidictsReaderPreferencesRequest,
+    type HoshidictsRenameDictionaryRequest,
     type HoshidictsRecommendedDictionaryId,
     type HoshidictsSchedule,
     type HoshidictsTheme,
@@ -1075,6 +1076,40 @@ export function registerHoshidictsIPC(
                     const state = await manager.setDictionaryPresentation(
                         value.id as string,
                         value.favorite as boolean
+                    );
+                    await applyReaderSnapshot(state, deps);
+                    return state;
+                },
+                { code: 'dictionaryChanged' }
+            );
+        }
+    );
+
+    ipcMain.handle(
+        HOSHIDICTS_CHANNELS.renameDictionary,
+        async (event, request: unknown) => {
+            assertSettingsSender(event, deps);
+            const value = request as
+                | Partial<HoshidictsRenameDictionaryRequest>
+                | null;
+            if (
+                !value ||
+                typeof value.id !== 'string' ||
+                (value.displayName !== null &&
+                    typeof value.displayName !== 'string')
+            ) {
+                return {
+                    success: false,
+                    error: 'Dictionary rename request is invalid.',
+                    state: await currentState(deps),
+                } satisfies HoshidictsActionResult;
+            }
+            return await runAction(
+                deps,
+                async () => {
+                    const state = await manager.renameDictionary(
+                        value.id as string,
+                        value.displayName as string | null
                     );
                     await applyReaderSnapshot(state, deps);
                     return state;
