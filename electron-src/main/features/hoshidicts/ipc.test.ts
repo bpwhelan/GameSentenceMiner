@@ -954,6 +954,7 @@ describe('Hoshidicts settings IPC', () => {
                 {
                     id: 'frequency',
                     title: 'Frequency only',
+                    displayName: 'Frequency ranks',
                     enabled: true,
                     favorite: true,
                     revision: 'one',
@@ -1000,6 +1001,11 @@ describe('Hoshidicts settings IPC', () => {
                     {
                         title: 'Alpha',
                         favorite: true,
+                    },
+                    {
+                        title: 'Frequency only',
+                        favorite: true,
+                        displayName: 'Frequency ranks',
                     },
                 ],
             })

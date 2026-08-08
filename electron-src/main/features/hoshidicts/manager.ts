@@ -1879,26 +1879,33 @@ export class HoshidictsManager {
             if (currentIndex < 0) {
                 throw new Error('Dictionary is not installed.');
             }
-            if (position > manifest.dictionaries.length) {
+            const visibleDictionaries = manifest.dictionaries.filter(
+                (dictionary) =>
+                    dictionary.id !== HOSHIDICTS_CUSTOM_DICTIONARY_ID
+            );
+            if (position > visibleDictionaries.length) {
                 throw new Error(
-                    `Dictionary position must be between 1 and ${manifest.dictionaries.length}.`
+                    `Dictionary position must be between 1 and ${visibleDictionaries.length}.`
                 );
             }
-            const targetIndex = position - 1;
-            if (currentIndex === targetIndex) {
+            const currentVisibleIndex = visibleDictionaries.findIndex(
+                (dictionary) => dictionary.id === id
+            );
+            const targetVisibleIndex = position - 1;
+            if (currentVisibleIndex === targetVisibleIndex) {
                 return;
             }
-            if (
-                manifest.dictionaries[targetIndex].id ===
-                HOSHIDICTS_CUSTOM_DICTIONARY_ID
-            ) {
-                throw new Error('The custom dictionary is always first.');
-            }
-            const dictionaries = manifest.dictionaries.map((dictionary) => ({
+            const reorderedVisible = visibleDictionaries.map((dictionary) => ({
                 ...dictionary,
             }));
-            const [dictionary] = dictionaries.splice(currentIndex, 1);
-            dictionaries.splice(targetIndex, 0, dictionary);
+            const [dictionary] = reorderedVisible.splice(currentVisibleIndex, 1);
+            reorderedVisible.splice(targetVisibleIndex, 0, dictionary);
+            let visibleIndex = 0;
+            const dictionaries = manifest.dictionaries.map((current) =>
+                current.id === HOSHIDICTS_CUSTOM_DICTIONARY_ID
+                    ? { ...current }
+                    : reorderedVisible[visibleIndex++]
+            );
             await this.commitManifestChange(
                 manifest,
                 { ...manifest, dictionaries },

@@ -578,13 +578,12 @@ export function hoshidictsReaderPreferencesFromSnapshot(
         popupWidthPx: snapshot.popupWidthPx,
         popupHeightPx: snapshot.popupHeightPx,
         theme: snapshot.theme,
-        dictionaryPresentation: (snapshot.dictionaries ?? [])
-            .filter((dictionary) => dictionary.termCount > 0)
-            .map(({ title, displayName, favorite }) =>
+        dictionaryPresentation: (snapshot.dictionaries ?? []).map(
+            ({ title, displayName, favorite }) =>
                 displayName
                     ? { title, favorite, displayName }
                     : { title, favorite }
-            ),
+        ),
     };
 }
 

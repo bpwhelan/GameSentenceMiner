@@ -641,6 +641,50 @@ describe('Hoshidicts immutable generations', () => {
         ).rejects.toThrow('Dictionary position must be between 1 and 3.');
     });
 
+    it('uses visible search positions when the managed custom dictionary is installed', async () => {
+        const baseDir = makeTempDir();
+        const archivesDir = makeTempDir();
+        const alpha = writeArchive(archivesDir, 'alpha.zip', {
+            title: 'Alpha',
+            revision: 'one',
+            sourceLanguage: 'ja',
+        });
+        const beta = writeArchive(archivesDir, 'beta.zip', {
+            title: 'Beta',
+            revision: 'one',
+            sourceLanguage: 'ja',
+        });
+        const { manager } = createHarness(baseDir);
+        const missing = await manager.getCustomDictionaryDocument();
+        await manager.saveCustomDictionary(
+            '自作, じさく, Custom\n',
+            missing.revision
+        );
+        await manager.importDictionary(alpha);
+        await manager.importDictionary(beta);
+        const initial = await manager.getSnapshot();
+        const betaId = initial.dictionaries[1].id;
+
+        await manager.moveDictionaryToPosition(betaId, 1);
+
+        expect(
+            (await manager.getSnapshot()).dictionaries.map(
+                (dictionary) => dictionary.title
+            )
+        ).toEqual(['Beta', 'Alpha']);
+        expect(
+            readManifest(baseDir).dictionaries.map(
+                (dictionary: { id: string; title: string }) =>
+                    dictionary.id === HOSHIDICTS_CUSTOM_DICTIONARY_ID
+                        ? dictionary.id
+                        : dictionary.title
+            )
+        ).toEqual([HOSHIDICTS_CUSTOM_DICTIONARY_ID, 'Beta', 'Alpha']);
+        await expect(
+            manager.moveDictionaryToPosition(betaId, 3)
+        ).rejects.toThrow('Dictionary position must be between 1 and 2.');
+    });
+
     it('persists dictionary presentation without reloading native dictionaries', async () => {
         const baseDir = makeTempDir();
         const archive = writeArchive(makeTempDir(), 'alpha.zip', {

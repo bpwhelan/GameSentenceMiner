@@ -3671,6 +3671,13 @@ describe("Hoshidicts Shift-hover scanner", () => {
       window: dom.window,
       document: dom.window.document,
       WebSocket: FakeWebSocket,
+      dictionaryPresentation: [
+        {
+          title: "KANJIDIC (English)",
+          favorite: false,
+          displayName: "My kanji dictionary"
+        }
+      ],
       logger: { debug() {}, info() {}, warn() {} }
     });
     const socket = FakeWebSocket.instances[0];
@@ -3702,7 +3709,10 @@ describe("Hoshidicts Shift-hover scanner", () => {
     expect(popup.firstElementChild?.classList.contains("gsm-hoshidicts-result-chrome"))
       .toBe(true);
     expect(popup.querySelector(".gsm-hoshidicts-kanji-glyph")?.textContent).toBe("食");
-    expect(popup.textContent).toContain("KANJIDIC (English)");
+    expect(popup.textContent).toContain("My kanji dictionary");
+    expect(
+      popup.querySelector<HTMLElement>(".gsm-hoshidicts-kanji-dictionary")?.title
+    ).toBe("KANJIDIC (English)");
     expect(popup.textContent).toContain("ショク · ジキ");
     expect(popup.textContent).toContain("eat");
     expect(popup.querySelector(".gsm-hoshidicts-mine-button")).toBeNull();
@@ -6392,6 +6402,10 @@ describe("Hoshidicts Shift-hover scanner", () => {
       document: dom.window.document,
       WebSocket: FakeWebSocket,
       lookupMode: "hover",
+      dictionaryPresentation: [
+        { title: "Frequency", favorite: false, displayName: "Corpus rank" },
+        { title: "Pitch", favorite: false, displayName: "Pitch accent" }
+      ],
       logger: { debug() {}, warn() {} }
     });
     const socket = FakeWebSocket.instances[0];
@@ -6442,7 +6456,10 @@ describe("Hoshidicts Shift-hover scanner", () => {
       .not.toBeNull();
     expect(
       metadataRows[1].querySelector(".gsm-hoshidicts-pitch-source")?.textContent
-    ).toBe("Pitch");
+    ).toBe("Pitch accent");
+    expect(
+      metadataRows[0].querySelector(".gsm-hoshidicts-frequency-source")?.textContent
+    ).toBe("Corpus rank");
     expect(
       metadataRows[1].querySelector(".gsm-hoshidicts-pitch-body")?.textContent
     ).toBe("ご0 [2] LHL");

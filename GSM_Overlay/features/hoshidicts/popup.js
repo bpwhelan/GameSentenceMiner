@@ -809,7 +809,7 @@
       popup.appendChild(notice);
     }
 
-    function appendMetadata(entry, result) {
+    function appendMetadata(entry, result, dictionaryPresentation = []) {
       const frequencyRow = documentRef.createElement("div");
       frequencyRow.className =
         "gsm-hoshidicts-metadata gsm-hoshidicts-frequency-metadata";
@@ -819,10 +819,12 @@
       const seen = new Set();
       let count = 0;
       const frequencyDictionaryDisplayNames = createDictionaryDisplayNames(
-        result.term.frequencies.map(({ dictionary }) => dictionary)
+        result.term.frequencies.map(({ dictionary }) => dictionary),
+        dictionaryPresentation
       );
       const pitchDictionaryDisplayNames = createDictionaryDisplayNames(
-        result.term.pitches.map(({ dictionary }) => dictionary)
+        result.term.pitches.map(({ dictionary }) => dictionary),
+        dictionaryPresentation
       );
       for (const group of result.term.frequencies) {
         const frequencies = [];
@@ -1030,7 +1032,13 @@
           entry.appendChild(lookupStats);
         }
 
-        appendMetadata(entry, result);
+        appendMetadata(
+          entry,
+          result,
+          Array.isArray(renderContext.dictionaryPresentation)
+            ? renderContext.dictionaryPresentation
+            : []
+        );
 
         const tagRow = documentRef.createElement("div");
         tagRow.className = "gsm-hoshidicts-tags";
