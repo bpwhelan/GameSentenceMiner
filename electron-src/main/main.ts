@@ -155,6 +155,7 @@ import type {
     InstallStageId,
 } from '../shared/install_session.js';
 import { INSTALL_STAGE_IDS } from '../shared/install_session.js';
+import { requiresBackendStartupPreparation } from './services/backend_version.js';
 
 registerChangelogProtocolScheme();
 
@@ -2034,6 +2035,7 @@ function updateTrayMenu(): void {
  */
 interface EnsureAndRunOptions {
     allowDuringUpdate?: boolean;
+    knownInstalledVersion?: string | null;
     origin?: InstallSessionOrigin;
     trackInstallSession?: boolean;
 }
@@ -2070,59 +2072,26 @@ async function ensureAndRunGSM(
     devFaultInjector.maybeFail('startup.ensure_and_run_enter');
 
     let runtimePythonPath = pythonPath;
-    let installedVersion = await getInstalledPackageVersion(runtimePythonPath, APP_NAME);
-    let isInstalled = installedVersion !== null;
-
-    try {
-        updateInstallStage(
-            'verify_runtime',
-            'running',
-            'estimated',
-            0.2,
-            'Verifying Python runtime and pip tooling...'
-        );
-        devFaultInjector.maybeFail('startup.check_and_ensure_pip');
-        await checkAndEnsurePip(runtimePythonPath);
-        devFaultInjector.maybeFail('startup.check_and_install_uv');
-        await checkAndInstallUV(runtimePythonPath);
-        updateInstallStage(
-            'verify_runtime',
-            'completed',
-            'estimated',
-            1,
-            'Python runtime tooling verified.'
-        );
-    } catch (error) {
-        console.warn(
-            'Python runtime bootstrap failed (pip/uv). Reinitializing python_venv from scratch...',
-            error
-        );
-        updateInstallStage(
-            'verify_runtime',
-            'running',
-            'estimated',
-            0.45,
-            'Python runtime verification failed. Rebuilding managed Python environment...'
-        );
-        await closeAllPythonProcesses();
-        await reinstallPython();
-        runtimePythonPath = await getOrInstallPython();
-        pythonPath = runtimePythonPath;
-        setPythonPath(runtimePythonPath);
-        await checkAndEnsurePip(runtimePythonPath);
-        await checkAndInstallUV(runtimePythonPath);
+    let installedVersion = options?.knownInstalledVersion;
+    if (installedVersion === undefined) {
         installedVersion = await getInstalledPackageVersion(runtimePythonPath, APP_NAME);
-        isInstalled = installedVersion !== null;
-        updateInstallStage(
-            'verify_runtime',
-            'completed',
-            'estimated',
-            1,
-            'Python runtime tooling rebuilt and verified.'
-        );
     }
+    let isInstalled = installedVersion !== null;
+    const bundledVersion = getBundledBackendVersion();
+    const isPreRelease = resolvePreReleaseBranch() !== null;
+    const versionMismatch =
+        installedVersion !== null &&
+        !isPreRelease &&
+        bundledVersion !== null &&
+        !isBackendVersionCompatible(installedVersion, bundledVersion);
+    const requiresStartupPreparation = requiresBackendStartupPreparation(
+        installedVersion,
+        bundledVersion,
+        isPreRelease
+    );
 
-    // Resolve extras and persist any pruned options.
+    // Resolve extras up front so the normal launch and launch-repair paths use
+    // the same selection without invoking Python.
     const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
         getPythonExtras()
     );
@@ -2134,78 +2103,134 @@ async function ensureAndRunGSM(
         );
     }
 
-    // Sync environment from the bundled uv.lock.
-    try {
-        devFaultInjector.maybeFail('startup.sync_lock_check');
-        updateInstallStage(
-            'lock_sync',
-            'running',
-            'estimated',
-            0.1,
-            'Checking whether the Python environment matches the lockfile...'
-        );
-        await syncLockedEnvironment(runtimePythonPath, selectedExtras, true);
-        console.log('Python environment already matches lockfile.');
-        updateInstallStage(
-            'lock_sync',
-            'skipped',
-            'estimated',
-            1,
-            'Python environment already matches the lockfile.'
-        );
-    } catch {
-        console.log(
-            `Syncing Python environment with lockfile, extras: ${selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
-            }`
-        );
-        devFaultInjector.maybeFail('startup.sync_lock_apply');
-        updateInstallStage(
-            'lock_sync',
-            'running',
-            'estimated',
-            0.15,
-            'Syncing Python environment with the bundled lockfile...'
-        );
-        await syncLockedEnvironment(runtimePythonPath, selectedExtras, false, (event) => {
+    if (requiresStartupPreparation) {
+        try {
+            updateInstallStage(
+                'verify_runtime',
+                'running',
+                'estimated',
+                0.2,
+                'Verifying Python runtime and pip tooling...'
+            );
+            devFaultInjector.maybeFail('startup.check_and_ensure_pip');
+            await checkAndEnsurePip(runtimePythonPath);
+            devFaultInjector.maybeFail('startup.check_and_install_uv');
+            await checkAndInstallUV(runtimePythonPath);
+            updateInstallStage(
+                'verify_runtime',
+                'completed',
+                'estimated',
+                1,
+                'Python runtime tooling verified.'
+            );
+        } catch (error) {
+            console.warn(
+                'Python runtime bootstrap failed (pip/uv). Reinitializing python_venv from scratch...',
+                error
+            );
+            updateInstallStage(
+                'verify_runtime',
+                'running',
+                'estimated',
+                0.45,
+                'Python runtime verification failed. Rebuilding managed Python environment...'
+            );
+            await closeAllPythonProcesses();
+            await reinstallPython();
+            runtimePythonPath = await getOrInstallPython();
+            pythonPath = runtimePythonPath;
+            setPythonPath(runtimePythonPath);
+            await checkAndEnsurePip(runtimePythonPath);
+            await checkAndInstallUV(runtimePythonPath);
+            installedVersion = await getInstalledPackageVersion(runtimePythonPath, APP_NAME);
+            isInstalled = installedVersion !== null;
+            updateInstallStage(
+                'verify_runtime',
+                'completed',
+                'estimated',
+                1,
+                'Python runtime tooling rebuilt and verified.'
+            );
+        }
+
+        // Sync only when an install is actually required. App-version and
+        // backend updates already perform a full lockfile sync before launch.
+        try {
+            devFaultInjector.maybeFail('startup.sync_lock_check');
             updateInstallStage(
                 'lock_sync',
                 'running',
                 'estimated',
-                event.progress,
-                event.message
+                0.1,
+                'Checking whether the Python environment matches the lockfile...'
             );
-        });
+            await syncLockedEnvironment(runtimePythonPath, selectedExtras, true);
+            console.log('Python environment already matches lockfile.');
+            updateInstallStage(
+                'lock_sync',
+                'skipped',
+                'estimated',
+                1,
+                'Python environment already matches the lockfile.'
+            );
+        } catch {
+            console.log(
+                `Syncing Python environment with lockfile, extras: ${selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
+                }`
+            );
+            devFaultInjector.maybeFail('startup.sync_lock_apply');
+            updateInstallStage(
+                'lock_sync',
+                'running',
+                'estimated',
+                0.15,
+                'Syncing Python environment with the bundled lockfile...'
+            );
+            await syncLockedEnvironment(runtimePythonPath, selectedExtras, false, (event) => {
+                updateInstallStage(
+                    'lock_sync',
+                    'running',
+                    'estimated',
+                    event.progress,
+                    event.message
+                );
+            });
+            updateInstallStage(
+                'lock_sync',
+                'completed',
+                'estimated',
+                1,
+                'Python environment synced to the lockfile.'
+            );
+        }
+    } else {
+        console.log(
+            `Backend ${installedVersion} is compatible; skipping unchanged Python environment checks.`
+        );
+        updateInstallStage(
+            'verify_runtime',
+            'skipped',
+            'indeterminate',
+            1,
+            'Managed Python runtime is already configured.'
+        );
         updateInstallStage(
             'lock_sync',
-            'completed',
-            'estimated',
+            'skipped',
+            'indeterminate',
             1,
-            'Python environment synced to the lockfile.'
+            'Lockfile dependencies are unchanged.'
         );
     }
 
-    // Stable builds always ask PyPI for the newest backend in this client's
-    // compatibility window. This automatically picks up PEP 440 post releases
-    // (for example 2026.7.4.post1) without accepting the backend for a newer
-    // Electron client. Prerelease builds continue to track their source branch.
-    const bundledVersion = getBundledBackendVersion();
-    const isPreRelease = resolvePreReleaseBranch() !== null;
-    const versionMismatch =
-        installedVersion !== null &&
-        !isPreRelease &&
-        bundledVersion !== null &&
-        !isBackendVersionCompatible(installedVersion, bundledVersion);
-    const shouldCheckForStablePostRelease =
-        !isPreRelease && bundledVersion !== null;
-    if (!isInstalled || versionMismatch || shouldCheckForStablePostRelease) {
+    // The startup updater owns the optional PyPI compatibility decision. Do
+    // not repeat it here: only install when the package is missing or
+    // incompatible, and launch an unchanged backend immediately.
+    if (requiresStartupPreparation) {
         const packageSpecifier = getBundledBackendSpecifier();
         if (versionMismatch) {
             console.log(
                 `${APP_NAME} backend ${installedVersion} is incompatible with bundled ${bundledVersion}. Installing ${packageSpecifier}...`
-            );
-        } else if (shouldCheckForStablePostRelease && isInstalled) {
-            console.log(
-                `Checking for the latest compatible ${APP_NAME} backend (${packageSpecifier})...`
             );
         } else {
             console.log(`${APP_NAME} is not installed. Installing ${packageSpecifier}...`);
@@ -2218,48 +2243,31 @@ async function ensureAndRunGSM(
             `Installing ${APP_NAME} backend package...`
         );
         devFaultInjector.maybeFail('startup.install_package');
-        try {
-            await installPackageNoDeps(
-                runtimePythonPath,
-                packageSpecifier,
-                !isInstalled || versionMismatch,
-                (event) => {
-                    updateInstallStage(
-                        'gsm_package',
-                        'running',
-                        'estimated',
-                        event.progress,
-                        event.message
-                    );
-                }
-            );
-            installedVersion = await getInstalledPackageVersion(runtimePythonPath, APP_NAME);
-            console.log(
-                `Compatible backend check complete. Installed version: ${installedVersion ?? 'unknown'}.`
-            );
-            updateInstallStage(
-                'gsm_package',
-                'completed',
-                'estimated',
-                1,
-                `${APP_NAME} backend package is up to date.`
-            );
-        } catch (error) {
-            if (!isInstalled || versionMismatch) {
-                throw error;
+        await installPackageNoDeps(
+            runtimePythonPath,
+            packageSpecifier,
+            !isInstalled || versionMismatch,
+            (event) => {
+                updateInstallStage(
+                    'gsm_package',
+                    'running',
+                    'estimated',
+                    event.progress,
+                    event.message
+                );
             }
-            console.warn(
-                `Could not check PyPI for a compatible backend hotfix; continuing with installed ${installedVersion}.`,
-                error
-            );
-            updateInstallStage(
-                'gsm_package',
-                'skipped',
-                'estimated',
-                1,
-                `Could not check for a backend hotfix; using installed ${installedVersion}.`
-            );
-        }
+        );
+        installedVersion = await getInstalledPackageVersion(runtimePythonPath, APP_NAME);
+        console.log(
+            `Backend install complete. Installed version: ${installedVersion ?? 'unknown'}.`
+        );
+        updateInstallStage(
+            'gsm_package',
+            'completed',
+            'estimated',
+            1,
+            `${APP_NAME} backend package is installed.`
+        );
     } else {
         updateInstallStage(
             'gsm_package',
@@ -2306,10 +2314,16 @@ async function ensureAndRunGSM(
                 }`
             );
             try {
-                console.log('[Startup Repair] Step 1/4: Closing running backend-related processes.');
+                console.log('[Startup Repair] Step 1/5: Closing running backend-related processes.');
                 await closeAllPythonProcesses();
 
-                console.log('[Startup Repair] Step 2/4: Cleaning uv cache.');
+                console.log('[Startup Repair] Step 2/5: Verifying pip and uv tooling.');
+                devFaultInjector.maybeFail('startup.check_and_ensure_pip');
+                await checkAndEnsurePip(runtimePythonPath);
+                devFaultInjector.maybeFail('startup.check_and_install_uv');
+                await checkAndInstallUV(runtimePythonPath);
+
+                console.log('[Startup Repair] Step 3/5: Cleaning uv cache.');
                 updateInstallStage(
                     'backend_boot',
                     'running',
@@ -2320,7 +2334,7 @@ async function ensureAndRunGSM(
                 devFaultInjector.maybeFail('startup.repair.clean_uv_cache');
                 await cleanUvCache(runtimePythonPath);
 
-                console.log('[Startup Repair] Step 3/4: Re-syncing lockfile dependencies.');
+                console.log('[Startup Repair] Step 4/5: Re-syncing lockfile dependencies.');
                 devFaultInjector.maybeFail('startup.repair.sync_lock');
                 updateInstallStage(
                     'lock_sync',
@@ -2346,7 +2360,7 @@ async function ensureAndRunGSM(
                     'Lockfile dependencies refreshed after launch failure.'
                 );
 
-                console.log('[Startup Repair] Step 4/4: Reinstalling GSM backend package.');
+                console.log('[Startup Repair] Step 5/5: Reinstalling GSM backend package.');
                 devFaultInjector.maybeFail('startup.repair.install_package');
                 updateInstallStage(
                     'gsm_package',
@@ -2641,6 +2655,7 @@ if (!app.requestSingleInstanceLock()) {
 
             // Launch backend before UI/module initialization, then continue startup.
             void ensureAndRunGSM(pythonPath, 1, {
+                knownInstalledVersion: updateManager.checkedBackendVersion,
                 origin: 'startup',
                 trackInstallSession: trackStartupInstallSession,
             }).catch(async (err) => {

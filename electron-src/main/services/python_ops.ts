@@ -11,6 +11,9 @@ import {
     PACKAGE_NAME,
     resolvePreReleaseBranch,
 } from '../util.js';
+import { isBackendVersionCompatible } from './backend_version.js';
+
+export { isBackendVersionCompatible } from './backend_version.js';
 
 const PINNED_UV_VERSION = '0.9.22';
 
@@ -401,17 +404,6 @@ export function getBundledBackendVersion(): string | null {
  * Stable clients accept their bundled Python version plus PEP 440 post releases
  * of that exact version, such as 2026.7.4.post1.
  */
-export function isBackendVersionCompatible(
-    installedVersion: string,
-    bundledVersion: string
-): boolean {
-    const escapedBundledVersion = bundledVersion.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return new RegExp(
-        `^${escapedBundledVersion}(?:\\.post\\d+)?(?:\\+[A-Za-z0-9.-]+)?$`,
-        'i'
-    ).test(installedVersion);
-}
-
 function getNextReleaseVersion(version: string): string | null {
     if (!/^\d+(?:\.\d+)+$/.test(version)) {
         return null;
