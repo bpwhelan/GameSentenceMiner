@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import threading
 import time
@@ -7,6 +9,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from GameSentenceMiner import hoshidicts_audio as _audio
 from GameSentenceMiner import hoshidicts_mining_note as _note
 from GameSentenceMiner.util.config.configuration import get_app_directory, get_config
 
@@ -51,6 +54,7 @@ FIELD_KEYS = (
     "sentence",
     "frequency",
     "pitch",
+    "audio",
 )
 
 OPTIONAL_FIELD_ALIASES = {
@@ -58,6 +62,7 @@ OPTIONAL_FIELD_ALIASES = {
     "definition": ("Definition", "Definitions", "Meaning", "Glossary"),
     "frequency": ("Frequency", "Frequencies"),
     "pitch": ("Pitch Accent", "PitchAccent", "Pitch", "Accent"),
+    "audio": ("WordAudio", "PronunciationAudio", "Pronunciation", "Audio"),
 }
 
 GENERIC_FIELD_ALIASES = {
@@ -67,6 +72,7 @@ GENERIC_FIELD_ALIASES = {
     "sentence": ("Sentence", "Context", "Example Sentence"),
     "frequency": OPTIONAL_FIELD_ALIASES["frequency"],
     "pitch": OPTIONAL_FIELD_ALIASES["pitch"],
+    "audio": OPTIONAL_FIELD_ALIASES["audio"],
 }
 
 KIKU_LAPIS_FIELD_MAP = {
@@ -169,7 +175,7 @@ def load_hoshidicts_mining_profile(
         stat = path.stat()
     except FileNotFoundError:
         return default_hoshidicts_mining_profile()
-    if not stat.is_file() or stat.st_size <= 0 or stat.st_size > MAX_PROFILE_BYTES:
+    if not path.is_file() or stat.st_size <= 0 or stat.st_size > MAX_PROFILE_BYTES:
         raise HoshidictsMiningError("Hoshidicts mining profile has an invalid size.")
     try:
         parsed = json.loads(path.read_text(encoding="utf-8-sig"))
@@ -613,6 +619,75 @@ def _add_field_value(
         fields[field_name] = value
 
 
+def _audio_warning(status: str, message: str) -> dict[str, str]:
+    return {
+        "status": status,
+        "warning": message,
+    }
+
+
+def _enrich_hoshidicts_note_audio(
+    request: dict[str, Any],
+    resolved: dict[str, Any],
+    note_id: int,
+    initial_fields: dict[str, str],
+) -> dict[str, str]:
+    audio_field = resolved["fields"]["audio"]
+    if not audio_field:
+        return {"status": "skipped"}
+
+    audio = _audio
+    try:
+        profile = audio.load_hoshidicts_audio_profile_or_default()
+    except Exception as exc:
+        return _audio_warning("failed", f"Could not load pronunciation audio settings: {exc}")
+    if not profile["enabled"]:
+        return {"status": "skipped"}
+
+    term = request["term"]
+    try:
+        media = audio.get_mining_audio(
+            term["expression"].strip(),
+            term["reading"].strip(),
+            request.get("audioSelection"),
+            profile=profile,
+        )
+    except audio.HoshidictsAudioError as exc:
+        status = "unavailable" if exc.status_code == 404 else "failed"
+        return _audio_warning(status, str(exc))
+    except Exception as exc:
+        return _audio_warning("failed", f"Could not download pronunciation audio: {exc}")
+
+    digest = hashlib.sha256(media.data).hexdigest()[:32]
+    filename = f"gsm_hoshidicts_{digest}.{media.extension}"
+    try:
+        stored_filename = resolved["anki"].invoke(
+            "storeMediaFile",
+            filename=filename,
+            data=base64.b64encode(media.data).decode("ascii"),
+            timeout=30,
+        )
+        if not isinstance(stored_filename, str) or not stored_filename:
+            raise RuntimeError("Anki did not return a stored media filename")
+        sound = f"[sound:{stored_filename}]"
+        existing_value = initial_fields.get(audio_field, "")
+        field_value = f"{existing_value}<br>{sound}" if existing_value else sound
+        resolved["anki"].invoke(
+            "updateNoteFields",
+            note={
+                "id": note_id,
+                "fields": {audio_field: field_value},
+            },
+            timeout=30,
+        )
+    except Exception as exc:
+        return _audio_warning("failed", f"The note was added, but pronunciation audio could not be stored: {exc}")
+    return {
+        "status": "stored",
+        "filename": stored_filename,
+    }
+
+
 def mine_hoshidicts_note(payload: Any) -> dict[str, Any]:
     request = validate_hoshidicts_mining_request(payload)
     resolved = _resolve_mining_configuration()
@@ -664,6 +739,7 @@ def mine_hoshidicts_note(payload: Any) -> dict[str, Any]:
             )
         raise HoshidictsMiningError("Anki did not return a note ID.", 502)
 
+    audio_result = _enrich_hoshidicts_note_audio(request, resolved, note_id, fields)
     anki.handle_incoming_anki_event(
         {
             "event": "note_added",
@@ -675,4 +751,5 @@ def mine_hoshidicts_note(payload: Any) -> dict[str, Any]:
         "success": True,
         "noteId": note_id,
         "unmappedFields": resolved["unmappedFields"],
+        "audio": audio_result,
     }

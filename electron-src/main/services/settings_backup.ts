@@ -34,6 +34,7 @@ const GSM_TOP_LEVEL_FILES = new Set([
 const GSM_TRAVERSABLE_DIRS = new Set([
     'agent-scripts',
     'config',
+    'dictionaries',
     'electron',
     'obs-studio',
     'ocr_config',
@@ -44,6 +45,11 @@ const GSM_TRAVERSABLE_DIRS = new Set([
 const ELECTRON_SETTINGS_FILES = new Set([
     'config.json',
     'overlay_settings.json',
+]);
+
+const HOSHIDICTS_SETTINGS_FILES = new Set([
+    'audio-profile.json',
+    'mining-profile.json',
 ]);
 
 const OBS_EXCLUDED_CONFIG_DIRS = new Set([
@@ -331,6 +337,18 @@ export function shouldIncludeGsmBackupPath(relativePath: string, isDirectory: bo
         return false;
     }
 
+    if (first === 'dictionaries') {
+        if (parts.length === 2 && second === 'hoshidicts' && isDirectory) {
+            return true;
+        }
+        return (
+            parts.length === 3 &&
+            second === 'hoshidicts' &&
+            !isDirectory &&
+            HOSHIDICTS_SETTINGS_FILES.has(parts[2])
+        );
+    }
+
     if (first === 'ocr_config') {
         if (second === 'backup') {
             return false;
@@ -353,6 +371,20 @@ export function shouldIncludeGsmBackupPath(relativePath: string, isDirectory: bo
             return TEXTHOOK_SETTINGS_FILES.has(second);
         }
         return false;
+    }
+
+    if (first === 'dictionaries') {
+        if (second !== 'hoshidicts') {
+            return false;
+        }
+        if (parts.length === 2) {
+            return isDirectory;
+        }
+        return (
+            parts.length === 3 &&
+            !isDirectory &&
+            parts[2] === 'custom-dictionary.txt'
+        );
     }
 
     if (first === 'config' || first === 'agent-scripts' || first === 'scripts') {

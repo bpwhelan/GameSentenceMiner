@@ -1,11 +1,16 @@
 mod features;
 mod hoshidicts;
 
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use clap::{Parser, Subcommand};
 use features::{FeatureRegistry, ServiceFeature, PROTOCOL_VERSION};
 use futures_util::{SinkExt, StreamExt};
 use gilrs::{Axis, Button, Event, EventType, GamepadId, Gilrs};
-use hoshidicts::{HoshidictsService, RequestId, MAX_LOOKUP_RESPONSE_BYTES};
+use hoshidicts::{
+    HoshidictsService, LookupKanji, LookupResult, MediaError, MediaFile, RequestId,
+    MAX_LOOKUP_RESPONSE_BYTES, MAX_MEDIA_DICTIONARY_BYTES, MAX_MEDIA_PATH_BYTES,
+    MAX_MEDIA_RESPONSE_BYTES,
+};
 use rdev::{
     listen as listen_global_keyboard, Event as KeyboardEvent, EventType as KeyboardEventType,
     Key as KeyboardKey,
@@ -38,6 +43,14 @@ use tokio::time;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 use tracing::{debug, error, info, warn};
 use zip::ZipArchive;
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+enum HoshidictsLookupRequestMode {
+    #[default]
+    TermFirst,
+    Kanji,
+}
 
 /// GSM shared input and high-performance services host (Rust)
 ///
@@ -1757,6 +1770,17 @@ enum ClientMsg {
         request_id: RequestId,
         #[serde(default)]
         text: String,
+        #[serde(default)]
+        mode: HoshidictsLookupRequestMode,
+    },
+
+    #[serde(rename = "hoshidicts_media")]
+    HoshidictsMedia {
+        #[serde(rename = "requestId")]
+        request_id: RequestId,
+        generation: u64,
+        dictionary: String,
+        path: String,
     },
 
     #[serde(rename = "hoshidicts_reload")]
@@ -2327,9 +2351,27 @@ fn feature_status_payload(features: &FeatureRegistry) -> Value {
     })
 }
 
+fn is_han_character(character: char) -> bool {
+    matches!(
+        character as u32,
+        0x3400..=0x4dbf
+            | 0x4e00..=0x9fff
+            | 0xf900..=0xfaff
+            | 0x20000..=0x2fa1f
+    )
+}
+
+fn first_han_character(text: &str) -> Option<String> {
+    text.chars()
+        .next()
+        .filter(|character| is_han_character(*character))
+        .map(|character| character.to_string())
+}
+
 async fn hoshidicts_lookup_payload(
     request_id: RequestId,
     text: String,
+    mode: HoshidictsLookupRequestMode,
     features: &FeatureRegistry,
     hoshidicts: &SharedHoshidicts,
 ) -> String {
@@ -2339,7 +2381,9 @@ async fn hoshidicts_lookup_payload(
             "requestId": Value::Null,
             "success": false,
             "results": [],
+            "kanji": Value::Null,
             "dictionaryCount": 0,
+            "generation": 0,
             "featureDisabled": false,
             "error": error,
         })
@@ -2351,30 +2395,62 @@ async fn hoshidicts_lookup_payload(
             "requestId": request_id,
             "success": false,
             "results": [],
+            "kanji": Value::Null,
             "dictionaryCount": 0,
+            "generation": 0,
             "featureDisabled": true,
             "error": "Hoshidicts is not enabled for this connection",
         })
         .to_string();
     }
 
-    let (result, dictionary_count) = match hoshidicts
+    let (result, dictionary_count, generation) = match hoshidicts
         .run_blocking(move |service| {
-            let result = service.lookup(&text);
-            (result, service.dictionary_count())
+            let result = (|| -> Result<(Vec<LookupResult>, Option<LookupKanji>), String> {
+                match mode {
+                    HoshidictsLookupRequestMode::TermFirst => {
+                        service.lookup(&text).and_then(|terms| {
+                            if !terms.is_empty() {
+                                return Ok((terms, None));
+                            }
+                            let kanji = match first_han_character(&text) {
+                                Some(character) => {
+                                    let result = service.lookup_kanji(&character)?;
+                                    (!result.entries.is_empty()).then_some(result)
+                                }
+                                None => None,
+                            };
+                            Ok((terms, kanji))
+                        })
+                    }
+                    HoshidictsLookupRequestMode::Kanji => {
+                        let kanji = match first_han_character(&text) {
+                            Some(character) => {
+                                let result = service.lookup_kanji(&character)?;
+                                (!result.entries.is_empty()).then_some(result)
+                            }
+                            None => None,
+                        };
+                        Ok((Vec::new(), kanji))
+                    }
+                }
+            })();
+            (result, service.dictionary_count(), service.generation())
         })
         .await
     {
         Ok(outcome) => outcome,
-        Err(error) => (Err(error), 0),
+        Err(error) => (Err(error), 0, 0),
     };
     let payload = match result {
-        Ok(results) => json!({
+        Ok((results, kanji)) => json!({
             "type": "hoshidicts_lookup_result",
             "requestId": request_id,
             "success": true,
             "results": results,
+            "kanji": kanji,
             "dictionaryCount": dictionary_count,
+            "generation": generation,
             "featureDisabled": false,
             "error": Value::Null,
         }),
@@ -2383,7 +2459,9 @@ async fn hoshidicts_lookup_payload(
             "requestId": request_id,
             "success": false,
             "results": [],
+            "kanji": Value::Null,
             "dictionaryCount": dictionary_count,
+            "generation": generation,
             "featureDisabled": false,
             "error": error,
         }),
@@ -2397,13 +2475,201 @@ async fn hoshidicts_lookup_payload(
             "requestId": request_id,
             "success": false,
             "results": [],
+            "kanji": Value::Null,
             "dictionaryCount": dictionary_count,
+            "generation": generation,
             "featureDisabled": false,
             "error": format!(
                 "lookup response exceeds the {MAX_LOOKUP_RESPONSE_BYTES}-byte limit"
             ),
         })
         .to_string()
+    }
+}
+
+enum HoshidictsMediaOutcome<'a> {
+    Success {
+        media_type: &'a str,
+        data_base64: String,
+        byte_length: usize,
+        width: u32,
+        height: u32,
+    },
+    Failure {
+        feature_disabled: bool,
+        error: &'a str,
+    },
+}
+
+fn hoshidicts_media_result(
+    request_id: Value,
+    generation: u64,
+    dictionary: &str,
+    path: &str,
+    outcome: HoshidictsMediaOutcome<'_>,
+) -> String {
+    // Never reflect an oversized untrusted field into a response envelope.
+    let dictionary = if dictionary.len() <= MAX_MEDIA_DICTIONARY_BYTES {
+        dictionary
+    } else {
+        ""
+    };
+    let path = if path.len() <= MAX_MEDIA_PATH_BYTES {
+        path
+    } else {
+        ""
+    };
+    let (media_type, data_base64, byte_length, width, height, feature_disabled, error) =
+        match outcome {
+            HoshidictsMediaOutcome::Success {
+                media_type,
+                data_base64,
+                byte_length,
+                width,
+                height,
+            } => (
+                Some(media_type),
+                Some(data_base64),
+                byte_length,
+                Some(width),
+                Some(height),
+                false,
+                None,
+            ),
+            HoshidictsMediaOutcome::Failure {
+                feature_disabled,
+                error,
+            } => (None, None, 0, None, None, feature_disabled, Some(error)),
+        };
+    json!({
+        "type": "hoshidicts_media_result",
+        "requestId": request_id,
+        "success": error.is_none(),
+        "generation": generation,
+        "dictionary": dictionary,
+        "path": path,
+        "mediaType": media_type,
+        "byteLength": byte_length,
+        "dataBase64": data_base64,
+        "width": width,
+        "height": height,
+        "featureDisabled": feature_disabled,
+        "staleGeneration": error == Some(MediaError::StaleGeneration.code()),
+        "error": error,
+    })
+    .to_string()
+}
+
+fn hoshidicts_media_success_result(
+    request_id: Value,
+    generation: u64,
+    dictionary: &str,
+    path: &str,
+    media: MediaFile,
+) -> String {
+    let byte_length = media.data.len();
+    let data_base64 = BASE64_STANDARD.encode(media.data);
+    let payload = hoshidicts_media_result(
+        request_id.clone(),
+        generation,
+        dictionary,
+        path,
+        HoshidictsMediaOutcome::Success {
+            media_type: media.media_type,
+            data_base64,
+            byte_length,
+            width: media.width,
+            height: media.height,
+        },
+    );
+    if payload.len() <= MAX_MEDIA_RESPONSE_BYTES {
+        payload
+    } else {
+        hoshidicts_media_result(
+            request_id,
+            generation,
+            dictionary,
+            path,
+            HoshidictsMediaOutcome::Failure {
+                feature_disabled: false,
+                error: MediaError::MediaTooLarge.code(),
+            },
+        )
+    }
+}
+
+async fn hoshidicts_media_payload(
+    request_id: RequestId,
+    generation: u64,
+    dictionary: String,
+    path: String,
+    features: &FeatureRegistry,
+    hoshidicts: &SharedHoshidicts,
+) -> String {
+    if request_id.validate().is_err() {
+        return hoshidicts_media_result(
+            Value::Null,
+            generation,
+            &dictionary,
+            &path,
+            HoshidictsMediaOutcome::Failure {
+                feature_disabled: false,
+                error: MediaError::InvalidRequestId.code(),
+            },
+        );
+    }
+    let request_id = serde_json::to_value(request_id).unwrap_or(Value::Null);
+    if !features.is_enabled(ServiceFeature::Hoshidicts) {
+        return hoshidicts_media_result(
+            request_id,
+            generation,
+            &dictionary,
+            &path,
+            HoshidictsMediaOutcome::Failure {
+                feature_disabled: true,
+                error: "feature_disabled",
+            },
+        );
+    }
+
+    let operation_request_id = request_id.clone();
+    let operation_dictionary = dictionary.clone();
+    let operation_path = path.clone();
+    match hoshidicts
+        .run_blocking(move |service| {
+            match service.media(generation, &operation_dictionary, &operation_path) {
+                Ok(media) => hoshidicts_media_success_result(
+                    operation_request_id,
+                    generation,
+                    &operation_dictionary,
+                    &operation_path,
+                    media,
+                ),
+                Err(error) => hoshidicts_media_result(
+                    operation_request_id,
+                    generation,
+                    &operation_dictionary,
+                    &operation_path,
+                    HoshidictsMediaOutcome::Failure {
+                        feature_disabled: false,
+                        error: error.code(),
+                    },
+                ),
+            }
+        })
+        .await
+    {
+        Ok(payload) => payload,
+        Err(_) => hoshidicts_media_result(
+            request_id,
+            generation,
+            &dictionary,
+            &path,
+            HoshidictsMediaOutcome::Failure {
+                feature_disabled: false,
+                error: MediaError::InternalError.code(),
+            },
+        ),
     }
 }
 
@@ -2418,6 +2684,7 @@ async fn hoshidicts_reload_payload(
             "requestId": Value::Null,
             "success": false,
             "dictionaryCount": 0,
+            "generation": 0,
             "featureDisabled": false,
             "error": error,
         })
@@ -2429,22 +2696,23 @@ async fn hoshidicts_reload_payload(
             "requestId": request_id,
             "success": false,
             "dictionaryCount": 0,
+            "generation": 0,
             "featureDisabled": true,
             "error": "Hoshidicts is not enabled for this connection",
         })
         .to_string();
     }
 
-    let (result, active_dictionary_count) = match hoshidicts
+    let (result, active_dictionary_count, generation) = match hoshidicts
         .run_blocking(|service| {
             let result = service.reload();
             let active_dictionary_count = service.dictionary_count();
-            (result, active_dictionary_count)
+            (result, active_dictionary_count, service.generation())
         })
         .await
     {
         Ok(outcome) => outcome,
-        Err(error) => (Err(error), 0),
+        Err(error) => (Err(error), 0, 0),
     };
     match result {
         Ok(dictionary_count) => json!({
@@ -2452,6 +2720,7 @@ async fn hoshidicts_reload_payload(
             "requestId": request_id,
             "success": true,
             "dictionaryCount": dictionary_count,
+            "generation": generation,
             "featureDisabled": false,
             "error": Value::Null,
         })
@@ -2461,6 +2730,7 @@ async fn hoshidicts_reload_payload(
             "requestId": request_id,
             "success": false,
             "dictionaryCount": active_dictionary_count,
+            "generation": generation,
             "featureDisabled": false,
             "error": error,
         })
@@ -2781,10 +3051,34 @@ async fn handle_socket(
                                     break;
                                 }
                             }
-                            Ok(ClientMsg::HoshidictsLookup { request_id, text }) => {
+                            Ok(ClientMsg::HoshidictsLookup {
+                                request_id,
+                                text,
+                                mode,
+                            }) => {
                                 let payload = hoshidicts_lookup_payload(
                                     request_id,
                                     text,
+                                    mode,
+                                    &features,
+                                    &hoshidicts,
+                                )
+                                .await;
+                                if ws_sink.send(Message::Text(payload)).await.is_err() {
+                                    break;
+                                }
+                            }
+                            Ok(ClientMsg::HoshidictsMedia {
+                                request_id,
+                                generation,
+                                dictionary,
+                                path,
+                            }) => {
+                                let payload = hoshidicts_media_payload(
+                                    request_id,
+                                    generation,
+                                    dictionary,
+                                    path,
                                     &features,
                                     &hoshidicts,
                                 )
@@ -3594,7 +3888,20 @@ mod tests {
             ClientMsg::HoshidictsLookup {
                 request_id: RequestId::Text(ref id),
                 ref text,
+                mode: HoshidictsLookupRequestMode::TermFirst,
             } if id == "lookup-1" && text == "食べた"
+        ));
+
+        let kanji_lookup = serde_json::from_str::<ClientMsg>(
+            r#"{"type":"hoshidicts_lookup","requestId":"lookup-kanji","text":"食","mode":"kanji"}"#,
+        )
+        .expect("kanji lookup request should deserialize");
+        assert!(matches!(
+            kanji_lookup,
+            ClientMsg::HoshidictsLookup {
+                mode: HoshidictsLookupRequestMode::Kanji,
+                ..
+            }
         ));
 
         let reload =
@@ -3606,6 +3913,22 @@ mod tests {
                 request_id: RequestId::Number(42),
             }
         ));
+
+        let media = serde_json::from_str::<ClientMsg>(
+            r#"{"type":"hoshidicts_media","requestId":"media-1","generation":7,"dictionary":"Japanese Character Names","path":"img/c123.jpg"}"#,
+        )
+        .expect("media request should deserialize");
+        assert!(matches!(
+            media,
+            ClientMsg::HoshidictsMedia {
+                request_id: RequestId::Text(ref id),
+                generation: 7,
+                ref dictionary,
+                ref path,
+            } if id == "media-1"
+                && dictionary == "Japanese Character Names"
+                && path == "img/c123.jpg"
+        ));
     }
 
     #[tokio::test]
@@ -3615,6 +3938,7 @@ mod tests {
         let payload = hoshidicts_lookup_payload(
             RequestId::Text("lookup-2".into()),
             "食べる".into(),
+            HoshidictsLookupRequestMode::TermFirst,
             &features,
             &service,
         )
@@ -3629,15 +3953,140 @@ mod tests {
     async fn hoshidicts_lookup_runs_through_blocking_boundary_and_preserves_correlation() {
         let features = FeatureRegistry::new([ServiceFeature::Hoshidicts]);
         let service = SharedHoshidicts::new(PathBuf::from("unused"));
-        let payload =
-            hoshidicts_lookup_payload(RequestId::Number(42), "食べる".into(), &features, &service)
-                .await;
+        let payload = hoshidicts_lookup_payload(
+            RequestId::Number(42),
+            "食べる".into(),
+            HoshidictsLookupRequestMode::TermFirst,
+            &features,
+            &service,
+        )
+        .await;
         let value: Value = serde_json::from_str(&payload).expect("valid lookup response");
         assert_eq!(value["requestId"], 42);
         assert_eq!(value["success"], true);
         assert_eq!(value["dictionaryCount"], 0);
+        assert_ne!(value["generation"], 0);
         assert_eq!(value["featureDisabled"], false);
         assert_eq!(value["results"], json!([]));
+        assert_eq!(value["kanji"], Value::Null);
+    }
+
+    #[test]
+    fn hoshidicts_kanji_fallback_uses_only_the_first_han_character() {
+        assert_eq!(first_han_character("食べる").as_deref(), Some("食"));
+        assert_eq!(first_han_character("𠮟る").as_deref(), Some("𠮟"));
+        assert_eq!(first_han_character("べる"), None);
+        assert_eq!(first_han_character("。食"), None);
+    }
+
+    #[tokio::test]
+    async fn hoshidicts_media_uses_stable_correlated_failure_envelope() {
+        let features = FeatureRegistry::new([ServiceFeature::Hoshidicts]);
+        let service = SharedHoshidicts::new(PathBuf::from("unused"));
+        let payload = hoshidicts_media_payload(
+            RequestId::Text("media-2".into()),
+            7,
+            "Test".into(),
+            "../escape.png".into(),
+            &features,
+            &service,
+        )
+        .await;
+        let value: Value = serde_json::from_str(&payload).expect("valid media response");
+        assert_eq!(value["type"], "hoshidicts_media_result");
+        assert_eq!(value["requestId"], "media-2");
+        assert_eq!(value["generation"], 7);
+        assert_eq!(value["dictionary"], "Test");
+        assert_eq!(value["path"], "../escape.png");
+        assert_eq!(value["success"], false);
+        assert_eq!(value["mediaType"], Value::Null);
+        assert_eq!(value["byteLength"], 0);
+        assert_eq!(value["dataBase64"], Value::Null);
+        assert_eq!(value["width"], Value::Null);
+        assert_eq!(value["height"], Value::Null);
+        assert_eq!(value["featureDisabled"], false);
+        assert_eq!(value["staleGeneration"], false);
+        assert_eq!(value["error"], "invalid_path");
+    }
+
+    #[test]
+    fn hoshidicts_media_success_envelope_includes_base64_and_dimensions() {
+        let payload = hoshidicts_media_success_result(
+            json!("media-success"),
+            11,
+            "Test",
+            "img/test.png",
+            MediaFile {
+                media_type: "image/png",
+                data: vec![0, 1, 2, 253],
+                width: 320,
+                height: 200,
+            },
+        );
+        let value: Value = serde_json::from_str(&payload).expect("valid media response");
+        assert_eq!(value["type"], "hoshidicts_media_result");
+        assert_eq!(value["requestId"], "media-success");
+        assert_eq!(value["success"], true);
+        assert_eq!(value["generation"], 11);
+        assert_eq!(value["dictionary"], "Test");
+        assert_eq!(value["path"], "img/test.png");
+        assert_eq!(value["mediaType"], "image/png");
+        assert_eq!(value["byteLength"], 4);
+        assert_eq!(value["dataBase64"], "AAEC/Q==");
+        assert_eq!(value["width"], 320);
+        assert_eq!(value["height"], 200);
+        assert_eq!(value["featureDisabled"], false);
+        assert_eq!(value["staleGeneration"], false);
+        assert_eq!(value["error"], Value::Null);
+    }
+
+    #[tokio::test]
+    async fn hoshidicts_media_rejects_stale_generation_with_stable_shape() {
+        let features = FeatureRegistry::new([ServiceFeature::Hoshidicts]);
+        let service = SharedHoshidicts::new(PathBuf::from("unused"));
+        let payload = hoshidicts_media_payload(
+            RequestId::Number(10),
+            99,
+            "Test".into(),
+            "img/test.png".into(),
+            &features,
+            &service,
+        )
+        .await;
+        let value: Value = serde_json::from_str(&payload).expect("valid media response");
+        assert_eq!(value["requestId"], 10);
+        assert_eq!(value["success"], false);
+        assert_eq!(value["generation"], 99);
+        assert_eq!(value["mediaType"], Value::Null);
+        assert_eq!(value["byteLength"], 0);
+        assert_eq!(value["dataBase64"], Value::Null);
+        assert_eq!(value["width"], Value::Null);
+        assert_eq!(value["height"], Value::Null);
+        assert_eq!(value["staleGeneration"], true);
+        assert_eq!(value["error"], "stale_generation");
+    }
+
+    #[tokio::test]
+    async fn hoshidicts_media_reports_feature_disabled_without_native_work() {
+        let features = FeatureRegistry::new([]);
+        let service = SharedHoshidicts::new(PathBuf::from("unused"));
+        let payload = hoshidicts_media_payload(
+            RequestId::Number(9),
+            3,
+            "Test".into(),
+            "img/test.png".into(),
+            &features,
+            &service,
+        )
+        .await;
+        let value: Value = serde_json::from_str(&payload).expect("valid media response");
+        assert_eq!(value["requestId"], 9);
+        assert_eq!(value["success"], false);
+        assert_eq!(value["featureDisabled"], true);
+        assert_eq!(value["width"], Value::Null);
+        assert_eq!(value["height"], Value::Null);
+        assert_eq!(value["staleGeneration"], false);
+        assert_eq!(value["error"], "feature_disabled");
     }
 
     #[tokio::test(flavor = "current_thread")]

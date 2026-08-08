@@ -1,31 +1,101 @@
 import {
-  DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
-  DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
-  MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
-  MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
-  MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
-  MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
-  MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
+  createDefaultHoshidictsAudioProfile,
+  createDefaultHoshidictsFieldOverwriteModes,
+  HOSHIDICTS_MINING_FIELD_MARKERS,
+  isHoshidictsActivationKey,
+  parseHoshidictsCustomDictionary,
+  type HoshidictsActivationKey,
+  type HoshidictsAudioProfile,
   type HoshidictsDesktopSnapshot,
+  type HoshidictsFrequencyMode,
   type HoshidictsMiningFieldName,
+  type HoshidictsMiningFieldMarker,
   type HoshidictsMiningFields,
   type HoshidictsMiningOptions,
   type HoshidictsMiningProfile,
   type HoshidictsProgressPhase,
-  type HoshidictsRecommendedDictionaryId,
-  type HoshidictsReaderPreferences,
-  type HoshidictsSchedule
+  type HoshidictsRecommendedDictionaryId
 } from "../../../../shared/features/hoshidicts";
 
-export type HoshidictsView = "dictionaries" | "mining";
+export type HoshidictsView =
+  | "dictionaries"
+  | "design"
+  | "custom"
+  | "audio"
+  | "mining";
 export type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
-export type MiningField = HoshidictsMiningFieldName;
 export type MiningProfileDraft = Omit<HoshidictsMiningProfile, "tags"> & {
   tags: string;
 };
 
-export const AUTO_FIELD_VALUE = "__hoshidicts_auto__";
-export const DISABLED_FIELD_VALUE = "__hoshidicts_disabled__";
+export type MiningFieldTemplate = NonNullable<
+  HoshidictsMiningProfile["fieldTemplates"]
+>[string];
+
+const ACTIVATION_KEY_BY_CODE: Readonly<
+  Record<string, HoshidictsActivationKey>
+> = {
+  ShiftLeft: "Shift",
+  ShiftRight: "Shift",
+  ControlLeft: "Ctrl",
+  ControlRight: "Ctrl",
+  AltLeft: "Alt",
+  AltRight: "Alt",
+  MetaLeft: "Cmd",
+  MetaRight: "Cmd",
+  OSLeft: "Cmd",
+  OSRight: "Cmd",
+  Space: "Space",
+  Enter: "Return",
+  NumpadEnter: "Return",
+  Escape: "Escape",
+  Backspace: "Backspace",
+  Delete: "Delete",
+  Tab: "Tab",
+  ArrowUp: "Up",
+  ArrowDown: "Down",
+  ArrowLeft: "Left",
+  ArrowRight: "Right",
+  Home: "Home",
+  End: "End",
+  PageUp: "PageUp",
+  PageDown: "PageDown",
+  Insert: "Insert",
+  Minus: "-",
+  NumpadSubtract: "-",
+  Equal: "=",
+  NumpadEqual: "=",
+  BracketLeft: "[",
+  BracketRight: "]",
+  Backslash: "\\",
+  IntlBackslash: "\\",
+  Semicolon: ";",
+  Quote: "'",
+  Comma: ",",
+  Period: ".",
+  NumpadDecimal: ".",
+  Slash: "/",
+  NumpadDivide: "/",
+  Backquote: "`"
+};
+
+export function activationKeyFromKeyboardCode(
+  code: string
+): HoshidictsActivationKey | null {
+  const mapped = ACTIVATION_KEY_BY_CODE[code];
+  if (mapped) return mapped;
+
+  const keyCode = /^Key([A-Z])$/.exec(code)?.[1];
+  if (isHoshidictsActivationKey(keyCode)) return keyCode;
+
+  const digitCode = /^(?:Digit|Numpad)([0-9])$/.exec(code)?.[1];
+  if (isHoshidictsActivationKey(digitCode)) return digitCode;
+
+  return /^F(?:[1-9]|1[0-9]|2[0-4])$/.test(code) &&
+    isHoshidictsActivationKey(code)
+    ? code
+    : null;
+}
 
 export const PROGRESS_KEYS: Record<HoshidictsProgressPhase, string> = {
   idle: "settings.hoshidicts.progress.idle",
@@ -41,21 +111,71 @@ export const RECOMMENDED_KEYS: Record<
   HoshidictsRecommendedDictionaryId,
   string
 > = {
+  jitendex: "settings.hoshidicts.recommended.jitendex",
   jmdict: "settings.hoshidicts.recommended.jmdict",
-  jmnedict: "settings.hoshidicts.recommended.jmnedict"
+  jmnedict: "settings.hoshidicts.recommended.jmnedict",
+  bccwj: "settings.hoshidicts.recommended.bccwj",
+  "jpdbv2-kana": "settings.hoshidicts.recommended.jpdbv2Kana",
+  jiten: "settings.hoshidicts.recommended.jiten",
+  "kanjium-pitch": "settings.hoshidicts.recommended.kanjiumPitch",
+  kanjidic: "settings.hoshidicts.recommended.kanjidic"
 };
 
-export const MINING_FIELDS: Array<{
-  id: MiningField;
-  labelKey: string;
-}> = [
-  { id: "expression", labelKey: "settings.hoshidicts.mining.fields.expression" },
-  { id: "reading", labelKey: "settings.hoshidicts.mining.fields.reading" },
-  { id: "definition", labelKey: "settings.hoshidicts.mining.fields.definition" },
-  { id: "sentence", labelKey: "settings.hoshidicts.mining.fields.sentence" },
-  { id: "frequency", labelKey: "settings.hoshidicts.mining.fields.frequency" },
-  { id: "pitch", labelKey: "settings.hoshidicts.mining.fields.pitch" }
-];
+export function frequencyModeKey(mode: HoshidictsFrequencyMode | null): string {
+  if (mode === "occurrence-based") {
+    return "settings.hoshidicts.frequencyModes.occurrenceBased";
+  }
+  if (mode === "rank-based") {
+    return "settings.hoshidicts.frequencyModes.rankBased";
+  }
+  return "settings.hoshidicts.frequencyModes.automatic";
+}
+
+export function sortFrequencyDictionaryOrderForMode(
+  mode: HoshidictsFrequencyMode | null
+): "ascending" | "descending" {
+  return mode === "rank-based" ? "ascending" : "descending";
+}
+
+
+const MINING_FIELD_MARKER_LABEL_KEYS: Record<
+  HoshidictsMiningFieldMarker,
+  string
+> = {
+  expression: "settings.hoshidicts.mining.fields.expression",
+  reading: "settings.hoshidicts.mining.fields.reading",
+  furigana: "settings.hoshidicts.mining.fields.furigana",
+  "furigana-plain": "settings.hoshidicts.mining.fields.furiganaPlain",
+  definition: "settings.hoshidicts.mining.fields.definition",
+  "main-definition": "settings.hoshidicts.mining.fields.mainDefinition",
+  glossary: "settings.hoshidicts.mining.fields.glossary",
+  dictionary: "settings.hoshidicts.mining.fields.dictionary",
+  sentence: "settings.hoshidicts.mining.fields.sentence",
+  "popup-selection-text":
+    "settings.hoshidicts.mining.fields.popupSelectionText",
+  "sentence-furigana":
+    "settings.hoshidicts.mining.fields.sentenceFurigana",
+  "sentence-furigana-plain":
+    "settings.hoshidicts.mining.fields.sentenceFuriganaPlain",
+  frequency: "settings.hoshidicts.mining.fields.frequency",
+  frequencies: "settings.hoshidicts.mining.fields.frequencies",
+  "frequency-harmonic-rank":
+    "settings.hoshidicts.mining.fields.frequencyHarmonicRank",
+  pitch: "settings.hoshidicts.mining.fields.pitch",
+  "pitch-position": "settings.hoshidicts.mining.fields.pitchPosition",
+  "pitch-accent-positions":
+    "settings.hoshidicts.mining.fields.pitchAccentPositions",
+  "pitch-accent-categories":
+    "settings.hoshidicts.mining.fields.pitchAccentCategories",
+  audio: "settings.hoshidicts.mining.fields.audio",
+  "document-title": "settings.hoshidicts.mining.fields.documentTitle"
+};
+
+export const MINING_FIELD_TEMPLATE_SUGGESTIONS =
+  HOSHIDICTS_MINING_FIELD_MARKERS.map((marker) => ({
+    ...marker,
+    labelKey: MINING_FIELD_MARKER_LABEL_KEYS[marker.id]
+  }));
 
 const EMPTY_FIELDS: HoshidictsMiningFields = {
   expression: "",
@@ -63,18 +183,45 @@ const EMPTY_FIELDS: HoshidictsMiningFields = {
   definition: "",
   sentence: "",
   frequency: "",
-  pitch: ""
+  pitch: "",
+  audio: ""
 };
 
+const LEGACY_MINING_FIELD_NAMES = Object.keys(
+  EMPTY_FIELDS
+) as HoshidictsMiningFieldName[];
+
+function legacyMiningFieldTemplate(
+  draft: MiningProfileDraft,
+  target: string
+): MiningFieldTemplate {
+  const targetKey = target.toLowerCase();
+  const fields = LEGACY_MINING_FIELD_NAMES.filter(
+    (field) =>
+      !draft.disabledFields.includes(field) &&
+      draft.fields[field].toLowerCase() === targetKey
+  );
+  return {
+    value: fields.map((field) => `{${field}}`).join("<br>"),
+    overwriteMode:
+      fields.length > 0 ? draft.fieldOverwriteModes[fields[0]] : "coalesce"
+  };
+}
+
 export const DEFAULT_MINING_PROFILE: HoshidictsMiningProfile = {
-  version: 1,
+  version: 3,
   enabled: true,
   deck: "Default",
   model: "",
   fields: { ...EMPTY_FIELDS },
   disabledFields: [],
   tags: ["hoshidicts"],
-  duplicatePolicy: "prevent"
+  checkForDuplicates: true,
+  duplicateScope: "collection",
+  duplicateScopeCheckAllModels: false,
+  duplicateBehavior: "prevent",
+  fieldOverwriteModes: createDefaultHoshidictsFieldOverwriteModes(),
+  fieldTemplates: null
 };
 
 export const DEFAULT_MINING_OPTIONS: HoshidictsMiningOptions = {
@@ -86,66 +233,12 @@ export const DEFAULT_MINING_OPTIONS: HoshidictsMiningOptions = {
   fields: [],
   suggestedFields: { ...EMPTY_FIELDS },
   resolvedFields: { ...EMPTY_FIELDS },
+  suggestedFieldTemplates: {},
+  resolvedFieldTemplates: {},
   warnings: [],
   error: null
 };
 
-const DEFAULT_STATE: HoshidictsDesktopSnapshot = {
-  revision: 0,
-  effectiveEnabled: false,
-  dictionaries: [],
-  recommendedDictionaries: [
-    { id: "jmdict", installed: false },
-    { id: "jmnedict", installed: false }
-  ],
-  miningProfile: DEFAULT_MINING_PROFILE,
-  lookupMode: "shift",
-  popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
-  definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
-  schedule: "off",
-  lastCheck: null,
-  nextCheck: null,
-  lastError: null,
-  busy: false,
-  progress: { phase: "idle" },
-  overlay: { running: false, restartRequired: false }
-};
-
-function strings(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter(
-        (item): item is string => typeof item === "string" && item.length > 0
-      )
-    : [];
-}
-
-function fieldValues(value: unknown): HoshidictsMiningFields {
-  const candidate =
-    value && typeof value === "object"
-      ? (value as Partial<HoshidictsMiningFields>)
-      : {};
-  const read = (field: MiningField) =>
-    typeof candidate[field] === "string" ? candidate[field] : "";
-  return {
-    expression: read("expression"),
-    reading: read("reading"),
-    definition: read("definition"),
-    sentence: read("sentence"),
-    frequency: read("frequency"),
-    pitch: read("pitch")
-  };
-}
-
-function miningFields(value: unknown): MiningField[] {
-  const valid = new Set<MiningField>(MINING_FIELDS.map(({ id }) => id));
-  const result: MiningField[] = [];
-  for (const item of strings(value)) {
-    if (valid.has(item as MiningField) && !result.includes(item as MiningField)) {
-      result.push(item as MiningField);
-    }
-  }
-  return result;
-}
 
 export function copyMiningProfile(
   profile: HoshidictsMiningProfile = DEFAULT_MINING_PROFILE
@@ -153,190 +246,28 @@ export function copyMiningProfile(
   return {
     ...profile,
     fields: { ...profile.fields },
+    fieldOverwriteModes: { ...profile.fieldOverwriteModes },
     disabledFields: [...profile.disabledFields],
+    fieldTemplates:
+      profile.fieldTemplates === null
+        ? null
+        : Object.fromEntries(
+            Object.entries(profile.fieldTemplates).map(([field, template]) => [
+              field,
+              { ...template }
+            ])
+          ),
     tags: [...profile.tags]
   };
 }
 
-export function normalizeMiningProfile(value: unknown): HoshidictsMiningProfile {
-  if (!value || typeof value !== "object") return copyMiningProfile();
-  const candidate = value as Partial<HoshidictsMiningProfile>;
+
+export function copyAudioProfile(
+  profile: HoshidictsAudioProfile = createDefaultHoshidictsAudioProfile()
+): HoshidictsAudioProfile {
   return {
-    version: 1,
-    enabled: candidate.enabled !== false,
-    deck:
-      typeof candidate.deck === "string" && candidate.deck.length > 0
-        ? candidate.deck
-        : "Default",
-    model: typeof candidate.model === "string" ? candidate.model : "",
-    fields: fieldValues(candidate.fields),
-    disabledFields: miningFields(candidate.disabledFields),
-    tags: Array.isArray(candidate.tags) ? strings(candidate.tags) : ["hoshidicts"],
-    duplicatePolicy: candidate.duplicatePolicy === "allow" ? "allow" : "prevent"
-  };
-}
-
-export function normalizeMiningOptions(value: unknown): HoshidictsMiningOptions {
-  if (!value || typeof value !== "object") {
-    return {
-      ...DEFAULT_MINING_OPTIONS,
-      suggestedFields: { ...EMPTY_FIELDS },
-      resolvedFields: { ...EMPTY_FIELDS }
-    };
-  }
-  const candidate = value as Partial<HoshidictsMiningOptions>;
-  return {
-    connected: candidate.connected === true,
-    gsmAnkiEnabled: candidate.gsmAnkiEnabled === true,
-    decks: strings(candidate.decks),
-    noteTypes: strings(candidate.noteTypes),
-    selectedNoteType:
-      typeof candidate.selectedNoteType === "string"
-        ? candidate.selectedNoteType
-        : "",
-    fields: strings(candidate.fields),
-    suggestedFields: fieldValues(candidate.suggestedFields),
-    resolvedFields: fieldValues(candidate.resolvedFields),
-    warnings: strings(candidate.warnings),
-    error: typeof candidate.error === "string" ? candidate.error : null
-  };
-}
-
-export function normalizeDefinitionBlur(
-  value: unknown
-): HoshidictsReaderPreferences["definitionBlur"] {
-  if (!value || typeof value !== "object") {
-    return { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR };
-  }
-
-  const candidate = value as Partial<
-    HoshidictsReaderPreferences["definitionBlur"]
-  >;
-  const lookupThreshold =
-    Number.isInteger(candidate.lookupThreshold) &&
-    (candidate.lookupThreshold as number) >=
-      MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD &&
-    (candidate.lookupThreshold as number) <=
-      MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD
-      ? (candidate.lookupThreshold as number)
-      : DEFAULT_HOSHIDICTS_DEFINITION_BLUR.lookupThreshold;
-  const revealDelayMs =
-    Number.isInteger(candidate.revealDelayMs) &&
-    (candidate.revealDelayMs as number) >=
-      MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS &&
-    (candidate.revealDelayMs as number) <=
-      MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS
-      ? (candidate.revealDelayMs as number)
-      : DEFAULT_HOSHIDICTS_DEFINITION_BLUR.revealDelayMs;
-
-  return {
-    enabled: candidate.enabled === true,
-    lookupThreshold,
-    revealMode: candidate.revealMode === "hover" ? "hover" : "timed",
-    revealDelayMs
-  };
-}
-
-export function normalizeHoshidictsDesktopState(
-  value: unknown
-): HoshidictsDesktopSnapshot {
-  if (!value || typeof value !== "object") {
-    return {
-      ...DEFAULT_STATE,
-      definitionBlur: { ...DEFAULT_STATE.definitionBlur },
-      miningProfile: copyMiningProfile(),
-      recommendedDictionaries: DEFAULT_STATE.recommendedDictionaries.map(
-        (dictionary) => ({ ...dictionary })
-      ),
-      overlay: { ...DEFAULT_STATE.overlay }
-    };
-  }
-
-  const candidate = value as Partial<HoshidictsDesktopSnapshot>;
-  const schedule: HoshidictsSchedule =
-    candidate.schedule === "daily" ||
-    candidate.schedule === "weekly" ||
-    candidate.schedule === "monthly"
-      ? candidate.schedule
-      : "off";
-  const phase =
-    candidate.progress?.phase &&
-    Object.prototype.hasOwnProperty.call(PROGRESS_KEYS, candidate.progress.phase)
-      ? candidate.progress.phase
-      : "idle";
-  const popupHideDelayMs =
-    Number.isInteger(candidate.popupHideDelayMs) &&
-    (candidate.popupHideDelayMs as number) >= 0 &&
-    (candidate.popupHideDelayMs as number) <=
-      MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS
-      ? (candidate.popupHideDelayMs as number)
-      : DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS;
-
-  return {
-    revision:
-      typeof candidate.revision === "number" && candidate.revision >= 0
-        ? candidate.revision
-        : 0,
-    effectiveEnabled: candidate.effectiveEnabled === true,
-    dictionaries: Array.isArray(candidate.dictionaries)
-      ? candidate.dictionaries
-          .filter(
-            (dictionary) =>
-              dictionary &&
-              typeof dictionary.id === "string" &&
-              typeof dictionary.title === "string"
-          )
-          .map((dictionary) => ({
-            ...dictionary,
-            enabled: dictionary.enabled !== false
-          }))
-      : [],
-    recommendedDictionaries: (
-      ["jmdict", "jmnedict"] as HoshidictsRecommendedDictionaryId[]
-    ).map((id) => ({
-      id,
-      installed:
-        candidate.recommendedDictionaries?.some(
-          (dictionary) => dictionary?.id === id && dictionary.installed === true
-        ) === true
-    })),
-    miningProfile: normalizeMiningProfile(candidate.miningProfile),
-    lookupMode: candidate.lookupMode === "hover" ? "hover" : "shift",
-    popupHideDelayMs,
-    definitionBlur: normalizeDefinitionBlur(candidate.definitionBlur),
-    schedule,
-    lastCheck:
-      typeof candidate.lastCheck === "string" ? candidate.lastCheck : null,
-    nextCheck:
-      typeof candidate.nextCheck === "string" ? candidate.nextCheck : null,
-    lastError:
-      typeof candidate.lastError === "string" ? candidate.lastError : null,
-    busy: candidate.busy === true,
-    progress: {
-      phase,
-      scope:
-        candidate.progress?.scope === "dictionary" ||
-        candidate.progress?.scope === "preferences" ||
-        candidate.progress?.scope === "mining"
-          ? candidate.progress.scope
-          : undefined,
-      title:
-        typeof candidate.progress?.title === "string"
-          ? candidate.progress.title
-          : undefined,
-      completed:
-        typeof candidate.progress?.completed === "number"
-          ? candidate.progress.completed
-          : undefined,
-      total:
-        typeof candidate.progress?.total === "number"
-          ? candidate.progress.total
-          : undefined
-    },
-    overlay: {
-      running: candidate.overlay?.running === true,
-      restartRequired: candidate.overlay?.restartRequired === true
-    }
+    ...profile,
+    sources: profile.sources.map((source) => ({ ...source }))
   };
 }
 
@@ -355,7 +286,17 @@ export function draftToProfile(
   return {
     ...draft,
     fields: { ...draft.fields },
+    fieldOverwriteModes: { ...draft.fieldOverwriteModes },
     disabledFields: [...draft.disabledFields],
+    fieldTemplates:
+      draft.fieldTemplates === null
+        ? null
+        : Object.fromEntries(
+            Object.entries(draft.fieldTemplates).map(([field, template]) => [
+              field,
+              { ...template }
+            ])
+          ),
     tags: draft.tags
       .split(",")
       .map((tag) => tag.trim())
@@ -363,46 +304,73 @@ export function draftToProfile(
   };
 }
 
-export function getFieldChoice(
+export function visibleMiningFields(
   draft: MiningProfileDraft,
-  field: MiningField
-): string {
-  if (draft.disabledFields.includes(field)) return DISABLED_FIELD_VALUE;
-  return draft.fields[field] || AUTO_FIELD_VALUE;
+  options: HoshidictsMiningOptions
+): string[] {
+  if (options.fields.length > 0) return options.fields;
+  if (draft.fieldTemplates !== null) return Object.keys(draft.fieldTemplates);
+  const seen = new Set<string>();
+  return LEGACY_MINING_FIELD_NAMES.flatMap((field) => {
+    if (draft.disabledFields.includes(field)) return [];
+    const target = draft.fields[field];
+    const key = target.toLowerCase();
+    if (!target || seen.has(key)) return [];
+    seen.add(key);
+    return [target];
+  });
 }
 
-export function setFieldChoice(
+export function resolvedMiningFieldTemplate(
   draft: MiningProfileDraft,
-  field: MiningField,
-  value: string
-): MiningProfileDraft {
-  const disabledFields = draft.disabledFields.filter((item) => item !== field);
-  const fields = { ...draft.fields };
-  if (value === DISABLED_FIELD_VALUE) {
-    disabledFields.push(field);
-    fields[field] = "";
-  } else if (value === AUTO_FIELD_VALUE) {
-    fields[field] = "";
-  } else {
-    fields[field] = value;
+  options: HoshidictsMiningOptions,
+  field: string
+): MiningFieldTemplate {
+  if (draft.fieldTemplates !== null) {
+    return (
+      draft.fieldTemplates[field] ??
+      options.resolvedFieldTemplates[field] ?? {
+        value: "",
+        overwriteMode: "coalesce"
+      }
+    );
   }
-  return { ...draft, fields, disabledFields };
+  return (
+    options.resolvedFieldTemplates[field] ?? {
+      ...legacyMiningFieldTemplate(draft, field),
+      value:
+        options.suggestedFieldTemplates[field] ??
+        legacyMiningFieldTemplate(draft, field).value
+    }
+  );
 }
 
-export function automaticFieldTarget(
-  options: HoshidictsMiningOptions,
-  field: MiningField
-): string {
-  return options.suggestedFields[field] || options.resolvedFields[field] || "";
-}
-
-export function resolvedDraftField(
+export function materializeMiningFieldTemplates(
   draft: MiningProfileDraft,
   options: HoshidictsMiningOptions,
-  field: MiningField
-): string {
-  if (draft.disabledFields.includes(field)) return "";
-  return draft.fields[field] || automaticFieldTarget(options, field);
+  visibleFields = visibleMiningFields(draft, options)
+): NonNullable<HoshidictsMiningProfile["fieldTemplates"]> {
+  return Object.fromEntries(
+    visibleFields.map((field) => [
+      field,
+      { ...resolvedMiningFieldTemplate(draft, options, field) }
+    ])
+  );
+}
+
+export function setMiningFieldTemplate(
+  draft: MiningProfileDraft,
+  options: HoshidictsMiningOptions,
+  field: string,
+  update: Partial<MiningFieldTemplate>
+): MiningProfileDraft {
+  const fieldTemplates = materializeMiningFieldTemplates(draft, options);
+  const current = fieldTemplates[field] ?? {
+    value: "",
+    overwriteMode: "coalesce"
+  };
+  fieldTemplates[field] = { ...current, ...update };
+  return { ...draft, fieldTemplates };
 }
 
 export type ReadinessKind =
@@ -410,6 +378,7 @@ export type ReadinessKind =
   | "overlayStopped"
   | "restartRequired"
   | "noEnabledDictionaries"
+  | "noEnabledLookupDictionary"
   | "ready";
 
 export interface HoshidictsReadiness {
@@ -421,9 +390,16 @@ export interface HoshidictsReadiness {
 export function getReadiness(
   state: HoshidictsDesktopSnapshot
 ): HoshidictsReadiness {
-  const installed = state.dictionaries.length;
-  const enabled = state.dictionaries.filter((dictionary) => dictionary.enabled)
-    .length;
+  const customActive = state.customDictionaryActive ? 1 : 0;
+  const installed = state.dictionaries.length + customActive;
+  const enabled =
+    state.dictionaries.filter((dictionary) => dictionary.enabled).length +
+    customActive;
+  const enabledLookupDictionaries = state.dictionaries.filter(
+    (dictionary) =>
+      dictionary.enabled &&
+      (dictionary.termCount > 0 || dictionary.kanjiCount > 0)
+  ).length + customActive;
   const kind: ReadinessKind = !state.effectiveEnabled
     ? "featureOff"
     : !state.overlay.running
@@ -432,18 +408,34 @@ export function getReadiness(
         ? "restartRequired"
         : enabled === 0
           ? "noEnabledDictionaries"
-          : "ready";
+          : enabledLookupDictionaries === 0
+            ? "noEnabledLookupDictionary"
+            : "ready";
   return { kind, installed, enabled };
 }
 
 export function isScopedBusy(
   state: HoshidictsDesktopSnapshot,
-  scope: "dictionary" | "preferences" | "mining"
+  scope: "dictionary" | "preferences" | "mining" | "audio" | "custom"
 ): boolean {
   return (
     state.busy &&
     (state.progress.scope === undefined || state.progress.scope === scope)
   );
+}
+
+export interface CustomDictionaryDraftSummary {
+  entryCount: number;
+  ignoredLines: number[];
+  ignoredLineCount: number;
+}
+
+export function summarizeCustomDictionaryText(
+  text: string
+): CustomDictionaryDraftSummary {
+  const { entries, ignoredLines, ignoredLineCount } =
+    parseHoshidictsCustomDictionary(text);
+  return { entryCount: entries.length, ignoredLines, ignoredLineCount };
 }
 
 export function formatTimestamp(value: string | null): string | null {

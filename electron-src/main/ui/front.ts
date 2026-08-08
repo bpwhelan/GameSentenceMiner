@@ -17,8 +17,6 @@ import {
     getFrontPageState,
     getSteamGames,
     getVNs,
-    getYuzuRomsPath,
-    LaunchableGame,
     HookableGameType,
     OCRGame,
     setFrontPageState,
@@ -34,82 +32,25 @@ import {
     stopInProcessOverlay,
     waitForInProcessOverlayShutdown,
 } from '../overlay_runtime.js';
-import { getBusConnectInfo } from '../runtime/bus_client.js';
-import { getConfiguredHoshidictsEnabled } from '../gsm_config.js';
+import { HOSHIDICTS_CONTROL_ENV } from '../features/hoshidicts/control_channel.js';
 import {
-    DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
-    DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
-    MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
-    MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
-    MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
-    MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
-    MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
-    type HoshidictsDefinitionBlurPreferences,
-    type HoshidictsLookupMode,
-    type HoshidictsReaderPreferences,
-} from '../../shared/features/hoshidicts.js';
+    buildHoshidictsControlEnvironment,
+    buildHoshidictsOverlayEnvironment,
+    configureHoshidictsRuntime,
+    markHoshidictsOverlayLaunched,
+    resetHoshidictsRuntimeState,
+    resolveHoshidictsLaunchConfiguration,
+    type HoshidictsLaunchConfiguration,
+} from '../features/hoshidicts/runtime_state.js';
 
 const OCR_CONFIG_DIR = path.join(BASE_DIR, 'ocr_config');
 let overlayProcess: ChildProcess | null = null;
 export type OverlayLaunchSource = 'manual' | 'startup' | 'auto-launcher';
 let overlayLaunchSource: OverlayLaunchSource | null = null;
-let overlayHoshidictsEnabledAtLaunch: boolean | null = null;
-let overlayHoshidictsLookupModeAtLaunch: HoshidictsLookupMode | null = null;
-let overlayHoshidictsPopupHideDelayAtLaunch: number | null = null;
-let overlayHoshidictsDefinitionBlurAtLaunch:
-    | HoshidictsDefinitionBlurPreferences
-    | null = null;
-let hoshidictsLookupModeProvider: () => Promise<HoshidictsLookupMode> =
-    async () => 'shift';
-let hoshidictsPopupHideDelayProvider: () => Promise<number> =
-    async () => DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS;
-let hoshidictsDefinitionBlurProvider: () => Promise<HoshidictsDefinitionBlurPreferences> =
-    async () => ({ ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR });
 
 export interface OverlayRuntimeState {
     isRunning: boolean;
     source: OverlayLaunchSource | null;
-}
-
-export function configureHoshidictsLookupModeProvider(
-    provider: () => Promise<HoshidictsLookupMode>
-): void {
-    hoshidictsLookupModeProvider = provider;
-}
-
-export function configureHoshidictsPopupHideDelayProvider(
-    provider: () => Promise<number>
-): void {
-    hoshidictsPopupHideDelayProvider = provider;
-}
-
-export function configureHoshidictsDefinitionBlurProvider(
-    provider: () => Promise<HoshidictsDefinitionBlurPreferences>
-): void {
-    hoshidictsDefinitionBlurProvider = provider;
-}
-
-function normalizeHoshidictsDefinitionBlur(
-    preferences: HoshidictsDefinitionBlurPreferences
-): HoshidictsDefinitionBlurPreferences {
-    if (
-        typeof preferences?.enabled !== 'boolean' ||
-        !Number.isInteger(preferences.lookupThreshold) ||
-        preferences.lookupThreshold <
-            MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD ||
-        preferences.lookupThreshold >
-            MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD ||
-        (preferences.revealMode !== 'timed' &&
-            preferences.revealMode !== 'hover') ||
-        !Number.isInteger(preferences.revealDelayMs) ||
-        preferences.revealDelayMs <
-            MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS ||
-        preferences.revealDelayMs >
-            MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS
-    ) {
-        return { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR };
-    }
-    return { ...preferences };
 }
 
 interface StopOverlayOptions {
@@ -120,6 +61,20 @@ function joinRuntimePath(basePath: string, ...parts: string[]): string {
     return /^[A-Za-z]:[\\/]/u.test(basePath) || basePath.startsWith('\\\\')
         ? path.win32.join(basePath, ...parts)
         : path.join(basePath, ...parts);
+}
+
+/** Liveness only, so Hoshidicts runtime state can consult it without recursing. */
+function isOverlayProcessRunning(): boolean {
+    return USE_IN_PROCESS_OVERLAY
+        ? isInProcessOverlayRunning()
+        : Boolean(overlayProcess && overlayProcess.exitCode === null);
+}
+
+configureHoshidictsRuntime({ overlayRunning: isOverlayProcessRunning });
+
+function forgetOverlaySession(): void {
+    overlayLaunchSource = null;
+    resetHoshidictsRuntimeState();
 }
 
 export function registerFrontPageIPC() {
@@ -210,58 +165,14 @@ export async function runOverlay() {
 }
 
 export function getOverlayRuntimeState(): OverlayRuntimeState {
-    const isRunning = USE_IN_PROCESS_OVERLAY
-        ? isInProcessOverlayRunning()
-        : Boolean(overlayProcess && overlayProcess.exitCode === null);
+    const isRunning = isOverlayProcessRunning();
     if (!isRunning) {
-        overlayLaunchSource = null;
-        overlayHoshidictsEnabledAtLaunch = null;
-        overlayHoshidictsLookupModeAtLaunch = null;
-        overlayHoshidictsPopupHideDelayAtLaunch = null;
-        overlayHoshidictsDefinitionBlurAtLaunch = null;
+        forgetOverlaySession();
     }
     return {
         isRunning,
         source: overlayLaunchSource,
     };
-}
-
-export function getOverlayHoshidictsEnabledAtLaunch(): boolean | null {
-    getOverlayRuntimeState();
-    return overlayHoshidictsEnabledAtLaunch;
-}
-
-export function getOverlayHoshidictsLookupModeAtLaunch(): HoshidictsLookupMode | null {
-    getOverlayRuntimeState();
-    return overlayHoshidictsLookupModeAtLaunch;
-}
-
-export function getOverlayHoshidictsPopupHideDelayAtLaunch(): number | null {
-    getOverlayRuntimeState();
-    return overlayHoshidictsPopupHideDelayAtLaunch;
-}
-
-export function getOverlayHoshidictsDefinitionBlurAtLaunch():
-    | HoshidictsDefinitionBlurPreferences
-    | null {
-    getOverlayRuntimeState();
-    return overlayHoshidictsDefinitionBlurAtLaunch
-        ? { ...overlayHoshidictsDefinitionBlurAtLaunch }
-        : null;
-}
-
-export function markOverlayHoshidictsReaderPreferencesApplied(
-    preferences: HoshidictsReaderPreferences
-): boolean {
-    if (!getOverlayRuntimeState().isRunning) {
-        return false;
-    }
-    overlayHoshidictsLookupModeAtLaunch = preferences.lookupMode;
-    overlayHoshidictsPopupHideDelayAtLaunch = preferences.popupHideDelayMs;
-    overlayHoshidictsDefinitionBlurAtLaunch = {
-        ...preferences.definitionBlur,
-    };
-    return true;
 }
 
 export function stopOverlay(options: StopOverlayOptions = {}): boolean {
@@ -275,22 +186,14 @@ export function stopOverlay(options: StopOverlayOptions = {}): boolean {
         }
         const stopRequested = stopInProcessOverlay();
         if (stopRequested) {
-            overlayLaunchSource = null;
-            overlayHoshidictsEnabledAtLaunch = null;
-            overlayHoshidictsLookupModeAtLaunch = null;
-            overlayHoshidictsPopupHideDelayAtLaunch = null;
-            overlayHoshidictsDefinitionBlurAtLaunch = null;
+            forgetOverlaySession();
         }
         return stopRequested;
     }
 
     if (!overlayProcess || overlayProcess.exitCode !== null) {
         overlayProcess = null;
-        overlayLaunchSource = null;
-        overlayHoshidictsEnabledAtLaunch = null;
-        overlayHoshidictsLookupModeAtLaunch = null;
-        overlayHoshidictsPopupHideDelayAtLaunch = null;
-        overlayHoshidictsDefinitionBlurAtLaunch = null;
+        forgetOverlaySession();
         return false;
     }
 
@@ -364,78 +267,44 @@ function terminateOverlayProcess(processHandle: ChildProcess): void {
     processHandle.kill();
 }
 
+
 function registerOverlayProcess(
     processHandle: ChildProcess,
     source: OverlayLaunchSource,
-    hoshidictsEnabled: boolean,
-    hoshidictsLookupMode: HoshidictsLookupMode,
-    hoshidictsPopupHideDelayMs: number,
-    hoshidictsDefinitionBlur: HoshidictsDefinitionBlurPreferences
+    hoshidicts: HoshidictsLaunchConfiguration
 ): void {
     overlayProcess = processHandle;
     overlayLaunchSource = source;
-    overlayHoshidictsEnabledAtLaunch = hoshidictsEnabled;
-    overlayHoshidictsLookupModeAtLaunch = hoshidictsLookupMode;
-    overlayHoshidictsPopupHideDelayAtLaunch = hoshidictsPopupHideDelayMs;
-    overlayHoshidictsDefinitionBlurAtLaunch = {
-        ...hoshidictsDefinitionBlur,
-    };
-    overlayProcess.once('exit', () => {
+    markHoshidictsOverlayLaunched(hoshidicts);
+    const forget = () => {
         overlayProcess = null;
-        overlayLaunchSource = null;
-        overlayHoshidictsEnabledAtLaunch = null;
-        overlayHoshidictsLookupModeAtLaunch = null;
-        overlayHoshidictsPopupHideDelayAtLaunch = null;
-        overlayHoshidictsDefinitionBlurAtLaunch = null;
-    });
+        forgetOverlaySession();
+    };
+    overlayProcess.once('exit', forget);
     overlayProcess.once('error', (error: Error) => {
         console.error('Overlay process error:', error);
-        overlayProcess = null;
-        overlayLaunchSource = null;
-        overlayHoshidictsEnabledAtLaunch = null;
-        overlayHoshidictsLookupModeAtLaunch = null;
-        overlayHoshidictsPopupHideDelayAtLaunch = null;
-        overlayHoshidictsDefinitionBlurAtLaunch = null;
+        forget();
     });
 }
 
-export function buildHoshidictsOverlayEnvironment(
-    enabled: boolean,
-    lookupMode: HoshidictsLookupMode = 'shift',
-    popupHideDelayMs = DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
-    definitionBlur: HoshidictsDefinitionBlurPreferences = {
-        ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
+function removeOverlayControlEnvironment(env: NodeJS.ProcessEnv): void {
+    for (const name of Object.keys(env)) {
+        if (
+            name.startsWith('GSM_BROKER_') ||
+            name === 'GSM_CLIENT_ID' ||
+            name === HOSHIDICTS_CONTROL_ENV
+        ) {
+            delete env[name];
+        }
     }
-): Record<string, string> {
-    const normalizedDefinitionBlur =
-        normalizeHoshidictsDefinitionBlur(definitionBlur);
-    return {
-        GSM_HOSHIDICTS_ENABLED: enabled ? '1' : '0',
-        GSM_HOSHIDICTS_LOOKUP_MODE: lookupMode,
-        GSM_HOSHIDICTS_POPUP_HIDE_DELAY_MS: String(popupHideDelayMs),
-        GSM_HOSHIDICTS_DEFINITION_BLUR_ENABLED:
-            normalizedDefinitionBlur.enabled ? '1' : '0',
-        GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD: String(
-            normalizedDefinitionBlur.lookupThreshold
-        ),
-        GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_MODE:
-            normalizedDefinitionBlur.revealMode,
-        GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS: String(
-            normalizedDefinitionBlur.revealDelayMs
-        ),
-    };
 }
 
-export function buildOverlayDesktopBusEnvironment(): Record<string, string> {
-    const connectInfo = getBusConnectInfo();
-    if (!connectInfo) {
-        return {};
-    }
-    return {
-        GSM_BROKER_PORT: String(connectInfo.port),
-        GSM_BROKER_TOKEN: connectInfo.token,
-        GSM_CLIENT_ID: 'overlay',
-    };
+export function buildOverlayProcessEnvironment(
+    source: NodeJS.ProcessEnv = process.env
+): NodeJS.ProcessEnv {
+    const env = { ...source };
+    removeOverlayControlEnvironment(env);
+    return env;
 }
 
 function spawnOverlayFromSource(
@@ -473,11 +342,12 @@ function spawnOverlayFromSource(
 
 function spawnSharedOverlayRuntime(
     spawn: typeof import('child_process').spawn,
+    baseEnvironment: NodeJS.ProcessEnv,
     hoshidictsEnvironment: Record<string, string>
 ): ChildProcess {
     const overlayResourcesPath = getOverlayResourcesPath();
     const env: NodeJS.ProcessEnv = {
-        ...process.env,
+        ...baseEnvironment,
         GSM_OVERLAY_CHILD: '1',
         GSM_OVERLAY_SHARED_RUNTIME: '1',
         [OVERLAY_RESOURCES_ENV]: overlayResourcesPath,
@@ -485,81 +355,39 @@ function spawnSharedOverlayRuntime(
     };
     delete env.ELECTRON_RUN_AS_NODE;
 
-    return spawn(
-        process.execPath,
-        [],
-        {
-            detached: false,
-            stdio: 'ignore',
-            env,
-        }
-    );
+    return spawn(process.execPath, [], {
+        detached: false,
+        stdio: 'ignore',
+        env,
+    });
 }
 
 export async function runOverlayWithSource(
     source: OverlayLaunchSource = 'manual'
 ): Promise<boolean> {
-    const hoshidictsEnabled = getConfiguredHoshidictsEnabled();
-    let hoshidictsLookupMode: HoshidictsLookupMode = 'shift';
-    let hoshidictsPopupHideDelayMs = DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS;
-    let hoshidictsDefinitionBlur: HoshidictsDefinitionBlurPreferences = {
-        ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
-    };
-    if (hoshidictsEnabled) {
-        try {
-            hoshidictsLookupMode =
-                (await hoshidictsLookupModeProvider()) === 'hover'
-                    ? 'hover'
-                    : 'shift';
-            const configuredHideDelay = await hoshidictsPopupHideDelayProvider();
-            hoshidictsPopupHideDelayMs =
-                Number.isInteger(configuredHideDelay) &&
-                configuredHideDelay >= 0 &&
-                configuredHideDelay <= MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS
-                    ? configuredHideDelay
-                    : DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS;
-            hoshidictsDefinitionBlur = normalizeHoshidictsDefinitionBlur(
-                await hoshidictsDefinitionBlurProvider()
-            );
-        } catch (error) {
-            console.warn(
-                '[Hoshidicts] Could not load reader preferences; using defaults.',
-                error
-            );
-        }
-    }
-    const hoshidictsEnvironment = buildHoshidictsOverlayEnvironment(
-        hoshidictsEnabled,
-        hoshidictsLookupMode,
-        hoshidictsPopupHideDelayMs,
-        hoshidictsDefinitionBlur
-    );
-    const desktopBusEnvironment = buildOverlayDesktopBusEnvironment();
+    const hoshidicts = await resolveHoshidictsLaunchConfiguration();
+    const hoshidictsEnvironment = buildHoshidictsOverlayEnvironment(hoshidicts);
+    const hoshidictsControlEnvironment = buildHoshidictsControlEnvironment();
+    const overlayProcessEnvironment = buildOverlayProcessEnvironment();
     if (USE_IN_PROCESS_OVERLAY) {
         if (isInProcessOverlayRunning()) {
             console.log('Overlay is already running.');
             return true;
         }
+        removeOverlayControlEnvironment(process.env);
         Object.assign(
             process.env,
             hoshidictsEnvironment,
-            desktopBusEnvironment
+            hoshidictsControlEnvironment
         );
         const started = await startInProcessOverlay();
-        overlayLaunchSource = started ? source : null;
-        overlayHoshidictsEnabledAtLaunch = started
-            ? hoshidictsEnabled
-            : null;
-        overlayHoshidictsLookupModeAtLaunch = started
-            ? hoshidictsLookupMode
-            : null;
-        overlayHoshidictsPopupHideDelayAtLaunch = started
-            ? hoshidictsPopupHideDelayMs
-            : null;
-        overlayHoshidictsDefinitionBlurAtLaunch = started
-            ? { ...hoshidictsDefinitionBlur }
-            : null;
-        return started;
+        if (!started) {
+            forgetOverlaySession();
+            return false;
+        }
+        overlayLaunchSource = source;
+        markHoshidictsOverlayLaunched(hoshidicts);
+        return true;
     }
 
     if (overlayProcess && overlayProcess.exitCode === null) {
@@ -581,9 +409,9 @@ export async function runOverlayWithSource(
         }
 
         const sourceLaunch = spawnOverlayFromSource(overlayDir, {
-            ...process.env,
+            ...overlayProcessEnvironment,
             ...hoshidictsEnvironment,
-            ...desktopBusEnvironment,
+            ...hoshidictsControlEnvironment,
         });
         let processHandle: ChildProcess;
         try {
@@ -599,14 +427,7 @@ export async function runOverlayWithSource(
             return false;
         }
 
-        registerOverlayProcess(
-            processHandle,
-            source,
-            hoshidictsEnabled,
-            hoshidictsLookupMode,
-            hoshidictsPopupHideDelayMs,
-            hoshidictsDefinitionBlur
-        );
+        registerOverlayProcess(processHandle, source, hoshidicts);
         console.log('Overlay launched successfully from source.');
         return true;
     }
@@ -616,19 +437,13 @@ export async function runOverlayWithSource(
         try {
             const processHandle = spawnSharedOverlayRuntime(
                 spawn,
+                overlayProcessEnvironment,
                 {
                     ...hoshidictsEnvironment,
-                    ...desktopBusEnvironment,
+                    ...hoshidictsControlEnvironment,
                 }
             );
-            registerOverlayProcess(
-                processHandle,
-                source,
-                hoshidictsEnabled,
-                hoshidictsLookupMode,
-                hoshidictsPopupHideDelayMs,
-                hoshidictsDefinitionBlur
-            );
+            registerOverlayProcess(processHandle, source, hoshidicts);
             console.log('Overlay launched successfully with shared Electron runtime.');
             return true;
         } catch (error) {
@@ -646,19 +461,12 @@ export async function runOverlayWithSource(
                 detached: false,
                 stdio: 'ignore',
                 env: {
-                    ...process.env,
+                    ...overlayProcessEnvironment,
                     ...hoshidictsEnvironment,
-                    ...desktopBusEnvironment,
+                    ...hoshidictsControlEnvironment,
                 },
             });
-            registerOverlayProcess(
-                processHandle,
-                source,
-                hoshidictsEnabled,
-                hoshidictsLookupMode,
-                hoshidictsPopupHideDelayMs,
-                hoshidictsDefinitionBlur
-            );
+            registerOverlayProcess(processHandle, source, hoshidicts);
             console.log('Overlay launched successfully with legacy standalone runtime.');
             return true;
         } catch (error) {
