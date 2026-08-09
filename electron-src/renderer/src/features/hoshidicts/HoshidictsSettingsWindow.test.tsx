@@ -93,6 +93,14 @@ const EXPECTED_HOSHIDICTS_THEMES = EXPECTED_HOSHIDICTS_THEME_GROUPS.flat();
 
 const invokeMock = vi.fn();
 const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
+const originalCreateObjectUrl = Object.getOwnPropertyDescriptor(
+  URL,
+  "createObjectURL"
+);
+const originalRevokeObjectUrl = Object.getOwnPropertyDescriptor(
+  URL,
+  "revokeObjectURL"
+);
 
 const baseState: HoshidictsDesktopSnapshot = {
   revision: 10,
@@ -397,6 +405,17 @@ describe("HoshidictsSettingsWindow", () => {
     vi.useRealTimers();
     await act(async () => root.unmount());
     container.remove();
+    if (originalCreateObjectUrl) {
+      Object.defineProperty(URL, "createObjectURL", originalCreateObjectUrl);
+    } else {
+      Reflect.deleteProperty(URL, "createObjectURL");
+    }
+    if (originalRevokeObjectUrl) {
+      Object.defineProperty(URL, "revokeObjectURL", originalRevokeObjectUrl);
+    } else {
+      Reflect.deleteProperty(URL, "revokeObjectURL");
+    }
+    vi.unstubAllGlobals();
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
       .IS_REACT_ACT_ENVIRONMENT = false;
   });
@@ -2678,6 +2697,442 @@ describe("HoshidictsSettingsWindow", () => {
     )?.[1] as typeof baseState.audioProfile;
     expect(savedProfile.sources[0].type).toBe("language-pod-101");
     expect(container.textContent).toContain("Saved");
+  });
+
+  it("tests every downloadable audio row with the current draft and plays the returned bytes", async () => {
+    const createObjectUrl = vi.fn((_blob: Blob) => "blob:hoshidicts-kiku");
+    const revokeObjectUrl = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: createObjectUrl
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: revokeObjectUrl
+    });
+
+    class FakeAudio {
+      static instances: FakeAudio[] = [];
+      volume = 1;
+      onended: ((event: Event) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+      play = vi.fn(async () => undefined);
+      pause = vi.fn();
+
+      constructor(readonly src: string) {
+        FakeAudio.instances.push(this);
+      }
+    }
+    vi.stubGlobal("Audio", FakeAudio);
+
+    const pendingTest = deferred<unknown>();
+    const defaultInvoke = invokeMock.getMockImplementation();
+    invokeMock.mockImplementation(
+      async (channel: string, ...args: unknown[]) => {
+        if (channel === HOSHIDICTS_CHANNELS.testAudioSource) {
+          return await pendingTest.promise;
+        }
+        return await defaultInvoke?.(channel, ...args);
+      }
+    );
+
+    await render();
+    await openView("Audio");
+
+    const testButtons = () =>
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>(
+          ".hoshidicts-audio-source__test button"
+        )
+      );
+    expect(testButtons()).toHaveLength(baseState.audioProfile.sources.length);
+    expect(testButtons().every((button) => button.textContent?.includes("聞く")))
+      .toBe(true);
+
+    await act(async () => {
+      setInputValue(
+        container.querySelector<HTMLInputElement>("#hoshidicts-audio-volume"),
+        "65"
+      );
+      await Promise.resolve();
+    });
+    const firstButton = container.querySelector<HTMLButtonElement>(
+      '[data-audio-test-source="jpod101"]'
+    );
+    await act(async () => {
+      firstButton?.click();
+      await Promise.resolve();
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.testAudioSource,
+      {
+        profile: expect.objectContaining({ volume: 65 }),
+        sourceId: "jpod101"
+      }
+    );
+    expect(container.textContent).toContain("Testing 聞く（きく）");
+    expect(testButtons().every((button) => button.disabled)).toBe(true);
+
+    await act(async () => {
+      pendingTest.resolve({
+        success: true,
+        audio: {
+          bytes: Uint8Array.from([0x49, 0x44, 0x33]),
+          contentType: "audio/mpeg",
+          candidateName: "Kiku recording"
+        },
+        state: baseState
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(createObjectUrl).toHaveBeenCalledOnce();
+    const blob = createObjectUrl.mock.calls[0]?.[0] as Blob;
+    expect(blob).toBeInstanceOf(Blob);
+    expect(blob.type).toBe("audio/mpeg");
+    expect(blob.size).toBe(3);
+    expect(FakeAudio.instances).toHaveLength(1);
+    expect(FakeAudio.instances[0]?.src).toBe("blob:hoshidicts-kiku");
+    expect(FakeAudio.instances[0]?.volume).toBe(0.65);
+    expect(FakeAudio.instances[0]?.play).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain("Playing Kiku recording");
+
+    await act(async () => {
+      FakeAudio.instances[0]?.onended?.(new Event("ended"));
+      await Promise.resolve();
+    });
+
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:hoshidicts-kiku");
+    expect(container.textContent).toContain("Played Kiku recording");
+    expect(testButtons().every((button) => !button.disabled)).toBe(true);
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-audio-test-source="language-pod-101"]'
+        )
+        ?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(FakeAudio.instances).toHaveLength(2);
+
+    await act(async () => root.unmount());
+    expect(FakeAudio.instances[1]?.pause).toHaveBeenCalledOnce();
+    expect(revokeObjectUrl).toHaveBeenCalledTimes(2);
+    root = createRoot(container);
+  });
+
+  it("uses the same per-row test control to speak expression and reading TTS", async () => {
+    class FakeUtterance {
+      lang = "";
+      volume = 1;
+      voice: SpeechSynthesisVoice | null = null;
+      onstart: ((event: Event) => void) | null = null;
+      onend: ((event: Event) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+
+      constructor(readonly text: string) {}
+    }
+    const spoken: FakeUtterance[] = [];
+    const cancel = vi.fn();
+    vi.stubGlobal("SpeechSynthesisUtterance", FakeUtterance);
+    vi.stubGlobal("speechSynthesis", {
+      getVoices: () => [],
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      cancel,
+      speak: (utterance: FakeUtterance) => spoken.push(utterance)
+    });
+
+    const ttsState: HoshidictsDesktopSnapshot = {
+      ...baseState,
+      audioProfile: {
+        ...baseState.audioProfile,
+        volume: 40,
+        sources: [
+          {
+            id: "expression-tts",
+            type: "text-to-speech",
+            url: "",
+            voice: ""
+          },
+          {
+            id: "reading-tts",
+            type: "text-to-speech-reading",
+            url: "",
+            voice: ""
+          }
+        ]
+      }
+    };
+    const defaultInvoke = invokeMock.getMockImplementation();
+    invokeMock.mockImplementation(
+      async (channel: string, ...args: unknown[]) => {
+        if (channel === HOSHIDICTS_CHANNELS.getState) return ttsState;
+        return await defaultInvoke?.(channel, ...args);
+      }
+    );
+
+    await render();
+    await openView("Audio");
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-audio-test-source="expression-tts"]'
+        )
+        ?.click();
+      await Promise.resolve();
+    });
+    expect(spoken).toHaveLength(1);
+    expect(spoken[0]).toMatchObject({
+      text: "聞く",
+      lang: "ja-JP",
+      volume: 0.4
+    });
+    expect(container.textContent).toContain("Playing 聞く");
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[data-audio-test-source="reading-tts"]'
+      )?.disabled
+    ).toBe(true);
+
+    await act(async () => {
+      spoken[0]?.onend?.(new Event("end"));
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("Played 聞く");
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-audio-test-source="reading-tts"]'
+        )
+        ?.click();
+      await Promise.resolve();
+    });
+    expect(spoken).toHaveLength(2);
+    expect(spoken[1]?.text).toBe("きく");
+    expect(cancel).toHaveBeenCalled();
+    expect(
+      callsFor(HOSHIDICTS_CHANNELS.testAudioSource)
+    ).toHaveLength(0);
+  });
+
+  it("shows a per-row error and re-enables source tests after a failed probe", async () => {
+    const defaultInvoke = invokeMock.getMockImplementation();
+    invokeMock.mockImplementation(
+      async (channel: string, ...args: unknown[]) => {
+        if (channel === HOSHIDICTS_CHANNELS.testAudioSource) {
+          return {
+            success: false,
+            error: "The recording service is unavailable.",
+            state: baseState
+          };
+        }
+        return await defaultInvoke?.(channel, ...args);
+      }
+    );
+
+    await render();
+    await openView("Audio");
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-audio-test-source="jisho"]'
+        )
+        ?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const error = container.querySelector<HTMLElement>(
+      '.hoshidicts-audio-source__test-status[data-phase="error"]'
+    );
+    expect(error?.getAttribute("role")).toBe("alert");
+    expect(error?.textContent).toBe(
+      "Test failed: The recording service is unavailable."
+    );
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>(
+          ".hoshidicts-audio-source__test button"
+        )
+      ).every((button) => !button.disabled)
+    ).toBe(true);
+  });
+
+  it("locks the full audio profile and times out stalled media and TTS tests", async () => {
+    vi.useFakeTimers();
+    const createObjectUrl = vi.fn((_blob: Blob) => "blob:stalled-kiku");
+    const revokeObjectUrl = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: createObjectUrl
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: revokeObjectUrl
+    });
+
+    class FakeAudio {
+      static instances: FakeAudio[] = [];
+      volume = 1;
+      onended: ((event: Event) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+      play = vi.fn(async () => undefined);
+      pause = vi.fn();
+
+      constructor(readonly src: string) {
+        FakeAudio.instances.push(this);
+      }
+    }
+    class FakeUtterance {
+      lang = "";
+      volume = 1;
+      voice: SpeechSynthesisVoice | null = null;
+      onend: ((event: Event) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+
+      constructor(readonly text: string) {}
+    }
+    const spoken: FakeUtterance[] = [];
+    const cancel = vi.fn();
+    vi.stubGlobal("Audio", FakeAudio);
+    vi.stubGlobal("SpeechSynthesisUtterance", FakeUtterance);
+    vi.stubGlobal("speechSynthesis", {
+      getVoices: () => [],
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      cancel,
+      speak: (utterance: FakeUtterance) => spoken.push(utterance)
+    });
+
+    const timeoutState: HoshidictsDesktopSnapshot = {
+      ...baseState,
+      audioProfile: {
+        ...baseState.audioProfile,
+        sources: [
+          {
+            id: "custom-test",
+            type: "custom",
+            url: "https://example.test/{term}/{reading}.mp3",
+            voice: ""
+          },
+          {
+            id: "expression-tts",
+            type: "text-to-speech",
+            url: "",
+            voice: ""
+          }
+        ]
+      }
+    };
+    const defaultInvoke = invokeMock.getMockImplementation();
+    invokeMock.mockImplementation(
+      async (channel: string, ...args: unknown[]) => {
+        if (channel === HOSHIDICTS_CHANNELS.getState) return timeoutState;
+        if (channel === HOSHIDICTS_CHANNELS.testAudioSource) {
+          return {
+            success: true,
+            audio: {
+              bytes: Uint8Array.from([1, 2, 3]),
+              contentType: "audio/mpeg",
+              candidateName: "Stalled recording"
+            },
+            state: timeoutState
+          };
+        }
+        return await defaultInvoke?.(channel, ...args);
+      }
+    );
+
+    await render();
+    await openView("Audio");
+    const customTest = container.querySelector<HTMLButtonElement>(
+      '[data-audio-test-source="custom-test"]'
+    );
+    const customRow = customTest?.closest<HTMLElement>(
+      ".hoshidicts-audio-source"
+    );
+    await act(async () => {
+      customTest?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const profileControls = Array.from(
+      container.querySelectorAll<
+        HTMLInputElement | HTMLSelectElement | HTMLButtonElement
+      >(
+        ".hoshidicts-audio input, .hoshidicts-audio select, " +
+          ".hoshidicts-actions button, .hoshidicts-audio-source__order button, " +
+          ".hoshidicts-audio-source > button.danger"
+      )
+    );
+    expect(profileControls.length).toBeGreaterThan(10);
+    expect(profileControls.every((control) => control.disabled)).toBe(true);
+    expect(customRow?.textContent).toContain("Playing Stalled recording");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+
+    expect(FakeAudio.instances[0]?.pause).toHaveBeenCalledOnce();
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:stalled-kiku");
+    expect(
+      customRow?.querySelector<HTMLElement>(
+        '.hoshidicts-audio-source__test-status[data-phase="error"]'
+      )?.textContent
+    ).toBe("Test failed: Audio source test timed out.");
+    expect(
+      container.querySelector<HTMLInputElement>("#hoshidicts-audio-enabled")
+        ?.disabled
+    ).toBe(false);
+    expect(
+      customRow?.querySelector<HTMLInputElement>('input[type="text"]')
+        ?.disabled
+    ).toBe(false);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        "#hoshidicts-audio-add-source"
+      )?.disabled
+    ).toBe(false);
+
+    const ttsTest = container.querySelector<HTMLButtonElement>(
+      '[data-audio-test-source="expression-tts"]'
+    );
+    await act(async () => {
+      ttsTest?.click();
+      await Promise.resolve();
+    });
+    expect(spoken).toHaveLength(1);
+    expect(
+      container.querySelector<HTMLInputElement>("#hoshidicts-audio-volume")
+        ?.disabled
+    ).toBe(true);
+    const cancelsBeforeTimeout = cancel.mock.calls.length;
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+
+    expect(cancel.mock.calls.length).toBeGreaterThan(cancelsBeforeTimeout);
+    expect(
+      ttsTest
+        ?.closest(".hoshidicts-audio-source")
+        ?.querySelector<HTMLElement>(
+          '.hoshidicts-audio-source__test-status[data-phase="error"]'
+        )?.textContent
+    ).toBe("Test failed: Audio source test timed out.");
+    expect(ttsTest?.disabled).toBe(false);
+    expect(
+      container.querySelector<HTMLInputElement>("#hoshidicts-audio-volume")
+        ?.disabled
+    ).toBe(false);
   });
 
   it("blocks a failed audio version until the next edit", async () => {

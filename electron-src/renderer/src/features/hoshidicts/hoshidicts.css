@@ -1402,8 +1402,34 @@
   min-width: 0;
 }
 
-.hoshidicts-audio-source__voice button {
+.hoshidicts-audio-source__test {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+}
+
+.hoshidicts-audio-source__test button {
   flex: 0 0 auto;
+}
+
+.hoshidicts-audio-source__test-status {
+  color: var(--gsm-text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.hoshidicts-audio-source__test-status[data-phase="playing"] {
+  color: var(--gsm-accent-text);
+}
+
+.hoshidicts-audio-source__test-status[data-phase="success"] {
+  color: var(--gsm-success-text);
+}
+
+.hoshidicts-audio-source__test-status[data-phase="error"] {
+  color: var(--gsm-danger-text);
 }
 
 .hoshidicts-audio-privacy {
@@ -1570,6 +1596,11 @@
 
   .hoshidicts-audio-source__voice {
     align-items: stretch;
+    flex-direction: column;
+  }
+
+  .hoshidicts-audio-source__test {
+    align-items: flex-start;
     flex-direction: column;
   }
 }
