@@ -7,6 +7,7 @@ import {
   DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
   DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
+  DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
   DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
   DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
@@ -16,10 +17,12 @@ import {
   MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
+  MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   MAX_HOSHIDICTS_POPUP_WIDTH_PX,
   MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
   MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
   MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
+  MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   MIN_HOSHIDICTS_POPUP_WIDTH_PX,
   type HoshidictsActionResult,
   type HoshidictsActivationKey,
@@ -96,7 +99,8 @@ const defaultReaderPreferences = (): HoshidictsReaderPreferences => ({
   definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
   popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
   popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
-  theme: DEFAULT_HOSHIDICTS_THEME
+  theme: DEFAULT_HOSHIDICTS_THEME,
+  popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT
 });
 
 function copyReaderPreferences(
@@ -218,7 +222,8 @@ export function useHoshidictsSettingsController() {
       definitionBlur: { ...normalized.definitionBlur },
       popupWidthPx: normalized.popupWidthPx,
       popupHeightPx: normalized.popupHeightPx,
-      theme: normalized.theme
+      theme: normalized.theme,
+      popupOpacityPercent: normalized.popupOpacityPercent
     };
     const mining = profileToDraft(normalized.miningProfile);
     const audio = copyAudioProfile(normalized.audioProfile);
@@ -588,6 +593,22 @@ export function useHoshidictsSettingsController() {
 
   const setTheme = useCallback(
     (theme: HoshidictsTheme) => updateReaderPreferences({ theme }),
+    [updateReaderPreferences]
+  );
+
+  const setPopupOpacityPercent = useCallback(
+    (popupOpacityPercent: number) => {
+      if (!Number.isFinite(popupOpacityPercent)) return;
+      updateReaderPreferences({
+        popupOpacityPercent: Math.min(
+          MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+          Math.max(
+            MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+            Math.round(popupOpacityPercent)
+          )
+        )
+      });
+    },
     [updateReaderPreferences]
   );
 
@@ -1017,6 +1038,7 @@ export function useHoshidictsSettingsController() {
     setPopupWidthPx,
     setPopupHeightPx,
     setTheme,
+    setPopupOpacityPercent,
     resetPopupSize,
     setShowLookupCounts,
     setDefinitionBlurEnabled,

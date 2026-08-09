@@ -165,10 +165,13 @@ export const DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT = true;
 export const MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS = 5000;
 export const DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX = 560;
 export const DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX = 420;
+export const DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT = 85;
 export const MIN_HOSHIDICTS_POPUP_WIDTH_PX = 280;
 export const MAX_HOSHIDICTS_POPUP_WIDTH_PX = 1200;
 export const MIN_HOSHIDICTS_POPUP_HEIGHT_PX = 200;
 export const MAX_HOSHIDICTS_POPUP_HEIGHT_PX = 900;
+export const MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT = 0;
+export const MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT = 100;
 export type HoshidictsTheme =
     | 'default'
     | 'girlypop'
@@ -501,6 +504,7 @@ export interface HoshidictsReaderPreferencesRequest {
     popupWidthPx: number;
     popupHeightPx: number;
     theme: HoshidictsTheme;
+    popupOpacityPercent: number;
 }
 
 export interface HoshidictsDictionaryPresentation {
@@ -711,6 +715,7 @@ export interface HoshidictsManagerSnapshot {
     popupWidthPx: number;
     popupHeightPx: number;
     theme: HoshidictsTheme;
+    popupOpacityPercent: number;
     schedule: HoshidictsSchedule;
     lastCheck: string | null;
     nextCheck: string | null;
@@ -737,6 +742,7 @@ export function hoshidictsReaderPreferencesFromSnapshot(
         popupWidthPx: snapshot.popupWidthPx,
         popupHeightPx: snapshot.popupHeightPx,
         theme: snapshot.theme,
+        popupOpacityPercent: snapshot.popupOpacityPercent,
         dictionaryPresentation: (snapshot.dictionaries ?? []).map(
             ({ title, displayName, favorite }) =>
                 displayName

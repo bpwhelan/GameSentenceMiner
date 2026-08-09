@@ -35,11 +35,13 @@ import {
   MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
+  MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   MAX_HOSHIDICTS_POPUP_WIDTH_PX,
   MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH,
   MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
   MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
   MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
+  MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   MIN_HOSHIDICTS_POPUP_WIDTH_PX,
   type HoshidictsActivationKey,
   type HoshidictsFieldOverwriteMode,
@@ -659,6 +661,7 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
     setPopupWidthPx,
     setPopupHeightPx,
     setTheme,
+    setPopupOpacityPercent,
     resetPopupSize,
     setShowLookupCounts,
     setDefinitionBlurEnabled,
@@ -915,6 +918,28 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                   </optgroup>
                 ))}
               </select>
+            </label>
+            <label>
+              <span>
+                {t("settings.hoshidicts.reader.appearance.opacity")}
+              </span>
+              <div className="hoshidicts-reader-appearance__number">
+                <input
+                  id="hoshidicts-popup-opacity"
+                  type="number"
+                  min={MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT}
+                  max={MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT}
+                  step={1}
+                  value={readerDraft.popupOpacityPercent}
+                  disabled={preferencesBusy}
+                  onChange={(event) =>
+                    setPopupOpacityPercent(event.currentTarget.valueAsNumber)
+                  }
+                />
+                <span>
+                  {t("settings.hoshidicts.reader.appearance.percent")}
+                </span>
+              </div>
             </label>
             <label>
               <span>

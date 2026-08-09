@@ -13,6 +13,7 @@ import {
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
   DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+  DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
   DEFAULT_HOSHIDICTS_THEME,
   HOSHIDICTS_CHANNELS,
@@ -188,6 +189,7 @@ const baseState: HoshidictsDesktopSnapshot = {
   popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
   popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
   theme: DEFAULT_HOSHIDICTS_THEME,
+  popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   schedule: "weekly",
   lastCheck: "2026-08-06T10:00:00.000Z",
   nextCheck: "2026-08-13T10:00:00.000Z",
@@ -2004,6 +2006,7 @@ describe("HoshidictsSettingsWindow", () => {
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
         theme: DEFAULT_HOSHIDICTS_THEME,
+        popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
     );
@@ -2085,6 +2088,9 @@ describe("HoshidictsSettingsWindow", () => {
     const theme = container.querySelector<HTMLSelectElement>(
       "#hoshidicts-popup-theme"
     );
+    const opacity = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-popup-opacity"
+    );
     const width = container.querySelector<HTMLInputElement>(
       "#hoshidicts-popup-width"
     );
@@ -2096,12 +2102,14 @@ describe("HoshidictsSettingsWindow", () => {
     );
 
     expect(theme?.value).toBe("default");
+    expect(opacity?.value).toBe("85");
     expect(width?.value).toBe("560");
     expect(height?.value).toBe("420");
     expect(reset?.disabled).toBe(true);
 
     await act(async () => {
       setSelectValue(theme, "girlypop");
+      setInputValue(opacity, "70");
       setInputValue(width, "720");
       setInputValue(height, "520");
       await flushAutosave();
@@ -2111,7 +2119,8 @@ describe("HoshidictsSettingsWindow", () => {
       expect.objectContaining({
         popupWidthPx: 720,
         popupHeightPx: 520,
-        theme: "girlypop"
+        theme: "girlypop",
+        popupOpacityPercent: 70
       })
     );
     expect(reset?.disabled).toBe(false);
@@ -2125,7 +2134,8 @@ describe("HoshidictsSettingsWindow", () => {
       expect.objectContaining({
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
-        theme: "girlypop"
+        theme: "girlypop",
+        popupOpacityPercent: 70
       })
     );
   });
@@ -2161,6 +2171,7 @@ describe("HoshidictsSettingsWindow", () => {
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
         theme: DEFAULT_HOSHIDICTS_THEME,
+        popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
     );
@@ -2209,6 +2220,7 @@ describe("HoshidictsSettingsWindow", () => {
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
         theme: DEFAULT_HOSHIDICTS_THEME,
+        popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
         definitionBlur: {
           enabled: true,
           lookupThreshold: 12,
@@ -2334,6 +2346,7 @@ describe("HoshidictsSettingsWindow", () => {
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
         theme: DEFAULT_HOSHIDICTS_THEME,
+        popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
     );
@@ -2361,6 +2374,7 @@ describe("HoshidictsSettingsWindow", () => {
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
         theme: DEFAULT_HOSHIDICTS_THEME,
+        popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
     );
@@ -2427,6 +2441,7 @@ describe("HoshidictsSettingsWindow", () => {
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
         theme: DEFAULT_HOSHIDICTS_THEME,
+        popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
     );
@@ -2458,6 +2473,7 @@ describe("HoshidictsSettingsWindow", () => {
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
         theme: DEFAULT_HOSHIDICTS_THEME,
+        popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
     );

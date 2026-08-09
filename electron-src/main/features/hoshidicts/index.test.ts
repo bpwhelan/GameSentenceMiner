@@ -21,6 +21,7 @@ const harness = vi.hoisted(() => ({
     configurePopupWidthProvider: vi.fn(),
     configurePopupHeightProvider: vi.fn(),
     configureThemeProvider: vi.fn(),
+    configurePopupOpacityPercentProvider: vi.fn(),
     markPreferencesApplied: vi.fn(() => true),
     markAudioApplied: vi.fn(() => true),
     markAudioSyncFailed: vi.fn(() => true),
@@ -65,6 +66,7 @@ const harness = vi.hoisted(() => ({
         popupWidthPx: 680,
         popupHeightPx: 500,
         theme: 'autumn' as const,
+        popupOpacityPercent: 70,
         definitionBlur: {
             enabled: true,
             lookupThreshold: 9,
@@ -131,6 +133,8 @@ vi.mock('../../ui/front.js', () => ({
     configureHoshidictsPopupHeightProvider:
         harness.configurePopupHeightProvider,
     configureHoshidictsThemeProvider: harness.configureThemeProvider,
+    configureHoshidictsPopupOpacityPercentProvider:
+        harness.configurePopupOpacityPercentProvider,
     getOverlayHoshidictsEnabledAtLaunch: () => false,
     getOverlayHoshidictsLookupModeAtLaunch: () => 'shift',
     getOverlayHoshidictsActivationKeyAtLaunch: () => 'Shift',
@@ -149,6 +153,7 @@ vi.mock('../../ui/front.js', () => ({
     getOverlayHoshidictsPopupWidthAtLaunch: () => 560,
     getOverlayHoshidictsPopupHeightAtLaunch: () => 420,
     getOverlayHoshidictsThemeAtLaunch: () => 'default',
+    getOverlayHoshidictsPopupOpacityPercentAtLaunch: () => 85,
     getOverlayRuntimeState: () => ({
         isRunning: false,
         source: null,
@@ -198,6 +203,7 @@ describe('Hoshidicts feature registration', () => {
         harness.configurePopupWidthProvider.mockReset();
         harness.configurePopupHeightProvider.mockReset();
         harness.configureThemeProvider.mockReset();
+        harness.configurePopupOpacityPercentProvider.mockReset();
         harness.startManager.mockClear();
         harness.stopManager.mockClear();
         harness.startControl.mockClear();
@@ -238,6 +244,7 @@ describe('Hoshidicts feature registration', () => {
                 popupWidthPx: 680,
                 popupHeightPx: 500,
                 theme: 'autumn',
+                popupOpacityPercent: 70,
             })
         ).resolves.toBe(true);
         expect(harness.controlRequest).toHaveBeenCalledWith(
@@ -254,6 +261,7 @@ describe('Hoshidicts feature registration', () => {
                 popupWidthPx: 680,
                 popupHeightPx: 500,
                 theme: 'autumn',
+                popupOpacityPercent: 70,
             },
             2000
         );
@@ -269,6 +277,7 @@ describe('Hoshidicts feature registration', () => {
             popupWidthPx: 680,
             popupHeightPx: 500,
             theme: 'autumn',
+            popupOpacityPercent: 70,
         });
         await expect(
             harness.registerIPC.mock.calls[0][0].applyAudioProfile(
@@ -305,6 +314,7 @@ describe('Hoshidicts feature registration', () => {
                     popupWidthPx: 680,
                     popupHeightPx: 500,
                     theme: 'autumn',
+                    popupOpacityPercent: 70,
                     dictionaryPresentation: [
                         {
                             title: 'Primary',
@@ -410,6 +420,12 @@ describe('Hoshidicts feature registration', () => {
         await expect(
             harness.configureThemeProvider.mock.calls[0][0]()
         ).resolves.toBe('autumn');
+        expect(
+            harness.configurePopupOpacityPercentProvider
+        ).toHaveBeenCalledOnce();
+        await expect(
+            harness.configurePopupOpacityPercentProvider.mock.calls[0][0]()
+        ).resolves.toBe(70);
         expect(harness.configureCustomSyncProvider).toHaveBeenCalledOnce();
         const syncProvider = harness.configureCustomSyncProvider.mock.calls[0][0];
         await expect(syncProvider()).resolves.toBeUndefined();

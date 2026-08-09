@@ -106,6 +106,11 @@
       ? process.env.GSM_HOSHIDICTS_THEME
       : ''
   );
+  const configuredHoshidictsPopupOpacityPercent = Number(
+    typeof process !== 'undefined' && process.env
+      ? process.env.GSM_HOSHIDICTS_POPUP_OPACITY_PERCENT
+      : ''
+  );
   window.gsmHoshidictsPopupWidthPx = (
     Number.isInteger(configuredHoshidictsPopupWidth) &&
     configuredHoshidictsPopupWidth >= 280 &&
@@ -162,6 +167,15 @@
     ? configuredHoshidictsTheme
     : 'default';
   document.documentElement.dataset.hoshidictsTheme = window.gsmHoshidictsTheme;
+  window.gsmHoshidictsPopupOpacityPercent = (
+    Number.isInteger(configuredHoshidictsPopupOpacityPercent) &&
+    configuredHoshidictsPopupOpacityPercent >= 0 &&
+    configuredHoshidictsPopupOpacityPercent <= 100
+  ) ? configuredHoshidictsPopupOpacityPercent : 85;
+  document.documentElement.style.setProperty(
+    '--gsm-hoshidicts-popup-opacity',
+    `${window.gsmHoshidictsPopupOpacityPercent}%`
+  );
   window.gsmHoshidictsDictionaryPresentation = [];
   window.gsmHoshidictsDictionaryTabGroups = [];
   if (window.gsmHoshidictsReaderEnabled) {
@@ -5224,6 +5238,9 @@ background: rgba(202, 12, 12, 0.692);
       !Number.isInteger(preferences.popupHeightPx) ||
       preferences.popupHeightPx < 200 ||
       preferences.popupHeightPx > 900 ||
+      !Number.isInteger(preferences.popupOpacityPercent) ||
+      preferences.popupOpacityPercent < 0 ||
+      preferences.popupOpacityPercent > 100 ||
       ![
         'default',
         'catppuccin-mocha',
@@ -5275,6 +5292,7 @@ background: rgba(202, 12, 12, 0.692);
     return {
       popupWidthPx: preferences.popupWidthPx,
       popupHeightPx: preferences.popupHeightPx,
+      popupOpacityPercent: preferences.popupOpacityPercent,
       theme: preferences.theme,
     };
   }
@@ -5319,6 +5337,7 @@ background: rgba(202, 12, 12, 0.692);
       popupNestingMaxDepth: window.gsmHoshidictsPopupNestingMaxDepth,
       popupWidthPx: window.gsmHoshidictsPopupWidthPx,
       popupHeightPx: window.gsmHoshidictsPopupHeightPx,
+      popupOpacityPercent: window.gsmHoshidictsPopupOpacityPercent,
       theme: window.gsmHoshidictsTheme,
       dictionaryPresentation: window.gsmHoshidictsDictionaryPresentation,
       dictionaryTabGroups: window.gsmHoshidictsDictionaryTabGroups,
@@ -5394,8 +5413,14 @@ background: rgba(202, 12, 12, 0.692);
     ) ? popupNestingMaxDepth : 10;
     window.gsmHoshidictsPopupWidthPx = appearance.popupWidthPx;
     window.gsmHoshidictsPopupHeightPx = appearance.popupHeightPx;
+    window.gsmHoshidictsPopupOpacityPercent =
+      appearance.popupOpacityPercent;
     window.gsmHoshidictsTheme = appearance.theme;
     document.documentElement.dataset.hoshidictsTheme = appearance.theme;
+    document.documentElement.style.setProperty(
+      '--gsm-hoshidicts-popup-opacity',
+      `${appearance.popupOpacityPercent}%`
+    );
     if (
       window.gsmHoshidictsReader &&
       typeof window.gsmHoshidictsReader.updatePreferences === 'function'
@@ -5411,6 +5436,7 @@ background: rgba(202, 12, 12, 0.692);
         popupNestingMaxDepth: window.gsmHoshidictsPopupNestingMaxDepth,
         popupWidthPx: window.gsmHoshidictsPopupWidthPx,
         popupHeightPx: window.gsmHoshidictsPopupHeightPx,
+        popupOpacityPercent: window.gsmHoshidictsPopupOpacityPercent,
         theme: window.gsmHoshidictsTheme,
         dictionaryPresentation: window.gsmHoshidictsDictionaryPresentation,
         dictionaryTabGroups: window.gsmHoshidictsDictionaryTabGroups,

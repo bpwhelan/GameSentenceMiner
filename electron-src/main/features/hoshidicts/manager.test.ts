@@ -1755,6 +1755,7 @@ describe('Hoshidicts reader preferences', () => {
         expect((await manager.getSnapshot()).popupWidthPx).toBe(560);
         expect((await manager.getSnapshot()).popupHeightPx).toBe(420);
         expect((await manager.getSnapshot()).theme).toBe('default');
+        expect((await manager.getSnapshot()).popupOpacityPercent).toBe(85);
         expect((await manager.getSnapshot()).definitionBlur).toEqual({
             enabled: false,
             lookupThreshold: 5,
@@ -1778,6 +1779,7 @@ describe('Hoshidicts reader preferences', () => {
             720,
             520,
             'girlypop',
+            70,
             false
         );
 
@@ -1791,6 +1793,7 @@ describe('Hoshidicts reader preferences', () => {
         expect(snapshot.popupWidthPx).toBe(720);
         expect(snapshot.popupHeightPx).toBe(520);
         expect(snapshot.theme).toBe('girlypop');
+        expect(snapshot.popupOpacityPercent).toBe(70);
         expect(snapshot.definitionBlur).toEqual({
             enabled: true,
             lookupThreshold: 8,
@@ -1807,6 +1810,7 @@ describe('Hoshidicts reader preferences', () => {
         expect(readManifest(baseDir).popupWidthPx).toBe(720);
         expect(readManifest(baseDir).popupHeightPx).toBe(520);
         expect(readManifest(baseDir).theme).toBe('girlypop');
+        expect(readManifest(baseDir).popupOpacityPercent).toBe(70);
         expect(readManifest(baseDir).definitionBlur).toEqual({
             enabled: true,
             lookupThreshold: 8,
@@ -1825,6 +1829,7 @@ describe('Hoshidicts reader preferences', () => {
         expect((await reloaded.getSnapshot()).popupWidthPx).toBe(720);
         expect((await reloaded.getSnapshot()).popupHeightPx).toBe(520);
         expect((await reloaded.getSnapshot()).theme).toBe('girlypop');
+        expect((await reloaded.getSnapshot()).popupOpacityPercent).toBe(70);
         expect((await reloaded.getSnapshot()).definitionBlur).toEqual({
             enabled: true,
             lookupThreshold: 8,
@@ -1843,6 +1848,7 @@ describe('Hoshidicts reader preferences', () => {
         expect(shifted.popupWidthPx).toBe(720);
         expect(shifted.popupHeightPx).toBe(520);
         expect(shifted.theme).toBe('girlypop');
+        expect(shifted.popupOpacityPercent).toBe(70);
         expect(shifted.definitionBlur).toEqual({
             enabled: true,
             lookupThreshold: 8,
@@ -1892,6 +1898,18 @@ describe('Hoshidicts reader preferences', () => {
                 'neon' as never
             )
         ).rejects.toThrow('theme is invalid');
+        await expect(
+            manager.setReaderPreferences(
+                'hover', 300, 'Shift', false, 10, undefined, true, 560, 420,
+                'default', 101
+            )
+        ).rejects.toThrow('opacity is invalid');
+        await expect(
+            manager.setReaderPreferences(
+                'hover', 300, 'Shift', false, 10, undefined, true, 560, 420,
+                'default', 70.5
+            )
+        ).rejects.toThrow('opacity is invalid');
     });
 
     it('rejects unsupported activation keys', async () => {

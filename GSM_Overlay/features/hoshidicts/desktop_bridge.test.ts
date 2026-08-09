@@ -82,6 +82,7 @@ const {
     popupNestingMaxDepth: number;
     popupWidthPx: number;
     popupHeightPx: number;
+    popupOpacityPercent: number;
     theme: HoshidictsTheme;
     dictionaryPresentation: Array<{
       title: string;
@@ -126,6 +127,7 @@ describe("Hoshidicts desktop bridge", () => {
   const popupAppearance = {
     popupWidthPx: 680,
     popupHeightPx: 500,
+    popupOpacityPercent: 70,
     theme: "autumn" as const,
   };
 
@@ -266,6 +268,15 @@ describe("Hoshidicts desktop bridge", () => {
       popupHideDelayMs: 850,
       popupNestingMaxDepth: 4,
       ...popupAppearance,
+      popupOpacityPercent: 101,
+    })).toThrow("Hoshidicts reader preferences are invalid.");
+    expect(() => normalizeHoshidictsReaderPreferences({
+      lookupMode: "hover",
+      activationKey: "F8",
+      sourceHighlightEnabled: true,
+      popupHideDelayMs: 850,
+      popupNestingMaxDepth: 4,
+      ...popupAppearance,
       dictionaryPresentation: [
         { title: "Broken", favorite: true, displayName: "   " },
       ],
@@ -328,6 +339,7 @@ describe("Hoshidicts desktop bridge", () => {
         popupNestingMaxDepth: 4,
         popupWidthPx: 680,
         popupHeightPx: 500,
+        popupOpacityPercent: 70,
         theme,
       }).theme).toBe(theme);
     }

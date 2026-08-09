@@ -59,6 +59,9 @@
   const MAX_POPUP_WIDTH_PX = 1200;
   const MIN_POPUP_HEIGHT_PX = 200;
   const MAX_POPUP_HEIGHT_PX = 900;
+  const DEFAULT_POPUP_OPACITY_PERCENT = 85;
+  const MIN_POPUP_OPACITY_PERCENT = 0;
+  const MAX_POPUP_OPACITY_PERCENT = 100;
   const DEFAULT_THEME = "default";
   const THEMES = new Set([
     "default",
@@ -1960,6 +1963,17 @@
       : fallback;
   }
 
+  function normalizePopupOpacityPercent(
+    value,
+    fallback = DEFAULT_POPUP_OPACITY_PERCENT
+  ) {
+    return Number.isInteger(value) &&
+      value >= MIN_POPUP_OPACITY_PERCENT &&
+      value <= MAX_POPUP_OPACITY_PERCENT
+      ? value
+      : fallback;
+  }
+
   function normalizeTheme(value, fallback = DEFAULT_THEME) {
     return THEMES.has(value) ? value : fallback;
   }
@@ -2048,6 +2062,9 @@
       ),
       popupWidthPx: normalizePopupWidth(options.popupWidthPx),
       popupHeightPx: normalizePopupHeight(options.popupHeightPx),
+      popupOpacityPercent: normalizePopupOpacityPercent(
+        options.popupOpacityPercent
+      ),
       theme: normalizeTheme(options.theme),
       dictionaryPresentation: normalizeDictionaryPresentation(
         options.dictionaryPresentation
@@ -2138,6 +2155,10 @@
       rootElement.style.setProperty(
         "--gsm-hoshidicts-popup-height",
         `${preferences.popupHeightPx}px`
+      );
+      rootElement.style.setProperty(
+        "--gsm-hoshidicts-popup-opacity",
+        `${preferences.popupOpacityPercent}%`
       );
       for (const level of popupLevels) {
         level.popup.style.width = `${preferences.popupWidthPx}px`;
@@ -4723,6 +4744,7 @@
       const previousMaxDepth = preferences.popupNestingMaxDepth;
       const previousPopupWidthPx = preferences.popupWidthPx;
       const previousPopupHeightPx = preferences.popupHeightPx;
+      const previousPopupOpacityPercent = preferences.popupOpacityPercent;
       const previousTheme = preferences.theme;
       const previousDictionaryPresentation = preferences.dictionaryPresentation;
       const previousDictionaryTabGroups = preferences.dictionaryTabGroups;
@@ -4793,6 +4815,15 @@
         )
           ? normalizePopupHeight(nextPreferences.popupHeightPx, preferences.popupHeightPx)
           : preferences.popupHeightPx,
+        popupOpacityPercent: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "popupOpacityPercent"
+        )
+          ? normalizePopupOpacityPercent(
+              nextPreferences.popupOpacityPercent,
+              preferences.popupOpacityPercent
+            )
+          : preferences.popupOpacityPercent,
         theme: Object.prototype.hasOwnProperty.call(nextPreferences, "theme")
           ? normalizeTheme(nextPreferences.theme, preferences.theme)
           : preferences.theme,
@@ -4851,6 +4882,7 @@
       if (
         previousPopupWidthPx !== preferences.popupWidthPx ||
         previousPopupHeightPx !== preferences.popupHeightPx ||
+        previousPopupOpacityPercent !== preferences.popupOpacityPercent ||
         previousTheme !== preferences.theme
       ) {
         applyAppearancePreferences();
@@ -4965,6 +4997,9 @@
       documentRef.documentElement.style.removeProperty(
         "--gsm-hoshidicts-popup-height"
       );
+      documentRef.documentElement.style.removeProperty(
+        "--gsm-hoshidicts-popup-opacity"
+      );
     }
 
     documentRef.documentElement.classList.add("gsm-hoshidicts-enabled");
@@ -4988,6 +5023,7 @@
       popupNestingMaxDepth: preferences.popupNestingMaxDepth,
       popupWidthPx: preferences.popupWidthPx,
       popupHeightPx: preferences.popupHeightPx,
+      popupOpacityPercent: preferences.popupOpacityPercent,
       theme: preferences.theme,
       scanLength: LOOKUP_SCAN_LENGTH,
     });
@@ -5025,6 +5061,7 @@
     DEFAULT_ACTIVATION_KEY,
     DEFAULT_POPUP_HIDE_DELAY_MS,
     DEFAULT_POPUP_HEIGHT_PX,
+    DEFAULT_POPUP_OPACITY_PERCENT,
     DEFAULT_POPUP_NESTING_MAX_DEPTH,
     DEFAULT_POPUP_WIDTH_PX,
     DEFAULT_SOURCE_HIGHLIGHT_ENABLED,
@@ -5036,12 +5073,14 @@
     LOOKUP_SCAN_LENGTH,
     MAX_POPUP_HIDE_DELAY_MS,
     MAX_POPUP_HEIGHT_PX,
+    MAX_POPUP_OPACITY_PERCENT,
     MAX_POPUP_WIDTH_PX,
     MAX_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MAX_DEFINITION_BLUR_REVEAL_DELAY_MS,
     MIN_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MIN_DEFINITION_BLUR_REVEAL_DELAY_MS,
     MIN_POPUP_HEIGHT_PX,
+    MIN_POPUP_OPACITY_PERCENT,
     MIN_POPUP_WIDTH_PX,
     appendExpressionRuby,
     appendTextOnlyGlossary,
@@ -5059,6 +5098,7 @@
     normalizePopupNestingMaxDepth,
     normalizePopupWidth,
     normalizeTheme,
+    normalizePopupOpacityPercent,
     normalizeLookupResults,
     resolveGsmApiBaseUrl,
     resolveLookupCandidate,

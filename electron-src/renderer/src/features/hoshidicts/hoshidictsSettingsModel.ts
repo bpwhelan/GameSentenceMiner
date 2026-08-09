@@ -6,6 +6,7 @@ import {
   DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
   DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
+  DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
   DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
   DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
@@ -22,10 +23,12 @@ import {
   MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
+  MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   MAX_HOSHIDICTS_POPUP_WIDTH_PX,
   MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
   MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
   MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
+  MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   MIN_HOSHIDICTS_POPUP_WIDTH_PX,
   parseHoshidictsCustomDictionary,
   type HoshidictsActivationKey,
@@ -294,6 +297,7 @@ const DEFAULT_STATE: HoshidictsDesktopSnapshot = {
   popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
   popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
   theme: DEFAULT_HOSHIDICTS_THEME,
+  popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   schedule: "off",
   lastCheck: null,
   nextCheck: null,
@@ -634,6 +638,14 @@ export function normalizeHoshidictsDesktopState(
     (candidate.popupHeightPx as number) <= MAX_HOSHIDICTS_POPUP_HEIGHT_PX
       ? (candidate.popupHeightPx as number)
       : DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX;
+  const popupOpacityPercent =
+    Number.isInteger(candidate.popupOpacityPercent) &&
+    (candidate.popupOpacityPercent as number) >=
+      MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT &&
+    (candidate.popupOpacityPercent as number) <=
+      MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT
+      ? (candidate.popupOpacityPercent as number)
+      : DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT;
 
   return {
     revision:
@@ -725,6 +737,7 @@ export function normalizeHoshidictsDesktopState(
     theme: isHoshidictsTheme(candidate.theme)
       ? candidate.theme
       : DEFAULT_HOSHIDICTS_THEME,
+    popupOpacityPercent,
     schedule,
     lastCheck:
       typeof candidate.lastCheck === "string" ? candidate.lastCheck : null,

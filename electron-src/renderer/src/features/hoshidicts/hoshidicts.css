@@ -476,7 +476,7 @@
 
 .hoshidicts-reader-appearance__controls {
   display: grid;
-  grid-template-columns: minmax(160px, 1.2fr) repeat(2, minmax(130px, 1fr)) auto;
+  grid-template-columns: minmax(160px, 1.2fr) repeat(3, minmax(110px, 1fr)) auto;
   gap: 12px;
   align-items: end;
 }

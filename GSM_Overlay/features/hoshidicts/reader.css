@@ -1043,22 +1043,39 @@ html[data-hoshidicts-theme="high-contrast"] .gsm-hoshidicts-source-match {
 }
 
 .gsm-hoshidicts-popup {
+  --hoshidicts-background-opacity: var(
+    --gsm-hoshidicts-popup-opacity,
+    85%
+  );
   --hoshidicts-popup-background: color-mix(
     in srgb,
-    var(--hoshidicts-palette-base-100) 98%,
+    var(--hoshidicts-palette-base-100) var(--hoshidicts-background-opacity),
     transparent
   );
   --hoshidicts-chrome-background: color-mix(
     in srgb,
-    var(--hoshidicts-palette-base-200) 98%,
+    var(--hoshidicts-palette-base-200) var(--hoshidicts-background-opacity),
     transparent
   );
-  --hoshidicts-surface: var(--hoshidicts-palette-base-200);
-  --hoshidicts-surface-raised: var(--hoshidicts-palette-base-300);
-  --hoshidicts-card-background: color-mix(
+  --hoshidicts-surface: color-mix(
+    in srgb,
+    var(--hoshidicts-palette-base-200) var(--hoshidicts-background-opacity),
+    transparent
+  );
+  --hoshidicts-surface-raised: color-mix(
+    in srgb,
+    var(--hoshidicts-palette-base-300) var(--hoshidicts-background-opacity),
+    transparent
+  );
+  --hoshidicts-card-base: color-mix(
     in srgb,
     var(--hoshidicts-palette-base-100) 72%,
     var(--hoshidicts-palette-base-200)
+  );
+  --hoshidicts-card-background: color-mix(
+    in srgb,
+    var(--hoshidicts-card-base) var(--hoshidicts-background-opacity),
+    transparent
   );
   --hoshidicts-text: var(--hoshidicts-palette-base-content);
   --hoshidicts-text-muted: color-mix(
@@ -1155,7 +1172,7 @@ html[data-hoshidicts-theme="high-contrast"] .gsm-hoshidicts-source-match {
 }
 
 html[data-hoshidicts-theme="high-contrast"] .gsm-hoshidicts-popup {
-  --hoshidicts-card-background: #080808;
+  --hoshidicts-card-base: #080808;
   --hoshidicts-text-muted: #f0f0f0;
   --hoshidicts-text-faint: #cfcfcf;
   --hoshidicts-border: #777777;

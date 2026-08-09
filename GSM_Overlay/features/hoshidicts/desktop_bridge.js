@@ -43,6 +43,8 @@ const MIN_HOSHIDICTS_POPUP_WIDTH_PX = 280;
 const MAX_HOSHIDICTS_POPUP_WIDTH_PX = 1200;
 const MIN_HOSHIDICTS_POPUP_HEIGHT_PX = 200;
 const MAX_HOSHIDICTS_POPUP_HEIGHT_PX = 900;
+const MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT = 0;
+const MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT = 100;
 const HOSHIDICTS_THEMES = new Set([
   "default",
   "catppuccin-mocha",
@@ -223,6 +225,7 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     preferences && preferences.popupNestingMaxDepth;
   const popupWidthPx = preferences && preferences.popupWidthPx;
   const popupHeightPx = preferences && preferences.popupHeightPx;
+  const popupOpacityPercent = preferences && preferences.popupOpacityPercent;
   const theme = preferences && preferences.theme;
   const dictionaryPresentation = normalizeHoshidictsDictionaryPresentation(
     preferences && preferences.dictionaryPresentation
@@ -249,6 +252,9 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     !Number.isInteger(popupHeightPx) ||
     popupHeightPx < MIN_HOSHIDICTS_POPUP_HEIGHT_PX ||
     popupHeightPx > MAX_HOSHIDICTS_POPUP_HEIGHT_PX ||
+    !Number.isInteger(popupOpacityPercent) ||
+    popupOpacityPercent < MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT ||
+    popupOpacityPercent > MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT ||
     !HOSHIDICTS_THEMES.has(theme)
   ) {
     throw new Error("Hoshidicts reader preferences are invalid.");
@@ -262,6 +268,7 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     popupNestingMaxDepth,
     popupWidthPx,
     popupHeightPx,
+    popupOpacityPercent,
     theme,
     dictionaryPresentation,
     dictionaryTabGroups,

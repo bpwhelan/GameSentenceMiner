@@ -84,7 +84,8 @@ function runOverlayFeatureBootstrap(
   const addClass = vi.fn();
   const documentElement = {
     classList: { add: addClass },
-    dataset: {} as Record<string, string>
+    dataset: {} as Record<string, string>,
+    style: { setProperty: vi.fn() }
   };
   const window = {} as Record<string, unknown>;
   vm.runInNewContext(script, {
@@ -163,6 +164,7 @@ function runHoshidictsReaderConfiguration(
     gsmHoshidictsPopupNestingMaxDepth: popupNestingMaxDepth,
     gsmHoshidictsPopupWidthPx: 560,
     gsmHoshidictsPopupHeightPx: 420,
+    gsmHoshidictsPopupOpacityPercent: 85,
     gsmHoshidictsTheme: "default",
     gsmHoshidictsDictionaryTabGroups: [],
     gsmHoshidictsReaderEnabled: true,
@@ -183,7 +185,9 @@ function runHoshidictsReaderConfiguration(
   );
   const context = {
     console,
-    document: { documentElement: { dataset: {} } },
+    document: {
+      documentElement: { dataset: {}, style: { setProperty: vi.fn() } }
+    },
     ipcRenderer: { invoke, on: ipcOn },
     process: { env: {} },
     window
@@ -644,6 +648,9 @@ describe("Hoshidicts safe popup rendering", () => {
       "height: var(--gsm-hoshidicts-popup-height, 420px)"
     );
     expect(popupRule).toContain("--hoshidicts-popup-background:");
+    expect(popupRule).toContain("--gsm-hoshidicts-popup-opacity");
+    expect(popupRule).toContain("85%");
+    expect(popupRule).toContain("var(--hoshidicts-background-opacity)");
     expect(popupRule).toContain("var(--hoshidicts-palette-base-100)");
     expect(popupRule).toContain("background: var(--hoshidicts-popup-background)");
     expect(popupRule).toContain("backdrop-filter: blur(16px) saturate(1.08)");
@@ -835,7 +842,7 @@ describe("Hoshidicts safe popup rendering", () => {
       "--hoshidicts-chrome-background",
       "--hoshidicts-surface",
       "--hoshidicts-surface-raised",
-      "--hoshidicts-card-background",
+      "--hoshidicts-card-base",
       "--hoshidicts-text",
       "--hoshidicts-text-muted",
       "--hoshidicts-text-faint",
@@ -870,6 +877,11 @@ describe("Hoshidicts safe popup rendering", () => {
         "--hoshidicts-palette-"
       );
     }
+    expect(
+      new RegExp("--hoshidicts-card-background:\\s*([^;]+)", "u").exec(
+        popupRule ?? ""
+      )?.[1]
+    ).toContain("--hoshidicts-card-base");
   });
 
   it("blurs glossary content without obscuring definition tags", () => {
@@ -964,7 +976,12 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(enabled.window.gsmHoshidictsPopupWidthPx).toBe(560);
     expect(enabled.window.gsmHoshidictsPopupHeightPx).toBe(420);
     expect(enabled.window.gsmHoshidictsTheme).toBe("default");
+    expect(enabled.window.gsmHoshidictsPopupOpacityPercent).toBe(85);
     expect(enabled.documentElement.dataset.hoshidictsTheme).toBe("default");
+    expect(enabled.documentElement.style.setProperty).toHaveBeenCalledWith(
+      "--gsm-hoshidicts-popup-opacity",
+      "85%"
+    );
     expect(enabled.window.gsmHoshidictsShowLookupCounts).toBe(true);
     expect(enabled.addClass).toHaveBeenCalledWith("gsm-hoshidicts-enabled");
     expect(enabled.documentElement.dataset.gsmHoshidictsEnabled).toBe("true");
@@ -999,13 +1016,19 @@ describe("Hoshidicts safe popup rendering", () => {
       {
         GSM_HOSHIDICTS_POPUP_WIDTH_PX: "720",
         GSM_HOSHIDICTS_POPUP_HEIGHT_PX: "520",
-        GSM_HOSHIDICTS_THEME: "cyberpunk"
+        GSM_HOSHIDICTS_THEME: "cyberpunk",
+        GSM_HOSHIDICTS_POPUP_OPACITY_PERCENT: "70"
       }
     );
     expect(themed.window.gsmHoshidictsPopupWidthPx).toBe(720);
     expect(themed.window.gsmHoshidictsPopupHeightPx).toBe(520);
     expect(themed.window.gsmHoshidictsTheme).toBe("cyberpunk");
+    expect(themed.window.gsmHoshidictsPopupOpacityPercent).toBe(70);
     expect(themed.documentElement.dataset.hoshidictsTheme).toBe("cyberpunk");
+    expect(themed.documentElement.style.setProperty).toHaveBeenCalledWith(
+      "--gsm-hoshidicts-popup-opacity",
+      "70%"
+    );
   });
 
   it("accepts every supported popup theme from the launch environment", () => {
@@ -1060,6 +1083,7 @@ describe("Hoshidicts safe popup rendering", () => {
         popupNestingMaxDepth: 4,
         popupWidthPx: 560,
         popupHeightPx: 420,
+        popupOpacityPercent: 85,
         theme: "default",
         definitionBlur: {
           enabled: false,
@@ -1153,6 +1177,7 @@ describe("Hoshidicts safe popup rendering", () => {
       popupNestingMaxDepth: 3,
       popupWidthPx: 720,
       popupHeightPx: 520,
+      popupOpacityPercent: 70,
       theme: "autumn",
       dictionaryPresentation: [
         { title: "Primary", favorite: false, displayName: "Main dictionary" },
@@ -1202,6 +1227,7 @@ describe("Hoshidicts safe popup rendering", () => {
       popupNestingMaxDepth: 3,
       popupWidthPx: 720,
       popupHeightPx: 520,
+      popupOpacityPercent: 70,
       dictionaryPresentation: [],
       definitionBlur: {
         enabled: false,
@@ -1240,6 +1266,7 @@ describe("Hoshidicts safe popup rendering", () => {
       popupNestingMaxDepth: 3,
       popupWidthPx: 720,
       popupHeightPx: 520,
+      popupOpacityPercent: 70,
       theme: "autumn",
       definitionBlur: {
         enabled: true,
@@ -1312,6 +1339,7 @@ describe("Hoshidicts safe popup rendering", () => {
       popupNestingMaxDepth: 10,
       popupWidthPx: 720,
       popupHeightPx: 520,
+      popupOpacityPercent: 70,
       theme: "cyberpunk",
       dictionaryPresentation: [],
       sourceHighlightEnabled: true,
@@ -1336,6 +1364,7 @@ describe("Hoshidicts safe popup rendering", () => {
       popupNestingMaxDepth: 10,
       popupWidthPx: 720,
       popupHeightPx: 520,
+      popupOpacityPercent: 70,
       theme: "cyberpunk",
       dictionaryPresentation: [],
       dictionaryTabGroups: [],
@@ -6027,6 +6056,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       popupNestingMaxDepth: 10,
       popupWidthPx: 560,
       popupHeightPx: 420,
+      popupOpacityPercent: 85,
       theme: "default",
       dictionaryPresentation: [],
       dictionaryTabGroups: []
@@ -6039,6 +6069,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       popupNestingMaxDepth: 2,
       popupWidthPx: 720,
       popupHeightPx: 520,
+      popupOpacityPercent: 70,
       theme: "cyberpunk",
       definitionBlur: {
         enabled: true,
@@ -6062,6 +6093,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       popupNestingMaxDepth: 2,
       popupWidthPx: 720,
       popupHeightPx: 520,
+      popupOpacityPercent: 70,
       theme: "cyberpunk",
       dictionaryPresentation: [],
       dictionaryTabGroups: []
@@ -6082,6 +6114,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       popupNestingMaxDepth: 2,
       popupWidthPx: 720,
       popupHeightPx: 520,
+      popupOpacityPercent: 70,
       theme: "cyberpunk",
       dictionaryPresentation: [],
       dictionaryTabGroups: []
@@ -6103,6 +6136,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
         popupNestingMaxDepth: 2,
         popupWidthPx: 720,
         popupHeightPx: 520,
+        popupOpacityPercent: 70,
         theme: "cyberpunk",
         dictionaryPresentation: [],
         dictionaryTabGroups: []
@@ -6199,12 +6233,18 @@ describe("Hoshidicts Shift-hover scanner", () => {
     reader.updatePreferences({
       popupWidthPx: 720,
       popupHeightPx: 520,
+      popupOpacityPercent: 70,
       theme: "autumn"
     });
     for (const popup of reader.getPopupElements()) {
       expect(popup.style.width).toBe("720px");
       expect(popup.style.height).toBe("520px");
     }
+    expect(
+      dom.window.document.documentElement.style.getPropertyValue(
+        "--gsm-hoshidicts-popup-opacity"
+      )
+    ).toBe("70%");
     expect(dom.window.document.documentElement.dataset.hoshidictsTheme).toBe(
       "autumn"
     );
