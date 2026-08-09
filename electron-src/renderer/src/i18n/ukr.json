@@ -733,7 +733,6 @@
         "save": "Зберегти",
         "cancel": "Скасувати",
         "addToGroup": "Додати до групи вкладок",
-        "back": "Назад",
         "addMembership": "Додати {dictionary} до {group}",
         "removeMembership": "Вилучити {dictionary} із {group}"
       },

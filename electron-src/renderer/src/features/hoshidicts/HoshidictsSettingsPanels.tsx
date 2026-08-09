@@ -20,7 +20,6 @@ import {
   Fragment,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent
 } from "react";
@@ -327,12 +326,10 @@ function TabGroupsSection({ controller }: { controller: Controller }) {
 
 function DictionaryTabGroupPicker({
   controller,
-  dictionary,
-  onBack
+  dictionary
 }: {
   controller: Controller;
   dictionary: NonNullable<Controller["state"]>["dictionaries"][number];
-  onBack: () => void;
 }) {
   const t = useTranslation();
   const { state, dictionaryBusy, actions } = controller;
@@ -349,9 +346,6 @@ function DictionaryTabGroupPicker({
         <strong id={headingId}>
           {t("settings.hoshidicts.tabGroups.addToGroup")}
         </strong>
-        <button type="button" className="secondary" onClick={onBack}>
-          {t("settings.hoshidicts.tabGroups.back")}
-        </button>
       </div>
 
       {state.tabGroups.length === 0 ? (
@@ -695,22 +689,38 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
   const [tabGroupDictionaryId, setTabGroupDictionaryId] = useState<
     string | null
   >(null);
-  const [tabGroupFocusReturnId, setTabGroupFocusReturnId] = useState<
-    string | null
-  >(null);
-  const tabGroupTriggerRefs = useRef(
-    new Map<string, HTMLButtonElement>()
-  );
   const [recommendedExpandedOverride, setRecommendedExpandedOverride] =
     useState<boolean | null>(null);
 
   useEffect(() => {
-    if (tabGroupDictionaryId !== null || tabGroupFocusReturnId === null) {
-      return;
-    }
-    tabGroupTriggerRefs.current.get(tabGroupFocusReturnId)?.focus();
-    setTabGroupFocusReturnId(null);
-  }, [tabGroupDictionaryId, tabGroupFocusReturnId]);
+    const closeMenusOutside = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+
+      let closed = false;
+      document
+        .querySelectorAll<HTMLDetailsElement>(
+          ".hoshidicts-dictionary-menu[open]"
+        )
+        .forEach((menu) => {
+          if (!menu.contains(target)) {
+            menu.removeAttribute("open");
+            closed = true;
+          }
+        });
+
+      if (closed) {
+        setPositionMove(null);
+        setDictionaryRename(null);
+        setDictionarySchedule(null);
+        setTabGroupDictionaryId(null);
+      }
+    };
+
+    document.addEventListener("pointerdown", closeMenusOutside, true);
+    return () =>
+      document.removeEventListener("pointerdown", closeMenusOutside, true);
+  }, []);
 
   if (!state) return null;
 
@@ -1459,10 +1469,17 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                   <details
                     className="hoshidicts-dictionary-menu"
                     onToggle={(event) => {
-                      if (
-                        !event.currentTarget.open &&
-                        tabGroupDictionaryId === dictionary.id
-                      ) {
+                      if (event.currentTarget.open) return;
+                      if (positionMove?.id === dictionary.id) {
+                        setPositionMove(null);
+                      }
+                      if (dictionaryRename?.id === dictionary.id) {
+                        setDictionaryRename(null);
+                      }
+                      if (dictionarySchedule?.id === dictionary.id) {
+                        setDictionarySchedule(null);
+                      }
+                      if (tabGroupDictionaryId === dictionary.id) {
                         setTabGroupDictionaryId(null);
                       }
                     }}
@@ -1489,10 +1506,6 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                         <DictionaryTabGroupPicker
                           controller={controller}
                           dictionary={dictionary}
-                          onBack={() => {
-                            setTabGroupFocusReturnId(dictionary.id);
-                            setTabGroupDictionaryId(null);
-                          }}
                         />
                       ) : dictionaryRename?.id === dictionary.id ? (
                         <form
@@ -1801,18 +1814,6 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                             <button
                               type="button"
                               role="menuitem"
-                              ref={(button) => {
-                                if (button) {
-                                  tabGroupTriggerRefs.current.set(
-                                    dictionary.id,
-                                    button
-                                  );
-                                } else {
-                                  tabGroupTriggerRefs.current.delete(
-                                    dictionary.id
-                                  );
-                                }
-                              }}
                               disabled={dictionaryBusy}
                               onClick={() => {
                                 setPositionMove(null);

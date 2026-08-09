@@ -733,7 +733,6 @@
         "save": "保存",
         "cancel": "キャンセル",
         "addToGroup": "タブグループに追加",
-        "back": "戻る",
         "addMembership": "{dictionary}を{group}に追加",
         "removeMembership": "{dictionary}を{group}から削除"
       },

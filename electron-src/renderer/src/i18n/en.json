@@ -740,7 +740,6 @@
         "save": "Save",
         "cancel": "Cancel",
         "addToGroup": "Add to tab group",
-        "back": "Back",
         "addMembership": "Add {dictionary} to {group}",
         "removeMembership": "Remove {dictionary} from {group}"
       },

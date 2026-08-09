@@ -1442,7 +1442,22 @@ describe("HoshidictsSettingsWindow", () => {
       summary?.click();
       await Promise.resolve();
     });
-    const addToGroup = Array.from(
+    const menu = summary?.closest<HTMLDetailsElement>("details");
+    expect(menu?.open).toBe(true);
+
+    await act(async () => {
+      container.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, cancelable: true })
+      );
+      await Promise.resolve();
+    });
+    expect(menu?.open).toBe(false);
+
+    await act(async () => {
+      summary?.click();
+      await Promise.resolve();
+    });
+    let addToGroup = Array.from(
       container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
     ).find((button) => button.textContent?.includes("Add to Tab Group"));
     await act(async () => {
@@ -1461,21 +1476,31 @@ describe("HoshidictsSettingsWindow", () => {
       picker?.getAttribute("aria-labelledby") ?? ""
     );
     expect(pickerHeading?.textContent).toBe("Add to tab group");
+    expect(
+      Array.from(picker?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+        .some((button) => button.textContent?.trim() === "Back")
+    ).toBe(false);
 
     await act(async () => {
-      Array.from(picker?.querySelectorAll<HTMLButtonElement>("button") ?? [])
-        .find((button) => button.textContent?.trim() === "Back")
-        ?.click();
-      await Promise.resolve();
+      container.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, cancelable: true })
+      );
       await Promise.resolve();
     });
-    const restoredAddToGroup = Array.from(
-      container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
-    ).find((button) => button.textContent?.includes("Add to Tab Group"));
-    expect(document.activeElement).toBe(restoredAddToGroup);
+    expect(menu?.open).toBe(false);
+    expect(
+      container.querySelector(".hoshidicts-dictionary-tab-groups")
+    ).toBeNull();
 
     await act(async () => {
-      restoredAddToGroup?.click();
+      summary?.click();
+      await Promise.resolve();
+    });
+    addToGroup = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
+    ).find((button) => button.textContent?.includes("Add to Tab Group"));
+    await act(async () => {
+      addToGroup?.click();
       await Promise.resolve();
     });
     const grammar = container.querySelector<HTMLInputElement>(
