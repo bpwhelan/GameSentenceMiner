@@ -555,18 +555,6 @@ describe('parseYomitanDictionaryBackup', () => {
                     tables: [],
                     data: [
                         {
-                            tableName: 'dictionaries',
-                            inbound: true,
-                            rows: [
-                                {
-                                    title: 'Test',
-                                    revision: '1',
-                                    sourceLanguage: 'ja',
-                                    styles: '.entry { color: red; }',
-                                },
-                            ],
-                        },
-                        {
                             tableName: 'terms',
                             inbound: true,
                             rows: Array.from({ length: 1_001 }, (_, index) => ({
@@ -585,6 +573,18 @@ describe('parseYomitanDictionaryBackup', () => {
                                     path: 'images/cat.txt',
                                     content:
                                         Buffer.from('hello').toString('base64'),
+                                },
+                            ],
+                        },
+                        {
+                            tableName: 'dictionaries',
+                            inbound: true,
+                            rows: [
+                                {
+                                    title: 'Test',
+                                    revision: '1',
+                                    sourceLanguage: 'ja',
+                                    styles: '.entry { color: red; }',
                                 },
                             ],
                         },
@@ -653,24 +653,26 @@ describe('parseYomitanDictionaryBackup', () => {
                     databaseName: 'dict',
                     data: [
                         {
+                            tableName: 'terms',
+                            inbound: true,
+                            rows: [0, 1].flatMap((pass) =>
+                                titles
+                                    .map((title, index) => ({
+                                        dictionary: title,
+                                        expression: `${index + 1}-${pass + 1}`,
+                                        reading: '',
+                                        glossary: [`definition ${pass + 1}`],
+                                    }))
+                                    .reverse()
+                            ),
+                        },
+                        {
                             tableName: 'dictionaries',
                             inbound: true,
                             rows: titles.map((title) => ({
                                 title,
                                 revision: '1',
                             })),
-                        },
-                        {
-                            tableName: 'terms',
-                            inbound: true,
-                            rows: [0, 1].flatMap((pass) =>
-                                titles.map((title, index) => ({
-                                    dictionary: title,
-                                    expression: `${index + 1}-${pass + 1}`,
-                                    reading: '',
-                                    glossary: [`definition ${pass + 1}`],
-                                }))
-                            ),
                         },
                     ],
                 },
@@ -840,19 +842,12 @@ describe('parseYomitanDictionaryBackup', () => {
             const fileSize = fs.statSync(inputPath).size;
             expect(readingProgress[0]).toEqual({
                 completedBytes: 0,
-                totalBytes: fileSize * 2,
+                totalBytes: fileSize,
                 estimatedSecondsRemaining: null,
             });
-            expect(
-                readingProgress.some(
-                    ({ completedBytes, totalBytes }) =>
-                        completedBytes === fileSize &&
-                        totalBytes === fileSize * 2
-                )
-            ).toBe(true);
             expect(readingProgress.at(-1)).toEqual({
-                completedBytes: fileSize * 2,
-                totalBytes: fileSize * 2,
+                completedBytes: fileSize,
+                totalBytes: fileSize,
                 estimatedSecondsRemaining: null,
             });
             expect(
