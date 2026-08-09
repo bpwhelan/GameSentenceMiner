@@ -158,6 +158,7 @@
     : 'default';
   document.documentElement.dataset.hoshidictsTheme = window.gsmHoshidictsTheme;
   window.gsmHoshidictsDictionaryPresentation = [];
+  window.gsmHoshidictsDictionaryTabGroups = [];
   if (window.gsmHoshidictsReaderEnabled) {
     document.documentElement.classList.add('gsm-hoshidicts-enabled');
     document.documentElement.dataset.gsmHoshidictsEnabled = 'true';
@@ -5314,6 +5315,7 @@ background: rgba(202, 12, 12, 0.692);
       popupHeightPx: window.gsmHoshidictsPopupHeightPx,
       theme: window.gsmHoshidictsTheme,
       dictionaryPresentation: window.gsmHoshidictsDictionaryPresentation,
+      dictionaryTabGroups: window.gsmHoshidictsDictionaryTabGroups,
       audioClient,
       audioPreferences: window.gsmHoshidictsAudioPreferences,
       onPopupStateChange: handleHoshidictsPopupState,
@@ -5350,8 +5352,15 @@ background: rgba(202, 12, 12, 0.692);
         ? []
         : preferences.dictionaryPresentation
     );
+    const dictionaryTabGroups = preferences.dictionaryTabGroups === undefined
+      ? []
+      : preferences.dictionaryTabGroups;
     const appearance = validateHoshidictsAppearance(preferences);
-    if (!definitionBlur || !dictionaryPresentation || !appearance) {
+    if (
+      !definitionBlur ||
+      !dictionaryPresentation ||
+      !appearance
+    ) {
       return;
     }
     window.gsmHoshidictsDefinitionBlur = definitionBlur;
@@ -5370,6 +5379,7 @@ background: rgba(202, 12, 12, 0.692);
     ) ? hideDelay : 300;
     window.gsmHoshidictsShowLookupCounts = preferences.showLookupCounts !== false;
     window.gsmHoshidictsDictionaryPresentation = dictionaryPresentation;
+    window.gsmHoshidictsDictionaryTabGroups = dictionaryTabGroups;
     const popupNestingMaxDepth = Number(preferences.popupNestingMaxDepth);
     window.gsmHoshidictsPopupNestingMaxDepth = (
       Number.isSafeInteger(popupNestingMaxDepth) && popupNestingMaxDepth >= 0
@@ -5394,6 +5404,7 @@ background: rgba(202, 12, 12, 0.692);
         popupHeightPx: window.gsmHoshidictsPopupHeightPx,
         theme: window.gsmHoshidictsTheme,
         dictionaryPresentation: window.gsmHoshidictsDictionaryPresentation,
+        dictionaryTabGroups: window.gsmHoshidictsDictionaryTabGroups,
       });
     }
   });

@@ -1281,24 +1281,77 @@
       const dictionaryPresentation = Array.isArray(
         renderContext.dictionaryPresentation
       ) ? renderContext.dictionaryPresentation : [];
+      const dictionaryTabGroups = Array.isArray(
+        renderContext.dictionaryTabGroups
+      ) ? renderContext.dictionaryTabGroups : [];
       const dictionaryDisplayNames = createDictionaryDisplayNames(
         dictionaries,
         dictionaryPresentation
       );
       const availableDictionaries = new Set(dictionaries);
+      const groupedDictionaries = new Set(
+        dictionaryTabGroups.flatMap(({ dictionaries: groupDictionaries }) =>
+          Array.isArray(groupDictionaries) ? groupDictionaries : []
+        )
+      );
+      const availableGroups = dictionaryTabGroups.flatMap((group) => {
+        const groupDictionaries = Array.isArray(group.dictionaries)
+          ? group.dictionaries.filter((title) => availableDictionaries.has(title))
+          : [];
+        return groupDictionaries.length > 0
+          ? [{ ...group, dictionaries: groupDictionaries }]
+          : [];
+      });
       const favoriteDictionaries = dictionaryPresentation
         .filter(({ favorite, title }) =>
-          favorite === true && availableDictionaries.has(title)
+          favorite === true &&
+          availableDictionaries.has(title) &&
+          !groupedDictionaries.has(title)
         )
         .map(({ title }) => title);
-      const tabList = favoriteDictionaries.length > 0
+      const usedTabLabels = new Set();
+      function uniqueTabLabel(label, qualifier) {
+        let candidate = label;
+        let suffix = 1;
+        while (usedTabLabels.has(candidate)) {
+          const qualifiedSuffix = suffix === 1
+            ? qualifier
+            : `${qualifier} ${suffix}`;
+          candidate = `${label} (${qualifiedSuffix})`;
+          suffix += 1;
+        }
+        usedTabLabels.add(candidate);
+        return candidate;
+      }
+      const tabDescriptors = [
+        {
+          label: uniqueTabLabel("All", "tab"),
+          title: "All dictionaries",
+          dictionaries: new Set(),
+        },
+        ...availableGroups.map((group) => ({
+          label: uniqueTabLabel(group.name, "group"),
+          title: `Tab group: ${group.name}`,
+          groupId: group.id,
+          dictionaries: new Set(group.dictionaries),
+        })),
+        ...favoriteDictionaries.map((dictionary) => ({
+          label: uniqueTabLabel(
+            dictionaryDisplayNames.get(dictionary) || dictionary,
+            "dictionary"
+          ),
+          title: dictionary,
+          dictionary,
+          dictionaries: new Set([dictionary]),
+        })),
+      ];
+      const tabList = tabDescriptors.length > 1
         ? documentRef.createElement("div")
         : null;
       if (tabList) {
         tabList.className = "gsm-hoshidicts-tab-list";
         tabList.setAttribute("role", "tablist");
         tabList.setAttribute("aria-label", "Dictionaries");
-        tabList.setAttribute("aria-multiselectable", "true");
         tabList.setAttribute("aria-orientation", "horizontal");
       }
       const panel = documentRef.createElement("div");
@@ -1323,28 +1376,21 @@
         panel
       );
 
-      const tabValues = [null, ...favoriteDictionaries];
       const tabButtons = [];
-      const selectedDictionaries = new Set();
       let focusedIndex = 0;
+      let selectedIndex = 0;
       let hasRendered = false;
       let rendered = null;
 
       function updateTabState() {
-        const selectedButtonIds = [];
         tabButtons.forEach((button, buttonIndex) => {
-          const dictionary = tabValues[buttonIndex];
-          const selected = dictionary === null
-            ? selectedDictionaries.size === 0
-            : selectedDictionaries.has(dictionary);
+          const selected = buttonIndex === selectedIndex;
           button.setAttribute("aria-selected", String(selected));
           button.tabIndex = buttonIndex === focusedIndex ? 0 : -1;
-          if (selected) {
-            selectedButtonIds.push(button.id);
-          }
         });
-        if (selectedButtonIds.length > 0) {
-          panel.setAttribute("aria-labelledby", selectedButtonIds.join(" "));
+        const selectedButton = tabButtons[selectedIndex];
+        if (selectedButton) {
+          panel.setAttribute("aria-labelledby", selectedButton.id);
         } else {
           panel.removeAttribute("aria-labelledby");
         }
@@ -1355,28 +1401,15 @@
         if (!tablessAllView && (index < 0 || index >= tabButtons.length)) {
           return;
         }
-        const previousSelection = new Set(selectedDictionaries);
+        const previousIndex = selectedIndex;
         focusedIndex = index;
-        const dictionary = tabValues[index];
-        if (dictionary === null) {
-          selectedDictionaries.clear();
-        } else if (selectedDictionaries.size === 0) {
-          selectedDictionaries.add(dictionary);
-        } else if (selectedDictionaries.has(dictionary)) {
-          selectedDictionaries.delete(dictionary);
-        } else {
-          selectedDictionaries.add(dictionary);
-        }
+        selectedIndex = index;
         updateTabState();
         const button = tabButtons[index];
         if (focusButton && button) {
           button.focus();
         }
-        const selectionChanged =
-          previousSelection.size !== selectedDictionaries.size ||
-          [...previousSelection].some(
-            (selectedDictionary) => !selectedDictionaries.has(selectedDictionary)
-          );
+        const selectionChanged = previousIndex !== selectedIndex;
         if (hasRendered && !selectionChanged) {
           if (
             button && !popup.hidden
@@ -1390,6 +1423,7 @@
           onBeforeResultsRendered();
         }
         popup.scrollTop = 0;
+        const selectedDictionaries = tabDescriptors[selectedIndex].dictionaries;
         const projectedResults = projectResults(results, selectedDictionaries);
         rendered = renderResultPanel(
           panel,
@@ -1417,7 +1451,7 @@
         positionPopup();
       }
 
-      tabValues.forEach((dictionary, index) => {
+      tabDescriptors.forEach((descriptor, index) => {
         if (!tabList) {
           return;
         }
@@ -1429,14 +1463,13 @@
         button.setAttribute("aria-controls", panel.id);
         button.setAttribute("aria-selected", "false");
         button.tabIndex = -1;
-        button.textContent = dictionary === null
-          ? "All"
-          : dictionaryDisplayNames.get(dictionary) || dictionary;
-        button.title = dictionary === null ? "All dictionaries" : dictionary;
-        button.setAttribute(
-          "aria-label",
-          dictionary === null ? "All dictionaries" : dictionary
-        );
+        button.textContent = descriptor.label;
+        button.title = descriptor.title;
+        button.setAttribute("aria-label", descriptor.title);
+        if (descriptor.groupId) button.dataset.groupId = descriptor.groupId;
+        if (descriptor.dictionary) {
+          button.dataset.dictionary = descriptor.dictionary;
+        }
         button.addEventListener("click", () => activateTab(index));
         button.addEventListener("keydown", (event) => {
           let nextIndex = null;

@@ -34,6 +34,11 @@ import {
     type HoshidictsDictionaryEnabledRequest,
     type HoshidictsDictionaryPresentationRequest,
     type HoshidictsDictionaryScheduleRequest,
+    type HoshidictsCreateTabGroupRequest,
+    type HoshidictsSetTabGroupMembershipRequest,
+    type HoshidictsRenameTabGroupRequest,
+    type HoshidictsDeleteTabGroupRequest,
+    type HoshidictsMoveTabGroupRequest,
     type HoshidictsInstallRecommendedRequest,
     type HoshidictsManagerSnapshot,
     type HoshidictsLookupMode,
@@ -694,7 +699,7 @@ export function registerHoshidictsIPC(
             type: 'warning' as const,
             title: 'Restore Hoshidicts Backup',
             message: 'Replace all Hoshidicts data with this backup?',
-            detail: 'This replaces all installed dictionaries, reader settings, mining and audio settings, and the custom dictionary. The restore cannot be undone unless you export the current Hoshidicts data first.',
+            detail: 'This replaces all installed dictionaries, tab groups, reader settings, mining and audio settings, and the custom dictionary. The restore cannot be undone unless you export the current Hoshidicts data first.',
             buttons: ['Restore Backup', 'Cancel'],
             defaultId: 1,
             cancelId: 1,
@@ -989,10 +994,8 @@ export function registerHoshidictsIPC(
                         requestPreferences.theme
                     );
                     const preferences: HoshidictsReaderPreferences = {
+                        ...hoshidictsReaderPreferencesFromSnapshot(state),
                         ...requestPreferences,
-                        dictionaryPresentation:
-                            hoshidictsReaderPreferencesFromSnapshot(state)
-                                .dictionaryPresentation,
                     };
                     const applied = await deps.applyReaderPreferences(
                         preferences
@@ -1111,6 +1114,161 @@ export function registerHoshidictsIPC(
                     const state = await manager.setDictionaryPresentation(
                         value.id as string,
                         value.favorite as boolean
+                    );
+                    await applyReaderSnapshot(state, deps);
+                    return state;
+                },
+                { code: 'dictionaryChanged' }
+            );
+        }
+    );
+
+    ipcMain.handle(
+        HOSHIDICTS_CHANNELS.createTabGroup,
+        async (event, request: unknown) => {
+            assertSettingsSender(event, deps);
+            const value = request as Partial<HoshidictsCreateTabGroupRequest> | null;
+            if (
+                !value ||
+                typeof value.name !== 'string' ||
+                (value.dictionaryId !== undefined &&
+                    typeof value.dictionaryId !== 'string')
+            ) {
+                return {
+                    success: false,
+                    error: 'Tab group create request is invalid.',
+                    state: await currentState(deps),
+                } satisfies HoshidictsActionResult;
+            }
+            return await runAction(
+                deps,
+                async () => {
+                    const state = await manager.createTabGroup(
+                        value.name as string,
+                        value.dictionaryId as string | undefined
+                    );
+                    await applyReaderSnapshot(state, deps);
+                    return state;
+                },
+                { code: 'dictionaryChanged' }
+            );
+        }
+    );
+
+    ipcMain.handle(
+        HOSHIDICTS_CHANNELS.setTabGroupMembership,
+        async (event, request: unknown) => {
+            assertSettingsSender(event, deps);
+            const value = request as
+                | Partial<HoshidictsSetTabGroupMembershipRequest>
+                | null;
+            if (
+                !value ||
+                typeof value.groupId !== 'string' ||
+                typeof value.dictionaryId !== 'string' ||
+                typeof value.member !== 'boolean'
+            ) {
+                return {
+                    success: false,
+                    error: 'Tab group membership request is invalid.',
+                    state: await currentState(deps),
+                } satisfies HoshidictsActionResult;
+            }
+            return await runAction(
+                deps,
+                async () => {
+                    const state = await manager.setTabGroupMembership(
+                        value.groupId as string,
+                        value.dictionaryId as string,
+                        value.member as boolean
+                    );
+                    await applyReaderSnapshot(state, deps);
+                    return state;
+                },
+                { code: 'dictionaryChanged' }
+            );
+        }
+    );
+
+    ipcMain.handle(
+        HOSHIDICTS_CHANNELS.renameTabGroup,
+        async (event, request: unknown) => {
+            assertSettingsSender(event, deps);
+            const value = request as Partial<HoshidictsRenameTabGroupRequest> | null;
+            if (
+                !value ||
+                typeof value.groupId !== 'string' ||
+                typeof value.name !== 'string'
+            ) {
+                return {
+                    success: false,
+                    error: 'Tab group rename request is invalid.',
+                    state: await currentState(deps),
+                } satisfies HoshidictsActionResult;
+            }
+            return await runAction(
+                deps,
+                async () => {
+                    const state = await manager.renameTabGroup(
+                        value.groupId as string,
+                        value.name as string
+                    );
+                    await applyReaderSnapshot(state, deps);
+                    return state;
+                },
+                { code: 'dictionaryChanged' }
+            );
+        }
+    );
+
+    ipcMain.handle(
+        HOSHIDICTS_CHANNELS.deleteTabGroup,
+        async (event, request: unknown) => {
+            assertSettingsSender(event, deps);
+            const value = request as Partial<HoshidictsDeleteTabGroupRequest> | null;
+            if (!value || typeof value.groupId !== 'string') {
+                return {
+                    success: false,
+                    error: 'Tab group delete request is invalid.',
+                    state: await currentState(deps),
+                } satisfies HoshidictsActionResult;
+            }
+            return await runAction(
+                deps,
+                async () => {
+                    const state = await manager.deleteTabGroup(
+                        value.groupId as string
+                    );
+                    await applyReaderSnapshot(state, deps);
+                    return state;
+                },
+                { code: 'dictionaryChanged' }
+            );
+        }
+    );
+
+    ipcMain.handle(
+        HOSHIDICTS_CHANNELS.moveTabGroup,
+        async (event, request: unknown) => {
+            assertSettingsSender(event, deps);
+            const value = request as Partial<HoshidictsMoveTabGroupRequest> | null;
+            if (
+                !value ||
+                typeof value.groupId !== 'string' ||
+                (value.direction !== -1 && value.direction !== 1)
+            ) {
+                return {
+                    success: false,
+                    error: 'Tab group move request is invalid.',
+                    state: await currentState(deps),
+                } satisfies HoshidictsActionResult;
+            }
+            return await runAction(
+                deps,
+                async () => {
+                    const state = await manager.moveTabGroup(
+                        value.groupId as string,
+                        value.direction as -1 | 1
                     );
                     await applyReaderSnapshot(state, deps);
                     return state;

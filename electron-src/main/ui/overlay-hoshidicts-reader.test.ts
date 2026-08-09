@@ -164,6 +164,7 @@ function runHoshidictsReaderConfiguration(
     gsmHoshidictsPopupWidthPx: 560,
     gsmHoshidictsPopupHeightPx: 420,
     gsmHoshidictsTheme: "default",
+    gsmHoshidictsDictionaryTabGroups: [],
     gsmHoshidictsReaderEnabled: true,
     GSMHoshidictsReader: {
       createHoshidictsAudioClient,
@@ -1156,6 +1157,9 @@ describe("Hoshidicts safe popup rendering", () => {
         { title: "Primary", favorite: false, displayName: "Main dictionary" },
         { title: "Backup", favorite: true }
       ],
+      dictionaryTabGroups: [
+        { id: "reference", name: "Reference", dictionaries: ["Primary"] }
+      ],
       definitionBlur: {
         enabled: true,
         lookupThreshold: 7,
@@ -1164,7 +1168,9 @@ describe("Hoshidicts safe popup rendering", () => {
       }
     };
     configured.emitPreferences(validPreferences);
-    expect(configured.updatePreferences).toHaveBeenLastCalledWith(validPreferences);
+    expect(configured.updatePreferences).toHaveBeenLastCalledWith(
+      validPreferences
+    );
 
     configured.emitPreferences({
       ...validPreferences,
@@ -1207,6 +1213,7 @@ describe("Hoshidicts safe popup rendering", () => {
       configured.emitPreferences({ ...preferences, theme });
       expect(configured.updatePreferences).toHaveBeenLastCalledWith({
         ...preferences,
+        dictionaryTabGroups: [],
         theme
       });
     }
@@ -1329,6 +1336,7 @@ describe("Hoshidicts safe popup rendering", () => {
       popupHeightPx: 520,
       theme: "cyberpunk",
       dictionaryPresentation: [],
+      dictionaryTabGroups: [],
       sourceHighlightEnabled: true
     });
 
@@ -2542,7 +2550,7 @@ describe("Hoshidicts dictionary tabs", () => {
       '<img src=x onerror="window.hacked=true">'
     ]);
     expect(tabs[0]?.getAttribute("aria-selected")).toBe("true");
-    expect(tablist?.getAttribute("aria-multiselectable")).toBe("true");
+    expect(tablist?.hasAttribute("aria-multiselectable")).toBe(false);
     expect(tablist?.getAttribute("aria-orientation")).toBe("horizontal");
     expect(tablist?.textContent).not.toContain("Frequency");
     expect(tablist?.textContent).not.toContain("Pitch");
@@ -2683,6 +2691,50 @@ describe("Hoshidicts dictionary tabs", () => {
     reader.destroy();
   });
 
+  it("updates groups live only when their ordered value changes", async () => {
+    const groups = [
+      { id: "reference", name: "Reference", dictionaries: ["Main"] }
+    ];
+    const { lookup, reader, socket } = createLookupHarness({
+      dictionaryPresentation: [
+        { title: "Main", favorite: true },
+        { title: "Backup", favorite: true }
+      ],
+      dictionaryTabGroups: groups
+    });
+    const { popup } = await lookup((requestId) =>
+      lookupResultWithDictionaries(requestId, [
+        { dictionary: "Main", glossary: "main definition" },
+        { dictionary: "Backup", glossary: "backup definition" }
+      ])
+    );
+    const originalTabList = popup.querySelector('[role="tablist"]');
+    const sentBeforeUpdate = socket.sent.length;
+
+    reader.updatePreferences({
+      dictionaryTabGroups: groups.map((group) => ({
+        ...group,
+        dictionaries: [...group.dictionaries]
+      }))
+    });
+    expect(popup.querySelector('[role="tablist"]')).toBe(originalTabList);
+
+    reader.updatePreferences({
+      dictionaryTabGroups: [
+        { id: "both", name: "Combined", dictionaries: ["Main", "Backup"] }
+      ]
+    });
+
+    expect(socket.sent).toHaveLength(sentBeforeUpdate);
+    expect(Array.from(popup.querySelectorAll('[role="tab"]'), (tab) =>
+      tab.textContent
+    )).toEqual(["All", "Combined"]);
+    expect(reader.getPreferences().dictionaryTabGroups).toEqual([
+      { id: "both", name: "Combined", dictionaries: ["Main", "Backup"] }
+    ]);
+    reader.destroy();
+  });
+
   it("falls back to full dictionary titles when cleaned labels would collide", async () => {
     const { lookup, reader, socket } = createLookupHarness();
     const { popup } = await lookup((requestId) =>
@@ -2770,13 +2822,32 @@ describe("Hoshidicts dictionary tabs", () => {
     reader.destroy();
   });
 
-  it("selects multiple dictionaries and filters to their combined glossaries", async () => {
-    const { lookup, reader, socket } = createLookupHarness();
+  it("shows ordered groups before ungrouped favorites and selects them exclusively", async () => {
+    const { lookup, reader, socket } = createLookupHarness({
+      dictionaryPresentation: [
+        { title: "Alpha", favorite: true },
+        { title: "Beta", favorite: true },
+        { title: "Gamma", favorite: true },
+        { title: "Delta", favorite: true }
+      ],
+      dictionaryTabGroups: [
+        { id: "primary", name: "Delta", dictionaries: ["Alpha", "Beta"] },
+        { id: "overlap", name: "Overlap", dictionaries: ["Beta", "Gamma"] },
+        {
+          id: "suffix",
+          name: "Delta (dictionary)",
+          dictionaries: ["Epsilon"]
+        },
+        { id: "empty", name: "No results", dictionaries: ["Missing"] }
+      ]
+    });
     const { popup } = await lookup((requestId) =>
       lookupResultWithDictionaries(requestId, [
         { dictionary: "Alpha", glossary: "alpha definition" },
         { dictionary: "Beta", glossary: "beta definition" },
-        { dictionary: "Gamma", glossary: "gamma definition" }
+        { dictionary: "Gamma", glossary: "gamma definition" },
+        { dictionary: "Delta", glossary: "delta definition" },
+        { dictionary: "Epsilon", glossary: "epsilon definition" }
       ])
     );
     const sentBeforeSelection = socket.sent.length;
@@ -2784,20 +2855,29 @@ describe("Hoshidicts dictionary tabs", () => {
       popup.querySelectorAll<HTMLButtonElement>(".gsm-hoshidicts-tab")
     );
     const all = buttons.find((button) => button.textContent === "All")!;
-    const alpha = buttons.find((button) => button.textContent === "Alpha")!;
-    const beta = buttons.find((button) => button.textContent === "Beta")!;
+    expect(buttons.map((button) => button.textContent)).toEqual([
+      "All",
+      "Delta",
+      "Overlap",
+      "Delta (dictionary)",
+      "Delta (dictionary 2)"
+    ]);
+    const primary = buttons[1]!;
+    const overlap = buttons[2]!;
+    expect(primary.title).toBe("Tab group: Delta");
+    expect(primary.getAttribute("aria-label")).toBe("Tab group: Delta");
+    expect(buttons[4]?.getAttribute("aria-label")).toBe("Delta");
 
-    alpha.click();
-    beta.click();
+    primary.click();
 
     expect(socket.sent).toHaveLength(sentBeforeSelection);
     expect(all.getAttribute("aria-selected")).toBe("false");
-    expect(alpha.getAttribute("aria-selected")).toBe("true");
-    expect(beta.getAttribute("aria-selected")).toBe("true");
+    expect(primary.getAttribute("aria-selected")).toBe("true");
+    expect(overlap.getAttribute("aria-selected")).toBe("false");
     expect(
       popup.querySelector(".gsm-hoshidicts-tab-panel")
         ?.getAttribute("aria-labelledby")
-    ).toBe(`${alpha.id} ${beta.id}`);
+    ).toBe(primary.id);
     expect(popup.querySelector(".gsm-hoshidicts-tab-panel")?.textContent)
       .toContain("alpha definition");
     expect(popup.querySelector(".gsm-hoshidicts-tab-panel")?.textContent)
@@ -2805,17 +2885,51 @@ describe("Hoshidicts dictionary tabs", () => {
     expect(popup.querySelector(".gsm-hoshidicts-tab-panel")?.textContent)
       .not.toContain("gamma definition");
 
-    alpha.click();
-    expect(alpha.getAttribute("aria-selected")).toBe("false");
-    expect(beta.getAttribute("aria-selected")).toBe("true");
+    overlap.click();
+    expect(primary.getAttribute("aria-selected")).toBe("false");
+    expect(overlap.getAttribute("aria-selected")).toBe("true");
     expect(popup.querySelector(".gsm-hoshidicts-tab-panel")?.textContent)
       .not.toContain("alpha definition");
-
-    beta.click();
-    expect(all.getAttribute("aria-selected")).toBe("true");
-    expect(beta.getAttribute("aria-selected")).toBe("false");
     expect(popup.querySelector(".gsm-hoshidicts-tab-panel")?.textContent)
       .toContain("gamma definition");
+    expect(popup.querySelector(".gsm-hoshidicts-tab-panel")?.textContent)
+      .toContain("beta definition");
+    reader.destroy();
+  });
+
+  it("starts each new lookup on All after a group was selected", async () => {
+    const { lookup, reader, second } = createLookupHarness({
+      dictionaryPresentation: [
+        { title: "Alpha", favorite: true },
+        { title: "Beta", favorite: true }
+      ],
+      dictionaryTabGroups: [
+        { id: "alpha", name: "Alpha group", dictionaries: ["Alpha"] }
+      ]
+    });
+    const firstLookup = await lookup((requestId) =>
+      lookupResultWithDictionaries(requestId, [
+        { dictionary: "Alpha", glossary: "alpha definition" },
+        { dictionary: "Beta", glossary: "beta definition" }
+      ])
+    );
+    firstLookup.popup.querySelectorAll<HTMLButtonElement>('[role="tab"]')[1]
+      ?.click();
+    expect(firstLookup.popup.querySelector('[role="tabpanel"]')?.textContent)
+      .not.toContain("beta definition");
+
+    const secondLookup = await lookup((requestId) =>
+      lookupResultWithDictionaries(requestId, [
+        { dictionary: "Alpha", glossary: "new alpha" },
+        { dictionary: "Beta", glossary: "new beta" }
+      ]), second);
+    const tabs = secondLookup.popup.querySelectorAll('[role="tab"]');
+    expect(tabs[0]?.getAttribute("aria-selected")).toBe("true");
+    expect(tabs[1]?.getAttribute("aria-selected")).toBe("false");
+    expect(secondLookup.popup.querySelector('[role="tabpanel"]')?.textContent)
+      .toContain("new alpha");
+    expect(secondLookup.popup.querySelector('[role="tabpanel"]')?.textContent)
+      .toContain("new beta");
     reader.destroy();
   });
 
@@ -2982,12 +3096,48 @@ describe("Hoshidicts dictionary tabs", () => {
 
     expect(mine).toHaveBeenCalledTimes(3);
     expect(mine.mock.calls[2][0].result.term.glossaries).toEqual([
-      expect.objectContaining({ dictionary: "JMdict", glossary: "to eat" }),
-      expect.objectContaining({
-        dictionary: "Jitendex.org [2026-08-08]",
-        glossary: "to consume"
-      })
+      expect.objectContaining({ dictionary: "JMdict", glossary: "to eat" })
     ]);
+    reader.destroy();
+  });
+
+  it("mines the combined local projection for a group", async () => {
+    const mine = vi.fn(async () => ({ success: true, noteId: 456 }));
+    const { lookup, reader, socket } = createLookupHarness({
+      dictionaryPresentation: [
+        { title: "Alpha", favorite: true },
+        { title: "Beta", favorite: true },
+        { title: "Gamma", favorite: true }
+      ],
+      dictionaryTabGroups: [
+        { id: "core", name: "Core", dictionaries: ["Alpha", "Beta"] }
+      ],
+      getMiningStatus: async () => ({ available: true }),
+      onMine: mine
+    });
+    const { popup } = await lookup((requestId) =>
+      lookupResultWithDictionaries(requestId, [
+        { dictionary: "Alpha", glossary: "alpha" },
+        { dictionary: "Beta", glossary: "beta" },
+        { dictionary: "Gamma", glossary: "gamma" }
+      ])
+    );
+    await flushPromises();
+    const sentBeforeClick = socket.sent.length;
+
+    Array.from(popup.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+      .find((tab) => tab.textContent === "Core")
+      ?.click();
+    await flushPromises();
+    popup.querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")
+      ?.click();
+    await flushPromises();
+
+    expect(socket.sent).toHaveLength(sentBeforeClick);
+    expect(mine).toHaveBeenCalledTimes(1);
+    expect(mine.mock.calls[0][0].result.term.glossaries.map(
+      (glossary: { dictionary: string }) => glossary.dictionary
+    )).toEqual(["Alpha", "Beta"]);
     reader.destroy();
   });
 
@@ -5455,7 +5605,8 @@ describe("Hoshidicts Shift-hover scanner", () => {
       popupWidthPx: 560,
       popupHeightPx: 420,
       theme: "default",
-      dictionaryPresentation: []
+      dictionaryPresentation: [],
+      dictionaryTabGroups: []
     });
     expect(reader.updatePreferences({
       lookupMode: "hover",
@@ -5488,7 +5639,8 @@ describe("Hoshidicts Shift-hover scanner", () => {
       popupWidthPx: 720,
       popupHeightPx: 520,
       theme: "cyberpunk",
-      dictionaryPresentation: []
+      dictionaryPresentation: [],
+      dictionaryTabGroups: []
     });
     expect(reader.updatePreferences({ popupHideDelayMs: -20 })).toEqual({
       lookupMode: "hover",
@@ -5506,7 +5658,8 @@ describe("Hoshidicts Shift-hover scanner", () => {
       popupWidthPx: 720,
       popupHeightPx: 520,
       theme: "cyberpunk",
-      dictionaryPresentation: []
+      dictionaryPresentation: [],
+      dictionaryTabGroups: []
     });
     expect(reader.updatePreferences({ popupNestingMaxDepth: -1 }))
       .toEqual({
@@ -5525,7 +5678,8 @@ describe("Hoshidicts Shift-hover scanner", () => {
         popupWidthPx: 720,
         popupHeightPx: 520,
         theme: "cyberpunk",
-        dictionaryPresentation: []
+        dictionaryPresentation: [],
+        dictionaryTabGroups: []
       });
     expect(dom.window.document.documentElement.dataset.hoshidictsTheme).toBe(
       "cyberpunk"

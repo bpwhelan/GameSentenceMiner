@@ -141,6 +141,7 @@ const baseState: HoshidictsDesktopSnapshot = {
       lastUpdateCheck: null
     }
   ],
+  tabGroups: [],
   customDictionaryActive: false,
   recommendedDictionaries: [
     { id: "jmdict", installed: true },
@@ -1061,6 +1062,393 @@ describe("HoshidictsSettingsWindow", () => {
     });
     expect(recommendedList?.hidden).toBe(false);
   });
+
+  it("keeps tab groups collapsed by default and wires group management actions", async () => {
+    const groupState: HoshidictsDesktopSnapshot = {
+      ...baseState,
+      tabGroups: [
+        {
+          id: "grammar",
+          name: "Grammar",
+          dictionaryIds: ["jmdict-id"]
+        },
+        { id: "games", name: "Games", dictionaryIds: [] }
+      ]
+    };
+    invokeMock.mockImplementation(
+      async (channel: string): Promise<unknown> => {
+        if (channel === HOSHIDICTS_CHANNELS.getState) return groupState;
+        if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
+          return miningOptions;
+        }
+        return {
+          success: true,
+          outcome: { code: "dictionaryChanged" },
+          state: { ...groupState, revision: ++revision }
+        };
+      }
+    );
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    await render();
+    const toggle = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Expand tab groups (2)"]'
+    );
+    const panel = container.querySelector<HTMLElement>(
+      "#hoshidicts-tab-groups-panel"
+    );
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(panel?.hidden).toBe(true);
+
+    await act(async () => {
+      toggle?.click();
+      await Promise.resolve();
+    });
+    expect(panel?.hidden).toBe(false);
+    expect(panel?.textContent).toContain("Grammar");
+    expect(panel?.textContent).toContain("Dictionaries: 1");
+
+    const createName = panel?.querySelector<HTMLInputElement>(
+      'input[aria-label="Tab group name"]'
+    );
+    setInputValue(createName ?? null, "Study");
+    await act(async () => {
+      createName?.closest("form")?.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true })
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.createTabGroup,
+      { name: "Study" }
+    );
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Move Grammar down"]')
+        ?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(invokeMock).toHaveBeenCalledWith(HOSHIDICTS_CHANNELS.moveTabGroup, {
+      groupId: "grammar",
+      direction: 1
+    });
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Rename Grammar"]')
+        ?.click();
+      await Promise.resolve();
+    });
+    const renameName = container.querySelector<HTMLInputElement>(
+      'input[aria-label="New name for Grammar"]'
+    );
+    setInputValue(renameName, "Language");
+    await act(async () => {
+      renameName?.closest("form")?.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true })
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.renameTabGroup,
+      { groupId: "grammar", name: "Language" }
+    );
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Delete Games"]')
+        ?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(confirm).toHaveBeenCalledWith(
+      "Delete the Games tab group? Its dictionaries will not be deleted."
+    );
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.deleteTabGroup,
+      { groupId: "games" }
+    );
+    confirm.mockRestore();
+  });
+
+  it("keeps a rejected tab group rename open with the entered name", async () => {
+    const groupState: HoshidictsDesktopSnapshot = {
+      ...baseState,
+      tabGroups: [
+        {
+          id: "grammar",
+          name: "Grammar",
+          dictionaryIds: ["jmdict-id"]
+        }
+      ]
+    };
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === HOSHIDICTS_CHANNELS.getState) return groupState;
+      if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
+        return miningOptions;
+      }
+      if (channel === HOSHIDICTS_CHANNELS.renameTabGroup) {
+        return {
+          success: false,
+          error: "That tab group name is already in use.",
+          state: groupState
+        };
+      }
+      return {
+        success: true,
+        outcome: { code: "dictionaryChanged" },
+        state: groupState
+      };
+    });
+
+    await render();
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Expand tab groups (1)"]'
+        )
+        ?.click();
+      await Promise.resolve();
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Rename Grammar"]')
+        ?.click();
+      await Promise.resolve();
+    });
+    const renameName = container.querySelector<HTMLInputElement>(
+      'input[aria-label="New name for Grammar"]'
+    );
+    setInputValue(renameName, "Games");
+    await act(async () => {
+      renameName?.closest("form")?.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true })
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector<HTMLInputElement>(
+        'input[aria-label="New name for Grammar"]'
+      )?.value
+    ).toBe("Games");
+    expect(container.textContent).toContain(
+      "That tab group name is already in use."
+    );
+  });
+
+  it("assigns only term dictionaries to one or more tab groups from the action menu", async () => {
+    const groupState: HoshidictsDesktopSnapshot = {
+      ...baseState,
+      tabGroups: [
+        {
+          id: "grammar",
+          name: "Grammar",
+          dictionaryIds: ["jmdict-id"]
+        },
+        { id: "games", name: "Games", dictionaryIds: [] }
+      ]
+    };
+    invokeMock.mockImplementation(
+      async (channel: string): Promise<unknown> => {
+        if (channel === HOSHIDICTS_CHANNELS.getState) return groupState;
+        if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
+          return miningOptions;
+        }
+        return {
+          success: true,
+          outcome: { code: "dictionaryChanged" },
+          state: { ...groupState, revision: ++revision }
+        };
+      }
+    );
+
+    await render();
+    const summary = container.querySelector<HTMLElement>(
+      '[aria-label="Dictionary actions for JMdict"]'
+    );
+    await act(async () => {
+      summary?.click();
+      await Promise.resolve();
+    });
+    const addToGroup = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
+    ).find((button) => button.textContent?.includes("Add to Tab Group"));
+    await act(async () => {
+      addToGroup?.click();
+      await Promise.resolve();
+    });
+
+    const initialGrammar = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Remove JMdict from Grammar"]'
+    );
+    expect(document.activeElement).toBe(initialGrammar);
+    const picker = container.querySelector<HTMLElement>(
+      '.hoshidicts-dictionary-tab-groups[role="group"]'
+    );
+    const pickerHeading = document.getElementById(
+      picker?.getAttribute("aria-labelledby") ?? ""
+    );
+    expect(pickerHeading?.textContent).toBe("Add to tab group");
+
+    await act(async () => {
+      Array.from(picker?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+        .find((button) => button.textContent?.trim() === "Back")
+        ?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const restoredAddToGroup = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
+    ).find((button) => button.textContent?.includes("Add to Tab Group"));
+    expect(document.activeElement).toBe(restoredAddToGroup);
+
+    await act(async () => {
+      restoredAddToGroup?.click();
+      await Promise.resolve();
+    });
+    const grammar = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Remove JMdict from Grammar"]'
+    );
+    let games = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Add JMdict to Games"]'
+    );
+    expect(grammar?.checked).toBe(true);
+    expect(games?.checked).toBe(false);
+
+    await act(async () => {
+      listeners.get(HOSHIDICTS_CHANNELS.progress)?.[0]?.({}, {
+        ...groupState,
+        revision: ++revision,
+        busy: true,
+        progress: { phase: "saving", scope: "dictionary" }
+      });
+      await Promise.resolve();
+    });
+    games = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Add JMdict to Games"]'
+    );
+    expect(games?.disabled).toBe(true);
+    expect(games?.closest("label")?.classList.contains("is-disabled")).toBe(
+      true
+    );
+
+    await act(async () => {
+      listeners.get(HOSHIDICTS_CHANNELS.progress)?.[0]?.({}, {
+        ...groupState,
+        revision: ++revision,
+        busy: false,
+        progress: { phase: "idle", scope: "dictionary" }
+      });
+      await Promise.resolve();
+    });
+    games = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Add JMdict to Games"]'
+    );
+    await act(async () => {
+      games?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.setTabGroupMembership,
+      { groupId: "games", dictionaryId: "jmdict-id", member: true }
+    );
+
+    const newGroupName = container.querySelector<HTMLInputElement>(
+      'input[aria-label="New tab group name"]'
+    );
+    setInputValue(newGroupName, "Vocabulary");
+    await act(async () => {
+      newGroupName?.closest("form")?.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true })
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.createTabGroup,
+      { name: "Vocabulary", dictionaryId: "jmdict-id" }
+    );
+
+    await act(async () => {
+      summary?.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      summary?.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(
+      container.querySelector(".hoshidicts-dictionary-tab-groups")
+    ).toBeNull();
+
+    const frequencyRow = Array.from(
+      container.querySelectorAll<HTMLElement>(".hoshidicts-dictionary-row")
+    ).find((row) => row.textContent?.includes("Custom"));
+    await act(async () => {
+      frequencyRow?.querySelector<HTMLElement>("summary")?.click();
+      await Promise.resolve();
+    });
+    expect(
+      frequencyRow?.querySelector(".hoshidicts-dictionary-menu__items")
+        ?.textContent
+    ).not.toContain("Add to Tab Group");
+  });
+
+  it.each([
+    [
+      "ja",
+      "タブグループを展開（1件）",
+      "JMdictの辞書操作",
+      "タブグループに追加…"
+    ],
+    [
+      "ukr",
+      "Розгорнути групи вкладок (1)",
+      "Дії зі словником JMdict",
+      "Додати до групи вкладок…"
+    ]
+  ])(
+    "localizes tab group controls in %s",
+    async (locale, expandLabel, menuLabel, actionLabel) => {
+      invokeMock.mockImplementation(async (channel: string) => {
+        if (channel === HOSHIDICTS_CHANNELS.getState) {
+          return {
+            ...baseState,
+            tabGroups: [
+              { id: "grammar", name: "Grammar", dictionaryIds: [] }
+            ]
+          };
+        }
+        if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
+          return miningOptions;
+        }
+        return { success: true, state: { ...baseState, revision: ++revision } };
+      });
+
+      await render(locale);
+      expect(
+        container.querySelector(`[aria-label="${expandLabel}"]`)
+      ).not.toBeNull();
+      await act(async () => {
+        container
+          .querySelector<HTMLElement>(`[aria-label="${menuLabel}"]`)
+          ?.click();
+        await Promise.resolve();
+      });
+      expect(
+        Array.from(
+          container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
+        ).some((button) => button.textContent?.trim() === actionLabel)
+      ).toBe(true);
+    }
+  );
 
   it("moves a dictionary directly to a selected search position", async () => {
     await render();
@@ -2473,6 +2861,7 @@ describe("HoshidictsSettingsWindow", () => {
       popupNestingMaxDepth: undefined,
       definitionBlur: undefined,
       audioProfile: undefined,
+      tabGroups: undefined,
       dictionaries: [
         {
           ...baseState.dictionaries[0],
@@ -2523,6 +2912,30 @@ describe("HoshidictsSettingsWindow", () => {
     expect(normalized.miningProfile.disabledFields).toEqual([]);
     expect(normalized.miningProfile.fields.audio).toBe("");
     expect(normalized.audioProfile).toEqual(baseState.audioProfile);
+    expect(normalized.tabGroups).toEqual([]);
+  });
+
+  it("normalizes tab group membership without dropping orphan dictionary ids", () => {
+    const normalized = normalizeHoshidictsDesktopState({
+      ...baseState,
+      tabGroups: [
+        {
+          id: "grammar",
+          name: "Grammar",
+          dictionaryIds: ["jmdict-id", "missing-id", "jmdict-id"]
+        },
+        { id: "", name: "Ignored", dictionaryIds: [] },
+        null
+      ]
+    });
+
+    expect(normalized.tabGroups).toEqual([
+      {
+        id: "grammar",
+        name: "Grammar",
+        dictionaryIds: ["jmdict-id", "missing-id"]
+      }
+    ]);
   });
 
   it("normalizes hourly global and dictionary schedules", () => {

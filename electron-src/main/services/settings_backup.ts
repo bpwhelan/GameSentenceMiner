@@ -14,6 +14,10 @@ const GSM_ARCHIVE_ROOT = 'GameSentenceMiner';
 const OVERLAY_ARCHIVE_ROOT = 'gsm_overlay';
 const HOME_ARCHIVE_ROOT = 'home';
 const OWOCR_HOME_RELATIVE_PATH = '.config/owocr_config_gsm.ini';
+const HOSHIDICTS_TAB_GROUPS_FILE_NAME = 'tab-groups.json';
+const HOSHIDICTS_TAB_GROUPS_RELATIVE_PATH =
+    `dictionaries/hoshidicts/${HOSHIDICTS_TAB_GROUPS_FILE_NAME}`;
+const EMPTY_HOSHIDICTS_TAB_GROUPS = Buffer.from('{"version":1,"groups":[]}\n');
 
 const GSM_TOP_LEVEL_FILES = new Set([
     'config.json',
@@ -47,6 +51,7 @@ const HOSHIDICTS_SETTINGS_FILES = new Set([
     'audio-profile.json',
     'custom-dictionary.txt',
     'mining-profile.json',
+    HOSHIDICTS_TAB_GROUPS_FILE_NAME,
 ]);
 
 const OBS_EXCLUDED_CONFIG_DIRS = new Set([
@@ -157,9 +162,11 @@ export interface RestoreArchiveResult {
 }
 
 interface CollectedFile {
-    absolutePath: string;
     archivePath: string;
     size: number;
+    source:
+        | { type: 'file'; absolutePath: string }
+        | { type: 'buffer'; contents: Buffer };
 }
 
 interface RestoreFile {
@@ -357,9 +364,9 @@ async function collectFilesForRoot(root: BackupSourceRoot): Promise<CollectedFil
 
             const stat = await fsp.stat(absolutePath);
             files.push({
-                absolutePath,
                 archivePath: `${root.archiveRoot}/${archiveRelativePath}`,
                 size: stat.size,
+                source: { type: 'file', absolutePath },
             });
         }
     }
@@ -379,7 +386,13 @@ async function collectStandaloneFile(
     if (!stat.isFile()) {
         return [];
     }
-    return [{ absolutePath, archivePath, size: stat.size }];
+    return [
+        {
+            archivePath,
+            size: stat.size,
+            source: { type: 'file', absolutePath },
+        },
+    ];
 }
 
 async function collectBackupFiles(options: BackupArchiveOptions): Promise<{
@@ -413,6 +426,17 @@ async function collectBackupFiles(options: BackupArchiveOptions): Promise<{
             includedRoots.add(root.key);
             collected.push(...files);
         }
+    }
+
+    const tabGroupsArchivePath =
+        `${GSM_ARCHIVE_ROOT}/${HOSHIDICTS_TAB_GROUPS_RELATIVE_PATH}`;
+    if (!collected.some(({ archivePath }) => archivePath === tabGroupsArchivePath)) {
+        includedRoots.add('gsm');
+        collected.push({
+            archivePath: tabGroupsArchivePath,
+            size: EMPTY_HOSHIDICTS_TAB_GROUPS.byteLength,
+            source: { type: 'buffer', contents: EMPTY_HOSHIDICTS_TAB_GROUPS },
+        });
     }
 
     const homeFiles = await collectStandaloneFile(
@@ -488,7 +512,11 @@ export async function createBackupArchive(
         archive.pipe(output);
         archive.append(JSON.stringify(manifest, null, 2), { name: MANIFEST_NAME });
         for (const file of files) {
-            archive.file(file.absolutePath, { name: file.archivePath });
+            if (file.source.type === 'file') {
+                archive.file(file.source.absolutePath, { name: file.archivePath });
+            } else {
+                archive.append(file.source.contents, { name: file.archivePath });
+            }
         }
 
         void archive.finalize();

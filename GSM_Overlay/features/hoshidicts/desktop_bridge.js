@@ -37,6 +37,8 @@ const HOSHIDICTS_PUNCTUATION_ACTIVATION_KEYS = new Set([
 ]);
 const MAX_HOSHIDICTS_DICTIONARY_PRESENTATION = 256;
 const MAX_HOSHIDICTS_DICTIONARY_TITLE_LENGTH = 4096;
+const MAX_HOSHIDICTS_DICTIONARY_TAB_GROUPS = 256;
+const MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH = 128;
 const MIN_HOSHIDICTS_POPUP_WIDTH_PX = 280;
 const MAX_HOSHIDICTS_POPUP_WIDTH_PX = 1200;
 const MIN_HOSHIDICTS_POPUP_HEIGHT_PX = 200;
@@ -130,6 +132,56 @@ function normalizeHoshidictsDictionaryPresentation(value) {
   });
 }
 
+function normalizeHoshidictsDictionaryTabGroups(value) {
+  if (value === undefined) {
+    return [];
+  }
+  if (
+    !Array.isArray(value) ||
+    value.length > MAX_HOSHIDICTS_DICTIONARY_TAB_GROUPS
+  ) {
+    throw new Error("Hoshidicts reader preferences are invalid.");
+  }
+  const ids = new Set();
+  const names = new Set();
+  return value.map((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error("Hoshidicts reader preferences are invalid.");
+    }
+    const id = typeof entry.id === "string" ? entry.id : "";
+    const name = typeof entry.name === "string" ? entry.name.trim() : "";
+    if (
+      !id.trim() ||
+      id.length > MAX_HOSHIDICTS_DICTIONARY_TITLE_LENGTH ||
+      !name ||
+      name.length > MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH ||
+      ids.has(id) ||
+      names.has(name) ||
+      !Array.isArray(entry.dictionaries) ||
+      entry.dictionaries.length > MAX_HOSHIDICTS_DICTIONARY_PRESENTATION
+    ) {
+      throw new Error("Hoshidicts reader preferences are invalid.");
+    }
+    const dictionaries = [];
+    const dictionaryTitles = new Set();
+    for (const dictionary of entry.dictionaries) {
+      if (
+        typeof dictionary !== "string" ||
+        !dictionary.trim() ||
+        dictionary.length > MAX_HOSHIDICTS_DICTIONARY_TITLE_LENGTH ||
+        dictionaryTitles.has(dictionary)
+      ) {
+        throw new Error("Hoshidicts reader preferences are invalid.");
+      }
+      dictionaries.push(dictionary);
+      dictionaryTitles.add(dictionary);
+    }
+    ids.add(id);
+    names.add(name);
+    return { id, name, dictionaries };
+  });
+}
+
 function normalizeHoshidictsActivationKey(
   value,
   fallback = DEFAULT_HOSHIDICTS_ACTIVATION_KEY
@@ -173,6 +225,9 @@ function normalizeHoshidictsReaderPreferences(preferences) {
   const dictionaryPresentation = normalizeHoshidictsDictionaryPresentation(
     preferences && preferences.dictionaryPresentation
   );
+  const dictionaryTabGroups = normalizeHoshidictsDictionaryTabGroups(
+    preferences && preferences.dictionaryTabGroups
+  );
   if (
     (lookupMode !== "shift" && lookupMode !== "hover") ||
     activationKey === null ||
@@ -202,6 +257,7 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     popupHeightPx,
     theme,
     dictionaryPresentation,
+    dictionaryTabGroups,
   };
 }
 
@@ -640,6 +696,7 @@ module.exports = {
   HOSHIDICTS_ACTIVATION_HOTKEY_ID,
   normalizeHoshidictsActivationKey,
   normalizeHoshidictsDictionaryPresentation,
+  normalizeHoshidictsDictionaryTabGroups,
   normalizeHoshidictsReaderPreferences,
   OPEN_SETTINGS_METHOD,
   READER_PREFERENCES_METHOD,

@@ -22,7 +22,9 @@ import {
   type HoshidictsActionResult,
   type HoshidictsActivationKey,
   type HoshidictsAudioProfile,
+  type HoshidictsCreateTabGroupRequest,
   type HoshidictsCustomDictionaryDocument,
+  type HoshidictsDeleteTabGroupRequest,
   type HoshidictsDesktopSnapshot,
   type HoshidictsDictionaryPresentationRequest,
   type HoshidictsDictionaryScheduleRequest,
@@ -31,11 +33,14 @@ import {
   type HoshidictsMiningProfile,
   type HoshidictsMoveDirection,
   type HoshidictsMoveDictionaryToPositionRequest,
+  type HoshidictsMoveTabGroupRequest,
   type HoshidictsReaderPreferences,
   type HoshidictsRenameDictionaryRequest,
+  type HoshidictsRenameTabGroupRequest,
   type HoshidictsRecommendedDictionaryId,
   type HoshidictsSaveCustomDictionaryRequest,
   type HoshidictsSchedule,
+  type HoshidictsSetTabGroupMembershipRequest,
   type HoshidictsTheme
 } from "../../../../shared/features/hoshidicts";
 import { useTranslation } from "../../i18n";
@@ -748,6 +753,62 @@ export function useHoshidictsSettingsController() {
               } satisfies HoshidictsDictionaryPresentationRequest
             ),
           "settings.hoshidicts.errors.operation"
+        ),
+      createTabGroup: (name: string, dictionaryId?: string) =>
+        runAction(
+          () =>
+            invokeIpc(
+              HOSHIDICTS_CHANNELS.createTabGroup,
+              {
+                name,
+                ...(dictionaryId ? { dictionaryId } : {})
+              } satisfies HoshidictsCreateTabGroupRequest
+            ),
+          "settings.hoshidicts.errors.tabGroups"
+        ),
+      setTabGroupMembership: (
+        groupId: string,
+        dictionaryId: string,
+        member: boolean
+      ) =>
+        runAction(
+          () =>
+            invokeIpc(
+              HOSHIDICTS_CHANNELS.setTabGroupMembership,
+              {
+                groupId,
+                dictionaryId,
+                member
+              } satisfies HoshidictsSetTabGroupMembershipRequest
+            ),
+          "settings.hoshidicts.errors.tabGroups"
+        ),
+      renameTabGroup: (groupId: string, name: string) =>
+        runAction(
+          () =>
+            invokeIpc(
+              HOSHIDICTS_CHANNELS.renameTabGroup,
+              { groupId, name } satisfies HoshidictsRenameTabGroupRequest
+            ),
+          "settings.hoshidicts.errors.tabGroups"
+        ),
+      deleteTabGroup: (groupId: string) =>
+        runAction(
+          () =>
+            invokeIpc(
+              HOSHIDICTS_CHANNELS.deleteTabGroup,
+              { groupId } satisfies HoshidictsDeleteTabGroupRequest
+            ),
+          "settings.hoshidicts.errors.tabGroups"
+        ),
+      moveTabGroup: (groupId: string, direction: HoshidictsMoveDirection) =>
+        runAction(
+          () =>
+            invokeIpc(
+              HOSHIDICTS_CHANNELS.moveTabGroup,
+              { groupId, direction } satisfies HoshidictsMoveTabGroupRequest
+            ),
+          "settings.hoshidicts.errors.tabGroups"
         ),
       setDictionarySchedule: (
         id: string,

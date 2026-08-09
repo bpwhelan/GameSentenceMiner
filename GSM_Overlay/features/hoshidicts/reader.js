@@ -1841,12 +1841,33 @@
     return normalized;
   }
 
+  function normalizeDictionaryTabGroups(value, fallback = []) {
+    const groups = Array.isArray(value) ? value : fallback;
+    return groups.map((group) => ({
+      ...group,
+      dictionaries: [...group.dictionaries],
+    }));
+  }
+
   function dictionaryPresentationEqual(left, right) {
     return left.length === right.length && left.every((entry, index) => {
       const other = right[index];
       return entry.title === other.title &&
         entry.favorite === other.favorite &&
         entry.displayName === other.displayName;
+    });
+  }
+
+  function dictionaryTabGroupsEqual(left, right) {
+    return left.length === right.length && left.every((group, index) => {
+      const other = right[index];
+      return group.id === other.id &&
+        group.name === other.name &&
+        group.dictionaries.length === other.dictionaries.length &&
+        group.dictionaries.every(
+          (dictionary, dictionaryIndex) =>
+            dictionary === other.dictionaries[dictionaryIndex]
+        );
     });
   }
 
@@ -1995,6 +2016,9 @@
       theme: normalizeTheme(options.theme),
       dictionaryPresentation: normalizeDictionaryPresentation(
         options.dictionaryPresentation
+      ),
+      dictionaryTabGroups: normalizeDictionaryTabGroups(
+        options.dictionaryTabGroups
       ),
     };
     let socket = null;
@@ -3177,6 +3201,7 @@
         generation: dictionaryGeneration,
         showLookupCounts: preferences.showLookupCounts && Boolean(onLookup),
         dictionaryPresentation: preferences.dictionaryPresentation,
+        dictionaryTabGroups: preferences.dictionaryTabGroups,
         onInternalLink: (link) => openStructuredLink(link, targetDepth),
         resolveMedia: dictionaryGeneration === null
           ? null
@@ -3218,6 +3243,7 @@
         generation: dictionaryGeneration,
         showLookupCounts: preferences.showLookupCounts && Boolean(onLookup),
         dictionaryPresentation: preferences.dictionaryPresentation,
+        dictionaryTabGroups: preferences.dictionaryTabGroups,
         onInternalLink: (link) => openStructuredLink(link, targetDepth),
         resolveMedia: dictionaryGeneration === null
           ? null
@@ -4403,6 +4429,7 @@
       const previousPopupHeightPx = preferences.popupHeightPx;
       const previousTheme = preferences.theme;
       const previousDictionaryPresentation = preferences.dictionaryPresentation;
+      const previousDictionaryTabGroups = preferences.dictionaryTabGroups;
       preferences = {
         lookupMode: Object.prototype.hasOwnProperty.call(nextPreferences, "lookupMode")
           ? nextPreferences.lookupMode === "hover" ? "hover" : "shift"
@@ -4473,6 +4500,12 @@
         )
           ? normalizeDictionaryPresentation(nextPreferences.dictionaryPresentation)
           : preferences.dictionaryPresentation,
+        dictionaryTabGroups: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "dictionaryTabGroups"
+        )
+          ? normalizeDictionaryTabGroups(nextPreferences.dictionaryTabGroups)
+          : preferences.dictionaryTabGroups,
       };
       if (definitionBlurWasEnabled && !preferences.definitionBlur.enabled) {
         for (const level of popupLevels) {
@@ -4524,6 +4557,10 @@
         !dictionaryPresentationEqual(
           previousDictionaryPresentation,
           preferences.dictionaryPresentation
+        ) ||
+        !dictionaryTabGroupsEqual(
+          previousDictionaryTabGroups,
+          preferences.dictionaryTabGroups
         )
       ) {
         for (const level of popupLevels) {
@@ -4548,6 +4585,10 @@
         dictionaryPresentation: preferences.dictionaryPresentation.map(
           (entry) => ({ ...entry })
         ),
+        dictionaryTabGroups: preferences.dictionaryTabGroups.map((group) => ({
+          ...group,
+          dictionaries: [...group.dictionaries],
+        })),
       };
     }
 
@@ -4659,6 +4700,10 @@
         dictionaryPresentation: preferences.dictionaryPresentation.map(
           (entry) => ({ ...entry })
         ),
+        dictionaryTabGroups: preferences.dictionaryTabGroups.map((group) => ({
+          ...group,
+          dictionaries: [...group.dictionaries],
+        })),
       }),
       getAudioPreferences: () => audioController.getPreferences(),
       positionPopup: positionAllPopups,

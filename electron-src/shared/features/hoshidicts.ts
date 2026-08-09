@@ -27,6 +27,11 @@ export const HOSHIDICTS_CHANNELS = {
     getMiningOptions: 'hoshidicts.getMiningOptions',
     setDictionaryEnabled: 'hoshidicts.setDictionaryEnabled',
     setDictionaryPresentation: 'hoshidicts.setDictionaryPresentation',
+    createTabGroup: 'hoshidicts.createTabGroup',
+    setTabGroupMembership: 'hoshidicts.setTabGroupMembership',
+    renameTabGroup: 'hoshidicts.renameTabGroup',
+    deleteTabGroup: 'hoshidicts.deleteTabGroup',
+    moveTabGroup: 'hoshidicts.moveTabGroup',
     renameDictionary: 'hoshidicts.renameDictionary',
     moveDictionary: 'hoshidicts.moveDictionary',
     moveDictionaryToPosition: 'hoshidicts.moveDictionaryToPosition',
@@ -462,11 +467,28 @@ export interface HoshidictsDictionaryPresentation {
     displayName?: string;
 }
 
+export const MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH = 128;
+export const MAX_HOSHIDICTS_TAB_GROUPS_BYTES = 16 * 1024 * 1024;
+
+export interface HoshidictsDictionaryTabGroup {
+    id: string;
+    name: string;
+    dictionaryIds: string[];
+}
+
+export interface HoshidictsReaderTabGroup {
+    id: string;
+    name: string;
+    dictionaries: string[];
+}
+
 export interface HoshidictsReaderPreferences
     extends HoshidictsReaderPreferencesRequest {
     // Optional at the cross-process boundary for compatibility with an older
     // overlay. Current desktop deliveries always include a normalized array.
     dictionaryPresentation?: HoshidictsDictionaryPresentation[];
+    // Optional for compatibility with overlays built before tab groups.
+    dictionaryTabGroups?: HoshidictsReaderTabGroup[];
 }
 
 export interface HoshidictsAudioSource {
@@ -603,6 +625,7 @@ export interface HoshidictsCustomDictionaryDocument {
 export interface HoshidictsManagerSnapshot {
     revision: number;
     dictionaries: HoshidictsDictionaryState[];
+    tabGroups: HoshidictsDictionaryTabGroup[];
     customDictionaryActive: boolean;
     recommendedDictionaries: HoshidictsRecommendedDictionaryState[];
     miningProfile: HoshidictsMiningProfile;
@@ -628,6 +651,9 @@ export interface HoshidictsManagerSnapshot {
 export function hoshidictsReaderPreferencesFromSnapshot(
     snapshot: HoshidictsManagerSnapshot
 ): HoshidictsReaderPreferences {
+    const titlesById = new Map(
+        (snapshot.dictionaries ?? []).map(({ id, title }) => [id, title])
+    );
     return {
         lookupMode: snapshot.lookupMode,
         activationKey: snapshot.activationKey,
@@ -644,6 +670,16 @@ export function hoshidictsReaderPreferencesFromSnapshot(
                 displayName
                     ? { title, favorite, displayName }
                     : { title, favorite }
+        ),
+        dictionaryTabGroups: (snapshot.tabGroups ?? []).map(
+            ({ id, name, dictionaryIds }) => ({
+                id,
+                name,
+                dictionaries: dictionaryIds.flatMap((dictionaryId) => {
+                    const title = titlesById.get(dictionaryId);
+                    return title ? [title] : [];
+                }),
+            })
         ),
     };
 }
@@ -692,6 +728,31 @@ export interface HoshidictsDictionaryEnabledRequest {
 export interface HoshidictsDictionaryPresentationRequest {
     id: string;
     favorite: boolean;
+}
+
+export interface HoshidictsCreateTabGroupRequest {
+    name: string;
+    dictionaryId?: string;
+}
+
+export interface HoshidictsSetTabGroupMembershipRequest {
+    groupId: string;
+    dictionaryId: string;
+    member: boolean;
+}
+
+export interface HoshidictsRenameTabGroupRequest {
+    groupId: string;
+    name: string;
+}
+
+export interface HoshidictsDeleteTabGroupRequest {
+    groupId: string;
+}
+
+export interface HoshidictsMoveTabGroupRequest {
+    groupId: string;
+    direction: HoshidictsMoveDirection;
 }
 
 export interface HoshidictsDictionaryScheduleRequest {

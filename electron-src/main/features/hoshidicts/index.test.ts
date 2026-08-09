@@ -310,6 +310,7 @@ describe('Hoshidicts feature registration', () => {
                             favorite: false,
                         },
                     ],
+                    dictionaryTabGroups: [],
                 },
                 2000
             );

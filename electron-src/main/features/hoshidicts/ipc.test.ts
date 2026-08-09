@@ -58,6 +58,11 @@ const harness = vi.hoisted(() => ({
         setAudioProfile: vi.fn(),
         setDictionaryEnabled: vi.fn(),
         setDictionaryPresentation: vi.fn(),
+        createTabGroup: vi.fn(),
+        setTabGroupMembership: vi.fn(),
+        renameTabGroup: vi.fn(),
+        deleteTabGroup: vi.fn(),
+        moveTabGroup: vi.fn(),
         renameDictionary: vi.fn(),
         moveDictionary: vi.fn(),
         moveDictionaryToPosition: vi.fn(),
@@ -98,6 +103,7 @@ vi.mock('./yomitan_backup.js', () => ({
 const snapshot = {
     revision: 1,
     dictionaries: [],
+    tabGroups: [],
     customDictionaryActive: false,
     recommendedDictionaries: [
         { id: 'jitendex', installed: false },
@@ -206,6 +212,11 @@ async function registerHarness() {
     harness.manager.setAudioProfile.mockResolvedValue(snapshot);
     harness.manager.setMiningProfile.mockResolvedValue(snapshot);
     harness.manager.setDictionaryPresentation.mockResolvedValue(snapshot);
+    harness.manager.createTabGroup.mockResolvedValue(snapshot);
+    harness.manager.setTabGroupMembership.mockResolvedValue(snapshot);
+    harness.manager.renameTabGroup.mockResolvedValue(snapshot);
+    harness.manager.deleteTabGroup.mockResolvedValue(snapshot);
+    harness.manager.moveTabGroup.mockResolvedValue(snapshot);
     harness.manager.renameDictionary.mockResolvedValue(snapshot);
     harness.manager.moveDictionary.mockResolvedValue(snapshot);
     harness.manager.moveDictionaryToPosition.mockResolvedValue(snapshot);
@@ -527,6 +538,7 @@ describe('Hoshidicts settings IPC', () => {
             expect.objectContaining({
                 type: 'warning',
                 message: 'Replace all Hoshidicts data with this backup?',
+                detail: expect.stringContaining('tab groups'),
                 buttons: ['Restore Backup', 'Cancel'],
                 defaultId: 1,
                 cancelId: 1,
@@ -1155,6 +1167,91 @@ describe('Hoshidicts settings IPC', () => {
         ).toHaveBeenCalledOnce();
     });
 
+    it('manages tab groups and applies them to the reader live', async () => {
+        const groupedState = {
+            ...snapshot,
+            dictionaries: [
+                definitionDictionary('alpha', 'Alpha', true),
+                definitionDictionary('beta', 'Beta', false),
+            ],
+            tabGroups: [
+                {
+                    id: 'group-grammar',
+                    name: 'Grammar',
+                    dictionaryIds: ['alpha', 'beta'],
+                },
+            ],
+        } as const;
+        const context = await registerHarness();
+        harness.manager.createTabGroup.mockResolvedValue(groupedState);
+        harness.manager.setTabGroupMembership.mockResolvedValue(groupedState);
+        harness.manager.renameTabGroup.mockResolvedValue(groupedState);
+        harness.manager.moveTabGroup.mockResolvedValue(groupedState);
+        harness.manager.deleteTabGroup.mockResolvedValue(groupedState);
+        const sender = { sender: context.settingsContents };
+
+        await harness.handlers.get('hoshidicts.createTabGroup')?.(sender, {
+            name: 'Grammar',
+            dictionaryId: 'alpha',
+        });
+        await harness.handlers.get('hoshidicts.setTabGroupMembership')?.(
+            sender,
+            { groupId: 'group-grammar', dictionaryId: 'beta', member: true }
+        );
+        await harness.handlers.get('hoshidicts.renameTabGroup')?.(sender, {
+            groupId: 'group-grammar',
+            name: 'Reference',
+        });
+        await harness.handlers.get('hoshidicts.moveTabGroup')?.(sender, {
+            groupId: 'group-grammar',
+            direction: -1,
+        });
+        await harness.handlers.get('hoshidicts.deleteTabGroup')?.(sender, {
+            groupId: 'group-grammar',
+        });
+
+        expect(harness.manager.createTabGroup).toHaveBeenCalledWith(
+            'Grammar',
+            'alpha'
+        );
+        expect(harness.manager.setTabGroupMembership).toHaveBeenCalledWith(
+            'group-grammar',
+            'beta',
+            true
+        );
+        expect(harness.manager.renameTabGroup).toHaveBeenCalledWith(
+            'group-grammar',
+            'Reference'
+        );
+        expect(harness.manager.moveTabGroup).toHaveBeenCalledWith(
+            'group-grammar',
+            -1
+        );
+        expect(harness.manager.deleteTabGroup).toHaveBeenCalledWith(
+            'group-grammar'
+        );
+        expect(context.applyReaderPreferences).toHaveBeenCalledWith(
+            expect.objectContaining({
+                dictionaryTabGroups: [
+                    {
+                        id: 'group-grammar',
+                        name: 'Grammar',
+                        dictionaries: ['Alpha', 'Beta'],
+                    },
+                ],
+            })
+        );
+
+        await expect(
+            harness.handlers.get('hoshidicts.createTabGroup')?.(sender, {
+                name: 42,
+            })
+        ).resolves.toMatchObject({
+            success: false,
+            error: 'Tab group create request is invalid.',
+        });
+    });
+
     it('renames a dictionary for presentation without changing its canonical title', async () => {
         const renamedState = {
             ...snapshot,
@@ -1468,6 +1565,17 @@ describe('Hoshidicts settings IPC', () => {
         });
         expect(harness.manager.setReaderPreferences).not.toHaveBeenCalled();
 
+        harness.manager.setReaderPreferences.mockResolvedValueOnce({
+            ...snapshot,
+            dictionaries: [definitionDictionary('alpha', 'Alpha', true)],
+            tabGroups: [
+                {
+                    id: 'group-grammar',
+                    name: 'Grammar',
+                    dictionaryIds: ['alpha'],
+                },
+            ],
+        });
         await expect(
             setReaderPreferences?.(
                 { sender: context.settingsContents },
@@ -1526,7 +1634,19 @@ describe('Hoshidicts settings IPC', () => {
                 revealMode: 'hover',
                 revealDelayMs: 6000,
             },
-            dictionaryPresentation: [],
+            dictionaryPresentation: [
+                {
+                    title: 'Alpha',
+                    favorite: true,
+                },
+            ],
+            dictionaryTabGroups: [
+                {
+                    id: 'group-grammar',
+                    name: 'Grammar',
+                    dictionaries: ['Alpha'],
+                },
+            ],
         });
 
         await expect(

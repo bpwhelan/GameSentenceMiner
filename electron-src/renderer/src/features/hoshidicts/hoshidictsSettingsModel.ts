@@ -30,6 +30,7 @@ import {
   type HoshidictsAudioProfile,
   type HoshidictsAudioSource,
   type HoshidictsDesktopSnapshot,
+  type HoshidictsDictionaryTabGroup,
   type HoshidictsFrequencyMode,
   type HoshidictsFieldOverwriteMode,
   type HoshidictsFieldOverwriteModes,
@@ -217,6 +218,7 @@ const DEFAULT_STATE: HoshidictsDesktopSnapshot = {
   revision: 0,
   effectiveEnabled: false,
   dictionaries: [],
+  tabGroups: [],
   customDictionaryActive: false,
   recommendedDictionaries: HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.map((id) => ({
     id,
@@ -468,6 +470,7 @@ export function normalizeHoshidictsDesktopState(
       definitionBlur: { ...DEFAULT_STATE.definitionBlur },
       miningProfile: copyMiningProfile(),
       audioProfile: copyAudioProfile(),
+      tabGroups: [],
       recommendedDictionaries: DEFAULT_STATE.recommendedDictionaries.map(
         (dictionary) => ({ ...dictionary })
       ),
@@ -551,6 +554,27 @@ export function normalizeHoshidictsDesktopState(
                 ? dictionary.lastUpdateCheck
                 : null
           }))
+      : [],
+    tabGroups: Array.isArray(candidate.tabGroups)
+      ? candidate.tabGroups.flatMap((value): HoshidictsDictionaryTabGroup[] => {
+          if (!value || typeof value !== "object") return [];
+          const group = value as Partial<HoshidictsDictionaryTabGroup>;
+          if (
+            typeof group.id !== "string" ||
+            !group.id ||
+            typeof group.name !== "string" ||
+            !group.name
+          ) {
+            return [];
+          }
+          return [
+            {
+              id: group.id,
+              name: group.name,
+              dictionaryIds: [...new Set(strings(group.dictionaryIds))]
+            }
+          ];
+        })
       : [],
     customDictionaryActive: candidate.customDictionaryActive === true,
     recommendedDictionaries: HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.map((id) => ({

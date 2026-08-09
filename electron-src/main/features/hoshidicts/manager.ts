@@ -19,6 +19,7 @@ import type {
     HoshidictsCustomDictionaryEntry,
     HoshidictsCustomDictionaryDocument,
     HoshidictsCustomEntryRequest,
+    HoshidictsDictionaryTabGroup,
     HoshidictsDictionaryState,
     HoshidictsDefinitionBlurPreferences,
     HoshidictsActivationKey,
@@ -52,6 +53,8 @@ import {
     MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
     MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
     MAX_HOSHIDICTS_POPUP_WIDTH_PX,
+    MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH,
+    MAX_HOSHIDICTS_TAB_GROUPS_BYTES,
     MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
     MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
@@ -99,6 +102,7 @@ export type {
     HoshidictsCustomDictionaryDocument,
     HoshidictsCustomEntryRequest,
     HoshidictsDictionaryState,
+    HoshidictsDictionaryTabGroup,
     HoshidictsDefinitionBlurPreferences,
     HoshidictsFrequencyMode,
     HoshidictsManagerSnapshot,
@@ -207,8 +211,11 @@ export interface HoshidictsManagerDependencies {
 }
 
 const MANIFEST_FILE_NAME = 'manifest.json';
+export const HOSHIDICTS_TAB_GROUPS_FILE_NAME = 'tab-groups.json';
 const MANIFEST_VERSION = 1;
 const MAX_MANIFEST_BYTES = 1024 * 1024;
+const MAX_TAB_GROUP_COUNT = 256;
+const MAX_TAB_GROUP_DICTIONARIES = 256;
 const MAX_MINING_PROFILE_BYTES = 64 * 1024;
 const MAX_AUDIO_PROFILE_BYTES = 64 * 1024;
 const MAX_ARCHIVE_INDEX_BYTES = 1024 * 1024;
@@ -229,6 +236,11 @@ const JAPANESE_TEXT_PATTERN =
 const SAFE_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
 const INVALID_DICTIONARY_DISPLAY_NAME_PATTERN = /[\p{Cc}\p{Cf}]/u;
 const MAX_DICTIONARY_DISPLAY_NAME_CODE_POINTS = 128;
+
+interface PersistedTabGroups {
+    version: 1;
+    groups: HoshidictsDictionaryTabGroup[];
+}
 
 type RecommendedHoshidictsDictionaryKind =
     | 'term'
@@ -393,6 +405,77 @@ function pinCustomDictionary(manifest: PersistedManifest): PersistedManifest {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function emptyTabGroups(): PersistedTabGroups {
+    return { version: 1, groups: [] };
+}
+
+function tabGroupNameKey(name: string): string {
+    return name.normalize('NFC').trim().toLowerCase();
+}
+
+function normalizeTabGroupName(value: unknown): string {
+    if (typeof value !== 'string') {
+        throw new Error('Tab group name is invalid.');
+    }
+    const name = value.normalize('NFC').trim();
+    if (!name) {
+        throw new Error('Tab group name cannot be empty.');
+    }
+    if (name.length > MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH) {
+        throw new Error('Tab group name is too long.');
+    }
+    if (tabGroupNameKey(name) === 'all') {
+        throw new Error('Tab group name cannot be All.');
+    }
+    return name;
+}
+
+function normalizePersistedTabGroups(value: unknown): PersistedTabGroups {
+    if (!isRecord(value) || value.version !== 1 || !Array.isArray(value.groups)) {
+        throw new Error('Hoshidicts tab groups file is invalid.');
+    }
+    if (value.groups.length > MAX_TAB_GROUP_COUNT) {
+        throw new Error('Hoshidicts tab groups file has too many groups.');
+    }
+    const ids = new Set<string>();
+    const names = new Set<string>();
+    const groups = value.groups.map((candidate) => {
+        if (
+            !isRecord(candidate) ||
+            typeof candidate.id !== 'string' ||
+            !SAFE_ID_PATTERN.test(candidate.id) ||
+            !Array.isArray(candidate.dictionaryIds)
+        ) {
+            throw new Error('Hoshidicts tab group is invalid.');
+        }
+        const name = normalizeTabGroupName(candidate.name);
+        const nameKey = tabGroupNameKey(name);
+        if (ids.has(candidate.id) || names.has(nameKey)) {
+            throw new Error('Hoshidicts tab groups must have unique names and ids.');
+        }
+        ids.add(candidate.id);
+        names.add(nameKey);
+        const dictionaryIds = Array.from(
+            new Set(
+                candidate.dictionaryIds.map((dictionaryId) => {
+                    if (
+                        typeof dictionaryId !== 'string' ||
+                        !SAFE_ID_PATTERN.test(dictionaryId)
+                    ) {
+                        throw new Error('Hoshidicts tab group dictionary id is invalid.');
+                    }
+                    return dictionaryId;
+                })
+            )
+        );
+        if (dictionaryIds.length > MAX_TAB_GROUP_DICTIONARIES) {
+            throw new Error('Hoshidicts tab group has too many dictionaries.');
+        }
+        return { id: candidate.id, name, dictionaryIds };
+    });
+    return { version: 1, groups };
 }
 
 function errorMessage(error: unknown): string {
@@ -1467,6 +1550,7 @@ type SnapshotListener = (snapshot: HoshidictsManagerSnapshot) => void;
 export class HoshidictsManager {
     readonly rootDir: string;
     readonly manifestPath: string;
+    readonly tabGroupsPath: string;
     readonly miningProfilePath: string;
     readonly audioProfilePath: string;
     readonly customDictionaryPath: string;
@@ -1487,6 +1571,10 @@ export class HoshidictsManager {
     ) {
         this.rootDir = path.join(baseDir, 'dictionaries', 'hoshidicts');
         this.manifestPath = path.join(this.rootDir, MANIFEST_FILE_NAME);
+        this.tabGroupsPath = path.join(
+            this.rootDir,
+            HOSHIDICTS_TAB_GROUPS_FILE_NAME
+        );
         this.miningProfilePath = path.join(
             this.rootDir,
             HOSHIDICTS_MINING_PROFILE_FILE_NAME
@@ -1528,6 +1616,13 @@ export class HoshidictsManager {
             manifestError = errorMessage(error);
             manifest = await this.readManifestPreferences().catch(() => emptyManifest());
         }
+        let tabGroups: HoshidictsDictionaryTabGroup[] = [];
+        let tabGroupsError: string | null = null;
+        try {
+            tabGroups = await this.readTabGroups();
+        } catch (error) {
+            tabGroupsError = errorMessage(error);
+        }
         let miningProfile = defaultHoshidictsMiningProfile();
         let miningProfileError: string | null = null;
         try {
@@ -1544,9 +1639,10 @@ export class HoshidictsManager {
         }
         return this.snapshotFromManifest(
             manifest,
+            tabGroups,
             miningProfile,
             audioProfile,
-            manifestError ?? miningProfileError ?? audioProfileError
+            manifestError ?? tabGroupsError ?? miningProfileError ?? audioProfileError
         );
     }
 
@@ -1846,6 +1942,173 @@ export class HoshidictsManager {
         return await this.getSnapshot();
     }
 
+    async createTabGroup(
+        name: string,
+        dictionaryId?: string
+    ): Promise<HoshidictsManagerSnapshot> {
+        await this.enqueue('saving', async () => {
+            const normalizedName = normalizeTabGroupName(name);
+            if (dictionaryId !== undefined) {
+                if (!SAFE_ID_PATTERN.test(dictionaryId)) {
+                    throw new Error('Dictionary id is invalid.');
+                }
+                const manifest = await this.readManifest();
+                const dictionary = manifest.dictionaries.find(
+                    ({ id }) => id === dictionaryId
+                );
+                if (
+                    !dictionary ||
+                    dictionary.id === HOSHIDICTS_CUSTOM_DICTIONARY_ID ||
+                    dictionary.termCount <= 0
+                ) {
+                    throw new Error('Dictionary cannot be added to a tab group.');
+                }
+            }
+            const groups = await this.readTabGroups();
+            const nameKey = tabGroupNameKey(normalizedName);
+            if (groups.some((group) => tabGroupNameKey(group.name) === nameKey)) {
+                throw new Error('A tab group with that name already exists.');
+            }
+            let id = '';
+            do {
+                id = `group-${this.deps.randomId()}`;
+            } while (groups.some((group) => group.id === id));
+            if (!SAFE_ID_PATTERN.test(id)) {
+                throw new Error('Could not create a tab group id.');
+            }
+            groups.push({
+                id,
+                name: normalizedName,
+                dictionaryIds: dictionaryId ? [dictionaryId] : [],
+            });
+            await this.atomicWriteTabGroups(groups);
+        });
+        return await this.getSnapshot();
+    }
+
+    async setTabGroupMembership(
+        groupId: string,
+        dictionaryId: string,
+        member: boolean
+    ): Promise<HoshidictsManagerSnapshot> {
+        await this.enqueue('saving', async () => {
+            if (
+                !SAFE_ID_PATTERN.test(groupId) ||
+                !SAFE_ID_PATTERN.test(dictionaryId) ||
+                typeof member !== 'boolean'
+            ) {
+                throw new Error('Tab group membership is invalid.');
+            }
+            const groups = await this.readTabGroups();
+            const index = groups.findIndex(({ id }) => id === groupId);
+            if (index < 0) {
+                throw new Error('Tab group does not exist.');
+            }
+            const current = groups[index].dictionaryIds.includes(dictionaryId);
+            if (current === member) {
+                return;
+            }
+            if (member) {
+                const manifest = await this.readManifest();
+                const dictionary = manifest.dictionaries.find(
+                    ({ id }) => id === dictionaryId
+                );
+                if (
+                    !dictionary ||
+                    dictionary.id === HOSHIDICTS_CUSTOM_DICTIONARY_ID ||
+                    dictionary.termCount <= 0
+                ) {
+                    throw new Error('Dictionary cannot be added to a tab group.');
+                }
+            }
+            groups[index] = {
+                ...groups[index],
+                dictionaryIds: member
+                    ? [...groups[index].dictionaryIds, dictionaryId]
+                    : groups[index].dictionaryIds.filter(
+                          (id) => id !== dictionaryId
+                      ),
+            };
+            await this.atomicWriteTabGroups(groups);
+        });
+        return await this.getSnapshot();
+    }
+
+    async renameTabGroup(
+        groupId: string,
+        name: string
+    ): Promise<HoshidictsManagerSnapshot> {
+        await this.enqueue('saving', async () => {
+            if (!SAFE_ID_PATTERN.test(groupId)) {
+                throw new Error('Tab group id is invalid.');
+            }
+            const normalizedName = normalizeTabGroupName(name);
+            const groups = await this.readTabGroups();
+            const index = groups.findIndex(({ id }) => id === groupId);
+            if (index < 0) {
+                throw new Error('Tab group does not exist.');
+            }
+            const nameKey = tabGroupNameKey(normalizedName);
+            if (
+                groups.some(
+                    (group, candidateIndex) =>
+                        candidateIndex !== index &&
+                        tabGroupNameKey(group.name) === nameKey
+                )
+            ) {
+                throw new Error('A tab group with that name already exists.');
+            }
+            if (groups[index].name === normalizedName) {
+                return;
+            }
+            groups[index] = { ...groups[index], name: normalizedName };
+            await this.atomicWriteTabGroups(groups);
+        });
+        return await this.getSnapshot();
+    }
+
+    async deleteTabGroup(groupId: string): Promise<HoshidictsManagerSnapshot> {
+        await this.enqueue('saving', async () => {
+            if (!SAFE_ID_PATTERN.test(groupId)) {
+                throw new Error('Tab group id is invalid.');
+            }
+            const groups = await this.readTabGroups();
+            const next = groups.filter(({ id }) => id !== groupId);
+            if (next.length === groups.length) {
+                throw new Error('Tab group does not exist.');
+            }
+            await this.atomicWriteTabGroups(next);
+        });
+        return await this.getSnapshot();
+    }
+
+    async moveTabGroup(
+        groupId: string,
+        direction: -1 | 1
+    ): Promise<HoshidictsManagerSnapshot> {
+        await this.enqueue('saving', async () => {
+            if (
+                !SAFE_ID_PATTERN.test(groupId) ||
+                (direction !== -1 && direction !== 1)
+            ) {
+                throw new Error('Tab group move is invalid.');
+            }
+            const groups = await this.readTabGroups();
+            const index = groups.findIndex(({ id }) => id === groupId);
+            if (index < 0) {
+                throw new Error('Tab group does not exist.');
+            }
+            const target = index + direction;
+            if (target < 0 || target >= groups.length) {
+                return;
+            }
+            const [group] = groups.splice(index, 1);
+            groups.splice(target, 0, group);
+            await this.atomicWriteTabGroups(groups);
+        });
+        return await this.getSnapshot();
+    }
+
     async renameDictionary(
         id: string,
         displayName: string | null
@@ -2077,9 +2340,11 @@ export class HoshidictsManager {
                 // files yet. Persist normalized state so its first backup is a
                 // complete, restorable snapshot too.
                 const manifest = await this.readManifest();
+                const tabGroups = await this.readTabGroups();
                 const miningProfile = await this.readMiningProfile();
                 const audioProfile = await this.readAudioProfile();
                 await this.atomicWriteManifest(manifest);
+                await this.atomicWriteTabGroups(tabGroups);
                 await this.atomicWriteMiningProfile(miningProfile);
                 await this.atomicWriteAudioProfile(audioProfile);
                 await exportHoshidictsBackup({
@@ -2116,6 +2381,7 @@ export class HoshidictsManager {
                         // all state and generations back together.
                         await Promise.all([
                             this.readManifest(),
+                            this.readTabGroups(),
                             this.readMiningProfile(),
                             this.readAudioProfile(),
                         ]);
@@ -2536,6 +2802,7 @@ export class HoshidictsManager {
 
     private snapshotFromManifest(
         manifest: PersistedManifest,
+        tabGroups: HoshidictsDictionaryTabGroup[],
         miningProfile: HoshidictsMiningProfile,
         audioProfile: HoshidictsAudioProfile,
         profileError: string | null = null
@@ -2591,6 +2858,11 @@ export class HoshidictsManager {
                         lastUpdateCheck,
                     })
                 ),
+            tabGroups: tabGroups.map(({ id, name, dictionaryIds }) => ({
+                id,
+                name,
+                dictionaryIds: [...dictionaryIds],
+            })),
             customDictionaryActive: customDictionary?.enabled === true,
             recommendedDictionaries: recommendedDictionaryStates(manifest),
             miningProfile,
@@ -2850,6 +3122,16 @@ export class HoshidictsManager {
             this.customDictionaryPath,
             '.custom-dictionary-rollback-'
         );
+    }
+
+    private async readTabGroups(): Promise<HoshidictsDictionaryTabGroup[]> {
+        const value = await readBoundedJsonFile(
+            this.tabGroupsPath,
+            MAX_HOSHIDICTS_TAB_GROUPS_BYTES,
+            'Hoshidicts tab groups',
+            emptyTabGroups
+        );
+        return normalizePersistedTabGroups(value).groups;
     }
 
     private async readMiningProfile(): Promise<HoshidictsMiningProfile> {
@@ -3463,6 +3745,19 @@ export class HoshidictsManager {
             MAX_MINING_PROFILE_BYTES,
             'Hoshidicts mining profile',
             '.mining-profile-'
+        );
+    }
+
+    private async atomicWriteTabGroups(
+        groups: HoshidictsDictionaryTabGroup[]
+    ): Promise<void> {
+        const normalized = normalizePersistedTabGroups({ version: 1, groups });
+        await this.atomicWriteJson(
+            normalized,
+            this.tabGroupsPath,
+            MAX_HOSHIDICTS_TAB_GROUPS_BYTES,
+            'Hoshidicts tab groups',
+            '.tab-groups-'
         );
     }
 

@@ -4,7 +4,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS } from '../../../shared/features/hoshidicts.js';
+import {
+    DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
+    MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH,
+    MAX_HOSHIDICTS_TAB_GROUPS_BYTES,
+} from '../../../shared/features/hoshidicts.js';
 
 vi.mock('electron', () => ({
     app: { isPackaged: false },
@@ -702,6 +706,132 @@ describe('Hoshidicts immutable generations', () => {
         expect(snapshot.dictionaries[0].favorite).toBe(true);
         expect(readManifest(baseDir).dictionaries[0].favorite).toBe(true);
         expect(reloadNative).not.toHaveBeenCalled();
+    });
+
+    it('persists ordered tab groups with multiple dictionary memberships', async () => {
+        const baseDir = makeTempDir();
+        const archivesDir = makeTempDir();
+        const { manager, reloadNative } = createHarness(baseDir);
+        await manager.importDictionary(
+            writeArchive(archivesDir, 'alpha.zip', {
+                title: 'Alpha',
+                revision: 'one',
+                sourceLanguage: 'ja',
+            })
+        );
+        await manager.importDictionary(
+            writeArchive(archivesDir, 'beta.zip', {
+                title: 'Beta',
+                revision: 'one',
+                sourceLanguage: 'ja',
+            })
+        );
+        const [alpha, beta] = (await manager.getSnapshot()).dictionaries;
+        reloadNative.mockClear();
+
+        let state = await manager.createTabGroup('  Grammar  ', alpha.id);
+        const grammarId = state.tabGroups[0].id;
+        state = await manager.createTabGroup('Notes');
+        const notesId = state.tabGroups[1].id;
+        await manager.setTabGroupMembership(grammarId, beta.id, true);
+        await manager.setTabGroupMembership(notesId, alpha.id, true);
+        await manager.renameTabGroup(notesId, 'Reference');
+        state = await manager.moveTabGroup(notesId, -1);
+
+        expect(state.tabGroups).toEqual([
+            { id: notesId, name: 'Reference', dictionaryIds: [alpha.id] },
+            {
+                id: grammarId,
+                name: 'Grammar',
+                dictionaryIds: [alpha.id, beta.id],
+            },
+        ]);
+        expect(reloadNative).not.toHaveBeenCalled();
+        expect(
+            JSON.parse(fs.readFileSync(manager.tabGroupsPath, 'utf8')).groups
+        ).toEqual(state.tabGroups);
+        expect((await createHarness(baseDir).manager.getSnapshot()).tabGroups)
+            .toEqual(state.tabGroups);
+
+        state = await manager.deleteTabGroup(grammarId);
+        expect(state.tabGroups).toEqual([
+            { id: notesId, name: 'Reference', dictionaryIds: [alpha.id] },
+        ]);
+        await expect(manager.createTabGroup('reference')).rejects.toThrow(
+            'already exists'
+        );
+        await expect(manager.createTabGroup('All')).rejects.toThrow(
+            'cannot be All'
+        );
+    });
+
+    it('enforces tab group count and name boundaries used by the reader bridge', async () => {
+        const { manager } = createHarness(makeTempDir());
+        const maximumName = 'g'.repeat(MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH);
+
+        let state = await manager.createTabGroup(maximumName);
+        expect(state.tabGroups[0].name).toBe(maximumName);
+        await expect(
+            manager.createTabGroup(
+                'g'.repeat(MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH + 1)
+            )
+        ).rejects.toThrow('too long');
+
+        for (let index = 1; index < 256; index += 1) {
+            state = await manager.createTabGroup(`Group ${index}`);
+        }
+        expect(state.tabGroups).toHaveLength(256);
+        await expect(manager.createTabGroup('Group 257')).rejects.toThrow(
+            'too many groups'
+        );
+        expect((await manager.getSnapshot()).tabGroups).toHaveLength(256);
+
+        const maximumId = 'd'.repeat(128);
+        const maximumState = {
+            version: 1,
+            groups: Array.from({ length: 256 }, (_, groupIndex) => ({
+                id: `group-${groupIndex}`,
+                name: `${'g'.repeat(
+                    MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH -
+                        String(groupIndex).length
+                )}${groupIndex}`,
+                dictionaryIds: Array.from(
+                    { length: 256 },
+                    (_, dictionaryIndex) =>
+                        `${maximumId.slice(
+                            0,
+                            128 - String(dictionaryIndex).length
+                        )}${dictionaryIndex}`
+                ),
+            })),
+        };
+        const maximumStateBytes = Buffer.byteLength(
+            JSON.stringify(maximumState),
+            'utf8'
+        );
+        expect(maximumStateBytes).toBeLessThanOrEqual(
+            MAX_HOSHIDICTS_TAB_GROUPS_BYTES
+        );
+    });
+
+    it('removes retained tab group membership after its dictionary is uninstalled', async () => {
+        const baseDir = makeTempDir();
+        const archive = writeArchive(makeTempDir(), 'alpha.zip', {
+            title: 'Alpha',
+            revision: 'one',
+            sourceLanguage: 'ja',
+        });
+        const { manager } = createHarness(baseDir);
+        await manager.importDictionary(archive);
+        const dictionaryId = (await manager.getSnapshot()).dictionaries[0].id;
+        let state = await manager.createTabGroup('Grammar', dictionaryId);
+        const groupId = state.tabGroups[0].id;
+
+        state = await manager.removeDictionary(dictionaryId);
+        expect(state.tabGroups[0].dictionaryIds).toEqual([dictionaryId]);
+
+        state = await manager.setTabGroupMembership(groupId, dictionaryId, false);
+        expect(state.tabGroups[0].dictionaryIds).toEqual([]);
     });
 
     it('persists a normalized dictionary display name without reloading native dictionaries', async () => {

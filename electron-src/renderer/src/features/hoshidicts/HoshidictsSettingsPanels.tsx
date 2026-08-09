@@ -8,6 +8,7 @@ import {
   Eraser,
   FileArchive,
   FileJson,
+  FolderPlus,
   Keyboard,
   Pencil,
   RefreshCw,
@@ -17,7 +18,9 @@ import {
 } from "lucide-react";
 import {
   Fragment,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent
 } from "react";
@@ -34,6 +37,7 @@ import {
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
   MAX_HOSHIDICTS_POPUP_WIDTH_PX,
+  MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH,
   MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
   MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
   MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
@@ -86,6 +90,320 @@ function dictionaryDisplayName(dictionary: {
   displayName: string | null;
 }): string {
   return dictionary.displayName ?? dictionary.title;
+}
+
+function CreateTabGroupForm({
+  controller,
+  dictionaryId,
+  autoFocus = false
+}: {
+  controller: Controller;
+  dictionaryId?: string;
+  autoFocus?: boolean;
+}) {
+  const t = useTranslation();
+  const { dictionaryBusy, actions } = controller;
+  const [name, setName] = useState("");
+  const assigning = dictionaryId !== undefined;
+
+  return (
+    <form
+      className={
+        assigning
+          ? "hoshidicts-dictionary-tab-groups__create"
+          : "hoshidicts-tab-groups__create"
+      }
+      onSubmit={(event) => {
+        event.preventDefault();
+        const normalizedName = name.trim();
+        if (!normalizedName) return;
+        void actions
+          .createTabGroup(normalizedName, dictionaryId)
+          .then((saved) => {
+            if (saved) setName("");
+          });
+      }}
+    >
+      <input
+        type="text"
+        value={name}
+        maxLength={MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH}
+        autoFocus={autoFocus}
+        aria-label={t(
+          assigning
+            ? "settings.hoshidicts.tabGroups.newGroupName"
+            : "settings.hoshidicts.tabGroups.name"
+        )}
+        placeholder={t("settings.hoshidicts.tabGroups.namePlaceholder")}
+        disabled={dictionaryBusy}
+        onChange={(event) => setName(event.currentTarget.value)}
+      />
+      <button
+        type="submit"
+        disabled={dictionaryBusy || name.trim().length === 0}
+      >
+        {t(
+          assigning
+            ? "settings.hoshidicts.tabGroups.createAndAdd"
+            : "settings.hoshidicts.tabGroups.create"
+        )}
+      </button>
+    </form>
+  );
+}
+
+function TabGroupsSection({ controller }: { controller: Controller }) {
+  const t = useTranslation();
+  const { state, dictionaryBusy, actions } = controller;
+  const [expanded, setExpanded] = useState(false);
+  const [groupRename, setGroupRename] = useState<{
+    id: string;
+    value: string;
+  } | null>(null);
+  if (!state) return null;
+
+  return (
+    <section className="hoshidicts-section hoshidicts-tab-groups">
+      <div className="hoshidicts-section__heading hoshidicts-tab-groups__heading">
+        <div>
+          <h2>
+            <button
+              type="button"
+              className="hoshidicts-tab-groups__toggle"
+              aria-expanded={expanded}
+              aria-controls="hoshidicts-tab-groups-panel"
+              aria-label={t(
+                expanded
+                  ? "settings.hoshidicts.tabGroups.collapse"
+                  : "settings.hoshidicts.tabGroups.expand",
+                { count: state.tabGroups.length }
+              )}
+              onClick={() => setExpanded((current) => !current)}
+            >
+              <ChevronDown size={18} aria-hidden="true" />
+              <span>{t("settings.hoshidicts.tabGroups.title")}</span>
+              <span className="hoshidicts-section__count">
+                {state.tabGroups.length}
+              </span>
+            </button>
+          </h2>
+          <p>{t("settings.hoshidicts.tabGroups.subtitle")}</p>
+        </div>
+      </div>
+
+      <div id="hoshidicts-tab-groups-panel" hidden={!expanded}>
+        <CreateTabGroupForm controller={controller} />
+
+        {state.tabGroups.length === 0 ? (
+          <div className="hoshidicts-tab-groups__empty">
+            {t("settings.hoshidicts.tabGroups.empty")}
+          </div>
+        ) : (
+          <div className="hoshidicts-tab-groups__list">
+            {state.tabGroups.map((group, index) => (
+              <div className="hoshidicts-tab-group-row" key={group.id}>
+                {groupRename?.id === group.id ? (
+                  <form
+                    className="hoshidicts-tab-group-row__rename"
+                    onSubmit={async (event) => {
+                      event.preventDefault();
+                      const name = groupRename.value.trim();
+                      if (!name) return;
+                      if (await actions.renameTabGroup(group.id, name)) {
+                        setGroupRename(null);
+                      }
+                    }}
+                  >
+                    <input
+                      type="text"
+                      autoFocus
+                      required
+                      maxLength={MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH}
+                      value={groupRename.value}
+                      aria-label={t("settings.hoshidicts.tabGroups.renameName", {
+                        name: group.name
+                      })}
+                      disabled={dictionaryBusy}
+                      onChange={(event) =>
+                        setGroupRename({
+                          id: group.id,
+                          value: event.currentTarget.value
+                        })
+                      }
+                    />
+                    <button
+                      type="submit"
+                      disabled={
+                        dictionaryBusy || groupRename.value.trim().length === 0
+                      }
+                    >
+                      {t("settings.hoshidicts.tabGroups.save")}
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => setGroupRename(null)}
+                    >
+                      {t("settings.hoshidicts.tabGroups.cancel")}
+                    </button>
+                  </form>
+                ) : (
+                  <>
+                    <div className="hoshidicts-tab-group-row__copy">
+                      <strong>{group.name}</strong>
+                      <span>
+                        {t("settings.hoshidicts.tabGroups.dictionaryCount", {
+                          count: group.dictionaryIds.length
+                        })}
+                      </span>
+                    </div>
+                    <div className="hoshidicts-tab-group-row__actions">
+                      <button
+                        type="button"
+                        className="hoshidicts-icon-button secondary"
+                        aria-label={t("settings.hoshidicts.tabGroups.moveUp", {
+                          name: group.name
+                        })}
+                        disabled={dictionaryBusy || index === 0}
+                        onClick={() => void actions.moveTabGroup(group.id, -1)}
+                      >
+                        <ArrowUp size={16} aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        className="hoshidicts-icon-button secondary"
+                        aria-label={t("settings.hoshidicts.tabGroups.moveDown", {
+                          name: group.name
+                        })}
+                        disabled={
+                          dictionaryBusy || index === state.tabGroups.length - 1
+                        }
+                        onClick={() => void actions.moveTabGroup(group.id, 1)}
+                      >
+                        <ArrowDown size={16} aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        className="hoshidicts-icon-button secondary"
+                        aria-label={t("settings.hoshidicts.tabGroups.rename", {
+                          name: group.name
+                        })}
+                        disabled={dictionaryBusy}
+                        onClick={() =>
+                          setGroupRename({ id: group.id, value: group.name })
+                        }
+                      >
+                        <Pencil size={16} aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        className="hoshidicts-icon-button secondary danger"
+                        aria-label={t("settings.hoshidicts.tabGroups.delete", {
+                          name: group.name
+                        })}
+                        disabled={dictionaryBusy}
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              t("settings.hoshidicts.tabGroups.deleteConfirm", {
+                                name: group.name
+                              })
+                            )
+                          ) {
+                            void actions.deleteTabGroup(group.id);
+                          }
+                        }}
+                      >
+                        <Trash2 size={16} aria-hidden="true" />
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function DictionaryTabGroupPicker({
+  controller,
+  dictionary,
+  onBack
+}: {
+  controller: Controller;
+  dictionary: NonNullable<Controller["state"]>["dictionaries"][number];
+  onBack: () => void;
+}) {
+  const t = useTranslation();
+  const { state, dictionaryBusy, actions } = controller;
+  if (!state) return null;
+  const headingId = `hoshidicts-dictionary-tab-groups-heading-${dictionary.id}`;
+
+  return (
+    <div
+      className="hoshidicts-dictionary-tab-groups"
+      role="group"
+      aria-labelledby={headingId}
+    >
+      <div className="hoshidicts-dictionary-tab-groups__heading">
+        <strong id={headingId}>
+          {t("settings.hoshidicts.tabGroups.addToGroup")}
+        </strong>
+        <button type="button" className="secondary" onClick={onBack}>
+          {t("settings.hoshidicts.tabGroups.back")}
+        </button>
+      </div>
+
+      {state.tabGroups.length === 0 ? (
+        <p>{t("settings.hoshidicts.tabGroups.noGroups")}</p>
+      ) : (
+        <div className="hoshidicts-dictionary-tab-groups__choices">
+          {state.tabGroups.map((group, index) => {
+            const member = group.dictionaryIds.includes(dictionary.id);
+            return (
+              <label
+                key={group.id}
+                className={dictionaryBusy ? "is-disabled" : undefined}
+              >
+                <input
+                  type="checkbox"
+                  autoFocus={index === 0}
+                  checked={member}
+                  disabled={dictionaryBusy}
+                  aria-label={t(
+                    member
+                      ? "settings.hoshidicts.tabGroups.removeMembership"
+                      : "settings.hoshidicts.tabGroups.addMembership",
+                    {
+                      dictionary: dictionaryDisplayName(dictionary),
+                      group: group.name
+                    }
+                  )}
+                  onChange={(event) =>
+                    void actions.setTabGroupMembership(
+                      group.id,
+                      dictionary.id,
+                      event.currentTarget.checked
+                    )
+                  }
+                />
+                <span>{group.name}</span>
+              </label>
+            );
+          })}
+        </div>
+      )}
+
+      <CreateTabGroupForm
+        controller={controller}
+        dictionaryId={dictionary.id}
+        autoFocus={state.tabGroups.length === 0}
+      />
+    </div>
+  );
 }
 
 function CustomDictionarySaveIndicator({
@@ -375,8 +693,26 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
     id: string;
     value: DictionaryScheduleChoice;
   } | null>(null);
+  const [tabGroupDictionaryId, setTabGroupDictionaryId] = useState<
+    string | null
+  >(null);
+  const [tabGroupFocusReturnId, setTabGroupFocusReturnId] = useState<
+    string | null
+  >(null);
+  const tabGroupTriggerRefs = useRef(
+    new Map<string, HTMLButtonElement>()
+  );
   const [recommendedExpandedOverride, setRecommendedExpandedOverride] =
     useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (tabGroupDictionaryId !== null || tabGroupFocusReturnId === null) {
+      return;
+    }
+    tabGroupTriggerRefs.current.get(tabGroupFocusReturnId)?.focus();
+    setTabGroupFocusReturnId(null);
+  }, [tabGroupDictionaryId, tabGroupFocusReturnId]);
+
   if (!state) return null;
 
   const recommendedExpanded =
@@ -905,6 +1241,8 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
         </div>
       </section>
 
+      <TabGroupsSection controller={controller} />
+
       <section className="hoshidicts-section">
         <div className="hoshidicts-section__heading">
           <div>
@@ -1062,7 +1400,17 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                   </div>
                 </div>
                 <div className="hoshidicts-dictionary-actions">
-                  <details className="hoshidicts-dictionary-menu">
+                  <details
+                    className="hoshidicts-dictionary-menu"
+                    onToggle={(event) => {
+                      if (
+                        !event.currentTarget.open &&
+                        tabGroupDictionaryId === dictionary.id
+                      ) {
+                        setTabGroupDictionaryId(null);
+                      }
+                    }}
+                  >
                     <summary
                       className="hoshidicts-icon-button secondary"
                       title={t("settings.hoshidicts.dictionaryActions.menu", {
@@ -1081,7 +1429,16 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                       <EllipsisVertical size={18} aria-hidden="true" />
                     </summary>
                     <div className="hoshidicts-dictionary-menu__popover">
-                      {dictionaryRename?.id === dictionary.id ? (
+                      {tabGroupDictionaryId === dictionary.id ? (
+                        <DictionaryTabGroupPicker
+                          controller={controller}
+                          dictionary={dictionary}
+                          onBack={() => {
+                            setTabGroupFocusReturnId(dictionary.id);
+                            setTabGroupDictionaryId(null);
+                          }}
+                        />
+                      ) : dictionaryRename?.id === dictionary.id ? (
                         <form
                           className="hoshidicts-dictionary-rename"
                           aria-label={t(
@@ -1384,6 +1741,36 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                               "settings.hoshidicts.dictionaryActions.moveToPosition"
                             )}
                           </button>
+                          {dictionary.termCount > 0 ? (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              ref={(button) => {
+                                if (button) {
+                                  tabGroupTriggerRefs.current.set(
+                                    dictionary.id,
+                                    button
+                                  );
+                                } else {
+                                  tabGroupTriggerRefs.current.delete(
+                                    dictionary.id
+                                  );
+                                }
+                              }}
+                              disabled={dictionaryBusy}
+                              onClick={() => {
+                                setPositionMove(null);
+                                setDictionaryRename(null);
+                                setDictionarySchedule(null);
+                                setTabGroupDictionaryId(dictionary.id);
+                              }}
+                            >
+                              <FolderPlus size={16} aria-hidden="true" />
+                              {t(
+                                "settings.hoshidicts.dictionaryActions.addToTabGroup"
+                              )}
+                            </button>
+                          ) : null}
                           {dictionary.isUpdatable ? (
                             <button
                               type="button"
@@ -1392,6 +1779,7 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                               onClick={() => {
                                 setPositionMove(null);
                                 setDictionaryRename(null);
+                                setTabGroupDictionaryId(null);
                                 setDictionarySchedule({
                                   id: dictionary.id,
                                   value:
@@ -1413,6 +1801,7 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                             onClick={() => {
                               setPositionMove(null);
                               setDictionarySchedule(null);
+                              setTabGroupDictionaryId(null);
                               setDictionaryRename({
                                 id: dictionary.id,
                                 value: dictionaryDisplayName(dictionary)

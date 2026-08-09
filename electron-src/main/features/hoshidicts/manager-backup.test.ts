@@ -9,6 +9,7 @@ vi.mock('electron', () => ({
     app: { isPackaged: false },
 }));
 
+import { exportHoshidictsBackup } from './hoshidicts-backup.js';
 import {
     defaultHoshidictsAudioProfile,
     defaultHoshidictsMiningProfile,
@@ -156,6 +157,7 @@ async function readStateFiles(baseDirectory: string): Promise<Record<string, Buf
         'mining-profile.json',
         'audio-profile.json',
         'custom-dictionary.txt',
+        'tab-groups.json',
     ]) {
         try {
             result[fileName] = await fsp.readFile(statePath(baseDirectory, fileName));
@@ -230,6 +232,14 @@ describe('Hoshidicts manager full backups', () => {
         await source.setDictionaryPresentation(beta!.id, true);
         await source.renameDictionary(beta!.id, 'Main definitions');
         await source.moveDictionaryToPosition(beta!.id, 1);
+        let tabGroupSnapshot = await source.createTabGroup('Grammar', alpha!.id);
+        const grammarGroup = tabGroupSnapshot.tabGroups.find(({ name }) => name === 'Grammar');
+        expect(grammarGroup).toBeDefined();
+        await source.setTabGroupMembership(grammarGroup!.id, beta!.id, true);
+        tabGroupSnapshot = await source.createTabGroup('Empty');
+        const emptyGroup = tabGroupSnapshot.tabGroups.find(({ name }) => name === 'Empty');
+        expect(emptyGroup).toBeDefined();
+        await source.moveTabGroup(emptyGroup!.id, -1);
         await source.setReaderPreferences(
             'hover',
             850,
@@ -329,6 +339,14 @@ describe('Hoshidicts manager full backups', () => {
             },
         ]);
         expect(restored).toMatchObject({
+            tabGroups: [
+                { id: emptyGroup!.id, name: 'Empty', dictionaryIds: [] },
+                {
+                    id: grammarGroup!.id,
+                    name: 'Grammar',
+                    dictionaryIds: [alpha!.id, beta!.id],
+                },
+            ],
             customDictionaryActive: true,
             miningProfile,
             audioProfile,
@@ -384,6 +402,80 @@ describe('Hoshidicts manager full backups', () => {
         );
     });
 
+    it('rejects export when persisted tab groups fail manager schema validation', async () => {
+        const workspace = makeTempDirectory('gsm-hoshidicts-manager-backup-invalid-export-');
+        const sourceBase = path.join(workspace, 'source');
+        const archivesDirectory = path.join(workspace, 'archives');
+        const { manager: source } = createHarness(sourceBase, 'source');
+        await source.importDictionary(
+            writeArchive(archivesDirectory, 'source.zip', {
+                title: 'Source Dictionary',
+                revision: 'new',
+            }),
+        );
+        await fsp.writeFile(
+            statePath(sourceBase, 'tab-groups.json'),
+            JSON.stringify({ version: 1, groups: 'invalid' }),
+        );
+        const backupPath = path.join(workspace, 'invalid.zip');
+
+        await expect(source.exportBackup(backupPath)).rejects.toThrow(/tab groups.*invalid/iu);
+        await expect(fsp.stat(backupPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    });
+
+    it('rolls back restore when archived tab groups fail manager schema validation', async () => {
+        const workspace = makeTempDirectory('gsm-hoshidicts-manager-backup-invalid-restore-');
+        const archivesDirectory = path.join(workspace, 'archives');
+        const sourceBase = path.join(workspace, 'source');
+        const { manager: source } = createHarness(sourceBase, 'source');
+        await source.importDictionary(
+            writeArchive(archivesDirectory, 'source.zip', {
+                title: 'Source Dictionary',
+                revision: 'new',
+            }),
+        );
+        await fsp.writeFile(
+            statePath(sourceBase, 'tab-groups.json'),
+            JSON.stringify({ version: 1, groups: 'invalid' }),
+        );
+        const backupPath = path.join(workspace, 'invalid.zip');
+        await exportHoshidictsBackup({
+            rootDir: hoshidictsRoot(sourceBase),
+            outputPath: backupPath,
+        });
+
+        const targetBase = path.join(workspace, 'target');
+        const { manager: target, reloadNative } = createHarness(targetBase, 'target');
+        await target.importDictionary(
+            writeArchive(archivesDirectory, 'target.zip', {
+                title: 'Target Dictionary',
+                revision: 'live',
+            }),
+        );
+        const targetSnapshot = await target.getSnapshot();
+        await target.createTabGroup('Live group', targetSnapshot.dictionaries[0].id);
+        const previousState = await readStateFiles(targetBase);
+        const previousGenerations = await listGenerationRoots(targetBase);
+        reloadNative.mockClear();
+
+        await expect(target.restoreBackup(backupPath)).rejects.toMatchObject({
+            rollbackRestored: true,
+        });
+
+        expect(reloadNative).toHaveBeenCalledOnce();
+        expect(await readStateFiles(targetBase)).toEqual(previousState);
+        expect(await listGenerationRoots(targetBase)).toEqual(previousGenerations);
+        expect(await target.getSnapshot()).toMatchObject({
+            dictionaries: [{ title: 'Target Dictionary' }],
+            tabGroups: [
+                {
+                    name: 'Live group',
+                    dictionaryIds: [targetSnapshot.dictionaries[0].id],
+                },
+            ],
+        });
+    });
+
     it('rolls back every state file and fresh generation when native activation fails', async () => {
         const workspace = makeTempDirectory('gsm-hoshidicts-manager-backup-rollback-');
         const archivesDirectory = path.join(workspace, 'archives');
@@ -420,6 +512,8 @@ describe('Hoshidicts manager full backups', () => {
         });
         const custom = await target.getCustomDictionaryDocument();
         await target.saveCustomDictionary('犬, いぬ, dog\n', custom.revision);
+        const targetSnapshot = await target.getSnapshot();
+        await target.createTabGroup('Live group', targetSnapshot.dictionaries[0].id);
         const previousState = await readStateFiles(targetBase);
         const previousGenerations = await listGenerationRoots(targetBase);
         reloadNative.mockClear();
