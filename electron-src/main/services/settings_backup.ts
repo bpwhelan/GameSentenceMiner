@@ -49,6 +49,7 @@ const ELECTRON_SETTINGS_FILES = new Set([
 
 const HOSHIDICTS_SETTINGS_FILES = new Set([
     'audio-profile.json',
+    'custom-dictionary.txt',
     'mining-profile.json',
 ]);
 
@@ -371,20 +372,6 @@ export function shouldIncludeGsmBackupPath(relativePath: string, isDirectory: bo
             return TEXTHOOK_SETTINGS_FILES.has(second);
         }
         return false;
-    }
-
-    if (first === 'dictionaries') {
-        if (second !== 'hoshidicts') {
-            return false;
-        }
-        if (parts.length === 2) {
-            return isDirectory;
-        }
-        return (
-            parts.length === 3 &&
-            !isDirectory &&
-            parts[2] === 'custom-dictionary.txt'
-        );
     }
 
     if (first === 'config' || first === 'agent-scripts' || first === 'scripts') {
