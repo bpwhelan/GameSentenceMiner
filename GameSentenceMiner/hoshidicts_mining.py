@@ -118,25 +118,25 @@ FIELD_TEMPLATE_MARKER_KEYS = {
     "pitch-accent-positions": "pitch-position",
     "audio": "audio",
     "dictionary": "dictionary",
-    "dictionary-alias": "dictionary",
+    "dictionary-alias": "dictionary-alias",
+    "conjugation": "conjugation",
+    "document-title": "document-title",
+    "part-of-speech": "part-of-speech",
+    "phonetic-transcriptions": "phonetic-transcriptions",
+    "popup-selection-text": "popup-selection-text",
+    "search-query": "search-query",
+    "tags": "tags",
 }
 UNSUPPORTED_FIELD_TEMPLATE_MARKERS = {
     "character",
     "clipboard-image",
     "clipboard-text",
     "cloze-body-kana",
-    "conjugation",
-    "document-title",
     "kunyomi",
     "onyomi",
     "onyomi-hiragana",
-    "part-of-speech",
-    "phonetic-transcriptions",
-    "popup-selection-text",
     "screenshot",
-    "search-query",
     "stroke-count",
-    "tags",
     "url",
 }
 
@@ -1229,6 +1229,70 @@ def _template_values_for_fields(
     return values
 
 
+def _unique_marker_tokens(values: list[str]) -> list[str]:
+    output = []
+    seen = set()
+    for value in values:
+        for token in re.split(r"[\s,]+", value.strip()):
+            if token and token not in seen:
+                seen.add(token)
+                output.append(token)
+    return output
+
+
+def _part_of_speech_text(request: dict[str, Any]) -> str:
+    tokens = _unique_marker_tokens(
+        [
+            request["term"]["rules"],
+            *[glossary["termTags"] for glossary in request["term"]["glossaries"]],
+        ]
+    )
+    names = {
+        "v1": "Ichidan verb",
+        "v5": "Godan verb",
+        "vk": "Kuru verb",
+        "vs": "Suru verb",
+        "vz": "Zuru verb",
+        "adj-i": "I-adjective",
+        "n": "Noun",
+    }
+    return ", ".join(html.escape(names.get(token, token)) for token in tokens) or "Unknown"
+
+
+def _definition_tags_html(request: dict[str, Any]) -> str:
+    tokens = _unique_marker_tokens(
+        [
+            value
+            for glossary in request["term"]["glossaries"]
+            for value in (glossary["definitionTags"], glossary["termTags"])
+        ]
+    )
+    return ", ".join(
+        f'<span class="tag" data-details="{html.escape(token, quote=True)}">{html.escape(token)}</span>'
+        for token in tokens
+    )
+
+
+def _phonetic_transcriptions_html(request: dict[str, Any]) -> str:
+    transcriptions = [
+        transcription
+        for group in request["term"]["pitches"]
+        for transcription in group["transcriptions"]
+        if transcription
+    ]
+    if not transcriptions:
+        return ""
+    return (
+        "<ul>"
+        + "".join(
+            '<li class="pronunciation" data-pronunciation-type="phonetic-transcription">'
+            f"{html.escape(transcription)}</li>"
+            for transcription in transcriptions
+        )
+        + "</ul>"
+    )
+
+
 def _field_template_values(
     request: dict[str, Any],
     *,
@@ -1276,6 +1340,12 @@ def _field_template_values(
         no_dictionary=True,
     )
     dictionary = html.escape(_first_dictionary(request))
+    dictionary_alias = html.escape(
+        request.get("dictionaryAliases", {}).get(_first_dictionary(request), _first_dictionary(request))
+    )
+    conjugation = " « ".join(html.escape(step["name"]) for step in request["trace"])
+    if not conjugation:
+        conjugation = html.escape(term["rules"])
     return {
         "{expression}": expression,
         "{reading}": reading,
@@ -1293,7 +1363,14 @@ def _field_template_values(
         "{main-definition}": main_definition,
         "{jpmn-primary-definition}": main_definition,
         "{dictionary}": dictionary,
-        "{dictionary-alias}": dictionary,
+        "{dictionary-alias}": dictionary_alias,
+        "{conjugation}": conjugation,
+        "{part-of-speech}": _part_of_speech_text(request),
+        "{phonetic-transcriptions}": _phonetic_transcriptions_html(request),
+        "{tags}": _definition_tags_html(request),
+        "{popup-selection-text}": html.escape(request.get("popupSelectionText", "")),
+        "{document-title}": html.escape(request.get("documentTitle", "")),
+        "{search-query}": html.escape(request.get("searchQuery", "")),
         "{sentence}": highlighted_sentence,
         "{sentence-furigana}": sentence_furigana_html,
         "{sentence-furigana-plain}": sentence_furigana_plain,
@@ -1944,9 +2021,32 @@ def _enrich_hoshidicts_note_audio(
     }
 
 
+def _store_dictionary_media(request: dict[str, Any], anki: Any) -> None:
+    for media in request.get("dictionaryMedia", []):
+        try:
+            stored_filename = anki.invoke(
+                "storeMediaFile",
+                filename=media["filename"],
+                data=media["dataBase64"],
+                timeout=30,
+            )
+        except Exception as exc:
+            raise HoshidictsMiningError(
+                f"Could not store Hoshidicts dictionary media: {exc}",
+                502,
+            ) from exc
+        if not isinstance(stored_filename, str) or not stored_filename:
+            raise HoshidictsMiningError(
+                "Anki did not return a stored dictionary media filename.",
+                502,
+            )
+        media["filename"] = stored_filename
+
+
 def mine_hoshidicts_note(payload: Any) -> dict[str, Any]:
     request = validate_hoshidicts_mining_request(payload)
     resolved = _resolve_mining_configuration()
+    _store_dictionary_media(request, resolved["anki"])
     note = _build_hoshidicts_note(request, resolved)
     anki = resolved["anki"]
     profile = resolved["profile"]
