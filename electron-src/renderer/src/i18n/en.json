@@ -767,6 +767,7 @@
       },
       "dictionaryActions": {
         "menu": "Dictionary actions for {title}",
+        "searchPosition": "Search position {position} of {total} for {title}",
         "addToTabGroup": "Add to Tab Group…",
         "moveToPosition": "Move dict to position...",
         "updateSchedule": "Update schedule...",

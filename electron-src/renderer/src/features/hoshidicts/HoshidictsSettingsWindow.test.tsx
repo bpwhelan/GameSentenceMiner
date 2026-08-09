@@ -699,6 +699,98 @@ describe("HoshidictsSettingsWindow", () => {
     );
   });
 
+  it("shows ordered search positions before favourites and renumbers after reorder", async () => {
+    const reorderedState: HoshidictsDesktopSnapshot = {
+      ...baseState,
+      revision: baseState.revision + 1,
+      dictionaries: [baseState.dictionaries[1], baseState.dictionaries[0]]
+    };
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === HOSHIDICTS_CHANNELS.getState) return baseState;
+      if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
+        return miningOptions;
+      }
+      if (channel === HOSHIDICTS_CHANNELS.getCustomDictionary) {
+        return customDocument;
+      }
+      if (channel === HOSHIDICTS_CHANNELS.moveDictionary) {
+        return {
+          success: true,
+          outcome: { code: "dictionaryChanged" },
+          state: reorderedState
+        };
+      }
+      return {
+        success: true,
+        outcome: { code: "dictionaryChanged" },
+        state: baseState
+      };
+    });
+
+    await render();
+
+    const rows = () =>
+      Array.from(
+        container.querySelectorAll<HTMLElement>(".hoshidicts-dictionary-row")
+      );
+    const position = (row: HTMLElement) =>
+      row.querySelector<HTMLElement>(".hoshidicts-dictionary-search-position");
+    expect(position(rows()[0])?.textContent).toBe("1");
+    expect(position(rows()[0])?.getAttribute("aria-label")).toBe(
+      "Search position 1 of 2 for JMdict"
+    );
+    expect(position(rows()[0])?.nextElementSibling).toBe(
+      rows()[0].querySelector(".hoshidicts-dictionary-favorite")
+    );
+    expect(position(rows()[1])?.textContent).toBe("2");
+    expect(position(rows()[1])?.nextElementSibling).toBe(
+      rows()[1].querySelector(".hoshidicts-dictionary-favorite-placeholder")
+    );
+
+    await act(async () => {
+      rows()[0]
+        .querySelector<HTMLElement>(
+          '[aria-label="Dictionary actions for JMdict"]'
+        )
+        ?.click();
+      await Promise.resolve();
+    });
+    const moveDown = Array.from(
+      rows()[0].querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
+    ).find((button) => button.textContent?.trim() === "Move down");
+    await act(async () => {
+      moveDown?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith(HOSHIDICTS_CHANNELS.moveDictionary, {
+      id: "jmdict-id",
+      direction: 1
+    });
+    expect(rows()[0].textContent).toContain("Custom");
+    expect(position(rows()[0])?.getAttribute("aria-label")).toBe(
+      "Search position 1 of 2 for Custom"
+    );
+    expect(rows()[1].textContent).toContain("JMdict");
+    expect(position(rows()[1])?.getAttribute("aria-label")).toBe(
+      "Search position 2 of 2 for JMdict"
+    );
+  });
+
+  it.each([
+    ["ja", "JMdictの検索順: 2件中1番目"],
+    ["ukr", "Позиція пошуку для JMdict: 1 з 2"]
+  ])("localizes dictionary search positions in %s", async (locale, label) => {
+    await render(locale);
+
+    expect(
+      container
+        .querySelector(".hoshidicts-dictionary-search-position")
+        ?.getAttribute("aria-label")
+    ).toBe(label);
+  });
+
   it.each([
     {
       name: "enables the first lookup-capable dictionary, including kanji",

@@ -760,6 +760,7 @@
       },
       "dictionaryActions": {
         "menu": "Дії зі словником {title}",
+        "searchPosition": "Позиція пошуку для {title}: {position} з {total}",
         "addToTabGroup": "Додати до групи вкладок…",
         "moveToPosition": "Перемістити словник на позицію...",
         "updateSchedule": "Змінити розклад оновлень...",

@@ -1320,6 +1320,27 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                 </label>
                 <div className="hoshidicts-dictionary-copy">
                   <div className="hoshidicts-dictionary-title">
+                    <span
+                      className="hoshidicts-dictionary-search-position"
+                      aria-label={t(
+                        "settings.hoshidicts.dictionaryActions.searchPosition",
+                        {
+                          title: dictionaryDisplayName(dictionary),
+                          position: index + 1,
+                          total: state.dictionaries.length
+                        }
+                      )}
+                      title={t(
+                        "settings.hoshidicts.dictionaryActions.searchPosition",
+                        {
+                          title: dictionaryDisplayName(dictionary),
+                          position: index + 1,
+                          total: state.dictionaries.length
+                        }
+                      )}
+                    >
+                      {index + 1}
+                    </span>
                     {dictionary.termCount > 0 ? (
                       <button
                         type="button"

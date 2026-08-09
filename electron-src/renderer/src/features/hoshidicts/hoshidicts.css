@@ -863,6 +863,23 @@
   overflow-wrap: anywhere;
 }
 
+.hoshidicts-dictionary-search-position {
+  display: inline-grid;
+  min-width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  padding: 0 6px;
+  place-items: center;
+  border: 1px solid var(--gsm-accent-border);
+  border-radius: 999px;
+  background: var(--gsm-accent-soft);
+  color: var(--gsm-accent-text);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .hoshidicts-dictionary-canonical-name {
   font-style: italic;
 }

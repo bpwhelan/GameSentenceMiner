@@ -760,6 +760,7 @@
       },
       "dictionaryActions": {
         "menu": "{title}の辞書操作",
+        "searchPosition": "{title}の検索順: {total}件中{position}番目",
         "addToTabGroup": "タブグループに追加…",
         "moveToPosition": "辞書を指定位置へ移動...",
         "updateSchedule": "アップデート間隔を変更...",
