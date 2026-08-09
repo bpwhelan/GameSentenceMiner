@@ -33,6 +33,7 @@ import {
     type HoshidictsDesktopSnapshot,
     type HoshidictsDictionaryEnabledRequest,
     type HoshidictsDictionaryPresentationRequest,
+    type HoshidictsDictionaryScheduleRequest,
     type HoshidictsInstallRecommendedRequest,
     type HoshidictsManagerSnapshot,
     type HoshidictsLookupMode,
@@ -90,6 +91,7 @@ function errorMessage(error: unknown): string {
 function isSchedule(value: unknown): value is HoshidictsSchedule {
     return (
         value === 'off' ||
+        value === 'hourly' ||
         value === 'daily' ||
         value === 'weekly' ||
         value === 'monthly'
@@ -866,6 +868,36 @@ export function registerHoshidictsIPC(
                 deps,
                 async () => await manager.setSchedule(schedule),
                 { code: 'preferencesSaved' }
+            );
+        }
+    );
+
+    ipcMain.handle(
+        HOSHIDICTS_CHANNELS.setDictionarySchedule,
+        async (event, request: unknown) => {
+            assertSettingsSender(event, deps);
+            const value = request as
+                | Partial<HoshidictsDictionaryScheduleRequest>
+                | null;
+            if (
+                !value ||
+                typeof value.id !== 'string' ||
+                (value.schedule !== null && !isSchedule(value.schedule))
+            ) {
+                return {
+                    success: false,
+                    error: 'Dictionary update schedule request is invalid.',
+                    state: await currentState(deps),
+                } satisfies HoshidictsActionResult;
+            }
+            return await runAction(
+                deps,
+                async () =>
+                    await manager.setDictionarySchedule(
+                        value.id as string,
+                        value.schedule as HoshidictsSchedule | null
+                    ),
+                { code: 'dictionaryChanged' }
             );
         }
     );

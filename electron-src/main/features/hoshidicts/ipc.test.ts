@@ -55,6 +55,7 @@ const harness = vi.hoisted(() => ({
         checkForUpdates: vi.fn(),
         removeDictionary: vi.fn(),
         setSchedule: vi.fn(),
+        setDictionarySchedule: vi.fn(),
         setLookupMode: vi.fn(),
         setReaderPreferences: vi.fn(),
         setMiningProfile: vi.fn(),
@@ -202,6 +203,8 @@ async function registerHarness() {
     harness.manager.installRecommendedDictionary.mockResolvedValue(snapshot);
     harness.manager.checkForUpdates.mockResolvedValue(snapshot);
     harness.manager.removeDictionary.mockResolvedValue(snapshot);
+    harness.manager.setSchedule.mockResolvedValue(snapshot);
+    harness.manager.setDictionarySchedule.mockResolvedValue(snapshot);
     harness.manager.setLookupMode.mockResolvedValue(snapshot);
     harness.manager.setReaderPreferences.mockResolvedValue(snapshot);
     harness.manager.setAudioProfile.mockResolvedValue(snapshot);
@@ -853,6 +856,9 @@ describe('Hoshidicts settings IPC', () => {
         const context = await registerHarness();
         const getState = harness.handlers.get('hoshidicts.getState');
         const setSchedule = harness.handlers.get('hoshidicts.setSchedule');
+        const setDictionarySchedule = harness.handlers.get(
+            'hoshidicts.setDictionarySchedule'
+        );
         const openSettings = harness.handlers.get(
             'hoshidicts.openSettings'
         );
@@ -867,10 +873,89 @@ describe('Hoshidicts settings IPC', () => {
             )
         ).rejects.toThrow('invalid window');
         await expect(
+            setDictionarySchedule?.(
+                { sender: context.foreignContents },
+                { id: 'alpha', schedule: 'hourly' }
+            )
+        ).rejects.toThrow('invalid window');
+        await expect(
             openSettings?.({ sender: context.settingsContents })
         ).rejects.toThrow('invalid window');
         expect(harness.manager.setSchedule).not.toHaveBeenCalled();
+        expect(
+            harness.manager.setDictionarySchedule
+        ).not.toHaveBeenCalled();
         expect(context.openSettingsWindow).not.toHaveBeenCalled();
+    });
+
+    it('accepts hourly global schedules and per-dictionary cadence overrides', async () => {
+        const context = await registerHarness();
+        const setSchedule = harness.handlers.get('hoshidicts.setSchedule');
+        const setDictionarySchedule = harness.handlers.get(
+            'hoshidicts.setDictionarySchedule'
+        );
+
+        await expect(
+            setSchedule?.({ sender: context.settingsContents }, 'hourly')
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'preferencesSaved' },
+        });
+        expect(harness.manager.setSchedule).toHaveBeenCalledWith('hourly');
+
+        await expect(
+            setDictionarySchedule?.(
+                { sender: context.settingsContents },
+                { id: 'alpha', schedule: 'hourly' }
+            )
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'dictionaryChanged' },
+        });
+        expect(harness.manager.setDictionarySchedule).toHaveBeenCalledWith(
+            'alpha',
+            'hourly'
+        );
+    });
+
+    it('uses null for inherited dictionary schedules and rejects malformed requests', async () => {
+        const context = await registerHarness();
+        const setDictionarySchedule = harness.handlers.get(
+            'hoshidicts.setDictionarySchedule'
+        );
+
+        await expect(
+            setDictionarySchedule?.(
+                { sender: context.settingsContents },
+                { id: 'alpha', schedule: null }
+            )
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'dictionaryChanged' },
+        });
+        expect(harness.manager.setDictionarySchedule).toHaveBeenCalledWith(
+            'alpha',
+            null
+        );
+
+        for (const request of [
+            null,
+            { id: 42, schedule: 'daily' },
+            { id: 'alpha' },
+            { id: 'alpha', schedule: 'inherit' },
+            { id: 'alpha', schedule: 'fortnightly' },
+        ]) {
+            await expect(
+                setDictionarySchedule?.(
+                    { sender: context.settingsContents },
+                    request
+                )
+            ).resolves.toMatchObject({
+                success: false,
+                error: 'Dictionary update schedule request is invalid.',
+            });
+        }
+        expect(harness.manager.setDictionarySchedule).toHaveBeenCalledOnce();
     });
 
     it('serves the standalone window and validates typed actions', async () => {

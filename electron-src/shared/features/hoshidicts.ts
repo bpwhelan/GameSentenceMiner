@@ -12,6 +12,7 @@ export const HOSHIDICTS_CHANNELS = {
     checkUpdates: 'hoshidicts.checkUpdates',
     removeDictionary: 'hoshidicts.remove',
     setSchedule: 'hoshidicts.setSchedule',
+    setDictionarySchedule: 'hoshidicts.setDictionarySchedule',
     setLookupMode: 'hoshidicts.setLookupMode',
     setReaderPreferences: 'hoshidicts.setReaderPreferences',
     setMiningProfile: 'hoshidicts.setMiningProfile',
@@ -27,7 +28,12 @@ export const HOSHIDICTS_CHANNELS = {
     restartOverlay: 'hoshidicts.restartOverlay',
 } as const;
 
-export type HoshidictsSchedule = 'off' | 'daily' | 'weekly' | 'monthly';
+export type HoshidictsSchedule =
+    | 'off'
+    | 'hourly'
+    | 'daily'
+    | 'weekly'
+    | 'monthly';
 export type HoshidictsLookupMode = 'shift' | 'hover';
 export type HoshidictsDefinitionBlurRevealMode = 'timed' | 'hover';
 export type HoshidictsFrequencyMode = 'occurrence-based' | 'rank-based';
@@ -498,6 +504,8 @@ export interface HoshidictsDictionaryState {
     kanjiCount: number;
     frequencyMode: HoshidictsFrequencyMode | null;
     installedAt: string;
+    updateScheduleOverride: HoshidictsSchedule | null;
+    lastUpdateCheck: string | null;
 }
 
 export interface HoshidictsRecommendedDictionaryState {
@@ -631,6 +639,11 @@ export interface HoshidictsDictionaryEnabledRequest {
 export interface HoshidictsDictionaryPresentationRequest {
     id: string;
     favorite: boolean;
+}
+
+export interface HoshidictsDictionaryScheduleRequest {
+    id: string;
+    schedule: HoshidictsSchedule | null;
 }
 
 export interface HoshidictsRenameDictionaryRequest {

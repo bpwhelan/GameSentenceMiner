@@ -23,6 +23,9 @@ interface TestArchive {
     revision: string;
     sourceLanguage?: string | null;
     terms?: number;
+    isUpdatable?: boolean;
+    indexUrl?: string | null;
+    downloadUrl?: string | null;
 }
 
 const tempDirectories: string[] = [];
@@ -56,9 +59,9 @@ function writeImportedDictionary(outputDirectory: string, archive: TestArchive):
             title: archive.title,
             revision: archive.revision,
             sourceLanguage: archive.sourceLanguage ?? 'ja',
-            isUpdatable: false,
-            indexUrl: null,
-            downloadUrl: null,
+            isUpdatable: archive.isUpdatable === true,
+            indexUrl: archive.indexUrl ?? null,
+            downloadUrl: archive.downloadUrl ?? null,
             frequencyMode: null,
             importDate: Date.parse('2026-08-08T00:00:00.000Z'),
             counts: {
@@ -211,6 +214,9 @@ describe('Hoshidicts manager full backups', () => {
             writeArchive(archivesDirectory, 'beta.zip', {
                 title: 'Beta',
                 revision: 'two',
+                isUpdatable: true,
+                indexUrl: 'https://dict.example/beta-index.json',
+                downloadUrl: 'https://dict.example/beta.zip',
             }),
         ]);
         let sourceSnapshot = await source.getSnapshot();
@@ -242,6 +248,7 @@ describe('Hoshidicts manager full backups', () => {
             'autumn',
         );
         await source.setSchedule('weekly');
+        await source.setDictionarySchedule(beta!.id, 'hourly');
         const miningProfile = {
             ...defaultHoshidictsMiningProfile(),
             deck: 'Japanese::Mining',
@@ -354,6 +361,14 @@ describe('Hoshidicts manager full backups', () => {
                 (dictionary: { id: string }) => dictionary.id === beta!.id,
             )?.displayName,
         ).toBe('Main definitions');
+        expect(
+            restoredManifest.dictionaries.find(
+                (dictionary: { id: string }) => dictionary.id === beta!.id,
+            ),
+        ).toMatchObject({
+            updateScheduleOverride: 'hourly',
+            lastUpdateCheck: null,
+        });
         for (const [index, dictionary] of restoredManifest.dictionaries.entries()) {
             expect(dictionary.path).not.toBe(sourceManifest.dictionaries[index].path);
             expect(dictionary.path).toMatch(/^generations\/[A-Za-z0-9._-]+\/restore-/u);

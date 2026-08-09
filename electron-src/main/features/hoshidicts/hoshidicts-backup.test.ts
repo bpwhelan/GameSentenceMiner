@@ -62,6 +62,9 @@ async function writeTestRoot(
                 title,
                 revision: 'test-revision',
                 sourceLanguage: 'ja',
+                isUpdatable: true,
+                indexUrl: 'https://dict.example/index.json',
+                downloadUrl: 'https://dict.example/dictionary.zip',
                 counts: {
                     terms: { total: 1 },
                     termMeta: {},
@@ -105,9 +108,9 @@ async function writeTestRoot(
                 recommendedId: id === 'jitendex' ? 'jitendex' : null,
                 title,
                 revision: 'test-revision',
-                isUpdatable: false,
-                indexUrl: null,
-                downloadUrl: null,
+                isUpdatable: true,
+                indexUrl: 'https://dict.example/index.json',
+                downloadUrl: 'https://dict.example/dictionary.zip',
                 language: 'ja',
                 termCount: 1,
                 frequencyCount: 0,
@@ -115,6 +118,8 @@ async function writeTestRoot(
                 kanjiCount: 0,
                 frequencyMode: null,
                 installedAt: '2026-08-08T00:00:00.000Z',
+                updateScheduleOverride: 'hourly',
+                lastUpdateCheck: '2026-08-08T11:00:00.000Z',
             },
         ],
     };
@@ -256,10 +261,20 @@ describe('Hoshidicts full backups', () => {
             ]);
             const restoredManifest = JSON.parse(
                 await fsp.readFile(path.join(targetRoot, 'manifest.json'), 'utf8'),
-            ) as { dictionaries: Array<{ path: string }> };
+            ) as {
+                dictionaries: Array<{
+                    path: string;
+                    updateScheduleOverride: string | null;
+                    lastUpdateCheck: string | null;
+                }>;
+            };
             expect(restoredManifest.dictionaries[0]?.path).toBe(
                 'generations/jitendex/restored-generation/Jitendex.org [test]',
             );
+            expect(restoredManifest.dictionaries[0]).toMatchObject({
+                updateScheduleOverride: 'hourly',
+                lastUpdateCheck: '2026-08-08T11:00:00.000Z',
+            });
             await expect(
                 fsp.readFile(
                     path.join(

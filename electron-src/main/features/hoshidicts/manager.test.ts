@@ -2439,6 +2439,7 @@ describe('Hoshidicts updates and schedule', () => {
         await manager.importDictionary(archive);
         const dictionaryId = (await manager.getSnapshot()).dictionaries[0].id;
         await manager.renameDictionary(dictionaryId, 'My updateable dictionary');
+        await manager.setDictionarySchedule(dictionaryId, 'hourly');
         await manager.checkForUpdates();
 
         expect(fetchRemoteIndex).toHaveBeenCalledWith(
@@ -2452,6 +2453,12 @@ describe('Hoshidicts updates and schedule', () => {
         expect(updated.revision).toBe('revision-10-beta');
         expect(updated.title).toBe('Updatable [new release]');
         expect(updated.displayName).toBe('My updateable dictionary');
+        expect(updated.updateScheduleOverride).toBe('hourly');
+        expect(updated.lastUpdateCheck).not.toBeNull();
+        expect(readManifest(baseDir).dictionaries[0]).toMatchObject({
+            updateScheduleOverride: 'hourly',
+            lastUpdateCheck: updated.lastUpdateCheck,
+        });
     });
 
     it('never requests updates from non-HTTPS metadata', async () => {
@@ -2537,6 +2544,193 @@ describe('Hoshidicts updates and schedule', () => {
         );
         expect(generations).toHaveLength(2);
         expect(reloadCount).toBe(2);
+    });
+
+    it('persists dictionary overrides while inheriting the global schedule by default', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-08-05T12:00:00.000Z'));
+        const baseDir = makeTempDir();
+        const updatableArchive = writeArchive(makeTempDir(), 'updatable.zip', {
+            title: 'Updatable',
+            revision: 'same',
+            sourceLanguage: 'ja',
+            isUpdatable: true,
+            indexUrl: 'https://updatable.example/index.json',
+            downloadUrl: 'https://updatable.example/dictionary.zip',
+        });
+        const manualArchive = writeArchive(makeTempDir(), 'manual.zip', {
+            title: 'Manual',
+            revision: 'same',
+            sourceLanguage: 'ja',
+        });
+        const { manager } = createHarness(baseDir);
+        await manager.importDictionaries([updatableArchive, manualArchive]);
+        const [updatable, manual] = (await manager.getSnapshot()).dictionaries;
+
+        let snapshot = await manager.setSchedule('daily');
+        expect(snapshot.nextCheck).toBe('2026-08-05T12:00:00.000Z');
+        expect(snapshot.dictionaries[0]).toMatchObject({
+            updateScheduleOverride: null,
+            lastUpdateCheck: null,
+        });
+
+        snapshot = await manager.setDictionarySchedule(updatable.id, 'hourly');
+        expect(snapshot.dictionaries[0].updateScheduleOverride).toBe('hourly');
+        expect(readManifest(baseDir).dictionaries[0]).toMatchObject({
+            updateScheduleOverride: 'hourly',
+            lastUpdateCheck: null,
+        });
+
+        snapshot = await manager.setDictionarySchedule(updatable.id, null);
+        expect(snapshot.dictionaries[0].updateScheduleOverride).toBeNull();
+        await expect(
+            manager.setDictionarySchedule(manual.id, 'hourly')
+        ).rejects.toThrow('does not support automatic updates');
+        await expect(
+            manager.setDictionarySchedule('missing', 'hourly')
+        ).rejects.toThrow('not installed');
+    });
+
+    it('migrates legacy global check time into inherited dictionary state', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-08-05T12:00:00.000Z'));
+        const baseDir = makeTempDir();
+        const archive = writeArchive(makeTempDir(), 'legacy-scheduled.zip', {
+            title: 'Legacy scheduled',
+            revision: 'same',
+            sourceLanguage: 'ja',
+            isUpdatable: true,
+            indexUrl: 'https://legacy.example/index.json',
+            downloadUrl: 'https://legacy.example/dictionary.zip',
+        });
+        const { manager } = createHarness(baseDir);
+        await manager.importDictionary(archive);
+        const legacyManifest = readManifest(baseDir);
+        delete legacyManifest.dictionaries[0].updateScheduleOverride;
+        delete legacyManifest.dictionaries[0].lastUpdateCheck;
+        legacyManifest.schedule = 'daily';
+        legacyManifest.lastCheck = '2026-08-05T06:00:00.000Z';
+        legacyManifest.nextCheck = '2026-08-06T06:00:00.000Z';
+        writeManifest(baseDir, legacyManifest);
+
+        const reloaded = createHarness(baseDir).manager;
+        const migrated = await reloaded.getSnapshot();
+        expect(migrated.dictionaries[0]).toMatchObject({
+            updateScheduleOverride: null,
+            lastUpdateCheck: '2026-08-05T06:00:00.000Z',
+        });
+        expect(migrated.nextCheck).toBe('2026-08-06T06:00:00.000Z');
+
+        await reloaded.setDictionarySchedule(
+            migrated.dictionaries[0].id,
+            'hourly'
+        );
+        expect(readManifest(baseDir).dictionaries[0]).toMatchObject({
+            updateScheduleOverride: 'hourly',
+            lastUpdateCheck: '2026-08-05T06:00:00.000Z',
+        });
+    });
+
+    it('checks only individually due dictionaries and manually forces all of them', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-08-05T12:00:00.000Z'));
+        const baseDir = makeTempDir();
+        const hourlyArchive = writeArchive(makeTempDir(), 'hourly.zip', {
+            title: 'Hourly',
+            revision: 'same',
+            sourceLanguage: 'ja',
+            isUpdatable: true,
+            indexUrl: 'https://hourly.example/index.json',
+            downloadUrl: 'https://hourly.example/dictionary.zip',
+        });
+        const inheritedArchive = writeArchive(makeTempDir(), 'inherited.zip', {
+            title: 'Inherited',
+            revision: 'same',
+            sourceLanguage: 'ja',
+            isUpdatable: true,
+            indexUrl: 'https://inherited.example/index.json',
+            downloadUrl: 'https://inherited.example/dictionary.zip',
+        });
+        const { manager, fetchRemoteIndex } = createHarness(baseDir);
+        await manager.importDictionaries([hourlyArchive, inheritedArchive]);
+        const hourlyId = (await manager.getSnapshot()).dictionaries[0].id;
+        await manager.setSchedule('daily');
+        await manager.setDictionarySchedule(hourlyId, 'hourly');
+
+        manager.startScheduler();
+        await manager.waitForIdle();
+        expect(fetchRemoteIndex).toHaveBeenCalledTimes(2);
+        expect((await manager.getSnapshot()).nextCheck).toBe(
+            '2026-08-05T13:00:00.000Z'
+        );
+
+        await vi.advanceTimersByTimeAsync(59 * 60 * 1000);
+        await manager.waitForIdle();
+        expect(fetchRemoteIndex).toHaveBeenCalledTimes(2);
+        await vi.advanceTimersByTimeAsync(60 * 1000);
+        await manager.waitForIdle();
+        expect(fetchRemoteIndex).toHaveBeenCalledTimes(3);
+        expect(fetchRemoteIndex).toHaveBeenLastCalledWith(
+            'https://hourly.example/index.json'
+        );
+        expect(
+            (await manager.getSnapshot()).dictionaries.map(
+                (dictionary) => dictionary.lastUpdateCheck
+            )
+        ).toEqual([
+            '2026-08-05T13:00:00.000Z',
+            '2026-08-05T12:00:00.000Z',
+        ]);
+
+        await manager.setSchedule('off');
+        fetchRemoteIndex.mockClear();
+        await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+        await manager.waitForIdle();
+        expect(fetchRemoteIndex).toHaveBeenCalledOnce();
+        expect(fetchRemoteIndex).toHaveBeenLastCalledWith(
+            'https://hourly.example/index.json'
+        );
+
+        await manager.setDictionarySchedule(hourlyId, 'off');
+        fetchRemoteIndex.mockClear();
+        await manager.checkForUpdates();
+        expect(fetchRemoteIndex).toHaveBeenCalledTimes(2);
+        await manager.stopScheduler();
+    });
+
+    it('rearms a one-shot timer at the exact due time with a 24-hour maximum delay', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-08-05T12:00:00.000Z'));
+        const baseDir = makeTempDir();
+        const archive = writeArchive(makeTempDir(), 'monthly.zip', {
+            title: 'Monthly',
+            revision: 'same',
+            sourceLanguage: 'ja',
+            isUpdatable: true,
+            indexUrl: 'https://monthly.example/index.json',
+            downloadUrl: 'https://monthly.example/dictionary.zip',
+        });
+        const trackedSetTimeout = vi.fn(globalThis.setTimeout);
+        const { manager, fetchRemoteIndex } = createHarness(baseDir, {
+            setTimeout: trackedSetTimeout as typeof setTimeout,
+        });
+        await manager.importDictionary(archive);
+        await manager.setSchedule('monthly');
+
+        manager.startScheduler();
+        await manager.waitForIdle();
+        expect(fetchRemoteIndex).toHaveBeenCalledOnce();
+        expect(trackedSetTimeout.mock.calls.at(-1)?.[1]).toBe(
+            24 * 60 * 60 * 1000
+        );
+
+        await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000);
+        await manager.waitForIdle();
+        expect(fetchRemoteIndex).toHaveBeenCalledOnce();
+        expect(trackedSetTimeout.mock.calls.at(-1)?.[1]).toBe(
+            24 * 60 * 60 * 1000
+        );
+        await manager.stopScheduler();
     });
 
     it('checks once at startup and then hourly only when work is due', async () => {

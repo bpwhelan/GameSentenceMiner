@@ -201,9 +201,9 @@ export interface HoshidictsManagerDependencies {
         revision: string,
         entries: readonly HoshidictsCustomDictionaryEntry[]
     ) => Promise<void>;
-    setInterval: typeof setInterval;
-    clearInterval: typeof clearInterval;
-    schedulerIntervalMs: number;
+    setTimeout: typeof setTimeout;
+    clearTimeout: typeof clearTimeout;
+    schedulerMaxDelayMs: number;
 }
 
 const MANIFEST_FILE_NAME = 'manifest.json';
@@ -220,7 +220,7 @@ const MAX_IMPORT_OUTPUT_BYTES = 1024 * 1024;
 const IMPORT_TIMEOUT_MS = 30 * 60 * 1000;
 const RELOAD_TIMEOUT_MS = 15 * 1000;
 const RELOAD_CONNECT_RETRY_MS = 100;
-const SCHEDULER_INTERVAL_MS = 60 * 60 * 1000;
+const SCHEDULER_MAX_DELAY_MS = 24 * 60 * 60 * 1000;
 const REQUIRED_DICTIONARY_FILES = ['hash.table', 'bloom.filter', 'blobs.bin'] as const;
 const REQUIRED_MEDIA_FILES = ['media.idx', 'media.bin'] as const;
 const HOSHIDICTS_MARKERS = ['.hoshidicts_3', '.hoshidicts_2', '.hoshidicts_1'] as const;
@@ -347,6 +347,7 @@ export const RECOMMENDED_HOSHIDICTS_DICTIONARIES: readonly RecommendedHoshidicts
 // HTTPS-only.
 
 const SCHEDULE_INTERVALS: Record<Exclude<HoshidictsSchedule, 'off'>, number> = {
+    hourly: 60 * 60 * 1000,
     daily: 24 * 60 * 60 * 1000,
     weekly: 7 * 24 * 60 * 60 * 1000,
     monthly: 30 * 24 * 60 * 60 * 1000,
@@ -419,9 +420,22 @@ function customSourcesMatch(
 }
 
 function normalizeSchedule(value: unknown): HoshidictsSchedule {
-    return value === 'daily' || value === 'weekly' || value === 'monthly'
+    return value === 'hourly' ||
+        value === 'daily' ||
+        value === 'weekly' ||
+        value === 'monthly'
         ? value
         : 'off';
+}
+
+function normalizeScheduleOverride(value: unknown): HoshidictsSchedule | null {
+    return value === 'off' ||
+        value === 'hourly' ||
+        value === 'daily' ||
+        value === 'weekly' ||
+        value === 'monthly'
+        ? value
+        : null;
 }
 
 function normalizePopupHideDelay(value: unknown): number {
@@ -740,6 +754,60 @@ export function isHoshidictsCheckDue(
     return Number.isNaN(next.getTime()) || next.getTime() <= now.getTime();
 }
 
+function effectiveDictionarySchedule(
+    dictionary: PersistedDictionary,
+    globalSchedule: HoshidictsSchedule
+): HoshidictsSchedule {
+    return dictionary.updateScheduleOverride ?? globalSchedule;
+}
+
+function isDictionaryUpdateCandidate(dictionary: PersistedDictionary): boolean {
+    return (
+        dictionary.isUpdatable &&
+        parseHttpsUrl(dictionary.indexUrl) !== null &&
+        parseHttpsUrl(dictionary.downloadUrl) !== null
+    );
+}
+
+function nextDictionaryUpdateCheck(
+    dictionary: PersistedDictionary,
+    globalSchedule: HoshidictsSchedule,
+    now: Date
+): string | null {
+    if (!isDictionaryUpdateCandidate(dictionary)) {
+        return null;
+    }
+    return getNextHoshidictsCheck(
+        effectiveDictionarySchedule(dictionary, globalSchedule),
+        dictionary.lastUpdateCheck,
+        now
+    );
+}
+
+function aggregateNextUpdateCheck(
+    manifest: PersistedManifest,
+    now: Date
+): string | null {
+    let nextCheck: string | null = null;
+    let nextCheckTime = Number.POSITIVE_INFINITY;
+    for (const dictionary of manifest.dictionaries) {
+        const candidate = nextDictionaryUpdateCheck(
+            dictionary,
+            manifest.schedule,
+            now
+        );
+        if (!candidate) {
+            continue;
+        }
+        const candidateTime = new Date(candidate).getTime();
+        if (candidateTime < nextCheckTime) {
+            nextCheck = candidate;
+            nextCheckTime = candidateTime;
+        }
+    }
+    return nextCheck;
+}
+
 export function stableHoshidictsDictionaryId(title: string): string {
     return createHash('sha256').update(title.normalize('NFC'), 'utf8').digest('hex').slice(0, 32);
 }
@@ -874,6 +942,8 @@ function dictionaryStateFromIndex(
         kanjiCount: index.kanjiCount,
         frequencyMode: index.frequencyMode,
         installedAt: installedAtFromIndex(index, fallbackDate),
+        updateScheduleOverride: null,
+        lastUpdateCheck: null,
     };
 }
 
@@ -1386,9 +1456,9 @@ function defaultDependencies(): HoshidictsManagerDependencies {
         fetchRemoteIndex: fetchHoshidictsRemoteIndex,
         downloadArchive: downloadHoshidictsArchive,
         writeCustomArchive: writeCustomDictionaryArchive,
-        setInterval,
-        clearInterval,
-        schedulerIntervalMs: SCHEDULER_INTERVAL_MS,
+        setTimeout,
+        clearTimeout,
+        schedulerMaxDelayMs: SCHEDULER_MAX_DELAY_MS,
     };
 }
 
@@ -1408,7 +1478,8 @@ export class HoshidictsManager {
     private progress: HoshidictsProgress = { phase: 'idle' };
     private runtimeError: string | null = null;
     private listeners = new Set<SnapshotListener>();
-    private schedulerTimer: ReturnType<typeof setInterval> | null = null;
+    private schedulerTimer: ReturnType<typeof setTimeout> | null = null;
+    private schedulerRunning = false;
 
     constructor(
         baseDir = getBaseDir(),
@@ -1918,19 +1989,62 @@ export class HoshidictsManager {
 
     async setSchedule(schedule: HoshidictsSchedule): Promise<HoshidictsManagerSnapshot> {
         await this.enqueue('saving', async () => {
-            if (!['off', 'daily', 'weekly', 'monthly'].includes(schedule)) {
+            if (!['off', 'hourly', 'daily', 'weekly', 'monthly'].includes(schedule)) {
                 throw new Error('Dictionary update schedule is invalid.');
             }
             const manifest = await this.readManifest();
-            const next: PersistedManifest = {
+            let next: PersistedManifest = {
                 ...manifest,
                 schedule,
-                nextCheck: getNextHoshidictsCheck(
-                    schedule,
-                    manifest.lastCheck,
-                    this.deps.now()
-                ),
             };
+            next = {
+                ...next,
+                nextCheck: aggregateNextUpdateCheck(next, this.deps.now()),
+            };
+            await this.atomicWriteManifest(next);
+        }, 'preferences');
+        return await this.getSnapshot();
+    }
+
+    async setDictionarySchedule(
+        id: string,
+        schedule: HoshidictsSchedule | null
+    ): Promise<HoshidictsManagerSnapshot> {
+        await this.enqueue('saving', async () => {
+            if (!SAFE_ID_PATTERN.test(id)) {
+                throw new Error('Dictionary id is invalid.');
+            }
+            if (
+                schedule !== null &&
+                !['off', 'hourly', 'daily', 'weekly', 'monthly'].includes(schedule)
+            ) {
+                throw new Error('Dictionary update schedule is invalid.');
+            }
+            const manifest = await this.readManifest();
+            const index = manifest.dictionaries.findIndex(
+                (dictionary) => dictionary.id === id
+            );
+            if (index < 0) {
+                throw new Error('Dictionary is not installed.');
+            }
+            if (!manifest.dictionaries[index].isUpdatable) {
+                throw new Error('Dictionary does not support automatic updates.');
+            }
+            if (
+                manifest.dictionaries[index].updateScheduleOverride === schedule
+            ) {
+                return;
+            }
+            const dictionaries = manifest.dictionaries.map((dictionary) => ({
+                ...dictionary,
+            }));
+            dictionaries[index].updateScheduleOverride = schedule;
+            const next: PersistedManifest = {
+                ...manifest,
+                dictionaries,
+                nextCheck: null,
+            };
+            next.nextCheck = aggregateNextUpdateCheck(next, this.deps.now());
             await this.atomicWriteManifest(next);
         }, 'preferences');
         return await this.getSnapshot();
@@ -2181,19 +2295,26 @@ export class HoshidictsManager {
         await this.enqueue('checking', async () => {
             let manifest = await this.readManifest();
             const now = this.deps.now();
-            if (
-                !force &&
-                !isHoshidictsCheckDue(manifest.schedule, manifest.nextCheck, now)
-            ) {
-                return;
-            }
-
             const candidates = manifest.dictionaries.filter(
                 (dictionary) =>
-                    dictionary.isUpdatable &&
-                    parseHttpsUrl(dictionary.indexUrl) !== null &&
-                    parseHttpsUrl(dictionary.downloadUrl) !== null
+                    isDictionaryUpdateCandidate(dictionary) &&
+                    (force ||
+                        isHoshidictsCheckDue(
+                            effectiveDictionarySchedule(
+                                dictionary,
+                                manifest.schedule
+                            ),
+                            nextDictionaryUpdateCheck(
+                                dictionary,
+                                manifest.schedule,
+                                now
+                            ),
+                            now
+                        ))
             );
+            if (!force && candidates.length === 0) {
+                return;
+            }
             const errors: string[] = [];
 
             for (let index = 0; index < candidates.length; index += 1) {
@@ -2273,14 +2394,21 @@ export class HoshidictsManager {
             const checkedAt = this.deps.now();
             manifest = {
                 ...manifest,
-                lastCheck: checkedAt.toISOString(),
-                nextCheck: getNextHoshidictsCheck(
-                    manifest.schedule,
-                    checkedAt.toISOString(),
-                    checkedAt
+                dictionaries: manifest.dictionaries.map((dictionary) =>
+                    candidates.some(
+                        (candidate) => candidate.id === dictionary.id
+                    )
+                        ? {
+                              ...dictionary,
+                              lastUpdateCheck: checkedAt.toISOString(),
+                          }
+                        : dictionary
                 ),
+                lastCheck: checkedAt.toISOString(),
+                nextCheck: null,
                 lastError: errors.length > 0 ? errors.join('\n') : null,
             };
+            manifest.nextCheck = aggregateNextUpdateCheck(manifest, checkedAt);
             await this.atomicWriteManifest(manifest);
             this.setProgress({
                 phase: 'checking',
@@ -2292,23 +2420,19 @@ export class HoshidictsManager {
     }
 
     startScheduler(): void {
-        if (this.schedulerTimer) {
+        if (this.schedulerRunning) {
             return;
         }
+        this.schedulerRunning = true;
         void this.checkForUpdates(false).catch((error) => {
             console.warn('[Hoshidicts] Startup update check failed:', error);
         });
-        this.schedulerTimer = this.deps.setInterval(() => {
-            void this.checkForUpdates(false).catch((error) => {
-                console.warn('[Hoshidicts] Scheduled update check failed:', error);
-            });
-        }, this.deps.schedulerIntervalMs);
-        this.schedulerTimer.unref?.();
     }
 
     async stopScheduler(): Promise<void> {
+        this.schedulerRunning = false;
         if (this.schedulerTimer) {
-            this.deps.clearInterval(this.schedulerTimer);
+            this.deps.clearTimeout(this.schedulerTimer);
             this.schedulerTimer = null;
         }
         await this.waitForIdle();
@@ -2333,6 +2457,7 @@ export class HoshidictsManager {
                 throw error;
             } finally {
                 this.setProgress({ phase: 'idle', scope });
+                await this.rearmScheduler();
             }
         });
         this.operationQueue = run.then(
@@ -2340,6 +2465,47 @@ export class HoshidictsManager {
             () => undefined
         );
         return await run;
+    }
+
+    private async rearmScheduler(): Promise<void> {
+        if (!this.schedulerRunning) {
+            return;
+        }
+        if (this.schedulerTimer) {
+            this.deps.clearTimeout(this.schedulerTimer);
+            this.schedulerTimer = null;
+        }
+
+        let delay = this.deps.schedulerMaxDelayMs;
+        try {
+            const now = this.deps.now();
+            const manifest = await this.readManifest();
+            const nextCheck = aggregateNextUpdateCheck(manifest, now);
+            if (nextCheck) {
+                delay = Math.max(
+                    0,
+                    Math.min(
+                        this.deps.schedulerMaxDelayMs,
+                        new Date(nextCheck).getTime() - now.getTime()
+                    )
+                );
+            }
+        } catch (error) {
+            console.warn('[Hoshidicts] Could not schedule the next update check:', error);
+        }
+        if (!this.schedulerRunning) {
+            return;
+        }
+        this.schedulerTimer = this.deps.setTimeout(() => {
+            this.schedulerTimer = null;
+            if (!this.schedulerRunning) {
+                return;
+            }
+            void this.checkForUpdates(false).catch((error) => {
+                console.warn('[Hoshidicts] Scheduled update check failed:', error);
+            });
+        }, delay);
+        this.schedulerTimer.unref?.();
     }
 
     private async enqueueRead<T>(operation: () => Promise<T>): Promise<T> {
@@ -2402,6 +2568,8 @@ export class HoshidictsManager {
                         kanjiCount,
                         frequencyMode,
                         installedAt,
+                        updateScheduleOverride,
+                        lastUpdateCheck,
                     }) => ({
                         id,
                         title,
@@ -2419,6 +2587,8 @@ export class HoshidictsManager {
                         kanjiCount,
                         frequencyMode,
                         installedAt,
+                        updateScheduleOverride,
+                        lastUpdateCheck,
                     })
                 ),
             customDictionaryActive: customDictionary?.enabled === true,
@@ -2717,6 +2887,8 @@ export class HoshidictsManager {
         if (!Array.isArray(parsed.dictionaries) || parsed.dictionaries.length > 256) {
             throw new Error('Hoshidicts manifest has an invalid dictionary list.');
         }
+        const schedule = normalizeSchedule(parsed.schedule);
+        const legacyLastCheck = normalizeDate(parsed.lastCheck);
 
         const ids = new Set<string>();
         const paths = new Set<string>();
@@ -2756,10 +2928,21 @@ export class HoshidictsManager {
                     value.displayName,
                     index.title
                 ),
+                updateScheduleOverride: normalizeScheduleOverride(
+                    value.updateScheduleOverride
+                ),
+                lastUpdateCheck: Object.prototype.hasOwnProperty.call(
+                    value,
+                    'lastUpdateCheck'
+                )
+                    ? normalizeDate(value.lastUpdateCheck)
+                    : index.isUpdatable
+                      ? legacyLastCheck
+                      : null,
             });
         }
 
-        return {
+        const manifest: PersistedManifest = {
             version: MANIFEST_VERSION,
             lookupMode: parsed.lookupMode === 'hover' ? 'hover' : 'shift',
             activationKey: isHoshidictsActivationKey(parsed.activationKey)
@@ -2775,12 +2958,14 @@ export class HoshidictsManager {
             popupWidthPx: normalizePopupWidth(parsed.popupWidthPx),
             popupHeightPx: normalizePopupHeight(parsed.popupHeightPx),
             theme: normalizeTheme(parsed.theme),
-            schedule: normalizeSchedule(parsed.schedule),
-            lastCheck: normalizeDate(parsed.lastCheck),
-            nextCheck: normalizeDate(parsed.nextCheck),
+            schedule,
+            lastCheck: legacyLastCheck,
+            nextCheck: null,
             lastError: normalizeOptionalString(parsed.lastError),
             dictionaries,
         };
+        manifest.nextCheck = aggregateNextUpdateCheck(manifest, this.deps.now());
+        return manifest;
     }
 
     private async readManifestPreferences(): Promise<PersistedManifest> {
@@ -2990,6 +3175,9 @@ export class HoshidictsManager {
                 enabled: dictionaries[existingIndex].enabled,
                 favorite: dictionaries[existingIndex].favorite,
                 displayName: dictionaries[existingIndex].displayName,
+                updateScheduleOverride:
+                    dictionaries[existingIndex].updateScheduleOverride,
+                lastUpdateCheck: dictionaries[existingIndex].lastUpdateCheck,
             };
         } else {
             dictionaries.push(staged.dictionary);
@@ -3253,8 +3441,12 @@ export class HoshidictsManager {
     }
 
     private async atomicWriteManifest(manifest: PersistedManifest): Promise<void> {
+        const next = {
+            ...manifest,
+            nextCheck: aggregateNextUpdateCheck(manifest, this.deps.now()),
+        };
         await this.atomicWriteJson(
-            manifest,
+            next,
             this.manifestPath,
             MAX_MANIFEST_BYTES,
             'Hoshidicts manifest',
