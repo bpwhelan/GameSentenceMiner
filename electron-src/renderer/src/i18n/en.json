@@ -834,7 +834,6 @@
         "voice": "Voice",
         "defaultVoice": "System default",
         "missingVoice": "{name} (not currently available)",
-        "testSource": "Test {term}（{reading}）",
         "testSourceLabel": "Test {name} with {term}（{reading}）",
         "testing": "Testing {term}（{reading}）…",
         "playing": "Playing {name}…",

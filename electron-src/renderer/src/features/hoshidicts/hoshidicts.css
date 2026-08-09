@@ -1432,6 +1432,11 @@
   grid-column: 1 / -1;
 }
 
+.hoshidicts-audio-source__actions {
+  display: flex;
+  gap: 6px;
+}
+
 .hoshidicts-audio-source__voice {
   display: flex;
   gap: 8px;
@@ -1447,10 +1452,6 @@
   align-items: center;
   gap: 10px;
   min-height: 36px;
-}
-
-.hoshidicts-audio-source__test button {
-  flex: 0 0 auto;
 }
 
 .hoshidicts-audio-source__test-status {
@@ -1628,7 +1629,7 @@
     grid-template-columns: auto minmax(0, 1fr);
   }
 
-  .hoshidicts-audio-source > .danger {
+  .hoshidicts-audio-source__actions {
     grid-column: 2;
     justify-self: end;
   }

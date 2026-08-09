@@ -2903,12 +2903,22 @@ describe("HoshidictsSettingsWindow", () => {
     const testButtons = () =>
       Array.from(
         container.querySelectorAll<HTMLButtonElement>(
-          ".hoshidicts-audio-source__test button"
+          "[data-audio-test-source]"
         )
       );
     expect(testButtons()).toHaveLength(baseState.audioProfile.sources.length);
-    expect(testButtons().every((button) => button.textContent?.includes("聞く")))
-      .toBe(true);
+    expect(
+      testButtons().every((button) =>
+        button.getAttribute("aria-label")?.includes("聞く（きく）")
+      )
+    ).toBe(true);
+    const firstActions = testButtons()[0]?.closest(
+      ".hoshidicts-audio-source__actions"
+    );
+    expect(
+      firstActions?.querySelector("[data-audio-test-source]")
+    ).toBe(testButtons()[0]);
+    expect(firstActions?.querySelector("button.danger")).not.toBeNull();
 
     await act(async () => {
       setInputValue(
@@ -3120,7 +3130,7 @@ describe("HoshidictsSettingsWindow", () => {
     expect(
       Array.from(
         container.querySelectorAll<HTMLButtonElement>(
-          ".hoshidicts-audio-source__test button"
+          "[data-audio-test-source]"
         )
       ).every((button) => !button.disabled)
     ).toBe(true);
@@ -3231,7 +3241,7 @@ describe("HoshidictsSettingsWindow", () => {
       >(
         ".hoshidicts-audio input, .hoshidicts-audio select, " +
           ".hoshidicts-actions button, .hoshidicts-audio-source__order button, " +
-          ".hoshidicts-audio-source > button.danger"
+          ".hoshidicts-audio-source__actions button"
       )
     );
     expect(profileControls.length).toBeGreaterThan(10);

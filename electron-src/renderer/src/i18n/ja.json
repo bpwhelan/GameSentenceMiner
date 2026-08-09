@@ -827,7 +827,6 @@
         "voice": "音声",
         "defaultVoice": "システムのデフォルト",
         "missingVoice": "{name}（現在利用できません）",
-        "testSource": "{term}（{reading}）をテスト",
         "testSourceLabel": "{name}で{term}（{reading}）をテスト",
         "testing": "{term}（{reading}）をテスト中…",
         "playing": "{name}を再生中…",

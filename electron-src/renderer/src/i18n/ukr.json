@@ -827,7 +827,6 @@
         "voice": "Голос",
         "defaultVoice": "Системний за замовчуванням",
         "missingVoice": "{name} (зараз недоступний)",
-        "testSource": "Перевірити {term}（{reading}）",
         "testSourceLabel": "Перевірити {name} зі словом {term}（{reading}）",
         "testing": "Перевірка {term}（{reading}）…",
         "playing": "Відтворення {name}…",
