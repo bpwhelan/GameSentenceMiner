@@ -414,7 +414,17 @@ describe('Hoshidicts settings IPC', () => {
     it('imports a selected Yomitan dictionary backup through the existing manager', async () => {
         const cleanup = vi.fn(async () => undefined);
         harness.prepareYomitanDictionaryBackup.mockImplementationOnce(
-            async (_filePath, onProgress, onPreparedDictionary) => {
+            async (
+                _filePath,
+                onProgress,
+                onPreparedDictionary,
+                onReadingProgress
+            ) => {
+                onReadingProgress?.({
+                    completedBytes: 100,
+                    totalBytes: 400,
+                    estimatedSecondsRemaining: 18,
+                });
                 onProgress?.({ current: 1, total: 1, title: 'JMdict' });
                 await onPreparedDictionary?.({
                     title: 'JMdict',
@@ -455,7 +465,12 @@ describe('Hoshidicts settings IPC', () => {
                 )
                 .map(([, progress]) => progress)
         ).toEqual([
-            { phase: 'reading' },
+            {
+                phase: 'reading',
+                completedBytes: 100,
+                totalBytes: 400,
+                estimatedSecondsRemaining: 18,
+            },
             {
                 phase: 'preparing',
                 current: 1,
@@ -521,7 +536,6 @@ describe('Hoshidicts settings IPC', () => {
                 )
                 .map(([, progress]) => progress)
         ).toEqual([
-            { phase: 'reading' },
             {
                 phase: 'importing',
                 current: 1,

@@ -564,7 +564,6 @@ export function registerHoshidictsIPC(
                     );
                 }
             };
-            sendYomitanImportProgress(deps, { phase: 'reading' });
             prepared = await prepareYomitanDictionaryBackup(
                 result.filePaths[0],
                 ({ current, total, title }) =>
@@ -574,7 +573,12 @@ export function registerHoshidictsIPC(
                         total,
                         title,
                     }),
-                importPreparedDictionary
+                importPreparedDictionary,
+                (progress) =>
+                    sendYomitanImportProgress(deps, {
+                        phase: 'reading',
+                        ...progress,
+                    })
             );
             for (
                 let index = 0;

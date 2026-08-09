@@ -730,6 +730,61 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
   const importingYomitan =
     backupOperation === "importingYomitanDictionaries" ||
     backupOperation === "importingYomitanSettings";
+  const yomitanReadingPercent =
+    backupOperation === "importingYomitanDictionaries" &&
+    yomitanImportProgress?.phase === "reading" &&
+    yomitanImportProgress.totalBytes > 0
+      ? yomitanImportProgress.completedBytes >=
+        yomitanImportProgress.totalBytes
+        ? 100
+        : Math.min(
+            99,
+            Math.max(
+              0,
+              Math.floor(
+                (yomitanImportProgress.completedBytes /
+                  yomitanImportProgress.totalBytes) *
+                  100
+              )
+            )
+          )
+      : null;
+  let yomitanReadingEta: string | null = null;
+  if (
+    yomitanImportProgress?.phase === "reading" &&
+    yomitanImportProgress.estimatedSecondsRemaining !== null
+  ) {
+    const seconds = Math.max(
+      1,
+      Math.ceil(yomitanImportProgress.estimatedSecondsRemaining)
+    );
+    if (seconds < 60) {
+      yomitanReadingEta = t("settings.hoshidicts.backups.etaSeconds", {
+        seconds
+      });
+    } else {
+      const minutes = Math.ceil(seconds / 60);
+      yomitanReadingEta =
+        minutes < 60
+          ? t("settings.hoshidicts.backups.etaMinutes", { minutes })
+          : t("settings.hoshidicts.backups.etaHours", {
+              hours: Math.floor(minutes / 60),
+              minutes: minutes % 60
+            });
+    }
+  }
+  const yomitanReadingSummary =
+    yomitanReadingPercent === null
+      ? null
+      : t(
+          yomitanReadingEta
+            ? "settings.hoshidicts.backups.progressEstimate"
+            : "settings.hoshidicts.backups.progressPercent",
+          {
+            percent: yomitanReadingPercent,
+            eta: yomitanReadingEta
+          }
+        );
   const yomitanDictionaryImportProgress =
     backupOperation === "importingYomitanDictionaries" &&
     yomitanImportProgress !== null
@@ -1952,7 +2007,19 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
             {yomitanDictionaryImportProgress ? (
               <span className="hoshidicts-backups__progress">
                 {yomitanDictionaryImportProgress}
+                {yomitanReadingSummary ? ` ${yomitanReadingSummary}` : null}
               </span>
+            ) : null}
+            {yomitanReadingPercent !== null ? (
+              <progress
+                className="hoshidicts-backups__reading-meter"
+                aria-label={t(
+                  "settings.hoshidicts.backups.readingYomitanDictionaries"
+                )}
+                aria-valuetext={yomitanReadingSummary ?? undefined}
+                max={100}
+                value={yomitanReadingPercent}
+              />
             ) : null}
           </div>
         ) : null}

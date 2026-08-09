@@ -653,7 +653,12 @@ export interface HoshidictsProgress {
 }
 
 export type HoshidictsYomitanImportProgress =
-    | { phase: 'reading' }
+    | {
+          phase: 'reading';
+          completedBytes: number;
+          totalBytes: number;
+          estimatedSecondsRemaining: number | null;
+      }
     | {
           phase: 'preparing' | 'importing';
           current: number;

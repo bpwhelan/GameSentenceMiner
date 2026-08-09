@@ -1055,13 +1055,38 @@ describe("HoshidictsSettingsWindow", () => {
 
     await act(async () => {
       listeners.get(HOSHIDICTS_CHANNELS.yomitanImportProgress)?.[0]?.({}, {
-        phase: "reading"
+        phase: "reading",
+        completedBytes: 0,
+        totalBytes: 400,
+        estimatedSecondsRemaining: null
+      });
+      await Promise.resolve();
+    });
+    expect(backupStatus()?.textContent).toContain("0%");
+    expect(
+      backupStatus()?.querySelector<HTMLProgressElement>(
+        ".hoshidicts-backups__reading-meter"
+      )?.value
+    ).toBe(0);
+
+    await act(async () => {
+      listeners.get(HOSHIDICTS_CHANNELS.yomitanImportProgress)?.[0]?.({}, {
+        phase: "reading",
+        completedBytes: 100,
+        totalBytes: 400,
+        estimatedSecondsRemaining: 18
       });
       await Promise.resolve();
     });
     expect(backupStatus()?.textContent).toContain(
       "Reading Yomitan backup…"
     );
+    expect(backupStatus()?.textContent).toContain("25% · ~18s left");
+    const readingMeter = backupStatus()?.querySelector<HTMLProgressElement>(
+      ".hoshidicts-backups__reading-meter"
+    );
+    expect(readingMeter?.value).toBe(25);
+    expect(readingMeter?.max).toBe(100);
 
     await act(async () => {
       listeners.get(HOSHIDICTS_CHANNELS.yomitanImportProgress)?.[0]?.({}, {
@@ -1075,6 +1100,9 @@ describe("HoshidictsSettingsWindow", () => {
     expect(backupStatus()?.textContent).toContain(
       "Preparing dictionary 1 of 3: Jitendex"
     );
+    expect(
+      backupStatus()?.querySelector(".hoshidicts-backups__reading-meter")
+    ).toBeNull();
 
     await act(async () => {
       listeners.get(HOSHIDICTS_CHANNELS.yomitanImportProgress)?.[0]?.({}, {

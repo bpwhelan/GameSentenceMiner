@@ -814,6 +814,11 @@ describe('parseYomitanDictionaryBackup', () => {
             total: number;
             title: string;
         }> = [];
+        const readingProgress: Array<{
+            completedBytes: number;
+            totalBytes: number;
+            estimatedSecondsRemaining: number | null;
+        }> = [];
         const consumed: Array<{
             current: number;
             total: number;
@@ -827,10 +832,37 @@ describe('parseYomitanDictionaryBackup', () => {
             async (dictionary) => {
                 expect(fs.existsSync(dictionary.archivePath)).toBe(true);
                 consumed.push(dictionary);
-            }
+            },
+            (update) => readingProgress.push(update)
         );
 
         try {
+            const fileSize = fs.statSync(inputPath).size;
+            expect(readingProgress[0]).toEqual({
+                completedBytes: 0,
+                totalBytes: fileSize * 2,
+                estimatedSecondsRemaining: null,
+            });
+            expect(
+                readingProgress.some(
+                    ({ completedBytes, totalBytes }) =>
+                        completedBytes === fileSize &&
+                        totalBytes === fileSize * 2
+                )
+            ).toBe(true);
+            expect(readingProgress.at(-1)).toEqual({
+                completedBytes: fileSize * 2,
+                totalBytes: fileSize * 2,
+                estimatedSecondsRemaining: null,
+            });
+            expect(
+                readingProgress.every(
+                    (update, index) =>
+                        index === 0 ||
+                        update.completedBytes >=
+                            readingProgress[index - 1].completedBytes
+                )
+            ).toBe(true);
             expect(progress).toEqual([
                 { current: 1, total: 2, title: 'Alpha' },
                 { current: 2, total: 2, title: 'Beta' },
