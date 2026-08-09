@@ -6,13 +6,16 @@ import {
   Trash2,
   Volume2
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   HOSHIDICTS_AUDIO_SOURCE_TYPES,
+  HOSHIDICTS_CHANNELS,
   MAX_HOSHIDICTS_AUDIO_SOURCES,
   type HoshidictsAudioProfile,
   type HoshidictsAudioSource,
+  type HoshidictsAudioSourceTestRequest,
+  type HoshidictsAudioSourceTestResult,
   type HoshidictsAudioSourceType
 } from "../../../../shared/features/hoshidicts";
 import { useTranslation } from "../../i18n";
@@ -21,6 +24,21 @@ import { copyAudioProfile } from "./hoshidictsSettingsModel";
 import { useHoshidictsSettingsController } from "./useHoshidictsSettingsController";
 
 type Controller = ReturnType<typeof useHoshidictsSettingsController>;
+type AudioTestPhase = "testing" | "playing" | "success" | "error";
+
+interface AudioTestFeedback {
+  phase: AudioTestPhase;
+  detail?: string;
+}
+
+interface ActiveAudioPlayback {
+  audio: HTMLAudioElement;
+  objectUrl: string;
+}
+
+const AUDIO_TEST_TERM = "聞く";
+const AUDIO_TEST_READING = "きく";
+const AUDIO_TEST_TIMEOUT_MS = 15_000;
 
 const AUDIO_SOURCE_I18N_SUFFIXES: Record<HoshidictsAudioSourceType, string> = {
   jpod101: "jpod101",
@@ -55,6 +73,13 @@ function isTtsSource(type: HoshidictsAudioSourceType): boolean {
   return type === "text-to-speech" || type === "text-to-speech-reading";
 }
 
+function messageFromError(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  return fallback;
+}
+
 export function HoshidictsAudioPanel({
   controller
 }: {
@@ -64,6 +89,56 @@ export function HoshidictsAudioPanel({
   const { audioDraft, audioSaveStatus, updateAudioDraft, audioBusy } =
     controller;
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [activeTestSourceId, setActiveTestSourceId] = useState<string | null>(
+    null
+  );
+  const [testFeedback, setTestFeedback] = useState<
+    Record<string, AudioTestFeedback>
+  >({});
+  const testSequenceRef = useRef(0);
+  const activeTestSourceRef = useRef<string | null>(null);
+  const audioPlaybackRef = useRef<ActiveAudioPlayback | null>(null);
+  const speechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const testTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const audioControlsDisabled = audioBusy || activeTestSourceId !== null;
+
+  const clearTestTimeout = useCallback(() => {
+    const timeout = testTimeoutRef.current;
+    if (timeout !== null) {
+      clearTimeout(timeout);
+      testTimeoutRef.current = null;
+    }
+  }, []);
+
+  const releaseAudioPlayback = useCallback(
+    (playback: ActiveAudioPlayback) => {
+      playback.audio.onended = null;
+      playback.audio.onerror = null;
+      playback.audio.pause();
+      if (typeof URL.revokeObjectURL === "function") {
+        URL.revokeObjectURL(playback.objectUrl);
+      }
+      if (audioPlaybackRef.current === playback) {
+        audioPlaybackRef.current = null;
+      }
+    },
+    []
+  );
+
+  const stopActivePlayback = useCallback(() => {
+    const utterance = speechUtteranceRef.current;
+    if (utterance) {
+      utterance.onend = null;
+      utterance.onerror = null;
+      speechUtteranceRef.current = null;
+    }
+    window.speechSynthesis?.cancel();
+
+    const playback = audioPlaybackRef.current;
+    if (playback) {
+      releaseAudioPlayback(playback);
+    }
+  }, [releaseAudioPlayback]);
 
   useEffect(() => {
     const synthesis = window.speechSynthesis;
@@ -73,6 +148,16 @@ export function HoshidictsAudioPanel({
     synthesis.addEventListener?.("voiceschanged", refresh);
     return () => synthesis.removeEventListener?.("voiceschanged", refresh);
   }, []);
+
+  useEffect(
+    () => () => {
+      testSequenceRef.current += 1;
+      activeTestSourceRef.current = null;
+      clearTestTimeout();
+      stopActivePlayback();
+    },
+    [clearTestTimeout, stopActivePlayback]
+  );
 
   const japaneseVoices = useMemo(() => {
     const preferred = voices.filter((voice) =>
@@ -126,20 +211,197 @@ export function HoshidictsAudioPanel({
     }));
   };
 
-  const testVoice = (source: HoshidictsAudioSource) => {
+  const updateTestFeedback = (
+    sourceId: string,
+    feedback: AudioTestFeedback
+  ) => {
+    setTestFeedback((current) => ({
+      ...current,
+      [sourceId]: feedback
+    }));
+  };
+
+  const completeTest = (
+    sequence: number,
+    sourceId: string,
+    feedback: AudioTestFeedback
+  ) => {
+    if (testSequenceRef.current !== sequence) return;
+    clearTestTimeout();
+    testSequenceRef.current += 1;
+    activeTestSourceRef.current = null;
+    updateTestFeedback(sourceId, feedback);
+    setActiveTestSourceId(null);
+  };
+
+  const testTtsSource = (
+    source: HoshidictsAudioSource,
+    sequence: number
+  ) => {
     const synthesis = window.speechSynthesis;
-    if (!synthesis || typeof SpeechSynthesisUtterance === "undefined") return;
-    synthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(
-      t("settings.hoshidicts.audio.testPhrase")
-    );
-    utterance.lang = "ja-JP";
-    utterance.volume = audioDraft.volume / 100;
-    const selectedVoice = voices.find(
-      (voice) => voice.voiceURI === source.voice || voice.name === source.voice
-    );
-    if (selectedVoice) utterance.voice = selectedVoice;
-    synthesis.speak(utterance);
+    if (!synthesis || typeof SpeechSynthesisUtterance === "undefined") {
+      completeTest(sequence, source.id, {
+        phase: "error",
+        detail: t("settings.hoshidicts.audio.ttsUnavailable")
+      });
+      return;
+    }
+
+    const spokenText =
+      source.type === "text-to-speech-reading"
+        ? AUDIO_TEST_READING
+        : AUDIO_TEST_TERM;
+    try {
+      const utterance = new SpeechSynthesisUtterance(spokenText);
+      utterance.lang = "ja-JP";
+      utterance.volume = audioDraft.volume / 100;
+      const selectedVoice = voices.find(
+        (voice) => voice.voiceURI === source.voice || voice.name === source.voice
+      );
+      if (selectedVoice) utterance.voice = selectedVoice;
+      utterance.onend = () => {
+        if (speechUtteranceRef.current === utterance) {
+          speechUtteranceRef.current = null;
+        }
+        completeTest(sequence, source.id, {
+          phase: "success",
+          detail: spokenText
+        });
+      };
+      utterance.onerror = () => {
+        if (speechUtteranceRef.current === utterance) {
+          speechUtteranceRef.current = null;
+        }
+        completeTest(sequence, source.id, {
+          phase: "error",
+          detail: t("settings.hoshidicts.audio.ttsFailed")
+        });
+      };
+      speechUtteranceRef.current = utterance;
+      updateTestFeedback(source.id, {
+        phase: "playing",
+        detail: spokenText
+      });
+      synthesis.speak(utterance);
+    } catch (error) {
+      speechUtteranceRef.current = null;
+      completeTest(sequence, source.id, {
+        phase: "error",
+        detail: messageFromError(
+          error,
+          t("settings.hoshidicts.audio.ttsFailed")
+        )
+      });
+    }
+  };
+
+  const testAudioSource = async (
+    source: HoshidictsAudioSource,
+    sourceName: string
+  ) => {
+    if (activeTestSourceRef.current !== null) return;
+    stopActivePlayback();
+    clearTestTimeout();
+    const sequence = testSequenceRef.current + 1;
+    testSequenceRef.current = sequence;
+    activeTestSourceRef.current = source.id;
+    setActiveTestSourceId(source.id);
+    updateTestFeedback(source.id, { phase: "testing" });
+    testTimeoutRef.current = setTimeout(() => {
+      if (testSequenceRef.current !== sequence) return;
+      stopActivePlayback();
+      completeTest(sequence, source.id, {
+        phase: "error",
+        detail: t("settings.hoshidicts.audio.testTimeout")
+      });
+    }, AUDIO_TEST_TIMEOUT_MS);
+
+    if (isTtsSource(source.type)) {
+      testTtsSource(source, sequence);
+      return;
+    }
+
+    try {
+      const request: HoshidictsAudioSourceTestRequest = {
+        profile: audioDraft,
+        sourceId: source.id
+      };
+      const result =
+        await window.ipcRenderer.invoke<HoshidictsAudioSourceTestResult>(
+          HOSHIDICTS_CHANNELS.testAudioSource,
+          request
+        );
+      if (testSequenceRef.current !== sequence) return;
+      if (!result.success || !result.audio) {
+        throw new Error(
+          result.error?.trim() ||
+            t("settings.hoshidicts.audio.testUnavailable")
+        );
+      }
+
+      const bytes = new Uint8Array(result.audio.bytes.byteLength);
+      bytes.set(result.audio.bytes);
+      const blob = new Blob([bytes.buffer], {
+        type: result.audio.contentType
+      });
+      const objectUrl = URL.createObjectURL(blob);
+      const audio = new Audio(objectUrl);
+      const playback = { audio, objectUrl };
+      audioPlaybackRef.current = playback;
+      audio.volume = Math.min(1, Math.max(0, audioDraft.volume / 100));
+      const candidateName = result.audio.candidateName.trim() || sourceName;
+      audio.onended = () => {
+        releaseAudioPlayback(playback);
+        completeTest(sequence, source.id, {
+          phase: "success",
+          detail: candidateName
+        });
+      };
+      audio.onerror = () => {
+        releaseAudioPlayback(playback);
+        completeTest(sequence, source.id, {
+          phase: "error",
+          detail: t("settings.hoshidicts.audio.playbackFailed")
+        });
+      };
+      updateTestFeedback(source.id, {
+        phase: "playing",
+        detail: candidateName
+      });
+      await audio.play();
+    } catch (error) {
+      if (testSequenceRef.current !== sequence) return;
+      stopActivePlayback();
+      completeTest(sequence, source.id, {
+        phase: "error",
+        detail: messageFromError(
+          error,
+          t("settings.hoshidicts.audio.testUnavailable")
+        )
+      });
+    }
+  };
+
+  const testFeedbackText = (feedback: AudioTestFeedback): string => {
+    if (feedback.phase === "testing") {
+      return t("settings.hoshidicts.audio.testing", {
+        term: AUDIO_TEST_TERM,
+        reading: AUDIO_TEST_READING
+      });
+    }
+    if (feedback.phase === "playing") {
+      return t("settings.hoshidicts.audio.playing", {
+        name: feedback.detail ?? ""
+      });
+    }
+    if (feedback.phase === "success") {
+      return t("settings.hoshidicts.audio.testSuccess", {
+        name: feedback.detail ?? ""
+      });
+    }
+    return t("settings.hoshidicts.audio.testError", {
+      error: feedback.detail ?? t("settings.hoshidicts.audio.testUnavailable")
+    });
   };
 
   return (
@@ -159,7 +421,7 @@ export function HoshidictsAudioPanel({
               id="hoshidicts-audio-enabled"
               type="checkbox"
               checked={audioDraft.enabled}
-              disabled={audioBusy}
+              disabled={audioControlsDisabled}
               onChange={(event) =>
                 updateProfile((profile) => ({
                   ...profile,
@@ -177,7 +439,7 @@ export function HoshidictsAudioPanel({
               id="hoshidicts-audio-autoplay"
               type="checkbox"
               checked={audioDraft.autoPlay}
-              disabled={audioBusy}
+              disabled={audioControlsDisabled}
               onChange={(event) =>
                 updateProfile((profile) => ({
                   ...profile,
@@ -206,7 +468,7 @@ export function HoshidictsAudioPanel({
             max={100}
             step={1}
             value={audioDraft.volume}
-            disabled={audioBusy}
+            disabled={audioControlsDisabled}
             onChange={(event) =>
               updateProfile((profile) => ({
                 ...profile,
@@ -227,7 +489,7 @@ export function HoshidictsAudioPanel({
             <button
               type="button"
               className="secondary"
-              disabled={audioBusy}
+              disabled={audioControlsDisabled}
               onClick={() =>
                 updateProfile((profile) => ({
                   ...profile,
@@ -242,7 +504,7 @@ export function HoshidictsAudioPanel({
               id="hoshidicts-audio-add-source"
               type="button"
               disabled={
-                audioBusy ||
+                audioControlsDisabled ||
                 audioDraft.sources.length >= MAX_HOSHIDICTS_AUDIO_SOURCES
               }
               onClick={() =>
@@ -273,6 +535,12 @@ export function HoshidictsAudioPanel({
                 (voice) =>
                   voice.voiceURI === source.voice || voice.name === source.voice
               );
+              const feedback = testFeedback[source.id];
+              const testStatusId = `hoshidicts-audio-test-status-${source.id}`;
+              const ttsUnavailable =
+                isTtsSource(source.type) &&
+                (!window.speechSynthesis ||
+                  typeof SpeechSynthesisUtterance === "undefined");
               return (
                 <div className="hoshidicts-audio-source" key={source.id}>
                   <div className="hoshidicts-audio-source__order">
@@ -283,7 +551,7 @@ export function HoshidictsAudioPanel({
                       aria-label={t("settings.hoshidicts.audio.moveUp", {
                         name: sourceName
                       })}
-                      disabled={audioBusy || index === 0}
+                      disabled={audioControlsDisabled || index === 0}
                       onClick={() => moveSource(source.id, -1)}
                     >
                       <ArrowUp size={16} aria-hidden="true" />
@@ -295,7 +563,8 @@ export function HoshidictsAudioPanel({
                         name: sourceName
                       })}
                       disabled={
-                        audioBusy || index === audioDraft.sources.length - 1
+                        audioControlsDisabled ||
+                        index === audioDraft.sources.length - 1
                       }
                       onClick={() => moveSource(source.id, 1)}
                     >
@@ -308,7 +577,7 @@ export function HoshidictsAudioPanel({
                       <span>{t("settings.hoshidicts.audio.sourceType")}</span>
                       <select
                         value={source.type}
-                        disabled={audioBusy}
+                        disabled={audioControlsDisabled}
                         onChange={(event) =>
                           changeSourceType(
                             source,
@@ -333,7 +602,7 @@ export function HoshidictsAudioPanel({
                           type="text"
                           inputMode="url"
                           value={source.url}
-                          disabled={audioBusy}
+                          disabled={audioControlsDisabled}
                           placeholder={t(
                             "settings.hoshidicts.audio.sourceUrlPlaceholder"
                           )}
@@ -352,7 +621,9 @@ export function HoshidictsAudioPanel({
                         <div className="hoshidicts-audio-source__voice">
                           <select
                             value={source.voice}
-                            disabled={audioBusy || voices.length === 0}
+                            disabled={
+                              audioControlsDisabled || voices.length === 0
+                            }
                             onChange={(event) =>
                               updateSource(source.id, {
                                 voice: event.target.value
@@ -378,19 +649,6 @@ export function HoshidictsAudioPanel({
                               </option>
                             ))}
                           </select>
-                          <button
-                            type="button"
-                            className="secondary"
-                            disabled={
-                              audioBusy ||
-                              !window.speechSynthesis ||
-                              typeof SpeechSynthesisUtterance === "undefined"
-                            }
-                            onClick={() => testVoice(source)}
-                          >
-                            <Volume2 size={16} aria-hidden="true" />
-                            {t("settings.hoshidicts.audio.testVoice")}
-                          </button>
                         </div>
                       </label>
                     ) : null}
@@ -400,6 +658,43 @@ export function HoshidictsAudioPanel({
                         `settings.hoshidicts.audio.sourceHelp.${sourceSuffix}`
                       )}
                     </small>
+
+                    <div className="hoshidicts-audio-source__test">
+                      <button
+                        type="button"
+                        className="secondary"
+                        data-audio-test-source={source.id}
+                        aria-label={t(
+                          "settings.hoshidicts.audio.testSourceLabel",
+                          {
+                            name: sourceName,
+                            term: AUDIO_TEST_TERM,
+                            reading: AUDIO_TEST_READING
+                          }
+                        )}
+                        aria-describedby={feedback ? testStatusId : undefined}
+                        disabled={
+                          audioControlsDisabled || ttsUnavailable
+                        }
+                        onClick={() => void testAudioSource(source, sourceName)}
+                      >
+                        <Volume2 size={16} aria-hidden="true" />
+                        {t("settings.hoshidicts.audio.testSource", {
+                          term: AUDIO_TEST_TERM,
+                          reading: AUDIO_TEST_READING
+                        })}
+                      </button>
+                      {feedback ? (
+                        <span
+                          id={testStatusId}
+                          className="hoshidicts-audio-source__test-status"
+                          data-phase={feedback.phase}
+                          role={feedback.phase === "error" ? "alert" : "status"}
+                        >
+                          {testFeedbackText(feedback)}
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
 
                   <button
@@ -408,7 +703,7 @@ export function HoshidictsAudioPanel({
                     aria-label={t("settings.hoshidicts.audio.removeSource", {
                       name: sourceName
                     })}
-                    disabled={audioBusy}
+                    disabled={audioControlsDisabled}
                     onClick={() => removeSource(source.id)}
                   >
                     <Trash2 size={17} aria-hidden="true" />
