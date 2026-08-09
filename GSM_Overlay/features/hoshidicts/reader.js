@@ -156,8 +156,9 @@
   const MAX_DICTIONARY_PRESENTATION_ENTRIES = 256;
   const MAX_DICTIONARY_PRESENTATION_TITLE_LENGTH = 4096;
   const SOURCE_HIGHLIGHT_NAME = "gsm-hoshidicts-match";
-  const JAPANESE_TEXT_PATTERN =
-    /[\u3005\u3007\u303b\u3040-\u30ff\u31f0-\u31ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff66-\uff9f\u{20000}-\u{2fa1f}]/u;
+  const JAPANESE_ONLY_TOKEN_PATTERN =
+    /^[\u3005-\u3007\u303b\u3040-\u30ff\u31f0-\u31ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff66-\uff9f\u{20000}-\u{2fa1f}]+$/u;
+  const TOKEN_BOUNDARY_PATTERN = /[\p{White_Space}\p{Punctuation}\p{Symbol}]/u;
   const HAN_CHARACTER_PATTERN =
     /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u{20000}-\u{2fa1f}]/u;
   const KANJI_SEGMENT_PATTERN =
@@ -281,6 +282,11 @@
 
   function boundedString(value, maxLength = MAX_TEXT_LENGTH) {
     return typeof value === "string" ? value.slice(0, maxLength) : "";
+  }
+
+  function isJapaneseOnlyToken(query) {
+    const token = query.split(TOKEN_BOUNDARY_PATTERN, 1)[0];
+    return token.length > 0 && JAPANESE_ONLY_TOKEN_PATTERN.test(token);
   }
 
   function normalizeActivationKey(value, fallback = DEFAULT_ACTIVATION_KEY) {
@@ -1485,7 +1491,14 @@
       return null;
     }
     const query = sliceCodePoints(sentence, matchOffset, LOOKUP_SCAN_LENGTH);
-    if (!query || (requireJapaneseText && !JAPANESE_TEXT_PATTERN.test(query))) {
+    const hoveredToken = caretRange.startContainer.nodeType === windowRef.Node.TEXT_NODE
+      ? sliceCodePoints(
+          caretRange.startContainer.textContent || "",
+          caretRange.startOffset,
+          LOOKUP_SCAN_LENGTH
+        )
+      : query;
+    if (!query || (requireJapaneseText && !isJapaneseOnlyToken(hoveredToken))) {
       return null;
     }
     const firstCodePointLength = Array.from(query)[0].length;
@@ -1525,16 +1538,18 @@
         : [textBox];
       let sentence = "";
       let matchOffset = 0;
+      let hoveredToken = "";
       for (const box of boxes) {
         const boxText = box.textContent || "";
         if (box === textBox) {
-          matchOffset = sentence.length +
-            getUtf16OffsetForPoint(windowRef, box, clientX, clientY);
+          const boxOffset = getUtf16OffsetForPoint(windowRef, box, clientX, clientY);
+          matchOffset = sentence.length + boxOffset;
+          hoveredToken = sliceCodePoints(boxText, boxOffset, LOOKUP_SCAN_LENGTH);
         }
         sentence += boxText;
       }
       const query = sliceCodePoints(sentence, matchOffset, LOOKUP_SCAN_LENGTH);
-      if (!query || (requireJapaneseText && !JAPANESE_TEXT_PATTERN.test(query))) {
+      if (!query || (requireJapaneseText && !isJapaneseOnlyToken(hoveredToken))) {
         return null;
       }
       return {
@@ -1554,6 +1569,7 @@
     }
     const sentence = mainText.textContent || "";
     let matchOffset = 0;
+    let hoveredToken = "";
     const caretRange = typeof documentRef.caretRangeFromPoint === "function"
       ? documentRef.caretRangeFromPoint(clientX, clientY)
       : null;
@@ -1562,9 +1578,19 @@
       prefixRange.selectNodeContents(mainText);
       prefixRange.setEnd(caretRange.startContainer, caretRange.startOffset);
       matchOffset = prefixRange.toString().length;
+      if (caretRange.startContainer.nodeType === windowRef.Node.TEXT_NODE) {
+        hoveredToken = sliceCodePoints(
+          caretRange.startContainer.textContent || "",
+          caretRange.startOffset,
+          LOOKUP_SCAN_LENGTH
+        );
+      }
     }
     const query = sliceCodePoints(sentence, matchOffset, LOOKUP_SCAN_LENGTH);
-    if (!query || (requireJapaneseText && !JAPANESE_TEXT_PATTERN.test(query))) {
+    if (!hoveredToken) {
+      hoveredToken = query;
+    }
+    if (!query || (requireJapaneseText && !isJapaneseOnlyToken(hoveredToken))) {
       return null;
     }
     return {
@@ -4404,8 +4430,7 @@
         scheduleHide("activation-key-not-held");
         return;
       }
-      const requireJapaneseText =
-        preferences.onlyScanJapaneseText && !modifierActive;
+      const requireJapaneseText = preferences.onlyScanJapaneseText;
 
       if (popupDepth !== null) {
         const targetDepth = popupDepth + 1;

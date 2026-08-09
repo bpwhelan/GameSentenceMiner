@@ -3929,13 +3929,13 @@ describe("Hoshidicts Shift-hover scanner", () => {
     reader.destroy();
   });
 
-  it("limits Japanese-only filtering to automatic hover scans", async () => {
+  it("requires the hovered token to be entirely Japanese when enabled", async () => {
     const harness = createReaderHarness({
       lookupMode: "hover",
       onlyScanJapaneseText: true
     });
-    harness.first.textContent = "hello";
-    harness.dom.window.document.getElementById("second")!.textContent = " world";
+    harness.first.textContent = "食べるabc";
+    harness.dom.window.document.getElementById("second")!.textContent = "";
 
     harness.first.dispatchEvent(new harness.dom.window.MouseEvent("mousemove", {
       bubbles: true,
@@ -3954,11 +3954,23 @@ describe("Hoshidicts Shift-hover scanner", () => {
       clientY: 11
     }));
     await vi.advanceTimersByTimeAsync(20);
-    expect(JSON.parse(harness.socket.sent.at(-1)!).type).toBe(
-      "hoshidicts_lookup"
-    );
+    expect(
+      harness.socket.sent.map((message) => JSON.parse(message).type)
+    ).not.toContain("hoshidicts_lookup");
+
+    harness.first.textContent = "食べる。";
+    harness.dom.window.document.getElementById("second")!.textContent = "next";
+    harness.first.dispatchEvent(new harness.dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    expect(JSON.parse(harness.socket.sent.at(-1)!).text).toBe("食べる。next");
 
     harness.reader.updatePreferences({ onlyScanJapaneseText: false });
+    harness.first.textContent = "hello";
+    harness.dom.window.document.getElementById("second")!.textContent = " world";
     harness.first.dispatchEvent(new harness.dom.window.MouseEvent("mousemove", {
       bubbles: true,
       clientX: 11,
@@ -3968,7 +3980,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
     expect(JSON.parse(harness.socket.sent.at(-1)!).text).toBe("hello worl");
   });
 
-  it("lets deliberate activation-key lookup scan non-Japanese text", async () => {
+  it("does not let the activation key bypass Japanese-only scanning", async () => {
     const harness = createReaderHarness({
       lookupMode: "shift",
       onlyScanJapaneseText: true
@@ -3984,7 +3996,9 @@ describe("Hoshidicts Shift-hover scanner", () => {
     }));
     await vi.advanceTimersByTimeAsync(20);
 
-    expect(JSON.parse(harness.socket.sent.at(-1)!).text).toBe("hello worl");
+    expect(
+      harness.socket.sent.map((message) => JSON.parse(message).type)
+    ).not.toContain("hoshidicts_lookup");
   });
 
   it("starts an unmodified hover lookup when live preferences disable Shift", async () => {

@@ -1925,7 +1925,7 @@ describe("HoshidictsSettingsWindow", () => {
     expect(showLookupCounts?.checked).toBe(true);
     expect(onlyScanJapaneseText?.checked).toBe(true);
     expect(container.textContent).toContain(
-      "Only scan text containing Japanese characters"
+      "Only scan words written entirely in Japanese"
     );
     expect(container.textContent).toContain("Show seen and lookup counts");
 
