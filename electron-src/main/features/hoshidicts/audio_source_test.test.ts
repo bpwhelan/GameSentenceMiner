@@ -100,6 +100,43 @@ describe('Hoshidicts audio source test proxy', () => {
         ]);
     });
 
+    it('continues to the next candidate after a media transport failure', async () => {
+        const fetchMock = vi
+            .fn<typeof fetch>()
+            .mockResolvedValueOnce(
+                jsonResponse({
+                    candidates: [
+                        {
+                            index: 0,
+                            name: 'offline recording',
+                            candidateId: FIRST_CANDIDATE_ID,
+                        },
+                        {
+                            index: 1,
+                            name: 'working recording',
+                            candidateId: SECOND_CANDIDATE_ID,
+                        },
+                    ],
+                })
+            )
+            .mockRejectedValueOnce(new Error('connection reset'))
+            .mockResolvedValueOnce(
+                new Response(Uint8Array.from([5, 6, 7]), {
+                    headers: { 'content-type': 'audio/ogg' },
+                })
+            );
+        vi.stubGlobal('fetch', fetchMock);
+
+        await expect(
+            fetchHoshidictsAudioSourceTest('custom-source')
+        ).resolves.toEqual({
+            bytes: Uint8Array.from([5, 6, 7]),
+            contentType: 'audio/ogg',
+            candidateName: 'working recording',
+        });
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
     it('rejects malformed candidate responses', async () => {
         vi.stubGlobal(
             'fetch',
