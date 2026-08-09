@@ -931,22 +931,53 @@ describe("HoshidictsSettingsWindow", () => {
     expect(backupStatus()?.textContent).toBe(
       "Importing dictionaries from Yomitan…"
     );
+    expect(backupStatus()?.getAttribute("aria-live")).toBe("polite");
+    expect(backupStatus()?.getAttribute("aria-atomic")).toBe("true");
+    expect(
+      backupStatus()?.querySelector(".hoshidicts-backups__progress")
+    ).toBeNull();
     expect(
       Array.from(backups?.querySelectorAll<HTMLButtonElement>("button") ?? [])
         .every((button) => button.disabled)
     ).toBe(true);
 
     await act(async () => {
-      listeners.get(HOSHIDICTS_CHANNELS.progress)?.[0]?.({}, {
-        ...baseState,
-        revision: baseState.revision + 1,
-        busy: true,
-        progress: { phase: "importing", completed: 1, total: 2 }
+      listeners.get(HOSHIDICTS_CHANNELS.yomitanImportProgress)?.[0]?.({}, {
+        phase: "reading"
       });
       await Promise.resolve();
     });
-    expect(backupStatus()?.textContent).toBe(
+    expect(backupStatus()?.textContent).toContain(
+      "Reading Yomitan backup…"
+    );
+
+    await act(async () => {
+      listeners.get(HOSHIDICTS_CHANNELS.yomitanImportProgress)?.[0]?.({}, {
+        phase: "preparing",
+        current: 1,
+        total: 3,
+        title: "Jitendex"
+      });
+      await Promise.resolve();
+    });
+    expect(backupStatus()?.textContent).toContain(
+      "Preparing dictionary 1 of 3: Jitendex"
+    );
+
+    await act(async () => {
+      listeners.get(HOSHIDICTS_CHANNELS.yomitanImportProgress)?.[0]?.({}, {
+        phase: "importing",
+        current: 2,
+        total: 3,
+        title: "JMdict"
+      });
+      await Promise.resolve();
+    });
+    expect(backupStatus()?.textContent).toContain(
       "Importing dictionaries from Yomitan…"
+    );
+    expect(backupStatus()?.textContent).toContain(
+      "Importing dictionary 2 of 3: JMdict"
     );
     expect(
       container.querySelector(".hoshidicts-dictionary-import-progress")
@@ -977,6 +1008,9 @@ describe("HoshidictsSettingsWindow", () => {
     expect(backupStatus()?.textContent).toBe(
       "Importing settings from Yomitan…"
     );
+    expect(
+      backupStatus()?.querySelector(".hoshidicts-backups__progress")
+    ).toBeNull();
 
     await act(async () => {
       settingsJob.resolve({

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     createDefaultHoshidictsAudioProfile,
     createDefaultHoshidictsFieldOverwriteModes,
+    HOSHIDICTS_CHANNELS,
     type HoshidictsTheme,
 } from '../../../shared/features/hoshidicts.js';
 
@@ -397,13 +398,18 @@ describe('Hoshidicts settings IPC', () => {
 
     it('imports a selected Yomitan dictionary backup through the existing manager', async () => {
         const cleanup = vi.fn(async () => undefined);
-        harness.prepareYomitanDictionaryBackup.mockResolvedValueOnce({
-            dictionaries: [
-                { title: 'JMdict', archivePath: '/tmp/jmdict.zip' },
-            ],
-            settings: null,
-            cleanup,
-        });
+        harness.prepareYomitanDictionaryBackup.mockImplementationOnce(
+            async (_filePath, onProgress) => {
+                onProgress?.({ current: 1, total: 1, title: 'JMdict' });
+                return {
+                    dictionaries: [
+                        { title: 'JMdict', archivePath: '/tmp/jmdict.zip' },
+                    ],
+                    settings: null,
+                    cleanup,
+                };
+            }
+        );
         harness.showOpenDialog.mockResolvedValueOnce({
             canceled: false,
             filePaths: ['/tmp/yomitan-dictionaries.json'],
@@ -422,6 +428,83 @@ describe('Hoshidicts settings IPC', () => {
         expect(harness.manager.importDictionary).toHaveBeenCalledWith(
             '/tmp/jmdict.zip'
         );
+        expect(
+            context.settingsWindow.webContents.send.mock.calls
+                .filter(
+                    ([channel]) =>
+                        channel === HOSHIDICTS_CHANNELS.yomitanImportProgress
+                )
+                .map(([, progress]) => progress)
+        ).toEqual([
+            { phase: 'reading' },
+            {
+                phase: 'preparing',
+                current: 1,
+                total: 1,
+                title: 'JMdict',
+            },
+            {
+                phase: 'importing',
+                current: 1,
+                total: 1,
+                title: 'JMdict',
+            },
+            null,
+        ]);
+        expect(cleanup).toHaveBeenCalledOnce();
+    });
+
+    it('advances Yomitan progress after a failed dictionary and imports the rest', async () => {
+        const cleanup = vi.fn(async () => undefined);
+        harness.prepareYomitanDictionaryBackup.mockResolvedValueOnce({
+            dictionaries: [
+                { title: 'Broken', archivePath: '/tmp/broken.zip' },
+                { title: 'JMdict', archivePath: '/tmp/jmdict.zip' },
+            ],
+            settings: null,
+            cleanup,
+        });
+        harness.showOpenDialog.mockResolvedValueOnce({
+            canceled: false,
+            filePaths: ['/tmp/yomitan-dictionaries.json'],
+        });
+        harness.manager.importDictionary.mockRejectedValueOnce(
+            new Error('broken dictionary')
+        );
+        const context = await registerHarness();
+
+        await expect(
+            harness.handlers.get('hoshidicts.importYomitanDictionaries')?.({
+                sender: context.settingsContents,
+            })
+        ).resolves.toMatchObject({
+            success: true,
+            yomitanReport: { imported: 1, replaced: 0, failed: 1 },
+        });
+        expect(
+            context.settingsWindow.webContents.send.mock.calls
+                .filter(
+                    ([channel]) =>
+                        channel === HOSHIDICTS_CHANNELS.yomitanImportProgress
+                )
+                .map(([, progress]) => progress)
+        ).toEqual([
+            { phase: 'reading' },
+            {
+                phase: 'importing',
+                current: 1,
+                total: 2,
+                title: 'Broken',
+            },
+            {
+                phase: 'importing',
+                current: 2,
+                total: 2,
+                title: 'JMdict',
+            },
+            null,
+        ]);
+        expect(harness.manager.importDictionary).toHaveBeenCalledTimes(2);
         expect(cleanup).toHaveBeenCalledOnce();
     });
 

@@ -223,6 +223,17 @@
   margin: 14px 0 0;
 }
 
+.hoshidicts-backups__progress {
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--gsm-text-secondary);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .hoshidicts-window__loading {
   min-height: 240px;
   display: grid;

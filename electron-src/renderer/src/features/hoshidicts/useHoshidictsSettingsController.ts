@@ -43,7 +43,8 @@ import {
   type HoshidictsSaveCustomDictionaryRequest,
   type HoshidictsSchedule,
   type HoshidictsSetTabGroupMembershipRequest,
-  type HoshidictsTheme
+  type HoshidictsTheme,
+  type HoshidictsYomitanImportProgress
 } from "../../../../shared/features/hoshidicts";
 import { useTranslation } from "../../i18n";
 import { invokeIpc, onIpc } from "../../lib/ipc";
@@ -187,6 +188,8 @@ export function useHoshidictsSettingsController() {
   const [restarting, setRestarting] = useState(false);
   const [backupOperation, setBackupOperation] =
     useState<HoshidictsBackupOperation | null>(null);
+  const [yomitanImportProgress, setYomitanImportProgress] =
+    useState<HoshidictsYomitanImportProgress | null>(null);
   const draftSynchronizersRef = useRef<DraftSynchronizers | null>(null);
 
   useEffect(() => {
@@ -432,10 +435,21 @@ export function useHoshidictsSettingsController() {
         if (!disposed) applyState(snapshot);
       }
     );
+    const unsubscribeYomitanImportProgress = onIpc(
+      HOSHIDICTS_CHANNELS.yomitanImportProgress,
+      (_event, progress) => {
+        if (!disposed) {
+          setYomitanImportProgress(
+            progress as HoshidictsYomitanImportProgress | null
+          );
+        }
+      }
+    );
     return () => {
       disposed = true;
       window.removeEventListener("focus", refresh);
       unsubscribe();
+      unsubscribeYomitanImportProgress();
     };
   }, [applyState, loadMiningOptions, t]);
 
@@ -766,6 +780,7 @@ export function useHoshidictsSettingsController() {
         ),
       importYomitanDictionaries: async () => {
         setBackupOperation("importingYomitanDictionaries");
+        setYomitanImportProgress(null);
         try {
           return await runAction(
             () => invokeIpc(HOSHIDICTS_CHANNELS.importYomitanDictionaries),
@@ -773,6 +788,7 @@ export function useHoshidictsSettingsController() {
             true
           );
         } finally {
+          setYomitanImportProgress(null);
           setBackupOperation(null);
         }
       },
@@ -1021,6 +1037,7 @@ export function useHoshidictsSettingsController() {
     notice,
     restarting,
     backupOperation,
+    yomitanImportProgress,
     backupBusy,
     dictionaryBusy,
     preferencesBusy,

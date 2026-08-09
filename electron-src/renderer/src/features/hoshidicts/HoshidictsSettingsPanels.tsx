@@ -673,6 +673,7 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
     setPopupContentScanningEnabled,
     setPopupNestingMaxDepth,
     backupOperation,
+    yomitanImportProgress,
     backupBusy,
     dictionaryBusy,
     preferencesBusy,
@@ -718,6 +719,22 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
   const importingYomitan =
     backupOperation === "importingYomitanDictionaries" ||
     backupOperation === "importingYomitanSettings";
+  const yomitanDictionaryImportProgress =
+    backupOperation === "importingYomitanDictionaries" &&
+    yomitanImportProgress !== null
+      ? yomitanImportProgress.phase === "reading"
+        ? t("settings.hoshidicts.backups.readingYomitanDictionaries")
+        : t(
+            yomitanImportProgress.phase === "preparing"
+              ? "settings.hoshidicts.backups.preparingYomitanDictionary"
+              : "settings.hoshidicts.backups.importingYomitanDictionary",
+            {
+              current: yomitanImportProgress.current,
+              total: yomitanImportProgress.total,
+              title: yomitanImportProgress.title
+            }
+          )
+      : null;
   const lastCheck = formatTimestamp(state.lastCheck);
   const nextCheck = formatTimestamp(state.nextCheck);
 
@@ -1885,8 +1902,15 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
           <div
             className="hoshidicts-window__progress hoshidicts-backups__status"
             role="status"
+            aria-live="polite"
+            aria-atomic="true"
           >
-            {t(`settings.hoshidicts.backups.${backupOperation}`)}
+            <span>{t(`settings.hoshidicts.backups.${backupOperation}`)}</span>
+            {yomitanDictionaryImportProgress ? (
+              <span className="hoshidicts-backups__progress">
+                {yomitanDictionaryImportProgress}
+              </span>
+            ) : null}
           </div>
         ) : null}
       </section>

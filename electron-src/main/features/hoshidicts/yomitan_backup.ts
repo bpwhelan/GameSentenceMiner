@@ -64,6 +64,12 @@ export interface PreparedYomitanBackup {
     cleanup: () => Promise<void>;
 }
 
+export interface YomitanDictionaryPreparationProgress {
+    current: number;
+    total: number;
+    title: string;
+}
+
 function isRecord(value: unknown): value is JsonRecord {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -741,7 +747,8 @@ async function writeDictionaryArchive(
 }
 
 export async function prepareYomitanDictionaryBackup(
-    filePath: string
+    filePath: string,
+    onProgress?: (progress: YomitanDictionaryPreparationProgress) => void
 ): Promise<PreparedYomitanBackup> {
     const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'gsm-yomitan-'));
     try {
@@ -750,6 +757,11 @@ export async function prepareYomitanDictionaryBackup(
             fs.createReadStream(filePath)
         );
         for (let index = 0; index < parsed.length; index += 1) {
+            onProgress?.({
+                current: index + 1,
+                total: parsed.length,
+                title: parsed[index].title,
+            });
             const archivePath = path.join(root, `dictionary-${index + 1}.zip`);
             await writeDictionaryArchive(parsed[index], archivePath);
             dictionaries.push({ title: parsed[index].title, archivePath });

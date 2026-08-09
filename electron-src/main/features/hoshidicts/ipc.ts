@@ -51,6 +51,7 @@ import {
     type HoshidictsRecommendedDictionaryId,
     type HoshidictsSchedule,
     type HoshidictsTheme,
+    type HoshidictsYomitanImportProgress,
     type HoshidictsYomitanImportReport,
 } from '../../../shared/features/hoshidicts.js';
 import { getHoshidictsManager } from './manager.js';
@@ -88,6 +89,19 @@ export interface HoshidictsIPCDependencies {
 }
 
 let ipcRegistered = false;
+
+function sendYomitanImportProgress(
+    deps: HoshidictsIPCDependencies,
+    progress: HoshidictsYomitanImportProgress | null
+): void {
+    const window = deps.getSettingsWindow();
+    if (window && !window.isDestroyed()) {
+        window.webContents.send(
+            HOSHIDICTS_CHANNELS.yomitanImportProgress,
+            progress
+        );
+    }
+}
 
 function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
@@ -500,7 +514,17 @@ export function registerHoshidictsIPC(
         > | null = null;
         try {
             const before = await manager.getSnapshot();
-            prepared = await prepareYomitanDictionaryBackup(result.filePaths[0]);
+            sendYomitanImportProgress(deps, { phase: 'reading' });
+            prepared = await prepareYomitanDictionaryBackup(
+                result.filePaths[0],
+                ({ current, total, title }) =>
+                    sendYomitanImportProgress(deps, {
+                        phase: 'preparing',
+                        current,
+                        total,
+                        title,
+                    })
+            );
             const installedTitles = new Set(
                 before.dictionaries.map((dictionary) => dictionary.title)
             );
@@ -512,7 +536,18 @@ export function registerHoshidictsIPC(
                 warnings: [],
             };
             let state = before;
-            for (const dictionary of prepared.dictionaries) {
+            for (
+                let index = 0;
+                index < prepared.dictionaries.length;
+                index += 1
+            ) {
+                const dictionary = prepared.dictionaries[index];
+                sendYomitanImportProgress(deps, {
+                    phase: 'importing',
+                    current: index + 1,
+                    total: prepared.dictionaries.length,
+                    title: dictionary.title,
+                });
                 try {
                     state = await manager.importDictionary(
                         dictionary.archivePath
@@ -554,7 +589,11 @@ export function registerHoshidictsIPC(
                 state: await currentState(deps),
             } satisfies HoshidictsActionResult;
         } finally {
-            await prepared?.cleanup();
+            try {
+                await prepared?.cleanup();
+            } finally {
+                sendYomitanImportProgress(deps, null);
+            }
         }
     });
 

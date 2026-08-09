@@ -689,6 +689,9 @@
         "exporting": "Експорт резервної копії Hoshidicts...",
         "restoring": "Відновлення резервної копії Hoshidicts...",
         "importingYomitanDictionaries": "Імпорт словників із Yomitan…",
+        "readingYomitanDictionaries": "Читання резервної копії Yomitan…",
+        "preparingYomitanDictionary": "Підготовка словника {current} з {total}: {title}",
+        "importingYomitanDictionary": "Імпорт словника {current} з {total}: {title}",
         "importingYomitanSettings": "Імпорт налаштувань із Yomitan…",
         "importDictionaries": "Імпортувати словники з Yomitan...",
         "importSettings": "Імпортувати налаштування з Yomitan..."

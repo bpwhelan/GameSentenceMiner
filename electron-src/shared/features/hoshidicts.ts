@@ -9,6 +9,7 @@ export const HOSHIDICTS_CHANNELS = {
     openSettings: 'hoshidicts.openSettings',
     getState: 'hoshidicts.getState',
     progress: 'hoshidicts.progress',
+    yomitanImportProgress: 'hoshidicts.yomitanImportProgress',
     importDictionary: 'hoshidicts.import',
     importYomitanDictionaries: 'hoshidicts.importYomitanDictionaries',
     importYomitanSettings: 'hoshidicts.importYomitanSettings',
@@ -636,6 +637,15 @@ export interface HoshidictsProgress {
     completed?: number;
     total?: number;
 }
+
+export type HoshidictsYomitanImportProgress =
+    | { phase: 'reading' }
+    | {
+          phase: 'preparing' | 'importing';
+          current: number;
+          total: number;
+          title: string;
+      };
 
 export interface HoshidictsYomitanDictionaryPreference {
     title: string;
