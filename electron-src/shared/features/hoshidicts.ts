@@ -25,6 +25,7 @@ export const HOSHIDICTS_CHANNELS = {
     setReaderPreferences: 'hoshidicts.setReaderPreferences',
     setMiningProfile: 'hoshidicts.setMiningProfile',
     setAudioProfile: 'hoshidicts.setAudioProfile',
+    testAudioSource: 'hoshidicts.testAudioSource',
     getMiningOptions: 'hoshidicts.getMiningOptions',
     setDictionaryEnabled: 'hoshidicts.setDictionaryEnabled',
     setDictionaryPresentation: 'hoshidicts.setDictionaryPresentation',
@@ -545,6 +546,17 @@ export interface HoshidictsAudioProfile {
     sources: HoshidictsAudioSource[];
 }
 
+export interface HoshidictsAudioSourceTestRequest {
+    profile: HoshidictsAudioProfile;
+    sourceId: string;
+}
+
+export interface HoshidictsAudioSourceTestMedia {
+    bytes: Uint8Array;
+    contentType: string;
+    candidateName: string;
+}
+
 export function createDefaultHoshidictsAudioProfile(): HoshidictsAudioProfile {
     return {
         version: 1,
@@ -768,6 +780,13 @@ export interface HoshidictsActionResult {
     };
     document?: HoshidictsCustomDictionaryDocument;
     yomitanReport?: HoshidictsYomitanImportReport;
+    state: HoshidictsDesktopSnapshot;
+}
+
+export interface HoshidictsAudioSourceTestResult {
+    success: boolean;
+    error?: string | null;
+    audio?: HoshidictsAudioSourceTestMedia;
     state: HoshidictsDesktopSnapshot;
 }
 

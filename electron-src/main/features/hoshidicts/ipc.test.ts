@@ -15,6 +15,7 @@ const harness = vi.hoisted(() => ({
     showSaveDialog: vi.fn(),
     prepareYomitanDictionaryBackup: vi.fn(),
     prepareYomitanSettingsBackup: vi.fn(),
+    testAudioSource: vi.fn(),
     subscriber: null as ((snapshot: any) => void) | null,
     configuredEnabled: true,
     enabledAtLaunch: false as boolean | null,
@@ -99,6 +100,10 @@ vi.mock('./manager.js', () => ({
 vi.mock('./yomitan_backup.js', () => ({
     prepareYomitanDictionaryBackup: harness.prepareYomitanDictionaryBackup,
     prepareYomitanSettingsBackup: harness.prepareYomitanSettingsBackup,
+}));
+
+vi.mock('./audio_source_test.js', () => ({
+    fetchHoshidictsAudioSourceTest: harness.testAudioSource,
 }));
 
 const snapshot = {
@@ -212,6 +217,11 @@ async function registerHarness() {
     harness.manager.setLookupMode.mockResolvedValue(snapshot);
     harness.manager.setReaderPreferences.mockResolvedValue(snapshot);
     harness.manager.setAudioProfile.mockResolvedValue(snapshot);
+    harness.testAudioSource.mockResolvedValue({
+        bytes: Uint8Array.from([1, 2, 3]),
+        contentType: 'audio/mpeg',
+        candidateName: 'kiku',
+    });
     harness.manager.setMiningProfile.mockResolvedValue(snapshot);
     harness.manager.setDictionaryPresentation.mockResolvedValue(snapshot);
     harness.manager.createTabGroup.mockResolvedValue(snapshot);
@@ -769,6 +779,98 @@ describe('Hoshidicts settings IPC', () => {
         ).resolves.toMatchObject({
             overlay: { running: true, restartRequired: true },
         });
+    });
+
+    it('saves edited audio sources before testing kiku and returns playable media', async () => {
+        const context = await registerHarness();
+        const profile = {
+            ...snapshot.audioProfile,
+            sources: [
+                {
+                    id: 'edited-custom',
+                    type: 'custom' as const,
+                    url: 'http://127.0.0.1:5050/?term={term}',
+                    voice: '',
+                },
+            ],
+        };
+        const savedSnapshot = { ...snapshot, audioProfile: profile };
+        harness.manager.setAudioProfile.mockResolvedValueOnce(savedSnapshot);
+
+        await expect(
+            harness.handlers.get('hoshidicts.testAudioSource')?.(
+                { sender: context.settingsContents },
+                { profile, sourceId: 'edited-custom' }
+            )
+        ).resolves.toMatchObject({
+            success: true,
+            audio: {
+                bytes: Uint8Array.from([1, 2, 3]),
+                contentType: 'audio/mpeg',
+                candidateName: 'kiku',
+            },
+            state: { audioProfile: profile },
+        });
+        expect(harness.manager.setAudioProfile).toHaveBeenCalledWith(profile);
+        expect(context.applyAudioProfile).toHaveBeenCalledWith(profile);
+        expect(harness.testAudioSource).toHaveBeenCalledWith('edited-custom');
+        expect(
+            context.applyAudioProfile.mock.invocationCallOrder[0]
+        ).toBeLessThan(harness.testAudioSource.mock.invocationCallOrder[0]);
+    });
+
+    it('returns saved state and a provider error when an audio source test fails', async () => {
+        const context = await registerHarness();
+        const profile = snapshot.audioProfile;
+        harness.testAudioSource.mockRejectedValueOnce(
+            new Error('No pronunciation audio was found.')
+        );
+
+        await expect(
+            harness.handlers.get('hoshidicts.testAudioSource')?.(
+                { sender: context.settingsContents },
+                { profile, sourceId: 'jisho' }
+            )
+        ).resolves.toMatchObject({
+            success: false,
+            error: 'No pronunciation audio was found.',
+            state: { audioProfile: profile },
+        });
+        expect(harness.manager.setAudioProfile).toHaveBeenCalledWith(profile);
+        expect(context.applyAudioProfile).toHaveBeenCalledWith(profile);
+    });
+
+    it('persists text-to-speech sources but explains that their test is renderer-local', async () => {
+        const context = await registerHarness();
+        const profile = {
+            ...snapshot.audioProfile,
+            sources: [
+                {
+                    id: 'local-tts',
+                    type: 'text-to-speech-reading' as const,
+                    url: '',
+                    voice: 'ja-JP',
+                },
+            ],
+        };
+        harness.manager.setAudioProfile.mockResolvedValueOnce({
+            ...snapshot,
+            audioProfile: profile,
+        });
+
+        await expect(
+            harness.handlers.get('hoshidicts.testAudioSource')?.(
+                { sender: context.settingsContents },
+                { profile, sourceId: 'local-tts' }
+            )
+        ).resolves.toMatchObject({
+            success: false,
+            error: expect.stringContaining('local speech synthesis'),
+            state: { audioProfile: profile },
+        });
+        expect(harness.manager.setAudioProfile).toHaveBeenCalledWith(profile);
+        expect(context.applyAudioProfile).toHaveBeenCalledWith(profile);
+        expect(harness.testAudioSource).not.toHaveBeenCalled();
     });
 
     it('requires an overlay restart when the persisted lookup mode changed', async () => {

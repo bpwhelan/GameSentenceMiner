@@ -28,6 +28,8 @@ import {
     type HoshidictsActionResult,
     type HoshidictsActivationKey,
     type HoshidictsAudioProfile,
+    type HoshidictsAudioSourceTestRequest,
+    type HoshidictsAudioSourceTestResult,
     type HoshidictsDefinitionBlurPreferences,
     type HoshidictsSaveCustomDictionaryRequest,
     type HoshidictsDesktopSnapshot,
@@ -55,6 +57,7 @@ import {
     type HoshidictsYomitanImportReport,
 } from '../../../shared/features/hoshidicts.js';
 import { getHoshidictsManager } from './manager.js';
+import { fetchHoshidictsAudioSourceTest } from './audio_source_test.js';
 import {
     prepareYomitanDictionaryBackup,
     prepareYomitanSettingsBackup,
@@ -1089,6 +1092,65 @@ export function registerHoshidictsIPC(
                 },
                 { code: 'audioProfileSaved' }
             );
+        }
+    );
+
+    ipcMain.handle(
+        HOSHIDICTS_CHANNELS.testAudioSource,
+        async (event, request: unknown) => {
+            assertSettingsSender(event, deps);
+            const value = request as
+                | Partial<HoshidictsAudioSourceTestRequest>
+                | null;
+            if (
+                !value ||
+                !value.profile ||
+                typeof value.profile !== 'object' ||
+                typeof value.sourceId !== 'string' ||
+                !/^[A-Za-z0-9._-]{1,128}$/u.test(value.sourceId)
+            ) {
+                return {
+                    success: false,
+                    error: 'Hoshidicts audio source test request is invalid.',
+                    state: await currentState(deps),
+                } satisfies HoshidictsAudioSourceTestResult;
+            }
+
+            let savedState: HoshidictsManagerSnapshot | null = null;
+            try {
+                savedState = await manager.setAudioProfile(value.profile);
+                await deps.applyAudioProfile(savedState.audioProfile);
+                const source = savedState.audioProfile.sources.find(
+                    ({ id }) => id === value.sourceId
+                );
+                if (!source) {
+                    throw new Error(
+                        'The selected Hoshidicts audio source no longer exists.'
+                    );
+                }
+                if (
+                    source.type === 'text-to-speech' ||
+                    source.type === 'text-to-speech-reading'
+                ) {
+                    throw new Error(
+                        'This source uses local speech synthesis and must be tested in the settings window.'
+                    );
+                }
+                const audio = await fetchHoshidictsAudioSourceTest(source.id);
+                return {
+                    success: true,
+                    audio,
+                    state: withDesktopState(savedState, deps),
+                } satisfies HoshidictsAudioSourceTestResult;
+            } catch (error) {
+                return {
+                    success: false,
+                    error: errorMessage(error),
+                    state: savedState
+                        ? withDesktopState(savedState, deps)
+                        : await currentState(deps),
+                } satisfies HoshidictsAudioSourceTestResult;
+            }
         }
     );
 
