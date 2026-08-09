@@ -77,6 +77,7 @@ const {
     lookupMode: "shift" | "hover";
     activationKey: string;
     sourceHighlightEnabled: boolean;
+    onlyScanJapaneseText: boolean;
     popupHideDelayMs: number;
     popupNestingMaxDepth: number;
     popupWidthPx: number;
@@ -162,6 +163,7 @@ describe("Hoshidicts desktop bridge", () => {
       lookupMode: "hover",
       activationKey: "F8",
       sourceHighlightEnabled: true,
+      onlyScanJapaneseText: true,
       popupHideDelayMs: 850,
       popupNestingMaxDepth: 4,
       ...popupAppearance,

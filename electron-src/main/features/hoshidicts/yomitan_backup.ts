@@ -747,6 +747,7 @@ function currentReaderPreferences(current: HoshidictsManagerSnapshot): Hoshidict
         lookupMode: current.lookupMode,
         activationKey: current.activationKey,
         sourceHighlightEnabled: current.sourceHighlightEnabled,
+        onlyScanJapaneseText: current.onlyScanJapaneseText,
         popupHideDelayMs: current.popupHideDelayMs,
         showLookupCounts: current.showLookupCounts,
         popupNestingMaxDepth: current.popupNestingMaxDepth,

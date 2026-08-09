@@ -22,6 +22,7 @@ const harness = vi.hoisted(() => ({
     lookupModeAtLaunch: 'shift' as 'shift' | 'hover' | null,
     activationKeyAtLaunch: 'Shift' as string | null,
     sourceHighlightEnabledAtLaunch: false as boolean | null,
+    onlyScanJapaneseTextAtLaunch: true as boolean | null,
     popupHideDelayAtLaunch: 300 as number | null,
     showLookupCountsAtLaunch: true as boolean | null,
     audioProfileRestartRequired: false,
@@ -148,6 +149,7 @@ const snapshot = {
     lookupMode: 'shift',
     activationKey: 'Shift',
     sourceHighlightEnabled: false,
+    onlyScanJapaneseText: true,
     popupHideDelayMs: 300,
     showLookupCounts: true,
     popupNestingMaxDepth: 10,
@@ -317,6 +319,8 @@ async function registerHarness() {
             harness.activationKeyAtLaunch,
         getOverlaySourceHighlightEnabledAtLaunch: () =>
             harness.sourceHighlightEnabledAtLaunch,
+        getOverlayOnlyScanJapaneseTextAtLaunch: () =>
+            harness.onlyScanJapaneseTextAtLaunch,
         getOverlayPopupHideDelayAtLaunch: () =>
             harness.popupHideDelayAtLaunch,
         getOverlayShowLookupCountsAtLaunch: () =>
@@ -357,6 +361,7 @@ describe('Hoshidicts settings IPC', () => {
         harness.lookupModeAtLaunch = 'shift';
         harness.activationKeyAtLaunch = 'Shift';
         harness.sourceHighlightEnabledAtLaunch = false;
+        harness.onlyScanJapaneseTextAtLaunch = true;
         harness.popupHideDelayAtLaunch = 300;
         harness.showLookupCountsAtLaunch = true;
         harness.audioProfileRestartRequired = false;
@@ -938,6 +943,7 @@ describe('Hoshidicts settings IPC', () => {
                     lookupMode: 'hover',
                     activationKey: 'Shift',
                     sourceHighlightEnabled: false,
+                    onlyScanJapaneseText: true,
                     popupHideDelayMs: 300,
                     showLookupCounts: true,
                     popupNestingMaxDepth: 10,
@@ -969,6 +975,7 @@ describe('Hoshidicts settings IPC', () => {
                     lookupMode: 'shift',
                     activationKey: 'Shift',
                     sourceHighlightEnabled: true,
+                    onlyScanJapaneseText: true,
                     popupHideDelayMs: 300,
                     showLookupCounts: true,
                     popupNestingMaxDepth: 10,
@@ -1005,6 +1012,7 @@ describe('Hoshidicts settings IPC', () => {
                     lookupMode: 'hover',
                     activationKey: 'Shift',
                     sourceHighlightEnabled: false,
+                    onlyScanJapaneseText: true,
                     popupHideDelayMs: 300,
                     showLookupCounts: true,
                     popupNestingMaxDepth: 10,
@@ -1760,6 +1768,7 @@ describe('Hoshidicts settings IPC', () => {
                     lookupMode: 'hover',
                     activationKey: 'F8',
                     sourceHighlightEnabled: true,
+                    onlyScanJapaneseText: true,
                     popupHideDelayMs: 850,
                     showLookupCounts: 'yes',
                     popupNestingMaxDepth: 4,
@@ -1793,6 +1802,7 @@ describe('Hoshidicts settings IPC', () => {
                     lookupMode: 'hover',
                     activationKey: 'F8',
                     sourceHighlightEnabled: true,
+                    onlyScanJapaneseText: true,
                     popupHideDelayMs: 850,
                     showLookupCounts: false,
                     popupNestingMaxDepth: 4,
@@ -1826,12 +1836,14 @@ describe('Hoshidicts settings IPC', () => {
             false,
             560,
             420,
-            'girlypop'
+            'girlypop',
+            true
         );
         expect(context.applyReaderPreferences).toHaveBeenCalledWith({
             lookupMode: 'hover',
             activationKey: 'F8',
             sourceHighlightEnabled: true,
+            onlyScanJapaneseText: true,
             popupHideDelayMs: 850,
             showLookupCounts: false,
             popupNestingMaxDepth: 4,
@@ -2018,6 +2030,7 @@ describe('Hoshidicts settings IPC', () => {
             lookupMode: 'hover',
             activationKey: 'F8',
             sourceHighlightEnabled: true,
+            onlyScanJapaneseText: true,
             popupHideDelayMs: 850,
             showLookupCounts: true,
             popupNestingMaxDepth: 4,

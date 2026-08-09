@@ -26,6 +26,11 @@
     process.env &&
     process.env.GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED === '1'
   );
+  window.gsmHoshidictsOnlyScanJapaneseText = !(
+    typeof process !== 'undefined' &&
+    process.env &&
+    process.env.GSM_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT === '0'
+  );
   const configuredHoshidictsHideDelay = Number.parseInt(
     typeof process !== 'undefined' && process.env
       ? process.env.GSM_HOSHIDICTS_POPUP_HIDE_DELAY_MS
@@ -5307,6 +5312,7 @@ background: rgba(202, 12, 12, 0.692);
       activationKey: window.gsmHoshidictsActivationKey,
       activationKeyPressed: window.gsmHoshidictsActivationKeyPressed === true,
       sourceHighlightEnabled: window.gsmHoshidictsSourceHighlightEnabled === true,
+      onlyScanJapaneseText: window.gsmHoshidictsOnlyScanJapaneseText !== false,
       popupHideDelayMs: window.gsmHoshidictsPopupHideDelayMs,
       showLookupCounts: window.gsmHoshidictsShowLookupCounts,
       definitionBlur: window.gsmHoshidictsDefinitionBlur,
@@ -5373,6 +5379,8 @@ background: rgba(202, 12, 12, 0.692);
       );
     window.gsmHoshidictsSourceHighlightEnabled =
       preferences.sourceHighlightEnabled === true;
+    window.gsmHoshidictsOnlyScanJapaneseText =
+      preferences.onlyScanJapaneseText !== false;
     const hideDelay = Number(preferences.popupHideDelayMs);
     window.gsmHoshidictsPopupHideDelayMs = (
       Number.isInteger(hideDelay) && hideDelay >= 0 && hideDelay <= 5000
@@ -5396,6 +5404,7 @@ background: rgba(202, 12, 12, 0.692);
         lookupMode: window.gsmHoshidictsLookupMode,
         activationKey: window.gsmHoshidictsActivationKey,
         sourceHighlightEnabled: window.gsmHoshidictsSourceHighlightEnabled,
+        onlyScanJapaneseText: window.gsmHoshidictsOnlyScanJapaneseText,
         popupHideDelayMs: window.gsmHoshidictsPopupHideDelayMs,
         showLookupCounts: window.gsmHoshidictsShowLookupCounts,
         definitionBlur: window.gsmHoshidictsDefinitionBlur,

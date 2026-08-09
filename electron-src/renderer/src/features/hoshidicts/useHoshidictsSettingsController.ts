@@ -8,6 +8,7 @@ import {
   DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
   DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
   DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
+  DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
   DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
   DEFAULT_HOSHIDICTS_THEME,
   HOSHIDICTS_CHANNELS,
@@ -88,6 +89,7 @@ const defaultReaderPreferences = (): HoshidictsReaderPreferences => ({
   lookupMode: "shift",
   activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   sourceHighlightEnabled: DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
+  onlyScanJapaneseText: DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
   popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   showLookupCounts: true,
   popupNestingMaxDepth: DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
@@ -209,6 +211,7 @@ export function useHoshidictsSettingsController() {
       lookupMode: normalized.lookupMode,
       activationKey: normalized.activationKey,
       sourceHighlightEnabled: normalized.sourceHighlightEnabled,
+      onlyScanJapaneseText: normalized.onlyScanJapaneseText,
       popupHideDelayMs: normalized.popupHideDelayMs,
       showLookupCounts: normalized.showLookupCounts,
       popupNestingMaxDepth: normalized.popupNestingMaxDepth,
@@ -533,6 +536,13 @@ export function useHoshidictsSettingsController() {
   const setSourceHighlightEnabled = useCallback(
     (sourceHighlightEnabled: boolean) => {
       updateReaderPreferences({ sourceHighlightEnabled });
+    },
+    [updateReaderPreferences]
+  );
+
+  const setOnlyScanJapaneseText = useCallback(
+    (onlyScanJapaneseText: boolean) => {
+      updateReaderPreferences({ onlyScanJapaneseText });
     },
     [updateReaderPreferences]
   );
@@ -1002,6 +1012,7 @@ export function useHoshidictsSettingsController() {
     setLookupMode,
     setActivationKey,
     setSourceHighlightEnabled,
+    setOnlyScanJapaneseText,
     setPopupHideDelayMs,
     setPopupWidthPx,
     setPopupHeightPx,

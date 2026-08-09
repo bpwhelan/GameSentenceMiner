@@ -180,6 +180,7 @@ const baseState: HoshidictsDesktopSnapshot = {
   lookupMode: "shift",
   activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   sourceHighlightEnabled: false,
+  onlyScanJapaneseText: true,
   popupHideDelayMs: 300,
   showLookupCounts: true,
   definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
@@ -1825,8 +1826,15 @@ describe("HoshidictsSettingsWindow", () => {
     const showLookupCounts = container.querySelector<HTMLInputElement>(
       "#hoshidicts-show-lookup-counts"
     );
+    const onlyScanJapaneseText = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-only-scan-japanese-text"
+    );
 
     expect(showLookupCounts?.checked).toBe(true);
+    expect(onlyScanJapaneseText?.checked).toBe(true);
+    expect(container.textContent).toContain(
+      "Only scan text containing Japanese characters"
+    );
     expect(container.textContent).toContain("Show seen and lookup counts");
 
     await act(async () => {
@@ -1834,6 +1842,7 @@ describe("HoshidictsSettingsWindow", () => {
       setInputValue(delay, "850");
       setInputValue(maxDepth, "12");
       showLookupCounts?.click();
+      onlyScanJapaneseText?.click();
       await flushAutosave();
     });
 
@@ -1843,6 +1852,7 @@ describe("HoshidictsSettingsWindow", () => {
         lookupMode: "hover",
         activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
         sourceHighlightEnabled: false,
+        onlyScanJapaneseText: false,
         popupHideDelayMs: 850,
         showLookupCounts: false,
         popupNestingMaxDepth: 12,
@@ -1999,6 +2009,7 @@ describe("HoshidictsSettingsWindow", () => {
         lookupMode: "shift",
         activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
         sourceHighlightEnabled: true,
+        onlyScanJapaneseText: true,
         popupHideDelayMs: 300,
         showLookupCounts: true,
         popupNestingMaxDepth: 10,
@@ -2046,6 +2057,7 @@ describe("HoshidictsSettingsWindow", () => {
         lookupMode: "shift",
         activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
         sourceHighlightEnabled: false,
+        onlyScanJapaneseText: true,
         popupHideDelayMs: 300,
         showLookupCounts: true,
         popupNestingMaxDepth: 10,
@@ -2170,6 +2182,7 @@ describe("HoshidictsSettingsWindow", () => {
         lookupMode: "shift",
         activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
         sourceHighlightEnabled: false,
+        onlyScanJapaneseText: true,
         popupHideDelayMs: 300,
         showLookupCounts: true,
         popupNestingMaxDepth: 0,
@@ -2196,6 +2209,7 @@ describe("HoshidictsSettingsWindow", () => {
         lookupMode: "shift",
         activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
         sourceHighlightEnabled: false,
+        onlyScanJapaneseText: true,
         popupHideDelayMs: 300,
         showLookupCounts: true,
         popupNestingMaxDepth: 1,
@@ -2261,6 +2275,7 @@ describe("HoshidictsSettingsWindow", () => {
         lookupMode: "shift",
         activationKey: "1",
         sourceHighlightEnabled: false,
+        onlyScanJapaneseText: true,
         popupHideDelayMs: 300,
         showLookupCounts: true,
         popupNestingMaxDepth: 10,
@@ -2291,6 +2306,7 @@ describe("HoshidictsSettingsWindow", () => {
         lookupMode: "shift",
         activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
         sourceHighlightEnabled: false,
+        onlyScanJapaneseText: true,
         popupHideDelayMs: 300,
         showLookupCounts: true,
         popupNestingMaxDepth: 10,
@@ -3804,6 +3820,7 @@ describe("HoshidictsSettingsWindow", () => {
       revision: undefined,
       activationKey: undefined,
       sourceHighlightEnabled: undefined,
+      onlyScanJapaneseText: undefined,
       popupHideDelayMs: undefined,
       showLookupCounts: undefined,
       popupNestingMaxDepth: undefined,
@@ -3833,6 +3850,7 @@ describe("HoshidictsSettingsWindow", () => {
     expect(normalized.revision).toBe(0);
     expect(normalized.activationKey).toBe(DEFAULT_HOSHIDICTS_ACTIVATION_KEY);
     expect(normalized.sourceHighlightEnabled).toBe(false);
+    expect(normalized.onlyScanJapaneseText).toBe(true);
     expect(normalized.popupHideDelayMs).toBe(300);
     expect(normalized.showLookupCounts).toBe(true);
     expect(normalized.definitionBlur).toEqual(

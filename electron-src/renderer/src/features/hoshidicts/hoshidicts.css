@@ -320,6 +320,7 @@
 .hoshidicts-reader-mode small,
 .hoshidicts-activation-key small,
 .hoshidicts-reader-highlight small,
+.hoshidicts-reader-japanese-only small,
 .hoshidicts-reader-delay small,
 .hoshidicts-reader-counts small,
 .hoshidicts-reader-appearance small,
@@ -330,7 +331,8 @@
   font-weight: 400;
 }
 
-.hoshidicts-reader-highlight {
+.hoshidicts-reader-highlight,
+.hoshidicts-reader-japanese-only {
   display: flex;
   width: min(100%, 620px);
   align-items: flex-start;
@@ -342,19 +344,22 @@
   cursor: pointer;
 }
 
-.hoshidicts-reader-highlight:has(input:checked) {
+.hoshidicts-reader-highlight:has(input:checked),
+.hoshidicts-reader-japanese-only:has(input:checked) {
   border-color: var(--gsm-accent-border);
   background: var(--gsm-accent-soft);
 }
 
-.hoshidicts-reader-highlight input {
+.hoshidicts-reader-highlight input,
+.hoshidicts-reader-japanese-only input {
   width: 18px;
   height: 18px;
   margin-top: 2px;
   accent-color: var(--gsm-accent);
 }
 
-.hoshidicts-reader-highlight span {
+.hoshidicts-reader-highlight span,
+.hoshidicts-reader-japanese-only span {
   display: grid;
   gap: 4px;
 }

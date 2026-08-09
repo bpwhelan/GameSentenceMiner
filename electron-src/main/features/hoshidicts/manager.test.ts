@@ -1727,6 +1727,7 @@ describe('Hoshidicts reader preferences', () => {
         expect(snapshot.lookupMode).toBe('shift');
         expect(snapshot.activationKey).toBe('Shift');
         expect(snapshot.sourceHighlightEnabled).toBe(false);
+        expect(snapshot.onlyScanJapaneseText).toBe(true);
         expect(snapshot.showLookupCounts).toBe(true);
         expect(snapshot.popupNestingMaxDepth).toBe(10);
         expect(snapshot.popupWidthPx).toBe(560);
@@ -1747,6 +1748,7 @@ describe('Hoshidicts reader preferences', () => {
         expect((await manager.getSnapshot()).lookupMode).toBe('shift');
         expect((await manager.getSnapshot()).activationKey).toBe('Shift');
         expect((await manager.getSnapshot()).sourceHighlightEnabled).toBe(false);
+        expect((await manager.getSnapshot()).onlyScanJapaneseText).toBe(true);
         expect((await manager.getSnapshot()).popupHideDelayMs).toBe(300);
         expect((await manager.getSnapshot()).showLookupCounts).toBe(true);
         expect((await manager.getSnapshot()).popupNestingMaxDepth).toBe(10);
@@ -1775,12 +1777,14 @@ describe('Hoshidicts reader preferences', () => {
             false,
             720,
             520,
-            'girlypop'
+            'girlypop',
+            false
         );
 
         expect(snapshot.lookupMode).toBe('hover');
         expect(snapshot.activationKey).toBe('F8');
         expect(snapshot.sourceHighlightEnabled).toBe(true);
+        expect(snapshot.onlyScanJapaneseText).toBe(false);
         expect(snapshot.popupHideDelayMs).toBe(850);
         expect(snapshot.showLookupCounts).toBe(false);
         expect(snapshot.popupNestingMaxDepth).toBe(12);
@@ -1796,6 +1800,7 @@ describe('Hoshidicts reader preferences', () => {
         expect(readManifest(baseDir).lookupMode).toBe('hover');
         expect(readManifest(baseDir).activationKey).toBe('F8');
         expect(readManifest(baseDir).sourceHighlightEnabled).toBe(true);
+        expect(readManifest(baseDir).onlyScanJapaneseText).toBe(false);
         expect(readManifest(baseDir).popupHideDelayMs).toBe(850);
         expect(readManifest(baseDir).showLookupCounts).toBe(false);
         expect(readManifest(baseDir).popupNestingMaxDepth).toBe(12);
@@ -1813,6 +1818,7 @@ describe('Hoshidicts reader preferences', () => {
         expect((await reloaded.getSnapshot()).lookupMode).toBe('hover');
         expect((await reloaded.getSnapshot()).activationKey).toBe('F8');
         expect((await reloaded.getSnapshot()).sourceHighlightEnabled).toBe(true);
+        expect((await reloaded.getSnapshot()).onlyScanJapaneseText).toBe(false);
         expect((await reloaded.getSnapshot()).popupHideDelayMs).toBe(850);
         expect((await reloaded.getSnapshot()).showLookupCounts).toBe(false);
         expect((await reloaded.getSnapshot()).popupNestingMaxDepth).toBe(12);
@@ -1830,6 +1836,7 @@ describe('Hoshidicts reader preferences', () => {
         expect(shifted.lookupMode).toBe('shift');
         expect(shifted.activationKey).toBe('F8');
         expect(shifted.sourceHighlightEnabled).toBe(true);
+        expect(shifted.onlyScanJapaneseText).toBe(false);
         expect(shifted.showLookupCounts).toBe(false);
         expect(readManifest(baseDir).showLookupCounts).toBe(false);
         expect(shifted.popupNestingMaxDepth).toBe(12);

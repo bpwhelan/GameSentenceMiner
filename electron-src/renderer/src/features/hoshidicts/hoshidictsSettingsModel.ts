@@ -7,6 +7,7 @@ import {
   DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
   DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
   DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
+  DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
   DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
   DEFAULT_HOSHIDICTS_THEME,
   HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
@@ -285,6 +286,7 @@ const DEFAULT_STATE: HoshidictsDesktopSnapshot = {
   lookupMode: "shift",
   activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   sourceHighlightEnabled: DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
+  onlyScanJapaneseText: DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
   popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   showLookupCounts: true,
   definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
@@ -712,6 +714,8 @@ export function normalizeHoshidictsDesktopState(
       ? candidate.activationKey
       : DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
     sourceHighlightEnabled: candidate.sourceHighlightEnabled === true,
+    onlyScanJapaneseText:
+      candidate.onlyScanJapaneseText !== false,
     popupHideDelayMs,
     showLookupCounts: candidate.showLookupCounts !== false,
     definitionBlur: normalizeDefinitionBlur(candidate.definitionBlur),

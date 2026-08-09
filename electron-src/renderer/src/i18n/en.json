@@ -644,6 +644,8 @@
         "resetKey": "Reset to Shift",
         "sourceHighlight": "Highlight looked-up word",
         "sourceHighlightHint": "Show a yellow highlight over the source text used for the lookup.",
+        "onlyScanJapaneseText": "Only scan text containing Japanese characters",
+        "onlyScanJapaneseTextHint": "Automatic hover ignores text without kana or kanji. Hold the activation key to deliberately look up other text.",
         "hideDelay": "Popup hide delay",
         "hideDelayHint": "Keeps the popup reachable when moving from the word into its definitions.",
         "showLookupCounts": "Show seen and lookup counts",

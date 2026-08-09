@@ -637,6 +637,8 @@
         "resetKey": "Shiftに戻す",
         "sourceHighlight": "検索語をハイライト",
         "sourceHighlightHint": "検索に使われた元のテキストを黄色でハイライトします。",
+        "onlyScanJapaneseText": "日本語の文字を含むテキストのみスキャン",
+        "onlyScanJapaneseTextHint": "自動ホバーでは、かな・漢字を含まないテキストを無視します。起動キーを押している間は他のテキストも検索できます。",
         "hideDelay": "ポップアップを閉じるまでの時間",
         "hideDelayHint": "単語から定義へカーソルを移動するときもポップアップを操作できます。",
         "showLookupCounts": "既出回数と検索回数を表示",

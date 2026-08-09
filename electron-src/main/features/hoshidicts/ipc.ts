@@ -74,6 +74,7 @@ export interface HoshidictsIPCDependencies {
     getOverlayLookupModeAtLaunch: () => HoshidictsLookupMode | null;
     getOverlayActivationKeyAtLaunch: () => HoshidictsActivationKey | null;
     getOverlaySourceHighlightEnabledAtLaunch: () => boolean | null;
+    getOverlayOnlyScanJapaneseTextAtLaunch: () => boolean | null;
     getOverlayPopupHideDelayAtLaunch: () => number | null;
     getOverlayShowLookupCountsAtLaunch: () => boolean | null;
     getOverlayAudioProfileRestartRequired: () => boolean;
@@ -171,6 +172,8 @@ function readerPreferencesMatchOverlay(
         deps.getOverlayActivationKeyAtLaunch() === preferences.activationKey &&
         deps.getOverlaySourceHighlightEnabledAtLaunch() ===
             preferences.sourceHighlightEnabled &&
+        deps.getOverlayOnlyScanJapaneseTextAtLaunch() ===
+            preferences.onlyScanJapaneseText &&
         deps.getOverlayPopupHideDelayAtLaunch() ===
             preferences.popupHideDelayMs &&
         deps.getOverlayShowLookupCountsAtLaunch() ===
@@ -300,6 +303,8 @@ function withDesktopState(
     const activationKeyAtLaunch = deps.getOverlayActivationKeyAtLaunch();
     const sourceHighlightEnabledAtLaunch =
         deps.getOverlaySourceHighlightEnabledAtLaunch();
+    const onlyScanJapaneseTextAtLaunch =
+        deps.getOverlayOnlyScanJapaneseTextAtLaunch();
     const popupHideDelayAtLaunch = deps.getOverlayPopupHideDelayAtLaunch();
     const showLookupCountsAtLaunch =
         deps.getOverlayShowLookupCountsAtLaunch();
@@ -329,6 +334,10 @@ function withDesktopState(
                         sourceHighlightEnabledAtLaunch !== null &&
                         sourceHighlightEnabledAtLaunch !==
                             snapshot.sourceHighlightEnabled) ||
+                    (effectiveEnabled &&
+                        onlyScanJapaneseTextAtLaunch !== null &&
+                        onlyScanJapaneseTextAtLaunch !==
+                            snapshot.onlyScanJapaneseText) ||
                     (effectiveEnabled &&
                         popupHideDelayAtLaunch !== null &&
                         popupHideDelayAtLaunch !== snapshot.popupHideDelayMs) ||
@@ -667,7 +676,8 @@ export function registerHoshidictsIPC(
                     reader.showLookupCounts,
                     reader.popupWidthPx,
                     reader.popupHeightPx,
-                    reader.theme
+                    reader.theme,
+                    reader.onlyScanJapaneseText
                 );
             }
             await applyReaderSnapshot(state, deps);
@@ -989,6 +999,7 @@ export function registerHoshidictsIPC(
                 !isLookupMode(value.lookupMode) ||
                 !isHoshidictsActivationKey(value.activationKey) ||
                 typeof value.sourceHighlightEnabled !== 'boolean' ||
+                typeof value.onlyScanJapaneseText !== 'boolean' ||
                 typeof value.showLookupCounts !== 'boolean' ||
                 !Number.isInteger(value.popupHideDelayMs) ||
                 (value.popupHideDelayMs as number) < 0 ||
@@ -1023,6 +1034,8 @@ export function registerHoshidictsIPC(
                         activationKey: value.activationKey as HoshidictsActivationKey,
                         sourceHighlightEnabled:
                             value.sourceHighlightEnabled as boolean,
+                        onlyScanJapaneseText:
+                            value.onlyScanJapaneseText as boolean,
                         popupHideDelayMs: value.popupHideDelayMs as number,
                         showLookupCounts: value.showLookupCounts as boolean,
                         popupNestingMaxDepth:
@@ -1044,7 +1057,8 @@ export function registerHoshidictsIPC(
                         requestPreferences.showLookupCounts,
                         requestPreferences.popupWidthPx,
                         requestPreferences.popupHeightPx,
-                        requestPreferences.theme
+                        requestPreferences.theme,
+                        requestPreferences.onlyScanJapaneseText
                     );
                     const preferences: HoshidictsReaderPreferences = {
                         ...hoshidictsReaderPreferencesFromSnapshot(state),

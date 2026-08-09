@@ -12,6 +12,7 @@ const harness = vi.hoisted(() => ({
     configureLookupModeProvider: vi.fn(),
     configureActivationKeyProvider: vi.fn(),
     configureSourceHighlightProvider: vi.fn(),
+    configureOnlyScanJapaneseTextProvider: vi.fn(),
     configurePopupHideDelayProvider: vi.fn(),
     configureShowLookupCountsProvider: vi.fn(),
     configureCustomSyncProvider: vi.fn(),
@@ -57,6 +58,7 @@ const harness = vi.hoisted(() => ({
         lookupMode: 'hover',
         activationKey: 'F8',
         sourceHighlightEnabled: true,
+        onlyScanJapaneseText: true,
         popupHideDelayMs: 850,
         showLookupCounts: false,
         popupNestingMaxDepth: 4,
@@ -113,6 +115,8 @@ vi.mock('../../ui/front.js', () => ({
         harness.configureActivationKeyProvider,
     configureHoshidictsSourceHighlightProvider:
         harness.configureSourceHighlightProvider,
+    configureHoshidictsOnlyScanJapaneseTextProvider:
+        harness.configureOnlyScanJapaneseTextProvider,
     configureHoshidictsPopupHideDelayProvider:
         harness.configurePopupHideDelayProvider,
     configureHoshidictsShowLookupCountsProvider:
@@ -131,6 +135,7 @@ vi.mock('../../ui/front.js', () => ({
     getOverlayHoshidictsLookupModeAtLaunch: () => 'shift',
     getOverlayHoshidictsActivationKeyAtLaunch: () => 'Shift',
     getOverlayHoshidictsSourceHighlightEnabledAtLaunch: () => false,
+    getOverlayHoshidictsOnlyScanJapaneseTextAtLaunch: () => true,
     getOverlayHoshidictsPopupHideDelayAtLaunch: () => 300,
     getOverlayHoshidictsShowLookupCountsAtLaunch: () => true,
     getOverlayHoshidictsAudioProfileRestartRequired: () => false,
@@ -184,6 +189,7 @@ describe('Hoshidicts feature registration', () => {
         harness.configureLookupModeProvider.mockReset();
         harness.configureActivationKeyProvider.mockReset();
         harness.configureSourceHighlightProvider.mockReset();
+        harness.configureOnlyScanJapaneseTextProvider.mockReset();
         harness.configurePopupHideDelayProvider.mockReset();
         harness.configureShowLookupCountsProvider.mockReset();
         harness.configureCustomSyncProvider.mockReset();
@@ -224,6 +230,7 @@ describe('Hoshidicts feature registration', () => {
                 lookupMode: 'hover',
                 activationKey: 'F8',
                 sourceHighlightEnabled: true,
+                onlyScanJapaneseText: true,
                 popupHideDelayMs: 850,
                 showLookupCounts: false,
                 popupNestingMaxDepth: 4,
@@ -239,6 +246,7 @@ describe('Hoshidicts feature registration', () => {
                 lookupMode: 'hover',
                 activationKey: 'F8',
                 sourceHighlightEnabled: true,
+                onlyScanJapaneseText: true,
                 popupHideDelayMs: 850,
                 showLookupCounts: false,
                 popupNestingMaxDepth: 4,
@@ -253,6 +261,7 @@ describe('Hoshidicts feature registration', () => {
             lookupMode: 'hover',
             activationKey: 'F8',
             sourceHighlightEnabled: true,
+            onlyScanJapaneseText: true,
             popupHideDelayMs: 850,
             showLookupCounts: false,
             popupNestingMaxDepth: 4,
@@ -288,6 +297,7 @@ describe('Hoshidicts feature registration', () => {
                     lookupMode: 'hover',
                     activationKey: 'F8',
                     sourceHighlightEnabled: true,
+                    onlyScanJapaneseText: true,
                     popupHideDelayMs: 850,
                     showLookupCounts: false,
                     popupNestingMaxDepth: 4,

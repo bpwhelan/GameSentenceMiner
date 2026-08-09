@@ -161,6 +161,7 @@ export function isHoshidictsActivationKey(
 }
 export const DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS = 300;
 export const DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED = false;
+export const DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT = true;
 export const MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS = 5000;
 export const DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX = 560;
 export const DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX = 420;
@@ -492,6 +493,7 @@ export interface HoshidictsReaderPreferencesRequest {
     lookupMode: HoshidictsLookupMode;
     activationKey: HoshidictsActivationKey;
     sourceHighlightEnabled: boolean;
+    onlyScanJapaneseText: boolean;
     popupHideDelayMs: number;
     showLookupCounts: boolean;
     popupNestingMaxDepth: number;
@@ -696,6 +698,7 @@ export interface HoshidictsManagerSnapshot {
     lookupMode: HoshidictsLookupMode;
     activationKey: HoshidictsActivationKey;
     sourceHighlightEnabled: boolean;
+    onlyScanJapaneseText: boolean;
     popupHideDelayMs: number;
     showLookupCounts: boolean;
     popupNestingMaxDepth: number;
@@ -721,6 +724,7 @@ export function hoshidictsReaderPreferencesFromSnapshot(
         lookupMode: snapshot.lookupMode,
         activationKey: snapshot.activationKey,
         sourceHighlightEnabled: snapshot.sourceHighlightEnabled,
+        onlyScanJapaneseText: snapshot.onlyScanJapaneseText,
         popupHideDelayMs: snapshot.popupHideDelayMs,
         showLookupCounts: snapshot.showLookupCounts,
         popupNestingMaxDepth: snapshot.popupNestingMaxDepth,

@@ -660,6 +660,7 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
     setLookupMode,
     setActivationKey,
     setSourceHighlightEnabled,
+    setOnlyScanJapaneseText,
     setPopupHideDelayMs,
     setPopupWidthPx,
     setPopupHeightPx,
@@ -796,6 +797,26 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
           disabled={preferencesBusy}
           onChange={setActivationKey}
         />
+
+        <label className="hoshidicts-reader-japanese-only">
+          <input
+            id="hoshidicts-only-scan-japanese-text"
+            type="checkbox"
+            checked={readerDraft.onlyScanJapaneseText}
+            disabled={preferencesBusy}
+            onChange={(event) =>
+              setOnlyScanJapaneseText(event.currentTarget.checked)
+            }
+          />
+          <span>
+            <strong>
+              {t("settings.hoshidicts.reader.onlyScanJapaneseText")}
+            </strong>
+            <small>
+              {t("settings.hoshidicts.reader.onlyScanJapaneseTextHint")}
+            </small>
+          </span>
+        </label>
 
         <div className="hoshidicts-reader-appearance">
           <div className="hoshidicts-reader-appearance__heading">

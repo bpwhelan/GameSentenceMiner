@@ -1147,6 +1147,7 @@ describe("Hoshidicts safe popup rendering", () => {
       lookupMode: "hover",
       activationKey: "F9",
       sourceHighlightEnabled: true,
+      onlyScanJapaneseText: false,
       popupHideDelayMs: 800,
       showLookupCounts: false,
       popupNestingMaxDepth: 3,
@@ -1195,6 +1196,7 @@ describe("Hoshidicts safe popup rendering", () => {
       lookupMode: "hover",
       activationKey: "F9",
       sourceHighlightEnabled: true,
+      onlyScanJapaneseText: true,
       popupHideDelayMs: 800,
       showLookupCounts: true,
       popupNestingMaxDepth: 3,
@@ -1337,7 +1339,8 @@ describe("Hoshidicts safe popup rendering", () => {
       theme: "cyberpunk",
       dictionaryPresentation: [],
       dictionaryTabGroups: [],
-      sourceHighlightEnabled: true
+      sourceHighlightEnabled: true,
+      onlyScanJapaneseText: true
     });
 
     configured.ipcListeners.get("hoshidicts-activation-key-state")?.({}, true);
@@ -3926,6 +3929,64 @@ describe("Hoshidicts Shift-hover scanner", () => {
     reader.destroy();
   });
 
+  it("limits Japanese-only filtering to automatic hover scans", async () => {
+    const harness = createReaderHarness({
+      lookupMode: "hover",
+      onlyScanJapaneseText: true
+    });
+    harness.first.textContent = "hello";
+    harness.dom.window.document.getElementById("second")!.textContent = " world";
+
+    harness.first.dispatchEvent(new harness.dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    expect(
+      harness.socket.sent.map((message) => JSON.parse(message).type)
+    ).not.toContain("hoshidicts_lookup");
+
+    harness.first.dispatchEvent(new harness.dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      shiftKey: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    expect(JSON.parse(harness.socket.sent.at(-1)!).type).toBe(
+      "hoshidicts_lookup"
+    );
+
+    harness.reader.updatePreferences({ onlyScanJapaneseText: false });
+    harness.first.dispatchEvent(new harness.dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    expect(JSON.parse(harness.socket.sent.at(-1)!).text).toBe("hello worl");
+  });
+
+  it("lets deliberate activation-key lookup scan non-Japanese text", async () => {
+    const harness = createReaderHarness({
+      lookupMode: "shift",
+      onlyScanJapaneseText: true
+    });
+    harness.first.textContent = "hello";
+    harness.dom.window.document.getElementById("second")!.textContent = " world";
+
+    harness.first.dispatchEvent(new harness.dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      shiftKey: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+
+    expect(JSON.parse(harness.socket.sent.at(-1)!).text).toBe("hello worl");
+  });
+
   it("starts an unmodified hover lookup when live preferences disable Shift", async () => {
     vi.useFakeTimers();
     const dom = createDom();
@@ -5819,6 +5880,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       },
       activationKey: "Shift",
       sourceHighlightEnabled: false,
+      onlyScanJapaneseText: true,
       popupHideDelayMs: 300,
       showLookupCounts: true,
       popupNestingMaxDepth: 10,
@@ -5853,6 +5915,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
         revealDelayMs: 1000
       },
       sourceHighlightEnabled: true,
+      onlyScanJapaneseText: true,
       popupHideDelayMs: 5000,
       showLookupCounts: true,
       popupNestingMaxDepth: 2,
@@ -5872,6 +5935,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
         revealDelayMs: 1000
       },
       sourceHighlightEnabled: true,
+      onlyScanJapaneseText: true,
       popupHideDelayMs: 0,
       showLookupCounts: true,
       popupNestingMaxDepth: 2,
@@ -5892,6 +5956,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
           revealDelayMs: 1000
         },
         sourceHighlightEnabled: true,
+        onlyScanJapaneseText: true,
         popupHideDelayMs: 0,
         showLookupCounts: true,
         popupNestingMaxDepth: 2,

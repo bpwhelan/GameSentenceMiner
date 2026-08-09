@@ -43,6 +43,7 @@ import {
     DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
     DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
     DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
+    DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
     DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
     DEFAULT_HOSHIDICTS_THEME,
     isHoshidictsActivationKey,
@@ -128,6 +129,7 @@ interface PersistedManifest {
     lookupMode: HoshidictsLookupMode;
     activationKey: HoshidictsActivationKey;
     sourceHighlightEnabled: boolean;
+    onlyScanJapaneseText: boolean;
     popupHideDelayMs: number;
     showLookupCounts: boolean;
     popupNestingMaxDepth: number;
@@ -372,6 +374,7 @@ function emptyManifest(): PersistedManifest {
         activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
         sourceHighlightEnabled:
             DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
+        onlyScanJapaneseText: DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
         popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
         showLookupCounts: true,
         popupNestingMaxDepth: DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
@@ -2413,7 +2416,11 @@ export class HoshidictsManager {
             snapshot.sourceHighlightEnabled,
             snapshot.popupNestingMaxDepth,
             undefined,
-            snapshot.showLookupCounts
+            snapshot.showLookupCounts,
+            undefined,
+            undefined,
+            undefined,
+            snapshot.onlyScanJapaneseText
         );
     }
 
@@ -2429,7 +2436,8 @@ export class HoshidictsManager {
         showLookupCounts = true,
         popupWidthPx?: number,
         popupHeightPx?: number,
-        theme?: HoshidictsTheme
+        theme?: HoshidictsTheme,
+        onlyScanJapaneseText = DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT
     ): Promise<HoshidictsManagerSnapshot> {
         if (lookupMode !== 'shift' && lookupMode !== 'hover') {
             throw new Error('Hoshidicts lookup mode is invalid.');
@@ -2447,6 +2455,11 @@ export class HoshidictsManager {
         if (typeof sourceHighlightEnabled !== 'boolean') {
             throw new Error(
                 'Hoshidicts source highlight preference is invalid.'
+            );
+        }
+        if (typeof onlyScanJapaneseText !== 'boolean') {
+            throw new Error(
+                'Hoshidicts Japanese-only scan preference is invalid.'
             );
         }
         if (typeof showLookupCounts !== 'boolean') {
@@ -2529,6 +2542,7 @@ export class HoshidictsManager {
                 manifest.popupHideDelayMs !== popupHideDelayMs ||
                 manifest.activationKey !== activationKey ||
                 manifest.sourceHighlightEnabled !== sourceHighlightEnabled ||
+                manifest.onlyScanJapaneseText !== onlyScanJapaneseText ||
                 manifest.showLookupCounts !== showLookupCounts ||
                 manifest.popupNestingMaxDepth !== popupNestingMaxDepth ||
                 manifest.popupWidthPx !== effectivePopupWidthPx ||
@@ -2544,6 +2558,7 @@ export class HoshidictsManager {
                     lookupMode,
                     activationKey,
                     sourceHighlightEnabled,
+                    onlyScanJapaneseText,
                     popupHideDelayMs,
                     showLookupCounts,
                     popupNestingMaxDepth,
@@ -2870,6 +2885,7 @@ export class HoshidictsManager {
             lookupMode: manifest.lookupMode,
             activationKey: manifest.activationKey,
             sourceHighlightEnabled: manifest.sourceHighlightEnabled,
+            onlyScanJapaneseText: manifest.onlyScanJapaneseText,
             popupHideDelayMs: manifest.popupHideDelayMs,
             showLookupCounts: manifest.showLookupCounts,
             popupNestingMaxDepth: manifest.popupNestingMaxDepth,
@@ -3231,6 +3247,8 @@ export class HoshidictsManager {
                 ? parsed.activationKey
                 : DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
             sourceHighlightEnabled: parsed.sourceHighlightEnabled === true,
+            onlyScanJapaneseText:
+                parsed.onlyScanJapaneseText !== false,
             popupHideDelayMs: normalizePopupHideDelay(parsed.popupHideDelayMs),
             showLookupCounts: parsed.showLookupCounts !== false,
             popupNestingMaxDepth: normalizePopupNestingMaxDepth(
@@ -3267,6 +3285,8 @@ export class HoshidictsManager {
                 ? parsed.activationKey
                 : DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
             sourceHighlightEnabled: parsed.sourceHighlightEnabled === true,
+            onlyScanJapaneseText:
+                parsed.onlyScanJapaneseText !== false,
             popupHideDelayMs: normalizePopupHideDelay(parsed.popupHideDelayMs),
             showLookupCounts: parsed.showLookupCounts !== false,
             popupNestingMaxDepth: normalizePopupNestingMaxDepth(

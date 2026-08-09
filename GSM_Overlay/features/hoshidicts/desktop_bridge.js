@@ -216,6 +216,8 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     : normalizeHoshidictsActivationKey(requestedActivationKey, null);
   const sourceHighlightEnabled =
     preferences && preferences.sourceHighlightEnabled;
+  const onlyScanJapaneseText =
+    preferences && preferences.onlyScanJapaneseText;
   const popupHideDelayMs = preferences && preferences.popupHideDelayMs;
   const popupNestingMaxDepth =
     preferences && preferences.popupNestingMaxDepth;
@@ -232,6 +234,10 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     (lookupMode !== "shift" && lookupMode !== "hover") ||
     activationKey === null ||
     typeof sourceHighlightEnabled !== "boolean" ||
+    (
+      onlyScanJapaneseText !== undefined &&
+      typeof onlyScanJapaneseText !== "boolean"
+    ) ||
     !Number.isInteger(popupHideDelayMs) ||
     popupHideDelayMs < 0 ||
     popupHideDelayMs > 5000 ||
@@ -251,6 +257,7 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     lookupMode,
     activationKey,
     sourceHighlightEnabled,
+    onlyScanJapaneseText: onlyScanJapaneseText !== false,
     popupHideDelayMs,
     popupNestingMaxDepth,
     popupWidthPx,

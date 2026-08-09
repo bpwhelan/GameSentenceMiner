@@ -5,6 +5,7 @@ import {
     configureHoshidictsActivationKeyProvider,
     configureHoshidictsDefinitionBlurProvider,
     configureHoshidictsLookupModeProvider,
+    configureHoshidictsOnlyScanJapaneseTextProvider,
     configureHoshidictsPopupHideDelayProvider,
     configureHoshidictsPopupHeightProvider,
     configureHoshidictsPopupNestingMaxDepthProvider,
@@ -17,6 +18,7 @@ import {
     getOverlayHoshidictsActivationKeyAtLaunch,
     getOverlayHoshidictsDefinitionBlurAtLaunch,
     getOverlayHoshidictsLookupModeAtLaunch,
+    getOverlayHoshidictsOnlyScanJapaneseTextAtLaunch,
     getOverlayHoshidictsPopupHideDelayAtLaunch,
     getOverlayHoshidictsPopupHeightAtLaunch,
     getOverlayHoshidictsPopupNestingMaxDepthAtLaunch,
@@ -184,6 +186,8 @@ export function registerHoshidictsFeature(deps: {
             getOverlayHoshidictsActivationKeyAtLaunch,
         getOverlaySourceHighlightEnabledAtLaunch:
             getOverlayHoshidictsSourceHighlightEnabledAtLaunch,
+        getOverlayOnlyScanJapaneseTextAtLaunch:
+            getOverlayHoshidictsOnlyScanJapaneseTextAtLaunch,
         getOverlayPopupHideDelayAtLaunch:
             getOverlayHoshidictsPopupHideDelayAtLaunch,
         getOverlayShowLookupCountsAtLaunch:
@@ -225,6 +229,11 @@ export async function startHoshidictsManager(): Promise<void> {
         async () =>
             (await getHoshidictsManager().getSnapshot())
                 .sourceHighlightEnabled
+    );
+    configureHoshidictsOnlyScanJapaneseTextProvider(
+        async () =>
+            (await getHoshidictsManager().getSnapshot())
+                .onlyScanJapaneseText
     );
     configureHoshidictsPopupHideDelayProvider(
         async () => (await manager.getSnapshot()).popupHideDelayMs

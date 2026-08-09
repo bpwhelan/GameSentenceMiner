@@ -105,6 +105,7 @@
   ]);
   const DEFAULT_ACTIVATION_KEY = "Shift";
   const DEFAULT_SOURCE_HIGHLIGHT_ENABLED = false;
+  const DEFAULT_ONLY_SCAN_JAPANESE_TEXT = true;
   const DEFAULT_POPUP_NESTING_MAX_DEPTH = 10;
   const MAX_POPUP_HIDE_DELAY_MS = 5 * 1000;
   const DEFAULT_DEFINITION_BLUR_PREFERENCES = Object.freeze({
@@ -156,7 +157,7 @@
   const MAX_DICTIONARY_PRESENTATION_TITLE_LENGTH = 4096;
   const SOURCE_HIGHLIGHT_NAME = "gsm-hoshidicts-match";
   const JAPANESE_TEXT_PATTERN =
-    /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u{20000}-\u{2fa1f}]/u;
+    /[\u3005\u3007\u303b\u3040-\u30ff\u31f0-\u31ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff66-\uff9f\u{20000}-\u{2fa1f}]/u;
   const HAN_CHARACTER_PATTERN =
     /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u{20000}-\u{2fa1f}]/u;
   const KANJI_SEGMENT_PATTERN =
@@ -1457,7 +1458,8 @@
     eventTarget,
     clientX,
     clientY,
-    sourceDepth
+    sourceDepth,
+    requireJapaneseText = true
   ) {
     if (!(eventTarget instanceof windowRef.Element)) {
       return null;
@@ -1483,7 +1485,7 @@
       return null;
     }
     const query = sliceCodePoints(sentence, matchOffset, LOOKUP_SCAN_LENGTH);
-    if (!query || !JAPANESE_TEXT_PATTERN.test(query)) {
+    if (!query || (requireJapaneseText && !JAPANESE_TEXT_PATTERN.test(query))) {
       return null;
     }
     const firstCodePointLength = Array.from(query)[0].length;
@@ -1504,7 +1506,14 @@
     };
   }
 
-  function resolveLookupCandidate(windowRef, documentRef, eventTarget, clientX, clientY) {
+  function resolveLookupCandidate(
+    windowRef,
+    documentRef,
+    eventTarget,
+    clientX,
+    clientY,
+    requireJapaneseText = true
+  ) {
     if (!(eventTarget instanceof windowRef.Element)) {
       return null;
     }
@@ -1525,7 +1534,7 @@
         sentence += boxText;
       }
       const query = sliceCodePoints(sentence, matchOffset, LOOKUP_SCAN_LENGTH);
-      if (!query || !JAPANESE_TEXT_PATTERN.test(query)) {
+      if (!query || (requireJapaneseText && !JAPANESE_TEXT_PATTERN.test(query))) {
         return null;
       }
       return {
@@ -1555,7 +1564,7 @@
       matchOffset = prefixRange.toString().length;
     }
     const query = sliceCodePoints(sentence, matchOffset, LOOKUP_SCAN_LENGTH);
-    if (!query || !JAPANESE_TEXT_PATTERN.test(query)) {
+    if (!query || (requireJapaneseText && !JAPANESE_TEXT_PATTERN.test(query))) {
       return null;
     }
     return {
@@ -2005,6 +2014,9 @@
       lookupMode: options.lookupMode === "hover" ? "hover" : "shift",
       activationKey: normalizeActivationKey(options.activationKey),
       sourceHighlightEnabled: options.sourceHighlightEnabled === true,
+      onlyScanJapaneseText: options.onlyScanJapaneseText === undefined
+        ? DEFAULT_ONLY_SCAN_JAPANESE_TEXT
+        : options.onlyScanJapaneseText !== false,
       popupHideDelayMs: normalizePopupHideDelay(options.popupHideDelayMs),
       showLookupCounts: options.showLookupCounts !== false,
       definitionBlur: normalizeDefinitionBlurPreferences(options.definitionBlur),
@@ -4392,6 +4404,8 @@
         scheduleHide("activation-key-not-held");
         return;
       }
+      const requireJapaneseText =
+        preferences.onlyScanJapaneseText && !modifierActive;
 
       if (popupDepth !== null) {
         const targetDepth = popupDepth + 1;
@@ -4407,7 +4421,8 @@
           pointer.target,
           pointer.clientX,
           pointer.clientY,
-          popupDepth
+          popupDepth,
+          requireJapaneseText
         );
         if (candidate) {
           candidateMissLogged = false;
@@ -4425,7 +4440,8 @@
         documentRef,
         pointer.target,
         pointer.clientX,
-        pointer.clientY
+        pointer.clientY,
+        requireJapaneseText
       );
       if (candidate) {
         candidateMissLogged = false;
@@ -4507,6 +4523,7 @@
       const definitionBlurWasEnabled = preferences.definitionBlur.enabled;
       const previousActivationKey = preferences.activationKey;
       const previousSourceHighlightEnabled = preferences.sourceHighlightEnabled;
+      const previousOnlyScanJapaneseText = preferences.onlyScanJapaneseText;
       const previousShowLookupCounts = preferences.showLookupCounts;
       const previousMaxDepth = preferences.popupNestingMaxDepth;
       const previousPopupWidthPx = preferences.popupWidthPx;
@@ -4530,6 +4547,12 @@
         )
           ? nextPreferences.sourceHighlightEnabled === true
           : preferences.sourceHighlightEnabled,
+        onlyScanJapaneseText: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "onlyScanJapaneseText"
+        )
+          ? nextPreferences.onlyScanJapaneseText !== false
+          : preferences.onlyScanJapaneseText,
         popupHideDelayMs: Object.prototype.hasOwnProperty.call(
           nextPreferences,
           "popupHideDelayMs"
@@ -4653,7 +4676,11 @@
           }
         }
       }
-      if (previousMode !== preferences.lookupMode || activationKeyChanged) {
+      if (
+        previousMode !== preferences.lookupMode ||
+        activationKeyChanged ||
+        previousOnlyScanJapaneseText !== preferences.onlyScanJapaneseText
+      ) {
         activationRequirementLogged = false;
         if (requiresActivationKey() && !isActivationKeyPressed()) {
           invalidateLookup();
@@ -4760,6 +4787,7 @@
       requiresShift: requiresActivationKey(),
       activationKey: preferences.activationKey,
       sourceHighlightEnabled: preferences.sourceHighlightEnabled,
+      onlyScanJapaneseText: preferences.onlyScanJapaneseText,
       popupHideDelayMs: preferences.popupHideDelayMs,
       showLookupCounts: preferences.showLookupCounts,
       popupNestingMaxDepth: preferences.popupNestingMaxDepth,
