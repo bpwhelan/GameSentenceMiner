@@ -1,7 +1,12 @@
+import { spawnSync } from 'node:child_process';
+import { once } from 'node:events';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { Readable } from 'node:stream';
+import { finished } from 'node:stream/promises';
+import { getHeapStatistics } from 'node:v8';
+import extract from 'extract-zip';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
@@ -557,18 +562,29 @@ describe('parseYomitanDictionaryBackup', () => {
                                     title: 'Test',
                                     revision: '1',
                                     sourceLanguage: 'ja',
+                                    styles: '.entry { color: red; }',
                                 },
                             ],
                         },
                         {
                             tableName: 'terms',
                             inbound: true,
+                            rows: Array.from({ length: 1_001 }, (_, index) => ({
+                                dictionary: 'Test',
+                                expression: `猫-${index}`,
+                                reading: 'ねこ',
+                                glossary: ['cat'],
+                            })),
+                        },
+                        {
+                            tableName: 'media',
+                            inbound: true,
                             rows: [
                                 {
                                     dictionary: 'Test',
-                                    expression: '猫',
-                                    reading: 'ねこ',
-                                    glossary: ['cat'],
+                                    path: 'images/cat.txt',
+                                    content:
+                                        Buffer.from('hello').toString('base64'),
                                 },
                             ],
                         },
@@ -580,11 +596,171 @@ describe('parseYomitanDictionaryBackup', () => {
         const prepared = await prepareYomitanDictionaryBackup(inputPath);
         const archivePath = prepared.dictionaries[0].archivePath;
         const temporaryRoot = path.dirname(archivePath);
-        expect(fs.readFileSync(archivePath).subarray(0, 2).toString()).toBe(
-            'PK'
-        );
-        await prepared.cleanup();
+        try {
+            expect(fs.readFileSync(archivePath).subarray(0, 2).toString()).toBe(
+                'PK'
+            );
+            const extractedPath = path.join(inputRoot, 'extracted');
+            await extract(archivePath, { dir: extractedPath });
+            const firstBank = JSON.parse(
+                fs.readFileSync(
+                    path.join(extractedPath, 'term_bank_1.json'),
+                    'utf8'
+                )
+            ) as unknown[][];
+            const secondBank = JSON.parse(
+                fs.readFileSync(
+                    path.join(extractedPath, 'term_bank_2.json'),
+                    'utf8'
+                )
+            ) as unknown[][];
+            expect(firstBank).toHaveLength(1_000);
+            expect(firstBank[0][0]).toBe('猫-0');
+            expect(firstBank[999][0]).toBe('猫-999');
+            expect(secondBank).toHaveLength(1);
+            expect(secondBank[0][0]).toBe('猫-1000');
+            expect(
+                fs.readFileSync(path.join(extractedPath, 'styles.css'), 'utf8')
+            ).toBe('.entry { color: red; }');
+            expect(
+                fs.readFileSync(
+                    path.join(extractedPath, 'images', 'cat.txt'),
+                    'utf8'
+                )
+            ).toBe('hello');
+        } finally {
+            await prepared.cleanup();
+        }
         expect(fs.existsSync(temporaryRoot)).toBe(false);
+    });
+
+    it('keeps interleaved dictionaries isolated across the spool handle limit', async () => {
+        const inputRoot = fs.mkdtempSync(
+            path.join(os.tmpdir(), 'gsm-yomitan-spool-limit-test-')
+        );
+        tempDirs.push(inputRoot);
+        const inputPath = path.join(inputRoot, 'dictionaries.json');
+        const titles = Array.from(
+            { length: 17 },
+            (_, index) => `Dictionary ${index + 1}`
+        );
+        fs.writeFileSync(
+            inputPath,
+            JSON.stringify({
+                formatName: 'dexie',
+                formatVersion: 1,
+                data: {
+                    databaseName: 'dict',
+                    data: [
+                        {
+                            tableName: 'dictionaries',
+                            inbound: true,
+                            rows: titles.map((title) => ({
+                                title,
+                                revision: '1',
+                            })),
+                        },
+                        {
+                            tableName: 'terms',
+                            inbound: true,
+                            rows: [0, 1].flatMap((pass) =>
+                                titles.map((title, index) => ({
+                                    dictionary: title,
+                                    expression: `${index + 1}-${pass + 1}`,
+                                    reading: '',
+                                    glossary: [`definition ${pass + 1}`],
+                                }))
+                            ),
+                        },
+                    ],
+                },
+            })
+        );
+
+        const prepared = await prepareYomitanDictionaryBackup(inputPath);
+        try {
+            expect(prepared.dictionaries).toHaveLength(17);
+            for (const dictionaryIndex of [0, 16]) {
+                const extractedPath = path.join(
+                    inputRoot,
+                    `extracted-${dictionaryIndex}`
+                );
+                await extract(prepared.dictionaries[dictionaryIndex].archivePath, {
+                    dir: extractedPath,
+                });
+                const bank = JSON.parse(
+                    fs.readFileSync(
+                        path.join(extractedPath, 'term_bank_1.json'),
+                        'utf8'
+                    )
+                ) as unknown[][];
+                expect(bank.map((entry) => entry[0])).toEqual([
+                    `${dictionaryIndex + 1}-1`,
+                    `${dictionaryIndex + 1}-2`,
+                ]);
+            }
+        } finally {
+            await prepared.cleanup();
+        }
+    });
+
+    it('splits bank files before they exceed the bounded byte size', async () => {
+        const inputRoot = fs.mkdtempSync(
+            path.join(os.tmpdir(), 'gsm-yomitan-bank-bytes-test-')
+        );
+        tempDirs.push(inputRoot);
+        const inputPath = path.join(inputRoot, 'dictionaries.json');
+        const glossary = 'x'.repeat(17 * 1024 * 1024);
+        fs.writeFileSync(
+            inputPath,
+            JSON.stringify({
+                formatName: 'dexie',
+                formatVersion: 1,
+                data: {
+                    databaseName: 'dict',
+                    data: [
+                        {
+                            tableName: 'dictionaries',
+                            inbound: true,
+                            rows: [{ title: 'Large rows', revision: '1' }],
+                        },
+                        {
+                            tableName: 'terms',
+                            inbound: true,
+                            rows: [0, 1].map((index) => ({
+                                dictionary: 'Large rows',
+                                expression: `entry-${index}`,
+                                reading: '',
+                                glossary: [`${glossary}-${index}`],
+                            })),
+                        },
+                    ],
+                },
+            })
+        );
+
+        const prepared = await prepareYomitanDictionaryBackup(inputPath);
+        try {
+            const extractedPath = path.join(inputRoot, 'extracted-bytes');
+            await extract(prepared.dictionaries[0].archivePath, {
+                dir: extractedPath,
+            });
+            const first = fs.statSync(
+                path.join(extractedPath, 'term_bank_1.json')
+            ).size;
+            const second = fs.statSync(
+                path.join(extractedPath, 'term_bank_2.json')
+            ).size;
+            expect(first).toBeGreaterThan(16 * 1024 * 1024);
+            expect(second).toBeGreaterThan(16 * 1024 * 1024);
+            expect(first).toBeLessThanOrEqual(32 * 1024 * 1024);
+            expect(second).toBeLessThanOrEqual(32 * 1024 * 1024);
+            expect(
+                fs.existsSync(path.join(extractedPath, 'term_bank_3.json'))
+            ).toBe(false);
+        } finally {
+            await prepared.cleanup();
+        }
     });
 
     it('reports each dictionary while preparing temporary ZIP archives', async () => {
@@ -638,17 +814,46 @@ describe('parseYomitanDictionaryBackup', () => {
             total: number;
             title: string;
         }> = [];
+        const consumed: Array<{
+            current: number;
+            total: number;
+            title: string;
+            archivePath: string;
+        }> = [];
 
         const prepared = await prepareYomitanDictionaryBackup(
             inputPath,
-            (update) => progress.push(update)
+            (update) => progress.push(update),
+            async (dictionary) => {
+                expect(fs.existsSync(dictionary.archivePath)).toBe(true);
+                consumed.push(dictionary);
+            }
         );
 
-        expect(progress).toEqual([
-            { current: 1, total: 2, title: 'Alpha' },
-            { current: 2, total: 2, title: 'Beta' },
-        ]);
-        await prepared.cleanup();
+        try {
+            expect(progress).toEqual([
+                { current: 1, total: 2, title: 'Alpha' },
+                { current: 2, total: 2, title: 'Beta' },
+            ]);
+            expect(
+                consumed.map(({ current, total, title }) => ({
+                    current,
+                    total,
+                    title,
+                }))
+            ).toEqual([
+                { current: 1, total: 2, title: 'Alpha' },
+                { current: 2, total: 2, title: 'Beta' },
+            ]);
+            expect(prepared.dictionaries).toEqual([]);
+            expect(
+                consumed.every(
+                    (dictionary) => !fs.existsSync(dictionary.archivePath)
+                )
+            ).toBe(true);
+        } finally {
+            await prepared.cleanup();
+        }
     });
 
     it('parses dictionary backups incrementally across input chunks', async () => {
@@ -688,6 +893,158 @@ describe('parseYomitanDictionaryBackup', () => {
             ['猫', 'ねこ', '', '', 0, ['cat'], -1, ''],
         ]);
     });
+
+    it('rejects source read errors instead of emitting an unhandled process error', async () => {
+        await expect(
+            parseYomitanDictionaryBackupStream(
+                () =>
+                    new Readable({
+                        read() {
+                            this.destroy(new Error('backup read failed'));
+                        },
+                    })
+            )
+        ).rejects.toThrow('backup read failed');
+    });
+
+    it('rejects a single oversized JSON value before V8 can retain it', async () => {
+        const createSource = (): Readable =>
+            Readable.from(
+                (function* (): Generator<string> {
+                    yield (
+                        '{"formatName":"dexie","formatVersion":1,"data":{' +
+                        '"databaseName":"dict","data":[' +
+                        '{"tableName":"dictionaries","inbound":true,"rows":[' +
+                        '{"title":"Large","revision":"1"}]},' +
+                        '{"tableName":"terms","inbound":true,"rows":[' +
+                        '{"dictionary":"Large","expression":"entry",' +
+                        '"reading":"","glossary":["'
+                    );
+                    const chunk = 'x'.repeat(8 * 1024);
+                    for (let index = 0; index <= 4_096; index += 1) {
+                        yield chunk;
+                    }
+                    yield '"]}]}]}}';
+                })()
+            );
+
+        await expect(
+            parseYomitanDictionaryBackupStream(createSource)
+        ).rejects.toThrow('exceeds the supported 32 MiB limit');
+    });
+
+    it(
+        'imports a Yomitan backup larger than its V8 heap without retaining all rows',
+        async () => {
+            const isLowHeapChild =
+                process.env.GSM_YOMITAN_LOW_HEAP_CHILD === '1';
+            if (!isLowHeapChild) {
+                const root = fs.mkdtempSync(
+                    path.join(os.tmpdir(), 'gsm-yomitan-low-heap-test-')
+                );
+                tempDirs.push(root);
+                const result = spawnSync(
+                    process.execPath,
+                    [
+                        path.resolve('node_modules/vitest/vitest.mjs'),
+                        'run',
+                        '--config',
+                        path.resolve('vitest.config.ts'),
+                        'electron-src/main/features/hoshidicts/yomitan_backup.test.ts',
+                        '--testNamePattern',
+                        'imports a Yomitan backup larger than its V8 heap without retaining all rows',
+                        '--pool=forks',
+                        '--maxWorkers=1',
+                        '--no-file-parallelism',
+                        '--execArgv=--max-old-space-size=96',
+                        '--testTimeout=180000',
+                        '--reporter=dot',
+                    ],
+                    {
+                        cwd: process.cwd(),
+                        env: {
+                            ...process.env,
+                            GSM_YOMITAN_LOW_HEAP_CHILD: '1',
+                            GSM_YOMITAN_LOW_HEAP_ROOT: root,
+                        },
+                        encoding: 'utf8',
+                        timeout: 210_000,
+                        maxBuffer: 4 * 1024 * 1024,
+                    }
+                );
+                expect(
+                    result.status,
+                    [
+                        `signal: ${result.signal ?? 'none'}`,
+                        result.error?.message ?? '',
+                        result.stdout,
+                        result.stderr,
+                    ].join('\n')
+                ).toBe(0);
+                return;
+            }
+
+            const childRoot = process.env.GSM_YOMITAN_LOW_HEAP_ROOT;
+            if (!childRoot) {
+                throw new Error('Missing low-heap test directory.');
+            }
+            fs.mkdirSync(childRoot, { recursive: true });
+            const inputPath = path.join(childRoot, 'large-dictionaries.json');
+            const output = fs.createWriteStream(inputPath);
+            let inputBytes = 0;
+            const write = async (value: string): Promise<void> => {
+                inputBytes += Buffer.byteLength(value);
+                if (!output.write(value)) {
+                    await once(output, 'drain');
+                }
+            };
+            await write(
+                '{"formatName":"dexie","formatVersion":1,"data":{' +
+                    '"databaseName":"dict","data":[' +
+                    '{"tableName":"dictionaries","inbound":true,"rows":[' +
+                    '{"title":"Large","revision":"1"}]},' +
+                    '{"tableName":"terms","inbound":true,"rows":['
+            );
+            const glossaryPadding = 'x'.repeat(8 * 1024);
+            const heapLimit = getHeapStatistics().heap_size_limit;
+            expect(heapLimit).toBeLessThan(256 * 1024 * 1024);
+            const targetInputBytes = heapLimit + 16 * 1024 * 1024;
+            for (let index = 0; inputBytes <= targetInputBytes; index += 1) {
+                if (index > 0) await write(',');
+                await write(
+                    JSON.stringify({
+                        dictionary: 'Large',
+                        expression: `entry-${index}`,
+                        reading: '',
+                        glossary: [`${glossaryPadding}-${index}`],
+                    })
+                );
+            }
+            await write(']}]}}');
+            output.end();
+            await finished(output);
+            expect(fs.statSync(inputPath).size).toBeGreaterThan(heapLimit);
+
+            const prepared = await prepareYomitanDictionaryBackup(inputPath);
+            try {
+                expect(prepared.dictionaries).toHaveLength(1);
+                const descriptor = fs.openSync(
+                    prepared.dictionaries[0].archivePath,
+                    'r'
+                );
+                try {
+                    const magic = Buffer.alloc(2);
+                    fs.readSync(descriptor, magic, 0, magic.length, 0);
+                    expect(magic.toString()).toBe('PK');
+                } finally {
+                    fs.closeSync(descriptor);
+                }
+            } finally {
+                await prepared.cleanup();
+            }
+        },
+        240_000
+    );
 
     it('prepares settings separately from dictionary backups', async () => {
         const inputRoot = fs.mkdtempSync(

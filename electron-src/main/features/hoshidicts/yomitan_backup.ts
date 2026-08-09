@@ -1,6 +1,7 @@
 import archiver from 'archiver';
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { Readable } from 'node:stream';
@@ -31,6 +32,21 @@ import { normalizeHoshidictsMiningProfile } from './profile.js';
 
 type JsonRecord = Record<string, unknown>;
 type BankEntry = unknown[];
+type BankKey = keyof YomitanDictionaryBanks;
+
+const BANK_FILES: Array<[BankKey, string]> = [
+    ['term', 'term_bank'],
+    ['termMeta', 'term_meta_bank'],
+    ['kanji', 'kanji_bank'],
+    ['kanjiMeta', 'kanji_meta_bank'],
+    ['tag', 'tag_bank'],
+];
+const MAX_BANK_ENTRIES = 1_000;
+const MAX_BANK_BYTES = 32 * 1024 * 1024;
+const MAX_JSON_VALUE_BYTES = 32 * 1024 * 1024;
+const MAX_OPEN_SPOOL_FILES = 16;
+const MAX_NATIVE_ZIP_BYTES = 0xffff_ffff;
+const MAX_NATIVE_MEDIA_PATH_BYTES = 0xffff;
 
 interface YomitanDictionaryBanks {
     term: BankEntry[];
@@ -38,6 +54,12 @@ interface YomitanDictionaryBanks {
     kanji: BankEntry[];
     kanjiMeta: BankEntry[];
     tag: BankEntry[];
+}
+
+interface YomitanDictionarySummary {
+    title: string;
+    index: JsonRecord;
+    styles: string;
 }
 
 export interface ParsedYomitanDictionary {
@@ -68,6 +90,13 @@ export interface YomitanDictionaryPreparationProgress {
     current: number;
     total: number;
     title: string;
+}
+
+export interface YomitanPreparedDictionary {
+    title: string;
+    archivePath: string;
+    current: number;
+    total: number;
 }
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -215,26 +244,152 @@ function mediaBuffer(value: unknown): Buffer | null {
     return null;
 }
 
+function parseDictionarySummary(
+    row: unknown,
+    inbound: boolean
+): YomitanDictionarySummary | null {
+    const summary = exportRowValue(row, inbound);
+    if (!isRecord(summary)) {
+        return null;
+    }
+    const title = stringValue(summary.title);
+    if (!title) {
+        return null;
+    }
+    return {
+        title,
+        index: dictionaryIndex(summary),
+        styles: stringValue(summary.styles),
+    };
+}
+
 function addDictionarySummary(
     dictionaries: Map<string, ParsedYomitanDictionary>,
     row: unknown,
     inbound: boolean
 ): void {
-    const summary = exportRowValue(row, inbound);
-    if (!isRecord(summary)) {
+    const summary = parseDictionarySummary(row, inbound);
+    if (!summary) {
         return;
     }
-    const title = stringValue(summary.title);
-    if (!title) {
-        return;
-    }
-    dictionaries.set(title, {
-        title,
-        index: dictionaryIndex(summary),
+    dictionaries.set(summary.title, {
+        ...summary,
         banks: emptyBanks(),
-        styles: stringValue(summary.styles),
         media: new Map(),
     });
+}
+
+type ParsedDictionaryRow =
+    | {
+          kind: 'bank';
+          dictionary: string;
+          bank: BankKey;
+          entry: BankEntry;
+      }
+    | {
+          kind: 'media';
+          dictionary: string;
+          mediaPath: string;
+          content: Buffer;
+      };
+
+function parseDictionaryRow(
+    tableName: string,
+    row: unknown,
+    inbound: boolean
+): ParsedDictionaryRow | null {
+    const item = exportRowValue(row, inbound);
+    if (!isRecord(item)) {
+        return null;
+    }
+    const dictionary = stringValue(item.dictionary);
+    if (!dictionary) {
+        return null;
+    }
+    switch (tableName) {
+        case 'terms':
+            return {
+                kind: 'bank',
+                dictionary,
+                bank: 'term',
+                entry: [
+                    stringValue(item.expression),
+                    stringValue(item.reading),
+                    stringValue(item.definitionTags ?? item.tags),
+                    stringValue(item.rules),
+                    typeof item.score === 'number' ? item.score : 0,
+                    Array.isArray(item.glossary)
+                        ? restoreGlossaryValue(item.glossary)
+                        : [],
+                    typeof item.sequence === 'number' ? item.sequence : -1,
+                    stringValue(item.termTags),
+                ],
+            };
+        case 'termMeta':
+            return {
+                kind: 'bank',
+                dictionary,
+                bank: 'termMeta',
+                entry: [
+                    stringValue(item.expression),
+                    stringValue(item.mode),
+                    item.data,
+                ],
+            };
+        case 'kanji':
+            return {
+                kind: 'bank',
+                dictionary,
+                bank: 'kanji',
+                entry: [
+                    stringValue(item.character),
+                    stringValue(item.onyomi),
+                    stringValue(item.kunyomi),
+                    stringValue(item.tags),
+                    Array.isArray(item.meanings) ? item.meanings : [],
+                    isRecord(item.stats) ? item.stats : {},
+                ],
+            };
+        case 'kanjiMeta':
+            return {
+                kind: 'bank',
+                dictionary,
+                bank: 'kanjiMeta',
+                entry: [
+                    stringValue(item.character),
+                    stringValue(item.mode),
+                    item.data,
+                ],
+            };
+        case 'tagMeta':
+            return {
+                kind: 'bank',
+                dictionary,
+                bank: 'tag',
+                entry: [
+                    stringValue(item.name),
+                    stringValue(item.category),
+                    typeof item.order === 'number' ? item.order : 0,
+                    stringValue(item.notes),
+                    typeof item.score === 'number' ? item.score : 0,
+                ],
+            };
+        case 'media': {
+            const content = mediaBuffer(item.content);
+            const mediaPath = stringValue(item.path);
+            if (content && mediaPath) {
+                return {
+                    kind: 'media',
+                    dictionary,
+                    mediaPath,
+                    content,
+                };
+            }
+            return null;
+        }
+        default:
+            return null;
+    }
 }
 
 function addDictionaryRow(
@@ -243,70 +398,18 @@ function addDictionaryRow(
     row: unknown,
     inbound: boolean
 ): void {
-    const item = exportRowValue(row, inbound);
-    if (!isRecord(item)) {
+    const parsed = parseDictionaryRow(tableName, row, inbound);
+    if (!parsed) {
         return;
     }
-    const dictionary = dictionaries.get(stringValue(item.dictionary));
+    const dictionary = dictionaries.get(parsed.dictionary);
     if (!dictionary) {
         return;
     }
-    switch (tableName) {
-        case 'terms':
-            dictionary.banks.term.push([
-                stringValue(item.expression),
-                stringValue(item.reading),
-                stringValue(item.definitionTags ?? item.tags),
-                stringValue(item.rules),
-                typeof item.score === 'number' ? item.score : 0,
-                Array.isArray(item.glossary)
-                    ? restoreGlossaryValue(item.glossary)
-                    : [],
-                typeof item.sequence === 'number' ? item.sequence : -1,
-                stringValue(item.termTags),
-            ]);
-            break;
-        case 'termMeta':
-            dictionary.banks.termMeta.push([
-                stringValue(item.expression),
-                stringValue(item.mode),
-                item.data,
-            ]);
-            break;
-        case 'kanji':
-            dictionary.banks.kanji.push([
-                stringValue(item.character),
-                stringValue(item.onyomi),
-                stringValue(item.kunyomi),
-                stringValue(item.tags),
-                Array.isArray(item.meanings) ? item.meanings : [],
-                isRecord(item.stats) ? item.stats : {},
-            ]);
-            break;
-        case 'kanjiMeta':
-            dictionary.banks.kanjiMeta.push([
-                stringValue(item.character),
-                stringValue(item.mode),
-                item.data,
-            ]);
-            break;
-        case 'tagMeta':
-            dictionary.banks.tag.push([
-                stringValue(item.name),
-                stringValue(item.category),
-                typeof item.order === 'number' ? item.order : 0,
-                stringValue(item.notes),
-                typeof item.score === 'number' ? item.score : 0,
-            ]);
-            break;
-        case 'media': {
-            const content = mediaBuffer(item.content);
-            const mediaPath = stringValue(item.path);
-            if (content && mediaPath) {
-                dictionary.media.set(mediaPath, content);
-            }
-            break;
-        }
+    if (parsed.kind === 'bank') {
+        dictionary.banks[parsed.bank].push(parsed.entry);
+    } else {
+        dictionary.media.set(parsed.mediaPath, parsed.content);
     }
 }
 
@@ -365,16 +468,22 @@ function isRowPath(pathValue: readonly (string | number)[]): boolean {
 
 async function streamDictionaryRows(
     source: Readable,
-    onRow: (tableName: string, inbound: boolean, row: unknown) => void
+    onRow: (
+        tableName: string,
+        inbound: boolean,
+        row: unknown
+    ) => void | Promise<void>
 ): Promise<DictionaryBackupSignature> {
-    const tokens = source.pipe(
-        parserStream({
-            streamKeys: false,
-            packKeys: true,
-            streamValues: false,
-            packValues: true,
-        })
-    );
+    const tokens = parserStream({
+        streamKeys: true,
+        packKeys: false,
+        streamStrings: true,
+        packStrings: false,
+        streamNumbers: true,
+        packNumbers: false,
+    });
+    source.once('error', (error) => tokens.destroy(error));
+    source.pipe(tokens);
     const assembler = new Assembler();
     const signature: DictionaryBackupSignature = {
         formatName: '',
@@ -383,60 +492,118 @@ async function streamDictionaryRows(
     };
     let tableName = '';
     let inbound = false;
+    let scalarKind: 'key' | 'string' | 'number' | null = null;
+    let scalarBytes = 0;
+    let scalarChunks: string[] = [];
 
-    for await (const rawToken of tokens) {
-        const token = rawToken as Token;
-        const currentPath = assembler.path;
-        const currentKey = assembler.key;
-        if (token.name === 'stringValue') {
-            if (currentPath.length === 0 && currentKey === 'formatName') {
-                signature.formatName = token.value;
-            } else if (
-                currentPath.length === 1 &&
-                currentPath[0] === 'data' &&
-                currentKey === 'databaseName'
+    try {
+        for await (const rawToken of tokens) {
+            let token = rawToken as Token;
+            if (
+                token.name === 'startKey' ||
+                token.name === 'startString' ||
+                token.name === 'startNumber'
             ) {
-                signature.databaseName = token.value;
-            } else if (isTablePath(currentPath) && currentKey === 'tableName') {
-                tableName = token.value;
+                scalarKind =
+                    token.name === 'startKey'
+                        ? 'key'
+                        : token.name === 'startString'
+                          ? 'string'
+                          : 'number';
+                scalarBytes = 0;
+                scalarChunks = [];
+                continue;
             }
-        } else if (
-            token.name === 'numberValue' &&
-            currentPath.length === 0 &&
-            currentKey === 'formatVersion'
-        ) {
-            signature.formatVersion = Number(token.value);
-        } else if (
-            (token.name === 'trueValue' || token.name === 'falseValue') &&
-            isTablePath(currentPath) &&
-            currentKey === 'inbound'
-        ) {
-            inbound = token.name === 'trueValue';
-        }
+            if (token.name === 'stringChunk' || token.name === 'numberChunk') {
+                const chunk = String(token.value ?? '');
+                scalarBytes += Buffer.byteLength(chunk);
+                if (scalarBytes > MAX_JSON_VALUE_BYTES) {
+                    throw new Error(
+                        'A value in the Yomitan backup exceeds the supported 32 MiB limit.'
+                    );
+                }
+                scalarChunks.push(chunk);
+                continue;
+            }
+            if (
+                token.name === 'endKey' ||
+                token.name === 'endString' ||
+                token.name === 'endNumber'
+            ) {
+                const value = scalarChunks.join('');
+                token = {
+                    name:
+                        scalarKind === 'key'
+                            ? 'keyValue'
+                            : scalarKind === 'number'
+                              ? 'numberValue'
+                              : 'stringValue',
+                    value,
+                };
+                scalarKind = null;
+                scalarBytes = 0;
+                scalarChunks = [];
+            }
 
-        if (
-            (token.name === 'endObject' || token.name === 'endArray') &&
-            isRowPath(currentPath)
-        ) {
-            const row = assembler.current;
+            const currentPath = assembler.path;
+            const currentKey = assembler.key;
+            if (token.name === 'stringValue') {
+                if (currentPath.length === 0 && currentKey === 'formatName') {
+                    signature.formatName = token.value;
+                } else if (
+                    currentPath.length === 1 &&
+                    currentPath[0] === 'data' &&
+                    currentKey === 'databaseName'
+                ) {
+                    signature.databaseName = token.value;
+                } else if (
+                    isTablePath(currentPath) &&
+                    currentKey === 'tableName'
+                ) {
+                    tableName = token.value;
+                }
+            } else if (
+                token.name === 'numberValue' &&
+                currentPath.length === 0 &&
+                currentKey === 'formatVersion'
+            ) {
+                signature.formatVersion = Number(token.value);
+            } else if (
+                (token.name === 'trueValue' || token.name === 'falseValue') &&
+                isTablePath(currentPath) &&
+                currentKey === 'inbound'
+            ) {
+                inbound = token.name === 'trueValue';
+            }
+
+            if (
+                (token.name === 'endObject' || token.name === 'endArray') &&
+                isRowPath(currentPath)
+            ) {
+                const row = assembler.current;
+                assembler.consume(token);
+                await onRow(tableName, inbound, row);
+                if (Array.isArray(assembler.current)) {
+                    assembler.current.length = 0;
+                }
+                continue;
+            }
+
+            const closingTable =
+                token.name === 'endObject' && isTablePath(currentPath);
             assembler.consume(token);
-            onRow(tableName, inbound, row);
-            if (Array.isArray(assembler.current)) {
-                assembler.current.length = 0;
+            if (closingTable) {
+                if (Array.isArray(assembler.current)) {
+                    assembler.current.length = 0;
+                }
+                tableName = '';
+                inbound = false;
             }
-            continue;
         }
-
-        const closingTable =
-            token.name === 'endObject' && isTablePath(currentPath);
-        assembler.consume(token);
-        if (closingTable) {
-            if (Array.isArray(assembler.current)) {
-                assembler.current.length = 0;
-            }
-            tableName = '';
-            inbound = false;
-        }
+    } finally {
+        source.unpipe(tokens);
+        source.destroy();
+        tokens.destroy();
     }
     if (
         signature.formatName !== 'dexie' ||
@@ -696,75 +863,422 @@ export function parseYomitanSettingsBackup(
     };
 }
 
-async function writeDictionaryArchive(
-    dictionary: ParsedYomitanDictionary,
-    outputPath: string,
+interface SpoolFile {
+    sourcePath: string;
+    archiveName: string;
+}
+
+interface BankSpool {
+    prefix: string;
+    files: SpoolFile[];
+    currentPath: string | null;
+    bankNumber: number;
+    entryCount: number;
+    byteCount: number;
+}
+
+interface SpoolDictionary {
+    title: string;
+    directory: string;
+    indexPath: string;
+    stylesPath: string | null;
+    banks: Record<BankKey, BankSpool>;
+    media: Map<string, { sourcePath: string; recordBytes: number }>;
+    mediaNumber: number;
+    mediaRecordBytes: number;
+}
+
+class BoundedFileAppender {
+    private readonly handles = new Map<string, FileHandle>();
+
+    public async append(filePath: string, value: string): Promise<void> {
+        let handle = this.handles.get(filePath);
+        if (handle) {
+            this.handles.delete(filePath);
+            this.handles.set(filePath, handle);
+        } else {
+            if (this.handles.size >= MAX_OPEN_SPOOL_FILES) {
+                const oldest = this.handles.entries().next();
+                if (!oldest.done) {
+                    const [oldestPath, oldestHandle] = oldest.value;
+                    this.handles.delete(oldestPath);
+                    await oldestHandle.close();
+                }
+            }
+            handle = await fsp.open(filePath, 'a');
+            this.handles.set(filePath, handle);
+        }
+        await handle.appendFile(value, 'utf8');
+    }
+
+    public async close(filePath: string): Promise<void> {
+        const handle = this.handles.get(filePath);
+        if (!handle) {
+            return;
+        }
+        this.handles.delete(filePath);
+        await handle.close();
+    }
+
+    public async closeAll(): Promise<void> {
+        const handles = [...this.handles.values()];
+        this.handles.clear();
+        const results = await Promise.allSettled(
+            handles.map(async (handle) => await handle.close())
+        );
+        const failure = results.find(
+            (result): result is PromiseRejectedResult =>
+                result.status === 'rejected'
+        );
+        if (failure) {
+            throw failure.reason;
+        }
+    }
+}
+
+function createBankSpool(prefix: string): BankSpool {
+    return {
+        prefix,
+        files: [],
+        currentPath: null,
+        bankNumber: 0,
+        entryCount: 0,
+        byteCount: 0,
+    };
+}
+
+function createBankSpools(): Record<BankKey, BankSpool> {
+    return {
+        term: createBankSpool('term_bank'),
+        termMeta: createBankSpool('term_meta_bank'),
+        kanji: createBankSpool('kanji_bank'),
+        kanjiMeta: createBankSpool('kanji_meta_bank'),
+        tag: createBankSpool('tag_bank'),
+    };
+}
+
+async function createSpoolDictionary(
+    root: string,
+    summary: YomitanDictionarySummary,
+    dictionaryNumber: number,
+    existing?: SpoolDictionary
+): Promise<SpoolDictionary> {
+    if (existing) {
+        await fsp.writeFile(
+            existing.indexPath,
+            JSON.stringify(summary.index),
+            'utf8'
+        );
+        if (summary.styles) {
+            const stylesPath =
+                existing.stylesPath ?? path.join(existing.directory, 'styles.css');
+            await fsp.writeFile(stylesPath, summary.styles, 'utf8');
+            existing.stylesPath = stylesPath;
+        } else if (existing.stylesPath) {
+            await fsp.rm(existing.stylesPath, { force: true });
+            existing.stylesPath = null;
+        }
+        return existing;
+    }
+    const directory = path.join(root, `spool-${dictionaryNumber}`);
+    await fsp.mkdir(path.join(directory, 'banks'), { recursive: true });
+    await fsp.mkdir(path.join(directory, 'media'));
+    const indexPath = path.join(directory, 'index.json');
+    await fsp.writeFile(indexPath, JSON.stringify(summary.index), 'utf8');
+    let stylesPath: string | null = null;
+    if (summary.styles) {
+        stylesPath = path.join(directory, 'styles.css');
+        await fsp.writeFile(stylesPath, summary.styles, 'utf8');
+    }
+    return {
+        title: summary.title,
+        directory,
+        indexPath,
+        stylesPath,
+        banks: createBankSpools(),
+        media: new Map(),
+        mediaNumber: 0,
+        mediaRecordBytes: 0,
+    };
+}
+
+async function finishBankFile(
+    bank: BankSpool,
+    appender: BoundedFileAppender
 ): Promise<void> {
+    if (!bank.currentPath) {
+        return;
+    }
+    await appender.append(bank.currentPath, ']');
+    await appender.close(bank.currentPath);
+    bank.currentPath = null;
+    bank.entryCount = 0;
+    bank.byteCount = 0;
+}
+
+async function appendBankEntry(
+    dictionary: SpoolDictionary,
+    bankKey: BankKey,
+    entry: BankEntry,
+    appender: BoundedFileAppender
+): Promise<void> {
+    const bank = dictionary.banks[bankKey];
+    const serialized = JSON.stringify(entry);
+    const entryBytes = Buffer.byteLength(serialized);
+    if (entryBytes + 2 > MAX_BANK_BYTES) {
+        throw new Error(
+            `Dictionary ${dictionary.title} contains a ${bank.prefix} entry ` +
+                'which exceeds the supported 32 MiB bank size.'
+        );
+    }
+    const nextEntryBytes = (bank.entryCount > 0 ? 1 : 0) + entryBytes;
+    if (
+        bank.currentPath &&
+        bank.entryCount > 0 &&
+        (bank.entryCount >= MAX_BANK_ENTRIES ||
+            bank.byteCount + nextEntryBytes + 1 > MAX_BANK_BYTES)
+    ) {
+        await finishBankFile(bank, appender);
+    }
+    if (!bank.currentPath) {
+        bank.bankNumber += 1;
+        const archiveName = `${bank.prefix}_${bank.bankNumber}.json`;
+        bank.currentPath = path.join(dictionary.directory, 'banks', archiveName);
+        bank.files.push({ sourcePath: bank.currentPath, archiveName });
+        await appender.append(bank.currentPath, '[');
+        bank.byteCount = 1;
+    }
+    const separator = bank.entryCount > 0 ? ',' : '';
+    await appender.append(bank.currentPath, `${separator}${serialized}`);
+    bank.entryCount += 1;
+    bank.byteCount += (separator ? 1 : 0) + entryBytes;
+    if (
+        bank.entryCount >= MAX_BANK_ENTRIES ||
+        bank.byteCount + 1 >= MAX_BANK_BYTES
+    ) {
+        await finishBankFile(bank, appender);
+    }
+}
+
+async function spoolMedia(
+    dictionary: SpoolDictionary,
+    mediaPath: string,
+    content: Buffer
+): Promise<void> {
+    const mediaPathBytes = Buffer.byteLength(mediaPath);
+    if (mediaPathBytes > MAX_NATIVE_MEDIA_PATH_BYTES) {
+        throw new Error(
+            `Dictionary ${dictionary.title} contains a media path which is too long for Hoshidicts.`
+        );
+    }
+    const recordBytes = 2 + mediaPathBytes + 4 + content.byteLength;
+    const previous = dictionary.media.get(mediaPath);
+    const totalRecordBytes =
+        dictionary.mediaRecordBytes - (previous?.recordBytes ?? 0) + recordBytes;
+    if (
+        content.byteLength >= MAX_NATIVE_ZIP_BYTES ||
+        totalRecordBytes > MAX_NATIVE_ZIP_BYTES
+    ) {
+        throw new Error(
+            `Dictionary ${dictionary.title} contains more media data than Hoshidicts can import.`
+        );
+    }
+    dictionary.mediaNumber += 1;
+    const sourcePath = path.join(
+        dictionary.directory,
+        'media',
+        `${dictionary.mediaNumber}.bin`
+    );
+    await fsp.writeFile(sourcePath, content);
+    if (previous) {
+        await fsp.rm(previous.sourcePath, { force: true });
+    }
+    dictionary.media.set(mediaPath, { sourcePath, recordBytes });
+    dictionary.mediaRecordBytes = totalRecordBytes;
+}
+
+async function spoolDictionaryRows(
+    filePath: string,
+    dictionaries: Map<string, SpoolDictionary>
+): Promise<void> {
+    const appender = new BoundedFileAppender();
+    try {
+        await streamDictionaryRows(
+            fs.createReadStream(filePath),
+            async (tableName, inbound, row) => {
+                const parsed = parseDictionaryRow(tableName, row, inbound);
+                if (!parsed) {
+                    return;
+                }
+                const dictionary = dictionaries.get(parsed.dictionary);
+                if (!dictionary) {
+                    return;
+                }
+                if (parsed.kind === 'bank') {
+                    await appendBankEntry(
+                        dictionary,
+                        parsed.bank,
+                        parsed.entry,
+                        appender
+                    );
+                } else {
+                    await spoolMedia(
+                        dictionary,
+                        parsed.mediaPath,
+                        parsed.content
+                    );
+                }
+            }
+        );
+        for (const dictionary of dictionaries.values()) {
+            for (const [bankKey] of BANK_FILES) {
+                await finishBankFile(dictionary.banks[bankKey], appender);
+            }
+        }
+    } finally {
+        await appender.closeAll();
+    }
+}
+
+async function writeDictionaryArchive(
+    dictionary: SpoolDictionary,
+    outputPath: string
+): Promise<void> {
+    const files: SpoolFile[] = [
+        { sourcePath: dictionary.indexPath, archiveName: 'index.json' },
+    ];
+    for (const [bankKey] of BANK_FILES) {
+        files.push(...dictionary.banks[bankKey].files);
+    }
+    if (dictionary.stylesPath) {
+        files.push({
+            sourcePath: dictionary.stylesPath,
+            archiveName: 'styles.css',
+        });
+    }
+    for (const [mediaPath, media] of dictionary.media) {
+        files.push({ sourcePath: media.sourcePath, archiveName: mediaPath });
+    }
+    for (const file of files) {
+        if ((await fsp.stat(file.sourcePath)).size >= MAX_NATIVE_ZIP_BYTES) {
+            throw new Error(
+                `Dictionary ${dictionary.title} contains an entry which is too large ` +
+                    `for Hoshidicts: ${file.archiveName}`
+            );
+        }
+    }
     await new Promise<void>((resolve, reject) => {
         const output = fs.createWriteStream(outputPath);
         const archive = archiver('zip', { zlib: { level: 6 } });
-        output.once('close', resolve);
-        output.once('error', reject);
-        archive.once('error', reject);
-        archive.pipe(output);
-        archive.append(JSON.stringify(dictionary.index), { name: 'index.json' });
-        const bankNames: Array<[keyof YomitanDictionaryBanks, string]> = [
-            ['term', 'term_bank'],
-            ['termMeta', 'term_meta_bank'],
-            ['kanji', 'kanji_bank'],
-            ['kanjiMeta', 'kanji_meta_bank'],
-            ['tag', 'tag_bank'],
-        ];
-        for (const [key, filePrefix] of bankNames) {
-            const entries = dictionary.banks[key];
-            for (
-                let offset = 0, bankNumber = 1;
-                offset < entries.length;
-                offset += 1_000, bankNumber += 1
-            ) {
-                const end = Math.min(offset + 1_000, entries.length);
-                const chunks = (function* (): Generator<string> {
-                    yield '[';
-                    for (let index = offset; index < end; index += 1) {
-                        if (index > offset) yield ',';
-                        yield JSON.stringify(entries[index]);
-                    }
-                    yield ']';
-                })();
-                archive.append(Readable.from(chunks), {
-                    name: `${filePrefix}_${bankNumber}.json`,
-                });
+        let failure: Error | null = null;
+        const fail = (error: unknown): void => {
+            if (failure) {
+                return;
             }
+            failure =
+                error instanceof Error ? error : new Error(String(error));
+            try {
+                void archive.abort();
+            } catch {
+                // The original archive or output error is more useful.
+            }
+            output.destroy();
+        };
+        output.once('close', () => {
+            if (failure) {
+                reject(failure);
+            } else {
+                resolve();
+            }
+        });
+        output.once('error', fail);
+        archive.once('error', fail);
+        archive.pipe(output);
+        try {
+            for (const file of files) {
+                archive.file(file.sourcePath, { name: file.archiveName });
+            }
+            void archive.finalize().catch(fail);
+        } catch (error) {
+            fail(error);
         }
-        if (dictionary.styles) {
-            archive.append(dictionary.styles, { name: 'styles.css' });
-        }
-        for (const [mediaPath, content] of dictionary.media) {
-            archive.append(content, { name: mediaPath });
-        }
-        void archive.finalize().catch(reject);
     });
+    const archiveSize = (await fsp.stat(outputPath)).size;
+    if (archiveSize >= MAX_NATIVE_ZIP_BYTES) {
+        throw new Error(
+            `Dictionary ${dictionary.title} is too large for Hoshidicts' ZIP importer. ` +
+                'Split it into smaller dictionaries before importing.'
+        );
+    }
 }
 
 export async function prepareYomitanDictionaryBackup(
     filePath: string,
-    onProgress?: (progress: YomitanDictionaryPreparationProgress) => void
+    onProgress?: (progress: YomitanDictionaryPreparationProgress) => void,
+    onPreparedDictionary?: (
+        dictionary: YomitanPreparedDictionary
+    ) => Promise<void>
 ): Promise<PreparedYomitanBackup> {
     const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'gsm-yomitan-'));
     try {
         const dictionaries: Array<{ title: string; archivePath: string }> = [];
-        const parsed = await parseYomitanDictionaryBackupStream(() =>
-            fs.createReadStream(filePath)
+        const spooled = new Map<string, SpoolDictionary>();
+        let dictionaryNumber = 0;
+        await streamDictionaryRows(
+            fs.createReadStream(filePath),
+            async (tableName, inbound, row) => {
+                if (tableName !== 'dictionaries') {
+                    return;
+                }
+                const summary = parseDictionarySummary(row, inbound);
+                if (summary) {
+                    const existing = spooled.get(summary.title);
+                    if (!existing) {
+                        dictionaryNumber += 1;
+                    }
+                    spooled.set(
+                        summary.title,
+                        await createSpoolDictionary(
+                            root,
+                            summary,
+                            dictionaryNumber,
+                            existing
+                        )
+                    );
+                }
+            }
         );
-        for (let index = 0; index < parsed.length; index += 1) {
+        if (spooled.size === 0) {
+            throw new Error('The Yomitan backup does not contain dictionaries.');
+        }
+        await spoolDictionaryRows(filePath, spooled);
+        const total = spooled.size;
+        let index = 0;
+        for (const [title, dictionary] of spooled) {
+            index += 1;
             onProgress?.({
-                current: index + 1,
-                total: parsed.length,
-                title: parsed[index].title,
+                current: index,
+                total,
+                title: dictionary.title,
             });
-            const archivePath = path.join(root, `dictionary-${index + 1}.zip`);
-            await writeDictionaryArchive(parsed[index], archivePath);
-            dictionaries.push({ title: parsed[index].title, archivePath });
+            const archivePath = path.join(root, `dictionary-${index}.zip`);
+            await writeDictionaryArchive(dictionary, archivePath);
+            await fsp.rm(dictionary.directory, { recursive: true, force: true });
+            spooled.delete(title);
+            if (onPreparedDictionary) {
+                try {
+                    await onPreparedDictionary({
+                        title: dictionary.title,
+                        archivePath,
+                        current: index,
+                        total,
+                    });
+                } finally {
+                    await fsp.rm(archivePath, { force: true });
+                }
+            } else {
+                dictionaries.push({ title: dictionary.title, archivePath });
+            }
         }
         return {
             dictionaries,
