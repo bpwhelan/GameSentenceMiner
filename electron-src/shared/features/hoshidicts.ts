@@ -244,6 +244,7 @@ export type HoshidictsRecommendedDictionaryId =
     (typeof HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS)[number];
 export const DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS = [
     'jitendex',
+    'jmdict',
     'jmnedict',
     'bccwj',
     'jpdbv2-kana',
@@ -396,8 +397,13 @@ export type HoshidictsMiningFieldName = keyof HoshidictsMiningFields;
 export const HOSHIDICTS_MINING_FIELD_MARKERS = [
     { id: 'expression', value: '{expression}' },
     { id: 'reading', value: '{reading}' },
+    { id: 'furigana', value: '{furigana}' },
     { id: 'definition', value: '{definition}' },
+    { id: 'main-definition', value: '{main-definition}' },
+    { id: 'glossary', value: '{glossary}' },
+    { id: 'dictionary', value: '{dictionary}' },
     { id: 'sentence', value: '{sentence}' },
+    { id: 'sentence-furigana', value: '{sentence-furigana}' },
     { id: 'frequency', value: '{frequency}' },
     { id: 'pitch', value: '{pitch}' },
     { id: 'pitch-position', value: '{pitch-position}' },

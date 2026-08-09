@@ -920,8 +920,13 @@
         "fields": {
           "expression": "表記",
           "reading": "読み",
+          "furigana": "振り仮名",
           "definition": "定義",
+          "mainDefinition": "主定義",
+          "glossary": "用語集",
+          "dictionary": "辞書名",
           "sentence": "例文",
+          "sentenceFurigana": "振り仮名付き例文",
           "frequency": "頻度",
           "pitch": "アクセント",
           "pitchPosition": "アクセント位置",

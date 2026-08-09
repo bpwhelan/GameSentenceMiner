@@ -920,8 +920,13 @@
         "fields": {
           "expression": "Вираз",
           "reading": "Читання",
+          "furigana": "Фуріґана",
           "definition": "Визначення",
+          "mainDefinition": "Основне визначення",
+          "glossary": "Глосарій",
+          "dictionary": "Назва словника",
           "sentence": "Речення",
+          "sentenceFurigana": "Речення з фуріґаною",
           "frequency": "Частота",
           "pitch": "Тональний наголос",
           "pitchPosition": "Позиція тонального наголосу",

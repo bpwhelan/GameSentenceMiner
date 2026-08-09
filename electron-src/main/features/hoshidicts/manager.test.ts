@@ -1600,8 +1600,13 @@ describe('Hoshidicts mining profile', () => {
         expect(HOSHIDICTS_MINING_FIELD_MARKERS).toEqual([
             { id: 'expression', value: '{expression}' },
             { id: 'reading', value: '{reading}' },
+            { id: 'furigana', value: '{furigana}' },
             { id: 'definition', value: '{definition}' },
+            { id: 'main-definition', value: '{main-definition}' },
+            { id: 'glossary', value: '{glossary}' },
+            { id: 'dictionary', value: '{dictionary}' },
             { id: 'sentence', value: '{sentence}' },
+            { id: 'sentence-furigana', value: '{sentence-furigana}' },
             { id: 'frequency', value: '{frequency}' },
             { id: 'pitch', value: '{pitch}' },
             { id: 'pitch-position', value: '{pitch-position}' },
@@ -2175,7 +2180,7 @@ describe('Hoshidicts import policy', () => {
         });
     });
 
-    it('installs the expanded default bundle without the duplicate JMdict alternative', async () => {
+    it('installs the default bundle with both Jitendex and JMdict', async () => {
         const baseDir = makeTempDir();
         const downloadArchive = vi.fn(async (url: string, outputPath: string) => {
             const recommended = RECOMMENDED_HOSHIDICTS_DICTIONARIES.find(
@@ -2199,8 +2204,12 @@ describe('Hoshidicts import policy', () => {
         expect(
             downloadArchive.mock.calls.map(([url]) => url)
         ).toEqual(defaults.map((dictionary) => dictionary.downloadUrl));
-        expect(downloadArchive).toHaveBeenCalledTimes(7);
-        expect(snapshot.dictionaries).toHaveLength(7);
+        expect(defaults.slice(0, 2).map((dictionary) => dictionary.id)).toEqual([
+            'jitendex',
+            'jmdict',
+        ]);
+        expect(downloadArchive).toHaveBeenCalledTimes(8);
+        expect(snapshot.dictionaries).toHaveLength(8);
         expect(snapshot.recommendedDictionaries).toEqual(
             RECOMMENDED_HOSHIDICTS_DICTIONARIES.map((dictionary) => ({
                 id: dictionary.id,
@@ -2211,7 +2220,7 @@ describe('Hoshidicts import policy', () => {
         );
 
         await manager.installRecommendedDictionaries();
-        expect(downloadArchive).toHaveBeenCalledTimes(7);
+        expect(downloadArchive).toHaveBeenCalledTimes(8);
     });
 
     it('resumes a partial recommended install without downloading completed dictionaries again', async () => {

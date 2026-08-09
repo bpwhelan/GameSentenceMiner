@@ -2826,13 +2826,33 @@ describe("HoshidictsSettingsWindow", () => {
     ).toEqual([
       "{expression}",
       "{reading}",
+      "{furigana}",
       "{definition}",
+      "{main-definition}",
+      "{glossary}",
+      "{dictionary}",
       "{sentence}",
+      "{sentence-furigana}",
       "{frequency}",
       "{pitch}",
       "{pitch-position}",
       "{audio}"
     ]);
+    expect(
+      Object.fromEntries(
+        Array.from(
+          container.querySelectorAll<HTMLOptionElement>(
+            "#hoshidicts-mining-field-values option"
+          )
+        ).map((option) => [option.value, option.textContent])
+      )
+    ).toMatchObject({
+      "{furigana}": "Furigana",
+      "{main-definition}": "Main definition",
+      "{glossary}": "Glossary",
+      "{dictionary}": "Dictionary name",
+      "{sentence-furigana}": "Sentence with furigana"
+    });
   });
 
   it("auto-saves duplicate scope, note-type checks, behavior, and field overwrite modes", async () => {

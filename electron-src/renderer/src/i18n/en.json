@@ -927,8 +927,13 @@
         "fields": {
           "expression": "Expression",
           "reading": "Reading",
+          "furigana": "Furigana",
           "definition": "Definition",
+          "mainDefinition": "Main definition",
+          "glossary": "Glossary",
+          "dictionary": "Dictionary name",
           "sentence": "Sentence",
+          "sentenceFurigana": "Sentence with furigana",
           "frequency": "Frequency",
           "pitch": "Pitch accent",
           "pitchPosition": "Pitch accent position",
