@@ -47,6 +47,45 @@
     process.env &&
     process.env.GSM_HOSHIDICTS_SHOW_LOOKUP_COUNTS === '0'
   );
+  const configuredHoshidictsScanLength = Number(
+    typeof process !== 'undefined' && process.env
+      ? process.env.GSM_HOSHIDICTS_SCAN_LENGTH
+      : ''
+  );
+  const configuredHoshidictsMaxResults = Number(
+    typeof process !== 'undefined' && process.env
+      ? process.env.GSM_HOSHIDICTS_MAX_RESULTS
+      : ''
+  );
+  const configuredHoshidictsSortFrequencyDictionary = (
+    typeof process !== 'undefined' && process.env
+      ? String(process.env.GSM_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY || '')
+      : ''
+  );
+  const configuredHoshidictsSortFrequencyDictionaryOrder = (
+    typeof process !== 'undefined' && process.env
+      ? process.env.GSM_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER
+      : ''
+  );
+  window.gsmHoshidictsScanLength = (
+    Number.isInteger(configuredHoshidictsScanLength) &&
+    configuredHoshidictsScanLength >= 1 &&
+    configuredHoshidictsScanLength <= 64
+  ) ? configuredHoshidictsScanLength : 16;
+  window.gsmHoshidictsMaxResults = (
+    Number.isInteger(configuredHoshidictsMaxResults) &&
+    configuredHoshidictsMaxResults >= 1 &&
+    configuredHoshidictsMaxResults <= 256
+  ) ? configuredHoshidictsMaxResults : 32;
+  window.gsmHoshidictsSortFrequencyDictionary =
+    configuredHoshidictsSortFrequencyDictionary.trim() &&
+    configuredHoshidictsSortFrequencyDictionary.length <= 4096
+      ? configuredHoshidictsSortFrequencyDictionary
+      : null;
+  window.gsmHoshidictsSortFrequencyDictionaryOrder =
+    configuredHoshidictsSortFrequencyDictionaryOrder === 'ascending'
+      ? 'ascending'
+      : 'descending';
   const configuredHoshidictsDefinitionBlurThreshold = Number(
     typeof process !== 'undefined' && process.env
       ? process.env.GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD
@@ -185,6 +224,7 @@
     `${window.gsmHoshidictsPopupOpacityPercent}%`
   );
   window.gsmHoshidictsDictionaryPresentation = [];
+  window.gsmHoshidictsFrequencyDictionaries = [];
   window.gsmHoshidictsDictionaryTabGroups = [];
   window.gsmHoshidictsPopupButtons = {
     addToAnki: true,
@@ -5225,6 +5265,9 @@ background: rgba(202, 12, 12, 0.692);
         title.length > 4096 ||
         titles.has(title) ||
         typeof entry.favorite !== 'boolean' ||
+        (entry.frequencyMode !== undefined &&
+          entry.frequencyMode !== 'rank-based' &&
+          entry.frequencyMode !== 'occurrence-based') ||
         (entry.displayName !== undefined &&
           (typeof entry.displayName !== 'string' ||
             !entry.displayName.trim() ||
@@ -5240,9 +5283,75 @@ background: rgba(202, 12, 12, 0.692);
       if (entry.displayName !== undefined) {
         normalizedEntry.displayName = entry.displayName.trim();
       }
+      if (entry.frequencyMode !== undefined) {
+        normalizedEntry.frequencyMode = entry.frequencyMode;
+      }
       normalized.push(normalizedEntry);
     }
     return normalized;
+  }
+
+  function validateHoshidictsFrequencyDictionaries(value) {
+    if (value === undefined) {
+      return [];
+    }
+    if (!Array.isArray(value) || value.length > 256) {
+      return null;
+    }
+    const titles = new Set();
+    const normalized = [];
+    for (const title of value) {
+      if (
+        typeof title !== 'string' ||
+        !title.trim() ||
+        title.length > 4096 ||
+        titles.has(title)
+      ) {
+        return null;
+      }
+      titles.add(title);
+      normalized.push(title);
+    }
+    return normalized;
+  }
+
+  function validateHoshidictsLookupControls(preferences) {
+    const scanLength = preferences.scanLength === undefined
+      ? 16
+      : Number(preferences.scanLength);
+    const maxResults = preferences.maxResults === undefined
+      ? 32
+      : Number(preferences.maxResults);
+    const sortFrequencyDictionary =
+      preferences.sortFrequencyDictionary === undefined
+        ? null
+        : preferences.sortFrequencyDictionary;
+    const sortFrequencyDictionaryOrder =
+      preferences.sortFrequencyDictionaryOrder === undefined
+        ? 'descending'
+        : preferences.sortFrequencyDictionaryOrder;
+    if (
+      !Number.isInteger(scanLength) ||
+      scanLength < 1 ||
+      scanLength > 64 ||
+      !Number.isInteger(maxResults) ||
+      maxResults < 1 ||
+      maxResults > 256 ||
+      (sortFrequencyDictionary !== null &&
+        (typeof sortFrequencyDictionary !== 'string' ||
+          !sortFrequencyDictionary.trim() ||
+          sortFrequencyDictionary.length > 4096)) ||
+      (sortFrequencyDictionaryOrder !== 'ascending' &&
+        sortFrequencyDictionaryOrder !== 'descending')
+    ) {
+      return null;
+    }
+    return {
+      scanLength,
+      maxResults,
+      sortFrequencyDictionary,
+      sortFrequencyDictionaryOrder,
+    };
   }
 
   function validateHoshidictsAppearance(preferences) {
@@ -5344,6 +5453,11 @@ background: rgba(202, 12, 12, 0.692);
     window.gsmHoshidictsReader = window.GSMHoshidictsReader.createHoshidictsReader({
       serverUrl: `ws://127.0.0.1:${serverPort}`,
       lookupMode: window.gsmHoshidictsLookupMode === 'hover' ? 'hover' : 'shift',
+      scanLength: window.gsmHoshidictsScanLength,
+      maxResults: window.gsmHoshidictsMaxResults,
+      sortFrequencyDictionary: window.gsmHoshidictsSortFrequencyDictionary,
+      sortFrequencyDictionaryOrder:
+        window.gsmHoshidictsSortFrequencyDictionaryOrder,
       activationKey: window.gsmHoshidictsActivationKey,
       activationKeyPressed: window.gsmHoshidictsActivationKeyPressed === true,
       sourceHighlightEnabled: window.gsmHoshidictsSourceHighlightEnabled === true,
@@ -5358,6 +5472,7 @@ background: rgba(202, 12, 12, 0.692);
       popupToolbarPosition: window.gsmHoshidictsPopupToolbarPosition,
       theme: window.gsmHoshidictsTheme,
       dictionaryPresentation: window.gsmHoshidictsDictionaryPresentation,
+      frequencyDictionaries: window.gsmHoshidictsFrequencyDictionaries,
       dictionaryTabGroups: window.gsmHoshidictsDictionaryTabGroups,
       popupButtons: window.gsmHoshidictsPopupButtons,
       audioClient,
@@ -5402,6 +5517,10 @@ background: rgba(202, 12, 12, 0.692);
         ? []
         : preferences.dictionaryPresentation
     );
+    const frequencyDictionaries = validateHoshidictsFrequencyDictionaries(
+      preferences.frequencyDictionaries
+    );
+    const lookupControls = validateHoshidictsLookupControls(preferences);
     const dictionaryTabGroups = preferences.dictionaryTabGroups === undefined
       ? []
       : preferences.dictionaryTabGroups;
@@ -5419,6 +5538,8 @@ background: rgba(202, 12, 12, 0.692);
     if (
       !definitionBlur ||
       !dictionaryPresentation ||
+      !frequencyDictionaries ||
+      !lookupControls ||
       !appearance
     ) {
       return;
@@ -5427,6 +5548,12 @@ background: rgba(202, 12, 12, 0.692);
     window.gsmHoshidictsLookupMode = preferences.lookupMode === 'hover'
       ? 'hover'
       : 'shift';
+    window.gsmHoshidictsScanLength = lookupControls.scanLength;
+    window.gsmHoshidictsMaxResults = lookupControls.maxResults;
+    window.gsmHoshidictsSortFrequencyDictionary =
+      lookupControls.sortFrequencyDictionary;
+    window.gsmHoshidictsSortFrequencyDictionaryOrder =
+      lookupControls.sortFrequencyDictionaryOrder;
     window.gsmHoshidictsActivationKey =
       window.GSMHoshidictsReader.normalizeActivationKey(
         preferences.activationKey
@@ -5441,6 +5568,7 @@ background: rgba(202, 12, 12, 0.692);
     ) ? hideDelay : 300;
     window.gsmHoshidictsShowLookupCounts = preferences.showLookupCounts !== false;
     window.gsmHoshidictsDictionaryPresentation = dictionaryPresentation;
+    window.gsmHoshidictsFrequencyDictionaries = frequencyDictionaries;
     window.gsmHoshidictsDictionaryTabGroups = dictionaryTabGroups;
     window.gsmHoshidictsPopupButtons = popupButtons;
     const popupNestingMaxDepth = Number(preferences.popupNestingMaxDepth);
@@ -5465,6 +5593,11 @@ background: rgba(202, 12, 12, 0.692);
     ) {
       window.gsmHoshidictsReader.updatePreferences({
         lookupMode: window.gsmHoshidictsLookupMode,
+        scanLength: window.gsmHoshidictsScanLength,
+        maxResults: window.gsmHoshidictsMaxResults,
+        sortFrequencyDictionary: window.gsmHoshidictsSortFrequencyDictionary,
+        sortFrequencyDictionaryOrder:
+          window.gsmHoshidictsSortFrequencyDictionaryOrder,
         activationKey: window.gsmHoshidictsActivationKey,
         sourceHighlightEnabled: window.gsmHoshidictsSourceHighlightEnabled,
         onlyScanJapaneseText: window.gsmHoshidictsOnlyScanJapaneseText,
@@ -5478,6 +5611,7 @@ background: rgba(202, 12, 12, 0.692);
         popupToolbarPosition: window.gsmHoshidictsPopupToolbarPosition,
         theme: window.gsmHoshidictsTheme,
         dictionaryPresentation: window.gsmHoshidictsDictionaryPresentation,
+        frequencyDictionaries: window.gsmHoshidictsFrequencyDictionaries,
         dictionaryTabGroups: window.gsmHoshidictsDictionaryTabGroups,
         ...(hasPopupButtons
           ? { popupButtons: window.gsmHoshidictsPopupButtons }

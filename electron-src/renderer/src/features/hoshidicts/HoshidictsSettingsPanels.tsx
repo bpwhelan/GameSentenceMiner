@@ -34,6 +34,7 @@ import {
   isHoshidictsPopupCustomLinkTemplate,
   MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
   MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
+  MAX_HOSHIDICTS_MAX_RESULTS,
   MAX_HOSHIDICTS_POPUP_CUSTOM_LINK_LABEL_LENGTH,
   MAX_HOSHIDICTS_POPUP_CUSTOM_LINK_URL_LENGTH,
   MAX_HOSHIDICTS_POPUP_CUSTOM_LINKS,
@@ -41,12 +42,15 @@ import {
   MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
   MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   MAX_HOSHIDICTS_POPUP_WIDTH_PX,
+  MAX_HOSHIDICTS_SCAN_LENGTH,
   MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH,
   MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
   MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
+  MIN_HOSHIDICTS_MAX_RESULTS,
   MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
   MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   MIN_HOSHIDICTS_POPUP_WIDTH_PX,
+  MIN_HOSHIDICTS_SCAN_LENGTH,
   type HoshidictsActivationKey,
   type HoshidictsFieldOverwriteMode,
   type HoshidictsPopupToolbarPosition,
@@ -61,6 +65,7 @@ import {
   frequencyModeKey,
   formatTimestamp,
   resolvedMiningFieldTemplate,
+  sortFrequencyDictionaryOrderForMode,
   summarizeCustomDictionaryText,
   visibleMiningFields
 } from "./hoshidictsSettingsModel";
@@ -899,6 +904,10 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
     readerSaveStatus,
     setLookupMode,
     setActivationKey,
+    setScanLength,
+    setMaxResults,
+    setSortFrequencyDictionary,
+    setSortFrequencyDictionaryOrder,
     setSourceHighlightEnabled,
     setOnlyScanJapaneseText,
     setPopupHideDelayMs,
@@ -1130,6 +1139,148 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
             </small>
           </span>
         </label>
+
+        <div className="hoshidicts-reader-lookup-options">
+          <div className="hoshidicts-reader-lookup-options__heading">
+            <strong>{t("settings.hoshidicts.reader.lookup.title")}</strong>
+            <small>{t("settings.hoshidicts.reader.lookup.hint")}</small>
+          </div>
+          <div className="hoshidicts-reader-lookup-options__controls">
+            <label>
+              <span>{t("settings.hoshidicts.reader.lookup.scanLength")}</span>
+              <input
+                id="hoshidicts-scan-length"
+                type="number"
+                min={MIN_HOSHIDICTS_SCAN_LENGTH}
+                max={MAX_HOSHIDICTS_SCAN_LENGTH}
+                step={1}
+                value={readerDraft.scanLength}
+                disabled={preferencesBusy}
+                onChange={(event) =>
+                  setScanLength(event.currentTarget.valueAsNumber)
+                }
+              />
+              <small>
+                {t("settings.hoshidicts.reader.lookup.scanLengthHint")}
+              </small>
+            </label>
+            <label>
+              <span>{t("settings.hoshidicts.reader.lookup.maxResults")}</span>
+              <input
+                id="hoshidicts-max-results"
+                type="number"
+                min={MIN_HOSHIDICTS_MAX_RESULTS}
+                max={MAX_HOSHIDICTS_MAX_RESULTS}
+                step={1}
+                value={readerDraft.maxResults}
+                disabled={preferencesBusy}
+                onChange={(event) =>
+                  setMaxResults(event.currentTarget.valueAsNumber)
+                }
+              />
+              <small>
+                {t("settings.hoshidicts.reader.lookup.maxResultsHint")}
+              </small>
+            </label>
+            <label>
+              <span>
+                {t("settings.hoshidicts.reader.lookup.frequencyDictionary")}
+              </span>
+              <select
+                id="hoshidicts-sort-frequency-dictionary"
+                value={readerDraft.sortFrequencyDictionary ?? ""}
+                disabled={preferencesBusy}
+                onChange={(event) => {
+                  const title = event.currentTarget.value || null;
+                  setSortFrequencyDictionary(title);
+                  if (title !== null) {
+                    const dictionary = state.dictionaries.find(
+                      (candidate) => candidate.title === title
+                    );
+                    setSortFrequencyDictionaryOrder(
+                      sortFrequencyDictionaryOrderForMode(
+                        dictionary?.frequencyMode ?? null
+                      )
+                    );
+                  }
+                }}
+              >
+                <option value="">
+                  {t("settings.hoshidicts.reader.lookup.frequencyOff")}
+                </option>
+                {state.dictionaries
+                  .filter(
+                    (dictionary) =>
+                      dictionary.enabled && dictionary.frequencyCount > 0
+                  )
+                  .map((dictionary) => (
+                    <option key={dictionary.id} value={dictionary.title}>
+                      {dictionaryDisplayName(dictionary)}
+                    </option>
+                  ))}
+              </select>
+              <small>
+                {t("settings.hoshidicts.reader.lookup.frequencyDictionaryHint")}
+              </small>
+            </label>
+          </div>
+
+          {readerDraft.sortFrequencyDictionary !== null ? (
+            <div
+              id="hoshidicts-sort-frequency-dictionary-order-container"
+              className="hoshidicts-reader-lookup-options__order"
+            >
+              <label htmlFor="hoshidicts-sort-frequency-dictionary-order">
+                {t("settings.hoshidicts.reader.lookup.frequencyOrder")}
+              </label>
+              <div>
+                <button
+                  id="hoshidicts-sort-frequency-dictionary-order-auto"
+                  type="button"
+                  className="secondary"
+                  disabled={preferencesBusy}
+                  onClick={() => {
+                    const dictionary = state.dictionaries.find(
+                      (candidate) =>
+                        candidate.title ===
+                        readerDraft.sortFrequencyDictionary
+                    );
+                    setSortFrequencyDictionaryOrder(
+                      sortFrequencyDictionaryOrderForMode(
+                        dictionary?.frequencyMode ?? null
+                      )
+                    );
+                  }}
+                >
+                  {t("settings.hoshidicts.reader.lookup.frequencyOrderAuto")}
+                </button>
+                <select
+                  id="hoshidicts-sort-frequency-dictionary-order"
+                  value={readerDraft.sortFrequencyDictionaryOrder}
+                  disabled={preferencesBusy}
+                  onChange={(event) =>
+                    setSortFrequencyDictionaryOrder(
+                      event.currentTarget.value === "ascending"
+                        ? "ascending"
+                        : "descending"
+                    )
+                  }
+                >
+                  <option value="descending">
+                    {t(
+                      "settings.hoshidicts.reader.lookup.frequencyOccurrenceBased"
+                    )}
+                  </option>
+                  <option value="ascending">
+                    {t(
+                      "settings.hoshidicts.reader.lookup.frequencyRankBased"
+                    )}
+                  </option>
+                </select>
+              </div>
+            </div>
+          ) : null}
+        </div>
 
         <div className="hoshidicts-reader-appearance">
           <div className="hoshidicts-reader-appearance__heading">

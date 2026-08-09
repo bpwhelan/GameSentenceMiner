@@ -51,6 +51,9 @@ export type HoshidictsSchedule =
 export type HoshidictsLookupMode = 'shift' | 'hover';
 export type HoshidictsDefinitionBlurRevealMode = 'timed' | 'hover';
 export type HoshidictsFrequencyMode = 'occurrence-based' | 'rank-based';
+export type HoshidictsSortFrequencyDictionaryOrder =
+    | 'ascending'
+    | 'descending';
 export const HOSHIDICTS_ACTIVATION_KEYS = [
     'Ctrl',
     'Alt',
@@ -162,6 +165,21 @@ export function isHoshidictsActivationKey(
 export const DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS = 300;
 export const DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED = false;
 export const DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT = true;
+export const DEFAULT_HOSHIDICTS_SCAN_LENGTH = 16;
+export const MIN_HOSHIDICTS_SCAN_LENGTH = 1;
+export const MAX_HOSHIDICTS_SCAN_LENGTH = 64;
+export const DEFAULT_HOSHIDICTS_MAX_RESULTS = 32;
+export const MIN_HOSHIDICTS_MAX_RESULTS = 1;
+export const MAX_HOSHIDICTS_MAX_RESULTS = 256;
+export const DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY: string | null =
+    null;
+export const DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER: HoshidictsSortFrequencyDictionaryOrder =
+    'descending';
+export function isHoshidictsSortFrequencyDictionaryOrder(
+    value: unknown
+): value is HoshidictsSortFrequencyDictionaryOrder {
+    return value === 'ascending' || value === 'descending';
+}
 export const MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS = 5000;
 export const DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX = 560;
 export const DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX = 420;
@@ -549,15 +567,30 @@ export const HOSHIDICTS_MINING_FIELD_MARKERS = [
     { id: 'glossary', value: '{glossary}' },
     { id: 'dictionary', value: '{dictionary}' },
     { id: 'sentence', value: '{sentence}' },
+    { id: 'popup-selection-text', value: '{popup-selection-text}' },
     { id: 'sentence-furigana', value: '{sentence-furigana}' },
     {
         id: 'sentence-furigana-plain',
         value: '{sentence-furigana-plain}',
     },
     { id: 'frequency', value: '{frequency}' },
+    { id: 'frequencies', value: '{frequencies}' },
+    {
+        id: 'frequency-harmonic-rank',
+        value: '{frequency-harmonic-rank}',
+    },
     { id: 'pitch', value: '{pitch}' },
     { id: 'pitch-position', value: '{pitch-position}' },
+    {
+        id: 'pitch-accent-positions',
+        value: '{pitch-accent-positions}',
+    },
+    {
+        id: 'pitch-accent-categories',
+        value: '{pitch-accent-categories}',
+    },
     { id: 'audio', value: '{audio}' },
+    { id: 'document-title', value: '{document-title}' },
 ] as const;
 
 export type HoshidictsMiningFieldMarker =
@@ -633,6 +666,10 @@ export const DEFAULT_HOSHIDICTS_DEFINITION_BLUR = {
 
 export interface HoshidictsReaderPreferencesRequest {
     lookupMode: HoshidictsLookupMode;
+    scanLength: number;
+    maxResults: number;
+    sortFrequencyDictionary: string | null;
+    sortFrequencyDictionaryOrder: HoshidictsSortFrequencyDictionaryOrder;
     activationKey: HoshidictsActivationKey;
     sourceHighlightEnabled: boolean;
     onlyScanJapaneseText: boolean;
@@ -652,6 +689,7 @@ export interface HoshidictsDictionaryPresentation {
     title: string;
     favorite: boolean;
     displayName?: string;
+    frequencyMode?: HoshidictsFrequencyMode;
 }
 
 export const MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH = 128;
@@ -674,6 +712,10 @@ export interface HoshidictsReaderPreferences
     // Optional at the cross-process boundary for compatibility with an older
     // overlay. Current desktop deliveries always include a normalized array.
     dictionaryPresentation?: HoshidictsDictionaryPresentation[];
+    // Ordered enabled frequency dictionaries are used to register Yomitan's
+    // dynamic single-frequency-* mining markers, including dictionaries which
+    // do not contribute a value to the current lookup result.
+    frequencyDictionaries?: string[];
     // Optional for compatibility with overlays built before tab groups.
     dictionaryTabGroups?: HoshidictsReaderTabGroup[];
 }
@@ -846,6 +888,10 @@ export interface HoshidictsManagerSnapshot {
     miningProfile: HoshidictsMiningProfile;
     audioProfile: HoshidictsAudioProfile;
     lookupMode: HoshidictsLookupMode;
+    scanLength: number;
+    maxResults: number;
+    sortFrequencyDictionary: string | null;
+    sortFrequencyDictionaryOrder: HoshidictsSortFrequencyDictionaryOrder;
     activationKey: HoshidictsActivationKey;
     sourceHighlightEnabled: boolean;
     onlyScanJapaneseText: boolean;
@@ -875,6 +921,10 @@ export function hoshidictsReaderPreferencesFromSnapshot(
     );
     return {
         lookupMode: snapshot.lookupMode,
+        scanLength: snapshot.scanLength,
+        maxResults: snapshot.maxResults,
+        sortFrequencyDictionary: snapshot.sortFrequencyDictionary,
+        sortFrequencyDictionaryOrder: snapshot.sortFrequencyDictionaryOrder,
         activationKey: snapshot.activationKey,
         sourceHighlightEnabled: snapshot.sourceHighlightEnabled,
         onlyScanJapaneseText: snapshot.onlyScanJapaneseText,
@@ -889,11 +939,25 @@ export function hoshidictsReaderPreferencesFromSnapshot(
         popupToolbarPosition: snapshot.popupToolbarPosition,
         popupButtons: normalizeHoshidictsPopupButtons(snapshot.popupButtons),
         dictionaryPresentation: (snapshot.dictionaries ?? []).map(
-            ({ title, displayName, favorite }) =>
-                displayName
-                    ? { title, favorite, displayName }
-                    : { title, favorite }
+            ({ title, displayName, favorite, frequencyMode }) => {
+                const entry: HoshidictsDictionaryPresentation = {
+                    title,
+                    favorite,
+                };
+                if (displayName) {
+                    entry.displayName = displayName;
+                }
+                if (frequencyMode) {
+                    entry.frequencyMode = frequencyMode;
+                }
+                return entry;
+            }
         ),
+        frequencyDictionaries: (snapshot.dictionaries ?? [])
+            .filter(({ enabled, frequencyCount }) =>
+                enabled && frequencyCount > 0
+            )
+            .map(({ title }) => title),
         dictionaryTabGroups: (snapshot.tabGroups ?? []).map(
             ({ id, name, dictionaryIds }) => ({
                 id,

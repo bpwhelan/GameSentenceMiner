@@ -7,7 +7,10 @@ import {
     type SaveDialogOptions,
 } from 'electron';
 
-import type { OverlayRuntimeState } from '../../ui/front.js';
+import type {
+    HoshidictsLookupControls,
+    OverlayRuntimeState,
+} from '../../ui/front.js';
 import {
     HOSHIDICTS_CHANNELS,
     DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
@@ -16,20 +19,25 @@ import {
     isHoshidictsActivationKey,
     isHoshidictsPopupButtons,
     isHoshidictsPopupToolbarPosition,
+    isHoshidictsSortFrequencyDictionaryOrder,
     isHoshidictsTheme,
     MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES,
     MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
+    MAX_HOSHIDICTS_MAX_RESULTS,
     MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
     MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
     MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT,
     MAX_HOSHIDICTS_POPUP_WIDTH_PX,
+    MAX_HOSHIDICTS_SCAN_LENGTH,
     MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
+    MIN_HOSHIDICTS_MAX_RESULTS,
     MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
     MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
     MIN_HOSHIDICTS_POPUP_WIDTH_PX,
     normalizeHoshidictsPopupButtons,
+    MIN_HOSHIDICTS_SCAN_LENGTH,
     type HoshidictsActionResult,
     type HoshidictsActivationKey,
     type HoshidictsAudioProfile,
@@ -59,6 +67,7 @@ import {
     type HoshidictsRenameDictionaryRequest,
     type HoshidictsRecommendedDictionaryId,
     type HoshidictsSchedule,
+    type HoshidictsSortFrequencyDictionaryOrder,
     type HoshidictsTheme,
     type HoshidictsYomitanImportProgress,
     type HoshidictsYomitanImportReport,
@@ -79,6 +88,7 @@ export interface HoshidictsIPCDependencies {
     getConfiguredFeatureEnabled: () => boolean;
     getOverlayFeatureEnabledAtLaunch: () => boolean | null;
     getOverlayLookupModeAtLaunch: () => HoshidictsLookupMode | null;
+    getOverlayLookupControlsAtLaunch: () => HoshidictsLookupControls | null;
     getOverlayActivationKeyAtLaunch: () => HoshidictsActivationKey | null;
     getOverlaySourceHighlightEnabledAtLaunch: () => boolean | null;
     getOverlayOnlyScanJapaneseTextAtLaunch: () => boolean | null;
@@ -192,14 +202,43 @@ function popupButtonsEqual(
     );
 }
 
+function lookupControlsEqual(
+    left: HoshidictsLookupControls,
+    right: HoshidictsLookupControls
+): boolean {
+    return (
+        left.scanLength === right.scanLength &&
+        left.maxResults === right.maxResults &&
+        left.sortFrequencyDictionary === right.sortFrequencyDictionary &&
+        left.sortFrequencyDictionaryOrder === right.sortFrequencyDictionaryOrder
+    );
+}
+
+function lookupControlsFromPreferences(
+    preferences: HoshidictsReaderPreferences
+): HoshidictsLookupControls {
+    return {
+        scanLength: preferences.scanLength,
+        maxResults: preferences.maxResults,
+        sortFrequencyDictionary: preferences.sortFrequencyDictionary,
+        sortFrequencyDictionaryOrder: preferences.sortFrequencyDictionaryOrder,
+    };
+}
+
 function readerPreferencesMatchOverlay(
     preferences: HoshidictsReaderPreferences,
     deps: HoshidictsIPCDependencies
 ): boolean {
     const definitionBlurAtLaunch = deps.getOverlayDefinitionBlurAtLaunch();
     const popupButtonsApplied = deps.getOverlayPopupButtonsApplied();
+    const lookupControlsAtLaunch = deps.getOverlayLookupControlsAtLaunch();
     return (
         deps.getOverlayLookupModeAtLaunch() === preferences.lookupMode &&
+        lookupControlsAtLaunch !== null &&
+        lookupControlsEqual(
+            lookupControlsAtLaunch,
+            lookupControlsFromPreferences(preferences)
+        ) &&
         deps.getOverlayActivationKeyAtLaunch() === preferences.activationKey &&
         deps.getOverlaySourceHighlightEnabledAtLaunch() ===
             preferences.sourceHighlightEnabled &&
@@ -337,6 +376,7 @@ function withDesktopState(
     const overlay = deps.getOverlayRuntimeState();
     const enabledAtLaunch = deps.getOverlayFeatureEnabledAtLaunch();
     const lookupModeAtLaunch = deps.getOverlayLookupModeAtLaunch();
+    const lookupControlsAtLaunch = deps.getOverlayLookupControlsAtLaunch();
     const activationKeyAtLaunch = deps.getOverlayActivationKeyAtLaunch();
     const sourceHighlightEnabledAtLaunch =
         deps.getOverlaySourceHighlightEnabledAtLaunch();
@@ -365,6 +405,16 @@ function withDesktopState(
                     (effectiveEnabled &&
                         lookupModeAtLaunch !== null &&
                         lookupModeAtLaunch !== snapshot.lookupMode) ||
+                    (effectiveEnabled &&
+                        lookupControlsAtLaunch !== null &&
+                        !lookupControlsEqual(lookupControlsAtLaunch, {
+                            scanLength: snapshot.scanLength,
+                            maxResults: snapshot.maxResults,
+                            sortFrequencyDictionary:
+                                snapshot.sortFrequencyDictionary,
+                            sortFrequencyDictionaryOrder:
+                                snapshot.sortFrequencyDictionaryOrder,
+                        })) ||
                     (effectiveEnabled &&
                         activationKeyAtLaunch !== null &&
                         activationKeyAtLaunch !== snapshot.activationKey) ||
@@ -714,6 +764,25 @@ export function registerHoshidictsIPC(
             }
             if (settings.readerPreferences) {
                 const reader = settings.readerPreferences;
+                const sortFrequencyDictionary =
+                    reader.sortFrequencyDictionary !== null &&
+                    state.dictionaries.some(
+                        (dictionary) =>
+                            dictionary.title ===
+                                reader.sortFrequencyDictionary &&
+                            dictionary.enabled &&
+                            dictionary.frequencyCount > 0
+                    )
+                        ? reader.sortFrequencyDictionary
+                        : null;
+                if (
+                    reader.sortFrequencyDictionary !== null &&
+                    sortFrequencyDictionary === null
+                ) {
+                    report.warnings.push(
+                        `Turned off unavailable frequency sorting dictionary: ${reader.sortFrequencyDictionary}.`
+                    );
+                }
                 state = await manager.setReaderPreferences(
                     reader.lookupMode,
                     reader.popupHideDelayMs,
@@ -728,6 +797,10 @@ export function registerHoshidictsIPC(
                     reader.popupOpacityPercent,
                     reader.onlyScanJapaneseText,
                     reader.popupToolbarPosition,
+                    reader.scanLength,
+                    reader.maxResults,
+                    sortFrequencyDictionary,
+                    reader.sortFrequencyDictionaryOrder,
                     reader.popupButtons
                 );
             }
@@ -1048,6 +1121,19 @@ export function registerHoshidictsIPC(
             if (
                 !value ||
                 !isLookupMode(value.lookupMode) ||
+                !Number.isInteger(value.scanLength) ||
+                (value.scanLength as number) < MIN_HOSHIDICTS_SCAN_LENGTH ||
+                (value.scanLength as number) > MAX_HOSHIDICTS_SCAN_LENGTH ||
+                !Number.isInteger(value.maxResults) ||
+                (value.maxResults as number) < MIN_HOSHIDICTS_MAX_RESULTS ||
+                (value.maxResults as number) > MAX_HOSHIDICTS_MAX_RESULTS ||
+                (value.sortFrequencyDictionary !== null &&
+                    (typeof value.sortFrequencyDictionary !== 'string' ||
+                        value.sortFrequencyDictionary.length === 0 ||
+                        value.sortFrequencyDictionary.length > 4096)) ||
+                !isHoshidictsSortFrequencyDictionaryOrder(
+                    value.sortFrequencyDictionaryOrder
+                ) ||
                 !isHoshidictsActivationKey(value.activationKey) ||
                 typeof value.sourceHighlightEnabled !== 'boolean' ||
                 typeof value.onlyScanJapaneseText !== 'boolean' ||
@@ -1091,6 +1177,12 @@ export function registerHoshidictsIPC(
                 async () => {
                     const requestPreferences: HoshidictsReaderPreferencesRequest = {
                         lookupMode: value.lookupMode as HoshidictsLookupMode,
+                        scanLength: value.scanLength as number,
+                        maxResults: value.maxResults as number,
+                        sortFrequencyDictionary:
+                            value.sortFrequencyDictionary as string | null,
+                        sortFrequencyDictionaryOrder:
+                            value.sortFrequencyDictionaryOrder as HoshidictsSortFrequencyDictionaryOrder,
                         activationKey: value.activationKey as HoshidictsActivationKey,
                         sourceHighlightEnabled:
                             value.sourceHighlightEnabled as boolean,
@@ -1128,6 +1220,10 @@ export function registerHoshidictsIPC(
                         requestPreferences.popupOpacityPercent,
                         requestPreferences.onlyScanJapaneseText,
                         requestPreferences.popupToolbarPosition,
+                        requestPreferences.scanLength,
+                        requestPreferences.maxResults,
+                        requestPreferences.sortFrequencyDictionary,
+                        requestPreferences.sortFrequencyDictionaryOrder,
                         requestPreferences.popupButtons
                     );
                     const preferences: HoshidictsReaderPreferences = {

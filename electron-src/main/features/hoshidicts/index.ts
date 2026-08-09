@@ -4,6 +4,7 @@ import { getConfiguredHoshidictsEnabled } from '../../gsm_config.js';
 import {
     configureHoshidictsActivationKeyProvider,
     configureHoshidictsDefinitionBlurProvider,
+    configureHoshidictsLookupControlsProvider,
     configureHoshidictsLookupModeProvider,
     configureHoshidictsOnlyScanJapaneseTextProvider,
     configureHoshidictsPopupHideDelayProvider,
@@ -19,6 +20,7 @@ import {
     getOverlayHoshidictsEnabledAtLaunch,
     getOverlayHoshidictsActivationKeyAtLaunch,
     getOverlayHoshidictsDefinitionBlurAtLaunch,
+    getOverlayHoshidictsLookupControlsAtLaunch,
     getOverlayHoshidictsLookupModeAtLaunch,
     getOverlayHoshidictsOnlyScanJapaneseTextAtLaunch,
     getOverlayHoshidictsPopupHideDelayAtLaunch,
@@ -187,6 +189,8 @@ export function registerHoshidictsFeature(deps: {
             getOverlayHoshidictsEnabledAtLaunch,
         getOverlayLookupModeAtLaunch:
             getOverlayHoshidictsLookupModeAtLaunch,
+        getOverlayLookupControlsAtLaunch:
+            getOverlayHoshidictsLookupControlsAtLaunch,
         getOverlayActivationKeyAtLaunch:
             getOverlayHoshidictsActivationKeyAtLaunch,
         getOverlaySourceHighlightEnabledAtLaunch:
@@ -233,6 +237,16 @@ export async function startHoshidictsManager(): Promise<void> {
     configureHoshidictsLookupModeProvider(
         async () => (await manager.getSnapshot()).lookupMode
     );
+    configureHoshidictsLookupControlsProvider(async () => {
+        const snapshot = await manager.getSnapshot();
+        return {
+            scanLength: snapshot.scanLength,
+            maxResults: snapshot.maxResults,
+            sortFrequencyDictionary: snapshot.sortFrequencyDictionary,
+            sortFrequencyDictionaryOrder:
+                snapshot.sortFrequencyDictionaryOrder,
+        };
+    });
     configureHoshidictsActivationKeyProvider(
         async () => (await getHoshidictsManager().getSnapshot()).activationKey
     );

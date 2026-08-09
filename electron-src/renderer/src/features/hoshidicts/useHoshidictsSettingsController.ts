@@ -5,6 +5,7 @@ import {
   createDefaultHoshidictsFieldOverwriteModes,
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
+  DEFAULT_HOSHIDICTS_MAX_RESULTS,
   DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
   DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
@@ -13,19 +14,26 @@ import {
   DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
   DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
   DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
+  DEFAULT_HOSHIDICTS_SCAN_LENGTH,
+  DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
+  DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
   DEFAULT_HOSHIDICTS_THEME,
   HOSHIDICTS_CHANNELS,
   MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
   MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
+  MAX_HOSHIDICTS_MAX_RESULTS,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
   MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   MAX_HOSHIDICTS_POPUP_WIDTH_PX,
+  MAX_HOSHIDICTS_SCAN_LENGTH,
   MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
   MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
+  MIN_HOSHIDICTS_MAX_RESULTS,
   MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
   MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   MIN_HOSHIDICTS_POPUP_WIDTH_PX,
+  MIN_HOSHIDICTS_SCAN_LENGTH,
   type HoshidictsActionResult,
   type HoshidictsActivationKey,
   type HoshidictsAudioProfile,
@@ -51,6 +59,7 @@ import {
   type HoshidictsSaveCustomDictionaryRequest,
   type HoshidictsSchedule,
   type HoshidictsSetTabGroupMembershipRequest,
+  type HoshidictsSortFrequencyDictionaryOrder,
   type HoshidictsTheme,
   type HoshidictsYomitanImportProgress
 } from "../../../../shared/features/hoshidicts";
@@ -94,6 +103,11 @@ function resetMiningFieldMappings(
 
 const defaultReaderPreferences = (): HoshidictsReaderPreferences => ({
   lookupMode: "shift",
+  scanLength: DEFAULT_HOSHIDICTS_SCAN_LENGTH,
+  maxResults: DEFAULT_HOSHIDICTS_MAX_RESULTS,
+  sortFrequencyDictionary: DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
+  sortFrequencyDictionaryOrder:
+    DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
   activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   sourceHighlightEnabled: DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
   onlyScanJapaneseText: DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
@@ -225,6 +239,10 @@ export function useHoshidictsSettingsController() {
 
     const reader = {
       lookupMode: normalized.lookupMode,
+      scanLength: normalized.scanLength,
+      maxResults: normalized.maxResults,
+      sortFrequencyDictionary: normalized.sortFrequencyDictionary,
+      sortFrequencyDictionaryOrder: normalized.sortFrequencyDictionaryOrder,
       activationKey: normalized.activationKey,
       sourceHighlightEnabled: normalized.sourceHighlightEnabled,
       onlyScanJapaneseText: normalized.onlyScanJapaneseText,
@@ -546,6 +564,51 @@ export function useHoshidictsSettingsController() {
   const setLookupMode = useCallback(
     (lookupMode: HoshidictsLookupMode) => {
       updateReaderPreferences({ lookupMode });
+    },
+    [updateReaderPreferences]
+  );
+
+  const setScanLength = useCallback(
+    (scanLength: number) => {
+      if (!Number.isFinite(scanLength)) return;
+      updateReaderPreferences({
+        scanLength: Math.min(
+          MAX_HOSHIDICTS_SCAN_LENGTH,
+          Math.max(MIN_HOSHIDICTS_SCAN_LENGTH, Math.round(scanLength))
+        )
+      });
+    },
+    [updateReaderPreferences]
+  );
+
+  const setMaxResults = useCallback(
+    (maxResults: number) => {
+      if (!Number.isFinite(maxResults)) return;
+      updateReaderPreferences({
+        maxResults: Math.min(
+          MAX_HOSHIDICTS_MAX_RESULTS,
+          Math.max(MIN_HOSHIDICTS_MAX_RESULTS, Math.round(maxResults))
+        )
+      });
+    },
+    [updateReaderPreferences]
+  );
+
+  const setSortFrequencyDictionary = useCallback(
+    (sortFrequencyDictionary: string | null) => {
+      updateReaderPreferences({
+        sortFrequencyDictionary:
+          sortFrequencyDictionary && sortFrequencyDictionary.length > 0
+            ? sortFrequencyDictionary
+            : null
+      });
+    },
+    [updateReaderPreferences]
+  );
+
+  const setSortFrequencyDictionaryOrder = useCallback(
+    (sortFrequencyDictionaryOrder: HoshidictsSortFrequencyDictionaryOrder) => {
+      updateReaderPreferences({ sortFrequencyDictionaryOrder });
     },
     [updateReaderPreferences]
   );
@@ -1088,6 +1151,10 @@ export function useHoshidictsSettingsController() {
     readerDraft,
     readerSaveStatus,
     setLookupMode,
+    setScanLength,
+    setMaxResults,
+    setSortFrequencyDictionary,
+    setSortFrequencyDictionaryOrder,
     setActivationKey,
     setSourceHighlightEnabled,
     setOnlyScanJapaneseText,

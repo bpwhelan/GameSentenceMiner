@@ -34,12 +34,14 @@ import type {
     HoshidictsRecommendedDictionaryId,
     HoshidictsRecommendedDictionaryState,
     HoshidictsSchedule,
+    HoshidictsSortFrequencyDictionaryOrder,
     HoshidictsTheme,
     HoshidictsYomitanDictionaryPreference,
 } from '../../../shared/features/hoshidicts.js';
 import {
     DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
     DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
+    DEFAULT_HOSHIDICTS_MAX_RESULTS,
     DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
     DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
     DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
@@ -48,27 +50,35 @@ import {
     DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
     DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
     DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
+    DEFAULT_HOSHIDICTS_SCAN_LENGTH,
+    DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
+    DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
     DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
     DEFAULT_HOSHIDICTS_THEME,
     createDefaultHoshidictsPopupButtons,
     isHoshidictsActivationKey,
     isHoshidictsPopupToolbarPosition,
+    isHoshidictsSortFrequencyDictionaryOrder,
     isHoshidictsTheme,
     normalizeHoshidictsPopupButtons,
     MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES,
     MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
+    MAX_HOSHIDICTS_MAX_RESULTS,
     MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
     MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
     MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT,
     MAX_HOSHIDICTS_POPUP_WIDTH_PX,
+    MAX_HOSHIDICTS_SCAN_LENGTH,
     MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH,
     MAX_HOSHIDICTS_TAB_GROUPS_BYTES,
     MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
+    MIN_HOSHIDICTS_MAX_RESULTS,
     MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
     MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
     MIN_HOSHIDICTS_POPUP_WIDTH_PX,
+    MIN_HOSHIDICTS_SCAN_LENGTH,
 } from '../../../shared/features/hoshidicts.js';
 import {
     defaultHoshidictsAudioProfile,
@@ -124,6 +134,7 @@ export type {
     HoshidictsRecommendedDictionaryId,
     HoshidictsRecommendedDictionaryState,
     HoshidictsSchedule,
+    HoshidictsSortFrequencyDictionaryOrder,
 } from '../../../shared/features/hoshidicts.js';
 
 interface PersistedDictionary extends HoshidictsDictionaryState {
@@ -136,6 +147,10 @@ interface PersistedDictionary extends HoshidictsDictionaryState {
 interface PersistedManifest {
     version: 1;
     lookupMode: HoshidictsLookupMode;
+    scanLength: number;
+    maxResults: number;
+    sortFrequencyDictionary: string | null;
+    sortFrequencyDictionaryOrder: HoshidictsSortFrequencyDictionaryOrder;
     activationKey: HoshidictsActivationKey;
     sourceHighlightEnabled: boolean;
     onlyScanJapaneseText: boolean;
@@ -244,7 +259,12 @@ const RELOAD_CONNECT_RETRY_MS = 100;
 const SCHEDULER_MAX_DELAY_MS = 24 * 60 * 60 * 1000;
 const REQUIRED_DICTIONARY_FILES = ['hash.table', 'bloom.filter', 'blobs.bin'] as const;
 const REQUIRED_MEDIA_FILES = ['media.idx', 'media.bin'] as const;
-const HOSHIDICTS_MARKERS = ['.hoshidicts_3', '.hoshidicts_2', '.hoshidicts_1'] as const;
+const HOSHIDICTS_MARKERS = [
+    '.hoshidicts_4',
+    '.hoshidicts_3',
+    '.hoshidicts_2',
+    '.hoshidicts_1',
+] as const;
 const JAPANESE_TEXT_PATTERN =
     /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u{20000}-\u{2fa1f}]/u;
 const SAFE_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
@@ -383,6 +403,12 @@ function emptyManifest(): PersistedManifest {
     return {
         version: MANIFEST_VERSION,
         lookupMode: 'shift',
+        scanLength: DEFAULT_HOSHIDICTS_SCAN_LENGTH,
+        maxResults: DEFAULT_HOSHIDICTS_MAX_RESULTS,
+        sortFrequencyDictionary:
+            DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
+        sortFrequencyDictionaryOrder:
+            DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
         activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
         sourceHighlightEnabled:
             DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
@@ -545,6 +571,36 @@ function normalizePopupHideDelay(value: unknown): number {
         (value as number) <= MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS
         ? (value as number)
         : DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS;
+}
+
+function normalizeScanLength(value: unknown): number {
+    return Number.isInteger(value) &&
+        (value as number) >= MIN_HOSHIDICTS_SCAN_LENGTH &&
+        (value as number) <= MAX_HOSHIDICTS_SCAN_LENGTH
+        ? (value as number)
+        : DEFAULT_HOSHIDICTS_SCAN_LENGTH;
+}
+
+function normalizeMaxResults(value: unknown): number {
+    return Number.isInteger(value) &&
+        (value as number) >= MIN_HOSHIDICTS_MAX_RESULTS &&
+        (value as number) <= MAX_HOSHIDICTS_MAX_RESULTS
+        ? (value as number)
+        : DEFAULT_HOSHIDICTS_MAX_RESULTS;
+}
+
+function normalizeSortFrequencyDictionary(value: unknown): string | null {
+    return typeof value === 'string' && value.length > 0 && value.length <= 4096
+        ? value
+        : DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY;
+}
+
+function normalizeSortFrequencyDictionaryOrder(
+    value: unknown
+): HoshidictsSortFrequencyDictionaryOrder {
+    return isHoshidictsSortFrequencyDictionaryOrder(value)
+        ? value
+        : DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER;
 }
 
 function normalizePopupNestingMaxDepth(value: unknown): number {
@@ -1840,13 +1896,27 @@ export class HoshidictsManager {
                 const [dictionary] = remaining.splice(index, 1);
                 ordered.push({ ...dictionary, enabled: preference.enabled });
             }
+            const dictionaries = [...ordered, ...remaining];
             const next = {
                 ...manifest,
-                dictionaries: [...ordered, ...remaining],
+                sortFrequencyDictionary:
+                    manifest.sortFrequencyDictionary !== null &&
+                    dictionaries.some(
+                        (dictionary) =>
+                            dictionary.title ===
+                                manifest.sortFrequencyDictionary &&
+                            dictionary.enabled &&
+                            dictionary.frequencyCount > 0
+                    )
+                        ? manifest.sortFrequencyDictionary
+                        : null,
+                dictionaries,
             };
             if (
                 JSON.stringify(next.dictionaries) !==
-                JSON.stringify(manifest.dictionaries)
+                    JSON.stringify(manifest.dictionaries) ||
+                next.sortFrequencyDictionary !==
+                    manifest.sortFrequencyDictionary
             ) {
                 await this.commitManifestChange(manifest, next, null, null);
             }
@@ -1920,6 +1990,10 @@ export class HoshidictsManager {
             const existing = manifest.dictionaries[existingIndex];
             const next: PersistedManifest = {
                 ...manifest,
+                sortFrequencyDictionary:
+                    manifest.sortFrequencyDictionary === existing.title
+                        ? null
+                        : manifest.sortFrequencyDictionary,
                 dictionaries: manifest.dictionaries.filter(
                     (dictionary) => dictionary.id !== id
                 ),
@@ -1954,9 +2028,14 @@ export class HoshidictsManager {
                 ...dictionary,
             }));
             dictionaries[index].enabled = enabled;
+            const sortFrequencyDictionary =
+                !enabled &&
+                manifest.sortFrequencyDictionary === dictionaries[index].title
+                    ? null
+                    : manifest.sortFrequencyDictionary;
             await this.commitManifestChange(
                 manifest,
-                { ...manifest, dictionaries },
+                { ...manifest, sortFrequencyDictionary, dictionaries },
                 null,
                 null
             );
@@ -2479,7 +2558,11 @@ export class HoshidictsManager {
             undefined,
             undefined,
             snapshot.onlyScanJapaneseText,
-            snapshot.popupToolbarPosition
+            snapshot.popupToolbarPosition,
+            snapshot.scanLength,
+            snapshot.maxResults,
+            snapshot.sortFrequencyDictionary,
+            snapshot.sortFrequencyDictionaryOrder
         );
     }
 
@@ -2499,10 +2582,45 @@ export class HoshidictsManager {
         popupOpacityPercent?: number,
         onlyScanJapaneseText = DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
         popupToolbarPosition?: HoshidictsPopupToolbarPosition,
+        scanLength = DEFAULT_HOSHIDICTS_SCAN_LENGTH,
+        maxResults = DEFAULT_HOSHIDICTS_MAX_RESULTS,
+        sortFrequencyDictionary: string | null =
+            DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
+        sortFrequencyDictionaryOrder: HoshidictsSortFrequencyDictionaryOrder =
+            DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
         popupButtons?: HoshidictsPopupButtons
     ): Promise<HoshidictsManagerSnapshot> {
         if (lookupMode !== 'shift' && lookupMode !== 'hover') {
             throw new Error('Hoshidicts lookup mode is invalid.');
+        }
+        if (
+            !Number.isInteger(scanLength) ||
+            scanLength < MIN_HOSHIDICTS_SCAN_LENGTH ||
+            scanLength > MAX_HOSHIDICTS_SCAN_LENGTH
+        ) {
+            throw new Error('Hoshidicts scan length is invalid.');
+        }
+        if (
+            !Number.isInteger(maxResults) ||
+            maxResults < MIN_HOSHIDICTS_MAX_RESULTS ||
+            maxResults > MAX_HOSHIDICTS_MAX_RESULTS
+        ) {
+            throw new Error('Hoshidicts maximum result count is invalid.');
+        }
+        if (
+            sortFrequencyDictionary !== null &&
+            (typeof sortFrequencyDictionary !== 'string' ||
+                sortFrequencyDictionary.length === 0 ||
+                sortFrequencyDictionary.length > 4096)
+        ) {
+            throw new Error('Hoshidicts frequency sort dictionary is invalid.');
+        }
+        if (
+            !isHoshidictsSortFrequencyDictionaryOrder(
+                sortFrequencyDictionaryOrder
+            )
+        ) {
+            throw new Error('Hoshidicts frequency sort order is invalid.');
         }
         if (
             !Number.isInteger(popupHideDelayMs) ||
@@ -2616,6 +2734,19 @@ export class HoshidictsManager {
         }
         await this.enqueue('saving', async () => {
             const manifest = await this.readManifest();
+            if (
+                sortFrequencyDictionary !== null &&
+                !manifest.dictionaries.some(
+                    (dictionary) =>
+                        dictionary.title === sortFrequencyDictionary &&
+                        dictionary.enabled &&
+                        dictionary.frequencyCount > 0
+                )
+            ) {
+                throw new Error(
+                    'Hoshidicts frequency sort dictionary is not installed.'
+                );
+            }
             const effectiveDefinitionBlur =
                 definitionBlur ?? manifest.definitionBlur;
             const effectivePopupWidthPx = popupWidthPx ?? manifest.popupWidthPx;
@@ -2630,6 +2761,11 @@ export class HoshidictsManager {
                 normalizedPopupButtons ?? manifest.popupButtons;
             if (
                 manifest.lookupMode !== lookupMode ||
+                manifest.scanLength !== scanLength ||
+                manifest.maxResults !== maxResults ||
+                manifest.sortFrequencyDictionary !== sortFrequencyDictionary ||
+                manifest.sortFrequencyDictionaryOrder !==
+                    sortFrequencyDictionaryOrder ||
                 manifest.popupHideDelayMs !== popupHideDelayMs ||
                 manifest.activationKey !== activationKey ||
                 manifest.sourceHighlightEnabled !== sourceHighlightEnabled ||
@@ -2654,6 +2790,10 @@ export class HoshidictsManager {
                 await this.atomicWriteManifest({
                     ...manifest,
                     lookupMode,
+                    scanLength,
+                    maxResults,
+                    sortFrequencyDictionary,
+                    sortFrequencyDictionaryOrder,
                     activationKey,
                     sourceHighlightEnabled,
                     onlyScanJapaneseText,
@@ -2984,6 +3124,11 @@ export class HoshidictsManager {
             miningProfile,
             audioProfile,
             lookupMode: manifest.lookupMode,
+            scanLength: manifest.scanLength,
+            maxResults: manifest.maxResults,
+            sortFrequencyDictionary: manifest.sortFrequencyDictionary,
+            sortFrequencyDictionaryOrder:
+                manifest.sortFrequencyDictionaryOrder,
             activationKey: manifest.activationKey,
             sourceHighlightEnabled: manifest.sourceHighlightEnabled,
             onlyScanJapaneseText: manifest.onlyScanJapaneseText,
@@ -3346,9 +3491,27 @@ export class HoshidictsManager {
             });
         }
 
+        const requestedSortFrequencyDictionary =
+            normalizeSortFrequencyDictionary(parsed.sortFrequencyDictionary);
         const manifest: PersistedManifest = {
             version: MANIFEST_VERSION,
             lookupMode: parsed.lookupMode === 'hover' ? 'hover' : 'shift',
+            scanLength: normalizeScanLength(parsed.scanLength),
+            maxResults: normalizeMaxResults(parsed.maxResults),
+            sortFrequencyDictionary:
+                requestedSortFrequencyDictionary !== null &&
+                dictionaries.some(
+                    (dictionary) =>
+                        dictionary.title === requestedSortFrequencyDictionary &&
+                        dictionary.enabled &&
+                        dictionary.frequencyCount > 0
+                )
+                    ? requestedSortFrequencyDictionary
+                    : null,
+            sortFrequencyDictionaryOrder:
+                normalizeSortFrequencyDictionaryOrder(
+                    parsed.sortFrequencyDictionaryOrder
+                ),
             activationKey: isHoshidictsActivationKey(parsed.activationKey)
                 ? parsed.activationKey
                 : DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
@@ -3394,6 +3557,15 @@ export class HoshidictsManager {
         return {
             version: MANIFEST_VERSION,
             lookupMode: parsed.lookupMode === 'hover' ? 'hover' : 'shift',
+            scanLength: normalizeScanLength(parsed.scanLength),
+            maxResults: normalizeMaxResults(parsed.maxResults),
+            // Dictionary hydration failed, so no sort dictionary is available
+            // to the native engine for this snapshot.
+            sortFrequencyDictionary: null,
+            sortFrequencyDictionaryOrder:
+                normalizeSortFrequencyDictionaryOrder(
+                    parsed.sortFrequencyDictionaryOrder
+                ),
             activationKey: isHoshidictsActivationKey(parsed.activationKey)
                 ? parsed.activationKey
                 : DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
@@ -3604,7 +3776,20 @@ export class HoshidictsManager {
         } else {
             dictionaries.push(staged.dictionary);
         }
-        const next: PersistedManifest = { ...manifest, dictionaries };
+        const next: PersistedManifest = {
+            ...manifest,
+            sortFrequencyDictionary:
+                manifest.sortFrequencyDictionary !== null &&
+                dictionaries.some(
+                    (dictionary) =>
+                        dictionary.title === manifest.sortFrequencyDictionary &&
+                        dictionary.enabled &&
+                        dictionary.frequencyCount > 0
+                )
+                    ? manifest.sortFrequencyDictionary
+                    : null,
+            dictionaries,
+        };
         await this.commitManifestChange(
             manifest,
             next,

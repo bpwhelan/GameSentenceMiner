@@ -1607,15 +1607,30 @@ describe('Hoshidicts mining profile', () => {
             { id: 'glossary', value: '{glossary}' },
             { id: 'dictionary', value: '{dictionary}' },
             { id: 'sentence', value: '{sentence}' },
+            { id: 'popup-selection-text', value: '{popup-selection-text}' },
             { id: 'sentence-furigana', value: '{sentence-furigana}' },
             {
                 id: 'sentence-furigana-plain',
                 value: '{sentence-furigana-plain}',
             },
             { id: 'frequency', value: '{frequency}' },
+            { id: 'frequencies', value: '{frequencies}' },
+            {
+                id: 'frequency-harmonic-rank',
+                value: '{frequency-harmonic-rank}',
+            },
             { id: 'pitch', value: '{pitch}' },
             { id: 'pitch-position', value: '{pitch-position}' },
+            {
+                id: 'pitch-accent-positions',
+                value: '{pitch-accent-positions}',
+            },
+            {
+                id: 'pitch-accent-categories',
+                value: '{pitch-accent-categories}',
+            },
             { id: 'audio', value: '{audio}' },
+            { id: 'document-title', value: '{document-title}' },
         ]);
     });
 });
@@ -1725,6 +1740,10 @@ describe('Hoshidicts reader preferences', () => {
 
         const snapshot = await manager.getSnapshot();
         expect(snapshot.lookupMode).toBe('shift');
+        expect(snapshot.scanLength).toBe(16);
+        expect(snapshot.maxResults).toBe(32);
+        expect(snapshot.sortFrequencyDictionary).toBeNull();
+        expect(snapshot.sortFrequencyDictionaryOrder).toBe('descending');
         expect(snapshot.activationKey).toBe('Shift');
         expect(snapshot.sourceHighlightEnabled).toBe(false);
         expect(snapshot.onlyScanJapaneseText).toBe(true);
@@ -1754,6 +1773,12 @@ describe('Hoshidicts reader preferences', () => {
         const { manager } = createHarness(baseDir);
 
         expect((await manager.getSnapshot()).lookupMode).toBe('shift');
+        expect((await manager.getSnapshot()).scanLength).toBe(16);
+        expect((await manager.getSnapshot()).maxResults).toBe(32);
+        expect((await manager.getSnapshot()).sortFrequencyDictionary).toBeNull();
+        expect((await manager.getSnapshot()).sortFrequencyDictionaryOrder).toBe(
+            'descending'
+        );
         expect((await manager.getSnapshot()).activationKey).toBe('Shift');
         expect((await manager.getSnapshot()).sourceHighlightEnabled).toBe(false);
         expect((await manager.getSnapshot()).onlyScanJapaneseText).toBe(true);
@@ -1798,6 +1823,10 @@ describe('Hoshidicts reader preferences', () => {
             70,
             false,
             'bottom',
+            24,
+            48,
+            null,
+            'ascending',
             {
                 addToAnki: false,
                 audio: true,
@@ -1813,6 +1842,10 @@ describe('Hoshidicts reader preferences', () => {
         );
 
         expect(snapshot.lookupMode).toBe('hover');
+        expect(snapshot.scanLength).toBe(24);
+        expect(snapshot.maxResults).toBe(48);
+        expect(snapshot.sortFrequencyDictionary).toBeNull();
+        expect(snapshot.sortFrequencyDictionaryOrder).toBe('ascending');
         expect(snapshot.activationKey).toBe('F8');
         expect(snapshot.sourceHighlightEnabled).toBe(true);
         expect(snapshot.onlyScanJapaneseText).toBe(false);
@@ -1843,6 +1876,12 @@ describe('Hoshidicts reader preferences', () => {
             revealDelayMs: 7000,
         });
         expect(readManifest(baseDir).lookupMode).toBe('hover');
+        expect(readManifest(baseDir).scanLength).toBe(24);
+        expect(readManifest(baseDir).maxResults).toBe(48);
+        expect(readManifest(baseDir).sortFrequencyDictionary).toBeNull();
+        expect(readManifest(baseDir).sortFrequencyDictionaryOrder).toBe(
+            'ascending'
+        );
         expect(readManifest(baseDir).activationKey).toBe('F8');
         expect(readManifest(baseDir).sourceHighlightEnabled).toBe(true);
         expect(readManifest(baseDir).onlyScanJapaneseText).toBe(false);
@@ -1866,6 +1905,12 @@ describe('Hoshidicts reader preferences', () => {
 
         const reloaded = createHarness(baseDir).manager;
         expect((await reloaded.getSnapshot()).lookupMode).toBe('hover');
+        expect((await reloaded.getSnapshot()).scanLength).toBe(24);
+        expect((await reloaded.getSnapshot()).maxResults).toBe(48);
+        expect((await reloaded.getSnapshot()).sortFrequencyDictionary).toBeNull();
+        expect((await reloaded.getSnapshot()).sortFrequencyDictionaryOrder).toBe(
+            'ascending'
+        );
         expect((await reloaded.getSnapshot()).activationKey).toBe('F8');
         expect((await reloaded.getSnapshot()).sourceHighlightEnabled).toBe(true);
         expect((await reloaded.getSnapshot()).onlyScanJapaneseText).toBe(false);
@@ -1889,6 +1934,10 @@ describe('Hoshidicts reader preferences', () => {
 
         const shifted = await reloaded.setLookupMode('shift');
         expect(shifted.lookupMode).toBe('shift');
+        expect(shifted.scanLength).toBe(24);
+        expect(shifted.maxResults).toBe(48);
+        expect(shifted.sortFrequencyDictionary).toBeNull();
+        expect(shifted.sortFrequencyDictionaryOrder).toBe('ascending');
         expect(shifted.activationKey).toBe('F8');
         expect(shifted.sourceHighlightEnabled).toBe(true);
         expect(shifted.onlyScanJapaneseText).toBe(false);
@@ -1907,6 +1956,109 @@ describe('Hoshidicts reader preferences', () => {
             revealMode: 'hover',
             revealDelayMs: 7000,
         });
+    });
+
+    it('persists frequency sorting and turns it off when its dictionary is disabled or removed', async () => {
+        const baseDir = makeTempDir();
+        const archivesDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+        await manager.importDictionary(
+            writeArchive(archivesDir, 'frequency.zip', {
+                title: 'Frequency',
+                revision: 'one',
+                sourceLanguage: 'ja',
+                terms: 0,
+                frequencies: 1,
+                frequencyMode: 'rank-based',
+            })
+        );
+        const dictionary = (await manager.getSnapshot()).dictionaries[0];
+
+        const enableSorting = () =>
+            manager.setReaderPreferences(
+                'shift',
+                300,
+                'Shift',
+                false,
+                10,
+                undefined,
+                true,
+                560,
+                420,
+                'default',
+                85,
+                true,
+                'top',
+                16,
+                32,
+                'Frequency',
+                'ascending'
+            );
+        const sorted = await enableSorting();
+        expect(sorted.sortFrequencyDictionary).toBe('Frequency');
+        expect(sorted.sortFrequencyDictionaryOrder).toBe('ascending');
+        expect(readManifest(baseDir)).toMatchObject({
+            sortFrequencyDictionary: 'Frequency',
+            sortFrequencyDictionaryOrder: 'ascending',
+        });
+
+        const disabled = await manager.setDictionaryEnabled(dictionary.id, false);
+        expect(disabled.sortFrequencyDictionary).toBeNull();
+        expect(readManifest(baseDir).sortFrequencyDictionary).toBeNull();
+
+        await manager.setDictionaryEnabled(dictionary.id, true);
+        await enableSorting();
+        const removed = await manager.removeDictionary(dictionary.id);
+        expect(removed.sortFrequencyDictionary).toBeNull();
+        expect(readManifest(baseDir).sortFrequencyDictionary).toBeNull();
+    });
+
+    it('rejects invalid lookup bounds and non-frequency sort dictionaries', async () => {
+        const baseDir = makeTempDir();
+        const archivesDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+        await manager.importDictionary(
+            writeArchive(archivesDir, 'terms.zip', {
+                title: 'Terms',
+                revision: 'one',
+                sourceLanguage: 'ja',
+            })
+        );
+        const setLookupPreferences = (
+            scanLength: number,
+            maxResults: number,
+            dictionary: string | null,
+            order: 'ascending' | 'descending'
+        ) =>
+            manager.setReaderPreferences(
+                'shift',
+                300,
+                'Shift',
+                false,
+                10,
+                undefined,
+                true,
+                560,
+                420,
+                'default',
+                85,
+                true,
+                'top',
+                scanLength,
+                maxResults,
+                dictionary,
+                order
+            );
+
+        await expect(setLookupPreferences(0, 32, null, 'descending')).rejects.toThrow(
+            'scan length is invalid'
+        );
+        await expect(setLookupPreferences(16, 257, null, 'descending')).rejects.toThrow(
+            'maximum result count is invalid'
+        );
+        await expect(
+            setLookupPreferences(16, 32, 'Terms', 'descending')
+        ).rejects.toThrow('frequency sort dictionary is not installed');
     });
 
     it('rejects unsupported lookup modes', async () => {
@@ -2027,6 +2179,10 @@ describe('Hoshidicts reader preferences', () => {
                 undefined,
                 true,
                 'top',
+                16,
+                32,
+                null,
+                'descending',
                 {
                     addToAnki: true,
                     audio: true,

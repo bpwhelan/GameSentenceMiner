@@ -4,6 +4,7 @@ import {
   createDefaultHoshidictsPopupButtons,
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
+  DEFAULT_HOSHIDICTS_MAX_RESULTS,
   DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
   DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
@@ -12,6 +13,9 @@ import {
   DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
   DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
   DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
+  DEFAULT_HOSHIDICTS_SCAN_LENGTH,
+  DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
+  DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
   DEFAULT_HOSHIDICTS_THEME,
   HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
   HOSHIDICTS_DUPLICATE_BEHAVIORS,
@@ -24,15 +28,19 @@ import {
   isHoshidictsTheme,
   MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
   MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
+  MAX_HOSHIDICTS_MAX_RESULTS,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
   MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   MAX_HOSHIDICTS_POPUP_WIDTH_PX,
+  MAX_HOSHIDICTS_SCAN_LENGTH,
   MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
   MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
+  MIN_HOSHIDICTS_MAX_RESULTS,
   MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
   MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   MIN_HOSHIDICTS_POPUP_WIDTH_PX,
+  MIN_HOSHIDICTS_SCAN_LENGTH,
   normalizeHoshidictsPopupButtons,
   parseHoshidictsCustomDictionary,
   type HoshidictsActivationKey,
@@ -174,6 +182,12 @@ export function frequencyModeKey(mode: HoshidictsFrequencyMode | null): string {
   return "settings.hoshidicts.frequencyModes.automatic";
 }
 
+export function sortFrequencyDictionaryOrderForMode(
+  mode: HoshidictsFrequencyMode | null
+): "ascending" | "descending" {
+  return mode === "rank-based" ? "ascending" : "descending";
+}
+
 export const MINING_FIELDS: Array<{
   id: MiningField;
   labelKey: string;
@@ -200,14 +214,24 @@ const MINING_FIELD_MARKER_LABEL_KEYS: Record<
   glossary: "settings.hoshidicts.mining.fields.glossary",
   dictionary: "settings.hoshidicts.mining.fields.dictionary",
   sentence: "settings.hoshidicts.mining.fields.sentence",
+  "popup-selection-text":
+    "settings.hoshidicts.mining.fields.popupSelectionText",
   "sentence-furigana":
     "settings.hoshidicts.mining.fields.sentenceFurigana",
   "sentence-furigana-plain":
     "settings.hoshidicts.mining.fields.sentenceFuriganaPlain",
   frequency: "settings.hoshidicts.mining.fields.frequency",
+  frequencies: "settings.hoshidicts.mining.fields.frequencies",
+  "frequency-harmonic-rank":
+    "settings.hoshidicts.mining.fields.frequencyHarmonicRank",
   pitch: "settings.hoshidicts.mining.fields.pitch",
   "pitch-position": "settings.hoshidicts.mining.fields.pitchPosition",
-  audio: "settings.hoshidicts.mining.fields.audio"
+  "pitch-accent-positions":
+    "settings.hoshidicts.mining.fields.pitchAccentPositions",
+  "pitch-accent-categories":
+    "settings.hoshidicts.mining.fields.pitchAccentCategories",
+  audio: "settings.hoshidicts.mining.fields.audio",
+  "document-title": "settings.hoshidicts.mining.fields.documentTitle"
 };
 
 export const MINING_FIELD_TEMPLATE_SUGGESTIONS =
@@ -290,6 +314,11 @@ const DEFAULT_STATE: HoshidictsDesktopSnapshot = {
   })),
   miningProfile: DEFAULT_MINING_PROFILE,
   audioProfile: createDefaultHoshidictsAudioProfile(),
+  scanLength: DEFAULT_HOSHIDICTS_SCAN_LENGTH,
+  maxResults: DEFAULT_HOSHIDICTS_MAX_RESULTS,
+  sortFrequencyDictionary: DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
+  sortFrequencyDictionaryOrder:
+    DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
   lookupMode: "shift",
   activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   sourceHighlightEnabled: DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
@@ -628,6 +657,18 @@ export function normalizeHoshidictsDesktopState(
       MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS
       ? (candidate.popupHideDelayMs as number)
       : DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS;
+  const scanLength =
+    Number.isInteger(candidate.scanLength) &&
+    (candidate.scanLength as number) >= MIN_HOSHIDICTS_SCAN_LENGTH &&
+    (candidate.scanLength as number) <= MAX_HOSHIDICTS_SCAN_LENGTH
+      ? (candidate.scanLength as number)
+      : DEFAULT_HOSHIDICTS_SCAN_LENGTH;
+  const maxResults =
+    Number.isInteger(candidate.maxResults) &&
+    (candidate.maxResults as number) >= MIN_HOSHIDICTS_MAX_RESULTS &&
+    (candidate.maxResults as number) <= MAX_HOSHIDICTS_MAX_RESULTS
+      ? (candidate.maxResults as number)
+      : DEFAULT_HOSHIDICTS_MAX_RESULTS;
   const popupNestingMaxDepth =
     Number.isSafeInteger(candidate.popupNestingMaxDepth) &&
     (candidate.popupNestingMaxDepth as number) >= 0
@@ -664,6 +705,52 @@ export function normalizeHoshidictsDesktopState(
   } catch {
     // Keep settings usable if an older or manually edited snapshot is malformed.
   }
+  const dictionaries = Array.isArray(candidate.dictionaries)
+    ? candidate.dictionaries
+        .filter(
+          (dictionary) =>
+            dictionary &&
+            typeof dictionary.id === "string" &&
+            typeof dictionary.title === "string"
+        )
+        .map((dictionary) => ({
+          ...dictionary,
+          displayName:
+            typeof dictionary.displayName === "string" &&
+            dictionary.displayName.trim()
+              ? dictionary.displayName.trim()
+              : null,
+          enabled: dictionary.enabled !== false,
+          favorite: dictionary.favorite === true,
+          termCount: count(dictionary.termCount),
+          frequencyCount: count(dictionary.frequencyCount),
+          pitchCount: count(dictionary.pitchCount),
+          kanjiCount: count(dictionary.kanjiCount),
+          frequencyMode:
+            dictionary.frequencyMode === "occurrence-based" ||
+            dictionary.frequencyMode === "rank-based"
+              ? dictionary.frequencyMode
+              : null,
+          updateScheduleOverride: isSchedule(dictionary.updateScheduleOverride)
+            ? dictionary.updateScheduleOverride
+            : null,
+          lastUpdateCheck:
+            typeof dictionary.lastUpdateCheck === "string"
+              ? dictionary.lastUpdateCheck
+              : null
+        }))
+    : [];
+  const sortFrequencyDictionary =
+    typeof candidate.sortFrequencyDictionary === "string" &&
+    candidate.sortFrequencyDictionary.length > 0 &&
+    dictionaries.some(
+      (dictionary) =>
+        dictionary.title === candidate.sortFrequencyDictionary &&
+        dictionary.enabled &&
+        dictionary.frequencyCount > 0
+    )
+      ? candidate.sortFrequencyDictionary
+      : DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY;
 
   return {
     revision:
@@ -671,43 +758,7 @@ export function normalizeHoshidictsDesktopState(
         ? candidate.revision
         : 0,
     effectiveEnabled: candidate.effectiveEnabled === true,
-    dictionaries: Array.isArray(candidate.dictionaries)
-      ? candidate.dictionaries
-          .filter(
-            (dictionary) =>
-              dictionary &&
-              typeof dictionary.id === "string" &&
-              typeof dictionary.title === "string"
-          )
-          .map((dictionary) => ({
-            ...dictionary,
-            displayName:
-              typeof dictionary.displayName === "string" &&
-              dictionary.displayName.trim()
-                ? dictionary.displayName.trim()
-                : null,
-            enabled: dictionary.enabled !== false,
-            favorite: dictionary.favorite === true,
-            termCount: count(dictionary.termCount),
-            frequencyCount: count(dictionary.frequencyCount),
-            pitchCount: count(dictionary.pitchCount),
-            kanjiCount: count(dictionary.kanjiCount),
-            frequencyMode:
-              dictionary.frequencyMode === "occurrence-based" ||
-              dictionary.frequencyMode === "rank-based"
-                ? dictionary.frequencyMode
-                : null,
-            updateScheduleOverride: isSchedule(
-              dictionary.updateScheduleOverride
-            )
-              ? dictionary.updateScheduleOverride
-              : null,
-            lastUpdateCheck:
-              typeof dictionary.lastUpdateCheck === "string"
-                ? dictionary.lastUpdateCheck
-                : null
-          }))
-      : [],
+    dictionaries,
     tabGroups: Array.isArray(candidate.tabGroups)
       ? candidate.tabGroups.flatMap((value): HoshidictsDictionaryTabGroup[] => {
           if (!value || typeof value !== "object") return [];
@@ -739,6 +790,14 @@ export function normalizeHoshidictsDesktopState(
     })),
     miningProfile: normalizeMiningProfile(candidate.miningProfile),
     audioProfile: normalizeAudioProfile(candidate.audioProfile),
+    scanLength,
+    maxResults,
+    sortFrequencyDictionary,
+    sortFrequencyDictionaryOrder:
+      candidate.sortFrequencyDictionaryOrder === "ascending" ||
+      candidate.sortFrequencyDictionaryOrder === "descending"
+        ? candidate.sortFrequencyDictionaryOrder
+        : DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
     lookupMode: candidate.lookupMode === "hover" ? "hover" : "shift",
     activationKey: isHoshidictsActivationKey(candidate.activationKey)
       ? candidate.activationKey

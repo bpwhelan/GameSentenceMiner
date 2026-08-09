@@ -10,6 +10,7 @@ const harness = vi.hoisted(() => ({
     openWindow: vi.fn(async () => ({})),
     registerIPC: vi.fn(),
     configureLookupModeProvider: vi.fn(),
+    configureLookupControlsProvider: vi.fn(),
     configureActivationKeyProvider: vi.fn(),
     configureSourceHighlightProvider: vi.fn(),
     configureOnlyScanJapaneseTextProvider: vi.fn(),
@@ -50,6 +51,9 @@ const harness = vi.hoisted(() => ({
                 title: 'Frequency only',
                 termCount: 0,
                 favorite: true,
+                enabled: true,
+                frequencyCount: 12,
+                frequencyMode: 'rank-based' as const,
             },
             {
                 title: 'Backup',
@@ -58,6 +62,10 @@ const harness = vi.hoisted(() => ({
             },
         ],
         lookupMode: 'hover',
+        scanLength: 24,
+        maxResults: 48,
+        sortFrequencyDictionary: 'Frequency only',
+        sortFrequencyDictionaryOrder: 'ascending' as const,
         activationKey: 'F8',
         sourceHighlightEnabled: true,
         onlyScanJapaneseText: true,
@@ -127,6 +135,8 @@ vi.mock('../../gsm_config.js', () => ({
 
 vi.mock('../../ui/front.js', () => ({
     configureHoshidictsLookupModeProvider: harness.configureLookupModeProvider,
+    configureHoshidictsLookupControlsProvider:
+        harness.configureLookupControlsProvider,
     configureHoshidictsActivationKeyProvider:
         harness.configureActivationKeyProvider,
     configureHoshidictsSourceHighlightProvider:
@@ -153,6 +163,12 @@ vi.mock('../../ui/front.js', () => ({
         harness.configurePopupToolbarPositionProvider,
     getOverlayHoshidictsEnabledAtLaunch: () => false,
     getOverlayHoshidictsLookupModeAtLaunch: () => 'shift',
+    getOverlayHoshidictsLookupControlsAtLaunch: () => ({
+        scanLength: 16,
+        maxResults: 32,
+        sortFrequencyDictionary: null,
+        sortFrequencyDictionaryOrder: 'descending',
+    }),
     getOverlayHoshidictsActivationKeyAtLaunch: () => 'Shift',
     getOverlayHoshidictsSourceHighlightEnabledAtLaunch: () => false,
     getOverlayHoshidictsOnlyScanJapaneseTextAtLaunch: () => true,
@@ -210,6 +226,7 @@ describe('Hoshidicts feature registration', () => {
         harness.controlConnected = true;
         harness.controlHandlers = null;
         harness.configureLookupModeProvider.mockReset();
+        harness.configureLookupControlsProvider.mockReset();
         harness.configureActivationKeyProvider.mockReset();
         harness.configureSourceHighlightProvider.mockReset();
         harness.configureOnlyScanJapaneseTextProvider.mockReset();
@@ -247,11 +264,24 @@ describe('Hoshidicts feature registration', () => {
         ).toBe('shift');
         expect(
             harness.registerIPC.mock.calls[0][0]
+                .getOverlayLookupControlsAtLaunch()
+        ).toEqual({
+            scanLength: 16,
+            maxResults: 32,
+            sortFrequencyDictionary: null,
+            sortFrequencyDictionaryOrder: 'descending',
+        });
+        expect(
+            harness.registerIPC.mock.calls[0][0]
                 .getOverlayShowLookupCountsAtLaunch()
         ).toBe(true);
         await expect(
             harness.registerIPC.mock.calls[0][0].applyReaderPreferences({
                 lookupMode: 'hover',
+                scanLength: 24,
+                maxResults: 48,
+                sortFrequencyDictionary: 'Frequency only',
+                sortFrequencyDictionaryOrder: 'ascending',
                 activationKey: 'F8',
                 sourceHighlightEnabled: true,
                 onlyScanJapaneseText: true,
@@ -271,6 +301,10 @@ describe('Hoshidicts feature registration', () => {
             'hoshidicts.readerPreferences',
             {
                 lookupMode: 'hover',
+                scanLength: 24,
+                maxResults: 48,
+                sortFrequencyDictionary: 'Frequency only',
+                sortFrequencyDictionaryOrder: 'ascending',
                 activationKey: 'F8',
                 sourceHighlightEnabled: true,
                 onlyScanJapaneseText: true,
@@ -289,6 +323,10 @@ describe('Hoshidicts feature registration', () => {
         );
         expect(harness.markPreferencesApplied).toHaveBeenCalledWith({
             lookupMode: 'hover',
+            scanLength: 24,
+            maxResults: 48,
+            sortFrequencyDictionary: 'Frequency only',
+            sortFrequencyDictionaryOrder: 'ascending',
             activationKey: 'F8',
             sourceHighlightEnabled: true,
             onlyScanJapaneseText: true,
@@ -328,6 +366,10 @@ describe('Hoshidicts feature registration', () => {
                 'hoshidicts.readerPreferences',
                 {
                     lookupMode: 'hover',
+                    scanLength: 24,
+                    maxResults: 48,
+                    sortFrequencyDictionary: 'Frequency only',
+                    sortFrequencyDictionaryOrder: 'ascending',
                     activationKey: 'F8',
                     sourceHighlightEnabled: true,
                     onlyScanJapaneseText: true,
@@ -350,12 +392,14 @@ describe('Hoshidicts feature registration', () => {
                         {
                             title: 'Frequency only',
                             favorite: true,
+                            frequencyMode: 'rank-based',
                         },
                         {
                             title: 'Backup',
                             favorite: false,
                         },
                     ],
+                    frequencyDictionaries: ['Frequency only'],
                     dictionaryTabGroups: [],
                 },
                 2000
@@ -397,6 +441,15 @@ describe('Hoshidicts feature registration', () => {
         expect(harness.configureLookupModeProvider).toHaveBeenCalledOnce();
         const provider = harness.configureLookupModeProvider.mock.calls[0][0];
         await expect(provider()).resolves.toBe('hover');
+        expect(harness.configureLookupControlsProvider).toHaveBeenCalledOnce();
+        const lookupControlsProvider =
+            harness.configureLookupControlsProvider.mock.calls[0][0];
+        await expect(lookupControlsProvider()).resolves.toEqual({
+            scanLength: 24,
+            maxResults: 48,
+            sortFrequencyDictionary: 'Frequency only',
+            sortFrequencyDictionaryOrder: 'ascending',
+        });
         expect(harness.configureActivationKeyProvider).toHaveBeenCalledOnce();
         const activationKeyProvider =
             harness.configureActivationKeyProvider.mock.calls[0][0];

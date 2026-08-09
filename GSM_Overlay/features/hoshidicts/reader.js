@@ -48,8 +48,12 @@
 
   const LOOKUP_DEBOUNCE_MS = 20;
   const LOOKUP_REQUEST_TIMEOUT_MS = 4 * 1000;
-  const LOOKUP_SCAN_LENGTH = 10;
-  const LOOKUP_MAX_RESULTS = 16;
+  const LOOKUP_SCAN_LENGTH = 16;
+  const MIN_LOOKUP_SCAN_LENGTH = 1;
+  const MAX_LOOKUP_SCAN_LENGTH = 64;
+  const LOOKUP_MAX_RESULTS = 32;
+  const MIN_LOOKUP_MAX_RESULTS = 1;
+  const MAX_LOOKUP_MAX_RESULTS = 256;
   const INITIAL_VISIBLE_RESULTS = 6;
   const DEFAULT_POPUP_HIDE_DELAY_MS = 300;
   const POPUP_TRANSFER_GRACE_MS = 80;
@@ -409,12 +413,44 @@
     return NAMED_ACTIVATION_KEYS.get(normalizedKey.toLowerCase()) ?? fallback;
   }
 
-  function normalizeLookupResults(payload) {
+  function normalizeLookupScanLength(value, fallback = LOOKUP_SCAN_LENGTH) {
+    return Number.isInteger(value) &&
+      value >= MIN_LOOKUP_SCAN_LENGTH &&
+      value <= MAX_LOOKUP_SCAN_LENGTH
+      ? value
+      : fallback;
+  }
+
+  function normalizeLookupMaxResults(value, fallback = LOOKUP_MAX_RESULTS) {
+    return Number.isInteger(value) &&
+      value >= MIN_LOOKUP_MAX_RESULTS &&
+      value <= MAX_LOOKUP_MAX_RESULTS
+      ? value
+      : fallback;
+  }
+
+  function normalizeSortFrequencyDictionary(value, fallback = null) {
+    if (value === null) {
+      return null;
+    }
+    return typeof value === "string" &&
+      value.trim().length > 0 &&
+      value.length <= MAX_DICTIONARY_PRESENTATION_TITLE_LENGTH
+      ? value
+      : fallback;
+  }
+
+  function normalizeSortFrequencyDictionaryOrder(value, fallback = "descending") {
+    return value === "ascending" || value === "descending" ? value : fallback;
+  }
+
+  function normalizeLookupResults(payload, maxResults = LOOKUP_MAX_RESULTS) {
     if (!isRecord(payload) || payload.success !== true || !Array.isArray(payload.results)) {
       return [];
     }
 
-    return payload.results.slice(0, LOOKUP_MAX_RESULTS).map((rawResult) => {
+    const normalizedMaxResults = normalizeLookupMaxResults(maxResults);
+    return payload.results.slice(0, normalizedMaxResults).map((rawResult) => {
       const result = isRecord(rawResult) ? rawResult : {};
       const rawTerm = isRecord(result.term) ? result.term : {};
       const canonicalTerm = canonicalizeAudioTerm(rawTerm);
@@ -1059,6 +1095,18 @@
     });
   }
 
+  function prioritizeLookupResultsByReading(results, primaryReading) {
+    if (!Array.isArray(results) || typeof primaryReading !== "string" || !primaryReading) {
+      return results;
+    }
+    const preferred = [];
+    const remaining = [];
+    for (const result of results) {
+      (result?.term?.reading === primaryReading ? preferred : remaining).push(result);
+    }
+    return [...preferred, ...remaining];
+  }
+
   function structuredDataAttributeName(rawKey) {
     if (
       typeof rawKey !== "string" ||
@@ -1564,7 +1612,8 @@
     clientX,
     clientY,
     sourceDepth,
-    requireJapaneseText = true
+    requireJapaneseText = true,
+    scanLength = LOOKUP_SCAN_LENGTH
   ) {
     if (!(eventTarget instanceof windowRef.Element)) {
       return null;
@@ -1589,12 +1638,13 @@
     } catch {
       return null;
     }
-    const query = sliceCodePoints(sentence, matchOffset, LOOKUP_SCAN_LENGTH);
+    const normalizedScanLength = normalizeLookupScanLength(scanLength);
+    const query = sliceCodePoints(sentence, matchOffset, normalizedScanLength);
     const hoveredToken = caretRange.startContainer.nodeType === windowRef.Node.TEXT_NODE
       ? sliceCodePoints(
           caretRange.startContainer.textContent || "",
           caretRange.startOffset,
-          LOOKUP_SCAN_LENGTH
+          normalizedScanLength
         )
       : query;
     if (!query || (requireJapaneseText && !isJapaneseOnlyToken(hoveredToken))) {
@@ -1624,11 +1674,13 @@
     eventTarget,
     clientX,
     clientY,
-    requireJapaneseText = true
+    requireJapaneseText = true,
+    scanLength = LOOKUP_SCAN_LENGTH
   ) {
     if (!(eventTarget instanceof windowRef.Element)) {
       return null;
     }
+    const normalizedScanLength = normalizeLookupScanLength(scanLength);
     const textBox = eventTarget.closest('.text-box[data-selectable="true"]');
     if (textBox) {
       const block = textBox.closest(".text-block-container");
@@ -1643,11 +1695,11 @@
         if (box === textBox) {
           const boxOffset = getUtf16OffsetForPoint(windowRef, box, clientX, clientY);
           matchOffset = sentence.length + boxOffset;
-          hoveredToken = sliceCodePoints(boxText, boxOffset, LOOKUP_SCAN_LENGTH);
+          hoveredToken = sliceCodePoints(boxText, boxOffset, normalizedScanLength);
         }
         sentence += boxText;
       }
-      const query = sliceCodePoints(sentence, matchOffset, LOOKUP_SCAN_LENGTH);
+      const query = sliceCodePoints(sentence, matchOffset, normalizedScanLength);
       if (!query || (requireJapaneseText && !isJapaneseOnlyToken(hoveredToken))) {
         return null;
       }
@@ -1681,11 +1733,11 @@
         hoveredToken = sliceCodePoints(
           caretRange.startContainer.textContent || "",
           caretRange.startOffset,
-          LOOKUP_SCAN_LENGTH
+          normalizedScanLength
         );
       }
     }
-    const query = sliceCodePoints(sentence, matchOffset, LOOKUP_SCAN_LENGTH);
+    const query = sliceCodePoints(sentence, matchOffset, normalizedScanLength);
     if (!hoveredToken) {
       hoveredToken = query;
     }
@@ -1981,7 +2033,33 @@
       if (displayName) {
         normalizedEntry.displayName = displayName;
       }
+      if (
+        entry.frequencyMode === "rank-based" ||
+        entry.frequencyMode === "occurrence-based"
+      ) {
+        normalizedEntry.frequencyMode = entry.frequencyMode;
+      }
       normalized.push(normalizedEntry);
+    }
+    return normalized;
+  }
+
+  function normalizeFrequencyDictionaries(value, fallback = []) {
+    if (!Array.isArray(value)) {
+      return [...fallback];
+    }
+    const normalized = [];
+    const titles = new Set();
+    for (const entry of value.slice(0, MAX_DICTIONARY_PRESENTATION_ENTRIES)) {
+      const title = boundedString(
+        entry,
+        MAX_DICTIONARY_PRESENTATION_TITLE_LENGTH
+      );
+      if (!title.trim() || titles.has(title)) {
+        continue;
+      }
+      titles.add(title);
+      normalized.push(title);
     }
     return normalized;
   }
@@ -1999,7 +2077,8 @@
       const other = right[index];
       return entry.title === other.title &&
         entry.favorite === other.favorite &&
-        entry.displayName === other.displayName;
+        entry.displayName === other.displayName &&
+        entry.frequencyMode === other.frequencyMode;
     });
   }
 
@@ -2174,6 +2253,14 @@
 
     let preferences = {
       lookupMode: options.lookupMode === "hover" ? "hover" : "shift",
+      scanLength: normalizeLookupScanLength(options.scanLength),
+      maxResults: normalizeLookupMaxResults(options.maxResults),
+      sortFrequencyDictionary: normalizeSortFrequencyDictionary(
+        options.sortFrequencyDictionary
+      ),
+      sortFrequencyDictionaryOrder: normalizeSortFrequencyDictionaryOrder(
+        options.sortFrequencyDictionaryOrder
+      ),
       activationKey: normalizeActivationKey(options.activationKey),
       sourceHighlightEnabled: options.sourceHighlightEnabled === true,
       onlyScanJapaneseText: options.onlyScanJapaneseText === undefined
@@ -2196,6 +2283,9 @@
       theme: normalizeTheme(options.theme),
       dictionaryPresentation: normalizeDictionaryPresentation(
         options.dictionaryPresentation
+      ),
+      frequencyDictionaries: normalizeFrequencyDictionaries(
+        options.frequencyDictionaries
       ),
       dictionaryTabGroups: normalizeDictionaryTabGroups(
         options.dictionaryTabGroups
@@ -3522,11 +3612,33 @@
       return miningStatusCache;
     }
 
+    function miningResultWithFrequencyModes(result) {
+      const frequencyModes = new Map(
+        preferences.dictionaryPresentation
+          .filter((entry) => typeof entry.frequencyMode === "string")
+          .map((entry) => [entry.title, entry.frequencyMode])
+      );
+      if (frequencyModes.size === 0) {
+        return result;
+      }
+      return {
+        ...result,
+        term: {
+          ...result.term,
+          frequencies: result.term.frequencies.map((group) => {
+            const frequencyMode = frequencyModes.get(group.dictionary);
+            return frequencyMode ? { ...group, frequencyMode } : group;
+          }),
+        },
+      };
+    }
+
     function createMiningBasePayload(item, extra = {}) {
       const payload = {
-        result: item.result,
+        result: miningResultWithFrequencyModes(item.result),
         sentence: item.candidate.sentence,
         matchOffset: item.candidate.matchOffset,
+        frequencyDictionaries: [...preferences.frequencyDictionaries],
         ...extra,
       };
       const aliases = getMiningDictionaryAliases(item.result);
@@ -3554,14 +3666,17 @@
           .filter((entry) => typeof entry.displayName === "string" && entry.displayName)
           .map((entry) => [entry.title, entry.displayName])
       );
-      const glossaries = isRecord(result?.term) && Array.isArray(result.term.glossaries)
-        ? result.term.glossaries
-        : [];
+      const term = isRecord(result?.term) ? result.term : {};
+      const dictionaryGroups = [
+        ...(Array.isArray(term.glossaries) ? term.glossaries : []),
+        ...(Array.isArray(term.frequencies) ? term.frequencies : []),
+        ...(Array.isArray(term.pitches) ? term.pitches : []),
+      ];
       const output = [];
       const seen = new Set();
-      for (const glossary of glossaries) {
-        const dictionary = isRecord(glossary) && typeof glossary.dictionary === "string"
-          ? glossary.dictionary
+      for (const group of dictionaryGroups) {
+        const dictionary = isRecord(group) && typeof group.dictionary === "string"
+          ? group.dictionary
           : "";
         const alias = aliases.get(dictionary);
         if (dictionary && alias && alias !== dictionary && !seen.has(dictionary)) {
@@ -4382,18 +4497,10 @@
       } else {
         updateDictionaryGeneration(dictionaryGeneration);
       }
-      const filteredPayload = requestPrimaryReading && Array.isArray(payload.results)
-        ? {
-            ...payload,
-            results: payload.results.filter((rawResult) => {
-              const term = isRecord(rawResult) && isRecord(rawResult.term)
-                ? rawResult.term
-                : null;
-              return term?.reading === requestPrimaryReading;
-            }),
-          }
-        : payload;
-      const results = normalizeLookupResults(filteredPayload);
+      const results = prioritizeLookupResultsByReading(
+        normalizeLookupResults(payload, preferences.maxResults),
+        requestPrimaryReading
+      );
       if (results.length > 0) {
         renderTermResults(
           results,
@@ -4652,6 +4759,10 @@
         type: "hoshidicts_lookup",
         requestId,
         text,
+        scanLength: preferences.scanLength,
+        maxResults: preferences.maxResults,
+        sortFrequencyDictionary: preferences.sortFrequencyDictionary,
+        sortFrequencyDictionaryOrder: preferences.sortFrequencyDictionaryOrder,
         ...(latestRequestPrimaryReading
           ? { primaryReading: latestRequestPrimaryReading }
           : {}),
@@ -4661,6 +4772,10 @@
         requestId,
         query: text,
         mode,
+        scanLength: preferences.scanLength,
+        maxResults: preferences.maxResults,
+        sortFrequencyDictionary: preferences.sortFrequencyDictionary,
+        sortFrequencyDictionaryOrder: preferences.sortFrequencyDictionaryOrder,
         targetDepth,
         matchOffset: candidate.matchOffset,
       });
@@ -4843,7 +4958,8 @@
           pointer.clientX,
           pointer.clientY,
           popupDepth,
-          requireJapaneseText
+          requireJapaneseText,
+          preferences.scanLength
         );
         if (candidate) {
           candidateMissLogged = false;
@@ -4862,7 +4978,8 @@
         pointer.target,
         pointer.clientX,
         pointer.clientY,
-        requireJapaneseText
+        requireJapaneseText,
+        preferences.scanLength
       );
       if (candidate) {
         candidateMissLogged = false;
@@ -4941,6 +5058,12 @@
     function updatePreferences(nextPreferences = {}) {
       const hadHideTimer = hideTimer !== null;
       const previousMode = preferences.lookupMode;
+      const previousScanLength = preferences.scanLength;
+      const previousMaxResults = preferences.maxResults;
+      const previousSortFrequencyDictionary =
+        preferences.sortFrequencyDictionary;
+      const previousSortFrequencyDictionaryOrder =
+        preferences.sortFrequencyDictionaryOrder;
       const definitionBlurWasEnabled = preferences.definitionBlur.enabled;
       const previousActivationKey = preferences.activationKey;
       const previousSourceHighlightEnabled = preferences.sourceHighlightEnabled;
@@ -4959,6 +5082,30 @@
         lookupMode: Object.prototype.hasOwnProperty.call(nextPreferences, "lookupMode")
           ? nextPreferences.lookupMode === "hover" ? "hover" : "shift"
           : preferences.lookupMode,
+        scanLength: Object.prototype.hasOwnProperty.call(nextPreferences, "scanLength")
+          ? normalizeLookupScanLength(nextPreferences.scanLength, preferences.scanLength)
+          : preferences.scanLength,
+        maxResults: Object.prototype.hasOwnProperty.call(nextPreferences, "maxResults")
+          ? normalizeLookupMaxResults(nextPreferences.maxResults, preferences.maxResults)
+          : preferences.maxResults,
+        sortFrequencyDictionary: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "sortFrequencyDictionary"
+        )
+          ? normalizeSortFrequencyDictionary(
+              nextPreferences.sortFrequencyDictionary,
+              preferences.sortFrequencyDictionary
+            )
+          : preferences.sortFrequencyDictionary,
+        sortFrequencyDictionaryOrder: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "sortFrequencyDictionaryOrder"
+        )
+          ? normalizeSortFrequencyDictionaryOrder(
+              nextPreferences.sortFrequencyDictionaryOrder,
+              preferences.sortFrequencyDictionaryOrder
+            )
+          : preferences.sortFrequencyDictionaryOrder,
         activationKey: Object.prototype.hasOwnProperty.call(
           nextPreferences,
           "activationKey"
@@ -5049,6 +5196,12 @@
         )
           ? normalizeDictionaryPresentation(nextPreferences.dictionaryPresentation)
           : preferences.dictionaryPresentation,
+        frequencyDictionaries: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "frequencyDictionaries"
+        )
+          ? normalizeFrequencyDictionaries(nextPreferences.frequencyDictionaries)
+          : preferences.frequencyDictionaries,
         dictionaryTabGroups: Object.prototype.hasOwnProperty.call(
           nextPreferences,
           "dictionaryTabGroups"
@@ -5157,17 +5310,33 @@
         }
         positionAllPopups();
       }
-      if (
+      const activationPreferencesChanged =
         previousMode !== preferences.lookupMode ||
         activationKeyChanged ||
-        previousOnlyScanJapaneseText !== preferences.onlyScanJapaneseText
-      ) {
+        previousOnlyScanJapaneseText !== preferences.onlyScanJapaneseText;
+      const lookupRequestPreferencesChanged =
+        previousScanLength !== preferences.scanLength ||
+        previousMaxResults !== preferences.maxResults ||
+        previousSortFrequencyDictionary !==
+          preferences.sortFrequencyDictionary ||
+        previousSortFrequencyDictionaryOrder !==
+          preferences.sortFrequencyDictionaryOrder;
+      if (activationPreferencesChanged) {
         activationRequirementLogged = false;
         if (requiresActivationKey() && !isActivationKeyPressed()) {
           invalidateLookup();
           scheduleHide(activationKeyChanged ? "activation-key-changed" : "lookup-mode-changed");
         } else {
           scanPointer(lastPointer, isActivationKeyPressed());
+        }
+      } else if (lookupRequestPreferencesChanged) {
+        if (previousScanLength !== preferences.scanLength && lastPointer) {
+          renderedSignatures.clear();
+          noticeSignatures.clear();
+          invalidateLookup();
+          scanPointer(lastPointer, isActivationKeyPressed());
+        } else if (!repeatCurrentLookup()) {
+          invalidateLookup();
         }
       }
       diagnostic("info", "preferences.updated", preferences);
@@ -5177,6 +5346,7 @@
         dictionaryPresentation: preferences.dictionaryPresentation.map(
           (entry) => ({ ...entry })
         ),
+        frequencyDictionaries: [...preferences.frequencyDictionaries],
         dictionaryTabGroups: preferences.dictionaryTabGroups.map((group) => ({
           ...group,
           dictionaries: [...group.dictionaries],
@@ -5281,7 +5451,10 @@
       popupOpacityPercent: preferences.popupOpacityPercent,
       popupToolbarPosition: preferences.popupToolbarPosition,
       theme: preferences.theme,
-      scanLength: LOOKUP_SCAN_LENGTH,
+      scanLength: preferences.scanLength,
+      maxResults: preferences.maxResults,
+      sortFrequencyDictionary: preferences.sortFrequencyDictionary,
+      sortFrequencyDictionaryOrder: preferences.sortFrequencyDictionaryOrder,
     });
     connect();
 
@@ -5299,6 +5472,7 @@
         dictionaryPresentation: preferences.dictionaryPresentation.map(
           (entry) => ({ ...entry })
         ),
+        frequencyDictionaries: [...preferences.frequencyDictionaries],
         dictionaryTabGroups: preferences.dictionaryTabGroups.map((group) => ({
           ...group,
           dictionaries: [...group.dictionaries],
@@ -5330,6 +5504,8 @@
     LOOKUP_MAX_RESULTS,
     LOOKUP_REQUEST_TIMEOUT_MS,
     LOOKUP_SCAN_LENGTH,
+    MAX_LOOKUP_MAX_RESULTS,
+    MAX_LOOKUP_SCAN_LENGTH,
     MAX_POPUP_HIDE_DELAY_MS,
     MAX_POPUP_HEIGHT_PX,
     MAX_POPUP_OPACITY_PERCENT,
@@ -5339,6 +5515,8 @@
     MIN_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MIN_DEFINITION_BLUR_REVEAL_DELAY_MS,
     MIN_POPUP_HEIGHT_PX,
+    MIN_LOOKUP_MAX_RESULTS,
+    MIN_LOOKUP_SCAN_LENGTH,
     MIN_POPUP_OPACITY_PERCENT,
     MIN_POPUP_WIDTH_PX,
     appendExpressionRuby,
@@ -5356,12 +5534,17 @@
     normalizePopupToolbarPosition,
     normalizePopupHeight,
     normalizeKanjiLookup,
+    normalizeLookupMaxResults,
+    normalizeLookupScanLength,
     normalizePopupNestingMaxDepth,
     normalizePopupWidth,
     normalizeTheme,
     normalizePopupOpacityPercent,
     normalizePopupButtons,
     normalizeLookupResults,
+    normalizeSortFrequencyDictionary,
+    normalizeSortFrequencyDictionaryOrder,
+    prioritizeLookupResultsByReading,
     resolveGsmApiBaseUrl,
     resolveLookupCandidate,
     resolveGlossaryLookupCandidate,

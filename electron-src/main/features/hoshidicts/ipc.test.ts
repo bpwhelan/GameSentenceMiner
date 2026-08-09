@@ -21,6 +21,19 @@ const harness = vi.hoisted(() => ({
     configuredEnabled: true,
     enabledAtLaunch: false as boolean | null,
     lookupModeAtLaunch: 'shift' as 'shift' | 'hover' | null,
+    lookupControlsAtLaunch: {
+        scanLength: 16,
+        maxResults: 32,
+        sortFrequencyDictionary: null as string | null,
+        sortFrequencyDictionaryOrder: 'descending' as
+            | 'ascending'
+            | 'descending',
+    } as {
+        scanLength: number;
+        maxResults: number;
+        sortFrequencyDictionary: string | null;
+        sortFrequencyDictionaryOrder: 'ascending' | 'descending';
+    } | null,
     activationKeyAtLaunch: 'Shift' as string | null,
     sourceHighlightEnabledAtLaunch: false as boolean | null,
     onlyScanJapaneseTextAtLaunch: true as boolean | null,
@@ -157,6 +170,10 @@ const snapshot = {
     },
     audioProfile: createDefaultHoshidictsAudioProfile(),
     lookupMode: 'shift',
+    scanLength: 16,
+    maxResults: 32,
+    sortFrequencyDictionary: null,
+    sortFrequencyDictionaryOrder: 'descending',
     activationKey: 'Shift',
     sourceHighlightEnabled: false,
     onlyScanJapaneseText: true,
@@ -328,6 +345,8 @@ async function registerHarness() {
         getConfiguredFeatureEnabled: () => harness.configuredEnabled,
         getOverlayFeatureEnabledAtLaunch: () => harness.enabledAtLaunch,
         getOverlayLookupModeAtLaunch: () => harness.lookupModeAtLaunch,
+        getOverlayLookupControlsAtLaunch: () =>
+            harness.lookupControlsAtLaunch,
         getOverlayActivationKeyAtLaunch: () =>
             harness.activationKeyAtLaunch,
         getOverlaySourceHighlightEnabledAtLaunch: () =>
@@ -378,6 +397,12 @@ describe('Hoshidicts settings IPC', () => {
         harness.configuredEnabled = true;
         harness.enabledAtLaunch = false;
         harness.lookupModeAtLaunch = 'shift';
+        harness.lookupControlsAtLaunch = {
+            scanLength: 16,
+            maxResults: 32,
+            sortFrequencyDictionary: null,
+            sortFrequencyDictionaryOrder: 'descending',
+        };
         harness.activationKeyAtLaunch = 'Shift';
         harness.sourceHighlightEnabledAtLaunch = false;
         harness.onlyScanJapaneseTextAtLaunch = true;
@@ -933,6 +958,19 @@ describe('Hoshidicts settings IPC', () => {
             overlay: { running: true, restartRequired: false },
         });
 
+        harness.lookupControlsAtLaunch = {
+            scanLength: 10,
+            maxResults: 32,
+            sortFrequencyDictionary: null,
+            sortFrequencyDictionaryOrder: 'descending',
+        };
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: true },
+        });
+        harness.lookupControlsAtLaunch.scanLength = 16;
+
         harness.activationKeyAtLaunch = 'F8';
         await expect(
             getState?.({ sender: context.settingsContents })
@@ -977,6 +1015,10 @@ describe('Hoshidicts settings IPC', () => {
                 { sender: context.settingsContents },
                 {
                     lookupMode: 'hover',
+                    scanLength: 16,
+                    maxResults: 32,
+                    sortFrequencyDictionary: null,
+                    sortFrequencyDictionaryOrder: 'descending',
                     activationKey: 'Shift',
                     sourceHighlightEnabled: false,
                     onlyScanJapaneseText: true,
@@ -999,7 +1041,7 @@ describe('Hoshidicts settings IPC', () => {
         expect(context.restartOverlay).toHaveBeenCalledOnce();
     });
 
-    it('restarts when any running reader preference cannot apply live', async () => {
+    it('restarts when a lookup-control change cannot apply live', async () => {
         harness.enabledAtLaunch = true;
         const context = await registerHarness();
         const setReaderPreferences = harness.handlers.get(
@@ -1012,8 +1054,12 @@ describe('Hoshidicts settings IPC', () => {
                 { sender: context.settingsContents },
                 {
                     lookupMode: 'shift',
+                    scanLength: 24,
+                    maxResults: 32,
+                    sortFrequencyDictionary: null,
+                    sortFrequencyDictionaryOrder: 'descending',
                     activationKey: 'Shift',
-                    sourceHighlightEnabled: true,
+                    sourceHighlightEnabled: false,
                     onlyScanJapaneseText: true,
                     popupHideDelayMs: 300,
                     showLookupCounts: true,
@@ -1052,6 +1098,10 @@ describe('Hoshidicts settings IPC', () => {
                 { sender: context.settingsContents },
                 {
                     lookupMode: 'hover',
+                    scanLength: 16,
+                    maxResults: 32,
+                    sortFrequencyDictionary: null,
+                    sortFrequencyDictionaryOrder: 'descending',
                     activationKey: 'Shift',
                     sourceHighlightEnabled: false,
                     onlyScanJapaneseText: true,
@@ -1389,6 +1439,7 @@ describe('Hoshidicts settings IPC', () => {
                         title: 'Frequency only',
                         favorite: true,
                         displayName: 'Frequency ranks',
+                        frequencyMode: 'rank-based',
                     },
                 ],
             })
@@ -1838,6 +1889,10 @@ describe('Hoshidicts settings IPC', () => {
                 { sender: context.settingsContents },
                 {
                     lookupMode: 'hover',
+                    scanLength: 24,
+                    maxResults: 48,
+                    sortFrequencyDictionary: null,
+                    sortFrequencyDictionaryOrder: 'ascending',
                     activationKey: 'F8',
                     sourceHighlightEnabled: true,
                     onlyScanJapaneseText: true,
@@ -1874,6 +1929,10 @@ describe('Hoshidicts settings IPC', () => {
                 { sender: context.settingsContents },
                 {
                     lookupMode: 'hover',
+                    scanLength: 24,
+                    maxResults: 48,
+                    sortFrequencyDictionary: null,
+                    sortFrequencyDictionaryOrder: 'ascending',
                     activationKey: 'F8',
                     sourceHighlightEnabled: true,
                     onlyScanJapaneseText: true,
@@ -1928,6 +1987,10 @@ describe('Hoshidicts settings IPC', () => {
             70,
             true,
             'bottom',
+            24,
+            48,
+            null,
+            'ascending',
             {
                 addToAnki: false,
                 audio: true,
@@ -1943,6 +2006,10 @@ describe('Hoshidicts settings IPC', () => {
         );
         expect(context.applyReaderPreferences).toHaveBeenCalledWith({
             lookupMode: 'hover',
+            scanLength: 24,
+            maxResults: 48,
+            sortFrequencyDictionary: null,
+            sortFrequencyDictionaryOrder: 'ascending',
             activationKey: 'F8',
             sourceHighlightEnabled: true,
             onlyScanJapaneseText: true,
@@ -1978,6 +2045,7 @@ describe('Hoshidicts settings IPC', () => {
                     favorite: true,
                 },
             ],
+            frequencyDictionaries: [],
             dictionaryTabGroups: [
                 {
                     id: 'group-grammar',
@@ -2144,6 +2212,10 @@ describe('Hoshidicts settings IPC', () => {
         );
         const valid = {
             lookupMode: 'hover',
+            scanLength: 16,
+            maxResults: 32,
+            sortFrequencyDictionary: null,
+            sortFrequencyDictionaryOrder: 'descending',
             activationKey: 'F8',
             sourceHighlightEnabled: true,
             onlyScanJapaneseText: true,
@@ -2192,6 +2264,10 @@ describe('Hoshidicts settings IPC', () => {
         );
         const valid = {
             lookupMode: 'hover',
+            scanLength: 16,
+            maxResults: 32,
+            sortFrequencyDictionary: null,
+            sortFrequencyDictionaryOrder: 'descending',
             activationKey: 'F8',
             sourceHighlightEnabled: true,
             onlyScanJapaneseText: true,

@@ -19,6 +19,7 @@ MAX_DICTIONARY_STYLES = 256
 MAX_DICTIONARY_STYLE_BYTES = 256 * 1024
 MAX_DICTIONARY_STYLE_NESTING = 32
 MAX_DICTIONARY_ALIASES = 256
+MAX_FREQUENCY_DICTIONARIES = 256
 MAX_DICTIONARY_MEDIA = 256
 MAX_DICTIONARY_MEDIA_BYTES = 4 * 1024 * 1024
 MAX_AUDIO_SOURCE_ID_LENGTH = 128
@@ -122,6 +123,9 @@ def _validate_glossary(value: Any) -> dict[str, str]:
 def _validate_frequency_group(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise HoshidictsMiningError("Hoshidicts frequency group is invalid.")
+    frequency_mode = value.get("frequencyMode")
+    if frequency_mode not in {None, "rank-based", "occurrence-based"}:
+        raise HoshidictsMiningError("Hoshidicts frequency mode is invalid.")
     frequencies = []
     for item in require_list(
         value.get("frequencies", []),
@@ -157,6 +161,7 @@ def _validate_frequency_group(value: Any) -> dict[str, Any]:
             MAX_TERM_LENGTH,
             allow_empty=False,
         ),
+        "frequencyMode": frequency_mode,
         "frequencies": frequencies,
     }
 
@@ -310,6 +315,30 @@ def _validate_dictionary_aliases(value: Any) -> dict[str, str]:
         )
         aliases[dictionary] = alias
     return aliases
+
+
+def _validate_frequency_dictionaries(value: Any) -> list[str] | None:
+    if value is None:
+        return None
+    entries = require_list(
+        value,
+        "Hoshidicts frequency dictionaries",
+        MAX_FREQUENCY_DICTIONARIES,
+    )
+    dictionaries = []
+    seen = set()
+    for raw_dictionary in entries:
+        dictionary = bounded_string(
+            raw_dictionary,
+            "Hoshidicts frequency dictionary name",
+            MAX_TERM_LENGTH,
+            allow_empty=False,
+        )
+        if dictionary in seen:
+            continue
+        seen.add(dictionary)
+        dictionaries.append(dictionary)
+    return dictionaries
 
 
 def _validate_dictionary_media(value: Any) -> list[dict[str, str]]:
@@ -529,6 +558,7 @@ def validate_hoshidicts_mining_request(value: Any) -> dict[str, Any]:
         "audioSelection": audio_selection,
         "dictionaryStyles": _validate_dictionary_styles(value.get("dictionaryStyles")),
         "dictionaryAliases": _validate_dictionary_aliases(value.get("dictionaryAliases")),
+        "frequencyDictionaries": _validate_frequency_dictionaries(value.get("frequencyDictionaries")),
         "dictionaryMedia": _validate_dictionary_media(value.get("dictionaryMedia")),
         "popupSelectionText": bounded_string(
             value.get("popupSelectionText", ""),
@@ -1217,6 +1247,52 @@ def frequency_html(result: dict[str, Any]) -> str:
                 f"<b>{html.escape(group['dictionary'])}</b>: " + ", ".join(html.escape(value) for value in values)
             )
     return "<br>".join(groups)
+
+
+def _frequency_number_text(value: int | float) -> str:
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def single_frequency_html(
+    result: dict[str, Any],
+    selected_dictionary: str,
+) -> str:
+    items = []
+    dictionary_aliases = result.get("dictionaryAliases", {})
+    for group in result["term"]["frequencies"]:
+        dictionary = group["dictionary"]
+        if dictionary != selected_dictionary:
+            continue
+        dictionary_alias = html.escape(dictionary_aliases.get(dictionary, dictionary))
+        for frequency in group["frequencies"]:
+            display_value = frequency["displayValue"]
+            value = display_value if display_value is not None else _frequency_number_text(frequency["value"])
+            items.append(f"<li>{dictionary_alias}: {html.escape(value)}</li>")
+    if not items:
+        return ""
+    return '<ul style="text-align: left;">' + "".join(items) + "</ul>"
+
+
+def single_frequency_number_text(
+    result: dict[str, Any],
+    selected_dictionary: str,
+) -> str:
+    for group in result["term"]["frequencies"]:
+        if group["dictionary"] != selected_dictionary or not group["frequencies"]:
+            continue
+        frequency = group["frequencies"][0]
+        display_value = frequency["displayValue"]
+        if display_value is not None:
+            match = re.match(r"^[0-9]+", display_value)
+            if match is not None:
+                parsed = int(match.group(0))
+                if parsed > 0:
+                    return str(parsed)
+        value = frequency["value"]
+        return _frequency_number_text(value) if value > 0 else ""
+    return ""
 
 
 def pitch_html(result: dict[str, Any]) -> str:

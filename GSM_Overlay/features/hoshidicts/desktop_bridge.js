@@ -37,6 +37,12 @@ const HOSHIDICTS_PUNCTUATION_ACTIVATION_KEYS = new Set([
 ]);
 const MAX_HOSHIDICTS_DICTIONARY_PRESENTATION = 256;
 const MAX_HOSHIDICTS_DICTIONARY_TITLE_LENGTH = 4096;
+const DEFAULT_HOSHIDICTS_SCAN_LENGTH = 16;
+const MIN_HOSHIDICTS_SCAN_LENGTH = 1;
+const MAX_HOSHIDICTS_SCAN_LENGTH = 64;
+const DEFAULT_HOSHIDICTS_MAX_RESULTS = 32;
+const MIN_HOSHIDICTS_MAX_RESULTS = 1;
+const MAX_HOSHIDICTS_MAX_RESULTS = 256;
 const MAX_HOSHIDICTS_DICTIONARY_TAB_GROUPS = 256;
 const MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH = 128;
 const MAX_HOSHIDICTS_POPUP_CUSTOM_LINKS = 8;
@@ -133,6 +139,14 @@ function normalizeHoshidictsDictionaryPresentation(value) {
     ) {
       throw new Error("Hoshidicts reader preferences are invalid.");
     }
+    const frequencyMode = entry.frequencyMode;
+    if (
+      frequencyMode !== undefined &&
+      frequencyMode !== "rank-based" &&
+      frequencyMode !== "occurrence-based"
+    ) {
+      throw new Error("Hoshidicts reader preferences are invalid.");
+    }
     titles.add(title);
     const normalized = {
       title,
@@ -141,7 +155,35 @@ function normalizeHoshidictsDictionaryPresentation(value) {
     if (displayName !== undefined) {
       normalized.displayName = displayName.trim();
     }
+    if (frequencyMode !== undefined) {
+      normalized.frequencyMode = frequencyMode;
+    }
     return normalized;
+  });
+}
+
+function normalizeHoshidictsFrequencyDictionaries(value) {
+  if (value === undefined) {
+    return [];
+  }
+  if (
+    !Array.isArray(value) ||
+    value.length > MAX_HOSHIDICTS_DICTIONARY_PRESENTATION
+  ) {
+    throw new Error("Hoshidicts reader preferences are invalid.");
+  }
+  const titles = new Set();
+  return value.map((entry) => {
+    if (
+      typeof entry !== "string" ||
+      !entry.trim() ||
+      entry.length > MAX_HOSHIDICTS_DICTIONARY_TITLE_LENGTH ||
+      titles.has(entry)
+    ) {
+      throw new Error("Hoshidicts reader preferences are invalid.");
+    }
+    titles.add(entry);
+    return entry;
   });
 }
 
@@ -312,6 +354,19 @@ function normalizeHoshidictsActivationKey(
 
 function normalizeHoshidictsReaderPreferences(preferences) {
   const lookupMode = preferences && preferences.lookupMode;
+  const scanLength = preferences?.scanLength === undefined
+    ? DEFAULT_HOSHIDICTS_SCAN_LENGTH
+    : preferences.scanLength;
+  const maxResults = preferences?.maxResults === undefined
+    ? DEFAULT_HOSHIDICTS_MAX_RESULTS
+    : preferences.maxResults;
+  const sortFrequencyDictionary = preferences?.sortFrequencyDictionary === undefined
+    ? null
+    : preferences.sortFrequencyDictionary;
+  const sortFrequencyDictionaryOrder =
+    preferences?.sortFrequencyDictionaryOrder === undefined
+      ? "descending"
+      : preferences.sortFrequencyDictionaryOrder;
   const requestedActivationKey = preferences && preferences.activationKey;
   const activationKey = requestedActivationKey === undefined
     ? DEFAULT_HOSHIDICTS_ACTIVATION_KEY
@@ -331,6 +386,9 @@ function normalizeHoshidictsReaderPreferences(preferences) {
   const dictionaryPresentation = normalizeHoshidictsDictionaryPresentation(
     preferences && preferences.dictionaryPresentation
   );
+  const frequencyDictionaries = normalizeHoshidictsFrequencyDictionaries(
+    preferences && preferences.frequencyDictionaries
+  );
   const dictionaryTabGroups = normalizeHoshidictsDictionaryTabGroups(
     preferences && preferences.dictionaryTabGroups
   );
@@ -339,6 +397,24 @@ function normalizeHoshidictsReaderPreferences(preferences) {
   );
   if (
     (lookupMode !== "shift" && lookupMode !== "hover") ||
+    !Number.isInteger(scanLength) ||
+    scanLength < MIN_HOSHIDICTS_SCAN_LENGTH ||
+    scanLength > MAX_HOSHIDICTS_SCAN_LENGTH ||
+    !Number.isInteger(maxResults) ||
+    maxResults < MIN_HOSHIDICTS_MAX_RESULTS ||
+    maxResults > MAX_HOSHIDICTS_MAX_RESULTS ||
+    (
+      sortFrequencyDictionary !== null &&
+      (
+        typeof sortFrequencyDictionary !== "string" ||
+        !sortFrequencyDictionary.trim() ||
+        sortFrequencyDictionary.length > MAX_HOSHIDICTS_DICTIONARY_TITLE_LENGTH
+      )
+    ) ||
+    (
+      sortFrequencyDictionaryOrder !== "ascending" &&
+      sortFrequencyDictionaryOrder !== "descending"
+    ) ||
     activationKey === null ||
     typeof sourceHighlightEnabled !== "boolean" ||
     (
@@ -366,6 +442,10 @@ function normalizeHoshidictsReaderPreferences(preferences) {
   }
   return {
     lookupMode,
+    scanLength,
+    maxResults,
+    sortFrequencyDictionary,
+    sortFrequencyDictionaryOrder,
     activationKey,
     sourceHighlightEnabled,
     onlyScanJapaneseText: onlyScanJapaneseText !== false,
@@ -377,6 +457,7 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     popupToolbarPosition,
     theme,
     dictionaryPresentation,
+    frequencyDictionaries,
     dictionaryTabGroups,
     popupButtons,
   };

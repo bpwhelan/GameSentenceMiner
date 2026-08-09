@@ -164,6 +164,10 @@ describe('runOverlayWithSource', () => {
                 GSM_HOSHIDICTS_CONTROL_PORT: '4567',
                 GSM_HOSHIDICTS_ENABLED: '0',
                 GSM_HOSHIDICTS_LOOKUP_MODE: 'shift',
+                GSM_HOSHIDICTS_SCAN_LENGTH: '16',
+                GSM_HOSHIDICTS_MAX_RESULTS: '32',
+                GSM_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY: '',
+                GSM_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER: 'descending',
                 GSM_HOSHIDICTS_ACTIVATION_KEY: 'Shift',
                 GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED: '0',
                 GSM_HOSHIDICTS_SHOW_LOOKUP_COUNTS: '1',
@@ -243,6 +247,12 @@ describe('runOverlayWithSource', () => {
         const front = await loadFrontModule();
         const syncCustomDictionary = vi.fn(async () => undefined);
         front.configureHoshidictsLookupModeProvider(async () => 'hover');
+        front.configureHoshidictsLookupControlsProvider(async () => ({
+            scanLength: 24,
+            maxResults: 48,
+            sortFrequencyDictionary: 'Frequency',
+            sortFrequencyDictionaryOrder: 'ascending',
+        }));
         front.configureHoshidictsActivationKeyProvider(async () => 'F8');
         front.configureHoshidictsSourceHighlightProvider(async () => true);
         front.configureHoshidictsPopupHideDelayProvider(async () => 850);
@@ -270,6 +280,10 @@ describe('runOverlayWithSource', () => {
         expect(spawnMock.mock.calls[0][2].env).toMatchObject({
             GSM_HOSHIDICTS_ENABLED: '1',
             GSM_HOSHIDICTS_LOOKUP_MODE: 'hover',
+            GSM_HOSHIDICTS_SCAN_LENGTH: '24',
+            GSM_HOSHIDICTS_MAX_RESULTS: '48',
+            GSM_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY: 'Frequency',
+            GSM_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER: 'ascending',
             GSM_HOSHIDICTS_ACTIVATION_KEY: 'F8',
             GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED: '1',
             GSM_HOSHIDICTS_POPUP_HIDE_DELAY_MS: '850',
@@ -286,6 +300,12 @@ describe('runOverlayWithSource', () => {
             GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS: '7000',
         });
         expect(front.getOverlayHoshidictsLookupModeAtLaunch()).toBe('hover');
+        expect(front.getOverlayHoshidictsLookupControlsAtLaunch()).toEqual({
+            scanLength: 24,
+            maxResults: 48,
+            sortFrequencyDictionary: 'Frequency',
+            sortFrequencyDictionaryOrder: 'ascending',
+        });
         expect(front.getOverlayHoshidictsActivationKeyAtLaunch()).toBe('F8');
         expect(front.getOverlayHoshidictsSourceHighlightEnabledAtLaunch()).toBe(true);
         expect(front.getOverlayHoshidictsPopupHideDelayAtLaunch()).toBe(850);
@@ -334,6 +354,10 @@ describe('runOverlayWithSource', () => {
         expect(
             front.markOverlayHoshidictsReaderPreferencesApplied({
                 lookupMode: 'shift',
+                scanLength: 12,
+                maxResults: 20,
+                sortFrequencyDictionary: null,
+                sortFrequencyDictionaryOrder: 'descending',
                 activationKey: 'Space',
                 sourceHighlightEnabled: false,
                 onlyScanJapaneseText: true,
@@ -366,6 +390,12 @@ describe('runOverlayWithSource', () => {
             })
         ).toBe(true);
         expect(front.getOverlayHoshidictsLookupModeAtLaunch()).toBe('shift');
+        expect(front.getOverlayHoshidictsLookupControlsAtLaunch()).toEqual({
+            scanLength: 12,
+            maxResults: 20,
+            sortFrequencyDictionary: null,
+            sortFrequencyDictionaryOrder: 'descending',
+        });
         expect(front.getOverlayHoshidictsActivationKeyAtLaunch()).toBe('Space');
         expect(front.getOverlayHoshidictsSourceHighlightEnabledAtLaunch()).toBe(false);
         expect(front.getOverlayHoshidictsPopupHideDelayAtLaunch()).toBe(1200);
@@ -396,6 +426,8 @@ describe('runOverlayWithSource', () => {
                 },
             ],
         });
+        processHandle.emit('exit');
+        expect(front.getOverlayHoshidictsLookupControlsAtLaunch()).toBeNull();
     });
 
     it('falls back to safe definition blur launch defaults for invalid providers', async () => {

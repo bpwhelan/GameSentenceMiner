@@ -8,9 +8,15 @@ use std::ptr;
 use std::slice;
 
 pub const MANIFEST_FILE_NAME: &str = "manifest.json";
-pub const LOOKUP_SCAN_LENGTH: usize = 10;
-pub const LOOKUP_MAX_RESULTS: c_int = 16;
+pub const DEFAULT_LOOKUP_SCAN_LENGTH: usize = 16;
+pub const MIN_LOOKUP_SCAN_LENGTH: usize = 1;
+pub const MAX_LOOKUP_SCAN_LENGTH: usize = 64;
+pub const DEFAULT_LOOKUP_MAX_RESULTS: c_int = 32;
+pub const MIN_LOOKUP_MAX_RESULTS: c_int = 1;
+pub const MAX_LOOKUP_MAX_RESULTS: c_int = 256;
 pub const MAX_LOOKUP_TEXT_BYTES: usize = 4 * 1024;
+pub const MAX_LOOKUP_PRIMARY_READING_BYTES: usize = 4 * 1024;
+pub const MAX_LOOKUP_SORT_DICTIONARY_BYTES: usize = 4 * 1024;
 pub const MAX_LOOKUP_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
 pub const MAX_REQUEST_ID_BYTES: usize = 128;
 pub const MAX_MEDIA_DICTIONARY_BYTES: usize = 1024;
@@ -36,7 +42,12 @@ const MAX_KANJI_STATS_PER_ENTRY: usize = 128;
 const MAX_ARCHIVE_INDEX_BYTES: u64 = 1024 * 1024;
 const MAX_MEDIA_RECORDS: u64 = 1_000_000;
 const REQUIRED_DICTIONARY_FILES: [&str; 3] = ["hash.table", "bloom.filter", "blobs.bin"];
-const HOSHIDICTS_MARKERS: [&str; 3] = [".hoshidicts_3", ".hoshidicts_2", ".hoshidicts_1"];
+const HOSHIDICTS_MARKERS: [&str; 4] = [
+    ".hoshidicts_4",
+    ".hoshidicts_3",
+    ".hoshidicts_2",
+    ".hoshidicts_1",
+];
 
 #[repr(C)]
 struct HdImportResult {
@@ -85,6 +96,19 @@ struct HdMediaFile {
 struct HdStr {
     ptr: *const c_char,
     len: usize,
+}
+
+fn optional_hd_string(value: Option<&str>) -> HdStr {
+    match value {
+        Some(value) => HdStr {
+            ptr: value.as_ptr().cast(),
+            len: value.len(),
+        },
+        None => HdStr {
+            ptr: ptr::null(),
+            len: 0,
+        },
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -175,6 +199,18 @@ struct HdLookupResultV2 {
 
 #[derive(Clone, Copy)]
 #[repr(C)]
+struct HdLookupOptionsV3 {
+    primary_reading: HdStr,
+    frequency_dictionary: HdStr,
+    frequency_order: i32,
+}
+
+const HD_LOOKUP_FREQUENCY_ORDER_ASCENDING: i32 = 1;
+const HD_LOOKUP_FREQUENCY_ORDER_DESCENDING: i32 = 2;
+const HD_LOOKUP_FREQUENCY_ORDER_DISABLED: i32 = 3;
+
+#[derive(Clone, Copy)]
+#[repr(C)]
 struct HdKanjiStat {
     key: HdStr,
     value: HdStr,
@@ -240,11 +276,12 @@ extern "C" {
 
     fn hd_lookup_new(query: *mut HdQuery, deinflector: *mut HdDeinflector) -> *mut HdLookup;
     fn hd_lookup_free(lookup: *mut HdLookup);
-    fn hd_lookup_run_v2(
+    fn hd_lookup_run_v3(
         lookup: *const HdLookup,
         lookup_string: *const c_char,
         max_results: c_int,
         scan_length: usize,
+        options: *const HdLookupOptionsV3,
         out_results: *mut *const HdLookupResultV2,
         out_count: *mut usize,
     ) -> *mut HdLookupResults;
@@ -268,6 +305,99 @@ impl RequestId {
             )),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum LookupFrequencySortOrder {
+    Ascending,
+    Descending,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LookupOptions {
+    pub scan_length: usize,
+    pub max_results: c_int,
+    pub primary_reading: Option<String>,
+    pub sort_frequency_dictionary: Option<String>,
+    pub sort_frequency_order: LookupFrequencySortOrder,
+}
+
+impl Default for LookupOptions {
+    fn default() -> Self {
+        Self {
+            scan_length: DEFAULT_LOOKUP_SCAN_LENGTH,
+            max_results: DEFAULT_LOOKUP_MAX_RESULTS,
+            primary_reading: None,
+            sort_frequency_dictionary: None,
+            sort_frequency_order: LookupFrequencySortOrder::Descending,
+        }
+    }
+}
+
+impl LookupOptions {
+    pub fn from_request(
+        scan_length: Option<i64>,
+        max_results: Option<i64>,
+        primary_reading: Option<String>,
+        sort_frequency_dictionary: Option<String>,
+        sort_frequency_order: Option<LookupFrequencySortOrder>,
+    ) -> Result<Self, String> {
+        let scan_length = scan_length.unwrap_or(DEFAULT_LOOKUP_SCAN_LENGTH as i64);
+        if !(MIN_LOOKUP_SCAN_LENGTH as i64..=MAX_LOOKUP_SCAN_LENGTH as i64).contains(&scan_length) {
+            return Err(format!(
+                "scanLength must be between {MIN_LOOKUP_SCAN_LENGTH} and {MAX_LOOKUP_SCAN_LENGTH}"
+            ));
+        }
+        let max_results = max_results.unwrap_or(DEFAULT_LOOKUP_MAX_RESULTS as i64);
+        if !(MIN_LOOKUP_MAX_RESULTS as i64..=MAX_LOOKUP_MAX_RESULTS as i64).contains(&max_results) {
+            return Err(format!(
+                "maxResults must be between {MIN_LOOKUP_MAX_RESULTS} and {MAX_LOOKUP_MAX_RESULTS}"
+            ));
+        }
+
+        let primary_reading = normalize_optional_lookup_string(
+            primary_reading,
+            MAX_LOOKUP_PRIMARY_READING_BYTES,
+            "primaryReading",
+        )?;
+        let sort_frequency_dictionary = normalize_optional_lookup_string(
+            sort_frequency_dictionary,
+            MAX_LOOKUP_SORT_DICTIONARY_BYTES,
+            "sortFrequencyDictionary",
+        )?;
+
+        Ok(Self {
+            scan_length: usize::try_from(scan_length)
+                .map_err(|_| "scanLength cannot fit in memory".to_string())?,
+            max_results: c_int::try_from(max_results)
+                .map_err(|_| "maxResults cannot fit in the native API".to_string())?,
+            primary_reading,
+            sort_frequency_dictionary,
+            sort_frequency_order: sort_frequency_order
+                .unwrap_or(LookupFrequencySortOrder::Descending),
+        })
+    }
+}
+
+fn normalize_optional_lookup_string(
+    value: Option<String>,
+    maximum_bytes: usize,
+    label: &str,
+) -> Result<Option<String>, String> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    if value.is_empty() {
+        return Ok(None);
+    }
+    if value.len() > maximum_bytes {
+        return Err(format!("{label} exceeds the {maximum_bytes}-byte limit"));
+    }
+    if value.chars().any(char::is_control) {
+        return Err(format!("{label} contains a control character"));
+    }
+    Ok(Some(value))
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -1212,18 +1342,32 @@ impl NativeEngine {
         })
     }
 
-    fn lookup(&self, text: &str) -> Result<Vec<LookupResult>, String> {
+    fn lookup(&self, text: &str, options: &LookupOptions) -> Result<Vec<LookupResult>, String> {
         validate_lookup_text(text)?;
         let lookup_text =
             CString::new(text).map_err(|_| "lookup text contains an embedded NUL byte")?;
+        let frequency_order = if options.sort_frequency_dictionary.is_none() {
+            HD_LOOKUP_FREQUENCY_ORDER_DISABLED
+        } else {
+            match options.sort_frequency_order {
+                LookupFrequencySortOrder::Ascending => HD_LOOKUP_FREQUENCY_ORDER_ASCENDING,
+                LookupFrequencySortOrder::Descending => HD_LOOKUP_FREQUENCY_ORDER_DESCENDING,
+            }
+        };
+        let native_options = HdLookupOptionsV3 {
+            primary_reading: optional_hd_string(options.primary_reading.as_deref()),
+            frequency_dictionary: optional_hd_string(options.sort_frequency_dictionary.as_deref()),
+            frequency_order,
+        };
         let mut result_pointer = ptr::null();
         let mut result_count = 0usize;
         let owned_results = unsafe {
-            hd_lookup_run_v2(
+            hd_lookup_run_v3(
                 self.lookup,
                 lookup_text.as_ptr(),
-                LOOKUP_MAX_RESULTS,
-                LOOKUP_SCAN_LENGTH,
+                options.max_results,
+                options.scan_length,
+                &native_options,
                 &mut result_pointer,
                 &mut result_count,
             )
@@ -1232,7 +1376,7 @@ impl NativeEngine {
             return Err("native Hoshidicts lookup failed".into());
         }
         let _owned_results = LookupResultsGuard(owned_results);
-        if result_count > LOOKUP_MAX_RESULTS as usize {
+        if result_count > options.max_results as usize {
             return Err("native Hoshidicts returned too many lookup results".into());
         }
         let native_results =
@@ -2320,12 +2464,21 @@ impl HoshidictsService {
         Ok(dictionary_count)
     }
 
+    #[cfg(test)]
     pub fn lookup(&mut self, text: &str) -> Result<Vec<LookupResult>, String> {
+        self.lookup_with_options(text, &LookupOptions::default())
+    }
+
+    pub fn lookup_with_options(
+        &mut self,
+        text: &str,
+        options: &LookupOptions,
+    ) -> Result<Vec<LookupResult>, String> {
         self.activate()?;
         self.engine
             .as_ref()
             .expect("engine was activated")
-            .lookup(text)
+            .lookup(text, options)
     }
 
     pub fn lookup_kanji(&mut self, character: &str) -> Result<LookupKanji, String> {
@@ -2686,6 +2839,79 @@ mod tests {
         );
     }
 
+    fn write_redirect_lookup_archive(path: &Path) {
+        write_zip_archive(
+            path,
+            &[
+                (
+                    "index.json",
+                    r#"{"title":"Redirect Lookup","revision":"1","format":3,"sourceLanguage":"ja"}"#,
+                ),
+                (
+                    "term_bank_1.json",
+                    r#"[["喰べる","","","",0,[{"type":"structured-content","content":{"tag":"a","href":"?query=%E9%A3%9F%E3%81%B9%E3%82%8B&primary_reading=%E3%81%9F%E3%81%B9%E3%82%8B","content":"食べる"}},["食べる",["redirected from 喰べる"]]],1,""],["食べる","たべる","","v1",10,["to eat"],2,""]]"#,
+                ),
+            ],
+        );
+    }
+
+    fn write_lookup_ranking_archive(path: &Path) {
+        let terms = (0..33)
+            .map(|index| {
+                serde_json::json!([
+                    "語",
+                    format!("よみ{index:02}"),
+                    "",
+                    "",
+                    100 - index,
+                    [format!("definition {index}")],
+                    index + 1,
+                    ""
+                ])
+            })
+            .collect::<Vec<_>>();
+        let term_bank = serde_json::to_string(&terms).expect("serialize ranking terms");
+        write_zip_archive(
+            path,
+            &[
+                (
+                    "index.json",
+                    r#"{"title":"Lookup Ranking","revision":"1","format":3,"sourceLanguage":"ja"}"#,
+                ),
+                ("term_bank_1.json", &term_bank),
+            ],
+        );
+    }
+
+    fn write_explicit_frequency_sort_archives(term_path: &Path, frequency_path: &Path) {
+        write_zip_archive(
+            term_path,
+            &[
+                (
+                    "index.json",
+                    r#"{"title":"Frequency Sort Terms","revision":"1","format":3,"sourceLanguage":"ja"}"#,
+                ),
+                (
+                    "term_bank_1.json",
+                    r#"[["語","ご一","","",30,["one"],1,""],["語","ご二","","",20,["two"],2,""],["語","ご三","","",10,["three"],3,""]]"#,
+                ),
+            ],
+        );
+        write_zip_archive(
+            frequency_path,
+            &[
+                (
+                    "index.json",
+                    r#"{"title":"Explicit Rank","revision":"1","format":3,"sourceLanguage":"ja","frequencyMode":"rank-based"}"#,
+                ),
+                (
+                    "term_meta_bank_1.json",
+                    r#"[["語","freq",{"reading":"ご一","frequency":300}],["語","freq",{"reading":"ご二","frequency":200}],["語","freq",{"reading":"ご三","frequency":100}]]"#,
+                ),
+            ],
+        );
+    }
+
     fn write_styled_archive(path: &Path) {
         write_zip_archive(
             path,
@@ -2758,6 +2984,67 @@ mod tests {
             .is_err());
         assert!(validate_lookup_text("").is_err());
         assert!(validate_lookup_text(&"x".repeat(MAX_LOOKUP_TEXT_BYTES + 1)).is_err());
+    }
+
+    #[test]
+    fn lookup_options_match_yomitan_defaults_and_validate_bounds() {
+        assert_eq!(DEFAULT_LOOKUP_SCAN_LENGTH, 16);
+        assert_eq!(DEFAULT_LOOKUP_MAX_RESULTS, 32);
+        let defaults = LookupOptions::from_request(None, None, None, None, None)
+            .expect("default lookup options");
+        assert_eq!(defaults, LookupOptions::default());
+        assert_eq!(defaults.sort_frequency_dictionary, None);
+
+        let configured = LookupOptions::from_request(
+            Some(64),
+            Some(256),
+            Some("よみ".into()),
+            Some("BCCWJ".into()),
+            Some(LookupFrequencySortOrder::Ascending),
+        )
+        .expect("configured lookup options");
+        assert_eq!(configured.scan_length, 64);
+        assert_eq!(configured.max_results, 256);
+        assert_eq!(configured.primary_reading.as_deref(), Some("よみ"));
+        assert_eq!(
+            configured.sort_frequency_dictionary.as_deref(),
+            Some("BCCWJ")
+        );
+        assert_eq!(
+            configured.sort_frequency_order,
+            LookupFrequencySortOrder::Ascending
+        );
+
+        for (scan_length, max_results) in [
+            (Some(0), None),
+            (Some(65), None),
+            (None, Some(0)),
+            (None, Some(257)),
+        ] {
+            assert!(
+                LookupOptions::from_request(scan_length, max_results, None, None, None).is_err()
+            );
+        }
+        assert!(LookupOptions::from_request(
+            None,
+            None,
+            Some("x".repeat(MAX_LOOKUP_PRIMARY_READING_BYTES + 1)),
+            None,
+            None
+        )
+        .is_err());
+        assert!(
+            LookupOptions::from_request(None, None, Some("bad\0reading".into()), None, None)
+                .is_err()
+        );
+        assert!(LookupOptions::from_request(
+            None,
+            None,
+            None,
+            Some("bad\ndictionary".into()),
+            None
+        )
+        .is_err());
     }
 
     #[test]
@@ -3072,7 +3359,16 @@ mod tests {
             1
         );
 
-        fs::remove_file(dictionary.join(".hoshidicts_3")).expect("remove marker");
+        fs::write(dictionary.join(".hoshidicts_4"), []).expect("write v4 marker");
+        fs::remove_file(dictionary.join(".hoshidicts_3")).expect("remove v3 marker");
+        assert_eq!(
+            load_dictionary_specs(&root.0)
+                .expect("valid v4 manifest")
+                .len(),
+            1
+        );
+
+        fs::remove_file(dictionary.join(".hoshidicts_4")).expect("remove v4 marker");
         assert!(load_dictionary_specs(&root.0)
             .expect_err("missing marker must fail")
             .contains("format marker"));
@@ -3520,6 +3816,165 @@ mod tests {
                 .expect("serialize large lookup")
                 .len()
                 > 256 * 1024
+        );
+    }
+
+    #[test]
+    fn imported_dictionary_redirects_are_followed_without_rendering_raw_tuples() {
+        let root = TestDir::new("redirect-lookup");
+        let archive_path = root.0.join("redirect.zip");
+        write_redirect_lookup_archive(&archive_path);
+
+        let report = import_dictionary(&archive_path, &root.0);
+        assert!(report.success, "dictionary import failed: {}", report.error);
+        assert_eq!(report.term_count, 2);
+        assert!(root
+            .0
+            .join("Redirect Lookup")
+            .join(".hoshidicts_4")
+            .is_file());
+        fs::write(
+            root.0.join(MANIFEST_FILE_NAME),
+            r#"{"version":1,"dictionaries":[{"id":"redirect","path":"Redirect Lookup"}]}"#,
+        )
+        .expect("write manifest");
+
+        let mut service = HoshidictsService::new(root.0.clone());
+        let results = service.lookup("喰べる").expect("redirect lookup");
+        let source = results
+            .iter()
+            .find(|result| result.term.expression == "喰べる")
+            .expect("source redirect-link result");
+        assert_eq!(source.matched, "喰べる");
+        let source_glossary: serde_json::Value =
+            serde_json::from_str(&source.term.glossaries[0].glossary)
+                .expect("filtered source glossary JSON");
+        assert_eq!(
+            source_glossary
+                .as_array()
+                .expect("source definitions")
+                .len(),
+            1
+        );
+
+        let target = results
+            .iter()
+            .find(|result| result.term.expression == "食べる" && result.term.reading == "たべる")
+            .expect("redirect target result");
+        assert_eq!(target.matched, "喰べる");
+        assert_eq!(target.deinflected, "食べる");
+        assert_eq!(
+            target.trace.last().map(|step| step.name.as_str()),
+            Some("redirected from 喰べる")
+        );
+        assert!(target.term.glossaries[0].glossary.contains("to eat"));
+        assert!(results.iter().all(|result| result
+            .term
+            .glossaries
+            .iter()
+            .all(|glossary| !glossary.glossary.contains("[\"食べる\",["))));
+    }
+
+    #[test]
+    fn lookup_options_apply_primary_reading_before_the_configured_result_cap() {
+        let root = TestDir::new("lookup-ranking");
+        let archive_path = root.0.join("ranking.zip");
+        write_lookup_ranking_archive(&archive_path);
+        let report = import_dictionary(&archive_path, &root.0);
+        assert!(report.success, "dictionary import failed: {}", report.error);
+        fs::write(
+            root.0.join(MANIFEST_FILE_NAME),
+            r#"{"version":1,"dictionaries":[{"id":"ranking","path":"Lookup Ranking"}]}"#,
+        )
+        .expect("write manifest");
+
+        let mut service = HoshidictsService::new(root.0.clone());
+        let ordinary = service.lookup("語").expect("ordinary lookup");
+        assert_eq!(ordinary.len(), DEFAULT_LOOKUP_MAX_RESULTS as usize);
+        assert!(ordinary
+            .iter()
+            .all(|result| result.term.reading != "よみ32"));
+
+        let preferred_options = LookupOptions {
+            primary_reading: Some("よみ32".into()),
+            ..LookupOptions::default()
+        };
+        let preferred = service
+            .lookup_with_options("語", &preferred_options)
+            .expect("preferred-reading lookup");
+        assert_eq!(preferred.len(), DEFAULT_LOOKUP_MAX_RESULTS as usize);
+        assert_eq!(preferred[0].term.reading, "よみ32");
+
+        let one_result = service
+            .lookup_with_options(
+                "語",
+                &LookupOptions {
+                    max_results: 1,
+                    primary_reading: Some("よみ32".into()),
+                    ..LookupOptions::default()
+                },
+            )
+            .expect("one preferred result");
+        assert_eq!(one_result.len(), 1);
+        assert_eq!(one_result[0].term.reading, "よみ32");
+    }
+
+    #[test]
+    fn lookup_options_sort_only_with_the_explicit_frequency_dictionary() {
+        let root = TestDir::new("lookup-frequency-sort");
+        let term_path = root.0.join("terms.zip");
+        let frequency_path = root.0.join("frequency.zip");
+        write_explicit_frequency_sort_archives(&term_path, &frequency_path);
+        for archive in [&term_path, &frequency_path] {
+            let report = import_dictionary(archive, &root.0);
+            assert!(report.success, "dictionary import failed: {}", report.error);
+        }
+        fs::write(
+            root.0.join(MANIFEST_FILE_NAME),
+            r#"{"version":1,"dictionaries":[{"id":"terms","path":"Frequency Sort Terms"},{"id":"frequency","path":"Explicit Rank"}]}"#,
+        )
+        .expect("write manifest");
+
+        let readings = |results: Vec<LookupResult>| {
+            results
+                .into_iter()
+                .map(|result| result.term.reading)
+                .collect::<Vec<_>>()
+        };
+        let mut service = HoshidictsService::new(root.0.clone());
+        assert_eq!(
+            readings(service.lookup("語").expect("unsorted lookup")),
+            ["ご一", "ご二", "ご三"]
+        );
+        assert_eq!(
+            readings(
+                service
+                    .lookup_with_options(
+                        "語",
+                        &LookupOptions {
+                            sort_frequency_dictionary: Some("Explicit Rank".into()),
+                            sort_frequency_order: LookupFrequencySortOrder::Ascending,
+                            ..LookupOptions::default()
+                        },
+                    )
+                    .expect("ascending frequency lookup"),
+            ),
+            ["ご三", "ご二", "ご一"]
+        );
+        assert_eq!(
+            readings(
+                service
+                    .lookup_with_options(
+                        "語",
+                        &LookupOptions {
+                            sort_frequency_dictionary: Some("Missing Frequency".into()),
+                            sort_frequency_order: LookupFrequencySortOrder::Ascending,
+                            ..LookupOptions::default()
+                        },
+                    )
+                    .expect("unknown frequency dictionary lookup"),
+            ),
+            ["ご一", "ご二", "ご三"]
         );
     }
 

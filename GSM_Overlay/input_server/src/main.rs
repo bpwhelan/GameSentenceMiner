@@ -7,9 +7,10 @@ use features::{FeatureRegistry, ServiceFeature, PROTOCOL_VERSION};
 use futures_util::{SinkExt, StreamExt};
 use gilrs::{Axis, Button, Event, EventType, GamepadId, Gilrs};
 use hoshidicts::{
-    DictionaryStyle, HoshidictsService, LookupKanji, LookupResult, MediaError, MediaFile,
-    RequestId, StylesError, MAX_LOOKUP_RESPONSE_BYTES, MAX_MEDIA_DICTIONARY_BYTES,
-    MAX_MEDIA_PATH_BYTES, MAX_MEDIA_RESPONSE_BYTES, MAX_STYLES_RESPONSE_BYTES,
+    DictionaryStyle, HoshidictsService, LookupFrequencySortOrder, LookupKanji, LookupOptions,
+    LookupResult, MediaError, MediaFile, RequestId, StylesError, MAX_LOOKUP_RESPONSE_BYTES,
+    MAX_MEDIA_DICTIONARY_BYTES, MAX_MEDIA_PATH_BYTES, MAX_MEDIA_RESPONSE_BYTES,
+    MAX_STYLES_RESPONSE_BYTES,
 };
 use rdev::{
     listen as listen_global_keyboard, Event as KeyboardEvent, EventType as KeyboardEventType,
@@ -50,6 +51,33 @@ enum HoshidictsLookupRequestMode {
     #[default]
     TermFirst,
     Kanji,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct HoshidictsLookupRequestOptions {
+    #[serde(default)]
+    scan_length: Option<i64>,
+    #[serde(default)]
+    max_results: Option<i64>,
+    #[serde(default)]
+    primary_reading: Option<String>,
+    #[serde(default)]
+    sort_frequency_dictionary: Option<String>,
+    #[serde(default)]
+    sort_frequency_dictionary_order: Option<LookupFrequencySortOrder>,
+}
+
+impl HoshidictsLookupRequestOptions {
+    fn validate(self) -> Result<LookupOptions, String> {
+        LookupOptions::from_request(
+            self.scan_length,
+            self.max_results,
+            self.primary_reading,
+            self.sort_frequency_dictionary,
+            self.sort_frequency_dictionary_order,
+        )
+    }
 }
 
 /// GSM shared input and high-performance services host (Rust)
@@ -1772,6 +1800,8 @@ enum ClientMsg {
         text: String,
         #[serde(default)]
         mode: HoshidictsLookupRequestMode,
+        #[serde(flatten)]
+        options: HoshidictsLookupRequestOptions,
     },
 
     #[serde(rename = "hoshidicts_media")]
@@ -2404,6 +2434,7 @@ async fn hoshidicts_lookup_payload(
     request_id: RequestId,
     text: String,
     mode: HoshidictsLookupRequestMode,
+    request_options: HoshidictsLookupRequestOptions,
     features: &FeatureRegistry,
     hoshidicts: &SharedHoshidicts,
 ) -> String {
@@ -2436,12 +2467,35 @@ async fn hoshidicts_lookup_payload(
         .to_string();
     }
 
+    let lookup_options = if mode == HoshidictsLookupRequestMode::TermFirst {
+        match request_options.validate() {
+            Ok(options) => options,
+            Err(error) => {
+                return json!({
+                    "type": "hoshidicts_lookup_result",
+                    "requestId": request_id,
+                    "success": false,
+                    "results": [],
+                    "kanji": Value::Null,
+                    "dictionaryCount": 0,
+                    "generation": 0,
+                    "featureDisabled": false,
+                    "error": error,
+                })
+                .to_string();
+            }
+        }
+    } else {
+        LookupOptions::default()
+    };
+
     let (result, dictionary_count, generation) = match hoshidicts
         .run_blocking(move |service| {
             let result = (|| -> Result<(Vec<LookupResult>, Option<LookupKanji>), String> {
                 match mode {
-                    HoshidictsLookupRequestMode::TermFirst => {
-                        service.lookup(&text).and_then(|terms| {
+                    HoshidictsLookupRequestMode::TermFirst => service
+                        .lookup_with_options(&text, &lookup_options)
+                        .and_then(|terms| {
                             if !terms.is_empty() {
                                 return Ok((terms, None));
                             }
@@ -2453,8 +2507,7 @@ async fn hoshidicts_lookup_payload(
                                 None => None,
                             };
                             Ok((terms, kanji))
-                        })
-                    }
+                        }),
                     HoshidictsLookupRequestMode::Kanji => {
                         let kanji = match first_han_character(&text) {
                             Some(character) => {
@@ -3169,11 +3222,13 @@ async fn handle_socket(
                                 request_id,
                                 text,
                                 mode,
+                                options,
                             }) => {
                                 let payload = hoshidicts_lookup_payload(
                                     request_id,
                                     text,
                                     mode,
+                                    options,
                                     &features,
                                     &hoshidicts,
                                 )
@@ -4009,7 +4064,7 @@ mod tests {
     #[test]
     fn hoshidicts_messages_deserialize_with_correlated_request_ids() {
         let lookup = serde_json::from_str::<ClientMsg>(
-            r#"{"type":"hoshidicts_lookup","requestId":"lookup-1","text":"食べた"}"#,
+            r#"{"type":"hoshidicts_lookup","requestId":"lookup-1","text":"食べた","scanLength":21,"maxResults":48,"primaryReading":"たべた","sortFrequencyDictionary":"BCCWJ","sortFrequencyDictionaryOrder":"ascending"}"#,
         )
         .expect("lookup request should deserialize");
         assert!(matches!(
@@ -4018,7 +4073,15 @@ mod tests {
                 request_id: RequestId::Text(ref id),
                 ref text,
                 mode: HoshidictsLookupRequestMode::TermFirst,
-            } if id == "lookup-1" && text == "食べた"
+                ref options,
+            } if id == "lookup-1"
+                && text == "食べた"
+                && options.scan_length == Some(21)
+                && options.max_results == Some(48)
+                && options.primary_reading.as_deref() == Some("たべた")
+                && options.sort_frequency_dictionary.as_deref() == Some("BCCWJ")
+                && options.sort_frequency_dictionary_order
+                    == Some(LookupFrequencySortOrder::Ascending)
         ));
 
         let kanji_lookup = serde_json::from_str::<ClientMsg>(
@@ -4029,8 +4092,9 @@ mod tests {
             kanji_lookup,
             ClientMsg::HoshidictsLookup {
                 mode: HoshidictsLookupRequestMode::Kanji,
+                ref options,
                 ..
-            }
+            } if options == &HoshidictsLookupRequestOptions::default()
         ));
 
         let reload =
@@ -4139,6 +4203,7 @@ mod tests {
             RequestId::Text("lookup-2".into()),
             "食べる".into(),
             HoshidictsLookupRequestMode::TermFirst,
+            HoshidictsLookupRequestOptions::default(),
             &features,
             &service,
         )
@@ -4157,6 +4222,7 @@ mod tests {
             RequestId::Number(42),
             "食べる".into(),
             HoshidictsLookupRequestMode::TermFirst,
+            HoshidictsLookupRequestOptions::default(),
             &features,
             &service,
         )
@@ -4169,6 +4235,32 @@ mod tests {
         assert_eq!(value["featureDisabled"], false);
         assert_eq!(value["results"], json!([]));
         assert_eq!(value["kanji"], Value::Null);
+    }
+
+    #[tokio::test]
+    async fn hoshidicts_lookup_rejects_invalid_options_with_request_correlation() {
+        let features = FeatureRegistry::new([ServiceFeature::Hoshidicts]);
+        let service = SharedHoshidicts::new(PathBuf::from("unused"));
+        let payload = hoshidicts_lookup_payload(
+            RequestId::Text("lookup-invalid-options".into()),
+            "食べる".into(),
+            HoshidictsLookupRequestMode::TermFirst,
+            HoshidictsLookupRequestOptions {
+                scan_length: Some(0),
+                ..HoshidictsLookupRequestOptions::default()
+            },
+            &features,
+            &service,
+        )
+        .await;
+        let value: Value = serde_json::from_str(&payload).expect("valid lookup response");
+        assert_eq!(value["requestId"], "lookup-invalid-options");
+        assert_eq!(value["success"], false);
+        assert_eq!(value["featureDisabled"], false);
+        assert!(value["error"]
+            .as_str()
+            .expect("lookup option error")
+            .contains("scanLength"));
     }
 
     #[tokio::test]

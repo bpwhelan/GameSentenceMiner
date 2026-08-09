@@ -616,9 +616,9 @@ def test_options_suggest_target_templates_for_every_model_field(monkeypatch):
         "Mystery": "{expression}",
         "ExpressionReading": "{reading}",
         "Glossary": "{glossary}",
-        "Sentence": "{sentence}",
-        "Frequency": "{frequency}",
-        "PitchPosition": "{pitch-position}",
+        "Sentence": "{cloze-prefix}<b>{cloze-body}</b>{cloze-suffix}",
+        "Frequency": "{frequencies}",
+        "PitchPosition": "{pitch-accent-positions}",
         "WordAudio": "{audio}",
         "Extra": "",
     }
@@ -628,21 +628,32 @@ def test_options_suggest_target_templates_for_every_model_field(monkeypatch):
     }
 
 
-def test_options_fill_kiku_rich_fields_without_mapping_flag_or_picture_fields(monkeypatch):
+def test_options_match_kiku_v2_yomitan_field_setup(monkeypatch):
     fields = [
         "Expression",
         "ExpressionFurigana",
         "ExpressionReading",
+        "ExpressionAudio",
+        "RelatedExpression",
+        "SelectionText",
         "MainDefinition",
-        "Glossary",
+        "DefinitionPicture",
         "Sentence",
         "SentenceFurigana",
-        "ExpressionAudio",
-        "Frequency",
-        "PitchPosition",
-        "Flag",
+        "SentenceTranslation",
+        "SentenceAudio",
         "Picture",
-        "Sort",
+        "Glossary",
+        "Hint",
+        "IsWordAndSentenceCard",
+        "IsClickCard",
+        "IsSentenceCard",
+        "IsAudioCard",
+        "PitchPosition",
+        "PitchCategories",
+        "Frequency",
+        "FreqSort",
+        "MiscInfo",
     ]
     fake_anki = FakeAnki(fields=fields, model_names=["Kiku"])
     _wire(monkeypatch, fake_anki, _profile(model="Kiku"))
@@ -653,17 +664,91 @@ def test_options_fill_kiku_rich_fields_without_mapping_flag_or_picture_fields(mo
         "Expression": "{expression}",
         "ExpressionFurigana": "{furigana-plain}",
         "ExpressionReading": "{reading}",
-        "MainDefinition": "{main-definition}",
-        "Glossary": "{glossary}",
-        "Sentence": "{sentence}",
-        "SentenceFurigana": "{sentence-furigana-plain}",
         "ExpressionAudio": "{audio}",
-        "Frequency": "{frequency}",
-        "PitchPosition": "{pitch-position}",
-        "Flag": "",
+        "RelatedExpression": "",
+        "SelectionText": "{popup-selection-text}",
+        "MainDefinition": "{main-definition}",
+        "DefinitionPicture": "",
+        "Sentence": "{cloze-prefix}<b>{cloze-body}</b>{cloze-suffix}",
+        "SentenceFurigana": "{sentence-furigana-plain}",
+        "SentenceTranslation": "",
+        "SentenceAudio": "",
         "Picture": "",
-        "Sort": "",
+        "Glossary": "{glossary}",
+        "Hint": "",
+        "IsWordAndSentenceCard": "",
+        "IsClickCard": "",
+        "IsSentenceCard": "",
+        "IsAudioCard": "",
+        "PitchPosition": "{pitch-accent-positions}",
+        "PitchCategories": "{pitch-accent-categories}",
+        "Frequency": "{frequencies}",
+        "FreqSort": "{frequency-harmonic-rank}",
+        "MiscInfo": "{document-title}",
     }
+
+
+def test_kiku_yomitan_sort_and_pitch_markers_render_matching_values():
+    payload = _payload()
+    payload["documentTitle"] = "Kiku source title"
+    payload["popupSelectionText"] = "食べた"
+    payload["result"]["term"]["frequencies"] = [
+        {
+            "dictionary": "Rank A",
+            "frequencyMode": "rank-based",
+            "frequencies": [{"value": 100, "displayValue": "100 rank"}],
+        },
+        {
+            "dictionary": "Rank B",
+            "frequencyMode": "rank-based",
+            "frequencies": [{"value": 400, "displayValue": None}],
+        },
+        {
+            "dictionary": "Occurrence",
+            "frequencyMode": "occurrence-based",
+            "frequencies": [{"value": 50_000, "displayValue": None}],
+        },
+    ]
+    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+
+    values = hoshidicts_mining._field_template_values(request)
+
+    assert values["{popup-selection-text}"] == "食べた"
+    assert values["{document-title}"] == "Kiku source title"
+    assert values["{cloze-prefix}"] == "昨日、"
+    assert values["{cloze-body}"] == "食べた"
+    assert values["{cloze-suffix}"] == "。"
+    assert values["{pitch-accent-positions}"] == "2"
+    assert values["{pitch-accent-categories}"] == "kifuku"
+    assert values["{frequency-harmonic-rank}"] == "160"
+
+
+@pytest.mark.parametrize(
+    ("rules", "reading", "position", "expected"),
+    [
+        ("", "たべる", 0, "heiban"),
+        ("", "たべる", 1, "atamadaka"),
+        ("", "たべる", 2, "nakadaka"),
+        ("", "たべる", 3, "odaka"),
+        ("v1", "たべる", 2, "kifuku"),
+        ("vs n", "きょう", 2, "odaka"),
+    ],
+)
+def test_kiku_pitch_categories_match_yomitan(
+    rules,
+    reading,
+    position,
+    expected,
+):
+    payload = _payload()
+    payload["result"]["term"]["rules"] = rules
+    payload["result"]["term"]["reading"] = reading
+    payload["result"]["term"]["pitches"][0]["pitches"][0]["position"] = position
+    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+
+    values = hoshidicts_mining._field_template_values(request)
+
+    assert values["{pitch-accent-categories}"] == expected
 
 
 def test_options_suggest_only_one_target_per_semantic_field(monkeypatch):
@@ -686,7 +771,12 @@ def test_options_suggest_only_one_target_per_semantic_field(monkeypatch):
 @pytest.mark.parametrize(
     ("fields", "word_field", "sentence_field", "expected"),
     [
-        (["Sentence"], "Sentence", "Sentence", "{expression}<br>{sentence}"),
+        (
+            ["Sentence"],
+            "Sentence",
+            "Sentence",
+            "{expression}<br>{cloze-prefix}<b>{cloze-body}</b>{cloze-suffix}",
+        ),
         (["Reading"], "Reading", "Sentence", "{expression}<br>{reading}"),
     ],
 )
@@ -906,7 +996,10 @@ def test_options_explicit_automatic_uses_config_model_without_old_legacy_mapping
     assert options["resolvedFieldTemplates"] == {
         "Expression": {"value": "{expression}", "overwriteMode": "coalesce"},
         "Reading": {"value": "{reading}", "overwriteMode": "coalesce"},
-        "Sentence": {"value": "{sentence}", "overwriteMode": "coalesce"},
+        "Sentence": {
+            "value": "{cloze-prefix}<b>{cloze-body}</b>{cloze-suffix}",
+            "overwriteMode": "coalesce",
+        },
     }
     assert options["resolvedFields"] == {
         "expression": "Expression",
@@ -1136,7 +1229,7 @@ def test_mining_renders_common_raw_yomitan_field_markers(monkeypatch):
     assert note["fields"]["Reading"] == "食[た]べる"
     assert "to eat" in note["fields"]["Definition"]
     assert note["fields"]["Sentence"] == "昨日、<b>食べた</b>。"
-    assert "123 ★" in note["fields"]["Frequency"]
+    assert note["fields"]["Frequency"] == "123"
     assert note["fields"]["PitchPosition"] == "2"
     assert "LHL" in note["fields"]["PitchGraph"]
 
@@ -1514,6 +1607,181 @@ def test_dynamic_single_glossary_exact_dictionary_name_wins_suffix_ambiguity():
     assert 'data-dictionary="Foo"' not in rendered
     assert "exact dictionary definition" in rendered
     assert "foo definition" not in rendered
+
+
+def test_dynamic_single_frequency_markers_use_canonical_slug_alias_and_exact_display_html():
+    payload = _payload()
+    payload["dictionaryAliases"] = [
+        {
+            "dictionary": "Corpus Rank 2026!",
+            "alias": "Corpus <Rank>",
+        }
+    ]
+    payload["result"]["term"]["frequencies"] = [
+        {
+            "dictionary": "Corpus Rank 2026!",
+            "frequencyMode": "occurrence-based",
+            "frequencies": [
+                {"value": 999, "displayValue": "001 rank"},
+                {"value": 321, "displayValue": None},
+            ],
+        },
+        {
+            "dictionary": "Other",
+            "frequencies": [{"value": 7, "displayValue": "other value"}],
+        },
+    ]
+    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+    display_marker = "single-frequency-corpus-rank-2026"
+    number_marker = "single-frequency-number-corpus-rank-2026"
+    alias_slug_marker = "single-frequency-corpus-rank"
+    missing_marker = "single-frequency-removed-dictionary"
+    templates = {
+        marker: {"value": f"{{{marker}}}", "overwriteMode": "coalesce"}
+        for marker in (
+            display_marker,
+            number_marker,
+            alias_slug_marker,
+            missing_marker,
+        )
+    }
+
+    values = hoshidicts_mining._template_values_for_fields(
+        request,
+        {"anki": SimpleNamespace()},
+        templates,
+    )
+
+    assert values[f"{{{display_marker}}}"] == (
+        '<ul style="text-align: left;"><li>Corpus &lt;Rank&gt;: 001 rank</li><li>Corpus &lt;Rank&gt;: 321</li></ul>'
+    )
+    assert values[f"{{{number_marker}}}"] == "1"
+    assert f"{{{alias_slug_marker}}}" not in values
+    assert f"{{{missing_marker}}}" not in values
+    assert hoshidicts_mining._render_field_template(f"{{{alias_slug_marker}}}", values) == ""
+    assert hoshidicts_mining._render_field_template(f"{{{missing_marker}}}", values) == ""
+
+
+@pytest.mark.parametrize(
+    ("frequencies", "frequency_mode", "expected"),
+    [
+        ([{"value": 999, "displayValue": "001 rank"}], "rank-based", "1"),
+        ([{"value": 999, "displayValue": "12.75 ★"}], "occurrence-based", "12"),
+        ([{"value": 12.75, "displayValue": ""}], None, "12.75"),
+        ([{"value": 7, "displayValue": " 42"}], None, "7"),
+        ([{"value": 5, "displayValue": "0 rank"}], None, "5"),
+        ([{"value": 0, "displayValue": None}], None, ""),
+        ([{"value": -1.5, "displayValue": "<rare>"}], None, ""),
+        (
+            [
+                {"value": -1.5, "displayValue": "<rare>"},
+                {"value": 99, "displayValue": "99 rank"},
+            ],
+            None,
+            "",
+        ),
+    ],
+)
+def test_dynamic_single_frequency_number_matches_yomitan_first_value_semantics(
+    frequencies,
+    frequency_mode,
+    expected,
+):
+    payload = _payload()
+    group = {
+        "dictionary": "Frequency",
+        "frequencies": frequencies,
+    }
+    if frequency_mode is not None:
+        group["frequencyMode"] = frequency_mode
+    payload["result"]["term"]["frequencies"] = [group]
+    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+    marker = "single-frequency-number-frequency"
+    templates = {
+        "Frequency": {
+            "value": f"{{{marker}}}",
+            "overwriteMode": "coalesce",
+        }
+    }
+
+    values = hoshidicts_mining._template_values_for_fields(
+        request,
+        {"anki": SimpleNamespace()},
+        templates,
+    )
+
+    assert values[f"{{{marker}}}"] == expected
+
+
+@pytest.mark.parametrize(
+    ("dictionary_order", "expected"),
+    [
+        (
+            ("Foo", "Number Foo"),
+            '<ul style="text-align: left;"><li>Number Foo: 13 rank</li></ul>',
+        ),
+        (("Number Foo", "Foo"), "7"),
+    ],
+)
+def test_dynamic_single_frequency_marker_collisions_follow_yomitan_last_definition_wins(
+    dictionary_order,
+    expected,
+):
+    groups = {
+        "Foo": {
+            "dictionary": "Foo",
+            "frequencies": [{"value": 7, "displayValue": "7 rank"}],
+        },
+        "Number Foo": {
+            "dictionary": "Number Foo",
+            "frequencies": [{"value": 13, "displayValue": "13 rank"}],
+        },
+    }
+    payload = _payload()
+    payload["result"]["term"]["frequencies"] = [groups[dictionary] for dictionary in dictionary_order]
+    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+    marker = "single-frequency-number-foo"
+    templates = {
+        "Frequency": {
+            "value": f"{{{marker}}}",
+            "overwriteMode": "coalesce",
+        }
+    }
+
+    values = hoshidicts_mining._template_values_for_fields(
+        request,
+        {"anki": SimpleNamespace()},
+        templates,
+    )
+
+    assert values[f"{{{marker}}}"] == expected
+
+
+def test_dynamic_single_frequency_marker_collision_uses_configured_dictionary_order_when_owner_has_no_value():
+    payload = _payload()
+    payload["frequencyDictionaries"] = ["Foo", "Foo!"]
+    payload["result"]["term"]["frequencies"] = [
+        {
+            "dictionary": "Foo",
+            "frequencies": [{"value": 7, "displayValue": "7 rank"}],
+        }
+    ]
+    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+    marker = "single-frequency-foo"
+    templates = {
+        "Frequency": {
+            "value": f"{{{marker}}}",
+            "overwriteMode": "coalesce",
+        }
+    }
+
+    values = hoshidicts_mining._template_values_for_fields(
+        request,
+        {"anki": SimpleNamespace()},
+        templates,
+    )
+
+    assert values[f"{{{marker}}}"] == ""
 
 
 def test_dictionary_style_grouping_nesting_is_bounded_without_unscoped_fallback():
@@ -2309,6 +2577,22 @@ def test_validation_preserves_decimal_and_nullable_frequency_displays():
         {"value": -1.5, "displayValue": "<rare>"},
     ]
     assert hoshidicts_mining._frequency_html(validated) == ("<b>Frequency</b>: 12.75, , &lt;rare&gt;")
+
+
+def test_validation_normalizes_configured_frequency_dictionary_registry():
+    payload = _payload()
+    payload["frequencyDictionaries"] = ["Foo", "Foo", "Foo!"]
+
+    validated = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+
+    assert validated["frequencyDictionaries"] == ["Foo", "Foo!"]
+
+    payload["frequencyDictionaries"] = [""]
+    with pytest.raises(
+        hoshidicts_mining.HoshidictsMiningError,
+        match="frequency dictionary name",
+    ):
+        hoshidicts_mining.validate_hoshidicts_mining_request(payload)
 
 
 @pytest.mark.parametrize(

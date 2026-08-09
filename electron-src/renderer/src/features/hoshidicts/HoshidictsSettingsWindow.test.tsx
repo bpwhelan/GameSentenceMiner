@@ -13,10 +13,14 @@ import {
   createDefaultHoshidictsPopupButtons,
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
+  DEFAULT_HOSHIDICTS_MAX_RESULTS,
   DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
   DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
   DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
+  DEFAULT_HOSHIDICTS_SCAN_LENGTH,
+  DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
+  DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
   DEFAULT_HOSHIDICTS_THEME,
   HOSHIDICTS_CHANNELS,
   HOSHIDICTS_THEMES,
@@ -33,7 +37,8 @@ import {
 } from "./HoshidictsSettingsWindow";
 import {
   activationKeyFromKeyboardCode,
-  getReadiness
+  getReadiness,
+  sortFrequencyDictionaryOrderForMode
 } from "./hoshidictsSettingsModel";
 
 const hoshidictsStyles = readFileSync(
@@ -181,6 +186,11 @@ const baseState: HoshidictsDesktopSnapshot = {
   },
   audioProfile: createDefaultHoshidictsAudioProfile(),
   lookupMode: "shift",
+  scanLength: DEFAULT_HOSHIDICTS_SCAN_LENGTH,
+  maxResults: DEFAULT_HOSHIDICTS_MAX_RESULTS,
+  sortFrequencyDictionary: DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
+  sortFrequencyDictionaryOrder:
+    DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
   activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   sourceHighlightEnabled: false,
   onlyScanJapaneseText: true,
@@ -515,6 +525,14 @@ describe("HoshidictsSettingsWindow", () => {
     ["F25", null]
   ] as const)("maps physical key code %s to %s", (code, expected) => {
     expect(activationKeyFromKeyboardCode(code)).toBe(expected);
+  });
+
+  it.each([
+    ["rank-based", "ascending"],
+    ["occurrence-based", "descending"],
+    [null, "descending"]
+  ] as const)("derives %s frequency sorting as %s", (mode, expected) => {
+    expect(sortFrequencyDictionaryOrderForMode(mode)).toBe(expected);
   });
 
   async function flushAutosave() {
@@ -2001,6 +2019,11 @@ describe("HoshidictsSettingsWindow", () => {
       HOSHIDICTS_CHANNELS.setReaderPreferences,
       {
         lookupMode: "hover",
+        scanLength: DEFAULT_HOSHIDICTS_SCAN_LENGTH,
+        maxResults: DEFAULT_HOSHIDICTS_MAX_RESULTS,
+        sortFrequencyDictionary: DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
+        sortFrequencyDictionaryOrder:
+          DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
         activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
         sourceHighlightEnabled: false,
         onlyScanJapaneseText: false,
@@ -2021,6 +2044,131 @@ describe("HoshidictsSettingsWindow", () => {
       expect.anything()
     );
     expect(container.textContent).toContain("Saved");
+  });
+
+  it("configures bounded lookup scan and result limits", async () => {
+    vi.useFakeTimers();
+    await render();
+    const scanLength = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-scan-length"
+    );
+    const maxResults = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-max-results"
+    );
+
+    expect(scanLength?.value).toBe("16");
+    expect(scanLength?.min).toBe("1");
+    expect(scanLength?.max).toBe("64");
+    expect(maxResults?.value).toBe("32");
+    expect(maxResults?.min).toBe("1");
+    expect(maxResults?.max).toBe("256");
+
+    await act(async () => {
+      setInputValue(scanLength, "0");
+      setInputValue(maxResults, "999");
+      await flushAutosave();
+    });
+
+    expect(scanLength?.value).toBe("1");
+    expect(maxResults?.value).toBe("256");
+    expect(invokeMock).toHaveBeenLastCalledWith(
+      HOSHIDICTS_CHANNELS.setReaderPreferences,
+      expect.objectContaining({ scanLength: 1, maxResults: 256 })
+    );
+  });
+
+  it("matches Yomitan frequency sorting controls and automatic order", async () => {
+    vi.useFakeTimers();
+    await render();
+    const dictionary = container.querySelector<HTMLSelectElement>(
+      "#hoshidicts-sort-frequency-dictionary"
+    );
+
+    expect(
+      Array.from(dictionary?.options ?? [], (option) => ({
+        text: option.text.trim(),
+        value: option.value
+      }))
+    ).toEqual([
+      { text: "Off", value: "" },
+      { text: "JMdict", value: "JMdict" }
+    ]);
+    expect(dictionary?.value).toBe("");
+    expect(
+      container.querySelector(
+        "#hoshidicts-sort-frequency-dictionary-order-container"
+      )
+    ).toBeNull();
+
+    await act(async () => {
+      setSelectValue(dictionary, "JMdict");
+      await Promise.resolve();
+    });
+    let order = container.querySelector<HTMLSelectElement>(
+      "#hoshidicts-sort-frequency-dictionary-order"
+    );
+    expect(order?.value).toBe("descending");
+
+    await act(async () => {
+      await flushAutosave();
+    });
+    expect(invokeMock).toHaveBeenLastCalledWith(
+      HOSHIDICTS_CHANNELS.setReaderPreferences,
+      expect.objectContaining({
+        sortFrequencyDictionary: "JMdict",
+        sortFrequencyDictionaryOrder: "descending"
+      })
+    );
+
+    await act(async () => {
+      setSelectValue(order, "ascending");
+      await flushAutosave();
+    });
+    expect(invokeMock).toHaveBeenLastCalledWith(
+      HOSHIDICTS_CHANNELS.setReaderPreferences,
+      expect.objectContaining({ sortFrequencyDictionaryOrder: "ascending" })
+    );
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          "#hoshidicts-sort-frequency-dictionary-order-auto"
+        )
+        ?.click();
+      await flushAutosave();
+    });
+    order = container.querySelector<HTMLSelectElement>(
+      "#hoshidicts-sort-frequency-dictionary-order"
+    );
+    expect(order?.value).toBe("descending");
+
+    await act(async () => {
+      setSelectValue(dictionary, "");
+      await Promise.resolve();
+    });
+    expect(
+      container.querySelector(
+        "#hoshidicts-sort-frequency-dictionary-order-container"
+      )
+    ).toBeNull();
+  });
+
+  it.each([
+    ["ja", ["最大スキャン文字数", "最大検索結果数", "頻度順の並べ替えに使う辞書"]],
+    [
+      "ukr",
+      [
+        "Максимальна довжина сканування",
+        "Максимум результатів",
+        "Словник для сортування за частотою"
+      ]
+    ]
+  ])("localizes lookup controls in %s", async (locale, labels) => {
+    await render(locale);
+
+    for (const label of labels) {
+      expect(container.textContent).toContain(label);
+    }
   });
 
   it("keeps lookup counts with the reader settings", async () => {
@@ -2348,6 +2496,11 @@ describe("HoshidictsSettingsWindow", () => {
       HOSHIDICTS_CHANNELS.setReaderPreferences,
       {
         lookupMode: "shift",
+        scanLength: DEFAULT_HOSHIDICTS_SCAN_LENGTH,
+        maxResults: DEFAULT_HOSHIDICTS_MAX_RESULTS,
+        sortFrequencyDictionary: DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
+        sortFrequencyDictionaryOrder:
+          DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
         activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
         sourceHighlightEnabled: true,
         onlyScanJapaneseText: true,
@@ -2399,6 +2552,11 @@ describe("HoshidictsSettingsWindow", () => {
       HOSHIDICTS_CHANNELS.setReaderPreferences,
       {
         lookupMode: "shift",
+        scanLength: DEFAULT_HOSHIDICTS_SCAN_LENGTH,
+        maxResults: DEFAULT_HOSHIDICTS_MAX_RESULTS,
+        sortFrequencyDictionary: DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
+        sortFrequencyDictionaryOrder:
+          DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
         activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
         sourceHighlightEnabled: false,
         onlyScanJapaneseText: true,
@@ -2527,6 +2685,11 @@ describe("HoshidictsSettingsWindow", () => {
       HOSHIDICTS_CHANNELS.setReaderPreferences,
       {
         lookupMode: "shift",
+        scanLength: DEFAULT_HOSHIDICTS_SCAN_LENGTH,
+        maxResults: DEFAULT_HOSHIDICTS_MAX_RESULTS,
+        sortFrequencyDictionary: DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
+        sortFrequencyDictionaryOrder:
+          DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
         activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
         sourceHighlightEnabled: false,
         onlyScanJapaneseText: true,
@@ -2557,6 +2720,11 @@ describe("HoshidictsSettingsWindow", () => {
       HOSHIDICTS_CHANNELS.setReaderPreferences,
       {
         lookupMode: "shift",
+        scanLength: DEFAULT_HOSHIDICTS_SCAN_LENGTH,
+        maxResults: DEFAULT_HOSHIDICTS_MAX_RESULTS,
+        sortFrequencyDictionary: DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
+        sortFrequencyDictionaryOrder:
+          DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
         activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
         sourceHighlightEnabled: false,
         onlyScanJapaneseText: true,
@@ -2626,6 +2794,11 @@ describe("HoshidictsSettingsWindow", () => {
       HOSHIDICTS_CHANNELS.setReaderPreferences,
       {
         lookupMode: "shift",
+        scanLength: DEFAULT_HOSHIDICTS_SCAN_LENGTH,
+        maxResults: DEFAULT_HOSHIDICTS_MAX_RESULTS,
+        sortFrequencyDictionary: DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
+        sortFrequencyDictionaryOrder:
+          DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
         activationKey: "1",
         sourceHighlightEnabled: false,
         onlyScanJapaneseText: true,
@@ -2660,6 +2833,11 @@ describe("HoshidictsSettingsWindow", () => {
       HOSHIDICTS_CHANNELS.setReaderPreferences,
       {
         lookupMode: "shift",
+        scanLength: DEFAULT_HOSHIDICTS_SCAN_LENGTH,
+        maxResults: DEFAULT_HOSHIDICTS_MAX_RESULTS,
+        sortFrequencyDictionary: DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
+        sortFrequencyDictionaryOrder:
+          DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
         activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
         sourceHighlightEnabled: false,
         onlyScanJapaneseText: true,
@@ -3707,12 +3885,18 @@ describe("HoshidictsSettingsWindow", () => {
       "{glossary}",
       "{dictionary}",
       "{sentence}",
+      "{popup-selection-text}",
       "{sentence-furigana}",
       "{sentence-furigana-plain}",
       "{frequency}",
+      "{frequencies}",
+      "{frequency-harmonic-rank}",
       "{pitch}",
       "{pitch-position}",
-      "{audio}"
+      "{pitch-accent-positions}",
+      "{pitch-accent-categories}",
+      "{audio}",
+      "{document-title}"
     ]);
     expect(
       Object.fromEntries(
@@ -3728,9 +3912,15 @@ describe("HoshidictsSettingsWindow", () => {
       "{main-definition}": "Main definition",
       "{glossary}": "Glossary",
       "{dictionary}": "Dictionary name",
+      "{popup-selection-text}": "Popup selection text",
       "{sentence-furigana}": "Sentence with furigana",
       "{sentence-furigana-plain}":
-        "Sentence with furigana (Anki bracket syntax)"
+        "Sentence with furigana (Anki bracket syntax)",
+      "{frequencies}": "Frequencies",
+      "{frequency-harmonic-rank}": "Frequency harmonic rank",
+      "{pitch-accent-positions}": "Pitch accent positions",
+      "{pitch-accent-categories}": "Pitch accent categories",
+      "{document-title}": "Document title"
     });
   });
 
@@ -4187,6 +4377,10 @@ describe("HoshidictsSettingsWindow", () => {
     const normalized = normalizeHoshidictsDesktopState({
       ...baseState,
       revision: undefined,
+      scanLength: undefined,
+      maxResults: undefined,
+      sortFrequencyDictionary: undefined,
+      sortFrequencyDictionaryOrder: undefined,
       activationKey: undefined,
       sourceHighlightEnabled: undefined,
       onlyScanJapaneseText: undefined,
@@ -4218,6 +4412,14 @@ describe("HoshidictsSettingsWindow", () => {
       }
     });
     expect(normalized.revision).toBe(0);
+    expect(normalized.scanLength).toBe(DEFAULT_HOSHIDICTS_SCAN_LENGTH);
+    expect(normalized.maxResults).toBe(DEFAULT_HOSHIDICTS_MAX_RESULTS);
+    expect(normalized.sortFrequencyDictionary).toBe(
+      DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY
+    );
+    expect(normalized.sortFrequencyDictionaryOrder).toBe(
+      DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER
+    );
     expect(normalized.activationKey).toBe(DEFAULT_HOSHIDICTS_ACTIVATION_KEY);
     expect(normalized.sourceHighlightEnabled).toBe(false);
     expect(normalized.onlyScanJapaneseText).toBe(true);
@@ -4259,6 +4461,66 @@ describe("HoshidictsSettingsWindow", () => {
     expect(normalized.audioProfile).toEqual(baseState.audioProfile);
     expect(normalized.tabGroups).toEqual([]);
   });
+
+  it("normalizes malformed lookup limits and frequency sorting", () => {
+    const normalized = normalizeHoshidictsDesktopState({
+      ...baseState,
+      scanLength: 65,
+      maxResults: 0,
+      sortFrequencyDictionary: "",
+      sortFrequencyDictionaryOrder: "sideways"
+    });
+
+    expect(normalized).toMatchObject({
+      scanLength: DEFAULT_HOSHIDICTS_SCAN_LENGTH,
+      maxResults: DEFAULT_HOSHIDICTS_MAX_RESULTS,
+      sortFrequencyDictionary: DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
+      sortFrequencyDictionaryOrder:
+        DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER
+    });
+  });
+
+  it("preserves an enabled frequency sorting dictionary", () => {
+    expect(
+      normalizeHoshidictsDesktopState({
+        ...baseState,
+        sortFrequencyDictionary: "JMdict"
+      }).sortFrequencyDictionary
+    ).toBe("JMdict");
+  });
+
+  it.each([
+    {
+      name: "disabled",
+      sortFrequencyDictionary: "Custom",
+      dictionaries: baseState.dictionaries
+    },
+    {
+      name: "without frequency data",
+      sortFrequencyDictionary: "JMdict",
+      dictionaries: baseState.dictionaries.map((dictionary) =>
+        dictionary.title === "JMdict"
+          ? { ...dictionary, frequencyCount: 0 }
+          : dictionary
+      )
+    },
+    {
+      name: "missing",
+      sortFrequencyDictionary: "Missing",
+      dictionaries: baseState.dictionaries
+    }
+  ])(
+    "turns sorting Off when the selected dictionary is $name",
+    ({ sortFrequencyDictionary, dictionaries }) => {
+      expect(
+        normalizeHoshidictsDesktopState({
+          ...baseState,
+          sortFrequencyDictionary,
+          dictionaries
+        }).sortFrequencyDictionary
+      ).toBeNull();
+    }
+  );
 
   it("normalizes tab group membership without dropping orphan dictionary ids", () => {
     const normalized = normalizeHoshidictsDesktopState({

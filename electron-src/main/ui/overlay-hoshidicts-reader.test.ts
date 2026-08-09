@@ -161,6 +161,10 @@ function runHoshidictsReaderConfiguration(
     gsmHoshidictsActivationKeyPressed: false,
     gsmHoshidictsDefinitionBlur: definitionBlur,
     gsmHoshidictsLookupMode: lookupMode,
+    gsmHoshidictsScanLength: 16,
+    gsmHoshidictsMaxResults: 32,
+    gsmHoshidictsSortFrequencyDictionary: null,
+    gsmHoshidictsSortFrequencyDictionaryOrder: "descending",
     gsmHoshidictsShowLookupCounts: showLookupCounts,
     gsmHoshidictsSourceHighlightEnabled: sourceHighlightEnabled,
     gsmHoshidictsPopupNestingMaxDepth: popupNestingMaxDepth,
@@ -177,6 +181,7 @@ function runHoshidictsReaderConfiguration(
       viewInAnki: false,
       customLinks: []
     },
+    gsmHoshidictsFrequencyDictionaries: [],
     gsmHoshidictsReaderEnabled: true,
     GSMHoshidictsReader: {
       createHoshidictsAudioClient,
@@ -1011,6 +1016,12 @@ describe("Hoshidicts safe popup rendering", () => {
       viewInAnki: false,
       customLinks: []
     });
+    expect(enabled.window.gsmHoshidictsScanLength).toBe(16);
+    expect(enabled.window.gsmHoshidictsMaxResults).toBe(32);
+    expect(enabled.window.gsmHoshidictsSortFrequencyDictionary).toBeNull();
+    expect(enabled.window.gsmHoshidictsSortFrequencyDictionaryOrder)
+      .toBe("descending");
+    expect(enabled.window.gsmHoshidictsFrequencyDictionaries).toEqual([]);
     expect(enabled.addClass).toHaveBeenCalledWith("gsm-hoshidicts-enabled");
     expect(enabled.documentElement.dataset.gsmHoshidictsEnabled).toBe("true");
 
@@ -1059,6 +1070,26 @@ describe("Hoshidicts safe popup rendering", () => {
       "--gsm-hoshidicts-popup-opacity",
       "70%"
     );
+
+    const lookupControls = runOverlayFeatureBootstrap(
+      true,
+      "shift",
+      undefined,
+      undefined,
+      undefined,
+      {
+        GSM_HOSHIDICTS_SCAN_LENGTH: "24",
+        GSM_HOSHIDICTS_MAX_RESULTS: "48",
+        GSM_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY: "Frequency",
+        GSM_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER: "ascending"
+      }
+    );
+    expect(lookupControls.window.gsmHoshidictsScanLength).toBe(24);
+    expect(lookupControls.window.gsmHoshidictsMaxResults).toBe(48);
+    expect(lookupControls.window.gsmHoshidictsSortFrequencyDictionary)
+      .toBe("Frequency");
+    expect(lookupControls.window.gsmHoshidictsSortFrequencyDictionaryOrder)
+      .toBe("ascending");
   });
 
   it("accepts every supported popup theme from the launch environment", () => {
@@ -1105,6 +1136,10 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(configured.createHoshidictsReader).toHaveBeenCalledWith(
       expect.objectContaining({
         lookupMode: "hover",
+        scanLength: 16,
+        maxResults: 32,
+        sortFrequencyDictionary: null,
+        sortFrequencyDictionaryOrder: "descending",
         activationKey: "F8",
         activationKeyPressed: false,
         audioClient: { kind: "audio" },
@@ -1123,6 +1158,7 @@ describe("Hoshidicts safe popup rendering", () => {
           viewInAnki: false,
           customLinks: []
         },
+        frequencyDictionaries: [],
         definitionBlur: {
           enabled: false,
           lookupThreshold: 5,
@@ -1214,6 +1250,10 @@ describe("Hoshidicts safe popup rendering", () => {
     const configured = runHoshidictsReaderConfiguration("shift");
     const validPreferences = {
       lookupMode: "hover",
+      scanLength: 24,
+      maxResults: 48,
+      sortFrequencyDictionary: "Frequency",
+      sortFrequencyDictionaryOrder: "ascending",
       activationKey: "F9",
       sourceHighlightEnabled: true,
       onlyScanJapaneseText: false,
@@ -1227,8 +1267,13 @@ describe("Hoshidicts safe popup rendering", () => {
       theme: "autumn",
       dictionaryPresentation: [
         { title: "Primary", favorite: false, displayName: "Main dictionary" },
-        { title: "Backup", favorite: true }
+        {
+          title: "Frequency",
+          favorite: true,
+          frequencyMode: "rank-based"
+        }
       ],
+      frequencyDictionaries: ["Frequency"],
       dictionaryTabGroups: [
         { id: "reference", name: "Reference", dictionaries: ["Primary"] }
       ],
@@ -1268,12 +1313,28 @@ describe("Hoshidicts safe popup rendering", () => {
       ]
     });
     expect(configured.updatePreferences).toHaveBeenCalledTimes(1);
+    configured.emitPreferences({
+      ...validPreferences,
+      frequencyDictionaries: ["Frequency", "Frequency"]
+    });
+    expect(configured.updatePreferences).toHaveBeenCalledTimes(1);
+    configured.emitPreferences({
+      ...validPreferences,
+      dictionaryPresentation: [
+        { title: "Frequency", favorite: true, frequencyMode: "invalid" }
+      ]
+    });
+    expect(configured.updatePreferences).toHaveBeenCalledTimes(1);
   });
 
   it("accepts every supported popup theme in live preferences", () => {
     const configured = runHoshidictsReaderConfiguration("shift");
     const preferences = {
       lookupMode: "hover",
+      scanLength: 16,
+      maxResults: 32,
+      sortFrequencyDictionary: null,
+      sortFrequencyDictionaryOrder: "descending",
       activationKey: "F9",
       sourceHighlightEnabled: true,
       onlyScanJapaneseText: true,
@@ -1285,6 +1346,7 @@ describe("Hoshidicts safe popup rendering", () => {
       popupOpacityPercent: 70,
       popupToolbarPosition: "top",
       dictionaryPresentation: [],
+      frequencyDictionaries: [],
       definitionBlur: {
         enabled: false,
         lookupThreshold: 5,
@@ -1402,6 +1464,10 @@ describe("Hoshidicts safe popup rendering", () => {
     const configured = runHoshidictsReaderConfiguration("shift", "Shift");
     configured.ipcListeners.get("hoshidicts-reader-preferences")?.({}, {
       lookupMode: "shift",
+      scanLength: 24,
+      maxResults: 48,
+      sortFrequencyDictionary: "Frequency",
+      sortFrequencyDictionaryOrder: "ascending",
       activationKey: "F9",
       popupHideDelayMs: 450,
       showLookupCounts: false,
@@ -1411,7 +1477,12 @@ describe("Hoshidicts safe popup rendering", () => {
       popupOpacityPercent: 70,
       popupToolbarPosition: "bottom",
       theme: "cyberpunk",
-      dictionaryPresentation: [],
+      dictionaryPresentation: [{
+        title: "Frequency",
+        favorite: true,
+        frequencyMode: "occurrence-based"
+      }],
+      frequencyDictionaries: ["Frequency"],
       sourceHighlightEnabled: true,
       definitionBlur: {
         enabled: false,
@@ -1422,6 +1493,10 @@ describe("Hoshidicts safe popup rendering", () => {
     });
     expect(configured.updatePreferences).toHaveBeenCalledWith({
       lookupMode: "shift",
+      scanLength: 24,
+      maxResults: 48,
+      sortFrequencyDictionary: "Frequency",
+      sortFrequencyDictionaryOrder: "ascending",
       activationKey: "F9",
       definitionBlur: {
         enabled: false,
@@ -1437,7 +1512,12 @@ describe("Hoshidicts safe popup rendering", () => {
       popupOpacityPercent: 70,
       popupToolbarPosition: "bottom",
       theme: "cyberpunk",
-      dictionaryPresentation: [],
+      dictionaryPresentation: [{
+        title: "Frequency",
+        favorite: true,
+        frequencyMode: "occurrence-based"
+      }],
+      frequencyDictionaries: ["Frequency"],
       dictionaryTabGroups: [],
       sourceHighlightEnabled: true,
       onlyScanJapaneseText: true
@@ -1766,14 +1846,27 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(childRequest.text).toBe("猫");
     expect(childRequest.primaryReading).toBe("ねこ");
     expect(childRequest.requestId).not.toBe(parentRequest.requestId);
-    const childResponse = lookupResult(childRequest.requestId, "猫", "cat", 4);
-    childResponse.results[0].term.reading = "ねこ";
+    const childResponse = lookupResult(childRequest.requestId, "猫", "alternate", 4);
+    childResponse.results[0].term.reading = "ねこ以外";
+    const preferred = lookupResult(
+      childRequest.requestId,
+      "猫",
+      "preferred",
+      4
+    ).results[0];
+    preferred.term.reading = "ねこ";
+    childResponse.results.push(preferred);
     socket.receive(childResponse);
 
     const popups = reader.getPopupElements();
     expect(popups).toHaveLength(2);
     expect(popups[0].textContent).toContain("猫");
-    expect(popups[1].textContent).toContain("cat");
+    const childEntries = Array.from(
+      popups[1].querySelectorAll<HTMLElement>(".gsm-hoshidicts-entry")
+    );
+    expect(childEntries).toHaveLength(2);
+    expect(childEntries[0].textContent).toContain("preferred");
+    expect(childEntries[1].textContent).toContain("alternate");
 
     setRect(popups[0], { left: 100, top: 100, right: 200, bottom: 300 });
     setRect(popups[1], { left: 206, top: 110, right: 306, bottom: 310 });
@@ -2647,6 +2740,79 @@ describe("Hoshidicts dictionary tabs", () => {
     reader.destroy();
   });
 
+  it("normalizes and clones ordered frequency dictionary preferences", () => {
+    const { reader } = createLookupHarness({
+      frequencyDictionaries: ["Foo", "", "Foo", "Foo!"]
+    });
+
+    const firstSnapshot = reader.getPreferences();
+    expect(firstSnapshot.frequencyDictionaries).toEqual(["Foo", "Foo!"]);
+    firstSnapshot.frequencyDictionaries.push("Mutated outside reader");
+    expect(reader.getPreferences().frequencyDictionaries).toEqual([
+      "Foo",
+      "Foo!"
+    ]);
+
+    reader.updatePreferences({ frequencyDictionaries: ["Foo!", "Foo"] });
+    expect(reader.getPreferences().frequencyDictionaries).toEqual([
+      "Foo!",
+      "Foo"
+    ]);
+    reader.updatePreferences({ frequencyDictionaries: undefined });
+    expect(reader.getPreferences().frequencyDictionaries).toEqual([]);
+    reader.destroy();
+  });
+
+  it("includes every configured frequency dictionary in duplicate and mining payloads", async () => {
+    const checkMiningNotes = vi.fn(async (payload) => ({
+      success: true,
+      duplicatePolicy: "prevent",
+      results: payload.notes.map(() => ({
+        state: "addable",
+        canAdd: true,
+        duplicate: false
+      }))
+    }));
+    const mine = vi.fn(async () => ({ success: true, noteId: 123 }));
+    const { lookup, reader } = createLookupHarness({
+      checkMiningNotes,
+      frequencyDictionaries: ["Foo", "Foo!"],
+      getMiningStatus: async () => ({ available: true }),
+      onMine: mine
+    });
+    const { popup } = await lookup((requestId) => {
+      const response = lookupResultWithDictionaries(requestId, [
+        { dictionary: "JMdict", glossary: "to eat" }
+      ]);
+      response.results[0].term.frequencies = [{
+        dictionary: "Foo",
+        frequencies: [{ value: 7, displayValue: "7 rank" }]
+      }];
+      return response;
+    });
+    await flushPromises();
+
+    expect(
+      checkMiningNotes.mock.calls.at(-1)?.[0].notes[0].frequencyDictionaries
+    ).toEqual(["Foo", "Foo!"]);
+
+    popup
+      .querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")!
+      .click();
+    await flushPromises();
+    await flushPromises();
+
+    expect(mine.mock.calls[0][0].frequencyDictionaries).toEqual([
+      "Foo",
+      "Foo!"
+    ]);
+    expect(mine.mock.calls[0][0].result.term.frequencies).toEqual([{
+      dictionary: "Foo",
+      frequencies: [{ value: 7, displayValue: "7 rank" }]
+    }]);
+    reader.destroy();
+  });
+
   it("shows a fresh reader without tabs when presentation is undefined", async () => {
     const harness = createReaderHarness({
       lookupMode: "hover",
@@ -3370,6 +3536,12 @@ describe("Hoshidicts dictionary tabs", () => {
           title: "Jitendex.org [2026-08-08]",
           favorite: true,
           displayName: "Jitendex"
+        },
+        {
+          title: "Frequency",
+          favorite: false,
+          displayName: "Corpus rank",
+          frequencyMode: "rank-based"
         }
       ],
       createObjectURL: () => "blob:kiku-parity",
@@ -3453,10 +3625,20 @@ describe("Hoshidicts dictionary tabs", () => {
       dictionaryAliases: [{
         dictionary: "Jitendex.org [2026-08-08]",
         alias: "Jitendex"
+      }, {
+        dictionary: "Frequency",
+        alias: "Corpus rank"
       }],
       documentTitle: "GSM Kiku parity",
       popupSelectionText: "食",
       searchQuery: "食べる"
+    });
+    expect(
+      checkMiningNotes.mock.calls.at(-1)?.[0].notes[0].result.term
+        .frequencies[0]
+    ).toMatchObject({
+      dictionary: "Frequency",
+      frequencyMode: "rank-based"
     });
     const allMineButton = popup
       .querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")!;
@@ -3487,7 +3669,14 @@ describe("Hoshidicts dictionary tabs", () => {
     expect(mine.mock.calls[0][0].dictionaryAliases).toEqual([{
       dictionary: "Jitendex.org [2026-08-08]",
       alias: "Jitendex"
+    }, {
+      dictionary: "Frequency",
+      alias: "Corpus rank"
     }]);
+    expect(mine.mock.calls[0][0].result.term.frequencies[0]).toMatchObject({
+      dictionary: "Frequency",
+      frequencyMode: "rank-based"
+    });
 
     const jitendexTab = Array.from(
       popup.querySelectorAll<HTMLButtonElement>('[role="tab"]')
@@ -3512,6 +3701,7 @@ describe("Hoshidicts dictionary tabs", () => {
     expect(payload.result.term.frequencies).toEqual([
       {
         dictionary: "Frequency",
+        frequencyMode: "rank-based",
         frequencies: [{ value: 123, displayValue: "123 ★" }]
       }
     ]);
@@ -3531,6 +3721,9 @@ describe("Hoshidicts dictionary tabs", () => {
     expect(payload.dictionaryAliases).toEqual([{
       dictionary: "Jitendex.org [2026-08-08]",
       alias: "Jitendex"
+    }, {
+      dictionary: "Frequency",
+      alias: "Corpus rank"
     }]);
     expect(checkMiningNotes.mock.calls.at(-1)?.[0].notes[0].dictionaryStyles)
       .toEqual([{
@@ -3558,7 +3751,10 @@ describe("Hoshidicts dictionary tabs", () => {
       styles: ".jmdict-definition { color: blue; }"
     }]);
     expect(mine.mock.calls[2][0]).not.toHaveProperty("dictionaryMedia");
-    expect(mine.mock.calls[2][0]).not.toHaveProperty("dictionaryAliases");
+    expect(mine.mock.calls[2][0].dictionaryAliases).toEqual([{
+      dictionary: "Frequency",
+      alias: "Corpus rank"
+    }]);
     expect(checkMiningNotes.mock.calls.at(-1)?.[0].notes[0].dictionaryStyles)
       .toEqual([{
         dictionary: "JMdict",
@@ -4319,7 +4515,11 @@ describe("Hoshidicts Shift-hover scanner", () => {
 
     expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({
       type: "hoshidicts_lookup",
-      text: "食べる"
+      text: "食べる",
+      scanLength: 16,
+      maxResults: 32,
+      sortFrequencyDictionary: null,
+      sortFrequencyDictionaryOrder: "descending"
     });
     expect(logger.info).toHaveBeenCalledWith(
       expect.stringContaining('"requiresShift":false')
@@ -4378,7 +4578,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       clientY: 11
     }));
     await vi.advanceTimersByTimeAsync(20);
-    expect(JSON.parse(harness.socket.sent.at(-1)!).text).toBe("hello worl");
+    expect(JSON.parse(harness.socket.sent.at(-1)!).text).toBe("hello world");
   });
 
   it("does not let the activation key bypass Japanese-only scanning", async () => {
@@ -6287,6 +6487,10 @@ describe("Hoshidicts Shift-hover scanner", () => {
 
     expect(reader.getPreferences()).toEqual({
       lookupMode: "shift",
+      scanLength: 16,
+      maxResults: 32,
+      sortFrequencyDictionary: null,
+      sortFrequencyDictionaryOrder: "descending",
       definitionBlur: {
         enabled: false,
         lookupThreshold: 5,
@@ -6305,6 +6509,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       popupToolbarPosition: "top",
       theme: "default",
       dictionaryPresentation: [],
+      frequencyDictionaries: [],
       dictionaryTabGroups: [],
       popupButtons: {
         addToAnki: true,
@@ -6316,6 +6521,10 @@ describe("Hoshidicts Shift-hover scanner", () => {
     });
     expect(reader.updatePreferences({
       lookupMode: "hover",
+      scanLength: 24,
+      maxResults: 48,
+      sortFrequencyDictionary: "Frequency",
+      sortFrequencyDictionaryOrder: "ascending",
       activationKey: "f24",
       sourceHighlightEnabled: true,
       popupHideDelayMs: 9000,
@@ -6333,6 +6542,10 @@ describe("Hoshidicts Shift-hover scanner", () => {
       }
     })).toEqual({
       lookupMode: "hover",
+      scanLength: 24,
+      maxResults: 48,
+      sortFrequencyDictionary: "Frequency",
+      sortFrequencyDictionaryOrder: "ascending",
       activationKey: "F24",
       definitionBlur: {
         enabled: true,
@@ -6351,6 +6564,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       popupToolbarPosition: "bottom",
       theme: "cyberpunk",
       dictionaryPresentation: [],
+      frequencyDictionaries: [],
       dictionaryTabGroups: [],
       popupButtons: {
         addToAnki: true,
@@ -6362,6 +6576,10 @@ describe("Hoshidicts Shift-hover scanner", () => {
     });
     expect(reader.updatePreferences({ popupHideDelayMs: -20 })).toEqual({
       lookupMode: "hover",
+      scanLength: 24,
+      maxResults: 48,
+      sortFrequencyDictionary: "Frequency",
+      sortFrequencyDictionaryOrder: "ascending",
       activationKey: "F24",
       definitionBlur: {
         enabled: true,
@@ -6380,6 +6598,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       popupToolbarPosition: "bottom",
       theme: "cyberpunk",
       dictionaryPresentation: [],
+      frequencyDictionaries: [],
       dictionaryTabGroups: [],
       popupButtons: {
         addToAnki: true,
@@ -6392,6 +6611,10 @@ describe("Hoshidicts Shift-hover scanner", () => {
     expect(reader.updatePreferences({ popupNestingMaxDepth: -1 }))
       .toEqual({
         lookupMode: "hover",
+        scanLength: 24,
+        maxResults: 48,
+        sortFrequencyDictionary: "Frequency",
+        sortFrequencyDictionaryOrder: "ascending",
         activationKey: "F24",
         definitionBlur: {
           enabled: true,
@@ -6410,6 +6633,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
         popupToolbarPosition: "bottom",
         theme: "cyberpunk",
         dictionaryPresentation: [],
+        frequencyDictionaries: [],
         dictionaryTabGroups: [],
         popupButtons: {
           addToAnki: true,
@@ -6423,6 +6647,51 @@ describe("Hoshidicts Shift-hover scanner", () => {
       "cyberpunk"
     );
     reader.destroy();
+  });
+
+  it("retries the active lookup with live scan, result, and frequency sort preferences", async () => {
+    const harness = createReaderHarness({
+      lookupMode: "hover",
+      scanLength: 3,
+      maxResults: 4
+    });
+    harness.first.textContent = "食べる日本";
+    harness.dom.window.document.getElementById("second")!.textContent = "";
+
+    harness.first.dispatchEvent(new harness.dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const firstRequest = JSON.parse(harness.socket.sent.at(-1)!);
+    expect(firstRequest).toMatchObject({
+      text: "食べる",
+      scanLength: 3,
+      maxResults: 4,
+      sortFrequencyDictionary: null,
+      sortFrequencyDictionaryOrder: "descending"
+    });
+
+    harness.reader.updatePreferences({
+      scanLength: 5,
+      maxResults: 7,
+      sortFrequencyDictionary: "Frequency",
+      sortFrequencyDictionaryOrder: "ascending"
+    });
+    await vi.advanceTimersByTimeAsync(20);
+
+    expect(JSON.parse(harness.socket.sent.at(-1)!)).toMatchObject({
+      type: "hoshidicts_lookup",
+      text: "食べる日本",
+      scanLength: 5,
+      maxResults: 7,
+      sortFrequencyDictionary: "Frequency",
+      sortFrequencyDictionaryOrder: "ascending"
+    });
+    expect(JSON.parse(harness.socket.sent.at(-1)!).requestId)
+      .not.toBe(firstRequest.requestId);
+    harness.reader.destroy();
   });
 
   it("applies every supported theme inside the reader runtime", () => {
@@ -7795,6 +8064,28 @@ describe("Hoshidicts Shift-hover scanner", () => {
     expect(normalized[0].term.frequencies[0].frequencies).toEqual([
       { value: 12.75, displayValue: null }
     ]);
+  });
+
+  it("caps normalized results and stably prioritizes a requested reading", () => {
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const response = lookupResult("request", "猫");
+    const base = response.results[0];
+    response.results = [
+      { ...base, term: { ...base.term, expression: "one", reading: "other" } },
+      { ...base, term: { ...base.term, expression: "two", reading: "ねこ" } },
+      { ...base, term: { ...base.term, expression: "three", reading: "other" } }
+    ];
+
+    const normalized = api.normalizeLookupResults(response, 3);
+    const prioritized = api.prioritizeLookupResultsByReading(normalized, "ねこ");
+
+    expect(prioritized.map((result) => result.term.expression)).toEqual([
+      "two",
+      "one",
+      "three"
+    ]);
+    expect(api.normalizeLookupResults(response, 2)).toHaveLength(2);
   });
 
   it("shows an actionable timeout and ignores the late response", async () => {
