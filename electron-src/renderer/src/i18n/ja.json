@@ -662,6 +662,28 @@
           "pixels": "px",
           "resetSize": "サイズをリセット"
         },
+        "popupButtons": {
+          "title": "ポップアップのボタン",
+          "hint": "辞書ポップアップに表示する操作を選びます。",
+          "addToAnki": "Ankiに追加",
+          "audio": "音声を再生",
+          "customDefinition": "カスタム定義を編集",
+          "viewInAnki": "Ankiで表示",
+          "customLinks": "カスタムリンク",
+          "customLinksHint": "単語には%w、元の文全体には%sを使用します。",
+          "noCustomLinks": "カスタムリンクはまだありません。",
+          "name": "名前",
+          "namePlaceholder": "Jisho",
+          "url": "URL",
+          "urlPlaceholder": "https://jisho.org/search/%w",
+          "addLink": "リンクを追加",
+          "saveLink": "リンクを保存",
+          "cancel": "キャンセル",
+          "editLink": "カスタムポップアップリンク「{name}」を編集",
+          "deleteLink": "カスタムポップアップリンク「{name}」を削除",
+          "labelRequired": "リンクの名前を入力してください。",
+          "invalidUrl": "http:// または https:// のURLを入力してください。%wと%sを使用できます。"
+        },
         "definitionBlur": {
           "title": "繰り返し検索した定義をぼかす",
           "hint": "同じ単語の検索回数がしきい値に達すると、定義のみをぼかします。定義にカーソルを合わせると常に表示されます。",

@@ -61,6 +61,16 @@
   const MAX_POPUP_HEIGHT_PX = 900;
   const DEFAULT_POPUP_OPACITY_PERCENT = 85;
   const DEFAULT_POPUP_TOOLBAR_POSITION = "top";
+  const DEFAULT_POPUP_BUTTONS = Object.freeze({
+    addToAnki: true,
+    audio: true,
+    customDefinition: true,
+    viewInAnki: false,
+    customLinks: Object.freeze([]),
+  });
+  const MAX_POPUP_CUSTOM_LINKS = 8;
+  const MAX_POPUP_CUSTOM_LINK_LABEL_LENGTH = 64;
+  const MAX_POPUP_CUSTOM_LINK_URL_LENGTH = 2048;
   const MIN_POPUP_OPACITY_PERCENT = 0;
   const MAX_POPUP_OPACITY_PERCENT = 100;
   const DEFAULT_THEME = "default";
@@ -283,6 +293,94 @@
 
   function boundedString(value, maxLength = MAX_TEXT_LENGTH) {
     return typeof value === "string" ? value.slice(0, maxLength) : "";
+  }
+
+  function clonePopupButtons(value) {
+    return {
+      addToAnki: value.addToAnki,
+      audio: value.audio,
+      customDefinition: value.customDefinition,
+      viewInAnki: value.viewInAnki,
+      customLinks: value.customLinks.map((link) => ({ ...link })),
+    };
+  }
+
+  function normalizePopupButtons(value, fallback = DEFAULT_POPUP_BUTTONS) {
+    const normalizedFallback = isRecord(fallback)
+      ? fallback
+      : DEFAULT_POPUP_BUTTONS;
+    if (
+      !isRecord(value) ||
+      typeof value.addToAnki !== "boolean" ||
+      typeof value.audio !== "boolean" ||
+      typeof value.customDefinition !== "boolean" ||
+      typeof value.viewInAnki !== "boolean" ||
+      !Array.isArray(value.customLinks) ||
+      value.customLinks.length > MAX_POPUP_CUSTOM_LINKS
+    ) {
+      return clonePopupButtons(normalizedFallback);
+    }
+    const customLinks = [];
+    for (const rawLink of value.customLinks) {
+      if (!isRecord(rawLink)) {
+        return clonePopupButtons(normalizedFallback);
+      }
+      const label = typeof rawLink.label === "string" ? rawLink.label.trim() : "";
+      const url = typeof rawLink.url === "string" ? rawLink.url.trim() : "";
+      if (
+        !label ||
+        label.length > MAX_POPUP_CUSTOM_LINK_LABEL_LENGTH ||
+        /[\u0000-\u001f\u007f]/u.test(label) ||
+        !url ||
+        url.length > MAX_POPUP_CUSTOM_LINK_URL_LENGTH ||
+        /[\u0000-\u001f\u007f]/u.test(url)
+      ) {
+        return clonePopupButtons(normalizedFallback);
+      }
+      try {
+        const parsed = new URL(
+          url.replaceAll("%w", "word").replaceAll("%s", "sentence")
+        );
+        if (
+          !["http:", "https:"].includes(parsed.protocol) ||
+          !parsed.hostname ||
+          parsed.username ||
+          parsed.password
+        ) {
+          return clonePopupButtons(normalizedFallback);
+        }
+      } catch {
+        return clonePopupButtons(normalizedFallback);
+      }
+      customLinks.push({ label, url });
+    }
+    return {
+      addToAnki: value.addToAnki,
+      audio: value.audio,
+      customDefinition: value.customDefinition,
+      viewInAnki: value.viewInAnki,
+      customLinks,
+    };
+  }
+
+  function popupButtonsEqual(left, right) {
+    return left.addToAnki === right.addToAnki &&
+      left.audio === right.audio &&
+      left.customDefinition === right.customDefinition &&
+      left.viewInAnki === right.viewInAnki &&
+      left.customLinks.length === right.customLinks.length &&
+      left.customLinks.every((link, index) =>
+        link.label === right.customLinks[index]?.label &&
+        link.url === right.customLinks[index]?.url
+      );
+  }
+
+  function expandPopupButtonUrl(template, values = {}) {
+    const word = encodeURIComponent(String(values.word || ""));
+    const sentence = encodeURIComponent(String(values.sentence || ""));
+    return String(template || "")
+      .replaceAll("%w", word)
+      .replaceAll("%s", sentence);
   }
 
   function isJapaneseOnlyToken(query) {
@@ -1727,6 +1825,17 @@
           body,
         });
       },
+      async browse(payload) {
+        const body = JSON.stringify(payload);
+        if (utf8Length(body) > MAX_LOOKUP_TEXT_BYTES) {
+          throw new Error("Hoshidicts Anki browser request is too large.");
+        }
+        return await request("/api/hoshidicts/mining/browse", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        });
+      },
     };
   }
 
@@ -2008,6 +2117,14 @@
       typeof options.onMine === "function"
         ? options.onMine
         : null;
+    const onBrowse =
+      typeof options.onBrowse === "function"
+        ? options.onBrowse
+        : null;
+    const onOpenExternalLink =
+      typeof options.onOpenExternalLink === "function"
+        ? options.onOpenExternalLink
+        : null;
     const onLookup =
       typeof options.onLookup === "function"
         ? options.onLookup
@@ -2083,6 +2200,7 @@
       dictionaryTabGroups: normalizeDictionaryTabGroups(
         options.dictionaryTabGroups
       ),
+      popupButtons: normalizePopupButtons(options.popupButtons),
     };
     let socket = null;
     let reconnectTimer = null;
@@ -2959,9 +3077,16 @@
         sourceHighlighter: chainHighlighter.scope(depth),
         sourceHighlightEnabled: preferences.sourceHighlightEnabled,
         toolbarPosition: preferences.popupToolbarPosition,
+        popupButtons: preferences.popupButtons,
         positionPopup: () => positionPopupAndDescendants(depth),
         onMineClick(button, result, candidate, feedback) {
           void mineResult(button, result, candidate, feedback);
+        },
+        onBrowseClick(button, result, feedback) {
+          void browseResult(button, result, feedback);
+        },
+        onCustomLinkClick(link, result, candidate, feedback) {
+          void openCustomLink(link, result, candidate, feedback);
         },
         onKanjiClick(character, _result, candidate) {
           requestKanji(character, candidate, depth);
@@ -3635,6 +3760,12 @@
 
     async function refreshMiningButtons(level, miningItems, feedback) {
       const generation = ++level.miningStatusGeneration;
+      if (!preferences.popupButtons.addToAnki) {
+        for (const { button } of miningItems) {
+          button.hidden = true;
+        }
+        return;
+      }
       const status = await getCachedMiningStatus();
       if (!isLiveMiningRender(level, generation, feedback)) {
         return;
@@ -3750,6 +3881,68 @@
       // focus, with no setup warning or inert mining affordance. Errors from a
       // real mining attempt still flow through mineResult below.
       level.view.setFeedback(feedback, "");
+    }
+
+    async function browseResult(button, result, feedback) {
+      if (!onBrowse || button.disabled) {
+        return;
+      }
+      const term = boundedString(result?.term?.expression, 1024).trim();
+      if (!term) {
+        return;
+      }
+      const originalText = button.textContent;
+      const level = popupLevels.find((entry) => entry.popup.contains(button));
+      button.disabled = true;
+      button.textContent = "Opening\u2026";
+      level?.view.setFeedback(
+        feedback,
+        "Opening Anki browser\u2026"
+      );
+      try {
+        await onBrowse({ word: term });
+        level?.view.setFeedback(
+          feedback,
+          "Opened in Anki.",
+          "success"
+        );
+      } catch (error) {
+        level?.view.setFeedback(
+          feedback,
+          error && typeof error.message === "string"
+            ? error.message
+            : String(error),
+          "error"
+        );
+      } finally {
+        button.disabled = false;
+        button.textContent = originalText;
+        if (button.isConnected) {
+          positionAllPopups();
+        }
+      }
+    }
+
+    async function openCustomLink(link, result, candidate, feedback) {
+      if (!onOpenExternalLink) {
+        return;
+      }
+      const url = expandPopupButtonUrl(link.url, {
+        word: boundedString(result?.term?.expression, 1024).trim(),
+        sentence: boundedString(candidate?.sentence),
+      });
+      try {
+        await onOpenExternalLink(url);
+      } catch (error) {
+        const level = popupLevels.find((entry) => entry.popup.contains(feedback));
+        level?.view.setFeedback(
+          feedback,
+          error && typeof error.message === "string"
+            ? error.message
+            : String(error),
+          "error"
+        );
+      }
     }
 
     async function mineResult(button, result, candidate, feedback) {
@@ -4761,6 +4954,7 @@
       const previousTheme = preferences.theme;
       const previousDictionaryPresentation = preferences.dictionaryPresentation;
       const previousDictionaryTabGroups = preferences.dictionaryTabGroups;
+      const previousPopupButtons = preferences.popupButtons;
       preferences = {
         lookupMode: Object.prototype.hasOwnProperty.call(nextPreferences, "lookupMode")
           ? nextPreferences.lookupMode === "hover" ? "hover" : "shift"
@@ -4861,6 +5055,12 @@
         )
           ? normalizeDictionaryTabGroups(nextPreferences.dictionaryTabGroups)
           : preferences.dictionaryTabGroups,
+        popupButtons: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "popupButtons"
+        )
+          ? normalizePopupButtons(nextPreferences.popupButtons, preferences.popupButtons)
+          : preferences.popupButtons,
       };
       if (definitionBlurWasEnabled && !preferences.definitionBlur.enabled) {
         for (const level of popupLevels) {
@@ -4931,6 +5131,32 @@
           }
         }
       }
+      if (!popupButtonsEqual(previousPopupButtons, preferences.popupButtons)) {
+        for (const level of popupLevels) {
+          level.view.setPopupButtons(preferences.popupButtons);
+        }
+        if (previousPopupButtons.audio !== preferences.popupButtons.audio) {
+          syncAudioRenderedResults(null, false);
+        }
+        if (
+          previousPopupButtons.addToAnki !== preferences.popupButtons.addToAnki
+        ) {
+          for (const level of popupLevels) {
+            if (
+              level.visible &&
+              level.miningFeedback &&
+              level.miningItems.length > 0
+            ) {
+              void refreshMiningButtons(
+                level,
+                level.miningItems,
+                level.miningFeedback
+              );
+            }
+          }
+        }
+        positionAllPopups();
+      }
       if (
         previousMode !== preferences.lookupMode ||
         activationKeyChanged ||
@@ -4955,6 +5181,7 @@
           ...group,
           dictionaries: [...group.dictionaries],
         })),
+        popupButtons: clonePopupButtons(preferences.popupButtons),
       };
     }
 
@@ -5076,6 +5303,7 @@
           ...group,
           dictionaries: [...group.dictionaries],
         })),
+        popupButtons: clonePopupButtons(preferences.popupButtons),
       }),
       getAudioPreferences: () => audioController.getPreferences(),
       positionPopup: positionAllPopups,
@@ -5091,6 +5319,7 @@
     DEFAULT_POPUP_HIDE_DELAY_MS,
     DEFAULT_POPUP_HEIGHT_PX,
     DEFAULT_POPUP_OPACITY_PERCENT,
+    DEFAULT_POPUP_BUTTONS,
     DEFAULT_POPUP_TOOLBAR_POSITION,
     DEFAULT_POPUP_NESTING_MAX_DEPTH,
     DEFAULT_POPUP_WIDTH_PX,
@@ -5119,6 +5348,7 @@
     createHoshidictsLookupStatsClient,
     createHoshidictsAudioClient,
     createHoshidictsReader,
+    expandPopupButtonUrl,
     normalizeActivationKey,
     normalizeAudioProfile,
     normalizeDefinitionBlurPreferences,
@@ -5130,6 +5360,7 @@
     normalizePopupWidth,
     normalizeTheme,
     normalizePopupOpacityPercent,
+    normalizePopupButtons,
     normalizeLookupResults,
     resolveGsmApiBaseUrl,
     resolveLookupCandidate,

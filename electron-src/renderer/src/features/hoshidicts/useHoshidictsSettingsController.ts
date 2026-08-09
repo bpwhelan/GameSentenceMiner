@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  createDefaultHoshidictsPopupButtons,
   createDefaultHoshidictsFieldOverwriteModes,
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
@@ -38,6 +39,7 @@ import {
   type HoshidictsLookupMode,
   type HoshidictsMiningOptions,
   type HoshidictsMiningProfile,
+  type HoshidictsPopupButtons,
   type HoshidictsPopupToolbarPosition,
   type HoshidictsMoveDirection,
   type HoshidictsMoveDictionaryToPositionRequest,
@@ -103,7 +105,8 @@ const defaultReaderPreferences = (): HoshidictsReaderPreferences => ({
   popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
   theme: DEFAULT_HOSHIDICTS_THEME,
   popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
-  popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION
+  popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
+  popupButtons: createDefaultHoshidictsPopupButtons()
 });
 
 function copyReaderPreferences(
@@ -111,7 +114,13 @@ function copyReaderPreferences(
 ): HoshidictsReaderPreferences {
   return {
     ...preferences,
-    definitionBlur: { ...preferences.definitionBlur }
+    definitionBlur: { ...preferences.definitionBlur },
+    popupButtons: {
+      ...preferences.popupButtons,
+      customLinks: preferences.popupButtons.customLinks.map((link) => ({
+        ...link
+      }))
+    }
   };
 }
 
@@ -227,7 +236,13 @@ export function useHoshidictsSettingsController() {
       popupHeightPx: normalized.popupHeightPx,
       theme: normalized.theme,
       popupOpacityPercent: normalized.popupOpacityPercent,
-      popupToolbarPosition: normalized.popupToolbarPosition
+      popupToolbarPosition: normalized.popupToolbarPosition,
+      popupButtons: {
+        ...normalized.popupButtons,
+        customLinks: normalized.popupButtons.customLinks.map((link) => ({
+          ...link
+        }))
+      }
     };
     const mining = profileToDraft(normalized.miningProfile);
     const audio = copyAudioProfile(normalized.audioProfile);
@@ -621,6 +636,37 @@ export function useHoshidictsSettingsController() {
       updateReaderPreferences({ popupToolbarPosition });
     },
     [updateReaderPreferences]
+  );
+
+  const updatePopupButtons = useCallback(
+    (update: Partial<HoshidictsPopupButtons>) => {
+      updateReaderPreferences({
+        popupButtons: {
+          ...readerDraftRef.current.popupButtons,
+          ...update
+        }
+      });
+    },
+    [updateReaderPreferences]
+  );
+
+  const setPopupButtonEnabled = useCallback(
+    (
+      button: "addToAnki" | "audio" | "customDefinition" | "viewInAnki",
+      enabled: boolean
+    ) => {
+      updatePopupButtons({ [button]: enabled });
+    },
+    [updatePopupButtons]
+  );
+
+  const setPopupCustomLinks = useCallback(
+    (customLinks: HoshidictsPopupButtons["customLinks"]) => {
+      updatePopupButtons({
+        customLinks: customLinks.map((link) => ({ ...link }))
+      });
+    },
+    [updatePopupButtons]
   );
 
   const resetPopupSize = useCallback(() => {
@@ -1051,6 +1097,8 @@ export function useHoshidictsSettingsController() {
     setTheme,
     setPopupOpacityPercent,
     setPopupToolbarPosition,
+    setPopupButtonEnabled,
+    setPopupCustomLinks,
     resetPopupSize,
     setShowLookupCounts,
     setDefinitionBlurEnabled,

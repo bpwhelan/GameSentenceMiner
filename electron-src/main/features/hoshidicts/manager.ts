@@ -29,6 +29,7 @@ import type {
     HoshidictsMiningProfile,
     HoshidictsProgress,
     HoshidictsProgressPhase,
+    HoshidictsPopupButtons,
     HoshidictsPopupToolbarPosition,
     HoshidictsRecommendedDictionaryId,
     HoshidictsRecommendedDictionaryState,
@@ -49,9 +50,11 @@ import {
     DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
     DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
     DEFAULT_HOSHIDICTS_THEME,
+    createDefaultHoshidictsPopupButtons,
     isHoshidictsActivationKey,
     isHoshidictsPopupToolbarPosition,
     isHoshidictsTheme,
+    normalizeHoshidictsPopupButtons,
     MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES,
     MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
@@ -145,6 +148,7 @@ interface PersistedManifest {
     theme: HoshidictsTheme;
     popupOpacityPercent: number;
     popupToolbarPosition: HoshidictsPopupToolbarPosition;
+    popupButtons: HoshidictsPopupButtons;
     schedule: HoshidictsSchedule;
     lastCheck: string | null;
     nextCheck: string | null;
@@ -392,6 +396,7 @@ function emptyManifest(): PersistedManifest {
         theme: DEFAULT_HOSHIDICTS_THEME,
         popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
         popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
+        popupButtons: createDefaultHoshidictsPopupButtons(),
         schedule: 'off',
         lastCheck: null,
         nextCheck: null,
@@ -582,6 +587,32 @@ function normalizePopupToolbarPosition(
     return isHoshidictsPopupToolbarPosition(value)
         ? value
         : DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION;
+}
+
+function normalizePersistedPopupButtons(value: unknown): HoshidictsPopupButtons {
+    try {
+        return normalizeHoshidictsPopupButtons(value);
+    } catch {
+        return createDefaultHoshidictsPopupButtons();
+    }
+}
+
+function popupButtonsEqual(
+    left: HoshidictsPopupButtons,
+    right: HoshidictsPopupButtons
+): boolean {
+    return (
+        left.addToAnki === right.addToAnki &&
+        left.audio === right.audio &&
+        left.customDefinition === right.customDefinition &&
+        left.viewInAnki === right.viewInAnki &&
+        left.customLinks.length === right.customLinks.length &&
+        left.customLinks.every(
+            (link, index) =>
+                link.label === right.customLinks[index]?.label &&
+                link.url === right.customLinks[index]?.url
+        )
+    );
 }
 
 function normalizeDefinitionBlur(
@@ -2467,7 +2498,8 @@ export class HoshidictsManager {
         theme?: HoshidictsTheme,
         popupOpacityPercent?: number,
         onlyScanJapaneseText = DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
-        popupToolbarPosition?: HoshidictsPopupToolbarPosition
+        popupToolbarPosition?: HoshidictsPopupToolbarPosition,
+        popupButtons?: HoshidictsPopupButtons
     ): Promise<HoshidictsManagerSnapshot> {
         if (lookupMode !== 'shift' && lookupMode !== 'hover') {
             throw new Error('Hoshidicts lookup mode is invalid.');
@@ -2497,6 +2529,15 @@ export class HoshidictsManager {
             !isHoshidictsPopupToolbarPosition(popupToolbarPosition)
         ) {
             throw new Error('Hoshidicts popup toolbar position is invalid.');
+        }
+        let normalizedPopupButtons: HoshidictsPopupButtons | undefined;
+        if (popupButtons !== undefined) {
+            try {
+                normalizedPopupButtons =
+                    normalizeHoshidictsPopupButtons(popupButtons);
+            } catch {
+                throw new Error('Hoshidicts popup buttons are invalid.');
+            }
         }
         if (typeof showLookupCounts !== 'boolean') {
             throw new Error('Hoshidicts lookup count preference is invalid.');
@@ -2585,6 +2626,8 @@ export class HoshidictsManager {
                 popupOpacityPercent ?? manifest.popupOpacityPercent;
             const effectivePopupToolbarPosition =
                 popupToolbarPosition ?? manifest.popupToolbarPosition;
+            const effectivePopupButtons =
+                normalizedPopupButtons ?? manifest.popupButtons;
             if (
                 manifest.lookupMode !== lookupMode ||
                 manifest.popupHideDelayMs !== popupHideDelayMs ||
@@ -2599,6 +2642,10 @@ export class HoshidictsManager {
                 manifest.popupOpacityPercent !== effectivePopupOpacityPercent ||
                 manifest.popupToolbarPosition !==
                     effectivePopupToolbarPosition ||
+                !popupButtonsEqual(
+                    manifest.popupButtons,
+                    effectivePopupButtons
+                ) ||
                 !definitionBlurPreferencesEqual(
                     manifest.definitionBlur,
                     effectiveDefinitionBlur
@@ -2619,6 +2666,7 @@ export class HoshidictsManager {
                     theme: effectiveTheme,
                     popupOpacityPercent: effectivePopupOpacityPercent,
                     popupToolbarPosition: effectivePopupToolbarPosition,
+                    popupButtons: effectivePopupButtons,
                 });
             }
         }, 'preferences');
@@ -2948,6 +2996,9 @@ export class HoshidictsManager {
             theme: manifest.theme,
             popupOpacityPercent: manifest.popupOpacityPercent,
             popupToolbarPosition: manifest.popupToolbarPosition,
+            popupButtons: normalizeHoshidictsPopupButtons(
+                manifest.popupButtons
+            ),
             schedule: manifest.schedule,
             lastCheck: manifest.lastCheck,
             nextCheck: manifest.nextCheck,
@@ -3319,6 +3370,7 @@ export class HoshidictsManager {
             popupToolbarPosition: normalizePopupToolbarPosition(
                 parsed.popupToolbarPosition
             ),
+            popupButtons: normalizePersistedPopupButtons(parsed.popupButtons),
             schedule,
             lastCheck: legacyLastCheck,
             nextCheck: null,
@@ -3363,6 +3415,7 @@ export class HoshidictsManager {
             popupToolbarPosition: normalizePopupToolbarPosition(
                 parsed.popupToolbarPosition
             ),
+            popupButtons: normalizePersistedPopupButtons(parsed.popupButtons),
             schedule: normalizeSchedule(parsed.schedule),
             lastCheck: normalizeDate(parsed.lastCheck),
             nextCheck: normalizeDate(parsed.nextCheck),

@@ -182,6 +182,129 @@ export function isHoshidictsPopupToolbarPosition(
         HOSHIDICTS_POPUP_TOOLBAR_POSITION_SET.has(value)
     );
 }
+export const MAX_HOSHIDICTS_POPUP_CUSTOM_LINKS = 8;
+export const MAX_HOSHIDICTS_POPUP_CUSTOM_LINK_LABEL_LENGTH = 64;
+export const MAX_HOSHIDICTS_POPUP_CUSTOM_LINK_URL_LENGTH = 2048;
+
+export interface HoshidictsPopupCustomLink {
+    label: string;
+    url: string;
+}
+
+export interface HoshidictsPopupButtons {
+    addToAnki: boolean;
+    audio: boolean;
+    customDefinition: boolean;
+    viewInAnki: boolean;
+    customLinks: HoshidictsPopupCustomLink[];
+}
+
+export function createDefaultHoshidictsPopupButtons(): HoshidictsPopupButtons {
+    return {
+        addToAnki: true,
+        audio: true,
+        customDefinition: true,
+        viewInAnki: false,
+        customLinks: [],
+    };
+}
+
+function isHoshidictsRecord(
+    value: unknown
+): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+export function isHoshidictsPopupCustomLinkTemplate(
+    value: unknown
+): value is string {
+    if (typeof value !== 'string') {
+        return false;
+    }
+    const template = value.trim();
+    if (
+        template.length === 0 ||
+        template.length > MAX_HOSHIDICTS_POPUP_CUSTOM_LINK_URL_LENGTH ||
+        /[\u0000-\u001f\u007f]/u.test(template) ||
+        !/^https?:\/\//iu.test(template)
+    ) {
+        return false;
+    }
+    try {
+        const parsed = new URL(
+            template.replaceAll('%w', 'word').replaceAll('%s', 'sentence')
+        );
+        return (
+            (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
+            parsed.hostname.length > 0 &&
+            parsed.username.length === 0 &&
+            parsed.password.length === 0
+        );
+    } catch {
+        return false;
+    }
+}
+
+export function normalizeHoshidictsPopupButtons(
+    value: unknown
+): HoshidictsPopupButtons {
+    if (!isHoshidictsRecord(value)) {
+        throw new Error('Hoshidicts popup buttons must be an object.');
+    }
+    if (
+        typeof value.addToAnki !== 'boolean' ||
+        typeof value.audio !== 'boolean' ||
+        typeof value.customDefinition !== 'boolean' ||
+        typeof value.viewInAnki !== 'boolean'
+    ) {
+        throw new Error('Hoshidicts popup button visibility is invalid.');
+    }
+    if (
+        !Array.isArray(value.customLinks) ||
+        value.customLinks.length > MAX_HOSHIDICTS_POPUP_CUSTOM_LINKS
+    ) {
+        throw new Error('Hoshidicts popup custom links are invalid.');
+    }
+
+    const customLinks = value.customLinks.map((rawLink) => {
+        if (!isHoshidictsRecord(rawLink)) {
+            throw new Error('Hoshidicts popup custom link is invalid.');
+        }
+        const label =
+            typeof rawLink.label === 'string' ? rawLink.label.trim() : '';
+        const url = typeof rawLink.url === 'string' ? rawLink.url.trim() : '';
+        if (
+            label.length === 0 ||
+            label.length > MAX_HOSHIDICTS_POPUP_CUSTOM_LINK_LABEL_LENGTH ||
+            /[\u0000-\u001f\u007f]/u.test(label)
+        ) {
+            throw new Error('Hoshidicts popup custom link label is invalid.');
+        }
+        if (!isHoshidictsPopupCustomLinkTemplate(url)) {
+            throw new Error('Hoshidicts popup custom link URL is invalid.');
+        }
+        return { label, url };
+    });
+
+    return {
+        addToAnki: value.addToAnki,
+        audio: value.audio,
+        customDefinition: value.customDefinition,
+        viewInAnki: value.viewInAnki,
+        customLinks,
+    };
+}
+
+export function isHoshidictsPopupButtons(
+    value: unknown
+): value is HoshidictsPopupButtons {
+    try {
+        normalizeHoshidictsPopupButtons(value);
+        return true;
+    } catch {
+        return false;
+    }
+}
 export const MIN_HOSHIDICTS_POPUP_WIDTH_PX = 280;
 export const MAX_HOSHIDICTS_POPUP_WIDTH_PX = 1200;
 export const MIN_HOSHIDICTS_POPUP_HEIGHT_PX = 200;
@@ -522,6 +645,7 @@ export interface HoshidictsReaderPreferencesRequest {
     theme: HoshidictsTheme;
     popupOpacityPercent: number;
     popupToolbarPosition: HoshidictsPopupToolbarPosition;
+    popupButtons: HoshidictsPopupButtons;
 }
 
 export interface HoshidictsDictionaryPresentation {
@@ -734,6 +858,7 @@ export interface HoshidictsManagerSnapshot {
     theme: HoshidictsTheme;
     popupOpacityPercent: number;
     popupToolbarPosition: HoshidictsPopupToolbarPosition;
+    popupButtons: HoshidictsPopupButtons;
     schedule: HoshidictsSchedule;
     lastCheck: string | null;
     nextCheck: string | null;
@@ -762,6 +887,7 @@ export function hoshidictsReaderPreferencesFromSnapshot(
         theme: snapshot.theme,
         popupOpacityPercent: snapshot.popupOpacityPercent,
         popupToolbarPosition: snapshot.popupToolbarPosition,
+        popupButtons: normalizeHoshidictsPopupButtons(snapshot.popupButtons),
         dictionaryPresentation: (snapshot.dictionaries ?? []).map(
             ({ title, displayName, favorite }) =>
                 displayName

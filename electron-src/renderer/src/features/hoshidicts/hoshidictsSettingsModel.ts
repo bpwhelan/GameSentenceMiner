@@ -1,6 +1,7 @@
 import {
   createDefaultHoshidictsAudioProfile,
   createDefaultHoshidictsFieldOverwriteModes,
+  createDefaultHoshidictsPopupButtons,
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
   DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
@@ -32,6 +33,7 @@ import {
   MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
   MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   MIN_HOSHIDICTS_POPUP_WIDTH_PX,
+  normalizeHoshidictsPopupButtons,
   parseHoshidictsCustomDictionary,
   type HoshidictsActivationKey,
   type HoshidictsAudioProfile,
@@ -301,6 +303,7 @@ const DEFAULT_STATE: HoshidictsDesktopSnapshot = {
   theme: DEFAULT_HOSHIDICTS_THEME,
   popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
+  popupButtons: createDefaultHoshidictsPopupButtons(),
   schedule: "off",
   lastCheck: null,
   nextCheck: null,
@@ -598,6 +601,7 @@ export function normalizeHoshidictsDesktopState(
     return {
       ...DEFAULT_STATE,
       definitionBlur: { ...DEFAULT_STATE.definitionBlur },
+      popupButtons: createDefaultHoshidictsPopupButtons(),
       miningProfile: copyMiningProfile(),
       audioProfile: copyAudioProfile(),
       tabGroups: [],
@@ -654,6 +658,12 @@ export function normalizeHoshidictsDesktopState(
   )
     ? candidate.popupToolbarPosition
     : DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION;
+  let popupButtons = createDefaultHoshidictsPopupButtons();
+  try {
+    popupButtons = normalizeHoshidictsPopupButtons(candidate.popupButtons);
+  } catch {
+    // Keep settings usable if an older or manually edited snapshot is malformed.
+  }
 
   return {
     revision:
@@ -747,6 +757,7 @@ export function normalizeHoshidictsDesktopState(
       : DEFAULT_HOSHIDICTS_THEME,
     popupOpacityPercent,
     popupToolbarPosition,
+    popupButtons,
     schedule,
     lastCheck:
       typeof candidate.lastCheck === "string" ? candidate.lastCheck : null,

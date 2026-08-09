@@ -14,6 +14,7 @@ import {
     HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
     hoshidictsReaderPreferencesFromSnapshot,
     isHoshidictsActivationKey,
+    isHoshidictsPopupButtons,
     isHoshidictsPopupToolbarPosition,
     isHoshidictsTheme,
     MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES,
@@ -28,6 +29,7 @@ import {
     MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
     MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
     MIN_HOSHIDICTS_POPUP_WIDTH_PX,
+    normalizeHoshidictsPopupButtons,
     type HoshidictsActionResult,
     type HoshidictsActivationKey,
     type HoshidictsAudioProfile,
@@ -48,6 +50,7 @@ import {
     type HoshidictsManagerSnapshot,
     type HoshidictsLookupMode,
     type HoshidictsMiningOptions,
+    type HoshidictsPopupButtons,
     type HoshidictsPopupToolbarPosition,
     type HoshidictsMoveDictionaryRequest,
     type HoshidictsMoveDictionaryToPositionRequest,
@@ -93,6 +96,7 @@ export interface HoshidictsIPCDependencies {
     getOverlayPopupToolbarPositionAtLaunch: () =>
         | HoshidictsPopupToolbarPosition
         | null;
+    getOverlayPopupButtonsApplied: () => HoshidictsPopupButtons | null;
     applyReaderPreferences: (
         preferences: HoshidictsReaderPreferences
     ) => Promise<boolean>;
@@ -170,11 +174,30 @@ function definitionBlurPreferencesEqual(
     );
 }
 
+function popupButtonsEqual(
+    left: HoshidictsPopupButtons,
+    right: HoshidictsPopupButtons
+): boolean {
+    return (
+        left.addToAnki === right.addToAnki &&
+        left.audio === right.audio &&
+        left.customDefinition === right.customDefinition &&
+        left.viewInAnki === right.viewInAnki &&
+        left.customLinks.length === right.customLinks.length &&
+        left.customLinks.every(
+            (link, index) =>
+                link.label === right.customLinks[index]?.label &&
+                link.url === right.customLinks[index]?.url
+        )
+    );
+}
+
 function readerPreferencesMatchOverlay(
     preferences: HoshidictsReaderPreferences,
     deps: HoshidictsIPCDependencies
 ): boolean {
     const definitionBlurAtLaunch = deps.getOverlayDefinitionBlurAtLaunch();
+    const popupButtonsApplied = deps.getOverlayPopupButtonsApplied();
     return (
         deps.getOverlayLookupModeAtLaunch() === preferences.lookupMode &&
         deps.getOverlayActivationKeyAtLaunch() === preferences.activationKey &&
@@ -195,6 +218,8 @@ function readerPreferencesMatchOverlay(
             preferences.popupOpacityPercent &&
         deps.getOverlayPopupToolbarPositionAtLaunch() ===
             preferences.popupToolbarPosition &&
+        popupButtonsApplied !== null &&
+        popupButtonsEqual(popupButtonsApplied, preferences.popupButtons) &&
         definitionBlurAtLaunch !== null &&
         definitionBlurPreferencesEqual(
             definitionBlurAtLaunch,
@@ -326,6 +351,7 @@ function withDesktopState(
     const popupWidthAtLaunch = deps.getOverlayPopupWidthAtLaunch();
     const popupHeightAtLaunch = deps.getOverlayPopupHeightAtLaunch();
     const themeAtLaunch = deps.getOverlayThemeAtLaunch();
+    const popupButtonsApplied = deps.getOverlayPopupButtonsApplied();
     const effectiveEnabled = deps.getConfiguredFeatureEnabled();
     return {
         ...snapshot,
@@ -375,6 +401,12 @@ function withDesktopState(
                     (effectiveEnabled &&
                         themeAtLaunch !== null &&
                         themeAtLaunch !== snapshot.theme) ||
+                    (effectiveEnabled &&
+                        popupButtonsApplied !== null &&
+                        !popupButtonsEqual(
+                            popupButtonsApplied,
+                            snapshot.popupButtons
+                        )) ||
                     (effectiveEnabled &&
                         deps.getOverlayAudioProfileRestartRequired())),
         },
@@ -695,7 +727,8 @@ export function registerHoshidictsIPC(
                     reader.theme,
                     reader.popupOpacityPercent,
                     reader.onlyScanJapaneseText,
-                    reader.popupToolbarPosition
+                    reader.popupToolbarPosition,
+                    reader.popupButtons
                 );
             }
             await applyReaderSnapshot(state, deps);
@@ -1044,6 +1077,7 @@ export function registerHoshidictsIPC(
                 !isHoshidictsPopupToolbarPosition(
                     value.popupToolbarPosition
                 ) ||
+                !isHoshidictsPopupButtons(value.popupButtons) ||
                 !isDefinitionBlurPreferences(value.definitionBlur)
             ) {
                 return {
@@ -1076,6 +1110,9 @@ export function registerHoshidictsIPC(
                             value.popupOpacityPercent as number,
                         popupToolbarPosition:
                             value.popupToolbarPosition as HoshidictsPopupToolbarPosition,
+                        popupButtons: normalizeHoshidictsPopupButtons(
+                            value.popupButtons
+                        ),
                     };
                     const state = await manager.setReaderPreferences(
                         requestPreferences.lookupMode,
@@ -1090,7 +1127,8 @@ export function registerHoshidictsIPC(
                         requestPreferences.theme,
                         requestPreferences.popupOpacityPercent,
                         requestPreferences.onlyScanJapaneseText,
-                        requestPreferences.popupToolbarPosition
+                        requestPreferences.popupToolbarPosition,
+                        requestPreferences.popupButtons
                     );
                     const preferences: HoshidictsReaderPreferences = {
                         ...hoshidictsReaderPreferencesFromSnapshot(state),

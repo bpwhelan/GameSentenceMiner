@@ -39,6 +39,17 @@ const MAX_HOSHIDICTS_DICTIONARY_PRESENTATION = 256;
 const MAX_HOSHIDICTS_DICTIONARY_TITLE_LENGTH = 4096;
 const MAX_HOSHIDICTS_DICTIONARY_TAB_GROUPS = 256;
 const MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH = 128;
+const MAX_HOSHIDICTS_POPUP_CUSTOM_LINKS = 8;
+const MAX_HOSHIDICTS_POPUP_CUSTOM_LINK_LABEL_LENGTH = 64;
+const MAX_HOSHIDICTS_POPUP_CUSTOM_LINK_URL_LENGTH = 2048;
+const MAX_HOSHIDICTS_EXPANDED_EXTERNAL_URL_LENGTH = 2 * 1024 * 1024;
+const DEFAULT_HOSHIDICTS_POPUP_BUTTONS = Object.freeze({
+  addToAnki: true,
+  audio: true,
+  customDefinition: true,
+  viewInAnki: false,
+  customLinks: Object.freeze([]),
+});
 const MIN_HOSHIDICTS_POPUP_WIDTH_PX = 280;
 const MAX_HOSHIDICTS_POPUP_WIDTH_PX = 1200;
 const MIN_HOSHIDICTS_POPUP_HEIGHT_PX = 200;
@@ -184,6 +195,95 @@ function normalizeHoshidictsDictionaryTabGroups(value) {
   });
 }
 
+function normalizeHoshidictsPopupButtons(value) {
+  if (value === undefined) {
+    return {
+      ...DEFAULT_HOSHIDICTS_POPUP_BUTTONS,
+      customLinks: [],
+    };
+  }
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    typeof value.addToAnki !== "boolean" ||
+    typeof value.audio !== "boolean" ||
+    typeof value.customDefinition !== "boolean" ||
+    typeof value.viewInAnki !== "boolean" ||
+    !Array.isArray(value.customLinks) ||
+    value.customLinks.length > MAX_HOSHIDICTS_POPUP_CUSTOM_LINKS
+  ) {
+    throw new Error("Hoshidicts reader preferences are invalid.");
+  }
+  const customLinks = value.customLinks.map((rawLink) => {
+    if (!rawLink || typeof rawLink !== "object" || Array.isArray(rawLink)) {
+      throw new Error("Hoshidicts reader preferences are invalid.");
+    }
+    const label = typeof rawLink.label === "string" ? rawLink.label.trim() : "";
+    const url = typeof rawLink.url === "string" ? rawLink.url.trim() : "";
+    if (
+      !label ||
+      label.length > MAX_HOSHIDICTS_POPUP_CUSTOM_LINK_LABEL_LENGTH ||
+      /[\u0000-\u001f\u007f]/u.test(label) ||
+      !url ||
+      url.length > MAX_HOSHIDICTS_POPUP_CUSTOM_LINK_URL_LENGTH ||
+      /[\u0000-\u001f\u007f]/u.test(url)
+    ) {
+      throw new Error("Hoshidicts reader preferences are invalid.");
+    }
+    let parsed;
+    try {
+      parsed = new URL(
+        url.replaceAll("%w", "word").replaceAll("%s", "sentence")
+      );
+    } catch {
+      throw new Error("Hoshidicts reader preferences are invalid.");
+    }
+    if (
+      !["http:", "https:"].includes(parsed.protocol) ||
+      !parsed.hostname ||
+      parsed.username ||
+      parsed.password
+    ) {
+      throw new Error("Hoshidicts reader preferences are invalid.");
+    }
+    return { label, url };
+  });
+  return {
+    addToAnki: value.addToAnki,
+    audio: value.audio,
+    customDefinition: value.customDefinition,
+    viewInAnki: value.viewInAnki,
+    customLinks,
+  };
+}
+
+function normalizeHoshidictsExternalUrl(value) {
+  const url = typeof value === "string" ? value.trim() : "";
+  if (
+    !url ||
+    url.length > MAX_HOSHIDICTS_EXPANDED_EXTERNAL_URL_LENGTH ||
+    /[\u0000-\u001f\u007f]/u.test(url)
+  ) {
+    throw new Error("External link URL is invalid.");
+  }
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error("External link URL is invalid.");
+  }
+  if (
+    !["http:", "https:"].includes(parsed.protocol) ||
+    !parsed.hostname ||
+    parsed.username ||
+    parsed.password
+  ) {
+    throw new Error("External link URL is invalid.");
+  }
+  return parsed.toString();
+}
+
 function normalizeHoshidictsActivationKey(
   value,
   fallback = DEFAULT_HOSHIDICTS_ACTIVATION_KEY
@@ -234,6 +334,9 @@ function normalizeHoshidictsReaderPreferences(preferences) {
   const dictionaryTabGroups = normalizeHoshidictsDictionaryTabGroups(
     preferences && preferences.dictionaryTabGroups
   );
+  const popupButtons = normalizeHoshidictsPopupButtons(
+    preferences && preferences.popupButtons
+  );
   if (
     (lookupMode !== "shift" && lookupMode !== "hover") ||
     activationKey === null ||
@@ -275,6 +378,7 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     theme,
     dictionaryPresentation,
     dictionaryTabGroups,
+    popupButtons,
   };
 }
 
@@ -714,6 +818,8 @@ module.exports = {
   normalizeHoshidictsActivationKey,
   normalizeHoshidictsDictionaryPresentation,
   normalizeHoshidictsDictionaryTabGroups,
+  normalizeHoshidictsExternalUrl,
+  normalizeHoshidictsPopupButtons,
   normalizeHoshidictsReaderPreferences,
   OPEN_SETTINGS_METHOD,
   READER_PREFERENCES_METHOD,

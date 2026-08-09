@@ -18,6 +18,7 @@ const {
   dispatchAppHotkeyInputServerMessage,
   HOSHIDICTS_ACTIVATION_HOTKEY_ID,
   normalizeHoshidictsActivationKey,
+  normalizeHoshidictsExternalUrl,
   normalizeHoshidictsReaderPreferences,
   requestHoshidictsSettingsOpen,
   resolveHoshidictsControlConfig,
@@ -71,6 +72,7 @@ const {
     value: unknown,
     fallback?: string | null
   ) => string | null;
+  normalizeHoshidictsExternalUrl: (value: unknown) => string;
   normalizeHoshidictsReaderPreferences: (
     value: unknown
   ) => {
@@ -95,6 +97,13 @@ const {
       name: string;
       dictionaries: string[];
     }>;
+    popupButtons: {
+      addToAnki: boolean;
+      audio: boolean;
+      customDefinition: boolean;
+      viewInAnki: boolean;
+      customLinks: Array<{ label: string; url: string }>;
+    };
   };
 };
 
@@ -144,6 +153,26 @@ describe("Hoshidicts desktop bridge", () => {
     expect(normalizeHoshidictsActivationKey("F25", null)).toBeNull();
   });
 
+  it("allows only credential-free HTTP(S) links in the system browser", () => {
+    expect(normalizeHoshidictsExternalUrl(" https://example.com/検索?q=文 ")).toBe(
+      "https://example.com/%E6%A4%9C%E7%B4%A2?q=%E6%96%87"
+    );
+    expect(normalizeHoshidictsExternalUrl("http://example.com/path")).toBe(
+      "http://example.com/path"
+    );
+    for (const value of [
+      "javascript:alert(1)",
+      "file:///tmp/test",
+      "https://user:pass@example.com/",
+      "https://example.com/\nnext",
+      `https://example.com/${"x".repeat(2 * 1024 * 1024)}`
+    ]) {
+      expect(() => normalizeHoshidictsExternalUrl(value)).toThrow(
+        "External link URL is invalid."
+      );
+    }
+  });
+
   it("strictly preserves the source highlight preference for live delivery", () => {
     expect(normalizeHoshidictsReaderPreferences({
       lookupMode: "hover",
@@ -163,6 +192,15 @@ describe("Hoshidicts desktop bridge", () => {
           dictionaries: ["Monolingual", "Bilingual"],
         },
       ],
+      popupButtons: {
+        addToAnki: true,
+        audio: false,
+        customDefinition: true,
+        viewInAnki: true,
+        customLinks: [
+          { label: "Jisho", url: "https://jisho.org/search/%w" },
+        ],
+      },
     })).toEqual({
       lookupMode: "hover",
       activationKey: "F8",
@@ -182,6 +220,15 @@ describe("Hoshidicts desktop bridge", () => {
           dictionaries: ["Monolingual", "Bilingual"],
         },
       ],
+      popupButtons: {
+        addToAnki: true,
+        audio: false,
+        customDefinition: true,
+        viewInAnki: true,
+        customLinks: [
+          { label: "Jisho", url: "https://jisho.org/search/%w" },
+        ],
+      },
     });
     expect(normalizeHoshidictsReaderPreferences({
       lookupMode: "hover",
@@ -199,6 +246,35 @@ describe("Hoshidicts desktop bridge", () => {
       popupNestingMaxDepth: 4,
       ...popupAppearance,
     }).dictionaryTabGroups).toEqual([]);
+    expect(normalizeHoshidictsReaderPreferences({
+      lookupMode: "hover",
+      activationKey: "F8",
+      sourceHighlightEnabled: true,
+      popupHideDelayMs: 850,
+      popupNestingMaxDepth: 4,
+      ...popupAppearance,
+    }).popupButtons).toEqual({
+      addToAnki: true,
+      audio: true,
+      customDefinition: true,
+      viewInAnki: false,
+      customLinks: [],
+    });
+    expect(() => normalizeHoshidictsReaderPreferences({
+      lookupMode: "hover",
+      activationKey: "F8",
+      sourceHighlightEnabled: true,
+      popupHideDelayMs: 850,
+      popupNestingMaxDepth: 4,
+      ...popupAppearance,
+      popupButtons: {
+        addToAnki: true,
+        audio: true,
+        customDefinition: true,
+        viewInAnki: false,
+        customLinks: [{ label: "Unsafe", url: "javascript:alert(1)" }],
+      },
+    })).toThrow("Hoshidicts reader preferences are invalid.");
     expect(() => normalizeHoshidictsReaderPreferences({
       lookupMode: "hover",
       activationKey: "F8",

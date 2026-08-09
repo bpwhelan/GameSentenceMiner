@@ -179,6 +179,9 @@ describe('runOverlayWithSource', () => {
                 GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS: '5000',
             }),
         });
+        expect(
+            spawnMock.mock.calls[0][2].env.GSM_HOSHIDICTS_POPUP_BUTTONS
+        ).toBeUndefined();
         expect(getOverlayRuntimeState()).toEqual({
             isRunning: true,
             source: 'startup',
@@ -301,6 +304,13 @@ describe('runOverlayWithSource', () => {
             revealMode: 'hover',
             revealDelayMs: 7000,
         });
+        expect(front.getOverlayHoshidictsPopupButtonsApplied()).toEqual({
+            addToAnki: true,
+            audio: true,
+            customDefinition: true,
+            viewInAnki: false,
+            customLinks: [],
+        });
         expect(syncCustomDictionary).toHaveBeenCalledOnce();
         expect(
             front.getOverlayHoshidictsAudioProfileRestartRequired()
@@ -341,6 +351,18 @@ describe('runOverlayWithSource', () => {
                 theme: 'autumn',
                 popupOpacityPercent: 65,
                 popupToolbarPosition: 'top',
+                popupButtons: {
+                    addToAnki: false,
+                    audio: true,
+                    customDefinition: false,
+                    viewInAnki: true,
+                    customLinks: [
+                        {
+                            label: 'Jisho',
+                            url: 'https://jisho.org/search/%w?sentence=%s',
+                        },
+                    ],
+                },
             })
         ).toBe(true);
         expect(front.getOverlayHoshidictsLookupModeAtLaunch()).toBe('shift');
@@ -361,6 +383,18 @@ describe('runOverlayWithSource', () => {
             lookupThreshold: 10,
             revealMode: 'timed',
             revealDelayMs: 9000,
+        });
+        expect(front.getOverlayHoshidictsPopupButtonsApplied()).toEqual({
+            addToAnki: false,
+            audio: true,
+            customDefinition: false,
+            viewInAnki: true,
+            customLinks: [
+                {
+                    label: 'Jisho',
+                    url: 'https://jisho.org/search/%w?sentence=%s',
+                },
+            ],
         });
     });
 

@@ -1469,8 +1469,10 @@ html[data-hoshidicts-theme="girlypop"] .gsm-hoshidicts-popup {
 
 .gsm-hoshidicts-entry-actions {
   display: flex;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 5px;
 }
 
@@ -1631,6 +1633,45 @@ html[data-hoshidicts-theme="girlypop"] .gsm-hoshidicts-popup {
 .gsm-hoshidicts-note-icon {
   font-size: 18px;
   line-height: 1;
+}
+
+.gsm-hoshidicts-text-action-button {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  justify-content: center;
+  max-width: 160px;
+  min-height: 30px;
+  overflow: hidden;
+  padding: 4px 8px;
+  border: 1px solid var(--hoshidicts-border-strong);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-color);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.gsm-hoshidicts-text-action-button:hover:not(:disabled),
+.gsm-hoshidicts-text-action-button:focus-visible {
+  border-color: var(--accent-color);
+  background: var(--hoshidicts-accent-soft);
+  color: var(--accent-color);
+}
+
+.gsm-hoshidicts-text-action-button:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 1px;
+}
+
+.gsm-hoshidicts-text-action-button:disabled {
+  color: var(--hoshidicts-text-faint);
+  cursor: default;
 }
 
 .gsm-hoshidicts-audio-menu {

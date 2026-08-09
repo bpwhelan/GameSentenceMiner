@@ -9,6 +9,7 @@ def test_hoshidicts_gateway_limits_mutating_request_bodies():
     assert _hoshidicts_gateway_body_limit("/api/hoshidicts/audio/media") == 32 * 1024
     assert _hoshidicts_gateway_body_limit("/api/hoshidicts/mine") == 64 * 1024 * 1024
     assert _hoshidicts_gateway_body_limit("/api/hoshidicts/mining/check") == 64 * 1024 * 1024
+    assert _hoshidicts_gateway_body_limit("/api/hoshidicts/mining/browse") == 64 * 1024
     assert _hoshidicts_gateway_body_limit("/api/hoshidicts/mining/status") is None
 
 

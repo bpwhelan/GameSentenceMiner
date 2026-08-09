@@ -20,8 +20,10 @@ from GameSentenceMiner.hoshidicts_audio import (
 
 from GameSentenceMiner.hoshidicts_mining import (
     HoshidictsMiningError,
+    MAX_BROWSE_REQUEST_BYTES,
     MAX_DUPLICATE_CHECK_REQUEST_BYTES,
     MAX_REQUEST_BYTES,
+    browse_hoshidicts_word,
     check_hoshidicts_notes,
     get_hoshidicts_mining_options,
     get_hoshidicts_mining_status,
@@ -272,6 +274,30 @@ def register_hoshidicts_api_routes(app) -> None:
                     {
                         "success": False,
                         "error": "Hoshidicts could not check the note through GSM.",
+                    }
+                ),
+                500,
+            )
+
+    @app.post("/api/hoshidicts/mining/browse")
+    @local_hoshidicts_only
+    def api_hoshidicts_mining_browse():
+        try:
+            payload = read_bounded_json(
+                MAX_BROWSE_REQUEST_BYTES,
+                HoshidictsMiningError,
+                "Anki browse",
+            )
+            return jsonify(browse_hoshidicts_word(payload))
+        except HoshidictsMiningError as exc:
+            return jsonify({"success": False, "error": str(exc)}), exc.status_code
+        except Exception as exc:
+            logger.exception(f"Hoshidicts Anki browse failed: {exc}")
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": "Hoshidicts could not open Anki through GSM.",
                     }
                 ),
                 500,

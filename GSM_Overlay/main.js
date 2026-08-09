@@ -1,5 +1,5 @@
 const electron = require('electron');
-const { app, dialog, Tray, Menu, nativeImage, protocol, Notification } = electron;
+const { app, dialog, Tray, Menu, nativeImage, protocol, Notification, shell } = electron;
 const NativeBrowserWindow = electron.BrowserWindow;
 const nativeIpcMain = electron.ipcMain;
 const nativeGlobalShortcut = electron.globalShortcut;
@@ -40,6 +40,7 @@ const {
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   dispatchAppHotkeyInputServerMessage,
   normalizeHoshidictsActivationKey,
+  normalizeHoshidictsExternalUrl,
   normalizeHoshidictsReaderPreferences,
   requestHoshidictsSettingsOpen,
 } = require('./features/hoshidicts/desktop_bridge');
@@ -7210,6 +7211,19 @@ async function startOverlayAppImpl() {
       reading,
       definition,
     });
+  });
+
+  ipcMain.handle("hoshidicts-open-external", async (event, payload) => {
+    if (
+      !mainWindow ||
+      mainWindow.isDestroyed() ||
+      event.sender !== mainWindow.webContents
+    ) {
+      throw new Error("External link request came from an invalid window.");
+    }
+    const url = normalizeHoshidictsExternalUrl(payload && payload.url);
+    await shell.openExternal(url);
+    return { opened: true };
   });
 
   ipcMain.handle("open-hoshidicts-settings", async (event) => {

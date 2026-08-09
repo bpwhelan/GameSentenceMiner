@@ -1734,6 +1734,13 @@ describe('Hoshidicts reader preferences', () => {
         expect(snapshot.popupHeightPx).toBe(420);
         expect(snapshot.theme).toBe('default');
         expect(snapshot.popupToolbarPosition).toBe('top');
+        expect(snapshot.popupButtons).toEqual({
+            addToAnki: true,
+            audio: true,
+            customDefinition: true,
+            viewInAnki: false,
+            customLinks: [],
+        });
         expect(snapshot.definitionBlur).toEqual({
             enabled: false,
             lookupThreshold: 5,
@@ -1758,6 +1765,13 @@ describe('Hoshidicts reader preferences', () => {
         expect((await manager.getSnapshot()).theme).toBe('default');
         expect((await manager.getSnapshot()).popupOpacityPercent).toBe(85);
         expect((await manager.getSnapshot()).popupToolbarPosition).toBe('top');
+        expect((await manager.getSnapshot()).popupButtons).toEqual({
+            addToAnki: true,
+            audio: true,
+            customDefinition: true,
+            viewInAnki: false,
+            customLinks: [],
+        });
         expect((await manager.getSnapshot()).definitionBlur).toEqual({
             enabled: false,
             lookupThreshold: 5,
@@ -1783,7 +1797,19 @@ describe('Hoshidicts reader preferences', () => {
             'girlypop',
             70,
             false,
-            'bottom'
+            'bottom',
+            {
+                addToAnki: false,
+                audio: true,
+                customDefinition: false,
+                viewInAnki: true,
+                customLinks: [
+                    {
+                        label: '  Jisho  ',
+                        url: '  https://jisho.org/search/%w?sentence=%s  ',
+                    },
+                ],
+            }
         );
 
         expect(snapshot.lookupMode).toBe('hover');
@@ -1798,6 +1824,18 @@ describe('Hoshidicts reader preferences', () => {
         expect(snapshot.theme).toBe('girlypop');
         expect(snapshot.popupOpacityPercent).toBe(70);
         expect(snapshot.popupToolbarPosition).toBe('bottom');
+        expect(snapshot.popupButtons).toEqual({
+            addToAnki: false,
+            audio: true,
+            customDefinition: false,
+            viewInAnki: true,
+            customLinks: [
+                {
+                    label: 'Jisho',
+                    url: 'https://jisho.org/search/%w?sentence=%s',
+                },
+            ],
+        });
         expect(snapshot.definitionBlur).toEqual({
             enabled: true,
             lookupThreshold: 8,
@@ -1816,6 +1854,9 @@ describe('Hoshidicts reader preferences', () => {
         expect(readManifest(baseDir).theme).toBe('girlypop');
         expect(readManifest(baseDir).popupOpacityPercent).toBe(70);
         expect(readManifest(baseDir).popupToolbarPosition).toBe('bottom');
+        expect(readManifest(baseDir).popupButtons).toEqual(
+            snapshot.popupButtons
+        );
         expect(readManifest(baseDir).definitionBlur).toEqual({
             enabled: true,
             lookupThreshold: 8,
@@ -1836,6 +1877,9 @@ describe('Hoshidicts reader preferences', () => {
         expect((await reloaded.getSnapshot()).theme).toBe('girlypop');
         expect((await reloaded.getSnapshot()).popupOpacityPercent).toBe(70);
         expect((await reloaded.getSnapshot()).popupToolbarPosition).toBe('bottom');
+        expect((await reloaded.getSnapshot()).popupButtons).toEqual(
+            snapshot.popupButtons
+        );
         expect((await reloaded.getSnapshot()).definitionBlur).toEqual({
             enabled: true,
             lookupThreshold: 8,
@@ -1856,6 +1900,7 @@ describe('Hoshidicts reader preferences', () => {
         expect(shifted.theme).toBe('girlypop');
         expect(shifted.popupOpacityPercent).toBe(70);
         expect(shifted.popupToolbarPosition).toBe('bottom');
+        expect(shifted.popupButtons).toEqual(snapshot.popupButtons);
         expect(shifted.definitionBlur).toEqual({
             enabled: true,
             lookupThreshold: 8,
@@ -1932,6 +1977,67 @@ describe('Hoshidicts reader preferences', () => {
         await expect(
             manager.setReaderPreferences('shift', 300, 'MediaPlayPause' as never)
         ).rejects.toThrow('activation key is invalid');
+    });
+
+    it('defaults malformed persisted popup buttons and rejects invalid updates', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+        fs.mkdirSync(path.dirname(manager.manifestPath), { recursive: true });
+        fs.writeFileSync(
+            manager.manifestPath,
+            JSON.stringify({
+                version: 1,
+                popupButtons: {
+                    addToAnki: true,
+                    audio: true,
+                    customDefinition: true,
+                    viewInAnki: false,
+                    customLinks: [
+                        {
+                            label: '',
+                            url: 'javascript:alert(1)',
+                        },
+                    ],
+                },
+                schedule: 'off',
+                dictionaries: [],
+            }),
+            'utf8'
+        );
+
+        expect((await manager.getSnapshot()).popupButtons).toEqual({
+            addToAnki: true,
+            audio: true,
+            customDefinition: true,
+            viewInAnki: false,
+            customLinks: [],
+        });
+        await expect(
+            manager.setReaderPreferences(
+                'shift',
+                300,
+                'Shift',
+                false,
+                10,
+                undefined,
+                true,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                true,
+                'top',
+                {
+                    addToAnki: true,
+                    audio: true,
+                    customDefinition: true,
+                    viewInAnki: false,
+                    customLinks: [
+                        { label: 'Unsafe', url: 'file:///tmp/word' },
+                    ],
+                }
+            )
+        ).rejects.toThrow('popup buttons are invalid');
     });
 
     it('rejects non-boolean source highlighting preferences', async () => {

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     createDefaultHoshidictsAudioProfile,
     createDefaultHoshidictsFieldOverwriteModes,
+    createDefaultHoshidictsPopupButtons,
     HOSHIDICTS_CHANNELS,
     type HoshidictsTheme,
 } from '../../../shared/features/hoshidicts.js';
@@ -32,6 +33,13 @@ const harness = vi.hoisted(() => ({
     themeAtLaunch: 'default' as HoshidictsTheme | null,
     popupOpacityPercentAtLaunch: 85 as number | null,
     popupToolbarPositionAtLaunch: 'top' as 'top' | 'bottom' | null,
+    popupButtonsApplied: {
+        addToAnki: true,
+        audio: true,
+        customDefinition: true,
+        viewInAnki: false,
+        customLinks: [] as Array<{ label: string; url: string }>,
+    },
     definitionBlurAtLaunch: {
         enabled: false,
         lookupThreshold: 5,
@@ -160,6 +168,7 @@ const snapshot = {
     theme: 'default',
     popupOpacityPercent: 85,
     popupToolbarPosition: 'top',
+    popupButtons: createDefaultHoshidictsPopupButtons(),
     definitionBlur: {
         enabled: false,
         lookupThreshold: 5,
@@ -342,6 +351,8 @@ async function registerHarness() {
             harness.popupOpacityPercentAtLaunch,
         getOverlayPopupToolbarPositionAtLaunch: () =>
             harness.popupToolbarPositionAtLaunch,
+        getOverlayPopupButtonsApplied: () =>
+            harness.popupButtonsApplied,
         applyReaderPreferences,
         applyAudioProfile,
         getMiningOptions,
@@ -379,6 +390,7 @@ describe('Hoshidicts settings IPC', () => {
         harness.themeAtLaunch = 'default';
         harness.popupOpacityPercentAtLaunch = 85;
         harness.popupToolbarPositionAtLaunch = 'top';
+        harness.popupButtonsApplied = createDefaultHoshidictsPopupButtons();
         harness.definitionBlurAtLaunch = {
             enabled: false,
             lookupThreshold: 5,
@@ -976,6 +988,7 @@ describe('Hoshidicts settings IPC', () => {
                     theme: 'girlypop',
                     popupOpacityPercent: 70,
                     popupToolbarPosition: 'bottom',
+                    popupButtons: snapshot.popupButtons,
                     definitionBlur: snapshot.definitionBlur,
                 }
             )
@@ -1010,6 +1023,7 @@ describe('Hoshidicts settings IPC', () => {
                     theme: 'default',
                     popupOpacityPercent: 85,
                     popupToolbarPosition: 'top',
+                    popupButtons: snapshot.popupButtons,
                     definitionBlur: snapshot.definitionBlur,
                 }
             )
@@ -1049,6 +1063,7 @@ describe('Hoshidicts settings IPC', () => {
                     theme: 'default',
                     popupOpacityPercent: 85,
                     popupToolbarPosition: 'top',
+                    popupButtons: snapshot.popupButtons,
                     definitionBlur: snapshot.definitionBlur,
                 }
             )
@@ -1101,6 +1116,33 @@ describe('Hoshidicts settings IPC', () => {
         });
 
         harness.definitionBlurAtLaunch = { ...snapshot.definitionBlur };
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: false },
+        });
+    });
+
+    it('tracks popup buttons from control delivery without an environment setting', async () => {
+        harness.enabledAtLaunch = true;
+        const changedPopupButtons = {
+            ...snapshot.popupButtons,
+            viewInAnki: true,
+        };
+        const context = await registerHarness();
+        harness.manager.getSnapshot.mockResolvedValue({
+            ...snapshot,
+            popupButtons: changedPopupButtons,
+        });
+        const getState = harness.handlers.get('hoshidicts.getState');
+
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: true },
+        });
+
+        harness.popupButtonsApplied = changedPopupButtons;
         await expect(
             getState?.({ sender: context.settingsContents })
         ).resolves.toMatchObject({
@@ -1843,6 +1885,18 @@ describe('Hoshidicts settings IPC', () => {
                     theme: 'girlypop',
                     popupOpacityPercent: 70,
                     popupToolbarPosition: 'bottom',
+                    popupButtons: {
+                        addToAnki: false,
+                        audio: true,
+                        customDefinition: false,
+                        viewInAnki: true,
+                        customLinks: [
+                            {
+                                label: '  Jisho  ',
+                                url: '  https://jisho.org/search/%w  ',
+                            },
+                        ],
+                    },
                     definitionBlur: {
                         enabled: true,
                         lookupThreshold: 7,
@@ -1873,7 +1927,19 @@ describe('Hoshidicts settings IPC', () => {
             'girlypop',
             70,
             true,
-            'bottom'
+            'bottom',
+            {
+                addToAnki: false,
+                audio: true,
+                customDefinition: false,
+                viewInAnki: true,
+                customLinks: [
+                    {
+                        label: 'Jisho',
+                        url: 'https://jisho.org/search/%w',
+                    },
+                ],
+            }
         );
         expect(context.applyReaderPreferences).toHaveBeenCalledWith({
             lookupMode: 'hover',
@@ -1888,6 +1954,18 @@ describe('Hoshidicts settings IPC', () => {
             theme: 'girlypop',
             popupOpacityPercent: 70,
             popupToolbarPosition: 'bottom',
+            popupButtons: {
+                addToAnki: false,
+                audio: true,
+                customDefinition: false,
+                viewInAnki: true,
+                customLinks: [
+                    {
+                        label: 'Jisho',
+                        url: 'https://jisho.org/search/%w',
+                    },
+                ],
+            },
             definitionBlur: {
                 enabled: true,
                 lookupThreshold: 7,
@@ -2077,6 +2155,7 @@ describe('Hoshidicts settings IPC', () => {
             theme: 'default',
             popupOpacityPercent: 85,
             popupToolbarPosition: 'top',
+            popupButtons: snapshot.popupButtons,
             definitionBlur: {
                 enabled: true,
                 lookupThreshold: 5,
@@ -2096,6 +2175,58 @@ describe('Hoshidicts settings IPC', () => {
                 setReaderPreferences?.(
                     { sender: context.settingsContents },
                     { ...valid, definitionBlur }
+                )
+            ).resolves.toMatchObject({
+                success: false,
+                error: 'Hoshidicts reader preferences are invalid.',
+            });
+        }
+        expect(harness.manager.setReaderPreferences).not.toHaveBeenCalled();
+        expect(context.applyReaderPreferences).not.toHaveBeenCalled();
+    });
+
+    it('rejects malformed popup button preferences', async () => {
+        const context = await registerHarness();
+        const setReaderPreferences = harness.handlers.get(
+            'hoshidicts.setReaderPreferences'
+        );
+        const valid = {
+            lookupMode: 'hover',
+            activationKey: 'F8',
+            sourceHighlightEnabled: true,
+            onlyScanJapaneseText: true,
+            popupHideDelayMs: 850,
+            showLookupCounts: true,
+            popupNestingMaxDepth: 4,
+            popupWidthPx: 560,
+            popupHeightPx: 420,
+            theme: 'default',
+            popupOpacityPercent: 85,
+            popupToolbarPosition: 'top',
+            definitionBlur: snapshot.definitionBlur,
+            popupButtons: snapshot.popupButtons,
+        };
+
+        for (const popupButtons of [
+            {
+                ...snapshot.popupButtons,
+                addToAnki: 'yes',
+            },
+            {
+                ...snapshot.popupButtons,
+                customLinks: [{ label: '', url: 'https://example.com/%w' }],
+            },
+            {
+                ...snapshot.popupButtons,
+                customLinks: [
+                    { label: 'Unsafe', url: 'https://user:pass@example.com/%s' },
+                ],
+            },
+        ]) {
+            await expect(
+                setReaderPreferences?.(
+                    { sender: context.settingsContents },
+                    { ...valid, popupButtons }
                 )
             ).resolves.toMatchObject({
                 success: false,

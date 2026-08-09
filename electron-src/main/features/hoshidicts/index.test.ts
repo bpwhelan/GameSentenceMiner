@@ -69,6 +69,18 @@ const harness = vi.hoisted(() => ({
         theme: 'autumn' as const,
         popupOpacityPercent: 70,
         popupToolbarPosition: 'bottom' as const,
+        popupButtons: {
+            addToAnki: false,
+            audio: true,
+            customDefinition: true,
+            viewInAnki: true,
+            customLinks: [
+                {
+                    label: 'Jisho',
+                    url: 'https://jisho.org/search/%w',
+                },
+            ],
+        },
         definitionBlur: {
             enabled: true,
             lookupThreshold: 9,
@@ -159,6 +171,7 @@ vi.mock('../../ui/front.js', () => ({
     getOverlayHoshidictsThemeAtLaunch: () => 'default',
     getOverlayHoshidictsPopupOpacityPercentAtLaunch: () => 85,
     getOverlayHoshidictsPopupToolbarPositionAtLaunch: () => 'top',
+    getOverlayHoshidictsPopupButtonsApplied: () => null,
     getOverlayRuntimeState: () => ({
         isRunning: false,
         source: null,
@@ -251,6 +264,7 @@ describe('Hoshidicts feature registration', () => {
                 theme: 'autumn',
                 popupOpacityPercent: 70,
                 popupToolbarPosition: 'bottom',
+                popupButtons: harness.managerSnapshot.popupButtons,
             })
         ).resolves.toBe(true);
         expect(harness.controlRequest).toHaveBeenCalledWith(
@@ -269,6 +283,7 @@ describe('Hoshidicts feature registration', () => {
                 theme: 'autumn',
                 popupOpacityPercent: 70,
                 popupToolbarPosition: 'bottom',
+                popupButtons: harness.managerSnapshot.popupButtons,
             },
             2000
         );
@@ -286,6 +301,7 @@ describe('Hoshidicts feature registration', () => {
             theme: 'autumn',
             popupOpacityPercent: 70,
             popupToolbarPosition: 'bottom',
+            popupButtons: harness.managerSnapshot.popupButtons,
         });
         await expect(
             harness.registerIPC.mock.calls[0][0].applyAudioProfile(
@@ -324,6 +340,7 @@ describe('Hoshidicts feature registration', () => {
                     theme: 'autumn',
                     popupOpacityPercent: 70,
                     popupToolbarPosition: 'bottom',
+                    popupButtons: harness.managerSnapshot.popupButtons,
                     dictionaryPresentation: [
                         {
                             title: 'Primary',

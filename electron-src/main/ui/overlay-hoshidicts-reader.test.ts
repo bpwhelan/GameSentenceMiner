@@ -141,7 +141,9 @@ function runHoshidictsReaderConfiguration(
   const createHoshidictsReader = vi.fn(() => reader);
   const createHoshidictsAudioClient = vi.fn(() => ({ kind: "audio" }));
   const checkMining = vi.fn(async () => ({ success: true, results: [] }));
+  const browseMining = vi.fn(async () => ({ success: true }));
   const createHoshidictsMiningClient = vi.fn(() => ({
+    browse: browseMining,
     check: checkMining,
     getStatus: vi.fn(),
     mine: vi.fn()
@@ -168,6 +170,13 @@ function runHoshidictsReaderConfiguration(
     gsmHoshidictsPopupToolbarPosition: "top",
     gsmHoshidictsTheme: "default",
     gsmHoshidictsDictionaryTabGroups: [],
+    gsmHoshidictsPopupButtons: {
+      addToAnki: true,
+      audio: true,
+      customDefinition: true,
+      viewInAnki: false,
+      customLinks: []
+    },
     gsmHoshidictsReaderEnabled: true,
     GSMHoshidictsReader: {
       createHoshidictsAudioClient,
@@ -175,6 +184,7 @@ function runHoshidictsReaderConfiguration(
       createHoshidictsLookupStatsClient,
       createHoshidictsReader,
       normalizeActivationKey,
+      normalizePopupButtons: vi.fn((value: unknown) => value),
       resolveGsmApiBaseUrl: vi.fn(() => "http://127.0.0.1:7275")
     }
   } as Record<string, any>;
@@ -199,6 +209,7 @@ function runHoshidictsReaderConfiguration(
   context.configureHoshidictsReader({ gamepadServerPort: 7276 });
 
   return {
+    browseMining,
     checkMining,
     createHoshidictsAudioClient,
     createHoshidictsLookupStatsClient,
@@ -993,6 +1004,13 @@ describe("Hoshidicts safe popup rendering", () => {
       "85%"
     );
     expect(enabled.window.gsmHoshidictsShowLookupCounts).toBe(true);
+    expect(enabled.window.gsmHoshidictsPopupButtons).toEqual({
+      addToAnki: true,
+      audio: true,
+      customDefinition: true,
+      viewInAnki: false,
+      customLinks: []
+    });
     expect(enabled.addClass).toHaveBeenCalledWith("gsm-hoshidicts-enabled");
     expect(enabled.documentElement.dataset.gsmHoshidictsEnabled).toBe("true");
 
@@ -1098,6 +1116,13 @@ describe("Hoshidicts safe popup rendering", () => {
         popupOpacityPercent: 85,
         popupToolbarPosition: "top",
         theme: "default",
+        popupButtons: {
+          addToAnki: true,
+          audio: true,
+          customDefinition: true,
+          viewInAnki: false,
+          customLinks: []
+        },
         definitionBlur: {
           enabled: false,
           lookupThreshold: 5,
@@ -1124,6 +1149,13 @@ describe("Hoshidicts safe popup rendering", () => {
       term: "食べる",
       reading: "たべる"
     });
+    await options.onBrowse({ word: "食べる" });
+    expect(configured.browseMining).toHaveBeenCalledWith({ word: "食べる" });
+    await options.onOpenExternalLink("https://jisho.org/search/test");
+    expect(configured.invoke).toHaveBeenCalledWith(
+      "hoshidicts-open-external",
+      { url: "https://jisho.org/search/test" }
+    );
     const entry = {
       term: "螺旋丸",
       reading: "らせんがん",
@@ -1200,6 +1232,15 @@ describe("Hoshidicts safe popup rendering", () => {
       dictionaryTabGroups: [
         { id: "reference", name: "Reference", dictionaries: ["Primary"] }
       ],
+      popupButtons: {
+        addToAnki: false,
+        audio: true,
+        customDefinition: false,
+        viewInAnki: true,
+        customLinks: [
+          { label: "Jisho", url: "https://jisho.org/search/%w" }
+        ]
+      },
       definitionBlur: {
         enabled: true,
         lookupThreshold: 7,
@@ -1318,6 +1359,18 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(mainSource).toContain(
       "hoshidictsReaderPreferencesBridge.requestAddCustomEntry"
     );
+  });
+
+  it("sender-validates custom website IPC and only opens external URLs", () => {
+    const mainSource = fs.readFileSync(
+      path.resolve(process.cwd(), "GSM_Overlay/main.js"),
+      "utf8"
+    );
+    expect(mainSource).toContain(
+      'ipcMain.handle("hoshidicts-open-external", async (event, payload)'
+    );
+    expect(mainSource).toContain("event.sender !== mainWindow.webContents");
+    expect(mainSource).toContain("shell.openExternal");
   });
 
   it("applies complete audio profiles delivered by the desktop bridge", () => {
@@ -1927,6 +1980,9 @@ describe("Hoshidicts safe popup rendering", () => {
       success: true,
       noteId: 42
     });
+    await expect(client.browse({ word: "食べる" })).resolves.toMatchObject({
+      success: true
+    });
     const lookupClient = api.createHoshidictsLookupStatsClient({
       baseUrl: "http://127.0.0.1:8123",
       fetch: fetchMock
@@ -1967,6 +2023,17 @@ describe("Hoshidicts safe popup rendering", () => {
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       4,
+      "http://127.0.0.1:8123/api/hoshidicts/mining/browse",
+      expect.objectContaining({
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ word: "食べる" })
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
       "http://127.0.0.1:8123/api/hoshidicts/lookup-stats",
       expect.objectContaining({
         method: "POST",
@@ -2464,6 +2531,95 @@ describe("Hoshidicts dictionary tabs", () => {
     return { dom, first, lookup, reader, second, socket };
   }
 
+  it("expands repeated word and sentence placeholders independently", () => {
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    expect(api.expandPopupButtonUrl(
+      "https://example.test/?w=%w&w2=%w&s=%s&s2=%s",
+      { word: "食べる/食う", sentence: "私は 食べる。" }
+    )).toBe(
+      "https://example.test/?w=%E9%A3%9F%E3%81%B9%E3%82%8B%2F%E9%A3%9F%E3%81%86" +
+      "&w2=%E9%A3%9F%E3%81%B9%E3%82%8B%2F%E9%A3%9F%E3%81%86" +
+      "&s=%E7%A7%81%E3%81%AF%20%E9%A3%9F%E3%81%B9%E3%82%8B%E3%80%82" +
+      "&s2=%E7%A7%81%E3%81%AF%20%E9%A3%9F%E3%81%B9%E3%82%8B%E3%80%82"
+    );
+  });
+
+  it("keeps popup actions in fixed order and rerenders them live", async () => {
+    const onBrowse = vi.fn(async () => ({ success: true }));
+    const onOpenExternalLink = vi.fn(async () => ({ opened: true }));
+    const popupButtons = {
+      addToAnki: true,
+      audio: true,
+      customDefinition: true,
+      viewInAnki: true,
+      customLinks: [
+        {
+          label: "Jisho",
+          url: "https://jisho.org/search/%w?sentence=%s"
+        }
+      ]
+    };
+    const { lookup, reader } = createLookupHarness({
+      popupButtons,
+      onBrowse,
+      onOpenExternalLink
+    });
+    const { popup } = await lookup((requestId) =>
+      lookupResult(requestId, "食べる")
+    );
+    await flushPromises();
+
+    const actionNames = () => Array.from(
+      popup.querySelector(".gsm-hoshidicts-primary-header " +
+        ".gsm-hoshidicts-entry-actions")!.children,
+      (element) => element.className
+    );
+    expect(actionNames()).toEqual([
+      "gsm-hoshidicts-mine-button",
+      "gsm-hoshidicts-audio-button",
+      "gsm-hoshidicts-note-button",
+      "gsm-hoshidicts-view-in-anki-button gsm-hoshidicts-text-action-button",
+      "gsm-hoshidicts-external-link-button gsm-hoshidicts-text-action-button"
+    ]);
+
+    popup.querySelector<HTMLButtonElement>(
+      ".gsm-hoshidicts-view-in-anki-button"
+    )!.click();
+    await flushPromises();
+    expect(onBrowse).toHaveBeenCalledWith({ word: "食べる" });
+    expect(popup.querySelector(".gsm-hoshidicts-mining-feedback")?.textContent)
+      .toBe("Opened in Anki.");
+
+    popup.querySelector<HTMLButtonElement>(
+      ".gsm-hoshidicts-external-link-button"
+    )!.click();
+    await flushPromises();
+    expect(onOpenExternalLink).toHaveBeenCalledOnce();
+    expect(onOpenExternalLink).toHaveBeenCalledWith(
+      "https://jisho.org/search/%E9%A3%9F%E3%81%B9%E3%82%8B" +
+        "?sentence=%E9%A3%9F%E3%81%B9%E3%82%8B"
+    );
+
+    reader.updatePreferences({
+      popupButtons: {
+        addToAnki: false,
+        audio: false,
+        customDefinition: false,
+        viewInAnki: false,
+        customLinks: [
+          { label: "Weblio", url: "https://example.test/%w" }
+        ]
+      }
+    });
+    expect(actionNames()).toEqual([
+      "gsm-hoshidicts-external-link-button gsm-hoshidicts-text-action-button"
+    ]);
+    expect(popup.querySelector(".gsm-hoshidicts-external-link-button")?.textContent)
+      .toBe("Weblio");
+    reader.destroy();
+  });
+
   it("normalizes optional dictionary aliases without changing canonical titles", () => {
     const { reader } = createLookupHarness({
       dictionaryPresentation: [
@@ -2620,7 +2776,16 @@ describe("Hoshidicts dictionary tabs", () => {
       dictionaryPresentation: [
         { title: "Main", favorite: false },
         { title: "Backup", favorite: true }
-      ]
+      ],
+      popupButtons: {
+        addToAnki: true,
+        audio: true,
+        customDefinition: true,
+        viewInAnki: true,
+        customLinks: [
+          { label: "Jisho", url: "https://jisho.org/search/%w" }
+        ]
+      }
     });
     const { popup } = await lookup((requestId) =>
       lookupResultWithDictionaries(requestId, [
@@ -2653,6 +2818,10 @@ describe("Hoshidicts dictionary tabs", () => {
     expect(chrome.querySelector('[role="tablist"]')).not.toBeNull();
     expect(chrome.querySelector(".gsm-hoshidicts-expression")).not.toBeNull();
     expect(chrome.querySelector(".gsm-hoshidicts-mine-button")).not.toBeNull();
+    expect(chrome.querySelector(".gsm-hoshidicts-view-in-anki-button"))
+      .not.toBeNull();
+    expect(chrome.querySelector(".gsm-hoshidicts-external-link-button"))
+      .not.toBeNull();
 
     Object.defineProperty(popup, "scrollHeight", {
       configurable: true,
@@ -6136,7 +6305,14 @@ describe("Hoshidicts Shift-hover scanner", () => {
       popupToolbarPosition: "top",
       theme: "default",
       dictionaryPresentation: [],
-      dictionaryTabGroups: []
+      dictionaryTabGroups: [],
+      popupButtons: {
+        addToAnki: true,
+        audio: true,
+        customDefinition: true,
+        viewInAnki: false,
+        customLinks: []
+      }
     });
     expect(reader.updatePreferences({
       lookupMode: "hover",
@@ -6175,7 +6351,14 @@ describe("Hoshidicts Shift-hover scanner", () => {
       popupToolbarPosition: "bottom",
       theme: "cyberpunk",
       dictionaryPresentation: [],
-      dictionaryTabGroups: []
+      dictionaryTabGroups: [],
+      popupButtons: {
+        addToAnki: true,
+        audio: true,
+        customDefinition: true,
+        viewInAnki: false,
+        customLinks: []
+      }
     });
     expect(reader.updatePreferences({ popupHideDelayMs: -20 })).toEqual({
       lookupMode: "hover",
@@ -6197,7 +6380,14 @@ describe("Hoshidicts Shift-hover scanner", () => {
       popupToolbarPosition: "bottom",
       theme: "cyberpunk",
       dictionaryPresentation: [],
-      dictionaryTabGroups: []
+      dictionaryTabGroups: [],
+      popupButtons: {
+        addToAnki: true,
+        audio: true,
+        customDefinition: true,
+        viewInAnki: false,
+        customLinks: []
+      }
     });
     expect(reader.updatePreferences({ popupNestingMaxDepth: -1 }))
       .toEqual({
@@ -6220,7 +6410,14 @@ describe("Hoshidicts Shift-hover scanner", () => {
         popupToolbarPosition: "bottom",
         theme: "cyberpunk",
         dictionaryPresentation: [],
-        dictionaryTabGroups: []
+        dictionaryTabGroups: [],
+        popupButtons: {
+          addToAnki: true,
+          audio: true,
+          customDefinition: true,
+          viewInAnki: false,
+          customLinks: []
+        }
       });
     expect(dom.window.document.documentElement.dataset.hoshidictsTheme).toBe(
       "cyberpunk"

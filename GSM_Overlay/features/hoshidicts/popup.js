@@ -503,6 +503,12 @@
     const parseTagList = options.parseTagList;
     const positionPopup = options.positionPopup;
     const onMineClick = options.onMineClick;
+    const onBrowseClick = typeof options.onBrowseClick === "function"
+      ? options.onBrowseClick
+      : () => {};
+    const onCustomLinkClick = typeof options.onCustomLinkClick === "function"
+      ? options.onCustomLinkClick
+      : () => {};
     const onKanjiClick = typeof options.onKanjiClick === "function"
       ? options.onKanjiClick
       : () => {};
@@ -537,8 +543,10 @@
     let currentSourceHighlight = null;
     let noteEditing = false;
     let toolbarPosition = options.toolbarPosition === "bottom" ? "bottom" : "top";
+    let popupButtons = options.popupButtons;
     let currentToolbar = null;
     let currentNoteForm = null;
+    let actionContexts = new Set();
     popup.dataset.toolbarPosition = toolbarPosition;
 
     function applyToolbarLayout() {
@@ -601,9 +609,84 @@
       currentSourceHighlight = null;
       currentToolbar = null;
       currentNoteForm = null;
+      actionContexts.clear();
       popup.replaceChildren();
       popup.scrollTop = 0;
       setDefinitionBlurState("revealed");
+    }
+
+    function arrangeEntryActions(context) {
+      const { actions, audioButton, candidate, feedback, mineButton, noteButton, result } =
+        context;
+      actions.replaceChildren();
+      if (mineButton && popupButtons.addToAnki) {
+        actions.appendChild(mineButton);
+      }
+      if (audioButton && popupButtons.audio) {
+        actions.appendChild(audioButton);
+      }
+      if (noteButton && popupButtons.customDefinition) {
+        actions.appendChild(noteButton);
+      }
+      if (popupButtons.viewInAnki) {
+        if (!context.browseButton) {
+          const browseButton = documentRef.createElement("button");
+          browseButton.type = "button";
+          browseButton.className =
+            "gsm-hoshidicts-view-in-anki-button gsm-hoshidicts-text-action-button";
+          browseButton.textContent = "View in Anki";
+          browseButton.title = "View in Anki";
+          browseButton.setAttribute("aria-label", browseButton.title);
+          browseButton.addEventListener("click", () => {
+            onBrowseClick(browseButton, result, feedback);
+          });
+          context.browseButton = browseButton;
+        }
+        actions.appendChild(context.browseButton);
+      }
+      for (const link of popupButtons.customLinks) {
+        const button = documentRef.createElement("button");
+        button.type = "button";
+        button.className =
+          "gsm-hoshidicts-external-link-button gsm-hoshidicts-text-action-button";
+        button.textContent = link.label;
+        button.title = link.label;
+        button.setAttribute("aria-label", link.label);
+        button.addEventListener("click", () => {
+          onCustomLinkClick(link, result, candidate, feedback);
+        });
+        actions.appendChild(button);
+      }
+    }
+
+    function registerEntryActions(context) {
+      actionContexts.add(context);
+      arrangeEntryActions(context);
+    }
+
+    function setPopupButtons(value) {
+      popupButtons = value;
+      const liveContexts = new Set();
+      for (const context of actionContexts) {
+        if (!context.actions.isConnected) {
+          continue;
+        }
+        arrangeEntryActions(context);
+        liveContexts.add(context);
+      }
+      actionContexts = liveContexts;
+      if (
+        !popupButtons.customDefinition &&
+        currentNoteForm &&
+        !currentNoteForm.hidden
+      ) {
+        currentNoteForm.hidden = true;
+        for (const context of liveContexts) {
+          context.noteButton?.setAttribute("aria-expanded", "false");
+        }
+        setNoteEditing(false);
+      }
+      positionPopup();
     }
 
     function setSourceHighlightEnabled(enabled) {
@@ -820,6 +903,10 @@
 
     function renderNotice(message, candidate) {
       clear();
+      const notice = documentRef.createElement("div");
+      notice.className = "gsm-hoshidicts-lookup-notice";
+      notice.setAttribute("role", "status");
+      notice.textContent = message;
       const noteControls = createNoteControls(
         { term: candidate?.query || "", reading: "", definition: "" },
         true
@@ -829,14 +916,16 @@
         "gsm-hoshidicts-entry-header gsm-hoshidicts-primary-header";
       const actions = documentRef.createElement("div");
       actions.className = "gsm-hoshidicts-entry-actions";
-      actions.appendChild(noteControls.button);
+      registerEntryActions({
+        actions,
+        candidate,
+        feedback: notice,
+        noteButton: noteControls.button,
+        result: { term: { expression: candidate?.query || "" } },
+      });
       primaryHeader.appendChild(actions);
       const toolbar = createResultChrome(primaryHeader);
       popup.append(toolbar, noteControls.form);
-      const notice = documentRef.createElement("div");
-      notice.className = "gsm-hoshidicts-lookup-notice";
-      notice.setAttribute("role", "status");
-      notice.textContent = message;
       popup.appendChild(notice);
       setRenderedToolbar(toolbar, noteControls.form);
     }
@@ -975,11 +1064,15 @@
       mineButton.addEventListener("click", () => {
         onMineClick(mineButton, result, candidate, feedback);
       });
-      actions.appendChild(mineButton);
-      actions.appendChild(audioButton);
-      if (noteButton) {
-        actions.appendChild(noteButton);
-      }
+      registerEntryActions({
+        actions,
+        audioButton,
+        candidate,
+        feedback,
+        mineButton,
+        noteButton,
+        result,
+      });
       header.appendChild(actions);
       return {
         audioItems: [{ button: audioButton, result }],
@@ -1220,10 +1313,21 @@
       primaryHeader.appendChild(navigation);
       const actions = documentRef.createElement("div");
       actions.className = "gsm-hoshidicts-entry-actions";
-      actions.appendChild(noteControls.button);
+      const feedback = documentRef.createElement("div");
+      feedback.className = "gsm-hoshidicts-mining-feedback";
+      feedback.setAttribute("role", "status");
+      feedback.setAttribute("aria-live", "polite");
+      feedback.hidden = true;
+      registerEntryActions({
+        actions,
+        candidate,
+        feedback,
+        noteButton: noteControls.button,
+        result: { term: { expression: kanji.character } },
+      });
       primaryHeader.appendChild(actions);
       const toolbar = createResultChrome(primaryHeader);
-      popup.append(toolbar, noteControls.form);
+      popup.append(toolbar, noteControls.form, feedback);
 
       for (const kanjiEntry of kanji.entries) {
         const entry = documentRef.createElement("article");
@@ -1554,6 +1658,7 @@
       setDefinitionBlurState,
       setFeedback,
       setLookupStats,
+      setPopupButtons,
       setSourceHighlightEnabled,
       setToolbarPosition,
     };

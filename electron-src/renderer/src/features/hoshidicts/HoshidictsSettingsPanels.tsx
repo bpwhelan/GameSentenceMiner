@@ -31,8 +31,12 @@ import {
   DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
   HOSHIDICTS_THEME_GROUPS,
   HOSHIDICTS_FIELD_OVERWRITE_MODES,
+  isHoshidictsPopupCustomLinkTemplate,
   MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
   MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
+  MAX_HOSHIDICTS_POPUP_CUSTOM_LINK_LABEL_LENGTH,
+  MAX_HOSHIDICTS_POPUP_CUSTOM_LINK_URL_LENGTH,
+  MAX_HOSHIDICTS_POPUP_CUSTOM_LINKS,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
   MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT,
@@ -83,6 +87,29 @@ const SCHEDULE_KEYS: Record<HoshidictsSchedule, string> = {
 };
 
 type DictionaryScheduleChoice = "global" | HoshidictsSchedule;
+
+const POPUP_BUTTON_CHOICES = [
+  {
+    id: "addToAnki",
+    inputId: "hoshidicts-popup-button-add-to-anki",
+    labelKey: "settings.hoshidicts.reader.popupButtons.addToAnki"
+  },
+  {
+    id: "audio",
+    inputId: "hoshidicts-popup-button-audio",
+    labelKey: "settings.hoshidicts.reader.popupButtons.audio"
+  },
+  {
+    id: "customDefinition",
+    inputId: "hoshidicts-popup-button-custom-definition",
+    labelKey: "settings.hoshidicts.reader.popupButtons.customDefinition"
+  },
+  {
+    id: "viewInAnki",
+    inputId: "hoshidicts-popup-button-view-in-anki",
+    labelKey: "settings.hoshidicts.reader.popupButtons.viewInAnki"
+  }
+] as const;
 
 function dictionaryDisplayName(dictionary: {
   title: string;
@@ -148,6 +175,222 @@ function CreateTabGroupForm({
         )}
       </button>
     </form>
+  );
+}
+
+function PopupButtonsControl({ controller }: { controller: Controller }) {
+  const t = useTranslation();
+  const {
+    readerDraft,
+    preferencesBusy,
+    setPopupButtonEnabled,
+    setPopupCustomLinks
+  } = controller;
+  const [editingLinkIndex, setEditingLinkIndex] = useState<number | null>(null);
+  const [linkLabel, setLinkLabel] = useState("");
+  const [linkUrl, setLinkUrl] = useState("");
+  const [linkErrorKey, setLinkErrorKey] = useState<string | null>(null);
+
+  const resetLinkForm = () => {
+    setEditingLinkIndex(null);
+    setLinkLabel("");
+    setLinkUrl("");
+    setLinkErrorKey(null);
+  };
+
+  return (
+    <div className="hoshidicts-popup-buttons">
+      <div className="hoshidicts-popup-buttons__heading">
+        <strong>{t("settings.hoshidicts.reader.popupButtons.title")}</strong>
+        <small>{t("settings.hoshidicts.reader.popupButtons.hint")}</small>
+      </div>
+
+      <div
+        className="hoshidicts-popup-buttons__toggles"
+        role="group"
+        aria-label={t("settings.hoshidicts.reader.popupButtons.title")}
+      >
+        {POPUP_BUTTON_CHOICES.map((button) => (
+          <label key={button.id}>
+            <input
+              id={button.inputId}
+              type="checkbox"
+              checked={readerDraft.popupButtons[button.id]}
+              disabled={preferencesBusy}
+              onChange={(event) =>
+                setPopupButtonEnabled(button.id, event.currentTarget.checked)
+              }
+            />
+            <span>{t(button.labelKey)}</span>
+          </label>
+        ))}
+      </div>
+
+      <div className="hoshidicts-popup-links">
+        <div className="hoshidicts-popup-links__heading">
+          <strong>
+            {t("settings.hoshidicts.reader.popupButtons.customLinks")}
+          </strong>
+          <small>
+            {t("settings.hoshidicts.reader.popupButtons.customLinksHint")}
+          </small>
+        </div>
+
+        {readerDraft.popupButtons.customLinks.length > 0 ? (
+          <div className="hoshidicts-popup-links__list">
+            {readerDraft.popupButtons.customLinks.map((link, index) => (
+              <div
+                className="hoshidicts-popup-link"
+                key={`${link.label}-${index}`}
+              >
+                <div>
+                  <strong>{link.label}</strong>
+                  <code>{link.url}</code>
+                </div>
+                <button
+                  type="button"
+                  className="secondary hoshidicts-icon-button"
+                  aria-label={t(
+                    "settings.hoshidicts.reader.popupButtons.editLink",
+                    { name: link.label }
+                  )}
+                  disabled={preferencesBusy}
+                  onClick={() => {
+                    setEditingLinkIndex(index);
+                    setLinkLabel(link.label);
+                    setLinkUrl(link.url);
+                    setLinkErrorKey(null);
+                  }}
+                >
+                  <Pencil size={16} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className="danger hoshidicts-icon-button"
+                  aria-label={t(
+                    "settings.hoshidicts.reader.popupButtons.deleteLink",
+                    { name: link.label }
+                  )}
+                  disabled={preferencesBusy}
+                  onClick={() => {
+                    setPopupCustomLinks(
+                      readerDraft.popupButtons.customLinks.filter(
+                        (_entry, linkIndex) => linkIndex !== index
+                      )
+                    );
+                    if (editingLinkIndex !== null) resetLinkForm();
+                  }}
+                >
+                  <Trash2 size={16} aria-hidden="true" />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <small className="hoshidicts-popup-links__empty">
+            {t("settings.hoshidicts.reader.popupButtons.noCustomLinks")}
+          </small>
+        )}
+
+        <form
+          className="hoshidicts-popup-links__form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const label = linkLabel.trim();
+            const url = linkUrl.trim();
+            if (!label) {
+              setLinkErrorKey(
+                "settings.hoshidicts.reader.popupButtons.labelRequired"
+              );
+              return;
+            }
+            if (!isHoshidictsPopupCustomLinkTemplate(url)) {
+              setLinkErrorKey(
+                "settings.hoshidicts.reader.popupButtons.invalidUrl"
+              );
+              return;
+            }
+            const customLinks = readerDraft.popupButtons.customLinks.map(
+              (link) => ({ ...link })
+            );
+            if (editingLinkIndex === null) {
+              customLinks.push({ label, url });
+            } else {
+              customLinks[editingLinkIndex] = { label, url };
+            }
+            setPopupCustomLinks(customLinks);
+            resetLinkForm();
+          }}
+        >
+          <label>
+            <span>{t("settings.hoshidicts.reader.popupButtons.name")}</span>
+            <input
+              id="hoshidicts-popup-link-label"
+              type="text"
+              value={linkLabel}
+              maxLength={MAX_HOSHIDICTS_POPUP_CUSTOM_LINK_LABEL_LENGTH}
+              placeholder={t(
+                "settings.hoshidicts.reader.popupButtons.namePlaceholder"
+              )}
+              disabled={preferencesBusy}
+              onChange={(event) => {
+                setLinkLabel(event.currentTarget.value);
+                setLinkErrorKey(null);
+              }}
+            />
+          </label>
+          <label>
+            <span>{t("settings.hoshidicts.reader.popupButtons.url")}</span>
+            <input
+              id="hoshidicts-popup-link-url"
+              type="url"
+              value={linkUrl}
+              maxLength={MAX_HOSHIDICTS_POPUP_CUSTOM_LINK_URL_LENGTH}
+              placeholder={t(
+                "settings.hoshidicts.reader.popupButtons.urlPlaceholder"
+              )}
+              disabled={preferencesBusy}
+              onChange={(event) => {
+                setLinkUrl(event.currentTarget.value);
+                setLinkErrorKey(null);
+              }}
+            />
+          </label>
+          <div className="hoshidicts-popup-links__actions">
+            <button
+              id="hoshidicts-popup-link-submit"
+              type="submit"
+              disabled={
+                preferencesBusy ||
+                (editingLinkIndex === null &&
+                  readerDraft.popupButtons.customLinks.length >=
+                    MAX_HOSHIDICTS_POPUP_CUSTOM_LINKS)
+              }
+            >
+              {t(
+                editingLinkIndex === null
+                  ? "settings.hoshidicts.reader.popupButtons.addLink"
+                  : "settings.hoshidicts.reader.popupButtons.saveLink"
+              )}
+            </button>
+            {editingLinkIndex !== null ? (
+              <button
+                type="button"
+                className="secondary"
+                onClick={resetLinkForm}
+              >
+                {t("settings.hoshidicts.reader.popupButtons.cancel")}
+              </button>
+            ) : null}
+          </div>
+          {linkErrorKey ? (
+            <small className="is-error" role="alert">
+              {t(linkErrorKey)}
+            </small>
+          ) : null}
+        </form>
+      </div>
+    </div>
   );
 }
 
@@ -1027,6 +1270,8 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
             </button>
           </div>
         </div>
+
+        <PopupButtonsControl controller={controller} />
 
         <label className="hoshidicts-reader-highlight">
           <input

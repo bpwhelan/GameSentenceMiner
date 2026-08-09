@@ -26,6 +26,7 @@ import {
     getOverlayHoshidictsPopupNestingMaxDepthAtLaunch,
     getOverlayHoshidictsPopupOpacityPercentAtLaunch,
     getOverlayHoshidictsPopupToolbarPositionAtLaunch,
+    getOverlayHoshidictsPopupButtonsApplied,
     getOverlayHoshidictsShowLookupCountsAtLaunch,
     getOverlayHoshidictsSourceHighlightEnabledAtLaunch,
     getOverlayHoshidictsPopupWidthAtLaunch,
@@ -211,6 +212,8 @@ export function registerHoshidictsFeature(deps: {
             getOverlayHoshidictsPopupOpacityPercentAtLaunch,
         getOverlayPopupToolbarPositionAtLaunch:
             getOverlayHoshidictsPopupToolbarPositionAtLaunch,
+        getOverlayPopupButtonsApplied:
+            getOverlayHoshidictsPopupButtonsApplied,
         applyReaderPreferences,
         applyAudioProfile,
         getMiningOptions: fetchHoshidictsMiningOptions,
