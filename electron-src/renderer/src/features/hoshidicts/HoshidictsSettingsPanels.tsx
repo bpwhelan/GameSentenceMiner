@@ -79,6 +79,16 @@ const THEME_KEYS: Record<HoshidictsTheme, string> = {
   cyberpunk: "settings.hoshidicts.reader.appearance.themes.cyberpunk"
 };
 
+const SCHEDULE_KEYS: Record<HoshidictsSchedule, string> = {
+  off: "settings.hoshidicts.schedules.off",
+  hourly: "settings.hoshidicts.schedules.hourly",
+  daily: "settings.hoshidicts.schedules.daily",
+  weekly: "settings.hoshidicts.schedules.weekly",
+  monthly: "settings.hoshidicts.schedules.monthly"
+};
+
+type DictionaryScheduleChoice = "global" | HoshidictsSchedule;
+
 function dictionaryDisplayName(dictionary: {
   title: string;
   displayName: string | null;
@@ -368,6 +378,10 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
   const [dictionaryRename, setDictionaryRename] = useState<{
     id: string;
     value: string;
+  } | null>(null);
+  const [dictionarySchedule, setDictionarySchedule] = useState<{
+    id: string;
+    value: DictionaryScheduleChoice;
   } | null>(null);
   const [recommendedExpandedOverride, setRecommendedExpandedOverride] =
     useState<boolean | null>(null);
@@ -789,6 +803,9 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
             }
           >
             <option value="off">{t("settings.hoshidicts.schedules.off")}</option>
+            <option value="hourly">
+              {t("settings.hoshidicts.schedules.hourly")}
+            </option>
             <option value="daily">
               {t("settings.hoshidicts.schedules.daily")}
             </option>
@@ -1236,6 +1253,91 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                             </button>
                           </div>
                         </form>
+                      ) : dictionarySchedule?.id === dictionary.id ? (
+                        <form
+                          className="hoshidicts-dictionary-schedule"
+                          aria-label={t(
+                            "settings.hoshidicts.dictionaryActions.scheduleForm",
+                            { title: dictionaryDisplayName(dictionary) }
+                          )}
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            const schedule =
+                              dictionarySchedule.value === "global"
+                                ? null
+                                : dictionarySchedule.value;
+                            setDictionarySchedule(null);
+                            event.currentTarget
+                              .closest("details")
+                              ?.removeAttribute("open");
+                            void actions.setDictionarySchedule(
+                              dictionary.id,
+                              schedule
+                            );
+                          }}
+                        >
+                          <label>
+                            <span>
+                              {t(
+                                "settings.hoshidicts.dictionaryActions.schedule"
+                              )}
+                            </span>
+                            <select
+                              autoFocus
+                              value={dictionarySchedule.value}
+                              onChange={(event) =>
+                                setDictionarySchedule({
+                                  id: dictionary.id,
+                                  value: event.currentTarget
+                                    .value as DictionaryScheduleChoice
+                                })
+                              }
+                            >
+                              <option value="global">
+                                {t(
+                                  "settings.hoshidicts.dictionaryActions.useGlobalSchedule",
+                                  { schedule: t(SCHEDULE_KEYS[state.schedule]) }
+                                )}
+                              </option>
+                              <option value="off">
+                                {t(SCHEDULE_KEYS.off)}
+                              </option>
+                              <option value="hourly">
+                                {t(SCHEDULE_KEYS.hourly)}
+                              </option>
+                              <option value="daily">
+                                {t(SCHEDULE_KEYS.daily)}
+                              </option>
+                              <option value="weekly">
+                                {t(SCHEDULE_KEYS.weekly)}
+                              </option>
+                              <option value="monthly">
+                                {t(SCHEDULE_KEYS.monthly)}
+                              </option>
+                            </select>
+                          </label>
+                          <small>
+                            {t(
+                              "settings.hoshidicts.dictionaryActions.scheduleHint"
+                            )}
+                          </small>
+                          <div>
+                            <button type="submit" disabled={dictionaryBusy}>
+                              {t(
+                                "settings.hoshidicts.dictionaryActions.saveSchedule"
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              className="secondary"
+                              onClick={() => setDictionarySchedule(null)}
+                            >
+                              {t(
+                                "settings.hoshidicts.dictionaryActions.cancel"
+                              )}
+                            </button>
+                          </div>
+                        </form>
                       ) : (
                         <div role="menu" className="hoshidicts-dictionary-menu__items">
                           <button
@@ -1275,6 +1377,7 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                             disabled={dictionaryBusy}
                             onClick={() => {
                               setDictionaryRename(null);
+                              setDictionarySchedule(null);
                               setPositionMove({
                                 id: dictionary.id,
                                 value: String(index + 1)
@@ -1285,12 +1388,35 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                               "settings.hoshidicts.dictionaryActions.moveToPosition"
                             )}
                           </button>
+                          {dictionary.isUpdatable ? (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              disabled={dictionaryBusy}
+                              onClick={() => {
+                                setPositionMove(null);
+                                setDictionaryRename(null);
+                                setDictionarySchedule({
+                                  id: dictionary.id,
+                                  value:
+                                    dictionary.updateScheduleOverride ??
+                                    "global"
+                                });
+                              }}
+                            >
+                              <RefreshCw size={16} aria-hidden="true" />
+                              {t(
+                                "settings.hoshidicts.dictionaryActions.updateSchedule"
+                              )}
+                            </button>
+                          ) : null}
                           <button
                             type="button"
                             role="menuitem"
                             disabled={dictionaryBusy}
                             onClick={() => {
                               setPositionMove(null);
+                              setDictionarySchedule(null);
                               setDictionaryRename({
                                 id: dictionary.id,
                                 value: dictionaryDisplayName(dictionary)

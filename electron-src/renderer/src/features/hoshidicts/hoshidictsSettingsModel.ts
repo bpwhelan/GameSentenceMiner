@@ -100,6 +100,16 @@ const ACTIVATION_KEY_BY_CODE: Readonly<
   Backquote: "`"
 };
 
+function isSchedule(value: unknown): value is HoshidictsSchedule {
+  return (
+    value === "off" ||
+    value === "hourly" ||
+    value === "daily" ||
+    value === "weekly" ||
+    value === "monthly"
+  );
+}
+
 export function activationKeyFromKeyboardCode(
   code: string
 ): HoshidictsActivationKey | null {
@@ -466,12 +476,9 @@ export function normalizeHoshidictsDesktopState(
   }
 
   const candidate = value as Partial<HoshidictsDesktopSnapshot>;
-  const schedule: HoshidictsSchedule =
-    candidate.schedule === "daily" ||
-    candidate.schedule === "weekly" ||
-    candidate.schedule === "monthly"
-      ? candidate.schedule
-      : "off";
+  const schedule: HoshidictsSchedule = isSchedule(candidate.schedule)
+    ? candidate.schedule
+    : "off";
   const phase =
     candidate.progress?.phase &&
     Object.prototype.hasOwnProperty.call(PROGRESS_KEYS, candidate.progress.phase)
@@ -533,6 +540,15 @@ export function normalizeHoshidictsDesktopState(
               dictionary.frequencyMode === "occurrence-based" ||
               dictionary.frequencyMode === "rank-based"
                 ? dictionary.frequencyMode
+                : null,
+            updateScheduleOverride: isSchedule(
+              dictionary.updateScheduleOverride
+            )
+              ? dictionary.updateScheduleOverride
+              : null,
+            lastUpdateCheck:
+              typeof dictionary.lastUpdateCheck === "string"
+                ? dictionary.lastUpdateCheck
                 : null
           }))
       : [],

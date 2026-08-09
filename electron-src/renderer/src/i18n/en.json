@@ -671,6 +671,7 @@
       "schedule": "Global update schedule:",
       "schedules": {
         "off": "Off",
+        "hourly": "Every hour",
         "daily": "Daily",
         "weekly": "Weekly",
         "monthly": "Monthly"
@@ -703,6 +704,12 @@
       "dictionaryActions": {
         "menu": "Dictionary actions for {title}",
         "moveToPosition": "Move dict to position...",
+        "updateSchedule": "Update schedule...",
+        "scheduleForm": "Update schedule for {title}",
+        "schedule": "Update schedule",
+        "useGlobalSchedule": "Use global ({schedule})",
+        "scheduleHint": "Choose how often this dictionary checks for updates.",
+        "saveSchedule": "Save",
         "rename": "Rename dictionary...",
         "renameForm": "Rename {title}",
         "displayName": "Display name",
@@ -911,6 +918,7 @@
         "rename": "Failed to rename the dictionary.",
         "update": "Dictionary update check failed.",
         "schedule": "Failed to save the dictionary update schedule.",
+        "dictionarySchedule": "Failed to save this dictionary's update schedule.",
         "recommended": "Failed to install the recommended dictionaries.",
         "lookupMode": "Failed to save the Hoshidicts lookup activation setting.",
         "readerPreferences": "Failed to save the Hoshidicts reader settings.",

@@ -25,6 +25,7 @@ import {
   type HoshidictsCustomDictionaryDocument,
   type HoshidictsDesktopSnapshot,
   type HoshidictsDictionaryPresentationRequest,
+  type HoshidictsDictionaryScheduleRequest,
   type HoshidictsLookupMode,
   type HoshidictsMiningOptions,
   type HoshidictsMiningProfile,
@@ -747,6 +748,18 @@ export function useHoshidictsSettingsController() {
               } satisfies HoshidictsDictionaryPresentationRequest
             ),
           "settings.hoshidicts.errors.operation"
+        ),
+      setDictionarySchedule: (
+        id: string,
+        schedule: HoshidictsSchedule | null
+      ) =>
+        runAction(
+          () =>
+            invokeIpc(
+              HOSHIDICTS_CHANNELS.setDictionarySchedule,
+              { id, schedule } satisfies HoshidictsDictionaryScheduleRequest
+            ),
+          "settings.hoshidicts.errors.dictionarySchedule"
         ),
       renameDictionary: (id: string, displayName: string | null) =>
         runAction(

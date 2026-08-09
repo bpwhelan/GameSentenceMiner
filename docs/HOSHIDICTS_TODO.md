@@ -13,6 +13,7 @@ This is the implementation and validation checklist for the Hoshidicts feature b
 - [x] Collapse Recommended dictionaries when at least one dictionary is installed; expand them when none are installed.
 - [x] Add a three-dot dictionary menu with Move to position.
 - [x] Add Rename dictionary to each dictionary's three-dot menu and persist the display name without changing its native identity.
+- [x] Add inheritable per-dictionary update schedules, including hourly updates, to each updatable dictionary's three-dot menu.
 - [x] Export a complete Hoshidicts backup from the Backups section.
 - [x] Restore a complete Hoshidicts backup from the Backups section.
 - [x] Include every installed dictionary, dictionary order/enabled/favourite/name state, reader settings, themes, popup dimensions, mining settings, audio settings, and custom dictionary data in the backup.
@@ -88,3 +89,4 @@ This is the implementation and validation checklist for the Hoshidicts feature b
 - The reconstructed live export then activated in the real Rust overlay service. A WebSocket lookup for `少年` returned `しょうねん` from Bee's Character Dictionary, and the associated `img/cc23.jpg` fetched successfully as a 7,081-byte 160 by 188 JPEG.
 - Yomitan's live 560 by 420 render of `少年` was visually inspected against the Hoshidicts theme renders. The imported structured typography, badges, collapsed details, and portrait dimensions were preserved; Hoshidicts uses the space more compactly and keeps stronger dark-theme contrast.
 - Remaining visual evidence gap: exact same-entry screenshots for the default JMdict/JMnedict/KANJIDIC set have not yet been captured side by side in both applications.
+- Updatable dictionaries now offer Global, Off, Every hour, Daily, Weekly, and Monthly schedules in their three-dot menus. Legacy global timestamps migrate into inherited dictionary state, overrides survive replacement and backup restore, and the exact next-due timer is covered with global-Off hourly, mixed-cadence, manual-force, and 24-hour-cap regressions. The expanded Hoshidicts-related TypeScript matrix passed 433/433 tests and both Electron builds completed.

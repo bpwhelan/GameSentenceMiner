@@ -65,7 +65,9 @@ const baseState: HoshidictsDesktopSnapshot = {
       pitchCount: 3,
       kanjiCount: 4,
       frequencyMode: null,
-      installedAt: "2026-08-06T10:00:00.000Z"
+      installedAt: "2026-08-06T10:00:00.000Z",
+      updateScheduleOverride: null,
+      lastUpdateCheck: "2026-08-06T10:00:00.000Z"
     },
     {
       id: "custom-id",
@@ -83,7 +85,9 @@ const baseState: HoshidictsDesktopSnapshot = {
       pitchCount: 0,
       kanjiCount: 0,
       frequencyMode: "rank-based",
-      installedAt: "2026-08-06T11:00:00.000Z"
+      installedAt: "2026-08-06T11:00:00.000Z",
+      updateScheduleOverride: null,
+      lastUpdateCheck: null
     }
   ],
   customDictionaryActive: false,
@@ -1042,6 +1046,139 @@ describe("HoshidictsSettingsWindow", () => {
       { id: "jmdict-id", position: 2 }
     );
   });
+
+  it("configures an updatable dictionary schedule from its action menu", async () => {
+    await render();
+
+    const globalSchedule = container.querySelector<HTMLSelectElement>(
+      "#hoshidicts-update-schedule"
+    );
+    expect(
+      Array.from(globalSchedule?.options ?? []).map((option) => option.text)
+    ).toContain("Every hour");
+
+    const openScheduleEditor = async () => {
+      await act(async () => {
+        container
+          .querySelector<HTMLElement>(
+            '[aria-label="Dictionary actions for JMdict"]'
+          )
+          ?.click();
+        await Promise.resolve();
+      });
+      const updateSchedule = Array.from(
+        container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
+      ).find((button) => button.textContent?.includes("Update schedule"));
+      await act(async () => {
+        updateSchedule?.click();
+        await Promise.resolve();
+      });
+      return container.querySelector<HTMLFormElement>(
+        ".hoshidicts-dictionary-schedule"
+      );
+    };
+
+    let form = await openScheduleEditor();
+    expect(form?.getAttribute("aria-label")).toBe(
+      "Update schedule for JMdict"
+    );
+    let select = form?.querySelector<HTMLSelectElement>("select") ?? null;
+    expect(select?.value).toBe("global");
+    expect(Array.from(select?.options ?? []).map((option) => option.text)).toEqual(
+      ["Use global (Weekly)", "Off", "Every hour", "Daily", "Weekly", "Monthly"]
+    );
+    expect(
+      Array.from(form?.querySelectorAll("button") ?? []).map((button) =>
+        button.textContent?.trim()
+      )
+    ).toEqual(["Save", "Cancel"]);
+    await act(async () => {
+      form?.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true })
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.setDictionarySchedule,
+      { id: "jmdict-id", schedule: null }
+    );
+
+    form = await openScheduleEditor();
+    select = form?.querySelector<HTMLSelectElement>("select") ?? null;
+    setSelectValue(select, "hourly");
+    await act(async () => {
+      form?.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true })
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.setDictionarySchedule,
+      { id: "jmdict-id", schedule: "hourly" }
+    );
+
+    const scheduleCalls = () =>
+      invokeMock.mock.calls.filter(
+        ([channel]) => channel === HOSHIDICTS_CHANNELS.setDictionarySchedule
+      );
+    expect(scheduleCalls()).toHaveLength(2);
+    form = await openScheduleEditor();
+    const cancel = Array.from(form?.querySelectorAll("button") ?? []).find(
+      (button) => button.textContent?.trim() === "Cancel"
+    );
+    await act(async () => {
+      cancel?.click();
+      await Promise.resolve();
+    });
+    expect(
+      container.querySelector(".hoshidicts-dictionary-schedule")
+    ).toBeNull();
+    expect(scheduleCalls()).toHaveLength(2);
+
+    const manualRow = Array.from(
+      container.querySelectorAll<HTMLElement>(".hoshidicts-dictionary-row")
+    ).find((row) => row.textContent?.includes("Custom"));
+    await act(async () => {
+      manualRow?.querySelector<HTMLElement>("summary")?.click();
+      await Promise.resolve();
+    });
+    expect(manualRow?.textContent).not.toContain("Update schedule");
+  });
+
+  it.each([
+    ["ja", "アップデート間隔を変更...", "毎時"],
+    ["ukr", "Змінити розклад оновлень...", "Щогодини"]
+  ])(
+    "localizes dictionary schedules in %s",
+    async (locale, actionLabel, hourlyLabel) => {
+      await render(locale);
+      await act(async () => {
+        container
+          .querySelector<HTMLElement>(
+            `[aria-label="${locale === "ja" ? "JMdictの辞書操作" : "Дії зі словником JMdict"}"]`
+          )
+          ?.click();
+        await Promise.resolve();
+      });
+      const action = Array.from(
+        container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
+      ).find((button) => button.textContent?.includes(actionLabel));
+      expect(action).toBeDefined();
+      await act(async () => {
+        action?.click();
+        await Promise.resolve();
+      });
+      expect(
+        Array.from(
+          container.querySelectorAll<HTMLSelectElement>(
+            ".hoshidicts-dictionary-schedule select"
+          )[0]?.options ?? []
+        ).map((option) => option.text)
+      ).toContain(hourlyLabel);
+    }
+  );
 
   it("shows a dictionary alias and saves a renamed display name", async () => {
     await render();
@@ -2244,7 +2381,9 @@ describe("HoshidictsSettingsWindow", () => {
           frequencyCount: undefined,
           pitchCount: undefined,
           kanjiCount: undefined,
-          frequencyMode: "invalid"
+          frequencyMode: "invalid",
+          updateScheduleOverride: undefined,
+          lastUpdateCheck: undefined
         }
       ],
       miningProfile: {
@@ -2267,7 +2406,9 @@ describe("HoshidictsSettingsWindow", () => {
       frequencyCount: 0,
       pitchCount: 0,
       kanjiCount: 0,
-      frequencyMode: null
+      frequencyMode: null,
+      updateScheduleOverride: null,
+      lastUpdateCheck: null
     });
     expect(normalized.recommendedDictionaries.map(({ id }) => id)).toEqual([
       "jitendex",
@@ -2282,6 +2423,22 @@ describe("HoshidictsSettingsWindow", () => {
     expect(normalized.miningProfile.disabledFields).toEqual([]);
     expect(normalized.miningProfile.fields.audio).toBe("");
     expect(normalized.audioProfile).toEqual(baseState.audioProfile);
+  });
+
+  it("normalizes hourly global and dictionary schedules", () => {
+    const normalized = normalizeHoshidictsDesktopState({
+      ...baseState,
+      schedule: "hourly",
+      dictionaries: [
+        {
+          ...baseState.dictionaries[0],
+          updateScheduleOverride: "hourly"
+        }
+      ]
+    });
+
+    expect(normalized.schedule).toBe("hourly");
+    expect(normalized.dictionaries[0].updateScheduleOverride).toBe("hourly");
   });
 
   it.each([-1, 1.5, Number.MAX_SAFE_INTEGER + 1, "3"])(

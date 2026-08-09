@@ -653,6 +653,7 @@
       "schedule": "共通アップデート間隔:",
       "schedules": {
         "off": "オフ",
+        "hourly": "毎時",
         "daily": "毎日",
         "weekly": "毎週",
         "monthly": "毎月"
@@ -685,6 +686,12 @@
       "dictionaryActions": {
         "menu": "{title}の辞書操作",
         "moveToPosition": "辞書を指定位置へ移動...",
+        "updateSchedule": "アップデート間隔を変更...",
+        "scheduleForm": "{title}のアップデート間隔",
+        "schedule": "アップデート間隔",
+        "useGlobalSchedule": "共通設定を使用（{schedule}）",
+        "scheduleHint": "この辞書のアップデート確認間隔を選択します。",
+        "saveSchedule": "保存",
         "rename": "辞書名を変更...",
         "renameForm": "{title}の表示名を変更",
         "displayName": "表示名",
@@ -893,6 +900,7 @@
         "rename": "辞書名を変更できませんでした。",
         "update": "辞書のアップデート確認に失敗しました。",
         "schedule": "辞書のアップデート間隔を保存できませんでした。",
+        "dictionarySchedule": "この辞書のアップデート間隔を保存できませんでした。",
         "recommended": "おすすめの辞書をインストールできませんでした。",
         "lookupMode": "Hoshidictsの検索起動設定を保存できませんでした。",
         "readerPreferences": "Hoshidictsリーダー設定を保存できませんでした。",

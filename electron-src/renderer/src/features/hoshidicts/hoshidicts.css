@@ -877,14 +877,16 @@
 }
 
 .hoshidicts-dictionary-position,
-.hoshidicts-dictionary-rename {
+.hoshidicts-dictionary-rename,
+.hoshidicts-dictionary-schedule {
   display: grid;
   gap: 8px;
   padding: 6px;
 }
 
 .hoshidicts-dictionary-position label,
-.hoshidicts-dictionary-rename label {
+.hoshidicts-dictionary-rename label,
+.hoshidicts-dictionary-schedule label {
   display: grid;
   gap: 5px;
   color: var(--gsm-text-secondary);
@@ -893,20 +895,23 @@
 }
 
 .hoshidicts-dictionary-position small,
-.hoshidicts-dictionary-rename small {
+.hoshidicts-dictionary-rename small,
+.hoshidicts-dictionary-schedule small {
   color: var(--gsm-text-muted);
   font-size: 0.76rem;
 }
 
 .hoshidicts-dictionary-position > div,
-.hoshidicts-dictionary-rename > div {
+.hoshidicts-dictionary-rename > div,
+.hoshidicts-dictionary-schedule > div {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 6px;
 }
 
-.hoshidicts-dictionary-rename input {
+.hoshidicts-dictionary-rename input,
+.hoshidicts-dictionary-schedule select {
   width: 100%;
 }
 
