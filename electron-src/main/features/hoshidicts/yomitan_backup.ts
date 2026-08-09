@@ -45,6 +45,7 @@ const MAX_BANK_ENTRIES = 1_000;
 const MAX_BANK_BYTES = 32 * 1024 * 1024;
 const MAX_JSON_VALUE_BYTES = 32 * 1024 * 1024;
 const MAX_OPEN_SPOOL_FILES = 16;
+const MAX_SPOOL_BUFFER_BYTES = 256 * 1024;
 const MAX_NATIVE_ZIP_BYTES = 0xffff_ffff;
 const MAX_NATIVE_MEDIA_PATH_BYTES = 0xffff;
 const READ_PROGRESS_INTERVAL_MS = 250;
@@ -935,6 +936,12 @@ interface SpoolFile {
     archiveName: string;
 }
 
+interface BufferedSpoolFile {
+    handle: FileHandle;
+    chunks: string[];
+    byteCount: number;
+}
+
 interface BankSpool {
     prefix: string;
     files: SpoolFile[];
@@ -957,42 +964,54 @@ interface SpoolDictionary {
 }
 
 class BoundedFileAppender {
-    private readonly handles = new Map<string, FileHandle>();
+    private readonly handles = new Map<string, BufferedSpoolFile>();
 
-    public async append(filePath: string, value: string): Promise<void> {
-        let handle = this.handles.get(filePath);
-        if (handle) {
+    public async append(
+        filePath: string,
+        value: string,
+        byteLength = Buffer.byteLength(value)
+    ): Promise<void> {
+        let entry = this.handles.get(filePath);
+        if (entry) {
             this.handles.delete(filePath);
-            this.handles.set(filePath, handle);
+            this.handles.set(filePath, entry);
         } else {
             if (this.handles.size >= MAX_OPEN_SPOOL_FILES) {
                 const oldest = this.handles.entries().next();
                 if (!oldest.done) {
-                    const [oldestPath, oldestHandle] = oldest.value;
+                    const [oldestPath, oldestEntry] = oldest.value;
                     this.handles.delete(oldestPath);
-                    await oldestHandle.close();
+                    await this.closeEntry(oldestEntry);
                 }
             }
-            handle = await fsp.open(filePath, 'a');
-            this.handles.set(filePath, handle);
+            entry = {
+                handle: await fsp.open(filePath, 'a'),
+                chunks: [],
+                byteCount: 0,
+            };
+            this.handles.set(filePath, entry);
         }
-        await handle.appendFile(value, 'utf8');
+        entry.chunks.push(value);
+        entry.byteCount += byteLength;
+        if (entry.byteCount >= MAX_SPOOL_BUFFER_BYTES) {
+            await this.flush(entry);
+        }
     }
 
     public async close(filePath: string): Promise<void> {
-        const handle = this.handles.get(filePath);
-        if (!handle) {
+        const entry = this.handles.get(filePath);
+        if (!entry) {
             return;
         }
         this.handles.delete(filePath);
-        await handle.close();
+        await this.closeEntry(entry);
     }
 
     public async closeAll(): Promise<void> {
-        const handles = [...this.handles.values()];
+        const entries = [...this.handles.values()];
         this.handles.clear();
         const results = await Promise.allSettled(
-            handles.map(async (handle) => await handle.close())
+            entries.map(async (entry) => await this.closeEntry(entry))
         );
         const failure = results.find(
             (result): result is PromiseRejectedResult =>
@@ -1000,6 +1019,25 @@ class BoundedFileAppender {
         );
         if (failure) {
             throw failure.reason;
+        }
+    }
+
+    private async flush(entry: BufferedSpoolFile): Promise<void> {
+        if (entry.chunks.length === 0) {
+            return;
+        }
+        const value =
+            entry.chunks.length === 1 ? entry.chunks[0] : entry.chunks.join('');
+        entry.chunks = [];
+        entry.byteCount = 0;
+        await entry.handle.appendFile(value, 'utf8');
+    }
+
+    private async closeEntry(entry: BufferedSpoolFile): Promise<void> {
+        try {
+            await this.flush(entry);
+        } finally {
+            await entry.handle.close();
         }
     }
 }
@@ -1075,7 +1113,7 @@ async function finishBankFile(
     if (!bank.currentPath) {
         return;
     }
-    await appender.append(bank.currentPath, ']');
+    await appender.append(bank.currentPath, ']', 1);
     await appender.close(bank.currentPath);
     bank.currentPath = null;
     bank.entryCount = 0;
@@ -1111,11 +1149,15 @@ async function appendBankEntry(
         const archiveName = `${bank.prefix}_${bank.bankNumber}.json`;
         bank.currentPath = path.join(dictionary.directory, 'banks', archiveName);
         bank.files.push({ sourcePath: bank.currentPath, archiveName });
-        await appender.append(bank.currentPath, '[');
+        await appender.append(bank.currentPath, '[', 1);
         bank.byteCount = 1;
     }
     const separator = bank.entryCount > 0 ? ',' : '';
-    await appender.append(bank.currentPath, `${separator}${serialized}`);
+    await appender.append(
+        bank.currentPath,
+        `${separator}${serialized}`,
+        nextEntryBytes
+    );
     bank.entryCount += 1;
     bank.byteCount += (separator ? 1 : 0) + entryBytes;
     if (
