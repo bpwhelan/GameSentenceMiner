@@ -3,6 +3,7 @@ import type { HoshidictsAudioSourceTestMedia } from '../../../shared/features/ho
 
 const TEST_TERM = '聞く';
 const TEST_READING = 'きく';
+const TEST_BUDGET_MS = 12_000;
 const MAX_CANDIDATES = 32;
 const MAX_AUDIO_BYTES = 16 * 1024 * 1024;
 const CANDIDATE_ID_PATTERN = /^[a-f0-9]{64}$/u;
@@ -15,6 +16,10 @@ interface AudioCandidate {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
 }
 
 function candidatesFrom(value: unknown): AudioCandidate[] | null {
@@ -71,7 +76,7 @@ async function post(
 export async function fetchHoshidictsAudioSourceTest(
     sourceId: string
 ): Promise<HoshidictsAudioSourceTestMedia> {
-    const signal = AbortSignal.timeout(8_000);
+    const signal = AbortSignal.timeout(TEST_BUDGET_MS);
     const request = { term: TEST_TERM, reading: TEST_READING, sourceId };
     const discovery = await post(
         '/api/hoshidicts/audio/candidates',
@@ -98,15 +103,24 @@ export async function fetchHoshidictsAudioSourceTest(
 
     let lastProviderError = '';
     for (const candidate of candidates) {
-        const media = await post(
-            '/api/hoshidicts/audio/media',
-            {
-                ...request,
-                candidateIndex: candidate.index,
-                candidateId: candidate.candidateId,
-            },
-            signal
-        );
+        let media: Response;
+        try {
+            media = await post(
+                '/api/hoshidicts/audio/media',
+                {
+                    ...request,
+                    candidateIndex: candidate.index,
+                    candidateId: candidate.candidateId,
+                },
+                signal
+            );
+        } catch (error) {
+            lastProviderError = errorMessage(error);
+            if (signal.aborted) {
+                break;
+            }
+            continue;
+        }
         if (!media.ok) {
             lastProviderError = await providerError(
                 media,
@@ -125,7 +139,16 @@ export async function fetchHoshidictsAudioSourceTest(
         ) {
             continue;
         }
-        const bytes = new Uint8Array(await media.arrayBuffer());
+        let bytes: Uint8Array;
+        try {
+            bytes = new Uint8Array(await media.arrayBuffer());
+        } catch (error) {
+            lastProviderError = errorMessage(error);
+            if (signal.aborted) {
+                break;
+            }
+            continue;
+        }
         if (bytes.byteLength === 0 || bytes.byteLength > MAX_AUDIO_BYTES) {
             continue;
         }
