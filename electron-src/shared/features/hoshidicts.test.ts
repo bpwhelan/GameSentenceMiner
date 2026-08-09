@@ -11,6 +11,7 @@ describe('Hoshidicts mining field markers', () => {
             { id: 'expression', value: '{expression}' },
             { id: 'reading', value: '{reading}' },
             { id: 'furigana', value: '{furigana}' },
+            { id: 'furigana-plain', value: '{furigana-plain}' },
             { id: 'definition', value: '{definition}' },
             { id: 'main-definition', value: '{main-definition}' },
             { id: 'glossary', value: '{glossary}' },
@@ -19,6 +20,10 @@ describe('Hoshidicts mining field markers', () => {
             {
                 id: 'sentence-furigana',
                 value: '{sentence-furigana}',
+            },
+            {
+                id: 'sentence-furigana-plain',
+                value: '{sentence-furigana-plain}',
             },
             { id: 'frequency', value: '{frequency}' },
             { id: 'pitch', value: '{pitch}' },

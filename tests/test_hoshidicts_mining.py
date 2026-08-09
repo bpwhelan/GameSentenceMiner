@@ -1,4 +1,5 @@
 import json
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -72,6 +73,114 @@ def _payload():
             },
         },
     }
+
+
+def _rich_jitendex_payload():
+    payload = _payload()
+    payload["result"]["term"]["glossaries"] = [
+        {
+            "dictionary": "Jitendex",
+            "glossary": json.dumps(
+                [
+                    {
+                        "type": "structured-content",
+                        "content": [
+                            {
+                                "tag": "div",
+                                "data": {
+                                    "content": "sense-group",
+                                    "senseNumber": "1",
+                                    "source_index": "2",
+                                },
+                                "style": {
+                                    "fontWeight": "700",
+                                    "marginTop": 0.5,
+                                },
+                                "content": [
+                                    {
+                                        "tag": "span",
+                                        "data": {"content": "part-of-speech"},
+                                        "content": "pronoun",
+                                    },
+                                    {"tag": "br"},
+                                    {
+                                        "tag": "ruby",
+                                        "content": [
+                                            "吾輩",
+                                            {"tag": "rt", "content": "わがはい"},
+                                        ],
+                                    },
+                                    {
+                                        "tag": "div",
+                                        "data": {"content": "example-sentence-a"},
+                                        "content": [
+                                            "吾輩は猫である。",
+                                            {
+                                                "tag": "span",
+                                                "data": {"content": "example-translation"},
+                                                "content": "I am a cat.",
+                                            },
+                                        ],
+                                    },
+                                    {
+                                        "tag": "a",
+                                        "href": "?query=猫",
+                                        "content": "猫",
+                                    },
+                                    {
+                                        "tag": "a",
+                                        "href": "https://example.com/entry",
+                                        "content": "source",
+                                    },
+                                    {
+                                        "tag": "p",
+                                        "content": [
+                                            {"tag": "code", "content": "code"},
+                                            {"tag": "em", "content": "em"},
+                                            {"tag": "small", "content": "small"},
+                                            {"tag": "strong", "content": "strong"},
+                                            {"tag": "sub", "content": "sub"},
+                                            {"tag": "sup", "content": "sup"},
+                                        ],
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                ],
+                ensure_ascii=False,
+            ),
+            "definitionTags": "pn",
+            "termTags": "common",
+        },
+        {
+            "dictionary": "Jitendex",
+            "glossary": "arrogant first-person pronoun",
+            "definitionTags": "arch",
+            "termTags": "",
+        },
+        {
+            "dictionary": "JMdict",
+            "glossary": "I; me\nself",
+            "definitionTags": "pronoun",
+            "termTags": "common",
+        },
+    ]
+    payload["dictionaryStyles"] = [
+        {
+            "dictionary": "Jitendex",
+            "styles": '[data-sc-content|="example-sentence"] { color: #c44; }',
+        },
+        {
+            "dictionary": "JMdict",
+            "styles": ".gloss-sc-li { font-style: italic; }",
+        },
+        {
+            "dictionary": "Not selected",
+            "styles": "span { display: none; }",
+        },
+    ]
+    return payload
 
 
 class FakeAnki:
@@ -419,7 +528,7 @@ def test_options_suggest_target_templates_for_every_model_field(monkeypatch):
     assert options["suggestedFieldTemplates"] == {
         "Mystery": "{expression}",
         "ExpressionReading": "{reading}",
-        "Glossary": "{definition}",
+        "Glossary": "{glossary}",
         "Sentence": "{sentence}",
         "Frequency": "{frequency}",
         "PitchPosition": "{pitch-position}",
@@ -429,6 +538,44 @@ def test_options_suggest_target_templates_for_every_model_field(monkeypatch):
     assert options["resolvedFieldTemplates"] == {
         field: {"value": value, "overwriteMode": "coalesce"}
         for field, value in options["suggestedFieldTemplates"].items()
+    }
+
+
+def test_options_fill_kiku_rich_fields_without_mapping_flag_or_picture_fields(monkeypatch):
+    fields = [
+        "Expression",
+        "ExpressionFurigana",
+        "ExpressionReading",
+        "MainDefinition",
+        "Glossary",
+        "Sentence",
+        "SentenceFurigana",
+        "ExpressionAudio",
+        "Frequency",
+        "PitchPosition",
+        "Flag",
+        "Picture",
+        "Sort",
+    ]
+    fake_anki = FakeAnki(fields=fields, model_names=["Kiku"])
+    _wire(monkeypatch, fake_anki, _profile(model="Kiku"))
+
+    options = hoshidicts_mining.get_hoshidicts_mining_options()
+
+    assert options["suggestedFieldTemplates"] == {
+        "Expression": "{expression}",
+        "ExpressionFurigana": "{furigana-plain}",
+        "ExpressionReading": "{reading}",
+        "MainDefinition": "{main-definition}",
+        "Glossary": "{glossary}",
+        "Sentence": "{sentence}",
+        "SentenceFurigana": "{sentence-furigana-plain}",
+        "ExpressionAudio": "{audio}",
+        "Frequency": "{frequency}",
+        "PitchPosition": "{pitch-position}",
+        "Flag": "",
+        "Picture": "",
+        "Sort": "",
     }
 
 
@@ -899,12 +1046,87 @@ def test_mining_renders_common_raw_yomitan_field_markers(monkeypatch):
 
     note = next(kwargs["note"] for action, kwargs in fake_anki.calls if action == "addNote")
     assert note["fields"]["Front"] == "食べる"
-    assert note["fields"]["Reading"] == "たべる"
+    assert note["fields"]["Reading"] == "食[た]べる"
     assert "to eat" in note["fields"]["Definition"]
     assert note["fields"]["Sentence"] == "昨日、<b>食べた</b>。"
     assert "123 ★" in note["fields"]["Frequency"]
     assert note["fields"]["PitchPosition"] == "2"
     assert "LHL" in note["fields"]["PitchGraph"]
+
+
+def test_expression_furigana_uses_segmented_anki_syntax_and_ruby():
+    payload = _payload()
+    payload["result"]["term"]["expression"] = "頭を抱える"
+    payload["result"]["term"]["reading"] = "あたまをかかえる"
+    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+
+    values = hoshidicts_mining._field_template_values(request)
+
+    assert values["{furigana-plain}"] == "頭[あたま]を 抱[かか]える"
+    assert values["{furigana}"] == ("<ruby>頭<rt>あたま</rt></ruby>を<ruby>抱<rt>かか</rt></ruby>える")
+
+
+def test_expression_furigana_skips_equivalent_hiragana_and_katakana():
+    payload = _payload()
+    payload["result"]["term"]["expression"] = "ワガハイ"
+    payload["result"]["term"]["reading"] = "わがはい"
+    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+
+    values = hoshidicts_mining._field_template_values(request)
+
+    assert values["{furigana-plain}"] == "ワガハイ"
+    assert values["{furigana}"] == "ワガハイ"
+
+
+def test_expression_ruby_furigana_preserves_intentional_source_space(monkeypatch):
+    payload = _payload()
+    payload["result"]["term"]["expression"] = "foo 食べる"
+    payload["result"]["term"]["reading"] = "foo たべる"
+    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+    monkeypatch.setattr(
+        hoshidicts_mining,
+        "_expression_furigana_plain",
+        lambda _expression, _reading: "foo 食[た]べる",
+    )
+
+    values = hoshidicts_mining._field_template_values(request)
+
+    assert values["{furigana}"] == "foo <ruby>食<rt>た</rt></ruby>べる"
+    assert values["{furigana-plain}"] == "foo 食[た]べる"
+    assert (
+        hoshidicts_mining._render_anki_furigana(
+            "foo 食[た]べる",
+            ruby=True,
+            source="alignment fails",
+        )
+        == "foo <ruby>食<rt>た</rt></ruby>べる"
+    )
+
+
+def test_sentence_ruby_furigana_preserves_space_before_highlight(monkeypatch):
+    request = hoshidicts_mining.validate_hoshidicts_mining_request(
+        {
+            **_payload(),
+            "sentence": "foo 食べる",
+            "matchOffset": 4,
+            "result": {
+                **_payload()["result"],
+                "matched": "食べる",
+            },
+        }
+    )
+    fake_anki = SimpleNamespace(
+        tokenizer=SimpleNamespace(reading=lambda _sentence: "foo  食[た]べる"),
+        _preserve_html_tags_for_furigana=lambda source, _reading: source.replace(
+            "<gsm-hoshidicts-match>食べる",
+            "<gsm-hoshidicts-match> 食[た]べる",
+        ),
+    )
+
+    rich, plain = hoshidicts_mining._sentence_furigana_values(request, fake_anki, {})
+
+    assert rich == "foo <b><ruby>食<rt>た</rt></ruby>べる</b>"
+    assert plain == "foo <b> 食[た]べる</b>"
 
 
 def test_field_template_unknown_brace_literals_are_not_treated_as_markers():
@@ -930,6 +1152,514 @@ def test_field_template_unknown_brace_literals_are_not_treated_as_markers():
             }
         }
     ) == {key: "" for key in hoshidicts_mining.FIELD_KEYS}
+
+    unsupported = hoshidicts_mining._render_field_template(
+        "{url}<br>{document-title}<br>{clipboard-text}<br>{screenshot}<br>{audiobook}",
+        values,
+    )
+    assert unsupported == "{audiobook}"
+
+
+def test_jitendex_structured_glossary_preserves_semantic_html_without_styles():
+    payload = _rich_jitendex_payload()
+    payload.pop("dictionaryStyles")
+    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+
+    rendered = hoshidicts_mining._definition_html(request)
+
+    assert rendered.startswith('<div style="text-align: left;" class="yomitan-glossary"><ol>')
+    assert rendered.count('<li data-dictionary="') == 2
+    assert '<li data-dictionary="Jitendex">' in rendered
+    assert '<li data-dictionary="JMdict">' in rendered
+    assert 'class="gloss-sc-div"' in rendered
+    assert '<span class="structured-content"><div class="gloss-sc-div"' in rendered
+    assert 'data-sc-content="sense-group"' in rendered
+    assert 'data-sc-sense-number="1"' in rendered
+    assert 'data-sc-source-index="2"' in rendered
+    assert "data-sc-source_index" not in rendered
+    assert 'style="font-weight: 700; margin-top: 0.5em"' in rendered
+    assert '<ruby class="gloss-sc-ruby">吾輩<rt class="gloss-sc-rt">わがはい</rt></ruby>' in rendered
+    assert 'data-sc-content="example-sentence-a"' in rendered
+    assert (
+        '<a class="gloss-link" href="?query=猫" data-external="false"><span class="gloss-link-text">猫</span></a>'
+    ) in rendered
+    assert (
+        '<a class="gloss-link" href="https://example.com/entry" data-external="true">'
+        '<span class="gloss-link-text">source</span>'
+        '<span class="gloss-link-external-icon icon" data-icon="external-link"></span></a>'
+    ) in rendered
+    assert (
+        '<p class="gloss-sc-p"><code class="gloss-sc-code">code</code>'
+        '<em class="gloss-sc-em">em</em><small class="gloss-sc-small">small</small>'
+        '<strong class="gloss-sc-strong">strong</strong><sub class="gloss-sc-sub">sub</sub>'
+        '<sup class="gloss-sc-sup">sup</sup></p>'
+    ) in rendered
+    assert "arrogant first-person pronoun" in rendered
+    assert "I; me<br>self" in rendered
+    assert "吾輩pronoun" not in rendered
+    assert "<style>" not in rendered
+
+
+def test_structured_glossary_outer_list_wraps_each_structured_item_and_preserves_mixed_entries():
+    payload = _payload()
+    payload["result"]["term"]["glossaries"][0]["glossary"] = json.dumps(
+        [
+            "plain <one>\nsecond line",
+            {
+                "type": "structured-content",
+                "content": {"tag": "strong", "content": "first structured"},
+            },
+            {"type": "text", "text": "text <entry>"},
+            {
+                "type": "structured-content",
+                "content": {"tag": "em", "content": "second structured"},
+            },
+        ]
+    )
+
+    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+    rendered = hoshidicts_mining._definition_html(request)
+
+    assert rendered.count('<span class="structured-content">') == 2
+    expected_segments = [
+        "plain &lt;one&gt;<br>second line",
+        '<span class="structured-content"><strong class="gloss-sc-strong">first structured</strong></span>',
+        "text &lt;entry&gt;",
+        '<span class="structured-content"><em class="gloss-sc-em">second structured</em></span>',
+    ]
+    positions = [rendered.index(segment) for segment in expected_segments]
+    assert positions == sorted(positions)
+
+
+def test_dictionary_styles_accept_list_or_object_and_scope_selected_pages():
+    request = hoshidicts_mining.validate_hoshidicts_mining_request(_rich_jitendex_payload())
+
+    rendered = hoshidicts_mining._definition_html(request)
+
+    assert request["dictionaryStyles"] == {
+        "Jitendex": '[data-sc-content|="example-sentence"] { color: #c44; }',
+        "JMdict": ".gloss-sc-li { font-style: italic; }",
+        "Not selected": "span { display: none; }",
+    }
+    assert "@scope" not in rendered
+    assert ('.yomitan-glossary [data-dictionary="Jitendex"] [data-sc-content|="example-sentence"]') in rendered
+    assert '.yomitan-glossary [data-dictionary="JMdict"] .gloss-sc-li' in rendered
+    assert "Not selected" not in rendered
+
+    object_payload = _rich_jitendex_payload()
+    object_payload["dictionaryStyles"] = {
+        "Jitendex": ("@media (min-width: 10px) {.sense, [data-sc-content=glossary] { color: red; }}"),
+    }
+    object_request = hoshidicts_mining.validate_hoshidicts_mining_request(object_payload)
+    assert object_request["dictionaryStyles"] == {
+        "Jitendex": ("@media (min-width: 10px) {.sense, [data-sc-content=glossary] { color: red; }}"),
+    }
+    object_rendered = hoshidicts_mining._definition_html(object_request)
+    assert "@media (min-width: 10px)" in object_rendered
+    assert '.yomitan-glossary [data-dictionary="Jitendex"] .sense' in object_rendered
+    assert ('.yomitan-glossary [data-dictionary="Jitendex"] [data-sc-content=glossary]') in object_rendered
+
+
+def test_static_yomitan_glossary_variants_preserve_their_exact_semantics():
+    payload = _rich_jitendex_payload()
+    payload["result"]["term"]["glossaries"][-1]["glossary"] = "I; me\nself <unsafe>"
+    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+
+    values = hoshidicts_mining._field_template_values(request)
+
+    full = values["{glossary}"]
+    assert full == values["{definition}"]
+    assert '<i class="yomitan-glossary-meta">(pn, common, Jitendex)</i>' in full
+    assert '<li data-dictionary="Jitendex">' in full
+    assert '<li data-dictionary="JMdict">' in full
+    assert "Rules: v1" in full
+    assert "Deinflection: past" in full
+
+    brief = values["{glossary-brief}"]
+    assert "yomitan-glossary-meta" not in brief
+    assert "Rules:" not in brief
+    assert "Deinflection:" not in brief
+    assert '<li data-dictionary="Jitendex">' in brief
+    assert '<li data-dictionary="JMdict">' in brief
+    assert '.yomitan-glossary [data-dictionary="Jitendex"]' in brief
+    assert '.yomitan-glossary [data-dictionary="JMdict"]' in brief
+
+    no_dictionary = values["{glossary-no-dictionary}"]
+    assert '<i class="yomitan-glossary-meta">(pn, common)</i>' in no_dictionary
+    assert '<i class="yomitan-glossary-meta">(pronoun, common)</i>' in no_dictionary
+    assert "(pn, common, Jitendex)" not in no_dictionary
+    assert '<li data-dictionary="Jitendex">' in no_dictionary
+
+    plain = values["{glossary-plain}"]
+    assert plain.startswith("(Jitendex)<br>")
+    assert "(JMdict)<br>I; me<br>self &lt;unsafe&gt;" in plain
+    assert "吾輩" in plain
+    assert set(re.findall(r"<[^>]+>", plain)) == {"<br>"}
+
+    plain_no_dictionary = values["{glossary-plain-no-dictionary}"]
+    assert "Jitendex" not in plain_no_dictionary
+    assert "JMdict" not in plain_no_dictionary
+    assert "self &lt;unsafe&gt;" in plain_no_dictionary
+    assert set(re.findall(r"<[^>]+>", plain_no_dictionary)) == {"<br>"}
+
+    first = values["{glossary-first}"]
+    assert first == values["{main-definition}"]
+    assert '<li data-dictionary="Jitendex">' in first
+    assert '<li data-dictionary="JMdict">' not in first
+    assert "yomitan-glossary-meta" in first
+
+    first_brief = values["{glossary-first-brief}"]
+    assert '<li data-dictionary="Jitendex">' in first_brief
+    assert '<li data-dictionary="JMdict">' not in first_brief
+    assert "yomitan-glossary-meta" not in first_brief
+    assert "Rules:" not in first_brief
+
+    first_no_dictionary = values["{glossary-first-no-dictionary}"]
+    assert '<i class="yomitan-glossary-meta">(pn, common)</i>' in first_no_dictionary
+    assert "(pn, common, Jitendex)" not in first_no_dictionary
+    assert '<li data-dictionary="JMdict">' not in first_no_dictionary
+
+
+def test_yomitan_dictionary_kebab_case_matches_unicode_rules():
+    assert (
+        hoshidicts_mining._yomitan_kebab_case("  Character_Dictionary　東京!! 2026  ")
+        == "character-dictionary-東京-2026"
+    )
+    assert hoshidicts_mining._yomitan_kebab_case("École__猫 $$$") == "école-猫"
+    assert hoshidicts_mining._yomitan_kebab_case("A—B---C") == "ab-c"
+    assert hoshidicts_mining._yomitan_kebab_case("İ") == "i\u0307"
+
+
+def test_dynamic_single_glossary_markers_render_only_used_dictionary_variants():
+    payload = _rich_jitendex_payload()
+    dictionary = "Character Dictionary　東京_2026!"
+    for glossary in payload["result"]["term"]["glossaries"][:2]:
+        glossary["dictionary"] = dictionary
+    payload["dictionaryStyles"][0]["dictionary"] = dictionary
+    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+    base = "single-glossary-character-dictionary-東京-2026"
+    used_markers = [
+        base,
+        f"{base}-brief",
+        f"{base}-no-dictionary",
+        f"{base}-plain",
+        f"{base}-plain-no-dictionary",
+        "single-glossary-removed-dictionary",
+    ]
+    templates = {marker: {"value": f"{{{marker}}}", "overwriteMode": "coalesce"} for marker in used_markers}
+
+    values = hoshidicts_mining._template_values_for_fields(
+        request,
+        {"anki": SimpleNamespace()},
+        templates,
+    )
+
+    dynamic_values = {key: value for key, value in values.items() if key.startswith("{single-glossary-")}
+    assert set(dynamic_values) == {f"{{{marker}}}" for marker in used_markers[:-1]}
+
+    selected = values[f"{{{base}}}"]
+    assert f'data-dictionary="{dictionary}"' in selected
+    assert 'data-dictionary="JMdict"' not in selected
+    assert f'.yomitan-glossary [data-dictionary="{dictionary}"]' in selected
+    assert '.yomitan-glossary [data-dictionary="JMdict"]' not in selected
+
+    brief = values[f"{{{base}-brief}}"]
+    assert "yomitan-glossary-meta" not in brief
+    assert "Rules:" not in brief
+    assert f'data-dictionary="{dictionary}"' in brief
+
+    no_dictionary = values[f"{{{base}-no-dictionary}}"]
+    assert '<i class="yomitan-glossary-meta">(pn, common)</i>' in no_dictionary
+    assert f"(pn, common, {dictionary})" not in no_dictionary
+
+    plain = values[f"{{{base}-plain}}"]
+    assert plain.startswith(f"({dictionary})<br>")
+    assert "JMdict" not in plain
+    assert set(re.findall(r"<[^>]+>", plain)) == {"<br>"}
+
+    plain_no_dictionary = values[f"{{{base}-plain-no-dictionary}}"]
+    assert dictionary not in plain_no_dictionary
+    assert "JMdict" not in plain_no_dictionary
+    assert set(re.findall(r"<[^>]+>", plain_no_dictionary)) == {"<br>"}
+
+    assert (
+        hoshidicts_mining._render_field_template(
+            "{single-glossary-removed-dictionary}",
+            values,
+        )
+        == ""
+    )
+
+
+def test_dynamic_single_glossary_exact_dictionary_name_wins_suffix_ambiguity():
+    payload = _payload()
+    payload["result"]["term"]["glossaries"] = [
+        {
+            "dictionary": "Foo",
+            "glossary": "foo definition",
+            "definitionTags": "foo-tag",
+            "termTags": "",
+        },
+        {
+            "dictionary": "Foo Brief",
+            "glossary": "exact dictionary definition",
+            "definitionTags": "exact-tag",
+            "termTags": "",
+        },
+    ]
+    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+    marker = "single-glossary-foo-brief"
+    templates = {
+        "Definition": {
+            "value": f"{{{marker}}}",
+            "overwriteMode": "coalesce",
+        }
+    }
+
+    values = hoshidicts_mining._template_values_for_fields(
+        request,
+        {"anki": SimpleNamespace()},
+        templates,
+    )
+    rendered = values[f"{{{marker}}}"]
+
+    assert 'data-dictionary="Foo Brief"' in rendered
+    assert 'data-dictionary="Foo"' not in rendered
+    assert "exact dictionary definition" in rendered
+    assert "foo definition" not in rendered
+
+
+def test_dictionary_style_grouping_nesting_is_bounded_without_unscoped_fallback():
+    payload = _payload()
+    payload["dictionaryStyles"] = {
+        "JMdict": ("@media all{" * 1100) + ".sense{color:red}" + ("}" * 1100),
+    }
+    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+
+    rendered = hoshidicts_mining._definition_html(request)
+
+    assert rendered.count("@media all") < 100
+    assert ".sense{color:red}" not in rendered
+    assert '<li data-dictionary="JMdict">' in rendered
+
+
+def test_dictionary_style_scoping_handles_comments_before_at_rules_and_selector_commas():
+    payload = _payload()
+    payload["dictionaryStyles"] = {
+        "JMdict": ("/* header */ @media all { span { color: red; } }/* a,b */ span, em { font-weight: bold; }"),
+    }
+    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+
+    rendered = hoshidicts_mining._definition_html(request)
+    scope = '.yomitan-glossary [data-dictionary="JMdict"]'
+
+    assert f"/* header */ @media all {{ {scope} span" in rendered
+    assert f"/* a,b */ {scope} span, {scope} em" in rendered
+    assert f"{scope} /* header */" not in rendered
+    assert rendered.count("/* a,b */") == 1
+
+
+def test_dictionary_styles_enforce_count_and_utf8_byte_limits():
+    payload = _payload()
+    payload["dictionaryStyles"] = {
+        "JMdict": "x" * hoshidicts_mining.MAX_DICTIONARY_STYLE_BYTES,
+    }
+    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+    assert len(request["dictionaryStyles"]["JMdict"]) == hoshidicts_mining.MAX_DICTIONARY_STYLE_BYTES
+
+    payload["dictionaryStyles"] = {
+        "JMdict": "界" * ((hoshidicts_mining.MAX_DICTIONARY_STYLE_BYTES // 3) + 1),
+    }
+    with pytest.raises(
+        hoshidicts_mining.HoshidictsMiningError,
+        match="dictionary styles are invalid",
+    ):
+        hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+
+    payload["dictionaryStyles"] = {f"Dictionary {index}": "" for index in range(65)}
+    with pytest.raises(
+        hoshidicts_mining.HoshidictsMiningError,
+        match="dictionary styles are invalid",
+    ):
+        hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+
+
+def test_duplicate_check_endpoint_preserves_dictionary_styles_in_rendered_note(monkeypatch):
+    class CheckAnki(FakeAnki):
+        def invoke(self, action, **kwargs):
+            if action == "canAddNotesWithErrorDetail":
+                self.calls.append((action, kwargs))
+                return [{"canAdd": True, "error": None}]
+            return super().invoke(action, **kwargs)
+
+    fake_anki = CheckAnki(fields=["Definition"])
+    _wire(
+        monkeypatch,
+        fake_anki,
+        _profile(
+            fieldTemplates={
+                "Definition": {
+                    "value": "{definition}",
+                    "overwriteMode": "coalesce",
+                }
+            }
+        ),
+    )
+    app = Flask(__name__)
+    hoshidicts_api.register_hoshidicts_api_routes(app)
+
+    response = app.test_client().post(
+        "/api/hoshidicts/mining/check",
+        json={"notes": [_rich_jitendex_payload()]},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["success"] is True
+    check_note = next(
+        kwargs["notes"][0] for action, kwargs in fake_anki.calls if action == "canAddNotesWithErrorDetail"
+    )
+    definition = check_note["fields"]["Definition"]
+    assert '<style>.yomitan-glossary [data-dictionary="Jitendex"]' in definition
+    assert '.yomitan-glossary [data-dictionary="JMdict"] .gloss-sc-li' in definition
+    assert "Not selected" not in definition
+
+
+def test_rich_definition_markers_render_primary_full_dictionary_and_furigana(monkeypatch):
+    fields = [
+        "Expression",
+        "ExpressionFurigana",
+        "ExpressionRuby",
+        "SentenceFurigana",
+        "SentenceRuby",
+        "MainDefinition",
+        "Glossary",
+        "Definition",
+        "Dictionary",
+    ]
+    fake_anki = FakeAnki(fields=fields)
+    reading_calls = []
+
+    def reading(sentence):
+        reading_calls.append(sentence)
+        return " 昨日[きのう]、 食[た]べた。"
+
+    def preserve(source, furigana):
+        assert source == "昨日、<gsm-hoshidicts-match>食べた</gsm-hoshidicts-match>。"
+        assert furigana == " 昨日[きのう]、 食[た]べた。"
+        return "昨日[きのう]、<gsm-hoshidicts-match> 食[た]べた</gsm-hoshidicts-match>。"
+
+    fake_anki.tokenizer = SimpleNamespace(reading=reading)
+    fake_anki._preserve_html_tags_for_furigana = preserve
+    profile = _profile(
+        fieldTemplates={
+            "Expression": {"value": "{expression}", "overwriteMode": "coalesce"},
+            "ExpressionFurigana": {
+                "value": "{furigana-plain}",
+                "overwriteMode": "coalesce",
+            },
+            "ExpressionRuby": {"value": "{furigana}", "overwriteMode": "coalesce"},
+            "SentenceFurigana": {
+                "value": "{sentence-furigana-plain}",
+                "overwriteMode": "coalesce",
+            },
+            "SentenceRuby": {
+                "value": "{sentence-furigana}",
+                "overwriteMode": "coalesce",
+            },
+            "MainDefinition": {
+                "value": "{main-definition}",
+                "overwriteMode": "coalesce",
+            },
+            "Glossary": {"value": "{glossary}", "overwriteMode": "coalesce"},
+            "Definition": {"value": "{definition}", "overwriteMode": "coalesce"},
+            "Dictionary": {"value": "{dictionary}", "overwriteMode": "coalesce"},
+        }
+    )
+    _wire(monkeypatch, fake_anki, profile)
+
+    hoshidicts_mining.mine_hoshidicts_note(_rich_jitendex_payload())
+
+    note = next(kwargs["note"] for action, kwargs in fake_anki.calls if action == "addNote")
+    assert reading_calls == ["昨日、食べた。"]
+    assert note["fields"]["ExpressionFurigana"] == "食[た]べる"
+    assert note["fields"]["ExpressionRuby"] == "<ruby>食<rt>た</rt></ruby>べる"
+    assert note["fields"]["SentenceFurigana"] == "昨日[きのう]、<b> 食[た]べた</b>。"
+    assert note["fields"]["SentenceRuby"] == (
+        "<ruby>昨日<rt>きのう</rt></ruby>、<b><ruby>食<rt>た</rt></ruby>べた</b>。"
+    )
+    assert 'data-dictionary="Jitendex"' in note["fields"]["MainDefinition"]
+    assert 'data-dictionary="JMdict"' not in note["fields"]["MainDefinition"]
+    assert 'data-dictionary="JMdict"' in note["fields"]["Glossary"]
+    assert note["fields"]["Definition"] == note["fields"]["Glossary"]
+    assert note["fields"]["MainDefinition"] != note["fields"]["Glossary"]
+    assert note["fields"]["Dictionary"] == "Jitendex"
+
+
+def test_sentence_furigana_falls_back_to_safe_highlighted_sentence(monkeypatch):
+    fields = ["Expression", "SentenceFurigana", "SentenceRuby"]
+    fake_anki = FakeAnki(fields=fields)
+
+    def fail_reading(_sentence):
+        raise RuntimeError("tokenizer unavailable")
+
+    fake_anki.tokenizer = SimpleNamespace(reading=fail_reading)
+    fake_anki._preserve_html_tags_for_furigana = lambda *_args: pytest.fail(
+        "preservation should not run after tokenization fails"
+    )
+    profile = _profile(
+        fieldTemplates={
+            "Expression": {"value": "{expression}", "overwriteMode": "coalesce"},
+            "SentenceFurigana": {
+                "value": "{sentence-furigana-plain}",
+                "overwriteMode": "coalesce",
+            },
+            "SentenceRuby": {
+                "value": "{sentence-furigana}",
+                "overwriteMode": "coalesce",
+            },
+        }
+    )
+    _wire(monkeypatch, fake_anki, profile)
+
+    hoshidicts_mining.mine_hoshidicts_note(_payload())
+
+    note = next(kwargs["note"] for action, kwargs in fake_anki.calls if action == "addNote")
+    assert note["fields"]["SentenceFurigana"] == "昨日、<b>食べた</b>。"
+    assert note["fields"]["SentenceRuby"] == "昨日、<b>食べた</b>。"
+
+
+def test_duplicate_check_batch_caches_sentence_tokenization(monkeypatch):
+    class CheckAnki(FakeAnki):
+        def invoke(self, action, **kwargs):
+            if action == "canAddNotesWithErrorDetail":
+                self.calls.append((action, kwargs))
+                return [{"canAdd": True, "error": None} for _note in kwargs["notes"]]
+            return super().invoke(action, **kwargs)
+
+    fake_anki = CheckAnki(fields=["Expression", "SentenceFurigana"])
+    reading_calls = []
+
+    def reading(sentence):
+        reading_calls.append(sentence)
+        return " 昨日[きのう]、 食[た]べた。"
+
+    fake_anki.tokenizer = SimpleNamespace(reading=reading)
+    fake_anki._preserve_html_tags_for_furigana = lambda source, _reading: source
+    profile = _profile(
+        fieldTemplates={
+            "Expression": {"value": "{expression}", "overwriteMode": "coalesce"},
+            "SentenceFurigana": {
+                "value": "{sentence-furigana-plain}",
+                "overwriteMode": "coalesce",
+            },
+        }
+    )
+    _wire(monkeypatch, fake_anki, profile)
+
+    result = hoshidicts_mining.check_hoshidicts_notes({"notes": [_payload(), _payload()]})
+
+    assert result["success"] is True
+    assert reading_calls == ["昨日、食べた。"]
 
 
 def test_mining_rejects_an_explicitly_blank_first_model_field(monkeypatch):

@@ -12,6 +12,9 @@ MAX_TERM_LENGTH = 4096
 MAX_GLOSSARIES = 64
 MAX_METADATA_GROUPS = 64
 MAX_METADATA_VALUES = 64
+MAX_DICTIONARY_STYLES = 64
+MAX_DICTIONARY_STYLE_BYTES = 256 * 1024
+MAX_DICTIONARY_STYLE_NESTING = 32
 MAX_AUDIO_SOURCE_ID_LENGTH = 128
 MAX_AUDIO_CANDIDATES = 32
 _AUDIO_SOURCE_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -211,6 +214,52 @@ def _validate_pitch_group(value: Any) -> dict[str, Any]:
     }
 
 
+def _validate_dictionary_styles(value: Any) -> dict[str, str]:
+    if value is None:
+        return {}
+    if isinstance(value, list):
+        if len(value) > MAX_DICTIONARY_STYLES:
+            raise HoshidictsMiningError("Hoshidicts dictionary styles are invalid.")
+        entries = []
+        for item in value:
+            if not isinstance(item, dict):
+                raise HoshidictsMiningError("Hoshidicts dictionary styles are invalid.")
+            entries.append(
+                (
+                    item.get("dictionary"),
+                    item.get("styles", item.get("css")),
+                )
+            )
+    elif isinstance(value, dict):
+        if len(value) > MAX_DICTIONARY_STYLES:
+            raise HoshidictsMiningError("Hoshidicts dictionary styles are invalid.")
+        entries = []
+        for dictionary, styles in value.items():
+            if isinstance(styles, dict):
+                styles = styles.get("styles", styles.get("css"))
+            entries.append((dictionary, styles))
+    else:
+        raise HoshidictsMiningError("Hoshidicts dictionary styles are invalid.")
+
+    output = {}
+    for raw_dictionary, raw_styles in entries:
+        dictionary = bounded_string(
+            raw_dictionary,
+            "Hoshidicts dictionary style name",
+            MAX_TERM_LENGTH,
+            allow_empty=False,
+        )
+        styles = bounded_string(
+            raw_styles,
+            "Hoshidicts dictionary styles",
+            MAX_DICTIONARY_STYLE_BYTES,
+        )
+        if len(styles.encode("utf-8")) > MAX_DICTIONARY_STYLE_BYTES:
+            raise HoshidictsMiningError("Hoshidicts dictionary styles are invalid.")
+        output[dictionary] = styles
+    return output
+
+
 def _utf16_suffix(text: str, offset: int) -> str:
     encoded = text.encode("utf-16-le")
     byte_offset = offset * 2
@@ -366,6 +415,7 @@ def validate_hoshidicts_mining_request(value: Any) -> dict[str, Any]:
         "sentence": sentence,
         "matchOffset": match_offset,
         "audioSelection": audio_selection,
+        "dictionaryStyles": _validate_dictionary_styles(value.get("dictionaryStyles")),
     }
     if not _utf16_suffix(sentence, match_offset).startswith(normalized["matched"]):
         raise HoshidictsMiningError("Hoshidicts match offset does not point at the matched text.")
@@ -412,37 +462,532 @@ def _glossary_text(value: str) -> str:
     return "\n".join(line.strip() for line in "".join(output).splitlines() if line.strip())
 
 
-def definition_html(result: dict[str, Any]) -> str:
-    term = result["term"]
-    groups: dict[str, list[dict[str, str]]] = {}
-    for glossary in term["glossaries"]:
-        groups.setdefault(glossary["dictionary"], []).append(glossary)
+STRUCTURED_CONTENT_TAGS = {
+    "a",
+    "br",
+    "code",
+    "details",
+    "div",
+    "em",
+    "li",
+    "ol",
+    "p",
+    "rp",
+    "rt",
+    "ruby",
+    "small",
+    "span",
+    "strong",
+    "sub",
+    "summary",
+    "sup",
+    "table",
+    "tbody",
+    "td",
+    "tfoot",
+    "th",
+    "thead",
+    "tr",
+    "ul",
+}
+STRUCTURED_CONTENT_STYLE_PROPERTIES = {
+    "background": "background",
+    "backgroundColor": "background-color",
+    "borderColor": "border-color",
+    "borderRadius": "border-radius",
+    "borderStyle": "border-style",
+    "borderWidth": "border-width",
+    "clipPath": "clip-path",
+    "color": "color",
+    "cursor": "cursor",
+    "fontSize": "font-size",
+    "fontStyle": "font-style",
+    "fontWeight": "font-weight",
+    "listStyleType": "list-style-type",
+    "margin": "margin",
+    "marginBottom": "margin-bottom",
+    "marginLeft": "margin-left",
+    "marginRight": "margin-right",
+    "marginTop": "margin-top",
+    "padding": "padding",
+    "paddingBottom": "padding-bottom",
+    "paddingLeft": "padding-left",
+    "paddingRight": "padding-right",
+    "paddingTop": "padding-top",
+    "textAlign": "text-align",
+    "textDecorationColor": "text-decoration-color",
+    "textDecorationLine": "text-decoration-line",
+    "textDecorationStyle": "text-decoration-style",
+    "textEmphasis": "text-emphasis",
+    "textShadow": "text-shadow",
+    "verticalAlign": "vertical-align",
+    "whiteSpace": "white-space",
+    "wordBreak": "word-break",
+}
+STRUCTURED_CONTENT_EM_PROPERTIES = {
+    "marginBottom",
+    "marginLeft",
+    "marginRight",
+    "marginTop",
+}
+MAX_STRUCTURED_CONTENT_NODES = 4096
+MAX_STRUCTURED_CONTENT_DEPTH = 64
 
-    sections = []
-    for dictionary, glossaries in groups.items():
-        items = []
-        for glossary in glossaries:
-            text = _glossary_text(glossary["glossary"])
-            tags = " ".join(
-                item
-                for item in (
-                    glossary["definitionTags"],
-                    glossary["termTags"],
-                )
-                if item
+
+def _plain_glossary_html(value: str) -> str:
+    lines = [line.strip() for line in value.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    return "<br>".join(html.escape(line) for line in lines if line)
+
+
+def _structured_data_attribute_name(value: str) -> str | None:
+    value = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "-", value)
+    value = re.sub(r"_+", "-", value)
+    value = re.sub(r"[^A-Za-z0-9_-]+", "-", value).strip("-").lower()
+    return f"data-sc-{value}" if value else None
+
+
+def _structured_style_attribute(value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    declarations = []
+    for key, raw_style_value in value.items():
+        property_name = STRUCTURED_CONTENT_STYLE_PROPERTIES.get(key)
+        if property_name is None:
+            continue
+        if key == "textDecorationLine" and isinstance(raw_style_value, list):
+            if not all(isinstance(item, str) for item in raw_style_value):
+                continue
+            style_value = " ".join(raw_style_value)
+        elif isinstance(raw_style_value, str):
+            style_value = raw_style_value
+        elif (
+            key in STRUCTURED_CONTENT_EM_PROPERTIES
+            and isinstance(raw_style_value, (int, float))
+            and not isinstance(raw_style_value, bool)
+            and math.isfinite(raw_style_value)
+        ):
+            style_value = f"{raw_style_value}em"
+        else:
+            continue
+        if style_value:
+            declarations.append(f"{property_name}: {style_value}")
+    return "; ".join(declarations)
+
+
+def _structured_content_attributes(value: dict[str, Any], tag: str) -> str:
+    attributes = []
+    class_name = "gloss-link" if tag == "a" else f"gloss-sc-{tag}"
+    attributes.append(("class", class_name))
+
+    data = value.get("data")
+    if isinstance(data, dict):
+        for raw_key, raw_value in data.items():
+            if not isinstance(raw_key, str) or not isinstance(raw_value, (str, int, float, bool)):
+                continue
+            key = _structured_data_attribute_name(raw_key)
+            if key is not None:
+                attributes.append((key, str(raw_value).lower() if isinstance(raw_value, bool) else str(raw_value)))
+
+    lang = value.get("lang")
+    if isinstance(lang, str) and lang:
+        attributes.append(("lang", lang))
+    title = value.get("title")
+    if isinstance(title, str) and title:
+        attributes.append(("title", title))
+    style = _structured_style_attribute(value.get("style"))
+    if style:
+        attributes.append(("style", style))
+    if tag in {"td", "th"}:
+        for source, target in (("colSpan", "colspan"), ("rowSpan", "rowspan")):
+            span = value.get(source)
+            if isinstance(span, int) and not isinstance(span, bool) and span > 0:
+                attributes.append((target, str(span)))
+    if tag == "details" and value.get("open") is True:
+        attributes.append(("open", None))
+    if tag == "a":
+        href = value.get("href")
+        if isinstance(href, str):
+            attributes.append(("href", href))
+            attributes.append(("data-external", "false" if href.startswith("?") else "true"))
+
+    return "".join(
+        f" {key}" if attribute_value is None else f' {key}="{html.escape(attribute_value, quote=True)}"'
+        for key, attribute_value in attributes
+    )
+
+
+def _structured_content_html(
+    value: Any,
+    state: list[int] | None = None,
+    depth: int = 0,
+) -> str:
+    if state is None:
+        state = [0]
+    if state[0] >= MAX_STRUCTURED_CONTENT_NODES or depth > MAX_STRUCTURED_CONTENT_DEPTH:
+        return ""
+    state[0] += 1
+    if isinstance(value, str):
+        return html.escape(value)
+    if isinstance(value, (int, float, bool)):
+        return html.escape(str(value))
+    if isinstance(value, list):
+        return "".join(_structured_content_html(item, state, depth + 1) for item in value)
+    if not isinstance(value, dict):
+        return ""
+    if value.get("type") == "text" and isinstance(value.get("text"), str):
+        return _plain_glossary_html(value["text"])
+    if value.get("type") == "structured-content":
+        return _structured_content_html(value.get("content"), state, depth + 1)
+
+    tag = str(value.get("tag") or "").lower()
+    content = _structured_content_html(value.get("content"), state, depth + 1)
+    if tag in IGNORED_STRUCTURED_TAGS:
+        return ""
+    if tag not in STRUCTURED_CONTENT_TAGS:
+        return content
+    attributes = _structured_content_attributes(value, tag)
+    if tag == "br":
+        return f"<br{attributes}>"
+    if tag == "a":
+        content = f'<span class="gloss-link-text">{content}</span>'
+        href = value.get("href")
+        if isinstance(href, str) and not href.startswith("?"):
+            content += '<span class="gloss-link-external-icon icon" data-icon="external-link"></span>'
+    rendered = f"<{tag}{attributes}>{content}</{tag}>"
+    if tag == "table":
+        return f'<div class="gloss-sc-table-container">{rendered}</div>'
+    return rendered
+
+
+def _render_glossary_content(value: str) -> str:
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        return _plain_glossary_html(value)
+    if isinstance(parsed, str):
+        return _plain_glossary_html(parsed)
+    if isinstance(parsed, list):
+        state = [1]
+        parts = []
+        for item in parsed:
+            if isinstance(item, str):
+                if state[0] >= MAX_STRUCTURED_CONTENT_NODES:
+                    break
+                state[0] += 1
+                rendered_item = _plain_glossary_html(item)
+            else:
+                rendered_item = _structured_content_html(item, state, 1)
+            if rendered_item and isinstance(item, dict) and item.get("type") == "structured-content":
+                rendered_item = f'<span class="structured-content">{rendered_item}</span>'
+            parts.append(rendered_item)
+        rendered = "".join(parts)
+    else:
+        rendered = _structured_content_html(parsed)
+    if rendered:
+        return (
+            f'<span class="structured-content">{rendered}</span>'
+            if (isinstance(parsed, dict) and parsed.get("type") == "structured-content")
+            else rendered
+        )
+    return _plain_glossary_html(_glossary_text(value))
+
+
+def _dictionary_groups(result: dict[str, Any]) -> list[tuple[str, list[dict[str, str]]]]:
+    groups: dict[str, list[dict[str, str]]] = {}
+    for glossary in result["term"]["glossaries"]:
+        groups.setdefault(glossary["dictionary"], []).append(glossary)
+    return list(groups.items())
+
+
+def first_dictionary(result: dict[str, Any]) -> str:
+    groups = _dictionary_groups(result)
+    return groups[0][0] if groups else ""
+
+
+def _glossary_entry_html(
+    glossary: dict[str, str],
+    dictionary: str,
+    *,
+    brief: bool = False,
+    no_dictionary: bool = False,
+) -> str:
+    labels = []
+    if not brief:
+        labels.extend(
+            value
+            for value in (
+                glossary["definitionTags"],
+                glossary["termTags"],
             )
-            suffix = f" <small>{html.escape(tags)}</small>" if tags else ""
-            items.append(f"<li>{html.escape(text)}{suffix}</li>")
-        sections.append(f"<div><b>{html.escape(dictionary)}</b><ol>{''.join(items)}</ol></div>")
+            if value
+        )
+        if dictionary and not no_dictionary:
+            labels.append(dictionary)
+    prefix = f'<i class="yomitan-glossary-meta">({html.escape(", ".join(labels))})</i> ' if labels else ""
+    return prefix + _render_glossary_content(glossary["glossary"])
+
+
+def _css_string(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\a ")
+
+
+def _css_next_delimiter(value: str, start: int) -> tuple[int, str] | None:
+    quote = None
+    escaped = False
+    comment = False
+    parentheses = 0
+    brackets = 0
+    index = start
+    while index < len(value):
+        character = value[index]
+        following = value[index + 1] if index + 1 < len(value) else ""
+        if comment:
+            if character == "*" and following == "/":
+                comment = False
+                index += 2
+                continue
+        elif quote is not None:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == quote:
+                quote = None
+        elif character == "/" and following == "*":
+            comment = True
+            index += 2
+            continue
+        elif character in {'"', "'"}:
+            quote = character
+        elif character == "(":
+            parentheses += 1
+        elif character == ")" and parentheses:
+            parentheses -= 1
+        elif character == "[":
+            brackets += 1
+        elif character == "]" and brackets:
+            brackets -= 1
+        elif not parentheses and not brackets and character in {"{", ";"}:
+            return index, character
+        index += 1
+    return None
+
+
+def _css_matching_brace(value: str, opening: int) -> int | None:
+    quote = None
+    escaped = False
+    comment = False
+    depth = 1
+    index = opening + 1
+    while index < len(value):
+        character = value[index]
+        following = value[index + 1] if index + 1 < len(value) else ""
+        if comment:
+            if character == "*" and following == "/":
+                comment = False
+                index += 2
+                continue
+        elif quote is not None:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == quote:
+                quote = None
+        elif character == "/" and following == "*":
+            comment = True
+            index += 2
+            continue
+        elif character in {'"', "'"}:
+            quote = character
+        elif character == "{":
+            depth += 1
+        elif character == "}":
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return None
+
+
+def _split_css_selectors(value: str) -> list[str]:
+    selectors = []
+    start = 0
+    quote = None
+    escaped = False
+    comment = False
+    parentheses = 0
+    brackets = 0
+    for index, character in enumerate(value):
+        following = value[index + 1] if index + 1 < len(value) else ""
+        if comment:
+            if character == "*" and following == "/":
+                comment = False
+            continue
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == quote:
+                quote = None
+            continue
+        if character == "/" and following == "*":
+            comment = True
+        elif character in {'"', "'"}:
+            quote = character
+        elif character == "(":
+            parentheses += 1
+        elif character == ")" and parentheses:
+            parentheses -= 1
+        elif character == "[":
+            brackets += 1
+        elif character == "]" and brackets:
+            brackets -= 1
+        elif character == "," and not parentheses and not brackets:
+            selectors.append(value[start:index].strip())
+            start = index + 1
+    selectors.append(value[start:].strip())
+    return [selector for selector in selectors if selector]
+
+
+def _split_css_leading_trivia(value: str) -> tuple[str, str]:
+    index = 0
+    while index < len(value):
+        while index < len(value) and value[index].isspace():
+            index += 1
+        if not value.startswith("/*", index):
+            break
+        closing = value.find("*/", index + 2)
+        if closing < 0:
+            return value, ""
+        index = closing + 2
+    return value[:index], value[index:]
+
+
+def _scope_dictionary_css(styles: str, selector: str, depth: int = 0) -> str:
+    if depth >= MAX_DICTIONARY_STYLE_NESTING:
+        return ""
+    output = []
+    cursor = 0
+    while cursor < len(styles):
+        delimiter = _css_next_delimiter(styles, cursor)
+        if delimiter is None:
+            output.append(styles[cursor:])
+            break
+        index, character = delimiter
+        if character == ";":
+            output.append(styles[cursor : index + 1])
+            cursor = index + 1
+            continue
+        closing = _css_matching_brace(styles, index)
+        if closing is None:
+            output.append(styles[cursor:])
+            break
+        prelude = styles[cursor:index]
+        leading, rule_prelude = _split_css_leading_trivia(prelude)
+        stripped = rule_prelude.strip()
+        body = styles[index + 1 : closing]
+        lowered = stripped.casefold()
+        if lowered.startswith("@scope"):
+            output.append(leading + _scope_dictionary_css(body, selector, depth + 1))
+        elif lowered.startswith(("@media", "@supports", "@container", "@layer", "@document")):
+            output.append(f"{leading}{rule_prelude}{{{_scope_dictionary_css(body, selector, depth + 1)}}}")
+        elif lowered.startswith("@") or not stripped:
+            output.append(f"{leading}{rule_prelude}{{{body}}}")
+        else:
+            scoped_selectors = ", ".join(f"{selector} {item}" for item in _split_css_selectors(stripped))
+            output.append(f"{leading}{scoped_selectors}{{{body}}}")
+        cursor = closing + 1
+    return "".join(output)
+
+
+def _dictionary_style_html(dictionary: str, styles: str) -> str:
+    if not styles.strip():
+        return ""
+    selector = f'.yomitan-glossary [data-dictionary="{_css_string(dictionary)}"]'
+    return f"<style>{_scope_dictionary_css(styles, selector)}</style>"
+
+
+def definition_html(
+    result: dict[str, Any],
+    *,
+    first_only: bool = False,
+    brief: bool = False,
+    no_dictionary: bool = False,
+    selected_dictionary: str | None = None,
+) -> str:
+    groups = _dictionary_groups(result)
+    if selected_dictionary is not None:
+        groups = [group for group in groups if group[0] == selected_dictionary]
+    if first_only:
+        groups = groups[:1]
+    if not groups:
+        return ""
+    pages = []
+    style_blocks = []
+    dictionary_styles = result.get("dictionaryStyles", {})
+    for dictionary, glossaries in groups:
+        entries = [
+            _glossary_entry_html(
+                glossary,
+                dictionary,
+                brief=brief,
+                no_dictionary=no_dictionary,
+            )
+            for glossary in glossaries
+        ]
+        content = (
+            entries[0] if len(entries) == 1 else "<ul>" + "".join(f"<li>{entry}</li>" for entry in entries) + "</ul>"
+        )
+        pages.append(f'<li data-dictionary="{html.escape(dictionary, quote=True)}">{content}</li>')
+        styles = dictionary_styles.get(dictionary) if isinstance(dictionary_styles, dict) else None
+        if isinstance(styles, str):
+            style_blocks.append(_dictionary_style_html(dictionary, styles))
 
     details = []
-    if term["rules"]:
+    term = result["term"]
+    if not brief and term["rules"]:
         details.append(f"Rules: {html.escape(term['rules'])}")
-    if result["trace"]:
+    if not brief and result["trace"]:
         details.append("Deinflection: " + " &gt; ".join(html.escape(step["name"]) for step in result["trace"]))
-    if details:
-        sections.append(f"<small>{'<br>'.join(details)}</small>")
-    return "".join(sections)
+    details_html = f'<small class="yomitan-glossary-details">{"<br>".join(details)}</small>' if details else ""
+    return (
+        '<div style="text-align: left;" class="yomitan-glossary"><ol>'
+        + "".join(pages)
+        + "</ol>"
+        + "".join(style_blocks)
+        + details_html
+        + "</div>"
+    )
+
+
+def main_definition_html(result: dict[str, Any]) -> str:
+    return definition_html(result, first_only=True)
+
+
+def plain_definition_html(
+    result: dict[str, Any],
+    *,
+    no_dictionary: bool = False,
+    selected_dictionary: str | None = None,
+) -> str:
+    groups = _dictionary_groups(result)
+    if selected_dictionary is not None:
+        groups = [group for group in groups if group[0] == selected_dictionary]
+    rendered_groups = []
+    for dictionary, glossaries in groups:
+        lines = []
+        if not no_dictionary:
+            lines.append(f"({html.escape(dictionary)})")
+        lines.extend(
+            rendered
+            for glossary in glossaries
+            if (rendered := _plain_glossary_html(_glossary_text(glossary["glossary"])))
+        )
+        if lines:
+            rendered_groups.append("<br>".join(lines))
+    return "<br>".join(rendered_groups)
 
 
 def frequency_html(result: dict[str, Any]) -> str:

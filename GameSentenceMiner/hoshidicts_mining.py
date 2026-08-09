@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import html
 import json
 import re
 import threading
 import time
+import unicodedata
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -34,6 +36,7 @@ MAX_TERM_LENGTH = _note.MAX_TERM_LENGTH
 MAX_GLOSSARIES = _note.MAX_GLOSSARIES
 MAX_METADATA_GROUPS = _note.MAX_METADATA_GROUPS
 MAX_METADATA_VALUES = _note.MAX_METADATA_VALUES
+MAX_DICTIONARY_STYLE_BYTES = _note.MAX_DICTIONARY_STYLE_BYTES
 IGNORED_STRUCTURED_TAGS = _note.IGNORED_STRUCTURED_TAGS
 BLOCK_STRUCTURED_TAGS = _note.BLOCK_STRUCTURED_TAGS
 _bounded_string = _note.bounded_string
@@ -47,6 +50,9 @@ validate_hoshidicts_mining_request = _note.validate_hoshidicts_mining_request
 _append_structured_text = _note._append_structured_text
 _glossary_text = _note._glossary_text
 _definition_html = _note.definition_html
+_main_definition_html = _note.main_definition_html
+_plain_definition_html = _note.plain_definition_html
+_first_dictionary = _note.first_dictionary
 _frequency_html = _note.frequency_html
 _pitch_html = _note.pitch_html
 _pitch_positions_text = _note.pitch_positions_text
@@ -76,9 +82,10 @@ FIELD_TEMPLATE_BREAK_PATTERN = re.compile(r"<br\s*/?>", re.IGNORECASE)
 FIELD_TEMPLATE_MARKER_KEYS = {
     "expression": "expression",
     "reading": "reading",
-    "furigana": "reading",
-    "furigana-plain": "reading",
+    "furigana": "furigana",
+    "furigana-plain": "furigana-plain",
     "definition": "definition",
+    "main-definition": "definition",
     "glossary": "definition",
     "glossary-brief": "definition",
     "glossary-no-dictionary": "definition",
@@ -89,8 +96,8 @@ FIELD_TEMPLATE_MARKER_KEYS = {
     "glossary-first-no-dictionary": "definition",
     "jpmn-primary-definition": "definition",
     "sentence": "sentence",
-    "sentence-furigana": "sentence",
-    "sentence-furigana-plain": "sentence",
+    "sentence-furigana": "sentence-furigana",
+    "sentence-furigana-plain": "sentence-furigana",
     "cloze-prefix": "sentence",
     "cloze-body": "sentence",
     "cloze-suffix": "sentence",
@@ -109,6 +116,27 @@ FIELD_TEMPLATE_MARKER_KEYS = {
     "pitch-position": "pitch-position",
     "pitch-accent-positions": "pitch-position",
     "audio": "audio",
+    "dictionary": "dictionary",
+    "dictionary-alias": "dictionary",
+}
+UNSUPPORTED_FIELD_TEMPLATE_MARKERS = {
+    "character",
+    "clipboard-image",
+    "clipboard-text",
+    "cloze-body-kana",
+    "conjugation",
+    "document-title",
+    "kunyomi",
+    "onyomi",
+    "onyomi-hiragana",
+    "part-of-speech",
+    "phonetic-transcriptions",
+    "popup-selection-text",
+    "screenshot",
+    "search-query",
+    "stroke-count",
+    "tags",
+    "url",
 }
 
 DUPLICATE_SCOPES = ("collection", "deck", "deck-root")
@@ -148,6 +176,26 @@ KIKU_LAPIS_FIELD_MAP = {
     "frequency": "Frequency",
     "pitch": "PitchPosition",
 }
+KIKU_RICH_FIELD_TEMPLATES = {
+    "ExpressionFurigana": ("expression-furigana", "{furigana-plain}"),
+    "MainDefinition": ("main-definition", "{main-definition}"),
+    "Glossary": ("glossary", "{glossary}"),
+    "SentenceFurigana": ("sentence-furigana", "{sentence-furigana-plain}"),
+    "ExpressionAudio": ("audio", "{audio}"),
+}
+FIELD_TEMPLATE_SUGGESTION_SLOTS = (
+    "expression",
+    "expression-furigana",
+    "reading",
+    "main-definition",
+    "glossary",
+    "definition",
+    "sentence",
+    "sentence-furigana",
+    "frequency",
+    "pitch",
+    "audio",
+)
 
 
 def default_hoshidicts_mining_profile() -> dict[str, Any]:
@@ -329,11 +377,23 @@ def _field_name_key(value: str) -> str:
     return "".join(character for character in value.casefold() if character.isalnum())
 
 
+def _yomitan_kebab_case(value: str) -> str:
+    characters = []
+    for character in value:
+        if character == "_" or character.isspace():
+            characters.append("-")
+        elif character == "-" or unicodedata.category(character)[0] in {"L", "N"}:
+            characters.append(character)
+    return re.sub(r"-+", "-", "".join(characters)).strip("-").lower()
+
+
 def _field_template_marker_key(marker: str) -> str | None:
     marker = marker.casefold()
     key = FIELD_TEMPLATE_MARKER_KEYS.get(marker)
     if key is not None:
         return key
+    if marker in UNSUPPORTED_FIELD_TEMPLATE_MARKERS:
+        return "unsupported"
     if marker.startswith("single-frequency-") and len(marker) > len("single-frequency-"):
         return "frequency"
     if marker.startswith("single-glossary-") and len(marker) > len("single-glossary-"):
@@ -345,15 +405,6 @@ def _suggest_field_templates(
     available_fields: list[str],
     config: Any,
 ) -> dict[str, str]:
-    aliases = {
-        "expression": (*GENERIC_FIELD_ALIASES["expression"], KIKU_LAPIS_FIELD_MAP["expression"]),
-        "reading": (*GENERIC_FIELD_ALIASES["reading"], KIKU_LAPIS_FIELD_MAP["reading"]),
-        "definition": (*GENERIC_FIELD_ALIASES["definition"], KIKU_LAPIS_FIELD_MAP["definition"]),
-        "sentence": (*GENERIC_FIELD_ALIASES["sentence"], KIKU_LAPIS_FIELD_MAP["sentence"]),
-        "frequency": (*GENERIC_FIELD_ALIASES["frequency"], KIKU_LAPIS_FIELD_MAP["frequency"]),
-        "pitch": (*GENERIC_FIELD_ALIASES["pitch"],),
-        "audio": (*GENERIC_FIELD_ALIASES["audio"],),
-    }
     matches_by_field_name: dict[str, list[tuple[str, str]]] = {}
 
     def add_match(field_name: str, semantic: str, marker: str) -> None:
@@ -364,14 +415,18 @@ def _suggest_field_templates(
         if not any(existing_semantic == semantic for existing_semantic, _marker in matches):
             matches.append((semantic, marker))
 
-    for key, field_aliases in aliases.items():
+    for key, field_aliases in GENERIC_FIELD_ALIASES.items():
         for alias in field_aliases:
             add_match(alias, key, FIELD_TEMPLATE_MARKERS[key])
-    add_match(
-        KIKU_LAPIS_FIELD_MAP["pitch"],
-        "pitch",
-        PITCH_POSITION_FIELD_TEMPLATE_MARKER,
-    )
+    for key in ("expression", "reading", "sentence", "frequency", "pitch"):
+        marker = PITCH_POSITION_FIELD_TEMPLATE_MARKER if key == "pitch" else FIELD_TEMPLATE_MARKERS[key]
+        add_match(KIKU_LAPIS_FIELD_MAP[key], key, marker)
+    glossary_key = _field_name_key(KIKU_LAPIS_FIELD_MAP["definition"])
+    matches_by_field_name[glossary_key] = [
+        match for match in matches_by_field_name.get(glossary_key, []) if match[0] != "definition"
+    ]
+    for field_name, (slot, marker) in KIKU_RICH_FIELD_TEMPLATES.items():
+        add_match(field_name, slot, marker)
     add_match(
         str(config.anki.word_field or "").strip(),
         "expression",
@@ -385,7 +440,8 @@ def _suggest_field_templates(
 
     has_expression_target = any(
         any(
-            semantic == "expression" for semantic, _marker in matches_by_field_name.get(_field_name_key(field_name), [])
+            semantic in {"expression", "expression-furigana"}
+            for semantic, _marker in matches_by_field_name.get(_field_name_key(field_name), [])
         )
         for field_name in available_fields
     )
@@ -395,7 +451,7 @@ def _suggest_field_templates(
         matches = list(matches_by_field_name.get(_field_name_key(field_name), []))
         if index == 0 and not has_expression_target:
             matches.append(("expression", "{expression}"))
-        matches.sort(key=lambda item: FIELD_KEYS.index(item[0]))
+        matches.sort(key=lambda item: FIELD_TEMPLATE_SUGGESTION_SLOTS.index(item[0]))
         markers = []
         for semantic, marker in matches:
             if semantic in used_semantics:
@@ -406,15 +462,34 @@ def _suggest_field_templates(
     return suggestions
 
 
+def _field_template_marker_semantic(marker: str) -> str | None:
+    key = _field_template_marker_key(marker)
+    if key == "pitch-position":
+        return "pitch"
+    if key == "furigana":
+        return "expression"
+    if key == "furigana-plain":
+        return "reading"
+    if key == "sentence-furigana":
+        return "sentence"
+    return key if key in FIELD_KEYS else None
+
+
 def _semantic_field_targets(field_templates: dict[str, dict[str, str]]) -> dict[str, str]:
     targets = {key: "" for key in FIELD_KEYS}
+    priorities = {key: -1 for key in FIELD_KEYS}
     for target, template in field_templates.items():
         for match in FIELD_TEMPLATE_MARKER_PATTERN.finditer(template["value"]):
-            key = _field_template_marker_key(match.group(1))
-            if key == "pitch-position":
-                key = "pitch"
-            if key is not None and not targets[key]:
+            marker = match.group(1).casefold()
+            key = _field_template_marker_semantic(marker)
+            if key is None:
+                continue
+            priority = 1
+            if marker in FIELD_TEMPLATE_MARKERS or marker in {"glossary", "reading", "sentence"}:
+                priority = 2
+            if priority > priorities[key]:
                 targets[key] = target
+                priorities[key] = priority
     return targets
 
 
@@ -456,9 +531,7 @@ def _resolve_target_field_templates(
         for field_name, template in suggested.items():
             entries = []
             for match in FIELD_TEMPLATE_MARKER_PATTERN.finditer(template):
-                semantic = _field_template_marker_key(match.group(1))
-                if semantic == "pitch-position":
-                    semantic = "pitch"
+                semantic = _field_template_marker_semantic(match.group(1))
                 if semantic is not None and not any(existing == semantic for existing, _marker in entries):
                     entries.append((semantic, match.group(0)))
             entries.sort(key=lambda item: FIELD_KEYS.index(item[0]))
@@ -932,10 +1005,235 @@ def _unique_tags(values: list[Any]) -> list[str]:
     return output
 
 
+_FURIGANA_HIGHLIGHT_OPEN = "<gsm-hoshidicts-match>"
+_FURIGANA_HIGHLIGHT_CLOSE = "</gsm-hoshidicts-match>"
+_FURIGANA_HIGHLIGHT_TAG_PATTERN = re.compile(
+    f"({re.escape(_FURIGANA_HIGHLIGHT_OPEN)}|{re.escape(_FURIGANA_HIGHLIGHT_CLOSE)})"
+)
+_ANKI_FURIGANA_SEGMENT_PATTERN = re.compile(r"([^\s<>\[\]]+)\[([^\[\]<>]+)\]")
+
+
+def _raw_highlight_sentence_match(request: dict[str, Any]) -> str:
+    sentence = request["sentence"]
+    encoded = sentence.encode("utf-16-le")
+    start = request["matchOffset"] * 2
+    end = start + len(request["matched"].encode("utf-16-le"))
+    prefix = encoded[:start].decode("utf-16-le")
+    highlighted = encoded[start:end].decode("utf-16-le")
+    suffix = encoded[end:].decode("utf-16-le")
+    return f"{prefix}{_FURIGANA_HIGHLIGHT_OPEN}{highlighted}{_FURIGANA_HIGHLIGHT_CLOSE}{suffix}"
+
+
+def _render_anki_furigana_text(value: str, source: str | None) -> str:
+    matches = list(_ANKI_FURIGANA_SEGMENT_PATTERN.finditer(value))
+    if source is not None:
+        aligned = []
+        source_cursor = 0
+        for match in matches:
+            surface = match.group(1)
+            surface_start = source.find(surface, source_cursor)
+            if surface_start < 0:
+                aligned = []
+                break
+            aligned.append(html.escape(source[source_cursor:surface_start]))
+            aligned.append(f"<ruby>{html.escape(surface)}<rt>{html.escape(match.group(2))}</rt></ruby>")
+            source_cursor = surface_start + len(surface)
+        else:
+            aligned.append(html.escape(source[source_cursor:]))
+            return "".join(aligned)
+
+    output = []
+    cursor = 0
+    for match in matches:
+        output.append(html.escape(value[cursor : match.start()]))
+        output.append(f"<ruby>{html.escape(match.group(1))}<rt>{html.escape(match.group(2))}</rt></ruby>")
+        cursor = match.end()
+    output.append(html.escape(value[cursor:]))
+    return "".join(output)
+
+
+def _render_anki_furigana(
+    value: str,
+    *,
+    ruby: bool,
+    source: str | None = None,
+) -> str:
+    value_parts = _FURIGANA_HIGHLIGHT_TAG_PATTERN.split(value)
+    source_parts = _FURIGANA_HIGHLIGHT_TAG_PATTERN.split(source) if source is not None else None
+    if source_parts is not None:
+        value_tags = [part for part in value_parts if part in {_FURIGANA_HIGHLIGHT_OPEN, _FURIGANA_HIGHLIGHT_CLOSE}]
+        source_tags = [part for part in source_parts if part in {_FURIGANA_HIGHLIGHT_OPEN, _FURIGANA_HIGHLIGHT_CLOSE}]
+        if value_tags != source_tags or len(value_parts) != len(source_parts):
+            source_parts = None
+
+    output = []
+    for index, part in enumerate(value_parts):
+        if part == _FURIGANA_HIGHLIGHT_OPEN:
+            output.append("<b>")
+            continue
+        if part == _FURIGANA_HIGHLIGHT_CLOSE:
+            output.append("</b>")
+            continue
+        if not ruby:
+            output.append(html.escape(part))
+            continue
+        source_part = source_parts[index] if source_parts is not None else None
+        output.append(_render_anki_furigana_text(part, source_part))
+    return "".join(output)
+
+
+def _expression_furigana_plain(expression: str, reading: str) -> str:
+    normalized_reading = reading.strip()
+    if not normalized_reading:
+        return expression
+    try:
+        # Import lazily: importing GameSentenceMiner.mecab constructs the shared
+        # MeCab controller, which should not happen merely by loading this module.
+        from GameSentenceMiner.mecab.format import format_output
+        from GameSentenceMiner.mecab.kana_conv import to_katakana
+
+        if to_katakana(expression) == to_katakana(normalized_reading):
+            return expression
+        return format_output(expression, normalized_reading).lstrip()
+    except Exception:
+        return expression
+
+
+def _sentence_furigana_values(
+    request: dict[str, Any],
+    anki: Any,
+    reading_cache: dict[str, str | None],
+) -> tuple[str, str]:
+    fallback = _highlight_sentence_match(request)
+    sentence = request["sentence"]
+    if sentence not in reading_cache:
+        try:
+            reading = anki.tokenizer.reading(sentence)
+            reading_cache[sentence] = reading if isinstance(reading, str) and reading else None
+        except Exception:
+            reading_cache[sentence] = None
+    reading = reading_cache[sentence]
+    if reading is None:
+        return fallback, fallback
+
+    try:
+        preserved = anki._preserve_html_tags_for_furigana(
+            _raw_highlight_sentence_match(request),
+            reading,
+        )
+        if not isinstance(preserved, str) or not preserved:
+            return fallback, fallback
+        return (
+            _render_anki_furigana(
+                preserved,
+                ruby=True,
+                source=_raw_highlight_sentence_match(request),
+            ),
+            _render_anki_furigana(preserved, ruby=False),
+        )
+    except Exception:
+        return fallback, fallback
+
+
+def _field_templates_use_marker_key(
+    field_templates: dict[str, dict[str, str]],
+    marker_keys: set[str],
+) -> bool:
+    return any(
+        _field_template_marker_key(match.group(1)) in marker_keys
+        for template in field_templates.values()
+        for match in FIELD_TEMPLATE_MARKER_PATTERN.finditer(template["value"])
+    )
+
+
+def _dynamic_glossary_values(
+    request: dict[str, Any],
+    field_templates: dict[str, dict[str, str]],
+) -> dict[str, str]:
+    used_markers = {
+        match.group(1)
+        for template in field_templates.values()
+        for match in FIELD_TEMPLATE_MARKER_PATTERN.finditer(template["value"])
+        if match.group(1).startswith("single-glossary-")
+    }
+    if not used_markers:
+        return {}
+
+    dictionaries = list(dict.fromkeys(glossary["dictionary"] for glossary in request["term"]["glossaries"]))
+    dictionary_markers = [
+        (dictionary, f"single-glossary-{marker_name}")
+        for dictionary in dictionaries
+        if (marker_name := _yomitan_kebab_case(dictionary))
+    ]
+    marker_options: dict[str, tuple[str, bool, bool, bool]] = {}
+    # Base names win collisions with a suffix variant from another dictionary;
+    # this avoids interpreting a real dictionary ending in e.g. " Brief" as a
+    # modifier for a shorter dictionary name.
+    for dictionary, marker in dictionary_markers:
+        marker_options.setdefault(marker, (dictionary, False, False, False))
+    for dictionary, marker in dictionary_markers:
+        marker_options.setdefault(f"{marker}-brief", (dictionary, True, False, False))
+        marker_options.setdefault(f"{marker}-no-dictionary", (dictionary, False, True, False))
+        marker_options.setdefault(f"{marker}-plain", (dictionary, False, False, True))
+        marker_options.setdefault(f"{marker}-plain-no-dictionary", (dictionary, False, True, True))
+
+    values = {}
+    for marker in used_markers:
+        options = marker_options.get(marker)
+        if options is None:
+            continue
+        dictionary, brief, no_dictionary, plain = options
+        rendered = (
+            _plain_definition_html(
+                request,
+                no_dictionary=no_dictionary,
+                selected_dictionary=dictionary,
+            )
+            if plain
+            else _definition_html(
+                request,
+                brief=brief,
+                no_dictionary=no_dictionary,
+                selected_dictionary=dictionary,
+            )
+        )
+        values[f"{{{marker}}}"] = rendered
+    return values
+
+
+def _template_values_for_fields(
+    request: dict[str, Any],
+    resolved: dict[str, Any],
+    field_templates: dict[str, dict[str, str]],
+    *,
+    audio_value: str = "",
+) -> dict[str, str]:
+    sentence_furigana = None
+    if _field_templates_use_marker_key(field_templates, {"sentence-furigana"}):
+        sentence_furigana = _sentence_furigana_values(
+            request,
+            resolved["anki"],
+            resolved.setdefault("sentenceReadingCache", {}),
+        )
+    values = _field_template_values(
+        request,
+        audio_value=audio_value,
+        generate_expression_furigana=_field_templates_use_marker_key(
+            field_templates,
+            {"furigana", "furigana-plain"},
+        ),
+        sentence_furigana=sentence_furigana,
+    )
+    values.update(_dynamic_glossary_values(request, field_templates))
+    return values
+
+
 def _field_template_values(
     request: dict[str, Any],
     *,
     audio_value: str = "",
+    generate_expression_furigana: bool = True,
+    sentence_furigana: tuple[str, str] | None = None,
 ) -> dict[str, str]:
     term = request["term"]
     highlighted_sentence = _highlight_sentence_match(request)
@@ -945,11 +1243,59 @@ def _field_template_values(
         cloze_prefix = highlighted_sentence
         cloze_body = ""
         cloze_suffix = ""
+    expression_value = term["expression"]
+    reading_value = term["reading"]
+    expression = html.escape(expression_value)
+    reading = html.escape(reading_value)
+    furigana_plain_value = (
+        _expression_furigana_plain(expression_value, reading_value)
+        if generate_expression_furigana
+        else expression_value
+    )
+    furigana = _render_anki_furigana(
+        furigana_plain_value,
+        ruby=True,
+        source=expression_value,
+    )
+    furigana_plain = _render_anki_furigana(furigana_plain_value, ruby=False)
+    sentence_furigana_html, sentence_furigana_plain = sentence_furigana or (
+        highlighted_sentence,
+        highlighted_sentence,
+    )
+    definition = _definition_html(request)
+    main_definition = _main_definition_html(request)
+    glossary_brief = _definition_html(request, brief=True)
+    glossary_no_dictionary = _definition_html(request, no_dictionary=True)
+    glossary_plain = _plain_definition_html(request)
+    glossary_plain_no_dictionary = _plain_definition_html(request, no_dictionary=True)
+    glossary_first_brief = _definition_html(request, first_only=True, brief=True)
+    glossary_first_no_dictionary = _definition_html(
+        request,
+        first_only=True,
+        no_dictionary=True,
+    )
+    dictionary = html.escape(_first_dictionary(request))
     return {
-        "{expression}": term["expression"],
-        "{reading}": term["reading"],
-        "{definition}": _definition_html(request),
+        "{expression}": expression,
+        "{reading}": reading,
+        "{furigana}": furigana,
+        "{furigana-plain}": furigana_plain,
+        "{definition}": definition,
+        "{glossary}": definition,
+        "{glossary-brief}": glossary_brief,
+        "{glossary-no-dictionary}": glossary_no_dictionary,
+        "{glossary-plain}": glossary_plain,
+        "{glossary-plain-no-dictionary}": glossary_plain_no_dictionary,
+        "{glossary-first}": main_definition,
+        "{glossary-first-brief}": glossary_first_brief,
+        "{glossary-first-no-dictionary}": glossary_first_no_dictionary,
+        "{main-definition}": main_definition,
+        "{jpmn-primary-definition}": main_definition,
+        "{dictionary}": dictionary,
+        "{dictionary-alias}": dictionary,
         "{sentence}": highlighted_sentence,
+        "{sentence-furigana}": sentence_furigana_html,
+        "{sentence-furigana-plain}": sentence_furigana_plain,
         "{frequency}": _frequency_html(request),
         "{pitch}": _pitch_html(request),
         PITCH_POSITION_FIELD_TEMPLATE_MARKER: _pitch_positions_text(request),
@@ -965,10 +1311,14 @@ def _render_field_template(
     values: dict[str, str],
 ) -> str:
     def replacement(match: re.Match[str]) -> str:
-        marker = match.group(1).casefold()
-        exact = values.get(f"{{{marker}}}")
-        if exact is not None:
-            return exact
+        raw_marker = match.group(1)
+        raw_key = f"{{{raw_marker}}}"
+        if raw_key in values:
+            return values[raw_key]
+        marker = raw_marker.casefold()
+        folded_key = f"{{{marker}}}"
+        if folded_key in values:
+            return values[folded_key]
         marker_key = _field_template_marker_key(marker)
         if marker_key == "audio":
             return values["{audio}"]
@@ -979,7 +1329,21 @@ def _render_field_template(
         if marker_key == "sentence":
             return values["{sentence}"]
         if marker_key == "definition":
+            if marker.startswith("single-glossary-"):
+                return ""
+            if marker.startswith("glossary-first"):
+                return values["{main-definition}"]
             return values["{definition}"]
+        if marker_key == "dictionary":
+            return values["{dictionary}"]
+        if marker_key == "unsupported":
+            return ""
+        if marker_key == "furigana":
+            return values["{furigana}"]
+        if marker_key == "furigana-plain":
+            return values["{furigana-plain}"]
+        if marker_key == "sentence-furigana":
+            return values["{sentence-furigana}"]
         if marker_key == "reading":
             return values["{reading}"]
         if marker_key == "expression":
@@ -1009,7 +1373,7 @@ def _template_uses_audio(template: str) -> bool:
 
 def _template_has_non_audio_content(template: str) -> bool:
     without_audio = FIELD_TEMPLATE_MARKER_PATTERN.sub(
-        lambda match: "" if _field_template_marker_key(match.group(1)) == "audio" else match.group(0),
+        lambda match: "" if _field_template_marker_key(match.group(1)) in {"audio", "unsupported"} else match.group(0),
         template,
     )
     return bool(FIELD_TEMPLATE_BREAK_PATTERN.sub("", without_audio).strip())
@@ -1051,7 +1415,11 @@ def _build_hoshidicts_note(
 ) -> dict[str, Any]:
     if not resolved["modelFields"]:
         raise HoshidictsMiningError("The selected Anki note type has no fields.", 503)
-    template_values = _field_template_values(request)
+    template_values = _template_values_for_fields(
+        request,
+        resolved,
+        resolved["fieldTemplates"],
+    )
     fields = {
         field_name: _render_field_template(
             resolved["fieldTemplates"][field_name]["value"],
@@ -1536,7 +1904,12 @@ def _enrich_hoshidicts_note_audio(
         if not isinstance(stored_filename, str) or not stored_filename:
             raise RuntimeError("Anki did not return a stored media filename")
         sound = f"[sound:{stored_filename}]"
-        template_values = _field_template_values(request, audio_value=sound)
+        template_values = _template_values_for_fields(
+            request,
+            resolved,
+            pending_templates,
+            audio_value=sound,
+        )
         updated_fields = {}
         for target, template in pending_templates.items():
             field_value = _render_field_template(
