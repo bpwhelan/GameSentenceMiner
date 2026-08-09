@@ -13,7 +13,11 @@ import {
     HOSHIDICTS_DUPLICATE_BEHAVIORS,
     HOSHIDICTS_DUPLICATE_SCOPES,
     HOSHIDICTS_FIELD_OVERWRITE_MODES,
+    MAX_HOSHIDICTS_MAX_RESULTS,
+    MAX_HOSHIDICTS_SCAN_LENGTH,
     MAX_HOSHIDICTS_AUDIO_SOURCES,
+    MIN_HOSHIDICTS_MAX_RESULTS,
+    MIN_HOSHIDICTS_SCAN_LENGTH,
     type HoshidictsActivationKey,
     type HoshidictsAudioProfile,
     type HoshidictsAudioSource,
@@ -893,6 +897,10 @@ function audioProfile(audio: JsonRecord, warnings: string[]): HoshidictsAudioPro
 function currentReaderPreferences(current: HoshidictsManagerSnapshot): HoshidictsReaderPreferences {
     return {
         lookupMode: current.lookupMode,
+        scanLength: current.scanLength,
+        maxResults: current.maxResults,
+        sortFrequencyDictionary: current.sortFrequencyDictionary,
+        sortFrequencyDictionaryOrder: current.sortFrequencyDictionaryOrder,
         activationKey: current.activationKey,
         sourceHighlightEnabled: current.sourceHighlightEnabled,
         onlyScanJapaneseText: current.onlyScanJapaneseText,
@@ -915,11 +923,84 @@ function currentReaderPreferences(current: HoshidictsManagerSnapshot): Hoshidict
 }
 
 function readerPreferences(
+    general: JsonRecord,
     scanning: JsonRecord,
     current: HoshidictsManagerSnapshot,
+    dictionaryPreferences: HoshidictsYomitanDictionaryPreference[],
     warnings: string[],
 ): HoshidictsReaderPreferences {
     const result = currentReaderPreferences(current);
+    if (
+        Number.isInteger(scanning.length) &&
+        (scanning.length as number) >= MIN_HOSHIDICTS_SCAN_LENGTH &&
+        (scanning.length as number) <= MAX_HOSHIDICTS_SCAN_LENGTH
+    ) {
+        result.scanLength = scanning.length as number;
+    } else if (Object.prototype.hasOwnProperty.call(scanning, 'length')) {
+        warnings.push("Skipped Yomitan's invalid scan length.");
+    }
+    if (
+        Number.isInteger(general.maxResults) &&
+        (general.maxResults as number) >= MIN_HOSHIDICTS_MAX_RESULTS &&
+        (general.maxResults as number) <= MAX_HOSHIDICTS_MAX_RESULTS
+    ) {
+        result.maxResults = general.maxResults as number;
+    } else if (Object.prototype.hasOwnProperty.call(general, 'maxResults')) {
+        warnings.push("Skipped Yomitan's invalid maximum result count.");
+    }
+    if (
+        general.sortFrequencyDictionary === null ||
+        (typeof general.sortFrequencyDictionary === 'string' &&
+            general.sortFrequencyDictionary.length > 0)
+    ) {
+        const title = general.sortFrequencyDictionary as string | null;
+        const installedDictionary =
+            title === null
+                ? null
+                : current.dictionaries.find(
+                      (dictionary) => dictionary.title === title
+                  );
+        const importedPreference =
+            title === null
+                ? null
+                : dictionaryPreferences.find(
+                      (dictionary) => dictionary.title === title
+                  );
+        if (
+            title === null ||
+            (installedDictionary !== null &&
+                installedDictionary !== undefined &&
+                installedDictionary.frequencyCount > 0 &&
+                (importedPreference?.enabled ?? installedDictionary.enabled))
+        ) {
+            result.sortFrequencyDictionary = title;
+        } else {
+            warnings.push(
+                `Skipped unavailable Yomitan frequency sort dictionary: ${title}.`
+            );
+        }
+    } else if (
+        Object.prototype.hasOwnProperty.call(
+            general,
+            'sortFrequencyDictionary'
+        )
+    ) {
+        warnings.push("Skipped Yomitan's invalid frequency sort dictionary.");
+    }
+    if (
+        general.sortFrequencyDictionaryOrder === 'ascending' ||
+        general.sortFrequencyDictionaryOrder === 'descending'
+    ) {
+        result.sortFrequencyDictionaryOrder =
+            general.sortFrequencyDictionaryOrder;
+    } else if (
+        Object.prototype.hasOwnProperty.call(
+            general,
+            'sortFrequencyDictionaryOrder'
+        )
+    ) {
+        warnings.push("Skipped Yomitan's invalid frequency sort order.");
+    }
     if (
         Number.isSafeInteger(scanning.popupNestingMaxDepth) &&
         (scanning.popupNestingMaxDepth as number) >= 0
@@ -1004,8 +1085,14 @@ export function parseYomitanSettingsBackup(
     if (parsedMining) groups.push('anki');
     const parsedAudio = isRecord(options.audio) ? audioProfile(options.audio, warnings) : null;
     if (parsedAudio) groups.push('audio');
-    const parsedReader = isRecord(options.scanning)
-        ? readerPreferences(options.scanning, current, warnings)
+    const parsedReader = isRecord(options.scanning) || isRecord(options.general)
+        ? readerPreferences(
+              isRecord(options.general) ? options.general : {},
+              isRecord(options.scanning) ? options.scanning : {},
+              current,
+              dictionaries,
+              warnings,
+          )
         : null;
     if (parsedReader) groups.push('reader');
 

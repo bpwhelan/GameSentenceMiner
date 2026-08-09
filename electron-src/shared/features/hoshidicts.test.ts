@@ -4,12 +4,15 @@ import {
     createDefaultHoshidictsPopupButtons,
     DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
     HOSHIDICTS_MINING_FIELD_MARKERS,
+    hoshidictsReaderPreferencesFromSnapshot,
     isHoshidictsPopupButtons,
     isHoshidictsPopupCustomLinkTemplate,
     MAX_HOSHIDICTS_POPUP_CUSTOM_LINK_LABEL_LENGTH,
     MAX_HOSHIDICTS_POPUP_CUSTOM_LINKS,
     MAX_HOSHIDICTS_POPUP_CUSTOM_LINK_URL_LENGTH,
     normalizeHoshidictsPopupButtons,
+    type HoshidictsDictionaryState,
+    type HoshidictsManagerSnapshot,
 } from './hoshidicts.js';
 
 describe('Hoshidicts mining field markers', () => {
@@ -24,6 +27,7 @@ describe('Hoshidicts mining field markers', () => {
             { id: 'glossary', value: '{glossary}' },
             { id: 'dictionary', value: '{dictionary}' },
             { id: 'sentence', value: '{sentence}' },
+            { id: 'popup-selection-text', value: '{popup-selection-text}' },
             {
                 id: 'sentence-furigana',
                 value: '{sentence-furigana}',
@@ -33,9 +37,23 @@ describe('Hoshidicts mining field markers', () => {
                 value: '{sentence-furigana-plain}',
             },
             { id: 'frequency', value: '{frequency}' },
+            { id: 'frequencies', value: '{frequencies}' },
+            {
+                id: 'frequency-harmonic-rank',
+                value: '{frequency-harmonic-rank}',
+            },
             { id: 'pitch', value: '{pitch}' },
             { id: 'pitch-position', value: '{pitch-position}' },
+            {
+                id: 'pitch-accent-positions',
+                value: '{pitch-accent-positions}',
+            },
+            {
+                id: 'pitch-accent-categories',
+                value: '{pitch-accent-categories}',
+            },
             { id: 'audio', value: '{audio}' },
+            { id: 'document-title', value: '{document-title}' },
         ]);
     });
 
@@ -142,5 +160,49 @@ describe('Hoshidicts popup buttons', () => {
                 ],
             })
         ).toThrow('label is invalid');
+    });
+});
+
+describe('Hoshidicts reader frequency dictionaries', () => {
+    it('preserves snapshot order while excluding disabled and non-frequency dictionaries', () => {
+        const dictionary = (
+            title: string,
+            enabled: boolean,
+            frequencyCount: number
+        ) =>
+            ({
+                id: title.toLowerCase(),
+                title,
+                displayName: null,
+                enabled,
+                favorite: false,
+                revision: '1',
+                isUpdatable: false,
+                indexUrl: null,
+                downloadUrl: null,
+                language: 'ja',
+                termCount: 0,
+                frequencyCount,
+                pitchCount: 0,
+                kanjiCount: 0,
+                frequencyMode: null,
+                installedAt: '2026-08-09T00:00:00.000Z',
+                updateScheduleOverride: null,
+                lastUpdateCheck: null,
+            }) satisfies HoshidictsDictionaryState;
+        const snapshot = {
+            dictionaries: [
+                dictionary('Foo', true, 1),
+                dictionary('Term dictionary', true, 0),
+                dictionary('Disabled frequency', false, 4),
+                dictionary('Foo!', true, 2),
+            ],
+            popupButtons: createDefaultHoshidictsPopupButtons(),
+        } as unknown as HoshidictsManagerSnapshot;
+
+        expect(
+            hoshidictsReaderPreferencesFromSnapshot(snapshot)
+                .frequencyDictionaries
+        ).toEqual(['Foo', 'Foo!']);
     });
 });

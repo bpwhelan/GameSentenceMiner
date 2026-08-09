@@ -24,6 +24,8 @@ interface TestArchive {
     revision: string;
     sourceLanguage?: string | null;
     terms?: number;
+    frequencies?: number;
+    frequencyMode?: 'occurrence-based' | 'rank-based' | null;
     isUpdatable?: boolean;
     indexUrl?: string | null;
     downloadUrl?: string | null;
@@ -51,7 +53,7 @@ function readArchive(archivePath: string): TestArchive {
 function writeImportedDictionary(outputDirectory: string, archive: TestArchive): void {
     const dictionaryDirectory = path.join(outputDirectory, archive.title);
     fs.mkdirSync(dictionaryDirectory, { recursive: true });
-    for (const fileName of ['.hoshidicts_3', 'hash.table', 'bloom.filter', 'blobs.bin']) {
+    for (const fileName of ['.hoshidicts_4', 'hash.table', 'bloom.filter', 'blobs.bin']) {
         fs.writeFileSync(path.join(dictionaryDirectory, fileName), fileName);
     }
     fs.writeFileSync(
@@ -63,11 +65,15 @@ function writeImportedDictionary(outputDirectory: string, archive: TestArchive):
             isUpdatable: archive.isUpdatable === true,
             indexUrl: archive.indexUrl ?? null,
             downloadUrl: archive.downloadUrl ?? null,
-            frequencyMode: null,
+            frequencyMode: archive.frequencyMode ?? null,
             importDate: Date.parse('2026-08-08T00:00:00.000Z'),
             counts: {
                 terms: { total: archive.terms ?? 1 },
-                termMeta: { total: 0, freq: 0, pitch: 0 },
+                termMeta: {
+                    total: archive.frequencies ?? 0,
+                    freq: archive.frequencies ?? 0,
+                    pitch: 0,
+                },
                 kanji: { total: 0 },
                 media: { total: 0 },
             },
@@ -89,7 +95,8 @@ function createHarness(
         const archive = readArchive(archivePath);
         return {
             sourceLanguage: archive.sourceLanguage ?? 'ja',
-            hasSupportedBank: (archive.terms ?? 1) > 0,
+            hasSupportedBank:
+                (archive.terms ?? 1) + (archive.frequencies ?? 0) > 0,
             hasJapaneseEntry: true,
         };
     };
@@ -219,6 +226,8 @@ describe('Hoshidicts manager full backups', () => {
                 isUpdatable: true,
                 indexUrl: 'https://dict.example/beta-index.json',
                 downloadUrl: 'https://dict.example/beta.zip',
+                frequencies: 3,
+                frequencyMode: 'rank-based',
             }),
         ]);
         let sourceSnapshot = await source.getSnapshot();
@@ -257,6 +266,12 @@ describe('Hoshidicts manager full backups', () => {
             520,
             'girlypop',
             70,
+            true,
+            'top',
+            24,
+            48,
+            'Beta',
+            'ascending',
         );
         await source.setSchedule('weekly');
         await source.setDictionarySchedule(beta!.id, 'hourly');
@@ -361,6 +376,10 @@ describe('Hoshidicts manager full backups', () => {
             miningProfile,
             audioProfile,
             lookupMode: 'hover',
+            scanLength: 24,
+            maxResults: 48,
+            sortFrequencyDictionary: 'Beta',
+            sortFrequencyDictionaryOrder: 'ascending',
             activationKey: 'F8',
             sourceHighlightEnabled: true,
             popupHideDelayMs: 850,

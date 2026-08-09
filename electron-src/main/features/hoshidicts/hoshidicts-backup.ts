@@ -31,7 +31,12 @@ const STATE_FILE_NAMES = [
 ] as const;
 const REQUIRED_DICTIONARY_FILES = ['hash.table', 'bloom.filter', 'blobs.bin'] as const;
 const REQUIRED_MEDIA_FILES = ['media.idx', 'media.bin'] as const;
-const HOSHIDICTS_MARKERS = ['.hoshidicts_3', '.hoshidicts_2', '.hoshidicts_1'] as const;
+const HOSHIDICTS_MARKERS = [
+    '.hoshidicts_4',
+    '.hoshidicts_3',
+    '.hoshidicts_2',
+    '.hoshidicts_1',
+] as const;
 const SAFE_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/u;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 const MAX_MANAGER_MANIFEST_BYTES = 1024 * 1024;

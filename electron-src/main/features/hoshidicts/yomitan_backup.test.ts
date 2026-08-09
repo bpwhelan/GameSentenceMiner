@@ -65,6 +65,10 @@ function currentState(): HoshidictsManagerSnapshot {
         },
         audioProfile: createDefaultHoshidictsAudioProfile(),
         lookupMode: 'shift',
+        scanLength: 16,
+        maxResults: 32,
+        sortFrequencyDictionary: null,
+        sortFrequencyDictionaryOrder: 'descending',
         activationKey: 'Shift',
         sourceHighlightEnabled: false,
         onlyScanJapaneseText: true,
@@ -106,6 +110,11 @@ describe('parseYomitanSettingsBackup', () => {
                         {
                             name: 'Mining',
                             options: {
+                                general: {
+                                    maxResults: 64,
+                                    sortFrequencyDictionary: null,
+                                    sortFrequencyDictionaryOrder: 'ascending',
+                                },
                                 dictionaries: [
                                     { name: 'JMdict', enabled: true },
                                     { name: 'Frequency', enabled: false },
@@ -142,6 +151,7 @@ describe('parseYomitanSettingsBackup', () => {
                                     ],
                                 },
                                 scanning: {
+                                    length: 24,
                                     popupNestingMaxDepth: 3,
                                     hidePopupOnCursorExit: true,
                                     hidePopupOnCursorExitDelay: 250,
@@ -208,6 +218,10 @@ describe('parseYomitanSettingsBackup', () => {
         });
         expect(parsed.readerPreferences).toMatchObject({
             lookupMode: 'hover',
+            scanLength: 24,
+            maxResults: 64,
+            sortFrequencyDictionary: null,
+            sortFrequencyDictionaryOrder: 'ascending',
             popupHideDelayMs: 250,
             popupNestingMaxDepth: 3,
             popupWidthPx: 680,
@@ -224,6 +238,114 @@ describe('parseYomitanSettingsBackup', () => {
             },
         });
         expect(parsed.warnings).toContain('Skipped unsupported Yomitan audio source: wiktionary.');
+    });
+
+    it('imports an installed Yomitan frequency sort dictionary', () => {
+        const state = currentState();
+        state.dictionaries = [
+            {
+                id: 'frequency',
+                title: 'Frequency',
+                displayName: null,
+                enabled: true,
+                favorite: false,
+                revision: 'one',
+                isUpdatable: false,
+                indexUrl: null,
+                downloadUrl: null,
+                language: 'ja',
+                termCount: 0,
+                frequencyCount: 10,
+                pitchCount: 0,
+                kanjiCount: 0,
+                frequencyMode: 'rank-based',
+                installedAt: '2026-08-08T00:00:00.000Z',
+                updateScheduleOverride: null,
+                lastUpdateCheck: null,
+            },
+        ];
+
+        const parsed = parseYomitanSettingsBackup(
+            {
+                version: 0,
+                options: {
+                    profileCurrent: 0,
+                    profiles: [
+                        {
+                            options: {
+                                general: {
+                                    maxResults: 48,
+                                    sortFrequencyDictionary: 'Frequency',
+                                    sortFrequencyDictionaryOrder: 'ascending',
+                                },
+                            },
+                        },
+                    ],
+                },
+            },
+            state
+        );
+
+        expect(parsed.readerPreferences).toMatchObject({
+            maxResults: 48,
+            sortFrequencyDictionary: 'Frequency',
+            sortFrequencyDictionaryOrder: 'ascending',
+        });
+        expect(parsed.groups).toContain('reader');
+        expect(parsed.warnings).toEqual([]);
+
+        state.dictionaries[0].enabled = false;
+        const disabled = parseYomitanSettingsBackup(
+            {
+                version: 0,
+                options: {
+                    profileCurrent: 0,
+                    profiles: [
+                        {
+                            options: {
+                                general: {
+                                    sortFrequencyDictionary: 'Frequency',
+                                    sortFrequencyDictionaryOrder: 'ascending',
+                                },
+                            },
+                        },
+                    ],
+                },
+            },
+            state
+        );
+        expect(disabled.readerPreferences?.sortFrequencyDictionary).toBeNull();
+        expect(disabled.warnings).toContain(
+            'Skipped unavailable Yomitan frequency sort dictionary: Frequency.'
+        );
+
+        const reenabled = parseYomitanSettingsBackup(
+            {
+                version: 0,
+                options: {
+                    profileCurrent: 0,
+                    profiles: [
+                        {
+                            options: {
+                                dictionaries: [
+                                    { name: 'Frequency', enabled: true },
+                                ],
+                                general: {
+                                    sortFrequencyDictionary: 'Frequency',
+                                    sortFrequencyDictionaryOrder: 'ascending',
+                                },
+                            },
+                        },
+                    ],
+                },
+            },
+            state
+        );
+        expect(reenabled.readerPreferences).toMatchObject({
+            sortFrequencyDictionary: 'Frequency',
+            sortFrequencyDictionaryOrder: 'ascending',
+        });
+        expect(reenabled.warnings).toEqual([]);
     });
 
     it('supports modern card formats and object field values', () => {

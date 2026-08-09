@@ -56,6 +56,8 @@ _main_definition_html = _note.main_definition_html
 _plain_definition_html = _note.plain_definition_html
 _first_dictionary = _note.first_dictionary
 _frequency_html = _note.frequency_html
+_single_frequency_html = _note.single_frequency_html
+_single_frequency_number_text = _note.single_frequency_number_text
 _pitch_html = _note.pitch_html
 _pitch_positions_text = _note.pitch_positions_text
 
@@ -105,16 +107,16 @@ FIELD_TEMPLATE_MARKER_KEYS = {
     "cloze-suffix": "sentence",
     "frequency": "frequency",
     "frequencies": "frequency",
-    "frequency-harmonic-rank": "frequency",
-    "frequency-harmonic-occurrence": "frequency",
-    "frequency-average-rank": "frequency",
-    "frequency-average-occurrence": "frequency",
+    "frequency-harmonic-rank": "frequency-harmonic-rank",
+    "frequency-harmonic-occurrence": "frequency-harmonic-occurrence",
+    "frequency-average-rank": "frequency-average-rank",
+    "frequency-average-occurrence": "frequency-average-occurrence",
     "pitch": "pitch",
     "pitch-accent": "pitch",
     "pitch-accents": "pitch",
     "pitch-accent-graphs": "pitch",
     "pitch-accent-graphs-jj": "pitch",
-    "pitch-accent-categories": "pitch",
+    "pitch-accent-categories": "pitch-categories",
     "pitch-position": "pitch-position",
     "pitch-accent-positions": "pitch-position",
     "audio": "audio",
@@ -178,25 +180,44 @@ KIKU_LAPIS_FIELD_MAP = {
     "frequency": "Frequency",
     "pitch": "PitchPosition",
 }
-KIKU_RICH_FIELD_TEMPLATES = {
+# Kiku's Yomitan setup uses a dictionary-specific ``single-glossary-*`` marker
+# for MainDefinition. Hoshidicts' equivalent is ``main-definition``, which
+# renders the first dictionary group in the configured lookup order.
+KIKU_YOMITAN_FIELD_TEMPLATES = {
+    "Expression": ("expression", "{expression}"),
     "ExpressionFurigana": ("expression-furigana", "{furigana-plain}"),
+    "ExpressionReading": ("reading", "{reading}"),
+    "ExpressionAudio": ("audio", "{audio}"),
+    "SelectionText": ("selection-text", "{popup-selection-text}"),
     "MainDefinition": ("main-definition", "{main-definition}"),
     "Glossary": ("glossary", "{glossary}"),
+    "Sentence": (
+        "sentence",
+        "{cloze-prefix}<b>{cloze-body}</b>{cloze-suffix}",
+    ),
     "SentenceFurigana": ("sentence-furigana", "{sentence-furigana-plain}"),
-    "ExpressionAudio": ("audio", "{audio}"),
+    "PitchPosition": ("pitch", "{pitch-accent-positions}"),
+    "PitchCategories": ("pitch-categories", "{pitch-accent-categories}"),
+    "Frequency": ("frequency", "{frequencies}"),
+    "FreqSort": ("frequency-sort", "{frequency-harmonic-rank}"),
+    "MiscInfo": ("document-title", "{document-title}"),
 }
 FIELD_TEMPLATE_SUGGESTION_SLOTS = (
     "expression",
     "expression-furigana",
     "reading",
+    "audio",
+    "selection-text",
     "main-definition",
     "glossary",
     "definition",
     "sentence",
     "sentence-furigana",
-    "frequency",
     "pitch",
-    "audio",
+    "pitch-categories",
+    "frequency",
+    "frequency-sort",
+    "document-title",
 )
 
 
@@ -420,15 +441,8 @@ def _suggest_field_templates(
     for key, field_aliases in GENERIC_FIELD_ALIASES.items():
         for alias in field_aliases:
             add_match(alias, key, FIELD_TEMPLATE_MARKERS[key])
-    for key in ("expression", "reading", "sentence", "frequency", "pitch"):
-        marker = PITCH_POSITION_FIELD_TEMPLATE_MARKER if key == "pitch" else FIELD_TEMPLATE_MARKERS[key]
-        add_match(KIKU_LAPIS_FIELD_MAP[key], key, marker)
-    glossary_key = _field_name_key(KIKU_LAPIS_FIELD_MAP["definition"])
-    matches_by_field_name[glossary_key] = [
-        match for match in matches_by_field_name.get(glossary_key, []) if match[0] != "definition"
-    ]
-    for field_name, (slot, marker) in KIKU_RICH_FIELD_TEMPLATES.items():
-        add_match(field_name, slot, marker)
+    for field_name, (slot, marker) in KIKU_YOMITAN_FIELD_TEMPLATES.items():
+        matches_by_field_name[_field_name_key(field_name)] = [(slot, marker)]
     add_match(
         str(config.anki.word_field or "").strip(),
         "expression",
@@ -532,13 +546,26 @@ def _resolve_target_field_templates(
         initial_modes = {}
         for field_name, template in suggested.items():
             entries = []
-            for match in FIELD_TEMPLATE_MARKER_PATTERN.finditer(template):
-                semantic = _field_template_marker_semantic(match.group(1))
-                if semantic is not None and not any(existing == semantic for existing, _marker in entries):
-                    entries.append((semantic, match.group(0)))
-            entries.sort(key=lambda item: FIELD_KEYS.index(item[0]))
+            identities = set()
+            for segment in FIELD_TEMPLATE_BREAK_PATTERN.split(template):
+                if not segment:
+                    continue
+                semantics = [
+                    semantic
+                    for match in FIELD_TEMPLATE_MARKER_PATTERN.finditer(segment)
+                    if (semantic := _field_template_marker_semantic(match.group(1))) is not None
+                ]
+                semantic = semantics[0] if semantics and len(set(semantics)) == 1 else ""
+                identity = semantic or f"template:{segment.casefold()}"
+                if identity in identities:
+                    continue
+                identities.add(identity)
+                entries.append((semantic, segment))
+            entries.sort(key=lambda item: FIELD_KEYS.index(item[0]) if item[0] in FIELD_KEYS else len(FIELD_KEYS))
             assignments[field_name] = entries
-            initial_modes[field_name] = profile["fieldOverwriteModes"][entries[0][0]] if entries else "coalesce"
+            initial_modes[field_name] = (
+                profile["fieldOverwriteModes"][entries[0][0]] if entries and entries[0][0] in FIELD_KEYS else "coalesce"
+            )
 
         disabled_fields = set(profile.get("disabledFields", []))
         for key in FIELD_KEYS:
@@ -563,11 +590,17 @@ def _resolve_target_field_templates(
 
         resolved_templates = {}
         for field_name, entries in assignments.items():
-            entries.sort(key=lambda item: FIELD_KEYS.index(item[0]))
+            entries.sort(key=lambda item: FIELD_KEYS.index(item[0]) if item[0] in FIELD_KEYS else len(FIELD_KEYS))
+            overwrite_key = next(
+                (semantic for semantic, _marker in entries if semantic in FIELD_KEYS),
+                None,
+            )
             resolved_templates[field_name] = {
                 "value": "<br>".join(marker for _semantic, marker in entries),
                 "overwriteMode": (
-                    profile["fieldOverwriteModes"][entries[0][0]] if entries else initial_modes[field_name]
+                    profile["fieldOverwriteModes"][overwrite_key]
+                    if overwrite_key is not None
+                    else initial_modes[field_name]
                 ),
             }
 
@@ -1240,6 +1273,55 @@ def _dynamic_glossary_values(
     return values
 
 
+def _dynamic_frequency_values(
+    request: dict[str, Any],
+    field_templates: dict[str, dict[str, str]],
+) -> dict[str, str]:
+    used_markers = {
+        marker
+        for template in field_templates.values()
+        for match in FIELD_TEMPLATE_MARKER_PATTERN.finditer(template["value"])
+        if (marker := match.group(1).casefold()).startswith("single-frequency-")
+    }
+    if not used_markers:
+        return {}
+
+    dictionaries = request.get("frequencyDictionaries")
+    if dictionaries is None:
+        # Older overlay builds did not include the configured dictionary
+        # registry, so retain their current-result fallback for compatibility.
+        dictionaries = list(dict.fromkeys(group["dictionary"] for group in request["term"]["frequencies"]))
+    marker_options: dict[str, tuple[str, str]] = {}
+    for dictionary in dictionaries:
+        marker_name = _yomitan_kebab_case(dictionary)
+        if not marker_name:
+            continue
+        # Yomitan registers these inline templates in this order for each
+        # configured dictionary. Handlebars resolves duplicate inline names to
+        # the last definition, so assignment order is significant here.
+        marker_options[f"single-frequency-number-{marker_name}"] = (
+            dictionary,
+            "number",
+        )
+        marker_options[f"single-frequency-{marker_name}"] = (
+            dictionary,
+            "display",
+        )
+
+    values = {}
+    for marker in used_markers:
+        options = marker_options.get(marker)
+        if options is None:
+            continue
+        dictionary, output = options
+        values[f"{{{marker}}}"] = (
+            _single_frequency_number_text(request, dictionary)
+            if output == "number"
+            else _single_frequency_html(request, dictionary)
+        )
+    return values
+
+
 def _template_values_for_fields(
     request: dict[str, Any],
     resolved: dict[str, Any],
@@ -1264,6 +1346,7 @@ def _template_values_for_fields(
         sentence_furigana=sentence_furigana,
     )
     values.update(_dynamic_glossary_values(request, field_templates))
+    values.update(_dynamic_frequency_values(request, field_templates))
     return values
 
 
@@ -1331,6 +1414,80 @@ def _phonetic_transcriptions_html(request: dict[str, Any]) -> str:
     )
 
 
+def _frequency_numbers(
+    request: dict[str, Any],
+    requested_mode: str | None,
+) -> list[float]:
+    numbers = []
+    for group in request["term"]["frequencies"]:
+        frequency_mode = group.get("frequencyMode")
+        if requested_mode is not None and frequency_mode is not None and frequency_mode != requested_mode:
+            continue
+        for frequency in group["frequencies"]:
+            display_value = frequency["displayValue"]
+            if display_value is not None:
+                match = re.match(r"^\d+", display_value)
+                if match is not None:
+                    parsed = int(match.group(0))
+                    if parsed > 0:
+                        numbers.append(float(parsed))
+                        break
+            value = frequency["value"]
+            if value > 0:
+                numbers.append(float(value))
+                break
+    return numbers
+
+
+def _frequency_aggregate_text(
+    request: dict[str, Any],
+    requested_mode: str,
+    *,
+    harmonic: bool,
+) -> str:
+    numbers = _frequency_numbers(request, requested_mode)
+    if not numbers:
+        return "9999999" if requested_mode == "rank-based" else "0"
+    if harmonic:
+        value = len(numbers) / sum(1 / number for number in numbers)
+    else:
+        value = sum(numbers) / len(numbers)
+    return str(int(value))
+
+
+_SMALL_KANA = frozenset("ぁぃぅぇぉゃゅょゎァィゥェォャュョヮ")
+_VERB_OR_ADJECTIVE_RULES = frozenset({"v1", "v5", "vk", "vs", "vz", "adj-i"})
+
+
+def _pitch_categories_text(request: dict[str, Any]) -> str:
+    term = request["term"]
+    word_classes = set(_unique_marker_tokens([term["rules"]]))
+    is_verb_or_adjective = bool(word_classes & _VERB_OR_ADJECTIVE_RULES) and not (
+        "vs" in word_classes and "n" in word_classes
+    )
+    reading = term["reading"] or term["expression"]
+    mora_count = sum(1 for index, character in enumerate(reading) if character not in _SMALL_KANA or index == 0)
+    categories = []
+    seen = set()
+    for group in term["pitches"]:
+        for pitch in group["pitches"]:
+            position = pitch["position"]
+            if position == 0:
+                category = "heiban"
+            elif is_verb_or_adjective and position > 0:
+                category = "kifuku"
+            elif position == 1:
+                category = "atamadaka"
+            elif position > 1:
+                category = "odaka" if position >= mora_count else "nakadaka"
+            else:
+                continue
+            if category not in seen:
+                seen.add(category)
+                categories.append(category)
+    return ",".join(categories)
+
+
 def _field_template_values(
     request: dict[str, Any],
     *,
@@ -1384,6 +1541,9 @@ def _field_template_values(
     conjugation = " « ".join(html.escape(step["name"]) for step in request["trace"])
     if not conjugation:
         conjugation = html.escape(term["rules"])
+    frequency = _frequency_html(request)
+    pitch = _pitch_html(request)
+    pitch_positions = _pitch_positions_text(request)
     return {
         "{expression}": expression,
         "{reading}": reading,
@@ -1412,9 +1572,32 @@ def _field_template_values(
         "{sentence}": highlighted_sentence,
         "{sentence-furigana}": sentence_furigana_html,
         "{sentence-furigana-plain}": sentence_furigana_plain,
-        "{frequency}": _frequency_html(request),
-        "{pitch}": _pitch_html(request),
-        PITCH_POSITION_FIELD_TEMPLATE_MARKER: _pitch_positions_text(request),
+        "{frequency}": frequency,
+        "{frequencies}": frequency,
+        "{frequency-harmonic-rank}": _frequency_aggregate_text(
+            request,
+            "rank-based",
+            harmonic=True,
+        ),
+        "{frequency-harmonic-occurrence}": _frequency_aggregate_text(
+            request,
+            "occurrence-based",
+            harmonic=True,
+        ),
+        "{frequency-average-rank}": _frequency_aggregate_text(
+            request,
+            "rank-based",
+            harmonic=False,
+        ),
+        "{frequency-average-occurrence}": _frequency_aggregate_text(
+            request,
+            "occurrence-based",
+            harmonic=False,
+        ),
+        "{pitch}": pitch,
+        PITCH_POSITION_FIELD_TEMPLATE_MARKER: pitch_positions,
+        "{pitch-accent-positions}": pitch_positions,
+        "{pitch-accent-categories}": _pitch_categories_text(request),
         "{audio}": audio_value,
         "{cloze-prefix}": cloze_prefix,
         "{cloze-body}": cloze_body,
@@ -1435,13 +1618,21 @@ def _render_field_template(
         folded_key = f"{{{marker}}}"
         if folded_key in values:
             return values[folded_key]
+        if marker.startswith("single-frequency-"):
+            return ""
         marker_key = _field_template_marker_key(marker)
         if marker_key == "audio":
             return values["{audio}"]
-        if marker_key in {"pitch", "pitch-position"}:
-            return values[PITCH_POSITION_FIELD_TEMPLATE_MARKER] if marker_key == "pitch-position" else values["{pitch}"]
+        if marker_key in {"pitch", "pitch-position", "pitch-categories"}:
+            if marker_key == "pitch-position":
+                return values[PITCH_POSITION_FIELD_TEMPLATE_MARKER]
+            if marker_key == "pitch-categories":
+                return values["{pitch-accent-categories}"]
+            return values["{pitch}"]
         if marker_key == "frequency":
             return values["{frequency}"]
+        if marker_key is not None and marker_key.startswith("frequency-"):
+            return values.get(f"{{{marker_key}}}", "")
         if marker_key == "sentence":
             return values["{sentence}"]
         if marker_key == "definition":
