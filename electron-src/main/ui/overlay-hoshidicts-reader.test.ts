@@ -2470,6 +2470,51 @@ describe("Hoshidicts dictionary tabs", () => {
     harness.reader.destroy();
   });
 
+  it("renders one large lookup response without dropping dictionaries or glossary text", async () => {
+    const harness = createReaderHarness({
+      lookupMode: "hover",
+      dictionaryPresentation: undefined
+    });
+    const tailMarker = "FIRST_DICTIONARY_TAIL";
+    const structuredGlossary = JSON.stringify({
+      type: "structured-content",
+      content: [
+        ...Array.from({ length: 4096 }, () => "x".repeat(32)),
+        tailMarker
+      ]
+    });
+    const response = await renderFirstLookup(harness, {
+      shiftKey: false,
+      transform(result) {
+        result.dictionaryCount = 70;
+        result.results[0].term.glossaries = Array.from(
+          { length: 70 },
+          (_, index) => ({
+            dictionary: `Dictionary ${index}`,
+            glossary: index === 0
+              ? structuredGlossary
+              : `definition-${index}:${"y".repeat(2 * 1024)}`,
+            definitionTags: "",
+            termTags: ""
+          })
+        );
+      }
+    });
+
+    expect(new TextEncoder().encode(JSON.stringify(response)).length)
+      .toBeGreaterThan(256 * 1024);
+    const popup = harness.reader.getPopupElement();
+    expect(popup.querySelectorAll(".gsm-hoshidicts-glossary-card"))
+      .toHaveLength(70);
+    expect(
+      popup.querySelector<HTMLElement>(
+        '.gsm-hoshidicts-glossary-content[data-hoshidicts-dictionary="Dictionary 0"]'
+      )?.textContent
+    ).toContain(tailMarker);
+    expect(popup.textContent).toContain("definition-69");
+    harness.reader.destroy();
+  });
+
   it("hides the tab strip when no matching dictionary is favorited", async () => {
     const { lookup, reader } = createLookupHarness({
       dictionaryPresentation: [
@@ -3255,7 +3300,7 @@ describe("Hoshidicts dictionary tabs", () => {
     reader.destroy();
   });
 
-  it("omits whole styles deterministically to keep mining requests bounded", async () => {
+  it("keeps complete dictionary styles in large mining requests", async () => {
     const checkMiningNotes = vi.fn(async (payload) => ({
       success: true,
       duplicatePolicy: "prevent",
@@ -3307,20 +3352,20 @@ describe("Hoshidicts dictionary tabs", () => {
       (note) => Object.hasOwn(note, "dictionaryStyles")
     );
     expect(new TextEncoder().encode(JSON.stringify(duplicatePayload)).length)
-      .toBeLessThanOrEqual(4 * 1024 * 1024);
-    expect(styledNotes).toHaveLength(15);
-    expect(duplicatePayload.notes.slice(0, 15).every(
+      .toBeLessThanOrEqual(64 * 1024 * 1024);
+    expect(styledNotes).toHaveLength(16);
+    expect(duplicatePayload.notes.every(
       (note) => note.dictionaryStyles?.[0]?.styles.length === 256 * 1024
     )).toBe(true);
-    expect(duplicatePayload.notes[15]).not.toHaveProperty("dictionaryStyles");
 
     popup
       .querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")
       ?.click();
     await flushPromises();
-    expect(mine.mock.calls.at(-1)?.[0]).not.toHaveProperty("dictionaryStyles");
+    expect(mine.mock.calls.at(-1)?.[0].dictionaryStyles?.[0]?.styles)
+      .toHaveLength(256 * 1024);
     expect(new TextEncoder().encode(JSON.stringify(mine.mock.calls.at(-1)?.[0])).length)
-      .toBeLessThanOrEqual(256 * 1024);
+      .toBeLessThanOrEqual(64 * 1024 * 1024);
     reader.destroy();
   });
 

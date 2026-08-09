@@ -11,7 +11,7 @@ pub const MANIFEST_FILE_NAME: &str = "manifest.json";
 pub const LOOKUP_SCAN_LENGTH: usize = 10;
 pub const LOOKUP_MAX_RESULTS: c_int = 16;
 pub const MAX_LOOKUP_TEXT_BYTES: usize = 4 * 1024;
-pub const MAX_LOOKUP_RESPONSE_BYTES: usize = 256 * 1024;
+pub const MAX_LOOKUP_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
 pub const MAX_REQUEST_ID_BYTES: usize = 128;
 pub const MAX_MEDIA_DICTIONARY_BYTES: usize = 1024;
 pub const MAX_MEDIA_PATH_BYTES: usize = 4 * 1024;
@@ -23,19 +23,14 @@ pub const MAX_STYLES_RESPONSE_BYTES: usize = 3 * 1024 * 1024;
 
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 const MAX_DICTIONARIES: usize = 256;
-const MAX_NATIVE_STRING_BYTES: usize = 128 * 1024;
-const MAX_NATIVE_AGGREGATE_STRINGS: usize = 4096;
+// A single structured glossary can legitimately occupy most of a response.
+// The aggregate response ceiling is the only useful per-string ceiling too.
+const MAX_NATIVE_STRING_BYTES: usize = MAX_LOOKUP_RESPONSE_BYTES;
+const MAX_NATIVE_AGGREGATE_STRINGS: usize = 1024 * 1024;
 const MAX_DICTIONARY_STYLE_BYTES: usize = 256 * 1024;
 const MAX_DICTIONARY_STYLES_BYTES: usize = 2 * 1024 * 1024;
 const MAX_STYLE_DICTIONARY_BYTES: usize = 1024;
-const MAX_GLOSSARIES: usize = 64;
 const MAX_TRACE_STEPS: usize = 32;
-const MAX_FREQUENCY_ENTRIES: usize = 64;
-const MAX_FREQUENCIES_PER_ENTRY: usize = 64;
-const MAX_PITCH_ENTRIES: usize = 64;
-const MAX_PITCHES_PER_ENTRY: usize = 64;
-const MAX_PITCH_MARKERS: usize = 128;
-const MAX_TRANSCRIPTIONS_PER_ENTRY: usize = 64;
 const MAX_KANJI_ENTRIES: usize = 64;
 const MAX_KANJI_DEFINITIONS_PER_ENTRY: usize = 64;
 const MAX_KANJI_STATS_PER_ENTRY: usize = 128;
@@ -1244,7 +1239,7 @@ impl NativeEngine {
         let native_results =
             unsafe { checked_slice(result_pointer, result_count, "lookup results")? };
 
-        let mut glossary_count = 0usize;
+        let mut copy_budget = NativeCopyBudget::new();
         native_results
             .iter()
             .map(|result| unsafe {
@@ -1253,45 +1248,90 @@ impl NativeEngine {
                     .iter()
                     .map(|step| {
                         Ok(LookupTrace {
-                            name: copy_hd_string(step.name, "trace name")?,
-                            description: copy_hd_string(step.description, "trace description")?,
+                            name: copy_hd_string_bounded(
+                                step.name,
+                                "trace name",
+                                &mut copy_budget,
+                            )?,
+                            description: copy_hd_string_bounded(
+                                step.description,
+                                "trace description",
+                                &mut copy_budget,
+                            )?,
                         })
                     })
                     .collect::<Result<Vec<_>, String>>()?;
 
-                let remaining_glossaries = MAX_GLOSSARIES.saturating_sub(glossary_count);
-                let current_glossary_count = result.term.glossaries_count.min(remaining_glossaries);
-                let glossaries =
-                    checked_slice(result.term.glossaries, current_glossary_count, "glossaries")?
-                        .iter()
-                        .map(|glossary| {
-                            Ok(LookupGlossary {
-                                dictionary: copy_hd_string(
-                                    glossary.dict_name,
-                                    "glossary dictionary",
-                                )?,
-                                glossary: copy_hd_string(glossary.glossary, "glossary content")?,
-                                definition_tags: copy_hd_string(
-                                    glossary.definition_tags,
-                                    "definition tags",
-                                )?,
-                                term_tags: copy_hd_string(glossary.term_tags, "term tags")?,
-                            })
-                        })
-                        .collect::<Result<Vec<_>, String>>()?;
-                glossary_count += glossaries.len();
-                let frequencies =
-                    copy_frequency_entries(result.term.frequencies, result.term.frequencies_count)?;
-                let pitches = copy_pitch_entries(result.term.pitches, result.term.pitches_count)?;
+                let glossaries = checked_slice(
+                    result.term.glossaries,
+                    result.term.glossaries_count,
+                    "glossaries",
+                )?
+                .iter()
+                .map(|glossary| {
+                    Ok(LookupGlossary {
+                        dictionary: copy_hd_string_bounded(
+                            glossary.dict_name,
+                            "glossary dictionary",
+                            &mut copy_budget,
+                        )?,
+                        glossary: copy_hd_string_bounded(
+                            glossary.glossary,
+                            "glossary content",
+                            &mut copy_budget,
+                        )?,
+                        definition_tags: copy_hd_string_bounded(
+                            glossary.definition_tags,
+                            "definition tags",
+                            &mut copy_budget,
+                        )?,
+                        term_tags: copy_hd_string_bounded(
+                            glossary.term_tags,
+                            "term tags",
+                            &mut copy_budget,
+                        )?,
+                    })
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+                let frequencies = copy_frequency_entries(
+                    result.term.frequencies,
+                    result.term.frequencies_count,
+                    &mut copy_budget,
+                )?;
+                let pitches = copy_pitch_entries(
+                    result.term.pitches,
+                    result.term.pitches_count,
+                    &mut copy_budget,
+                )?;
 
                 Ok(LookupResult {
-                    matched: copy_hd_string(result.matched, "matched text")?,
-                    deinflected: copy_hd_string(result.deinflected, "deinflected text")?,
+                    matched: copy_hd_string_bounded(
+                        result.matched,
+                        "matched text",
+                        &mut copy_budget,
+                    )?,
+                    deinflected: copy_hd_string_bounded(
+                        result.deinflected,
+                        "deinflected text",
+                        &mut copy_budget,
+                    )?,
                     trace,
                     term: LookupTerm {
-                        expression: copy_hd_string(result.term.expression, "term expression")?,
-                        reading: copy_hd_string(result.term.reading, "term reading")?,
-                        rules: copy_hd_string(result.term.rules, "term rules")?,
+                        expression: copy_hd_string_bounded(
+                            result.term.expression,
+                            "term expression",
+                            &mut copy_budget,
+                        )?,
+                        reading: copy_hd_string_bounded(
+                            result.term.reading,
+                            "term reading",
+                            &mut copy_budget,
+                        )?,
+                        rules: copy_hd_string_bounded(
+                            result.term.rules,
+                            "term rules",
+                            &mut copy_budget,
+                        )?,
                         score: result.term.score,
                         glossaries,
                         frequencies,
@@ -1576,87 +1616,88 @@ unsafe fn copy_hd_string_bounded(
 unsafe fn copy_frequency_entries(
     pointer: *const HdFrequencyEntryV2,
     count: usize,
+    budget: &mut NativeCopyBudget,
 ) -> Result<Vec<LookupFrequencyEntry>, String> {
-    checked_slice(
-        pointer,
-        count.min(MAX_FREQUENCY_ENTRIES),
-        "frequency entries",
-    )?
-    .iter()
-    .map(|entry| {
-        let frequencies = checked_slice(
-            entry.frequencies,
-            entry.frequencies_count.min(MAX_FREQUENCIES_PER_ENTRY),
-            "frequency values",
-        )?
+    checked_slice(pointer, count, "frequency entries")?
         .iter()
-        .map(|frequency| {
-            if !frequency.value.is_finite() {
-                return Err("native frequency value was not finite".into());
-            }
-            Ok(LookupFrequency {
-                value: frequency.value,
-                display_value: if frequency.display_value_is_null != 0 {
-                    None
-                } else {
-                    Some(copy_hd_string(
-                        frequency.display_value,
-                        "frequency display value",
-                    )?)
-                },
+        .map(|entry| {
+            let frequencies = checked_slice(
+                entry.frequencies,
+                entry.frequencies_count,
+                "frequency values",
+            )?
+            .iter()
+            .map(|frequency| {
+                if !frequency.value.is_finite() {
+                    return Err("native frequency value was not finite".into());
+                }
+                Ok(LookupFrequency {
+                    value: frequency.value,
+                    display_value: if frequency.display_value_is_null != 0 {
+                        None
+                    } else {
+                        Some(copy_hd_string_bounded(
+                            frequency.display_value,
+                            "frequency display value",
+                            budget,
+                        )?)
+                    },
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+            Ok(LookupFrequencyEntry {
+                dictionary: copy_hd_string_bounded(
+                    entry.dict_name,
+                    "frequency dictionary",
+                    budget,
+                )?,
+                frequencies,
             })
         })
-        .collect::<Result<Vec<_>, String>>()?;
-        Ok(LookupFrequencyEntry {
-            dictionary: copy_hd_string(entry.dict_name, "frequency dictionary")?,
-            frequencies,
-        })
-    })
-    .collect()
+        .collect()
 }
 
 unsafe fn copy_pitch_entries(
     pointer: *const HdPitchEntry,
     count: usize,
+    budget: &mut NativeCopyBudget,
 ) -> Result<Vec<LookupPitchEntry>, String> {
-    checked_slice(pointer, count.min(MAX_PITCH_ENTRIES), "pitch entries")?
+    checked_slice(pointer, count, "pitch entries")?
         .iter()
         .map(|entry| {
-            let pitches = checked_slice(
-                entry.pitches,
-                entry.pitches_count.min(MAX_PITCHES_PER_ENTRY),
-                "pitch values",
-            )?
-            .iter()
-            .map(|pitch| {
-                Ok(LookupPitch {
-                    position: pitch.position,
-                    pattern: copy_hd_string(pitch.pattern, "pitch pattern")?,
-                    nasal: checked_slice(
-                        pitch.nasal,
-                        pitch.nasal_count.min(MAX_PITCH_MARKERS),
-                        "pitch nasal markers",
-                    )?
-                    .to_vec(),
-                    devoice: checked_slice(
-                        pitch.devoice,
-                        pitch.devoice_count.min(MAX_PITCH_MARKERS),
-                        "pitch devoice markers",
-                    )?
-                    .to_vec(),
+            let pitches = checked_slice(entry.pitches, entry.pitches_count, "pitch values")?
+                .iter()
+                .map(|pitch| {
+                    Ok(LookupPitch {
+                        position: pitch.position,
+                        pattern: copy_hd_string_bounded(pitch.pattern, "pitch pattern", budget)?,
+                        nasal: checked_slice(
+                            pitch.nasal,
+                            pitch.nasal_count,
+                            "pitch nasal markers",
+                        )?
+                        .to_vec(),
+                        devoice: checked_slice(
+                            pitch.devoice,
+                            pitch.devoice_count,
+                            "pitch devoice markers",
+                        )?
+                        .to_vec(),
+                    })
                 })
-            })
-            .collect::<Result<Vec<_>, String>>()?;
+                .collect::<Result<Vec<_>, String>>()?;
             let transcriptions = checked_slice(
                 entry.transcriptions,
-                entry.transcriptions_count.min(MAX_TRANSCRIPTIONS_PER_ENTRY),
+                entry.transcriptions_count,
                 "pitch transcriptions",
             )?
             .iter()
-            .map(|transcription| copy_hd_string(*transcription, "pitch transcription"))
+            .map(|transcription| {
+                copy_hd_string_bounded(*transcription, "pitch transcription", budget)
+            })
             .collect::<Result<Vec<_>, String>>()?;
             Ok(LookupPitchEntry {
-                dictionary: copy_hd_string(entry.dict_name, "pitch dictionary")?,
+                dictionary: copy_hd_string_bounded(entry.dict_name, "pitch dictionary", budget)?,
                 pitches,
                 transcriptions,
             })
@@ -2660,6 +2701,49 @@ mod tests {
         );
     }
 
+    fn write_large_glossary_archive(path: &Path, title: &str, marker: &str) {
+        let file = fs::File::create(path).expect("create large glossary archive");
+        let mut archive = zip::ZipWriter::new(file);
+        let options =
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        archive
+            .start_file("index.json", options)
+            .expect("start large glossary index");
+        archive
+            .write_all(
+                serde_json::json!({
+                    "title": title,
+                    "revision": "1",
+                    "format": 3,
+                    "sourceLanguage": "ja",
+                })
+                .to_string()
+                .as_bytes(),
+            )
+            .expect("write large glossary index");
+        archive
+            .start_file("term_bank_1.json", options)
+            .expect("start large glossary term bank");
+        let glossary = format!("{marker}:{}", "x".repeat(140 * 1024));
+        archive
+            .write_all(
+                serde_json::to_vec(&vec![serde_json::json!([
+                    "膨大",
+                    "ぼうだい",
+                    "",
+                    "",
+                    0,
+                    [glossary],
+                    1,
+                    ""
+                ])])
+                .expect("serialize large glossary term bank")
+                .as_slice(),
+            )
+            .expect("write large glossary term bank");
+        archive.finish().expect("finish large glossary archive");
+    }
+
     #[test]
     fn request_ids_and_lookup_text_are_bounded() {
         assert!(RequestId::Number(42).validate().is_ok());
@@ -2672,41 +2756,22 @@ mod tests {
     }
 
     #[test]
-    fn native_copy_budget_rejects_oversized_aggregate_kanji_results() {
-        let chunk = vec![b'x'; MAX_NATIVE_STRING_BYTES];
-        let value = HdStr {
-            ptr: chunk.as_ptr().cast::<c_char>(),
-            len: chunk.len(),
-        };
+    fn native_copy_budget_rejects_oversized_aggregate_results() {
         let mut byte_budget = NativeCopyBudget::new();
-        unsafe {
-            copy_hd_string_bounded(value, "test value", &mut byte_budget)
-                .expect("first bounded string");
-            copy_hd_string_bounded(value, "test value", &mut byte_budget)
-                .expect("second bounded string");
-            assert!(
-                copy_hd_string_bounded(value, "test value", &mut byte_budget)
-                    .expect_err("aggregate byte limit must fail")
-                    .contains("aggregate response limit")
-            );
-        }
+        byte_budget
+            .claim(MAX_LOOKUP_RESPONSE_BYTES, "test value")
+            .expect("full aggregate byte budget");
+        assert!(byte_budget
+            .claim(1, "test value")
+            .expect_err("aggregate byte limit must fail")
+            .contains("aggregate response limit"));
 
-        let empty = HdStr {
-            ptr: ptr::null(),
-            len: 0,
-        };
         let mut item_budget = NativeCopyBudget::new();
-        unsafe {
-            for _ in 0..MAX_NATIVE_AGGREGATE_STRINGS {
-                copy_hd_string_bounded(empty, "test value", &mut item_budget)
-                    .expect("bounded empty string");
-            }
-            assert!(
-                copy_hd_string_bounded(empty, "test value", &mut item_budget)
-                    .expect_err("aggregate item limit must fail")
-                    .contains("aggregate response limit")
-            );
-        }
+        item_budget.strings = MAX_NATIVE_AGGREGATE_STRINGS;
+        assert!(item_budget
+            .claim(0, "test value")
+            .expect_err("aggregate item limit must fail")
+            .contains("aggregate response limit"));
     }
 
     #[test]
@@ -2785,7 +2850,12 @@ mod tests {
         }];
 
         let copied = unsafe {
-            copy_frequency_entries(entries.as_ptr(), entries.len()).expect("valid frequencies")
+            copy_frequency_entries(
+                entries.as_ptr(),
+                entries.len(),
+                &mut NativeCopyBudget::new(),
+            )
+            .expect("valid frequencies")
         };
         assert_eq!(
             copied,
@@ -2828,11 +2898,15 @@ mod tests {
             frequencies_count: values.len(),
         }];
 
-        assert!(
-            unsafe { copy_frequency_entries(entries.as_ptr(), entries.len()) }
-                .expect_err("non-finite value must fail")
-                .contains("not finite")
-        );
+        assert!(unsafe {
+            copy_frequency_entries(
+                entries.as_ptr(),
+                entries.len(),
+                &mut NativeCopyBudget::new(),
+            )
+        }
+        .expect_err("non-finite value must fail")
+        .contains("not finite"));
     }
 
     #[test]
@@ -3367,6 +3441,62 @@ mod tests {
             Err(MediaError::StaleGeneration)
         );
         drop(service);
+    }
+
+    #[test]
+    fn native_lookup_preserves_large_glossaries_from_every_enabled_dictionary() {
+        let root = TestDir::new("large-multi-dictionary-glossary");
+        let titles = ["Large Alpha", "Large Beta", "Large Gamma"];
+        for (index, title) in titles.iter().enumerate() {
+            let archive_path = root.0.join(format!("dictionary-{index}.zip"));
+            write_large_glossary_archive(&archive_path, title, &format!("definition-{index}"));
+            let report = import_dictionary(&archive_path, &root.0);
+            assert!(report.success, "dictionary import failed: {}", report.error);
+        }
+        fs::write(
+            root.0.join(MANIFEST_FILE_NAME),
+            serde_json::json!({
+                "version": 1,
+                "dictionaries": titles
+                    .iter()
+                    .enumerate()
+                    .map(|(index, title)| serde_json::json!({
+                        "id": format!("large-{index}"),
+                        "path": title,
+                    }))
+                    .collect::<Vec<_>>(),
+            })
+            .to_string(),
+        )
+        .expect("write large glossary manifest");
+
+        let mut service = HoshidictsService::new(root.0.clone());
+        assert_eq!(
+            service.activate().expect("activate dictionaries"),
+            titles.len()
+        );
+        let results = service.lookup("膨大").expect("large native lookup");
+        let result = results
+            .iter()
+            .find(|result| result.term.expression == "膨大")
+            .expect("large lookup result");
+        assert_eq!(result.term.glossaries.len(), titles.len());
+        for (index, title) in titles.iter().enumerate() {
+            let glossary = result
+                .term
+                .glossaries
+                .iter()
+                .find(|glossary| glossary.dictionary == *title)
+                .expect("dictionary glossary");
+            assert!(glossary.glossary.contains(&format!("definition-{index}")));
+            assert!(glossary.glossary.len() > 128 * 1024);
+        }
+        assert!(
+            serde_json::to_vec(&results)
+                .expect("serialize large lookup")
+                .len()
+                > 256 * 1024
+        );
     }
 
     #[test]

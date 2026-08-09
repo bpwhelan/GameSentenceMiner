@@ -6,13 +6,13 @@ import math
 import re
 from typing import Any
 
-MAX_REQUEST_BYTES = 256 * 1024
-MAX_TEXT_LENGTH = 128 * 1024
+MAX_REQUEST_BYTES = 64 * 1024 * 1024
+MAX_TEXT_LENGTH = MAX_REQUEST_BYTES
 MAX_TERM_LENGTH = 4096
-MAX_GLOSSARIES = 64
-MAX_METADATA_GROUPS = 64
-MAX_METADATA_VALUES = 64
-MAX_DICTIONARY_STYLES = 64
+MAX_GLOSSARIES = 1_048_576
+MAX_METADATA_GROUPS = 1_048_576
+MAX_METADATA_VALUES = 1_048_576
+MAX_DICTIONARY_STYLES = 256
 MAX_DICTIONARY_STYLE_BYTES = 256 * 1024
 MAX_DICTIONARY_STYLE_NESTING = 32
 MAX_AUDIO_SOURCE_ID_LENGTH = 128
@@ -423,7 +423,7 @@ def validate_hoshidicts_mining_request(value: Any) -> dict[str, Any]:
 
 
 def _append_structured_text(value: Any, output: list[str], state: list[int]) -> None:
-    if state[0] >= 4096:
+    if state[0] >= MAX_STRUCTURED_CONTENT_NODES:
         return
     if isinstance(value, str):
         output.append(value)
@@ -530,7 +530,7 @@ STRUCTURED_CONTENT_EM_PROPERTIES = {
     "marginRight",
     "marginTop",
 }
-MAX_STRUCTURED_CONTENT_NODES = 4096
+MAX_STRUCTURED_CONTENT_NODES = 1_048_576
 MAX_STRUCTURED_CONTENT_DEPTH = 64
 
 

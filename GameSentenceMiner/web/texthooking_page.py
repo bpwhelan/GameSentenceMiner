@@ -47,8 +47,8 @@ AI_TRANSLATION_SETUP_DOCS_URL = "https://docs.gamesentenceminer.com/docs/guides/
 _HOSHIDICTS_GATEWAY_BODY_LIMITS = {
     "/api/hoshidicts/audio/candidates": 32 * 1024,
     "/api/hoshidicts/audio/media": 32 * 1024,
-    "/api/hoshidicts/mine": 256 * 1024,
-    "/api/hoshidicts/mining/check": 4 * 1024 * 1024,
+    "/api/hoshidicts/mine": 64 * 1024 * 1024,
+    "/api/hoshidicts/mining/check": 64 * 1024 * 1024,
 }
 
 app = flask.Flask(__name__, static_folder="static", static_url_path="/static")

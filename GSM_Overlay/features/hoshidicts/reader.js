@@ -118,7 +118,7 @@
   const MAX_DEFINITION_BLUR_LOOKUP_THRESHOLD = 1_000_000;
   const MIN_DEFINITION_BLUR_REVEAL_DELAY_MS = 1000;
   const MAX_DEFINITION_BLUR_REVEAL_DELAY_MS = 60 * 60 * 1000;
-  const MAX_RESPONSE_BYTES = 256 * 1024;
+  const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
   const MAX_LOOKUP_TEXT_BYTES = 4 * 1024;
   const MAX_MEDIA_RESPONSE_BYTES = 6 * 1024 * 1024;
   const MAX_STYLES_RESPONSE_BYTES = 3 * 1024 * 1024;
@@ -136,19 +136,16 @@
   const MAX_POPUP_MEDIA_PIXELS = 32 * 1024 * 1024;
   const MEDIA_REQUEST_TIMEOUT_MS = 4 * 1000;
   const MAX_MEDIA_DISPLAY_SIZE = 1024;
-  const MAX_GLOSSARIES = 64;
   const MAX_TRACE_STEPS = 32;
-  const MAX_METADATA_GROUPS = 64;
-  const MAX_METADATA_VALUES = 64;
   const MAX_TEXT_LENGTH = 128 * 1024;
-  const MAX_MINING_REQUEST_BYTES = 256 * 1024;
-  const MAX_DUPLICATE_CHECK_REQUEST_BYTES = 4 * 1024 * 1024;
+  const MAX_MINING_REQUEST_BYTES = 64 * 1024 * 1024;
+  const MAX_DUPLICATE_CHECK_REQUEST_BYTES = 64 * 1024 * 1024;
   const MINING_REQUEST_TIMEOUT_MS = 90 * 1000;
   const MAX_LOOKUP_STATS_REQUEST_BYTES = 4 * 1024;
   const MAX_LOOKUP_STATS_TEXT_LENGTH = 256;
   const LOOKUP_STATS_REQUEST_TIMEOUT_MS = 2 * 1000;
   const MAX_STRUCTURED_DEPTH = 24;
-  const MAX_STRUCTURED_NODES = 4096;
+  const MAX_STRUCTURED_NODES = 1_048_576;
   const RECONNECT_INITIAL_DELAY_MS = 750;
   const RECONNECT_MAX_DELAY_MS = 12 * 1000;
   const MINING_STATUS_CACHE_MS = 5 * 1000;
@@ -315,7 +312,6 @@
       return [];
     }
 
-    let glossaryCount = 0;
     return payload.results.slice(0, LOOKUP_MAX_RESULTS).map((rawResult) => {
       const result = isRecord(rawResult) ? rawResult : {};
       const rawTerm = isRecord(result.term) ? result.term : {};
@@ -329,27 +325,24 @@
             };
           }).filter((step) => step.name.length > 0)
         : [];
-      const remainingGlossaries = Math.max(0, MAX_GLOSSARIES - glossaryCount);
       const glossaries = Array.isArray(rawTerm.glossaries)
-        ? rawTerm.glossaries.slice(0, remainingGlossaries).map((rawGlossary) => {
+        ? rawTerm.glossaries.map((rawGlossary) => {
             const glossary = isRecord(rawGlossary) ? rawGlossary : {};
             return {
               dictionary: boundedString(glossary.dictionary, 4096) || "Dictionary",
-              glossary: boundedString(glossary.glossary),
+              glossary: typeof glossary.glossary === "string" ? glossary.glossary : "",
               definitionTags: boundedString(glossary.definitionTags, 4096),
               termTags: boundedString(glossary.termTags, 4096),
             };
           })
         : [];
-      glossaryCount += glossaries.length;
       const frequencies = Array.isArray(rawTerm.frequencies)
-        ? rawTerm.frequencies.slice(0, MAX_METADATA_GROUPS).map((rawGroup) => {
+        ? rawTerm.frequencies.map((rawGroup) => {
             const group = isRecord(rawGroup) ? rawGroup : {};
             return {
               dictionary: boundedString(group.dictionary, 4096) || "Dictionary",
               frequencies: Array.isArray(group.frequencies)
-                ? group.frequencies.slice(0, MAX_METADATA_VALUES)
-                    .map((rawFrequency) => {
+                ? group.frequencies.map((rawFrequency) => {
                       const frequency = isRecord(rawFrequency) ? rawFrequency : {};
                       return {
                         value: Number.isFinite(frequency.value)
@@ -366,13 +359,12 @@
           })
         : [];
       const pitches = Array.isArray(rawTerm.pitches)
-        ? rawTerm.pitches.slice(0, MAX_METADATA_GROUPS).map((rawGroup) => {
+        ? rawTerm.pitches.map((rawGroup) => {
             const group = isRecord(rawGroup) ? rawGroup : {};
             return {
               dictionary: boundedString(group.dictionary, 4096) || "Dictionary",
               pitches: Array.isArray(group.pitches)
-                ? group.pitches.slice(0, MAX_METADATA_VALUES)
-                    .map((rawPitch) => {
+                ? group.pitches.map((rawPitch) => {
                       const pitch = isRecord(rawPitch) ? rawPitch : {};
                       return {
                         position: Number.isFinite(pitch.position)
@@ -380,13 +372,11 @@
                           : null,
                         pattern: boundedString(pitch.pattern, 4096),
                         nasal: Array.isArray(pitch.nasal)
-                          ? pitch.nasal.slice(0, MAX_METADATA_VALUES)
-                              .filter(Number.isFinite)
+                          ? pitch.nasal.filter(Number.isFinite)
                               .map(Math.trunc)
                           : [],
                         devoice: Array.isArray(pitch.devoice)
-                          ? pitch.devoice.slice(0, MAX_METADATA_VALUES)
-                              .filter(Number.isFinite)
+                          ? pitch.devoice.filter(Number.isFinite)
                               .map(Math.trunc)
                           : [],
                       };
@@ -394,8 +384,7 @@
                     .filter((pitch) => pitch.position !== null)
                 : [],
               transcriptions: Array.isArray(group.transcriptions)
-                ? group.transcriptions.slice(0, MAX_METADATA_VALUES)
-                    .map((value) => boundedString(value, 4096))
+                ? group.transcriptions.map((value) => boundedString(value, 4096))
                 : [],
             };
           })
@@ -1061,7 +1050,7 @@
     }
     if (typeof value === "string") {
       state.nodes += 1;
-      parent.appendChild(documentRef.createTextNode(value.slice(0, MAX_TEXT_LENGTH)));
+      parent.appendChild(documentRef.createTextNode(value));
       return;
     }
     if (typeof value === "number" || typeof value === "boolean") {
@@ -1204,7 +1193,7 @@
   }
 
   function appendTextOnlyGlossary(documentRef, parent, rawGlossary, options = {}) {
-    const value = boundedString(rawGlossary);
+    const value = typeof rawGlossary === "string" ? rawGlossary : "";
     if (!value) {
       return;
     }
@@ -3895,12 +3884,11 @@
         : rawData instanceof windowRef.ArrayBuffer
           ? new windowRef.TextDecoder().decode(rawData)
           : String(rawData);
-      if (serialized.length > MAX_MEDIA_RESPONSE_BYTES) {
+      if (serialized.length > MAX_RESPONSE_BYTES) {
         diagnostic("warn", "response.too-large", {
           bytes: serialized.length,
-          maxBytes: MAX_MEDIA_RESPONSE_BYTES,
+          maxBytes: MAX_RESPONSE_BYTES,
         });
-        cancelMediaRequests("media_response_too_large");
         return;
       }
       let payload;
@@ -3914,6 +3902,14 @@
         return;
       }
       if (payload.type === "hoshidicts_media_result") {
+        if (serialized.length > MAX_MEDIA_RESPONSE_BYTES) {
+          diagnostic("warn", "media-response.too-large", {
+            bytes: serialized.length,
+            maxBytes: MAX_MEDIA_RESPONSE_BYTES,
+          });
+          cancelMediaRequests("media_response_too_large");
+          return;
+        }
         handleMediaResponse(payload);
         return;
       }

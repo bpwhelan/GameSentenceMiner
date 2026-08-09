@@ -2375,6 +2375,31 @@ fn first_han_character(text: &str) -> Option<String> {
         .map(|character| character.to_string())
 }
 
+fn enforce_hoshidicts_lookup_response_limit(
+    request_id: RequestId,
+    dictionary_count: usize,
+    generation: u64,
+    serialized: String,
+) -> String {
+    if serialized.len() <= MAX_LOOKUP_RESPONSE_BYTES {
+        return serialized;
+    }
+    json!({
+        "type": "hoshidicts_lookup_result",
+        "requestId": request_id,
+        "success": false,
+        "results": [],
+        "kanji": Value::Null,
+        "dictionaryCount": dictionary_count,
+        "generation": generation,
+        "featureDisabled": false,
+        "error": format!(
+            "lookup response exceeds the {MAX_LOOKUP_RESPONSE_BYTES}-byte limit"
+        ),
+    })
+    .to_string()
+}
+
 async fn hoshidicts_lookup_payload(
     request_id: RequestId,
     text: String,
@@ -2473,25 +2498,12 @@ async fn hoshidicts_lookup_payload(
             "error": error,
         }),
     };
-    let serialized = payload.to_string();
-    if serialized.len() <= MAX_LOOKUP_RESPONSE_BYTES {
-        serialized
-    } else {
-        json!({
-            "type": "hoshidicts_lookup_result",
-            "requestId": request_id,
-            "success": false,
-            "results": [],
-            "kanji": Value::Null,
-            "dictionaryCount": dictionary_count,
-            "generation": generation,
-            "featureDisabled": false,
-            "error": format!(
-                "lookup response exceeds the {MAX_LOOKUP_RESPONSE_BYTES}-byte limit"
-            ),
-        })
-        .to_string()
-    }
+    enforce_hoshidicts_lookup_response_limit(
+        request_id,
+        dictionary_count,
+        generation,
+        payload.to_string(),
+    )
 }
 
 fn hoshidicts_styles_result(
@@ -4058,6 +4070,65 @@ mod tests {
                 generation: 7,
             } if id == "styles-1"
         ));
+    }
+
+    #[test]
+    fn large_hoshidicts_lookup_payload_stays_one_complete_json_response() {
+        let request_id = RequestId::Text("lookup-large".into());
+        let dictionaries = ["Large Alpha", "Large Beta", "Large Gamma"];
+        let payload = json!({
+            "type": "hoshidicts_lookup_result",
+            "requestId": &request_id,
+            "success": true,
+            "results": [{
+                "matched": "膨大",
+                "deinflected": "膨大",
+                "trace": [],
+                "term": {
+                    "expression": "膨大",
+                    "reading": "ぼうだい",
+                    "rules": "",
+                    "score": 0,
+                    "glossaries": dictionaries.iter().enumerate().map(|(index, dictionary)| {
+                        json!({
+                            "dictionary": dictionary,
+                            "glossary": format!("definition-{index}:{}", "x".repeat(140 * 1024)),
+                            "definitionTags": "",
+                            "termTags": "",
+                        })
+                    }).collect::<Vec<_>>(),
+                    "frequencies": [],
+                    "pitches": [],
+                },
+                "preprocessorSteps": 0,
+            }],
+            "kanji": Value::Null,
+            "dictionaryCount": dictionaries.len(),
+            "generation": 7,
+            "featureDisabled": false,
+            "error": Value::Null,
+        });
+        let serialized = payload.to_string();
+        assert!(serialized.len() > 256 * 1024);
+        assert!(serialized.len() < MAX_LOOKUP_RESPONSE_BYTES);
+
+        let response = enforce_hoshidicts_lookup_response_limit(
+            request_id,
+            dictionaries.len(),
+            7,
+            serialized.clone(),
+        );
+        assert_eq!(response, serialized);
+        let value: Value = serde_json::from_str(&response).expect("lookup payload");
+        let preserved = value["results"][0]["term"]["glossaries"]
+            .as_array()
+            .expect("glossaries");
+        assert_eq!(preserved.len(), dictionaries.len());
+        for dictionary in dictionaries {
+            assert!(preserved
+                .iter()
+                .any(|glossary| glossary["dictionary"] == dictionary));
+        }
     }
 
     #[tokio::test]

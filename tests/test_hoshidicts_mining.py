@@ -1476,7 +1476,9 @@ def test_dictionary_styles_enforce_count_and_utf8_byte_limits():
     ):
         hoshidicts_mining.validate_hoshidicts_mining_request(payload)
 
-    payload["dictionaryStyles"] = {f"Dictionary {index}": "" for index in range(65)}
+    payload["dictionaryStyles"] = {
+        f"Dictionary {index}": "" for index in range(hoshidicts_mining.MAX_DICTIONARY_STYLES + 1)
+    }
     with pytest.raises(
         hoshidicts_mining.HoshidictsMiningError,
         match="dictionary styles are invalid",
@@ -2110,6 +2112,38 @@ def test_validation_uses_the_overlay_utf16_offset():
     payload["matchOffset"] = 1
     validated = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
     assert hoshidicts_mining._highlight_sentence_match(validated) == ("&lt;<b>食べた</b>&amp;")
+
+
+def test_validation_preserves_large_glossaries_from_more_than_64_dictionaries():
+    payload = _payload()
+    tail_marker = "FIRST_DICTIONARY_TAIL"
+    structured_glossary = json.dumps(
+        {
+            "type": "structured-content",
+            "content": [*["x" * 32 for _ in range(4096)], tail_marker],
+        }
+    )
+    payload["result"]["term"]["glossaries"] = [
+        {
+            "dictionary": f"Dictionary {index}",
+            "glossary": (structured_glossary if index == 0 else f"definition-{index}:" + "x" * (2 * 1024)),
+            "definitionTags": "",
+            "termTags": "",
+        }
+        for index in range(70)
+    ]
+    assert len(json.dumps(payload).encode("utf-8")) > 256 * 1024
+
+    normalized = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+
+    glossaries = normalized["term"]["glossaries"]
+    assert len(glossaries) == 70
+    assert glossaries[0]["glossary"] == structured_glossary
+    assert glossaries[-1]["dictionary"] == "Dictionary 69"
+    rendered = hoshidicts_mining._definition_html(normalized)
+    assert tail_marker in rendered
+    assert "definition-69" in rendered
+    assert tail_marker in hoshidicts_mining._glossary_text(structured_glossary)
 
 
 def test_validation_preserves_decimal_and_nullable_frequency_displays():
@@ -2929,3 +2963,8 @@ def test_hoshidicts_routes_expose_status_and_mining_errors(monkeypatch):
         "code": "duplicate",
     }
     assert mining_calls == [{}]
+
+    large_payload = {"lookup": "x" * (300 * 1024)}
+    response = client.post("/api/hoshidicts/mine", json=large_payload)
+    assert response.status_code == 409
+    assert mining_calls[-1] == large_payload
