@@ -399,12 +399,16 @@ describe('Hoshidicts settings IPC', () => {
     it('imports a selected Yomitan dictionary backup through the existing manager', async () => {
         const cleanup = vi.fn(async () => undefined);
         harness.prepareYomitanDictionaryBackup.mockImplementationOnce(
-            async (_filePath, onProgress) => {
+            async (_filePath, onProgress, onPreparedDictionary) => {
                 onProgress?.({ current: 1, total: 1, title: 'JMdict' });
+                await onPreparedDictionary?.({
+                    title: 'JMdict',
+                    archivePath: '/tmp/jmdict.zip',
+                    current: 1,
+                    total: 1,
+                });
                 return {
-                    dictionaries: [
-                        { title: 'JMdict', archivePath: '/tmp/jmdict.zip' },
-                    ],
+                    dictionaries: [],
                     settings: null,
                     cleanup,
                 };
@@ -456,14 +460,27 @@ describe('Hoshidicts settings IPC', () => {
 
     it('advances Yomitan progress after a failed dictionary and imports the rest', async () => {
         const cleanup = vi.fn(async () => undefined);
-        harness.prepareYomitanDictionaryBackup.mockResolvedValueOnce({
-            dictionaries: [
-                { title: 'Broken', archivePath: '/tmp/broken.zip' },
-                { title: 'JMdict', archivePath: '/tmp/jmdict.zip' },
-            ],
-            settings: null,
-            cleanup,
-        });
+        harness.prepareYomitanDictionaryBackup.mockImplementationOnce(
+            async (_filePath, _onProgress, onPreparedDictionary) => {
+                await onPreparedDictionary?.({
+                    title: 'Broken',
+                    archivePath: '/tmp/broken.zip',
+                    current: 1,
+                    total: 2,
+                });
+                await onPreparedDictionary?.({
+                    title: 'JMdict',
+                    archivePath: '/tmp/jmdict.zip',
+                    current: 2,
+                    total: 2,
+                });
+                return {
+                    dictionaries: [],
+                    settings: null,
+                    cleanup,
+                };
+            }
+        );
         harness.showOpenDialog.mockResolvedValueOnce({
             canceled: false,
             filePaths: ['/tmp/yomitan-dictionaries.json'],

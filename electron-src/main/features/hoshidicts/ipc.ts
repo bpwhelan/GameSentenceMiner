@@ -58,6 +58,7 @@ import { getHoshidictsManager } from './manager.js';
 import {
     prepareYomitanDictionaryBackup,
     prepareYomitanSettingsBackup,
+    type YomitanPreparedDictionary,
 } from './yomitan_backup.js';
 
 export interface HoshidictsIPCDependencies {
@@ -514,17 +515,6 @@ export function registerHoshidictsIPC(
         > | null = null;
         try {
             const before = await manager.getSnapshot();
-            sendYomitanImportProgress(deps, { phase: 'reading' });
-            prepared = await prepareYomitanDictionaryBackup(
-                result.filePaths[0],
-                ({ current, total, title }) =>
-                    sendYomitanImportProgress(deps, {
-                        phase: 'preparing',
-                        current,
-                        total,
-                        title,
-                    })
-            );
             const installedTitles = new Set(
                 before.dictionaries.map((dictionary) => dictionary.title)
             );
@@ -536,16 +526,13 @@ export function registerHoshidictsIPC(
                 warnings: [],
             };
             let state = before;
-            for (
-                let index = 0;
-                index < prepared.dictionaries.length;
-                index += 1
-            ) {
-                const dictionary = prepared.dictionaries[index];
+            const importPreparedDictionary = async (
+                dictionary: YomitanPreparedDictionary
+            ): Promise<void> => {
                 sendYomitanImportProgress(deps, {
                     phase: 'importing',
-                    current: index + 1,
-                    total: prepared.dictionaries.length,
+                    current: dictionary.current,
+                    total: dictionary.total,
                     title: dictionary.title,
                 });
                 try {
@@ -564,6 +551,30 @@ export function registerHoshidictsIPC(
                         `${dictionary.title}: ${errorMessage(error)}`
                     );
                 }
+            };
+            sendYomitanImportProgress(deps, { phase: 'reading' });
+            prepared = await prepareYomitanDictionaryBackup(
+                result.filePaths[0],
+                ({ current, total, title }) =>
+                    sendYomitanImportProgress(deps, {
+                        phase: 'preparing',
+                        current,
+                        total,
+                        title,
+                    }),
+                importPreparedDictionary
+            );
+            for (
+                let index = 0;
+                index < prepared.dictionaries.length;
+                index += 1
+            ) {
+                const dictionary = prepared.dictionaries[index];
+                await importPreparedDictionary({
+                    ...dictionary,
+                    current: index + 1,
+                    total: prepared.dictionaries.length,
+                });
             }
 
             await applyReaderSnapshot(state, deps);
