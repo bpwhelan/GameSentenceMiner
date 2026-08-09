@@ -2827,12 +2827,14 @@ describe("HoshidictsSettingsWindow", () => {
       "{expression}",
       "{reading}",
       "{furigana}",
+      "{furigana-plain}",
       "{definition}",
       "{main-definition}",
       "{glossary}",
       "{dictionary}",
       "{sentence}",
       "{sentence-furigana}",
+      "{sentence-furigana-plain}",
       "{frequency}",
       "{pitch}",
       "{pitch-position}",
@@ -2848,10 +2850,13 @@ describe("HoshidictsSettingsWindow", () => {
       )
     ).toMatchObject({
       "{furigana}": "Furigana",
+      "{furigana-plain}": "Furigana (Anki bracket syntax)",
       "{main-definition}": "Main definition",
       "{glossary}": "Glossary",
       "{dictionary}": "Dictionary name",
-      "{sentence-furigana}": "Sentence with furigana"
+      "{sentence-furigana}": "Sentence with furigana",
+      "{sentence-furigana-plain}":
+        "Sentence with furigana (Anki bracket syntax)"
     });
   });
 

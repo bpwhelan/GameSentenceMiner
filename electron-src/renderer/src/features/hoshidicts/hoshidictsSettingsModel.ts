@@ -186,6 +186,7 @@ const MINING_FIELD_MARKER_LABEL_KEYS: Record<
   expression: "settings.hoshidicts.mining.fields.expression",
   reading: "settings.hoshidicts.mining.fields.reading",
   furigana: "settings.hoshidicts.mining.fields.furigana",
+  "furigana-plain": "settings.hoshidicts.mining.fields.furiganaPlain",
   definition: "settings.hoshidicts.mining.fields.definition",
   "main-definition": "settings.hoshidicts.mining.fields.mainDefinition",
   glossary: "settings.hoshidicts.mining.fields.glossary",
@@ -193,6 +194,8 @@ const MINING_FIELD_MARKER_LABEL_KEYS: Record<
   sentence: "settings.hoshidicts.mining.fields.sentence",
   "sentence-furigana":
     "settings.hoshidicts.mining.fields.sentenceFurigana",
+  "sentence-furigana-plain":
+    "settings.hoshidicts.mining.fields.sentenceFuriganaPlain",
   frequency: "settings.hoshidicts.mining.fields.frequency",
   pitch: "settings.hoshidicts.mining.fields.pitch",
   "pitch-position": "settings.hoshidicts.mining.fields.pitchPosition",
