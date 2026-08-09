@@ -3154,17 +3154,11 @@ describe("Hoshidicts dictionary tabs", () => {
     expect(mine.mock.calls[2][0].dictionaryStyles).toEqual([{
       dictionary: "JMdict",
       styles: ".jmdict-definition { color: blue; }"
-    }, {
-      dictionary: "Jitendex.org [2026-08-08]",
-      styles: ".jitendex-definition { color: red; }"
     }]);
     expect(checkMiningNotes.mock.calls.at(-1)?.[0].notes[0].dictionaryStyles)
       .toEqual([{
         dictionary: "JMdict",
         styles: ".jmdict-definition { color: blue; }"
-      }, {
-        dictionary: "Jitendex.org [2026-08-08]",
-        styles: ".jitendex-definition { color: red; }"
       }]);
     reader.destroy();
   });
