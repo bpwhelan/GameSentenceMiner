@@ -587,6 +587,70 @@ describe('parseYomitanDictionaryBackup', () => {
         expect(fs.existsSync(temporaryRoot)).toBe(false);
     });
 
+    it('reports each dictionary while preparing temporary ZIP archives', async () => {
+        const inputRoot = fs.mkdtempSync(
+            path.join(os.tmpdir(), 'gsm-yomitan-progress-test-')
+        );
+        tempDirs.push(inputRoot);
+        const inputPath = path.join(inputRoot, 'dictionaries.json');
+        fs.writeFileSync(
+            inputPath,
+            JSON.stringify({
+                formatName: 'dexie',
+                formatVersion: 1,
+                data: {
+                    databaseName: 'dict',
+                    databaseVersion: 60,
+                    tables: [],
+                    data: [
+                        {
+                            tableName: 'dictionaries',
+                            inbound: true,
+                            rows: [
+                                { title: 'Alpha', revision: '1' },
+                                { title: 'Beta', revision: '1' },
+                            ],
+                        },
+                        {
+                            tableName: 'terms',
+                            inbound: true,
+                            rows: [
+                                {
+                                    dictionary: 'Alpha',
+                                    expression: '猫',
+                                    reading: 'ねこ',
+                                    glossary: ['cat'],
+                                },
+                                {
+                                    dictionary: 'Beta',
+                                    expression: '犬',
+                                    reading: 'いぬ',
+                                    glossary: ['dog'],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+        );
+        const progress: Array<{
+            current: number;
+            total: number;
+            title: string;
+        }> = [];
+
+        const prepared = await prepareYomitanDictionaryBackup(
+            inputPath,
+            (update) => progress.push(update)
+        );
+
+        expect(progress).toEqual([
+            { current: 1, total: 2, title: 'Alpha' },
+            { current: 2, total: 2, title: 'Beta' },
+        ]);
+        await prepared.cleanup();
+    });
+
     it('parses dictionary backups incrementally across input chunks', async () => {
         const text = JSON.stringify({
             formatName: 'dexie',
