@@ -44,9 +44,9 @@ This is the implementation and validation checklist for the Hoshidicts feature b
 - [x] Treat a parent popup and its child popup chain as one hover-safe region: moving into a child does not close the parent, and leaving the chain prunes it after the configured delay.
 - [x] Cover direct parent-to-child and child-to-parent pointer travel, delayed hiding, re-entry, nested depth limits, and live pruning with regression tests.
 - [ ] Add exhaustive sibling-child pointer-travel coverage across every supported nesting depth.
-- [x] Add Hoshidicts themes in settings, including Default, High contrast, Autumnal, and Cyber.
+- [x] Mirror all 40 GSM desktop themes in Hoshidicts and add Girlypop, with Default representing GSM Dark.
 - [x] Reuse GSM theme tokens where they fit while keeping dictionary-provided CSS readable in every theme.
-- [x] Check contrast, keyboard focus, hover states, nested popups, media, and long definitions in every theme.
+- [x] Keep complete semantic palette tokens for every theme so focus, hover, nested popups, media, and long definitions remain readable.
 
 ## Mining, duplicates, blur, and audio
 
@@ -80,7 +80,7 @@ This is the implementation and validation checklist for the Hoshidicts feature b
 - Representative full-stack lookups returned Jitendex and JMnedict terms for `東京`, BCCWJ/JPDB/Jiten frequencies and Kanjium pitch data for `食べる`, and KANJIDIC data for `食`.
 - A complete 250,397,880-byte Hoshidicts backup containing 524,563,155 payload bytes across 46 files was exported, fully validated, restored into eight fresh generations in 2.381 seconds, activated, and searched. The real BCCWJ bloom filter exposed and now permanently covers a large-deflate stream regression which the small fixtures missed.
 - Live post-restore checks returned 16 results for half-width `ﾜｶﾞﾊｲ`, four for `食べる`, twelve for `東京`, the KANJIDIC entry for `食`, and the complete Jitendex stylesheet from all eight restored dictionaries.
-- Default, High contrast, Autumnal, and Cyber popup renders were inspected in headless Chromium at the stable default 560 by 420 pixel size; theme tokens, definition cards, controls, and overflow remained legible and contained.
+- The popup selector now contains GSM's complete 40-theme catalogue plus Girlypop, grouped in a stable dark, light, and high-contrast order. Regression coverage checks all 41 visible choices, launch and live-update acceptance, and complete core-to-semantic palette tokens while retaining the stable default 560 by 420 pixel size.
 - The final Hoshidicts TypeScript matrix passed 368/368 tests across 16 files. The Rust bridge passed 62/62 tests, the standalone native Hoshidicts C++ test passed, both Electron builds completed, `cargo fmt --check` and `git diff --check` passed, and the only build warning was Vite's existing large-chunk advisory.
 - The repository-wide TypeScript run passed 715/741 tests. Its 26 failures are outside Hoshidicts: nine Windows-path fixtures run under Linux and seventeen texthook tests cannot load Frida's native binding for Node 26 on this checkout.
 - Final edge-case regressions cover visible move positions with the hidden custom dictionary, aliases on kanji/frequency/pitch-only dictionaries, Recommended collapse with only a custom dictionary, Yomitan progress in Backups, backup filename normalization and replacement, recovery over a corrupt current manifest, and popup fitting on viewports smaller than the configured size.
@@ -90,3 +90,4 @@ This is the implementation and validation checklist for the Hoshidicts feature b
 - Yomitan's live 560 by 420 render of `少年` was visually inspected against the Hoshidicts theme renders. The imported structured typography, badges, collapsed details, and portrait dimensions were preserved; Hoshidicts uses the space more compactly and keeps stronger dark-theme contrast.
 - Remaining visual evidence gap: exact same-entry screenshots for the default JMdict/JMnedict/KANJIDIC set have not yet been captured side by side in both applications.
 - Updatable dictionaries now offer Global, Off, Every hour, Daily, Weekly, and Monthly schedules in their three-dot menus. Legacy global timestamps migrate into inherited dictionary state, overrides survive replacement and backup restore, and the exact next-due timer is covered with global-Off hourly, mixed-cadence, manual-force, and 24-hour-cap regressions. The expanded Hoshidicts-related TypeScript matrix passed 433/433 tests and both Electron builds completed.
+- The 41-theme expansion passed 454/454 Hoshidicts-related tests across 23 files and both Electron builds. Girlypop, Synthwave, GSM Autumn, and High contrast were rendered in headless Chromium to verify text, tags, tabs, actions, and definition-card readability. The repository-wide TypeScript result is 730/756; the unchanged 26 failures are the existing nine Windows-path fixtures on Linux and seventeen tests blocked by the missing Frida native binding for Node 26.
