@@ -1,7 +1,6 @@
 import archiver from 'archiver';
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
-import type { FileHandle } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { Readable } from 'node:stream';
@@ -28,6 +27,7 @@ import {
     type HoshidictsYomitanSettingsGroup,
 } from '../../../shared/features/hoshidicts.js';
 import { normalizeHoshidictsAudioProfile } from './audio_profile.js';
+import { createJsonScalarLimitTransform } from './json_scalar_limit.js';
 import { normalizeHoshidictsMiningProfile } from './profile.js';
 
 type JsonRecord = Record<string, unknown>;
@@ -515,22 +515,44 @@ interface DictionaryBackupSignature {
     databaseName: string;
 }
 
-function isTablePath(pathValue: readonly (string | number)[]): boolean {
+function isTableContext(assembler: Assembler): boolean {
     return (
-        pathValue.length === 3 &&
-        pathValue[0] === 'data' &&
-        pathValue[1] === 'data' &&
-        typeof pathValue[2] === 'number'
+        assembler.depth === 4 &&
+        assembler.stack[1] === 'data' &&
+        assembler.stack[3] === 'data' &&
+        Array.isArray(assembler.stack[4])
     );
 }
 
-function isRowPath(pathValue: readonly (string | number)[]): boolean {
+function isRowContext(assembler: Assembler): boolean {
     return (
-        pathValue.length === 5 &&
-        isTablePath(pathValue.slice(0, 3)) &&
-        pathValue[3] === 'rows' &&
-        typeof pathValue[4] === 'number'
+        assembler.depth === 6 &&
+        assembler.stack[1] === 'data' &&
+        assembler.stack[3] === 'data' &&
+        Array.isArray(assembler.stack[4]) &&
+        assembler.stack[7] === 'rows' &&
+        Array.isArray(assembler.stack[8])
     );
+}
+
+function isPromiseLike<T>(value: unknown): value is PromiseLike<T> {
+    return (
+        typeof value === 'object' &&
+        value !== null &&
+        'then' in value &&
+        typeof value.then === 'function'
+    );
+}
+
+function continueWith<T>(
+    value: T | PromiseLike<T>,
+    continuation: (resolved: T) => void | PromiseLike<void>
+): void | Promise<void> {
+    if (!isPromiseLike<T>(value)) {
+        const result = continuation(value);
+        return isPromiseLike<void>(result) ? Promise.resolve(result) : undefined;
+    }
+    return Promise.resolve(value).then(continuation);
 }
 
 async function streamDictionaryRows(
@@ -541,16 +563,15 @@ async function streamDictionaryRows(
         row: unknown
     ) => void | Promise<void>
 ): Promise<DictionaryBackupSignature> {
+    const scalarLimit = createJsonScalarLimitTransform(MAX_JSON_VALUE_BYTES);
     const tokens = parserStream({
-        streamKeys: true,
-        packKeys: false,
-        streamStrings: true,
-        packStrings: false,
-        streamNumbers: true,
-        packNumbers: false,
+        streamKeys: false,
+        packKeys: true,
+        streamStrings: false,
+        packStrings: true,
+        streamNumbers: false,
+        packNumbers: true,
     });
-    source.once('error', (error) => tokens.destroy(error));
-    source.pipe(tokens);
     const assembler = new Assembler();
     const signature: DictionaryBackupSignature = {
         formatName: '',
@@ -559,85 +580,70 @@ async function streamDictionaryRows(
     };
     let tableName = '';
     let inbound = false;
-    let scalarKind: 'key' | 'string' | 'number' | null = null;
-    let scalarBytes = 0;
-    let scalarChunks: string[] = [];
+    let pendingRow: PromiseLike<void> | null = null;
+    let tokensEnded = false;
 
-    try {
-        for await (const rawToken of tokens) {
-            let token = rawToken as Token;
-            if (
-                token.name === 'startKey' ||
-                token.name === 'startString' ||
-                token.name === 'startNumber'
-            ) {
-                scalarKind =
-                    token.name === 'startKey'
-                        ? 'key'
-                        : token.name === 'startString'
-                          ? 'string'
-                          : 'number';
-                scalarBytes = 0;
-                scalarChunks = [];
-                continue;
+    await new Promise<void>((resolve, reject) => {
+        let settled = false;
+        let failure: { reason: unknown } | null = null;
+        const finish = (): void => {
+            if (settled || pendingRow) {
+                return;
             }
-            if (token.name === 'stringChunk' || token.name === 'numberChunk') {
-                const chunk = String(token.value ?? '');
-                scalarBytes += Buffer.byteLength(chunk);
-                if (scalarBytes > MAX_JSON_VALUE_BYTES) {
-                    throw new Error(
-                        'A value in the Yomitan backup exceeds the supported 32 MiB limit.'
-                    );
-                }
-                scalarChunks.push(chunk);
-                continue;
+            if (failure) {
+                settled = true;
+                reject(failure.reason);
+                return;
             }
-            if (
-                token.name === 'endKey' ||
-                token.name === 'endString' ||
-                token.name === 'endNumber'
-            ) {
-                const value = scalarChunks.join('');
-                token = {
-                    name:
-                        scalarKind === 'key'
-                            ? 'keyValue'
-                            : scalarKind === 'number'
-                              ? 'numberValue'
-                              : 'stringValue',
-                    value,
-                };
-                scalarKind = null;
-                scalarBytes = 0;
-                scalarChunks = [];
+            if (!tokensEnded) {
+                return;
             }
-
-            const currentPath = assembler.path;
+            settled = true;
+            resolve();
+        };
+        const fail = (error: unknown): void => {
+            if (settled) {
+                return;
+            }
+            if (!failure) {
+                failure = { reason: error };
+                source.unpipe(scalarLimit);
+                scalarLimit.unpipe(tokens);
+                source.destroy();
+                scalarLimit.destroy();
+                tokens.destroy();
+            }
+            finish();
+        };
+        const clearCompletedRow = (): void => {
+            if (Array.isArray(assembler.current)) {
+                assembler.current.length = 0;
+            }
+        };
+        const consume = (rawToken: unknown): void | PromiseLike<void> => {
+            const token = rawToken as Token;
             const currentKey = assembler.key;
             if (token.name === 'stringValue') {
-                if (currentPath.length === 0 && currentKey === 'formatName') {
+                if (assembler.depth === 1 && currentKey === 'formatName') {
                     signature.formatName = token.value;
                 } else if (
-                    currentPath.length === 1 &&
-                    currentPath[0] === 'data' &&
+                    assembler.depth === 2 &&
+                    assembler.stack[1] === 'data' &&
                     currentKey === 'databaseName'
                 ) {
                     signature.databaseName = token.value;
-                } else if (
-                    isTablePath(currentPath) &&
-                    currentKey === 'tableName'
-                ) {
+                } else if (isTableContext(assembler) && currentKey === 'tableName') {
                     tableName = token.value;
                 }
             } else if (
                 token.name === 'numberValue' &&
-                currentPath.length === 0 &&
+                assembler.depth === 1 &&
                 currentKey === 'formatVersion'
             ) {
                 signature.formatVersion = Number(token.value);
             } else if (
                 (token.name === 'trueValue' || token.name === 'falseValue') &&
-                isTablePath(currentPath) &&
+                isTableContext(assembler) &&
                 currentKey === 'inbound'
             ) {
                 inbound = token.name === 'trueValue';
@@ -645,19 +651,20 @@ async function streamDictionaryRows(
 
             if (
                 (token.name === 'endObject' || token.name === 'endArray') &&
-                isRowPath(currentPath)
+                isRowContext(assembler)
             ) {
                 const row = assembler.current;
                 assembler.consume(token);
-                await onRow(tableName, inbound, row);
-                if (Array.isArray(assembler.current)) {
-                    assembler.current.length = 0;
+                const result = onRow(tableName, inbound, row);
+                if (isPromiseLike<void>(result)) {
+                    return Promise.resolve(result).then(clearCompletedRow);
                 }
-                continue;
+                clearCompletedRow();
+                return;
             }
 
             const closingTable =
-                token.name === 'endObject' && isTablePath(currentPath);
+                token.name === 'endObject' && isTableContext(assembler);
             assembler.consume(token);
             if (closingTable) {
                 if (Array.isArray(assembler.current)) {
@@ -666,12 +673,49 @@ async function streamDictionaryRows(
                 tableName = '';
                 inbound = false;
             }
-        }
-    } finally {
-        source.unpipe(tokens);
-        source.destroy();
-        tokens.destroy();
-    }
+        };
+
+        source.once('error', fail);
+        scalarLimit.once('error', fail);
+        tokens.once('error', fail);
+        tokens.on('data', (token: unknown) => {
+            if (settled || failure) {
+                return;
+            }
+            try {
+                const result = consume(token);
+                if (!isPromiseLike<void>(result)) {
+                    return;
+                }
+                tokens.pause();
+                pendingRow = result;
+                void Promise.resolve(result).then(
+                    () => {
+                        pendingRow = null;
+                        if (settled) {
+                            return;
+                        }
+                        if (tokensEnded || failure) {
+                            finish();
+                        } else {
+                            tokens.resume();
+                        }
+                    },
+                    (error) => {
+                        pendingRow = null;
+                        fail(error);
+                    }
+                );
+            } catch (error) {
+                fail(error);
+            }
+        });
+        tokens.once('end', () => {
+            tokensEnded = true;
+            finish();
+        });
+        source.pipe(scalarLimit).pipe(tokens);
+    });
     if (
         signature.formatName !== 'dexie' ||
         signature.formatVersion !== 1 ||
@@ -686,20 +730,57 @@ export async function parseYomitanDictionaryBackupStream(
     createSource: () => Readable
 ): Promise<ParsedYomitanDictionary[]> {
     const dictionaries = new Map<string, ParsedYomitanDictionary>();
+    const summarized = new Set<string>();
+    const result: ParsedYomitanDictionary[] = [];
     await streamDictionaryRows(createSource(), (tableName, inbound, row) => {
         if (tableName === 'dictionaries') {
-            addDictionarySummary(dictionaries, row, inbound);
+            const summary = parseDictionarySummary(row, inbound);
+            if (!summary) {
+                return;
+            }
+            let dictionary = dictionaries.get(summary.title);
+            if (dictionary) {
+                dictionary.index = summary.index;
+                dictionary.styles = summary.styles;
+            } else {
+                dictionary = {
+                    ...summary,
+                    banks: emptyBanks(),
+                    media: new Map(),
+                };
+                dictionaries.set(summary.title, dictionary);
+            }
+            if (!summarized.has(summary.title)) {
+                summarized.add(summary.title);
+                result.push(dictionary);
+            }
+            return;
+        }
+        const parsed = parseDictionaryRow(tableName, row, inbound);
+        if (!parsed) {
+            return;
+        }
+        let dictionary = dictionaries.get(parsed.dictionary);
+        if (!dictionary) {
+            dictionary = {
+                title: parsed.dictionary,
+                index: {},
+                banks: emptyBanks(),
+                styles: '',
+                media: new Map(),
+            };
+            dictionaries.set(parsed.dictionary, dictionary);
+        }
+        if (parsed.kind === 'bank') {
+            dictionary.banks[parsed.bank].push(parsed.entry);
+        } else {
+            dictionary.media.set(parsed.mediaPath, parsed.content);
         }
     });
-    if (dictionaries.size === 0) {
+    if (result.length === 0) {
         throw new Error('The Yomitan backup does not contain dictionaries.');
     }
-    await streamDictionaryRows(createSource(), (tableName, inbound, row) => {
-        if (tableName !== 'dictionaries') {
-            addDictionaryRow(dictionaries, tableName, row, inbound);
-        }
-    });
-    return [...dictionaries.values()];
+    return result;
 }
 
 function templateValue(value: unknown): string {
@@ -937,9 +1018,8 @@ interface SpoolFile {
 }
 
 interface BufferedSpoolFile {
-    handle: FileHandle;
-    chunks: string[];
-    byteCount: number;
+    stream: fs.WriteStream;
+    failure: Error | null;
 }
 
 interface BankSpool {
@@ -966,11 +1046,7 @@ interface SpoolDictionary {
 class BoundedFileAppender {
     private readonly handles = new Map<string, BufferedSpoolFile>();
 
-    public async append(
-        filePath: string,
-        value: string,
-        byteLength = Buffer.byteLength(value)
-    ): Promise<void> {
+    public append(filePath: string, value: string): void | Promise<void> {
         let entry = this.handles.get(filePath);
         if (entry) {
             this.handles.delete(filePath);
@@ -981,30 +1057,40 @@ class BoundedFileAppender {
                 if (!oldest.done) {
                     const [oldestPath, oldestEntry] = oldest.value;
                     this.handles.delete(oldestPath);
-                    await this.closeEntry(oldestEntry);
+                    return this.closeEntry(oldestEntry).then(() =>
+                        this.append(filePath, value)
+                    );
                 }
             }
-            entry = {
-                handle: await fsp.open(filePath, 'a'),
-                chunks: [],
-                byteCount: 0,
+            const created: BufferedSpoolFile = {
+                stream: fs.createWriteStream(filePath, {
+                    flags: 'a',
+                    encoding: 'utf8',
+                    highWaterMark: MAX_SPOOL_BUFFER_BYTES,
+                }),
+                failure: null,
             };
+            created.stream.on('error', (error) => {
+                created.failure ??= error;
+            });
+            entry = created;
             this.handles.set(filePath, entry);
         }
-        entry.chunks.push(value);
-        entry.byteCount += byteLength;
-        if (entry.byteCount >= MAX_SPOOL_BUFFER_BYTES) {
-            await this.flush(entry);
+        if (entry.failure) {
+            return Promise.reject(entry.failure);
+        }
+        if (!entry.stream.write(value, 'utf8')) {
+            return this.waitForDrain(entry);
         }
     }
 
-    public async close(filePath: string): Promise<void> {
+    public close(filePath: string): void | Promise<void> {
         const entry = this.handles.get(filePath);
         if (!entry) {
             return;
         }
         this.handles.delete(filePath);
-        await this.closeEntry(entry);
+        return this.closeEntry(entry);
     }
 
     public async closeAll(): Promise<void> {
@@ -1022,23 +1108,48 @@ class BoundedFileAppender {
         }
     }
 
-    private async flush(entry: BufferedSpoolFile): Promise<void> {
-        if (entry.chunks.length === 0) {
-            return;
-        }
-        const value =
-            entry.chunks.length === 1 ? entry.chunks[0] : entry.chunks.join('');
-        entry.chunks = [];
-        entry.byteCount = 0;
-        await entry.handle.appendFile(value, 'utf8');
+    private waitForDrain(entry: BufferedSpoolFile): Promise<void> {
+        return new Promise<void>((resolve, reject) => {
+            const cleanup = (): void => {
+                entry.stream.off('drain', onDrain);
+                entry.stream.off('error', onError);
+            };
+            const onDrain = (): void => {
+                cleanup();
+                if (entry.failure) {
+                    reject(entry.failure);
+                } else {
+                    resolve();
+                }
+            };
+            const onError = (error: Error): void => {
+                cleanup();
+                reject(error);
+            };
+            entry.stream.once('drain', onDrain);
+            entry.stream.once('error', onError);
+            if (entry.failure) {
+                onError(entry.failure);
+            }
+        });
     }
 
-    private async closeEntry(entry: BufferedSpoolFile): Promise<void> {
-        try {
-            await this.flush(entry);
-        } finally {
-            await entry.handle.close();
-        }
+    private closeEntry(entry: BufferedSpoolFile): Promise<void> {
+        return new Promise<void>((resolve, reject) => {
+            const finish = (): void => {
+                if (entry.failure) {
+                    reject(entry.failure);
+                } else {
+                    resolve();
+                }
+            };
+            if (entry.stream.closed) {
+                finish();
+                return;
+            }
+            entry.stream.once('close', finish);
+            entry.stream.end();
+        });
     }
 }
 
@@ -1106,26 +1217,27 @@ async function applySpoolDictionarySummary(
     dictionary.hasSummary = true;
 }
 
-async function finishBankFile(
+function finishBankFile(
     bank: BankSpool,
     appender: BoundedFileAppender
-): Promise<void> {
+): void | Promise<void> {
     if (!bank.currentPath) {
         return;
     }
-    await appender.append(bank.currentPath, ']', 1);
-    await appender.close(bank.currentPath);
+    const currentPath = bank.currentPath;
+    const appended = appender.append(currentPath, ']');
     bank.currentPath = null;
     bank.entryCount = 0;
     bank.byteCount = 0;
+    return continueWith(appended, () => appender.close(currentPath));
 }
 
-async function appendBankEntry(
+function appendBankEntry(
     dictionary: SpoolDictionary,
     bankKey: BankKey,
     entry: BankEntry,
     appender: BoundedFileAppender
-): Promise<void> {
+): void | Promise<void> {
     const bank = dictionary.banks[bankKey];
     const serialized = JSON.stringify(entry);
     const entryBytes = Buffer.byteLength(serialized);
@@ -1142,21 +1254,21 @@ async function appendBankEntry(
         (bank.entryCount >= MAX_BANK_ENTRIES ||
             bank.byteCount + nextEntryBytes + 1 > MAX_BANK_BYTES)
     ) {
-        await finishBankFile(bank, appender);
+        return continueWith(finishBankFile(bank, appender), () =>
+            appendBankEntry(dictionary, bankKey, entry, appender)
+        );
     }
     if (!bank.currentPath) {
         bank.bankNumber += 1;
         const archiveName = `${bank.prefix}_${bank.bankNumber}.json`;
         bank.currentPath = path.join(dictionary.directory, 'banks', archiveName);
         bank.files.push({ sourcePath: bank.currentPath, archiveName });
-        await appender.append(bank.currentPath, '[', 1);
         bank.byteCount = 1;
     }
     const separator = bank.entryCount > 0 ? ',' : '';
-    await appender.append(
+    const appended = appender.append(
         bank.currentPath,
-        `${separator}${serialized}`,
-        nextEntryBytes
+        `${bank.entryCount > 0 ? separator : '['}${serialized}`
     );
     bank.entryCount += 1;
     bank.byteCount += (separator ? 1 : 0) + entryBytes;
@@ -1164,8 +1276,9 @@ async function appendBankEntry(
         bank.entryCount >= MAX_BANK_ENTRIES ||
         bank.byteCount + 1 >= MAX_BANK_BYTES
     ) {
-        await finishBankFile(bank, appender);
+        return continueWith(appended, () => finishBankFile(bank, appender));
     }
+    return appended;
 }
 
 async function spoolMedia(
@@ -1214,56 +1327,65 @@ async function spoolDictionaryBackup(
     const dictionaries: SpoolDictionary[] = [];
     let dictionaryNumber = 0;
     const appender = new BoundedFileAppender();
-    const getDictionary = async (title: string) => {
+    const getDictionary = (
+        title: string
+    ): SpoolDictionary | Promise<SpoolDictionary> => {
         const existing = spooled.get(title);
         if (existing) {
             return existing;
         }
         dictionaryNumber += 1;
-        const dictionary = await createSpoolDictionary(
-            root,
-            title,
-            dictionaryNumber
+        return createSpoolDictionary(root, title, dictionaryNumber).then(
+            (dictionary) => {
+                spooled.set(title, dictionary);
+                return dictionary;
+            }
         );
-        spooled.set(title, dictionary);
-        return dictionary;
     };
     try {
         await streamDictionaryRows(
             createTrackedReadStream(filePath, onBytesRead),
-            async (tableName, inbound, row) => {
+            (tableName, inbound, row) => {
                 if (tableName === 'dictionaries') {
                     const summary = parseDictionarySummary(row, inbound);
                     if (!summary) {
                         return;
                     }
-                    const dictionary = await getDictionary(summary.title);
-                    const firstSummary = !dictionary.hasSummary;
-                    await applySpoolDictionarySummary(dictionary, summary);
-                    if (firstSummary) {
-                        dictionaries.push(dictionary);
-                    }
-                    return;
+                    return continueWith(
+                        getDictionary(summary.title),
+                        (dictionary) => {
+                            const firstSummary = !dictionary.hasSummary;
+                            return continueWith(
+                                applySpoolDictionarySummary(dictionary, summary),
+                                () => {
+                                    if (firstSummary) {
+                                        dictionaries.push(dictionary);
+                                    }
+                                }
+                            );
+                        }
+                    );
                 }
                 const parsed = parseDictionaryRow(tableName, row, inbound);
                 if (!parsed) {
                     return;
                 }
-                const dictionary = await getDictionary(parsed.dictionary);
-                if (parsed.kind === 'bank') {
-                    await appendBankEntry(
-                        dictionary,
-                        parsed.bank,
-                        parsed.entry,
-                        appender
-                    );
-                } else {
-                    await spoolMedia(
-                        dictionary,
-                        parsed.mediaPath,
-                        parsed.content
-                    );
-                }
+                return continueWith(
+                    getDictionary(parsed.dictionary),
+                    (dictionary) =>
+                        parsed.kind === 'bank'
+                            ? appendBankEntry(
+                                  dictionary,
+                                  parsed.bank,
+                                  parsed.entry,
+                                  appender
+                              )
+                            : spoolMedia(
+                                  dictionary,
+                                  parsed.mediaPath,
+                                  parsed.content
+                              )
+                );
             }
         );
         for (const dictionary of spooled.values()) {

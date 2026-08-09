@@ -921,6 +921,270 @@ describe('parseYomitanDictionaryBackup', () => {
         ]);
     });
 
+    it('matches whole-document parsing when every UTF-8 byte is its own chunk', async () => {
+        const title = 'Escaped 😺 "dictionary" \\ root';
+        const backup = {
+            formatName: 'dexie',
+            formatVersion: 1,
+            data: {
+                databaseName: 'dict',
+                data: [
+                    {
+                        tableName: 'dictionaries',
+                        inbound: false,
+                        rows: [
+                            [
+                                1,
+                                {
+                                    title,
+                                    revision: '1',
+                                    styles: '.entry::after { content: "😺"; }',
+                                },
+                            ],
+                        ],
+                    },
+                    {
+                        tableName: 'terms',
+                        inbound: false,
+                        rows: [
+                            [
+                                2,
+                                {
+                                    dictionary: title,
+                                    expression: '猫😺',
+                                    reading: 'ねこ',
+                                    definitionTags: '',
+                                    rules: '',
+                                    score: 1_250,
+                                    glossary: [
+                                        'line\nbreak, quote ", slash \\, emoji 😺',
+                                    ],
+                                    sequence: 7,
+                                    termTags: '',
+                                },
+                            ],
+                        ],
+                    },
+                ],
+            },
+        };
+        const text = JSON.stringify(backup)
+            .replaceAll('"tableName"', '"table\\u004eame"')
+            .replaceAll('😺', '\\ud83d\\ude3a')
+            .replaceAll('猫', '\\u732b')
+            .replace('1250', '1.25e3');
+        const bytes = Buffer.from(text, 'utf8');
+        const createSource = (): Readable =>
+            Readable.from(
+                (function* (): Generator<Buffer> {
+                    for (let index = 0; index < bytes.length; index += 1) {
+                        yield bytes.subarray(index, index + 1);
+                    }
+                })()
+            );
+
+        const parsed = await parseYomitanDictionaryBackupStream(createSource);
+
+        expect(parsed).toEqual(
+            parseYomitanDictionaryBackup(JSON.parse(text) as unknown)
+        );
+    });
+
+    it('opens the source once and preserves rows before dictionary summaries', async () => {
+        const text = JSON.stringify({
+            formatName: 'dexie',
+            formatVersion: 1,
+            data: {
+                databaseName: 'dict',
+                data: [
+                    {
+                        tableName: 'terms',
+                        inbound: true,
+                        rows: [
+                            {
+                                dictionary: 'One pass',
+                                expression: '猫',
+                                reading: 'ねこ',
+                                glossary: ['cat'],
+                            },
+                        ],
+                    },
+                    {
+                        tableName: 'dictionaries',
+                        inbound: true,
+                        rows: [{ title: 'One pass', revision: '1' }],
+                    },
+                ],
+            },
+        });
+        let sourceOpens = 0;
+
+        const parsed = await parseYomitanDictionaryBackupStream(() => {
+            sourceOpens += 1;
+            return Readable.from([text]);
+        });
+
+        expect(sourceOpens).toBe(1);
+        expect(parsed[0].index).toMatchObject({
+            title: 'One pass',
+            revision: '1',
+        });
+        expect(parsed[0].banks.term).toEqual([
+            ['猫', 'ねこ', '', '', 0, ['cat'], -1, ''],
+        ]);
+    });
+
+    it('preserves interleaved dictionary order across buffered writes', async () => {
+        const inputRoot = fs.mkdtempSync(
+            path.join(os.tmpdir(), 'gsm-yomitan-buffer-order-test-')
+        );
+        tempDirs.push(inputRoot);
+        const inputPath = path.join(inputRoot, 'dictionaries.json');
+        const rowCount = 20;
+        const padding = 'x'.repeat(20 * 1024);
+        const titles = ['Alpha', 'Beta'];
+        const rows = Array.from({ length: rowCount }, (_, index) =>
+            titles.map((title) => ({
+                dictionary: title,
+                expression: `${title.toLowerCase()}-${index}`,
+                reading: '',
+                glossary: [
+                    `${title.toLowerCase()} definition ${index}: ${padding}`,
+                ],
+            }))
+        ).flat();
+        fs.writeFileSync(
+            inputPath,
+            JSON.stringify({
+                formatName: 'dexie',
+                formatVersion: 1,
+                data: {
+                    databaseName: 'dict',
+                    data: [
+                        {
+                            tableName: 'terms',
+                            inbound: true,
+                            rows,
+                        },
+                        {
+                            tableName: 'dictionaries',
+                            inbound: true,
+                            rows: titles.map((title) => ({
+                                title,
+                                revision: '1',
+                            })),
+                        },
+                    ],
+                },
+            })
+        );
+
+        const prepared = await prepareYomitanDictionaryBackup(inputPath);
+        try {
+            expect(prepared.dictionaries.map(({ title }) => title)).toEqual(
+                titles
+            );
+            for (const dictionary of prepared.dictionaries) {
+                const extractedPath = path.join(
+                    inputRoot,
+                    `extracted-${dictionary.title}`
+                );
+                await extract(dictionary.archivePath, { dir: extractedPath });
+                const bankPath = path.join(
+                    extractedPath,
+                    'term_bank_1.json'
+                );
+                const bank = JSON.parse(
+                    fs.readFileSync(bankPath, 'utf8')
+                ) as unknown[][];
+                const prefix = dictionary.title.toLowerCase();
+                expect(fs.statSync(bankPath).size).toBeGreaterThan(256 * 1024);
+                expect(bank.map((entry) => entry[0])).toEqual(
+                    Array.from(
+                        { length: rowCount },
+                        (_, index) => `${prefix}-${index}`
+                    )
+                );
+                expect((bank[0][5] as string[])[0]).toBe(
+                    `${prefix} definition 0: ${padding}`
+                );
+                expect((bank.at(-1)?.[5] as string[])[0]).toBe(
+                    `${prefix} definition ${rowCount - 1}: ${padding}`
+                );
+            }
+        } finally {
+            await prepared.cleanup();
+        }
+    });
+
+    it('cleans generated files when the prepared dictionary consumer fails', async () => {
+        const inputRoot = fs.mkdtempSync(
+            path.join(os.tmpdir(), 'gsm-yomitan-consumer-error-test-')
+        );
+        tempDirs.push(inputRoot);
+        const inputPath = path.join(inputRoot, 'dictionaries.json');
+        const generatedOutput = path.join(inputRoot, 'generated-output');
+        fs.mkdirSync(generatedOutput);
+        fs.writeFileSync(
+            inputPath,
+            JSON.stringify({
+                formatName: 'dexie',
+                formatVersion: 1,
+                data: {
+                    databaseName: 'dict',
+                    data: [
+                        {
+                            tableName: 'dictionaries',
+                            inbound: true,
+                            rows: [{ title: 'Cleanup', revision: '1' }],
+                        },
+                        {
+                            tableName: 'terms',
+                            inbound: true,
+                            rows: [
+                                {
+                                    dictionary: 'Cleanup',
+                                    expression: '猫',
+                                    reading: 'ねこ',
+                                    glossary: ['cat'],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+        );
+        const previousTmpdir = process.env.TMPDIR;
+        let archivePath = '';
+        let temporaryRoot = '';
+        process.env.TMPDIR = generatedOutput;
+
+        try {
+            await expect(
+                prepareYomitanDictionaryBackup(
+                    inputPath,
+                    undefined,
+                    async (dictionary) => {
+                        archivePath = dictionary.archivePath;
+                        temporaryRoot = path.dirname(archivePath);
+                        expect(fs.existsSync(archivePath)).toBe(true);
+                        throw new Error('consumer failed');
+                    }
+                )
+            ).rejects.toThrow('consumer failed');
+            expect(archivePath).not.toBe('');
+            expect(fs.existsSync(archivePath)).toBe(false);
+            expect(fs.existsSync(temporaryRoot)).toBe(false);
+            expect(fs.readdirSync(generatedOutput)).toEqual([]);
+        } finally {
+            if (previousTmpdir === undefined) {
+                delete process.env.TMPDIR;
+            } else {
+                process.env.TMPDIR = previousTmpdir;
+            }
+        }
+    });
+
     it('rejects source read errors instead of emitting an unhandled process error', async () => {
         await expect(
             parseYomitanDictionaryBackupStream(
