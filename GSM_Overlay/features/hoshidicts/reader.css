@@ -1238,6 +1238,14 @@ html[data-hoshidicts-theme="girlypop"] .gsm-hoshidicts-popup {
   backdrop-filter: blur(10px);
 }
 
+.gsm-hoshidicts-popup[data-toolbar-position="bottom"] .gsm-hoshidicts-result-chrome {
+  top: auto;
+  bottom: -11px;
+  margin: 9px -11px -11px;
+  border-top: 1px solid var(--hoshidicts-border);
+  border-bottom: 0;
+}
+
 .gsm-hoshidicts-primary-header {
   min-height: 42px;
   padding: 11px;

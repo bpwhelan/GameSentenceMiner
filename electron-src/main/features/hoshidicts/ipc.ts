@@ -14,6 +14,7 @@ import {
     HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
     hoshidictsReaderPreferencesFromSnapshot,
     isHoshidictsActivationKey,
+    isHoshidictsPopupToolbarPosition,
     isHoshidictsTheme,
     MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES,
     MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
@@ -47,6 +48,7 @@ import {
     type HoshidictsManagerSnapshot,
     type HoshidictsLookupMode,
     type HoshidictsMiningOptions,
+    type HoshidictsPopupToolbarPosition,
     type HoshidictsMoveDictionaryRequest,
     type HoshidictsMoveDictionaryToPositionRequest,
     type HoshidictsReaderPreferences,
@@ -88,6 +90,9 @@ export interface HoshidictsIPCDependencies {
     getOverlayPopupHeightAtLaunch: () => number | null;
     getOverlayThemeAtLaunch: () => HoshidictsTheme | null;
     getOverlayPopupOpacityPercentAtLaunch: () => number | null;
+    getOverlayPopupToolbarPositionAtLaunch: () =>
+        | HoshidictsPopupToolbarPosition
+        | null;
     applyReaderPreferences: (
         preferences: HoshidictsReaderPreferences
     ) => Promise<boolean>;
@@ -188,6 +193,8 @@ function readerPreferencesMatchOverlay(
         deps.getOverlayThemeAtLaunch() === preferences.theme &&
         deps.getOverlayPopupOpacityPercentAtLaunch() ===
             preferences.popupOpacityPercent &&
+        deps.getOverlayPopupToolbarPositionAtLaunch() ===
+            preferences.popupToolbarPosition &&
         definitionBlurAtLaunch !== null &&
         definitionBlurPreferencesEqual(
             definitionBlurAtLaunch,
@@ -687,7 +694,8 @@ export function registerHoshidictsIPC(
                     reader.popupHeightPx,
                     reader.theme,
                     reader.popupOpacityPercent,
-                    reader.onlyScanJapaneseText
+                    reader.onlyScanJapaneseText,
+                    reader.popupToolbarPosition
                 );
             }
             await applyReaderSnapshot(state, deps);
@@ -1033,6 +1041,9 @@ export function registerHoshidictsIPC(
                     MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT ||
                 (value.popupOpacityPercent as number) >
                     MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT ||
+                !isHoshidictsPopupToolbarPosition(
+                    value.popupToolbarPosition
+                ) ||
                 !isDefinitionBlurPreferences(value.definitionBlur)
             ) {
                 return {
@@ -1063,6 +1074,8 @@ export function registerHoshidictsIPC(
                         theme: value.theme as HoshidictsTheme,
                         popupOpacityPercent:
                             value.popupOpacityPercent as number,
+                        popupToolbarPosition:
+                            value.popupToolbarPosition as HoshidictsPopupToolbarPosition,
                     };
                     const state = await manager.setReaderPreferences(
                         requestPreferences.lookupMode,
@@ -1076,7 +1089,8 @@ export function registerHoshidictsIPC(
                         requestPreferences.popupHeightPx,
                         requestPreferences.theme,
                         requestPreferences.popupOpacityPercent,
-                        requestPreferences.onlyScanJapaneseText
+                        requestPreferences.onlyScanJapaneseText,
+                        requestPreferences.popupToolbarPosition
                     );
                     const preferences: HoshidictsReaderPreferences = {
                         ...hoshidictsReaderPreferencesFromSnapshot(state),

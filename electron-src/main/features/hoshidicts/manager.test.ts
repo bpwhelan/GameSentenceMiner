@@ -1733,6 +1733,7 @@ describe('Hoshidicts reader preferences', () => {
         expect(snapshot.popupWidthPx).toBe(560);
         expect(snapshot.popupHeightPx).toBe(420);
         expect(snapshot.theme).toBe('default');
+        expect(snapshot.popupToolbarPosition).toBe('top');
         expect(snapshot.definitionBlur).toEqual({
             enabled: false,
             lookupThreshold: 5,
@@ -1756,6 +1757,7 @@ describe('Hoshidicts reader preferences', () => {
         expect((await manager.getSnapshot()).popupHeightPx).toBe(420);
         expect((await manager.getSnapshot()).theme).toBe('default');
         expect((await manager.getSnapshot()).popupOpacityPercent).toBe(85);
+        expect((await manager.getSnapshot()).popupToolbarPosition).toBe('top');
         expect((await manager.getSnapshot()).definitionBlur).toEqual({
             enabled: false,
             lookupThreshold: 5,
@@ -1780,7 +1782,8 @@ describe('Hoshidicts reader preferences', () => {
             520,
             'girlypop',
             70,
-            false
+            false,
+            'bottom'
         );
 
         expect(snapshot.lookupMode).toBe('hover');
@@ -1794,6 +1797,7 @@ describe('Hoshidicts reader preferences', () => {
         expect(snapshot.popupHeightPx).toBe(520);
         expect(snapshot.theme).toBe('girlypop');
         expect(snapshot.popupOpacityPercent).toBe(70);
+        expect(snapshot.popupToolbarPosition).toBe('bottom');
         expect(snapshot.definitionBlur).toEqual({
             enabled: true,
             lookupThreshold: 8,
@@ -1811,6 +1815,7 @@ describe('Hoshidicts reader preferences', () => {
         expect(readManifest(baseDir).popupHeightPx).toBe(520);
         expect(readManifest(baseDir).theme).toBe('girlypop');
         expect(readManifest(baseDir).popupOpacityPercent).toBe(70);
+        expect(readManifest(baseDir).popupToolbarPosition).toBe('bottom');
         expect(readManifest(baseDir).definitionBlur).toEqual({
             enabled: true,
             lookupThreshold: 8,
@@ -1830,6 +1835,7 @@ describe('Hoshidicts reader preferences', () => {
         expect((await reloaded.getSnapshot()).popupHeightPx).toBe(520);
         expect((await reloaded.getSnapshot()).theme).toBe('girlypop');
         expect((await reloaded.getSnapshot()).popupOpacityPercent).toBe(70);
+        expect((await reloaded.getSnapshot()).popupToolbarPosition).toBe('bottom');
         expect((await reloaded.getSnapshot()).definitionBlur).toEqual({
             enabled: true,
             lookupThreshold: 8,
@@ -1849,6 +1855,7 @@ describe('Hoshidicts reader preferences', () => {
         expect(shifted.popupHeightPx).toBe(520);
         expect(shifted.theme).toBe('girlypop');
         expect(shifted.popupOpacityPercent).toBe(70);
+        expect(shifted.popupToolbarPosition).toBe('bottom');
         expect(shifted.definitionBlur).toEqual({
             enabled: true,
             lookupThreshold: 8,
@@ -1910,6 +1917,12 @@ describe('Hoshidicts reader preferences', () => {
                 'default', 70.5
             )
         ).rejects.toThrow('opacity is invalid');
+        await expect(
+            manager.setReaderPreferences(
+                'hover', 300, 'Shift', false, 10, undefined, true, 560, 420,
+                'default', 70, true, 'side' as never
+            )
+        ).rejects.toThrow('toolbar position is invalid');
     });
 
     it('rejects unsupported activation keys', async () => {

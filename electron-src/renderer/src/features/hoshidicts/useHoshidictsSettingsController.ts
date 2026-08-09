@@ -8,6 +8,7 @@ import {
   DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
   DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
   DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+  DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
   DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
   DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
   DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
@@ -37,6 +38,7 @@ import {
   type HoshidictsLookupMode,
   type HoshidictsMiningOptions,
   type HoshidictsMiningProfile,
+  type HoshidictsPopupToolbarPosition,
   type HoshidictsMoveDirection,
   type HoshidictsMoveDictionaryToPositionRequest,
   type HoshidictsMoveTabGroupRequest,
@@ -100,7 +102,8 @@ const defaultReaderPreferences = (): HoshidictsReaderPreferences => ({
   popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
   popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
   theme: DEFAULT_HOSHIDICTS_THEME,
-  popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT
+  popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+  popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION
 });
 
 function copyReaderPreferences(
@@ -223,7 +226,8 @@ export function useHoshidictsSettingsController() {
       popupWidthPx: normalized.popupWidthPx,
       popupHeightPx: normalized.popupHeightPx,
       theme: normalized.theme,
-      popupOpacityPercent: normalized.popupOpacityPercent
+      popupOpacityPercent: normalized.popupOpacityPercent,
+      popupToolbarPosition: normalized.popupToolbarPosition
     };
     const mining = profileToDraft(normalized.miningProfile);
     const audio = copyAudioProfile(normalized.audioProfile);
@@ -608,6 +612,13 @@ export function useHoshidictsSettingsController() {
           )
         )
       });
+    },
+    [updateReaderPreferences]
+  );
+
+  const setPopupToolbarPosition = useCallback(
+    (popupToolbarPosition: HoshidictsPopupToolbarPosition) => {
+      updateReaderPreferences({ popupToolbarPosition });
     },
     [updateReaderPreferences]
   );
@@ -1039,6 +1050,7 @@ export function useHoshidictsSettingsController() {
     setPopupHeightPx,
     setTheme,
     setPopupOpacityPercent,
+    setPopupToolbarPosition,
     resetPopupSize,
     setShowLookupCounts,
     setDefinitionBlurEnabled,

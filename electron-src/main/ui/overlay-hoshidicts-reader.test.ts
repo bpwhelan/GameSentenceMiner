@@ -165,6 +165,7 @@ function runHoshidictsReaderConfiguration(
     gsmHoshidictsPopupWidthPx: 560,
     gsmHoshidictsPopupHeightPx: 420,
     gsmHoshidictsPopupOpacityPercent: 85,
+    gsmHoshidictsPopupToolbarPosition: "top",
     gsmHoshidictsTheme: "default",
     gsmHoshidictsDictionaryTabGroups: [],
     gsmHoshidictsReaderEnabled: true,
@@ -601,6 +602,9 @@ describe("Hoshidicts safe popup rendering", () => {
       /\.gsm-hoshidicts-result-chrome\s*\{(?<declarations>[^}]*)\}/.exec(
         css
       )?.groups?.declarations;
+    const bottomChromeRule = declarationsForSelector(
+      '.gsm-hoshidicts-popup[data-toolbar-position="bottom"] .gsm-hoshidicts-result-chrome'
+    );
     const tabListRule =
       /\.gsm-hoshidicts-tab-list\s*\{(?<declarations>[^}]*)\}/.exec(
         css
@@ -676,6 +680,11 @@ describe("Hoshidicts safe popup rendering", () => {
     );
     expect(chromeRule).toContain(
       "background: var(--hoshidicts-chrome-background)"
+    );
+    expect(bottomChromeRule).toContain("top: auto");
+    expect(bottomChromeRule).toContain("bottom: -11px");
+    expect(bottomChromeRule).toContain(
+      "border-top: 1px solid var(--hoshidicts-border)"
     );
     expect(tabListRule).toContain("width: 100%");
     expect(tabListRule).toContain("overflow-x: auto");
@@ -977,6 +986,7 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(enabled.window.gsmHoshidictsPopupHeightPx).toBe(420);
     expect(enabled.window.gsmHoshidictsTheme).toBe("default");
     expect(enabled.window.gsmHoshidictsPopupOpacityPercent).toBe(85);
+    expect(enabled.window.gsmHoshidictsPopupToolbarPosition).toBe("top");
     expect(enabled.documentElement.dataset.hoshidictsTheme).toBe("default");
     expect(enabled.documentElement.style.setProperty).toHaveBeenCalledWith(
       "--gsm-hoshidicts-popup-opacity",
@@ -1017,13 +1027,15 @@ describe("Hoshidicts safe popup rendering", () => {
         GSM_HOSHIDICTS_POPUP_WIDTH_PX: "720",
         GSM_HOSHIDICTS_POPUP_HEIGHT_PX: "520",
         GSM_HOSHIDICTS_THEME: "cyberpunk",
-        GSM_HOSHIDICTS_POPUP_OPACITY_PERCENT: "70"
+        GSM_HOSHIDICTS_POPUP_OPACITY_PERCENT: "70",
+        GSM_HOSHIDICTS_POPUP_TOOLBAR_POSITION: "bottom"
       }
     );
     expect(themed.window.gsmHoshidictsPopupWidthPx).toBe(720);
     expect(themed.window.gsmHoshidictsPopupHeightPx).toBe(520);
     expect(themed.window.gsmHoshidictsTheme).toBe("cyberpunk");
     expect(themed.window.gsmHoshidictsPopupOpacityPercent).toBe(70);
+    expect(themed.window.gsmHoshidictsPopupToolbarPosition).toBe("bottom");
     expect(themed.documentElement.dataset.hoshidictsTheme).toBe("cyberpunk");
     expect(themed.documentElement.style.setProperty).toHaveBeenCalledWith(
       "--gsm-hoshidicts-popup-opacity",
@@ -1084,6 +1096,7 @@ describe("Hoshidicts safe popup rendering", () => {
         popupWidthPx: 560,
         popupHeightPx: 420,
         popupOpacityPercent: 85,
+        popupToolbarPosition: "top",
         theme: "default",
         definitionBlur: {
           enabled: false,
@@ -1178,6 +1191,7 @@ describe("Hoshidicts safe popup rendering", () => {
       popupWidthPx: 720,
       popupHeightPx: 520,
       popupOpacityPercent: 70,
+      popupToolbarPosition: "bottom",
       theme: "autumn",
       dictionaryPresentation: [
         { title: "Primary", favorite: false, displayName: "Main dictionary" },
@@ -1228,6 +1242,7 @@ describe("Hoshidicts safe popup rendering", () => {
       popupWidthPx: 720,
       popupHeightPx: 520,
       popupOpacityPercent: 70,
+      popupToolbarPosition: "top",
       dictionaryPresentation: [],
       definitionBlur: {
         enabled: false,
@@ -1267,6 +1282,7 @@ describe("Hoshidicts safe popup rendering", () => {
       popupWidthPx: 720,
       popupHeightPx: 520,
       popupOpacityPercent: 70,
+      popupToolbarPosition: "bottom",
       theme: "autumn",
       definitionBlur: {
         enabled: true,
@@ -1340,6 +1356,7 @@ describe("Hoshidicts safe popup rendering", () => {
       popupWidthPx: 720,
       popupHeightPx: 520,
       popupOpacityPercent: 70,
+      popupToolbarPosition: "bottom",
       theme: "cyberpunk",
       dictionaryPresentation: [],
       sourceHighlightEnabled: true,
@@ -1365,6 +1382,7 @@ describe("Hoshidicts safe popup rendering", () => {
       popupWidthPx: 720,
       popupHeightPx: 520,
       popupOpacityPercent: 70,
+      popupToolbarPosition: "bottom",
       theme: "cyberpunk",
       dictionaryPresentation: [],
       dictionaryTabGroups: [],
@@ -2594,6 +2612,64 @@ describe("Hoshidicts dictionary tabs", () => {
       .toContain("backup definition");
     expect(popup.querySelector('[role="tabpanel"]')?.textContent)
       .not.toContain("main definition");
+    reader.destroy();
+  });
+
+  it("moves the complete toolbar to the bottom live and reveals its Note form", async () => {
+    const { lookup, reader } = createLookupHarness({
+      dictionaryPresentation: [
+        { title: "Main", favorite: false },
+        { title: "Backup", favorite: true }
+      ]
+    });
+    const { popup } = await lookup((requestId) =>
+      lookupResultWithDictionaries(requestId, [
+        { dictionary: "Main", glossary: "main definition" },
+        { dictionary: "Backup", glossary: "backup definition" }
+      ])
+    );
+    const chrome = popup.querySelector<HTMLElement>(
+      ".gsm-hoshidicts-result-chrome"
+    )!;
+    const form = popup.querySelector<HTMLFormElement>(
+      ".gsm-hoshidicts-note-form"
+    )!;
+    const panel = popup.querySelector<HTMLElement>(
+      ".gsm-hoshidicts-tab-panel"
+    )!;
+
+    expect(popup.dataset.toolbarPosition).toBe("top");
+    expect(popup.firstElementChild).toBe(chrome);
+    expect(chrome.nextElementSibling).toBe(form);
+    expect(form.nextElementSibling).toBe(panel);
+
+    reader.updatePreferences({ popupToolbarPosition: "bottom" });
+
+    expect(reader.getPreferences().popupToolbarPosition).toBe("bottom");
+    expect(popup.dataset.toolbarPosition).toBe("bottom");
+    expect(popup.firstElementChild).toBe(panel);
+    expect(panel.nextElementSibling).toBe(form);
+    expect(popup.lastElementChild).toBe(chrome);
+    expect(chrome.querySelector('[role="tablist"]')).not.toBeNull();
+    expect(chrome.querySelector(".gsm-hoshidicts-expression")).not.toBeNull();
+    expect(chrome.querySelector(".gsm-hoshidicts-mine-button")).not.toBeNull();
+
+    Object.defineProperty(popup, "scrollHeight", {
+      configurable: true,
+      value: 900
+    });
+    popup.scrollTop = 0;
+    chrome.querySelector<HTMLButtonElement>(
+      ".gsm-hoshidicts-note-button"
+    )!.click();
+    expect(form.hidden).toBe(false);
+    expect(popup.scrollTop).toBe(900);
+
+    reader.updatePreferences({ popupToolbarPosition: "top" });
+    expect(popup.dataset.toolbarPosition).toBe("top");
+    expect(popup.firstElementChild).toBe(chrome);
+    expect(chrome.nextElementSibling).toBe(form);
+    expect(form.nextElementSibling).toBe(panel);
     reader.destroy();
   });
 
@@ -6057,6 +6133,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       popupWidthPx: 560,
       popupHeightPx: 420,
       popupOpacityPercent: 85,
+      popupToolbarPosition: "top",
       theme: "default",
       dictionaryPresentation: [],
       dictionaryTabGroups: []
@@ -6070,6 +6147,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       popupWidthPx: 720,
       popupHeightPx: 520,
       popupOpacityPercent: 70,
+      popupToolbarPosition: "bottom",
       theme: "cyberpunk",
       definitionBlur: {
         enabled: true,
@@ -6094,6 +6172,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       popupWidthPx: 720,
       popupHeightPx: 520,
       popupOpacityPercent: 70,
+      popupToolbarPosition: "bottom",
       theme: "cyberpunk",
       dictionaryPresentation: [],
       dictionaryTabGroups: []
@@ -6115,6 +6194,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       popupWidthPx: 720,
       popupHeightPx: 520,
       popupOpacityPercent: 70,
+      popupToolbarPosition: "bottom",
       theme: "cyberpunk",
       dictionaryPresentation: [],
       dictionaryTabGroups: []
@@ -6137,6 +6217,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
         popupWidthPx: 720,
         popupHeightPx: 520,
         popupOpacityPercent: 70,
+        popupToolbarPosition: "bottom",
         theme: "cyberpunk",
         dictionaryPresentation: [],
         dictionaryTabGroups: []

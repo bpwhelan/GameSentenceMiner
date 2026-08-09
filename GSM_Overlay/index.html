@@ -111,6 +111,11 @@
       ? process.env.GSM_HOSHIDICTS_POPUP_OPACITY_PERCENT
       : ''
   );
+  const configuredHoshidictsPopupToolbarPosition = (
+    typeof process !== 'undefined' && process.env
+      ? process.env.GSM_HOSHIDICTS_POPUP_TOOLBAR_POSITION
+      : ''
+  );
   window.gsmHoshidictsPopupWidthPx = (
     Number.isInteger(configuredHoshidictsPopupWidth) &&
     configuredHoshidictsPopupWidth >= 280 &&
@@ -172,6 +177,9 @@
     configuredHoshidictsPopupOpacityPercent >= 0 &&
     configuredHoshidictsPopupOpacityPercent <= 100
   ) ? configuredHoshidictsPopupOpacityPercent : 85;
+  window.gsmHoshidictsPopupToolbarPosition = (
+    configuredHoshidictsPopupToolbarPosition === 'bottom'
+  ) ? 'bottom' : 'top';
   document.documentElement.style.setProperty(
     '--gsm-hoshidicts-popup-opacity',
     `${window.gsmHoshidictsPopupOpacityPercent}%`
@@ -5241,6 +5249,7 @@ background: rgba(202, 12, 12, 0.692);
       !Number.isInteger(preferences.popupOpacityPercent) ||
       preferences.popupOpacityPercent < 0 ||
       preferences.popupOpacityPercent > 100 ||
+      !['top', 'bottom'].includes(preferences.popupToolbarPosition) ||
       ![
         'default',
         'catppuccin-mocha',
@@ -5293,6 +5302,7 @@ background: rgba(202, 12, 12, 0.692);
       popupWidthPx: preferences.popupWidthPx,
       popupHeightPx: preferences.popupHeightPx,
       popupOpacityPercent: preferences.popupOpacityPercent,
+      popupToolbarPosition: preferences.popupToolbarPosition,
       theme: preferences.theme,
     };
   }
@@ -5338,6 +5348,7 @@ background: rgba(202, 12, 12, 0.692);
       popupWidthPx: window.gsmHoshidictsPopupWidthPx,
       popupHeightPx: window.gsmHoshidictsPopupHeightPx,
       popupOpacityPercent: window.gsmHoshidictsPopupOpacityPercent,
+      popupToolbarPosition: window.gsmHoshidictsPopupToolbarPosition,
       theme: window.gsmHoshidictsTheme,
       dictionaryPresentation: window.gsmHoshidictsDictionaryPresentation,
       dictionaryTabGroups: window.gsmHoshidictsDictionaryTabGroups,
@@ -5415,6 +5426,8 @@ background: rgba(202, 12, 12, 0.692);
     window.gsmHoshidictsPopupHeightPx = appearance.popupHeightPx;
     window.gsmHoshidictsPopupOpacityPercent =
       appearance.popupOpacityPercent;
+    window.gsmHoshidictsPopupToolbarPosition =
+      appearance.popupToolbarPosition;
     window.gsmHoshidictsTheme = appearance.theme;
     document.documentElement.dataset.hoshidictsTheme = appearance.theme;
     document.documentElement.style.setProperty(
@@ -5437,6 +5450,7 @@ background: rgba(202, 12, 12, 0.692);
         popupWidthPx: window.gsmHoshidictsPopupWidthPx,
         popupHeightPx: window.gsmHoshidictsPopupHeightPx,
         popupOpacityPercent: window.gsmHoshidictsPopupOpacityPercent,
+        popupToolbarPosition: window.gsmHoshidictsPopupToolbarPosition,
         theme: window.gsmHoshidictsTheme,
         dictionaryPresentation: window.gsmHoshidictsDictionaryPresentation,
         dictionaryTabGroups: window.gsmHoshidictsDictionaryTabGroups,

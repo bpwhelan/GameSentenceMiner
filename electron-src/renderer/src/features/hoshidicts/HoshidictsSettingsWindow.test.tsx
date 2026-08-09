@@ -14,6 +14,7 @@ import {
   DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
   DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
   DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+  DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
   DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
   DEFAULT_HOSHIDICTS_THEME,
   HOSHIDICTS_CHANNELS,
@@ -190,6 +191,7 @@ const baseState: HoshidictsDesktopSnapshot = {
   popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
   theme: DEFAULT_HOSHIDICTS_THEME,
   popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+  popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
   schedule: "weekly",
   lastCheck: "2026-08-06T10:00:00.000Z",
   nextCheck: "2026-08-13T10:00:00.000Z",
@@ -2007,6 +2009,7 @@ describe("HoshidictsSettingsWindow", () => {
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
         theme: DEFAULT_HOSHIDICTS_THEME,
         popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+        popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
     );
@@ -2056,6 +2059,35 @@ describe("HoshidictsSettingsWindow", () => {
         (option) => option.value === "girlypop"
       )?.text.trim()
     ).toBe("Girlypop");
+  });
+
+  it("auto-saves whether the popup toolbar is at the top or bottom", async () => {
+    vi.useFakeTimers();
+    await render();
+    const toolbarPosition = container.querySelector<HTMLSelectElement>(
+      "#hoshidicts-popup-toolbar-position"
+    );
+
+    expect(toolbarPosition?.value).toBe("top");
+    expect(
+      Array.from(toolbarPosition?.options ?? [], (option) => ({
+        text: option.text.trim(),
+        value: option.value
+      }))
+    ).toEqual([
+      { text: "Top", value: "top" },
+      { text: "Bottom", value: "bottom" }
+    ]);
+
+    await act(async () => {
+      setSelectValue(toolbarPosition, "bottom");
+      await flushAutosave();
+    });
+
+    expect(invokeMock).toHaveBeenLastCalledWith(
+      HOSHIDICTS_CHANNELS.setReaderPreferences,
+      expect.objectContaining({ popupToolbarPosition: "bottom" })
+    );
   });
 
   it.each([
@@ -2172,6 +2204,7 @@ describe("HoshidictsSettingsWindow", () => {
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
         theme: DEFAULT_HOSHIDICTS_THEME,
         popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+        popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
     );
@@ -2221,6 +2254,7 @@ describe("HoshidictsSettingsWindow", () => {
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
         theme: DEFAULT_HOSHIDICTS_THEME,
         popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+        popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
         definitionBlur: {
           enabled: true,
           lookupThreshold: 12,
@@ -2347,6 +2381,7 @@ describe("HoshidictsSettingsWindow", () => {
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
         theme: DEFAULT_HOSHIDICTS_THEME,
         popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+        popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
     );
@@ -2375,6 +2410,7 @@ describe("HoshidictsSettingsWindow", () => {
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
         theme: DEFAULT_HOSHIDICTS_THEME,
         popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+        popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
     );
@@ -2442,6 +2478,7 @@ describe("HoshidictsSettingsWindow", () => {
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
         theme: DEFAULT_HOSHIDICTS_THEME,
         popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+        popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
     );
@@ -2474,6 +2511,7 @@ describe("HoshidictsSettingsWindow", () => {
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
         theme: DEFAULT_HOSHIDICTS_THEME,
         popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+        popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
     );

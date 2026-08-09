@@ -60,6 +60,7 @@
   const MIN_POPUP_HEIGHT_PX = 200;
   const MAX_POPUP_HEIGHT_PX = 900;
   const DEFAULT_POPUP_OPACITY_PERCENT = 85;
+  const DEFAULT_POPUP_TOOLBAR_POSITION = "top";
   const MIN_POPUP_OPACITY_PERCENT = 0;
   const MAX_POPUP_OPACITY_PERCENT = 100;
   const DEFAULT_THEME = "default";
@@ -1974,6 +1975,13 @@
       : fallback;
   }
 
+  function normalizePopupToolbarPosition(
+    value,
+    fallback = DEFAULT_POPUP_TOOLBAR_POSITION
+  ) {
+    return value === "top" || value === "bottom" ? value : fallback;
+  }
+
   function normalizeTheme(value, fallback = DEFAULT_THEME) {
     return THEMES.has(value) ? value : fallback;
   }
@@ -2064,6 +2072,9 @@
       popupHeightPx: normalizePopupHeight(options.popupHeightPx),
       popupOpacityPercent: normalizePopupOpacityPercent(
         options.popupOpacityPercent
+      ),
+      popupToolbarPosition: normalizePopupToolbarPosition(
+        options.popupToolbarPosition
       ),
       theme: normalizeTheme(options.theme),
       dictionaryPresentation: normalizeDictionaryPresentation(
@@ -2947,6 +2958,7 @@
         maxMetadataTags: MAX_VISIBLE_METADATA_TAGS,
         sourceHighlighter: chainHighlighter.scope(depth),
         sourceHighlightEnabled: preferences.sourceHighlightEnabled,
+        toolbarPosition: preferences.popupToolbarPosition,
         positionPopup: () => positionPopupAndDescendants(depth),
         onMineClick(button, result, candidate, feedback) {
           void mineResult(button, result, candidate, feedback);
@@ -4745,6 +4757,7 @@
       const previousPopupWidthPx = preferences.popupWidthPx;
       const previousPopupHeightPx = preferences.popupHeightPx;
       const previousPopupOpacityPercent = preferences.popupOpacityPercent;
+      const previousPopupToolbarPosition = preferences.popupToolbarPosition;
       const previousTheme = preferences.theme;
       const previousDictionaryPresentation = preferences.dictionaryPresentation;
       const previousDictionaryTabGroups = preferences.dictionaryTabGroups;
@@ -4824,6 +4837,15 @@
               preferences.popupOpacityPercent
             )
           : preferences.popupOpacityPercent,
+        popupToolbarPosition: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "popupToolbarPosition"
+        )
+          ? normalizePopupToolbarPosition(
+              nextPreferences.popupToolbarPosition,
+              preferences.popupToolbarPosition
+            )
+          : preferences.popupToolbarPosition,
         theme: Object.prototype.hasOwnProperty.call(nextPreferences, "theme")
           ? normalizeTheme(nextPreferences.theme, preferences.theme)
           : preferences.theme,
@@ -4878,6 +4900,12 @@
           preferences.popupNestingMaxDepth + 1,
           "depth-limit-changed"
         );
+      }
+      if (previousPopupToolbarPosition !== preferences.popupToolbarPosition) {
+        for (const level of popupLevels) {
+          level.view.setToolbarPosition(preferences.popupToolbarPosition);
+        }
+        positionAllPopups();
       }
       if (
         previousPopupWidthPx !== preferences.popupWidthPx ||
@@ -5024,6 +5052,7 @@
       popupWidthPx: preferences.popupWidthPx,
       popupHeightPx: preferences.popupHeightPx,
       popupOpacityPercent: preferences.popupOpacityPercent,
+      popupToolbarPosition: preferences.popupToolbarPosition,
       theme: preferences.theme,
       scanLength: LOOKUP_SCAN_LENGTH,
     });
@@ -5062,6 +5091,7 @@
     DEFAULT_POPUP_HIDE_DELAY_MS,
     DEFAULT_POPUP_HEIGHT_PX,
     DEFAULT_POPUP_OPACITY_PERCENT,
+    DEFAULT_POPUP_TOOLBAR_POSITION,
     DEFAULT_POPUP_NESTING_MAX_DEPTH,
     DEFAULT_POPUP_WIDTH_PX,
     DEFAULT_SOURCE_HIGHLIGHT_ENABLED,
@@ -5093,6 +5123,7 @@
     normalizeAudioProfile,
     normalizeDefinitionBlurPreferences,
     normalizePopupHideDelay,
+    normalizePopupToolbarPosition,
     normalizePopupHeight,
     normalizeKanjiLookup,
     normalizePopupNestingMaxDepth,

@@ -83,6 +83,7 @@ const {
     popupWidthPx: number;
     popupHeightPx: number;
     popupOpacityPercent: number;
+    popupToolbarPosition: "top" | "bottom";
     theme: HoshidictsTheme;
     dictionaryPresentation: Array<{
       title: string;
@@ -128,6 +129,7 @@ describe("Hoshidicts desktop bridge", () => {
     popupWidthPx: 680,
     popupHeightPx: 500,
     popupOpacityPercent: 70,
+    popupToolbarPosition: "bottom" as const,
     theme: "autumn" as const,
   };
 
@@ -340,6 +342,7 @@ describe("Hoshidicts desktop bridge", () => {
         popupWidthPx: 680,
         popupHeightPx: 500,
         popupOpacityPercent: 70,
+        popupToolbarPosition: "top",
         theme,
       }).theme).toBe(theme);
     }

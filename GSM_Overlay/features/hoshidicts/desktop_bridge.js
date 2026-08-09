@@ -226,6 +226,7 @@ function normalizeHoshidictsReaderPreferences(preferences) {
   const popupWidthPx = preferences && preferences.popupWidthPx;
   const popupHeightPx = preferences && preferences.popupHeightPx;
   const popupOpacityPercent = preferences && preferences.popupOpacityPercent;
+  const popupToolbarPosition = preferences && preferences.popupToolbarPosition;
   const theme = preferences && preferences.theme;
   const dictionaryPresentation = normalizeHoshidictsDictionaryPresentation(
     preferences && preferences.dictionaryPresentation
@@ -255,6 +256,7 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     !Number.isInteger(popupOpacityPercent) ||
     popupOpacityPercent < MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT ||
     popupOpacityPercent > MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT ||
+    (popupToolbarPosition !== "top" && popupToolbarPosition !== "bottom") ||
     !HOSHIDICTS_THEMES.has(theme)
   ) {
     throw new Error("Hoshidicts reader preferences are invalid.");
@@ -269,6 +271,7 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     popupWidthPx,
     popupHeightPx,
     popupOpacityPercent,
+    popupToolbarPosition,
     theme,
     dictionaryPresentation,
     dictionaryTabGroups,

@@ -536,6 +536,34 @@
     let sourceHighlightEnabled = options.sourceHighlightEnabled === true;
     let currentSourceHighlight = null;
     let noteEditing = false;
+    let toolbarPosition = options.toolbarPosition === "bottom" ? "bottom" : "top";
+    let currentToolbar = null;
+    let currentNoteForm = null;
+    popup.dataset.toolbarPosition = toolbarPosition;
+
+    function applyToolbarLayout() {
+      if (!currentToolbar || !currentNoteForm) {
+        return;
+      }
+      if (toolbarPosition === "bottom") {
+        popup.append(currentNoteForm, currentToolbar);
+      } else {
+        popup.prepend(currentToolbar, currentNoteForm);
+      }
+    }
+
+    function setRenderedToolbar(toolbar, noteForm) {
+      currentToolbar = toolbar;
+      currentNoteForm = noteForm;
+      applyToolbarLayout();
+    }
+
+    function setToolbarPosition(value) {
+      toolbarPosition = value === "bottom" ? "bottom" : "top";
+      popup.dataset.toolbarPosition = toolbarPosition;
+      applyToolbarLayout();
+      return toolbarPosition;
+    }
 
     function applyDefinitionBlurState(element) {
       if (DEFINITION_BLUR_STATES.has(definitionBlurState)) {
@@ -571,6 +599,8 @@
       setNoteEditing(false);
       sourceHighlighter.clear();
       currentSourceHighlight = null;
+      currentToolbar = null;
+      currentNoteForm = null;
       popup.replaceChildren();
       popup.scrollTop = 0;
       setDefinitionBlurState("revealed");
@@ -707,7 +737,7 @@
         form.hidden = false;
         noteButton.setAttribute("aria-expanded", "true");
         setNoteEditing(true);
-        popup.scrollTop = 0;
+        popup.scrollTop = toolbarPosition === "bottom" ? popup.scrollHeight : 0;
         termInput.focus();
         if (selectTermOnOpen) {
           termInput.select();
@@ -801,12 +831,14 @@
       actions.className = "gsm-hoshidicts-entry-actions";
       actions.appendChild(noteControls.button);
       primaryHeader.appendChild(actions);
-      popup.append(createResultChrome(primaryHeader), noteControls.form);
+      const toolbar = createResultChrome(primaryHeader);
+      popup.append(toolbar, noteControls.form);
       const notice = documentRef.createElement("div");
       notice.className = "gsm-hoshidicts-lookup-notice";
       notice.setAttribute("role", "status");
       notice.textContent = message;
       popup.appendChild(notice);
+      setRenderedToolbar(toolbar, noteControls.form);
     }
 
     function appendMetadata(entry, result, dictionaryPresentation = []) {
@@ -1190,7 +1222,8 @@
       actions.className = "gsm-hoshidicts-entry-actions";
       actions.appendChild(noteControls.button);
       primaryHeader.appendChild(actions);
-      popup.append(createResultChrome(primaryHeader), noteControls.form);
+      const toolbar = createResultChrome(primaryHeader);
+      popup.append(toolbar, noteControls.form);
 
       for (const kanjiEntry of kanji.entries) {
         const entry = documentRef.createElement("article");
@@ -1267,6 +1300,8 @@
         }
         popup.appendChild(entry);
       }
+
+      setRenderedToolbar(toolbar, noteControls.form);
 
       sourceHighlighter.apply(
         candidate,
@@ -1370,11 +1405,9 @@
       const primaryHeader = documentRef.createElement("header");
       primaryHeader.className =
         "gsm-hoshidicts-entry-header gsm-hoshidicts-primary-header";
-      popup.append(
-        createResultChrome(primaryHeader, tabList),
-        noteControls.form,
-        panel
-      );
+      const toolbar = createResultChrome(primaryHeader, tabList);
+      popup.append(toolbar, noteControls.form, panel);
+      setRenderedToolbar(toolbar, noteControls.form);
 
       const tabButtons = [];
       let focusedIndex = 0;
@@ -1522,6 +1555,7 @@
       setFeedback,
       setLookupStats,
       setSourceHighlightEnabled,
+      setToolbarPosition,
     };
   }
 

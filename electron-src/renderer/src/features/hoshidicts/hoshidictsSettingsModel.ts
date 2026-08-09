@@ -7,6 +7,7 @@ import {
   DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
   DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
   DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+  DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
   DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
   DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
   DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
@@ -18,6 +19,7 @@ import {
   HOSHIDICTS_MINING_FIELD_MARKERS,
   isHoshidictsActivationKey,
   isHoshidictsAudioSourceType,
+  isHoshidictsPopupToolbarPosition,
   isHoshidictsTheme,
   MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
   MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
@@ -298,6 +300,7 @@ const DEFAULT_STATE: HoshidictsDesktopSnapshot = {
   popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
   theme: DEFAULT_HOSHIDICTS_THEME,
   popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+  popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
   schedule: "off",
   lastCheck: null,
   nextCheck: null,
@@ -646,6 +649,11 @@ export function normalizeHoshidictsDesktopState(
       MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT
       ? (candidate.popupOpacityPercent as number)
       : DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT;
+  const popupToolbarPosition = isHoshidictsPopupToolbarPosition(
+    candidate.popupToolbarPosition
+  )
+    ? candidate.popupToolbarPosition
+    : DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION;
 
   return {
     revision:
@@ -738,6 +746,7 @@ export function normalizeHoshidictsDesktopState(
       ? candidate.theme
       : DEFAULT_HOSHIDICTS_THEME,
     popupOpacityPercent,
+    popupToolbarPosition,
     schedule,
     lastCheck:
       typeof candidate.lastCheck === "string" ? candidate.lastCheck : null,

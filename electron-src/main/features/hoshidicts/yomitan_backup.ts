@@ -904,6 +904,7 @@ function currentReaderPreferences(current: HoshidictsManagerSnapshot): Hoshidict
         popupHeightPx: current.popupHeightPx,
         theme: current.theme,
         popupOpacityPercent: current.popupOpacityPercent,
+        popupToolbarPosition: current.popupToolbarPosition,
     };
 }
 

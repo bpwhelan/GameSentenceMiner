@@ -46,11 +46,13 @@ import {
     DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
     DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
     DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+    DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
     DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
     DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
     DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
     DEFAULT_HOSHIDICTS_THEME,
     isHoshidictsActivationKey,
+    isHoshidictsPopupToolbarPosition,
     isHoshidictsTheme,
     MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
@@ -66,6 +68,7 @@ import {
     type HoshidictsActivationKey,
     type HoshidictsDefinitionBlurPreferences,
     type HoshidictsLookupMode,
+    type HoshidictsPopupToolbarPosition,
     type HoshidictsTheme,
     type HoshidictsAudioProfile,
     type HoshidictsReaderPreferences,
@@ -89,6 +92,8 @@ let overlayHoshidictsPopupWidthAtLaunch: number | null = null;
 let overlayHoshidictsPopupHeightAtLaunch: number | null = null;
 let overlayHoshidictsThemeAtLaunch: HoshidictsTheme | null = null;
 let overlayHoshidictsPopupOpacityPercentAtLaunch: number | null = null;
+let overlayHoshidictsPopupToolbarPositionAtLaunch: HoshidictsPopupToolbarPosition | null =
+    null;
 let hoshidictsLookupModeProvider: () => Promise<HoshidictsLookupMode> =
     async () => 'shift';
 let hoshidictsActivationKeyProvider: () => Promise<HoshidictsActivationKey> =
@@ -113,6 +118,8 @@ let hoshidictsThemeProvider: () => Promise<HoshidictsTheme> =
     async () => DEFAULT_HOSHIDICTS_THEME;
 let hoshidictsPopupOpacityPercentProvider: () => Promise<number> =
     async () => DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT;
+let hoshidictsPopupToolbarPositionProvider: () => Promise<HoshidictsPopupToolbarPosition> =
+    async () => DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION;
 let hoshidictsCustomDictionarySyncProvider: () => Promise<void> =
     async () => undefined;
 
@@ -191,6 +198,12 @@ export function configureHoshidictsPopupOpacityPercentProvider(
     provider: () => Promise<number>
 ): void {
     hoshidictsPopupOpacityPercentProvider = provider;
+}
+
+export function configureHoshidictsPopupToolbarPositionProvider(
+    provider: () => Promise<HoshidictsPopupToolbarPosition>
+): void {
+    hoshidictsPopupToolbarPositionProvider = provider;
 }
 
 export function configureHoshidictsCustomDictionarySyncProvider(
@@ -357,6 +370,7 @@ export function getOverlayRuntimeState(): OverlayRuntimeState {
         overlayHoshidictsPopupHeightAtLaunch = null;
         overlayHoshidictsThemeAtLaunch = null;
         overlayHoshidictsPopupOpacityPercentAtLaunch = null;
+        overlayHoshidictsPopupToolbarPositionAtLaunch = null;
     }
     return {
         isRunning,
@@ -431,6 +445,11 @@ export function getOverlayHoshidictsPopupOpacityPercentAtLaunch(): number | null
     return overlayHoshidictsPopupOpacityPercentAtLaunch;
 }
 
+export function getOverlayHoshidictsPopupToolbarPositionAtLaunch(): HoshidictsPopupToolbarPosition | null {
+    getOverlayRuntimeState();
+    return overlayHoshidictsPopupToolbarPositionAtLaunch;
+}
+
 export function getOverlayHoshidictsAudioProfileRestartRequired(): boolean {
     return getOverlayRuntimeState().isRunning &&
         overlayHoshidictsAudioProfileRestartRequired;
@@ -460,6 +479,8 @@ export function markOverlayHoshidictsReaderPreferencesApplied(
     overlayHoshidictsThemeAtLaunch = preferences.theme;
     overlayHoshidictsPopupOpacityPercentAtLaunch =
         preferences.popupOpacityPercent;
+    overlayHoshidictsPopupToolbarPositionAtLaunch =
+        preferences.popupToolbarPosition;
     return true;
 }
 
@@ -507,6 +528,7 @@ export function stopOverlay(options: StopOverlayOptions = {}): boolean {
             overlayHoshidictsPopupHeightAtLaunch = null;
             overlayHoshidictsThemeAtLaunch = null;
             overlayHoshidictsPopupOpacityPercentAtLaunch = null;
+            overlayHoshidictsPopupToolbarPositionAtLaunch = null;
         }
         return stopRequested;
     }
@@ -528,6 +550,7 @@ export function stopOverlay(options: StopOverlayOptions = {}): boolean {
         overlayHoshidictsPopupHeightAtLaunch = null;
         overlayHoshidictsThemeAtLaunch = null;
         overlayHoshidictsPopupOpacityPercentAtLaunch = null;
+        overlayHoshidictsPopupToolbarPositionAtLaunch = null;
         return false;
     }
 
@@ -616,7 +639,8 @@ function registerOverlayProcess(
     hoshidictsPopupWidthPx: number,
     hoshidictsPopupHeightPx: number,
     hoshidictsTheme: HoshidictsTheme,
-    hoshidictsPopupOpacityPercent: number
+    hoshidictsPopupOpacityPercent: number,
+    hoshidictsPopupToolbarPosition: HoshidictsPopupToolbarPosition
 ): void {
     overlayProcess = processHandle;
     overlayLaunchSource = source;
@@ -640,6 +664,8 @@ function registerOverlayProcess(
     overlayHoshidictsThemeAtLaunch = hoshidictsTheme;
     overlayHoshidictsPopupOpacityPercentAtLaunch =
         hoshidictsPopupOpacityPercent;
+    overlayHoshidictsPopupToolbarPositionAtLaunch =
+        hoshidictsPopupToolbarPosition;
     overlayProcess.once('exit', () => {
         overlayProcess = null;
         overlayLaunchSource = null;
@@ -657,6 +683,7 @@ function registerOverlayProcess(
         overlayHoshidictsPopupHeightAtLaunch = null;
         overlayHoshidictsThemeAtLaunch = null;
         overlayHoshidictsPopupOpacityPercentAtLaunch = null;
+        overlayHoshidictsPopupToolbarPositionAtLaunch = null;
     });
     overlayProcess.once('error', (error: Error) => {
         console.error('Overlay process error:', error);
@@ -676,6 +703,7 @@ function registerOverlayProcess(
         overlayHoshidictsPopupHeightAtLaunch = null;
         overlayHoshidictsThemeAtLaunch = null;
         overlayHoshidictsPopupOpacityPercentAtLaunch = null;
+        overlayHoshidictsPopupToolbarPositionAtLaunch = null;
     });
 }
 
@@ -694,7 +722,9 @@ export function buildHoshidictsOverlayEnvironment(
     popupHeightPx = DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
     theme: HoshidictsTheme = DEFAULT_HOSHIDICTS_THEME,
     popupOpacityPercent = DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
-    onlyScanJapaneseText = DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT
+    onlyScanJapaneseText = DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
+    popupToolbarPosition: HoshidictsPopupToolbarPosition =
+        DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION
 ): Record<string, string> {
     const normalizedDefinitionBlur =
         normalizeHoshidictsDefinitionBlur(definitionBlur);
@@ -748,6 +778,10 @@ export function buildHoshidictsOverlayEnvironment(
                 DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT
             )
         ),
+        GSM_HOSHIDICTS_POPUP_TOOLBAR_POSITION:
+            isHoshidictsPopupToolbarPosition(popupToolbarPosition)
+                ? popupToolbarPosition
+                : DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
     };
 }
 
@@ -862,6 +896,8 @@ export async function runOverlayWithSource(
     let hoshidictsTheme: HoshidictsTheme = DEFAULT_HOSHIDICTS_THEME;
     let hoshidictsPopupOpacityPercent =
         DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT;
+    let hoshidictsPopupToolbarPosition: HoshidictsPopupToolbarPosition =
+        DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION;
     if (hoshidictsEnabled) {
         try {
             void hoshidictsCustomDictionarySyncProvider().catch(
@@ -928,6 +964,14 @@ export async function runOverlayWithSource(
                     MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT,
                     DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT
                 );
+            const configuredPopupToolbarPosition =
+                await hoshidictsPopupToolbarPositionProvider();
+            hoshidictsPopupToolbarPosition =
+                isHoshidictsPopupToolbarPosition(
+                    configuredPopupToolbarPosition
+                )
+                    ? configuredPopupToolbarPosition
+                    : DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION;
         } catch (error) {
             console.warn(
                 '[Hoshidicts] Could not load reader preferences; using defaults.',
@@ -948,7 +992,8 @@ export async function runOverlayWithSource(
         hoshidictsPopupHeightPx,
         hoshidictsTheme,
         hoshidictsPopupOpacityPercent,
-        hoshidictsOnlyScanJapaneseText
+        hoshidictsOnlyScanJapaneseText,
+        hoshidictsPopupToolbarPosition
     );
     const hoshidictsControlEnvironment = buildHoshidictsControlEnvironment();
     const overlayProcessEnvironment = buildOverlayProcessEnvironment();
@@ -1002,6 +1047,9 @@ export async function runOverlayWithSource(
         overlayHoshidictsThemeAtLaunch = started ? hoshidictsTheme : null;
         overlayHoshidictsPopupOpacityPercentAtLaunch = started
             ? hoshidictsPopupOpacityPercent
+            : null;
+        overlayHoshidictsPopupToolbarPositionAtLaunch = started
+            ? hoshidictsPopupToolbarPosition
             : null;
         return started;
     }
@@ -1058,7 +1106,8 @@ export async function runOverlayWithSource(
             hoshidictsPopupWidthPx,
             hoshidictsPopupHeightPx,
             hoshidictsTheme,
-            hoshidictsPopupOpacityPercent
+            hoshidictsPopupOpacityPercent,
+            hoshidictsPopupToolbarPosition
         );
         console.log('Overlay launched successfully from source.');
         return true;
@@ -1090,7 +1139,8 @@ export async function runOverlayWithSource(
                 hoshidictsPopupWidthPx,
                 hoshidictsPopupHeightPx,
                 hoshidictsTheme,
-                hoshidictsPopupOpacityPercent
+                hoshidictsPopupOpacityPercent,
+                hoshidictsPopupToolbarPosition
             );
             console.log('Overlay launched successfully with shared Electron runtime.');
             return true;
@@ -1129,7 +1179,8 @@ export async function runOverlayWithSource(
                 hoshidictsPopupWidthPx,
                 hoshidictsPopupHeightPx,
                 hoshidictsTheme,
-                hoshidictsPopupOpacityPercent
+                hoshidictsPopupOpacityPercent,
+                hoshidictsPopupToolbarPosition
             );
             console.log('Overlay launched successfully with legacy standalone runtime.');
             return true;

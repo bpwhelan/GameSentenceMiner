@@ -29,6 +29,7 @@ import type {
     HoshidictsMiningProfile,
     HoshidictsProgress,
     HoshidictsProgressPhase,
+    HoshidictsPopupToolbarPosition,
     HoshidictsRecommendedDictionaryId,
     HoshidictsRecommendedDictionaryState,
     HoshidictsSchedule,
@@ -43,11 +44,13 @@ import {
     DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
     DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
     DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+    DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
     DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
     DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
     DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
     DEFAULT_HOSHIDICTS_THEME,
     isHoshidictsActivationKey,
+    isHoshidictsPopupToolbarPosition,
     isHoshidictsTheme,
     MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES,
     MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
@@ -141,6 +144,7 @@ interface PersistedManifest {
     popupHeightPx: number;
     theme: HoshidictsTheme;
     popupOpacityPercent: number;
+    popupToolbarPosition: HoshidictsPopupToolbarPosition;
     schedule: HoshidictsSchedule;
     lastCheck: string | null;
     nextCheck: string | null;
@@ -387,6 +391,7 @@ function emptyManifest(): PersistedManifest {
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
         theme: DEFAULT_HOSHIDICTS_THEME,
         popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+        popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
         schedule: 'off',
         lastCheck: null,
         nextCheck: null,
@@ -569,6 +574,14 @@ function normalizePopupOpacityPercent(value: unknown): number {
         (value as number) <= MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT
         ? (value as number)
         : DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT;
+}
+
+function normalizePopupToolbarPosition(
+    value: unknown
+): HoshidictsPopupToolbarPosition {
+    return isHoshidictsPopupToolbarPosition(value)
+        ? value
+        : DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION;
 }
 
 function normalizeDefinitionBlur(
@@ -2434,7 +2447,8 @@ export class HoshidictsManager {
             undefined,
             undefined,
             undefined,
-            snapshot.onlyScanJapaneseText
+            snapshot.onlyScanJapaneseText,
+            snapshot.popupToolbarPosition
         );
     }
 
@@ -2452,7 +2466,8 @@ export class HoshidictsManager {
         popupHeightPx?: number,
         theme?: HoshidictsTheme,
         popupOpacityPercent?: number,
-        onlyScanJapaneseText = DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT
+        onlyScanJapaneseText = DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
+        popupToolbarPosition?: HoshidictsPopupToolbarPosition
     ): Promise<HoshidictsManagerSnapshot> {
         if (lookupMode !== 'shift' && lookupMode !== 'hover') {
             throw new Error('Hoshidicts lookup mode is invalid.');
@@ -2476,6 +2491,12 @@ export class HoshidictsManager {
             throw new Error(
                 'Hoshidicts Japanese-only scan preference is invalid.'
             );
+        }
+        if (
+            popupToolbarPosition !== undefined &&
+            !isHoshidictsPopupToolbarPosition(popupToolbarPosition)
+        ) {
+            throw new Error('Hoshidicts popup toolbar position is invalid.');
         }
         if (typeof showLookupCounts !== 'boolean') {
             throw new Error('Hoshidicts lookup count preference is invalid.');
@@ -2562,6 +2583,8 @@ export class HoshidictsManager {
             const effectiveTheme = theme ?? manifest.theme;
             const effectivePopupOpacityPercent =
                 popupOpacityPercent ?? manifest.popupOpacityPercent;
+            const effectivePopupToolbarPosition =
+                popupToolbarPosition ?? manifest.popupToolbarPosition;
             if (
                 manifest.lookupMode !== lookupMode ||
                 manifest.popupHideDelayMs !== popupHideDelayMs ||
@@ -2574,6 +2597,8 @@ export class HoshidictsManager {
                 manifest.popupHeightPx !== effectivePopupHeightPx ||
                 manifest.theme !== effectiveTheme ||
                 manifest.popupOpacityPercent !== effectivePopupOpacityPercent ||
+                manifest.popupToolbarPosition !==
+                    effectivePopupToolbarPosition ||
                 !definitionBlurPreferencesEqual(
                     manifest.definitionBlur,
                     effectiveDefinitionBlur
@@ -2593,6 +2618,7 @@ export class HoshidictsManager {
                     popupHeightPx: effectivePopupHeightPx,
                     theme: effectiveTheme,
                     popupOpacityPercent: effectivePopupOpacityPercent,
+                    popupToolbarPosition: effectivePopupToolbarPosition,
                 });
             }
         }, 'preferences');
@@ -2921,6 +2947,7 @@ export class HoshidictsManager {
             popupHeightPx: manifest.popupHeightPx,
             theme: manifest.theme,
             popupOpacityPercent: manifest.popupOpacityPercent,
+            popupToolbarPosition: manifest.popupToolbarPosition,
             schedule: manifest.schedule,
             lastCheck: manifest.lastCheck,
             nextCheck: manifest.nextCheck,
@@ -3289,6 +3316,9 @@ export class HoshidictsManager {
             popupOpacityPercent: normalizePopupOpacityPercent(
                 parsed.popupOpacityPercent
             ),
+            popupToolbarPosition: normalizePopupToolbarPosition(
+                parsed.popupToolbarPosition
+            ),
             schedule,
             lastCheck: legacyLastCheck,
             nextCheck: null,
@@ -3329,6 +3359,9 @@ export class HoshidictsManager {
             theme: normalizeTheme(parsed.theme),
             popupOpacityPercent: normalizePopupOpacityPercent(
                 parsed.popupOpacityPercent
+            ),
+            popupToolbarPosition: normalizePopupToolbarPosition(
+                parsed.popupToolbarPosition
             ),
             schedule: normalizeSchedule(parsed.schedule),
             lastCheck: normalizeDate(parsed.lastCheck),

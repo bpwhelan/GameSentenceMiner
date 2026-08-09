@@ -166,6 +166,22 @@ export const MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS = 5000;
 export const DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX = 560;
 export const DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX = 420;
 export const DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT = 85;
+export const HOSHIDICTS_POPUP_TOOLBAR_POSITIONS = ['top', 'bottom'] as const;
+export type HoshidictsPopupToolbarPosition =
+    (typeof HOSHIDICTS_POPUP_TOOLBAR_POSITIONS)[number];
+export const DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION: HoshidictsPopupToolbarPosition =
+    'top';
+const HOSHIDICTS_POPUP_TOOLBAR_POSITION_SET = new Set<string>(
+    HOSHIDICTS_POPUP_TOOLBAR_POSITIONS
+);
+export function isHoshidictsPopupToolbarPosition(
+    value: unknown
+): value is HoshidictsPopupToolbarPosition {
+    return (
+        typeof value === 'string' &&
+        HOSHIDICTS_POPUP_TOOLBAR_POSITION_SET.has(value)
+    );
+}
 export const MIN_HOSHIDICTS_POPUP_WIDTH_PX = 280;
 export const MAX_HOSHIDICTS_POPUP_WIDTH_PX = 1200;
 export const MIN_HOSHIDICTS_POPUP_HEIGHT_PX = 200;
@@ -505,6 +521,7 @@ export interface HoshidictsReaderPreferencesRequest {
     popupHeightPx: number;
     theme: HoshidictsTheme;
     popupOpacityPercent: number;
+    popupToolbarPosition: HoshidictsPopupToolbarPosition;
 }
 
 export interface HoshidictsDictionaryPresentation {
@@ -716,6 +733,7 @@ export interface HoshidictsManagerSnapshot {
     popupHeightPx: number;
     theme: HoshidictsTheme;
     popupOpacityPercent: number;
+    popupToolbarPosition: HoshidictsPopupToolbarPosition;
     schedule: HoshidictsSchedule;
     lastCheck: string | null;
     nextCheck: string | null;
@@ -743,6 +761,7 @@ export function hoshidictsReaderPreferencesFromSnapshot(
         popupHeightPx: snapshot.popupHeightPx,
         theme: snapshot.theme,
         popupOpacityPercent: snapshot.popupOpacityPercent,
+        popupToolbarPosition: snapshot.popupToolbarPosition,
         dictionaryPresentation: (snapshot.dictionaries ?? []).map(
             ({ title, displayName, favorite }) =>
                 displayName

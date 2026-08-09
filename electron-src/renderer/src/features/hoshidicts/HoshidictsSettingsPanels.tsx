@@ -45,6 +45,7 @@ import {
   MIN_HOSHIDICTS_POPUP_WIDTH_PX,
   type HoshidictsActivationKey,
   type HoshidictsFieldOverwriteMode,
+  type HoshidictsPopupToolbarPosition,
   type HoshidictsTheme,
   type HoshidictsSchedule
 } from "../../../../shared/features/hoshidicts";
@@ -662,6 +663,7 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
     setPopupHeightPx,
     setTheme,
     setPopupOpacityPercent,
+    setPopupToolbarPosition,
     resetPopupSize,
     setShowLookupCounts,
     setDefinitionBlurEnabled,
@@ -940,6 +942,30 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                   {t("settings.hoshidicts.reader.appearance.percent")}
                 </span>
               </div>
+            </label>
+            <label>
+              <span>
+                {t("settings.hoshidicts.reader.appearance.toolbarPosition")}
+              </span>
+              <select
+                id="hoshidicts-popup-toolbar-position"
+                value={readerDraft.popupToolbarPosition}
+                disabled={preferencesBusy}
+                onChange={(event) =>
+                  setPopupToolbarPosition(
+                    event.currentTarget.value as HoshidictsPopupToolbarPosition
+                  )
+                }
+              >
+                <option value="top">
+                  {t("settings.hoshidicts.reader.appearance.toolbarPositionTop")}
+                </option>
+                <option value="bottom">
+                  {t(
+                    "settings.hoshidicts.reader.appearance.toolbarPositionBottom"
+                  )}
+                </option>
+              </select>
             </label>
             <label>
               <span>

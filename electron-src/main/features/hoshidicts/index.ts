@@ -10,6 +10,7 @@ import {
     configureHoshidictsPopupHeightProvider,
     configureHoshidictsPopupNestingMaxDepthProvider,
     configureHoshidictsPopupOpacityPercentProvider,
+    configureHoshidictsPopupToolbarPositionProvider,
     configureHoshidictsPopupWidthProvider,
     configureHoshidictsShowLookupCountsProvider,
     configureHoshidictsSourceHighlightProvider,
@@ -24,6 +25,7 @@ import {
     getOverlayHoshidictsPopupHeightAtLaunch,
     getOverlayHoshidictsPopupNestingMaxDepthAtLaunch,
     getOverlayHoshidictsPopupOpacityPercentAtLaunch,
+    getOverlayHoshidictsPopupToolbarPositionAtLaunch,
     getOverlayHoshidictsShowLookupCountsAtLaunch,
     getOverlayHoshidictsSourceHighlightEnabledAtLaunch,
     getOverlayHoshidictsPopupWidthAtLaunch,
@@ -207,6 +209,8 @@ export function registerHoshidictsFeature(deps: {
         getOverlayThemeAtLaunch: getOverlayHoshidictsThemeAtLaunch,
         getOverlayPopupOpacityPercentAtLaunch:
             getOverlayHoshidictsPopupOpacityPercentAtLaunch,
+        getOverlayPopupToolbarPositionAtLaunch:
+            getOverlayHoshidictsPopupToolbarPositionAtLaunch,
         applyReaderPreferences,
         applyAudioProfile,
         getMiningOptions: fetchHoshidictsMiningOptions,
@@ -263,6 +267,9 @@ export async function startHoshidictsManager(): Promise<void> {
     );
     configureHoshidictsPopupOpacityPercentProvider(
         async () => (await manager.getSnapshot()).popupOpacityPercent
+    );
+    configureHoshidictsPopupToolbarPositionProvider(
+        async () => (await manager.getSnapshot()).popupToolbarPosition
     );
     configureHoshidictsCustomDictionarySyncProvider(async () => {
         await manager.syncCustomDictionary();
