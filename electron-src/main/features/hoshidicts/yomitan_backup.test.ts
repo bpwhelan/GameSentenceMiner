@@ -20,6 +20,7 @@ import type { HoshidictsManagerSnapshot } from '../../../shared/features/hoshidi
 import {
     createDefaultHoshidictsAudioProfile,
     createDefaultHoshidictsFieldOverwriteModes,
+    createDefaultHoshidictsPopupButtons,
     DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
 } from '../../../shared/features/hoshidicts.js';
 
@@ -35,6 +36,7 @@ function currentState(): HoshidictsManagerSnapshot {
     return {
         revision: 1,
         dictionaries: [],
+        tabGroups: [],
         customDictionaryActive: false,
         recommendedDictionaries: [],
         miningProfile: {
@@ -65,6 +67,7 @@ function currentState(): HoshidictsManagerSnapshot {
         lookupMode: 'shift',
         activationKey: 'Shift',
         sourceHighlightEnabled: false,
+        onlyScanJapaneseText: true,
         popupHideDelayMs: 0,
         showLookupCounts: true,
         popupNestingMaxDepth: 1,
@@ -73,6 +76,16 @@ function currentState(): HoshidictsManagerSnapshot {
         popupHeightPx: 480,
         theme: 'autumn',
         popupOpacityPercent: 70,
+        popupToolbarPosition: 'top',
+        popupButtons: {
+            ...createDefaultHoshidictsPopupButtons(),
+            customLinks: [
+                {
+                    label: 'Jisho',
+                    url: 'https://jisho.org/search/%w',
+                },
+            ],
+        },
         schedule: 'off',
         lastCheck: null,
         nextCheck: null,
@@ -201,6 +214,14 @@ describe('parseYomitanSettingsBackup', () => {
             popupHeightPx: 480,
             theme: 'autumn',
             popupOpacityPercent: 70,
+            popupButtons: {
+                customLinks: [
+                    {
+                        label: 'Jisho',
+                        url: 'https://jisho.org/search/%w',
+                    },
+                ],
+            },
         });
         expect(parsed.warnings).toContain('Skipped unsupported Yomitan audio source: wiktionary.');
     });

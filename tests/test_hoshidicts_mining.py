@@ -3045,6 +3045,89 @@ def test_duplicate_check_rejects_oversized_batches(monkeypatch):
     assert fake_anki.calls == []
 
 
+def test_browse_hoshidicts_word_opens_broad_literal_anki_search(monkeypatch):
+    class BrowseAnki(FakeAnki):
+        def invoke(self, action, **kwargs):
+            if action == "guiBrowse":
+                self.calls.append((action, kwargs))
+                return [101, 202]
+            return super().invoke(action, **kwargs)
+
+    fake_anki = BrowseAnki()
+    _wire(monkeypatch, fake_anki)
+
+    result = hoshidicts_mining.browse_hoshidicts_word({"word": 'word" OR deck:*_\\:<&>'})
+
+    assert result == {"success": True}
+    assert fake_anki.calls == [
+        (
+            "guiBrowse",
+            {
+                "query": r'"word\" OR deck\:\*\_\\\:&lt;&amp;&gt;"',
+                "timeout": hoshidicts_mining.ANKI_CONNECT_TIMEOUT_SECONDS,
+            },
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        None,
+        {},
+        {"word": None},
+        {"word": ""},
+        {"word": "   "},
+        {"word": "x" * (hoshidicts_mining.MAX_TERM_LENGTH + 1)},
+        {"word": "bad\x00word"},
+    ],
+)
+def test_browse_hoshidicts_word_rejects_invalid_words(monkeypatch, payload):
+    fake_anki = FakeAnki()
+    _wire(monkeypatch, fake_anki)
+
+    with pytest.raises(hoshidicts_mining.HoshidictsMiningError):
+        hoshidicts_mining.browse_hoshidicts_word(payload)
+
+    assert fake_anki.calls == []
+
+
+def test_browse_hoshidicts_word_requires_enabled_anki_integration(monkeypatch):
+    fake_anki = FakeAnki()
+    config = _config()
+    config.anki.enabled = False
+    monkeypatch.setattr(hoshidicts_mining, "get_config", lambda: config)
+    monkeypatch.setattr(hoshidicts_mining, "_get_anki_module", lambda: fake_anki)
+
+    with pytest.raises(
+        hoshidicts_mining.HoshidictsMiningError,
+        match="GSM Anki integration is disabled",
+    ) as error:
+        hoshidicts_mining.browse_hoshidicts_word({"word": "食べる"})
+
+    assert error.value.status_code == 503
+    assert fake_anki.calls == []
+
+
+def test_browse_hoshidicts_word_reports_anki_connect_failures(monkeypatch):
+    class OfflineAnki(FakeAnki):
+        def invoke(self, action, **kwargs):
+            if action == "guiBrowse":
+                raise RuntimeError("AnkiConnect is offline")
+            return super().invoke(action, **kwargs)
+
+    fake_anki = OfflineAnki()
+    _wire(monkeypatch, fake_anki)
+
+    with pytest.raises(
+        hoshidicts_mining.HoshidictsMiningError,
+        match="Could not open Anki through GSM: AnkiConnect is offline",
+    ) as error:
+        hoshidicts_mining.browse_hoshidicts_word({"word": "食べる"})
+
+    assert error.value.status_code == 502
+
+
 def test_hoshidicts_routes_expose_status_and_mining_errors(monkeypatch):
     app = Flask(__name__)
     hoshidicts_api.register_hoshidicts_api_routes(app)
@@ -3074,6 +3157,12 @@ def test_hoshidicts_routes_expose_status_and_mining_errors(monkeypatch):
         raise hoshidicts_mining.HoshidictsMiningError("duplicate", 409)
 
     monkeypatch.setattr(hoshidicts_api, "mine_hoshidicts_note", mine)
+    browse_calls = []
+    monkeypatch.setattr(
+        hoshidicts_api,
+        "browse_hoshidicts_word",
+        lambda payload: browse_calls.append(payload) or {"success": True},
+    )
     monkeypatch.setattr(
         hoshidicts_api,
         "check_hoshidicts_notes",
@@ -3102,6 +3191,13 @@ def test_hoshidicts_routes_expose_status_and_mining_errors(monkeypatch):
         "results": [],
         "payload": {"notes": []},
     }
+    response = client.post(
+        "/api/hoshidicts/mining/browse",
+        json={"word": "食べる"},
+    )
+    assert response.status_code == 200
+    assert response.get_json() == {"success": True}
+    assert browse_calls == [{"word": "食べる"}]
     response = client.post("/api/hoshidicts/mine", json={})
     assert response.status_code == 409
     assert response.get_json() == {

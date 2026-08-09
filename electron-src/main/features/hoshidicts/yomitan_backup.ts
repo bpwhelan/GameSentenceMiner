@@ -905,6 +905,12 @@ function currentReaderPreferences(current: HoshidictsManagerSnapshot): Hoshidict
         theme: current.theme,
         popupOpacityPercent: current.popupOpacityPercent,
         popupToolbarPosition: current.popupToolbarPosition,
+        popupButtons: {
+            ...current.popupButtons,
+            customLinks: current.popupButtons.customLinks.map((link) => ({
+                ...link,
+            })),
+        },
     };
 }
 

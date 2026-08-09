@@ -20,6 +20,7 @@ HOSHIDICTS_MINING_PROFILE_FILE = "mining-profile.json"
 HOSHIDICTS_MINING_PROFILE_VERSION = 3
 LEGACY_HOSHIDICTS_MINING_PROFILE_VERSIONS = (1, 2)
 MAX_PROFILE_BYTES = 64 * 1024
+MAX_BROWSE_REQUEST_BYTES = 64 * 1024
 MAX_ANKI_OPTION_NAMES = 4096
 MAX_DUPLICATE_CHECK_NOTES = 16
 ANKI_CONNECT_TIMEOUT_SECONDS = 1.25
@@ -587,6 +588,43 @@ def _get_anki_module():
     from GameSentenceMiner import anki
 
     return anki
+
+
+def _escape_anki_browse_word(value: str) -> str:
+    escaped = value.replace("\\", "\\\\")
+    for character in ('"', "*", "_", ":"):
+        escaped = escaped.replace(character, f"\\{character}")
+    return escaped.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def browse_hoshidicts_word(payload: Any) -> dict[str, bool]:
+    """Open Anki's browser with a literal, collection-wide word search."""
+    if not isinstance(payload, dict):
+        raise HoshidictsMiningError("Anki browse request must be an object.")
+    word = _bounded_string(
+        payload.get("word"),
+        "Hoshidicts browse word",
+        MAX_TERM_LENGTH,
+        allow_empty=False,
+    ).strip()
+    if not word:
+        raise HoshidictsMiningError("Hoshidicts browse word is invalid.")
+    if not get_config().anki.enabled:
+        raise HoshidictsMiningError("GSM Anki integration is disabled.", 503)
+
+    query = f'"{_escape_anki_browse_word(word)}"'
+    try:
+        _get_anki_module().invoke(
+            "guiBrowse",
+            query=query,
+            timeout=ANKI_CONNECT_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:
+        raise HoshidictsMiningError(
+            f"Could not open Anki through GSM: {exc}",
+            502,
+        ) from exc
+    return {"success": True}
 
 
 def _empty_mining_options(
