@@ -537,6 +537,14 @@ export function HoshidictsAudioPanel({
               );
               const feedback = testFeedback[source.id];
               const testStatusId = `hoshidicts-audio-test-status-${source.id}`;
+              const testSourceLabel = t(
+                "settings.hoshidicts.audio.testSourceLabel",
+                {
+                  name: sourceName,
+                  term: AUDIO_TEST_TERM,
+                  reading: AUDIO_TEST_READING
+                }
+              );
               const ttsUnavailable =
                 isTtsSource(source.type) &&
                 (!window.speechSynthesis ||
@@ -659,32 +667,8 @@ export function HoshidictsAudioPanel({
                       )}
                     </small>
 
-                    <div className="hoshidicts-audio-source__test">
-                      <button
-                        type="button"
-                        className="secondary"
-                        data-audio-test-source={source.id}
-                        aria-label={t(
-                          "settings.hoshidicts.audio.testSourceLabel",
-                          {
-                            name: sourceName,
-                            term: AUDIO_TEST_TERM,
-                            reading: AUDIO_TEST_READING
-                          }
-                        )}
-                        aria-describedby={feedback ? testStatusId : undefined}
-                        disabled={
-                          audioControlsDisabled || ttsUnavailable
-                        }
-                        onClick={() => void testAudioSource(source, sourceName)}
-                      >
-                        <Volume2 size={16} aria-hidden="true" />
-                        {t("settings.hoshidicts.audio.testSource", {
-                          term: AUDIO_TEST_TERM,
-                          reading: AUDIO_TEST_READING
-                        })}
-                      </button>
-                      {feedback ? (
+                    {feedback ? (
+                      <div className="hoshidicts-audio-source__test">
                         <span
                           id={testStatusId}
                           className="hoshidicts-audio-source__test-status"
@@ -693,21 +677,35 @@ export function HoshidictsAudioPanel({
                         >
                           {testFeedbackText(feedback)}
                         </span>
-                      ) : null}
-                    </div>
+                      </div>
+                    ) : null}
                   </div>
 
-                  <button
-                    type="button"
-                    className="hoshidicts-icon-button danger"
-                    aria-label={t("settings.hoshidicts.audio.removeSource", {
-                      name: sourceName
-                    })}
-                    disabled={audioControlsDisabled}
-                    onClick={() => removeSource(source.id)}
-                  >
-                    <Trash2 size={17} aria-hidden="true" />
-                  </button>
+                  <div className="hoshidicts-audio-source__actions">
+                    <button
+                      type="button"
+                      className="hoshidicts-icon-button secondary"
+                      data-audio-test-source={source.id}
+                      title={testSourceLabel}
+                      aria-label={testSourceLabel}
+                      aria-describedby={feedback ? testStatusId : undefined}
+                      disabled={audioControlsDisabled || ttsUnavailable}
+                      onClick={() => void testAudioSource(source, sourceName)}
+                    >
+                      <Volume2 size={17} aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      className="hoshidicts-icon-button danger"
+                      aria-label={t("settings.hoshidicts.audio.removeSource", {
+                        name: sourceName
+                      })}
+                      disabled={audioControlsDisabled}
+                      onClick={() => removeSource(source.id)}
+                    >
+                      <Trash2 size={17} aria-hidden="true" />
+                    </button>
+                  </div>
                 </div>
               );
             })}
