@@ -256,6 +256,7 @@ describe('Hoshidicts manager full backups', () => {
             720,
             520,
             'girlypop',
+            70,
         );
         await source.setSchedule('weekly');
         await source.setDictionarySchedule(beta!.id, 'hourly');
@@ -374,6 +375,7 @@ describe('Hoshidicts manager full backups', () => {
             popupWidthPx: 720,
             popupHeightPx: 520,
             theme: 'girlypop',
+            popupOpacityPercent: 70,
             schedule: 'weekly',
         });
         await expect(target.getCustomDictionaryDocument()).resolves.toMatchObject({
@@ -676,6 +678,7 @@ describe('Hoshidicts manager full backups', () => {
             popupWidthPx: 560,
             popupHeightPx: 420,
             theme: 'default',
+            popupOpacityPercent: 85,
         });
         await expect(
             fsp.readFile(statePath(sourceBase, 'mining-profile.json'), 'utf8'),
@@ -698,6 +701,7 @@ describe('Hoshidicts manager full backups', () => {
             popupWidthPx: 560,
             popupHeightPx: 420,
             theme: 'default',
+            popupOpacityPercent: 85,
         });
     });
 });

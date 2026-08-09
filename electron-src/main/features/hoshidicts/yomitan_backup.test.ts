@@ -72,6 +72,7 @@ function currentState(): HoshidictsManagerSnapshot {
         popupWidthPx: 680,
         popupHeightPx: 480,
         theme: 'autumn',
+        popupOpacityPercent: 70,
         schedule: 'off',
         lastCheck: null,
         nextCheck: null,
@@ -199,6 +200,7 @@ describe('parseYomitanSettingsBackup', () => {
             popupWidthPx: 680,
             popupHeightPx: 480,
             theme: 'autumn',
+            popupOpacityPercent: 70,
         });
         expect(parsed.warnings).toContain('Skipped unsupported Yomitan audio source: wiktionary.');
     });
