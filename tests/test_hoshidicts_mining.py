@@ -183,6 +183,93 @@ def _rich_jitendex_payload():
     return payload
 
 
+def _kiku_yomitan_parity_payload():
+    return {
+        "sentence": "ぶちかましてやれ！",
+        "matchOffset": 0,
+        "searchQuery": "ぶちかましてやれ",
+        "popupSelectionText": "ぶちかまして",
+        "documentTitle": "GSM Kiku parity",
+        "dictionaryAliases": [
+            {
+                "dictionary": "Jitendex.org [2026-08-08]",
+                "alias": "Jitendex",
+            }
+        ],
+        "dictionaryMedia": [
+            {
+                "dictionary": "Jitendex.org [2026-08-08]",
+                "path": "img/forms.jpeg",
+                "mediaType": "image/jpeg",
+                "dataBase64": "/9j/4AA=",
+            }
+        ],
+        "dictionaryStyles": [
+            {
+                "dictionary": "Jitendex.org [2026-08-08]",
+                "styles": '[data-sc-content="sense"] { color: #c44; }',
+            },
+            {
+                "dictionary": "JMdict",
+                "styles": ".gloss-sc-strong { font-weight: 700; }",
+            },
+        ],
+        "result": {
+            "matched": "ぶちかまして",
+            "deinflected": "ぶちかます",
+            "trace": [
+                {"name": "-て", "description": "te-form"},
+                {"name": "imperative", "description": "imperative"},
+            ],
+            "term": {
+                "expression": "ぶちかます",
+                "reading": "ぶちかます",
+                "rules": "v5",
+                "glossaries": [
+                    {
+                        "dictionary": "Jitendex.org [2026-08-08]",
+                        "glossary": json.dumps(
+                            {
+                                "type": "structured-content",
+                                "content": {
+                                    "tag": "div",
+                                    "data": {"content": "sense"},
+                                    "content": [
+                                        {"tag": "strong", "content": "to let someone have it"},
+                                        {
+                                            "type": "image",
+                                            "path": "img/forms.jpeg",
+                                            "width": 67,
+                                            "height": 100,
+                                        },
+                                    ],
+                                },
+                            },
+                            ensure_ascii=False,
+                        ),
+                        "definitionTags": "colloquial",
+                        "termTags": "v5 common",
+                    },
+                    {
+                        "dictionary": "JMdict",
+                        "glossary": "to hit hard; to overwhelm",
+                        "definitionTags": "slang",
+                        "termTags": "common",
+                    },
+                ],
+                "frequencies": [],
+                "pitches": [
+                    {
+                        "dictionary": "Kanjium",
+                        "pitches": [],
+                        "transcriptions": ["bɯtɕikamasɯ"],
+                    }
+                ],
+            },
+        },
+    }
+
+
 class FakeAnki:
     def __init__(self, fields=None, note_id=42, model_names=None, decks=None):
         self.fields = fields or [
@@ -1595,6 +1682,66 @@ def test_rich_definition_markers_render_primary_full_dictionary_and_furigana(mon
     assert note["fields"]["Definition"] == note["fields"]["Glossary"]
     assert note["fields"]["MainDefinition"] != note["fields"]["Glossary"]
     assert note["fields"]["Dictionary"] == "Jitendex"
+
+
+def test_kiku_yomitan_parity_check_and_mine_preserve_rich_multi_dictionary_note(monkeypatch):
+    class ParityAnki(FakeAnki):
+        def invoke(self, action, **kwargs):
+            if action == "canAddNotesWithErrorDetail":
+                self.calls.append((action, kwargs))
+                return [{"canAdd": True, "error": None}]
+            return super().invoke(action, **kwargs)
+
+    fields = ["Glossary", "MainDefinition", "Expression", "YomitanContext"]
+    fake_anki = ParityAnki(fields=fields)
+    profile = _profile(
+        fieldTemplates={
+            "Glossary": {"value": "{glossary}", "overwriteMode": "overwrite"},
+            "MainDefinition": {
+                "value": "{main-definition}",
+                "overwriteMode": "overwrite",
+            },
+            "Expression": {"value": "{expression}", "overwriteMode": "overwrite"},
+            "YomitanContext": {
+                "value": (
+                    "{dictionary}|{dictionary-alias}|{conjugation}|{part-of-speech}|"
+                    "{phonetic-transcriptions}|{tags}|{popup-selection-text}|"
+                    "{document-title}|{search-query}"
+                ),
+                "overwriteMode": "overwrite",
+            },
+        }
+    )
+    _wire(monkeypatch, fake_anki, profile)
+    payload = _kiku_yomitan_parity_payload()
+
+    check = hoshidicts_mining.check_hoshidicts_notes({"notes": [payload]})
+    result = hoshidicts_mining.mine_hoshidicts_note(payload)
+
+    assert check["results"] == [{"state": "addable", "canAdd": True, "duplicate": False}]
+    checked_note = next(
+        kwargs["notes"][0] for action, kwargs in fake_anki.calls if action == "canAddNotesWithErrorDetail"
+    )
+    added_note = next(kwargs["note"] for action, kwargs in fake_anki.calls if action == "addNote")
+    assert checked_note["fields"]["Glossary"] == added_note["fields"]["Glossary"]
+    glossary = added_note["fields"]["Glossary"]
+    main = added_note["fields"]["MainDefinition"]
+    context = added_note["fields"]["YomitanContext"]
+    assert 'class="yomitan-glossary"' in glossary
+    assert 'data-dictionary="Jitendex.org [2026-08-08]"' in glossary
+    assert 'data-dictionary="JMdict"' in glossary
+    assert "(colloquial, v5 common, Jitendex)" in glossary
+    assert 'data-dictionary="JMdict"' not in main
+    assert "yomitan_dictionary_media_37d6f763c8ebb201e600de788daaa4cfe00ba13c.jpeg" in glossary
+    assert '.yomitan-glossary [data-dictionary="Jitendex.org [2026-08-08]"]' in glossary
+    assert "Jitendex.org [2026-08-08]|Jitendex|-て « imperative|Godan verb" in context
+    assert 'data-pronunciation-type="phonetic-transcription">bɯtɕikamasɯ' in context
+    assert 'data-details="colloquial"' in context
+    assert "ぶちかまして|GSM Kiku parity|ぶちかましてやれ" in context
+    media_call = next(kwargs for action, kwargs in fake_anki.calls if action == "storeMediaFile")
+    assert media_call["filename"] == ("yomitan_dictionary_media_37d6f763c8ebb201e600de788daaa4cfe00ba13c.jpeg")
+    assert media_call["data"] == "/9j/4AA="
+    assert result["noteId"] == 42
 
 
 def test_sentence_furigana_falls_back_to_safe_highlighted_sentence(monkeypatch):

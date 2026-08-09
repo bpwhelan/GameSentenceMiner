@@ -1331,7 +1331,15 @@
     if (!mediaTypeMatchesSignature(mediaType, bytes)) {
       throw new Error("invalid_media_signature");
     }
-    return { bytes, byteLength, height, mediaType, pixelCount, width };
+    return {
+      bytes,
+      byteLength,
+      dataBase64: encoded,
+      height,
+      mediaType,
+      pixelCount,
+      width,
+    };
   }
 
   function calculatePopupPosition(anchorRect, popupSize, viewport, options = {}) {
@@ -2576,14 +2584,20 @@
       requestDictionaryStyles(generation);
     }
 
-    function cacheMedia(job, url, byteLength, pixelCount) {
+    function cacheMedia(job, url, byteLength, pixelCount, metadata = {}) {
       const existing = mediaCache.get(job.cacheKey);
       if (existing) {
         mediaCacheBytes -= existing.byteLength;
         revokeCachedMedia(existing);
         mediaCache.delete(job.cacheKey);
       }
-      const entry = { byteLength, pixelCount, url };
+      const entry = {
+        byteLength,
+        pixelCount,
+        url,
+        dataBase64: metadata.dataBase64,
+        mediaType: metadata.mediaType,
+      };
       mediaCache.set(job.cacheKey, entry);
       mediaCacheBytes += byteLength;
       while (
@@ -2598,7 +2612,7 @@
       }
     }
 
-    function resolveMediaJob(job, url, byteLength, pixelCount) {
+    function resolveMediaJob(job, url, byteLength, pixelCount, metadata = {}) {
       if (job.settled) {
         return;
       }
@@ -2611,7 +2625,7 @@
       mediaInFlight.delete(job.inFlightKey);
       activeMediaRequestCount = Math.max(0, activeMediaRequestCount - 1);
       if (mediaCache.get(job.cacheKey)?.url !== url) {
-        cacheMedia(job, url, byteLength, pixelCount);
+        cacheMedia(job, url, byteLength, pixelCount, metadata);
       }
       job.resolve(url);
     }
@@ -3351,12 +3365,124 @@
     }
 
     function createMiningBasePayload(item, extra = {}) {
-      return {
+      const payload = {
         result: item.result,
         sentence: item.candidate.sentence,
         matchOffset: item.candidate.matchOffset,
         ...extra,
       };
+      const aliases = getMiningDictionaryAliases(item.result);
+      if (aliases.length > 0) {
+        payload.dictionaryAliases = aliases;
+      }
+      if (typeof item.candidate.query === "string" && item.candidate.query) {
+        payload.searchQuery = item.candidate.query;
+      }
+      const selection = typeof windowRef.getSelection === "function"
+        ? boundedString(windowRef.getSelection()?.toString(), MAX_TEXT_LENGTH)
+        : "";
+      if (selection) {
+        payload.popupSelectionText = selection;
+      }
+      if (documentRef.title) {
+        payload.documentTitle = boundedString(documentRef.title, 4096);
+      }
+      return payload;
+    }
+
+    function getMiningDictionaryAliases(result) {
+      const aliases = new Map(
+        preferences.dictionaryPresentation
+          .filter((entry) => typeof entry.displayName === "string" && entry.displayName)
+          .map((entry) => [entry.title, entry.displayName])
+      );
+      const glossaries = isRecord(result?.term) && Array.isArray(result.term.glossaries)
+        ? result.term.glossaries
+        : [];
+      const output = [];
+      const seen = new Set();
+      for (const glossary of glossaries) {
+        const dictionary = isRecord(glossary) && typeof glossary.dictionary === "string"
+          ? glossary.dictionary
+          : "";
+        const alias = aliases.get(dictionary);
+        if (dictionary && alias && alias !== dictionary && !seen.has(dictionary)) {
+          seen.add(dictionary);
+          output.push({ dictionary, alias });
+        }
+      }
+      return output;
+    }
+
+    function getStructuredMediaReferences(result) {
+      const glossaries = isRecord(result?.term) && Array.isArray(result.term.glossaries)
+        ? result.term.glossaries
+        : [];
+      const output = [];
+      const seen = new Set();
+      const visit = (value, dictionary, state) => {
+        if (state.nodes >= MAX_STRUCTURED_NODES) {
+          return;
+        }
+        state.nodes += 1;
+        if (Array.isArray(value)) {
+          for (const item of value) {
+            visit(item, dictionary, state);
+          }
+          return;
+        }
+        if (!isRecord(value)) {
+          return;
+        }
+        const tag = typeof value.tag === "string" ? value.tag.toLowerCase() : "";
+        if (value.type === "image" || tag === "img") {
+          const path = normalizeMediaPath(value.path);
+          const key = `${dictionary}\u0000${path}`;
+          if (path && !seen.has(key)) {
+            seen.add(key);
+            output.push({ dictionary, path });
+          }
+        }
+        if (Object.prototype.hasOwnProperty.call(value, "content")) {
+          visit(value.content, dictionary, state);
+        }
+      };
+      for (const glossary of glossaries) {
+        if (!isRecord(glossary) || typeof glossary.dictionary !== "string") {
+          continue;
+        }
+        let parsed;
+        try {
+          parsed = JSON.parse(glossary.glossary);
+        } catch {
+          continue;
+        }
+        visit(parsed, glossary.dictionary, { nodes: 0 });
+      }
+      return output;
+    }
+
+    function getCachedMiningDictionaryMedia(result, generation) {
+      if (generation === null || generation !== activeDictionaryGeneration) {
+        return [];
+      }
+      const references = getStructuredMediaReferences(result);
+      return references.flatMap(({ dictionary, path }) => {
+        const cached = mediaCache.get(mediaCacheKey(generation, dictionary, path));
+        return cached && typeof cached.dataBase64 === "string" &&
+          typeof cached.mediaType === "string"
+          ? [{ dictionary, path, mediaType: cached.mediaType, dataBase64: cached.dataBase64 }]
+          : [];
+      });
+    }
+
+    async function getMiningDictionaryMedia(result, generation, depth, references) {
+      await Promise.allSettled(
+        references.map(({ dictionary, path }) =>
+          resolveMedia({ depth, dictionary, generation, path })
+        )
+      );
+      return getCachedMiningDictionaryMedia(result, generation);
     }
 
     function getMiningDictionaryStyles(result, generation) {
@@ -3414,6 +3540,27 @@
           };
     }
 
+    function attachDictionaryMediaWithinBudget(payload, media, byteBudget) {
+      if (media.length === 0 || byteBudget <= 0) {
+        return { payload, bytesAdded: 0 };
+      }
+      const propertyBytes = utf8Length(',"dictionaryMedia":[]');
+      const included = [];
+      let bytesAdded = 0;
+      for (const entry of media) {
+        const entryBytes = utf8Length(JSON.stringify(entry));
+        const nextBytes = entryBytes + (included.length === 0 ? propertyBytes : 1);
+        if (bytesAdded + nextBytes > byteBudget) {
+          continue;
+        }
+        included.push(entry);
+        bytesAdded += nextBytes;
+      }
+      return included.length === 0
+        ? { payload, bytesAdded: 0 }
+        : { payload: { ...payload, dictionaryMedia: included }, bytesAdded };
+    }
+
     function createDuplicateCheckPayload(level, miningItems) {
       const notes = miningItems.map((item) => createMiningBasePayload(item));
       let remainingBytes = MAX_DUPLICATE_CHECK_REQUEST_BYTES - utf8Length(
@@ -3421,6 +3568,17 @@
       );
       const generation = level.termView?.dictionaryGeneration ?? null;
       for (let index = 0; index < notes.length && remainingBytes > 0; index += 1) {
+        const media = getCachedMiningDictionaryMedia(
+          miningItems[index].result,
+          generation
+        );
+        const mediaAttachment = attachDictionaryMediaWithinBudget(
+          notes[index],
+          media,
+          remainingBytes
+        );
+        notes[index] = mediaAttachment.payload;
+        remainingBytes -= mediaAttachment.bytesAdded;
         const { payload, bytesAdded } = attachDictionaryStylesWithinBudget(
           notes[index],
           getMiningDictionaryStyles(miningItems[index].result, generation),
@@ -3600,13 +3758,29 @@
           { result, candidate },
           audioSelection ? { audioSelection } : {}
         );
-        const { payload: miningPayload } = attachDictionaryStylesWithinBudget(
+        const generation = level.termView?.dictionaryGeneration ?? null;
+        const mediaReferences = getStructuredMediaReferences(result);
+        const dictionaryMedia = mediaReferences.length === 0
+          ? []
+          : await getMiningDictionaryMedia(
+              result,
+              generation,
+              level.depth,
+              mediaReferences
+            );
+        const mediaAttachment = attachDictionaryMediaWithinBudget(
           basePayload,
+          dictionaryMedia,
+          MAX_MINING_REQUEST_BYTES - utf8Length(JSON.stringify(basePayload))
+        );
+        const { payload: miningPayload } = attachDictionaryStylesWithinBudget(
+          mediaAttachment.payload,
           getMiningDictionaryStyles(
             result,
-            level.termView?.dictionaryGeneration ?? null
+            generation
           ),
-          MAX_MINING_REQUEST_BYTES - utf8Length(JSON.stringify(basePayload))
+          MAX_MINING_REQUEST_BYTES -
+            utf8Length(JSON.stringify(mediaAttachment.payload))
         );
         const response = await onMine(miningPayload);
         if (!response || response.success !== true) {
@@ -3858,7 +4032,7 @@
         pumpMediaQueue();
         return;
       }
-      resolveMediaJob(job, url, media.byteLength, media.pixelCount);
+      resolveMediaJob(job, url, media.byteLength, media.pixelCount, media);
       if (isPopupMediaBudgetFull()) {
         cancelMediaRequests("media_pixel_budget_exhausted");
       } else {

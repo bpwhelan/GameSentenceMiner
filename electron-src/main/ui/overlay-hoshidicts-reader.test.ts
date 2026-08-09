@@ -3088,15 +3088,43 @@ describe("Hoshidicts dictionary tabs", () => {
       }))
     }));
     const mine = vi.fn(async () => ({ success: true, noteId: 123 }));
-    const { lookup, reader, socket } = createLookupHarness({
+    const { dom, first, lookup, reader, socket } = createLookupHarness({
       checkMiningNotes,
+      dictionaryPresentation: [
+        { title: "JMdict", favorite: true },
+        {
+          title: "Jitendex.org [2026-08-08]",
+          favorite: true,
+          displayName: "Jitendex"
+        }
+      ],
+      createObjectURL: () => "blob:kiku-parity",
       getMiningStatus: async () => ({ available: true }),
       onMine: mine
     });
+    dom.window.document.title = "GSM Kiku parity";
+    const selectionRange = dom.window.document.createRange();
+    selectionRange.selectNodeContents(first);
+    dom.window.getSelection()?.removeAllRanges();
+    dom.window.getSelection()?.addRange(selectionRange);
     const { popup } = await lookup((requestId) =>
       lookupResultWithDictionaries(requestId, [
         { dictionary: "JMdict", glossary: "to eat" },
-        { dictionary: "Jitendex.org [2026-08-08]", glossary: "to consume" }
+        {
+          dictionary: "Jitendex.org [2026-08-08]",
+          glossary: JSON.stringify({
+            type: "structured-content",
+            content: [
+              { tag: "strong", content: "to consume" },
+              {
+                type: "image",
+                path: "img/forms.jpeg",
+                width: 67,
+                height: 100
+              }
+            ]
+          })
+        }
       ])
     );
     const stylesRequest = socket.sent
@@ -3118,6 +3146,25 @@ describe("Hoshidicts dictionary tabs", () => {
         styles: ".jitendex-definition { color: red; }"
       }]
     });
+    const mediaRequest = socket.sent
+      .map((value) => JSON.parse(value))
+      .find((value) => value.type === "hoshidicts_media");
+    socket.receive({
+      type: "hoshidicts_media_result",
+      requestId: mediaRequest.requestId,
+      success: true,
+      generation: 1,
+      dictionary: "Jitendex.org [2026-08-08]",
+      path: "img/forms.jpeg",
+      mediaType: "image/jpeg",
+      byteLength: 5,
+      width: 67,
+      height: 100,
+      dataBase64: "/9j/4AA=",
+      featureDisabled: false,
+      staleGeneration: false,
+      error: null
+    });
     await flushPromises();
 
     expect(checkMiningNotes.mock.calls.at(-1)?.[0].notes[0].dictionaryStyles)
@@ -3128,15 +3175,26 @@ describe("Hoshidicts dictionary tabs", () => {
         dictionary: "Jitendex.org [2026-08-08]",
         styles: ".jitendex-definition { color: red; }"
       }]);
-    popup
-      .querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")
-      ?.click();
+    expect(checkMiningNotes.mock.calls.at(-1)?.[0].notes[0]).toMatchObject({
+      dictionaryAliases: [{
+        dictionary: "Jitendex.org [2026-08-08]",
+        alias: "Jitendex"
+      }],
+      documentTitle: "GSM Kiku parity",
+      popupSelectionText: "食",
+      searchQuery: "食べる"
+    });
+    const allMineButton = popup
+      .querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")!;
+    expect(allMineButton.dataset.state).toBe("ready");
+    allMineButton.click();
+    await flushPromises();
     await flushPromises();
     expect(mine.mock.calls[0][0].result.term.glossaries).toEqual([
       expect.objectContaining({ dictionary: "JMdict", glossary: "to eat" }),
       expect.objectContaining({
         dictionary: "Jitendex.org [2026-08-08]",
-        glossary: "to consume"
+        glossary: expect.stringContaining("img/forms.jpeg")
       })
     ]);
     expect(mine.mock.calls[0][0].dictionaryStyles).toEqual([{
@@ -3145,6 +3203,16 @@ describe("Hoshidicts dictionary tabs", () => {
     }, {
       dictionary: "Jitendex.org [2026-08-08]",
       styles: ".jitendex-definition { color: red; }"
+    }]);
+    expect(mine.mock.calls[0][0].dictionaryMedia).toEqual([{
+      dictionary: "Jitendex.org [2026-08-08]",
+      path: "img/forms.jpeg",
+      mediaType: "image/jpeg",
+      dataBase64: "/9j/4AA="
+    }]);
+    expect(mine.mock.calls[0][0].dictionaryAliases).toEqual([{
+      dictionary: "Jitendex.org [2026-08-08]",
+      alias: "Jitendex"
     }]);
 
     const jitendexTab = Array.from(
@@ -3157,13 +3225,14 @@ describe("Hoshidicts dictionary tabs", () => {
       .querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")
       ?.click();
     await flushPromises();
+    await flushPromises();
 
     expect(mine).toHaveBeenCalledTimes(2);
     const payload = mine.mock.calls[1][0];
     expect(payload.result.term.glossaries).toEqual([
       expect.objectContaining({
         dictionary: "Jitendex.org [2026-08-08]",
-        glossary: "to consume"
+        glossary: expect.stringContaining("img/forms.jpeg")
       })
     ]);
     expect(payload.result.term.frequencies).toEqual([
@@ -3178,6 +3247,16 @@ describe("Hoshidicts dictionary tabs", () => {
     expect(payload.dictionaryStyles).toEqual([{
       dictionary: "Jitendex.org [2026-08-08]",
       styles: ".jitendex-definition { color: red; }"
+    }]);
+    expect(payload.dictionaryMedia).toEqual([{
+      dictionary: "Jitendex.org [2026-08-08]",
+      path: "img/forms.jpeg",
+      mediaType: "image/jpeg",
+      dataBase64: "/9j/4AA="
+    }]);
+    expect(payload.dictionaryAliases).toEqual([{
+      dictionary: "Jitendex.org [2026-08-08]",
+      alias: "Jitendex"
     }]);
     expect(checkMiningNotes.mock.calls.at(-1)?.[0].notes[0].dictionaryStyles)
       .toEqual([{
@@ -3194,6 +3273,7 @@ describe("Hoshidicts dictionary tabs", () => {
       .querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")
       ?.click();
     await flushPromises();
+    await flushPromises();
 
     expect(mine).toHaveBeenCalledTimes(3);
     expect(mine.mock.calls[2][0].result.term.glossaries).toEqual([
@@ -3203,6 +3283,8 @@ describe("Hoshidicts dictionary tabs", () => {
       dictionary: "JMdict",
       styles: ".jmdict-definition { color: blue; }"
     }]);
+    expect(mine.mock.calls[2][0]).not.toHaveProperty("dictionaryMedia");
+    expect(mine.mock.calls[2][0]).not.toHaveProperty("dictionaryAliases");
     expect(checkMiningNotes.mock.calls.at(-1)?.[0].notes[0].dictionaryStyles)
       .toEqual([{
         dictionary: "JMdict",

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
 import html
 import json
 import math
@@ -15,10 +18,21 @@ MAX_METADATA_VALUES = 1_048_576
 MAX_DICTIONARY_STYLES = 256
 MAX_DICTIONARY_STYLE_BYTES = 256 * 1024
 MAX_DICTIONARY_STYLE_NESTING = 32
+MAX_DICTIONARY_ALIASES = 256
+MAX_DICTIONARY_MEDIA = 256
+MAX_DICTIONARY_MEDIA_BYTES = 4 * 1024 * 1024
 MAX_AUDIO_SOURCE_ID_LENGTH = 128
 MAX_AUDIO_CANDIDATES = 32
 _AUDIO_SOURCE_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 _AUDIO_CANDIDATE_ID_PATTERN = re.compile(r"^[a-f0-9]{64}$")
+_DICTIONARY_MEDIA_EXTENSIONS = {
+    "image/avif": ".avif",
+    "image/gif": ".gif",
+    "image/jpeg": ".jpeg",
+    "image/png": ".png",
+    "image/svg+xml": ".svg",
+    "image/webp": ".webp",
+}
 
 IGNORED_STRUCTURED_TAGS = {
     "audio",
@@ -260,6 +274,104 @@ def _validate_dictionary_styles(value: Any) -> dict[str, str]:
     return output
 
 
+def _validate_dictionary_aliases(value: Any) -> dict[str, str]:
+    if value is None:
+        return {}
+    if isinstance(value, list):
+        if len(value) > MAX_DICTIONARY_ALIASES:
+            raise HoshidictsMiningError("Hoshidicts dictionary aliases are invalid.")
+        entries = [
+            (item.get("dictionary"), item.get("alias", item.get("displayName")))
+            for item in value
+            if isinstance(item, dict)
+        ]
+        if len(entries) != len(value):
+            raise HoshidictsMiningError("Hoshidicts dictionary aliases are invalid.")
+    elif isinstance(value, dict):
+        if len(value) > MAX_DICTIONARY_ALIASES:
+            raise HoshidictsMiningError("Hoshidicts dictionary aliases are invalid.")
+        entries = list(value.items())
+    else:
+        raise HoshidictsMiningError("Hoshidicts dictionary aliases are invalid.")
+
+    aliases = {}
+    for raw_dictionary, raw_alias in entries:
+        dictionary = bounded_string(
+            raw_dictionary,
+            "Hoshidicts dictionary alias name",
+            MAX_TERM_LENGTH,
+            allow_empty=False,
+        )
+        alias = bounded_string(
+            raw_alias,
+            "Hoshidicts dictionary alias",
+            MAX_TERM_LENGTH,
+            allow_empty=False,
+        )
+        aliases[dictionary] = alias
+    return aliases
+
+
+def _validate_dictionary_media(value: Any) -> list[dict[str, str]]:
+    if value is None:
+        return []
+    entries = require_list(value, "Hoshidicts dictionary media", MAX_DICTIONARY_MEDIA)
+    output = []
+    seen = set()
+    for item in entries:
+        if not isinstance(item, dict):
+            raise HoshidictsMiningError("Hoshidicts dictionary media is invalid.")
+        dictionary = bounded_string(
+            item.get("dictionary"),
+            "Hoshidicts dictionary media name",
+            MAX_TERM_LENGTH,
+            allow_empty=False,
+        )
+        path = bounded_string(
+            item.get("path"),
+            "Hoshidicts dictionary media path",
+            MAX_TERM_LENGTH,
+            allow_empty=False,
+        )
+        media_type = bounded_string(
+            item.get("mediaType"),
+            "Hoshidicts dictionary media type",
+            64,
+            allow_empty=False,
+        ).lower()
+        extension = _DICTIONARY_MEDIA_EXTENSIONS.get(media_type)
+        encoded = bounded_string(
+            item.get("dataBase64"),
+            "Hoshidicts dictionary media data",
+            ((MAX_DICTIONARY_MEDIA_BYTES + 2) // 3) * 4,
+            allow_empty=False,
+        )
+        if extension is None:
+            raise HoshidictsMiningError("Hoshidicts dictionary media is invalid.")
+        try:
+            data = base64.b64decode(encoded, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise HoshidictsMiningError("Hoshidicts dictionary media is invalid.") from exc
+        if not data or len(data) > MAX_DICTIONARY_MEDIA_BYTES:
+            raise HoshidictsMiningError("Hoshidicts dictionary media is invalid.")
+        key = (dictionary, path)
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append(
+            {
+                "dictionary": dictionary,
+                "path": path,
+                "mediaType": media_type,
+                "dataBase64": encoded,
+                "filename": (
+                    f"yomitan_dictionary_media_{hashlib.sha1(data, usedforsecurity=False).hexdigest()}{extension}"
+                ),
+            }
+        )
+    return output
+
+
 def _utf16_suffix(text: str, offset: int) -> str:
     encoded = text.encode("utf-16-le")
     byte_offset = offset * 2
@@ -416,6 +528,23 @@ def validate_hoshidicts_mining_request(value: Any) -> dict[str, Any]:
         "matchOffset": match_offset,
         "audioSelection": audio_selection,
         "dictionaryStyles": _validate_dictionary_styles(value.get("dictionaryStyles")),
+        "dictionaryAliases": _validate_dictionary_aliases(value.get("dictionaryAliases")),
+        "dictionaryMedia": _validate_dictionary_media(value.get("dictionaryMedia")),
+        "popupSelectionText": bounded_string(
+            value.get("popupSelectionText", ""),
+            "Hoshidicts popup selection text",
+            MAX_TEXT_LENGTH,
+        ),
+        "documentTitle": bounded_string(
+            value.get("documentTitle", ""),
+            "Hoshidicts document title",
+            MAX_TERM_LENGTH,
+        ),
+        "searchQuery": bounded_string(
+            value.get("searchQuery", ""),
+            "Hoshidicts search query",
+            MAX_TEXT_LENGTH,
+        ),
     }
     if not _utf16_suffix(sentence, match_offset).startswith(normalized["matched"]):
         raise HoshidictsMiningError("Hoshidicts match offset does not point at the matched text.")
@@ -620,6 +749,9 @@ def _structured_content_html(
     value: Any,
     state: list[int] | None = None,
     depth: int = 0,
+    *,
+    dictionary: str = "",
+    dictionary_media: dict[tuple[str, str], str] | None = None,
 ) -> str:
     if state is None:
         state = [0]
@@ -631,16 +763,71 @@ def _structured_content_html(
     if isinstance(value, (int, float, bool)):
         return html.escape(str(value))
     if isinstance(value, list):
-        return "".join(_structured_content_html(item, state, depth + 1) for item in value)
+        return "".join(
+            _structured_content_html(
+                item,
+                state,
+                depth + 1,
+                dictionary=dictionary,
+                dictionary_media=dictionary_media,
+            )
+            for item in value
+        )
     if not isinstance(value, dict):
         return ""
     if value.get("type") == "text" and isinstance(value.get("text"), str):
         return _plain_glossary_html(value["text"])
     if value.get("type") == "structured-content":
-        return _structured_content_html(value.get("content"), state, depth + 1)
+        return _structured_content_html(
+            value.get("content"),
+            state,
+            depth + 1,
+            dictionary=dictionary,
+            dictionary_media=dictionary_media,
+        )
 
     tag = str(value.get("tag") or "").lower()
-    content = _structured_content_html(value.get("content"), state, depth + 1)
+    if value.get("type") == "image":
+        tag = "img"
+    if tag == "img":
+        path = value.get("path")
+        filename = (
+            dictionary_media.get((dictionary, path)) if dictionary_media is not None and isinstance(path, str) else None
+        )
+        if not isinstance(filename, str) or not filename:
+            return ""
+        width = value.get("preferredWidth", value.get("width", 100))
+        height = value.get("preferredHeight", value.get("height", 100))
+        width = width if isinstance(width, (int, float)) and not isinstance(width, bool) and width > 0 else 100
+        height = height if isinstance(height, (int, float)) and not isinstance(height, bool) and height > 0 else 100
+        appearance = value.get("appearance", "auto")
+        image_rendering = value.get("imageRendering", "pixelated" if value.get("pixelated") is True else "auto")
+        return (
+            '<a class="gloss-image-link" target="_blank" rel="noreferrer noopener" '
+            f'href="{html.escape(filename, quote=True)}" '
+            f'data-path="{html.escape(path, quote=True)}" '
+            f'data-dictionary="{html.escape(dictionary, quote=True)}" data-image-load-state="loaded" '
+            'data-has-aspect-ratio="true" '
+            f'data-image-rendering="{html.escape(str(image_rendering), quote=True)}" '
+            f'data-appearance="{html.escape(str(appearance), quote=True)}" '
+            f'data-background="{str(value.get("background", True)).lower()}" '
+            f'data-collapsed="{str(value.get("collapsed", False)).lower()}" '
+            f'data-collapsible="{str(value.get("collapsible", True)).lower()}">'
+            f'<span class="gloss-image-container" style="width: {width}em">'
+            f'<span class="gloss-image-sizer" style="padding-top: {height / width * 100}%"></span>'
+            f'<span class="gloss-image-background" style="--image: url(&quot;{html.escape(filename, quote=True)}&quot;)"></span>'
+            '<span class="gloss-image-container-overlay"></span>'
+            f'<img class="gloss-image" src="{html.escape(filename, quote=True)}" '
+            'style="width: 100%; height: 100%"></span>'
+            '<span class="gloss-image-link-text">Image</span></a>'
+        )
+    content = _structured_content_html(
+        value.get("content"),
+        state,
+        depth + 1,
+        dictionary=dictionary,
+        dictionary_media=dictionary_media,
+    )
     if tag in IGNORED_STRUCTURED_TAGS:
         return ""
     if tag not in STRUCTURED_CONTENT_TAGS:
@@ -659,7 +846,11 @@ def _structured_content_html(
     return rendered
 
 
-def _render_glossary_content(value: str) -> str:
+def _render_glossary_content(
+    value: str,
+    dictionary: str,
+    dictionary_media: dict[tuple[str, str], str],
+) -> str:
     try:
         parsed = json.loads(value)
     except (TypeError, ValueError):
@@ -676,13 +867,23 @@ def _render_glossary_content(value: str) -> str:
                 state[0] += 1
                 rendered_item = _plain_glossary_html(item)
             else:
-                rendered_item = _structured_content_html(item, state, 1)
+                rendered_item = _structured_content_html(
+                    item,
+                    state,
+                    1,
+                    dictionary=dictionary,
+                    dictionary_media=dictionary_media,
+                )
             if rendered_item and isinstance(item, dict) and item.get("type") == "structured-content":
                 rendered_item = f'<span class="structured-content">{rendered_item}</span>'
             parts.append(rendered_item)
         rendered = "".join(parts)
     else:
-        rendered = _structured_content_html(parsed)
+        rendered = _structured_content_html(
+            parsed,
+            dictionary=dictionary,
+            dictionary_media=dictionary_media,
+        )
     if rendered:
         return (
             f'<span class="structured-content">{rendered}</span>'
@@ -707,6 +908,8 @@ def first_dictionary(result: dict[str, Any]) -> str:
 def _glossary_entry_html(
     glossary: dict[str, str],
     dictionary: str,
+    dictionary_alias: str,
+    dictionary_media: dict[tuple[str, str], str],
     *,
     brief: bool = False,
     no_dictionary: bool = False,
@@ -722,9 +925,13 @@ def _glossary_entry_html(
             if value
         )
         if dictionary and not no_dictionary:
-            labels.append(dictionary)
+            labels.append(dictionary_alias)
     prefix = f'<i class="yomitan-glossary-meta">({html.escape(", ".join(labels))})</i> ' if labels else ""
-    return prefix + _render_glossary_content(glossary["glossary"])
+    return prefix + _render_glossary_content(
+        glossary["glossary"],
+        dictionary,
+        dictionary_media,
+    )
 
 
 def _css_string(value: str) -> str:
@@ -927,11 +1134,18 @@ def definition_html(
     pages = []
     style_blocks = []
     dictionary_styles = result.get("dictionaryStyles", {})
+    dictionary_aliases = result.get("dictionaryAliases", {})
+    dictionary_media = {
+        (entry["dictionary"], entry["path"]): entry["filename"] for entry in result.get("dictionaryMedia", [])
+    }
     for dictionary, glossaries in groups:
+        dictionary_alias = dictionary_aliases.get(dictionary, dictionary)
         entries = [
             _glossary_entry_html(
                 glossary,
                 dictionary,
+                dictionary_alias,
+                dictionary_media,
                 brief=brief,
                 no_dictionary=no_dictionary,
             )
@@ -976,10 +1190,11 @@ def plain_definition_html(
     if selected_dictionary is not None:
         groups = [group for group in groups if group[0] == selected_dictionary]
     rendered_groups = []
+    dictionary_aliases = result.get("dictionaryAliases", {})
     for dictionary, glossaries in groups:
         lines = []
         if not no_dictionary:
-            lines.append(f"({html.escape(dictionary)})")
+            lines.append(f"({html.escape(dictionary_aliases.get(dictionary, dictionary))})")
         lines.extend(
             rendered
             for glossary in glossaries
