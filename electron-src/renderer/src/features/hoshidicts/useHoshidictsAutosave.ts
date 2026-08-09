@@ -15,6 +15,7 @@ interface HoshidictsAutosaveOptions<TDraft, TRequest> {
   errorFallback: string;
   applyResult: (result: HoshidictsActionResult, showOutcome?: boolean) => boolean;
   setActionError: (message: string | null) => void;
+  paused?: boolean;
 }
 
 export function useHoshidictsAutosave<TDraft, TRequest>({
@@ -25,7 +26,8 @@ export function useHoshidictsAutosave<TDraft, TRequest>({
   channel,
   errorFallback,
   applyResult,
-  setActionError
+  setActionError,
+  paused = false
 }: HoshidictsAutosaveOptions<TDraft, TRequest>) {
   const [draft, setDraft] = useState<TDraft>(() => initialDraft());
   const draftRef = useRef(draft);
@@ -65,6 +67,7 @@ export function useHoshidictsAutosave<TDraft, TRequest>({
     if (
       !dirty ||
       saving ||
+      paused ||
       blockedVersionRef.current === editVersionRef.current
     ) {
       return;
@@ -112,6 +115,7 @@ export function useHoshidictsAutosave<TDraft, TRequest>({
     dirty,
     draft,
     errorFallback,
+    paused,
     savedDraft,
     saving,
     setActionError,

@@ -4,6 +4,7 @@ import type {
     HoshidictsFieldOverwriteMode,
     HoshidictsFieldOverwriteModes,
     HoshidictsMiningFieldName,
+    HoshidictsMiningFieldTemplates,
     HoshidictsMiningProfile,
 } from '../../../shared/features/hoshidicts.js';
 import {
@@ -14,8 +15,8 @@ import {
 } from '../../../shared/features/hoshidicts.js';
 
 export const HOSHIDICTS_MINING_PROFILE_FILE_NAME = 'mining-profile.json';
-const MINING_PROFILE_VERSION = 2;
-const LEGACY_MINING_PROFILE_VERSION = 1;
+const MINING_PROFILE_VERSION = 3;
+const LEGACY_MINING_PROFILE_VERSIONS = [1, 2] as const;
 
 const MINING_FIELD_NAMES: readonly HoshidictsMiningFieldName[] = [
     'expression',
@@ -49,6 +50,53 @@ function normalizeProfileString(
     return value.trim();
 }
 
+function normalizeFieldTemplates(
+    value: unknown,
+    sourceVersion: number
+): HoshidictsMiningFieldTemplates | null {
+    if (sourceVersion !== MINING_PROFILE_VERSION || value == null) {
+        return null;
+    }
+    if (!isRecord(value)) {
+        throw new Error('Hoshidicts mining field templates are invalid.');
+    }
+    const result: HoshidictsMiningFieldTemplates = {};
+    for (const [fieldName, rawTemplate] of Object.entries(value)) {
+        if (
+            fieldName.length === 0 ||
+            fieldName.length > 255 ||
+            fieldName.includes('\0')
+        ) {
+            throw new Error('Hoshidicts mining field template name is invalid.');
+        }
+        if (!isRecord(rawTemplate) || typeof rawTemplate.value !== 'string') {
+            throw new Error(
+                `Hoshidicts ${fieldName} field template is invalid.`
+            );
+        }
+        if (rawTemplate.value.includes('\0')) {
+            throw new Error(
+                `Hoshidicts ${fieldName} field template value is invalid.`
+            );
+        }
+        const overwriteMode = rawTemplate.overwriteMode ?? 'coalesce';
+        if (
+            !HOSHIDICTS_FIELD_OVERWRITE_MODES.includes(
+                overwriteMode as HoshidictsFieldOverwriteMode
+            )
+        ) {
+            throw new Error(
+                `Hoshidicts ${fieldName} field template overwrite mode is invalid.`
+            );
+        }
+        result[fieldName] = {
+            value: rawTemplate.value,
+            overwriteMode: overwriteMode as HoshidictsFieldOverwriteMode,
+        };
+    }
+    return result;
+}
+
 export function defaultHoshidictsMiningProfile(): HoshidictsMiningProfile {
     return {
         version: MINING_PROFILE_VERSION,
@@ -71,6 +119,7 @@ export function defaultHoshidictsMiningProfile(): HoshidictsMiningProfile {
         duplicateScopeCheckAllModels: false,
         duplicateBehavior: 'prevent',
         fieldOverwriteModes: createDefaultHoshidictsFieldOverwriteModes(),
+        fieldTemplates: null,
     };
 }
 
@@ -80,10 +129,12 @@ export function normalizeHoshidictsMiningProfile(
     if (!isRecord(value)) {
         throw new Error('Hoshidicts mining profile must be an object.');
     }
+    const sourceVersion = value.version ?? 1;
     if (
-        value.version !== undefined &&
-        value.version !== MINING_PROFILE_VERSION &&
-        value.version !== LEGACY_MINING_PROFILE_VERSION
+        sourceVersion !== MINING_PROFILE_VERSION &&
+        !LEGACY_MINING_PROFILE_VERSIONS.includes(
+            sourceVersion as (typeof LEGACY_MINING_PROFILE_VERSIONS)[number]
+        )
     ) {
         throw new Error('Hoshidicts mining profile version is unsupported.');
     }
@@ -236,5 +287,9 @@ export function normalizeHoshidictsMiningProfile(
                 | undefined) ??
             (value.duplicatePolicy === 'allow' ? 'new' : 'prevent'),
         fieldOverwriteModes: fieldOverwriteModes as HoshidictsFieldOverwriteModes,
+        fieldTemplates: normalizeFieldTemplates(
+            value.fieldTemplates,
+            sourceVersion as number
+        ),
     };
 }
