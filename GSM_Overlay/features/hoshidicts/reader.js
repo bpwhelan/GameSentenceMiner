@@ -2074,6 +2074,7 @@
     const popupLevels = [];
     const hoveredPopupDepths = new Set();
     const dictionaryStyleElements = [];
+    const dictionaryStylesByDictionary = new Map();
     const renderedSignatures = new Map();
     const noticeSignatures = new Map();
     const candidateSourceIds = new WeakMap();
@@ -2402,6 +2403,7 @@
     function clearDictionaryStyles() {
       pendingStylesRequest = null;
       dictionaryStylesGeneration = null;
+      dictionaryStylesByDictionary.clear();
       for (const element of dictionaryStyleElements.splice(0)) {
         element.remove();
       }
@@ -2416,6 +2418,7 @@
     function applyDictionaryStyles(generation, entries) {
       clearDictionaryStyles();
       for (const entry of entries) {
+        dictionaryStylesByDictionary.set(entry.dictionary, entry.styles);
         const style = documentRef.createElement("style");
         style.dataset.hoshidictsDictionaryStyle = entry.dictionary;
         style.dataset.hoshidictsGeneration = String(generation);
@@ -3320,12 +3323,86 @@
       return miningStatusCache;
     }
 
-    function createMiningPayload(item) {
+    function createMiningBasePayload(item, extra = {}) {
       return {
         result: item.result,
         sentence: item.candidate.sentence,
         matchOffset: item.candidate.matchOffset,
+        ...extra,
       };
+    }
+
+    function getMiningDictionaryStyles(result, generation) {
+      if (
+        generation === null ||
+        generation !== activeDictionaryGeneration ||
+        generation !== dictionaryStylesGeneration ||
+        dictionaryStylesByDictionary.size === 0
+      ) {
+        return [];
+      }
+      const term = isRecord(result) && isRecord(result.term) ? result.term : null;
+      const glossaries = term && Array.isArray(term.glossaries)
+        ? term.glossaries
+        : [];
+      const styles = [];
+      const seen = new Set();
+      for (const glossary of glossaries) {
+        const dictionary = isRecord(glossary) && typeof glossary.dictionary === "string"
+          ? glossary.dictionary
+          : "";
+        if (!dictionary || seen.has(dictionary)) {
+          continue;
+        }
+        seen.add(dictionary);
+        const stylesheet = dictionaryStylesByDictionary.get(dictionary);
+        if (typeof stylesheet === "string" && stylesheet) {
+          styles.push({ dictionary, styles: stylesheet });
+        }
+      }
+      return styles;
+    }
+
+    function attachDictionaryStylesWithinBudget(payload, styles, byteBudget) {
+      if (styles.length === 0 || byteBudget <= 0) {
+        return { payload, bytesAdded: 0 };
+      }
+      const propertyBytes = utf8Length(',"dictionaryStyles":[]');
+      const included = [];
+      let bytesAdded = 0;
+      for (const entry of styles) {
+        const entryBytes = utf8Length(JSON.stringify(entry));
+        const nextBytes = entryBytes + (included.length === 0 ? propertyBytes : 1);
+        if (bytesAdded + nextBytes > byteBudget) {
+          continue;
+        }
+        included.push(entry);
+        bytesAdded += nextBytes;
+      }
+      return included.length === 0
+        ? { payload, bytesAdded: 0 }
+        : {
+            payload: { ...payload, dictionaryStyles: included },
+            bytesAdded,
+          };
+    }
+
+    function createDuplicateCheckPayload(level, miningItems) {
+      const notes = miningItems.map((item) => createMiningBasePayload(item));
+      let remainingBytes = MAX_DUPLICATE_CHECK_REQUEST_BYTES - utf8Length(
+        JSON.stringify({ notes })
+      );
+      const generation = level.termView?.dictionaryGeneration ?? null;
+      for (let index = 0; index < notes.length && remainingBytes > 0; index += 1) {
+        const { payload, bytesAdded } = attachDictionaryStylesWithinBudget(
+          notes[index],
+          getMiningDictionaryStyles(miningItems[index].result, generation),
+          remainingBytes
+        );
+        notes[index] = payload;
+        remainingBytes -= bytesAdded;
+      }
+      return { notes };
     }
 
     function isLiveMiningRender(level, generation, feedback) {
@@ -3364,9 +3441,9 @@
         }
         let duplicateInfo;
         try {
-          duplicateInfo = await checkMiningNotes({
-            notes: miningItems.map(createMiningPayload),
-          });
+          duplicateInfo = await checkMiningNotes(
+            createDuplicateCheckPayload(level, miningItems)
+          );
           if (
             !isRecord(duplicateInfo) ||
             duplicateInfo.success !== true ||
@@ -3492,12 +3569,19 @@
       let duplicateRejected = false;
       try {
         const audioSelection = audioController.getSelection(result);
-        const response = await onMine({
-          result,
-          sentence: candidate.sentence,
-          matchOffset: candidate.matchOffset,
-          ...(audioSelection ? { audioSelection } : {}),
-        });
+        const basePayload = createMiningBasePayload(
+          { result, candidate },
+          audioSelection ? { audioSelection } : {}
+        );
+        const { payload: miningPayload } = attachDictionaryStylesWithinBudget(
+          basePayload,
+          getMiningDictionaryStyles(
+            result,
+            level.termView?.dictionaryGeneration ?? null
+          ),
+          MAX_MINING_REQUEST_BYTES - utf8Length(JSON.stringify(basePayload))
+        );
+        const response = await onMine(miningPayload);
         if (!response || response.success !== true) {
           throw createMiningRequestError(
             response && typeof response.error === "string"

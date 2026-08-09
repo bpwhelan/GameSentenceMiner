@@ -3029,9 +3029,19 @@ describe("Hoshidicts dictionary tabs", () => {
     reader.destroy();
   });
 
-  it("mines only the selected dictionary glossaries while preserving metadata", async () => {
+  it("mines selected glossaries with only their current dictionary styles", async () => {
+    const checkMiningNotes = vi.fn(async (payload) => ({
+      success: true,
+      duplicatePolicy: "prevent",
+      results: payload.notes.map(() => ({
+        state: "addable",
+        canAdd: true,
+        duplicate: false
+      }))
+    }));
     const mine = vi.fn(async () => ({ success: true, noteId: 123 }));
-    const { lookup, reader } = createLookupHarness({
+    const { lookup, reader, socket } = createLookupHarness({
+      checkMiningNotes,
       getMiningStatus: async () => ({ available: true }),
       onMine: mine
     });
@@ -3041,8 +3051,35 @@ describe("Hoshidicts dictionary tabs", () => {
         { dictionary: "Jitendex.org [2026-08-08]", glossary: "to consume" }
       ])
     );
+    const stylesRequest = socket.sent
+      .map((value) => JSON.parse(value))
+      .findLast((value) => value.type === "hoshidicts_styles");
+    socket.receive({
+      type: "hoshidicts_styles_result",
+      requestId: stylesRequest.requestId,
+      generation: 1,
+      success: true,
+      featureDisabled: false,
+      staleGeneration: false,
+      error: null,
+      styles: [{
+        dictionary: "JMdict",
+        styles: ".jmdict-definition { color: blue; }"
+      }, {
+        dictionary: "Jitendex.org [2026-08-08]",
+        styles: ".jitendex-definition { color: red; }"
+      }]
+    });
     await flushPromises();
 
+    expect(checkMiningNotes.mock.calls.at(-1)?.[0].notes[0].dictionaryStyles)
+      .toEqual([{
+        dictionary: "JMdict",
+        styles: ".jmdict-definition { color: blue; }"
+      }, {
+        dictionary: "Jitendex.org [2026-08-08]",
+        styles: ".jitendex-definition { color: red; }"
+      }]);
     popup
       .querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")
       ?.click();
@@ -3054,6 +3091,13 @@ describe("Hoshidicts dictionary tabs", () => {
         glossary: "to consume"
       })
     ]);
+    expect(mine.mock.calls[0][0].dictionaryStyles).toEqual([{
+      dictionary: "JMdict",
+      styles: ".jmdict-definition { color: blue; }"
+    }, {
+      dictionary: "Jitendex.org [2026-08-08]",
+      styles: ".jitendex-definition { color: red; }"
+    }]);
 
     const jitendexTab = Array.from(
       popup.querySelectorAll<HTMLButtonElement>('[role="tab"]')
@@ -3083,6 +3127,15 @@ describe("Hoshidicts dictionary tabs", () => {
     expect(payload.result.term.pitches).toEqual([
       expect.objectContaining({ dictionary: "Pitch" })
     ]);
+    expect(payload.dictionaryStyles).toEqual([{
+      dictionary: "Jitendex.org [2026-08-08]",
+      styles: ".jitendex-definition { color: red; }"
+    }]);
+    expect(checkMiningNotes.mock.calls.at(-1)?.[0].notes[0].dictionaryStyles)
+      .toEqual([{
+        dictionary: "Jitendex.org [2026-08-08]",
+        styles: ".jitendex-definition { color: red; }"
+      }]);
 
     const jmdictTab = Array.from(
       popup.querySelectorAll<HTMLButtonElement>('[role="tab"]')
@@ -3098,6 +3151,179 @@ describe("Hoshidicts dictionary tabs", () => {
     expect(mine.mock.calls[2][0].result.term.glossaries).toEqual([
       expect.objectContaining({ dictionary: "JMdict", glossary: "to eat" })
     ]);
+    expect(mine.mock.calls[2][0].dictionaryStyles).toEqual([{
+      dictionary: "JMdict",
+      styles: ".jmdict-definition { color: blue; }"
+    }, {
+      dictionary: "Jitendex.org [2026-08-08]",
+      styles: ".jitendex-definition { color: red; }"
+    }]);
+    expect(checkMiningNotes.mock.calls.at(-1)?.[0].notes[0].dictionaryStyles)
+      .toEqual([{
+        dictionary: "JMdict",
+        styles: ".jmdict-definition { color: blue; }"
+      }, {
+        dictionary: "Jitendex.org [2026-08-08]",
+        styles: ".jitendex-definition { color: red; }"
+      }]);
+    reader.destroy();
+  });
+
+  it("clears mining styles on generation changes and ignores stale responses", async () => {
+    const checkMiningNotes = vi.fn(async (payload) => ({
+      success: true,
+      duplicatePolicy: "prevent",
+      results: payload.notes.map(() => ({
+        state: "addable",
+        canAdd: true,
+        duplicate: false
+      }))
+    }));
+    const mine = vi.fn(async () => ({ success: true, noteId: 123 }));
+    const { lookup, reader, second, socket } = createLookupHarness({
+      checkMiningNotes,
+      getMiningStatus: async () => ({ available: true }),
+      onMine: mine
+    });
+    const { popup } = await lookup((requestId) => {
+      const response = lookupResultWithDictionaries(requestId, [{
+        dictionary: "JMdict",
+        glossary: "to eat"
+      }]);
+      response.generation = 17;
+      return response;
+    });
+    const generation17Request = socket.sent
+      .map((value) => JSON.parse(value))
+      .findLast((value) => value.type === "hoshidicts_styles");
+    socket.receive({
+      type: "hoshidicts_styles_result",
+      requestId: generation17Request.requestId,
+      generation: 17,
+      success: true,
+      featureDisabled: false,
+      staleGeneration: false,
+      error: null,
+      styles: [{ dictionary: "JMdict", styles: ".old { color: red; }" }]
+    });
+    await flushPromises();
+
+    expect(checkMiningNotes.mock.calls.at(-1)?.[0].notes[0].dictionaryStyles)
+      .toEqual([{ dictionary: "JMdict", styles: ".old { color: red; }" }]);
+    expect(
+      popup.ownerDocument.head.querySelector(
+        'style[data-hoshidicts-generation="17"]'
+      )
+    ).not.toBeNull();
+
+    await lookup((requestId) => {
+      const response = lookupResultWithDictionaries(
+        requestId,
+        [{ dictionary: "JMdict", glossary: "to finish" }],
+        "終わる"
+      );
+      response.generation = 18;
+      return response;
+    }, second);
+    const generation18Request = socket.sent
+      .map((value) => JSON.parse(value))
+      .findLast((value) => value.type === "hoshidicts_styles");
+
+    socket.receive({
+      type: "hoshidicts_styles_result",
+      requestId: generation17Request.requestId,
+      generation: 17,
+      success: true,
+      featureDisabled: false,
+      staleGeneration: false,
+      error: null,
+      styles: [{ dictionary: "JMdict", styles: ".stale { color: orange; }" }]
+    });
+    await flushPromises();
+
+    expect(generation18Request.generation).toBe(18);
+    expect(
+      popup.ownerDocument.head.querySelector(
+        "style[data-hoshidicts-dictionary-style]"
+      )
+    ).toBeNull();
+    expect(checkMiningNotes.mock.calls.at(-1)?.[0].notes[0])
+      .not.toHaveProperty("dictionaryStyles");
+
+    popup
+      .querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")
+      ?.click();
+    await flushPromises();
+    expect(mine.mock.calls.at(-1)?.[0]).not.toHaveProperty("dictionaryStyles");
+    reader.destroy();
+  });
+
+  it("omits whole styles deterministically to keep mining requests bounded", async () => {
+    const checkMiningNotes = vi.fn(async (payload) => ({
+      success: true,
+      duplicatePolicy: "prevent",
+      results: payload.notes.map(() => ({
+        state: "addable",
+        canAdd: true,
+        duplicate: false
+      }))
+    }));
+    const mine = vi.fn(async () => ({ success: true, noteId: 123 }));
+    const { lookup, reader, socket } = createLookupHarness({
+      checkMiningNotes,
+      getMiningStatus: async () => ({ available: true }),
+      onMine: mine
+    });
+    const { popup } = await lookup((requestId) => {
+      const response = lookupResultWithDictionaries(requestId, [{
+        dictionary: "Large dictionary",
+        glossary: "definition"
+      }]);
+      response.results = Array.from({ length: 16 }, (_, index) => ({
+        ...response.results[0],
+        matched: `食べる${index}`,
+        term: {
+          ...response.results[0].term,
+          expression: `食べる${index}`
+        }
+      }));
+      return response;
+    });
+    const stylesRequest = socket.sent
+      .map((value) => JSON.parse(value))
+      .findLast((value) => value.type === "hoshidicts_styles");
+    const maximumStyle = "x".repeat(256 * 1024);
+    socket.receive({
+      type: "hoshidicts_styles_result",
+      requestId: stylesRequest.requestId,
+      generation: 1,
+      success: true,
+      featureDisabled: false,
+      staleGeneration: false,
+      error: null,
+      styles: [{ dictionary: "Large dictionary", styles: maximumStyle }]
+    });
+    await flushPromises();
+
+    const duplicatePayload = checkMiningNotes.mock.calls.at(-1)?.[0];
+    const styledNotes = duplicatePayload.notes.filter(
+      (note) => Object.hasOwn(note, "dictionaryStyles")
+    );
+    expect(new TextEncoder().encode(JSON.stringify(duplicatePayload)).length)
+      .toBeLessThanOrEqual(4 * 1024 * 1024);
+    expect(styledNotes).toHaveLength(15);
+    expect(duplicatePayload.notes.slice(0, 15).every(
+      (note) => note.dictionaryStyles?.[0]?.styles.length === 256 * 1024
+    )).toBe(true);
+    expect(duplicatePayload.notes[15]).not.toHaveProperty("dictionaryStyles");
+
+    popup
+      .querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")
+      ?.click();
+    await flushPromises();
+    expect(mine.mock.calls.at(-1)?.[0]).not.toHaveProperty("dictionaryStyles");
+    expect(new TextEncoder().encode(JSON.stringify(mine.mock.calls.at(-1)?.[0])).length)
+      .toBeLessThanOrEqual(256 * 1024);
     reader.destroy();
   });
 
