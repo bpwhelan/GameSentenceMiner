@@ -11,7 +11,7 @@ pub const MANIFEST_FILE_NAME: &str = "manifest.json";
 pub const LOOKUP_SCAN_LENGTH: usize = 10;
 pub const LOOKUP_MAX_RESULTS: c_int = 16;
 pub const MAX_LOOKUP_TEXT_BYTES: usize = 4 * 1024;
-pub const MAX_LOOKUP_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
+pub const MAX_LOOKUP_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
 pub const MAX_REQUEST_ID_BYTES: usize = 128;
 pub const MAX_MEDIA_DICTIONARY_BYTES: usize = 1024;
 pub const MAX_MEDIA_PATH_BYTES: usize = 4 * 1024;
@@ -23,9 +23,8 @@ pub const MAX_STYLES_RESPONSE_BYTES: usize = 3 * 1024 * 1024;
 
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 const MAX_DICTIONARIES: usize = 256;
-// A single structured glossary can legitimately occupy most of a response.
-// The aggregate response ceiling is the only useful per-string ceiling too.
 const MAX_NATIVE_STRING_BYTES: usize = MAX_LOOKUP_RESPONSE_BYTES;
+const MAX_GLOSSARY_BYTES: usize = 8 * 1024 * 1024;
 const MAX_NATIVE_AGGREGATE_STRINGS: usize = 1024 * 1024;
 const MAX_DICTIONARY_STYLE_BYTES: usize = 256 * 1024;
 const MAX_DICTIONARY_STYLES_BYTES: usize = 2 * 1024 * 1024;
@@ -1275,10 +1274,11 @@ impl NativeEngine {
                             "glossary dictionary",
                             &mut copy_budget,
                         )?,
-                        glossary: copy_hd_string_bounded(
+                        glossary: copy_hd_string_bounded_with_limit(
                             glossary.glossary,
                             "glossary content",
                             &mut copy_budget,
+                            MAX_GLOSSARY_BYTES,
                         )?,
                         definition_tags: copy_hd_string_bounded(
                             glossary.definition_tags,
@@ -1502,10 +1502,6 @@ unsafe fn checked_slice<'a, T>(
     Ok(slice::from_raw_parts(pointer, count))
 }
 
-unsafe fn copy_hd_string(value: HdStr, label: &str) -> Result<String, String> {
-    copy_hd_string_with_limit(value, label, MAX_NATIVE_STRING_BYTES)
-}
-
 unsafe fn copy_hd_string_with_limit(
     value: HdStr,
     label: &str,
@@ -1609,8 +1605,17 @@ unsafe fn copy_hd_string_bounded(
     label: &str,
     budget: &mut NativeCopyBudget,
 ) -> Result<String, String> {
+    copy_hd_string_bounded_with_limit(value, label, budget, MAX_NATIVE_STRING_BYTES)
+}
+
+unsafe fn copy_hd_string_bounded_with_limit(
+    value: HdStr,
+    label: &str,
+    budget: &mut NativeCopyBudget,
+    maximum_bytes: usize,
+) -> Result<String, String> {
     budget.claim(value.len, label)?;
-    copy_hd_string(value, label)
+    copy_hd_string_with_limit(value, label, maximum_bytes)
 }
 
 unsafe fn copy_frequency_entries(
@@ -2757,6 +2762,25 @@ mod tests {
 
     #[test]
     fn native_copy_budget_rejects_oversized_aggregate_results() {
+        assert_eq!(MAX_GLOSSARY_BYTES, 8 * 1024 * 1024);
+        assert_eq!(MAX_LOOKUP_RESPONSE_BYTES, 32 * 1024 * 1024);
+
+        let mut glossary_budget = NativeCopyBudget::new();
+        let oversized_glossary = HdStr {
+            ptr: ptr::NonNull::<c_char>::dangling().as_ptr(),
+            len: MAX_GLOSSARY_BYTES + 1,
+        };
+        assert!(unsafe {
+            copy_hd_string_bounded_with_limit(
+                oversized_glossary,
+                "glossary content",
+                &mut glossary_budget,
+                MAX_GLOSSARY_BYTES,
+            )
+        }
+        .expect_err("per-glossary byte limit must fail")
+        .contains("permitted size"));
+
         let mut byte_budget = NativeCopyBudget::new();
         byte_budget
             .claim(MAX_LOOKUP_RESPONSE_BYTES, "test value")
