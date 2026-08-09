@@ -26,7 +26,8 @@ This is the implementation and validation checklist for the Hoshidicts feature b
 - [x] Verify full-width katakana `ワガハイ` resolves through a real current Jitendex Yomitan import.
 - [x] Match Yomitan's width-before-kana normalization so visually equivalent half-width `ﾜｶﾞﾊｲ` also resolves to `わがはい`.
 - [x] Keep regression coverage for full-width, half-width, decomposed, hiragana, and kanji forms while preserving the original matched text.
-- [ ] Add a default-on `Only scan text containing Japanese characters` reader setting and skip automatic Hoshidicts scans for text without Japanese characters.
+- [x] Add a default-on Japanese-only reader setting and skip automatic Hoshidicts scans unless the entire token is Japanese.
+- [ ] Revisit strict mixed-script scan filtering for legitimate Japanese terms containing Latin letters or digits; the current default intentionally skips mixed tokens such as `食べるabc`.
 - [ ] Add useful diagnostics which distinguish no enabled term dictionary, no dictionary entry, normalization failure, and lookup transport failure.
 
 ## Popup rendering and appearance
@@ -35,7 +36,7 @@ This is the implementation and validation checklist for the Hoshidicts feature b
 - [ ] Compare JMdict/JMnedict/KANJIDIC rendering side by side against current Yomitan and native Hoshidicts.
 - [x] Test a real CharacterDictionary.tokyo v17 archive through import, lookup, structured-content rendering, inline styles, and media loading.
 - [x] Render supported Yomitan structured-content elements, inline styles, images, ruby, tables, lists, tags, links, and collapsible sections cleanly.
-- [ ] Fix `dictionary lookup failed, native glossary content exceeds the permitted size` without dropping results, and render every enabled dictionary even when the combined native glossary is very large.
+- [x] Raise the per-glossary limit to 8 MiB and the total lookup limit to 32 MiB without dropping enabled dictionaries.
 - [x] Support Jitendex hyperlinks/cross-references to other dictionary definitions and open them as child Hoshidicts lookups without closing the parent popup.
 - [x] Distinguish internal definition links from genuine external attribution/source links; keep external links usable without treating them as dictionary queries.
 - [x] Scope dictionary CSS to its dictionary card so it cannot visually corrupt another dictionary or the popup shell.
@@ -54,7 +55,7 @@ This is the implementation and validation checklist for the Hoshidicts feature b
 
 - [x] Center the popup mining action and use distinct add/overwrite/duplicate states.
 - [x] Add collection-, deck-, and note/model-level duplicate checks and Yomitan-style duplicate behaviours.
-- [ ] Close the remaining workflow and card-content gaps between Yomitan mining and GSM Hoshidicts mining, with side-by-side end-to-end mining fixtures; parity here is essential.
+- [x] Close the remaining workflow and card-content gaps between Yomitan mining and GSM Hoshidicts mining, including rich multi-dictionary Kiku fixtures, scoped CSS, aliases, and dictionary media.
 - [x] Reveal blurred definitions on hover for every blur mode.
 - [x] Allow hover-only reveal when timed reveal is disabled, and timed-plus-hover reveal when it is enabled.
 - [x] Import supported Yomitan audio settings, including custom local-audio-server URLs.
