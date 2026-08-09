@@ -47,6 +47,8 @@ const MAX_JSON_VALUE_BYTES = 32 * 1024 * 1024;
 const MAX_OPEN_SPOOL_FILES = 16;
 const MAX_NATIVE_ZIP_BYTES = 0xffff_ffff;
 const MAX_NATIVE_MEDIA_PATH_BYTES = 0xffff;
+const READ_PROGRESS_INTERVAL_MS = 250;
+const MIN_ETA_ELAPSED_MS = 1_000;
 
 interface YomitanDictionaryBanks {
     term: BankEntry[];
@@ -92,6 +94,12 @@ export interface YomitanDictionaryPreparationProgress {
     title: string;
 }
 
+export interface YomitanDictionaryReadingProgress {
+    completedBytes: number;
+    totalBytes: number;
+    estimatedSecondsRemaining: number | null;
+}
+
 export interface YomitanPreparedDictionary {
     title: string;
     archivePath: string;
@@ -112,6 +120,64 @@ function unwrapTypeson(value: unknown): unknown {
         return value.$;
     }
     return value;
+}
+
+function createReadingProgressReporter(
+    totalBytes: number,
+    onProgress: (progress: YomitanDictionaryReadingProgress) => void
+): (completedBytes: number, force?: boolean) => void {
+    const startedAt = Date.now();
+    let lastReportedAt = startedAt;
+    let lastCompletedBytes = -1;
+
+    return (completedBytes, force = false) => {
+        const boundedCompletedBytes = Math.max(
+            0,
+            Math.min(completedBytes, totalBytes)
+        );
+        const now = Date.now();
+        if (
+            boundedCompletedBytes === lastCompletedBytes ||
+            (!force && now - lastReportedAt < READ_PROGRESS_INTERVAL_MS)
+        ) {
+            return;
+        }
+
+        const elapsedMs = now - startedAt;
+        const estimatedSecondsRemaining =
+            boundedCompletedBytes > 0 &&
+            boundedCompletedBytes < totalBytes &&
+            elapsedMs >= MIN_ETA_ELAPSED_MS
+                ? Math.max(
+                      1,
+                      Math.ceil(
+                          ((totalBytes - boundedCompletedBytes) * elapsedMs) /
+                              boundedCompletedBytes /
+                              1_000
+                      )
+                  )
+                : null;
+        onProgress({
+            completedBytes: boundedCompletedBytes,
+            totalBytes,
+            estimatedSecondsRemaining,
+        });
+        lastReportedAt = now;
+        lastCompletedBytes = boundedCompletedBytes;
+    };
+}
+
+function createTrackedReadStream(
+    filePath: string,
+    onBytesRead?: (bytesRead: number) => void
+): fs.ReadStream {
+    const source = fs.createReadStream(filePath);
+    if (onBytesRead) {
+        const report = () => onBytesRead(source.bytesRead);
+        source.on('data', report);
+        source.once('close', () => source.off('data', report));
+    }
+    return source;
 }
 
 function exportRowValue(row: unknown, inbound: boolean): unknown {
@@ -1100,12 +1166,13 @@ async function spoolMedia(
 
 async function spoolDictionaryRows(
     filePath: string,
-    dictionaries: Map<string, SpoolDictionary>
+    dictionaries: Map<string, SpoolDictionary>,
+    onBytesRead?: (bytesRead: number) => void
 ): Promise<void> {
     const appender = new BoundedFileAppender();
     try {
         await streamDictionaryRows(
-            fs.createReadStream(filePath),
+            createTrackedReadStream(filePath, onBytesRead),
             async (tableName, inbound, row) => {
                 const parsed = parseDictionaryRow(tableName, row, inbound);
                 if (!parsed) {
@@ -1218,15 +1285,31 @@ export async function prepareYomitanDictionaryBackup(
     onProgress?: (progress: YomitanDictionaryPreparationProgress) => void,
     onPreparedDictionary?: (
         dictionary: YomitanPreparedDictionary
-    ) => Promise<void>
+    ) => Promise<void>,
+    onReadingProgress?: (
+        progress: YomitanDictionaryReadingProgress
+    ) => void
 ): Promise<PreparedYomitanBackup> {
     const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'gsm-yomitan-'));
     try {
         const dictionaries: Array<{ title: string; archivePath: string }> = [];
         const spooled = new Map<string, SpoolDictionary>();
         let dictionaryNumber = 0;
+        const fileSize = onReadingProgress
+            ? (await fsp.stat(filePath)).size
+            : 0;
+        const totalReadBytes = fileSize * 2;
+        const reportReadingProgress = onReadingProgress
+            ? createReadingProgressReporter(
+                  totalReadBytes,
+                  onReadingProgress
+              )
+            : null;
+        reportReadingProgress?.(0, true);
         await streamDictionaryRows(
-            fs.createReadStream(filePath),
+            createTrackedReadStream(filePath, (bytesRead) =>
+                reportReadingProgress?.(bytesRead)
+            ),
             async (tableName, inbound, row) => {
                 if (tableName !== 'dictionaries') {
                     return;
@@ -1249,10 +1332,14 @@ export async function prepareYomitanDictionaryBackup(
                 }
             }
         );
+        reportReadingProgress?.(fileSize, true);
         if (spooled.size === 0) {
             throw new Error('The Yomitan backup does not contain dictionaries.');
         }
-        await spoolDictionaryRows(filePath, spooled);
+        await spoolDictionaryRows(filePath, spooled, (bytesRead) =>
+            reportReadingProgress?.(fileSize + bytesRead)
+        );
+        reportReadingProgress?.(totalReadBytes, true);
         const total = spooled.size;
         let index = 0;
         for (const [title, dictionary] of spooled) {
