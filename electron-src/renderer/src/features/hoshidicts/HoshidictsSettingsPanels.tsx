@@ -49,17 +49,14 @@ import {
 } from "../../../../shared/features/hoshidicts";
 import { useTranslation } from "../../i18n";
 import {
-  AUTO_FIELD_VALUE,
-  DISABLED_FIELD_VALUE,
-  MINING_FIELDS,
+  MINING_FIELD_TEMPLATE_SUGGESTIONS,
   RECOMMENDED_KEYS,
   activationKeyFromKeyboardCode,
-  automaticFieldTarget,
   frequencyModeKey,
   formatTimestamp,
-  getFieldChoice,
-  resolvedDraftField,
-  summarizeCustomDictionaryText
+  resolvedMiningFieldTemplate,
+  summarizeCustomDictionaryText,
+  visibleMiningFields
 } from "./hoshidictsSettingsModel";
 import { HoshidictsSaveIndicator } from "./HoshidictsSaveIndicator";
 import type { useHoshidictsSettingsController } from "./useHoshidictsSettingsController";
@@ -1911,22 +1908,28 @@ export function MiningPanel({ controller }: { controller: Controller }) {
     miningBusy
   } = controller;
 
-  const mappedCount = useMemo(
-    () =>
-      MINING_FIELDS.filter(({ id }) =>
-        Boolean(resolvedDraftField(miningDraft, miningOptions, id))
-      ).length,
+  const visibleFields = useMemo(
+    () => visibleMiningFields(miningDraft, miningOptions),
     [miningDraft, miningOptions]
   );
-  const mappingWarnings = useMemo(() => {
-    const missingOverrides = MINING_FIELDS.filter(
-      ({ id }) =>
-        miningDraft.fields[id] &&
-        miningOptions.connected &&
-        !miningOptions.fields.includes(miningDraft.fields[id])
-    ).map(({ labelKey }) => t(labelKey));
-    return { backend: miningOptions.warnings, missingOverrides };
-  }, [miningDraft.fields, miningOptions, t]);
+  const visibleTemplates = useMemo(
+    () =>
+      Object.fromEntries(
+        visibleFields.map((field) => [
+          field,
+          resolvedMiningFieldTemplate(miningDraft, miningOptions, field)
+        ])
+      ),
+    [miningDraft, miningOptions, visibleFields]
+  );
+  const mappedCount = useMemo(
+    () =>
+      visibleFields.filter(
+        (field) => visibleTemplates[field]?.value.trim().length > 0
+      )
+        .length,
+    [visibleFields, visibleTemplates]
+  );
   const showOverwriteModes =
     miningDraft.checkForDuplicates &&
     miningDraft.duplicateBehavior === "overwrite";
@@ -2207,116 +2210,112 @@ export function MiningPanel({ controller }: { controller: Controller }) {
           <span>
             {t("settings.hoshidicts.mining.mappingCount", {
               mapped: mappedCount,
-              total: MINING_FIELDS.length
+              total: visibleFields.length
             })}
           </span>
           <span>{t("settings.hoshidicts.mining.mappingHint")}</span>
         </div>
-        <div
-          className="hoshidicts-mining-field-grid"
-          data-overwrite={showOverwriteModes}
-        >
-          <span className="hoshidicts-mining-field-grid__header">
-            {t("settings.hoshidicts.mining.mappingFieldHeader")}
-          </span>
-          <span className="hoshidicts-mining-field-grid__header">
-            {t("settings.hoshidicts.mining.mappingValueHeader")}
-          </span>
-          {showOverwriteModes ? (
-            <span className="hoshidicts-mining-field-grid__header">
-              {t("settings.hoshidicts.mining.overwriteModeHeader")}
-            </span>
-          ) : null}
-          {MINING_FIELDS.map((field) => {
-            const target = automaticFieldTarget(miningOptions, field.id);
-            const choice = getFieldChoice(miningDraft, field.id);
-            const explicitValue = miningDraft.fields[field.id];
-            const selectId = `hoshidicts-mining-field-${field.id}`;
-            return (
-              <Fragment key={field.id}>
-                <label htmlFor={selectId}>{t(field.labelKey)}</label>
-                <select
-                  id={selectId}
-                  value={choice}
-                  disabled={miningBusy}
-                  onChange={(event) =>
-                    setMiningField(field.id, event.target.value)
-                  }
+        <datalist id="hoshidicts-mining-field-values">
+          {MINING_FIELD_TEMPLATE_SUGGESTIONS.map((suggestion) => (
+            <option value={suggestion.value} key={suggestion.value}>
+              {t(suggestion.labelKey)}
+            </option>
+          ))}
+        </datalist>
+        {visibleFields.length > 0 ? (
+          <div className="hoshidicts-mining-field-grid">
+            <div
+              className="hoshidicts-mining-field-grid__header-row"
+              data-overwrite={showOverwriteModes}
+            >
+              <span className="hoshidicts-mining-field-grid__header">
+                {t("settings.hoshidicts.mining.mappingFieldHeader")}
+              </span>
+              <span className="hoshidicts-mining-field-grid__header">
+                {t("settings.hoshidicts.mining.mappingValueHeader")}
+              </span>
+              {showOverwriteModes ? (
+                <span className="hoshidicts-mining-field-grid__header">
+                  {t("settings.hoshidicts.mining.overwriteModeHeader")}
+                </span>
+              ) : null}
+            </div>
+            {visibleFields.map((field, index) => {
+              const template = visibleTemplates[field];
+              const inputId = `hoshidicts-mining-field-${index}`;
+              return (
+                <div
+                  className="hoshidicts-mining-field-row"
+                  data-overwrite={showOverwriteModes}
+                  key={field}
                 >
-                  <option value={AUTO_FIELD_VALUE}>
-                    {target
-                      ? t("settings.hoshidicts.mining.automaticField", {
-                          name: target
-                        })
-                      : t("settings.hoshidicts.mining.automaticUnmapped")}
-                  </option>
-                  <option value={DISABLED_FIELD_VALUE}>
-                    {t("settings.hoshidicts.mining.noField")}
-                  </option>
-                  {explicitValue &&
-                  !miningOptions.fields.includes(explicitValue) ? (
-                    <option value={explicitValue}>
-                      {t("settings.hoshidicts.mining.missingOption", {
-                        name: explicitValue
-                      })}
-                    </option>
-                  ) : null}
-                  {miningOptions.fields.map((modelField) => (
-                    <option value={modelField} key={modelField}>
-                      {modelField}
-                    </option>
-                  ))}
-                </select>
-                {showOverwriteModes ? (
-                  <select
-                    id={`hoshidicts-mining-overwrite-${field.id}`}
-                    aria-label={t(
-                      "settings.hoshidicts.mining.overwriteFieldLabel",
-                      { field: t(field.labelKey) }
+                  <label htmlFor={inputId}>{field}</label>
+                  <input
+                    id={inputId}
+                    className="hoshidicts-mining-field-value"
+                    data-anki-field={field}
+                    data-field-control="value"
+                    type="text"
+                    list="hoshidicts-mining-field-values"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder={t(
+                      "settings.hoshidicts.mining.mappingValuePlaceholder"
                     )}
-                    value={miningDraft.fieldOverwriteModes[field.id]}
-                    disabled={miningBusy}
-                    onChange={(event) => {
-                      const mode = event.target
-                        .value as HoshidictsFieldOverwriteMode;
-                      if (!HOSHIDICTS_FIELD_OVERWRITE_MODES.includes(mode)) {
-                        return;
-                      }
-                      updateMiningDraft((current) => ({
-                        ...current,
-                        fieldOverwriteModes: {
-                          ...current.fieldOverwriteModes,
-                          [field.id]: mode
+                    value={template?.value ?? ""}
+                    disabled={miningBusy || miningOptionsLoading}
+                    onChange={(event) =>
+                      setMiningField(field, { value: event.target.value })
+                    }
+                  />
+                  {showOverwriteModes ? (
+                    <select
+                      id={`hoshidicts-mining-overwrite-${index}`}
+                      data-anki-field={field}
+                      data-field-control="overwrite"
+                      aria-label={t(
+                        "settings.hoshidicts.mining.overwriteFieldLabel",
+                        { field }
+                      )}
+                      value={template?.overwriteMode ?? "coalesce"}
+                      disabled={miningBusy || miningOptionsLoading}
+                      onChange={(event) => {
+                        const overwriteMode = event.target
+                          .value as HoshidictsFieldOverwriteMode;
+                        if (
+                          !HOSHIDICTS_FIELD_OVERWRITE_MODES.includes(
+                            overwriteMode
+                          )
+                        ) {
+                          return;
                         }
-                      }));
-                    }}
-                  >
-                    {HOSHIDICTS_FIELD_OVERWRITE_MODES.map((mode) => (
-                      <option value={mode} key={mode}>
-                        {t(OVERWRITE_MODE_KEYS[mode])}
-                      </option>
-                    ))}
-                  </select>
-                ) : null}
-              </Fragment>
-            );
-          })}
-        </div>
+                        setMiningField(field, { overwriteMode });
+                      }}
+                    >
+                      {HOSHIDICTS_FIELD_OVERWRITE_MODES.map((mode) => (
+                        <option value={mode} key={mode}>
+                          {t(OVERWRITE_MODE_KEYS[mode])}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="hoshidicts-mining-fields__empty">
+            {t("settings.hoshidicts.mining.noModelFields")}
+          </p>
+        )}
 
-        {mappingWarnings.backend.map((warning) => (
+        {miningOptions.warnings.map((warning) => (
           <p className="hoshidicts-mining-fields__warning" key={warning}>
             {t("settings.hoshidicts.mining.mappingWarning", {
               message: warning
             })}
           </p>
         ))}
-        {mappingWarnings.missingOverrides.length > 0 ? (
-          <p className="hoshidicts-mining-fields__warning">
-            {t("settings.hoshidicts.mining.missingMappings", {
-              fields: mappingWarnings.missingOverrides.join(", ")
-            })}
-          </p>
-        ) : null}
       </details>
     </section>
   );

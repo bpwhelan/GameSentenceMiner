@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  createDefaultHoshidictsFieldOverwriteModes,
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
   DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
@@ -26,6 +27,7 @@ import {
   type HoshidictsCustomDictionaryDocument,
   type HoshidictsDeleteTabGroupRequest,
   type HoshidictsDesktopSnapshot,
+  type HoshidictsFieldOverwriteMode,
   type HoshidictsDictionaryPresentationRequest,
   type HoshidictsDictionaryScheduleRequest,
   type HoshidictsLookupMode,
@@ -50,7 +52,6 @@ import {
   DEFAULT_MINING_PROFILE,
   type SaveStatus,
   type HoshidictsView,
-  type MiningField,
   type MiningProfileDraft,
   copyAudioProfile,
   draftToProfile,
@@ -58,12 +59,28 @@ import {
   normalizeHoshidictsDesktopState,
   normalizeMiningOptions,
   profileToDraft,
-  setFieldChoice
+  setMiningFieldTemplate
 } from "./hoshidictsSettingsModel";
 import { useHoshidictsAutosave } from "./useHoshidictsAutosave";
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function sameMiningModel(left: string, right: string): boolean {
+  return left.trim().toLowerCase() === right.trim().toLowerCase();
+}
+
+function resetMiningFieldMappings(
+  draft: MiningProfileDraft
+): MiningProfileDraft {
+  return {
+    ...draft,
+    fields: { ...DEFAULT_MINING_PROFILE.fields },
+    disabledFields: [],
+    fieldOverwriteModes: createDefaultHoshidictsFieldOverwriteModes(),
+    fieldTemplates: null
+  };
 }
 
 const defaultReaderPreferences = (): HoshidictsReaderPreferences => ({
@@ -93,7 +110,16 @@ function copyMiningDraft(draft: MiningProfileDraft): MiningProfileDraft {
     ...draft,
     fields: { ...draft.fields },
     fieldOverwriteModes: { ...draft.fieldOverwriteModes },
-    disabledFields: [...draft.disabledFields]
+    disabledFields: [...draft.disabledFields],
+    fieldTemplates:
+      draft.fieldTemplates === null
+        ? null
+        : Object.fromEntries(
+            Object.entries(draft.fieldTemplates).map(([field, template]) => [
+              field,
+              { ...template }
+            ])
+          )
   };
 }
 
@@ -150,7 +176,9 @@ export function useHoshidictsSettingsController() {
   const [miningOptions, setMiningOptions] = useState<HoshidictsMiningOptions>({
     ...DEFAULT_MINING_OPTIONS,
     suggestedFields: { ...DEFAULT_MINING_OPTIONS.suggestedFields },
-    resolvedFields: { ...DEFAULT_MINING_OPTIONS.resolvedFields }
+    resolvedFields: { ...DEFAULT_MINING_OPTIONS.resolvedFields },
+    suggestedFieldTemplates: {},
+    resolvedFieldTemplates: {}
   });
   const [miningOptionsLoading, setMiningOptionsLoading] = useState(false);
   const miningOptionsRequestRef = useRef(0);
@@ -268,7 +296,8 @@ export function useHoshidictsSettingsController() {
     channel: HOSHIDICTS_CHANNELS.setMiningProfile,
     errorFallback: t("settings.hoshidicts.errors.miningProfile"),
     applyResult,
-    setActionError
+    setActionError,
+    paused: miningOptionsLoading
   });
   draftSynchronizersRef.current = {
     reader: readerAutosave.syncDraft,
@@ -305,21 +334,26 @@ export function useHoshidictsSettingsController() {
       try {
         const value = await invokeIpc<HoshidictsMiningOptions>(
           HOSHIDICTS_CHANNELS.getMiningOptions,
-          model || undefined
+          model
         );
-        if (requestId !== miningOptionsRequestRef.current) return;
-        setMiningOptions(normalizeMiningOptions(value));
+        if (requestId !== miningOptionsRequestRef.current) return null;
+        const normalized = normalizeMiningOptions(value);
+        setMiningOptions(normalized);
+        return normalized;
       } catch (error) {
-        if (requestId !== miningOptionsRequestRef.current) return;
+        if (requestId !== miningOptionsRequestRef.current) return null;
         setMiningOptions({
           ...DEFAULT_MINING_OPTIONS,
           suggestedFields: { ...DEFAULT_MINING_OPTIONS.suggestedFields },
           resolvedFields: { ...DEFAULT_MINING_OPTIONS.resolvedFields },
+          suggestedFieldTemplates: {},
+          resolvedFieldTemplates: {},
           error: errorMessage(
             error,
             t("settings.hoshidicts.errors.ankiOptions")
           )
         });
+        return null;
       } finally {
         if (requestId === miningOptionsRequestRef.current) {
           setMiningOptionsLoading(false);
@@ -628,17 +662,53 @@ export function useHoshidictsSettingsController() {
   );
   const setMiningModel = useCallback(
     (model: string) => {
-      updateMiningDraft((current) => ({ ...current, model }));
-      void loadMiningOptions(model || undefined);
+      const previousEffectiveModel = miningOptions.selectedNoteType;
+      const resetImmediately =
+        model.trim().length > 0 &&
+        !sameMiningModel(model, previousEffectiveModel);
+      updateMiningDraft((current) => {
+        const next = { ...current, model };
+        return resetImmediately ? resetMiningFieldMappings(next) : next;
+      });
+      if (resetImmediately) {
+        setMiningOptions((current) => ({
+          ...DEFAULT_MINING_OPTIONS,
+          connected: current.connected,
+          gsmAnkiEnabled: current.gsmAnkiEnabled,
+          decks: current.decks,
+          noteTypes: current.noteTypes,
+          selectedNoteType: model,
+          suggestedFields: { ...DEFAULT_MINING_OPTIONS.suggestedFields },
+          resolvedFields: { ...DEFAULT_MINING_OPTIONS.resolvedFields },
+          suggestedFieldTemplates: {},
+          resolvedFieldTemplates: {}
+        }));
+      }
+      void loadMiningOptions(model).then((loaded) => {
+        if (
+          loaded === null ||
+          resetImmediately ||
+          sameMiningModel(previousEffectiveModel, loaded.selectedNoteType) ||
+          miningDraftRef.current.model !== model
+        ) {
+          return;
+        }
+        updateMiningDraft((current) => resetMiningFieldMappings(current));
+      });
     },
-    [loadMiningOptions, updateMiningDraft]
+    [loadMiningOptions, miningOptions.selectedNoteType, updateMiningDraft]
   );
 
   const setMiningField = useCallback(
-    (field: MiningField, value: string) => {
-      updateMiningDraft((current) => setFieldChoice(current, field, value));
+    (
+      field: string,
+      update: { value?: string; overwriteMode?: HoshidictsFieldOverwriteMode }
+    ) => {
+      updateMiningDraft((current) =>
+        setMiningFieldTemplate(current, miningOptions, field, update)
+      );
     },
-    [updateMiningDraft]
+    [miningOptions, updateMiningDraft]
   );
 
   const runAction = useCallback(
@@ -650,13 +720,18 @@ export function useHoshidictsSettingsController() {
       setActionError(null);
       setNotice(null);
       try {
-        return applyResult(await action(), true, forceDrafts);
+        const result = await action();
+        const success = applyResult(result, true, forceDrafts);
+        if (success && forceDrafts && result.state) {
+          void loadMiningOptions();
+        }
+        return success;
       } catch (error) {
         setActionError(errorMessage(error, t(fallbackKey)));
         return false;
       }
     },
-    [applyResult, t]
+    [applyResult, loadMiningOptions, t]
   );
 
   const actions = useMemo(

@@ -33,7 +33,7 @@ function currentState(): HoshidictsManagerSnapshot {
         customDictionaryActive: false,
         recommendedDictionaries: [],
         miningProfile: {
-            version: 2,
+            version: 3,
             enabled: true,
             deck: 'Old',
             model: 'Old',
@@ -54,6 +54,7 @@ function currentState(): HoshidictsManagerSnapshot {
             duplicateBehavior: 'prevent',
             fieldOverwriteModes:
                 createDefaultHoshidictsFieldOverwriteModes(),
+            fieldTemplates: null,
         },
         audioProfile: createDefaultHoshidictsAudioProfile(),
         lookupMode: 'shift',
@@ -146,6 +147,7 @@ describe('parseYomitanSettingsBackup', () => {
             { title: 'Frequency', enabled: false },
         ]);
         expect(parsed.miningProfile).toMatchObject({
+            version: 3,
             enabled: true,
             deck: 'Japanese',
             model: 'Mining',
@@ -153,12 +155,27 @@ describe('parseYomitanSettingsBackup', () => {
             duplicateScope: 'collection',
             duplicateScopeCheckAllModels: false,
             duplicateBehavior: 'new',
-            fields: {
-                expression: 'Word',
-                reading: 'Reading',
-                definition: 'Definition',
-                sentence: 'Sentence',
-                audio: 'Audio',
+            fieldTemplates: {
+                Word: {
+                    value: '{expression}',
+                    overwriteMode: 'coalesce',
+                },
+                Reading: {
+                    value: '{furigana-plain}',
+                    overwriteMode: 'coalesce',
+                },
+                Definition: {
+                    value: '{jpmn-primary-definition}',
+                    overwriteMode: 'coalesce',
+                },
+                Sentence: {
+                    value: '{cloze-prefix}<b>{cloze-body}</b>{cloze-suffix}',
+                    overwriteMode: 'coalesce',
+                },
+                Audio: {
+                    value: '{audio}',
+                    overwriteMode: 'coalesce',
+                },
             },
         });
         expect(parsed.audioProfile).toMatchObject({
@@ -210,11 +227,23 @@ describe('parseYomitanSettingsBackup', () => {
                                                     value: '{expression}',
                                                     overwriteMode: 'coalesce',
                                                 },
+                                                ExpressionCopy: {
+                                                    value: '{expression}',
+                                                    overwriteMode: 'append',
+                                                },
                                                 Frequency: {
                                                     value: '{single-frequency-number}',
                                                 },
                                                 Pitch: {
                                                     value: '{pitch-accent-graphs}',
+                                                },
+                                                Literal: {
+                                                    value: 'x',
+                                                    overwriteMode: 'skip',
+                                                },
+                                                Unused: {
+                                                    value: '',
+                                                    overwriteMode: 'coalesce-new',
                                                 },
                                             },
                                         },
@@ -229,21 +258,32 @@ describe('parseYomitanSettingsBackup', () => {
         );
 
         expect(parsed.miningProfile).toMatchObject({
+            version: 3,
             deck: 'Deck',
             model: 'Note',
             checkForDuplicates: true,
             duplicateScope: 'collection',
             duplicateScopeCheckAllModels: false,
             duplicateBehavior: 'prevent',
-            fields: {
-                expression: 'Expression',
-                frequency: 'Frequency',
-                pitch: 'Pitch',
-            },
-            fieldOverwriteModes: {
-                expression: 'coalesce',
-                frequency: 'coalesce',
-                pitch: 'coalesce',
+            fieldTemplates: {
+                Expression: {
+                    value: '{expression}',
+                    overwriteMode: 'coalesce',
+                },
+                ExpressionCopy: {
+                    value: '{expression}',
+                    overwriteMode: 'append',
+                },
+                Frequency: {
+                    value: '{single-frequency-number}',
+                    overwriteMode: 'coalesce',
+                },
+                Pitch: {
+                    value: '{pitch-accent-graphs}',
+                    overwriteMode: 'coalesce',
+                },
+                Literal: { value: 'x', overwriteMode: 'skip' },
+                Unused: { value: '', overwriteMode: 'coalesce-new' },
             },
         });
     });
@@ -306,19 +346,36 @@ describe('parseYomitanSettingsBackup', () => {
         );
 
         expect(parsed.miningProfile).toMatchObject({
-            version: 2,
+            version: 3,
             checkForDuplicates: true,
             duplicateScope: 'deck-root',
             duplicateScopeCheckAllModels: true,
             duplicateBehavior: 'overwrite',
-            fieldOverwriteModes: {
-                expression: 'overwrite',
-                reading: 'skip',
-                definition: 'append',
-                sentence: 'prepend',
-                frequency: 'coalesce-new',
-                pitch: 'coalesce',
-                audio: 'coalesce',
+            fieldTemplates: {
+                Expression: {
+                    value: '{expression}',
+                    overwriteMode: 'overwrite',
+                },
+                Reading: {
+                    value: '{reading}',
+                    overwriteMode: 'skip',
+                },
+                Definition: {
+                    value: '{glossary}',
+                    overwriteMode: 'append',
+                },
+                Sentence: {
+                    value: '{sentence}',
+                    overwriteMode: 'prepend',
+                },
+                Frequency: {
+                    value: '{frequency-harmonic-rank}',
+                    overwriteMode: 'coalesce-new',
+                },
+                Pitch: {
+                    value: '{pitch-accent-graphs}',
+                    overwriteMode: 'coalesce',
+                },
             },
         });
         expect(parsed.warnings).toEqual([]);

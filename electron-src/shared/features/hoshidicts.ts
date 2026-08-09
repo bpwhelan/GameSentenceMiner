@@ -393,6 +393,22 @@ export interface HoshidictsMiningFields {
 
 export type HoshidictsMiningFieldName = keyof HoshidictsMiningFields;
 
+export const HOSHIDICTS_MINING_FIELD_MARKERS = [
+    { id: 'expression', value: '{expression}' },
+    { id: 'reading', value: '{reading}' },
+    { id: 'definition', value: '{definition}' },
+    { id: 'sentence', value: '{sentence}' },
+    { id: 'frequency', value: '{frequency}' },
+    { id: 'pitch', value: '{pitch}' },
+    { id: 'pitch-position', value: '{pitch-position}' },
+    { id: 'audio', value: '{audio}' },
+] as const;
+
+export type HoshidictsMiningFieldMarker =
+    (typeof HOSHIDICTS_MINING_FIELD_MARKERS)[number]['id'];
+export type HoshidictsMiningFieldMarkerValue =
+    (typeof HOSHIDICTS_MINING_FIELD_MARKERS)[number]['value'];
+
 export const HOSHIDICTS_DUPLICATE_SCOPES = [
     'collection',
     'deck',
@@ -417,6 +433,17 @@ export const HOSHIDICTS_FIELD_OVERWRITE_MODES = [
 ] as const;
 export type HoshidictsFieldOverwriteMode =
     (typeof HOSHIDICTS_FIELD_OVERWRITE_MODES)[number];
+
+export interface HoshidictsMiningFieldTemplate {
+    value: string;
+    overwriteMode: HoshidictsFieldOverwriteMode;
+}
+
+export type HoshidictsMiningFieldTemplates = Record<
+    string,
+    HoshidictsMiningFieldTemplate
+>;
+
 export type HoshidictsFieldOverwriteModes = Record<
     HoshidictsMiningFieldName,
     HoshidictsFieldOverwriteMode
@@ -535,7 +562,7 @@ export function isHoshidictsAudioSourceType(
 }
 
 export interface HoshidictsMiningProfile {
-    version: 2;
+    version: 3;
     enabled: boolean;
     deck: string;
     model: string;
@@ -547,6 +574,7 @@ export interface HoshidictsMiningProfile {
     duplicateScopeCheckAllModels: boolean;
     duplicateBehavior: HoshidictsDuplicateBehavior;
     fieldOverwriteModes: HoshidictsFieldOverwriteModes;
+    fieldTemplates: HoshidictsMiningFieldTemplates | null;
 }
 
 export interface HoshidictsMiningOptions {
@@ -558,6 +586,8 @@ export interface HoshidictsMiningOptions {
     fields: string[];
     suggestedFields: HoshidictsMiningFields;
     resolvedFields: HoshidictsMiningFields;
+    suggestedFieldTemplates: Record<string, string>;
+    resolvedFieldTemplates: HoshidictsMiningFieldTemplates;
     warnings: string[];
     error: string | null;
 }

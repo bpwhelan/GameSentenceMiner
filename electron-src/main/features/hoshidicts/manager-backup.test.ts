@@ -267,14 +267,23 @@ describe('Hoshidicts manager full backups', () => {
             duplicateScope: 'deck-root' as const,
             duplicateScopeCheckAllModels: true,
             duplicateBehavior: 'overwrite' as const,
-            fields: {
-                ...defaultHoshidictsMiningProfile().fields,
-                expression: 'Expression',
-                definition: 'Meaning',
-            },
-            fieldOverwriteModes: {
-                ...defaultHoshidictsMiningProfile().fieldOverwriteModes,
-                definition: 'append' as const,
+            fieldTemplates: {
+                Expression: {
+                    value: '{expression}',
+                    overwriteMode: 'coalesce' as const,
+                },
+                Meaning: {
+                    value: '{definition}',
+                    overwriteMode: 'append' as const,
+                },
+                Notes: {
+                    value: 'x',
+                    overwriteMode: 'skip' as const,
+                },
+                Unused: {
+                    value: '',
+                    overwriteMode: 'coalesce-new' as const,
+                },
             },
         };
         await source.setMiningProfile(miningProfile);

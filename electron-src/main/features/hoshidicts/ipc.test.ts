@@ -116,7 +116,7 @@ const snapshot = {
         { id: 'kanjidic', installed: false },
     ],
     miningProfile: {
-        version: 2,
+        version: 3,
         enabled: true,
         deck: 'Default',
         model: '',
@@ -136,6 +136,7 @@ const snapshot = {
         duplicateScopeCheckAllModels: false,
         duplicateBehavior: 'prevent',
         fieldOverwriteModes: createDefaultHoshidictsFieldOverwriteModes(),
+        fieldTemplates: null,
     },
     audioProfile: createDefaultHoshidictsAudioProfile(),
     lookupMode: 'shift',
@@ -278,6 +279,13 @@ async function registerHarness() {
             frequency: '',
             pitch: '',
             audio: '',
+        },
+        suggestedFieldTemplates: { Expression: '{expression}' },
+        resolvedFieldTemplates: {
+            Expression: {
+                value: '{expression}',
+                overwriteMode: 'coalesce' as const,
+            },
         },
         warnings: [],
         error: null,
@@ -1703,6 +1711,11 @@ describe('Hoshidicts settings IPC', () => {
             )
         ).resolves.toMatchObject({ connected: true, noteTypes: ['Kiku'] });
         expect(context.getMiningOptions).toHaveBeenCalledWith('Kiku');
+
+        await expect(
+            getMiningOptions?.({ sender: context.settingsContents }, '')
+        ).resolves.toMatchObject({ connected: true, noteTypes: ['Kiku'] });
+        expect(context.getMiningOptions).toHaveBeenCalledWith('');
     });
 
     it('accepts every curated recommendation id and rejects unknown ids', async () => {

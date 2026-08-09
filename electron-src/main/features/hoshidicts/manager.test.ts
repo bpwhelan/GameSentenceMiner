@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
     DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
+    HOSHIDICTS_MINING_FIELD_MARKERS,
     MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH,
     MAX_HOSHIDICTS_TAB_GROUPS_BYTES,
 } from '../../../shared/features/hoshidicts.js';
@@ -1426,7 +1427,7 @@ describe('Hoshidicts mining profile', () => {
         });
 
         expect(snapshot.miningProfile).toEqual({
-            version: 2,
+            version: 3,
             enabled: false,
             deck: 'Mining',
             model: 'Custom',
@@ -1454,6 +1455,7 @@ describe('Hoshidicts mining profile', () => {
                 pitch: 'coalesce',
                 audio: 'coalesce',
             },
+            fieldTemplates: null,
         });
         expect(readMiningProfile(baseDir)).toEqual(snapshot.miningProfile);
         expect(
@@ -1488,7 +1490,7 @@ describe('Hoshidicts mining profile', () => {
                 },
             })
         ).toMatchObject({
-            version: 2,
+            version: 3,
             checkForDuplicates: false,
             duplicateScope: 'deck-root',
             duplicateScopeCheckAllModels: true,
@@ -1498,6 +1500,7 @@ describe('Hoshidicts mining profile', () => {
                 reading: 'skip',
                 definition: 'coalesce',
             },
+            fieldTemplates: null,
         });
         expect(() =>
             normalizeHoshidictsMiningProfile({ duplicateScope: 'note' })
@@ -1525,6 +1528,85 @@ describe('Hoshidicts mining profile', () => {
         expect(() =>
             normalizeHoshidictsMiningProfile({ disabledFields: ['unknown'] })
         ).toThrow('disabled mining field is invalid');
+    });
+
+    it('normalizes target-keyed templates including explicit blanks and literals', () => {
+        expect(
+            normalizeHoshidictsMiningProfile({
+                version: 3,
+                fieldTemplates: {
+                    Expression: {
+                        value: '{expression}',
+                        overwriteMode: 'overwrite',
+                    },
+                    Notes: { value: 'x', overwriteMode: 'skip' },
+                    Unused: { value: '', overwriteMode: 'coalesce' },
+                },
+            }).fieldTemplates
+        ).toEqual({
+            Expression: {
+                value: '{expression}',
+                overwriteMode: 'overwrite',
+            },
+            Notes: { value: 'x', overwriteMode: 'skip' },
+            Unused: { value: '', overwriteMode: 'coalesce' },
+        });
+        expect(() =>
+            normalizeHoshidictsMiningProfile({
+                version: 3,
+                fieldTemplates: {
+                    Notes: { value: 42, overwriteMode: 'coalesce' },
+                },
+            })
+        ).toThrow('field template is invalid');
+        expect(() =>
+            normalizeHoshidictsMiningProfile({
+                version: 3,
+                fieldTemplates: {
+                    Notes: { value: 'before\0after', overwriteMode: 'coalesce' },
+                },
+            })
+        ).toThrow('field template value is invalid');
+        expect(() =>
+            normalizeHoshidictsMiningProfile({
+                version: 3,
+                fieldTemplates: {
+                    Notes: { value: 'x', overwriteMode: 'replace' },
+                },
+            })
+        ).toThrow('overwrite mode is invalid');
+        expect(
+            normalizeHoshidictsMiningProfile({
+                version: 3,
+                fieldTemplates: {},
+            }).fieldTemplates
+        ).toEqual({});
+        expect(
+            normalizeHoshidictsMiningProfile({
+                version: 2,
+                fields: { reading: 'Kana' },
+                fieldTemplates: {
+                    Ignored: { value: 'x', overwriteMode: 'skip' },
+                },
+            })
+        ).toMatchObject({
+            version: 3,
+            fields: { reading: 'Kana' },
+            fieldTemplates: null,
+        });
+    });
+
+    it('exports every canonical mining marker in menu order', () => {
+        expect(HOSHIDICTS_MINING_FIELD_MARKERS).toEqual([
+            { id: 'expression', value: '{expression}' },
+            { id: 'reading', value: '{reading}' },
+            { id: 'definition', value: '{definition}' },
+            { id: 'sentence', value: '{sentence}' },
+            { id: 'frequency', value: '{frequency}' },
+            { id: 'pitch', value: '{pitch}' },
+            { id: 'pitch-position', value: '{pitch-position}' },
+            { id: 'audio', value: '{audio}' },
+        ]);
     });
 });
 

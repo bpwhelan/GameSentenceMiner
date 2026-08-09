@@ -9,7 +9,6 @@ import Assembler from 'stream-json/assembler.js';
 import type { Token } from 'stream-json/parser.js';
 
 import {
-    createDefaultHoshidictsFieldOverwriteModes,
     HOSHIDICTS_AUDIO_SOURCE_TYPES,
     HOSHIDICTS_DUPLICATE_BEHAVIORS,
     HOSHIDICTS_DUPLICATE_SCOPES,
@@ -21,8 +20,7 @@ import {
     type HoshidictsAudioSourceType,
     type HoshidictsManagerSnapshot,
     type HoshidictsFieldOverwriteMode,
-    type HoshidictsMiningFieldName,
-    type HoshidictsMiningFields,
+    type HoshidictsMiningFieldTemplates,
     type HoshidictsMiningProfile,
     type HoshidictsReaderPreferences,
     type HoshidictsYomitanDictionaryPreference,
@@ -480,19 +478,6 @@ function templateOverwriteMode(value: unknown): HoshidictsFieldOverwriteMode {
         : 'coalesce';
 }
 
-function miningFieldForTemplate(template: string): HoshidictsMiningFieldName | null {
-    const markers = [...template.toLowerCase().matchAll(/\{([^{}]+)\}/gu)].map((match) => match[1]);
-    const has = (needle: string): boolean => markers.some((marker) => marker.includes(needle));
-    if (has('audio')) return 'audio';
-    if (has('pitch')) return 'pitch';
-    if (has('frequency') || has('frequencies')) return 'frequency';
-    if (has('sentence') || has('cloze-')) return 'sentence';
-    if (has('definition') || has('glossary')) return 'definition';
-    if (has('reading') || has('furigana')) return 'reading';
-    if (has('expression')) return 'expression';
-    return null;
-}
-
 function miningProfile(anki: JsonRecord): HoshidictsMiningProfile | null {
     const modern = Array.isArray(anki.cardFormats)
         ? anki.cardFormats.find(
@@ -509,22 +494,12 @@ function miningProfile(anki: JsonRecord): HoshidictsMiningProfile | null {
         return null;
     }
     const rawFields = isRecord(card.fields) ? card.fields : {};
-    const fields: HoshidictsMiningFields = {
-        expression: '',
-        reading: '',
-        definition: '',
-        sentence: '',
-        frequency: '',
-        pitch: '',
-        audio: '',
-    };
-    const fieldOverwriteModes = createDefaultHoshidictsFieldOverwriteModes();
+    const fieldTemplates: HoshidictsMiningFieldTemplates = {};
     for (const [target, rawTemplate] of Object.entries(rawFields)) {
-        const field = miningFieldForTemplate(templateValue(rawTemplate));
-        if (field && !fields[field]) {
-            fields[field] = target;
-            fieldOverwriteModes[field] = templateOverwriteMode(rawTemplate);
-        }
+        fieldTemplates[target] = {
+            value: templateValue(rawTemplate),
+            overwriteMode: templateOverwriteMode(rawTemplate),
+        };
     }
     const duplicateScope = HOSHIDICTS_DUPLICATE_SCOPES.includes(
         anki.duplicateScope as HoshidictsMiningProfile['duplicateScope']
@@ -537,12 +512,11 @@ function miningProfile(anki: JsonRecord): HoshidictsMiningProfile | null {
         ? (anki.duplicateBehavior as HoshidictsMiningProfile['duplicateBehavior'])
         : 'new';
     return normalizeHoshidictsMiningProfile({
-        version: 2,
+        version: 3,
         enabled: anki.enable === true,
         deck: stringValue(card.deck) || 'Default',
         model: stringValue(card.model),
-        fields,
-        disabledFields: [],
+        fieldTemplates,
         tags: Array.isArray(anki.tags)
             ? anki.tags.filter((value): value is string => typeof value === 'string')
             : [],
@@ -551,7 +525,6 @@ function miningProfile(anki: JsonRecord): HoshidictsMiningProfile | null {
         duplicateScopeCheckAllModels:
             anki.duplicateScopeCheckAllModels === true,
         duplicateBehavior,
-        fieldOverwriteModes,
     });
 }
 

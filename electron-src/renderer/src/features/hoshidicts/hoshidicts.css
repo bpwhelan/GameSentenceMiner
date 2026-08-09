@@ -1146,14 +1146,24 @@
 
 .hoshidicts-mining-field-grid {
   display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  align-items: center;
   width: 100%;
+  gap: 7px;
+}
+
+.hoshidicts-mining-field-grid__header-row,
+.hoshidicts-mining-field-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.65fr) minmax(0, 1.5fr);
+  align-items: center;
   gap: 8px 12px;
 }
 
-.hoshidicts-mining-field-grid[data-overwrite="true"] {
-  grid-template-columns: max-content minmax(0, 1fr) minmax(140px, 0.72fr);
+.hoshidicts-mining-field-grid__header-row[data-overwrite="true"],
+.hoshidicts-mining-field-row[data-overwrite="true"] {
+  grid-template-columns:
+    minmax(130px, 0.65fr)
+    minmax(0, 1.5fr)
+    minmax(140px, 0.72fr);
 }
 
 .hoshidicts-mining-field-grid__header {
@@ -1163,18 +1173,35 @@
   font-weight: 700;
 }
 
-.hoshidicts-mining-field-grid > label {
-  align-self: stretch;
+.hoshidicts-mining-field-row {
+  min-width: 0;
+  padding: 5px 4px;
+  border-radius: 6px;
+}
+
+.hoshidicts-mining-field-row:nth-child(odd) {
+  background: color-mix(in srgb, var(--gsm-surface-2) 52%, transparent);
+}
+
+.hoshidicts-mining-field-row > label {
   display: flex;
   align-items: center;
-  padding-inline: 4px;
+  min-width: 0;
   color: var(--gsm-text-secondary);
   font-size: 0.84rem;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
-.hoshidicts-mining-field-grid > select {
+.hoshidicts-mining-field-row > input,
+.hoshidicts-mining-field-row > select {
+  width: 100%;
   min-width: 0;
+}
+
+.hoshidicts-mining-field-value {
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono",
+    monospace;
 }
 
 .hoshidicts-anki-status {
@@ -1236,6 +1263,14 @@
   margin: 10px 0 0;
   color: var(--gsm-warning-text);
   font-size: 0.8rem;
+}
+
+.hoshidicts-mining-fields__empty {
+  padding: 12px;
+  border: 1px dashed var(--gsm-border-default);
+  border-radius: 6px;
+  background: var(--gsm-surface-2);
+  text-align: center;
 }
 
 .hoshidicts-mining__footer {
@@ -1478,6 +1513,18 @@
   .hoshidicts-audio-controls,
   .hoshidicts-audio-source__body {
     grid-template-columns: 1fr;
+  }
+
+  .hoshidicts-mining-field-grid__header-row {
+    display: none;
+  }
+
+  .hoshidicts-mining-field-row,
+  .hoshidicts-mining-field-row[data-overwrite="true"] {
+    grid-template-columns: 1fr;
+    gap: 6px;
+    padding: 10px;
+    border: 1px solid var(--gsm-border-default);
   }
 
   .hoshidicts-window__tabs button {

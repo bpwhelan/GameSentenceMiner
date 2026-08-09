@@ -1,8 +1,11 @@
 import { getConfiguredSinglePort } from '../../gsm_config.js';
 import type {
+    HoshidictsFieldOverwriteMode,
+    HoshidictsMiningFieldTemplates,
     HoshidictsMiningFields,
     HoshidictsMiningOptions,
 } from '../../../shared/features/hoshidicts.js';
+import { HOSHIDICTS_FIELD_OVERWRITE_MODES } from '../../../shared/features/hoshidicts.js';
 
 const EMPTY_FIELDS: HoshidictsMiningFields = {
     expression: '',
@@ -22,6 +25,10 @@ function stringValue(value: unknown): string {
     return typeof value === 'string' ? value : '';
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 function stringList(value: unknown): string[] {
     if (!Array.isArray(value)) {
         return [];
@@ -36,6 +43,44 @@ function stringList(value: unknown): string[] {
     );
 }
 
+function stringMap(value: unknown): Record<string, string> {
+    if (!isRecord(value)) {
+        return {};
+    }
+    const result: Record<string, string> = {};
+    for (const [key, entry] of Object.entries(value)) {
+        if (typeof entry === 'string') {
+            result[key] = entry;
+        }
+    }
+    return result;
+}
+
+function fieldTemplateMap(value: unknown): HoshidictsMiningFieldTemplates {
+    if (!isRecord(value)) {
+        return {};
+    }
+    const result: HoshidictsMiningFieldTemplates = {};
+    for (const [fieldName, rawTemplate] of Object.entries(value)) {
+        if (!isRecord(rawTemplate) || typeof rawTemplate.value !== 'string') {
+            continue;
+        }
+        const overwriteMode = rawTemplate.overwriteMode ?? 'coalesce';
+        if (
+            !HOSHIDICTS_FIELD_OVERWRITE_MODES.includes(
+                overwriteMode as HoshidictsFieldOverwriteMode
+            )
+        ) {
+            continue;
+        }
+        result[fieldName] = {
+            value: rawTemplate.value,
+            overwriteMode: overwriteMode as HoshidictsFieldOverwriteMode,
+        };
+    }
+    return result;
+}
+
 function emptyOptions(error: string | null = null): HoshidictsMiningOptions {
     return {
         connected: false,
@@ -46,6 +91,8 @@ function emptyOptions(error: string | null = null): HoshidictsMiningOptions {
         fields: [],
         suggestedFields: { ...EMPTY_FIELDS },
         resolvedFields: { ...EMPTY_FIELDS },
+        suggestedFieldTemplates: {},
+        resolvedFieldTemplates: {},
         warnings: [],
         error,
     };
@@ -93,6 +140,12 @@ export function normalizeHoshidictsMiningOptions(
             pitch: stringValue(resolved.pitch),
             audio: stringValue(resolved.audio),
         },
+        suggestedFieldTemplates: stringMap(
+            candidate.suggestedFieldTemplates
+        ),
+        resolvedFieldTemplates: fieldTemplateMap(
+            candidate.resolvedFieldTemplates
+        ),
         warnings: stringList(candidate.warnings),
         error:
             typeof candidate.error === 'string' && candidate.error.length > 0
@@ -107,7 +160,7 @@ export async function fetchHoshidictsMiningOptions(
     const url = new URL(
         `http://127.0.0.1:${getConfiguredSinglePort()}/api/hoshidicts/mining/options`
     );
-    if (model) {
+    if (model !== undefined) {
         url.searchParams.set('model', model);
     }
     try {

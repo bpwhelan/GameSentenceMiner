@@ -13,6 +13,7 @@ import {
   HOSHIDICTS_DUPLICATE_BEHAVIORS,
   HOSHIDICTS_DUPLICATE_SCOPES,
   HOSHIDICTS_FIELD_OVERWRITE_MODES,
+  HOSHIDICTS_MINING_FIELD_MARKERS,
   isHoshidictsActivationKey,
   isHoshidictsAudioSourceType,
   isHoshidictsTheme,
@@ -35,6 +36,7 @@ import {
   type HoshidictsFieldOverwriteMode,
   type HoshidictsFieldOverwriteModes,
   type HoshidictsMiningFieldName,
+  type HoshidictsMiningFieldMarker,
   type HoshidictsMiningFields,
   type HoshidictsMiningOptions,
   type HoshidictsMiningProfile,
@@ -51,8 +53,9 @@ export type MiningProfileDraft = Omit<HoshidictsMiningProfile, "tags"> & {
   tags: string;
 };
 
-export const AUTO_FIELD_VALUE = "__hoshidicts_auto__";
-export const DISABLED_FIELD_VALUE = "__hoshidicts_disabled__";
+export type MiningFieldTemplate = NonNullable<
+  HoshidictsMiningProfile["fieldTemplates"]
+>[string];
 
 const ACTIVATION_KEY_BY_CODE: Readonly<
   Record<string, HoshidictsActivationKey>
@@ -176,6 +179,26 @@ export const MINING_FIELDS: Array<{
   { id: "audio", labelKey: "settings.hoshidicts.mining.fields.audio" }
 ];
 
+const MINING_FIELD_MARKER_LABEL_KEYS: Record<
+  HoshidictsMiningFieldMarker,
+  string
+> = {
+  expression: "settings.hoshidicts.mining.fields.expression",
+  reading: "settings.hoshidicts.mining.fields.reading",
+  definition: "settings.hoshidicts.mining.fields.definition",
+  sentence: "settings.hoshidicts.mining.fields.sentence",
+  frequency: "settings.hoshidicts.mining.fields.frequency",
+  pitch: "settings.hoshidicts.mining.fields.pitch",
+  "pitch-position": "settings.hoshidicts.mining.fields.pitchPosition",
+  audio: "settings.hoshidicts.mining.fields.audio"
+};
+
+export const MINING_FIELD_TEMPLATE_SUGGESTIONS =
+  HOSHIDICTS_MINING_FIELD_MARKERS.map((marker) => ({
+    ...marker,
+    labelKey: MINING_FIELD_MARKER_LABEL_KEYS[marker.id]
+  }));
+
 const EMPTY_FIELDS: HoshidictsMiningFields = {
   expression: "",
   reading: "",
@@ -186,8 +209,29 @@ const EMPTY_FIELDS: HoshidictsMiningFields = {
   audio: ""
 };
 
+const LEGACY_MINING_FIELD_NAMES = Object.keys(
+  EMPTY_FIELDS
+) as HoshidictsMiningFieldName[];
+
+function legacyMiningFieldTemplate(
+  draft: MiningProfileDraft,
+  target: string
+): MiningFieldTemplate {
+  const targetKey = target.toLowerCase();
+  const fields = LEGACY_MINING_FIELD_NAMES.filter(
+    (field) =>
+      !draft.disabledFields.includes(field) &&
+      draft.fields[field].toLowerCase() === targetKey
+  );
+  return {
+    value: fields.map((field) => `{${field}}`).join("<br>"),
+    overwriteMode:
+      fields.length > 0 ? draft.fieldOverwriteModes[fields[0]] : "coalesce"
+  };
+}
+
 export const DEFAULT_MINING_PROFILE: HoshidictsMiningProfile = {
-  version: 2,
+  version: 3,
   enabled: true,
   deck: "Default",
   model: "",
@@ -198,7 +242,8 @@ export const DEFAULT_MINING_PROFILE: HoshidictsMiningProfile = {
   duplicateScope: "collection",
   duplicateScopeCheckAllModels: false,
   duplicateBehavior: "prevent",
-  fieldOverwriteModes: createDefaultHoshidictsFieldOverwriteModes()
+  fieldOverwriteModes: createDefaultHoshidictsFieldOverwriteModes(),
+  fieldTemplates: null
 };
 
 export const DEFAULT_MINING_OPTIONS: HoshidictsMiningOptions = {
@@ -210,6 +255,8 @@ export const DEFAULT_MINING_OPTIONS: HoshidictsMiningOptions = {
   fields: [],
   suggestedFields: { ...EMPTY_FIELDS },
   resolvedFields: { ...EMPTY_FIELDS },
+  suggestedFieldTemplates: {},
+  resolvedFieldTemplates: {},
   warnings: [],
   error: null
 };
@@ -277,6 +324,53 @@ function fieldValues(value: unknown): HoshidictsMiningFields {
   };
 }
 
+function fieldTemplateValues(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([field, template]) =>
+      field && typeof template === "string" ? [[field, template]] : []
+    )
+  );
+}
+
+function fieldTemplates(
+  value: unknown
+): HoshidictsMiningProfile["fieldTemplates"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const templates: NonNullable<HoshidictsMiningProfile["fieldTemplates"]> = {};
+  for (const [field, rawTemplate] of Object.entries(value)) {
+    if (!field || !rawTemplate || typeof rawTemplate !== "object") continue;
+    const candidate = rawTemplate as Partial<MiningFieldTemplate>;
+    if (typeof candidate.value !== "string") continue;
+    const overwriteMode = HOSHIDICTS_FIELD_OVERWRITE_MODES.includes(
+      candidate.overwriteMode as HoshidictsFieldOverwriteMode
+    )
+      ? (candidate.overwriteMode as HoshidictsFieldOverwriteMode)
+      : "coalesce";
+    templates[field] = { value: candidate.value, overwriteMode };
+  }
+  return templates;
+}
+
+function resolvedFieldTemplates(
+  value: unknown
+): HoshidictsMiningOptions["resolvedFieldTemplates"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const templates: HoshidictsMiningOptions["resolvedFieldTemplates"] = {};
+  for (const [field, rawTemplate] of Object.entries(value)) {
+    if (!field || !rawTemplate || typeof rawTemplate !== "object") continue;
+    const candidate = rawTemplate as Partial<MiningFieldTemplate>;
+    if (typeof candidate.value !== "string") continue;
+    const overwriteMode = HOSHIDICTS_FIELD_OVERWRITE_MODES.includes(
+      candidate.overwriteMode as HoshidictsFieldOverwriteMode
+    )
+      ? (candidate.overwriteMode as HoshidictsFieldOverwriteMode)
+      : "coalesce";
+    templates[field] = { value: candidate.value, overwriteMode };
+  }
+  return templates;
+}
+
 function miningFields(value: unknown): MiningField[] {
   const valid = new Set<MiningField>(MINING_FIELDS.map(({ id }) => id));
   const result: MiningField[] = [];
@@ -313,6 +407,15 @@ export function copyMiningProfile(
     fields: { ...profile.fields },
     fieldOverwriteModes: { ...profile.fieldOverwriteModes },
     disabledFields: [...profile.disabledFields],
+    fieldTemplates:
+      profile.fieldTemplates === null
+        ? null
+        : Object.fromEntries(
+            Object.entries(profile.fieldTemplates).map(([field, template]) => [
+              field,
+              { ...template }
+            ])
+          ),
     tags: [...profile.tags]
   };
 }
@@ -323,7 +426,7 @@ export function normalizeMiningProfile(value: unknown): HoshidictsMiningProfile 
     duplicatePolicy?: unknown;
   };
   return {
-    version: 2,
+    version: 3,
     enabled: candidate.enabled !== false,
     deck:
       typeof candidate.deck === "string" && candidate.deck.length > 0
@@ -348,7 +451,8 @@ export function normalizeMiningProfile(value: unknown): HoshidictsMiningProfile 
       : candidate.duplicatePolicy === "allow"
         ? "new"
         : "prevent",
-    fieldOverwriteModes: fieldOverwriteModes(candidate.fieldOverwriteModes)
+    fieldOverwriteModes: fieldOverwriteModes(candidate.fieldOverwriteModes),
+    fieldTemplates: fieldTemplates(candidate.fieldTemplates)
   };
 }
 
@@ -405,7 +509,9 @@ export function normalizeMiningOptions(value: unknown): HoshidictsMiningOptions 
     return {
       ...DEFAULT_MINING_OPTIONS,
       suggestedFields: { ...EMPTY_FIELDS },
-      resolvedFields: { ...EMPTY_FIELDS }
+      resolvedFields: { ...EMPTY_FIELDS },
+      suggestedFieldTemplates: {},
+      resolvedFieldTemplates: {}
     };
   }
   const candidate = value as Partial<HoshidictsMiningOptions>;
@@ -421,6 +527,12 @@ export function normalizeMiningOptions(value: unknown): HoshidictsMiningOptions 
     fields: strings(candidate.fields),
     suggestedFields: fieldValues(candidate.suggestedFields),
     resolvedFields: fieldValues(candidate.resolvedFields),
+    suggestedFieldTemplates: fieldTemplateValues(
+      candidate.suggestedFieldTemplates
+    ),
+    resolvedFieldTemplates: resolvedFieldTemplates(
+      candidate.resolvedFieldTemplates
+    ),
     warnings: strings(candidate.warnings),
     error: typeof candidate.error === "string" ? candidate.error : null
   };
@@ -655,6 +767,15 @@ export function draftToProfile(
     fields: { ...draft.fields },
     fieldOverwriteModes: { ...draft.fieldOverwriteModes },
     disabledFields: [...draft.disabledFields],
+    fieldTemplates:
+      draft.fieldTemplates === null
+        ? null
+        : Object.fromEntries(
+            Object.entries(draft.fieldTemplates).map(([field, template]) => [
+              field,
+              { ...template }
+            ])
+          ),
     tags: draft.tags
       .split(",")
       .map((tag) => tag.trim())
@@ -662,46 +783,73 @@ export function draftToProfile(
   };
 }
 
-export function getFieldChoice(
+export function visibleMiningFields(
   draft: MiningProfileDraft,
-  field: MiningField
-): string {
-  if (draft.disabledFields.includes(field)) return DISABLED_FIELD_VALUE;
-  return draft.fields[field] || AUTO_FIELD_VALUE;
+  options: HoshidictsMiningOptions
+): string[] {
+  if (options.fields.length > 0) return options.fields;
+  if (draft.fieldTemplates !== null) return Object.keys(draft.fieldTemplates);
+  const seen = new Set<string>();
+  return LEGACY_MINING_FIELD_NAMES.flatMap((field) => {
+    if (draft.disabledFields.includes(field)) return [];
+    const target = draft.fields[field];
+    const key = target.toLowerCase();
+    if (!target || seen.has(key)) return [];
+    seen.add(key);
+    return [target];
+  });
 }
 
-export function setFieldChoice(
+export function resolvedMiningFieldTemplate(
   draft: MiningProfileDraft,
-  field: MiningField,
-  value: string
-): MiningProfileDraft {
-  const disabledFields = draft.disabledFields.filter((item) => item !== field);
-  const fields = { ...draft.fields };
-  if (value === DISABLED_FIELD_VALUE) {
-    disabledFields.push(field);
-    fields[field] = "";
-  } else if (value === AUTO_FIELD_VALUE) {
-    fields[field] = "";
-  } else {
-    fields[field] = value;
+  options: HoshidictsMiningOptions,
+  field: string
+): MiningFieldTemplate {
+  if (draft.fieldTemplates !== null) {
+    return (
+      draft.fieldTemplates[field] ??
+      options.resolvedFieldTemplates[field] ?? {
+        value: "",
+        overwriteMode: "coalesce"
+      }
+    );
   }
-  return { ...draft, fields, disabledFields };
+  return (
+    options.resolvedFieldTemplates[field] ?? {
+      ...legacyMiningFieldTemplate(draft, field),
+      value:
+        options.suggestedFieldTemplates[field] ??
+        legacyMiningFieldTemplate(draft, field).value
+    }
+  );
 }
 
-export function automaticFieldTarget(
-  options: HoshidictsMiningOptions,
-  field: MiningField
-): string {
-  return options.suggestedFields[field] || options.resolvedFields[field] || "";
-}
-
-export function resolvedDraftField(
+export function materializeMiningFieldTemplates(
   draft: MiningProfileDraft,
   options: HoshidictsMiningOptions,
-  field: MiningField
-): string {
-  if (draft.disabledFields.includes(field)) return "";
-  return draft.fields[field] || automaticFieldTarget(options, field);
+  visibleFields = visibleMiningFields(draft, options)
+): NonNullable<HoshidictsMiningProfile["fieldTemplates"]> {
+  return Object.fromEntries(
+    visibleFields.map((field) => [
+      field,
+      { ...resolvedMiningFieldTemplate(draft, options, field) }
+    ])
+  );
+}
+
+export function setMiningFieldTemplate(
+  draft: MiningProfileDraft,
+  options: HoshidictsMiningOptions,
+  field: string,
+  update: Partial<MiningFieldTemplate>
+): MiningProfileDraft {
+  const fieldTemplates = materializeMiningFieldTemplates(draft, options);
+  const current = fieldTemplates[field] ?? {
+    value: "",
+    overwriteMode: "coalesce"
+  };
+  fieldTemplates[field] = { ...current, ...update };
+  return { ...draft, fieldTemplates };
 }
 
 export type ReadinessKind =

@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 import threading
 import time
 from copy import deepcopy
@@ -14,8 +15,8 @@ from GameSentenceMiner import hoshidicts_mining_note as _note
 from GameSentenceMiner.util.config.configuration import get_app_directory, get_config
 
 HOSHIDICTS_MINING_PROFILE_FILE = "mining-profile.json"
-HOSHIDICTS_MINING_PROFILE_VERSION = 2
-LEGACY_HOSHIDICTS_MINING_PROFILE_VERSION = 1
+HOSHIDICTS_MINING_PROFILE_VERSION = 3
+LEGACY_HOSHIDICTS_MINING_PROFILE_VERSIONS = (1, 2)
 MAX_PROFILE_BYTES = 64 * 1024
 MAX_ANKI_OPTION_NAMES = 4096
 MAX_DUPLICATE_CHECK_NOTES = 16
@@ -59,6 +60,56 @@ FIELD_KEYS = (
     "pitch",
     "audio",
 )
+
+FIELD_TEMPLATE_MARKERS = {
+    "expression": "{expression}",
+    "reading": "{reading}",
+    "definition": "{definition}",
+    "sentence": "{sentence}",
+    "frequency": "{frequency}",
+    "pitch": "{pitch}",
+    "audio": "{audio}",
+}
+PITCH_POSITION_FIELD_TEMPLATE_MARKER = "{pitch-position}"
+FIELD_TEMPLATE_MARKER_PATTERN = re.compile(r"\{([^{}]+)\}")
+FIELD_TEMPLATE_BREAK_PATTERN = re.compile(r"<br\s*/?>", re.IGNORECASE)
+FIELD_TEMPLATE_MARKER_KEYS = {
+    "expression": "expression",
+    "reading": "reading",
+    "furigana": "reading",
+    "furigana-plain": "reading",
+    "definition": "definition",
+    "glossary": "definition",
+    "glossary-brief": "definition",
+    "glossary-no-dictionary": "definition",
+    "glossary-plain": "definition",
+    "glossary-plain-no-dictionary": "definition",
+    "glossary-first": "definition",
+    "glossary-first-brief": "definition",
+    "glossary-first-no-dictionary": "definition",
+    "jpmn-primary-definition": "definition",
+    "sentence": "sentence",
+    "sentence-furigana": "sentence",
+    "sentence-furigana-plain": "sentence",
+    "cloze-prefix": "sentence",
+    "cloze-body": "sentence",
+    "cloze-suffix": "sentence",
+    "frequency": "frequency",
+    "frequencies": "frequency",
+    "frequency-harmonic-rank": "frequency",
+    "frequency-harmonic-occurrence": "frequency",
+    "frequency-average-rank": "frequency",
+    "frequency-average-occurrence": "frequency",
+    "pitch": "pitch",
+    "pitch-accent": "pitch",
+    "pitch-accents": "pitch",
+    "pitch-accent-graphs": "pitch",
+    "pitch-accent-graphs-jj": "pitch",
+    "pitch-accent-categories": "pitch",
+    "pitch-position": "pitch-position",
+    "pitch-accent-positions": "pitch-position",
+    "audio": "audio",
+}
 
 DUPLICATE_SCOPES = ("collection", "deck", "deck-root")
 DUPLICATE_BEHAVIORS = ("prevent", "overwrite", "new")
@@ -107,6 +158,7 @@ def default_hoshidicts_mining_profile() -> dict[str, Any]:
         "model": "",
         "fields": {key: "" for key in FIELD_KEYS},
         "disabledFields": [],
+        "fieldTemplates": None,
         "tags": ["hoshidicts"],
         "checkForDuplicates": True,
         "duplicateScope": "collection",
@@ -123,8 +175,9 @@ def get_hoshidicts_mining_profile_path() -> Path:
 def normalize_hoshidicts_mining_profile(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise HoshidictsMiningError("Hoshidicts mining profile must be an object.")
-    if value.get("version", LEGACY_HOSHIDICTS_MINING_PROFILE_VERSION) not in {
-        LEGACY_HOSHIDICTS_MINING_PROFILE_VERSION,
+    source_version = value.get("version", LEGACY_HOSHIDICTS_MINING_PROFILE_VERSIONS[0])
+    if source_version not in {
+        *LEGACY_HOSHIDICTS_MINING_PROFILE_VERSIONS,
         HOSHIDICTS_MINING_PROFILE_VERSION,
     }:
         raise HoshidictsMiningError("Hoshidicts mining profile version is unsupported.")
@@ -191,6 +244,33 @@ def normalize_hoshidicts_mining_profile(value: Any) -> dict[str, Any]:
             raise HoshidictsMiningError(f"Hoshidicts {key} overwrite mode is invalid.")
         field_overwrite_modes[key] = mode
 
+    field_templates = None
+    if source_version == HOSHIDICTS_MINING_PROFILE_VERSION:
+        raw_field_templates = value.get("fieldTemplates")
+        if raw_field_templates is not None:
+            if not isinstance(raw_field_templates, dict) or len(raw_field_templates) > MAX_ANKI_OPTION_NAMES:
+                raise HoshidictsMiningError("Hoshidicts field templates are invalid.")
+            field_templates = {}
+            for raw_field_name, raw_template in raw_field_templates.items():
+                field_name = _bounded_string(
+                    raw_field_name,
+                    "Hoshidicts field template name",
+                    255,
+                    allow_empty=False,
+                )
+                if not isinstance(raw_template, dict):
+                    raise HoshidictsMiningError(f'Hoshidicts field template "{field_name}" is invalid.')
+                template_value = raw_template.get("value")
+                if not isinstance(template_value, str):
+                    raise HoshidictsMiningError(f'Hoshidicts field template "{field_name}" is invalid.')
+                overwrite_mode = raw_template.get("overwriteMode", "coalesce")
+                if overwrite_mode not in FIELD_OVERWRITE_MODES:
+                    raise HoshidictsMiningError(f'Hoshidicts field template "{field_name}" overwrite mode is invalid.')
+                field_templates[field_name] = {
+                    "value": template_value,
+                    "overwriteMode": overwrite_mode,
+                }
+
     return {
         "version": HOSHIDICTS_MINING_PROFILE_VERSION,
         "enabled": value.get("enabled", True) is not False,
@@ -207,6 +287,7 @@ def normalize_hoshidicts_mining_profile(value: Any) -> dict[str, Any]:
         ).strip(),
         "fields": fields,
         "disabledFields": disabled_fields,
+        "fieldTemplates": field_templates,
         "tags": tags,
         "checkForDuplicates": check_for_duplicates,
         "duplicateScope": duplicate_scope,
@@ -244,6 +325,190 @@ def _find_model_field(
     )
 
 
+def _field_name_key(value: str) -> str:
+    return "".join(character for character in value.casefold() if character.isalnum())
+
+
+def _field_template_marker_key(marker: str) -> str | None:
+    marker = marker.casefold()
+    key = FIELD_TEMPLATE_MARKER_KEYS.get(marker)
+    if key is not None:
+        return key
+    if marker.startswith("single-frequency-") and len(marker) > len("single-frequency-"):
+        return "frequency"
+    if marker.startswith("single-glossary-") and len(marker) > len("single-glossary-"):
+        return "definition"
+    return None
+
+
+def _suggest_field_templates(
+    available_fields: list[str],
+    config: Any,
+) -> dict[str, str]:
+    aliases = {
+        "expression": (*GENERIC_FIELD_ALIASES["expression"], KIKU_LAPIS_FIELD_MAP["expression"]),
+        "reading": (*GENERIC_FIELD_ALIASES["reading"], KIKU_LAPIS_FIELD_MAP["reading"]),
+        "definition": (*GENERIC_FIELD_ALIASES["definition"], KIKU_LAPIS_FIELD_MAP["definition"]),
+        "sentence": (*GENERIC_FIELD_ALIASES["sentence"], KIKU_LAPIS_FIELD_MAP["sentence"]),
+        "frequency": (*GENERIC_FIELD_ALIASES["frequency"], KIKU_LAPIS_FIELD_MAP["frequency"]),
+        "pitch": (*GENERIC_FIELD_ALIASES["pitch"],),
+        "audio": (*GENERIC_FIELD_ALIASES["audio"],),
+    }
+    matches_by_field_name: dict[str, list[tuple[str, str]]] = {}
+
+    def add_match(field_name: str, semantic: str, marker: str) -> None:
+        field_key = _field_name_key(field_name)
+        if not field_key:
+            return
+        matches = matches_by_field_name.setdefault(field_key, [])
+        if not any(existing_semantic == semantic for existing_semantic, _marker in matches):
+            matches.append((semantic, marker))
+
+    for key, field_aliases in aliases.items():
+        for alias in field_aliases:
+            add_match(alias, key, FIELD_TEMPLATE_MARKERS[key])
+    add_match(
+        KIKU_LAPIS_FIELD_MAP["pitch"],
+        "pitch",
+        PITCH_POSITION_FIELD_TEMPLATE_MARKER,
+    )
+    add_match(
+        str(config.anki.word_field or "").strip(),
+        "expression",
+        "{expression}",
+    )
+    add_match(
+        str(config.anki.sentence_field or "").strip(),
+        "sentence",
+        "{sentence}",
+    )
+
+    has_expression_target = any(
+        any(
+            semantic == "expression" for semantic, _marker in matches_by_field_name.get(_field_name_key(field_name), [])
+        )
+        for field_name in available_fields
+    )
+    suggestions = {}
+    used_semantics = set()
+    for index, field_name in enumerate(available_fields):
+        matches = list(matches_by_field_name.get(_field_name_key(field_name), []))
+        if index == 0 and not has_expression_target:
+            matches.append(("expression", "{expression}"))
+        matches.sort(key=lambda item: FIELD_KEYS.index(item[0]))
+        markers = []
+        for semantic, marker in matches:
+            if semantic in used_semantics:
+                continue
+            used_semantics.add(semantic)
+            markers.append(marker)
+        suggestions[field_name] = "<br>".join(markers)
+    return suggestions
+
+
+def _semantic_field_targets(field_templates: dict[str, dict[str, str]]) -> dict[str, str]:
+    targets = {key: "" for key in FIELD_KEYS}
+    for target, template in field_templates.items():
+        for match in FIELD_TEMPLATE_MARKER_PATTERN.finditer(template["value"]):
+            key = _field_template_marker_key(match.group(1))
+            if key == "pitch-position":
+                key = "pitch"
+            if key is not None and not targets[key]:
+                targets[key] = target
+    return targets
+
+
+def _resolve_target_field_templates(
+    model: str,
+    available_fields: list[str],
+    profile: dict[str, Any],
+    config: Any,
+) -> dict[str, Any]:
+    suggested = _suggest_field_templates(available_fields, config)
+    saved_templates = profile.get("fieldTemplates")
+    stale_fields = []
+    invalid_fields: dict[str, str] = {}
+
+    if saved_templates is not None:
+        saved_by_key = {}
+        for field, template in saved_templates.items():
+            saved_by_key.setdefault(field.casefold(), (field, template))
+        used_fields = set()
+        resolved_templates = {}
+        for field_name in available_fields:
+            saved = (
+                (field_name, saved_templates[field_name])
+                if field_name in saved_templates
+                else saved_by_key.get(field_name.casefold())
+            )
+            if saved is None:
+                resolved_templates[field_name] = {
+                    "value": "",
+                    "overwriteMode": "coalesce",
+                }
+                continue
+            used_fields.add(saved[0])
+            resolved_templates[field_name] = dict(saved[1])
+        stale_fields = [field for field in saved_templates if field not in used_fields]
+    else:
+        assignments: dict[str, list[tuple[str, str]]] = {}
+        initial_modes = {}
+        for field_name, template in suggested.items():
+            entries = []
+            for match in FIELD_TEMPLATE_MARKER_PATTERN.finditer(template):
+                semantic = _field_template_marker_key(match.group(1))
+                if semantic == "pitch-position":
+                    semantic = "pitch"
+                if semantic is not None and not any(existing == semantic for existing, _marker in entries):
+                    entries.append((semantic, match.group(0)))
+            entries.sort(key=lambda item: FIELD_KEYS.index(item[0]))
+            assignments[field_name] = entries
+            initial_modes[field_name] = profile["fieldOverwriteModes"][entries[0][0]] if entries else "coalesce"
+
+        disabled_fields = set(profile.get("disabledFields", []))
+        for key in FIELD_KEYS:
+            override = str(profile.get("fields", {}).get(key, "") or "").strip()
+            if key in disabled_fields or override:
+                for entries in assignments.values():
+                    entries[:] = [entry for entry in entries if entry[0] != key]
+            if key in disabled_fields:
+                continue
+            if not override:
+                continue
+            target = _find_model_field(available_fields, override)
+            if target is None:
+                invalid_fields[key] = override
+                continue
+            marker = (
+                PITCH_POSITION_FIELD_TEMPLATE_MARKER
+                if key == "pitch" and target.casefold() == "pitchposition"
+                else FIELD_TEMPLATE_MARKERS[key]
+            )
+            assignments[target].append((key, marker))
+
+        resolved_templates = {}
+        for field_name, entries in assignments.items():
+            entries.sort(key=lambda item: FIELD_KEYS.index(item[0]))
+            resolved_templates[field_name] = {
+                "value": "<br>".join(marker for _semantic, marker in entries),
+                "overwriteMode": (
+                    profile["fieldOverwriteModes"][entries[0][0]] if entries else initial_modes[field_name]
+                ),
+            }
+
+    resolved_fields = _semantic_field_targets(resolved_templates)
+    disabled_fields = set(profile.get("disabledFields", [])) if saved_templates is None else set()
+    unmapped_fields = [key for key in FIELD_KEYS if key not in disabled_fields and not resolved_fields[key]]
+    return {
+        "automaticFieldTemplates": suggested,
+        "resolvedFieldTemplates": resolved_templates,
+        "resolvedFields": resolved_fields,
+        "invalidFields": invalid_fields,
+        "staleFields": stale_fields,
+        "unmappedFields": unmapped_fields,
+    }
+
+
 def _get_anki_module():
     from GameSentenceMiner import anki
 
@@ -265,6 +530,8 @@ def _empty_mining_options(
         "fields": [],
         "suggestedFields": {key: "" for key in FIELD_KEYS},
         "resolvedFields": {key: "" for key in FIELD_KEYS},
+        "suggestedFieldTemplates": {},
+        "resolvedFieldTemplates": {},
         "warnings": [],
         "error": error,
     }
@@ -294,62 +561,38 @@ def _resolve_mining_fields(
     profile: dict[str, Any],
     config: Any,
 ) -> dict[str, Any]:
-    automatic_fields = {key: "" for key in FIELD_KEYS}
-    kiku_lapis_fields = {key: _find_model_field(available_fields, field) for key, field in KIKU_LAPIS_FIELD_MAP.items()}
-    is_named_kiku_lapis = any(name in model.casefold() for name in ("kiku", "lapis"))
-    has_kiku_lapis_signature = all(kiku_lapis_fields.values())
-    if is_named_kiku_lapis or has_kiku_lapis_signature:
-        automatic_fields.update({key: field or "" for key, field in kiku_lapis_fields.items()})
-
-    inherited = {
-        "expression": str(config.anki.word_field or "").strip(),
-        "sentence": str(config.anki.sentence_field or "").strip(),
+    target_resolution = _resolve_target_field_templates(model, available_fields, profile, config)
+    suggested_templates = {
+        field_name: {"value": value, "overwriteMode": "coalesce"}
+        for field_name, value in target_resolution["automaticFieldTemplates"].items()
     }
-    for key in FIELD_KEYS:
-        if automatic_fields[key]:
-            continue
-        candidates = []
-        if inherited.get(key):
-            candidates.append(inherited[key])
-        candidates.extend(GENERIC_FIELD_ALIASES[key])
-        automatic_fields[key] = next(
-            (
-                resolved
-                for candidate in candidates
-                if (resolved := _find_model_field(available_fields, candidate)) is not None
-            ),
-            "",
-        )
-
-    disabled_fields = set(profile.get("disabledFields", []))
-    resolved_fields = {key: "" for key in FIELD_KEYS}
-    invalid_fields: dict[str, str] = {}
-    unmapped_fields = []
-    for key in FIELD_KEYS:
-        if key in disabled_fields:
-            continue
-        override = str(profile.get("fields", {}).get(key, "") or "").strip()
-        if override:
-            resolved = _find_model_field(available_fields, override)
-            if resolved is None:
-                invalid_fields[key] = override
-            else:
-                resolved_fields[key] = resolved
-            continue
-        resolved_fields[key] = automatic_fields[key]
-        if not resolved_fields[key]:
-            unmapped_fields.append(key)
-
     return {
-        "automaticFields": automatic_fields,
-        "resolvedFields": resolved_fields,
-        "invalidFields": invalid_fields,
-        "unmappedFields": unmapped_fields,
+        "automaticFields": _semantic_field_targets(suggested_templates),
+        "resolvedFields": target_resolution["resolvedFields"],
+        "automaticFieldTemplates": target_resolution["automaticFieldTemplates"],
+        "resolvedFieldTemplates": target_resolution["resolvedFieldTemplates"],
+        "invalidFields": target_resolution["invalidFields"],
+        "staleFields": target_resolution["staleFields"],
+        "unmappedFields": target_resolution["unmappedFields"],
     }
 
 
 def _invalid_field_message(key: str, field: str, model: str) -> str:
     return f'Hoshidicts {key} field "{field}" is not in note type "{model}".'
+
+
+def _stale_field_template_message(field: str, model: str) -> str:
+    return f'Hoshidicts field template "{field}" is not in note type "{model}".'
+
+
+def _without_saved_field_mappings(profile: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **profile,
+        "fields": {key: "" for key in FIELD_KEYS},
+        "disabledFields": [],
+        "fieldTemplates": None,
+        "fieldOverwriteModes": {key: "coalesce" for key in FIELD_KEYS},
+    }
 
 
 def get_hoshidicts_mining_options(model: str | None = None) -> dict[str, Any]:
@@ -360,8 +603,13 @@ def get_hoshidicts_mining_options(model: str | None = None) -> dict[str, Any]:
         profile = load_hoshidicts_mining_profile()
         config = get_config()
         gsm_anki_enabled = bool(config.anki.enabled)
-        requested_model = _bounded_string(model, "Hoshidicts note type", 255).strip() if model is not None else ""
-        selected_note_type = requested_model or profile["model"] or str(config.anki.note_type or "").strip()
+        config_model = str(config.anki.note_type or "").strip()
+        saved_effective_model = profile["model"] or config_model
+        if model is None:
+            selected_note_type = saved_effective_model
+        else:
+            requested_model = _bounded_string(model, "Hoshidicts note type", 255).strip()
+            selected_note_type = requested_model or config_model
         options = _empty_mining_options(
             selected_note_type=selected_note_type,
             gsm_anki_enabled=gsm_anki_enabled,
@@ -430,20 +678,28 @@ def get_hoshidicts_mining_options(model: str | None = None) -> dict[str, Any]:
             )
             successful_calls += 1
             options["fields"] = fields
+            resolution_profile = profile
+            if model is not None and selected_model.casefold() != saved_effective_model.casefold():
+                resolution_profile = _without_saved_field_mappings(profile)
             resolution = _resolve_mining_fields(
                 selected_model,
                 fields,
-                profile,
+                resolution_profile,
                 config,
             )
             options.update(
                 {
                     "suggestedFields": resolution["automaticFields"],
                     "resolvedFields": resolution["resolvedFields"],
+                    "suggestedFieldTemplates": resolution["automaticFieldTemplates"],
+                    "resolvedFieldTemplates": resolution["resolvedFieldTemplates"],
                 }
             )
             options["warnings"].extend(
                 _invalid_field_message(key, field, selected_model) for key, field in resolution["invalidFields"].items()
+            )
+            options["warnings"].extend(
+                _stale_field_template_message(field, selected_model) for field in resolution["staleFields"]
             )
         except Exception as exc:
             failures.append(exc)
@@ -528,6 +784,13 @@ def _resolve_mining_configuration(
             _invalid_field_message(key, field, model),
             503,
         )
+    if model_fields:
+        first_model_field = model_fields[0]
+        if not resolution["resolvedFieldTemplates"][first_model_field]["value"].strip():
+            raise HoshidictsMiningError(
+                f'The first Anki field "{first_model_field}" is empty. Map it to a value before mining.',
+                503,
+            )
 
     return {
         "profile": profile,
@@ -537,6 +800,7 @@ def _resolve_mining_configuration(
         "model": model,
         "modelFields": model_fields,
         "fields": resolution["resolvedFields"],
+        "fieldTemplates": resolution["resolvedFieldTemplates"],
         "unmappedFields": resolution["unmappedFields"],
     }
 
@@ -558,6 +822,18 @@ def _mining_status_cache_key(
         profile.get("model", ""),
         tuple((key, profile.get("fields", {}).get(key, "")) for key in FIELD_KEYS),
         tuple(profile.get("disabledFields", [])),
+        (
+            None
+            if profile.get("fieldTemplates") is None
+            else tuple(
+                (
+                    field_name,
+                    template.get("value", ""),
+                    template.get("overwriteMode", "coalesce"),
+                )
+                for field_name, template in profile["fieldTemplates"].items()
+            )
+        ),
         bool(config.anki.enabled),
         str(config.anki.note_type or ""),
         str(config.anki.word_field or ""),
@@ -656,17 +932,87 @@ def _unique_tags(values: list[Any]) -> list[str]:
     return output
 
 
-def _add_field_value(
-    fields: dict[str, str],
-    field_name: str | None,
-    value: str,
-) -> None:
-    if not field_name or not value:
-        return
-    if field_name in fields and fields[field_name]:
-        fields[field_name] = f"{fields[field_name]}<br>{value}"
-    else:
-        fields[field_name] = value
+def _field_template_values(
+    request: dict[str, Any],
+    *,
+    audio_value: str = "",
+) -> dict[str, str]:
+    term = request["term"]
+    highlighted_sentence = _highlight_sentence_match(request)
+    cloze_prefix, separator, highlighted_suffix = highlighted_sentence.partition("<b>")
+    cloze_body, closing_separator, cloze_suffix = highlighted_suffix.partition("</b>")
+    if not separator or not closing_separator:
+        cloze_prefix = highlighted_sentence
+        cloze_body = ""
+        cloze_suffix = ""
+    return {
+        "{expression}": term["expression"],
+        "{reading}": term["reading"],
+        "{definition}": _definition_html(request),
+        "{sentence}": highlighted_sentence,
+        "{frequency}": _frequency_html(request),
+        "{pitch}": _pitch_html(request),
+        PITCH_POSITION_FIELD_TEMPLATE_MARKER: _pitch_positions_text(request),
+        "{audio}": audio_value,
+        "{cloze-prefix}": cloze_prefix,
+        "{cloze-body}": cloze_body,
+        "{cloze-suffix}": cloze_suffix,
+    }
+
+
+def _render_field_template(
+    template: str,
+    values: dict[str, str],
+) -> str:
+    def replacement(match: re.Match[str]) -> str:
+        marker = match.group(1).casefold()
+        exact = values.get(f"{{{marker}}}")
+        if exact is not None:
+            return exact
+        marker_key = _field_template_marker_key(marker)
+        if marker_key == "audio":
+            return values["{audio}"]
+        if marker_key in {"pitch", "pitch-position"}:
+            return values[PITCH_POSITION_FIELD_TEMPLATE_MARKER] if marker_key == "pitch-position" else values["{pitch}"]
+        if marker_key == "frequency":
+            return values["{frequency}"]
+        if marker_key == "sentence":
+            return values["{sentence}"]
+        if marker_key == "definition":
+            return values["{definition}"]
+        if marker_key == "reading":
+            return values["{reading}"]
+        if marker_key == "expression":
+            return values["{expression}"]
+        return match.group(0)
+
+    rendered_segments = []
+    for segment in FIELD_TEMPLATE_BREAK_PATTERN.split(template):
+        matches = list(FIELD_TEMPLATE_MARKER_PATTERN.finditer(segment))
+        rendered = FIELD_TEMPLATE_MARKER_PATTERN.sub(replacement, segment)
+        has_known_marker = any(
+            f"{{{match.group(1).casefold()}}}" in values or _field_template_marker_key(match.group(1)) is not None
+            for match in matches
+        )
+        if has_known_marker and not rendered.strip():
+            continue
+        rendered_segments.append(rendered)
+    return "<br>".join(rendered_segments)
+
+
+def _template_uses_audio(template: str) -> bool:
+    return any(
+        _field_template_marker_key(match.group(1)) == "audio"
+        for match in FIELD_TEMPLATE_MARKER_PATTERN.finditer(template)
+    )
+
+
+def _template_has_non_audio_content(template: str) -> bool:
+    without_audio = FIELD_TEMPLATE_MARKER_PATTERN.sub(
+        lambda match: "" if _field_template_marker_key(match.group(1)) == "audio" else match.group(0),
+        template,
+    )
+    return bool(FIELD_TEMPLATE_BREAK_PATTERN.sub("", without_audio).strip())
 
 
 def _root_deck_name(deck_name: str) -> str:
@@ -703,27 +1049,22 @@ def _build_hoshidicts_note(
     request: dict[str, Any],
     resolved: dict[str, Any],
 ) -> dict[str, Any]:
-    term = request["term"]
-    field_values: dict[str, str] = {}
-    _add_field_value(field_values, resolved["fields"]["expression"], term["expression"])
-    _add_field_value(field_values, resolved["fields"]["reading"], term["reading"])
-    _add_field_value(field_values, resolved["fields"]["definition"], _definition_html(request))
-    _add_field_value(
-        field_values,
-        resolved["fields"]["sentence"],
-        _highlight_sentence_match(request),
-    )
-    _add_field_value(field_values, resolved["fields"]["frequency"], _frequency_html(request))
-    pitch_field = resolved["fields"]["pitch"]
-    pitch_value = (
-        _pitch_positions_text(request)
-        if pitch_field and pitch_field.casefold() == "pitchposition"
-        else _pitch_html(request)
-    )
-    _add_field_value(field_values, pitch_field, pitch_value)
+    if not resolved["modelFields"]:
+        raise HoshidictsMiningError("The selected Anki note type has no fields.", 503)
+    template_values = _field_template_values(request)
     fields = {
-        field_name: field_values[field_name] for field_name in resolved["modelFields"] if field_name in field_values
+        field_name: _render_field_template(
+            resolved["fieldTemplates"][field_name]["value"],
+            template_values,
+        )
+        for field_name in resolved["modelFields"]
     }
+    first_model_field = resolved["modelFields"][0]
+    if not fields[first_model_field].strip():
+        raise HoshidictsMiningError(
+            f'The first Anki field "{first_model_field}" is empty. Map it to a value before mining.',
+            503,
+        )
 
     config = resolved["config"]
     anki = resolved["anki"]
@@ -1020,6 +1361,14 @@ def _overwrite_field(existing_value: str, new_value: str, mode: str) -> str:
 
 
 def _resolved_overwrite_modes(resolved: dict[str, Any]) -> dict[str, str]:
+    field_templates = resolved.get("fieldTemplates")
+    if isinstance(field_templates, dict):
+        return {
+            target: template["overwriteMode"]
+            for target, template in field_templates.items()
+            if not _template_uses_audio(template["value"]) or _template_has_non_audio_content(template["value"])
+        }
+
     modes = {}
     for key in FIELD_KEYS:
         if key == "audio":
@@ -1135,8 +1484,12 @@ def _enrich_hoshidicts_note_audio(
     *,
     overwritten: bool = False,
 ) -> dict[str, str]:
-    audio_field = resolved["fields"]["audio"]
-    if not audio_field:
+    audio_templates = {
+        target: template
+        for target, template in resolved["fieldTemplates"].items()
+        if _template_uses_audio(template["value"])
+    }
+    if not audio_templates:
         return {"status": "skipped"}
 
     audio = _audio
@@ -1147,9 +1500,14 @@ def _enrich_hoshidicts_note_audio(
     if not profile["enabled"]:
         return {"status": "skipped"}
 
-    existing_value = initial_fields.get(audio_field, "")
-    overwrite_mode = resolved["profile"]["fieldOverwriteModes"]["audio"]
-    if overwritten and (overwrite_mode == "skip" or (overwrite_mode == "coalesce" and bool(existing_value))):
+    pending_templates = {}
+    for target, template in audio_templates.items():
+        existing_value = initial_fields.get(target, "")
+        overwrite_mode = template["overwriteMode"]
+        if overwritten and (overwrite_mode == "skip" or (overwrite_mode == "coalesce" and bool(existing_value))):
+            continue
+        pending_templates[target] = template
+    if overwritten and not pending_templates:
         return {"status": "preserved"}
 
     term = request["term"]
@@ -1178,15 +1536,25 @@ def _enrich_hoshidicts_note_audio(
         if not isinstance(stored_filename, str) or not stored_filename:
             raise RuntimeError("Anki did not return a stored media filename")
         sound = f"[sound:{stored_filename}]"
-        if overwritten:
-            field_value = _overwrite_field(existing_value, sound, overwrite_mode)
-        else:
-            field_value = f"{existing_value}<br>{sound}" if existing_value else sound
+        template_values = _field_template_values(request, audio_value=sound)
+        updated_fields = {}
+        for target, template in pending_templates.items():
+            field_value = _render_field_template(
+                template["value"],
+                template_values,
+            )
+            if overwritten:
+                field_value = _overwrite_field(
+                    initial_fields.get(target, ""),
+                    field_value,
+                    template["overwriteMode"],
+                )
+            updated_fields[target] = field_value
         resolved["anki"].invoke(
             "updateNoteFields",
             note={
                 "id": note_id,
-                "fields": {audio_field: field_value},
+                "fields": updated_fields,
             },
             timeout=30,
         )
@@ -1246,7 +1614,6 @@ def mine_hoshidicts_note(payload: Any) -> dict[str, Any]:
                 note={"id": note_id, "fields": overwritten_fields},
                 timeout=ANKI_CONNECT_TIMEOUT_SECONDS,
             )
-            existing_fields = {**existing_fields, **overwritten_fields}
             overwritten = True
         elif not duplicate_details["addable"] or duplicate_details["error"]:
             raise HoshidictsMiningError(

@@ -29,8 +29,6 @@ import {
   normalizeHoshidictsDesktopState
 } from "./HoshidictsSettingsWindow";
 import {
-  AUTO_FIELD_VALUE,
-  DISABLED_FIELD_VALUE,
   activationKeyFromKeyboardCode,
   getReadiness
 } from "./hoshidictsSettingsModel";
@@ -148,7 +146,7 @@ const baseState: HoshidictsDesktopSnapshot = {
     { id: "jmnedict", installed: false }
   ],
   miningProfile: {
-    version: 2,
+    version: 3,
     enabled: true,
     deck: "Default",
     model: "",
@@ -167,7 +165,8 @@ const baseState: HoshidictsDesktopSnapshot = {
     duplicateScope: "collection",
     duplicateScopeCheckAllModels: false,
     duplicateBehavior: "prevent",
-    fieldOverwriteModes: createDefaultHoshidictsFieldOverwriteModes()
+    fieldOverwriteModes: createDefaultHoshidictsFieldOverwriteModes(),
+    fieldTemplates: null
   },
   audioProfile: createDefaultHoshidictsAudioProfile(),
   lookupMode: "shift",
@@ -222,6 +221,29 @@ const miningOptions: HoshidictsMiningOptions = {
     frequency: "Frequency",
     pitch: "PitchPosition",
     audio: "WordAudio"
+  },
+  suggestedFieldTemplates: {
+    Expression: "{expression}",
+    ExpressionReading: "{reading}",
+    Glossary: "{definition}",
+    Sentence: "{sentence}",
+    Frequency: "{frequency}",
+    PitchPosition: "{pitch-position}",
+    WordAudio: "{audio}",
+    Front: ""
+  },
+  resolvedFieldTemplates: {
+    Expression: { value: "{expression}", overwriteMode: "coalesce" },
+    ExpressionReading: { value: "{reading}", overwriteMode: "coalesce" },
+    Glossary: { value: "{definition}", overwriteMode: "coalesce" },
+    Sentence: { value: "{sentence}", overwriteMode: "coalesce" },
+    Frequency: { value: "{frequency}", overwriteMode: "coalesce" },
+    PitchPosition: {
+      value: "{pitch-position}",
+      overwriteMode: "coalesce"
+    },
+    WordAudio: { value: "{audio}", overwriteMode: "coalesce" },
+    Front: { value: "", overwriteMode: "coalesce" }
   },
   warnings: [],
   error: null
@@ -2348,7 +2370,7 @@ describe("HoshidictsSettingsWindow", () => {
     confirm.mockRestore();
   });
 
-  it("loads Anki on entry without dirtying or pinning automatic mappings", async () => {
+  it("loads every Anki field on entry without dirtying automatic mappings", async () => {
     vi.useFakeTimers();
     await render();
     await openView("Anki Mining");
@@ -2364,14 +2386,202 @@ describe("HoshidictsSettingsWindow", () => {
       HOSHIDICTS_CHANNELS.setMiningProfile,
       expect.anything()
     );
+    const values = Array.from(
+      container.querySelectorAll<HTMLInputElement>(
+        ".hoshidicts-mining-field-value"
+      )
+    ).map((input) => [input.dataset.ankiField, input.value]);
+    expect(values).toEqual([
+      ["Expression", "{expression}"],
+      ["ExpressionReading", "{reading}"],
+      ["Glossary", "{definition}"],
+      ["Sentence", "{sentence}"],
+      ["Frequency", "{frequency}"],
+      ["PitchPosition", "{pitch-position}"],
+      ["WordAudio", "{audio}"],
+      ["Front", ""]
+    ]);
+    expect(container.textContent).toContain("7 of 8 fields mapped");
+    expect(container.textContent).toContain(
+      "All fields from the selected Anki note type are shown"
+    );
+  });
+
+  it("falls back to persisted target fields offline and preserves explicit blanks", async () => {
+    const offlineState: HoshidictsDesktopSnapshot = {
+      ...baseState,
+      miningProfile: {
+        ...baseState.miningProfile,
+        model: "Offline",
+        fieldTemplates: {
+          Front: { value: "", overwriteMode: "coalesce" },
+          Note: { value: "x", overwriteMode: "append" }
+        }
+      }
+    };
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === HOSHIDICTS_CHANNELS.getState) return offlineState;
+      if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
+        return {
+          ...miningOptions,
+          connected: false,
+          selectedNoteType: "Offline",
+          fields: [],
+          suggestedFieldTemplates: {},
+          resolvedFieldTemplates: {},
+          error: "Anki is offline."
+        } satisfies HoshidictsMiningOptions;
+      }
+      return { success: true, state: offlineState };
+    });
+
+    await render();
+    await openMining();
+
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLInputElement>(
+          ".hoshidicts-mining-field-value"
+        )
+      ).map((input) => [input.dataset.ankiField, input.value])
+    ).toEqual([
+      ["Front", ""],
+      ["Note", "x"]
+    ]);
+    expect(container.textContent).toContain("1 of 2 fields mapped");
+    expect(callsFor(HOSHIDICTS_CHANNELS.setMiningProfile)).toHaveLength(0);
+  });
+
+  it("shows normalized legacy target fields while Anki is offline", async () => {
+    const offlineState: HoshidictsDesktopSnapshot = {
+      ...baseState,
+      miningProfile: {
+        ...baseState.miningProfile,
+        model: "Offline legacy",
+        fields: {
+          ...baseState.miningProfile.fields,
+          expression: "Front",
+          reading: "Reading",
+          definition: "Front",
+          sentence: "Context"
+        },
+        disabledFields: ["reading"],
+        fieldOverwriteModes: {
+          ...baseState.miningProfile.fieldOverwriteModes,
+          expression: "append",
+          definition: "overwrite"
+        },
+        fieldTemplates: null
+      }
+    };
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === HOSHIDICTS_CHANNELS.getState) return offlineState;
+      if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
+        return {
+          ...miningOptions,
+          connected: false,
+          selectedNoteType: "Offline legacy",
+          fields: [],
+          suggestedFieldTemplates: {},
+          resolvedFieldTemplates: {},
+          error: "Anki is offline."
+        } satisfies HoshidictsMiningOptions;
+      }
+      return { success: true, state: offlineState };
+    });
+
+    await render();
+    await openMining();
+
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLInputElement>(
+          ".hoshidicts-mining-field-value"
+        )
+      ).map((input) => [input.dataset.ankiField, input.value])
+    ).toEqual([
+      ["Front", "{expression}<br>{definition}"],
+      ["Context", "{sentence}"]
+    ]);
     expect(
       container.querySelector<HTMLSelectElement>(
-        "#hoshidicts-mining-field-reading"
+        '[data-anki-field="Front"][data-field-control="overwrite"]'
       )?.value
-    ).toBe(AUTO_FIELD_VALUE);
-    expect(container.textContent).toContain("Automatic → ExpressionReading");
-    expect(container.textContent).toContain("7 of 7 fields mapped");
-    expect(container.textContent).toContain("Automatic → WordAudio");
+    ).toBeUndefined();
+    expect(container.textContent).toContain("2 of 2 fields mapped");
+  });
+
+  it("preserves a saved mapping when Anki changes only the field casing", async () => {
+    vi.useFakeTimers();
+    const caseChangedState: HoshidictsDesktopSnapshot = {
+      ...baseState,
+      miningProfile: {
+        ...baseState.miningProfile,
+        model: "Case changed",
+        fieldTemplates: {
+          front: { value: "x", overwriteMode: "append" }
+        }
+      }
+    };
+    const caseChangedOptions: HoshidictsMiningOptions = {
+      ...miningOptions,
+      selectedNoteType: "Case changed",
+      fields: ["Front", "Back"],
+      suggestedFieldTemplates: { Front: "", Back: "" },
+      resolvedFieldTemplates: {
+        Front: { value: "x", overwriteMode: "append" },
+        Back: { value: "", overwriteMode: "coalesce" }
+      }
+    };
+    invokeMock.mockImplementation(
+      async (channel: string, ...args: unknown[]) => {
+        if (channel === HOSHIDICTS_CHANNELS.getState) return caseChangedState;
+        if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
+          return caseChangedOptions;
+        }
+        if (channel === HOSHIDICTS_CHANNELS.setMiningProfile) {
+          return {
+            success: true,
+            state: {
+              ...caseChangedState,
+              revision: ++revision,
+              miningProfile: args[0]
+            }
+          };
+        }
+        return { success: true, state: caseChangedState };
+      }
+    );
+
+    await render();
+    await openMining();
+    expect(
+      container.querySelector<HTMLInputElement>(
+        '[data-anki-field="Front"][data-field-control="value"]'
+      )?.value
+    ).toBe("x");
+    expect(
+      container.querySelector(".hoshidicts-mining-fields__warning")
+    ).toBeNull();
+
+    await act(async () => {
+      setInputValue(
+        container.querySelector<HTMLInputElement>(
+          '[data-anki-field="Back"][data-field-control="value"]'
+        ),
+        "y"
+      );
+      await flushAutosave();
+    });
+
+    expect(
+      callsFor(HOSHIDICTS_CHANNELS.setMiningProfile).at(-1)?.[1]
+    ).toMatchObject({
+      fieldTemplates: {
+        Front: { value: "x", overwriteMode: "append" },
+        Back: { value: "y", overwriteMode: "coalesce" }
+      }
+    });
   });
 
   it("edits and auto-saves ordered pronunciation sources", async () => {
@@ -2568,7 +2778,7 @@ describe("HoshidictsSettingsWindow", () => {
     });
   });
 
-  it("renders compact field and value mapping rows with accessible labels", async () => {
+  it("renders every Anki field with accessible editable marker inputs", async () => {
     await render();
     await openMining();
 
@@ -2580,31 +2790,49 @@ describe("HoshidictsSettingsWindow", () => {
       ).map((header) => header.textContent)
     ).toEqual(["Field", "Value"]);
 
-    const labels = Array.from(grid?.querySelectorAll("label") ?? []);
-    const selects = Array.from(
-      grid?.querySelectorAll<HTMLSelectElement>("select") ?? []
+    const rows = Array.from(
+      grid?.querySelectorAll<HTMLElement>(".hoshidicts-mining-field-row") ?? []
     );
-    expect(labels.map((label) => label.textContent)).toEqual([
+    const labels = rows.map((row) => row.querySelector("label"));
+    const inputs = rows.map((row) =>
+      row.querySelector<HTMLInputElement>(".hoshidicts-mining-field-value")
+    );
+    expect(labels.map((label) => label?.textContent)).toEqual([
       "Expression",
-      "Reading",
-      "Definition",
+      "ExpressionReading",
+      "Glossary",
       "Sentence",
       "Frequency",
-      "Pitch accent",
-      "Pronunciation audio"
+      "PitchPosition",
+      "WordAudio",
+      "Front"
     ]);
-    expect(selects.map((select) => select.id)).toEqual([
-      "hoshidicts-mining-field-expression",
-      "hoshidicts-mining-field-reading",
-      "hoshidicts-mining-field-definition",
-      "hoshidicts-mining-field-sentence",
-      "hoshidicts-mining-field-frequency",
-      "hoshidicts-mining-field-pitch",
-      "hoshidicts-mining-field-audio"
-    ]);
-    expect(labels.map((label) => label.htmlFor)).toEqual(
-      selects.map((select) => select.id)
+    expect(inputs).toHaveLength(8);
+    expect(labels.map((label) => label?.htmlFor)).toEqual(
+      inputs.map((input) => input?.id)
     );
+    expect(
+      inputs.every(
+        (input) =>
+          input?.getAttribute("list") === "hoshidicts-mining-field-values"
+      )
+    ).toBe(true);
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLOptionElement>(
+          "#hoshidicts-mining-field-values option"
+        )
+      ).map((option) => option.value)
+    ).toEqual([
+      "{expression}",
+      "{reading}",
+      "{definition}",
+      "{sentence}",
+      "{frequency}",
+      "{pitch}",
+      "{pitch-position}",
+      "{audio}"
+    ]);
   });
 
   it("auto-saves duplicate scope, note-type checks, behavior, and field overwrite modes", async () => {
@@ -2639,12 +2867,12 @@ describe("HoshidictsSettingsWindow", () => {
     ).toEqual(["Field", "Value", "On overwrite"]);
     expect(
       container.querySelectorAll('[id^="hoshidicts-mining-overwrite-"]')
-    ).toHaveLength(7);
+    ).toHaveLength(8);
 
     await act(async () => {
       setSelectValue(
         container.querySelector<HTMLSelectElement>(
-          "#hoshidicts-mining-overwrite-expression"
+          '[data-anki-field="Expression"][data-field-control="overwrite"]'
         ),
         "overwrite"
       );
@@ -2658,37 +2886,40 @@ describe("HoshidictsSettingsWindow", () => {
         duplicateScope: "deck-root",
         duplicateScopeCheckAllModels: true,
         duplicateBehavior: "overwrite",
-        fieldOverwriteModes: expect.objectContaining({
-          expression: "overwrite",
-          reading: "coalesce"
+        fieldTemplates: expect.objectContaining({
+          Expression: {
+            value: "{expression}",
+            overwriteMode: "overwrite"
+          },
+          Front: { value: "", overwriteMode: "coalesce" }
         })
       })
     );
   });
 
-  it("auto-saves automatic, disabled, and explicit field choices", async () => {
+  it("auto-saves marker choices, blanks, and arbitrary literal values", async () => {
     vi.useFakeTimers();
     await render();
     await openView("Anki Mining");
 
     await act(async () => {
-      setSelectValue(
-        container.querySelector<HTMLSelectElement>(
-          "#hoshidicts-mining-field-expression"
+      setInputValue(
+        container.querySelector<HTMLInputElement>(
+          '[data-anki-field="Front"][data-field-control="value"]'
         ),
-        DISABLED_FIELD_VALUE
+        "x"
       );
-      setSelectValue(
-        container.querySelector<HTMLSelectElement>(
-          "#hoshidicts-mining-field-definition"
+      setInputValue(
+        container.querySelector<HTMLInputElement>(
+          '[data-anki-field="Glossary"][data-field-control="value"]'
         ),
-        "Front"
+        "{sentence}"
       );
-      setSelectValue(
-        container.querySelector<HTMLSelectElement>(
-          "#hoshidicts-mining-field-pitch"
+      setInputValue(
+        container.querySelector<HTMLInputElement>(
+          '[data-anki-field="WordAudio"][data-field-control="value"]'
         ),
-        AUTO_FIELD_VALUE
+        ""
       );
       await flushAutosave();
     });
@@ -2696,12 +2927,22 @@ describe("HoshidictsSettingsWindow", () => {
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.setMiningProfile,
       expect.objectContaining({
-        fields: expect.objectContaining({
-          expression: "",
-          definition: "Front",
-          pitch: ""
-        }),
-        disabledFields: ["expression"]
+        fieldTemplates: {
+          Expression: { value: "{expression}", overwriteMode: "coalesce" },
+          ExpressionReading: {
+            value: "{reading}",
+            overwriteMode: "coalesce"
+          },
+          Glossary: { value: "{sentence}", overwriteMode: "coalesce" },
+          Sentence: { value: "{sentence}", overwriteMode: "coalesce" },
+          Frequency: { value: "{frequency}", overwriteMode: "coalesce" },
+          PitchPosition: {
+            value: "{pitch-position}",
+            overwriteMode: "coalesce"
+          },
+          WordAudio: { value: "", overwriteMode: "coalesce" },
+          Front: { value: "x", overwriteMode: "coalesce" }
+        }
       })
     );
     expect(container.querySelector("button")?.textContent).not.toBe(
@@ -2709,7 +2950,7 @@ describe("HoshidictsSettingsWindow", () => {
     );
   });
 
-  it("preserves overrides and ignores stale note-type discovery", async () => {
+  it("resets mappings for a new note type and ignores stale discovery", async () => {
     const lapisRequest = deferred<HoshidictsMiningOptions>();
     const kikuRequest = deferred<HoshidictsMiningOptions>();
     const originalImplementation = invokeMock.getMockImplementation();
@@ -2734,11 +2975,11 @@ describe("HoshidictsSettingsWindow", () => {
     await render();
     await openView("Anki Mining");
     await act(async () => {
-      setSelectValue(
-        container.querySelector<HTMLSelectElement>(
-          "#hoshidicts-mining-field-expression"
+      setInputValue(
+        container.querySelector<HTMLInputElement>(
+          '[data-anki-field="Front"][data-field-control="value"]'
         ),
-        "Front"
+        "x"
       );
       setSelectValue(
         container.querySelector<HTMLSelectElement>("#hoshidicts-mining-model"),
@@ -2764,6 +3005,17 @@ describe("HoshidictsSettingsWindow", () => {
         resolvedFields: {
           ...miningOptions.resolvedFields,
           definition: "MainDefinition"
+        },
+        suggestedFieldTemplates: {
+          Expression: "{expression}",
+          MainDefinition: "{definition}"
+        },
+        resolvedFieldTemplates: {
+          Expression: { value: "{expression}", overwriteMode: "coalesce" },
+          MainDefinition: {
+            value: "{definition}",
+            overwriteMode: "coalesce"
+          }
         }
       });
       await Promise.resolve();
@@ -2775,11 +3027,189 @@ describe("HoshidictsSettingsWindow", () => {
         ?.value
     ).toBe("Kiku");
     expect(
-      container.querySelector<HTMLSelectElement>(
-        "#hoshidicts-mining-field-expression"
+      container.querySelector<HTMLInputElement>(
+        '[data-anki-field="Front"][data-field-control="value"]'
       )?.value
-    ).toBe("Front");
-    expect(container.textContent).toContain("Automatic → Glossary");
+    ).toBe("");
+    expect(container.textContent).toContain("Glossary");
+    expect(container.textContent).not.toContain("MainDefinition");
+  });
+
+  it("saves a note-type change with fresh automatic mappings", async () => {
+    vi.useFakeTimers();
+    await render();
+    await openMining();
+
+    await act(async () => {
+      setInputValue(
+        container.querySelector<HTMLInputElement>(
+          '[data-anki-field="Front"][data-field-control="value"]'
+        ),
+        "x"
+      );
+      setSelectValue(
+        container.querySelector<HTMLSelectElement>("#hoshidicts-mining-model"),
+        "Lapis"
+      );
+      await Promise.resolve();
+    });
+    await act(flushAutosave);
+
+    const saved = callsFor(HOSHIDICTS_CHANNELS.setMiningProfile).at(-1)?.[1];
+    expect(saved).toMatchObject({
+      model: "Lapis",
+      fieldTemplates: null,
+      disabledFields: [],
+      fields: {
+        expression: "",
+        reading: "",
+        definition: "",
+        sentence: "",
+        frequency: "",
+        pitch: "",
+        audio: ""
+      },
+      fieldOverwriteModes: createDefaultHoshidictsFieldOverwriteModes()
+    });
+  });
+
+  it("preserves mappings when explicit and Automatic select the same note type", async () => {
+    vi.useFakeTimers();
+    await render();
+    await openMining();
+
+    await act(async () => {
+      setInputValue(
+        container.querySelector<HTMLInputElement>(
+          '[data-anki-field="Front"][data-field-control="value"]'
+        ),
+        "x"
+      );
+      await flushAutosave();
+      setSelectValue(
+        container.querySelector<HTMLSelectElement>("#hoshidicts-mining-model"),
+        "Kiku"
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(flushAutosave);
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.getMiningOptions,
+      "Kiku"
+    );
+    expect(
+      callsFor(HOSHIDICTS_CHANNELS.setMiningProfile).at(-1)?.[1]
+    ).toMatchObject({
+      model: "Kiku",
+      fieldTemplates: {
+        Front: { value: "x", overwriteMode: "coalesce" }
+      }
+    });
+
+    await act(async () => {
+      setSelectValue(
+        container.querySelector<HTMLSelectElement>("#hoshidicts-mining-model"),
+        ""
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(flushAutosave);
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.getMiningOptions,
+      ""
+    );
+    expect(
+      callsFor(HOSHIDICTS_CHANNELS.setMiningProfile).at(-1)?.[1]
+    ).toMatchObject({
+      model: "",
+      fieldTemplates: {
+        Front: { value: "x", overwriteMode: "coalesce" }
+      }
+    });
+  });
+
+  it("resets mappings when Automatic resolves to a different note type", async () => {
+    const automaticRequest = deferred<HoshidictsMiningOptions>();
+    const originalImplementation = invokeMock.getMockImplementation();
+    invokeMock.mockImplementation(
+      async (channel: string, ...args: unknown[]) => {
+        if (channel === HOSHIDICTS_CHANNELS.getState) {
+          return {
+            ...baseState,
+            miningProfile: { ...baseState.miningProfile, model: "Lapis" }
+          };
+        }
+        if (
+          channel === HOSHIDICTS_CHANNELS.getMiningOptions &&
+          args[0] === ""
+        ) {
+          return await automaticRequest.promise;
+        }
+        if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
+          return {
+            ...miningOptions,
+            selectedNoteType: "Lapis"
+          };
+        }
+        return await originalImplementation?.(channel, ...args);
+      }
+    );
+    vi.useFakeTimers();
+    await render();
+    await openMining();
+
+    await act(async () => {
+      setInputValue(
+        container.querySelector<HTMLInputElement>(
+          '[data-anki-field="Front"][data-field-control="value"]'
+        ),
+        "x"
+      );
+      await flushAutosave();
+    });
+    const savesBeforeSwitch = callsFor(
+      HOSHIDICTS_CHANNELS.setMiningProfile
+    ).length;
+
+    await act(async () => {
+      setSelectValue(
+        container.querySelector<HTMLSelectElement>("#hoshidicts-mining-model"),
+        ""
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector<HTMLInputElement>(
+        '[data-anki-field="Front"][data-field-control="value"]'
+      )?.disabled
+    ).toBe(true);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(450);
+    });
+    expect(callsFor(HOSHIDICTS_CHANNELS.setMiningProfile)).toHaveLength(
+      savesBeforeSwitch
+    );
+
+    await act(async () => {
+      automaticRequest.resolve(miningOptions);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(flushAutosave);
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.getMiningOptions,
+      ""
+    );
+    expect(
+      callsFor(HOSHIDICTS_CHANNELS.setMiningProfile).at(-1)?.[1]
+    ).toMatchObject({ model: "", fieldTemplates: null });
   });
 
   it.each([
@@ -2796,6 +3226,7 @@ describe("HoshidictsSettingsWindow", () => {
       "繰り返し検索した定義をぼかす",
       "フィールド",
       "値",
+      "選択したAnkiノートタイプのすべてのフィールドを表示します",
       "既出回数と検索回数を表示"
     ],
     [
@@ -2811,6 +3242,7 @@ describe("HoshidictsSettingsWindow", () => {
       "Розмивати визначення після повторних пошуків",
       "Поле",
       "Значення",
+      "Показано всі поля вибраного типу нотатки Anki",
       "Показувати кількість зустрічей і пошуків"
     ]
   ])(
@@ -2828,6 +3260,7 @@ describe("HoshidictsSettingsWindow", () => {
       definitionBlur,
       fieldHeader,
       valueHeader,
+      mappingHint,
       lookupCounts
     ) => {
       await render(locale);
@@ -2847,6 +3280,7 @@ describe("HoshidictsSettingsWindow", () => {
           container.querySelectorAll(".hoshidicts-mining-field-grid__header")
         ).map((header) => header.textContent)
       ).toEqual([fieldHeader, valueHeader]);
+      expect(container.textContent).toContain(mappingHint);
     }
   );
 
@@ -2877,7 +3311,9 @@ describe("HoshidictsSettingsWindow", () => {
       ],
       miningProfile: {
         ...baseState.miningProfile,
-        disabledFields: undefined
+        version: 2,
+        disabledFields: undefined,
+        fieldTemplates: undefined
       }
     });
     expect(normalized.revision).toBe(0);
@@ -2911,6 +3347,10 @@ describe("HoshidictsSettingsWindow", () => {
     ]);
     expect(normalized.miningProfile.disabledFields).toEqual([]);
     expect(normalized.miningProfile.fields.audio).toBe("");
+    expect(normalized.miningProfile).toMatchObject({
+      version: 3,
+      fieldTemplates: null
+    });
     expect(normalized.audioProfile).toEqual(baseState.audioProfile);
     expect(normalized.tabGroups).toEqual([]);
   });
