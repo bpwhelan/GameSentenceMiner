@@ -16,6 +16,7 @@ import {
   DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
   DEFAULT_HOSHIDICTS_THEME,
   HOSHIDICTS_CHANNELS,
+  HOSHIDICTS_THEMES,
   type HoshidictsActionResult,
   type HoshidictsCustomDictionaryDocument,
   type HoshidictsDesktopSnapshot,
@@ -41,6 +42,56 @@ const hoshidictsStyles = readFileSync(
   ),
   "utf8"
 );
+
+const EXPECTED_HOSHIDICTS_THEME_GROUPS = [
+  [
+    "default",
+    "catppuccin-mocha",
+    "solarized-dark",
+    "dark",
+    "synthwave",
+    "halloween",
+    "forest",
+    "aqua",
+    "black",
+    "luxury",
+    "dracula",
+    "business",
+    "night",
+    "coffee",
+    "dim",
+    "sunset",
+    "abyss"
+  ],
+  [
+    "girlypop",
+    "solarized-light",
+    "light",
+    "cupcake",
+    "bumblebee",
+    "emerald",
+    "corporate",
+    "retro",
+    "cyberpunk",
+    "valentine",
+    "garden",
+    "lofi",
+    "pastel",
+    "fantasy",
+    "wireframe",
+    "cmyk",
+    "autumn",
+    "acid",
+    "lemonade",
+    "winter",
+    "nord",
+    "caramellatte",
+    "silk"
+  ],
+  ["high-contrast"]
+] as const;
+
+const EXPECTED_HOSHIDICTS_THEMES = EXPECTED_HOSHIDICTS_THEME_GROUPS.flat();
 
 const invokeMock = vi.fn();
 const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
@@ -1361,7 +1412,56 @@ describe("HoshidictsSettingsWindow", () => {
     );
   });
 
-  it("auto-saves popup dimensions and theme and resets the size", async () => {
+  it("offers every GSM popup theme plus Girlypop in stable groups", async () => {
+    await render();
+    const theme = container.querySelector<HTMLSelectElement>(
+      "#hoshidicts-popup-theme"
+    );
+    const groups = Array.from(theme?.querySelectorAll("optgroup") ?? []);
+
+    expect(HOSHIDICTS_THEMES).toEqual(EXPECTED_HOSHIDICTS_THEMES);
+    expect(Array.from(theme?.options ?? []).map((option) => option.value)).toEqual(
+      EXPECTED_HOSHIDICTS_THEMES
+    );
+    expect(groups).toHaveLength(EXPECTED_HOSHIDICTS_THEME_GROUPS.length);
+    expect(
+      groups.map((group) =>
+        Array.from(group.querySelectorAll("option"), (option) => option.value)
+      )
+    ).toEqual(EXPECTED_HOSHIDICTS_THEME_GROUPS);
+    expect(groups.every((group) => group.label.trim().length > 0)).toBe(true);
+    expect(
+      Array.from(theme?.options ?? []).find(
+        (option) => option.value === "girlypop"
+      )?.text.trim()
+    ).toBe("Girlypop");
+  });
+
+  it.each([
+    ["ja", ["ダーク", "ライト", "ハイコントラスト"], "ガーリーポップ"],
+    ["ukr", ["Темні", "Світлі", "Високий контраст"], "Ґерліпоп"]
+  ])(
+    "localizes popup theme groups and Girlypop in %s",
+    async (locale, groupLabels, girlypopLabel) => {
+      await render(locale);
+      const theme = container.querySelector<HTMLSelectElement>(
+        "#hoshidicts-popup-theme"
+      );
+
+      expect(
+        Array.from(theme?.querySelectorAll("optgroup") ?? [], (group) =>
+          group.label.trim()
+        )
+      ).toEqual(groupLabels);
+      expect(
+        Array.from(theme?.options ?? []).find(
+          (option) => option.value === "girlypop"
+        )?.text.trim()
+      ).toBe(girlypopLabel);
+    }
+  );
+
+  it("auto-saves Girlypop with popup dimensions and keeps it on size reset", async () => {
     vi.useFakeTimers();
     await render();
     const theme = container.querySelector<HTMLSelectElement>(
@@ -1383,7 +1483,7 @@ describe("HoshidictsSettingsWindow", () => {
     expect(reset?.disabled).toBe(true);
 
     await act(async () => {
-      setSelectValue(theme, "cyberpunk");
+      setSelectValue(theme, "girlypop");
       setInputValue(width, "720");
       setInputValue(height, "520");
       await flushAutosave();
@@ -1393,7 +1493,7 @@ describe("HoshidictsSettingsWindow", () => {
       expect.objectContaining({
         popupWidthPx: 720,
         popupHeightPx: 520,
-        theme: "cyberpunk"
+        theme: "girlypop"
       })
     );
     expect(reset?.disabled).toBe(false);
@@ -1407,7 +1507,7 @@ describe("HoshidictsSettingsWindow", () => {
       expect.objectContaining({
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
-        theme: "cyberpunk"
+        theme: "girlypop"
       })
     );
   });
@@ -2439,6 +2539,15 @@ describe("HoshidictsSettingsWindow", () => {
 
     expect(normalized.schedule).toBe("hourly");
     expect(normalized.dictionaries[0].updateScheduleOverride).toBe("hourly");
+  });
+
+  it("restores Girlypop from a persisted desktop snapshot", () => {
+    const normalized = normalizeHoshidictsDesktopState({
+      ...baseState,
+      theme: "girlypop"
+    });
+
+    expect(normalized.theme).toBe("girlypop");
   });
 
   it.each([-1, 1.5, Number.MAX_SAFE_INTEGER + 1, "3"])(

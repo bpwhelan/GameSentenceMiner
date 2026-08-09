@@ -5,6 +5,9 @@ import vm from "node:vm";
 import { JSDOM } from "jsdom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { HOSHIDICTS_THEMES } from "../../shared/features/hoshidicts";
+import { GSM_THEME_DEFINITIONS } from "../../shared/themes";
+
 function loadReaderModule(window: Window) {
   const audioSource = fs.readFileSync(
     path.resolve(
@@ -566,6 +569,18 @@ describe("Hoshidicts safe popup rendering", () => {
       ),
       "utf8"
     );
+    const cssRules = Array.from(
+      css.matchAll(/(?<selectors>[^{}]+)\{(?<declarations>[^{}]*)\}/gu)
+    );
+    const declarationsForSelector = (selector: string) =>
+      cssRules.find((rule) =>
+        rule.groups?.selectors
+          .split(",")
+          .map((candidate) =>
+            candidate.replace(/\/\*[\s\S]*?\*\//gu, "").trim()
+          )
+          .includes(selector)
+      )?.groups?.declarations;
     const popupRule = /\.gsm-hoshidicts-popup\s*\{(?<declarations>[^}]*)\}/.exec(
       css
     )?.groups?.declarations;
@@ -627,9 +642,8 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(popupRule).toContain(
       "height: var(--gsm-hoshidicts-popup-height, 420px)"
     );
-    expect(popupRule).toContain(
-      "--hoshidicts-popup-background: rgba(26, 26, 30, 0.98)"
-    );
+    expect(popupRule).toContain("--hoshidicts-popup-background:");
+    expect(popupRule).toContain("var(--hoshidicts-palette-base-100)");
     expect(popupRule).toContain("background: var(--hoshidicts-popup-background)");
     expect(popupRule).toContain("backdrop-filter: blur(16px) saturate(1.08)");
     expect(popupRule).toContain("border-radius: 14px");
@@ -639,7 +653,7 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(popupRule).toContain("0 18px 48px rgba(0, 0, 0, 0.6)");
     expect(popupRule).not.toContain("0 0 10px rgba(255, 255, 255, 0.5)");
     expect(popupRule).toContain("color: var(--text-color)");
-    expect(popupRule).toContain("color-scheme: dark");
+    expect(popupRule).not.toContain("color-scheme: dark");
     expect(popupRule).toContain("overflow-y: auto");
     expect(popupRule).toContain("scrollbar-width: thin");
     expect(popupRule).toContain("font-size: 16px");
@@ -691,18 +705,170 @@ describe("Hoshidicts safe popup rendering", () => {
       "background: var(--hoshidicts-card-background)"
     );
     expect(glossarySummaryRule).toContain("font-size: 13px");
-    expect(css).toContain(
-      'html[data-hoshidicts-theme="high-contrast"] .gsm-hoshidicts-popup'
+    const corePaletteTokenPairs = [
+      ["color-scheme", "--hoshidicts-palette-color-scheme"],
+      ["--color-base-100", "--hoshidicts-palette-base-100"],
+      ["--color-base-200", "--hoshidicts-palette-base-200"],
+      ["--color-base-300", "--hoshidicts-palette-base-300"],
+      ["--color-base-content", "--hoshidicts-palette-base-content"],
+      ["--color-primary", "--hoshidicts-palette-primary"],
+      ["--color-primary-content", "--hoshidicts-palette-primary-content"],
+      ["--color-secondary", "--hoshidicts-palette-secondary"],
+      ["--color-secondary-content", "--hoshidicts-palette-secondary-content"],
+      ["--color-accent", "--hoshidicts-palette-accent"],
+      ["--color-accent-content", "--hoshidicts-palette-accent-content"],
+      ["--color-neutral", "--hoshidicts-palette-neutral"],
+      ["--color-neutral-content", "--hoshidicts-palette-neutral-content"],
+      ["--color-info", "--hoshidicts-palette-info"],
+      ["--color-info-content", "--hoshidicts-palette-info-content"],
+      ["--color-success", "--hoshidicts-palette-success"],
+      ["--color-success-content", "--hoshidicts-palette-success-content"],
+      ["--color-warning", "--hoshidicts-palette-warning"],
+      ["--color-warning-content", "--hoshidicts-palette-warning-content"],
+      ["--color-error", "--hoshidicts-palette-error"],
+      ["--color-error-content", "--hoshidicts-palette-error-content"]
+    ] as const;
+    const corePaletteTokens = corePaletteTokenPairs.map(([, target]) => target);
+    const defaultPalette =
+      declarationsForSelector('html[data-hoshidicts-theme="default"]') ??
+      declarationsForSelector(":root") ??
+      declarationsForSelector("html");
+    expect(defaultPalette).toBeDefined();
+    for (const token of corePaletteTokens) {
+      expect(defaultPalette, `default palette is missing ${token}`).toContain(
+        `${token}:`
+      );
+    }
+    for (const theme of HOSHIDICTS_THEMES.filter(
+      (candidate) => candidate !== "default"
+    )) {
+      const declarations = declarationsForSelector(
+        `html[data-hoshidicts-theme="${theme}"]`
+      );
+      expect(declarations, `${theme} needs a root palette`).toBeDefined();
+      for (const token of corePaletteTokens) {
+        expect(declarations, `${theme} palette is missing ${token}`).toContain(
+          `${token}:`
+        );
+      }
+    }
+
+    const parseDeclarations = (declarations: string) =>
+      Object.fromEntries(
+        Array.from(
+          declarations.matchAll(
+            /(?<name>(?:--)?[a-z0-9-]+)\s*:\s*(?<value>[^;]+);/gu
+          ),
+          (match) => [
+            match.groups?.name ?? "",
+            match.groups?.value?.trim() ?? ""
+          ]
+        )
+      );
+    const normalizeColorToken = (value: string | undefined) =>
+      value
+        ?.replace(/\s+/gu, " ")
+        .replace(/(^|[ (])0\./gu, "$1.")
+        .trim();
+    const targetPalette = (theme: string) =>
+      parseDeclarations(
+        declarationsForSelector(`html[data-hoshidicts-theme="${theme}"]`) ??
+          ""
+      );
+    const customThemeIds = new Set([
+      "gsm-dark",
+      "catppuccin-mocha",
+      "solarized-dark",
+      "solarized-light",
+      "high-contrast"
+    ]);
+
+    for (const theme of GSM_THEME_DEFINITIONS.filter(
+      ({ id }) => !customThemeIds.has(id)
+    )) {
+      const source = fs.readFileSync(
+        path.resolve(
+          process.cwd(),
+          `node_modules/daisyui/theme/${theme.id}/object.js`
+        ),
+        "utf8"
+      );
+      const sourcePalette = JSON.parse(
+        source.replace(/^export default\s+/u, "").replace(/;\s*$/u, "")
+      ) as Record<string, string>;
+      const target = targetPalette(theme.id);
+      for (const [sourceToken, targetToken] of corePaletteTokenPairs) {
+        expect(
+          normalizeColorToken(target[targetToken]),
+          `${theme.id} ${targetToken} must match daisyUI`
+        ).toBe(normalizeColorToken(sourcePalette[sourceToken]));
+      }
+    }
+
+    const rendererThemeCss = fs.readFileSync(
+      path.resolve(process.cwd(), "electron-src/renderer/src/styles.css"),
+      "utf8"
     );
-    expect(css).toContain("--hoshidicts-accent: #ffe000");
-    expect(css).toContain(
-      'html[data-hoshidicts-theme="autumn"] .gsm-hoshidicts-popup'
-    );
-    expect(css).toContain("--hoshidicts-accent: #e8864c");
-    expect(css).toContain(
-      'html[data-hoshidicts-theme="cyberpunk"] .gsm-hoshidicts-popup'
-    );
-    expect(css).toContain("--hoshidicts-accent: #00e5ff");
+    const rendererThemeBlocks = Array.from(
+      rendererThemeCss.matchAll(
+        /@plugin\s+"daisyui\/theme"\s*\{(?<declarations>[\s\S]*?)\n\}/gu
+      )
+    ).map((match) => parseDeclarations(match.groups?.declarations ?? ""));
+    for (const gsmTheme of customThemeIds) {
+      const sourcePalette = rendererThemeBlocks.find(
+        (palette) => palette.name?.replaceAll('"', "") === gsmTheme
+      );
+      const hoshidictsTheme = gsmTheme === "gsm-dark" ? "default" : gsmTheme;
+      const target = targetPalette(hoshidictsTheme);
+      expect(sourcePalette, `${gsmTheme} needs a renderer palette`).toBeDefined();
+      for (const [sourceToken, targetToken] of corePaletteTokenPairs) {
+        expect(
+          normalizeColorToken(target[targetToken]),
+          `${hoshidictsTheme} ${targetToken} must match GSM`
+        ).toBe(normalizeColorToken(sourcePalette?.[sourceToken]));
+      }
+    }
+
+    const semanticThemeTokens = [
+      "--hoshidicts-popup-background",
+      "--hoshidicts-chrome-background",
+      "--hoshidicts-surface",
+      "--hoshidicts-surface-raised",
+      "--hoshidicts-card-background",
+      "--hoshidicts-text",
+      "--hoshidicts-text-muted",
+      "--hoshidicts-text-faint",
+      "--hoshidicts-border",
+      "--hoshidicts-border-strong",
+      "--hoshidicts-accent",
+      "--hoshidicts-accent-contrast",
+      "--hoshidicts-accent-soft",
+      "--hoshidicts-success",
+      "--hoshidicts-warning",
+      "--hoshidicts-danger",
+      "--hoshidicts-link",
+      "--hoshidicts-link-hover",
+      "--hoshidicts-scrollbar",
+      "--hoshidicts-frequency",
+      "--hoshidicts-frequency-text",
+      "--hoshidicts-pitch",
+      "--hoshidicts-pitch-text",
+      "--hoshidicts-tag-text",
+      "--hoshidicts-tag-expression-text",
+      "--hoshidicts-tag-part-of-speech-text",
+      "--tag-default-background-color",
+      "--tag-expression-background-color",
+      "--tag-part-of-speech-background-color"
+    ];
+    for (const token of semanticThemeTokens) {
+      const declaration = new RegExp(
+        `${token}:\\s*([^;]+)`,
+        "u"
+      ).exec(popupRule ?? "")?.[1];
+      expect(declaration, `${token} needs a semantic bridge`).toContain(
+        "--hoshidicts-palette-"
+      );
+    }
   });
 
   it("blurs glossary content without obscuring definition tags", () => {
@@ -839,6 +1005,33 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(themed.window.gsmHoshidictsPopupHeightPx).toBe(520);
     expect(themed.window.gsmHoshidictsTheme).toBe("cyberpunk");
     expect(themed.documentElement.dataset.hoshidictsTheme).toBe("cyberpunk");
+  });
+
+  it("accepts every supported popup theme from the launch environment", () => {
+    expect(HOSHIDICTS_THEMES).toHaveLength(41);
+    for (const theme of HOSHIDICTS_THEMES) {
+      const configured = runOverlayFeatureBootstrap(
+        true,
+        "shift",
+        undefined,
+        undefined,
+        undefined,
+        { GSM_HOSHIDICTS_THEME: theme }
+      );
+      expect(configured.window.gsmHoshidictsTheme).toBe(theme);
+      expect(configured.documentElement.dataset.hoshidictsTheme).toBe(theme);
+    }
+
+    const invalid = runOverlayFeatureBootstrap(
+      true,
+      "shift",
+      undefined,
+      undefined,
+      undefined,
+      { GSM_HOSHIDICTS_THEME: "not-a-theme" }
+    );
+    expect(invalid.window.gsmHoshidictsTheme).toBe("default");
+    expect(invalid.documentElement.dataset.hoshidictsTheme).toBe("default");
   });
 
   it("normalizes the lookup mode and wires custom entries through overlay IPC", async () => {
@@ -988,6 +1181,43 @@ describe("Hoshidicts safe popup rendering", () => {
       ]
     });
     expect(configured.updatePreferences).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts every supported popup theme in live preferences", () => {
+    const configured = runHoshidictsReaderConfiguration("shift");
+    const preferences = {
+      lookupMode: "hover",
+      activationKey: "F9",
+      sourceHighlightEnabled: true,
+      popupHideDelayMs: 800,
+      showLookupCounts: true,
+      popupNestingMaxDepth: 3,
+      popupWidthPx: 720,
+      popupHeightPx: 520,
+      dictionaryPresentation: [],
+      definitionBlur: {
+        enabled: false,
+        lookupThreshold: 5,
+        revealMode: "timed",
+        revealDelayMs: 5000
+      }
+    };
+
+    for (const theme of HOSHIDICTS_THEMES) {
+      configured.emitPreferences({ ...preferences, theme });
+      expect(configured.updatePreferences).toHaveBeenLastCalledWith({
+        ...preferences,
+        theme
+      });
+    }
+    expect(configured.updatePreferences).toHaveBeenCalledTimes(
+      HOSHIDICTS_THEMES.length
+    );
+
+    configured.emitPreferences({ ...preferences, theme: "not-a-theme" });
+    expect(configured.updatePreferences).toHaveBeenCalledTimes(
+      HOSHIDICTS_THEMES.length
+    );
   });
 
   it("validates definition blur preferences in overlay main", () => {
@@ -5299,6 +5529,28 @@ describe("Hoshidicts Shift-hover scanner", () => {
       });
     expect(dom.window.document.documentElement.dataset.hoshidictsTheme).toBe(
       "cyberpunk"
+    );
+    reader.destroy();
+  });
+
+  it("applies every supported theme inside the reader runtime", () => {
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      logger: { debug() {}, info() {}, warn() {} }
+    });
+
+    for (const theme of HOSHIDICTS_THEMES) {
+      expect(reader.updatePreferences({ theme }).theme).toBe(theme);
+      expect(dom.window.document.documentElement.dataset.hoshidictsTheme).toBe(
+        theme
+      );
+    }
+    expect(reader.updatePreferences({ theme: "not-a-theme" }).theme).toBe(
+      HOSHIDICTS_THEMES.at(-1)
     );
     reader.destroy();
   });

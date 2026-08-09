@@ -1553,7 +1553,7 @@ describe('Hoshidicts reader preferences', () => {
             false,
             720,
             520,
-            'autumn'
+            'girlypop'
         );
 
         expect(snapshot.lookupMode).toBe('hover');
@@ -1564,7 +1564,7 @@ describe('Hoshidicts reader preferences', () => {
         expect(snapshot.popupNestingMaxDepth).toBe(12);
         expect(snapshot.popupWidthPx).toBe(720);
         expect(snapshot.popupHeightPx).toBe(520);
-        expect(snapshot.theme).toBe('autumn');
+        expect(snapshot.theme).toBe('girlypop');
         expect(snapshot.definitionBlur).toEqual({
             enabled: true,
             lookupThreshold: 8,
@@ -1579,7 +1579,7 @@ describe('Hoshidicts reader preferences', () => {
         expect(readManifest(baseDir).popupNestingMaxDepth).toBe(12);
         expect(readManifest(baseDir).popupWidthPx).toBe(720);
         expect(readManifest(baseDir).popupHeightPx).toBe(520);
-        expect(readManifest(baseDir).theme).toBe('autumn');
+        expect(readManifest(baseDir).theme).toBe('girlypop');
         expect(readManifest(baseDir).definitionBlur).toEqual({
             enabled: true,
             lookupThreshold: 8,
@@ -1596,7 +1596,7 @@ describe('Hoshidicts reader preferences', () => {
         expect((await reloaded.getSnapshot()).popupNestingMaxDepth).toBe(12);
         expect((await reloaded.getSnapshot()).popupWidthPx).toBe(720);
         expect((await reloaded.getSnapshot()).popupHeightPx).toBe(520);
-        expect((await reloaded.getSnapshot()).theme).toBe('autumn');
+        expect((await reloaded.getSnapshot()).theme).toBe('girlypop');
         expect((await reloaded.getSnapshot()).definitionBlur).toEqual({
             enabled: true,
             lookupThreshold: 8,
@@ -1613,7 +1613,7 @@ describe('Hoshidicts reader preferences', () => {
         expect(shifted.popupNestingMaxDepth).toBe(12);
         expect(shifted.popupWidthPx).toBe(720);
         expect(shifted.popupHeightPx).toBe(520);
-        expect(shifted.theme).toBe('autumn');
+        expect(shifted.theme).toBe('girlypop');
         expect(shifted.definitionBlur).toEqual({
             enabled: true,
             lookupThreshold: 8,

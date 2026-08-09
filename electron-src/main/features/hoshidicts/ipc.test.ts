@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     createDefaultHoshidictsAudioProfile,
     createDefaultHoshidictsFieldOverwriteModes,
+    type HoshidictsTheme,
 } from '../../../shared/features/hoshidicts.js';
 
 const harness = vi.hoisted(() => ({
@@ -25,12 +26,7 @@ const harness = vi.hoisted(() => ({
     popupNestingMaxDepthAtLaunch: 10 as number | null,
     popupWidthAtLaunch: 560 as number | null,
     popupHeightAtLaunch: 420 as number | null,
-    themeAtLaunch: 'default' as
-        | 'default'
-        | 'high-contrast'
-        | 'autumn'
-        | 'cyberpunk'
-        | null,
+    themeAtLaunch: 'default' as HoshidictsTheme | null,
     definitionBlurAtLaunch: {
         enabled: false,
         lookupThreshold: 5,
@@ -725,7 +721,7 @@ describe('Hoshidicts settings IPC', () => {
                     popupNestingMaxDepth: 10,
                     popupWidthPx: 560,
                     popupHeightPx: 420,
-                    theme: 'default',
+                    theme: 'girlypop',
                     definitionBlur: snapshot.definitionBlur,
                 }
             )
@@ -1484,7 +1480,7 @@ describe('Hoshidicts settings IPC', () => {
                     popupNestingMaxDepth: 4,
                     popupWidthPx: 560,
                     popupHeightPx: 420,
-                    theme: 'default',
+                    theme: 'girlypop',
                     definitionBlur: {
                         enabled: true,
                         lookupThreshold: 7,
@@ -1512,7 +1508,7 @@ describe('Hoshidicts settings IPC', () => {
             false,
             560,
             420,
-            'default'
+            'girlypop'
         );
         expect(context.applyReaderPreferences).toHaveBeenCalledWith({
             lookupMode: 'hover',
@@ -1523,7 +1519,7 @@ describe('Hoshidicts settings IPC', () => {
             popupNestingMaxDepth: 4,
             popupWidthPx: 560,
             popupHeightPx: 420,
-            theme: 'default',
+            theme: 'girlypop',
             definitionBlur: {
                 enabled: true,
                 lookupThreshold: 7,

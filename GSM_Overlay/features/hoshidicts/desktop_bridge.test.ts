@@ -5,6 +5,10 @@ import {
   HOSHIDICTS_CONTROL_METHODS,
   HoshidictsControlChannel,
 } from "../../../electron-src/main/features/hoshidicts/control_channel";
+import {
+  HOSHIDICTS_THEMES,
+  type HoshidictsTheme,
+} from "../../../electron-src/shared/features/hoshidicts";
 
 const require = createRequire(import.meta.url);
 const {
@@ -77,7 +81,7 @@ const {
     popupNestingMaxDepth: number;
     popupWidthPx: number;
     popupHeightPx: number;
-    theme: "default" | "high-contrast" | "autumn" | "cyberpunk";
+    theme: HoshidictsTheme;
     dictionaryPresentation: Array<{
       title: string;
       favorite: boolean;
@@ -248,6 +252,22 @@ describe("Hoshidicts desktop bridge", () => {
         { title: "Broken", favorite: true, displayName: "x".repeat(4097) },
       ],
     })).toThrow("Hoshidicts reader preferences are invalid.");
+  });
+
+  it("accepts every canonical popup theme for live preference delivery", () => {
+    expect(HOSHIDICTS_THEMES).toHaveLength(41);
+    for (const theme of HOSHIDICTS_THEMES) {
+      expect(normalizeHoshidictsReaderPreferences({
+        lookupMode: "hover",
+        activationKey: "F8",
+        sourceHighlightEnabled: true,
+        popupHideDelayMs: 850,
+        popupNestingMaxDepth: 4,
+        popupWidthPx: 680,
+        popupHeightPx: 500,
+        theme,
+      }).theme).toBe(theme);
+    }
   });
 
   it("adds a stateful activation binding without replacing route-all hotkeys", () => {

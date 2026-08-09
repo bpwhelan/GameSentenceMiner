@@ -245,7 +245,7 @@ describe('Hoshidicts manager full backups', () => {
             false,
             720,
             520,
-            'autumn',
+            'girlypop',
         );
         await source.setSchedule('weekly');
         await source.setDictionarySchedule(beta!.id, 'hourly');
@@ -346,7 +346,7 @@ describe('Hoshidicts manager full backups', () => {
             },
             popupWidthPx: 720,
             popupHeightPx: 520,
-            theme: 'autumn',
+            theme: 'girlypop',
             schedule: 'weekly',
         });
         await expect(target.getCustomDictionaryDocument()).resolves.toMatchObject({

@@ -27,7 +27,7 @@ import {
   DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
   DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
   DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
-  HOSHIDICTS_THEMES,
+  HOSHIDICTS_THEME_GROUPS,
   HOSHIDICTS_FIELD_OVERWRITE_MODES,
   MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
   MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
@@ -69,14 +69,6 @@ const OVERWRITE_MODE_KEYS: Record<HoshidictsFieldOverwriteMode, string> = {
   append: "settings.hoshidicts.mining.overwriteModes.append",
   prepend: "settings.hoshidicts.mining.overwriteModes.prepend",
   overwrite: "settings.hoshidicts.mining.overwriteModes.overwrite"
-};
-
-const THEME_KEYS: Record<HoshidictsTheme, string> = {
-  default: "settings.hoshidicts.reader.appearance.themes.default",
-  "high-contrast":
-    "settings.hoshidicts.reader.appearance.themes.highContrast",
-  autumn: "settings.hoshidicts.reader.appearance.themes.autumn",
-  cyberpunk: "settings.hoshidicts.reader.appearance.themes.cyberpunk"
 };
 
 const SCHEDULE_KEYS: Record<HoshidictsSchedule, string> = {
@@ -477,10 +469,14 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                   setTheme(event.currentTarget.value as HoshidictsTheme)
                 }
               >
-                {HOSHIDICTS_THEMES.map((theme) => (
-                  <option key={theme} value={theme}>
-                    {t(THEME_KEYS[theme])}
-                  </option>
+                {HOSHIDICTS_THEME_GROUPS.map((group) => (
+                  <optgroup key={group.id} label={t(group.labelKey)}>
+                    {group.themes.map((theme) => (
+                      <option key={theme.id} value={theme.id}>
+                        {t(theme.labelKey)}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             </label>

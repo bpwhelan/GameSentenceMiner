@@ -476,6 +476,56 @@
       "noResults": "Відповідних налаштувань не знайдено. Спробуйте ширші слова: anki, гарячі клавіші, оверлей, OBS або аудіо.",
       "overlayNotAvailable": "Налаштування оверлею не вдалося відкрити автоматично. Спочатку запустіть/підключіть оверлей або використовуйте його іконку в треї."
     },
+    "themeCatalog": {
+      "groups": {
+        "dark": "Темні",
+        "light": "Світлі",
+        "highContrast": "Високий контраст"
+      },
+      "names": {
+        "gsmDark": "GSM темна (типова)",
+        "catppuccinMocha": "Catppuccin Mocha",
+        "solarizedDark": "Solarized темна",
+        "dark": "Темна",
+        "synthwave": "Синтвейв",
+        "halloween": "Гелловін",
+        "forest": "Ліс",
+        "aqua": "Аква",
+        "black": "Чорна",
+        "luxury": "Розкіш",
+        "dracula": "Дракула",
+        "business": "Ділова",
+        "night": "Ніч",
+        "coffee": "Кава",
+        "dim": "Приглушена",
+        "sunset": "Захід сонця",
+        "abyss": "Безодня",
+        "girlypop": "Ґерліпоп",
+        "solarizedLight": "Solarized світла",
+        "light": "Світла",
+        "cupcake": "Кекс",
+        "bumblebee": "Джміль",
+        "emerald": "Смарагдова",
+        "corporate": "Корпоративна",
+        "retro": "Ретро",
+        "cyberpunk": "Кіберпанк",
+        "valentine": "Валентинка",
+        "garden": "Сад",
+        "lofi": "Лоу-фай",
+        "pastel": "Пастель",
+        "fantasy": "Фентезі",
+        "wireframe": "Каркас",
+        "cmyk": "CMYK",
+        "autumn": "Осінь",
+        "acid": "Кислотна",
+        "lemonade": "Лимонад",
+        "winter": "Зима",
+        "nord": "Норд",
+        "caramellatte": "Карамельне лате",
+        "silk": "Шовк",
+        "highContrast": "Високий контраст"
+      }
+    },
     "desktop": {
       "title": "Налаштування десктопного додатку",
       "iconStyle": "Стиль іконки:",
@@ -603,13 +653,7 @@
           "width": "Ширина",
           "height": "Висота",
           "pixels": "px",
-          "resetSize": "Скинути розмір",
-          "themes": {
-            "default": "Типова",
-            "highContrast": "Високий контраст",
-            "autumn": "Осіння",
-            "cyberpunk": "Кібер"
-          }
+          "resetSize": "Скинути розмір"
         },
         "definitionBlur": {
           "title": "Розмивати визначення після повторних пошуків",

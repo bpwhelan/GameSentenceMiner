@@ -1,3 +1,10 @@
+import {
+    GSM_THEME_DEFINITIONS,
+    GSM_THEME_GROUP_DEFINITIONS,
+    type GsmThemeCategory,
+    type GsmThemeId,
+} from '../themes.js';
+
 export const HOSHIDICTS_CHANNELS = {
     openSettings: 'hoshidicts.openSettings',
     getState: 'hoshidicts.getState',
@@ -154,13 +161,59 @@ export const MIN_HOSHIDICTS_POPUP_WIDTH_PX = 280;
 export const MAX_HOSHIDICTS_POPUP_WIDTH_PX = 1200;
 export const MIN_HOSHIDICTS_POPUP_HEIGHT_PX = 200;
 export const MAX_HOSHIDICTS_POPUP_HEIGHT_PX = 900;
-export const HOSHIDICTS_THEMES = [
-    'default',
-    'high-contrast',
-    'autumn',
-    'cyberpunk',
-] as const;
-export type HoshidictsTheme = (typeof HOSHIDICTS_THEMES)[number];
+export type HoshidictsTheme =
+    | 'default'
+    | 'girlypop'
+    | Exclude<GsmThemeId, 'gsm-dark'>;
+
+export interface HoshidictsThemeDefinition {
+    id: HoshidictsTheme;
+    category: GsmThemeCategory;
+    labelKey: string;
+}
+
+const GSM_HOSHIDICTS_THEME_DEFINITIONS: readonly HoshidictsThemeDefinition[] =
+    GSM_THEME_DEFINITIONS.filter((theme) => theme.id !== 'gsm-dark').map(
+        (theme) => ({
+            ...theme,
+            id: theme.id as Exclude<GsmThemeId, 'gsm-dark'>,
+        })
+    );
+
+export const HOSHIDICTS_THEME_DEFINITIONS: readonly HoshidictsThemeDefinition[] =
+    [
+        {
+            id: 'default',
+            category: 'dark',
+            labelKey: 'settings.themeCatalog.names.gsmDark',
+        },
+        ...GSM_HOSHIDICTS_THEME_DEFINITIONS.filter(
+            (theme) => theme.category === 'dark'
+        ),
+        {
+            id: 'girlypop',
+            category: 'light',
+            labelKey: 'settings.themeCatalog.names.girlypop',
+        },
+        ...GSM_HOSHIDICTS_THEME_DEFINITIONS.filter(
+            (theme) => theme.category === 'light'
+        ),
+        ...GSM_HOSHIDICTS_THEME_DEFINITIONS.filter(
+            (theme) => theme.category === 'highContrast'
+        ),
+    ];
+
+export const HOSHIDICTS_THEME_GROUPS = GSM_THEME_GROUP_DEFINITIONS.map(
+    (group) => ({
+        ...group,
+        themes: HOSHIDICTS_THEME_DEFINITIONS.filter(
+            (theme) => theme.category === group.id
+        ),
+    })
+);
+
+export const HOSHIDICTS_THEMES: readonly HoshidictsTheme[] =
+    HOSHIDICTS_THEME_DEFINITIONS.map((theme) => theme.id);
 export const DEFAULT_HOSHIDICTS_THEME: HoshidictsTheme = 'default';
 const HOSHIDICTS_THEME_SET = new Set<string>(HOSHIDICTS_THEMES);
 
