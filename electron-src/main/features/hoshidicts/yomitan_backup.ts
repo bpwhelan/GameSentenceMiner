@@ -946,6 +946,7 @@ interface BankSpool {
 
 interface SpoolDictionary {
     title: string;
+    hasSummary: boolean;
     directory: string;
     indexPath: string;
     stylesPath: string | null;
@@ -1026,47 +1027,45 @@ function createBankSpools(): Record<BankKey, BankSpool> {
 
 async function createSpoolDictionary(
     root: string,
-    summary: YomitanDictionarySummary,
-    dictionaryNumber: number,
-    existing?: SpoolDictionary
+    title: string,
+    dictionaryNumber: number
 ): Promise<SpoolDictionary> {
-    if (existing) {
-        await fsp.writeFile(
-            existing.indexPath,
-            JSON.stringify(summary.index),
-            'utf8'
-        );
-        if (summary.styles) {
-            const stylesPath =
-                existing.stylesPath ?? path.join(existing.directory, 'styles.css');
-            await fsp.writeFile(stylesPath, summary.styles, 'utf8');
-            existing.stylesPath = stylesPath;
-        } else if (existing.stylesPath) {
-            await fsp.rm(existing.stylesPath, { force: true });
-            existing.stylesPath = null;
-        }
-        return existing;
-    }
     const directory = path.join(root, `spool-${dictionaryNumber}`);
     await fsp.mkdir(path.join(directory, 'banks'), { recursive: true });
     await fsp.mkdir(path.join(directory, 'media'));
     const indexPath = path.join(directory, 'index.json');
-    await fsp.writeFile(indexPath, JSON.stringify(summary.index), 'utf8');
-    let stylesPath: string | null = null;
-    if (summary.styles) {
-        stylesPath = path.join(directory, 'styles.css');
-        await fsp.writeFile(stylesPath, summary.styles, 'utf8');
-    }
     return {
-        title: summary.title,
+        title,
+        hasSummary: false,
         directory,
         indexPath,
-        stylesPath,
+        stylesPath: null,
         banks: createBankSpools(),
         media: new Map(),
         mediaNumber: 0,
         mediaRecordBytes: 0,
     };
+}
+
+async function applySpoolDictionarySummary(
+    dictionary: SpoolDictionary,
+    summary: YomitanDictionarySummary
+): Promise<void> {
+    await fsp.writeFile(
+        dictionary.indexPath,
+        JSON.stringify(summary.index),
+        'utf8'
+    );
+    if (summary.styles) {
+        const stylesPath =
+            dictionary.stylesPath ?? path.join(dictionary.directory, 'styles.css');
+        await fsp.writeFile(stylesPath, summary.styles, 'utf8');
+        dictionary.stylesPath = stylesPath;
+    } else if (dictionary.stylesPath) {
+        await fsp.rm(dictionary.stylesPath, { force: true });
+        dictionary.stylesPath = null;
+    }
+    dictionary.hasSummary = true;
 }
 
 async function finishBankFile(
@@ -1164,24 +1163,51 @@ async function spoolMedia(
     dictionary.mediaRecordBytes = totalRecordBytes;
 }
 
-async function spoolDictionaryRows(
+async function spoolDictionaryBackup(
     filePath: string,
-    dictionaries: Map<string, SpoolDictionary>,
+    root: string,
     onBytesRead?: (bytesRead: number) => void
-): Promise<void> {
+): Promise<SpoolDictionary[]> {
+    const spooled = new Map<string, SpoolDictionary>();
+    const dictionaries: SpoolDictionary[] = [];
+    let dictionaryNumber = 0;
     const appender = new BoundedFileAppender();
+    const getDictionary = async (title: string) => {
+        const existing = spooled.get(title);
+        if (existing) {
+            return existing;
+        }
+        dictionaryNumber += 1;
+        const dictionary = await createSpoolDictionary(
+            root,
+            title,
+            dictionaryNumber
+        );
+        spooled.set(title, dictionary);
+        return dictionary;
+    };
     try {
         await streamDictionaryRows(
             createTrackedReadStream(filePath, onBytesRead),
             async (tableName, inbound, row) => {
+                if (tableName === 'dictionaries') {
+                    const summary = parseDictionarySummary(row, inbound);
+                    if (!summary) {
+                        return;
+                    }
+                    const dictionary = await getDictionary(summary.title);
+                    const firstSummary = !dictionary.hasSummary;
+                    await applySpoolDictionarySummary(dictionary, summary);
+                    if (firstSummary) {
+                        dictionaries.push(dictionary);
+                    }
+                    return;
+                }
                 const parsed = parseDictionaryRow(tableName, row, inbound);
                 if (!parsed) {
                     return;
                 }
-                const dictionary = dictionaries.get(parsed.dictionary);
-                if (!dictionary) {
-                    return;
-                }
+                const dictionary = await getDictionary(parsed.dictionary);
                 if (parsed.kind === 'bank') {
                     await appendBankEntry(
                         dictionary,
@@ -1198,7 +1224,7 @@ async function spoolDictionaryRows(
                 }
             }
         );
-        for (const dictionary of dictionaries.values()) {
+        for (const dictionary of spooled.values()) {
             for (const [bankKey] of BANK_FILES) {
                 await finishBankFile(dictionary.banks[bankKey], appender);
             }
@@ -1206,6 +1232,7 @@ async function spoolDictionaryRows(
     } finally {
         await appender.closeAll();
     }
+    return dictionaries;
 }
 
 async function writeDictionaryArchive(
@@ -1293,56 +1320,27 @@ export async function prepareYomitanDictionaryBackup(
     const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'gsm-yomitan-'));
     try {
         const dictionaries: Array<{ title: string; archivePath: string }> = [];
-        const spooled = new Map<string, SpoolDictionary>();
-        let dictionaryNumber = 0;
         const fileSize = onReadingProgress
             ? (await fsp.stat(filePath)).size
             : 0;
-        const totalReadBytes = fileSize * 2;
         const reportReadingProgress = onReadingProgress
-            ? createReadingProgressReporter(
-                  totalReadBytes,
-                  onReadingProgress
-              )
+            ? createReadingProgressReporter(fileSize, onReadingProgress)
             : null;
         reportReadingProgress?.(0, true);
-        await streamDictionaryRows(
-            createTrackedReadStream(filePath, (bytesRead) =>
-                reportReadingProgress?.(bytesRead)
-            ),
-            async (tableName, inbound, row) => {
-                if (tableName !== 'dictionaries') {
-                    return;
-                }
-                const summary = parseDictionarySummary(row, inbound);
-                if (summary) {
-                    const existing = spooled.get(summary.title);
-                    if (!existing) {
-                        dictionaryNumber += 1;
-                    }
-                    spooled.set(
-                        summary.title,
-                        await createSpoolDictionary(
-                            root,
-                            summary,
-                            dictionaryNumber,
-                            existing
-                        )
-                    );
-                }
-            }
+        const spooled = await spoolDictionaryBackup(
+            filePath,
+            root,
+            reportReadingProgress
+                ? (bytesRead) => reportReadingProgress(bytesRead)
+                : undefined
         );
         reportReadingProgress?.(fileSize, true);
-        if (spooled.size === 0) {
+        if (spooled.length === 0) {
             throw new Error('The Yomitan backup does not contain dictionaries.');
         }
-        await spoolDictionaryRows(filePath, spooled, (bytesRead) =>
-            reportReadingProgress?.(fileSize + bytesRead)
-        );
-        reportReadingProgress?.(totalReadBytes, true);
-        const total = spooled.size;
+        const total = spooled.length;
         let index = 0;
-        for (const [title, dictionary] of spooled) {
+        for (const dictionary of spooled) {
             index += 1;
             onProgress?.({
                 current: index,
@@ -1352,7 +1350,6 @@ export async function prepareYomitanDictionaryBackup(
             const archivePath = path.join(root, `dictionary-${index}.zip`);
             await writeDictionaryArchive(dictionary, archivePath);
             await fsp.rm(dictionary.directory, { recursive: true, force: true });
-            spooled.delete(title);
             if (onPreparedDictionary) {
                 try {
                     await onPreparedDictionary({
