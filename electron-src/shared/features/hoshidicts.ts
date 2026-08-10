@@ -29,6 +29,7 @@ export const HOSHIDICTS_CHANNELS = {
     getMiningOptions: 'hoshidicts.getMiningOptions',
     setDictionaryEnabled: 'hoshidicts.setDictionaryEnabled',
     setDictionaryPresentation: 'hoshidicts.setDictionaryPresentation',
+    bulkDictionaryAction: 'hoshidicts.bulkDictionaryAction',
     createTabGroup: 'hoshidicts.createTabGroup',
     setTabGroupMembership: 'hoshidicts.setTabGroupMembership',
     renameTabGroup: 'hoshidicts.renameTabGroup',
@@ -1022,6 +1023,18 @@ export interface HoshidictsDictionaryEnabledRequest {
 export interface HoshidictsDictionaryPresentationRequest {
     id: string;
     favorite: boolean;
+}
+
+export type HoshidictsBulkDictionaryAction =
+    | 'enable'
+    | 'disable'
+    | 'favorite'
+    | 'unfavorite'
+    | 'update';
+
+export interface HoshidictsBulkDictionaryActionRequest {
+    action: HoshidictsBulkDictionaryAction;
+    ids: string[];
 }
 
 export interface HoshidictsCreateTabGroupRequest {

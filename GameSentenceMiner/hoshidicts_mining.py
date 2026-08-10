@@ -22,7 +22,6 @@ LEGACY_HOSHIDICTS_MINING_PROFILE_VERSIONS = (1, 2)
 MAX_PROFILE_BYTES = 64 * 1024
 MAX_BROWSE_REQUEST_BYTES = 64 * 1024
 MAX_ANKI_OPTION_NAMES = 4096
-MAX_DUPLICATE_CHECK_NOTES = 16
 ANKI_CONNECT_TIMEOUT_SECONDS = 1.25
 MINING_STATUS_CACHE_SECONDS = 2.0
 MINING_STATUS_WAIT_SECONDS = (ANKI_CONNECT_TIMEOUT_SECONDS * 2) + 0.5
@@ -172,18 +171,10 @@ GENERIC_FIELD_ALIASES = {
     "audio": OPTIONAL_FIELD_ALIASES["audio"],
 }
 
-KIKU_LAPIS_FIELD_MAP = {
-    "expression": "Expression",
-    "reading": "ExpressionReading",
-    "definition": "Glossary",
-    "sentence": "Sentence",
-    "frequency": "Frequency",
-    "pitch": "PitchPosition",
-}
 # Kiku's Yomitan setup uses a dictionary-specific ``single-glossary-*`` marker
 # for MainDefinition. Hoshidicts' equivalent is ``main-definition``, which
 # renders the first dictionary group in the configured lookup order.
-KIKU_YOMITAN_FIELD_TEMPLATES = {
+KIKU_FIELD_TEMPLATES = {
     "Expression": ("expression", "{expression}"),
     "ExpressionFurigana": ("expression-furigana", "{furigana-plain}"),
     "ExpressionReading": ("reading", "{reading}"),
@@ -201,6 +192,13 @@ KIKU_YOMITAN_FIELD_TEMPLATES = {
     "Frequency": ("frequency", "{frequencies}"),
     "FreqSort": ("frequency-sort", "{frequency-harmonic-rank}"),
     "MiscInfo": ("document-title", "{document-title}"),
+}
+# Compatibility for legacy semantic profiles. Kiku mappings themselves are
+# maintained only in KIKU_FIELD_TEMPLATES above.
+KIKU_LAPIS_FIELD_MAP = {
+    ("definition" if slot == "glossary" else slot): field_name
+    for field_name, (slot, _template) in KIKU_FIELD_TEMPLATES.items()
+    if slot in {"expression", "reading", "glossary", "sentence", "frequency", "pitch"}
 }
 FIELD_TEMPLATE_SUGGESTION_SLOTS = (
     "expression",
@@ -441,7 +439,7 @@ def _suggest_field_templates(
     for key, field_aliases in GENERIC_FIELD_ALIASES.items():
         for alias in field_aliases:
             add_match(alias, key, FIELD_TEMPLATE_MARKERS[key])
-    for field_name, (slot, marker) in KIKU_YOMITAN_FIELD_TEMPLATES.items():
+    for field_name, (slot, marker) in KIKU_FIELD_TEMPLATES.items():
         matches_by_field_name[_field_name_key(field_name)] = [(slot, marker)]
     add_match(
         str(config.anki.word_field or "").strip(),
@@ -454,19 +452,10 @@ def _suggest_field_templates(
         "{sentence}",
     )
 
-    has_expression_target = any(
-        any(
-            semantic in {"expression", "expression-furigana"}
-            for semantic, _marker in matches_by_field_name.get(_field_name_key(field_name), [])
-        )
-        for field_name in available_fields
-    )
     suggestions = {}
     used_semantics = set()
-    for index, field_name in enumerate(available_fields):
+    for field_name in available_fields:
         matches = list(matches_by_field_name.get(_field_name_key(field_name), []))
-        if index == 0 and not has_expression_target:
-            matches.append(("expression", "{expression}"))
         matches.sort(key=lambda item: FIELD_TEMPLATE_SUGGESTION_SLOTS.index(item[0]))
         markers = []
         for semantic, marker in matches:
@@ -1738,7 +1727,7 @@ def _build_hoshidicts_note(
     if not fields[first_model_field].strip():
         raise HoshidictsMiningError(
             f'The first Anki field "{first_model_field}" is empty. Map it to a value before mining.',
-            503,
+            422,
         )
 
     config = resolved["config"]
@@ -2074,10 +2063,8 @@ def check_hoshidicts_notes(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise HoshidictsMiningError("Duplicate check request must be an object.")
     raw_notes = payload.get("notes")
-    if not isinstance(raw_notes, list) or not 1 <= len(raw_notes) <= MAX_DUPLICATE_CHECK_NOTES:
-        raise HoshidictsMiningError(
-            f"Duplicate check notes must contain between 1 and {MAX_DUPLICATE_CHECK_NOTES} items."
-        )
+    if not isinstance(raw_notes, list) or not raw_notes:
+        raise HoshidictsMiningError("Duplicate check notes must contain at least 1 item.")
 
     requests = [validate_hoshidicts_mining_request(note) for note in raw_notes]
     resolved = _resolve_mining_configuration()

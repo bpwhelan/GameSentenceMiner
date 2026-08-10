@@ -709,6 +709,68 @@ describe('Hoshidicts immutable generations', () => {
         expect(reloadNative).not.toHaveBeenCalled();
     });
 
+    it('applies bulk dictionary boolean changes with one manifest commit and native reload', async () => {
+        const baseDir = makeTempDir();
+        const archivesDir = makeTempDir();
+        const { manager, reloadNative } = createHarness(baseDir);
+        for (const title of ['Alpha', 'Beta', 'Gamma']) {
+            await manager.importDictionary(
+                writeArchive(archivesDir, `${title}.zip`, {
+                    title,
+                    revision: 'one',
+                    sourceLanguage: 'ja',
+                })
+            );
+        }
+        const dictionaries = (await manager.getSnapshot()).dictionaries;
+        reloadNative.mockClear();
+
+        const disabled = await manager.setDictionariesEnabled(
+            dictionaries.map(({ id }) => id),
+            false
+        );
+
+        expect(disabled.dictionaries.map(({ enabled }) => enabled)).toEqual([
+            false,
+            false,
+            false,
+        ]);
+        expect(reloadNative).toHaveBeenCalledOnce();
+
+        reloadNative.mockClear();
+        const favorited = await manager.setDictionariesPresentation(
+            dictionaries.slice(0, 2).map(({ id }) => id),
+            true
+        );
+
+        expect(favorited.dictionaries.map(({ favorite }) => favorite)).toEqual([
+            true,
+            true,
+            false,
+        ]);
+        expect(reloadNative).not.toHaveBeenCalled();
+    });
+
+    it('rejects the whole bulk boolean change when any dictionary id is invalid', async () => {
+        const baseDir = makeTempDir();
+        const archive = writeArchive(makeTempDir(), 'alpha.zip', {
+            title: 'Alpha',
+            revision: 'one',
+            sourceLanguage: 'ja',
+        });
+        const { manager, reloadNative } = createHarness(baseDir);
+        await manager.importDictionary(archive);
+        const dictionary = (await manager.getSnapshot()).dictionaries[0];
+        reloadNative.mockClear();
+
+        await expect(
+            manager.setDictionariesEnabled([dictionary.id, 'missing'], false)
+        ).rejects.toThrow('not installed');
+
+        expect((await manager.getSnapshot()).dictionaries[0].enabled).toBe(true);
+        expect(reloadNative).not.toHaveBeenCalled();
+    });
+
     it('persists ordered tab groups with multiple dictionary memberships', async () => {
         const baseDir = makeTempDir();
         const archivesDir = makeTempDir();
@@ -2865,6 +2927,48 @@ describe('Hoshidicts import policy', () => {
 });
 
 describe('Hoshidicts updates and schedule', () => {
+    it('checks updates only for the explicitly selected dictionaries', async () => {
+        const baseDir = makeTempDir();
+        const archivesDir = makeTempDir();
+        const fetchRemoteIndex = vi.fn(async (url: string) => ({
+            revision: url.includes('beta') ? 'beta-one' : 'alpha-one',
+            downloadUrl: null,
+        }));
+        const { manager } = createHarness(baseDir, { fetchRemoteIndex });
+        await manager.importDictionary(
+            writeArchive(archivesDir, 'alpha.zip', {
+                title: 'Alpha',
+                revision: 'alpha-one',
+                sourceLanguage: 'ja',
+                isUpdatable: true,
+                indexUrl: 'https://dict.example/alpha-index.json',
+                downloadUrl: 'https://dict.example/alpha.zip',
+            })
+        );
+        await manager.importDictionary(
+            writeArchive(archivesDir, 'beta.zip', {
+                title: 'Beta',
+                revision: 'beta-one',
+                sourceLanguage: 'ja',
+                isUpdatable: true,
+                indexUrl: 'https://dict.example/beta-index.json',
+                downloadUrl: 'https://dict.example/beta.zip',
+            })
+        );
+        const [alpha, beta] = (await manager.getSnapshot()).dictionaries;
+
+        const snapshot = await manager.checkForUpdates(true, [beta.id]);
+
+        expect(fetchRemoteIndex).toHaveBeenCalledOnce();
+        expect(fetchRemoteIndex).toHaveBeenCalledWith(
+            'https://dict.example/beta-index.json'
+        );
+        expect(snapshot.dictionaries.find(({ id }) => id === alpha.id)?.lastUpdateCheck)
+            .toBeNull();
+        expect(snapshot.dictionaries.find(({ id }) => id === beta.id)?.lastUpdateCheck)
+            .not.toBeNull();
+    });
+
     it('rejects a wrong-kind update for an installed recommendation', async () => {
         const baseDir = makeTempDir();
         const jitendex = RECOMMENDED_HOSHIDICTS_DICTIONARIES.find(

@@ -112,6 +112,15 @@ describe('Hoshidicts audio profile', () => {
             'custom audio source URL is invalid',
         ],
         [
+            'unclosed URL placeholder',
+            profileWithSource({
+                id: 'local-audio',
+                type: 'custom-json',
+                url: 'http://127.0.0.1:5050/?term={term}&reading={reading',
+            }),
+            'custom audio source URL is invalid',
+        ],
+        [
             'TTS URL',
             profileWithSource({
                 id: 'tts',

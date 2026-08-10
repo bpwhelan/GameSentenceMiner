@@ -692,6 +692,100 @@ describe("HoshidictsSettingsWindow", () => {
     );
   });
 
+  it("searches dictionary titles and aliases and bulk-selects only matching rows", async () => {
+    const state: HoshidictsDesktopSnapshot = {
+      ...baseState,
+      dictionaries: [
+        {
+          ...baseState.dictionaries[0],
+          displayName: "Primary Lexicon"
+        },
+        baseState.dictionaries[1]
+      ]
+    };
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === HOSHIDICTS_CHANNELS.getState) return state;
+      if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
+        return miningOptions;
+      }
+      return {
+        success: true,
+        outcome: { code: "dictionaryChanged" },
+        state: { ...state, revision: ++revision }
+      };
+    });
+    await render();
+
+    const search = container.querySelector<HTMLInputElement>(
+      '[aria-label="Search installed dictionaries"]'
+    );
+    await act(async () => {
+      setInputValue(search, "jmdict");
+      await Promise.resolve();
+    });
+    expect(
+      container.querySelectorAll(".hoshidicts-dictionary-row")
+    ).toHaveLength(1);
+    expect(container.textContent).toContain("Primary Lexicon");
+
+    await act(async () => {
+      setInputValue(search, "primary");
+      await Promise.resolve();
+    });
+    expect(
+      container.querySelectorAll(".hoshidicts-dictionary-row")
+    ).toHaveLength(1);
+    expect(container.textContent).toContain("Primary Lexicon");
+
+    await act(async () => {
+      Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+        .find((button) => button.textContent?.trim() === "Select all matches")
+        ?.click();
+      await Promise.resolve();
+    });
+    expect(
+      container.querySelector<HTMLInputElement>(
+        '[aria-label="Select Primary Lexicon"]'
+      )?.checked
+    ).toBe(true);
+
+    await act(async () => {
+      Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+        .find((button) => button.textContent?.trim() === "Disable")
+        ?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.bulkDictionaryAction,
+      { action: "disable", ids: ["jmdict-id"] }
+    );
+  });
+
+  it("offers every bulk dictionary action for selected matches", async () => {
+    await render();
+
+    await act(async () => {
+      Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+        .find((button) => button.textContent?.trim() === "Select all matches")
+        ?.click();
+      await Promise.resolve();
+    });
+
+    const labels = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(
+        ".hoshidicts-dictionary-bulk-actions button"
+      )
+    ).map((button) => button.textContent?.trim());
+    expect(labels).toEqual([
+      "Enable",
+      "Disable",
+      "Favourite",
+      "Unfavourite",
+      "Update now"
+    ]);
+  });
+
   it("renders a favourited dictionary with a filled star", async () => {
     const state = {
       ...baseState,

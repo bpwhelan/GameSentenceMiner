@@ -800,6 +800,21 @@
       "updatable": "自動アップデート",
       "manualOnly": "手動アップデートのみ",
       "priorityHint": "上にある辞書から優先して検索します。",
+      "dictionaryBulk": {
+        "searchLabel": "インストール済み辞書を検索",
+        "searchPlaceholder": "辞書名または別名で検索",
+        "matchCount": "{count}件一致",
+        "selectAllMatches": "一致する辞書をすべて選択",
+        "deselectAllMatches": "一致する辞書の選択をすべて解除",
+        "selectedCount": "{count}件選択中",
+        "selectDictionary": "{title}を選択",
+        "enable": "有効化",
+        "disable": "無効化",
+        "favorite": "お気に入りに追加",
+        "unfavorite": "お気に入りから削除",
+        "updateNow": "今すぐ更新",
+        "noMatches": "検索に一致する辞書はありません。"
+      },
       "dictionaryPresentation": {
         "addFavorite": "{title}をお気に入りに追加",
         "removeFavorite": "{title}をお気に入りから削除"

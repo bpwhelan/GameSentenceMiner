@@ -56,7 +56,7 @@ TTS_SOURCE_TYPES = frozenset({"text-to-speech", "text-to-speech-reading"})
 DOWNLOADABLE_SOURCE_TYPES = BUILTIN_SOURCE_TYPES | CUSTOM_SOURCE_TYPES
 _SOURCE_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 _CANDIDATE_ID_PATTERN = re.compile(r"^[a-f0-9]{64}$")
-_PLACEHOLDER_PATTERN = re.compile(r"\{([^}]*)\}")
+_PLACEHOLDER_PATTERN = re.compile(r"\{([^{}]*)\}")
 _INVALID_JPOD101_DIGEST = "ae6398b5a27bc8c0a771df6c907ade794be15518174773c58c7c7ddd17098906"
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
@@ -205,6 +205,12 @@ def _substitute_custom_url(url: str, term: str, reading: str) -> str:
     return _PLACEHOLDER_PATTERN.sub(lambda match: values.get(match.group(1), match.group(0)), url)
 
 
+def _validate_custom_url_template(url: str) -> None:
+    without_placeholders = _PLACEHOLDER_PATTERN.sub("", url)
+    if "{" in without_placeholders or "}" in without_placeholders:
+        raise HoshidictsAudioError("Hoshidicts audio source URL is invalid.")
+
+
 def normalize_hoshidicts_audio_profile(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise HoshidictsAudioError("Hoshidicts audio profile must be an object.")
@@ -266,6 +272,7 @@ def normalize_hoshidicts_audio_profile(value: Any) -> dict[str, Any]:
             if voice:
                 raise HoshidictsAudioError("Custom Hoshidicts audio sources cannot define a voice.")
             if url:
+                _validate_custom_url_template(url)
                 _validate_http_url(url, label="Hoshidicts audio source URL")
                 _validate_http_url(
                     _substitute_custom_url(url, "term", "reading"),

@@ -76,6 +76,7 @@
 
 .hoshidicts-mining__toggle input,
 .hoshidicts-audio-toggle input,
+.hoshidicts-dictionary-row__selection input,
 .hoshidicts-dictionary-row__toggle input,
 .hoshidicts-reader-popup-scanning__toggle input {
   width: 18px;
@@ -822,6 +823,7 @@
 }
 
 .hoshidicts-window select,
+.hoshidicts-window input[type="search"],
 .hoshidicts-window input[type="text"],
 .hoshidicts-window input[type="number"],
 .hoshidicts-window textarea {
@@ -837,6 +839,7 @@
 }
 
 .hoshidicts-window select:focus,
+.hoshidicts-window input[type="search"]:focus,
 .hoshidicts-window input[type="text"]:focus,
 .hoshidicts-window input[type="number"]:focus,
 .hoshidicts-window textarea:focus {
@@ -987,6 +990,35 @@
   border-top: 1px solid var(--gsm-border-default);
 }
 
+.hoshidicts-dictionary-bulk-toolbar {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid var(--gsm-border-default);
+  border-radius: 7px;
+  background: var(--gsm-surface-1);
+}
+
+.hoshidicts-dictionary-search,
+.hoshidicts-dictionary-selection-actions,
+.hoshidicts-dictionary-bulk-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hoshidicts-dictionary-search input {
+  max-width: 420px;
+}
+
+.hoshidicts-dictionary-search span,
+.hoshidicts-dictionary-selection-actions span {
+  color: var(--gsm-text-muted);
+  font-size: 0.8rem;
+}
+
 .hoshidicts-recommended-row,
 .hoshidicts-dictionary-row {
   display: flex;
@@ -1016,9 +1048,10 @@
   opacity: 0.62;
 }
 
+.hoshidicts-dictionary-row__selection,
 .hoshidicts-dictionary-row__toggle {
   display: grid;
-  flex: 0 0 30px;
+  flex: 0 0 26px;
   min-height: 38px;
   place-items: center;
 }

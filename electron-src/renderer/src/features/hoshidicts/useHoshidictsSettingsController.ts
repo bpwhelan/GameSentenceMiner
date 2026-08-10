@@ -37,6 +37,8 @@ import {
   type HoshidictsActionResult,
   type HoshidictsActivationKey,
   type HoshidictsAudioProfile,
+  type HoshidictsBulkDictionaryAction,
+  type HoshidictsBulkDictionaryActionRequest,
   type HoshidictsCreateTabGroupRequest,
   type HoshidictsCustomDictionaryDocument,
   type HoshidictsDeleteTabGroupRequest,
@@ -995,6 +997,20 @@ export function useHoshidictsSettingsController() {
               } satisfies HoshidictsDictionaryPresentationRequest
             ),
           "settings.hoshidicts.errors.operation"
+        ),
+      bulkDictionaryAction: (
+        action: HoshidictsBulkDictionaryAction,
+        ids: string[]
+      ) =>
+        runAction(
+          () =>
+            invokeIpc(
+              HOSHIDICTS_CHANNELS.bulkDictionaryAction,
+              { action, ids } satisfies HoshidictsBulkDictionaryActionRequest
+            ),
+          action === "update"
+            ? "settings.hoshidicts.errors.update"
+            : "settings.hoshidicts.errors.operation"
         ),
       createTabGroup: (name: string, dictionaryId?: string) =>
         runAction(

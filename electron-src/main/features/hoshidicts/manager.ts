@@ -2007,76 +2007,103 @@ export class HoshidictsManager {
         id: string,
         enabled: boolean
     ): Promise<HoshidictsManagerSnapshot> {
-        await this.enqueue('saving', async () => {
-            if (!SAFE_ID_PATTERN.test(id)) {
-                throw new Error('Dictionary id is invalid.');
-            }
-            if (id === HOSHIDICTS_CUSTOM_DICTIONARY_ID) {
-                throw new Error('The custom dictionary is always enabled.');
-            }
-            const manifest = await this.readManifest();
-            const index = manifest.dictionaries.findIndex(
-                (dictionary) => dictionary.id === id
-            );
-            if (index < 0) {
-                throw new Error('Dictionary is not installed.');
-            }
-            if (manifest.dictionaries[index].enabled === enabled) {
-                return;
-            }
-            const dictionaries = manifest.dictionaries.map((dictionary) => ({
-                ...dictionary,
-            }));
-            dictionaries[index].enabled = enabled;
-            const sortFrequencyDictionary =
-                !enabled &&
-                manifest.sortFrequencyDictionary === dictionaries[index].title
-                    ? null
-                    : manifest.sortFrequencyDictionary;
-            await this.commitManifestChange(
-                manifest,
-                { ...manifest, sortFrequencyDictionary, dictionaries },
-                null,
-                null
-            );
-        });
-        return await this.getSnapshot();
+        return await this.setDictionariesEnabled([id], enabled);
+    }
+
+    async setDictionariesEnabled(
+        ids: readonly string[],
+        enabled: boolean
+    ): Promise<HoshidictsManagerSnapshot> {
+        if (typeof enabled !== 'boolean') {
+            throw new Error('Dictionary enabled state is invalid.');
+        }
+        return await this.setDictionariesBooleanState(ids, 'enabled', enabled);
     }
 
     async setDictionaryPresentation(
         id: string,
         favorite: boolean
     ): Promise<HoshidictsManagerSnapshot> {
-        await this.enqueue('saving', async () => {
-            if (!SAFE_ID_PATTERN.test(id)) {
+        return await this.setDictionariesPresentation([id], favorite);
+    }
+
+    async setDictionariesPresentation(
+        ids: readonly string[],
+        favorite: boolean
+    ): Promise<HoshidictsManagerSnapshot> {
+        if (typeof favorite !== 'boolean') {
+            throw new Error('Dictionary favorite state is invalid.');
+        }
+        return await this.setDictionariesBooleanState(ids, 'favorite', favorite);
+    }
+
+    private async setDictionariesBooleanState(
+        ids: readonly string[],
+        field: 'enabled' | 'favorite',
+        value: boolean
+    ): Promise<HoshidictsManagerSnapshot> {
+        if (!Array.isArray(ids) || ids.length === 0) {
+            throw new Error('At least one dictionary must be selected.');
+        }
+        const uniqueIds = [...new Set(ids)];
+        for (const id of uniqueIds) {
+            if (typeof id !== 'string' || !SAFE_ID_PATTERN.test(id)) {
                 throw new Error('Dictionary id is invalid.');
             }
             if (id === HOSHIDICTS_CUSTOM_DICTIONARY_ID) {
                 throw new Error(
-                    'The custom dictionary presentation is managed automatically.'
+                    field === 'enabled'
+                        ? 'The custom dictionary is always enabled.'
+                        : 'The custom dictionary presentation is managed automatically.'
                 );
             }
-            if (typeof favorite !== 'boolean') {
-                throw new Error('Dictionary favorite state is invalid.');
-            }
+        }
+
+        await this.enqueue('saving', async () => {
             const manifest = await this.readManifest();
-            const index = manifest.dictionaries.findIndex(
-                (dictionary) => dictionary.id === id
-            );
-            if (index < 0) {
+            const selectedIds = new Set(uniqueIds);
+            if (
+                uniqueIds.some(
+                    (id) =>
+                        !manifest.dictionaries.some(
+                            (dictionary) => dictionary.id === id
+                        )
+                )
+            ) {
                 throw new Error('Dictionary is not installed.');
             }
-            const current = manifest.dictionaries[index];
-            if (current.favorite === favorite) {
+            if (
+                !manifest.dictionaries.some(
+                    (dictionary) =>
+                        selectedIds.has(dictionary.id) &&
+                        dictionary[field] !== value
+                )
+            ) {
                 return;
             }
-            const dictionaries = manifest.dictionaries.map((dictionary) => ({
-                ...dictionary,
-            }));
-            dictionaries[index].favorite = favorite;
-            // Presentation is renderer-only. Avoid a native reload while still
-            // using the manifest's atomic persistence path.
-            await this.atomicWriteManifest({ ...manifest, dictionaries });
+            const dictionaries = manifest.dictionaries.map((dictionary) =>
+                selectedIds.has(dictionary.id)
+                    ? { ...dictionary, [field]: value }
+                    : { ...dictionary }
+            );
+            const sortFrequencyDictionary =
+                field === 'enabled' &&
+                !value &&
+                dictionaries.some(
+                    (dictionary) =>
+                        selectedIds.has(dictionary.id) &&
+                        manifest.sortFrequencyDictionary === dictionary.title
+                )
+                    ? null
+                    : manifest.sortFrequencyDictionary;
+            const next = { ...manifest, sortFrequencyDictionary, dictionaries };
+            if (field === 'enabled') {
+                await this.commitManifestChange(manifest, next, null, null);
+            } else {
+                // Presentation is renderer-only. Avoid a native reload while still
+                // using the manifest's atomic persistence path.
+                await this.atomicWriteManifest(next);
+            }
         });
         return await this.getSnapshot();
     }
@@ -2813,12 +2840,47 @@ export class HoshidictsManager {
         return await this.getSnapshot();
     }
 
-    async checkForUpdates(force = true): Promise<HoshidictsManagerSnapshot> {
+    async checkForUpdates(
+        force = true,
+        dictionaryIds?: readonly string[]
+    ): Promise<HoshidictsManagerSnapshot> {
+        if (
+            dictionaryIds !== undefined &&
+            (!Array.isArray(dictionaryIds) || dictionaryIds.length === 0)
+        ) {
+            throw new Error('At least one dictionary must be selected.');
+        }
+        const selectedIds =
+            dictionaryIds === undefined
+                ? null
+                : new Set(
+                      dictionaryIds.map((id) => {
+                          if (
+                              typeof id !== 'string' ||
+                              !SAFE_ID_PATTERN.test(id)
+                          ) {
+                              throw new Error('Dictionary id is invalid.');
+                          }
+                          return id;
+                      })
+                  );
         await this.enqueue('checking', async () => {
             let manifest = await this.readManifest();
+            if (
+                selectedIds &&
+                [...selectedIds].some(
+                    (id) =>
+                        !manifest.dictionaries.some(
+                            (dictionary) => dictionary.id === id
+                        )
+                )
+            ) {
+                throw new Error('Dictionary is not installed.');
+            }
             const now = this.deps.now();
             const candidates = manifest.dictionaries.filter(
                 (dictionary) =>
+                    (selectedIds === null || selectedIds.has(dictionary.id)) &&
                     isDictionaryUpdateCandidate(dictionary) &&
                     (force ||
                         isHoshidictsCheckDue(

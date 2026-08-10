@@ -807,6 +807,21 @@
       "updatable": "Automatic updates",
       "manualOnly": "Manual updates only",
       "priorityHint": "Higher dictionaries are searched first.",
+      "dictionaryBulk": {
+        "searchLabel": "Search installed dictionaries",
+        "searchPlaceholder": "Search by title or alias",
+        "matchCount": "{count} matches",
+        "selectAllMatches": "Select all matches",
+        "deselectAllMatches": "Deselect all matches",
+        "selectedCount": "{count} selected",
+        "selectDictionary": "Select {title}",
+        "enable": "Enable",
+        "disable": "Disable",
+        "favorite": "Favourite",
+        "unfavorite": "Unfavourite",
+        "updateNow": "Update now",
+        "noMatches": "No dictionaries match this search."
+      },
       "dictionaryPresentation": {
         "addFavorite": "Add {title} to favourites",
         "removeFavorite": "Remove {title} from favourites"

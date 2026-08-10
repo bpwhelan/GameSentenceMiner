@@ -52,6 +52,7 @@ import {
   MIN_HOSHIDICTS_POPUP_WIDTH_PX,
   MIN_HOSHIDICTS_SCAN_LENGTH,
   type HoshidictsActivationKey,
+  type HoshidictsBulkDictionaryAction,
   type HoshidictsFieldOverwriteMode,
   type HoshidictsPopupToolbarPosition,
   type HoshidictsTheme,
@@ -948,6 +949,51 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
   >(null);
   const [recommendedExpandedOverride, setRecommendedExpandedOverride] =
     useState<boolean | null>(null);
+  const [dictionarySearch, setDictionarySearch] = useState("");
+  const [selectedDictionaryIds, setSelectedDictionaryIds] = useState<
+    Set<string>
+  >(() => new Set());
+
+  const installedDictionaries = state?.dictionaries ?? [];
+  const normalizedDictionarySearch = dictionarySearch
+    .normalize("NFKC")
+    .trim()
+    .toLocaleLowerCase();
+  const matchingDictionaries = useMemo(
+    () =>
+      installedDictionaries
+        .map((dictionary, index) => ({ dictionary, index }))
+        .filter(({ dictionary }) => {
+          if (!normalizedDictionarySearch) return true;
+          return [dictionary.title, dictionary.displayName]
+            .filter((name): name is string => name !== null)
+            .some((name) =>
+              name
+                .normalize("NFKC")
+                .toLocaleLowerCase()
+                .includes(normalizedDictionarySearch)
+            );
+        }),
+    [installedDictionaries, normalizedDictionarySearch]
+  );
+
+  useEffect(() => {
+    const installedIds = new Set(
+      installedDictionaries.map((dictionary) => dictionary.id)
+    );
+    setSelectedDictionaryIds((current) => {
+      const next = new Set(
+        [...current].filter((dictionaryId) => installedIds.has(dictionaryId))
+      );
+      if (
+        next.size === current.size &&
+        [...next].every((dictionaryId) => current.has(dictionaryId))
+      ) {
+        return current;
+      }
+      return next;
+    });
+  }, [installedDictionaries]);
 
   useEffect(() => {
     const closeMenusOutside = (event: PointerEvent) => {
@@ -980,6 +1026,37 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
   }, []);
 
   if (!state) return null;
+
+  const matchingIds = matchingDictionaries.map(
+    ({ dictionary }) => dictionary.id
+  );
+  const allMatchesSelected =
+    matchingIds.length > 0 &&
+    matchingIds.every((dictionaryId) =>
+      selectedDictionaryIds.has(dictionaryId)
+    );
+  const selectedDictionaries = state.dictionaries.filter((dictionary) =>
+    selectedDictionaryIds.has(dictionary.id)
+  );
+  const selectedTermDictionaryIds = selectedDictionaries
+    .filter((dictionary) => dictionary.termCount > 0)
+    .map((dictionary) => dictionary.id);
+  const selectedUpdatableDictionaryIds = selectedDictionaries
+    .filter((dictionary) => dictionary.isUpdatable)
+    .map((dictionary) => dictionary.id);
+  const runBulkDictionaryAction = (
+    action: HoshidictsBulkDictionaryAction
+  ) => {
+    const ids =
+      action === "favorite" || action === "unfavorite"
+        ? selectedTermDictionaryIds
+        : action === "update"
+          ? selectedUpdatableDictionaryIds
+          : selectedDictionaries.map((dictionary) => dictionary.id);
+    if (ids.length > 0) {
+      void actions.bulkDictionaryAction(action, ids);
+    }
+  };
 
   const recommendedExpanded =
     recommendedExpandedOverride ??
@@ -1801,19 +1878,143 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
           </span>
         </div>
 
+        {state.dictionaries.length > 0 ? (
+          <div className="hoshidicts-dictionary-bulk-toolbar">
+            <div className="hoshidicts-dictionary-search">
+              <input
+                type="search"
+                value={dictionarySearch}
+                aria-label={t(
+                  "settings.hoshidicts.dictionaryBulk.searchLabel"
+                )}
+                placeholder={t(
+                  "settings.hoshidicts.dictionaryBulk.searchPlaceholder"
+                )}
+                onChange={(event) =>
+                  setDictionarySearch(event.currentTarget.value)
+                }
+              />
+              <span>
+                {t("settings.hoshidicts.dictionaryBulk.matchCount", {
+                  count: matchingDictionaries.length
+                })}
+              </span>
+            </div>
+            <div className="hoshidicts-dictionary-selection-actions">
+              <button
+                type="button"
+                className="secondary"
+                disabled={dictionaryBusy || matchingIds.length === 0}
+                onClick={() =>
+                  setSelectedDictionaryIds((current) => {
+                    const next = new Set(current);
+                    for (const dictionaryId of matchingIds) {
+                      if (allMatchesSelected) next.delete(dictionaryId);
+                      else next.add(dictionaryId);
+                    }
+                    return next;
+                  })
+                }
+              >
+                {t(
+                  allMatchesSelected
+                    ? "settings.hoshidicts.dictionaryBulk.deselectAllMatches"
+                    : "settings.hoshidicts.dictionaryBulk.selectAllMatches"
+                )}
+              </button>
+              <span role="status">
+                {t("settings.hoshidicts.dictionaryBulk.selectedCount", {
+                  count: selectedDictionaries.length
+                })}
+              </span>
+            </div>
+            <div className="hoshidicts-dictionary-bulk-actions">
+              <button
+                type="button"
+                disabled={dictionaryBusy || selectedDictionaries.length === 0}
+                onClick={() => runBulkDictionaryAction("enable")}
+              >
+                {t("settings.hoshidicts.dictionaryBulk.enable")}
+              </button>
+              <button
+                type="button"
+                disabled={dictionaryBusy || selectedDictionaries.length === 0}
+                onClick={() => runBulkDictionaryAction("disable")}
+              >
+                {t("settings.hoshidicts.dictionaryBulk.disable")}
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                disabled={
+                  dictionaryBusy || selectedTermDictionaryIds.length === 0
+                }
+                onClick={() => runBulkDictionaryAction("favorite")}
+              >
+                {t("settings.hoshidicts.dictionaryBulk.favorite")}
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                disabled={
+                  dictionaryBusy || selectedTermDictionaryIds.length === 0
+                }
+                onClick={() => runBulkDictionaryAction("unfavorite")}
+              >
+                {t("settings.hoshidicts.dictionaryBulk.unfavorite")}
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                disabled={
+                  dictionaryBusy || selectedUpdatableDictionaryIds.length === 0
+                }
+                onClick={() => runBulkDictionaryAction("update")}
+              >
+                <RefreshCw size={16} aria-hidden="true" />
+                {t("settings.hoshidicts.dictionaryBulk.updateNow")}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         {state.dictionaries.length === 0 ? (
           <div className="hoshidicts-empty">
             {t("settings.hoshidicts.empty")}
           </div>
+        ) : matchingDictionaries.length === 0 ? (
+          <div className="hoshidicts-empty">
+            {t("settings.hoshidicts.dictionaryBulk.noMatches")}
+          </div>
         ) : (
           <div className="hoshidicts-dictionary-list">
-            {state.dictionaries.map((dictionary, index) => (
+            {matchingDictionaries.map(({ dictionary, index }) => (
               <div
                 className={`hoshidicts-dictionary-row ${
                   dictionary.enabled ? "" : "is-disabled"
                 }`}
                 key={dictionary.id}
               >
+                <label className="hoshidicts-dictionary-row__selection">
+                  <input
+                    type="checkbox"
+                    checked={selectedDictionaryIds.has(dictionary.id)}
+                    disabled={dictionaryBusy}
+                    aria-label={t(
+                      "settings.hoshidicts.dictionaryBulk.selectDictionary",
+                      { title: dictionaryDisplayName(dictionary) }
+                    )}
+                    onChange={(event) => {
+                      const selected = event.currentTarget.checked;
+                      setSelectedDictionaryIds((current) => {
+                        const next = new Set(current);
+                        if (selected) next.add(dictionary.id);
+                        else next.delete(dictionary.id);
+                        return next;
+                      });
+                    }}
+                  />
+                </label>
                 <label className="hoshidicts-dictionary-row__toggle">
                   <input
                     type="checkbox"

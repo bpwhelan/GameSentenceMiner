@@ -83,7 +83,9 @@ const harness = vi.hoisted(() => ({
         setMiningProfile: vi.fn(),
         setAudioProfile: vi.fn(),
         setDictionaryEnabled: vi.fn(),
+        setDictionariesEnabled: vi.fn(),
         setDictionaryPresentation: vi.fn(),
+        setDictionariesPresentation: vi.fn(),
         createTabGroup: vi.fn(),
         setTabGroupMembership: vi.fn(),
         renameTabGroup: vi.fn(),
@@ -255,7 +257,9 @@ async function registerHarness() {
         candidateName: 'kiku',
     });
     harness.manager.setMiningProfile.mockResolvedValue(snapshot);
+    harness.manager.setDictionariesEnabled.mockResolvedValue(snapshot);
     harness.manager.setDictionaryPresentation.mockResolvedValue(snapshot);
+    harness.manager.setDictionariesPresentation.mockResolvedValue(snapshot);
     harness.manager.createTabGroup.mockResolvedValue(snapshot);
     harness.manager.setTabGroupMembership.mockResolvedValue(snapshot);
     harness.manager.renameTabGroup.mockResolvedValue(snapshot);
@@ -1361,6 +1365,56 @@ describe('Hoshidicts settings IPC', () => {
                 effectiveEnabled: true,
             })
         );
+    });
+
+    it('validates and dispatches bulk dictionary actions as one manager call', async () => {
+        const context = await registerHarness();
+        const bulkAction = harness.handlers.get(
+            'hoshidicts.bulkDictionaryAction'
+        );
+
+        await expect(
+            bulkAction?.(
+                { sender: context.settingsContents },
+                { action: 'disable', ids: ['alpha', 'beta', 'alpha'] }
+            )
+        ).resolves.toMatchObject({ success: true });
+        expect(harness.manager.setDictionariesEnabled).toHaveBeenCalledOnce();
+        expect(harness.manager.setDictionariesEnabled).toHaveBeenCalledWith(
+            ['alpha', 'beta'],
+            false
+        );
+
+        await bulkAction?.(
+            { sender: context.settingsContents },
+            { action: 'favorite', ids: ['alpha', 'beta'] }
+        );
+        expect(
+            harness.manager.setDictionariesPresentation
+        ).toHaveBeenCalledWith(['alpha', 'beta'], true);
+
+        await bulkAction?.(
+            { sender: context.settingsContents },
+            { action: 'update', ids: ['beta'] }
+        );
+        expect(harness.manager.checkForUpdates).toHaveBeenCalledWith(true, [
+            'beta',
+        ]);
+
+        for (const request of [
+            null,
+            { action: 'delete', ids: ['alpha'] },
+            { action: 'enable', ids: [] },
+            { action: 'enable', ids: ['not valid'] },
+        ]) {
+            await expect(
+                bulkAction?.({ sender: context.settingsContents }, request)
+            ).resolves.toMatchObject({
+                success: false,
+                error: 'Bulk dictionary action request is invalid.',
+            });
+        }
+        expect(harness.manager.setDictionariesEnabled).toHaveBeenCalledOnce();
     });
 
     it('validates, persists, and applies ordered dictionary presentation live', async () => {

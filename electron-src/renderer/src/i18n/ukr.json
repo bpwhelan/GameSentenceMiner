@@ -800,6 +800,21 @@
       "updatable": "Автоматичні оновлення",
       "manualOnly": "Лише ручні оновлення",
       "priorityHint": "Словники вище перевіряються першими.",
+      "dictionaryBulk": {
+        "searchLabel": "Пошук установлених словників",
+        "searchPlaceholder": "Пошук за назвою або псевдонімом",
+        "matchCount": "Збігів: {count}",
+        "selectAllMatches": "Вибрати всі збіги",
+        "deselectAllMatches": "Скасувати вибір усіх збігів",
+        "selectedCount": "Вибрано: {count}",
+        "selectDictionary": "Вибрати {title}",
+        "enable": "Увімкнути",
+        "disable": "Вимкнути",
+        "favorite": "Додати до обраного",
+        "unfavorite": "Вилучити з обраного",
+        "updateNow": "Оновити зараз",
+        "noMatches": "Жоден словник не відповідає пошуку."
+      },
       "dictionaryPresentation": {
         "addFavorite": "Додати {title} до обраного",
         "removeFavorite": "Вилучити {title} з обраного"

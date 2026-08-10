@@ -43,6 +43,7 @@ import {
     type HoshidictsAudioProfile,
     type HoshidictsAudioSourceTestRequest,
     type HoshidictsAudioSourceTestResult,
+    type HoshidictsBulkDictionaryActionRequest,
     type HoshidictsDefinitionBlurPreferences,
     type HoshidictsSaveCustomDictionaryRequest,
     type HoshidictsDesktopSnapshot,
@@ -1411,6 +1412,85 @@ export function registerHoshidictsIPC(
                     return state;
                 },
                 { code: 'dictionaryChanged' }
+            );
+        }
+    );
+
+    ipcMain.handle(
+        HOSHIDICTS_CHANNELS.bulkDictionaryAction,
+        async (event, request: unknown) => {
+            assertSettingsSender(event, deps);
+            const value = request as
+                | Partial<HoshidictsBulkDictionaryActionRequest>
+                | null;
+            if (
+                !value ||
+                (value.action !== 'enable' &&
+                    value.action !== 'disable' &&
+                    value.action !== 'favorite' &&
+                    value.action !== 'unfavorite' &&
+                    value.action !== 'update') ||
+                !Array.isArray(value.ids) ||
+                value.ids.length === 0 ||
+                value.ids.length > 4096 ||
+                value.ids.some(
+                    (id) =>
+                        typeof id !== 'string' ||
+                        !/^[A-Za-z0-9._-]{1,128}$/u.test(id)
+                )
+            ) {
+                return {
+                    success: false,
+                    error: 'Bulk dictionary action request is invalid.',
+                    state: await currentState(deps),
+                } satisfies HoshidictsActionResult;
+            }
+            const ids = [...new Set(value.ids)];
+            const action = value.action;
+            return await runAction(
+                deps,
+                async () => {
+                    const applyAction = async (): Promise<HoshidictsManagerSnapshot> => {
+                        switch (action) {
+                            case 'enable':
+                                return await manager.setDictionariesEnabled(
+                                    ids,
+                                    true
+                                );
+                            case 'disable':
+                                return await manager.setDictionariesEnabled(
+                                    ids,
+                                    false
+                                );
+                            case 'favorite':
+                                return await manager.setDictionariesPresentation(
+                                    ids,
+                                    true
+                                );
+                            case 'unfavorite':
+                                return await manager.setDictionariesPresentation(
+                                    ids,
+                                    false
+                                );
+                            case 'update':
+                                return await manager.checkForUpdates(true, ids);
+                        }
+                        throw new Error('Bulk dictionary action is invalid.');
+                    };
+                    const state = await applyAction();
+                    await applyReaderSnapshot(state, deps);
+                    if (action === 'update' && state.lastError) {
+                        throw new Error(state.lastError);
+                    }
+                    return state;
+                },
+                {
+                    code:
+                        action === 'update'
+                            ? 'updatesChecked'
+                            : 'dictionaryChanged',
+                    count: ids.length,
+                }
             );
         }
     );

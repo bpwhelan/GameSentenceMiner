@@ -1755,6 +1755,160 @@
     };
   }
 
+  function elementForSelectionBoundary(windowRef, node) {
+    if (node instanceof windowRef.Element) {
+      return node;
+    }
+    return node && node.parentElement instanceof windowRef.Element
+      ? node.parentElement
+      : null;
+  }
+
+  function textOffsetWithinElement(documentRef, element, node, offset) {
+    try {
+      const prefix = documentRef.createRange();
+      prefix.selectNodeContents(element);
+      prefix.setEnd(node, offset);
+      return prefix.toString().length;
+    } catch {
+      return null;
+    }
+  }
+
+  function resolveSelectedLookupCandidate(windowRef, documentRef, selection) {
+    if (
+      !selection ||
+      selection.rangeCount !== 1 ||
+      selection.isCollapsed
+    ) {
+      return null;
+    }
+    const selectedRange = selection.getRangeAt(0);
+    if (!selectedRange || selectedRange.collapsed) {
+      return null;
+    }
+    const startElement = elementForSelectionBoundary(
+      windowRef,
+      selectedRange.startContainer
+    );
+    const endElement = elementForSelectionBoundary(
+      windowRef,
+      selectedRange.endContainer
+    );
+    if (!startElement || !endElement) {
+      return null;
+    }
+
+    const startBox = startElement.closest('.text-box[data-selectable="true"]');
+    const endBox = endElement.closest('.text-box[data-selectable="true"]');
+    let anchor;
+    let sourceElements;
+    let sentence;
+    let matchOffset;
+    let endOffset;
+    let vertical = false;
+
+    if (startBox && endBox) {
+      const startBlock = startBox.closest(".text-block-container");
+      const endBlock = endBox.closest(".text-block-container");
+      if (!startBlock || startBlock !== endBlock) {
+        return null;
+      }
+      sourceElements = Array.from(
+        startBlock.querySelectorAll('.text-box[data-selectable="true"]')
+      );
+      const startIndex = sourceElements.indexOf(startBox);
+      const endIndex = sourceElements.indexOf(endBox);
+      if (startIndex < 0 || endIndex < startIndex) {
+        return null;
+      }
+      const startLocalOffset = textOffsetWithinElement(
+        documentRef,
+        startBox,
+        selectedRange.startContainer,
+        selectedRange.startOffset
+      );
+      const endLocalOffset = textOffsetWithinElement(
+        documentRef,
+        endBox,
+        selectedRange.endContainer,
+        selectedRange.endOffset
+      );
+      if (startLocalOffset === null || endLocalOffset === null) {
+        return null;
+      }
+      const lengths = sourceElements.map(
+        (element) => (element.textContent || "").length
+      );
+      sentence = sourceElements
+        .map((element) => element.textContent || "")
+        .join("");
+      matchOffset = lengths
+        .slice(0, startIndex)
+        .reduce((total, length) => total + length, 0) + startLocalOffset;
+      endOffset = lengths
+        .slice(0, endIndex)
+        .reduce((total, length) => total + length, 0) + endLocalOffset;
+      anchor = startBox;
+      vertical = windowRef
+        .getComputedStyle(startBox)
+        .writingMode.startsWith("vertical");
+    } else {
+      const startText = startElement.closest("#text");
+      const endText = endElement.closest("#text");
+      if (!startText || startText !== endText) {
+        return null;
+      }
+      matchOffset = textOffsetWithinElement(
+        documentRef,
+        startText,
+        selectedRange.startContainer,
+        selectedRange.startOffset
+      );
+      endOffset = textOffsetWithinElement(
+        documentRef,
+        startText,
+        selectedRange.endContainer,
+        selectedRange.endOffset
+      );
+      if (matchOffset === null || endOffset === null) {
+        return null;
+      }
+      anchor = startText;
+      sourceElements = [startText];
+      sentence = startText.textContent || "";
+      vertical = windowRef
+        .getComputedStyle(startText)
+        .writingMode.startsWith("vertical");
+    }
+
+    const query = sentence.slice(matchOffset, endOffset);
+    if (
+      !query.trim() ||
+      query.includes("\u0000") ||
+      utf8Length(query) > MAX_LOOKUP_TEXT_BYTES
+    ) {
+      return null;
+    }
+    let anchorRange;
+    try {
+      anchorRange = selectedRange.cloneRange();
+    } catch {
+      return null;
+    }
+    return {
+      anchor,
+      anchorRange,
+      exactSelection: true,
+      sourceElements,
+      sentence,
+      matchOffset,
+      query,
+      sourceDepth: -1,
+      vertical,
+    };
+  }
+
   function resolveGsmApiBaseUrl(settings = {}) {
     const source = isRecord(settings) ? settings : {};
     for (const candidate of [
@@ -1858,7 +2012,11 @@
       async check(payload) {
         const body = JSON.stringify(payload);
         if (utf8Length(body) > MAX_DUPLICATE_CHECK_REQUEST_BYTES) {
-          throw new Error("Hoshidicts duplicate check is too large.");
+          throw createMiningRequestError(
+            "Hoshidicts duplicate check is too large.",
+            "invalid_note",
+            413
+          );
         }
         return await request("/api/hoshidicts/mining/check", {
           method: "POST",
@@ -2305,6 +2463,8 @@
     let destroyed = false;
     let localShiftPressed = false;
     let globalActivationKeyPressed = options.activationKeyPressed === true;
+    let selectionDragActive = false;
+    let activeSelectionCandidate = null;
     let pointerInPopup = false;
     let pointerPopupDepth = null;
     let lastPointer = null;
@@ -2427,6 +2587,32 @@
         target.closest(
           '.text-box[data-selectable="true"], #text, .gsm-hoshidicts-glossary-content'
         )
+      );
+    }
+
+    function isSelectableGsmTextTarget(target) {
+      return target instanceof windowRef.Element && Boolean(
+        target.closest('.text-box[data-selectable="true"], #text')
+      );
+    }
+
+    function activeSelectionIsUnchanged() {
+      if (!activeSelectionCandidate?.anchorRange) {
+        return false;
+      }
+      const selection = typeof windowRef.getSelection === "function"
+        ? windowRef.getSelection()
+        : null;
+      if (!selection || selection.rangeCount !== 1 || selection.isCollapsed) {
+        return false;
+      }
+      const range = selection.getRangeAt(0);
+      const anchorRange = activeSelectionCandidate.anchorRange;
+      return (
+        range.startContainer === anchorRange.startContainer &&
+        range.startOffset === anchorRange.startOffset &&
+        range.endContainer === anchorRange.endContainer &&
+        range.endOffset === anchorRange.endOffset
       );
     }
 
@@ -3289,6 +3475,8 @@
     }
 
     function hide(reason = "hide") {
+      selectionDragActive = false;
+      activeSelectionCandidate = null;
       clearHideTimer();
       clearDescendantHideTimer();
       clearPopupTransferTimer();
@@ -3873,6 +4061,54 @@
       );
     }
 
+    function isNoteSpecificMiningCheckError(error) {
+      return [400, 409, 413, 422].includes(error?.status);
+    }
+
+    function applyDuplicateCheckResult(button, duplicateInfo, noteInfo) {
+      const duplicateBehavior = ["prevent", "overwrite", "new"].includes(
+        duplicateInfo.duplicateBehavior
+      )
+        ? duplicateInfo.duplicateBehavior
+        : duplicateInfo.duplicatePolicy === "allow"
+          ? "new"
+          : "prevent";
+      const message = typeof noteInfo.error === "string"
+        ? noteInfo.error
+        : "";
+      const duplicate = noteInfo.duplicate === true ||
+        noteInfo.state === "duplicate";
+      if (duplicate) {
+        const duplicateState = noteInfo.canAdd === true
+          ? duplicateBehavior === "overwrite"
+            ? "overwrite"
+            : "add-duplicate"
+          : "duplicate";
+        setMiningButtonState(
+          button,
+          duplicateState,
+          message || (
+            duplicateState === "overwrite"
+              ? "Overwrite note in Anki"
+              : duplicateState === "add-duplicate"
+                ? "Add duplicate to Anki"
+                : "Note already exists"
+          )
+        );
+      } else if (
+        noteInfo.state === "addable" &&
+        noteInfo.canAdd === true
+      ) {
+        setMiningButtonState(button, "ready");
+      } else {
+        setMiningButtonState(
+          button,
+          "error",
+          message || "Anki cannot add this note."
+        );
+      }
+    }
+
     async function refreshMiningButtons(level, miningItems, feedback) {
       const generation = ++level.miningStatusGeneration;
       if (!preferences.popupButtons.addToAnki) {
@@ -3903,86 +4139,59 @@
           }
           return;
         }
-        let duplicateInfo;
-        try {
-          duplicateInfo = await checkMiningNotes(
-            createDuplicateCheckPayload(level, miningItems)
-          );
-          if (
-            !isRecord(duplicateInfo) ||
-            duplicateInfo.success !== true ||
-            !Array.isArray(duplicateInfo.results) ||
-            duplicateInfo.results.length !== miningItems.length
-          ) {
-            throw createMiningRequestError(
-              isRecord(duplicateInfo) && typeof duplicateInfo.error === "string"
-                ? duplicateInfo.error
-                : "GSM returned an invalid duplicate-check response.",
-              isRecord(duplicateInfo) ? duplicateInfo.code : null,
-              isRecord(duplicateInfo) ? duplicateInfo.status : null
-            );
-          }
-        } catch (error) {
+        for (let index = 0; index < miningItems.length; index += 1) {
           if (!isLiveMiningRender(level, generation, feedback)) {
             return;
           }
-          const message = error && typeof error.message === "string"
-            ? error.message
-            : String(error);
-          for (const { button } of miningItems) {
-            setMiningButtonState(button, "error", message);
-          }
-          return;
-        }
-        if (!isLiveMiningRender(level, generation, feedback)) {
-          return;
-        }
-        const duplicateBehavior = ["prevent", "overwrite", "new"].includes(
-          duplicateInfo.duplicateBehavior
-        )
-          ? duplicateInfo.duplicateBehavior
-          : duplicateInfo.duplicatePolicy === "allow"
-            ? "new"
-            : "prevent";
-        miningItems.forEach(({ button }, index) => {
-          const noteInfo = isRecord(duplicateInfo.results[index])
-            ? duplicateInfo.results[index]
-            : {};
-          const message = typeof noteInfo.error === "string"
-            ? noteInfo.error
-            : "";
-          const duplicate = noteInfo.duplicate === true ||
-            noteInfo.state === "duplicate";
-          if (duplicate) {
-            const duplicateState = noteInfo.canAdd === true
-              ? duplicateBehavior === "overwrite"
-                ? "overwrite"
-                : "add-duplicate"
-              : "duplicate";
-            setMiningButtonState(
-              button,
-              duplicateState,
-              message || (
-                duplicateState === "overwrite"
-                  ? "Overwrite note in Anki"
-                  : duplicateState === "add-duplicate"
-                    ? "Add duplicate to Anki"
-                    : "Note already exists"
-              )
+          const miningItem = miningItems[index];
+          try {
+            const duplicateInfo = await checkMiningNotes(
+              createDuplicateCheckPayload(level, [miningItem])
             );
-          } else if (
-            noteInfo.state === "addable" &&
-            noteInfo.canAdd === true
-          ) {
-            setMiningButtonState(button, "ready");
-          } else {
-            setMiningButtonState(
-              button,
-              "error",
-              message || "Anki cannot add this note."
+            if (
+              !isRecord(duplicateInfo) ||
+              duplicateInfo.success !== true ||
+              !Array.isArray(duplicateInfo.results) ||
+              duplicateInfo.results.length !== 1 ||
+              !isRecord(duplicateInfo.results[0])
+            ) {
+              throw createMiningRequestError(
+                isRecord(duplicateInfo) && typeof duplicateInfo.error === "string"
+                  ? duplicateInfo.error
+                  : "GSM returned an invalid duplicate-check response.",
+                isRecord(duplicateInfo) ? duplicateInfo.code : null,
+                isRecord(duplicateInfo) ? duplicateInfo.status : null
+              );
+            }
+            if (!isLiveMiningRender(level, generation, feedback)) {
+              return;
+            }
+            applyDuplicateCheckResult(
+              miningItem.button,
+              duplicateInfo,
+              duplicateInfo.results[0]
             );
+          } catch (error) {
+            if (!isLiveMiningRender(level, generation, feedback)) {
+              return;
+            }
+            const message = error && typeof error.message === "string"
+              ? error.message
+              : String(error);
+            setMiningButtonState(miningItem.button, "error", message);
+            if (isNoteSpecificMiningCheckError(error)) {
+              continue;
+            }
+            for (
+              let remaining = index + 1;
+              remaining < miningItems.length;
+              remaining += 1
+            ) {
+              setMiningButtonState(miningItems[remaining].button, "error", message);
+            }
+            return;
           }
-        });
+        }
         return;
       }
       const reason = status && typeof status.error === "string"
@@ -4497,8 +4706,15 @@
       } else {
         updateDictionaryGeneration(dictionaryGeneration);
       }
+      const normalizedResults = normalizeLookupResults(
+        payload,
+        preferences.maxResults
+      );
+      const wholeSelectionResults = candidate.exactSelection === true
+        ? normalizedResults.filter((result) => result.matched === candidate.query)
+        : normalizedResults;
       const results = prioritizeLookupResultsByReading(
-        normalizeLookupResults(payload, preferences.maxResults),
+        wholeSelectionResults,
         requestPrimaryReading
       );
       if (results.length > 0) {
@@ -4521,7 +4737,14 @@
         });
         return;
       }
-      const kanji = normalizeKanjiLookup(payload);
+      const normalizedKanji = normalizeKanjiLookup(payload);
+      const kanji = normalizedKanji && (
+        candidate.exactSelection !== true ||
+        (
+          Array.from(candidate.query).length === 1 &&
+          normalizedKanji.character === candidate.query
+        )
+      ) ? normalizedKanji : null;
       if (kanji) {
         preparePopupContent("kanji_results", targetDepth);
         const level = ensurePopupLevel(targetDepth);
@@ -4755,11 +4978,17 @@
       }
       const requestId = `overlay-lookup-${++requestSequence}`;
       latestRequestId = requestId;
+      const scanLength = candidate.exactSelection === true
+        ? Math.max(
+            MIN_LOOKUP_SCAN_LENGTH,
+            Math.min(MAX_LOOKUP_SCAN_LENGTH, Array.from(text).length)
+          )
+        : preferences.scanLength;
       socket.send(JSON.stringify({
         type: "hoshidicts_lookup",
         requestId,
         text,
-        scanLength: preferences.scanLength,
+        scanLength,
         maxResults: preferences.maxResults,
         sortFrequencyDictionary: preferences.sortFrequencyDictionary,
         sortFrequencyDictionaryOrder: preferences.sortFrequencyDictionaryOrder,
@@ -4772,7 +5001,7 @@
         requestId,
         query: text,
         mode,
-        scanLength: preferences.scanLength,
+        scanLength,
         maxResults: preferences.maxResults,
         sortFrequencyDictionary: preferences.sortFrequencyDictionary,
         sortFrequencyDictionaryOrder: preferences.sortFrequencyDictionaryOrder,
@@ -4828,6 +5057,7 @@
       const signature = [
         targetDepth,
         sourceId,
+        candidate.exactSelection === true ? "selection" : "pointer",
         candidate.sentence,
         candidate.matchOffset,
         candidate.query,
@@ -4890,6 +5120,16 @@
     }
 
     function scanPointer(pointer, modifierActive) {
+      if (selectionDragActive) {
+        return;
+      }
+      if (activeSelectionCandidate) {
+        if (activeSelectionIsUnchanged()) {
+          clearHideTimer();
+          return;
+        }
+        activeSelectionCandidate = null;
+      }
       if (!pointer || !(pointer.target instanceof windowRef.Element)) {
         return;
       }
@@ -5007,6 +5247,53 @@
       scanPointer(lastPointer, isActivationKeyPressed(event.shiftKey));
     }
 
+    function onMouseDown(event) {
+      if (event.button !== 0 || !(event.target instanceof windowRef.Element)) {
+        return;
+      }
+      if (event.target.closest(".gsm-hoshidicts-popup, .gsm-hoshidicts-audio-menu")) {
+        return;
+      }
+      activeSelectionCandidate = null;
+      selectionDragActive = isSelectableGsmTextTarget(event.target);
+      if (!selectionDragActive) {
+        return;
+      }
+      clearHoveredSource();
+      clearHideTimer();
+      clearDescendantHideTimer();
+      invalidateLookup();
+    }
+
+    function onMouseUp(event) {
+      if (event.button !== 0 || !selectionDragActive) {
+        return;
+      }
+      selectionDragActive = false;
+      lastPointer = {
+        target: event.target,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        shiftKey: event.shiftKey,
+      };
+      const selection = typeof windowRef.getSelection === "function"
+        ? windowRef.getSelection()
+        : null;
+      const candidate = resolveSelectedLookupCandidate(
+        windowRef,
+        documentRef,
+        selection
+      );
+      if (candidate) {
+        activeSelectionCandidate = candidate;
+        clearHoveredSource();
+        queueLookup(candidate, 0, true);
+        return;
+      }
+      activeSelectionCandidate = null;
+      scanPointer(lastPointer, isActivationKeyPressed(event.shiftKey));
+    }
+
     function onKeyDown(event) {
       if (
         preferences.activationKey !== DEFAULT_ACTIVATION_KEY ||
@@ -5028,6 +5315,9 @@
       ) {
         localShiftPressed = false;
         if (requiresActivationKey() && !globalActivationKeyPressed) {
+          if (activeSelectionCandidate && activeSelectionIsUnchanged()) {
+            return;
+          }
           if (!pointerInPopup && !noteEditing) {
             invalidateLookup();
           }
@@ -5049,6 +5339,9 @@
         scanPointer(lastPointer, true);
       } else {
         localShiftPressed = false;
+        if (activeSelectionCandidate && activeSelectionIsUnchanged()) {
+          return true;
+        }
         invalidateLookup();
         scheduleHide("activation-key-released");
       }
@@ -5402,6 +5695,8 @@
         currentSocket.close();
       }
       documentRef.removeEventListener("mousemove", onMouseMove, true);
+      documentRef.removeEventListener("mousedown", onMouseDown, true);
+      documentRef.removeEventListener("mouseup", onMouseUp, true);
       documentRef.removeEventListener("keydown", onKeyDown, true);
       documentRef.removeEventListener("keyup", onKeyUp, true);
       windowRef.removeEventListener("resize", positionAllPopups);
@@ -5432,6 +5727,8 @@
     applyAppearancePreferences(false);
     ensurePopupLevel(0);
     documentRef.addEventListener("mousemove", onMouseMove, true);
+    documentRef.addEventListener("mousedown", onMouseDown, true);
+    documentRef.addEventListener("mouseup", onMouseUp, true);
     documentRef.addEventListener("keydown", onKeyDown, true);
     documentRef.addEventListener("keyup", onKeyUp, true);
     windowRef.addEventListener("resize", positionAllPopups);

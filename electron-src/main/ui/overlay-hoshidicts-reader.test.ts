@@ -495,6 +495,16 @@ function lookupResultWithDictionaries(
   return response;
 }
 
+function miningButtonsInResultOrder(popup: Element) {
+  const primary = popup.querySelector<HTMLButtonElement>(
+    ".gsm-hoshidicts-primary-header .gsm-hoshidicts-mine-button"
+  );
+  const remaining = Array.from(popup.querySelectorAll<HTMLButtonElement>(
+    ".gsm-hoshidicts-entry .gsm-hoshidicts-mine-button"
+  ));
+  return primary ? [primary, ...remaining] : remaining;
+}
+
 async function flushPromises() {
   for (let index = 0; index < 6; index += 1) {
     await Promise.resolve();
@@ -2937,7 +2947,7 @@ describe("Hoshidicts dictionary tabs", () => {
     reader.destroy();
   });
 
-  it("moves the complete toolbar to the bottom live and reveals its Note form", async () => {
+  it("moves the complete toolbar to the bottom live and keeps its Note form positioned", async () => {
     const { lookup, reader } = createLookupHarness({
       dictionaryPresentation: [
         { title: "Main", favorite: false },
@@ -2969,6 +2979,7 @@ describe("Hoshidicts dictionary tabs", () => {
       ".gsm-hoshidicts-tab-panel"
     )!;
 
+    expect(reader.getPreferences().popupToolbarPosition).toBe("top");
     expect(popup.dataset.toolbarPosition).toBe("top");
     expect(popup.firstElementChild).toBe(chrome);
     expect(chrome.nextElementSibling).toBe(form);
@@ -3005,6 +3016,12 @@ describe("Hoshidicts dictionary tabs", () => {
     expect(popup.firstElementChild).toBe(chrome);
     expect(chrome.nextElementSibling).toBe(form);
     expect(form.nextElementSibling).toBe(panel);
+
+    reader.updatePreferences({ popupToolbarPosition: "bottom" });
+    expect(popup.dataset.toolbarPosition).toBe("bottom");
+    expect(popup.firstElementChild).toBe(panel);
+    expect(panel.nextElementSibling).toBe(form);
+    expect(popup.lastElementChild).toBe(chrome);
     reader.destroy();
   });
 
@@ -3897,17 +3914,23 @@ describe("Hoshidicts dictionary tabs", () => {
       error: null,
       styles: [{ dictionary: "Large dictionary", styles: maximumStyle }]
     });
-    await flushPromises();
+    for (let index = 0; index < 20; index += 1) {
+      await flushPromises();
+    }
 
-    const duplicatePayload = checkMiningNotes.mock.calls.at(-1)?.[0];
-    const styledNotes = duplicatePayload.notes.filter(
-      (note) => Object.hasOwn(note, "dictionaryStyles")
-    );
-    expect(new TextEncoder().encode(JSON.stringify(duplicatePayload)).length)
-      .toBeLessThanOrEqual(64 * 1024 * 1024);
-    expect(styledNotes).toHaveLength(16);
-    expect(duplicatePayload.notes.every(
-      (note) => note.dictionaryStyles?.[0]?.styles.length === 256 * 1024
+    const styledPayloads = checkMiningNotes.mock.calls
+      .map(([payload]) => payload)
+      .filter((payload) =>
+        Object.hasOwn(payload.notes[0], "dictionaryStyles")
+      );
+    expect(styledPayloads).toHaveLength(16);
+    expect(styledPayloads.every((payload) => payload.notes.length === 1))
+      .toBe(true);
+    expect(styledPayloads.every((payload) =>
+      new TextEncoder().encode(JSON.stringify(payload)).length <= 64 * 1024 * 1024
+    )).toBe(true);
+    expect(styledPayloads.every((payload) =>
+      payload.notes[0].dictionaryStyles?.[0]?.styles.length === 256 * 1024
     )).toBe(true);
 
     popup
@@ -4130,6 +4153,151 @@ describe("Hoshidicts dictionary tabs", () => {
 });
 
 describe("Hoshidicts Shift-hover scanner", () => {
+  it("ignores a collapsed click selection", async () => {
+    const harness = createReaderHarness({ lookupMode: "shift" });
+    const range = harness.dom.window.document.createRange();
+    range.setStart(harness.first.firstChild!, 0);
+    range.collapse(true);
+    const selection = harness.dom.window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    harness.first.dispatchEvent(new harness.dom.window.MouseEvent("mousedown", {
+      bubbles: true,
+      button: 0
+    }));
+    harness.first.dispatchEvent(new harness.dom.window.MouseEvent("mouseup", {
+      bubbles: true,
+      button: 0
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+
+    expect(harness.socket.sent.map((message) => JSON.parse(message).type))
+      .not.toContain("hoshidicts_lookup");
+    harness.reader.destroy();
+  });
+
+  it("looks up an exact OCR-box selection immediately and pauses hover while dragging", async () => {
+    const harness = createReaderHarness({ lookupMode: "shift" });
+    const second = harness.dom.window.document.getElementById("second")!;
+    setRect(second, { left: 30, top: 10, right: 90, bottom: 30 });
+    Object.defineProperty(harness.dom.window.Range.prototype, "getBoundingClientRect", {
+      configurable: true,
+      value: vi.fn(() => ({
+        x: 200,
+        y: 100,
+        left: 200,
+        top: 100,
+        right: 260,
+        bottom: 120,
+        width: 60,
+        height: 20,
+        toJSON: () => ({})
+      }))
+    });
+
+    harness.first.dispatchEvent(new harness.dom.window.MouseEvent("mousedown", {
+      bubbles: true,
+      button: 0,
+      clientX: 11,
+      clientY: 11
+    }));
+    second.dispatchEvent(new harness.dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      shiftKey: true,
+      clientX: 31,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    expect(harness.socket.sent.map((message) => JSON.parse(message).type))
+      .not.toContain("hoshidicts_lookup");
+
+    const range = harness.dom.window.document.createRange();
+    range.setStart(harness.first.firstChild!, 0);
+    range.setEnd(second.firstChild!, 1);
+    const selection = harness.dom.window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    second.dispatchEvent(new harness.dom.window.MouseEvent("mouseup", {
+      bubbles: true,
+      button: 0,
+      clientX: 31,
+      clientY: 11
+    }));
+
+    const request = JSON.parse(harness.socket.sent.at(-1)!);
+    expect(request).toMatchObject({
+      type: "hoshidicts_lookup",
+      text: "食べ",
+      scanLength: 2
+    });
+
+    const response = lookupResult(request.requestId, "食べる", "exact match");
+    response.results[0].matched = "食べ";
+    response.results[0].deinflected = "食べる";
+    response.results.unshift({
+      ...lookupResult(request.requestId, "食", "short prefix").results[0]
+    });
+    harness.socket.receive(response);
+    await flushPromises();
+
+    const popup = harness.reader.getPopupElement();
+    expect(popup.querySelectorAll(".gsm-hoshidicts-entry")).toHaveLength(1);
+    expect(popup.textContent).toContain("exact match");
+    expect(popup.textContent).not.toContain("short prefix");
+    expect(popup.style.left).toBe("200px");
+    expect(popup.style.top).toBe("124px");
+
+    harness.dom.window.document.body.dispatchEvent(
+      new harness.dom.window.MouseEvent("mousemove", {
+        bubbles: true,
+        clientX: 500,
+        clientY: 500
+      })
+    );
+    await vi.advanceTimersByTimeAsync(500);
+    expect(harness.reader.isVisible()).toBe(true);
+    harness.reader.destroy();
+  });
+
+  it("shows not found and prefills Note when only a shorter prefix matches", async () => {
+    const harness = createReaderHarness({
+      lookupMode: "shift",
+      popupToolbarPosition: "bottom"
+    });
+    const second = harness.dom.window.document.getElementById("second")!;
+
+    harness.first.dispatchEvent(new harness.dom.window.MouseEvent("mousedown", {
+      bubbles: true,
+      button: 0
+    }));
+    const range = harness.dom.window.document.createRange();
+    range.setStart(harness.first.firstChild!, 0);
+    range.setEnd(second.firstChild!, 1);
+    const selection = harness.dom.window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    second.dispatchEvent(new harness.dom.window.MouseEvent("mouseup", {
+      bubbles: true,
+      button: 0
+    }));
+
+    const request = JSON.parse(harness.socket.sent.at(-1)!);
+    harness.socket.receive(lookupResult(request.requestId, "食", "short prefix"));
+    await flushPromises();
+
+    const popup = harness.reader.getPopupElement();
+    expect(popup.dataset.toolbarPosition).toBe("bottom");
+    expect(popup.textContent).toContain("No definitions found");
+    expect(popup.textContent).not.toContain("short prefix");
+    expect(popup.querySelector<HTMLInputElement>(".gsm-hoshidicts-note-term")?.value)
+      .toBe("食べ");
+    expect(popup.lastElementChild?.classList.contains(
+      "gsm-hoshidicts-result-chrome"
+    )).toBe(true);
+    harness.reader.destroy();
+  });
+
   it("records the first canonical result exactly once after rendering", async () => {
     vi.useFakeTimers();
     const dom = createDom();
@@ -8391,18 +8559,22 @@ describe("Hoshidicts Shift-hover scanner", () => {
   });
 
   it("disables an existing note when duplicate prevention is enabled", async () => {
-    const checkMiningNotes = vi.fn(async () => ({
+    const checkMiningNotes = vi.fn(async (payload) => ({
       success: true,
       duplicatePolicy: "prevent",
-      results: [{
-        state: "duplicate",
-        canAdd: false,
-        duplicate: true
-      }, {
-        state: "addable",
-        canAdd: true,
-        duplicate: false
-      }]
+      results: payload.notes.map((note) =>
+        note.result.term.expression === "食べる"
+          ? {
+              state: "duplicate",
+              canAdd: false,
+              duplicate: true
+            }
+          : {
+              state: "addable",
+              canAdd: true,
+              duplicate: false
+            }
+      )
     }));
     const harness = createReaderHarness({
       checkMiningNotes,
@@ -8422,30 +8594,229 @@ describe("Hoshidicts Shift-hover scanner", () => {
         });
       }
     });
+    await flushPromises();
 
-    const buttons = Array.from(harness.reader.getPopupElement()
-      .querySelectorAll<HTMLButtonElement>(".gsm-hoshidicts-mine-button"));
+    const buttons = miningButtonsInResultOrder(
+      harness.reader.getPopupElement()
+    );
     const button = buttons[0]!;
     expect(button.dataset.state).toBe("duplicate");
     expect(button.disabled).toBe(true);
     expect(button.title).toBe("Note already exists");
     expect(buttons[1]!.dataset.state).toBe("ready");
-    expect(checkMiningNotes).toHaveBeenCalledTimes(1);
-    expect(checkMiningNotes).toHaveBeenCalledWith({
+    expect(checkMiningNotes).toHaveBeenCalledTimes(2);
+    expect(checkMiningNotes.mock.calls.map(([payload]) =>
+      payload.notes[0].result.term.expression
+    )).toEqual(["食べる", "食う"]);
+    expect(checkMiningNotes).toHaveBeenNthCalledWith(1, {
       notes: [expect.objectContaining({
         sentence: "食べる",
         matchOffset: 0,
         result: expect.objectContaining({
           term: expect.objectContaining({ expression: "食べる" })
         })
-      }), expect.objectContaining({
-        result: expect.objectContaining({
-          term: expect.objectContaining({ expression: "食う" })
-        })
       })]
     });
     expect(checkMiningNotes.mock.calls[0][0].notes[0])
       .not.toHaveProperty("audioSelection");
+    harness.reader.destroy();
+  });
+
+  it("checks 33 mining buttons one at a time from the main headword downward", async () => {
+    const checks = Array.from({ length: 33 }, () =>
+      deferred<Record<string, unknown>>()
+    );
+    const checkedTerms: string[] = [];
+    const checkMiningNotes = vi.fn((payload) => {
+      expect(payload.notes).toHaveLength(1);
+      checkedTerms.push(payload.notes[0].result.term.expression);
+      return checks[checkedTerms.length - 1]!.promise;
+    });
+    const harness = createReaderHarness({
+      checkMiningNotes,
+      getMiningStatus: async () => ({ available: true }),
+      maxResults: 48,
+      onMine: vi.fn()
+    });
+    await renderFirstLookup(harness, {
+      transform(response) {
+        const firstResult = response.results[0];
+        response.results = Array.from({ length: 33 }, (_, index) => ({
+          ...firstResult,
+          matched: `語${index}`,
+          deinflected: `語${index}`,
+          term: {
+            ...firstResult.term,
+            expression: `語${index}`,
+            glossaries: firstResult.term.glossaries.map((glossary) => ({
+              ...glossary
+            }))
+          }
+        }));
+      }
+    });
+
+    const buttons = miningButtonsInResultOrder(
+      harness.reader.getPopupElement()
+    );
+    expect(buttons).toHaveLength(33);
+    expect(checkMiningNotes).toHaveBeenCalledTimes(1);
+    expect(buttons[0]!.dataset.state).toBe("checking");
+    expect(buttons[1]!.dataset.state).toBe("checking");
+
+    for (let index = 0; index < checks.length; index += 1) {
+      checks[index]!.resolve({
+        success: true,
+        duplicatePolicy: "prevent",
+        results: [{ state: "addable", canAdd: true, duplicate: false }]
+      });
+      await flushPromises();
+      expect(buttons[index]!.dataset.state).toBe("ready");
+      expect(checkMiningNotes).toHaveBeenCalledTimes(
+        Math.min(index + 2, checks.length)
+      );
+      if (index + 1 < buttons.length) {
+        expect(buttons[index + 1]!.dataset.state).toBe("checking");
+      }
+    }
+
+    expect(checkedTerms).toEqual(
+      Array.from({ length: 33 }, (_, index) => `語${index}`)
+    );
+    expect(buttons.every((button) => button.dataset.state === "ready"))
+      .toBe(true);
+    harness.reader.destroy();
+  });
+
+  it("continues after one note-specific duplicate-check result is invalid", async () => {
+    const checkMiningNotes = vi.fn(async (payload) => ({
+      success: true,
+      duplicatePolicy: "prevent",
+      results: payload.notes.map((note) =>
+        note.result.term.expression === "食べる"
+          ? {
+              state: "invalid",
+              canAdd: false,
+              duplicate: false,
+              error: "The first Anki field is empty."
+            }
+          : { state: "addable", canAdd: true, duplicate: false }
+      )
+    }));
+    const harness = createReaderHarness({
+      checkMiningNotes,
+      getMiningStatus: async () => ({ available: true }),
+      onMine: vi.fn()
+    });
+    await renderFirstLookup(harness, {
+      transform(response) {
+        response.results.push({
+          ...response.results[0],
+          matched: "食う",
+          term: {
+            ...response.results[0].term,
+            expression: "食う",
+            reading: "くう"
+          }
+        });
+      }
+    });
+    await flushPromises();
+
+    const buttons = miningButtonsInResultOrder(
+      harness.reader.getPopupElement()
+    );
+    expect(checkMiningNotes).toHaveBeenCalledTimes(2);
+    expect(buttons[0]!.dataset.state).toBe("error");
+    expect(buttons[0]!.title).toBe("The first Anki field is empty.");
+    expect(buttons[1]!.dataset.state).toBe("ready");
+    harness.reader.destroy();
+  });
+
+  it("continues after one note-specific duplicate-check request is rejected", async () => {
+    const noteError = Object.assign(
+      new Error('The first Anki field "Reading" is empty.'),
+      { status: 422 }
+    );
+    const checkMiningNotes = vi.fn(async () => {
+      if (checkMiningNotes.mock.calls.length === 1) {
+        throw noteError;
+      }
+      return {
+        success: true,
+        duplicatePolicy: "prevent",
+        results: [{ state: "addable", canAdd: true, duplicate: false }]
+      };
+    });
+    const harness = createReaderHarness({
+      checkMiningNotes,
+      getMiningStatus: async () => ({ available: true }),
+      onMine: vi.fn()
+    });
+    await renderFirstLookup(harness, {
+      transform(response) {
+        response.results.push({
+          ...response.results[0],
+          matched: "食う",
+          term: {
+            ...response.results[0].term,
+            expression: "食う",
+            reading: "くう"
+          }
+        });
+      }
+    });
+    await flushPromises();
+
+    const buttons = miningButtonsInResultOrder(
+      harness.reader.getPopupElement()
+    );
+    expect(checkMiningNotes).toHaveBeenCalledTimes(2);
+    expect(buttons[0]!.dataset.state).toBe("error");
+    expect(buttons[0]!.title).toBe(
+      'The first Anki field "Reading" is empty.'
+    );
+    expect(buttons[1]!.dataset.state).toBe("ready");
+    harness.reader.destroy();
+  });
+
+  it("stops the remaining duplicate-check queue after an Anki configuration failure", async () => {
+    const configurationError = Object.assign(
+      new Error("The selected Anki note type is unavailable."),
+      { status: 503 }
+    );
+    const checkMiningNotes = vi.fn(async () => {
+      throw configurationError;
+    });
+    const harness = createReaderHarness({
+      checkMiningNotes,
+      getMiningStatus: async () => ({ available: true }),
+      onMine: vi.fn()
+    });
+    await renderFirstLookup(harness, {
+      transform(response) {
+        const firstResult = response.results[0];
+        response.results = Array.from({ length: 3 }, (_, index) => ({
+          ...firstResult,
+          matched: `語${index}`,
+          term: {
+            ...firstResult.term,
+            expression: `語${index}`
+          }
+        }));
+      }
+    });
+    await flushPromises();
+
+    const buttons = miningButtonsInResultOrder(
+      harness.reader.getPopupElement()
+    );
+    expect(checkMiningNotes).toHaveBeenCalledTimes(1);
+    expect(buttons.map((button) => button.dataset.state))
+      .toEqual(["error", "error", "error"]);
+    expect(buttons.every((button) =>
+      button.title === "The selected Anki note type is unavailable."
+    )).toBe(true);
     harness.reader.destroy();
   });
 
@@ -8593,7 +8964,20 @@ describe("Hoshidicts Shift-hover scanner", () => {
     });
     const second = harness.dom.window.document.getElementById("second")!;
     setRect(second, { left: 30, top: 10, right: 90, bottom: 30 });
-    await renderFirstLookup(harness, { shiftKey: false });
+    await renderFirstLookup(harness, {
+      shiftKey: false,
+      transform(response) {
+        response.results.push({
+          ...response.results[0],
+          matched: "食う",
+          term: {
+            ...response.results[0].term,
+            expression: "食う",
+            reading: "くう"
+          }
+        });
+      }
+    });
 
     second.dispatchEvent(new harness.dom.window.MouseEvent("mousemove", {
       bubbles: true,
@@ -8611,6 +8995,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       results: [{ state: "addable", canAdd: true, duplicate: false }]
     });
     await flushPromises();
+    expect(checkMiningNotes).toHaveBeenCalledTimes(2);
     const currentButton = harness.reader.getPopupElement()
       .querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")!;
     expect(currentButton.dataset.state).toBe("ready");
@@ -8622,6 +9007,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
     });
     await flushPromises();
     expect(currentButton.dataset.state).toBe("ready");
+    expect(checkMiningNotes).toHaveBeenCalledTimes(2);
     harness.reader.destroy();
   });
 
