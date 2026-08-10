@@ -2918,6 +2918,11 @@ async fn handle_socket(
     manual_hotkey: SharedManualHotkey,
     features: FeatureRegistry,
 ) {
+    // Lookup replies are small and request/response shaped. Nagle holds a reply
+    // behind an unacked one, which stalls back-to-back hover lookups by ~40-50ms.
+    if let Err(e) = stream.set_nodelay(true) {
+        warn!("failed to disable Nagle for {peer}: {e}");
+    }
     let ws = match accept_async(stream).await {
         Ok(ws) => ws,
         Err(e) => {
