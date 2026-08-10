@@ -46,7 +46,6 @@
     normalizeAudioProfile,
   } = audioApi;
 
-  const LOOKUP_DEBOUNCE_MS = 20;
   const LOOKUP_REQUEST_TIMEOUT_MS = 4 * 1000;
   const LOOKUP_SCAN_LENGTH = 16;
   const MIN_LOOKUP_SCAN_LENGTH = 1;
@@ -2453,7 +2452,6 @@
     let socket = null;
     let reconnectTimer = null;
     let reconnectAttempt = 0;
-    let debounceTimer = null;
     let lookupTimeoutTimer = null;
     let hideTimer = null;
     let descendantHideTimer = null;
@@ -3167,10 +3165,6 @@
       latestRequestPrimaryReading = "";
       latestCandidateSignature = "";
       clearLookupTimeout();
-      if (debounceTimer !== null) {
-        clearTimeoutFn(debounceTimer);
-        debounceTimer = null;
-      }
     }
 
     function getPopupDepthForTarget(target) {
@@ -3329,6 +3323,7 @@
         definitionBlurContext: null,
         lookupStatsPayload: null,
         lookupStatsRequestGeneration: 0,
+        miningRefreshPromise: null,
         miningStatusGeneration: 0,
         miningItems: [],
         miningFeedback: null,
@@ -3399,7 +3394,30 @@
           level.miningItems = miningItems;
           level.miningFeedback = feedback;
           syncAudioRenderedResults(depth, true);
-          void refreshMiningButtons(level, miningItems, feedback);
+          void startMiningRefresh(level, miningItems, feedback);
+        },
+        onResultsExpanded({
+          appendedMiningButtons,
+          appendedMiningItems,
+          audioItems,
+          feedback,
+          miningItems,
+        }) {
+          const refreshActive = level.miningRefreshPromise !== null;
+          const appendedButtons = new Set(appendedMiningButtons);
+          const existingButtonVisible = miningItems.some(
+            ({ button }) => !appendedButtons.has(button) && !button.hidden
+          );
+          for (const button of appendedMiningButtons) {
+            button.hidden = !(refreshActive && existingButtonVisible);
+          }
+          level.audioItems = audioItems;
+          level.miningItems = miningItems;
+          level.miningFeedback = feedback;
+          syncAudioRenderedResults(depth, false);
+          if (!refreshActive) {
+            void startMiningRefresh(level, appendedMiningItems, feedback);
+          }
         },
       });
       return level;
@@ -3699,7 +3717,7 @@
       startDefinitionBlurDeadline(definitionBlurContext);
       recordLookup(primaryResult, definitionBlurContext, level);
       syncAudioRenderedResults(targetDepth, true);
-      void refreshMiningButtons(level, rendered.miningItems, rendered.feedback);
+      void startMiningRefresh(level, rendered.miningItems, rendered.feedback);
     }
 
     function restoreTermView(targetDepth) {
@@ -3746,7 +3764,7 @@
       level.miningFeedback = rendered.feedback;
       showPopup(candidate, targetDepth);
       syncAudioRenderedResults(targetDepth, true);
-      void refreshMiningButtons(level, rendered.miningItems, rendered.feedback);
+      void startMiningRefresh(level, rendered.miningItems, rendered.feedback);
     }
 
     function requestKanji(character, candidate, targetDepth) {
@@ -4207,6 +4225,24 @@
       level.view.setFeedback(feedback, "");
     }
 
+    function startMiningRefresh(level, miningItems, feedback) {
+      const refresh = refreshMiningButtons(level, miningItems, feedback);
+      level.miningRefreshPromise = refresh;
+      void refresh.then(
+        () => {
+          if (level.miningRefreshPromise === refresh) {
+            level.miningRefreshPromise = null;
+          }
+        },
+        () => {
+          if (level.miningRefreshPromise === refresh) {
+            level.miningRefreshPromise = null;
+          }
+        }
+      );
+      return refresh;
+    }
+
     async function browseResult(button, result, feedback) {
       if (!onBrowse || button.disabled) {
         return;
@@ -4408,7 +4444,7 @@
             checkMiningNotes &&
             (added || duplicateRejected || hasReplacementButtons)
           ) {
-            void refreshMiningButtons(
+            void startMiningRefresh(
               currentLevel,
               currentLevel.miningItems,
               currentLevel.miningFeedback
@@ -5044,11 +5080,11 @@
         ),
         sourceDepth,
         vertical: windowRef.getComputedStyle(anchor).writingMode.startsWith("vertical"),
-      }, targetDepth, true);
+      }, targetDepth);
       return true;
     }
 
-    function queueLookup(candidate, targetDepth, immediate = false) {
+    function queueLookup(candidate, targetDepth, force = false) {
       let sourceId = candidateSourceIds.get(candidate.anchor);
       if (sourceId === undefined) {
         sourceId = ++candidateSourceSequence;
@@ -5065,14 +5101,14 @@
       clearHideTimer();
       clearDescendantHideTimer();
       if (
-        !immediate &&
+        !force &&
         signature === latestCandidateSignature &&
         latestTargetDepth === targetDepth &&
-        (latestRequestId !== null || debounceTimer !== null)
+        (latestRequestId !== null || lookupTimeoutTimer !== null)
       ) {
         return;
       }
-      if (!immediate && renderedSignatures.get(targetDepth) === signature) {
+      if (!force && renderedSignatures.get(targetDepth) === signature) {
         invalidateLookup();
         schedulePruneFromDepth(targetDepth + 1, "ancestor-hovered");
         return;
@@ -5088,14 +5124,7 @@
       latestTargetDepth = targetDepth;
       latestCandidateSignature = signature;
       const generation = latestGeneration;
-      if (immediate) {
-        sendLookup(candidate, generation, targetDepth, signature);
-        return;
-      }
-      debounceTimer = setTimeoutFn(() => {
-        debounceTimer = null;
-        sendLookup(candidate, generation, targetDepth, signature);
-      }, LOOKUP_DEBOUNCE_MS);
+      sendLookup(candidate, generation, targetDepth, signature);
     }
 
     function clearHoveredSource() {
@@ -5287,7 +5316,7 @@
       if (candidate) {
         activeSelectionCandidate = candidate;
         clearHoveredSource();
-        queueLookup(candidate, 0, true);
+        queueLookup(candidate, 0);
         return;
       }
       activeSelectionCandidate = null;
@@ -5593,7 +5622,7 @@
               level.miningFeedback &&
               level.miningItems.length > 0
             ) {
-              void refreshMiningButtons(
+              void startMiningRefresh(
                 level,
                 level.miningItems,
                 level.miningFeedback
@@ -5797,7 +5826,6 @@
     DEFAULT_SOURCE_HIGHLIGHT_ENABLED,
     DEFAULT_THEME,
     INITIAL_VISIBLE_RESULTS,
-    LOOKUP_DEBOUNCE_MS,
     LOOKUP_MAX_RESULTS,
     LOOKUP_REQUEST_TIMEOUT_MS,
     LOOKUP_SCAN_LENGTH,

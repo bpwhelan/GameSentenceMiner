@@ -524,6 +524,9 @@
     const onResultsRendered = typeof options.onResultsRendered === "function"
       ? options.onResultsRendered
       : () => {};
+    const onResultsExpanded = typeof options.onResultsExpanded === "function"
+      ? options.onResultsExpanded
+      : () => {};
     const idPrefix = typeof options.idPrefix === "string" && options.idPrefix
       ? options.idPrefix
       : "gsm-hoshidicts";
@@ -1128,13 +1131,10 @@
       const audioItems = [];
       let lookupStats = null;
 
-      results.forEach((result, resultIndex) => {
+      function appendResult(result, resultIndex) {
         const entry = documentRef.createElement("article");
         entry.className = "gsm-hoshidicts-entry";
         entry.dataset.expression = result.term.expression;
-        if (resultIndex >= initialResultCount) {
-          entry.hidden = true;
-        }
 
         const renderedHeader = createEntryHeader(result, candidate, feedback, {
           element: resultIndex === 0 ? primaryHeader : null,
@@ -1244,7 +1244,9 @@
           entry.appendChild(details);
         }
         panel.appendChild(entry);
-      });
+      }
+
+      results.slice(0, initialResultCount).forEach(appendResult);
 
       if (results.length > initialResultCount) {
         const showMore = documentRef.createElement("button");
@@ -1252,10 +1254,19 @@
         showMore.className = "gsm-hoshidicts-show-more";
         showMore.textContent = `Show ${results.length - initialResultCount} more`;
         showMore.addEventListener("click", () => {
-          for (const entry of panel.querySelectorAll(".gsm-hoshidicts-entry[hidden]")) {
-            entry.hidden = false;
-          }
+          const miningButtonStart = miningButtons.length;
+          const miningItemStart = miningItems.length;
           showMore.remove();
+          results.slice(initialResultCount).forEach((result, resultIndex) => {
+            appendResult(result, resultIndex + initialResultCount);
+          });
+          onResultsExpanded({
+            audioItems,
+            appendedMiningButtons: miningButtons.slice(miningButtonStart),
+            appendedMiningItems: miningItems.slice(miningItemStart),
+            feedback,
+            miningItems,
+          });
           positionPopup();
         });
         panel.appendChild(showMore);
