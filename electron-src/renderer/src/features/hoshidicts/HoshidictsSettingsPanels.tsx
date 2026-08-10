@@ -40,6 +40,7 @@ import {
   MAX_HOSHIDICTS_POPUP_CUSTOM_LINKS,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
+  MAX_HOSHIDICTS_POPUP_COLUMNS,
   MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   MAX_HOSHIDICTS_POPUP_WIDTH_PX,
   MAX_HOSHIDICTS_SCAN_LENGTH,
@@ -48,6 +49,7 @@ import {
   MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
   MIN_HOSHIDICTS_MAX_RESULTS,
   MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
+  MIN_HOSHIDICTS_POPUP_COLUMNS,
   MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   MIN_HOSHIDICTS_POPUP_WIDTH_PX,
   MIN_HOSHIDICTS_SCAN_LENGTH,
@@ -914,6 +916,7 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
     setPopupHideDelayMs,
     setPopupWidthPx,
     setPopupHeightPx,
+    setPopupColumns,
     setTheme,
     setPopupOpacityPercent,
     setPopupToolbarPosition,
@@ -1481,6 +1484,23 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                   {t("settings.hoshidicts.reader.appearance.pixels")}
                 </span>
               </div>
+            </label>
+            <label>
+              <span>
+                {t("settings.hoshidicts.reader.appearance.columns")}
+              </span>
+              <input
+                id="hoshidicts-popup-columns"
+                type="number"
+                min={MIN_HOSHIDICTS_POPUP_COLUMNS}
+                max={MAX_HOSHIDICTS_POPUP_COLUMNS}
+                step={1}
+                value={readerDraft.popupColumns}
+                disabled={preferencesBusy}
+                onChange={(event) =>
+                  setPopupColumns(event.currentTarget.valueAsNumber)
+                }
+              />
             </label>
             <button
               type="button"

@@ -1198,6 +1198,8 @@
           }
           groupedGlossaries.get(glossary.dictionary).push(glossary);
         }
+        const glossaryGrid = documentRef.createElement("div");
+        glossaryGrid.className = "gsm-hoshidicts-glossary-grid";
         for (const [dictionary, glossaries] of groupedGlossaries) {
           const details = documentRef.createElement("details");
           details.className = "gsm-hoshidicts-glossary-card";
@@ -1241,8 +1243,9 @@
             definitions.appendChild(definition);
           }
           details.appendChild(definitions);
-          entry.appendChild(details);
+          glossaryGrid.appendChild(details);
         }
+        entry.appendChild(glossaryGrid);
         panel.appendChild(entry);
       }
 

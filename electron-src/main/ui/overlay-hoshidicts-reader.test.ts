@@ -170,6 +170,7 @@ function runHoshidictsReaderConfiguration(
     gsmHoshidictsPopupNestingMaxDepth: popupNestingMaxDepth,
     gsmHoshidictsPopupWidthPx: 560,
     gsmHoshidictsPopupHeightPx: 420,
+    gsmHoshidictsPopupColumns: 1,
     gsmHoshidictsPopupOpacityPercent: 85,
     gsmHoshidictsPopupToolbarPosition: "top",
     gsmHoshidictsTheme: "default",
@@ -662,6 +663,12 @@ describe("Hoshidicts safe popup rendering", () => {
     const lookupStatsRule =
       /\.gsm-hoshidicts-lookup-stats\s*\{(?<declarations>[^}]*)\}/.exec(css)
         ?.groups?.declarations;
+    const glossaryGridRule = declarationsForSelector(
+      ".gsm-hoshidicts-glossary-grid"
+    );
+    const singleGlossaryRule = declarationsForSelector(
+      ".gsm-hoshidicts-glossary-grid > :only-child"
+    );
     const glossaryRule =
       /\.gsm-hoshidicts-glossary-card\s*\{(?<declarations>[^}]*)\}/.exec(
         css
@@ -714,6 +721,12 @@ describe("Hoshidicts safe popup rendering", () => {
     );
     expect(tabListRule).toContain("width: 100%");
     expect(tabListRule).toContain("overflow-x: auto");
+    expect(glossaryGridRule).toContain("display: grid");
+    expect(glossaryGridRule).toContain(
+      "var(--gsm-hoshidicts-popup-columns, 1)"
+    );
+    expect(glossaryGridRule).toContain("minmax(0, 1fr)");
+    expect(singleGlossaryRule).toContain("grid-column: 1 / -1");
     expect(actionRule).toContain("width: 36px");
     expect(actionRule).toContain("height: 36px");
     expect(mineIconRule).toContain("display: inline-flex");
@@ -1010,6 +1023,7 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(enabled.window.gsmHoshidictsPopupNestingMaxDepth).toBe(10);
     expect(enabled.window.gsmHoshidictsPopupWidthPx).toBe(560);
     expect(enabled.window.gsmHoshidictsPopupHeightPx).toBe(420);
+    expect(enabled.window.gsmHoshidictsPopupColumns).toBe(1);
     expect(enabled.window.gsmHoshidictsTheme).toBe("default");
     expect(enabled.window.gsmHoshidictsPopupOpacityPercent).toBe(85);
     expect(enabled.window.gsmHoshidictsPopupToolbarPosition).toBe("top");
@@ -1065,6 +1079,7 @@ describe("Hoshidicts safe popup rendering", () => {
       {
         GSM_HOSHIDICTS_POPUP_WIDTH_PX: "720",
         GSM_HOSHIDICTS_POPUP_HEIGHT_PX: "520",
+        GSM_HOSHIDICTS_POPUP_COLUMNS: "3",
         GSM_HOSHIDICTS_THEME: "cyberpunk",
         GSM_HOSHIDICTS_POPUP_OPACITY_PERCENT: "70",
         GSM_HOSHIDICTS_POPUP_TOOLBAR_POSITION: "bottom"
@@ -1072,6 +1087,7 @@ describe("Hoshidicts safe popup rendering", () => {
     );
     expect(themed.window.gsmHoshidictsPopupWidthPx).toBe(720);
     expect(themed.window.gsmHoshidictsPopupHeightPx).toBe(520);
+    expect(themed.window.gsmHoshidictsPopupColumns).toBe(3);
     expect(themed.window.gsmHoshidictsTheme).toBe("cyberpunk");
     expect(themed.window.gsmHoshidictsPopupOpacityPercent).toBe(70);
     expect(themed.window.gsmHoshidictsPopupToolbarPosition).toBe("bottom");
@@ -1158,6 +1174,7 @@ describe("Hoshidicts safe popup rendering", () => {
         popupNestingMaxDepth: 4,
         popupWidthPx: 560,
         popupHeightPx: 420,
+        popupColumns: 1,
         popupOpacityPercent: 85,
         popupToolbarPosition: "top",
         theme: "default",
@@ -1272,6 +1289,7 @@ describe("Hoshidicts safe popup rendering", () => {
       popupNestingMaxDepth: 3,
       popupWidthPx: 720,
       popupHeightPx: 520,
+      popupColumns: 1,
       popupOpacityPercent: 70,
       popupToolbarPosition: "bottom",
       theme: "autumn",
@@ -1353,6 +1371,7 @@ describe("Hoshidicts safe popup rendering", () => {
       popupNestingMaxDepth: 3,
       popupWidthPx: 720,
       popupHeightPx: 520,
+      popupColumns: 1,
       popupOpacityPercent: 70,
       popupToolbarPosition: "top",
       dictionaryPresentation: [],
@@ -1394,6 +1413,7 @@ describe("Hoshidicts safe popup rendering", () => {
       popupNestingMaxDepth: 3,
       popupWidthPx: 720,
       popupHeightPx: 520,
+      popupColumns: 3,
       popupOpacityPercent: 70,
       popupToolbarPosition: "bottom",
       theme: "autumn",
@@ -1484,6 +1504,7 @@ describe("Hoshidicts safe popup rendering", () => {
       popupNestingMaxDepth: 10,
       popupWidthPx: 720,
       popupHeightPx: 520,
+      popupColumns: 1,
       popupOpacityPercent: 70,
       popupToolbarPosition: "bottom",
       theme: "cyberpunk",
@@ -1519,6 +1540,7 @@ describe("Hoshidicts safe popup rendering", () => {
       popupNestingMaxDepth: 10,
       popupWidthPx: 720,
       popupHeightPx: 520,
+      popupColumns: 1,
       popupOpacityPercent: 70,
       popupToolbarPosition: "bottom",
       theme: "cyberpunk",
@@ -2854,8 +2876,14 @@ describe("Hoshidicts dictionary tabs", () => {
     expect(popup.querySelector('[role="tablist"]')).toBeNull();
     expect(popup.querySelector('[role="tab"]')).toBeNull();
     expect(popup.querySelector('[role="tabpanel"]')).toBeNull();
-    expect(popup.querySelectorAll(".gsm-hoshidicts-glossary-card"))
-      .toHaveLength(2);
+    const glossaryGrid = popup.querySelector(".gsm-hoshidicts-glossary-grid");
+    expect(glossaryGrid).not.toBeNull();
+    expect(glossaryGrid?.children).toHaveLength(2);
+    expect(
+      Array.from(glossaryGrid?.children ?? []).every((element) =>
+        element.classList.contains("gsm-hoshidicts-glossary-card")
+      )
+    ).toBe(true);
     harness.reader.destroy();
   });
 
@@ -6773,6 +6801,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       popupNestingMaxDepth: 10,
       popupWidthPx: 560,
       popupHeightPx: 420,
+      popupColumns: 1,
       popupOpacityPercent: 85,
       popupToolbarPosition: "top",
       theme: "default",
@@ -6799,6 +6828,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       popupNestingMaxDepth: 2,
       popupWidthPx: 720,
       popupHeightPx: 520,
+      popupColumns: 3,
       popupOpacityPercent: 70,
       popupToolbarPosition: "bottom",
       theme: "cyberpunk",
@@ -6828,6 +6858,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       popupNestingMaxDepth: 2,
       popupWidthPx: 720,
       popupHeightPx: 520,
+      popupColumns: 3,
       popupOpacityPercent: 70,
       popupToolbarPosition: "bottom",
       theme: "cyberpunk",
@@ -6862,6 +6893,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       popupNestingMaxDepth: 2,
       popupWidthPx: 720,
       popupHeightPx: 520,
+      popupColumns: 3,
       popupOpacityPercent: 70,
       popupToolbarPosition: "bottom",
       theme: "cyberpunk",
@@ -6897,6 +6929,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
         popupNestingMaxDepth: 2,
         popupWidthPx: 720,
         popupHeightPx: 520,
+        popupColumns: 3,
         popupOpacityPercent: 70,
         popupToolbarPosition: "bottom",
         theme: "cyberpunk",
@@ -6914,6 +6947,11 @@ describe("Hoshidicts Shift-hover scanner", () => {
     expect(dom.window.document.documentElement.dataset.hoshidictsTheme).toBe(
       "cyberpunk"
     );
+    expect(
+      dom.window.document.documentElement.style.getPropertyValue(
+        "--gsm-hoshidicts-popup-columns"
+      )
+    ).toBe("3");
     reader.destroy();
   });
 
@@ -7060,6 +7098,11 @@ describe("Hoshidicts Shift-hover scanner", () => {
         "--gsm-hoshidicts-popup-opacity"
       )
     ).toBe("70%");
+    expect(
+      dom.window.document.documentElement.style.getPropertyValue(
+        "--gsm-hoshidicts-popup-columns"
+      )
+    ).toBe("1");
     expect(dom.window.document.documentElement.dataset.hoshidictsTheme).toBe(
       "autumn"
     );

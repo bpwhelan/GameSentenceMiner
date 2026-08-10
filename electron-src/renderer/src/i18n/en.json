@@ -681,6 +681,7 @@
           "percent": "%",
           "width": "Width",
           "height": "Height",
+          "columns": "Definition columns",
           "pixels": "px",
           "resetSize": "Reset size"
         },

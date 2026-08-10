@@ -78,6 +78,7 @@ function currentState(): HoshidictsManagerSnapshot {
         definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
         popupWidthPx: 680,
         popupHeightPx: 480,
+        popupColumns: 3,
         theme: 'autumn',
         popupOpacityPercent: 70,
         popupToolbarPosition: 'top',
@@ -226,6 +227,7 @@ describe('parseYomitanSettingsBackup', () => {
             popupNestingMaxDepth: 3,
             popupWidthPx: 680,
             popupHeightPx: 480,
+            popupColumns: 3,
             theme: 'autumn',
             popupOpacityPercent: 70,
             popupButtons: {

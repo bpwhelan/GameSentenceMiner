@@ -27,6 +27,7 @@ import {
     MAX_HOSHIDICTS_MAX_RESULTS,
     MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
     MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
+    MAX_HOSHIDICTS_POPUP_COLUMNS,
     MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT,
     MAX_HOSHIDICTS_POPUP_WIDTH_PX,
     MAX_HOSHIDICTS_SCAN_LENGTH,
@@ -34,6 +35,7 @@ import {
     MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
     MIN_HOSHIDICTS_MAX_RESULTS,
     MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
+    MIN_HOSHIDICTS_POPUP_COLUMNS,
     MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
     MIN_HOSHIDICTS_POPUP_WIDTH_PX,
     normalizeHoshidictsPopupButtons,
@@ -102,6 +104,7 @@ export interface HoshidictsIPCDependencies {
         | null;
     getOverlayPopupWidthAtLaunch: () => number | null;
     getOverlayPopupHeightAtLaunch: () => number | null;
+    getOverlayPopupColumnsAtLaunch: () => number | null;
     getOverlayThemeAtLaunch: () => HoshidictsTheme | null;
     getOverlayPopupOpacityPercentAtLaunch: () => number | null;
     getOverlayPopupToolbarPositionAtLaunch: () =>
@@ -253,6 +256,7 @@ function readerPreferencesMatchOverlay(
             preferences.popupNestingMaxDepth &&
         deps.getOverlayPopupWidthAtLaunch() === preferences.popupWidthPx &&
         deps.getOverlayPopupHeightAtLaunch() === preferences.popupHeightPx &&
+        deps.getOverlayPopupColumnsAtLaunch() === preferences.popupColumns &&
         deps.getOverlayThemeAtLaunch() === preferences.theme &&
         deps.getOverlayPopupOpacityPercentAtLaunch() ===
             preferences.popupOpacityPercent &&
@@ -391,6 +395,7 @@ function withDesktopState(
     const definitionBlurAtLaunch = deps.getOverlayDefinitionBlurAtLaunch();
     const popupWidthAtLaunch = deps.getOverlayPopupWidthAtLaunch();
     const popupHeightAtLaunch = deps.getOverlayPopupHeightAtLaunch();
+    const popupColumnsAtLaunch = deps.getOverlayPopupColumnsAtLaunch();
     const themeAtLaunch = deps.getOverlayThemeAtLaunch();
     const popupButtonsApplied = deps.getOverlayPopupButtonsApplied();
     const effectiveEnabled = deps.getConfiguredFeatureEnabled();
@@ -449,6 +454,9 @@ function withDesktopState(
                     (effectiveEnabled &&
                         popupHeightAtLaunch !== null &&
                         popupHeightAtLaunch !== snapshot.popupHeightPx) ||
+                    (effectiveEnabled &&
+                        popupColumnsAtLaunch !== null &&
+                        popupColumnsAtLaunch !== snapshot.popupColumns) ||
                     (effectiveEnabled &&
                         themeAtLaunch !== null &&
                         themeAtLaunch !== snapshot.theme) ||
@@ -802,7 +810,8 @@ export function registerHoshidictsIPC(
                     reader.maxResults,
                     sortFrequencyDictionary,
                     reader.sortFrequencyDictionaryOrder,
-                    reader.popupButtons
+                    reader.popupButtons,
+                    reader.popupColumns
                 );
             }
             await applyReaderSnapshot(state, deps);
@@ -1155,6 +1164,11 @@ export function registerHoshidictsIPC(
                     MIN_HOSHIDICTS_POPUP_HEIGHT_PX ||
                 (value.popupHeightPx as number) >
                     MAX_HOSHIDICTS_POPUP_HEIGHT_PX ||
+                !Number.isInteger(value.popupColumns) ||
+                (value.popupColumns as number) <
+                    MIN_HOSHIDICTS_POPUP_COLUMNS ||
+                (value.popupColumns as number) >
+                    MAX_HOSHIDICTS_POPUP_COLUMNS ||
                 !isHoshidictsTheme(value.theme) ||
                 !Number.isInteger(value.popupOpacityPercent) ||
                 (value.popupOpacityPercent as number) <
@@ -1198,6 +1212,7 @@ export function registerHoshidictsIPC(
                         } as HoshidictsDefinitionBlurPreferences,
                         popupWidthPx: value.popupWidthPx as number,
                         popupHeightPx: value.popupHeightPx as number,
+                        popupColumns: value.popupColumns as number,
                         theme: value.theme as HoshidictsTheme,
                         popupOpacityPercent:
                             value.popupOpacityPercent as number,
@@ -1225,7 +1240,8 @@ export function registerHoshidictsIPC(
                         requestPreferences.maxResults,
                         requestPreferences.sortFrequencyDictionary,
                         requestPreferences.sortFrequencyDictionaryOrder,
-                        requestPreferences.popupButtons
+                        requestPreferences.popupButtons,
+                        requestPreferences.popupColumns
                     );
                     const preferences: HoshidictsReaderPreferences = {
                         ...hoshidictsReaderPreferencesFromSnapshot(state),

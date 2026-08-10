@@ -184,6 +184,7 @@ export function isHoshidictsSortFrequencyDictionaryOrder(
 export const MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS = 5000;
 export const DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX = 560;
 export const DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX = 420;
+export const DEFAULT_HOSHIDICTS_POPUP_COLUMNS = 1;
 export const DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT = 85;
 export const HOSHIDICTS_POPUP_TOOLBAR_POSITIONS = ['top', 'bottom'] as const;
 export type HoshidictsPopupToolbarPosition =
@@ -328,6 +329,8 @@ export const MIN_HOSHIDICTS_POPUP_WIDTH_PX = 280;
 export const MAX_HOSHIDICTS_POPUP_WIDTH_PX = 1200;
 export const MIN_HOSHIDICTS_POPUP_HEIGHT_PX = 200;
 export const MAX_HOSHIDICTS_POPUP_HEIGHT_PX = 900;
+export const MIN_HOSHIDICTS_POPUP_COLUMNS = 1;
+export const MAX_HOSHIDICTS_POPUP_COLUMNS = 4;
 export const MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT = 0;
 export const MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT = 100;
 export type HoshidictsTheme =
@@ -680,6 +683,7 @@ export interface HoshidictsReaderPreferencesRequest {
     definitionBlur: HoshidictsDefinitionBlurPreferences;
     popupWidthPx: number;
     popupHeightPx: number;
+    popupColumns: number;
     theme: HoshidictsTheme;
     popupOpacityPercent: number;
     popupToolbarPosition: HoshidictsPopupToolbarPosition;
@@ -902,6 +906,7 @@ export interface HoshidictsManagerSnapshot {
     definitionBlur: HoshidictsDefinitionBlurPreferences;
     popupWidthPx: number;
     popupHeightPx: number;
+    popupColumns: number;
     theme: HoshidictsTheme;
     popupOpacityPercent: number;
     popupToolbarPosition: HoshidictsPopupToolbarPosition;
@@ -935,6 +940,7 @@ export function hoshidictsReaderPreferencesFromSnapshot(
         definitionBlur: { ...snapshot.definitionBlur },
         popupWidthPx: snapshot.popupWidthPx,
         popupHeightPx: snapshot.popupHeightPx,
+        popupColumns: snapshot.popupColumns,
         theme: snapshot.theme,
         popupOpacityPercent: snapshot.popupOpacityPercent,
         popupToolbarPosition: snapshot.popupToolbarPosition,

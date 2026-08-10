@@ -43,6 +43,7 @@ const harness = vi.hoisted(() => ({
     popupNestingMaxDepthAtLaunch: 10 as number | null,
     popupWidthAtLaunch: 560 as number | null,
     popupHeightAtLaunch: 420 as number | null,
+    popupColumnsAtLaunch: 1 as number | null,
     themeAtLaunch: 'default' as HoshidictsTheme | null,
     popupOpacityPercentAtLaunch: 85 as number | null,
     popupToolbarPositionAtLaunch: 'top' as 'top' | 'bottom' | null,
@@ -184,6 +185,7 @@ const snapshot = {
     popupNestingMaxDepth: 10,
     popupWidthPx: 560,
     popupHeightPx: 420,
+    popupColumns: 1,
     theme: 'default',
     popupOpacityPercent: 85,
     popupToolbarPosition: 'top',
@@ -369,6 +371,8 @@ async function registerHarness() {
             harness.definitionBlurAtLaunch,
         getOverlayPopupWidthAtLaunch: () => harness.popupWidthAtLaunch,
         getOverlayPopupHeightAtLaunch: () => harness.popupHeightAtLaunch,
+        getOverlayPopupColumnsAtLaunch: () =>
+            harness.popupColumnsAtLaunch,
         getOverlayThemeAtLaunch: () => harness.themeAtLaunch,
         getOverlayPopupOpacityPercentAtLaunch: () =>
             harness.popupOpacityPercentAtLaunch,
@@ -416,6 +420,7 @@ describe('Hoshidicts settings IPC', () => {
         harness.popupNestingMaxDepthAtLaunch = 10;
         harness.popupWidthAtLaunch = 560;
         harness.popupHeightAtLaunch = 420;
+        harness.popupColumnsAtLaunch = 1;
         harness.themeAtLaunch = 'default';
         harness.popupOpacityPercentAtLaunch = 85;
         harness.popupToolbarPositionAtLaunch = 'top';
@@ -1031,6 +1036,7 @@ describe('Hoshidicts settings IPC', () => {
                     popupNestingMaxDepth: 10,
                     popupWidthPx: 560,
                     popupHeightPx: 420,
+                    popupColumns: 1,
                     theme: 'girlypop',
                     popupOpacityPercent: 70,
                     popupToolbarPosition: 'bottom',
@@ -1070,6 +1076,7 @@ describe('Hoshidicts settings IPC', () => {
                     popupNestingMaxDepth: 10,
                     popupWidthPx: 560,
                     popupHeightPx: 420,
+                    popupColumns: 1,
                     theme: 'default',
                     popupOpacityPercent: 85,
                     popupToolbarPosition: 'top',
@@ -1114,6 +1121,7 @@ describe('Hoshidicts settings IPC', () => {
                     popupNestingMaxDepth: 10,
                     popupWidthPx: 560,
                     popupHeightPx: 420,
+                    popupColumns: 1,
                     theme: 'default',
                     popupOpacityPercent: 85,
                     popupToolbarPosition: 'top',
@@ -1145,6 +1153,20 @@ describe('Hoshidicts settings IPC', () => {
         });
 
         harness.popupNestingMaxDepthAtLaunch = 10;
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: false },
+        });
+
+        harness.popupColumnsAtLaunch = 2;
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: true },
+        });
+
+        harness.popupColumnsAtLaunch = 1;
         await expect(
             getState?.({ sender: context.settingsContents })
         ).resolves.toMatchObject({
@@ -1955,6 +1977,7 @@ describe('Hoshidicts settings IPC', () => {
                     popupNestingMaxDepth: 4,
                     popupWidthPx: 560,
                     popupHeightPx: 420,
+                    popupColumns: 1,
                     theme: 'default',
                     popupOpacityPercent: 85,
                     popupToolbarPosition: 'top',
@@ -1995,6 +2018,7 @@ describe('Hoshidicts settings IPC', () => {
                     popupNestingMaxDepth: 4,
                     popupWidthPx: 560,
                     popupHeightPx: 420,
+                    popupColumns: 3,
                     theme: 'girlypop',
                     popupOpacityPercent: 70,
                     popupToolbarPosition: 'bottom',
@@ -2056,7 +2080,8 @@ describe('Hoshidicts settings IPC', () => {
                         url: 'https://jisho.org/search/%w',
                     },
                 ],
-            }
+            },
+            3,
         );
         expect(context.applyReaderPreferences).toHaveBeenCalledWith({
             lookupMode: 'hover',
@@ -2072,6 +2097,7 @@ describe('Hoshidicts settings IPC', () => {
             popupNestingMaxDepth: 4,
             popupWidthPx: 560,
             popupHeightPx: 420,
+            popupColumns: 3,
             theme: 'girlypop',
             popupOpacityPercent: 70,
             popupToolbarPosition: 'bottom',
@@ -2118,6 +2144,7 @@ describe('Hoshidicts settings IPC', () => {
                     popupNestingMaxDepth: Number.MAX_SAFE_INTEGER + 1,
                     popupWidthPx: 560,
                     popupHeightPx: 420,
+                    popupColumns: 1,
                     theme: 'default',
                 }
             )
@@ -2278,6 +2305,7 @@ describe('Hoshidicts settings IPC', () => {
             popupNestingMaxDepth: 4,
             popupWidthPx: 560,
             popupHeightPx: 420,
+            popupColumns: 1,
             theme: 'default',
             popupOpacityPercent: 85,
             popupToolbarPosition: 'top',
@@ -2330,6 +2358,7 @@ describe('Hoshidicts settings IPC', () => {
             popupNestingMaxDepth: 4,
             popupWidthPx: 560,
             popupHeightPx: 420,
+            popupColumns: 1,
             theme: 'default',
             popupOpacityPercent: 85,
             popupToolbarPosition: 'top',

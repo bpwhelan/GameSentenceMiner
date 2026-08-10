@@ -58,10 +58,13 @@
   const POPUP_TRANSFER_GRACE_MS = 80;
   const DEFAULT_POPUP_WIDTH_PX = 560;
   const DEFAULT_POPUP_HEIGHT_PX = 420;
+  const DEFAULT_POPUP_COLUMNS = 1;
   const MIN_POPUP_WIDTH_PX = 280;
   const MAX_POPUP_WIDTH_PX = 1200;
   const MIN_POPUP_HEIGHT_PX = 200;
   const MAX_POPUP_HEIGHT_PX = 900;
+  const MIN_POPUP_COLUMNS = 1;
+  const MAX_POPUP_COLUMNS = 4;
   const DEFAULT_POPUP_OPACITY_PERCENT = 85;
   const DEFAULT_POPUP_TOOLBAR_POSITION = "top";
   const DEFAULT_POPUP_BUTTONS = Object.freeze({
@@ -2309,6 +2312,14 @@
       : fallback;
   }
 
+  function normalizePopupColumns(value, fallback = DEFAULT_POPUP_COLUMNS) {
+    return Number.isInteger(value) &&
+      value >= MIN_POPUP_COLUMNS &&
+      value <= MAX_POPUP_COLUMNS
+      ? value
+      : fallback;
+  }
+
   function normalizePopupOpacityPercent(
     value,
     fallback = DEFAULT_POPUP_OPACITY_PERCENT
@@ -2431,6 +2442,7 @@
       ),
       popupWidthPx: normalizePopupWidth(options.popupWidthPx),
       popupHeightPx: normalizePopupHeight(options.popupHeightPx),
+      popupColumns: normalizePopupColumns(options.popupColumns),
       popupOpacityPercent: normalizePopupOpacityPercent(
         options.popupOpacityPercent
       ),
@@ -2536,6 +2548,10 @@
       rootElement.style.setProperty(
         "--gsm-hoshidicts-popup-opacity",
         `${preferences.popupOpacityPercent}%`
+      );
+      rootElement.style.setProperty(
+        "--gsm-hoshidicts-popup-columns",
+        String(preferences.popupColumns)
       );
       for (const level of popupLevels) {
         level.popup.style.width = `${preferences.popupWidthPx}px`;
@@ -5394,6 +5410,7 @@
       const previousMaxDepth = preferences.popupNestingMaxDepth;
       const previousPopupWidthPx = preferences.popupWidthPx;
       const previousPopupHeightPx = preferences.popupHeightPx;
+      const previousPopupColumns = preferences.popupColumns;
       const previousPopupOpacityPercent = preferences.popupOpacityPercent;
       const previousPopupToolbarPosition = preferences.popupToolbarPosition;
       const previousTheme = preferences.theme;
@@ -5491,6 +5508,12 @@
         )
           ? normalizePopupHeight(nextPreferences.popupHeightPx, preferences.popupHeightPx)
           : preferences.popupHeightPx,
+        popupColumns: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "popupColumns"
+        )
+          ? normalizePopupColumns(nextPreferences.popupColumns, preferences.popupColumns)
+          : preferences.popupColumns,
         popupOpacityPercent: Object.prototype.hasOwnProperty.call(
           nextPreferences,
           "popupOpacityPercent"
@@ -5585,6 +5608,7 @@
       if (
         previousPopupWidthPx !== preferences.popupWidthPx ||
         previousPopupHeightPx !== preferences.popupHeightPx ||
+        previousPopupColumns !== preferences.popupColumns ||
         previousPopupOpacityPercent !== preferences.popupOpacityPercent ||
         previousTheme !== preferences.theme
       ) {
@@ -5749,6 +5773,9 @@
       documentRef.documentElement.style.removeProperty(
         "--gsm-hoshidicts-popup-opacity"
       );
+      documentRef.documentElement.style.removeProperty(
+        "--gsm-hoshidicts-popup-columns"
+      );
     }
 
     documentRef.documentElement.classList.add("gsm-hoshidicts-enabled");
@@ -5774,6 +5801,7 @@
       popupNestingMaxDepth: preferences.popupNestingMaxDepth,
       popupWidthPx: preferences.popupWidthPx,
       popupHeightPx: preferences.popupHeightPx,
+      popupColumns: preferences.popupColumns,
       popupOpacityPercent: preferences.popupOpacityPercent,
       popupToolbarPosition: preferences.popupToolbarPosition,
       theme: preferences.theme,
@@ -5818,6 +5846,7 @@
     DEFAULT_ACTIVATION_KEY,
     DEFAULT_POPUP_HIDE_DELAY_MS,
     DEFAULT_POPUP_HEIGHT_PX,
+    DEFAULT_POPUP_COLUMNS,
     DEFAULT_POPUP_OPACITY_PERCENT,
     DEFAULT_POPUP_BUTTONS,
     DEFAULT_POPUP_TOOLBAR_POSITION,
@@ -5833,6 +5862,7 @@
     MAX_LOOKUP_SCAN_LENGTH,
     MAX_POPUP_HIDE_DELAY_MS,
     MAX_POPUP_HEIGHT_PX,
+    MAX_POPUP_COLUMNS,
     MAX_POPUP_OPACITY_PERCENT,
     MAX_POPUP_WIDTH_PX,
     MAX_DEFINITION_BLUR_LOOKUP_THRESHOLD,
@@ -5840,6 +5870,7 @@
     MIN_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MIN_DEFINITION_BLUR_REVEAL_DELAY_MS,
     MIN_POPUP_HEIGHT_PX,
+    MIN_POPUP_COLUMNS,
     MIN_LOOKUP_MAX_RESULTS,
     MIN_LOOKUP_SCAN_LENGTH,
     MIN_POPUP_OPACITY_PERCENT,
@@ -5858,6 +5889,7 @@
     normalizePopupHideDelay,
     normalizePopupToolbarPosition,
     normalizePopupHeight,
+    normalizePopupColumns,
     normalizeKanjiLookup,
     normalizeLookupMaxResults,
     normalizeLookupScanLength,

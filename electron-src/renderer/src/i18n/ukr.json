@@ -674,6 +674,7 @@
           "percent": "%",
           "width": "Ширина",
           "height": "Висота",
+          "columns": "Стовпці визначень",
           "pixels": "px",
           "resetSize": "Скинути розмір"
         },

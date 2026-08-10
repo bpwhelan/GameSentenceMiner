@@ -88,6 +88,7 @@ const {
     popupNestingMaxDepth: number;
     popupWidthPx: number;
     popupHeightPx: number;
+    popupColumns: number;
     popupOpacityPercent: number;
     popupToolbarPosition: "top" | "bottom";
     theme: HoshidictsTheme;
@@ -142,6 +143,7 @@ describe("Hoshidicts desktop bridge", () => {
   const popupAppearance = {
     popupWidthPx: 680,
     popupHeightPx: 500,
+    popupColumns: 3,
     popupOpacityPercent: 70,
     popupToolbarPosition: "bottom" as const,
     theme: "autumn" as const,
@@ -293,6 +295,26 @@ describe("Hoshidicts desktop bridge", () => {
       viewInAnki: false,
       customLinks: [],
     });
+    expect(normalizeHoshidictsReaderPreferences({
+      lookupMode: "hover",
+      activationKey: "F8",
+      sourceHighlightEnabled: true,
+      popupHideDelayMs: 850,
+      popupNestingMaxDepth: 4,
+      ...popupAppearance,
+      popupColumns: undefined,
+    }).popupColumns).toBe(1);
+    for (const popupColumns of [0, 5, 1.5]) {
+      expect(() => normalizeHoshidictsReaderPreferences({
+        lookupMode: "hover",
+        activationKey: "F8",
+        sourceHighlightEnabled: true,
+        popupHideDelayMs: 850,
+        popupNestingMaxDepth: 4,
+        ...popupAppearance,
+        popupColumns,
+      })).toThrow("Hoshidicts reader preferences are invalid.");
+    }
     expect(() => normalizeHoshidictsReaderPreferences({
       lookupMode: "hover",
       activationKey: "F8",
@@ -470,6 +492,7 @@ describe("Hoshidicts desktop bridge", () => {
         popupNestingMaxDepth: 4,
         popupWidthPx: 680,
         popupHeightPx: 500,
+        popupColumns: 3,
         popupOpacityPercent: 70,
         popupToolbarPosition: "top",
         theme,

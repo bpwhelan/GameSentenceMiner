@@ -9,6 +9,7 @@ import {
     configureHoshidictsOnlyScanJapaneseTextProvider,
     configureHoshidictsPopupHideDelayProvider,
     configureHoshidictsPopupHeightProvider,
+    configureHoshidictsPopupColumnsProvider,
     configureHoshidictsPopupNestingMaxDepthProvider,
     configureHoshidictsPopupOpacityPercentProvider,
     configureHoshidictsPopupToolbarPositionProvider,
@@ -25,6 +26,7 @@ import {
     getOverlayHoshidictsOnlyScanJapaneseTextAtLaunch,
     getOverlayHoshidictsPopupHideDelayAtLaunch,
     getOverlayHoshidictsPopupHeightAtLaunch,
+    getOverlayHoshidictsPopupColumnsAtLaunch,
     getOverlayHoshidictsPopupNestingMaxDepthAtLaunch,
     getOverlayHoshidictsPopupOpacityPercentAtLaunch,
     getOverlayHoshidictsPopupToolbarPositionAtLaunch,
@@ -211,6 +213,8 @@ export function registerHoshidictsFeature(deps: {
             getOverlayHoshidictsPopupWidthAtLaunch,
         getOverlayPopupHeightAtLaunch:
             getOverlayHoshidictsPopupHeightAtLaunch,
+        getOverlayPopupColumnsAtLaunch:
+            getOverlayHoshidictsPopupColumnsAtLaunch,
         getOverlayThemeAtLaunch: getOverlayHoshidictsThemeAtLaunch,
         getOverlayPopupOpacityPercentAtLaunch:
             getOverlayHoshidictsPopupOpacityPercentAtLaunch,
@@ -278,6 +282,9 @@ export async function startHoshidictsManager(): Promise<void> {
     );
     configureHoshidictsPopupHeightProvider(
         async () => (await manager.getSnapshot()).popupHeightPx
+    );
+    configureHoshidictsPopupColumnsProvider(
+        async () => (await manager.getSnapshot()).popupColumns
     );
     configureHoshidictsThemeProvider(
         async () => (await manager.getSnapshot()).theme

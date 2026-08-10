@@ -14,6 +14,7 @@ import {
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
   DEFAULT_HOSHIDICTS_MAX_RESULTS,
+  DEFAULT_HOSHIDICTS_POPUP_COLUMNS,
   DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
   DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
@@ -200,6 +201,7 @@ const baseState: HoshidictsDesktopSnapshot = {
   popupNestingMaxDepth: 10,
   popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
   popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+  popupColumns: DEFAULT_HOSHIDICTS_POPUP_COLUMNS,
   theme: DEFAULT_HOSHIDICTS_THEME,
   popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
@@ -2126,6 +2128,7 @@ describe("HoshidictsSettingsWindow", () => {
         popupNestingMaxDepth: 12,
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+        popupColumns: 1,
         theme: DEFAULT_HOSHIDICTS_THEME,
         popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
         popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
@@ -2510,7 +2513,7 @@ describe("HoshidictsSettingsWindow", () => {
     }
   );
 
-  it("auto-saves Girlypop with popup dimensions and keeps it on size reset", async () => {
+  it("auto-saves popup appearance and keeps columns on size reset", async () => {
     vi.useFakeTimers();
     await render();
     const theme = container.querySelector<HTMLSelectElement>(
@@ -2525,6 +2528,9 @@ describe("HoshidictsSettingsWindow", () => {
     const height = container.querySelector<HTMLInputElement>(
       "#hoshidicts-popup-height"
     );
+    const columns = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-popup-columns"
+    );
     const reset = container.querySelector<HTMLButtonElement>(
       ".hoshidicts-reader-appearance__reset"
     );
@@ -2533,6 +2539,7 @@ describe("HoshidictsSettingsWindow", () => {
     expect(opacity?.value).toBe("85");
     expect(width?.value).toBe("560");
     expect(height?.value).toBe("420");
+    expect(columns?.value).toBe("1");
     expect(reset?.disabled).toBe(true);
 
     await act(async () => {
@@ -2540,6 +2547,7 @@ describe("HoshidictsSettingsWindow", () => {
       setInputValue(opacity, "70");
       setInputValue(width, "720");
       setInputValue(height, "520");
+      setInputValue(columns, "3");
       await flushAutosave();
     });
     expect(invokeMock).toHaveBeenLastCalledWith(
@@ -2547,6 +2555,7 @@ describe("HoshidictsSettingsWindow", () => {
       expect.objectContaining({
         popupWidthPx: 720,
         popupHeightPx: 520,
+        popupColumns: 3,
         theme: "girlypop",
         popupOpacityPercent: 70
       })
@@ -2562,6 +2571,7 @@ describe("HoshidictsSettingsWindow", () => {
       expect.objectContaining({
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+        popupColumns: 3,
         theme: "girlypop",
         popupOpacityPercent: 70
       })
@@ -2603,6 +2613,7 @@ describe("HoshidictsSettingsWindow", () => {
         popupNestingMaxDepth: 10,
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+        popupColumns: 1,
         theme: DEFAULT_HOSHIDICTS_THEME,
         popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
         popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
@@ -2659,6 +2670,7 @@ describe("HoshidictsSettingsWindow", () => {
         popupNestingMaxDepth: 10,
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+        popupColumns: 1,
         theme: DEFAULT_HOSHIDICTS_THEME,
         popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
         popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
@@ -2792,6 +2804,7 @@ describe("HoshidictsSettingsWindow", () => {
         popupNestingMaxDepth: 0,
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+        popupColumns: 1,
         theme: DEFAULT_HOSHIDICTS_THEME,
         popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
         popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
@@ -2827,6 +2840,7 @@ describe("HoshidictsSettingsWindow", () => {
         popupNestingMaxDepth: 1,
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+        popupColumns: 1,
         theme: DEFAULT_HOSHIDICTS_THEME,
         popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
         popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
@@ -2901,6 +2915,7 @@ describe("HoshidictsSettingsWindow", () => {
         popupNestingMaxDepth: 10,
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+        popupColumns: 1,
         theme: DEFAULT_HOSHIDICTS_THEME,
         popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
         popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
@@ -2940,6 +2955,7 @@ describe("HoshidictsSettingsWindow", () => {
         popupNestingMaxDepth: 10,
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+        popupColumns: 1,
         theme: DEFAULT_HOSHIDICTS_THEME,
         popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
         popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
@@ -4481,6 +4497,7 @@ describe("HoshidictsSettingsWindow", () => {
       popupHideDelayMs: undefined,
       showLookupCounts: undefined,
       popupNestingMaxDepth: undefined,
+      popupColumns: undefined,
       popupButtons: undefined,
       definitionBlur: undefined,
       audioProfile: undefined,
@@ -4523,6 +4540,7 @@ describe("HoshidictsSettingsWindow", () => {
       DEFAULT_HOSHIDICTS_DEFINITION_BLUR
     );
     expect(normalized.popupNestingMaxDepth).toBe(10);
+    expect(normalized.popupColumns).toBe(DEFAULT_HOSHIDICTS_POPUP_COLUMNS);
     expect(normalized.popupButtons).toEqual(
       createDefaultHoshidictsPopupButtons()
     );

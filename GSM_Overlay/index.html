@@ -140,6 +140,11 @@
       ? process.env.GSM_HOSHIDICTS_POPUP_HEIGHT_PX
       : ''
   );
+  const configuredHoshidictsPopupColumns = Number(
+    typeof process !== 'undefined' && process.env
+      ? process.env.GSM_HOSHIDICTS_POPUP_COLUMNS
+      : ''
+  );
   const configuredHoshidictsTheme = (
     typeof process !== 'undefined' && process.env
       ? process.env.GSM_HOSHIDICTS_THEME
@@ -165,6 +170,11 @@
     configuredHoshidictsPopupHeight >= 200 &&
     configuredHoshidictsPopupHeight <= 900
   ) ? configuredHoshidictsPopupHeight : 420;
+  window.gsmHoshidictsPopupColumns = (
+    Number.isInteger(configuredHoshidictsPopupColumns) &&
+    configuredHoshidictsPopupColumns >= 1 &&
+    configuredHoshidictsPopupColumns <= 4
+  ) ? configuredHoshidictsPopupColumns : 1;
   window.gsmHoshidictsTheme = [
     'default',
     'catppuccin-mocha',
@@ -5355,6 +5365,9 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   function validateHoshidictsAppearance(preferences) {
+    const popupColumns = preferences.popupColumns === undefined
+      ? 1
+      : preferences.popupColumns;
     if (
       !Number.isInteger(preferences.popupWidthPx) ||
       preferences.popupWidthPx < 280 ||
@@ -5362,6 +5375,9 @@ background: rgba(202, 12, 12, 0.692);
       !Number.isInteger(preferences.popupHeightPx) ||
       preferences.popupHeightPx < 200 ||
       preferences.popupHeightPx > 900 ||
+      !Number.isInteger(popupColumns) ||
+      popupColumns < 1 ||
+      popupColumns > 4 ||
       !Number.isInteger(preferences.popupOpacityPercent) ||
       preferences.popupOpacityPercent < 0 ||
       preferences.popupOpacityPercent > 100 ||
@@ -5417,6 +5433,7 @@ background: rgba(202, 12, 12, 0.692);
     return {
       popupWidthPx: preferences.popupWidthPx,
       popupHeightPx: preferences.popupHeightPx,
+      popupColumns,
       popupOpacityPercent: preferences.popupOpacityPercent,
       popupToolbarPosition: preferences.popupToolbarPosition,
       theme: preferences.theme,
@@ -5468,6 +5485,7 @@ background: rgba(202, 12, 12, 0.692);
       popupNestingMaxDepth: window.gsmHoshidictsPopupNestingMaxDepth,
       popupWidthPx: window.gsmHoshidictsPopupWidthPx,
       popupHeightPx: window.gsmHoshidictsPopupHeightPx,
+      popupColumns: window.gsmHoshidictsPopupColumns,
       popupOpacityPercent: window.gsmHoshidictsPopupOpacityPercent,
       popupToolbarPosition: window.gsmHoshidictsPopupToolbarPosition,
       theme: window.gsmHoshidictsTheme,
@@ -5577,6 +5595,7 @@ background: rgba(202, 12, 12, 0.692);
     ) ? popupNestingMaxDepth : 10;
     window.gsmHoshidictsPopupWidthPx = appearance.popupWidthPx;
     window.gsmHoshidictsPopupHeightPx = appearance.popupHeightPx;
+    window.gsmHoshidictsPopupColumns = appearance.popupColumns;
     window.gsmHoshidictsPopupOpacityPercent =
       appearance.popupOpacityPercent;
     window.gsmHoshidictsPopupToolbarPosition =
@@ -5607,6 +5626,7 @@ background: rgba(202, 12, 12, 0.692);
         popupNestingMaxDepth: window.gsmHoshidictsPopupNestingMaxDepth,
         popupWidthPx: window.gsmHoshidictsPopupWidthPx,
         popupHeightPx: window.gsmHoshidictsPopupHeightPx,
+        popupColumns: window.gsmHoshidictsPopupColumns,
         popupOpacityPercent: window.gsmHoshidictsPopupOpacityPercent,
         popupToolbarPosition: window.gsmHoshidictsPopupToolbarPosition,
         theme: window.gsmHoshidictsTheme,

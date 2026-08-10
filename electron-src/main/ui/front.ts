@@ -46,6 +46,7 @@ import {
     DEFAULT_HOSHIDICTS_MAX_RESULTS,
     DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
     DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+    DEFAULT_HOSHIDICTS_POPUP_COLUMNS,
     DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
     DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
     DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
@@ -65,6 +66,7 @@ import {
     MAX_HOSHIDICTS_MAX_RESULTS,
     MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
     MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
+    MAX_HOSHIDICTS_POPUP_COLUMNS,
     MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT,
     MAX_HOSHIDICTS_POPUP_WIDTH_PX,
     MAX_HOSHIDICTS_SCAN_LENGTH,
@@ -72,6 +74,7 @@ import {
     MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
     MIN_HOSHIDICTS_MAX_RESULTS,
     MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
+    MIN_HOSHIDICTS_POPUP_COLUMNS,
     MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
     MIN_HOSHIDICTS_POPUP_WIDTH_PX,
     MIN_HOSHIDICTS_SCAN_LENGTH,
@@ -104,6 +107,7 @@ let overlayHoshidictsPopupNestingMaxDepthAtLaunch: number | null = null;
 let overlayHoshidictsDefinitionBlurAtLaunch: HoshidictsDefinitionBlurPreferences | null = null;
 let overlayHoshidictsPopupWidthAtLaunch: number | null = null;
 let overlayHoshidictsPopupHeightAtLaunch: number | null = null;
+let overlayHoshidictsPopupColumnsAtLaunch: number | null = null;
 let overlayHoshidictsThemeAtLaunch: HoshidictsTheme | null = null;
 let overlayHoshidictsPopupOpacityPercentAtLaunch: number | null = null;
 let overlayHoshidictsPopupToolbarPositionAtLaunch: HoshidictsPopupToolbarPosition | null =
@@ -131,6 +135,8 @@ let hoshidictsPopupWidthProvider: () => Promise<number> =
     async () => DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX;
 let hoshidictsPopupHeightProvider: () => Promise<number> =
     async () => DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX;
+let hoshidictsPopupColumnsProvider: () => Promise<number> =
+    async () => DEFAULT_HOSHIDICTS_POPUP_COLUMNS;
 let hoshidictsThemeProvider: () => Promise<HoshidictsTheme> =
     async () => DEFAULT_HOSHIDICTS_THEME;
 let hoshidictsPopupOpacityPercentProvider: () => Promise<number> =
@@ -259,6 +265,12 @@ export function configureHoshidictsPopupHeightProvider(
     provider: () => Promise<number>
 ): void {
     hoshidictsPopupHeightProvider = provider;
+}
+
+export function configureHoshidictsPopupColumnsProvider(
+    provider: () => Promise<number>
+): void {
+    hoshidictsPopupColumnsProvider = provider;
 }
 
 export function configureHoshidictsThemeProvider(
@@ -442,6 +454,7 @@ export function getOverlayRuntimeState(): OverlayRuntimeState {
         overlayHoshidictsDefinitionBlurAtLaunch = null;
         overlayHoshidictsPopupWidthAtLaunch = null;
         overlayHoshidictsPopupHeightAtLaunch = null;
+        overlayHoshidictsPopupColumnsAtLaunch = null;
         overlayHoshidictsThemeAtLaunch = null;
         overlayHoshidictsPopupOpacityPercentAtLaunch = null;
         overlayHoshidictsPopupToolbarPositionAtLaunch = null;
@@ -517,6 +530,11 @@ export function getOverlayHoshidictsPopupHeightAtLaunch(): number | null {
     return overlayHoshidictsPopupHeightAtLaunch;
 }
 
+export function getOverlayHoshidictsPopupColumnsAtLaunch(): number | null {
+    getOverlayRuntimeState();
+    return overlayHoshidictsPopupColumnsAtLaunch;
+}
+
 export function getOverlayHoshidictsThemeAtLaunch(): HoshidictsTheme | null {
     getOverlayRuntimeState();
     return overlayHoshidictsThemeAtLaunch;
@@ -576,6 +594,7 @@ export function markOverlayHoshidictsReaderPreferencesApplied(
     };
     overlayHoshidictsPopupWidthAtLaunch = preferences.popupWidthPx;
     overlayHoshidictsPopupHeightAtLaunch = preferences.popupHeightPx;
+    overlayHoshidictsPopupColumnsAtLaunch = preferences.popupColumns;
     overlayHoshidictsThemeAtLaunch = preferences.theme;
     overlayHoshidictsPopupOpacityPercentAtLaunch =
         preferences.popupOpacityPercent;
@@ -633,6 +652,7 @@ export function stopOverlay(options: StopOverlayOptions = {}): boolean {
             overlayHoshidictsDefinitionBlurAtLaunch = null;
             overlayHoshidictsPopupWidthAtLaunch = null;
             overlayHoshidictsPopupHeightAtLaunch = null;
+            overlayHoshidictsPopupColumnsAtLaunch = null;
             overlayHoshidictsThemeAtLaunch = null;
             overlayHoshidictsPopupOpacityPercentAtLaunch = null;
             overlayHoshidictsPopupToolbarPositionAtLaunch = null;
@@ -657,6 +677,7 @@ export function stopOverlay(options: StopOverlayOptions = {}): boolean {
         overlayHoshidictsDefinitionBlurAtLaunch = null;
         overlayHoshidictsPopupWidthAtLaunch = null;
         overlayHoshidictsPopupHeightAtLaunch = null;
+        overlayHoshidictsPopupColumnsAtLaunch = null;
         overlayHoshidictsThemeAtLaunch = null;
         overlayHoshidictsPopupOpacityPercentAtLaunch = null;
         overlayHoshidictsPopupToolbarPositionAtLaunch = null;
@@ -748,6 +769,7 @@ function registerOverlayProcess(
     hoshidictsShowLookupCounts: boolean,
     hoshidictsPopupWidthPx: number,
     hoshidictsPopupHeightPx: number,
+    hoshidictsPopupColumns: number,
     hoshidictsTheme: HoshidictsTheme,
     hoshidictsPopupOpacityPercent: number,
     hoshidictsPopupToolbarPosition: HoshidictsPopupToolbarPosition,
@@ -775,6 +797,7 @@ function registerOverlayProcess(
     };
     overlayHoshidictsPopupWidthAtLaunch = hoshidictsPopupWidthPx;
     overlayHoshidictsPopupHeightAtLaunch = hoshidictsPopupHeightPx;
+    overlayHoshidictsPopupColumnsAtLaunch = hoshidictsPopupColumns;
     overlayHoshidictsThemeAtLaunch = hoshidictsTheme;
     overlayHoshidictsPopupOpacityPercentAtLaunch =
         hoshidictsPopupOpacityPercent;
@@ -797,6 +820,7 @@ function registerOverlayProcess(
         overlayHoshidictsDefinitionBlurAtLaunch = null;
         overlayHoshidictsPopupWidthAtLaunch = null;
         overlayHoshidictsPopupHeightAtLaunch = null;
+        overlayHoshidictsPopupColumnsAtLaunch = null;
         overlayHoshidictsThemeAtLaunch = null;
         overlayHoshidictsPopupOpacityPercentAtLaunch = null;
         overlayHoshidictsPopupToolbarPositionAtLaunch = null;
@@ -819,6 +843,7 @@ function registerOverlayProcess(
         overlayHoshidictsDefinitionBlurAtLaunch = null;
         overlayHoshidictsPopupWidthAtLaunch = null;
         overlayHoshidictsPopupHeightAtLaunch = null;
+        overlayHoshidictsPopupColumnsAtLaunch = null;
         overlayHoshidictsThemeAtLaunch = null;
         overlayHoshidictsPopupOpacityPercentAtLaunch = null;
         overlayHoshidictsPopupToolbarPositionAtLaunch = null;
@@ -839,6 +864,7 @@ export function buildHoshidictsOverlayEnvironment(
     showLookupCounts = true,
     popupWidthPx = DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
     popupHeightPx = DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+    popupColumns = DEFAULT_HOSHIDICTS_POPUP_COLUMNS,
     theme: HoshidictsTheme = DEFAULT_HOSHIDICTS_THEME,
     popupOpacityPercent = DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
     onlyScanJapaneseText = DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
@@ -888,6 +914,14 @@ export function buildHoshidictsOverlayEnvironment(
                 MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
                 MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
                 DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX
+            )
+        ),
+        GSM_HOSHIDICTS_POPUP_COLUMNS: String(
+            normalizeHoshidictsPopupDimension(
+                popupColumns,
+                MIN_HOSHIDICTS_POPUP_COLUMNS,
+                MAX_HOSHIDICTS_POPUP_COLUMNS,
+                DEFAULT_HOSHIDICTS_POPUP_COLUMNS
             )
         ),
         GSM_HOSHIDICTS_THEME: isHoshidictsTheme(theme)
@@ -1023,6 +1057,7 @@ export async function runOverlayWithSource(
     };
     let hoshidictsPopupWidthPx = DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX;
     let hoshidictsPopupHeightPx = DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX;
+    let hoshidictsPopupColumns = DEFAULT_HOSHIDICTS_POPUP_COLUMNS;
     let hoshidictsTheme: HoshidictsTheme = DEFAULT_HOSHIDICTS_THEME;
     let hoshidictsPopupOpacityPercent =
         DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT;
@@ -1086,6 +1121,12 @@ export async function runOverlayWithSource(
                 MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
                 DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX
             );
+            hoshidictsPopupColumns = normalizeHoshidictsPopupDimension(
+                await hoshidictsPopupColumnsProvider(),
+                MIN_HOSHIDICTS_POPUP_COLUMNS,
+                MAX_HOSHIDICTS_POPUP_COLUMNS,
+                DEFAULT_HOSHIDICTS_POPUP_COLUMNS
+            );
             const configuredTheme = await hoshidictsThemeProvider();
             hoshidictsTheme = isHoshidictsTheme(configuredTheme)
                 ? configuredTheme
@@ -1123,6 +1164,7 @@ export async function runOverlayWithSource(
         hoshidictsShowLookupCounts,
         hoshidictsPopupWidthPx,
         hoshidictsPopupHeightPx,
+        hoshidictsPopupColumns,
         hoshidictsTheme,
         hoshidictsPopupOpacityPercent,
         hoshidictsOnlyScanJapaneseText,
@@ -1180,6 +1222,9 @@ export async function runOverlayWithSource(
             : null;
         overlayHoshidictsPopupHeightAtLaunch = started
             ? hoshidictsPopupHeightPx
+            : null;
+        overlayHoshidictsPopupColumnsAtLaunch = started
+            ? hoshidictsPopupColumns
             : null;
         overlayHoshidictsThemeAtLaunch = started ? hoshidictsTheme : null;
         overlayHoshidictsPopupOpacityPercentAtLaunch = started
@@ -1245,6 +1290,7 @@ export async function runOverlayWithSource(
             hoshidictsShowLookupCounts,
             hoshidictsPopupWidthPx,
             hoshidictsPopupHeightPx,
+            hoshidictsPopupColumns,
             hoshidictsTheme,
             hoshidictsPopupOpacityPercent,
             hoshidictsPopupToolbarPosition,
@@ -1279,6 +1325,7 @@ export async function runOverlayWithSource(
                 hoshidictsShowLookupCounts,
                 hoshidictsPopupWidthPx,
                 hoshidictsPopupHeightPx,
+                hoshidictsPopupColumns,
                 hoshidictsTheme,
                 hoshidictsPopupOpacityPercent,
                 hoshidictsPopupToolbarPosition,
@@ -1320,6 +1367,7 @@ export async function runOverlayWithSource(
                 hoshidictsShowLookupCounts,
                 hoshidictsPopupWidthPx,
                 hoshidictsPopupHeightPx,
+                hoshidictsPopupColumns,
                 hoshidictsTheme,
                 hoshidictsPopupOpacityPercent,
                 hoshidictsPopupToolbarPosition,

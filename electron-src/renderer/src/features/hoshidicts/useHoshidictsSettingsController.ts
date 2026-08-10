@@ -8,6 +8,7 @@ import {
   DEFAULT_HOSHIDICTS_MAX_RESULTS,
   DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+  DEFAULT_HOSHIDICTS_POPUP_COLUMNS,
   DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
   DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
@@ -24,6 +25,7 @@ import {
   MAX_HOSHIDICTS_MAX_RESULTS,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
+  MAX_HOSHIDICTS_POPUP_COLUMNS,
   MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   MAX_HOSHIDICTS_POPUP_WIDTH_PX,
   MAX_HOSHIDICTS_SCAN_LENGTH,
@@ -31,6 +33,7 @@ import {
   MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
   MIN_HOSHIDICTS_MAX_RESULTS,
   MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
+  MIN_HOSHIDICTS_POPUP_COLUMNS,
   MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   MIN_HOSHIDICTS_POPUP_WIDTH_PX,
   MIN_HOSHIDICTS_SCAN_LENGTH,
@@ -119,6 +122,7 @@ const defaultReaderPreferences = (): HoshidictsReaderPreferences => ({
   definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
   popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
   popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+  popupColumns: DEFAULT_HOSHIDICTS_POPUP_COLUMNS,
   theme: DEFAULT_HOSHIDICTS_THEME,
   popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
@@ -254,6 +258,7 @@ export function useHoshidictsSettingsController() {
       definitionBlur: { ...normalized.definitionBlur },
       popupWidthPx: normalized.popupWidthPx,
       popupHeightPx: normalized.popupHeightPx,
+      popupColumns: normalized.popupColumns,
       theme: normalized.theme,
       popupOpacityPercent: normalized.popupOpacityPercent,
       popupToolbarPosition: normalized.popupToolbarPosition,
@@ -669,6 +674,19 @@ export function useHoshidictsSettingsController() {
         popupHeightPx: Math.min(
           MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
           Math.max(MIN_HOSHIDICTS_POPUP_HEIGHT_PX, Math.round(popupHeightPx))
+        )
+      });
+    },
+    [updateReaderPreferences]
+  );
+
+  const setPopupColumns = useCallback(
+    (popupColumns: number) => {
+      if (!Number.isFinite(popupColumns)) return;
+      updateReaderPreferences({
+        popupColumns: Math.min(
+          MAX_HOSHIDICTS_POPUP_COLUMNS,
+          Math.max(MIN_HOSHIDICTS_POPUP_COLUMNS, Math.round(popupColumns))
         )
       });
     },
@@ -1177,6 +1195,7 @@ export function useHoshidictsSettingsController() {
     setPopupHideDelayMs,
     setPopupWidthPx,
     setPopupHeightPx,
+    setPopupColumns,
     setTheme,
     setPopupOpacityPercent,
     setPopupToolbarPosition,

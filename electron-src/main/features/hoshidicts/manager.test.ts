@@ -1813,6 +1813,7 @@ describe('Hoshidicts reader preferences', () => {
         expect(snapshot.popupNestingMaxDepth).toBe(10);
         expect(snapshot.popupWidthPx).toBe(560);
         expect(snapshot.popupHeightPx).toBe(420);
+        expect(snapshot.popupColumns).toBe(1);
         expect(snapshot.theme).toBe('default');
         expect(snapshot.popupToolbarPosition).toBe('top');
         expect(snapshot.popupButtons).toEqual({
@@ -1849,6 +1850,7 @@ describe('Hoshidicts reader preferences', () => {
         expect((await manager.getSnapshot()).popupNestingMaxDepth).toBe(10);
         expect((await manager.getSnapshot()).popupWidthPx).toBe(560);
         expect((await manager.getSnapshot()).popupHeightPx).toBe(420);
+        expect((await manager.getSnapshot()).popupColumns).toBe(1);
         expect((await manager.getSnapshot()).theme).toBe('default');
         expect((await manager.getSnapshot()).popupOpacityPercent).toBe(85);
         expect((await manager.getSnapshot()).popupToolbarPosition).toBe('top');
@@ -1900,7 +1902,8 @@ describe('Hoshidicts reader preferences', () => {
                         url: '  https://jisho.org/search/%w?sentence=%s  ',
                     },
                 ],
-            }
+            },
+            3
         );
 
         expect(snapshot.lookupMode).toBe('hover');
@@ -1916,6 +1919,7 @@ describe('Hoshidicts reader preferences', () => {
         expect(snapshot.popupNestingMaxDepth).toBe(12);
         expect(snapshot.popupWidthPx).toBe(720);
         expect(snapshot.popupHeightPx).toBe(520);
+        expect(snapshot.popupColumns).toBe(3);
         expect(snapshot.theme).toBe('girlypop');
         expect(snapshot.popupOpacityPercent).toBe(70);
         expect(snapshot.popupToolbarPosition).toBe('bottom');
@@ -1952,6 +1956,7 @@ describe('Hoshidicts reader preferences', () => {
         expect(readManifest(baseDir).popupNestingMaxDepth).toBe(12);
         expect(readManifest(baseDir).popupWidthPx).toBe(720);
         expect(readManifest(baseDir).popupHeightPx).toBe(520);
+        expect(readManifest(baseDir).popupColumns).toBe(3);
         expect(readManifest(baseDir).theme).toBe('girlypop');
         expect(readManifest(baseDir).popupOpacityPercent).toBe(70);
         expect(readManifest(baseDir).popupToolbarPosition).toBe('bottom');
@@ -1981,6 +1986,7 @@ describe('Hoshidicts reader preferences', () => {
         expect((await reloaded.getSnapshot()).popupNestingMaxDepth).toBe(12);
         expect((await reloaded.getSnapshot()).popupWidthPx).toBe(720);
         expect((await reloaded.getSnapshot()).popupHeightPx).toBe(520);
+        expect((await reloaded.getSnapshot()).popupColumns).toBe(3);
         expect((await reloaded.getSnapshot()).theme).toBe('girlypop');
         expect((await reloaded.getSnapshot()).popupOpacityPercent).toBe(70);
         expect((await reloaded.getSnapshot()).popupToolbarPosition).toBe('bottom');
@@ -2008,6 +2014,7 @@ describe('Hoshidicts reader preferences', () => {
         expect(shifted.popupNestingMaxDepth).toBe(12);
         expect(shifted.popupWidthPx).toBe(720);
         expect(shifted.popupHeightPx).toBe(520);
+        expect(shifted.popupColumns).toBe(3);
         expect(shifted.theme).toBe('girlypop');
         expect(shifted.popupOpacityPercent).toBe(70);
         expect(shifted.popupToolbarPosition).toBe('bottom');
@@ -2182,6 +2189,20 @@ describe('Hoshidicts reader preferences', () => {
                 'default', 70, true, 'side' as never
             )
         ).rejects.toThrow('toolbar position is invalid');
+        await expect(
+            manager.setReaderPreferences(
+                'hover', 300, 'Shift', false, 10, undefined, true, 560, 420,
+                'default', 85, true, 'top', 16, 32, null, 'descending',
+                undefined, 0
+            )
+        ).rejects.toThrow('column count is invalid');
+        await expect(
+            manager.setReaderPreferences(
+                'hover', 300, 'Shift', false, 10, undefined, true, 560, 420,
+                'default', 85, true, 'top', 16, 32, null, 'descending',
+                undefined, 5
+            )
+        ).rejects.toThrow('column count is invalid');
     });
 
     it('rejects unsupported activation keys', async () => {

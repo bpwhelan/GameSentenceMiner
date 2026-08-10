@@ -45,6 +45,7 @@ import {
     DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
     DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
     DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+    DEFAULT_HOSHIDICTS_POPUP_COLUMNS,
     DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
     DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
     DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
@@ -67,6 +68,7 @@ import {
     MAX_HOSHIDICTS_MAX_RESULTS,
     MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
     MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
+    MAX_HOSHIDICTS_POPUP_COLUMNS,
     MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT,
     MAX_HOSHIDICTS_POPUP_WIDTH_PX,
     MAX_HOSHIDICTS_SCAN_LENGTH,
@@ -76,6 +78,7 @@ import {
     MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
     MIN_HOSHIDICTS_MAX_RESULTS,
     MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
+    MIN_HOSHIDICTS_POPUP_COLUMNS,
     MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
     MIN_HOSHIDICTS_POPUP_WIDTH_PX,
     MIN_HOSHIDICTS_SCAN_LENGTH,
@@ -160,6 +163,7 @@ interface PersistedManifest {
     definitionBlur: HoshidictsDefinitionBlurPreferences;
     popupWidthPx: number;
     popupHeightPx: number;
+    popupColumns: number;
     theme: HoshidictsTheme;
     popupOpacityPercent: number;
     popupToolbarPosition: HoshidictsPopupToolbarPosition;
@@ -419,6 +423,7 @@ function emptyManifest(): PersistedManifest {
         definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+        popupColumns: DEFAULT_HOSHIDICTS_POPUP_COLUMNS,
         theme: DEFAULT_HOSHIDICTS_THEME,
         popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
         popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
@@ -623,6 +628,14 @@ function normalizePopupHeight(value: unknown): number {
         (value as number) <= MAX_HOSHIDICTS_POPUP_HEIGHT_PX
         ? (value as number)
         : DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX;
+}
+
+function normalizePopupColumns(value: unknown): number {
+    return Number.isInteger(value) &&
+        (value as number) >= MIN_HOSHIDICTS_POPUP_COLUMNS &&
+        (value as number) <= MAX_HOSHIDICTS_POPUP_COLUMNS
+        ? (value as number)
+        : DEFAULT_HOSHIDICTS_POPUP_COLUMNS;
 }
 
 function normalizeTheme(value: unknown): HoshidictsTheme {
@@ -2589,7 +2602,9 @@ export class HoshidictsManager {
             snapshot.scanLength,
             snapshot.maxResults,
             snapshot.sortFrequencyDictionary,
-            snapshot.sortFrequencyDictionaryOrder
+            snapshot.sortFrequencyDictionaryOrder,
+            undefined,
+            snapshot.popupColumns
         );
     }
 
@@ -2615,7 +2630,8 @@ export class HoshidictsManager {
             DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
         sortFrequencyDictionaryOrder: HoshidictsSortFrequencyDictionaryOrder =
             DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
-        popupButtons?: HoshidictsPopupButtons
+        popupButtons?: HoshidictsPopupButtons,
+        popupColumns?: number
     ): Promise<HoshidictsManagerSnapshot> {
         if (lookupMode !== 'shift' && lookupMode !== 'hover') {
             throw new Error('Hoshidicts lookup mode is invalid.');
@@ -2717,6 +2733,14 @@ export class HoshidictsManager {
         ) {
             throw new Error('Hoshidicts popup height is invalid.');
         }
+        if (
+            popupColumns !== undefined &&
+            (!Number.isInteger(popupColumns) ||
+                popupColumns < MIN_HOSHIDICTS_POPUP_COLUMNS ||
+                popupColumns > MAX_HOSHIDICTS_POPUP_COLUMNS)
+        ) {
+            throw new Error('Hoshidicts popup column count is invalid.');
+        }
         if (theme !== undefined && !isHoshidictsTheme(theme)) {
             throw new Error('Hoshidicts theme is invalid.');
         }
@@ -2779,6 +2803,8 @@ export class HoshidictsManager {
             const effectivePopupWidthPx = popupWidthPx ?? manifest.popupWidthPx;
             const effectivePopupHeightPx =
                 popupHeightPx ?? manifest.popupHeightPx;
+            const effectivePopupColumns =
+                popupColumns ?? manifest.popupColumns;
             const effectiveTheme = theme ?? manifest.theme;
             const effectivePopupOpacityPercent =
                 popupOpacityPercent ?? manifest.popupOpacityPercent;
@@ -2801,6 +2827,7 @@ export class HoshidictsManager {
                 manifest.popupNestingMaxDepth !== popupNestingMaxDepth ||
                 manifest.popupWidthPx !== effectivePopupWidthPx ||
                 manifest.popupHeightPx !== effectivePopupHeightPx ||
+                manifest.popupColumns !== effectivePopupColumns ||
                 manifest.theme !== effectiveTheme ||
                 manifest.popupOpacityPercent !== effectivePopupOpacityPercent ||
                 manifest.popupToolbarPosition !==
@@ -2830,6 +2857,7 @@ export class HoshidictsManager {
                     definitionBlur: { ...effectiveDefinitionBlur },
                     popupWidthPx: effectivePopupWidthPx,
                     popupHeightPx: effectivePopupHeightPx,
+                    popupColumns: effectivePopupColumns,
                     theme: effectiveTheme,
                     popupOpacityPercent: effectivePopupOpacityPercent,
                     popupToolbarPosition: effectivePopupToolbarPosition,
@@ -3200,6 +3228,7 @@ export class HoshidictsManager {
             definitionBlur: { ...manifest.definitionBlur },
             popupWidthPx: manifest.popupWidthPx,
             popupHeightPx: manifest.popupHeightPx,
+            popupColumns: manifest.popupColumns,
             theme: manifest.theme,
             popupOpacityPercent: manifest.popupOpacityPercent,
             popupToolbarPosition: manifest.popupToolbarPosition,
@@ -3588,6 +3617,7 @@ export class HoshidictsManager {
             definitionBlur: normalizeDefinitionBlur(parsed.definitionBlur),
             popupWidthPx: normalizePopupWidth(parsed.popupWidthPx),
             popupHeightPx: normalizePopupHeight(parsed.popupHeightPx),
+            popupColumns: normalizePopupColumns(parsed.popupColumns),
             theme: normalizeTheme(parsed.theme),
             popupOpacityPercent: normalizePopupOpacityPercent(
                 parsed.popupOpacityPercent
@@ -3642,6 +3672,7 @@ export class HoshidictsManager {
             definitionBlur: normalizeDefinitionBlur(parsed.definitionBlur),
             popupWidthPx: normalizePopupWidth(parsed.popupWidthPx),
             popupHeightPx: normalizePopupHeight(parsed.popupHeightPx),
+            popupColumns: normalizePopupColumns(parsed.popupColumns),
             theme: normalizeTheme(parsed.theme),
             popupOpacityPercent: normalizePopupOpacityPercent(
                 parsed.popupOpacityPercent

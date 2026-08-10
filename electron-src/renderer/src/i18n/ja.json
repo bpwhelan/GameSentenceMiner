@@ -674,6 +674,7 @@
           "percent": "%",
           "width": "幅",
           "height": "高さ",
+          "columns": "定義の列数",
           "pixels": "px",
           "resetSize": "サイズをリセット"
         },

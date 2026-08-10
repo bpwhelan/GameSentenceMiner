@@ -21,6 +21,7 @@ const harness = vi.hoisted(() => ({
     configureDefinitionBlurProvider: vi.fn(),
     configurePopupWidthProvider: vi.fn(),
     configurePopupHeightProvider: vi.fn(),
+    configurePopupColumnsProvider: vi.fn(),
     configureThemeProvider: vi.fn(),
     configurePopupOpacityPercentProvider: vi.fn(),
     configurePopupToolbarPositionProvider: vi.fn(),
@@ -74,6 +75,7 @@ const harness = vi.hoisted(() => ({
         popupNestingMaxDepth: 4,
         popupWidthPx: 680,
         popupHeightPx: 500,
+        popupColumns: 3,
         theme: 'autumn' as const,
         popupOpacityPercent: 70,
         popupToolbarPosition: 'bottom' as const,
@@ -156,6 +158,8 @@ vi.mock('../../ui/front.js', () => ({
     configureHoshidictsPopupWidthProvider: harness.configurePopupWidthProvider,
     configureHoshidictsPopupHeightProvider:
         harness.configurePopupHeightProvider,
+    configureHoshidictsPopupColumnsProvider:
+        harness.configurePopupColumnsProvider,
     configureHoshidictsThemeProvider: harness.configureThemeProvider,
     configureHoshidictsPopupOpacityPercentProvider:
         harness.configurePopupOpacityPercentProvider,
@@ -184,6 +188,7 @@ vi.mock('../../ui/front.js', () => ({
     }),
     getOverlayHoshidictsPopupWidthAtLaunch: () => 560,
     getOverlayHoshidictsPopupHeightAtLaunch: () => 420,
+    getOverlayHoshidictsPopupColumnsAtLaunch: () => 1,
     getOverlayHoshidictsThemeAtLaunch: () => 'default',
     getOverlayHoshidictsPopupOpacityPercentAtLaunch: () => 85,
     getOverlayHoshidictsPopupToolbarPositionAtLaunch: () => 'top',
@@ -237,6 +242,7 @@ describe('Hoshidicts feature registration', () => {
         harness.configureDefinitionBlurProvider.mockReset();
         harness.configurePopupWidthProvider.mockReset();
         harness.configurePopupHeightProvider.mockReset();
+        harness.configurePopupColumnsProvider.mockReset();
         harness.configureThemeProvider.mockReset();
         harness.configurePopupOpacityPercentProvider.mockReset();
         harness.startManager.mockClear();
@@ -291,6 +297,7 @@ describe('Hoshidicts feature registration', () => {
                 definitionBlur: harness.managerSnapshot.definitionBlur,
                 popupWidthPx: 680,
                 popupHeightPx: 500,
+                popupColumns: 3,
                 theme: 'autumn',
                 popupOpacityPercent: 70,
                 popupToolbarPosition: 'bottom',
@@ -314,6 +321,7 @@ describe('Hoshidicts feature registration', () => {
                 definitionBlur: harness.managerSnapshot.definitionBlur,
                 popupWidthPx: 680,
                 popupHeightPx: 500,
+                popupColumns: 3,
                 theme: 'autumn',
                 popupOpacityPercent: 70,
                 popupToolbarPosition: 'bottom',
@@ -336,6 +344,7 @@ describe('Hoshidicts feature registration', () => {
             definitionBlur: harness.managerSnapshot.definitionBlur,
             popupWidthPx: 680,
             popupHeightPx: 500,
+            popupColumns: 3,
             theme: 'autumn',
             popupOpacityPercent: 70,
             popupToolbarPosition: 'bottom',
@@ -379,6 +388,7 @@ describe('Hoshidicts feature registration', () => {
                     definitionBlur: harness.managerSnapshot.definitionBlur,
                     popupWidthPx: 680,
                     popupHeightPx: 500,
+                    popupColumns: 3,
                     theme: 'autumn',
                     popupOpacityPercent: 70,
                     popupToolbarPosition: 'bottom',
@@ -495,6 +505,10 @@ describe('Hoshidicts feature registration', () => {
         await expect(
             harness.configurePopupHeightProvider.mock.calls[0][0]()
         ).resolves.toBe(500);
+        expect(harness.configurePopupColumnsProvider).toHaveBeenCalledOnce();
+        await expect(
+            harness.configurePopupColumnsProvider.mock.calls[0][0]()
+        ).resolves.toBe(3);
         expect(harness.configureThemeProvider).toHaveBeenCalledOnce();
         await expect(
             harness.configureThemeProvider.mock.calls[0][0]()

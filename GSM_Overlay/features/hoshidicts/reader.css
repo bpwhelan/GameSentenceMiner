@@ -1935,9 +1935,24 @@ html[data-hoshidicts-theme="high-contrast"] .gsm-hoshidicts-audio-menu {
   background: color-mix(in srgb, var(--hoshidicts-pitch) 74%, transparent);
 }
 
+.gsm-hoshidicts-glossary-grid {
+  display: grid;
+  grid-template-columns: repeat(
+    var(--gsm-hoshidicts-popup-columns, 1),
+    minmax(0, 1fr)
+  );
+  align-items: start;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.gsm-hoshidicts-glossary-grid > :only-child {
+  grid-column: 1 / -1;
+}
+
 .gsm-hoshidicts-glossary-card {
   min-width: 0;
-  margin-top: 8px;
+  margin: 0;
   padding: 11px 12px;
   border: 1px solid var(--hoshidicts-border);
   border-radius: 10px;
