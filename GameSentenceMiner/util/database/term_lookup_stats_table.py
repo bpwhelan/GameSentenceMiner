@@ -31,18 +31,8 @@ class TermLookupStatsTable:
             """,
             commit=True,
         )
-        db.execute(
-            f"""
-            CREATE INDEX IF NOT EXISTS idx_term_lookup_stats_count
-            ON {cls._table} (
-                lookup_count DESC,
-                last_looked_up_at DESC,
-                term ASC,
-                reading ASC
-            )
-            """,
-            commit=True,
-        )
+        # The stats query is infrequent, while maintaining this index slows every lookup write.
+        db.execute("DROP INDEX IF EXISTS idx_term_lookup_stats_count", commit=True)
 
     @classmethod
     def _get_db(cls) -> SQLiteDB:

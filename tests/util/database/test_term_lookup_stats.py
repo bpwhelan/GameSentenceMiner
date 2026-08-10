@@ -29,7 +29,15 @@ def lookup_db():
         database.close()
 
 
-def test_lookup_stats_schema_is_typed_and_idempotent(lookup_db):
+def test_lookup_stats_schema_is_typed_idempotent_and_drops_legacy_sort_index(lookup_db):
+    lookup_db.execute("DROP INDEX IF EXISTS idx_term_lookup_stats_count", commit=True)
+    lookup_db.execute(
+        """
+        CREATE INDEX idx_term_lookup_stats_count
+        ON term_lookup_stats (lookup_count)
+        """,
+        commit=True,
+    )
     TermLookupStatsTable.set_db(lookup_db)
 
     columns = {row[1]: (row[2], row[5]) for row in lookup_db.fetchall("PRAGMA table_info(term_lookup_stats)")}
@@ -41,7 +49,7 @@ def test_lookup_stats_schema_is_typed_and_idempotent(lookup_db):
         "last_looked_up_at": ("REAL", 0),
     }
     indexes = {row[1] for row in lookup_db.fetchall("PRAGMA index_list(term_lookup_stats)")}
-    assert "idx_term_lookup_stats_count" in indexes
+    assert "idx_term_lookup_stats_count" not in indexes
 
 
 def test_repeated_lookup_increments_and_preserves_first_timestamp(lookup_db):
