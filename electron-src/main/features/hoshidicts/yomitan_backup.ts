@@ -910,6 +910,7 @@ function currentReaderPreferences(current: HoshidictsManagerSnapshot): Hoshidict
         definitionBlur: { ...current.definitionBlur },
         popupWidthPx: current.popupWidthPx,
         popupHeightPx: current.popupHeightPx,
+        popupColumns: current.popupColumns,
         theme: current.theme,
         popupOpacityPercent: current.popupOpacityPercent,
         popupToolbarPosition: current.popupToolbarPosition,

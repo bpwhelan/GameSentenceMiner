@@ -272,6 +272,8 @@ describe('Hoshidicts manager full backups', () => {
             48,
             'Beta',
             'ascending',
+            undefined,
+            3,
         );
         await source.setSchedule('weekly');
         await source.setDictionarySchedule(beta!.id, 'hourly');
@@ -393,6 +395,7 @@ describe('Hoshidicts manager full backups', () => {
             },
             popupWidthPx: 720,
             popupHeightPx: 520,
+            popupColumns: 3,
             theme: 'girlypop',
             popupOpacityPercent: 70,
             schedule: 'weekly',
@@ -696,6 +699,7 @@ describe('Hoshidicts manager full backups', () => {
             lookupMode: 'shift',
             popupWidthPx: 560,
             popupHeightPx: 420,
+            popupColumns: 1,
             theme: 'default',
             popupOpacityPercent: 85,
         });
@@ -719,6 +723,7 @@ describe('Hoshidicts manager full backups', () => {
             lookupMode: 'shift',
             popupWidthPx: 560,
             popupHeightPx: 420,
+            popupColumns: 1,
             theme: 'default',
             popupOpacityPercent: 85,
         });
