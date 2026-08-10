@@ -1129,6 +1129,7 @@
       const miningButtons = [];
       const miningItems = [];
       const audioItems = [];
+      const deferredGlossaryFills = [];
       let lookupStats = null;
 
       function appendResult(result, resultIndex) {
@@ -1232,13 +1233,25 @@
             const content = documentRef.createElement("div");
             content.className = "gsm-hoshidicts-glossary-content";
             content.dataset.hoshidictsDictionary = dictionary;
-            appendTextOnlyGlossary(documentRef, content, glossary.glossary, {
-              dictionary,
-              generation: renderContext.generation,
-              onInternalLink: renderContext.onInternalLink,
-              onLayoutChange: positionPopup,
-              resolveMedia: renderContext.resolveMedia,
-            });
+            const fillContent = () => appendTextOnlyGlossary(
+              documentRef,
+              content,
+              glossary.glossary,
+              {
+                dictionary,
+                generation: renderContext.generation,
+                onInternalLink: renderContext.onInternalLink,
+                onLayoutChange: positionPopup,
+                resolveMedia: renderContext.resolveMedia,
+              }
+            );
+            // Glossary bodies are most of a render. Only the first entry is
+            // visible in the popup, so fill the rest after it has painted.
+            if (resultIndex === 0) {
+              fillContent();
+            } else {
+              deferredGlossaryFills.push(fillContent);
+            }
             definition.appendChild(content);
             definitions.appendChild(definition);
           }
@@ -1249,7 +1262,28 @@
         panel.appendChild(entry);
       }
 
+      // Fills the queued glossaries on the next task, once the first entry has
+      // had a chance to paint. Fills inline without a timer available.
+      function flushDeferredGlossaries() {
+        if (deferredGlossaryFills.length === 0) {
+          return;
+        }
+        const fills = deferredGlossaryFills.splice(0);
+        const run = () => {
+          for (const fill of fills) {
+            fill();
+          }
+          positionPopup();
+        };
+        if (typeof windowRef.setTimeout === "function") {
+          windowRef.setTimeout(run, 0);
+        } else {
+          run();
+        }
+      }
+
       results.slice(0, initialResultCount).forEach(appendResult);
+      flushDeferredGlossaries();
 
       if (results.length > initialResultCount) {
         const showMore = documentRef.createElement("button");
@@ -1263,6 +1297,7 @@
           results.slice(initialResultCount).forEach((result, resultIndex) => {
             appendResult(result, resultIndex + initialResultCount);
           });
+          flushDeferredGlossaries();
           onResultsExpanded({
             audioItems,
             appendedMiningButtons: miningButtons.slice(miningButtonStart),

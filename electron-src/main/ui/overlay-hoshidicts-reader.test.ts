@@ -1889,6 +1889,9 @@ describe("Hoshidicts safe popup rendering", () => {
     preferred.term.reading = "ねこ";
     childResponse.results.push(preferred);
     socket.receive(childResponse);
+    // Glossaries after the first entry fill on the next task so the popup can
+    // paint first.
+    await vi.advanceTimersByTimeAsync(0);
 
     const popups = reader.getPopupElements();
     expect(popups).toHaveLength(2);
@@ -5737,6 +5740,8 @@ describe("Hoshidicts Shift-hover scanner", () => {
     )!;
     expect(showMore.textContent).toBe("Show 1 more");
     showMore.click();
+    // The expanded entries fill their glossaries on the next task.
+    await vi.advanceTimersByTimeAsync(0);
     await flushPromises();
 
     expect(popup.querySelectorAll(".gsm-hoshidicts-entry")).toHaveLength(7);
