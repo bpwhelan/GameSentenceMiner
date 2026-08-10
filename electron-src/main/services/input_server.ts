@@ -100,8 +100,13 @@ function scheduleRestart(): void {
 }
 
 export function shouldSuppressInputServerLine(message: string): boolean {
-    return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\s+INFO\s+client (?:connected|disconnected):\s+\S+$/.test(
-        message
+    return (
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\s+INFO\s+client (?:connected|disconnected):\s+\S+$/.test(
+            message
+        ) ||
+        /^GSMPROGRESS:\{(?:"percent":100,"stage":"ready"|"stage":"ready","percent":100")\}$/.test(
+            message
+        )
     );
 }
 

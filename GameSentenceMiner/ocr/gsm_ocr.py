@@ -57,6 +57,10 @@ from GameSentenceMiner.owocr.owocr import ocr_runtime
 from GameSentenceMiner.owocr.owocr.ocr import normalize_japanese_ocr_dashes, normalize_japanese_ocr_text_and_segments
 from GameSentenceMiner.owocr.owocr.ocr_runtime import TextFiltering
 from GameSentenceMiner.util.communication import ocr_ipc
+from GameSentenceMiner.util.concurrency.scheduler import (
+    acquire_runtime_scheduler,
+    release_runtime_scheduler,
+)
 from GameSentenceMiner.util.config.configuration import (
     get_app_directory,
     get_temporary_directory,
@@ -2333,7 +2337,7 @@ def run_qt_event_loop_for_ocr(qt_main_module=None):
 
 
 def request_clean_shutdown(reason: str = "unknown") -> None:
-    global done, shutdown_requested
+    global done, shutdown_requested, _ocr_deadline_scheduler
 
     if shutdown_requested:
         return
@@ -2353,6 +2357,11 @@ def request_clean_shutdown(reason: str = "unknown") -> None:
         second_ocr_queue.put_nowait(None)
     except Exception:
         pass
+    scheduler = _ocr_deadline_scheduler
+    _ocr_deadline_scheduler = None
+    if scheduler is not None:
+        scheduler.cancel("ocr.manual.capture")
+        release_runtime_scheduler(scheduler)
 
     try:
         qt_main = _get_qt_main_module()
@@ -3497,7 +3506,8 @@ def _queue_second_pass_callback(
             source,
             queue_id,
             enqueued_at,
-        )
+        ),
+        timeout=0.25,
     )
     emit_ocr_debug(
         get_ocr_advanced_debug_logging(),
@@ -3764,9 +3774,10 @@ def ocr_result_callback(
 
 
 done = False
+_ocr_deadline_scheduler = None
 
 # Create a queue for tasks
-second_ocr_queue = queue.Queue()
+second_ocr_queue = queue.Queue(maxsize=2048)
 
 
 def get_ocr2_image(crop_coords, og_image: Image.Image, ocr2_engine=None, extra_padding=0):
@@ -4090,7 +4101,8 @@ def run_area_select_ocr_once(source=TextSource.SCREEN_CROPPER) -> bool:
             image_metadata,
             None,
             source,
-        )
+        ),
+        timeout=0.25,
     )
     return True
 
@@ -4191,9 +4203,14 @@ def trigger_manual_ocr(*, gamepad_activation: bool = False) -> bool:
         except Exception:
             logger.exception("Delayed manual OCR capture failed.")
 
-    timer = threading.Timer(delay_ms / 1000, delayed_capture)
-    timer.daemon = True
-    timer.start()
+    global _ocr_deadline_scheduler
+    if _ocr_deadline_scheduler is None:
+        _ocr_deadline_scheduler = acquire_runtime_scheduler()
+    _ocr_deadline_scheduler.schedule_after(
+        "ocr.manual.capture",
+        delay_ms / 1000,
+        delayed_capture,
+    )
     logger.info(f"Manual OCR scan scheduled in {delay_ms} ms.")
     return True
 

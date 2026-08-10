@@ -1,4 +1,5 @@
 import rapidfuzz
+import threading
 import unicodedata
 import uuid
 from dataclasses import dataclass, field
@@ -10,6 +11,13 @@ from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags
 from GameSentenceMiner.util.models.model import AnkiCard
 
 initial_time = datetime.now()
+
+
+def to_local_naive_datetime(value: datetime) -> datetime:
+    """Convert an aware instant to GSM's legacy local-naive datetime format."""
+    if value.tzinfo is None:
+        return value
+    return datetime.fromtimestamp(value.timestamp())
 
 
 class TextSource:
@@ -53,6 +61,13 @@ class GameLine:
     source: str = None
     source_padding: float = 0.0
     translation: str = ""
+    session_id: str = ""
+    stream_sequence: int = 0
+    revision: int = 1
+    state: str = "frozen"
+    first_seen_time: datetime | None = None
+    finalized_time: datetime | None = None
+    source_instance: str = ""
 
     def get_previous_time(self):
         if self.prev:
@@ -86,14 +101,17 @@ class GameText:
         self.values_dict = {}
         self.previous_lines = set()
         self.game_line_index = 0
+        self._lock = threading.RLock()
 
     def __getitem__(self, index):
-        return self.values[index]
+        with self._lock:
+            return self.values[index]
 
     def get_by_id(self, line_id: str) -> Optional[GameLine]:
-        if not self.values_dict:
-            return None
-        return self.values_dict.get(line_id)
+        with self._lock:
+            if not self.values_dict:
+                return None
+            return self.values_dict.get(line_id)
 
     def get_time(self, line_text: str, occurrence: int = -1) -> datetime:
         matches = [line for line in self.values if line.text == line_text]
@@ -122,15 +140,16 @@ class GameText:
             source=source,
             source_padding=TextSource.padding_seconds(source),
         )
-        self.values_dict[line_id] = new_line
-        self.game_line_index += 1
-        if self.values:
-            self.values[-1].next = new_line
-        self.values.append(new_line)
-        if new_line.prev and is_recycled_line_detection_enabled():
-            normalized_previous_line = normalize_text_for_comparison(new_line.prev.text)
-            if normalized_previous_line:
-                self.previous_lines.add(normalized_previous_line)
+        with self._lock:
+            self.values_dict[line_id] = new_line
+            self.game_line_index += 1
+            if self.values:
+                self.values[-1].next = new_line
+            self.values.append(new_line)
+            if new_line.prev and is_recycled_line_detection_enabled():
+                normalized_previous_line = normalize_text_for_comparison(new_line.prev.text)
+                if normalized_previous_line:
+                    self.previous_lines.add(normalized_previous_line)
         return new_line
         # self.remove_old_events(datetime.now() - timedelta(minutes=10))
 
@@ -141,9 +160,67 @@ class GameText:
         return False
 
     def get_last_line(self):
-        if self.values:
-            return self.values[-1]
-        return None
+        with self._lock:
+            if self.values:
+                return self.values[-1]
+            return None
+
+    def upsert_authoritative_line(self, record) -> GameLine:
+        """Project an immutable TextRecordSnapshot into the legacy GameLine facade."""
+        captured_at = to_local_naive_datetime(record.captured_at_utc)
+        first_seen = to_local_naive_datetime(record.first_seen_at_utc)
+        finalized = to_local_naive_datetime(record.finalized_at_utc) if record.finalized_at_utc else None
+        with self._lock:
+            existing = self.values_dict.get(record.line_id)
+            if existing is not None:
+                if record.revision >= existing.revision:
+                    existing.text = record.text
+                    existing.time = captured_at
+                    existing.scene = record.scene
+                    existing.source = record.source_kind.value
+                    existing.source_padding = TextSource.padding_seconds(existing.source)
+                    existing.revision = record.revision
+                    existing.state = record.state.value
+                    existing.first_seen_time = first_seen
+                    existing.finalized_time = finalized
+                    existing.source_instance = record.source_instance
+                    existing.excluded_from_stats = record.excluded_from_stats
+                return existing
+
+            previous = self.values[-1] if self.values else None
+            line = GameLine(
+                id=record.line_id,
+                text=record.text,
+                time=captured_at,
+                prev=previous,
+                next=None,
+                index=self.game_line_index,
+                scene=record.scene,
+                source=record.source_kind.value,
+                source_padding=TextSource.padding_seconds(record.source_kind.value),
+                session_id=record.session_id,
+                stream_sequence=record.stream_sequence,
+                revision=record.revision,
+                state=record.state.value,
+                first_seen_time=first_seen,
+                finalized_time=finalized,
+                source_instance=record.source_instance,
+            )
+            line.excluded_from_stats = record.excluded_from_stats
+            self.values_dict[line.id] = line
+            self.values.append(line)
+            self.game_line_index += 1
+            if previous is not None:
+                previous.next = line
+                if is_recycled_line_detection_enabled():
+                    normalized = normalize_text_for_comparison(previous.text)
+                    if normalized:
+                        self.previous_lines.add(normalized)
+            return line
+
+    def snapshot(self) -> tuple[GameLine, ...]:
+        with self._lock:
+            return tuple(self.values)
 
 
 game_log = GameText()
@@ -292,7 +369,10 @@ def get_matching_line(last_note: AnkiCard, lines=None, *, prefer_recent: bool = 
     candidates = []
     for line in reversed(lines):
         if line.time < time_window:
-            break
+            # Authoritative stream order is independent of capture time. A slow
+            # source can legitimately append an older media timestamp after a newer
+            # line, so never assume the remaining list is timestamp-sorted.
+            continue
         if lines_match(line.text, anki_sentence):
             candidates.append(line)
 
@@ -331,7 +411,9 @@ def get_text_event(last_note) -> GameLine:
     Legacy wrapper for get_matching_line with original behavior.
     Uses raw text comparison for backward compatibility.
     """
-    return get_matching_line(last_note, lines=None)
+    line = get_matching_line(last_note, lines=None)
+    _freeze_authoritative_line(line)
+    return line
 
 
 def get_mined_line(last_note: AnkiCard, lines=None, *, prefer_recent: bool = False) -> GameLine:
@@ -339,7 +421,18 @@ def get_mined_line(last_note: AnkiCard, lines=None, *, prefer_recent: bool = Fal
     Legacy wrapper for get_matching_line with original behavior.
     Uses stripped text comparison and accepts custom lines.
     """
-    return get_matching_line(last_note, lines=lines, prefer_recent=prefer_recent)
+    line = get_matching_line(last_note, lines=lines, prefer_recent=prefer_recent)
+    _freeze_authoritative_line(line)
+    return line
+
+
+def _freeze_authoritative_line(line: GameLine) -> None:
+    try:
+        from GameSentenceMiner.gametext import freeze_authoritative_text_line
+
+        freeze_authoritative_text_line(line.id)
+    except Exception as error:
+        logger.debug(f"Unable to freeze authoritative text line {line.id}: {error}")
 
 
 def get_time_of_line(line):
@@ -347,7 +440,7 @@ def get_time_of_line(line):
 
 
 def get_all_lines():
-    return game_log.values
+    return list(game_log.snapshot())
 
 
 def get_text_log() -> GameText:

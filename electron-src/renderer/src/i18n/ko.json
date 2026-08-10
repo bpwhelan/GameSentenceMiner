@@ -848,7 +848,7 @@
       "title": "저장된 프로필",
       "saved": "저장됨",
       "autoHook": "다음 시작 시 훅 자동 연결",
-      "flushDelay": "출력 플러시 지연 (ms):",
+      "flushDelay": "텍스트 수정 시간 (ms):",
       "manualHook": "수동 훅 코드 (H/R-code, 선택 사항):",
       "manualHookHint": "특정 H-code 또는 R-code가 있을 때만 입력하세요. 대부분은 엔진을 시작한 뒤 감지된 훅을 선택하면 됩니다.",
       "attachManual": "수동 훅 연결",

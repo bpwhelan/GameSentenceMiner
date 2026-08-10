@@ -1,6 +1,7 @@
 import asyncio
 import json
 import queue
+import threading
 from types import SimpleNamespace
 
 from GameSentenceMiner.web.events import EventManager
@@ -126,3 +127,159 @@ def test_textfeed_session_sync_request_is_not_forwarded_as_game_text():
 
     assert intake_queue.empty()
     assert websocket.sent[0]["event"] == "textfeed_session_sync"
+
+
+def test_textfeed_v2_snapshot_buffers_concurrent_delta_behind_snapshot(monkeypatch):
+    intake_queue = queue.Queue()
+    server = MultiplexWebsocketServerThread(
+        name="test",
+        get_port_func=lambda: 0,
+        msg_queue=intake_queue,
+        is_paused_func=lambda: False,
+        endpoint_specs={ID_HOOKER: EndpointSpec(read_mode=True)},
+    )
+    snapshot_started = threading.Event()
+    release_snapshot = threading.Event()
+
+    def build_snapshot(_request):
+        snapshot_started.set()
+        assert release_snapshot.wait(1)
+        return {
+            "event": "text_v2_snapshot",
+            "snapshot_sequence": 10,
+            "lines": [],
+        }
+
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.gsm_websocket.build_textfeed_v2_snapshot_payload",
+        build_snapshot,
+    )
+
+    class FakeWebsocket:
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, message):
+            self.sent.append(json.loads(message))
+
+    websocket = FakeWebsocket()
+    server._get_clients(ID_HOOKER).add(websocket)
+
+    async def scenario():
+        snapshot_task = asyncio.create_task(
+            server._handle_incoming_message(
+                ID_HOOKER,
+                websocket,
+                json.dumps({"event": "text_v2_snapshot_request"}),
+            )
+        )
+        await asyncio.to_thread(snapshot_started.wait, 1)
+        await server._send_v2_text_coroutine(
+            json.dumps({"event": "text_v2_append", "data": {"stream_sequence": 11}}),
+        )
+        release_snapshot.set()
+        await snapshot_task
+
+    asyncio.run(scenario())
+
+    assert [message["event"] for message in websocket.sent] == [
+        "text_v2_snapshot",
+        "text_v2_append",
+    ]
+
+
+def test_textfeed_v2_delta_is_not_delivered_to_legacy_client():
+    server = MultiplexWebsocketServerThread(
+        name="test",
+        get_port_func=lambda: 0,
+        msg_queue=queue.Queue(),
+        is_paused_func=lambda: False,
+        endpoint_specs={ID_HOOKER: EndpointSpec(read_mode=True)},
+    )
+
+    class FakeWebsocket:
+        def __init__(self):
+            self.closed = None
+
+        async def close(self, **kwargs):
+            self.closed = kwargs
+
+    legacy = FakeWebsocket()
+    negotiated_v2 = FakeWebsocket()
+
+    async def scenario():
+        server._get_clients(ID_HOOKER).update({legacy, negotiated_v2})
+        server._v2_clients.add(negotiated_v2)
+        server._client_output_queues[legacy] = asyncio.Queue(maxsize=4)
+        server._client_output_queues[negotiated_v2] = asyncio.Queue(maxsize=4)
+
+        await server._send_v2_text_coroutine(json.dumps({"event": "text_v2_append", "data": {"stream_sequence": 1}}))
+
+        assert server._client_output_queues[legacy].empty()
+        delivered = json.loads(server._client_output_queues[negotiated_v2].get_nowait())
+        assert delivered["event"] == "text_v2_append"
+
+    asyncio.run(scenario())
+
+
+def test_textfeed_legacy_line_is_not_delivered_to_negotiated_v2_client():
+    server = MultiplexWebsocketServerThread(
+        name="test",
+        get_port_func=lambda: 0,
+        msg_queue=queue.Queue(),
+        is_paused_func=lambda: False,
+        endpoint_specs={ID_HOOKER: EndpointSpec(read_mode=True)},
+    )
+
+    class FakeWebsocket:
+        async def close(self, **_kwargs):
+            pass
+
+    legacy = FakeWebsocket()
+    negotiated_v2 = FakeWebsocket()
+
+    async def scenario():
+        server._get_clients(ID_HOOKER).update({legacy, negotiated_v2})
+        server._v2_clients.add(negotiated_v2)
+        server._client_output_queues[legacy] = asyncio.Queue(maxsize=4)
+        server._client_output_queues[negotiated_v2] = asyncio.Queue(maxsize=4)
+
+        await server._send_legacy_text_coroutine(json.dumps({"event": "text_received"}))
+
+        delivered = json.loads(server._client_output_queues[legacy].get_nowait())
+        assert delivered["event"] == "text_received"
+        assert server._client_output_queues[negotiated_v2].empty()
+
+    asyncio.run(scenario())
+
+
+def test_slow_textfeed_client_is_disconnected_when_output_mailbox_fills():
+    server = MultiplexWebsocketServerThread(
+        name="test",
+        get_port_func=lambda: 0,
+        msg_queue=queue.Queue(),
+        is_paused_func=lambda: False,
+        endpoint_specs={ID_HOOKER: EndpointSpec(read_mode=True)},
+    )
+
+    class FakeWebsocket:
+        def __init__(self):
+            self.closed = None
+
+        async def close(self, **kwargs):
+            self.closed = kwargs
+
+    websocket = FakeWebsocket()
+
+    async def scenario():
+        clients = server._get_clients(ID_HOOKER)
+        clients.add(websocket)
+        output = asyncio.Queue(maxsize=1)
+        output.put_nowait("already queued")
+        server._client_output_queues[websocket] = output
+        await server._send_text_coroutine(ID_HOOKER, "next")
+        assert websocket not in clients
+
+    asyncio.run(scenario())
+
+    assert websocket.closed == {"code": 1013, "reason": "TextFeed client output queue exceeded"}

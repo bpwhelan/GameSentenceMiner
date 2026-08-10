@@ -332,7 +332,7 @@ export const store = new Store<StoreConfig>({
         ignoreActiveSceneForOcr: false,
         visibleTabs: ['launcher', 'stats', 'console'], // Default all tabs visible
         statsEndpoint: 'overview', // Default stats endpoint
-        databaseBackupEnabled: false,
+        databaseBackupEnabled: true,
         databaseBackupDirectory: '',
         databaseBackupRetentionCount: 2,
         locale: 'en', // UI language code

@@ -26,8 +26,10 @@ const {
   resolveManualHotkeyBackend,
 } = require('./manual_hotkey_controller');
 const {
+  createLeadingEdgeCooldownHandler,
   normalizeConfiguredHotkeyValues,
   registerHotkeyWithFallback,
+  shouldSuppressGamepadToggleDuringFocusTransition,
 } = require('./hotkey_settings');
 const { shouldRevealAutomaticOverlay, shouldShowOverlayOnReady } = require('./automatic_visibility');
 const { URL } = require('url');
@@ -285,6 +287,7 @@ const GSM_OWNED_OVERLAY_FIELD_MAP = {
   scan_on_mouse_move: "scan_on_mouse_move",
   scan_on_overlay_activation: "scan_on_overlay_activation",
   text_appears_instantly: "text_appears_instantly",
+  base_scale: "base_scale",
   inject_scanned_lines: "inject_scanned_lines",
   minimum_character_size: "minimum_character_size",
   use_ocr_result_v2: "use_ocr_result_v2",
@@ -1487,6 +1490,15 @@ function isTrackedGameWindowVisibleForManualHotkey() {
   return !isManualHotkeyBlockedByGameWindowState(trackedGameWindowState);
 }
 
+function isTexthookerDefinitelyVisible() {
+  return (
+    isTexthookerMode === true &&
+    !!texthookerWindow &&
+    !texthookerWindow.isDestroyed() &&
+    texthookerWindow.isVisible()
+  );
+}
+
 function getManualHotkeyTriggerBlockReason() {
   if (!mainWindow || mainWindow.isDestroyed()) {
     return "overlay-window-unavailable";
@@ -1494,6 +1506,14 @@ function getManualHotkeyTriggerBlockReason() {
 
   if (mainWindow.isMinimized()) {
     return "overlay-window-minimized";
+  }
+
+  // TextFeed uses the same Yomitan modifier as the overlay, so a modifier-only
+  // Push to Show hotkey must not reveal in-game lookups over a visible feed.
+  // Require both the explicit mode and concrete BrowserWindow visibility so an
+  // merely created, hidden, or transitioning TextFeed window does not block it.
+  if (isTexthookerDefinitelyVisible()) {
+    return "texthooker-visible";
   }
 
   if (!isTrackedGameWindowVisibleForManualHotkey()) {
@@ -2766,6 +2786,7 @@ function syncManualHotkeyInputServerConnection(reason = "unknown") {
 // Electron globalShortcut, so it fires even in games that swallow global hotkeys.
 
 const appHotkeyGlobalShortcutAccelerators = new Map(); // id -> accelerator currently held by globalShortcut
+const TOGGLE_HOTKEY_COOLDOWN_MS = 250;
 
 function isRouteAllHotkeysEnabled() {
   return userSettings.routeAllHotkeysThroughInputServer === true;
@@ -2957,8 +2978,13 @@ function setAppHotkey(id, accelerator, handler, options = {}) {
     return false;
   }
 
+  const debounceMs = Math.max(0, Number(options.debounceMs) || 0);
+  const effectiveHandler = debounceMs > 0
+    ? createLeadingEdgeCooldownHandler(handler, debounceMs)
+    : handler;
+
   if (isRouteAllHotkeysEnabled()) {
-    appHotkeyInputServerConnection.registry.set(id, { accelerator: accel, handler });
+    appHotkeyInputServerConnection.registry.set(id, { accelerator: accel, handler: effectiveHandler });
     syncAppHotkeyInputServerConnection(`register:${id}`);
     sendAppHotkeyConfig();
     return true;
@@ -2970,7 +2996,7 @@ function setAppHotkey(id, accelerator, handler, options = {}) {
   const result = registerHotkeyWithFallback({
     accelerator: accel,
     fallbackAccelerator,
-    register: (candidate) => globalShortcut.register(candidate, handler),
+    register: (candidate) => globalShortcut.register(candidate, effectiveHandler),
   });
   if (result.error) {
     console.warn(`[Hotkeys] Failed to register ${accel} for ${id}:`, result.error.message);
@@ -3766,11 +3792,20 @@ function restoreOverlayAfterYomitanLookup() {
   }
 }
 
+const GAMEPAD_FOCUS_RETRY_DELAYS_MS = [0, 50, 120, 240, 380];
+const GAMEPAD_FOCUS_TOGGLE_GUARD_AFTER_LAST_RETRY_MS = 250;
+let gamepadKeyboardToggleSuppressedUntil = 0;
+
 function aggressivelyFocusOverlayForGamepadNavigation() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
 
-  const focusDelays = [0, 50, 120, 240, 380];
-  for (const delay of focusDelays) {
+  const lastFocusDelay = GAMEPAD_FOCUS_RETRY_DELAYS_MS[GAMEPAD_FOCUS_RETRY_DELAYS_MS.length - 1] || 0;
+  gamepadKeyboardToggleSuppressedUntil = Math.max(
+    gamepadKeyboardToggleSuppressedUntil,
+    Date.now() + lastFocusDelay + GAMEPAD_FOCUS_TOGGLE_GUARD_AFTER_LAST_RETRY_MS
+  );
+
+  for (const delay of GAMEPAD_FOCUS_RETRY_DELAYS_MS) {
     setTimeout(() => {
       if (!gamepadNavigationActive) return;
       if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -3795,6 +3830,7 @@ function aggressivelyFocusOverlayForGamepadNavigation() {
 }
 
 let gamepadToggleRequestSeq = 0;
+let lastGamepadNavigationToggleRequestAt = Number.NEGATIVE_INFINITY;
 
 function requestGamepadNavigationToggleFromMain(source = "unknown") {
   if (!userSettings.gamepadEnabled) {
@@ -3803,6 +3839,27 @@ function requestGamepadNavigationToggleFromMain(source = "unknown") {
   }
   if (!mainWindow || mainWindow.isDestroyed()) {
     console.log(`[Gamepad] Ignoring toggle request from ${source}: main window unavailable`);
+    return;
+  }
+
+  const now = Date.now();
+  if (shouldSuppressGamepadToggleDuringFocusTransition({
+    source,
+    navigationActive: gamepadNavigationActive,
+    suppressedUntil: gamepadKeyboardToggleSuppressedUntil,
+    now,
+  })) {
+    lastGamepadNavigationToggleRequestAt = now;
+    const remainingMs = Math.max(0, gamepadKeyboardToggleSuppressedUntil - now);
+    console.log(
+      `[Gamepad] Ignoring keyboard toggle from ${source} during focus recovery (${remainingMs}ms remaining)`
+    );
+    return;
+  }
+  const elapsed = now - lastGamepadNavigationToggleRequestAt;
+  lastGamepadNavigationToggleRequestAt = now;
+  if (elapsed >= 0 && elapsed < TOGGLE_HOTKEY_COOLDOWN_MS) {
+    console.log(`[Gamepad] Ignoring duplicate toggle request from ${source} after ${elapsed}ms`);
     return;
   }
 
@@ -3831,6 +3888,9 @@ function setGamepadNavigationModeActive(active, triggerSource = "unknown", optio
   const keepGamepadActivationFocusNeutral =
     nextActive && isManualMode() && shouldKeepOverlayVisibleWhenManualInactive();
   gamepadNavigationActive = nextActive;
+  if (!nextActive) {
+    gamepadKeyboardToggleSuppressedUntil = 0;
+  }
 
   if (nextActive) {
     if (!wasActive) {
@@ -5352,7 +5412,7 @@ function registerTexthookerHotkey(oldHotkey) {
         blurAndRestoreFocus();
       }
     }
-  }, { settingKey: "texthookerHotkey" });
+  }, { settingKey: "texthookerHotkey", debounceMs: TOGGLE_HOTKEY_COOLDOWN_MS });
 
   if (!registered) {
     console.warn(`[TexthookerMode] Failed to register texthooker hotkey: ${texthookerHotkey}`);
@@ -6385,7 +6445,7 @@ async function startOverlayAppImpl() {
         ensureMainWindowIsOnConnectedDisplay("hotkey-toggle-window");
         mainWindow.webContents.send('toggle-main-box');
       }
-    }, { settingKey: "toggleWindowHotkey" });
+    }, { settingKey: "toggleWindowHotkey", debounceMs: TOGGLE_HOTKEY_COOLDOWN_MS });
   }
   registerToggleWindowHotkey();
 
@@ -6408,7 +6468,7 @@ async function startOverlayAppImpl() {
         }
         else mainWindow.minimize();
       }
-    }, { settingKey: "minimizeHotkey" });
+    }, { settingKey: "minimizeHotkey", debounceMs: TOGGLE_HOTKEY_COOLDOWN_MS });
   }
   registerMinimizeHotkey();
 
@@ -6450,7 +6510,7 @@ async function startOverlayAppImpl() {
           }
         }
       }
-    }, { settingKey: "translateHotkey" });
+    }, { settingKey: "translateHotkey", debounceMs: TOGGLE_HOTKEY_COOLDOWN_MS });
   }
   registerTranslateHotkey();
 
@@ -6460,14 +6520,14 @@ async function startOverlayAppImpl() {
       if (mainWindow) {
         mainWindow.webContents.send("toggle-furigana-visibility");
       }
-    }, { settingKey: "toggleFuriganaHotkey" });
+    }, { settingKey: "toggleFuriganaHotkey", debounceMs: TOGGLE_HOTKEY_COOLDOWN_MS });
   }
   registerToggleFuriganaHotkey();
 
   function registerLiveStatsToggleHotkey(_oldHotkey) {
     setAppHotkey("liveStatsToggle", userSettings.liveStatsToggleHotkey || "Alt+Shift+L", () => {
       advanceLiveStatsVisibilityMode("hotkey");
-    }, { settingKey: "liveStatsToggleHotkey" });
+    }, { settingKey: "liveStatsToggleHotkey", debounceMs: TOGGLE_HOTKEY_COOLDOWN_MS });
   }
   registerLiveStatsToggleHotkey();
   

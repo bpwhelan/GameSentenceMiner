@@ -70,7 +70,7 @@ export interface TextHookProfile {
     engine: TextHookEngine;
     /** Auto-attach to the saved hook the moment it appears. */
     autoHook: boolean;
-    /** Debounce window before forwarding selected hook output to GSM. */
+    /** Provisional revision window used by Python after immediate forwarding. */
     flushDelayMs: number;
     /** Stored hook id from the engine output. */
     hookId?: string | null;
@@ -115,7 +115,7 @@ interface ActiveSession {
     lineCarry: string;
     /** Last hook line, used for multiline hook text continuations. */
     lastHookForContinuation: { id: string; function: string; ignored: boolean } | null;
-    /** Debounced selected-hook text waiting to be forwarded. */
+    /** Legacy collector retained only for profile/session compatibility. */
     outputCollector: TextHookOutputPayload[];
     outputFlushTimer: NodeJS.Timeout | null;
     /** Debounced detected-hook preview text waiting to be shown in the hook list. */
@@ -146,6 +146,9 @@ interface TextHookOutputPayload {
     engine: Exclude<TextHookEngine, 'agent'>;
     exeName: string;
     copyToClipboard: boolean;
+    capturedAt?: number;
+    revisionWindowMs?: number;
+    mergeFragments?: boolean;
 }
 
 interface HookPreviewCollector {
@@ -1101,18 +1104,14 @@ function mergeTextHookOutput(pending: TextHookOutputPayload[]): TextHookOutputPa
 function queueSelectedHookText(payload: TextHookOutputPayload): void {
     if (!session) return;
     const delayMs = normalizeFlushDelayMs(session.flushDelayMs);
-    if (delayMs <= 0) {
-        sendSelectedHookText(payload);
-        return;
-    }
-
-    session.outputCollector.push(payload);
-    if (session.outputFlushTimer) {
-        clearTimeout(session.outputFlushTimer);
-    }
-    session.outputFlushTimer = setTimeout(() => {
-        flushSelectedHookText();
-    }, delayMs);
+    // Forward every fragment immediately. Python owns aggregation and uses the
+    // former debounce duration as a provisional revision/freeze window.
+    sendSelectedHookText({
+        ...payload,
+        capturedAt: Date.now(),
+        revisionWindowMs: delayMs,
+        mergeFragments: true,
+    });
 }
 
 // ---------------------------------------------------------------------------

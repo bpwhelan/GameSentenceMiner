@@ -28,6 +28,8 @@ from GameSentenceMiner.mecab.basic_types import (
 )
 from GameSentenceMiner.util.database.anki_tables import (
     AnkiCardsTable,
+    AnkiNotesTable,
+    AnkiReviewsTable,
     CardKanjiLinksTable,
     WordAnkiLinksTable,
     setup_anki_tables,
@@ -35,6 +37,7 @@ from GameSentenceMiner.util.database.anki_tables import (
 from GameSentenceMiner.util.database.db import (
     GameLinesTable,
     SQLiteDB,
+    bind_database_worker_tables,
     gsm_db,
     sync_tokenization_schema_state,
 )
@@ -55,6 +58,7 @@ from GameSentenceMiner.util.database.tokenization_tables import (
     _migrate_kanji_unique_index,
 )
 from GameSentenceMiner.util.cron.tokenize_lines import (
+    _run_realtime_tokenization_process,
     tokenize_line,
     run_tokenize_backfill,
     cleanup_orphaned_occurrences,
@@ -173,6 +177,52 @@ def _extract_progress_milestones(info_mock: MagicMock) -> list[int]:
 # ---------------------------------------------------------------------------
 # is_kanji() tests
 # ---------------------------------------------------------------------------
+
+
+def test_bind_database_worker_tables_binds_feature_models_without_schema_setup(monkeypatch):
+    feature_tables = [
+        WordsTable,
+        KanjiTable,
+        WordOccurrencesTable,
+        KanjiOccurrencesTable,
+        AnkiNotesTable,
+        AnkiCardsTable,
+        AnkiReviewsTable,
+        WordAnkiLinksTable,
+        CardKanjiLinksTable,
+    ]
+    for table_class in feature_tables:
+        monkeypatch.setattr(table_class, "_db", None)
+
+    bind_database_worker_tables()
+
+    assert all(table_class._db is gsm_db for table_class in feature_tables)
+
+
+def test_realtime_tokenization_process_binds_worker_database_tables(monkeypatch):
+    calls = []
+
+    class StopQueue:
+        def get(self):
+            calls.append("get")
+            return "stop", None
+
+        def task_done(self):
+            calls.append("task_done")
+
+    monkeypatch.setattr(
+        "GameSentenceMiner.util.cron.tokenize_lines.configure_background_process",
+        lambda: calls.append("qos"),
+    )
+    monkeypatch.setattr(
+        "GameSentenceMiner.util.database.db.bind_database_worker_tables",
+        lambda: calls.append("bind"),
+    )
+    monkeypatch.setattr(gsm_db, "close", lambda: calls.append("close"))
+
+    _run_realtime_tokenization_process(StopQueue(), pending_count=None)
+
+    assert calls == ["qos", "bind", "get", "task_done", "close"]
 
 
 class TestIsKanji:

@@ -143,7 +143,6 @@ def test_add_line_to_text_log_uses_display_source_name_for_logging(monkeypatch):
     monkeypatch.setattr(gametext, "apply_text_processing", lambda line, _config: line)
     monkeypatch.setattr(gametext, "live_stats_tracker", SimpleNamespace(add_line=lambda *_args, **_kwargs: None))
     monkeypatch.setattr(gametext, "gsm_status", SimpleNamespace(last_line_received=""))
-    monkeypatch.setattr(gametext, "add_line", lambda line, line_time, source=None: None)
 
     asyncio.run(
         gametext.add_line_to_text_log(
@@ -205,13 +204,8 @@ def test_handle_new_text_event_is_noop_when_text_intake_paused_and_relay_disable
     assert add_line_calls == []
 
 
-def test_handle_new_text_event_dedupes_across_sources(monkeypatch):
-    """Identical text is accepted once regardless of which source delivers it.
-
-    This covers IPC-delivered events (OCR/texthook) that never pass through the
-    clipboard or websocket source-level checks: de-dup now lives at the single
-    funnel in handle_new_text_event.
-    """
+def test_handle_new_text_event_forwards_every_observation_to_authoritative_runtime(monkeypatch):
+    """The adapter must not maintain a second first-arrival dedupe cache."""
     handled_lines = []
 
     async def fake_add_line_to_text_log(line, *_args, **_kwargs):
@@ -230,24 +224,15 @@ def test_handle_new_text_event_dedupes_across_sources(monkeypatch):
     monkeypatch.setattr(gametext.discord_rpc_manager, "update", lambda *_a, **_k: None)
     monkeypatch.setattr(gametext, "add_line_to_text_log", fake_add_line_to_text_log)
     monkeypatch.setattr(gametext.gsm_state, "text_input_paused", False, raising=False)
-    gametext._recent_text_events.clear()
-
-    # Same text arriving from two different sources should only be processed once.
     asyncio.run(gametext.handle_new_text_event("同じ", source_display_name="Clipboard"))
     asyncio.run(gametext.handle_new_text_event("同じ", source_display_name="GSM OCR"))
-    # A different line is accepted.
     asyncio.run(gametext.handle_new_text_event("違う", source_display_name="GSM OCR"))
 
-    assert handled_lines == ["同じ", "違う"]
+    assert handled_lines == ["同じ", "同じ", "違う"]
 
 
-def test_handle_new_text_event_drops_ocr_echo_of_hook_line(monkeypatch):
-    """A near-identical OCR line that follows a hook line is discarded.
-
-    With both a hook and OCR connected the hook is authoritative, so an OCR echo
-    differing only by whitespace/minor recognition is dropped while genuinely new
-    OCR lines still pass through.
-    """
+def test_handle_new_text_event_does_not_run_background_integrations_before_admission(monkeypatch):
+    """OBS/Discord adapters must never sit in front of latency-critical ingress."""
     handled_lines = []
 
     async def fake_add_line_to_text_log(line, *_args, **_kwargs):
@@ -261,58 +246,57 @@ def test_handle_new_text_event_drops_ocr_echo_of_hook_line(monkeypatch):
             hotkeys=SimpleNamespace(relay_outputs_when_text_intake_paused=True),
         ),
     )
-    monkeypatch.setattr(gametext.obs, "update_current_game", lambda: None)
-    monkeypatch.setattr(gametext.obs, "get_current_game", lambda *_a, **_k: "")
-    monkeypatch.setattr(gametext.discord_rpc_manager, "update", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        gametext.obs,
+        "update_current_game",
+        lambda: (_ for _ in ()).throw(AssertionError("OBS refresh ran before ingress")),
+    )
+    monkeypatch.setattr(
+        gametext.discord_rpc_manager,
+        "update",
+        lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("Discord update ran before ingress")),
+    )
     monkeypatch.setattr(gametext, "add_line_to_text_log", fake_add_line_to_text_log)
     monkeypatch.setattr(gametext.gsm_state, "text_input_paused", False, raising=False)
-    gametext._recent_text_events.clear()
 
-    hook_line = "壁はうねうねと動くと、 ２０ｍ程の長い滑り台にその形を変えた。"
-    ocr_echo = "壁はうねうねと動くと、２０ｍ程の長い滑り台にその形を変えた。"
+    asyncio.run(gametext.handle_new_text_event("latency critical"))
 
-    asyncio.run(gametext.handle_new_text_event(hook_line, source="Texthook", source_display_name="Luna"))
-    asyncio.run(gametext.handle_new_text_event(ocr_echo, source=gametext.TextSource.OCR, source_display_name="GSM OCR"))
-    # A genuinely different OCR line is still accepted.
-    asyncio.run(gametext.handle_new_text_event("別の行", source=gametext.TextSource.OCR, source_display_name="GSM OCR"))
+    assert handled_lines == ["latency critical"]
 
-    assert handled_lines == [hook_line, "別の行"]
+
+def test_v2_ingress_does_not_run_background_integrations_before_admission(monkeypatch):
+    integration_calls = []
+
+    monkeypatch.setattr(gametext.obs, "update_current_game", lambda: integration_calls.append("obs"))
+    monkeypatch.setattr(
+        gametext.discord_rpc_manager,
+        "update",
+        lambda *_a, **_k: integration_calls.append("discord"),
+    )
+    monkeypatch.setattr(
+        gametext,
+        "_ingest_line_sync",
+        lambda *_a, **_k: SimpleNamespace(to_dict=lambda: {"status": "accepted"}),
+    )
+
+    result = gametext.ingest_text_v2_payload({"text": "latency critical", "source": "texthook"})
+
+    assert result == {"status": "accepted"}
+    assert integration_calls == []
 
 
 def test_repeated_ocr_hook_echoes_warn_once(monkeypatch):
-    """Several auto-OCR echoes of hook lines trigger a single redundancy warning."""
-
-    async def fake_add_line_to_text_log(line, *_args, **_kwargs):
-        pass
-
-    monkeypatch.setattr(
-        gametext,
-        "get_config",
-        lambda: SimpleNamespace(
-            general=SimpleNamespace(merge_matching_sequential_text=False),
-            hotkeys=SimpleNamespace(relay_outputs_when_text_intake_paused=True),
-        ),
-    )
-    monkeypatch.setattr(gametext.obs, "update_current_game", lambda: None)
-    monkeypatch.setattr(gametext.obs, "get_current_game", lambda *_a, **_k: "")
-    monkeypatch.setattr(gametext.discord_rpc_manager, "update", lambda *_a, **_k: None)
-    monkeypatch.setattr(gametext, "add_line_to_text_log", fake_add_line_to_text_log)
-    monkeypatch.setattr(gametext.gsm_state, "text_input_paused", False, raising=False)
+    """Coordinator-classified auto-OCR hook echoes trigger one warning."""
     monkeypatch.setenv("GSM_ELECTRON", "1")
 
     sent = []
     monkeypatch.setattr(gametext, "send_message", lambda fn, data=None: sent.append((fn, data)))
 
-    gametext._recent_text_events.clear()
     gametext._ocr_hook_redundancy_count = 0
     gametext._ocr_hook_redundancy_warned = False
 
-    for i in range(gametext._OCR_HOOK_REDUNDANCY_THRESHOLD + 2):
-        line = f"行number{i}です"
-        asyncio.run(gametext.handle_new_text_event(line, source="Texthook", source_display_name="Luna"))
-        asyncio.run(
-            gametext.handle_new_text_event(line + " ", source=gametext.TextSource.OCR, source_display_name="GSM OCR")
-        )
+    for _ in range(gametext._OCR_HOOK_REDUNDANCY_THRESHOLD + 2):
+        gametext._note_authoritative_duplicate(gametext.SourceKind.OCR, gametext.SourceKind.TEXTHOOK.value)
 
     assert [fn for fn, _ in sent] == ["ocr_hook_redundant"]
 
@@ -351,9 +335,17 @@ def test_set_text_intake_paused_announces_state_and_notifies(monkeypatch):
 
 
 def test_add_line_to_text_log_relays_only_to_outputs_when_text_intake_paused(monkeypatch):
-    relayed_lines = []
-    stats_calls = []
-    add_line_calls = []
+    observations = []
+
+    class FakeRuntime:
+        def ingest(self, observation):
+            from GameSentenceMiner.text_pipeline.models import IngressAck, IngressResult, IngressStatus
+
+            observations.append(observation)
+            return IngressResult(IngressAck(IngressStatus.ACCEPTED, observation.observation_id))
+
+        def wait_projected(self, timeout):
+            return True
 
     class DummyLogger:
         def opt(self, **_kwargs):
@@ -361,9 +353,6 @@ def test_add_line_to_text_log_relays_only_to_outputs_when_text_intake_paused(mon
 
         def info(self, _message):
             return None
-
-    async def fake_add_event_to_texthooker(line):
-        relayed_lines.append(line)
 
     monkeypatch.setattr(
         gametext,
@@ -375,33 +364,32 @@ def test_add_line_to_text_log_relays_only_to_outputs_when_text_intake_paused(mon
         ),
     )
     monkeypatch.setattr(gametext, "apply_text_processing", lambda line, _config: f"processed:{line}")
-    monkeypatch.setattr(
-        gametext,
-        "live_stats_tracker",
-        SimpleNamespace(add_line=lambda *args, **_kwargs: stats_calls.append(args)),
-    )
     monkeypatch.setattr(gametext, "logger", DummyLogger())
     monkeypatch.setattr(gametext, "gsm_status", SimpleNamespace(last_line_received=""))
-    monkeypatch.setattr(gametext, "_add_event_to_texthooker", fake_add_event_to_texthooker)
-    monkeypatch.setattr(gametext, "add_line", lambda *args, **kwargs: add_line_calls.append((args, kwargs)))
+    monkeypatch.setattr(gametext, "get_authoritative_text_runtime", lambda: FakeRuntime())
     monkeypatch.setattr(gametext.gsm_state, "text_input_paused", True, raising=False)
     monkeypatch.setattr(gametext.gsm_state, "current_game", "Paused Game", raising=False)
 
     asyncio.run(gametext.add_line_to_text_log("raw line", source="secondary"))
 
-    assert stats_calls == []
-    assert add_line_calls == []
-    assert len(relayed_lines) == 1
-    assert relayed_lines[0].text == "processed:raw line"
-    assert relayed_lines[0].scene == "Paused Game"
-    assert relayed_lines[0].source == "secondary"
+    assert len(observations) == 1
+    assert observations[0].processed_text == "processed:raw line"
+    assert observations[0].relay_only is True
+    assert observations[0].excluded_from_stats is True
 
 
-def test_add_line_to_text_log_schedules_overlay_without_waiting_for_remaining_line_processing(monkeypatch):
-    sent_messages = []
-    ordered_steps = []
-    scheduled_calls = []
-    new_line = SimpleNamespace(id="line-1", text="Hello, World!", scene="Overlay Game")
+def test_add_line_to_text_log_enqueues_immediately_without_running_subscribers_inline(monkeypatch):
+    observations = []
+
+    class FakeRuntime:
+        def ingest(self, observation):
+            from GameSentenceMiner.text_pipeline.models import IngressAck, IngressResult, IngressStatus
+
+            observations.append(observation)
+            return IngressResult(IngressAck(IngressStatus.ACCEPTED, observation.observation_id))
+
+        def wait_projected(self, timeout):
+            return True
 
     class DummyLogger:
         def opt(self, **_kwargs):
@@ -409,19 +397,6 @@ def test_add_line_to_text_log_schedules_overlay_without_waiting_for_remaining_li
 
         def info(self, _message):
             return None
-
-    async def fake_add_event_to_texthooker(_line):
-        ordered_steps.append("texthooker")
-        return None
-
-    async def fake_find_box_and_send_to_overlay(*_args, **_kwargs):
-        return None
-
-    def fake_run_coroutine_threadsafe(coro, loop):
-        ordered_steps.append("schedule_overlay")
-        scheduled_calls.append((coro, loop))
-        coro.close()
-        return SimpleNamespace()
 
     monkeypatch.setattr(
         gametext,
@@ -433,55 +408,13 @@ def test_add_line_to_text_log_schedules_overlay_without_waiting_for_remaining_li
         ),
     )
     monkeypatch.setattr(gametext, "apply_text_processing", lambda line, _config: line)
-    monkeypatch.setattr(gametext, "live_stats_tracker", SimpleNamespace(add_line=lambda *_args, **_kwargs: None))
     monkeypatch.setattr(gametext, "logger", DummyLogger())
     monkeypatch.setattr(gametext, "gsm_status", SimpleNamespace(last_line_received=""))
-    monkeypatch.setattr(gametext, "add_line", lambda *_args, **_kwargs: new_line)
-    monkeypatch.setattr(gametext, "_add_event_to_texthooker", fake_add_event_to_texthooker)
-    monkeypatch.setattr(
-        gametext,
-        "_get_overlay_websocket",
-        lambda: (
-            "overlay",
-            SimpleNamespace(
-                has_clients=lambda server_id: server_id == "overlay",
-                send_nowait=lambda server_id, payload: sent_messages.append((server_id, payload)),
-            ),
-        ),
-    )
-    monkeypatch.setattr(
-        gametext,
-        "get_overlay_processor",
-        lambda: SimpleNamespace(
-            ready=True,
-            _current_sequence=0,
-            processing_loop="overlay-loop",
-            find_box_and_send_to_overlay=fake_find_box_and_send_to_overlay,
-        ),
-    )
-    monkeypatch.setattr(gametext.asyncio, "run_coroutine_threadsafe", fake_run_coroutine_threadsafe)
-    monkeypatch.setattr(
-        gametext.obs,
-        "add_longplay_srt_line",
-        lambda *_args, **_kwargs: ordered_steps.append("longplay"),
-    )
-    monkeypatch.setattr(
-        gametext.GamesTable,
-        "get_or_create_by_name",
-        lambda _name: (
-            ordered_steps.append("resolve_game"),
-            SimpleNamespace(id=1),
-        )[-1],
-    )
-    monkeypatch.setattr(
-        gametext.GameLinesTable,
-        "add_line",
-        lambda *_args, **_kwargs: ordered_steps.append("persist_line"),
-    )
     monkeypatch.setattr(gametext.gsm_state, "text_input_paused", False, raising=False)
+    monkeypatch.setattr(gametext, "get_authoritative_text_runtime", lambda: FakeRuntime())
 
     asyncio.run(gametext.add_line_to_text_log("Hello, World!", source="secondary"))
 
-    assert sent_messages == []
-    assert ordered_steps == ["texthooker", "schedule_overlay", "longplay", "resolve_game", "persist_line"]
-    assert scheduled_calls
+    assert len(observations) == 1
+    assert observations[0].raw_text == "Hello, World!"
+    assert observations[0].revision_window_ms == 100

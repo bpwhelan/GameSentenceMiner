@@ -846,7 +846,7 @@
       "title": "Perfil guardado",
       "saved": "Guardado",
       "autoHook": "Adjuntar hook automáticamente al próximo inicio",
-      "flushDelay": "Retardo de envío de salida (ms):",
+      "flushDelay": "Ventana de revisión de texto (ms):",
       "manualHook": "Código de hook manual (H/R-code, opcional):",
       "manualHookHint": "Déjalo vacío salvo que ya tengas un H-code o R-code específico. La mayoría de usuarios debería iniciar el motor y elegir un hook detectado.",
       "attachManual": "Adjuntar hook manual",

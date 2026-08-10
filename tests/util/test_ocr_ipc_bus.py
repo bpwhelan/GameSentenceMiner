@@ -41,9 +41,13 @@ def test_announce_event_reaches_broker(ocr_over_bus):
 
     frame = ocr_over_bus.wait_for(lambda f: f.get("topic") == ocr_ipc.OCR_EVENT_TOPIC)
     assert frame["src"] == "ocr"
-    assert frame["dst"] == "*"  # broadcast: both main (UI) and backend consume it
+    assert frame["dst"] == "main"  # UI event is separate from acknowledged backend ingress
     assert frame["data"]["event"] == "ocr_result"
     assert frame["data"]["data"]["text"] == "こんにちは"
+    ingress = ocr_over_bus.wait_for(lambda f: f.get("topic") == "text.ingress.v2")
+    assert ingress["dst"] == "backend"
+    assert ingress["kind"] == "request"
+    assert ingress["data"]["text"] == "こんにちは"
     assert frame["data"]["data"]["source"] == "test"
 
 

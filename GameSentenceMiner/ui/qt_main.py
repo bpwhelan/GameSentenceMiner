@@ -123,7 +123,7 @@ class DialogManager(QObject):
             return result_container.get("result")
 
         # We are on a background thread, proceed with Queue logic
-        result_queue = Queue()
+        result_queue = Queue(maxsize=1)
 
         def gui_logic():
             func_creator(lambda result: result_queue.put(result))

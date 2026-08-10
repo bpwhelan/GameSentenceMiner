@@ -1143,6 +1143,7 @@ class AnkiConfirmationDialog(QDialog):
             bool(self.translation_text.toPlainText().strip()) if has_translation is None else bool(has_translation)
         )
         feature_enabled = self._dialogue_line_expansion_enabled()
+        can_regenerate_translation = bool(get_config().ai.add_to_anki)
         prev_line = self._previous_dialogue_line() if feature_enabled else None
         next_line = self._next_dialogue_line() if feature_enabled else None
         visible = bool(feature_enabled)
@@ -1155,7 +1156,7 @@ class AnkiConfirmationDialog(QDialog):
         self.add_next_line_button.setToolTip(
             "Add the next line to this card." if next_line else "Waiting for the next captured line."
         )
-        self.regen_translation_checkbox.setVisible(bool(visible and has_translation))
+        self.regen_translation_checkbox.setVisible(bool(visible and (has_translation or can_regenerate_translation)))
         self.dialogue_tools_status.setVisible(visible)
         self._refresh_dialogue_timeline()
 

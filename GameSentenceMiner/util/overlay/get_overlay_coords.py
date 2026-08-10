@@ -47,7 +47,6 @@ from GameSentenceMiner.util.platform.window_state_monitor import (
     get_window_client_physical_geometry,
     user32,
     set_window_state_monitor,
-    _load_suspended_pids,
 )
 from GameSentenceMiner.util.text_log import (
     GameLine,
@@ -234,21 +233,21 @@ class OverlayThread(threading.Thread):
     """
 
     def __init__(self):
-        super().__init__()
+        super().__init__(name="gsm-overlay-processing", daemon=True)
         self.loop = asyncio.new_event_loop()
-        self.daemon = True
-        self.first_time_run = True
-
-        # Load and resume any orphaned suspended processes from previous session
-        _load_suspended_pids()
-
-        _configure_overlay_processor_for_loop(self.loop)
+        self.ready = threading.Event()
 
     def run(self):
         """Runs the overlay processing loop."""
+        from GameSentenceMiner.util.concurrency.resource_qos import ExecutionClass, configure_current_thread
+
+        # Overlay OCR is interactive, but it stays off the CPUs reserved for text
+        # admission and TextFeed transport.
+        configure_current_thread(ExecutionClass.INTERACTIVE)
         asyncio.set_event_loop(self.loop)
-        _start_overlay_background_tasks(self.loop)
+        self.ready.set()
         self.loop.run_forever()
+        self.loop.close()
 
 
 class OverlayProcessor:
@@ -546,6 +545,32 @@ class OverlayProcessor:
     # it from firing on unrelated or partial text (i.e. avoid false positives).
     _STABILIZE_MIN_FUZZY_LEN = 6  # shorter sentences require exact containment
     _STABILIZE_MISREADS_PER_CHARS = 12  # tolerate ~1 misread per N sentence chars
+    _INSTANT_TEXT_MIN_SIMILARITY = 50.0
+
+    @staticmethod
+    def _normalize_overlay_stabilization_text(text: Optional[str]) -> str:
+        """Normalize harmless OCR presentation differences for stability checks."""
+        if not text:
+            return ""
+        return normalize_text_for_comparison(normalize_japanese_ocr_fullwidth(text))
+
+    def _build_overlay_stabilization_text(
+        self,
+        ocr_results: List[Dict[str, Any]],
+        sentence_to_check: Optional[str],
+    ) -> str:
+        """Build the stability candidate from the coordinate-bearing OCR result.
+
+        The engine's separate text list can split Latin text and punctuation into
+        standalone tokens which the language filter drops. The structured result
+        retains those tokens on Japanese lines, so it is the authoritative source.
+        Apply the same safe, same-length corrections used by the outgoing overlay
+        payload to a copy so known OCR substitutions do not cause needless retries.
+        """
+        candidate_results = copy.deepcopy(ocr_results)
+        if sentence_to_check:
+            candidate_results, _ = self._correct_ocr_text(candidate_results, sentence_to_check)
+        return "".join(str(line.get("text", "") or "") for line in candidate_results)
 
     def _is_overlay_text_stabilized(
         self,
@@ -557,8 +582,8 @@ class OverlayProcessor:
 
         Two independent signals each count as stable:
 
-        1. Consecutive agreement: this pass is byte-for-byte identical to the
-           previous pass, so OCR is no longer changing.
+        1. Consecutive agreement: this pass matches the previous pass after
+           punctuation, whitespace, and half/full-width normalization.
         2. Sentence convergence: the known texthook sentence is present in this
            pass. This is matched fuzzily so a handful of variant-character
            misreads don't reject an otherwise-correct read, while a
@@ -568,16 +593,21 @@ class OverlayProcessor:
         if not text_str:
             return False
 
-        # 1. Two consecutive passes agree exactly.
-        if last_result_flattened and text_str == last_result_flattened:
+        normalized_text = self._normalize_overlay_stabilization_text(text_str)
+        if not normalized_text:
+            return False
+
+        # 1. Two consecutive passes agree after harmless OCR normalization.
+        normalized_last_result = self._normalize_overlay_stabilization_text(last_result_flattened)
+        if normalized_last_result and normalized_text == normalized_last_result:
             return True
 
         # 2. Convergence on the known sentence.
         if not normalized_sentence_to_check:
             return False
 
-        normalized_text = normalize_text_for_comparison(text_str)
-        if not normalized_text:
+        normalized_sentence_to_check = self._normalize_overlay_stabilization_text(normalized_sentence_to_check)
+        if not normalized_sentence_to_check:
             return False
 
         # Exact containment is unambiguously stable.
@@ -2012,7 +2042,11 @@ class OverlayProcessor:
         local_ocr_retry: int,
         text_appears_instantly: bool,
     ) -> int:
-        if text_appears_instantly or source in [
+        if text_appears_instantly:
+            # Instant mode normally exits after its first successful result, but
+            # keep one fallback attempt in case the first screenshot was early.
+            return 2
+        if source in [
             TextSource.OCR,
             TextSource.HOTKEY,
             TextSource.SCREEN_CROPPER,
@@ -2022,6 +2056,27 @@ class OverlayProcessor:
         ]:
             return 1
         return max(1, local_ocr_retry)
+
+    @staticmethod
+    def _resolve_local_ocr_retry_delay(previous_attempt_had_text: bool) -> float:
+        """Use a quick fallback for an early blank capture, otherwise retain stabilization cadence."""
+        return 1.0 if previous_attempt_had_text else 0.1
+
+    @classmethod
+    def _should_stop_local_ocr_attempts(
+        cls,
+        stabilized: bool,
+        text_appears_instantly: bool,
+        current_text: Optional[str],
+        reference_text: Optional[str],
+    ) -> bool:
+        if stabilized:
+            return True
+        if not text_appears_instantly or not current_text:
+            return False
+        if not reference_text:
+            return True
+        return cls._overlay_text_similarity(reference_text, current_text) >= cls._INSTANT_TEXT_MIN_SIMILARITY
 
     async def _do_work(
         self,
@@ -2106,21 +2161,23 @@ class OverlayProcessor:
         if local_ocr_engine:
             # Assume Text from Source is already Stable
             source = line.source if line and line.source else source
+            text_appears_instantly = get_overlay_config().text_appears_instantly
             tries = self._resolve_local_ocr_attempts(
                 source,
                 local_ocr_retry,
-                get_overlay_config().text_appears_instantly,
+                text_appears_instantly,
             )
             # logger.background(f"Using local OCR engine '{local_ocr_engine.readable_name}' with {tries} tries for overlay. TextSource: {line.source if line else source or 'N/A'}")
             last_result_flattened = ""
             last_scan_time = None
+            previous_attempt_had_text = False
             total_ocr_time = 0  # Track actual OCR processing time
             for i in range(tries):
                 if i > 0:
-                    # max_sleep = 1 if i > 5 else 0.6
                     try:
                         elapsed = time.time() - last_scan_time
-                        sleep_duration = max(0, 1 - elapsed)
+                        retry_delay = self._resolve_local_ocr_retry_delay(previous_attempt_had_text)
+                        sleep_duration = max(0, retry_delay - elapsed)
 
                         if sleep_duration > 0:
                             await asyncio.sleep(sleep_duration)
@@ -2175,10 +2232,17 @@ class OverlayProcessor:
                     raise asyncio.CancelledError()
 
                 op_start = time.time()
-                text_str = "".join([t for t in text if self._matches_overlay_language_filter(t, self.regex)])
-                self._log_timing(op_start, "Text filtering with regex")
+                text_str = self._build_overlay_stabilization_text(oneocr_results, sentence_to_check)
+                previous_attempt_had_text = bool(text_str)
+                self._log_timing(op_start, "Build corrected stabilization text")
                 stabilized = self._is_overlay_text_stabilized(
                     text_str, last_result_flattened, normalized_sentence_to_check
+                )
+                should_stop = self._should_stop_local_ocr_attempts(
+                    stabilized,
+                    text_appears_instantly,
+                    text_str,
+                    normalized_sentence_to_check,
                 )
                 # Stabilization is only meaningful when we can retry or have a known
                 # sentence to converge on; for single-try periodic scans it's always
@@ -2280,7 +2344,7 @@ class OverlayProcessor:
                     OverlayEngine.MEIKIOCR.value,
                     OverlayEngine.SCREENAI.value,
                 ]
-                is_final_payload = local_is_final_engine and (stabilized or i == tries - 1)
+                is_final_payload = local_is_final_engine and (should_stop or i == tries - 1)
                 data = self._build_overlay_word_coordinates_payload(
                     oneocr_final, line_id=line_id, supplemental=precomputed_sent, is_final=is_final_payload
                 )
@@ -2301,7 +2365,7 @@ class OverlayProcessor:
                 if asyncio.current_task().cancelled():
                     raise asyncio.CancelledError()
 
-                if stabilized:
+                if should_stop:
                     break
 
             # Only return early if the effective engine is local-only (not Lens)
@@ -3031,8 +3095,12 @@ def get_overlay_preview_capture() -> Tuple[Image.Image, str]:
     if is_windows():
         processor.window_monitor = WindowStateMonitor(processor)
 
-    image, _, _, _, _ = processor._get_screenshot_and_offset()
-    capture_source = processor._last_overlay_capture_source
+    try:
+        image, _, _, _, _ = processor._get_screenshot_and_offset()
+        capture_source = processor._last_overlay_capture_source
+    finally:
+        if processor.window_monitor is not None:
+            processor.window_monitor._stop_event_hooks()
 
     if capture_source in {"obs_window", "obs_scene"}:
         title_suffix = get_current_game() or get_current_scene() or "OBS Scene"
@@ -3055,6 +3123,73 @@ async def init_overlay_processor():
     _configure_overlay_processor_for_loop(asyncio.get_running_loop())
     _start_overlay_background_tasks()
     logger.background("Overlay processor ready")
+
+
+_overlay_thread: OverlayThread | None = None
+_overlay_thread_lock = threading.Lock()
+
+
+def _get_or_start_overlay_thread() -> OverlayThread:
+    global _overlay_thread
+    with _overlay_thread_lock:
+        thread = _overlay_thread
+        if thread is not None and thread.is_alive():
+            return thread
+        thread = OverlayThread()
+        _overlay_thread = thread
+        thread.start()
+    if not thread.ready.wait(timeout=5):
+        raise RuntimeError("Dedicated overlay processing loop failed to start")
+    return thread
+
+
+async def init_overlay_processor_dedicated() -> None:
+    """Initialize OCR on an event loop isolated from ingress/WebSocket I/O."""
+    thread = _get_or_start_overlay_thread()
+    future = asyncio.run_coroutine_threadsafe(init_overlay_processor(), thread.loop)
+    await asyncio.wrap_future(future)
+
+
+async def shutdown_overlay_processor() -> None:
+    """Cancel overlay loop work and release its required platform listener."""
+    global _overlay_background_tasks
+
+    tasks = list(_overlay_background_tasks)
+    _overlay_background_tasks = []
+    current_task = overlay_processor.current_task
+    if current_task is not None and not current_task.done():
+        current_task.cancel()
+        tasks.append(current_task)
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+    overlay_processor.current_task = None
+    if overlay_processor._ocr_engine_unload_handle is not None:
+        overlay_processor._ocr_engine_unload_handle.cancel()
+        overlay_processor._ocr_engine_unload_handle = None
+    if overlay_processor.window_monitor is not None:
+        overlay_processor.window_monitor._stop_event_hooks()
+        overlay_processor.window_monitor = None
+    overlay_processor.ready = False
+
+
+async def shutdown_overlay_processor_dedicated() -> None:
+    """Drain overlay work on its owner loop, then stop that loop/thread."""
+    global _overlay_thread
+    with _overlay_thread_lock:
+        thread = _overlay_thread
+        _overlay_thread = None
+    if thread is None:
+        await shutdown_overlay_processor()
+        return
+    if thread.is_alive():
+        future = asyncio.run_coroutine_threadsafe(shutdown_overlay_processor(), thread.loop)
+        await asyncio.wrap_future(future)
+        thread.loop.call_soon_threadsafe(thread.loop.stop)
+        await asyncio.to_thread(thread.join, 3)
+        if thread.is_alive():
+            raise RuntimeError("Dedicated overlay processing loop did not stop")
 
 
 def get_overlay_processor() -> OverlayProcessor:

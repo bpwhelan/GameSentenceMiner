@@ -146,7 +146,7 @@ class SQLiteDB:
 
         # Single-writer infrastructure. The writer thread is started lazily on the
         # first write so read-only databases never spawn one.
-        self._write_queue: "queue.PriorityQueue" = queue.PriorityQueue()
+        self._write_queue: "queue.PriorityQueue" = queue.PriorityQueue(maxsize=4096)
         self._seq = itertools.count()
         self._writer_thread: Optional[threading.Thread] = None
         self._writer_start_lock = threading.Lock()
@@ -215,7 +215,7 @@ class SQLiteDB:
                 target=self._writer_loop,
                 args=(ready,),
                 name="gsm-db-writer",
-                daemon=True,
+                daemon=False,
             )
             self._writer_thread.start()
             ready.wait(timeout=10)
@@ -244,7 +244,10 @@ class SQLiteDB:
     def _submit(self, fn: "Callable[[sqlite3.Connection], Any]", priority: int) -> "concurrent.futures.Future":
         self._ensure_writer_started()
         future: "concurrent.futures.Future" = concurrent.futures.Future()
-        self._write_queue.put((priority, next(self._seq), fn, future))
+        try:
+            self._write_queue.put((priority, next(self._seq), fn, future), timeout=0.25)
+        except queue.Full as exc:
+            raise RuntimeError("Database writer mailbox is backpressured") from exc
         return future
 
     def _submit_and_maybe_wait(self, fn, priority: int, wait: bool):
@@ -557,11 +560,11 @@ class SQLiteDBTable:
             raise NotImplementedError(f"{cls.__name__} must define _fields")
 
     @classmethod
-    def set_db(cls, db: SQLiteDB):
+    def set_db(cls, db: SQLiteDB, *, ensure_schema: bool = True):
         cls._db = db
         cls._column_order_cache = None  # Reset cache when database changes
         cls._row_field_mapping_cache = None
-        if db.read_only:
+        if db.read_only or not ensure_schema:
             return
         # Ensure table exists
         if not db.table_exists(cls._table):
@@ -1232,7 +1235,7 @@ class GameLinesTable(SQLiteDBTable):
             language=target_language,
         )
         # logger.info("Adding GameLine to DB: %s", new_line)
-        new_line.add()
+        new_line.save()
         if _is_tokenization_enabled():
             from GameSentenceMiner.util.cron.tokenize_lines import (
                 enqueue_realtime_tokenization,
@@ -1251,8 +1254,7 @@ class GameLinesTable(SQLiteDBTable):
         scene_to_game_id: dict[str, str] = {}
         for gl in gamelines:
             if gl.scene and gl.scene not in scene_to_game_id:
-                game = GamesTable.get_or_create_by_name(gl.scene)
-                scene_to_game_id[gl.scene] = game.id
+                scene_to_game_id[gl.scene] = GamesTable.get_or_create_id_by_name(gl.scene)
 
         new_lines = [
             cls(
@@ -2007,7 +2009,11 @@ def _get_database_backup_settings() -> Dict[str, Any]:
     return get_database_backup_settings()
 
 
-def schedule_database_backup(db_path: str, *, read_only: bool = False) -> Optional[threading.Thread]:
+def schedule_database_backup(
+    db_path: str,
+    *,
+    read_only: bool = False,
+) -> Optional[concurrent.futures.Future]:
     """Run the daily database backup asynchronously so app startup is not blocked."""
     if read_only:
         logger.info("Skipping database backup in read-only mode")
@@ -2033,19 +2039,17 @@ def schedule_database_backup(db_path: str, *, read_only: bool = False) -> Option
         except Exception as e:
             logger.warning(f"Database backup failed: {e}")
 
-    thread = threading.Thread(
-        target=run_backup,
-        name="gsm-database-backup",
-        daemon=True,
-    )
-    thread.start()
-    return thread
+    from GameSentenceMiner.util.concurrency.work_pool import submit_background_work
+
+    return submit_background_work(run_backup)
 
 
 db_path = get_db_directory()
 # Default: normal read/write, but allow environment variable to override for read-only mode
 _gsm_db_read_only = os.environ.get("GSM_DB_READ_ONLY", "0") == "1"
-_startup_backup_thread = schedule_database_backup(db_path, read_only=_gsm_db_read_only)
+_startup_backup_future: Optional[concurrent.futures.Future] = None
+_database_runtime_started = False
+_database_runtime_lock = threading.Lock()
 
 # db_path = get_db_directory(test=True, delete_test=False)
 
@@ -2097,7 +2101,7 @@ from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable 
 from GameSentenceMiner.util.database.stats_export_state_table import StatsExportStateTable  # noqa: E402
 from GameSentenceMiner.util.database.third_party_stats_table import ThirdPartyStatsTable  # noqa: E402
 
-for cls in [
+_DATABASE_TABLE_CLASSES = [
     AIModelsTable,
     GameLinesTable,
     GoalsTable,
@@ -2107,20 +2111,55 @@ for cls in [
     StatsRollupTable,
     StatsExportStateTable,
     ThirdPartyStatsTable,
-]:
-    cls.set_db(gsm_db)
+]
+for cls in _DATABASE_TABLE_CLASSES:
+    # Binding is read-only from an import-lifecycle perspective. Application
+    # startup explicitly creates/updates schemas in start_database_runtime().
+    cls.set_db(gsm_db, ensure_schema=False)
     # Uncomment to start fresh every time
     # cls.drop()
     # cls.set_db(gsm_db)  # --- IGNORE ---
 
-if not gsm_db.read_only:
-    # This is intentionally a one-time database initialization. Successful Tadoku
-    # exports replace this value; subsequent launches leave it untouched.
-    from GameSentenceMiner.util.tadoku_sync import initialize_tadoku_cursor  # noqa: E402
-
-    initialize_tadoku_cursor()
-
 logger.background("Database initialized at {}", db_path)
+
+
+def bind_database_worker_tables() -> None:
+    """Bind ORM models in a spawned worker without creating or migrating schema.
+
+    Windows ``spawn`` workers import modules in a fresh interpreter. Core models
+    are bound during this module's import, but tokenization and Anki models are
+    imported lazily during main-process schema setup and would otherwise retain
+    ``SQLiteDBTable._db = None`` in the child.
+    """
+    from GameSentenceMiner.util.database.anki_tables import (
+        AnkiCardsTable,
+        AnkiNotesTable,
+        AnkiReviewsTable,
+        CardKanjiLinksTable,
+        WordAnkiLinksTable,
+    )
+    from GameSentenceMiner.util.database.tokenization_tables import (
+        KanjiOccurrencesTable,
+        KanjiTable,
+        WordOccurrencesTable,
+        WordsTable,
+    )
+
+    feature_table_classes = [
+        WordsTable,
+        KanjiTable,
+        WordOccurrencesTable,
+        KanjiOccurrencesTable,
+        AnkiNotesTable,
+        AnkiCardsTable,
+        AnkiReviewsTable,
+        WordAnkiLinksTable,
+        CardKanjiLinksTable,
+    ]
+    for table_class in [*_DATABASE_TABLE_CLASSES, *feature_table_classes]:
+        table_class.set_db(gsm_db, ensure_schema=False)
+
+
 # GameLinesTable.drop_column('timestamp')
 
 # if GameLinesTable.has_column('timestamp_old'):
@@ -2615,10 +2654,26 @@ def check_and_run_migrations():
         sync_tokenization_schema_state(gsm_db)
 
 
-if gsm_db.read_only:
-    logger.info("Skipping database migrations in read-only mode")
-else:
-    threading.Thread(target=check_and_run_migrations, daemon=True).start()
+def start_database_runtime() -> None:
+    """Run database maintenance from application startup, never module import."""
+    global _startup_backup_future, _database_runtime_started
+    with _database_runtime_lock:
+        if _database_runtime_started:
+            return
+        _database_runtime_started = True
+    _startup_backup_future = schedule_database_backup(db_path, read_only=_gsm_db_read_only)
+    if gsm_db.read_only:
+        logger.info("Skipping database migrations in read-only mode")
+        return
+    for table_class in _DATABASE_TABLE_CLASSES:
+        table_class.set_db(gsm_db, ensure_schema=True)
+    # This is intentionally a one-time database initialization. Successful Tadoku
+    # exports replace this value; subsequent launches leave it untouched.
+    from GameSentenceMiner.util.tadoku_sync import initialize_tadoku_cursor
+
+    initialize_tadoku_cursor()
+    check_and_run_migrations()
+
 
 # all_lines = GameLinesTable.all()
 

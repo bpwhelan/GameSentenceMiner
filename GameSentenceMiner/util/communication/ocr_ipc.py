@@ -19,6 +19,8 @@ from __future__ import annotations
 import json
 import sys
 import threading
+import time
+import uuid
 from enum import Enum
 from typing import Callable, Optional, Dict, Any
 
@@ -70,6 +72,7 @@ class OCREvent(Enum):
 CommandHandler = Callable[[Dict[str, Any]], None]
 _command_handler: Optional[CommandHandler] = None
 _stdin_thread: Optional[threading.Thread] = None
+_text_outbox = None
 
 
 def _use_bus() -> bool:
@@ -173,6 +176,7 @@ def announce_started():
 
 def announce_stopped():
     send_event(OCREvent.STOPPED.value)
+    stop_text_ingress_outbox()
 
 
 def announce_paused():
@@ -198,7 +202,44 @@ def announce_ocr_result(text: str, metadata: Optional[Dict[str, Any]] = None):
     data = {"text": text}
     if metadata:
         data.update(metadata)
-    send_event(OCREvent.OCR_RESULT.value, data)
+    if not _use_bus():
+        send_event(OCREvent.OCR_RESULT.value, data)
+        return
+
+    # Keep UI status delivery separate from authoritative backend ingress so an
+    # unavailable backend cannot cause an old OCR line to be replayed later.
+    payload = {"event": OCREvent.OCR_RESULT.value, "data": data}
+    bus_client.get_bus().publish(bus_client.MAIN, OCR_EVENT_TOPIC, payload)
+    observation_id = str(data.get("observationId") or uuid.uuid4())
+    ingress = {
+        **data,
+        "observationId": observation_id,
+        "source": str(data.get("source") or "ocr"),
+        "sourceInstance": str(data.get("source_instance") or "gsm-ocr"),
+        "sourceDisplayName": str(data.get("source_display_name") or "GSM OCR"),
+        "capturedAt": data.get("time") or data.get("capturedAt") or int(time.time() * 1000),
+        "emittedAt": int(time.time() * 1000),
+        "revisionWindowMs": int(data.get("revisionWindowMs") or 250),
+        "mergeFragments": bool(data.get("mergeFragments", False)),
+    }
+    if not get_text_ingress_outbox().submit(ingress):
+        logger.warning(f"OCR text ingress outbox is full; rejected observation {observation_id}")
+
+
+def get_text_ingress_outbox():
+    global _text_outbox
+    if _text_outbox is None:
+        from GameSentenceMiner.util.communication.text_ingress_outbox import TextIngressOutbox
+
+        _text_outbox = TextIngressOutbox()
+    return _text_outbox
+
+
+def stop_text_ingress_outbox() -> bool:
+    global _text_outbox
+    outbox = _text_outbox
+    _text_outbox = None
+    return True if outbox is None else outbox.stop()
 
 
 def announce_config_reloaded():

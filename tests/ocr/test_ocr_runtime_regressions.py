@@ -288,20 +288,16 @@ def test_manual_command_runs_primary_ocr2_directly_during_auto_mode(monkeypatch)
 
 def test_manual_ocr_trigger_delays_keyboard_activation(monkeypatch):
     calls = []
-    timers = []
+    deadlines = []
 
-    class FakeTimer:
-        def __init__(self, interval, callback):
-            self.interval = interval
-            self.callback = callback
-            self.daemon = False
-            timers.append(self)
-
-        def start(self):
+    class FakeScheduler:
+        def schedule_after(self, key, delay, callback):
+            deadlines.append((key, delay, callback))
             calls.append("scheduled")
 
     monkeypatch.setattr(gsm_ocr, "manual", False)
-    monkeypatch.setattr(gsm_ocr.threading, "Timer", FakeTimer)
+    monkeypatch.setattr(gsm_ocr, "_ocr_deadline_scheduler", None)
+    monkeypatch.setattr(gsm_ocr, "acquire_runtime_scheduler", lambda: FakeScheduler())
     monkeypatch.setattr(gsm_ocr, "get_ocr_manual_scan_delay_ms", lambda: 350)
     monkeypatch.setattr(gsm_ocr, "get_ocr_manual_scan_delay_gamepad_only", lambda: False)
     monkeypatch.setattr(
@@ -312,30 +308,24 @@ def test_manual_ocr_trigger_delays_keyboard_activation(monkeypatch):
 
     assert gsm_ocr.trigger_manual_ocr(gamepad_activation=False) is True
     assert calls == ["scheduled"]
-    assert len(timers) == 1
-    assert timers[0].interval == 0.35
-    assert timers[0].daemon is True
+    assert [(key, delay) for key, delay, _ in deadlines] == [("ocr.manual.capture", 0.35)]
 
-    timers[0].callback()
+    deadlines[0][2]()
     assert calls == ["scheduled", "captured"]
 
 
 def test_manual_ocr_delay_can_be_limited_to_gamepad_activation(monkeypatch):
     calls = []
-    timers = []
+    deadlines = []
 
-    class FakeTimer:
-        def __init__(self, interval, callback):
-            self.interval = interval
-            self.callback = callback
-            self.daemon = False
-            timers.append(self)
-
-        def start(self):
+    class FakeScheduler:
+        def schedule_after(self, key, delay, callback):
+            deadlines.append((key, delay, callback))
             calls.append("scheduled")
 
     monkeypatch.setattr(gsm_ocr, "manual", False)
-    monkeypatch.setattr(gsm_ocr.threading, "Timer", FakeTimer)
+    monkeypatch.setattr(gsm_ocr, "_ocr_deadline_scheduler", None)
+    monkeypatch.setattr(gsm_ocr, "acquire_runtime_scheduler", lambda: FakeScheduler())
     monkeypatch.setattr(gsm_ocr, "get_ocr_manual_scan_delay_ms", lambda: 250)
     monkeypatch.setattr(gsm_ocr, "get_ocr_manual_scan_delay_gamepad_only", lambda: True)
     monkeypatch.setattr(
@@ -346,13 +336,12 @@ def test_manual_ocr_delay_can_be_limited_to_gamepad_activation(monkeypatch):
 
     assert gsm_ocr.trigger_manual_ocr(gamepad_activation=False) is True
     assert calls == ["captured"]
-    assert timers == []
+    assert deadlines == []
 
     calls.clear()
     assert gsm_ocr.trigger_manual_ocr(gamepad_activation=True) is True
     assert calls == ["scheduled"]
-    assert len(timers) == 1
-    assert timers[0].interval == 0.25
+    assert [(key, delay) for key, delay, _ in deadlines] == [("ocr.manual.capture", 0.25)]
 
 
 def test_manual_mode_delayed_trigger_sets_screenshot_event(monkeypatch):

@@ -6,7 +6,7 @@ import os
 import threading
 import time
 from ctypes import wintypes
-from typing import Dict, Any, List, Tuple, Optional, Set
+from typing import Dict, List, Tuple, Optional, Set
 
 from .base_window_monitor import *
 from .base_window_monitor import (
@@ -240,6 +240,16 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         """Start the dedicated thread that owns the Win32 event hook message pump."""
         if not is_windows() or not user32:
             return
+        required_functions = (
+            "SetWinEventHook",
+            "GetMessageW",
+            "TranslateMessage",
+            "DispatchMessageW",
+            "UnhookWinEvent",
+            "PostThreadMessageW",
+        )
+        if not all(hasattr(user32, function_name) for function_name in required_functions):
+            return
         if self._event_hook_thread and self._event_hook_thread.is_alive():
             return
         self._event_hook_stop.clear()
@@ -311,6 +321,11 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                 user32.PostThreadMessageW(tid, WM_QUIT, 0, 0)
             except Exception:
                 pass
+        thread = self._event_hook_thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=2)
+        self._event_hook_thread = None
+        self._event_hook_thread_id = 0
 
     # --- Audio mute helpers ---
 

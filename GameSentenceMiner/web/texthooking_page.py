@@ -11,7 +11,7 @@ import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from flask import render_template, request, jsonify, send_file, send_from_directory
-from waitress import serve
+from waitress import create_server
 
 from GameSentenceMiner import obs
 from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result
@@ -34,6 +34,7 @@ from GameSentenceMiner.web.gsm_websocket import (
     ID_HOOKER,
     ID_PLAINTEXT,
     _overlay_message_handler,
+    start_default_websocket_server,
 )
 
 server_start_time = datetime.datetime.now().timestamp()
@@ -41,6 +42,10 @@ _legacy_notice_server = None
 _legacy_notice_thread = None
 _single_port_gateway_active = False
 _single_port_gateway_port = None
+_single_port_gateway_future = None
+_waitress_servers = []
+_waitress_threads = []
+_waitress_lock = threading.RLock()
 _ws_invalid_upgrade_filter_installed = False
 AI_TRANSLATION_SETUP_DOCS_URL = "https://docs.gamesentenceminer.com/docs/guides/ai-features"
 
@@ -120,17 +125,26 @@ def _find_free_port(bind_host: str) -> int:
 
 
 def _run_waitress_server(host: str, bind_port: int):
+    server = None
     try:
-        serve(
+        server = create_server(
             app,
             host=host,
             port=bind_port,
             threads=16,
             backlog=10,
         )
+        with _waitress_lock:
+            _waitress_servers.append(server)
+        server.run()
     except Exception as waitress_error:
         logger.error(f"Internal waitress server crashed on {host}:{bind_port}: {waitress_error}")
         raise
+    finally:
+        if server is not None:
+            with _waitress_lock:
+                if server in _waitress_servers:
+                    _waitress_servers.remove(server)
 
 
 def _wait_for_tcp_port(host: str, bind_port: int, timeout_seconds: float = 6.0) -> bool:
@@ -150,7 +164,7 @@ def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
       - Keep waitress and the websocket manager as-is on their internal ports.
       - Expose one public port that reverse-proxies HTTP + websocket paths.
     """
-    global _single_port_gateway_active, _single_port_gateway_port
+    global _single_port_gateway_active, _single_port_gateway_port, _single_port_gateway_future
     try:
         from aiohttp import ClientSession, ClientTimeout, TCPConnector, WSMsgType, web
     except ImportError:
@@ -207,8 +221,10 @@ def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
         target=_run_waitress_server,
         args=(host, internal_http_port),
         name="GSM-Waitress-Internal",
-        daemon=True,
+        daemon=False,
     )
+    with _waitress_lock:
+        _waitress_threads.append(waitress_thread)
     waitress_thread.start()
     if not _wait_for_tcp_port(upstream_host, internal_http_port):
         logger.warning(
@@ -424,6 +440,18 @@ def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
             await runner.cleanup()
 
     try:
+        transport_runtime = getattr(websocket_manager, "_transport_runtime", None)
+        if transport_runtime is not None:
+            _single_port_gateway_future = transport_runtime.submit(gateway_main())
+            deadline = time.monotonic() + 6.0
+            while time.monotonic() < deadline:
+                if _single_port_gateway_active:
+                    return True
+                if _single_port_gateway_future.done():
+                    _single_port_gateway_future.result()
+                time.sleep(0.02)
+            _single_port_gateway_future.cancel()
+            raise TimeoutError("Single-port gateway did not become ready")
         if os.name == "nt":
             # aiohttp + Proactor on Windows can surface noisy connection reset callbacks.
             # Run this gateway on a selector loop for better compatibility.
@@ -716,7 +744,7 @@ def get_data():
 def get_ids():
     from GameSentenceMiner import gametext
 
-    asyncio.run(check_for_lines_outside_replay_buffer())
+    check_for_lines_outside_replay_buffer()
     state = event_manager.get_state()
     state["text_intake_paused"] = gametext.is_text_intake_paused()
     response = jsonify(state)
@@ -748,14 +776,18 @@ def clear_history():
     return jsonify({"message": "History cleared successfully"}), 200
 
 
-async def check_for_lines_outside_replay_buffer():
+def check_for_lines_outside_replay_buffer():
     time_window = (
         datetime.datetime.now()
         - datetime.timedelta(seconds=gsm_state.replay_buffer_length)
         - datetime.timedelta(seconds=5)
     )
     # logger.info(f"Checking for lines outside replay buffer time window: {time_window}")
-    lines_outside_buffer = [line.id for line in event_manager.get_events() if line.time < time_window]
+    lines_outside_buffer = [
+        event.id
+        for event in event_manager.get_events()
+        if (getattr(event.line, "first_seen_time", None) or event.time) < time_window
+    ]
     # logger.info(f"Lines outside replay buffer: {lines_outside_buffer}")
     event_manager.remove_lines_by_ids(lines_outside_buffer, timed_out=True)
 
@@ -771,7 +803,31 @@ async def add_event_to_texthooker(line):
         },
     )
     await websocket_manager.send(ID_PLAINTEXT, line.text)
-    await check_for_lines_outside_replay_buffer()
+    check_for_lines_outside_replay_buffer()
+
+
+def project_text_domain_event(event, line):
+    """Publish authoritative append/update/freeze events without blocking its actor."""
+    from GameSentenceMiner.text_pipeline.models import TextEventKind
+    from GameSentenceMiner.web.gsm_websocket import ID_PLAINTEXT, websocket_manager
+
+    event_manager.upsert_gameline(line)
+    websocket_manager.send_textfeed_v2_nowait(event.to_wire())
+
+    if event.kind is TextEventKind.EXPIRED:
+        event_manager.remove_lines_by_ids([line.id], timed_out=True)
+        return
+
+    # Existing structured and plaintext consumers do not understand revisions.
+    # Give them exactly one final value while the bundled v2 client sees provisional
+    # append/update events immediately.
+    if event.kind is TextEventKind.FROZEN:
+        item = event_manager.get(line.id)
+        if item is not None:
+            websocket_manager.send_textfeed_legacy_nowait(
+                {"event": "text_received", "sentence": item.text, "data": item.to_serializable()},
+            )
+        websocket_manager.send_nowait(ID_PLAINTEXT, line.text)
 
 
 async def send_word_coordinates_to_overlay(data):
@@ -799,7 +855,13 @@ def update_event():
     if event_id is None:
         return jsonify({"error": "Missing id"}), 400
     event = event_manager.get(event_id)
-    event_manager.get(event_id).checked = not event.checked
+    if event is None:
+        return jsonify({"error": "Invalid id"}), 404
+    event.checked = not event.checked
+    if event.checked:
+        from GameSentenceMiner.gametext import freeze_authoritative_text_line
+
+        freeze_authoritative_text_line(event_id)
     return jsonify({"message": "Event updated successfully"}), 200
 
 
@@ -1202,7 +1264,15 @@ def get_status():
         anki_module.refresh_anki_connect_connection_status()
     except Exception:
         logger.debug("Unable to refresh Anki status for /get_status.", exc_info=True)
-    return jsonify(gsm_status.to_dict()), 200
+    payload = gsm_status.to_dict()
+    try:
+        from GameSentenceMiner.gametext import get_text_runtime_health
+
+        payload["text_runtime"] = get_text_runtime_health()
+    except Exception:
+        logger.debug("Unable to collect authoritative text runtime health.", exc_info=True)
+    payload["transport_runtime"] = websocket_manager.health_snapshot()
+    return jsonify(payload), 200
 
 
 @app.route("/linux/detect_game_exe", methods=["GET"])
@@ -1360,6 +1430,12 @@ def get_selected_lines():
 
 
 def get_event_line_by_id(event_id: str):
+    try:
+        from GameSentenceMiner.gametext import freeze_authoritative_text_line
+
+        freeze_authoritative_text_line(event_id)
+    except Exception:
+        logger.debug(f"Unable to freeze line {event_id} before TextFeed action.", exc_info=True)
     line = get_line_by_id(event_id)
     if line is not None:
         return line
@@ -1373,28 +1449,12 @@ def are_lines_selected():
 
 
 def reset_checked_lines():
-    async def send_reset_message():
-        await websocket_manager.send(
-            ID_HOOKER,
-            {
-                "event": "reset_checkboxes",
-            },
-        )
-
     event_manager.reset_checked_lines()
-    asyncio.run(send_reset_message())
+    websocket_manager.send_nowait(ID_HOOKER, {"event": "reset_checkboxes"})
 
 
 def reset_buttons():
-    async def send_reset_message():
-        await websocket_manager.send(
-            ID_HOOKER,
-            {
-                "event": "reset_buttons",
-            },
-        )
-
-    asyncio.run(send_reset_message())
+    websocket_manager.send_nowait(ID_HOOKER, {"event": "reset_buttons"})
 
 
 def open_texthooker():
@@ -1523,7 +1583,7 @@ def _start_legacy_moved_page_server():
     _legacy_notice_thread = threading.Thread(
         target=_legacy_notice_server.serve_forever,
         name=f"GSM-Legacy-{legacy_port}-Moved-Page",
-        daemon=True,
+        daemon=False,
     )
     _legacy_notice_thread.start()
     logger.info(f"Legacy moved-page server active on {host}:{legacy_port} (current texthooker port: {current_port}).")
@@ -1531,6 +1591,7 @@ def _start_legacy_moved_page_server():
 
 def start_web_server(debug=False):
     logger.debug("Starting web server...")
+    start_default_websocket_server()
 
     log = logging.getLogger("werkzeug")
     log.setLevel(logging.ERROR)  # Set to ERROR to suppress most logs
@@ -1553,20 +1614,45 @@ def start_web_server(debug=False):
     _run_waitress_server(host, single_port)
 
 
-async def texthooker_page_coro(wait=False, debug=False):
-    # Run the WebSocket server in the asyncio event loop
-    flask_thread = threading.Thread(target=start_web_server, args=(debug,))
-    flask_thread.daemon = True
-    flask_thread.start()
+def stop_web_server(timeout: float = 5.0) -> None:
+    """Close managed HTTP listeners and cancel the gateway adapter."""
+    global _single_port_gateway_future
+    gateway_future = _single_port_gateway_future
+    _single_port_gateway_future = None
+    if gateway_future is not None and not gateway_future.done():
+        gateway_future.cancel()
 
-    # Keep the main asyncio event loop running (for the WebSocket server)
-    if wait:
-        await asyncio.Event().wait()
+    notice_server = _legacy_notice_server
+    if notice_server is not None:
+        try:
+            notice_server.shutdown()
+            notice_server.server_close()
+        except Exception as error:
+            logger.debug(f"Failed to stop legacy notice server: {error}")
+    notice_thread = _legacy_notice_thread
+    if notice_thread is not None and notice_thread is not threading.current_thread():
+        notice_thread.join(timeout)
+
+    with _waitress_lock:
+        servers = list(_waitress_servers)
+        threads = list(_waitress_threads)
+    for server in servers:
+        try:
+            server.close()
+        except Exception as error:
+            logger.debug(f"Failed to stop waitress server: {error}")
+    deadline = time.monotonic() + timeout
+    for thread in threads:
+        if thread is threading.current_thread():
+            continue
+        thread.join(max(0.0, deadline - time.monotonic()))
+    with _waitress_lock:
+        _waitress_threads[:] = [thread for thread in _waitress_threads if thread.is_alive()]
 
 
 def run_text_hooker_page():
     try:
-        asyncio.run(texthooker_page_coro())
+        start_web_server()
     except KeyboardInterrupt:
         logger.info("Shutting down due to KeyboardInterrupt.")
 

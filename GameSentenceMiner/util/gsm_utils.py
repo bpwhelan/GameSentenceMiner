@@ -7,7 +7,6 @@ import re
 import socket
 import string
 import subprocess
-import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -30,12 +29,6 @@ def time_it(func, *args, **kwargs):
     elapsed_time = end_time - start_time
     logger.info(f"Function executed in {elapsed_time:.4f} seconds.")
     return result
-
-
-def run_new_thread(func, *args, **kwargs):
-    thread = threading.Thread(target=func, args=args, kwargs=kwargs, daemon=True)
-    thread.start()
-    return thread
 
 
 def get_unique_temp_file_for_game(game_title, suffix):
@@ -168,11 +161,11 @@ def wait_for_stable_file(file_path, timeout=10, check_interval=0.1):
 def isascii(s: str):
     try:
         return s.isascii()
-    except:
+    except (AttributeError, TypeError):
         try:
             s.encode("ascii")
             return True
-        except:
+        except (AttributeError, TypeError, UnicodeEncodeError):
             return False
 
 

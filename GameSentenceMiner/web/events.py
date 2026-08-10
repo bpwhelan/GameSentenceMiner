@@ -16,6 +16,9 @@ class EventItem:
     history: bool = False
     excluded_from_stats: bool = False
     session_id: str = ""
+    stream_sequence: int = 0
+    revision: int = 1
+    state: str = "frozen"
 
     def to_dict(self):
         return {
@@ -26,6 +29,9 @@ class EventItem:
             "history": self.history,
             "excluded_from_stats": self.excluded_from_stats,
             "session_id": self.session_id,
+            "stream_sequence": self.stream_sequence,
+            "revision": self.revision,
+            "state": self.state,
         }
 
     def to_serializable(self):
@@ -37,6 +43,9 @@ class EventItem:
             "history": self.history,
             "excluded_from_stats": self.excluded_from_stats,
             "session_id": self.session_id,
+            "stream_sequence": self.stream_sequence,
+            "revision": self.revision,
+            "state": self.state,
         }
 
 
@@ -65,6 +74,10 @@ class EventManager:
             self.timed_out_ids.clear()
 
     def add_gameline(self, line: GameLine):
+        line_session_id = str(getattr(line, "session_id", "") or "")
+        with self._lock:
+            if line_session_id and not self.session_events:
+                self.session_id = line_session_id
         new_event = EventItem(
             line,
             line.id,
@@ -73,7 +86,10 @@ class EventManager:
             False,
             False,
             bool(getattr(line, "excluded_from_stats", False)),
-            self.session_id,
+            line_session_id or self.session_id,
+            int(getattr(line, "stream_sequence", 0) or 0),
+            int(getattr(line, "revision", 1) or 1),
+            str(getattr(line, "state", "frozen") or "frozen"),
         )
         with self._lock:
             self.events_dict[line.id] = new_event
@@ -82,6 +98,24 @@ class EventManager:
             self.session_events.append(new_event)
             self.timed_out_ids.discard(line.id)
         return new_event
+
+    def upsert_gameline(self, line: GameLine):
+        """Insert or revise a line without changing its authoritative position."""
+        with self._lock:
+            existing = self.session_events_dict.get(line.id)
+            if existing is None:
+                return self.add_gameline(line)
+            incoming_revision = int(getattr(line, "revision", 1) or 1)
+            if incoming_revision < existing.revision:
+                return existing
+            existing.line = line
+            existing.text = line.text
+            existing.time = line.time
+            existing.excluded_from_stats = bool(getattr(line, "excluded_from_stats", False))
+            existing.stream_sequence = int(getattr(line, "stream_sequence", existing.stream_sequence) or 0)
+            existing.revision = incoming_revision
+            existing.state = str(getattr(line, "state", existing.state) or existing.state)
+            return existing
 
     def reset_checked_lines(self):
         with self._lock:

@@ -32,6 +32,9 @@ interface AgentTextPayload {
     engine: 'agent';
     exeName: string;
     copyToClipboard: boolean;
+    capturedAt?: number;
+    revisionWindowMs?: number;
+    mergeFragments?: boolean;
 }
 
 interface AgentHookSession {
@@ -466,16 +469,12 @@ function queueAgentText(text: string): void {
         engine: 'agent',
         exeName: agentSession.exeName,
         copyToClipboard: agentSession.copyToClipboard,
+        capturedAt: Date.now(),
+        revisionWindowMs: Math.max(0, Math.round(agentSession.flushDelayMs)),
+        mergeFragments: true,
     };
-    const delayMs = Math.max(0, Math.round(agentSession.flushDelayMs));
-    if (delayMs <= 0) {
-        updateAgentHookPreview(text);
-        sendAgentText(payload);
-        return;
-    }
-    agentSession.outputCollector.push(payload);
-    if (agentSession.outputFlushTimer) clearTimeout(agentSession.outputFlushTimer);
-    agentSession.outputFlushTimer = setTimeout(flushAgentText, delayMs);
+    updateAgentHookPreview(text);
+    sendAgentText(payload);
 }
 
 function handleAgentPayload(current: AgentHookSession, payload: any, data: Buffer | null): void {

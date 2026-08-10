@@ -844,7 +844,7 @@
       "title": "已保存配置",
       "saved": "已保存",
       "autoHook": "下次启动时自动附加挂接",
-      "flushDelay": "输出刷新延迟（ms）：",
+      "flushDelay": "文本修订窗口（ms）：",
       "manualHook": "手动挂接代码（H/R-code，可选）：",
       "manualHookHint": "除非你已有特定的 H-code 或 R-code，否则请留空。大多数用户应先启动引擎，然后选择检测到的挂接。",
       "attachManual": "附加手动挂接",

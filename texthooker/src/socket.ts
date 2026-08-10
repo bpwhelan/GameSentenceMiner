@@ -122,25 +122,11 @@ export class SocketConnection {
 			return;
 		}
 
-		const sessions: Record<string, string[]> = {};
-		for (const line of lineData$.getValue()) {
-			if (!line.gsmSessionId || line.gsmStatus === 'external') {
-				continue;
-			}
-			(sessions[line.gsmSessionId] ||= []).push(line.id);
-		}
-		this.textFeedSyncRequestedIds = new Map(
-			Object.entries(sessions).map(([sessionId, ids]) => [sessionId, [...ids]]),
-		);
-		const maxLines = getTextFeedSessionSyncLineLimit(maxLines$.getValue());
-
 		this.socket.send(
 			JSON.stringify({
-				event: 'textfeed_session_sync_request',
-				sessions: Object.fromEntries(
-					Object.entries(sessions).map(([sessionId, ids]) => [sessionId, ids.slice(-maxLines)]),
-				),
-				max_lines: maxLines,
+				event: 'text_v2_snapshot_request',
+				after_sequence: Math.max(0, ...lineData$.getValue().map((line) => line.streamSequence ?? 0)),
+				max_lines: getTextFeedSessionSyncLineLimit(maxLines$.getValue()),
 			}),
 		);
 	}
@@ -156,6 +142,47 @@ export class SocketConnection {
 		}
 
 		if (payload?.event) {
+			if (payload.event === 'text_v2_snapshot') {
+				const lines = (Array.isArray(payload.lines) ? payload.lines : []).sort(
+					(a, b) => Number(a?.stream_sequence ?? 0) - Number(b?.stream_sequence ?? 0),
+				);
+				const sessionId = typeof payload.session_id === 'string' ? payload.session_id : '';
+				const orderedIds = lines.filter((item) => typeof item?.id === 'string').map((item) => item.id);
+				textfeedSessionSync$.next({
+					sessionId,
+					orderedIds,
+					activeIds: lines
+						.filter((item) => item?.state !== 'expired' && typeof item?.id === 'string')
+						.map((item) => item.id),
+					timedOutIds: lines
+						.filter((item) => item?.state === 'expired' && typeof item?.id === 'string')
+						.map((item) => item.id),
+					missingLines: lines
+						.filter((item) => typeof item?.id === 'string' && typeof item?.text === 'string')
+						.map((item) => ({
+							id: item.id,
+							text: item.text,
+							excludedFromStats: Boolean(item.excluded_from_stats),
+							streamSequence: Number(item.stream_sequence ?? 0),
+							revision: Number(item.revision ?? 1),
+							recordState: item.state,
+						})),
+					requestedIds: lineData$
+						.getValue()
+						.filter((line) => line.gsmSessionId === sessionId)
+						.map((line) => line.id),
+				});
+				return;
+			}
+			if (
+				payload.event === 'text_v2_append' ||
+				payload.event === 'text_v2_update' ||
+				payload.event === 'text_v2_freeze' ||
+				payload.event === 'text_v2_expire'
+			) {
+				this.emitV2Line(payload.data);
+				return;
+			}
 			if (payload.event === 'textfeed_session_sync') {
 				const lines = Array.isArray(payload.lines) ? payload.lines : [];
 				const sessionId = typeof payload.session_id === 'string' ? payload.session_id : '';
@@ -203,5 +230,23 @@ export class SocketConnection {
 				: { gsmStatus: 'external' as const };
 
 		newLine$.next([line, LineType.SOCKET, id, lineMeta]);
+	}
+
+	private emitV2Line(data: Record<string, any> | undefined, sessionBackfill = false) {
+		if (!data || typeof data.id !== 'string' || typeof data.text !== 'string') return;
+		newLine$.next([
+			data.text,
+			LineType.SOCKET,
+			data.id,
+			{
+				excludedFromStats: Boolean(data.excluded_from_stats),
+				gsmSessionId: typeof data.session_id === 'string' ? data.session_id : undefined,
+				gsmStatus: data.state === 'expired' ? 'timed_out' : 'active',
+				streamSequence: Number(data.stream_sequence ?? 0),
+				revision: Number(data.revision ?? 1),
+				recordState: data.state,
+				sessionBackfill,
+			},
+		]);
 	}
 }

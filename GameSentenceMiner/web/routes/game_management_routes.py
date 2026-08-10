@@ -472,6 +472,7 @@ def api_delete_individual_game(game_id):
 
         # Delete the game record from games table
         GameLinesTable._db.execute(f"DELETE FROM {GamesTable._table} WHERE id = ?", (game_id,), commit=True)
+        GamesTable.clear_name_id_cache()
 
         logger.debug(
             f"Unlinked game '{game_name}' (id={game_id}): removed game record, unlinked {unlinked_lines} lines"
@@ -533,6 +534,7 @@ def api_delete_game_lines(game_id):
 
         # Also delete the game record from games table
         GameLinesTable._db.execute(f"DELETE FROM {GamesTable._table} WHERE id = ?", (game_id,), commit=True)
+        GamesTable.clear_name_id_cache()
 
         logger.info(
             f"PERMANENTLY DELETED game '{game_name}' (id={game_id}): deleted {lines_to_delete} lines and game record"

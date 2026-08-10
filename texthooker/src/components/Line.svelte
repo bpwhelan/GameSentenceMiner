@@ -60,6 +60,9 @@
 
 	let paragraph: HTMLElement;
 	let originalText = '';
+	let componentMounted = false;
+	let lineTextMounted = false;
+	let autoTranslationRevision = -1;
 	let isSelected = false;
 	let isEditable = false;
 	let actionsMenuOpen = false;
@@ -74,30 +77,57 @@
 	$: isTimedOutGSMLine = line.gsmStatus === 'timed_out' || (!line.gsmStatus && $timedOutIDs$.includes(line.id));
 
 	$: isVerticalDisplay = !pipWindow && $displayVertical$;
+	$: if (
+		componentMounted &&
+		line.recordState === 'frozen' &&
+		!line.sessionBackfill &&
+		$autoTranslateLines$ &&
+		Number(line.revision ?? 0) > autoTranslationRevision
+	) {
+		autoTranslationRevision = Number(line.revision ?? 0);
+		handleAction(line.id, 'TL', $blurAutoTranslatedLines$);
+	}
 
 	onMount(() => {
-		if (isLast) {
-			// Keep the reader's position unless continuous following is enabled.
-			if (shouldAutoScroll($alwaysScrollToNewest$, getAutoScrollStick(!!pipWindow))) {
-				updateScroll(
-					pipWindow || window,
-					paragraph.parentElement?.parentElement ?? null,
-					$reverseLineOrder$,
-					isVerticalDisplay,
-					$enableLineAnimation$ ? 'smooth' : 'auto',
-				);
-			}
-			if (isActiveGSMLine && !line.sessionBackfill && $autoTranslateLines$) {
-				handleAction(line.id, 'TL', $blurAutoTranslatedLines$);
-			}
-		}
+		componentMounted = true;
+		void revealLineText();
 	});
 
 	onDestroy(() => {
+		componentMounted = false;
 		document.removeEventListener('click', clickOutsideHandler, false);
 		removeActionsMenuListeners();
 		dispatch('edit', { inEdit: false });
 	});
+
+	async function revealLineText() {
+		// Svelte 5 builds each line off-DOM before inserting its wrapper. Reveal the
+		// text after attachment so extension MutationObservers receive a connected
+		// child-list mutation, matching the insertion behavior of the legacy build.
+		await tick();
+		if (!componentMounted) {
+			return;
+		}
+		lineTextMounted = true;
+		await tick();
+		if (!componentMounted || !isLast) {
+			return;
+		}
+
+		// Keep the reader's position unless continuous following is enabled.
+		if (shouldAutoScroll($alwaysScrollToNewest$, getAutoScrollStick(!!pipWindow))) {
+			updateScroll(
+				pipWindow || window,
+				paragraph.parentElement?.parentElement ?? null,
+				$reverseLineOrder$,
+				isVerticalDisplay,
+				$enableLineAnimation$ ? 'smooth' : 'auto',
+			);
+		}
+		if (isActiveGSMLine && !line.recordState && !line.sessionBackfill && $autoTranslateLines$) {
+			handleAction(line.id, 'TL', $blurAutoTranslatedLines$);
+		}
+	}
 
 	function getActionsWindow() {
 		return pipWindow || window;
@@ -323,47 +353,49 @@
 				on:change={() => toggleCheckbox(line.id)}
 			/>
 		{/if}
-		<p
-			class="my-2 cursor-pointer border-2"
-			class:py-4={!isVerticalDisplay}
-			class:px-2={!isVerticalDisplay}
-			class:py-2={isVerticalDisplay}
-			class:px-4={isVerticalDisplay}
-			class:border-transparent={!isSelected}
-			class:cursor-text={isEditable}
-			class:border-primary={isSelected}
-			class:border-accent-focus={isEditable}
-			class:whitespace-pre-wrap={$preserveWhitespace$}
-			contenteditable={isEditable}
-			on:dblclick={handleDblClick}
-			on:keyup={dummyFn}
-			bind:this={paragraph}
-			in:fly={{ x: isVerticalDisplay ? 100 : -100, duration: $enableLineAnimation$ ? 250 : 0 }}
-		>
-			{line.text}
-			{#if line.translation}
-				<span
-					class:blur-translation={line.blurTranslation}
-					style="color: #888; padding-bottom: 16px; padding-top: 16px; width: 100%; {line.blurTranslation
-						? 'filter: blur(8px); transition: filter 0.2s;'
-						: ''}"
-					on:mouseenter={line.blurTranslation
-						? function (event: MouseEvent) {
-								const target = event.currentTarget as HTMLElement;
-								target.style.filter = 'blur(0px)';
-								target.style.transition = 'filter 0.3s';
-							}
-						: undefined}
-					on:mouseleave={line.blurTranslation
-						? function (event: MouseEvent) {
-								(event.currentTarget as HTMLElement).style.filter = 'blur(8px)';
-							}
-						: undefined}
-				>
-					<i>{line.translation}</i>
-				</span>
-			{/if}
-		</p>
+		{#if lineTextMounted}
+			<p
+				class="my-2 cursor-pointer border-2"
+				class:py-4={!isVerticalDisplay}
+				class:px-2={!isVerticalDisplay}
+				class:py-2={isVerticalDisplay}
+				class:px-4={isVerticalDisplay}
+				class:border-transparent={!isSelected}
+				class:cursor-text={isEditable}
+				class:border-primary={isSelected}
+				class:border-accent-focus={isEditable}
+				class:whitespace-pre-wrap={$preserveWhitespace$}
+				contenteditable={isEditable}
+				on:dblclick={handleDblClick}
+				on:keyup={dummyFn}
+				bind:this={paragraph}
+				in:fly={{ x: isVerticalDisplay ? 100 : -100, duration: $enableLineAnimation$ ? 250 : 0 }}
+			>
+				{line.text}
+				{#if line.translation}
+					<span
+						class:blur-translation={line.blurTranslation}
+						style="color: #888; padding-bottom: 16px; padding-top: 16px; width: 100%; {line.blurTranslation
+							? 'filter: blur(8px); transition: filter 0.2s;'
+							: ''}"
+						on:mouseenter={line.blurTranslation
+							? function (event: MouseEvent) {
+									const target = event.currentTarget as HTMLElement;
+									target.style.filter = 'blur(0px)';
+									target.style.transition = 'filter 0.3s';
+								}
+							: undefined}
+						on:mouseleave={line.blurTranslation
+							? function (event: MouseEvent) {
+									(event.currentTarget as HTMLElement).style.filter = 'blur(8px)';
+								}
+							: undefined}
+					>
+						<i>{line.translation}</i>
+					</span>
+				{/if}
+			</p>
+		{/if}
 		<div class="line-actions-container" class:hidden={$settingsOpen$}>
 			{#if line.excludedFromStats}
 				<div

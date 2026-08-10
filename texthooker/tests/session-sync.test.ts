@@ -35,3 +35,44 @@ test('bounded sync drops requested stale lines but preserves lines received afte
 	assert.equal(plan.syncedLines[0].text, 'old text');
 	assert.equal(plan.syncedLines[1].sessionBackfill, true);
 });
+
+test('v2 snapshot applies newer revisions and preserves legitimate repeated records', () => {
+	const existingLines: LineItem[] = [
+		{ id: 'one', text: 'draft', gsmSessionId: 'current', gsmStatus: 'active', revision: 1 },
+	];
+	const sync: TextFeedSessionSync = {
+		sessionId: 'current',
+		orderedIds: ['one', 'two'],
+		activeIds: ['one', 'two'],
+		timedOutIds: [],
+		missingLines: [
+			{
+				id: 'one',
+				text: 'same final text',
+				excludedFromStats: false,
+				streamSequence: 1,
+				revision: 3,
+				recordState: 'frozen',
+			},
+			{
+				id: 'two',
+				text: 'same final text',
+				excludedFromStats: false,
+				streamSequence: 2,
+				revision: 2,
+				recordState: 'frozen',
+			},
+		],
+		requestedIds: ['one'],
+	};
+
+	const plan = buildTextFeedSessionSyncPlan(sync, existingLines, (text) => text);
+
+	assert.deepEqual(
+		plan.syncedLines.map((line) => [line.id, line.text, line.streamSequence, line.revision]),
+		[
+			['one', 'same final text', 1, 3],
+			['two', 'same final text', 2, 2],
+		],
+	);
+});

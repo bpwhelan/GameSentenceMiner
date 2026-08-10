@@ -32,17 +32,22 @@ export function buildTextFeedSessionSyncPlan(
 
 	for (const id of sync.orderedIds) {
 		const existingLine = existingLines.get(id);
+		const missingLine = missingLines.get(id);
 		const gsmStatus = activeIds.has(id) ? 'active' : timedOutIds.has(id) ? 'timed_out' : 'active';
 		if (existingLine) {
+			const updatedText = missingLine ? normalizeLineContent(missingLine.text) : undefined;
 			syncedLines.push({
 				...existingLine,
+				...(updatedText ? { text: updatedText } : {}),
 				gsmSessionId: sync.sessionId,
 				gsmStatus,
+				streamSequence: missingLine?.streamSequence ?? existingLine.streamSequence,
+				revision: missingLine?.revision ?? existingLine.revision,
+				recordState: missingLine?.recordState ?? existingLine.recordState,
 			});
 			continue;
 		}
 
-		const missingLine = missingLines.get(id);
 		if (!missingLine) {
 			continue;
 		}
@@ -55,6 +60,9 @@ export function buildTextFeedSessionSyncPlan(
 				gsmSessionId: sync.sessionId,
 				gsmStatus,
 				sessionBackfill: true,
+				streamSequence: missingLine.streamSequence,
+				revision: missingLine.revision,
+				recordState: missingLine.recordState,
 			});
 		}
 	}

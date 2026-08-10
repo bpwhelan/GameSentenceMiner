@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, Optional, Set
 import websockets
 
 from GameSentenceMiner.util.config.configuration import get_config, is_windows, logger
+from GameSentenceMiner.util.concurrency.resource_qos import ExecutionClass, configure_current_thread
 from GameSentenceMiner.util.port_diagnostics import (
     describe_port_owners,
     find_port_owners,
@@ -35,6 +36,7 @@ WS_PATH_PLAINTEXT = "/ws/plaintext"
 TEXTFEED_SESSION_SYNC_REQUEST = "textfeed_session_sync_request"
 TEXTFEED_SESSION_SYNC = "textfeed_session_sync"
 TEXTFEED_SESSION_SYNC_MAX_LINES = 1000
+TEXTFEED_V2_SNAPSHOT_REQUEST = "text_v2_snapshot_request"
 
 
 def build_textfeed_session_sync_payload(request_payload: dict, manager=None) -> dict:
@@ -73,6 +75,35 @@ def build_textfeed_session_sync_payload(request_payload: dict, manager=None) -> 
             for event in missing_events
         ],
     }
+
+
+def build_textfeed_v2_snapshot_payload(request_payload: dict | None = None) -> dict[str, Any]:
+    """Return one immutable authoritative snapshot for a v2 TextFeed client."""
+    try:
+        from GameSentenceMiner.gametext import get_text_stream_snapshot
+
+        payload = get_text_stream_snapshot().to_wire()
+        requested_max = (request_payload or {}).get("max_lines", TEXTFEED_SESSION_SYNC_MAX_LINES)
+        try:
+            max_lines = max(1, min(int(requested_max), TEXTFEED_SESSION_SYNC_MAX_LINES))
+        except (TypeError, ValueError):
+            max_lines = TEXTFEED_SESSION_SYNC_MAX_LINES
+        payload["lines"] = payload["lines"][-max_lines:]
+        return payload
+    except Exception as error:
+        logger.debug(f"Unable to build authoritative TextFeed snapshot: {error}")
+        from GameSentenceMiner.web.events import event_manager
+
+        state = event_manager.get_session_sync_state(set(), max_lines=TEXTFEED_SESSION_SYNC_MAX_LINES)
+        return {
+            "event": "text_v2_snapshot",
+            "session_id": state["session_id"],
+            "snapshot_sequence": max(
+                (int(event.get("stream_sequence", 0) or 0) for event in state["missing_events"]),
+                default=0,
+            ),
+            "lines": state["missing_events"],
+        }
 
 
 def build_gsm_profile_state_payload(master_config=None) -> dict[str, Any]:
@@ -232,7 +263,7 @@ class WebsocketServerThread(_PortConflictSupport, threading.Thread):
         is_paused_func: Callable[[], bool],
         message_callback: Optional[Callable[[str], Any]] = None,
     ):
-        super().__init__(daemon=True, name=f"WS-Thread-{name}")
+        super().__init__(daemon=False, name=f"WS-Thread-{name}")
         self.server_name = name
         self.read_mode = read_mode
         self.get_port_func = get_port_func
@@ -291,8 +322,12 @@ class WebsocketServerThread(_PortConflictSupport, threading.Thread):
                         logger.error(f"[{self.server_name}] Error in message callback: {callback_error}")
                         await websocket.send("False")
                 elif self.read_mode and not self.is_paused_func():
-                    self.msg_queue.put(message)
-                    await websocket.send("True")
+                    try:
+                        self.msg_queue.put(message, timeout=0.25)
+                    except queue.Full:
+                        await websocket.send("False")
+                    else:
+                        await websocket.send("True")
                 else:
                     await websocket.send("False")
 
@@ -336,7 +371,7 @@ class WebsocketServerThread(_PortConflictSupport, threading.Thread):
         if self._loop and self._stop_event:
             self.loop.call_soon_threadsafe(self._stop_event.set)
 
-    def run(self):
+    def server_coroutine(self):
         async def main():
             self._loop = asyncio.get_running_loop()
             self._stop_event = asyncio.Event()
@@ -381,7 +416,11 @@ class WebsocketServerThread(_PortConflictSupport, threading.Thread):
 
                 await retry_manager.async_sleep()
 
-        asyncio.run(main())
+        return main()
+
+    def run(self):
+        configure_current_thread(ExecutionClass.LATENCY)
+        asyncio.run(self.server_coroutine())
 
 
 class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
@@ -393,7 +432,7 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
         is_paused_func: Callable[[], bool],
         endpoint_specs: Dict[str, EndpointSpec],
     ):
-        super().__init__(daemon=True, name=f"WS-Thread-{name}")
+        super().__init__(daemon=False, name=f"WS-Thread-{name}")
         self.server_name = name
         self.get_port_func = get_port_func
         self.msg_queue = msg_queue
@@ -411,6 +450,14 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
         self.clients_by_server_id: Dict[str, Set[Any]] = {}
         self.backup_by_server_id: Dict[str, list] = {}
         self._callback_tasks: Set[Any] = set()  # strong refs so fire-and-forget tasks aren't GC'd
+        self._v2_clients: Set[Any] = set()
+        self._v2_syncing_clients: Set[Any] = set()
+        self._v2_delta_buffers: Dict[Any, list[str]] = {}
+        self._v2_delta_capacity = 256
+        self._client_output_queues: Dict[Any, asyncio.Queue[str]] = {}
+        self._client_writer_tasks: Dict[Any, asyncio.Task] = {}
+        self._client_send_locks: Dict[Any, asyncio.Lock] = {}
+        self._client_output_capacity = 256
 
     @property
     def loop(self):
@@ -427,6 +474,24 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
         request_path = _extract_ws_path(websocket, path)
         return _resolve_server_id_from_path(request_path)
 
+    async def _send_client_direct(self, websocket, message: str) -> None:
+        lock = self._client_send_locks.setdefault(websocket, asyncio.Lock())
+        async with lock:
+            await websocket.send(message)
+
+    async def _client_writer(self, websocket, output: asyncio.Queue[str]) -> None:
+        try:
+            while True:
+                message = await output.get()
+                try:
+                    await self._send_client_direct(websocket, message)
+                finally:
+                    output.task_done()
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            logger.debug(f"[{self.server_name}] Client writer stopped: {error}")
+
     async def _handle_incoming_message(self, server_id: str, websocket, message: str):
         if server_id == ID_HOOKER:
             try:
@@ -435,12 +500,36 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
                 request_payload = None
 
             if isinstance(request_payload, dict) and request_payload.get("event") == TEXTFEED_SESSION_SYNC_REQUEST:
-                await websocket.send(json.dumps(build_textfeed_session_sync_payload(request_payload)))
+                await self._send_client_direct(
+                    websocket,
+                    json.dumps(build_textfeed_session_sync_payload(request_payload)),
+                )
+                return
+            if isinstance(request_payload, dict) and request_payload.get("event") == TEXTFEED_V2_SNAPSHOT_REQUEST:
+                # Capability negotiation is explicit. Until this request arrives,
+                # the socket is a legacy TextFeed client and must never receive a
+                # text_v2_* frame as ordinary line text.
+                self._v2_clients.add(websocket)
+                self._v2_syncing_clients.add(websocket)
+                self._v2_delta_buffers[websocket] = []
+                try:
+                    snapshot = await asyncio.to_thread(build_textfeed_v2_snapshot_payload, request_payload)
+                    await self._send_client_direct(websocket, json.dumps(snapshot))
+                    while True:
+                        deltas = self._v2_delta_buffers.get(websocket, [])
+                        self._v2_delta_buffers[websocket] = []
+                        if not deltas:
+                            break
+                        for delta in deltas:
+                            await self._send_client_direct(websocket, delta)
+                finally:
+                    self._v2_syncing_clients.discard(websocket)
+                    self._v2_delta_buffers.pop(websocket, None)
                 return
 
         endpoint_spec = self.endpoint_specs.get(server_id)
         if not endpoint_spec:
-            await websocket.send("False")
+            await self._send_client_direct(websocket, "False")
             return
 
         if endpoint_spec.message_callback:
@@ -450,31 +539,38 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
                     task = asyncio.create_task(callback_result)
                     self._callback_tasks.add(task)
                     task.add_done_callback(self._callback_tasks.discard)
-                await websocket.send("True")
+                await self._send_client_direct(websocket, "True")
             except Exception as callback_error:
                 logger.error(f"[{self.server_name}] Error in {server_id} callback: {callback_error}")
-                await websocket.send("False")
+                await self._send_client_direct(websocket, "False")
             return
 
         if endpoint_spec.read_mode and not self.is_paused_func():
-            self.msg_queue.put(message)
-            await websocket.send("True")
+            try:
+                self.msg_queue.put(message, timeout=0.25)
+            except queue.Full:
+                await self._send_client_direct(websocket, "False")
+            else:
+                await self._send_client_direct(websocket, "True")
             return
 
-        await websocket.send("False")
+        await self._send_client_direct(websocket, "False")
 
     async def _send_initial_overlay_state(self, websocket):
         try:
             from GameSentenceMiner.util.stats.live_stats import build_live_stats_payload, live_stats_tracker
 
-            await websocket.send(json.dumps(build_live_stats_payload(live_stats_tracker, reason="connect")))
+            await self._send_client_direct(
+                websocket,
+                json.dumps(build_live_stats_payload(live_stats_tracker, reason="connect")),
+            )
         except Exception as error:
             logger.debug(f"[{self.server_name}] Failed to send initial overlay state: {error}")
 
         try:
             from GameSentenceMiner.web.live_goals import build_live_goals_payload
 
-            await websocket.send(json.dumps(build_live_goals_payload()))
+            await self._send_client_direct(websocket, json.dumps(build_live_goals_payload()))
         except Exception as error:
             logger.debug(f"[{self.server_name}] Failed to send initial overlay goals: {error}")
 
@@ -484,20 +580,21 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
             master_config = get_master_config()
             if master_config is not None:
                 overlay = master_config.get_config().overlay
-                await websocket.send(
+                await self._send_client_direct(
+                    websocket,
                     json.dumps(
                         {
                             "type": "gsm-overlay-config-updated",
                             "settings": serialize_gsm_owned_overlay(overlay),
                             "monitors": list(getattr(overlay, "monitors", []) or []),
                         }
-                    )
+                    ),
                 )
         except Exception as error:
             logger.debug(f"[{self.server_name}] Failed to send initial GSM overlay config: {error}")
 
         try:
-            await websocket.send(json.dumps(build_gsm_profile_state_payload()))
+            await self._send_client_direct(websocket, json.dumps(build_gsm_profile_state_payload()))
         except Exception as error:
             logger.debug(f"[{self.server_name}] Failed to send initial GSM profile state: {error}")
 
@@ -511,13 +608,17 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
 
         clients = self._get_clients(server_id)
         clients.add(websocket)
+        output: asyncio.Queue[str] = asyncio.Queue(maxsize=self._client_output_capacity)
+        self._client_output_queues[websocket] = output
+        self._client_send_locks[websocket] = asyncio.Lock()
+        self._client_writer_tasks[websocket] = asyncio.create_task(self._client_writer(websocket, output))
         logger.debug(f"[{self.server_name}] Client connected on '{server_id}'. Total for endpoint: {len(clients)}")
 
         try:
             backup = self._get_backup(server_id)
             if backup:
                 for message in backup:
-                    await websocket.send(message)
+                    await self._send_client_direct(websocket, message)
                 backup.clear()
 
             if server_id == ID_OVERLAY:
@@ -538,6 +639,15 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
             logger.warning(f"[{self.server_name}] Error in handler for {server_id}: {error}")
         finally:
             clients.discard(websocket)
+            self._v2_clients.discard(websocket)
+            self._v2_syncing_clients.discard(websocket)
+            self._v2_delta_buffers.pop(websocket, None)
+            self._client_output_queues.pop(websocket, None)
+            self._client_send_locks.pop(websocket, None)
+            writer = self._client_writer_tasks.pop(websocket, None)
+            if writer is not None:
+                writer.cancel()
+                await asyncio.gather(writer, return_exceptions=True)
             logger.debug(f"[{self.server_name}] Client disconnected from '{server_id}'. Remaining: {len(clients)}")
 
     async def _send_text_coroutine(self, server_id: str, message: str):
@@ -552,9 +662,72 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
                     backup.pop(0)
             return
 
-        tasks = [asyncio.create_task(client.send(message)) for client in clients]
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+        slow_clients = []
+        for client in list(clients):
+            if server_id == ID_HOOKER and client in self._v2_syncing_clients:
+                buffer = self._v2_delta_buffers.setdefault(client, [])
+                if len(buffer) >= self._v2_delta_capacity:
+                    await client.close(code=1013, reason="TextFeed snapshot delta buffer exceeded")
+                    continue
+                buffer.append(message)
+                continue
+            output = self._client_output_queues.get(client)
+            if output is None:
+                continue
+            try:
+                output.put_nowait(message)
+            except asyncio.QueueFull:
+                slow_clients.append(client)
+
+        for client in slow_clients:
+            clients.discard(client)
+            self._v2_clients.discard(client)
+            await client.close(code=1013, reason="TextFeed client output queue exceeded")
+
+    async def _send_legacy_text_coroutine(self, message: str) -> None:
+        """Deliver a frozen legacy line only to clients that did not negotiate v2."""
+        clients = self._get_clients(ID_HOOKER)
+        slow_clients = []
+        for client in [candidate for candidate in list(clients) if candidate not in self._v2_clients]:
+            output = self._client_output_queues.get(client)
+            if output is None:
+                continue
+            try:
+                output.put_nowait(message)
+            except asyncio.QueueFull:
+                slow_clients.append(client)
+        for client in slow_clients:
+            clients.discard(client)
+            await client.close(code=1013, reason="TextFeed client output queue exceeded")
+
+    async def _send_v2_text_coroutine(self, message: str) -> None:
+        """Deliver an authoritative delta only to negotiated v2 TextFeed clients."""
+        clients = self._get_clients(ID_HOOKER)
+        slow_clients = []
+        for client in list(self._v2_clients):
+            if client not in clients:
+                self._v2_clients.discard(client)
+                continue
+            if client in self._v2_syncing_clients:
+                buffer = self._v2_delta_buffers.setdefault(client, [])
+                if len(buffer) >= self._v2_delta_capacity:
+                    self._v2_clients.discard(client)
+                    await client.close(code=1013, reason="TextFeed snapshot delta buffer exceeded")
+                    continue
+                buffer.append(message)
+                continue
+            output = self._client_output_queues.get(client)
+            if output is None:
+                continue
+            try:
+                output.put_nowait(message)
+            except asyncio.QueueFull:
+                slow_clients.append(client)
+
+        for client in slow_clients:
+            clients.discard(client)
+            self._v2_clients.discard(client)
+            await client.close(code=1013, reason="TextFeed client output queue exceeded")
 
     async def send_payload(self, text: Any, server_id: str = ID_HOOKER):
         if text is None:
@@ -575,6 +748,20 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
 
         return asyncio.run_coroutine_threadsafe(self._send_text_coroutine(server_id, text), self.loop)
 
+    def send_v2_payload_nowait(self, text: Any):
+        if text is None:
+            return None
+        if isinstance(text, (dict, list)):
+            text = json.dumps(text)
+        return asyncio.run_coroutine_threadsafe(self._send_v2_text_coroutine(text), self.loop)
+
+    def send_legacy_payload_nowait(self, text: Any):
+        if text is None:
+            return None
+        if isinstance(text, (dict, list)):
+            text = json.dumps(text)
+        return asyncio.run_coroutine_threadsafe(self._send_legacy_text_coroutine(text), self.loop)
+
     def has_clients(self, server_id: str) -> bool:
         return len(self._get_clients(server_id)) > 0
 
@@ -582,7 +769,7 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
         if self._loop and self._stop_event:
             self.loop.call_soon_threadsafe(self._stop_event.set)
 
-    def run(self):
+    def server_coroutine(self):
         async def main():
             self._loop = asyncio.get_running_loop()
             self._stop_event = asyncio.Event()
@@ -627,7 +814,11 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
 
                 await retry_manager.async_sleep()
 
-        asyncio.run(main())
+        return main()
+
+    def run(self):
+        configure_current_thread(ExecutionClass.LATENCY)
+        asyncio.run(self.server_coroutine())
 
 
 class WebsocketManager:
@@ -644,8 +835,10 @@ class WebsocketManager:
 
     def __init__(self):
         self._servers: Dict[str, Any] = {}
-        self._queue = queue.Queue()
+        self._queue = queue.Queue(maxsize=2048)
         self._paused = False
+        self._transport_runtime = None
+        self._owns_transport_runtime = False
 
         self._broadcast_targets: Dict[str, list] = {
             ID_HOOKER: [ID_HOOKER],
@@ -665,6 +858,22 @@ class WebsocketManager:
     def paused(self, value: bool):
         self._paused = value
         logger.info(f"Websocket Manager paused state set to: {self._paused}")
+
+    def set_transport_runtime(self, runtime) -> None:
+        """Attach servers to the process-owned asyncio loop before startup."""
+        if self._servers:
+            raise RuntimeError("WebSocket transport runtime must be set before servers start")
+        self._transport_runtime = runtime
+        self._owns_transport_runtime = False
+
+    def _start_server_adapter(self, server) -> None:
+        if self._transport_runtime is None:
+            from GameSentenceMiner.util.concurrency.transport import AsyncTransportRuntime
+
+            self._transport_runtime = AsyncTransportRuntime(name="gsm-websocket-transport")
+            self._transport_runtime.start()
+            self._owns_transport_runtime = True
+        server._transport_future = self._transport_runtime.submit(server.server_coroutine())
 
     def _iter_server_targets(self, channel_id: str):
         for server_id in self._broadcast_targets.get(channel_id, [channel_id]):
@@ -692,7 +901,7 @@ class WebsocketManager:
             is_paused_func=lambda: self._paused,
             message_callback=message_callback,
         )
-        thread.start()
+        self._start_server_adapter(thread)
         self._servers[server_id] = thread
 
     def start_multiplex_server(
@@ -711,7 +920,7 @@ class WebsocketManager:
             is_paused_func=lambda: self._paused,
             endpoint_specs=endpoint_specs,
         )
-        thread.start()
+        self._start_server_adapter(thread)
         self._servers[ID_HOOKER] = thread
 
     def stop_server(self, server_id: str):
@@ -722,6 +931,30 @@ class WebsocketManager:
     def stop_all(self):
         for server_id in list(self._servers.keys()):
             self.stop_server(server_id)
+        runtime = self._transport_runtime
+        if runtime is not None and self._owns_transport_runtime:
+            runtime.stop(timeout=5)
+            self._transport_runtime = None
+            self._owns_transport_runtime = False
+
+    def health_snapshot(self) -> dict[str, Any]:
+        runtime = self._transport_runtime
+        transport = (
+            runtime.health_snapshot().__dict__
+            if runtime is not None
+            else {
+                "state": "created",
+                "thread_alive": False,
+                "pending_tasks": 0,
+                "failure": None,
+            }
+        )
+        return {
+            "transport": transport,
+            "servers": sorted(self._servers),
+            "ingress_depth": self._queue.qsize(),
+            "ingress_capacity": self._queue.maxsize,
+        }
 
     async def send(self, server_id: str, message: Any):
         result = None
@@ -756,6 +989,22 @@ class WebsocketManager:
                 futures.append(current_future)
 
         return futures
+
+    def send_textfeed_v2_nowait(self, message: Any):
+        """Send a v2 domain event without exposing it to legacy socket clients."""
+        server = self._servers.get(ID_HOOKER)
+        if not isinstance(server, MultiplexWebsocketServerThread):
+            return []
+        future = server.send_v2_payload_nowait(message)
+        return [] if future is None else [future]
+
+    def send_textfeed_legacy_nowait(self, message: Any):
+        """Send a frozen compatibility event without duplicating it for v2 clients."""
+        server = self._servers.get(ID_HOOKER)
+        if not isinstance(server, MultiplexWebsocketServerThread):
+            return []
+        future = server.send_legacy_payload_nowait(message)
+        return [] if future is None else [future]
 
     def has_clients(self, server_id: str) -> bool:
         for _, target_server in self._iter_server_targets(server_id):
@@ -828,20 +1077,20 @@ async def _overlay_message_handler(message: str):
     await overlay_handler.handle_message(message)
 
 
-websocket_manager.start_multiplex_server(
-    port_getter=lambda: _internal_ws_ingress_port,
-    endpoint_specs={
-        # TextFeed clients recover the complete in-memory session by ID on connect.
-        # The old transport backup could arrive first and trigger backfill auto-translation.
-        ID_HOOKER: EndpointSpec(read_mode=True, enable_backup=False),
-        ID_OVERLAY: EndpointSpec(
-            read_mode=True,
-            message_callback=_overlay_message_handler,
-            enable_backup=False,
-        ),
-        ID_PLAINTEXT: EndpointSpec(read_mode=False, enable_backup=True),
-    },
-)
+def start_default_websocket_server() -> None:
+    """Start the multiplex transport explicitly during application startup."""
+    websocket_manager.start_multiplex_server(
+        port_getter=lambda: _internal_ws_ingress_port,
+        endpoint_specs={
+            ID_HOOKER: EndpointSpec(read_mode=True, enable_backup=False),
+            ID_OVERLAY: EndpointSpec(
+                read_mode=True,
+                message_callback=_overlay_message_handler,
+                enable_backup=False,
+            ),
+            ID_PLAINTEXT: EndpointSpec(read_mode=False, enable_backup=True),
+        },
+    )
 
 
 def _start_legacy_listener_if_needed(

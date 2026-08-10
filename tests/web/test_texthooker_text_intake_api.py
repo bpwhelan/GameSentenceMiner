@@ -10,7 +10,7 @@ def test_root_redirects_to_texthooker():
 
 
 def test_get_ids_reports_current_text_intake_state(monkeypatch):
-    async def no_op_check():
+    def no_op_check():
         return None
 
     monkeypatch.setattr(texthooking_page, "check_for_lines_outside_replay_buffer", no_op_check)
@@ -24,7 +24,7 @@ def test_get_ids_reports_current_text_intake_state(monkeypatch):
 
 
 def test_get_ids_disables_caching(monkeypatch):
-    async def no_op_check():
+    def no_op_check():
         return None
 
     monkeypatch.setattr(texthooking_page, "check_for_lines_outside_replay_buffer", no_op_check)

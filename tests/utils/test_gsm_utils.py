@@ -2,7 +2,6 @@ import json
 import os
 import re
 import sys
-import threading
 import time
 from datetime import datetime, timedelta
 from types import ModuleType, SimpleNamespace
@@ -39,18 +38,6 @@ def test_time_it_returns_value(monkeypatch):
 
     result = gsm_utils.time_it(_fn, 2, 3)
     assert result == 5
-
-
-def test_run_new_thread_executes():
-    done = threading.Event()
-
-    def _fn():
-        done.set()
-
-    thread = gsm_utils.run_new_thread(_fn)
-    thread.join(timeout=1)
-    assert done.is_set()
-    assert thread.daemon
 
 
 def test_get_unique_temp_file_for_game_uses_temp_dir(monkeypatch, tmp_path):
@@ -516,16 +503,6 @@ def test_isascii_numbers():
 
 def test_isascii_special_chars():
     assert gsm_utils.isascii("!@#$%^&*()")
-
-
-def test_run_new_thread_returns_thread():
-    def _fn():
-        time.sleep(0.01)
-
-    thread = gsm_utils.run_new_thread(_fn)
-    assert isinstance(thread, threading.Thread)
-    assert thread.daemon
-    thread.join(timeout=1)
 
 
 def test_sanitize_filename_with_spaces():

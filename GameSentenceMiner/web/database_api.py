@@ -86,11 +86,13 @@ def _get_existing_game_record_names(game_names):
 def _delete_game_records_by_id(game_ids):
     from GameSentenceMiner.util.database.games_table import GamesTable
 
-    return GamesTable._db.delete_where_in(
+    deleted = GamesTable._db.delete_where_in(
         GamesTable._table,
         GamesTable._pk,
         game_ids,
     )
+    GamesTable.clear_name_id_cache()
+    return deleted
 
 
 def _parse_local_date_timestamp(date_text: str, *, end_of_day: bool = False) -> float:

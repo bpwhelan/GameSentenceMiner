@@ -167,3 +167,27 @@ def test_v1_disabled_unchanged_floor(monkeypatch):
     tracker.add_line("ab", 1000.0)
     tracker.add_line("next", 1060.0)
     assert tracker.total_reading_seconds == 15.0
+
+
+def test_revising_a_credited_line_adjusts_character_ledger(monkeypatch):
+    _enable_v2(monkeypatch)
+    tracker = LiveSessionTracker()
+    tracker.add_line("old", 1000.0, line_id="one", revision=1)
+    tracker.add_line("next", 1010.0, line_id="two", revision=1)
+    original_total = tracker.total_characters
+
+    tracker.add_line("correctedtext", 1000.0, line_id="one", revision=2)
+    tracker.add_line("ignored stale revision", 1000.0, line_id="one", revision=1)
+
+    assert tracker.total_characters == original_total - len("old") + len("correctedtext")
+    assert tracker.lines_count == 2
+
+
+def test_backward_wall_clock_step_never_creates_negative_reading_time(monkeypatch):
+    _enable_v2(monkeypatch)
+    tracker = LiveSessionTracker()
+    tracker.add_line("first", 1000.0, line_id="one")
+    tracker.add_line("second", 990.0, line_id="two")
+
+    assert tracker.total_reading_seconds == 0
+    assert tracker.get_raw_reading_time() == 0

@@ -153,7 +153,11 @@ def request_dialogue_replay_refresh(
         timing_context=timing_context,
         future=future,
     )
-    anki.card_queue.append(request)
+    try:
+        anki.card_queue.append(request)
+    except Exception as exc:
+        future.set_exception(exc)
+        return future
     try:
         obs.save_replay_buffer()
     except Exception as exc:

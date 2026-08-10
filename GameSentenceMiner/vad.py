@@ -24,7 +24,7 @@ from GameSentenceMiner.util.config.configuration import (
     SILERO,
     WHISPER,
 )
-from GameSentenceMiner.util.gsm_utils import run_new_thread
+from GameSentenceMiner.util.concurrency.work_pool import submit_background_work
 from GameSentenceMiner.util.media import ffmpeg
 from GameSentenceMiner.util.media.ffmpeg import get_audio_length
 from GameSentenceMiner.util.models.model import VADResult
@@ -366,7 +366,7 @@ class VADSystem:
     def init(self):
         self.ensure_initialized()
         if get_config().vad.preload_vad_model:
-            run_new_thread(self._preload_models)
+            submit_background_work(self._preload_models)
         # if get_config().vad.is_vosk():
         #     if not self.vosk:
         #         self.vosk = VoskVADProcessor()
@@ -474,7 +474,7 @@ class VADProcessor(ABC):
             if i == len(segments) - 1:
                 end += end_padding
             ffmpeg_threads.append(
-                run_new_thread(
+                submit_background_work(
                     partial(
                         ffmpeg.trim_audio,
                         input_audio,

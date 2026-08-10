@@ -73,6 +73,7 @@ import {
 } from './store.js';
 import { launchSteamGameID } from './ui/steam.js';
 import { bus, getBusConnectInfo, startBus, stopBus } from './runtime/bus_client.js';
+import { submitTextObservation } from './runtime/text_ingress.js';
 import {
     closeOBSFromElectron,
     ensureObsInstalledAndLaunch,
@@ -3063,10 +3064,22 @@ export interface TextHookLinePayload {
     engine?: 'textractor' | 'luna' | 'agent';
     exeName?: string;
     copyToClipboard?: boolean;
+    capturedAt?: number;
+    revisionWindowMs?: number;
+    mergeFragments?: boolean;
 }
 
 export function sendTextHookLine(payload: TextHookLinePayload): void {
-    sendBackendCommand('texthook_text', { ...payload });
+    const displayParts = [payload.engine, payload.exeName, payload.hookId ? `#${payload.hookId}` : ''].filter(Boolean);
+    submitTextObservation({
+        ...payload,
+        source: 'texthook',
+        sourceInstance: payload.hookId || `${payload.engine ?? 'hook'}:${payload.exeName ?? ''}`,
+        sourceDisplayName: displayParts.join(' · '),
+        capturedAt: payload.capturedAt ?? Date.now(),
+        revisionWindowMs: payload.revisionWindowMs ?? 100,
+        mergeFragments: payload.mergeFragments ?? true,
+    });
 }
 
 // Tell the backend when text hooking starts/stops so it can pause clipboard

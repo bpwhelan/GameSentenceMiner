@@ -295,7 +295,7 @@ def test_backup_db_keeps_only_the_configured_number_of_backups(tmp_path):
     assert (backup_dir / "gsm_2026-01-01.db.gz").exists()
 
 
-def test_schedule_database_backup_runs_on_daemon_thread_without_waiting(tmp_path, monkeypatch):
+def test_schedule_database_backup_runs_in_bounded_pool_without_waiting(tmp_path, monkeypatch):
     monkeypatch.delenv("GSM_DISABLE_DB_BACKUP", raising=False)
     db_path = tmp_path / "source.db"
     sqlite3.connect(db_path).close()
@@ -316,16 +316,15 @@ def test_schedule_database_backup_runs_on_daemon_thread_without_waiting(tmp_path
 
     monkeypatch.setattr(db_module, "backup_db", fake_backup)
 
-    thread = schedule_database_backup(str(db_path))
+    future = schedule_database_backup(str(db_path))
 
-    assert thread is not None
-    assert thread.daemon is True
+    assert future is not None
     assert backup_started.wait(timeout=1)
-    assert thread.is_alive()
+    assert not future.done()
 
     release_backup.set()
-    thread.join(timeout=1)
-    assert not thread.is_alive()
+    future.result(timeout=1)
+    assert future.done()
 
 
 def test_schedule_database_backup_is_opt_in(tmp_path, monkeypatch):
@@ -366,8 +365,8 @@ def test_schedule_database_backup_uses_configured_policy(tmp_path, monkeypatch):
 
     monkeypatch.setattr(db_module, "backup_db", fake_backup)
 
-    thread = schedule_database_backup(str(db_path))
+    future = schedule_database_backup(str(db_path))
 
-    assert thread is not None
+    assert future is not None
     assert backup_finished.wait(timeout=1)
-    thread.join(timeout=1)
+    future.result(timeout=1)

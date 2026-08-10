@@ -1206,7 +1206,7 @@
       "saved": "Saved",
       "autoHook": "Auto-attach saved hook on next start",
       "copyToClipboard": "Copy processed text to clipboard",
-      "flushDelay": "Output flush delay (ms):",
+      "flushDelay": "Text revision window (ms):",
       "manualHook": "Manual hook code (H/R-code, optional):",
       "manualHookHint": "Leave this blank unless you already have a specific H-code or R-code. Most users should start the engine and pick a detected hook instead.",
       "attachManual": "Attach manual hook",

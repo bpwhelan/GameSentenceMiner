@@ -138,8 +138,6 @@
 	const AUDIO_PLAY_START_GUARD_MS = 350;
 	const TIMER_PAUSE_CLARIFICATION_KEY = 'gsm-texthooker-timer-pause-clarification-shown';
 
-	startIdPolling()
-
 	const cjkCharacters = /[\p{scx=Hira}\p{scx=Kana}\p{scx=Han}]/imu;
 
 	const uniqueLines$ = preventGlobalDuplicate$.pipe(
@@ -149,8 +147,9 @@
 	);
 
 	const handleLine$ = newLine$.pipe(
-		filter(([value, lineType, _1]) => {
+		filter(([value, lineType, _1, lineMeta]) => {
 			const isResetCheckboxes = lineType === LineType.RESETCHECKBOXES;
+			const isAuthoritativeV2 = Number.isFinite(Number(lineMeta?.streamSequence));
 			const isPaste = lineType === LineType.PASTE;
 			const hasNoUserInteraction = !isPaste || (!$notesOpen$ && !$dialogOpen$ && !$settingsOpen$ && !lineInEdit);
 			const skipExternalLine = blockNextExternalLine && lineType === LineType.EXTERNAL;
@@ -162,6 +161,12 @@
 			if (isResetCheckboxes) {
 				resetCheckBoxes()
 				return false;
+			}
+			// Authoritative stream events must always reach the reducer. Dropping an
+			// update while a dialog/timer is active would permanently strand that ID
+			// now that v2 intentionally has no polling/backfill workaround.
+			if (isAuthoritativeV2) {
+				return true;
 			}
 
 			if (
@@ -190,17 +195,34 @@
 		tap((newLine: [string, LineType, string, Partial<LineItem>?]) => {
 			const [lineContent, requestedType, requestedId, requestedLineMeta] = newLine;
 			const type = requestedType || LineType.SOCKET;
-			const text = transformLine(lineContent, type !== LineType.TL);
 			const id = requestedId || generateRandomUUID();
 			const lineMeta: Partial<LineItem> = { gsmStatus: 'external', ...(requestedLineMeta ?? {}) };
+			const isAuthoritativeV2 = Number.isFinite(Number(lineMeta.streamSequence));
+			const text = transformLine(lineContent, type !== LineType.TL, !isAuthoritativeV2);
+			if (!text) {
+				return;
+			}
 
-			if ($lineData$?.some(line => line.id === id)) {
-				console.warn(`Skipping new line with duplicate ID: '${id}'`);
+			const existingLineIndex = $lineData$?.findIndex((line) => line.id === id) ?? -1;
+			if (existingLineIndex >= 0) {
+				const existing = $lineData$[existingLineIndex];
+				const incomingRevision = Number(lineMeta.revision ?? 1);
+				if (incomingRevision > Number(existing.revision ?? 0)) {
+					$lineData$ = $lineData$.map((item, index) =>
+						index === existingLineIndex ? { ...item, ...lineMeta, text } : item,
+					);
+				}
+				if (lineMeta.gsmStatus === 'timed_out') {
+					$lineIDs$ = $lineIDs$.filter((lineId) => lineId !== id);
+					if (!$timedOutIDs$.includes(id)) $timedOutIDs$ = [...$timedOutIDs$, id];
+				}
 				return;
 			}
 
 			if (lineMeta.gsmStatus === 'active') {
 				$lineIDs$ = [...$lineIDs$, id];
+			} else if (lineMeta.gsmStatus === 'timed_out' && !$timedOutIDs$.includes(id)) {
+				$timedOutIDs$ = [...$timedOutIDs$, id];
 			}
 
 			if (text) {
@@ -223,10 +245,11 @@
 					newLinesBelow += 1;
 				}
 
-				$lineData$ = applyEqualLineStartMerge([
+				const nextLineData = [
 					...applyMaxLinesAndGetRemainingLineData(1),
 					{ id, text, ...lineMeta },
-				]);
+				];
+				$lineData$ = isAuthoritativeV2 ? nextLineData : applyEqualLineStartMerge(nextLineData);
 			}
 		}),
 		reduceToEmptyString(),
@@ -647,29 +670,6 @@
 		}
 	}
 
-	export function startIdPolling() {
-		setInterval(async () => {
-			try {
-				const response = await fetch(getGSMEndpoint('/get_ids'), { cache: 'no-store' });
-				if (!response.ok) {
-					throw new Error(`HTTP error! Status: ${response.status}`);
-				}
-				const resp = await response.json();
-				const ids = Array.isArray(resp.ids) ? resp.ids : [];
-				const timedOutIds = Array.isArray(resp.timed_out_ids) ? resp.timed_out_ids : [];
-				const sessionId = typeof resp.session_id === 'string' ? resp.session_id : undefined;
-				updateGSMLineStatuses(ids, timedOutIds, sessionId);
-				$lineIDs$ = ids;
-				$timedOutIDs$ = timedOutIds;
-				if (typeof resp.text_intake_paused === 'boolean' && !gsmTextIntakeStateRequestPending) {
-					gsmTextIntakePaused = resp.text_intake_paused;
-				}
-			} catch (error) {
-				console.error('Failed to fetch ids:', error);
-			}
-		}, 1000);
-	}
-
 	async function applyTextFeedSessionSync(sync: TextFeedSessionSync) {
 		if (!sync.sessionId) {
 			return;
@@ -692,6 +692,7 @@
 
 		if (!syncedLines.length) {
 			$lineData$ = retainedLines;
+			updateGSMLineStatuses(sync.activeIds, sync.timedOutIds, sync.sessionId);
 			return;
 		}
 
@@ -732,6 +733,7 @@
 				}
 			}
 		}
+		updateGSMLineStatuses(sync.activeIds, sync.timedOutIds, sync.sessionId);
 	}
 
 	function yieldToBrowser() {
@@ -1013,14 +1015,14 @@
 		return lineToAppend || undefined;
 	}
 
-	function transformLine(text: string, useReplacements = true) {
+	function transformLine(text: string, useReplacements = true, enforceDuplicateFilters = true) {
 		const lineToAppend = normalizeLineContent(text, useReplacements);
 		let canAppend = Boolean(lineToAppend);
 
-		if (lineToAppend && $preventGlobalDuplicate$) {
+		if (lineToAppend && enforceDuplicateFilters && $preventGlobalDuplicate$) {
 			canAppend = !$uniqueLines$.has(lineToAppend);
 			$uniqueLines$.add(lineToAppend);
-		} else if (lineToAppend && $preventLastDuplicate$ && $lineData$.length) {
+		} else if (lineToAppend && enforceDuplicateFilters && $preventLastDuplicate$ && $lineData$.length) {
 			canAppend = $lineData$.slice(-$preventLastDuplicate$).every((line) => line.text !== lineToAppend);
 		}
 

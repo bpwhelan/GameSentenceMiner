@@ -136,8 +136,46 @@ function registerHotkeyWithFallback({ accelerator, fallbackAccelerator, register
   }
 }
 
+function createLeadingEdgeCooldownHandler(handler, cooldownMs, now = Date.now) {
+  const delay = Math.max(0, Number(cooldownMs) || 0);
+  let lastTriggeredAt = Number.NEGATIVE_INFINITY;
+
+  return function cooldownHandler(...args) {
+    const currentTime = Number(now());
+    const elapsed = currentTime - lastTriggeredAt;
+    lastTriggeredAt = currentTime;
+    if (elapsed >= 0 && elapsed < delay) {
+      return false;
+    }
+
+    try {
+      handler.apply(this, args);
+      return true;
+    } finally {
+      // Start the quiet period after synchronous handler work. A queued duplicate
+      // should not slip through merely because the first toggle was expensive.
+      lastTriggeredAt = Number(now());
+    }
+  };
+}
+
+function shouldSuppressGamepadToggleDuringFocusTransition({
+  source,
+  navigationActive,
+  suppressedUntil,
+  now = Date.now(),
+}) {
+  return (
+    navigationActive === true &&
+    String(source || "").startsWith("keyboard:") &&
+    Number(now) < Number(suppressedUntil || 0)
+  );
+}
+
 module.exports = {
+  createLeadingEdgeCooldownHandler,
   isSupportedHotkey,
   normalizeConfiguredHotkeyValues,
   registerHotkeyWithFallback,
+  shouldSuppressGamepadToggleDuringFocusTransition,
 };

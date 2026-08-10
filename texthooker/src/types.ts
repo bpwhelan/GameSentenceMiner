@@ -151,12 +151,18 @@ export interface LineItem {
 	gsmSessionId?: string;
 	gsmStatus?: GSMLineStatus;
 	sessionBackfill?: boolean;
+	streamSequence?: number;
+	revision?: number;
+	recordState?: 'provisional' | 'frozen' | 'expired';
 }
 
 export interface TextFeedSessionLine {
 	id: string;
 	text: string;
 	excludedFromStats: boolean;
+	streamSequence?: number;
+	revision?: number;
+	recordState?: 'provisional' | 'frozen' | 'expired';
 }
 
 export interface TextFeedSessionSync {

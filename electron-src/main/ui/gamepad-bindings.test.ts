@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 function loadLegacyGamepadHandler() {
   const source = fs.readFileSync(
@@ -81,6 +81,40 @@ describe("legacy gamepad startup settings", () => {
     expect(loadStartupGamepadSettings({ gamepadEnabled: false })).toMatchObject({
       enabled: false
     });
+  });
+});
+
+describe("legacy gamepad toggle debouncing", () => {
+  it("ignores a second navigation toggle during a Steam input-mode handoff", () => {
+    const handler = Object.create(GamepadHandler.prototype) as {
+      toggleModeActive: boolean;
+      lastToggleActionTimes: Map<string, number>;
+      activateNavigation: ReturnType<typeof vi.fn>;
+      deactivateNavigation: ReturnType<typeof vi.fn>;
+      getToggleTimestamp: ReturnType<typeof vi.fn>;
+      toggleNavigationMode: () => boolean;
+    };
+    handler.toggleModeActive = false;
+    handler.lastToggleActionTimes = new Map();
+    handler.activateNavigation = vi.fn();
+    handler.deactivateNavigation = vi.fn();
+    handler.getToggleTimestamp = vi.fn()
+      .mockReturnValueOnce(1000)
+      .mockReturnValueOnce(1400)
+      .mockReturnValueOnce(1450)
+      .mockReturnValueOnce(1700)
+      .mockReturnValueOnce(1700);
+
+    expect(handler.toggleNavigationMode()).toBe(true);
+    expect(handler.toggleNavigationMode()).toBe(false);
+
+    expect(handler.toggleModeActive).toBe(true);
+    expect(handler.activateNavigation).toHaveBeenCalledTimes(1);
+    expect(handler.deactivateNavigation).not.toHaveBeenCalled();
+
+    expect(handler.toggleNavigationMode()).toBe(true);
+    expect(handler.toggleModeActive).toBe(false);
+    expect(handler.deactivateNavigation).toHaveBeenCalledTimes(1);
   });
 });
 

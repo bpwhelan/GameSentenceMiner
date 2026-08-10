@@ -195,6 +195,16 @@ describe('MessageBroker', () => {
         expect(second.data).toEqual({ seq: 2 });
     });
 
+    it('never replays stale text ingress to a backend that connects later', async () => {
+        broker.publish('backend', 'text.ingress.v2', { observationId: 'old', text: 'old text' }, 'command');
+
+        const backend = await connectClient('backend');
+        await backend.waitTopic('bus.welcome');
+        await new Promise((resolve) => setTimeout(resolve, 25));
+
+        expect(backend.inbox.some((message) => message.topic === 'text.ingress.v2')).toBe(false);
+    });
+
     it('re-associates a client id on reconnect', async () => {
         const first = await connectClient('rejoin');
         await first.waitTopic('bus.welcome');
