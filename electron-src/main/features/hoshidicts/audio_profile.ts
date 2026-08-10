@@ -84,6 +84,10 @@ function normalizeCustomSourceUrl(value: unknown): string {
     if (!url) {
         return '';
     }
+    const withoutPlaceholders = url.replace(/\{[^{}]*\}/gu, '');
+    if (withoutPlaceholders.includes('{') || withoutPlaceholders.includes('}')) {
+        throw new Error('Hoshidicts custom audio source URL is invalid.');
+    }
     try {
         const parsed = new URL(url);
         const authorityStart = url.indexOf('://') + 3;

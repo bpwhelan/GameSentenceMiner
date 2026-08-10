@@ -596,7 +596,7 @@ def test_options_load_anki_choices_and_suggest_kiku_lapis_fields(monkeypatch):
     ) in fake_anki.calls
 
 
-def test_options_suggest_target_templates_for_every_model_field(monkeypatch):
+def test_options_leave_unknown_first_field_blank_instead_of_guessing_by_position(monkeypatch):
     fields = [
         "Mystery",
         "ExpressionReading",
@@ -613,7 +613,7 @@ def test_options_suggest_target_templates_for_every_model_field(monkeypatch):
     options = hoshidicts_mining.get_hoshidicts_mining_options()
 
     assert options["suggestedFieldTemplates"] == {
-        "Mystery": "{expression}",
+        "Mystery": "",
         "ExpressionReading": "{reading}",
         "Glossary": "{glossary}",
         "Sentence": "{cloze-prefix}<b>{cloze-body}</b>{cloze-suffix}",
@@ -1879,6 +1879,38 @@ def test_duplicate_check_endpoint_preserves_dictionary_styles_in_rendered_note(m
     assert '<style>.yomitan-glossary [data-dictionary="Jitendex"]' in definition
     assert '.yomitan-glossary [data-dictionary="JMdict"] .gloss-sc-li' in definition
     assert "Not selected" not in definition
+
+
+def test_duplicate_check_endpoint_marks_a_rendered_blank_first_field_as_note_specific(monkeypatch):
+    fake_anki = FakeAnki(fields=["Reading"])
+    _wire(
+        monkeypatch,
+        fake_anki,
+        _profile(
+            fieldTemplates={
+                "Reading": {
+                    "value": "{reading}",
+                    "overwriteMode": "coalesce",
+                }
+            }
+        ),
+    )
+    payload = _payload()
+    payload["result"]["term"]["reading"] = ""
+    app = Flask(__name__)
+    hoshidicts_api.register_hoshidicts_api_routes(app)
+
+    response = app.test_client().post(
+        "/api/hoshidicts/mining/check",
+        json={"notes": [payload]},
+    )
+
+    assert response.status_code == 422
+    assert response.get_json() == {
+        "success": False,
+        "error": 'The first Anki field "Reading" is empty. Map it to a value before mining.',
+    }
+    assert not any(action.startswith("canAddNotes") for action, _kwargs in fake_anki.calls)
 
 
 def test_rich_definition_markers_render_primary_full_dictionary_and_furigana(monkeypatch):
@@ -3316,17 +3348,14 @@ def test_duplicate_check_does_not_hide_non_compatibility_errors(monkeypatch):
     assert not any(action == "canAddNotes" for action, _kwargs in fake_anki.calls)
 
 
-def test_duplicate_check_rejects_oversized_batches(monkeypatch):
+def test_duplicate_check_accepts_more_than_the_legacy_sixteen_note_limit(monkeypatch):
     fake_anki = FakeAnki()
-    _wire(monkeypatch, fake_anki)
+    _wire(monkeypatch, fake_anki, _profile(checkForDuplicates=False))
 
-    with pytest.raises(
-        hoshidicts_mining.HoshidictsMiningError,
-        match="between 1 and 16",
-    ):
-        hoshidicts_mining.check_hoshidicts_notes({"notes": [_payload()] * 17})
+    result = hoshidicts_mining.check_hoshidicts_notes({"notes": [_payload()] * 33})
 
-    assert fake_anki.calls == []
+    assert result["success"] is True
+    assert len(result["results"]) == 33
 
 
 def test_browse_hoshidicts_word_opens_broad_literal_anki_search(monkeypatch):

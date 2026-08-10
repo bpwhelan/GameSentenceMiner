@@ -134,6 +134,18 @@ def test_audio_profile_defaults_and_strict_normalization(tmp_path):
         hoshidicts_audio.normalize_hoshidicts_audio_profile(
             {"sources": [{"id": "bad", "type": "custom", "url": "http://{term}/audio.mp3"}]}
         )
+    with pytest.raises(hoshidicts_audio.HoshidictsAudioError, match="URL"):
+        hoshidicts_audio.normalize_hoshidicts_audio_profile(
+            {
+                "sources": [
+                    {
+                        "id": "bad-template",
+                        "type": "custom-json",
+                        "url": "http://127.0.0.1:5050/?term={term}&reading={reading",
+                    }
+                ]
+            }
+        )
 
     oversized = tmp_path / "audio-profile.json"
     oversized.write_bytes(b" " * (hoshidicts_audio.MAX_PROFILE_BYTES + 1))
@@ -287,6 +299,7 @@ def test_local_audio_yomichan_contract_discovers_and_downloads_opus(monkeypatch)
         )
     )
 
+    mined_media = hoshidicts_audio.get_mining_audio("食べる", "たべる", profile=profile)
     candidates = hoshidicts_audio.get_audio_candidates("食べる", "たべる", "local-audio", profile=profile)
     media = hoshidicts_audio.get_audio_media(
         "食べる",
@@ -304,11 +317,13 @@ def test_local_audio_yomichan_contract_discovers_and_downloads_opus(monkeypatch)
             "candidateId": candidates[0]["candidateId"],
         }
     ]
-    assert media == hoshidicts_audio.AudioMedia(
+    expected_media = hoshidicts_audio.AudioMedia(
         data=audio,
         content_type="audio/ogg",
         extension="ogg",
     )
+    assert mined_media == expected_media
+    assert media == expected_media
     assert calls == [("GET", discovery_url), ("GET", media_url)]
 
 
@@ -358,9 +373,11 @@ def test_media_download_is_bounded_validated_and_cached(monkeypatch):
     monkeypatch.setattr(hoshidicts_audio, "_pinned_request", request)
     profile = _profile(_source("direct", "custom", url="https://audio.test/{term}.mp3"))
 
+    mined = hoshidicts_audio.get_mining_audio("食べる", "たべる", profile=profile)
     first = hoshidicts_audio.get_audio_media("食べる", "たべる", "direct", 0, profile=profile)
     second = hoshidicts_audio.get_audio_media("食べる", "たべる", "direct", 0, profile=profile)
 
+    assert mined == first
     assert first.data == body
     assert first.content_type == "audio/mpeg"
     assert first.extension == "mp3"
