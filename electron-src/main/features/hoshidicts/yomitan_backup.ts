@@ -909,6 +909,10 @@ function currentReaderPreferences(current: HoshidictsManagerSnapshot): Hoshidict
         showCompactDefinitionSummary: current.showCompactDefinitionSummary,
         compactDefinitionSummaryDictionary:
             current.compactDefinitionSummaryDictionary,
+        showPitchAccentFurigana: current.showPitchAccentFurigana,
+        pitchAccentFuriganaDictionary:
+            current.pitchAccentFuriganaDictionary,
+        showPitchAccentBadge: current.showPitchAccentBadge,
         hidePopupGrammarTags: current.hidePopupGrammarTags,
         popupNestingMaxDepth: current.popupNestingMaxDepth,
         definitionBlur: { ...current.definitionBlur },
