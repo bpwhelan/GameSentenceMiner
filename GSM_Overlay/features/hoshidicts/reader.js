@@ -53,7 +53,7 @@
   const LOOKUP_MAX_RESULTS = 32;
   const MIN_LOOKUP_MAX_RESULTS = 1;
   const MAX_LOOKUP_MAX_RESULTS = 256;
-  const INITIAL_VISIBLE_RESULTS = 6;
+  const INITIAL_VISIBLE_RESULTS = 1;
   const DEFAULT_POPUP_HIDE_DELAY_MS = 300;
   const POPUP_TRANSFER_GRACE_MS = 80;
   const DEFAULT_POPUP_WIDTH_PX = 560;
@@ -3339,6 +3339,7 @@
         definitionBlurContext: null,
         lookupStatsPayload: null,
         lookupStatsRequestGeneration: 0,
+        miningCheckError: null,
         miningRefreshPromise: null,
         miningStatusGeneration: 0,
         miningItems: [],
@@ -3396,6 +3397,7 @@
           miningButtons,
           miningItems,
         }) {
+          level.miningCheckError = null;
           for (const button of miningButtons) {
             button.hidden = true;
           }
@@ -3431,6 +3433,13 @@
           level.miningItems = miningItems;
           level.miningFeedback = feedback;
           syncAudioRenderedResults(depth, false);
+          if (level.miningCheckError) {
+            for (const button of appendedMiningButtons) {
+              button.hidden = false;
+              setMiningButtonState(button, "error", level.miningCheckError);
+            }
+            return;
+          }
           if (!refreshActive) {
             void startMiningRefresh(level, appendedMiningItems, feedback);
           }
@@ -3475,6 +3484,7 @@
         invalidateDefinitionBlur(level);
         level.lookupStatsRequestGeneration += 1;
         level.lookupStatsPayload = null;
+        level.miningCheckError = null;
         level.miningStatusGeneration += 1;
         level.miningItems = [];
         level.miningFeedback = null;
@@ -4216,6 +4226,7 @@
             if (isNoteSpecificMiningCheckError(error)) {
               continue;
             }
+            level.miningCheckError = message;
             for (
               let remaining = index + 1;
               remaining < miningItems.length;

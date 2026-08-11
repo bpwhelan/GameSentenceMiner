@@ -18,7 +18,7 @@
 }(typeof window !== "undefined" ? window : globalThis, function () {
   "use strict";
 
-  const DEFAULT_INITIAL_RESULT_COUNT = 6;
+  const DEFAULT_INITIAL_RESULT_COUNT = 1;
   const DEFAULT_MAX_METADATA_TAGS = 12;
   const DEFAULT_HIGHLIGHT_NAME = "gsm-hoshidicts-match";
   const DEFINITION_BLUR_STATES = new Set(["pending", "blurred"]);

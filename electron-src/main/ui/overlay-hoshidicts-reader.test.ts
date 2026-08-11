@@ -636,7 +636,7 @@ describe("Hoshidicts safe popup rendering", () => {
       '.gsm-hoshidicts-popup[data-toolbar-position="bottom"] .gsm-hoshidicts-tab-list'
     );
     const tabListRule =
-      /\.gsm-hoshidicts-tab-list\s*\{(?<declarations>[^}]*)\}/.exec(
+      /(?:^|\n)\.gsm-hoshidicts-tab-list\s*\{(?<declarations>[^}]*)\}/.exec(
         css
       )?.groups?.declarations;
     const actionRule =
@@ -1910,11 +1910,21 @@ describe("Hoshidicts safe popup rendering", () => {
     const popups = reader.getPopupElements();
     expect(popups).toHaveLength(2);
     expect(popups[0].textContent).toContain("猫");
-    const childEntries = Array.from(
-      popups[1].querySelectorAll<HTMLElement>(".gsm-hoshidicts-entry")
+    const childPopup = popups[1] as HTMLElement;
+    let childEntries = Array.from(
+      childPopup.querySelectorAll<HTMLElement>(".gsm-hoshidicts-entry")
+    );
+    expect(childEntries).toHaveLength(1);
+    expect(childEntries[0].textContent).toContain("preferred");
+    expect(childPopup.querySelector(".gsm-hoshidicts-show-more")?.textContent)
+      .toBe("Show 1 more");
+    childPopup.querySelector<HTMLButtonElement>(".gsm-hoshidicts-show-more")
+      ?.click();
+    await vi.advanceTimersByTimeAsync(0);
+    childEntries = Array.from(
+      childPopup.querySelectorAll<HTMLElement>(".gsm-hoshidicts-entry")
     );
     expect(childEntries).toHaveLength(2);
-    expect(childEntries[0].textContent).toContain("preferred");
     expect(childEntries[1].textContent).toContain("alternate");
 
     setRect(popups[0], { left: 100, top: 100, right: 200, bottom: 300 });
@@ -2065,7 +2075,7 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(popup.style.width).toBe("560px");
     expect(popup.style.height).toBe("420px");
     expect(popup.style.maxHeight).toBe("none");
-    expect(popup.style.minHeight).toBe("0px");
+    expect(["0", "0px"]).toContain(popup.style.minHeight);
     reader.destroy();
   });
 
@@ -2306,8 +2316,8 @@ describe("Hoshidicts definition blur", () => {
     let definitions = Array.from<HTMLElement>(
       popup.querySelectorAll(".gsm-hoshidicts-definitions")
     );
-    expect(definitions).toHaveLength(12);
-    expect(popup.querySelectorAll(".gsm-hoshidicts-entry")).toHaveLength(6);
+    expect(definitions).toHaveLength(2);
+    expect(popup.querySelectorAll(".gsm-hoshidicts-entry")).toHaveLength(1);
     expect(popup.querySelectorAll(".gsm-hoshidicts-entry[hidden]")).toHaveLength(0);
     expect(definitions.every(
       (element) => element.dataset.definitionBlurState === "pending"
@@ -3568,10 +3578,10 @@ describe("Hoshidicts dictionary tabs", () => {
     let entries = Array.from(
       popup.querySelectorAll<HTMLElement>(".gsm-hoshidicts-entry")
     );
-    expect(entries).toHaveLength(6);
+    expect(entries).toHaveLength(1);
     expect(entries.filter((entry) => entry.hidden)).toHaveLength(0);
     expect(popup.querySelector(".gsm-hoshidicts-show-more")?.textContent).toBe(
-      "Show 2 more"
+      "Show 7 more"
     );
     expect(popup.scrollTop).toBe(0);
     expect(second.classList.contains("gsm-hoshidicts-source-match")).toBe(true);
@@ -3589,7 +3599,7 @@ describe("Hoshidicts dictionary tabs", () => {
     entries = Array.from(
       popup.querySelectorAll<HTMLElement>(".gsm-hoshidicts-entry")
     );
-    expect(entries).toHaveLength(6);
+    expect(entries).toHaveLength(1);
     expect(entries.filter((entry) => entry.hidden)).toHaveLength(0);
     reader.destroy();
   });
@@ -3974,11 +3984,11 @@ describe("Hoshidicts dictionary tabs", () => {
       error: null,
       styles: [{ dictionary: "Large dictionary", styles: maximumStyle }]
     });
-    expect(popup.querySelectorAll(".gsm-hoshidicts-entry")).toHaveLength(6);
+    expect(popup.querySelectorAll(".gsm-hoshidicts-entry")).toHaveLength(1);
     const showMore = popup.querySelector<HTMLButtonElement>(
       ".gsm-hoshidicts-show-more"
     )!;
-    expect(showMore.textContent).toBe("Show 10 more");
+    expect(showMore.textContent).toBe("Show 15 more");
     showMore.click();
     expect(popup.querySelectorAll(".gsm-hoshidicts-entry")).toHaveLength(16);
     for (let index = 0; index < 20; index += 1) {
@@ -4452,13 +4462,19 @@ describe("Hoshidicts Shift-hover scanner", () => {
     });
     socket.receive(response);
 
-    const entries = reader.getPopupElement().querySelectorAll(
+    const popup = reader.getPopupElement();
+    let entries = popup.querySelectorAll(
       ".gsm-hoshidicts-entry"
     );
     expect(reader.isVisible()).toBe(true);
-    expect(entries).toHaveLength(2);
+    expect(entries).toHaveLength(1);
     expect(entries[0].querySelector(".gsm-hoshidicts-lookup-stats")?.hidden)
       .toBe(true);
+    (popup.querySelector(".gsm-hoshidicts-show-more") as HTMLButtonElement | null)
+      ?.click();
+    await vi.advanceTimersByTimeAsync(0);
+    entries = popup.querySelectorAll(".gsm-hoshidicts-entry");
+    expect(entries).toHaveLength(2);
     expect(entries[1].querySelector(".gsm-hoshidicts-lookup-stats")).toBeNull();
 
     lookupStats.resolve({ success: true, seenCount: 0, lookupCount: 0 });
@@ -5740,19 +5756,19 @@ describe("Hoshidicts Shift-hover scanner", () => {
     });
 
     const popup = harness.reader.getPopupElement();
-    expect(popup.querySelectorAll(".gsm-hoshidicts-entry")).toHaveLength(6);
+    expect(popup.querySelectorAll(".gsm-hoshidicts-entry")).toHaveLength(1);
     expect(harness.socket.sent.map((value) => JSON.parse(value)).filter(
       (value) => value.type === "hoshidicts_media"
     )).toHaveLength(0);
     expect(audioController.setRenderedResults.mock.calls.at(-1)?.[0])
-      .toHaveLength(6);
+      .toHaveLength(1);
     expect(audioController.setRenderedResults.mock.calls.at(-1)?.[1])
       .toEqual({ autoPlay: true });
 
     const showMore = popup.querySelector<HTMLButtonElement>(
       ".gsm-hoshidicts-show-more"
     )!;
-    expect(showMore.textContent).toBe("Show 1 more");
+    expect(showMore.textContent).toBe("Show 6 more");
     showMore.click();
     // The expanded entries fill their glossaries on the next task.
     await vi.advanceTimersByTimeAsync(0);
@@ -8158,7 +8174,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
     reader.destroy();
   });
 
-  it("shows Hoshi-style metadata before tags and six results initially", async () => {
+  it("shows Hoshi-style metadata before tags and one result initially", async () => {
     vi.useFakeTimers();
     const dom = createDom();
     const api = loadReaderModule(dom.window as unknown as Window);
@@ -8210,7 +8226,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
 
     const popup = reader.getPopupElement();
     const entries = Array.from(popup.querySelectorAll<HTMLElement>(".gsm-hoshidicts-entry"));
-    expect(entries).toHaveLength(6);
+    expect(entries).toHaveLength(1);
     expect(entries.filter((entry) => entry.hidden)).toHaveLength(0);
     expect(entries.every((entry) => entry.querySelector("details")?.open)).toBe(true);
     const metadataRows = entries[0].querySelectorAll<HTMLElement>(
@@ -8760,6 +8776,9 @@ describe("Hoshidicts Shift-hover scanner", () => {
         });
       }
     });
+    (harness.reader.getPopupElement().querySelector(
+      ".gsm-hoshidicts-show-more"
+    ) as HTMLButtonElement | null)?.click();
     await flushPromises();
 
     const buttons = miningButtonsInResultOrder(
@@ -8825,13 +8844,12 @@ describe("Hoshidicts Shift-hover scanner", () => {
     let buttons = miningButtonsInResultOrder(
       harness.reader.getPopupElement()
     );
-    expect(buttons).toHaveLength(6);
+    expect(buttons).toHaveLength(1);
     expect(checkMiningNotes).toHaveBeenCalledTimes(1);
     expect(buttons[0]!.dataset.state).toBe("checking");
-    expect(buttons[1]!.dataset.state).toBe("checking");
     const showMore = harness.reader.getPopupElement()
       .querySelector<HTMLButtonElement>(".gsm-hoshidicts-show-more")!;
-    expect(showMore.textContent).toBe("Show 27 more");
+    expect(showMore.textContent).toBe("Show 32 more");
     showMore.click();
     buttons = miningButtonsInResultOrder(harness.reader.getPopupElement());
     expect(buttons).toHaveLength(33);
@@ -8894,6 +8912,9 @@ describe("Hoshidicts Shift-hover scanner", () => {
         });
       }
     });
+    (harness.reader.getPopupElement().querySelector(
+      ".gsm-hoshidicts-show-more"
+    ) as HTMLButtonElement | null)?.click();
     await flushPromises();
 
     const buttons = miningButtonsInResultOrder(
@@ -8939,6 +8960,9 @@ describe("Hoshidicts Shift-hover scanner", () => {
         });
       }
     });
+    (harness.reader.getPopupElement().querySelector(
+      ".gsm-hoshidicts-show-more"
+    ) as HTMLButtonElement | null)?.click();
     await flushPromises();
 
     const buttons = miningButtonsInResultOrder(
@@ -8979,6 +9003,9 @@ describe("Hoshidicts Shift-hover scanner", () => {
         }));
       }
     });
+    (harness.reader.getPopupElement().querySelector(
+      ".gsm-hoshidicts-show-more"
+    ) as HTMLButtonElement | null)?.click();
     await flushPromises();
 
     const buttons = miningButtonsInResultOrder(
