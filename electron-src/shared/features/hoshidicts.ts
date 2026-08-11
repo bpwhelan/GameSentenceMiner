@@ -25,6 +25,10 @@ export const HOSHIDICTS_CHANNELS = {
     setReaderPreferences: 'hoshidicts.setReaderPreferences',
     setMiningProfile: 'hoshidicts.setMiningProfile',
     setAudioProfile: 'hoshidicts.setAudioProfile',
+    createProfile: 'hoshidicts.createProfile',
+    switchProfile: 'hoshidicts.switchProfile',
+    renameProfile: 'hoshidicts.renameProfile',
+    deleteProfile: 'hoshidicts.deleteProfile',
     testAudioSource: 'hoshidicts.testAudioSource',
     getMiningOptions: 'hoshidicts.getMiningOptions',
     setDictionaryEnabled: 'hoshidicts.setDictionaryEnabled',
@@ -902,8 +906,17 @@ export interface HoshidictsCustomDictionaryDocument {
     filePath: string;
 }
 
+export const MAX_HOSHIDICTS_PROFILE_NAME_LENGTH = 128;
+
+export interface HoshidictsProfileSummary {
+    id: string;
+    name: string;
+}
+
 export interface HoshidictsManagerSnapshot {
     revision: number;
+    activeProfileId: string;
+    profiles: HoshidictsProfileSummary[];
     dictionaries: HoshidictsDictionaryState[];
     tabGroups: HoshidictsDictionaryTabGroup[];
     customDictionaryActive: boolean;
@@ -1029,6 +1042,10 @@ export interface HoshidictsActionResult {
             | 'preferencesSaved'
             | 'miningProfileSaved'
             | 'audioProfileSaved'
+            | 'profileCreated'
+            | 'profileSwitched'
+            | 'profileRenamed'
+            | 'profileDeleted'
             | 'dictionaryImported'
             | 'yomitanDictionariesImported'
             | 'yomitanSettingsImported'
@@ -1058,6 +1075,18 @@ export interface HoshidictsAudioSourceTestResult {
 export interface HoshidictsDictionaryEnabledRequest {
     id: string;
     enabled: boolean;
+}
+
+export interface HoshidictsCreateProfileRequest {
+    name: string;
+}
+
+export interface HoshidictsProfileIdRequest {
+    id: string;
+}
+
+export interface HoshidictsRenameProfileRequest extends HoshidictsProfileIdRequest {
+    name: string;
 }
 
 export interface HoshidictsDictionaryPresentationRequest {

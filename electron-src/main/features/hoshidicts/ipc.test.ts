@@ -90,6 +90,10 @@ const harness = vi.hoisted(() => ({
         setReaderPreferences: vi.fn(),
         setMiningProfile: vi.fn(),
         setAudioProfile: vi.fn(),
+        createProfile: vi.fn(),
+        switchProfile: vi.fn(),
+        renameProfile: vi.fn(),
+        deleteProfile: vi.fn(),
         setDictionaryEnabled: vi.fn(),
         setDictionariesEnabled: vi.fn(),
         setDictionaryPresentation: vi.fn(),
@@ -142,6 +146,8 @@ vi.mock('./audio_source_test.js', () => ({
 
 const snapshot = {
     revision: 1,
+    activeProfileId: 'default',
+    profiles: [{ id: 'default', name: 'Default' }],
     dictionaries: [],
     tabGroups: [],
     customDictionaryActive: false,
@@ -267,6 +273,10 @@ async function registerHarness() {
     harness.manager.setLookupMode.mockResolvedValue(snapshot);
     harness.manager.setReaderPreferences.mockResolvedValue(snapshot);
     harness.manager.setAudioProfile.mockResolvedValue(snapshot);
+    harness.manager.createProfile.mockResolvedValue(snapshot);
+    harness.manager.switchProfile.mockResolvedValue(snapshot);
+    harness.manager.renameProfile.mockResolvedValue(snapshot);
+    harness.manager.deleteProfile.mockResolvedValue(snapshot);
     harness.testAudioSource.mockResolvedValue({
         bytes: Uint8Array.from([1, 2, 3]),
         contentType: 'audio/mpeg',
@@ -466,6 +476,64 @@ describe('Hoshidicts settings IPC', () => {
             revealMode: 'timed',
             revealDelayMs: 5000,
         };
+    });
+
+    it('validates profile requests and applies switched profiles live', async () => {
+        const context = await registerHarness();
+        const switched = {
+            ...snapshot,
+            revision: 2,
+            activeProfileId: 'persona',
+            profiles: [
+                { id: 'default', name: 'Default' },
+                { id: 'persona', name: 'Persona' },
+            ],
+            lookupMode: 'hover' as const,
+            audioProfile: {
+                ...snapshot.audioProfile,
+                volume: 25,
+            },
+        };
+        harness.manager.createProfile.mockResolvedValueOnce(switched);
+        harness.manager.switchProfile.mockResolvedValueOnce(switched);
+
+        await expect(
+            harness.handlers.get(HOSHIDICTS_CHANNELS.createProfile)?.(
+                { sender: context.settingsContents },
+                { name: 'Persona' },
+            ),
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'profileCreated' },
+        });
+        expect(harness.manager.createProfile).toHaveBeenCalledWith('Persona');
+
+        await expect(
+            harness.handlers.get(HOSHIDICTS_CHANNELS.switchProfile)?.(
+                { sender: context.settingsContents },
+                { id: 'persona' },
+            ),
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'profileSwitched' },
+            state: { activeProfileId: 'persona' },
+        });
+        expect(harness.manager.switchProfile).toHaveBeenCalledWith('persona');
+        expect(context.applyReaderPreferences).toHaveBeenCalledOnce();
+        expect(context.applyAudioProfile).toHaveBeenCalledWith(
+            switched.audioProfile,
+        );
+
+        await expect(
+            harness.handlers.get(HOSHIDICTS_CHANNELS.createProfile)?.(
+                { sender: context.settingsContents },
+                { name: '   ' },
+            ),
+        ).resolves.toMatchObject({
+            success: false,
+            error: 'Profile name is invalid.',
+        });
+        expect(harness.manager.createProfile).toHaveBeenCalledOnce();
     });
 
     it('selects and imports multiple Yomitan ZIP dictionaries as one batch', async () => {

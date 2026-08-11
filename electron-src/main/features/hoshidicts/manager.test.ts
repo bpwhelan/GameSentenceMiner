@@ -151,12 +151,11 @@ function writeManifest(baseDir: string, manifest: unknown): void {
     );
 }
 
-function readMiningProfile(baseDir: string): any {
-    return readHoshidictsJson(baseDir, 'mining-profile.json');
-}
-
-function readAudioProfile(baseDir: string): any {
-    return readHoshidictsJson(baseDir, 'audio-profile.json');
+function readActiveProfile(baseDir: string): any {
+    const manifest = readManifest(baseDir);
+    return manifest.profiles.find(
+        (profile: { id: string }) => profile.id === manifest.activeProfileId
+    );
 }
 
 function writeImportedDictionary(outputDir: string, archive: TestArchive): void {
@@ -810,9 +809,7 @@ describe('Hoshidicts immutable generations', () => {
             },
         ]);
         expect(reloadNative).not.toHaveBeenCalled();
-        expect(
-            JSON.parse(fs.readFileSync(manager.tabGroupsPath, 'utf8')).groups
-        ).toEqual(state.tabGroups);
+        expect(readActiveProfile(baseDir).tabGroups).toEqual(state.tabGroups);
         expect((await createHarness(baseDir).manager.getSnapshot()).tabGroups)
             .toEqual(state.tabGroups);
 
@@ -891,7 +888,7 @@ describe('Hoshidicts immutable generations', () => {
         const groupId = state.tabGroups[0].id;
 
         state = await manager.removeDictionary(dictionaryId);
-        expect(state.tabGroups[0].dictionaryIds).toEqual([dictionaryId]);
+        expect(state.tabGroups[0].dictionaryIds).toEqual([]);
 
         state = await manager.setTabGroupMembership(groupId, dictionaryId, false);
         expect(state.tabGroups[0].dictionaryIds).toEqual([]);
@@ -1042,6 +1039,124 @@ describe('Hoshidicts immutable generations', () => {
         expect((await manager.getSnapshot()).dictionaries[0].enabled).toBe(true);
         expect(readManifest(baseDir).dictionaries[0].enabled).toBe(true);
         expect(reloadCount).toBe(3);
+    });
+});
+
+describe('Hoshidicts settings profiles', () => {
+    it('isolates active settings while keeping dictionary presentation shared', async () => {
+        const baseDir = makeTempDir();
+        const archivesDir = makeTempDir();
+        const { manager, reloadNative } = createHarness(baseDir);
+        await manager.importDictionaries(
+            ['Alpha', 'Beta'].map((title) =>
+                writeArchive(archivesDir, `${title}.zip`, {
+                    title,
+                    revision: 'one',
+                    sourceLanguage: 'ja',
+                })
+            )
+        );
+        const original = await manager.getSnapshot();
+        const alphaId = original.dictionaries[0].id;
+
+        const created = await manager.createProfile('Persona');
+        expect(created.profiles).toEqual([
+            { id: 'default', name: 'Default' },
+            { id: created.activeProfileId, name: 'Persona' },
+        ]);
+        await manager.setDictionaryEnabled(alphaId, false);
+        await manager.setLookupMode('hover');
+        await manager.setAudioProfile({
+            ...created.audioProfile,
+            volume: 25,
+        });
+        await manager.setMiningProfile({
+            ...created.miningProfile,
+            deck: 'Persona',
+        });
+        await manager.createTabGroup('Names', alphaId);
+        await manager.setDictionaryPresentation(alphaId, true);
+
+        reloadNative.mockClear();
+        const defaultProfile = await manager.switchProfile('default');
+        expect(reloadNative).toHaveBeenCalledOnce();
+        expect(defaultProfile.lookupMode).toBe('shift');
+        expect(defaultProfile.audioProfile.volume).toBe(100);
+        expect(defaultProfile.miningProfile.deck).toBe('Default');
+        expect(defaultProfile.tabGroups).toEqual([]);
+        expect(defaultProfile.dictionaries[0]).toMatchObject({
+            enabled: true,
+            favorite: true,
+        });
+
+        reloadNative.mockClear();
+        const persona = await manager.switchProfile(created.activeProfileId);
+        expect(reloadNative).toHaveBeenCalledOnce();
+        expect(persona.lookupMode).toBe('hover');
+        expect(persona.audioProfile.volume).toBe(25);
+        expect(persona.miningProfile.deck).toBe('Persona');
+        expect(persona.tabGroups).toEqual([
+            expect.objectContaining({ name: 'Names', dictionaryIds: [alphaId] }),
+        ]);
+        expect(persona.dictionaries[0]).toMatchObject({
+            enabled: false,
+            favorite: true,
+        });
+    });
+
+    it('enables new dictionaries only in the active profile and prunes removals from all profiles', async () => {
+        const baseDir = makeTempDir();
+        const archivesDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+        await manager.importDictionary(
+            writeArchive(archivesDir, 'Alpha.zip', {
+                title: 'Alpha',
+                revision: 'one',
+                sourceLanguage: 'ja',
+            })
+        );
+        const created = await manager.createProfile('Persona');
+        const personaId = created.activeProfileId;
+        await manager.importDictionary(
+            writeArchive(archivesDir, 'Beta.zip', {
+                title: 'Beta',
+                revision: 'one',
+                sourceLanguage: 'ja',
+            })
+        );
+        const betaId = (await manager.getSnapshot()).dictionaries[1].id;
+        await manager.createTabGroup('Persona dictionaries', betaId);
+
+        const defaults = await manager.switchProfile('default');
+        expect(defaults.dictionaries.find(({ id }) => id === betaId)?.enabled).toBe(false);
+
+        await manager.removeDictionary(betaId);
+        const persona = await manager.switchProfile(personaId);
+        expect(persona.dictionaries.some(({ id }) => id === betaId)).toBe(false);
+        expect(persona.tabGroups).toEqual([
+            expect.objectContaining({
+                name: 'Persona dictionaries',
+                dictionaryIds: [],
+            }),
+        ]);
+    });
+
+    it('validates lifecycle operations and never deletes the final profile', async () => {
+        const { manager, reloadNative } = createHarness(makeTempDir());
+        await expect(manager.deleteProfile('default')).rejects.toThrow(
+            'final profile'
+        );
+        const created = await manager.createProfile('Visual Novels');
+        const id = created.activeProfileId;
+        await expect(manager.createProfile('visual novels')).rejects.toThrow(
+            'already exists'
+        );
+        const renamed = await manager.renameProfile(id, 'Persona');
+        expect(renamed.profiles).toContainEqual({ id, name: 'Persona' });
+        const deleted = await manager.deleteProfile(id);
+        expect(deleted.activeProfileId).toBe('default');
+        expect(deleted.profiles).toEqual([{ id: 'default', name: 'Default' }]);
+        expect(reloadNative).not.toHaveBeenCalled();
     });
 });
 
@@ -1519,22 +1634,31 @@ describe('Hoshidicts mining profile', () => {
             },
             fieldTemplates: null,
         });
-        expect(readMiningProfile(baseDir)).toEqual(snapshot.miningProfile);
+        expect(readActiveProfile(baseDir).mining).toEqual(snapshot.miningProfile);
         expect(
             fs.readdirSync(path.join(baseDir, 'dictionaries', 'hoshidicts'))
-        ).toEqual(['mining-profile.json']);
+        ).toEqual(['manifest.json']);
     });
 
-    it('reports a malformed saved profile without hiding dictionary state', async () => {
+    it('ignores the removed standalone mining profile storage', async () => {
         const baseDir = makeTempDir();
         const { manager } = createHarness(baseDir);
         await manager.setMiningProfile(defaultHoshidictsMiningProfile());
-        fs.writeFileSync(manager.miningProfilePath, '{broken', 'utf8');
+        fs.writeFileSync(
+            path.join(
+                baseDir,
+                'dictionaries',
+                'hoshidicts',
+                'mining-profile.json'
+            ),
+            '{broken',
+            'utf8'
+        );
 
         const snapshot = await manager.getSnapshot();
 
         expect(snapshot.miningProfile).toEqual(defaultHoshidictsMiningProfile());
-        expect(snapshot.lastError).toContain('JSON');
+        expect(snapshot.lastError).toBeNull();
         expect(snapshot.dictionaries).toEqual([]);
     });
 
@@ -1745,22 +1869,28 @@ describe('Hoshidicts audio profile', () => {
             ],
         });
         expect(snapshot.progress).toEqual({ phase: 'idle', scope: 'audio' });
-        expect(readAudioProfile(baseDir)).toEqual(snapshot.audioProfile);
+        expect(readActiveProfile(baseDir).audio).toEqual(snapshot.audioProfile);
         expect(
             fs.readdirSync(path.join(baseDir, 'dictionaries', 'hoshidicts'))
-        ).toEqual(['audio-profile.json']);
+        ).toEqual(['manifest.json']);
     });
 
-    it('falls back to defaults and reports malformed saved audio profiles', async () => {
+    it('ignores the removed standalone audio profile storage', async () => {
         const baseDir = makeTempDir();
         const { manager } = createHarness(baseDir);
         await manager.setAudioProfile(defaultHoshidictsAudioProfile());
-        fs.writeFileSync(manager.audioProfilePath, '{broken', 'utf8');
+        const legacyPath = path.join(
+            baseDir,
+            'dictionaries',
+            'hoshidicts',
+            'audio-profile.json'
+        );
+        fs.writeFileSync(legacyPath, '{broken', 'utf8');
 
         const snapshot = await manager.getSnapshot();
 
         expect(snapshot.audioProfile).toEqual(defaultHoshidictsAudioProfile());
-        expect(snapshot.lastError).toContain('JSON');
+        expect(snapshot.lastError).toBeNull();
         expect(snapshot.dictionaries).toEqual([]);
     });
 
@@ -1778,7 +1908,16 @@ describe('Hoshidicts audio profile', () => {
                 sources: [{ id: 'custom', type: 'custom', url: 'ftp://example.test' }],
             })
         ).rejects.toThrow('source URL is invalid');
-        expect(fs.existsSync(manager.audioProfilePath)).toBe(false);
+        expect(
+            fs.existsSync(
+                path.join(
+                    baseDir,
+                    'dictionaries',
+                    'hoshidicts',
+                    'audio-profile.json'
+                )
+            )
+        ).toBe(false);
     });
 });
 

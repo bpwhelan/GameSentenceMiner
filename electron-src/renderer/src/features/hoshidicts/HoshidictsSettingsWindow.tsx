@@ -1,4 +1,4 @@
-import { BookOpen, RotateCw } from "lucide-react";
+import { BookOpen, EllipsisVertical, Plus, RotateCw } from "lucide-react";
 import { useMemo } from "react";
 
 import {
@@ -117,6 +117,115 @@ function ReadinessBanner({
   );
 }
 
+function ProfileControl({
+  controller
+}: {
+  controller: ReturnType<typeof useHoshidictsSettingsController>;
+}) {
+  const t = useTranslation();
+  const { state, profileSwitching, actions } = controller;
+  if (!state) return null;
+  const activeProfile = state.profiles.find(
+    ({ id }) => id === state.activeProfileId
+  );
+  const disabled = profileSwitching || state.busy;
+
+  return (
+    <div className="hoshidicts-profile-control">
+      <label htmlFor="hoshidicts-active-profile">
+        {t("settings.hoshidicts.profiles.label")}
+      </label>
+      <select
+        id="hoshidicts-active-profile"
+        value={state.activeProfileId}
+        disabled={disabled}
+        onChange={(event) => void actions.switchProfile(event.currentTarget.value)}
+      >
+        {state.profiles.map((profile) => (
+          <option value={profile.id} key={profile.id}>
+            {profile.name}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        className="hoshidicts-icon-button secondary"
+        aria-label={t("settings.hoshidicts.profiles.create")}
+        disabled={disabled}
+        onClick={() => {
+          const name = window.prompt(
+            t("settings.hoshidicts.profiles.createPrompt")
+          );
+          if (name?.trim()) void actions.createProfile(name);
+        }}
+      >
+        <Plus size={16} aria-hidden="true" />
+      </button>
+      <details className="hoshidicts-profile-control__menu">
+        <summary
+          className="hoshidicts-icon-button secondary"
+          aria-label={t("settings.hoshidicts.profiles.manage")}
+          aria-disabled={disabled}
+          onClick={(event) => {
+            if (disabled) event.preventDefault();
+          }}
+        >
+          <EllipsisVertical size={16} aria-hidden="true" />
+        </summary>
+        <div>
+          <button
+            type="button"
+            className="secondary"
+            disabled={disabled || !activeProfile}
+            onClick={(event) => {
+              const details = event.currentTarget.closest(
+                "details"
+              ) as HTMLDetailsElement | null;
+              if (details) details.open = false;
+              if (!activeProfile) return;
+              const name = window.prompt(
+                t("settings.hoshidicts.profiles.renamePrompt"),
+                activeProfile.name
+              );
+              if (name?.trim()) {
+                void actions.renameProfile(activeProfile.id, name);
+              }
+            }}
+          >
+            {t("settings.hoshidicts.profiles.rename")}
+          </button>
+          <button
+            type="button"
+            className="danger"
+            disabled={disabled || state.profiles.length === 1 || !activeProfile}
+            onClick={(event) => {
+              const details = event.currentTarget.closest(
+                "details"
+              ) as HTMLDetailsElement | null;
+              if (details) details.open = false;
+              if (
+                activeProfile &&
+                window.confirm(
+                  t("settings.hoshidicts.profiles.deleteConfirm", {
+                    name: activeProfile.name
+                  })
+                )
+              ) {
+                void actions.deleteProfile(activeProfile.id);
+              }
+            }}
+          >
+            {t("settings.hoshidicts.profiles.delete")}
+          </button>
+        </div>
+      </details>
+      {profileSwitching ? (
+        <span role="status">{t("settings.hoshidicts.profiles.switching")}</span>
+      ) : null}
+    </div>
+  );
+}
+
 export function HoshidictsSettingsWindow() {
   const t = useTranslation();
   const controller = useHoshidictsSettingsController();
@@ -150,14 +259,17 @@ export function HoshidictsSettingsWindow() {
             <p>{t("settings.hoshidicts.windowSubtitle")}</p>
           </div>
         </div>
-        <div
-          className="hoshidicts-window__feature-status"
-          data-ready={readiness?.kind === "ready"}
-          role="status"
-        >
-          {readiness
-            ? t(`settings.hoshidicts.readiness.${readiness.kind}`)
-            : t("settings.hoshidicts.readiness.loading")}
+        <div className="hoshidicts-window__header-actions">
+          <ProfileControl controller={controller} />
+          <div
+            className="hoshidicts-window__feature-status"
+            data-ready={readiness?.kind === "ready"}
+            role="status"
+          >
+            {readiness
+              ? t(`settings.hoshidicts.readiness.${readiness.kind}`)
+              : t("settings.hoshidicts.readiness.loading")}
+          </div>
         </div>
       </header>
 

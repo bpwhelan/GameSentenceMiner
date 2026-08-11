@@ -588,6 +588,17 @@
     "hoshidicts": {
       "appTitle": "Hoshidicts",
       "windowSubtitle": "Налаштування словників, аудіо та видобування",
+      "profiles": {
+        "label": "Профіль",
+        "create": "Створити профіль",
+        "createPrompt": "Назва нового профілю",
+        "manage": "Керувати профілем",
+        "rename": "Перейменувати",
+        "renamePrompt": "Перейменувати профіль",
+        "delete": "Видалити",
+        "deleteConfirm": "Видалити профіль «{name}»?",
+        "switching": "Перемикання..."
+      },
       "title": "Словники Hoshidicts",
       "enabled": "Увімкнено в експериментальних налаштуваннях GSM",
       "disabled": "Вимкнено в експериментальних налаштуваннях GSM",
@@ -1074,6 +1085,10 @@
         "preferencesSaved": "Налаштування читача збережено.",
         "audioProfileSaved": "Налаштування аудіо збережено.",
         "miningProfileSaved": "Профіль видобування збережено.",
+        "profileCreated": "Профіль створено.",
+        "profileSwitched": "Профіль перемкнено.",
+        "profileRenamed": "Профіль перейменовано.",
+        "profileDeleted": "Профіль видалено.",
         "dictionaryImported": "Імпортовано словників: {count}.",
         "yomitanDictionariesImported": "Імпортовано словників із Yomitan: {dictionaries} (попереджень: {warnings}).",
         "yomitanSettingsImported": "Імпортовано груп налаштувань із Yomitan: {settings} (попереджень: {warnings}).",
@@ -1099,6 +1114,7 @@
       "errors": {
         "load": "Не вдалося завантажити стан Hoshidicts.",
         "operation": "Операція Hoshidicts завершилася помилкою.",
+        "profiles": "Не вдалося оновити профіль.",
         "import": "Не вдалося імпортувати словники.",
         "importYomitanDictionaries": "Не вдалося імпортувати словники з Yomitan.",
         "importYomitanSettings": "Не вдалося імпортувати налаштування з Yomitan.",

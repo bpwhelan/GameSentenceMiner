@@ -31,6 +31,7 @@ import {
     MAX_HOSHIDICTS_POPUP_COLUMNS,
     MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT,
     MAX_HOSHIDICTS_POPUP_WIDTH_PX,
+    MAX_HOSHIDICTS_PROFILE_NAME_LENGTH,
     MAX_HOSHIDICTS_SCAN_LENGTH,
     MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
@@ -54,6 +55,7 @@ import {
     type HoshidictsDictionaryPresentationRequest,
     type HoshidictsDictionaryScheduleRequest,
     type HoshidictsCreateTabGroupRequest,
+    type HoshidictsCreateProfileRequest,
     type HoshidictsSetTabGroupMembershipRequest,
     type HoshidictsRenameTabGroupRequest,
     type HoshidictsDeleteTabGroupRequest,
@@ -68,6 +70,8 @@ import {
     type HoshidictsMoveDictionaryToPositionRequest,
     type HoshidictsReaderPreferences,
     type HoshidictsReaderPreferencesRequest,
+    type HoshidictsProfileIdRequest,
+    type HoshidictsRenameProfileRequest,
     type HoshidictsRenameDictionaryRequest,
     type HoshidictsRecommendedDictionaryId,
     type HoshidictsSchedule,
@@ -332,7 +336,9 @@ async function applyReaderSnapshot(
 
 async function applyRestoredSnapshot(
     snapshot: HoshidictsManagerSnapshot,
-    deps: HoshidictsIPCDependencies
+    deps: HoshidictsIPCDependencies,
+    failureMessage =
+        'Backup was restored, but its settings could not be applied to the running overlay. Restart the overlay to use the restored settings.'
 ): Promise<void> {
     let readerApplied = false;
     let audioApplied = false;
@@ -363,9 +369,7 @@ async function applyRestoredSnapshot(
         // Use the same actionable message for rejected and failed restarts.
     }
     if (!restarted) {
-        throw new Error(
-            'Backup was restored, but its settings could not be applied to the running overlay. Restart the overlay to use the restored settings.'
-        );
+        throw new Error(failureMessage);
     }
 }
 
@@ -601,6 +605,120 @@ export function registerHoshidictsIPC(
         assertSettingsSender(event, deps);
         return await currentState(deps);
     });
+
+    ipcMain.handle(
+        HOSHIDICTS_CHANNELS.createProfile,
+        async (event, request: unknown) => {
+            assertSettingsSender(event, deps);
+            const value = request as Partial<HoshidictsCreateProfileRequest> | null;
+            if (
+                !value ||
+                typeof value.name !== 'string' ||
+                value.name.trim().length === 0 ||
+                value.name.length > MAX_HOSHIDICTS_PROFILE_NAME_LENGTH
+            ) {
+                return {
+                    success: false,
+                    error: 'Profile name is invalid.',
+                    state: await currentState(deps),
+                } satisfies HoshidictsActionResult;
+            }
+            return await runAction(
+                deps,
+                async () => await manager.createProfile(value.name as string),
+                { code: 'profileCreated' }
+            );
+        }
+    );
+
+    ipcMain.handle(
+        HOSHIDICTS_CHANNELS.switchProfile,
+        async (event, request: unknown) => {
+            assertSettingsSender(event, deps);
+            const value = request as Partial<HoshidictsProfileIdRequest> | null;
+            if (!value || typeof value.id !== 'string') {
+                return {
+                    success: false,
+                    error: 'Profile switch request is invalid.',
+                    state: await currentState(deps),
+                } satisfies HoshidictsActionResult;
+            }
+            return await runAction(
+                deps,
+                async () => {
+                    const state = await manager.switchProfile(value.id as string);
+                    await applyRestoredSnapshot(
+                        state,
+                        deps,
+                        'The profile was switched, but its settings could not be applied to the running overlay. Restart the overlay to use the selected profile.'
+                    );
+                    return state;
+                },
+                { code: 'profileSwitched' }
+            );
+        }
+    );
+
+    ipcMain.handle(
+        HOSHIDICTS_CHANNELS.renameProfile,
+        async (event, request: unknown) => {
+            assertSettingsSender(event, deps);
+            const value = request as Partial<HoshidictsRenameProfileRequest> | null;
+            if (
+                !value ||
+                typeof value.id !== 'string' ||
+                typeof value.name !== 'string' ||
+                value.name.trim().length === 0 ||
+                value.name.length > MAX_HOSHIDICTS_PROFILE_NAME_LENGTH
+            ) {
+                return {
+                    success: false,
+                    error: 'Profile rename request is invalid.',
+                    state: await currentState(deps),
+                } satisfies HoshidictsActionResult;
+            }
+            return await runAction(
+                deps,
+                async () =>
+                    await manager.renameProfile(
+                        value.id as string,
+                        value.name as string
+                    ),
+                { code: 'profileRenamed' }
+            );
+        }
+    );
+
+    ipcMain.handle(
+        HOSHIDICTS_CHANNELS.deleteProfile,
+        async (event, request: unknown) => {
+            assertSettingsSender(event, deps);
+            const value = request as Partial<HoshidictsProfileIdRequest> | null;
+            if (!value || typeof value.id !== 'string') {
+                return {
+                    success: false,
+                    error: 'Profile delete request is invalid.',
+                    state: await currentState(deps),
+                } satisfies HoshidictsActionResult;
+            }
+            return await runAction(
+                deps,
+                async () => {
+                    const before = await manager.getSnapshot();
+                    const state = await manager.deleteProfile(value.id as string);
+                    if (before.activeProfileId === value.id) {
+                        await applyRestoredSnapshot(
+                            state,
+                            deps,
+                            'The profile was deleted, but the replacement profile could not be applied to the running overlay. Restart the overlay to use it.'
+                        );
+                    }
+                    return state;
+                },
+                { code: 'profileDeleted' }
+            );
+        }
+    );
 
     ipcMain.handle(HOSHIDICTS_CHANNELS.getCustomDictionary, async (event) => {
         assertSettingsSender(event, deps);

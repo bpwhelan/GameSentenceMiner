@@ -595,6 +595,17 @@
     "hoshidicts": {
       "appTitle": "Hoshidicts",
       "windowSubtitle": "Dictionary, audio, and mining settings",
+      "profiles": {
+        "label": "Profile",
+        "create": "Create profile",
+        "createPrompt": "Name the new profile",
+        "manage": "Manage profile",
+        "rename": "Rename",
+        "renamePrompt": "Rename profile",
+        "delete": "Delete",
+        "deleteConfirm": "Delete the profile “{name}”?",
+        "switching": "Switching..."
+      },
       "title": "Hoshidicts Dictionaries",
       "enabled": "Enabled in GSM Experimental",
       "disabled": "Disabled in GSM Experimental",
@@ -1081,6 +1092,10 @@
         "preferencesSaved": "Reader preferences saved.",
         "audioProfileSaved": "Audio preferences saved.",
         "miningProfileSaved": "Mining profile saved.",
+        "profileCreated": "Profile created.",
+        "profileSwitched": "Profile switched.",
+        "profileRenamed": "Profile renamed.",
+        "profileDeleted": "Profile deleted.",
         "dictionaryImported": "Dictionaries imported: {count}.",
         "yomitanDictionariesImported": "Imported {dictionaries} dictionaries from Yomitan ({warnings} warnings).",
         "yomitanSettingsImported": "Imported {settings} settings groups from Yomitan ({warnings} warnings).",
@@ -1106,6 +1121,7 @@
       "errors": {
         "load": "Failed to load Hoshidicts state.",
         "operation": "Hoshidicts operation failed.",
+        "profiles": "Failed to update the profile.",
         "import": "Dictionary import failed.",
         "importYomitanDictionaries": "Yomitan dictionary import failed.",
         "importYomitanSettings": "Yomitan settings import failed.",

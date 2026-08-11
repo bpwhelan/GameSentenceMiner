@@ -31,6 +31,7 @@ import type {
     HoshidictsProgressPhase,
     HoshidictsPopupButtons,
     HoshidictsPopupToolbarPosition,
+    HoshidictsReaderPreferencesRequest,
     HoshidictsRecommendedDictionaryId,
     HoshidictsRecommendedDictionaryState,
     HoshidictsSchedule,
@@ -74,6 +75,7 @@ import {
     MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
     MAX_HOSHIDICTS_MAX_RESULTS,
+    MAX_HOSHIDICTS_PROFILE_NAME_LENGTH,
     MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
     MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
     MAX_HOSHIDICTS_POPUP_COLUMNS,
@@ -81,7 +83,6 @@ import {
     MAX_HOSHIDICTS_POPUP_WIDTH_PX,
     MAX_HOSHIDICTS_SCAN_LENGTH,
     MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH,
-    MAX_HOSHIDICTS_TAB_GROUPS_BYTES,
     MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
     MIN_HOSHIDICTS_MAX_RESULTS,
@@ -93,7 +94,6 @@ import {
 } from '../../../shared/features/hoshidicts.js';
 import {
     defaultHoshidictsAudioProfile,
-    HOSHIDICTS_AUDIO_PROFILE_FILE_NAME,
     normalizeHoshidictsAudioProfile,
 } from './audio_profile.js';
 import {
@@ -105,7 +105,6 @@ import {
 } from './custom_dictionary.js';
 import {
     defaultHoshidictsMiningProfile,
-    HOSHIDICTS_MINING_PROFILE_FILE_NAME,
     normalizeHoshidictsMiningProfile,
 } from './profile.js';
 import {
@@ -155,8 +154,25 @@ interface PersistedDictionary extends HoshidictsDictionaryState {
     recommendedId: HoshidictsRecommendedDictionaryId | null;
 }
 
+interface PersistedReaderPreferences
+    extends HoshidictsReaderPreferencesRequest {
+    customPopupCss: string;
+}
+
+interface PersistedSettingsProfile {
+    id: string;
+    name: string;
+    reader: PersistedReaderPreferences;
+    mining: HoshidictsMiningProfile;
+    audio: HoshidictsAudioProfile;
+    tabGroups: HoshidictsDictionaryTabGroup[];
+    enabledDictionaryIds: string[];
+}
+
 interface PersistedManifest {
     version: 1;
+    activeProfileId: string;
+    profiles: PersistedSettingsProfile[];
     lookupMode: HoshidictsLookupMode;
     scanLength: number;
     maxResults: number;
@@ -264,8 +280,6 @@ const MANIFEST_VERSION = 1;
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 const MAX_TAB_GROUP_COUNT = 256;
 const MAX_TAB_GROUP_DICTIONARIES = 256;
-const MAX_MINING_PROFILE_BYTES = 64 * 1024;
-const MAX_AUDIO_PROFILE_BYTES = 64 * 1024;
 const MAX_ARCHIVE_INDEX_BYTES = 1024 * 1024;
 const MAX_TERM_BANK_BYTES = 32 * 1024 * 1024;
 const MAX_SCANNED_TERM_BANKS = 32;
@@ -418,9 +432,8 @@ const SCHEDULE_INTERVALS: Record<Exclude<HoshidictsSchedule, 'off'>, number> = {
     monthly: 30 * 24 * 60 * 60 * 1000,
 };
 
-function emptyManifest(): PersistedManifest {
+function defaultReaderPreferences(): PersistedReaderPreferences {
     return {
-        version: MANIFEST_VERSION,
         lookupMode: 'shift',
         scanLength: DEFAULT_HOSHIDICTS_SCAN_LENGTH,
         maxResults: DEFAULT_HOSHIDICTS_MAX_RESULTS,
@@ -454,6 +467,25 @@ function emptyManifest(): PersistedManifest {
         popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
         popupButtons: createDefaultHoshidictsPopupButtons(),
         customPopupCss: DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
+    };
+}
+
+function emptyManifest(): PersistedManifest {
+    const reader = defaultReaderPreferences();
+    const profile: PersistedSettingsProfile = {
+        id: 'default',
+        name: 'Default',
+        reader,
+        mining: defaultHoshidictsMiningProfile(),
+        audio: defaultHoshidictsAudioProfile(),
+        tabGroups: [],
+        enabledDictionaryIds: [],
+    };
+    return {
+        version: MANIFEST_VERSION,
+        activeProfileId: profile.id,
+        profiles: [profile],
+        ...reader,
         schedule: 'off',
         lastCheck: null,
         nextCheck: null,
@@ -480,10 +512,6 @@ function pinCustomDictionary(manifest: PersistedManifest): PersistedManifest {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function emptyTabGroups(): PersistedTabGroups {
-    return { version: 1, groups: [] };
 }
 
 function tabGroupNameKey(name: string): string {
@@ -756,6 +784,209 @@ function normalizeDefinitionBlur(
                 ? (value.revealDelayMs as number)
                 : DEFAULT_HOSHIDICTS_DEFINITION_BLUR.revealDelayMs,
     };
+}
+
+function normalizeProfileName(value: unknown): string {
+    if (typeof value !== 'string') {
+        throw new Error('Profile name is invalid.');
+    }
+    const name = value.normalize('NFC').trim();
+    if (!name) {
+        throw new Error('Profile name cannot be empty.');
+    }
+    if (name.length > MAX_HOSHIDICTS_PROFILE_NAME_LENGTH) {
+        throw new Error('Profile name is too long.');
+    }
+    return name;
+}
+
+function profileNameKey(name: string): string {
+    return name.normalize('NFC').trim().toLowerCase();
+}
+
+function normalizeReaderPreferences(
+    value: unknown,
+    dictionaries: readonly PersistedDictionary[],
+    enabledDictionaryIds: ReadonlySet<string>
+): PersistedReaderPreferences {
+    if (!isRecord(value)) {
+        throw new Error('Hoshidicts profile reader settings are invalid.');
+    }
+    const requestedSortFrequencyDictionary =
+        normalizeSortFrequencyDictionary(value.sortFrequencyDictionary);
+    return {
+        lookupMode: value.lookupMode === 'hover' ? 'hover' : 'shift',
+        scanLength: normalizeScanLength(value.scanLength),
+        maxResults: normalizeMaxResults(value.maxResults),
+        sortFrequencyDictionary:
+            requestedSortFrequencyDictionary !== null &&
+            dictionaries.some(
+                (dictionary) =>
+                    dictionary.title === requestedSortFrequencyDictionary &&
+                    enabledDictionaryIds.has(dictionary.id) &&
+                    dictionary.frequencyCount > 0
+            )
+                ? requestedSortFrequencyDictionary
+                : null,
+        sortFrequencyDictionaryOrder: normalizeSortFrequencyDictionaryOrder(
+            value.sortFrequencyDictionaryOrder
+        ),
+        activationKey: isHoshidictsActivationKey(value.activationKey)
+            ? value.activationKey
+            : DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
+        sourceHighlightEnabled: value.sourceHighlightEnabled === true,
+        onlyScanJapaneseText: value.onlyScanJapaneseText !== false,
+        popupHideDelayMs: normalizePopupHideDelay(value.popupHideDelayMs),
+        showLookupCounts: value.showLookupCounts !== false,
+        showCompactDefinitionSummary:
+            value.showCompactDefinitionSummary === true,
+        compactDefinitionSummaryDictionary:
+            normalizeCompactDefinitionSummaryDictionary(
+                value.compactDefinitionSummaryDictionary
+            ),
+        showPitchAccentFurigana: value.showPitchAccentFurigana !== false,
+        pitchAccentFuriganaDictionary:
+            normalizeCompactDefinitionSummaryDictionary(
+                value.pitchAccentFuriganaDictionary
+            ),
+        showPitchAccentBadge: value.showPitchAccentBadge === true,
+        hidePopupGrammarTags: value.hidePopupGrammarTags !== false,
+        popupNestingMaxDepth: normalizePopupNestingMaxDepth(
+            value.popupNestingMaxDepth
+        ),
+        definitionBlur: normalizeDefinitionBlur(value.definitionBlur),
+        popupWidthPx: normalizePopupWidth(value.popupWidthPx),
+        popupHeightPx: normalizePopupHeight(value.popupHeightPx),
+        popupColumns: normalizePopupColumns(value.popupColumns),
+        theme: normalizeTheme(value.theme),
+        popupOpacityPercent: normalizePopupOpacityPercent(
+            value.popupOpacityPercent
+        ),
+        popupToolbarPosition: normalizePopupToolbarPosition(
+            value.popupToolbarPosition
+        ),
+        popupButtons: normalizePersistedPopupButtons(value.popupButtons),
+        customPopupCss: normalizeCustomPopupCss(value.customPopupCss),
+    };
+}
+
+function normalizePersistedProfiles(
+    value: unknown,
+    activeProfileId: unknown,
+    dictionaries: readonly PersistedDictionary[]
+): { activeProfileId: string; profiles: PersistedSettingsProfile[] } {
+    if (!Array.isArray(value) || value.length === 0) {
+        throw new Error('Hoshidicts profiles are invalid.');
+    }
+    const installedIds = new Set(dictionaries.map(({ id }) => id));
+    const ids = new Set<string>();
+    const names = new Set<string>();
+    const profiles = value.map((candidate): PersistedSettingsProfile => {
+        if (
+            !isRecord(candidate) ||
+            typeof candidate.id !== 'string' ||
+            !SAFE_ID_PATTERN.test(candidate.id) ||
+            !Array.isArray(candidate.enabledDictionaryIds)
+        ) {
+            throw new Error('Hoshidicts profile is invalid.');
+        }
+        const name = normalizeProfileName(candidate.name);
+        const nameKey = profileNameKey(name);
+        if (ids.has(candidate.id) || names.has(nameKey)) {
+            throw new Error('Hoshidicts profiles must have unique names and ids.');
+        }
+        ids.add(candidate.id);
+        names.add(nameKey);
+        const enabledDictionaryIds = Array.from(
+            new Set(
+                candidate.enabledDictionaryIds.map((id) => {
+                    if (typeof id !== 'string' || !SAFE_ID_PATTERN.test(id)) {
+                        throw new Error(
+                            'Hoshidicts profile dictionary id is invalid.'
+                        );
+                    }
+                    return id;
+                })
+            )
+        ).filter(
+            (id) =>
+                id !== HOSHIDICTS_CUSTOM_DICTIONARY_ID &&
+                installedIds.has(id)
+        );
+        const enabledIds = new Set(enabledDictionaryIds);
+        const tabGroups = normalizePersistedTabGroups({
+            version: 1,
+            groups: candidate.tabGroups,
+        }).groups.map((group) => ({
+            ...group,
+            dictionaryIds: group.dictionaryIds.filter((id) =>
+                installedIds.has(id)
+            ),
+        }));
+        return {
+            id: candidate.id,
+            name,
+            reader: normalizeReaderPreferences(
+                candidate.reader,
+                dictionaries,
+                enabledIds
+            ),
+            mining: normalizeHoshidictsMiningProfile(candidate.mining),
+            audio: normalizeHoshidictsAudioProfile(candidate.audio),
+            tabGroups,
+            enabledDictionaryIds,
+        };
+    });
+    if (
+        typeof activeProfileId !== 'string' ||
+        !profiles.some(({ id }) => id === activeProfileId)
+    ) {
+        throw new Error('Hoshidicts active profile is invalid.');
+    }
+    return { activeProfileId, profiles };
+}
+
+function activeProfile(manifest: PersistedManifest): PersistedSettingsProfile {
+    const profile = manifest.profiles.find(
+        ({ id }) => id === manifest.activeProfileId
+    );
+    if (!profile) {
+        throw new Error('Hoshidicts active profile does not exist.');
+    }
+    return profile;
+}
+
+function cloneProfile(profile: PersistedSettingsProfile): PersistedSettingsProfile {
+    return structuredClone(profile);
+}
+
+function replaceActiveProfile(
+    manifest: PersistedManifest,
+    profile: PersistedSettingsProfile
+): PersistedManifest {
+    return {
+        ...manifest,
+        profiles: manifest.profiles.map((candidate) =>
+            candidate.id === manifest.activeProfileId
+                ? cloneProfile(profile)
+                : cloneProfile(candidate)
+        ),
+    };
+}
+
+function projectActiveProfile(manifest: PersistedManifest): PersistedManifest {
+    const profile = activeProfile(manifest);
+    const enabledIds = new Set(profile.enabledDictionaryIds);
+    return pinCustomDictionary({
+        ...manifest,
+        ...profile.reader,
+        dictionaries: manifest.dictionaries.map((dictionary) => ({
+            ...dictionary,
+            enabled:
+                dictionary.id === HOSHIDICTS_CUSTOM_DICTIONARY_ID ||
+                enabledIds.has(dictionary.id),
+        })),
+    });
 }
 
 function definitionBlurPreferencesEqual(
@@ -1722,9 +1953,6 @@ type SnapshotListener = (snapshot: HoshidictsManagerSnapshot) => void;
 export class HoshidictsManager {
     readonly rootDir: string;
     readonly manifestPath: string;
-    readonly tabGroupsPath: string;
-    readonly miningProfilePath: string;
-    readonly audioProfilePath: string;
     readonly customDictionaryPath: string;
 
     private readonly deps: HoshidictsManagerDependencies;
@@ -1743,18 +1971,6 @@ export class HoshidictsManager {
     ) {
         this.rootDir = path.join(baseDir, 'dictionaries', 'hoshidicts');
         this.manifestPath = path.join(this.rootDir, MANIFEST_FILE_NAME);
-        this.tabGroupsPath = path.join(
-            this.rootDir,
-            HOSHIDICTS_TAB_GROUPS_FILE_NAME
-        );
-        this.miningProfilePath = path.join(
-            this.rootDir,
-            HOSHIDICTS_MINING_PROFILE_FILE_NAME
-        );
-        this.audioProfilePath = path.join(
-            this.rootDir,
-            HOSHIDICTS_AUDIO_PROFILE_FILE_NAME
-        );
         this.customDictionaryPath = path.join(
             this.rootDir,
             HOSHIDICTS_CUSTOM_DICTIONARY_FILE_NAME
@@ -1788,34 +2004,7 @@ export class HoshidictsManager {
             manifestError = errorMessage(error);
             manifest = await this.readManifestPreferences().catch(() => emptyManifest());
         }
-        let tabGroups: HoshidictsDictionaryTabGroup[] = [];
-        let tabGroupsError: string | null = null;
-        try {
-            tabGroups = await this.readTabGroups();
-        } catch (error) {
-            tabGroupsError = errorMessage(error);
-        }
-        let miningProfile = defaultHoshidictsMiningProfile();
-        let miningProfileError: string | null = null;
-        try {
-            miningProfile = await this.readMiningProfile();
-        } catch (error) {
-            miningProfileError = errorMessage(error);
-        }
-        let audioProfile = defaultHoshidictsAudioProfile();
-        let audioProfileError: string | null = null;
-        try {
-            audioProfile = await this.readAudioProfile();
-        } catch (error) {
-            audioProfileError = errorMessage(error);
-        }
-        return this.snapshotFromManifest(
-            manifest,
-            tabGroups,
-            miningProfile,
-            audioProfile,
-            manifestError ?? tabGroupsError ?? miningProfileError ?? audioProfileError
-        );
+        return this.snapshotFromManifest(manifest, manifestError);
     }
 
     async getCustomDictionaryDocument(): Promise<HoshidictsCustomDictionaryDocument> {
@@ -1953,9 +2142,15 @@ export class HoshidictsManager {
                 ordered.push({ ...dictionary, enabled: preference.enabled });
             }
             const dictionaries = [...ordered, ...remaining];
-            const next = {
-                ...manifest,
-                sortFrequencyDictionary:
+            const profile = cloneProfile(activeProfile(manifest));
+            profile.enabledDictionaryIds = dictionaries
+                .filter(
+                    (dictionary) =>
+                        dictionary.enabled &&
+                        dictionary.id !== HOSHIDICTS_CUSTOM_DICTIONARY_ID
+                )
+                .map(({ id }) => id);
+            profile.reader.sortFrequencyDictionary =
                     manifest.sortFrequencyDictionary !== null &&
                     dictionaries.some(
                         (dictionary) =>
@@ -1965,13 +2160,15 @@ export class HoshidictsManager {
                             dictionary.frequencyCount > 0
                     )
                         ? manifest.sortFrequencyDictionary
-                        : null,
-                dictionaries,
-            };
+                        : null;
+            const next = replaceActiveProfile(
+                { ...manifest, dictionaries },
+                profile
+            );
             if (
-                JSON.stringify(next.dictionaries) !==
+                JSON.stringify(projectActiveProfile(next).dictionaries) !==
                     JSON.stringify(manifest.dictionaries) ||
-                next.sortFrequencyDictionary !==
+                profile.reader.sortFrequencyDictionary !==
                     manifest.sortFrequencyDictionary
             ) {
                 await this.commitManifestChange(manifest, next, null, null);
@@ -2044,8 +2241,28 @@ export class HoshidictsManager {
                 throw new Error('Dictionary is not installed.');
             }
             const existing = manifest.dictionaries[existingIndex];
+            const profiles = manifest.profiles.map((profile) => ({
+                ...cloneProfile(profile),
+                reader: {
+                    ...profile.reader,
+                    sortFrequencyDictionary:
+                        profile.reader.sortFrequencyDictionary === existing.title
+                            ? null
+                            : profile.reader.sortFrequencyDictionary,
+                },
+                enabledDictionaryIds: profile.enabledDictionaryIds.filter(
+                    (dictionaryId) => dictionaryId !== id
+                ),
+                tabGroups: profile.tabGroups.map((group) => ({
+                    ...group,
+                    dictionaryIds: group.dictionaryIds.filter(
+                        (dictionaryId) => dictionaryId !== id
+                    ),
+                })),
+            }));
             const next: PersistedManifest = {
                 ...manifest,
+                profiles,
                 sortFrequencyDictionary:
                     manifest.sortFrequencyDictionary === existing.title
                         ? null
@@ -2152,13 +2369,28 @@ export class HoshidictsManager {
                 )
                     ? null
                     : manifest.sortFrequencyDictionary;
-            const next = { ...manifest, sortFrequencyDictionary, dictionaries };
             if (field === 'enabled') {
+                const profile = cloneProfile(activeProfile(manifest));
+                const enabledIds = new Set(profile.enabledDictionaryIds);
+                for (const id of uniqueIds) {
+                    if (value) {
+                        enabledIds.add(id);
+                    } else {
+                        enabledIds.delete(id);
+                    }
+                }
+                profile.enabledDictionaryIds = [...enabledIds];
+                profile.reader.sortFrequencyDictionary =
+                    sortFrequencyDictionary;
+                const next = replaceActiveProfile(
+                    { ...manifest, dictionaries },
+                    profile
+                );
                 await this.commitManifestChange(manifest, next, null, null);
             } else {
                 // Presentation is renderer-only. Avoid a native reload while still
                 // using the manifest's atomic persistence path.
-                await this.atomicWriteManifest(next);
+                await this.atomicWriteManifest({ ...manifest, dictionaries });
             }
         });
         return await this.getSnapshot();
@@ -2170,11 +2402,11 @@ export class HoshidictsManager {
     ): Promise<HoshidictsManagerSnapshot> {
         await this.enqueue('saving', async () => {
             const normalizedName = normalizeTabGroupName(name);
+            const manifest = await this.readManifest();
             if (dictionaryId !== undefined) {
                 if (!SAFE_ID_PATTERN.test(dictionaryId)) {
                     throw new Error('Dictionary id is invalid.');
                 }
-                const manifest = await this.readManifest();
                 const dictionary = manifest.dictionaries.find(
                     ({ id }) => id === dictionaryId
                 );
@@ -2186,7 +2418,11 @@ export class HoshidictsManager {
                     throw new Error('Dictionary cannot be added to a tab group.');
                 }
             }
-            const groups = await this.readTabGroups();
+            const profile = cloneProfile(activeProfile(manifest));
+            const groups = profile.tabGroups;
+            if (groups.length >= MAX_TAB_GROUP_COUNT) {
+                throw new Error('Hoshidicts tab groups file has too many groups.');
+            }
             const nameKey = tabGroupNameKey(normalizedName);
             if (groups.some((group) => tabGroupNameKey(group.name) === nameKey)) {
                 throw new Error('A tab group with that name already exists.');
@@ -2203,7 +2439,10 @@ export class HoshidictsManager {
                 name: normalizedName,
                 dictionaryIds: dictionaryId ? [dictionaryId] : [],
             });
-            await this.atomicWriteTabGroups(groups);
+            profile.tabGroups = groups;
+            await this.atomicWriteManifest(
+                replaceActiveProfile(manifest, profile)
+            );
         });
         return await this.getSnapshot();
     }
@@ -2221,7 +2460,9 @@ export class HoshidictsManager {
             ) {
                 throw new Error('Tab group membership is invalid.');
             }
-            const groups = await this.readTabGroups();
+            const manifest = await this.readManifest();
+            const profile = cloneProfile(activeProfile(manifest));
+            const groups = profile.tabGroups;
             const index = groups.findIndex(({ id }) => id === groupId);
             if (index < 0) {
                 throw new Error('Tab group does not exist.');
@@ -2231,7 +2472,14 @@ export class HoshidictsManager {
                 return;
             }
             if (member) {
-                const manifest = await this.readManifest();
+                if (
+                    groups[index].dictionaryIds.length >=
+                    MAX_TAB_GROUP_DICTIONARIES
+                ) {
+                    throw new Error(
+                        'Hoshidicts tab group has too many dictionaries.'
+                    );
+                }
                 const dictionary = manifest.dictionaries.find(
                     ({ id }) => id === dictionaryId
                 );
@@ -2251,7 +2499,10 @@ export class HoshidictsManager {
                           (id) => id !== dictionaryId
                       ),
             };
-            await this.atomicWriteTabGroups(groups);
+            profile.tabGroups = groups;
+            await this.atomicWriteManifest(
+                replaceActiveProfile(manifest, profile)
+            );
         });
         return await this.getSnapshot();
     }
@@ -2265,7 +2516,9 @@ export class HoshidictsManager {
                 throw new Error('Tab group id is invalid.');
             }
             const normalizedName = normalizeTabGroupName(name);
-            const groups = await this.readTabGroups();
+            const manifest = await this.readManifest();
+            const profile = cloneProfile(activeProfile(manifest));
+            const groups = profile.tabGroups;
             const index = groups.findIndex(({ id }) => id === groupId);
             if (index < 0) {
                 throw new Error('Tab group does not exist.');
@@ -2284,7 +2537,10 @@ export class HoshidictsManager {
                 return;
             }
             groups[index] = { ...groups[index], name: normalizedName };
-            await this.atomicWriteTabGroups(groups);
+            profile.tabGroups = groups;
+            await this.atomicWriteManifest(
+                replaceActiveProfile(manifest, profile)
+            );
         });
         return await this.getSnapshot();
     }
@@ -2294,12 +2550,17 @@ export class HoshidictsManager {
             if (!SAFE_ID_PATTERN.test(groupId)) {
                 throw new Error('Tab group id is invalid.');
             }
-            const groups = await this.readTabGroups();
+            const manifest = await this.readManifest();
+            const profile = cloneProfile(activeProfile(manifest));
+            const groups = profile.tabGroups;
             const next = groups.filter(({ id }) => id !== groupId);
             if (next.length === groups.length) {
                 throw new Error('Tab group does not exist.');
             }
-            await this.atomicWriteTabGroups(next);
+            profile.tabGroups = next;
+            await this.atomicWriteManifest(
+                replaceActiveProfile(manifest, profile)
+            );
         });
         return await this.getSnapshot();
     }
@@ -2315,7 +2576,9 @@ export class HoshidictsManager {
             ) {
                 throw new Error('Tab group move is invalid.');
             }
-            const groups = await this.readTabGroups();
+            const manifest = await this.readManifest();
+            const profile = cloneProfile(activeProfile(manifest));
+            const groups = profile.tabGroups;
             const index = groups.findIndex(({ id }) => id === groupId);
             if (index < 0) {
                 throw new Error('Tab group does not exist.');
@@ -2326,7 +2589,10 @@ export class HoshidictsManager {
             }
             const [group] = groups.splice(index, 1);
             groups.splice(target, 0, group);
-            await this.atomicWriteTabGroups(groups);
+            profile.tabGroups = groups;
+            await this.atomicWriteManifest(
+                replaceActiveProfile(manifest, profile)
+            );
         });
         return await this.getSnapshot();
     }
@@ -2536,18 +2802,165 @@ export class HoshidictsManager {
     }
 
     async setMiningProfile(value: unknown): Promise<HoshidictsManagerSnapshot> {
-        const profile = normalizeHoshidictsMiningProfile(value);
+        const mining = normalizeHoshidictsMiningProfile(value);
         await this.enqueue('saving', async () => {
-            await this.atomicWriteMiningProfile(profile);
+            const manifest = await this.readManifest();
+            const profile = cloneProfile(activeProfile(manifest));
+            profile.mining = mining;
+            await this.atomicWriteManifest(
+                replaceActiveProfile(manifest, profile)
+            );
         }, 'mining');
         return await this.getSnapshot();
     }
 
     async setAudioProfile(value: unknown): Promise<HoshidictsManagerSnapshot> {
-        const profile = normalizeHoshidictsAudioProfile(value);
+        const audio = normalizeHoshidictsAudioProfile(value);
         await this.enqueue('saving', async () => {
-            await this.atomicWriteAudioProfile(profile);
+            const manifest = await this.readManifest();
+            const profile = cloneProfile(activeProfile(manifest));
+            profile.audio = audio;
+            await this.atomicWriteManifest(
+                replaceActiveProfile(manifest, profile)
+            );
         }, 'audio');
+        return await this.getSnapshot();
+    }
+
+    async createProfile(name: string): Promise<HoshidictsManagerSnapshot> {
+        await this.enqueue('saving', async () => {
+            const normalizedName = normalizeProfileName(name);
+            const manifest = await this.readManifest();
+            if (
+                manifest.profiles.some(
+                    (profile) =>
+                        profileNameKey(profile.name) ===
+                        profileNameKey(normalizedName)
+                )
+            ) {
+                throw new Error('A profile with that name already exists.');
+            }
+            let id = '';
+            do {
+                id = `profile-${this.deps.randomId()}`;
+            } while (manifest.profiles.some((profile) => profile.id === id));
+            if (!SAFE_ID_PATTERN.test(id)) {
+                throw new Error('Could not create a profile id.');
+            }
+            const profile = {
+                ...cloneProfile(activeProfile(manifest)),
+                id,
+                name: normalizedName,
+            };
+            await this.atomicWriteManifest({
+                ...manifest,
+                activeProfileId: id,
+                profiles: [...manifest.profiles.map(cloneProfile), profile],
+            });
+        }, 'preferences');
+        return await this.getSnapshot();
+    }
+
+    async switchProfile(id: string): Promise<HoshidictsManagerSnapshot> {
+        await this.enqueue('saving', async () => {
+            if (!SAFE_ID_PATTERN.test(id)) {
+                throw new Error('Profile id is invalid.');
+            }
+            const manifest = await this.readManifest();
+            if (manifest.activeProfileId === id) {
+                return;
+            }
+            if (!manifest.profiles.some((profile) => profile.id === id)) {
+                throw new Error('Profile does not exist.');
+            }
+            const next = projectActiveProfile({
+                ...manifest,
+                activeProfileId: id,
+            });
+            const enabledChanged = next.dictionaries.some(
+                (dictionary, index) =>
+                    dictionary.enabled !==
+                    manifest.dictionaries[index]?.enabled
+            );
+            if (enabledChanged) {
+                await this.commitManifestChange(manifest, next, null, null);
+            } else {
+                await this.atomicWriteManifest(next);
+            }
+        }, 'preferences');
+        return await this.getSnapshot();
+    }
+
+    async renameProfile(
+        id: string,
+        name: string
+    ): Promise<HoshidictsManagerSnapshot> {
+        await this.enqueue('saving', async () => {
+            if (!SAFE_ID_PATTERN.test(id)) {
+                throw new Error('Profile id is invalid.');
+            }
+            const normalizedName = normalizeProfileName(name);
+            const manifest = await this.readManifest();
+            const index = manifest.profiles.findIndex(
+                (profile) => profile.id === id
+            );
+            if (index < 0) {
+                throw new Error('Profile does not exist.');
+            }
+            if (
+                manifest.profiles.some(
+                    (profile, candidateIndex) =>
+                        candidateIndex !== index &&
+                        profileNameKey(profile.name) ===
+                            profileNameKey(normalizedName)
+                )
+            ) {
+                throw new Error('A profile with that name already exists.');
+            }
+            if (manifest.profiles[index].name === normalizedName) {
+                return;
+            }
+            const profiles = manifest.profiles.map(cloneProfile);
+            profiles[index].name = normalizedName;
+            await this.atomicWriteManifest({ ...manifest, profiles });
+        }, 'preferences');
+        return await this.getSnapshot();
+    }
+
+    async deleteProfile(id: string): Promise<HoshidictsManagerSnapshot> {
+        await this.enqueue('saving', async () => {
+            if (!SAFE_ID_PATTERN.test(id)) {
+                throw new Error('Profile id is invalid.');
+            }
+            const manifest = await this.readManifest();
+            if (manifest.profiles.length === 1) {
+                throw new Error('The final profile cannot be deleted.');
+            }
+            const profiles = manifest.profiles
+                .filter((profile) => profile.id !== id)
+                .map(cloneProfile);
+            if (profiles.length === manifest.profiles.length) {
+                throw new Error('Profile does not exist.');
+            }
+            const next = projectActiveProfile({
+                ...manifest,
+                activeProfileId:
+                    manifest.activeProfileId === id
+                        ? profiles[0].id
+                        : manifest.activeProfileId,
+                profiles,
+            });
+            const enabledChanged = next.dictionaries.some(
+                (dictionary, index) =>
+                    dictionary.enabled !==
+                    manifest.dictionaries[index]?.enabled
+            );
+            if (enabledChanged) {
+                await this.commitManifestChange(manifest, next, null, null);
+            } else {
+                await this.atomicWriteManifest(next);
+            }
+        }, 'preferences');
         return await this.getSnapshot();
     }
 
@@ -2562,13 +2975,7 @@ export class HoshidictsManager {
                 // files yet. Persist normalized state so its first backup is a
                 // complete, restorable snapshot too.
                 const manifest = await this.readManifest();
-                const tabGroups = await this.readTabGroups();
-                const miningProfile = await this.readMiningProfile();
-                const audioProfile = await this.readAudioProfile();
                 await this.atomicWriteManifest(manifest);
-                await this.atomicWriteTabGroups(tabGroups);
-                await this.atomicWriteMiningProfile(miningProfile);
-                await this.atomicWriteAudioProfile(audioProfile);
                 await exportHoshidictsBackup({
                     rootDir: this.rootDir,
                     outputPath,
@@ -2601,12 +3008,7 @@ export class HoshidictsManager {
                         // Keep manager-level schema and native-file validation
                         // inside the transaction so any failure still rolls
                         // all state and generations back together.
-                        await Promise.all([
-                            this.readManifest(),
-                            this.readTabGroups(),
-                            this.readMiningProfile(),
-                            this.readAudioProfile(),
-                        ]);
+                        await this.readManifest();
                         await this.deps.reloadNative();
                     },
                 });
@@ -2970,8 +3372,8 @@ export class HoshidictsManager {
                     effectiveDefinitionBlur
                 )
             ) {
-                await this.atomicWriteManifest({
-                    ...manifest,
+                const profile = cloneProfile(activeProfile(manifest));
+                profile.reader = {
                     lookupMode,
                     scanLength,
                     maxResults,
@@ -3000,7 +3402,10 @@ export class HoshidictsManager {
                     popupToolbarPosition: effectivePopupToolbarPosition,
                     popupButtons: effectivePopupButtons,
                     customPopupCss: effectiveCustomPopupCss,
-                });
+                };
+                await this.atomicWriteManifest(
+                    replaceActiveProfile(manifest, profile)
+                );
             }
         }, 'preferences');
         return await this.getSnapshot();
@@ -3286,16 +3691,16 @@ export class HoshidictsManager {
 
     private snapshotFromManifest(
         manifest: PersistedManifest,
-        tabGroups: HoshidictsDictionaryTabGroup[],
-        miningProfile: HoshidictsMiningProfile,
-        audioProfile: HoshidictsAudioProfile,
         profileError: string | null = null
     ): HoshidictsManagerSnapshot {
+        const profile = activeProfile(manifest);
         const customDictionary = manifest.dictionaries.find(
             (dictionary) => dictionary.id === HOSHIDICTS_CUSTOM_DICTIONARY_ID
         );
         return {
             revision: ++this.snapshotRevision,
+            activeProfileId: manifest.activeProfileId,
+            profiles: manifest.profiles.map(({ id, name }) => ({ id, name })),
             dictionaries: manifest.dictionaries
                 .filter(
                     (dictionary) =>
@@ -3342,15 +3747,15 @@ export class HoshidictsManager {
                         lastUpdateCheck,
                     })
                 ),
-            tabGroups: tabGroups.map(({ id, name, dictionaryIds }) => ({
+            tabGroups: profile.tabGroups.map(({ id, name, dictionaryIds }) => ({
                 id,
                 name,
                 dictionaryIds: [...dictionaryIds],
             })),
             customDictionaryActive: customDictionary?.enabled === true,
             recommendedDictionaries: recommendedDictionaryStates(manifest),
-            miningProfile,
-            audioProfile,
+            miningProfile: structuredClone(profile.mining),
+            audioProfile: structuredClone(profile.audio),
             lookupMode: manifest.lookupMode,
             scanLength: manifest.scanLength,
             maxResults: manifest.maxResults,
@@ -3630,38 +4035,6 @@ export class HoshidictsManager {
         );
     }
 
-    private async readTabGroups(): Promise<HoshidictsDictionaryTabGroup[]> {
-        const value = await readBoundedJsonFile(
-            this.tabGroupsPath,
-            MAX_HOSHIDICTS_TAB_GROUPS_BYTES,
-            'Hoshidicts tab groups',
-            emptyTabGroups
-        );
-        return normalizePersistedTabGroups(value).groups;
-    }
-
-    private async readMiningProfile(): Promise<HoshidictsMiningProfile> {
-        return normalizeHoshidictsMiningProfile(
-            await readBoundedJsonFile(
-                this.miningProfilePath,
-                MAX_MINING_PROFILE_BYTES,
-                'Hoshidicts mining profile',
-                defaultHoshidictsMiningProfile
-            )
-        );
-    }
-
-    private async readAudioProfile(): Promise<HoshidictsAudioProfile> {
-        return normalizeHoshidictsAudioProfile(
-            await readBoundedJsonFile(
-                this.audioProfilePath,
-                MAX_AUDIO_PROFILE_BYTES,
-                'Hoshidicts audio profile',
-                defaultHoshidictsAudioProfile
-            )
-        );
-    }
-
     private async readManifest(): Promise<PersistedManifest> {
         const parsed = await readBoundedJsonFile(
             this.manifestPath,
@@ -3730,71 +4103,22 @@ export class HoshidictsManager {
             });
         }
 
-        const requestedSortFrequencyDictionary =
-            normalizeSortFrequencyDictionary(parsed.sortFrequencyDictionary);
-        const manifest: PersistedManifest = {
+        const profileState = normalizePersistedProfiles(
+            parsed.profiles,
+            parsed.activeProfileId,
+            dictionaries
+        );
+        let manifest: PersistedManifest = {
             version: MANIFEST_VERSION,
-            lookupMode: parsed.lookupMode === 'hover' ? 'hover' : 'shift',
-            scanLength: normalizeScanLength(parsed.scanLength),
-            maxResults: normalizeMaxResults(parsed.maxResults),
-            sortFrequencyDictionary:
-                requestedSortFrequencyDictionary !== null &&
-                dictionaries.some(
-                    (dictionary) =>
-                        dictionary.title === requestedSortFrequencyDictionary &&
-                        dictionary.enabled &&
-                        dictionary.frequencyCount > 0
-                )
-                    ? requestedSortFrequencyDictionary
-                    : null,
-            sortFrequencyDictionaryOrder:
-                normalizeSortFrequencyDictionaryOrder(
-                    parsed.sortFrequencyDictionaryOrder
-                ),
-            activationKey: isHoshidictsActivationKey(parsed.activationKey)
-                ? parsed.activationKey
-                : DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
-            sourceHighlightEnabled: parsed.sourceHighlightEnabled === true,
-            onlyScanJapaneseText:
-                parsed.onlyScanJapaneseText !== false,
-            popupHideDelayMs: normalizePopupHideDelay(parsed.popupHideDelayMs),
-            showLookupCounts: parsed.showLookupCounts !== false,
-            showCompactDefinitionSummary:
-                parsed.showCompactDefinitionSummary === true,
-            compactDefinitionSummaryDictionary:
-                normalizeCompactDefinitionSummaryDictionary(
-                    parsed.compactDefinitionSummaryDictionary
-                ),
-            showPitchAccentFurigana:
-                parsed.showPitchAccentFurigana !== false,
-            pitchAccentFuriganaDictionary:
-                normalizeCompactDefinitionSummaryDictionary(
-                    parsed.pitchAccentFuriganaDictionary
-                ),
-            showPitchAccentBadge: parsed.showPitchAccentBadge === true,
-            hidePopupGrammarTags: parsed.hidePopupGrammarTags !== false,
-            popupNestingMaxDepth: normalizePopupNestingMaxDepth(
-                parsed.popupNestingMaxDepth
-            ),
-            definitionBlur: normalizeDefinitionBlur(parsed.definitionBlur),
-            popupWidthPx: normalizePopupWidth(parsed.popupWidthPx),
-            popupHeightPx: normalizePopupHeight(parsed.popupHeightPx),
-            popupColumns: normalizePopupColumns(parsed.popupColumns),
-            theme: normalizeTheme(parsed.theme),
-            popupOpacityPercent: normalizePopupOpacityPercent(
-                parsed.popupOpacityPercent
-            ),
-            popupToolbarPosition: normalizePopupToolbarPosition(
-                parsed.popupToolbarPosition
-            ),
-            popupButtons: normalizePersistedPopupButtons(parsed.popupButtons),
-            customPopupCss: normalizeCustomPopupCss(parsed.customPopupCss),
+            ...profileState,
+            ...defaultReaderPreferences(),
             schedule,
             lastCheck: legacyLastCheck,
             nextCheck: null,
             lastError: normalizeOptionalString(parsed.lastError),
             dictionaries,
         };
+        manifest = projectActiveProfile(manifest);
         manifest.nextCheck = aggregateNextUpdateCheck(manifest, this.deps.now());
         return manifest;
     }
@@ -3809,62 +4133,21 @@ export class HoshidictsManager {
         if (!isRecord(parsed) || parsed.version !== MANIFEST_VERSION) {
             throw new Error('Hoshidicts manifest has an unsupported version.');
         }
-        return {
+        const profileState = normalizePersistedProfiles(
+            parsed.profiles,
+            parsed.activeProfileId,
+            []
+        );
+        return projectActiveProfile({
             version: MANIFEST_VERSION,
-            lookupMode: parsed.lookupMode === 'hover' ? 'hover' : 'shift',
-            scanLength: normalizeScanLength(parsed.scanLength),
-            maxResults: normalizeMaxResults(parsed.maxResults),
-            // Dictionary hydration failed, so no sort dictionary is available
-            // to the native engine for this snapshot.
-            sortFrequencyDictionary: null,
-            sortFrequencyDictionaryOrder:
-                normalizeSortFrequencyDictionaryOrder(
-                    parsed.sortFrequencyDictionaryOrder
-                ),
-            activationKey: isHoshidictsActivationKey(parsed.activationKey)
-                ? parsed.activationKey
-                : DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
-            sourceHighlightEnabled: parsed.sourceHighlightEnabled === true,
-            onlyScanJapaneseText:
-                parsed.onlyScanJapaneseText !== false,
-            popupHideDelayMs: normalizePopupHideDelay(parsed.popupHideDelayMs),
-            showLookupCounts: parsed.showLookupCounts !== false,
-            showCompactDefinitionSummary:
-                parsed.showCompactDefinitionSummary === true,
-            compactDefinitionSummaryDictionary:
-                normalizeCompactDefinitionSummaryDictionary(
-                    parsed.compactDefinitionSummaryDictionary
-                ),
-            showPitchAccentFurigana:
-                parsed.showPitchAccentFurigana !== false,
-            pitchAccentFuriganaDictionary:
-                normalizeCompactDefinitionSummaryDictionary(
-                    parsed.pitchAccentFuriganaDictionary
-                ),
-            showPitchAccentBadge: parsed.showPitchAccentBadge === true,
-            hidePopupGrammarTags: parsed.hidePopupGrammarTags !== false,
-            popupNestingMaxDepth: normalizePopupNestingMaxDepth(
-                parsed.popupNestingMaxDepth
-            ),
-            definitionBlur: normalizeDefinitionBlur(parsed.definitionBlur),
-            popupWidthPx: normalizePopupWidth(parsed.popupWidthPx),
-            popupHeightPx: normalizePopupHeight(parsed.popupHeightPx),
-            popupColumns: normalizePopupColumns(parsed.popupColumns),
-            theme: normalizeTheme(parsed.theme),
-            popupOpacityPercent: normalizePopupOpacityPercent(
-                parsed.popupOpacityPercent
-            ),
-            popupToolbarPosition: normalizePopupToolbarPosition(
-                parsed.popupToolbarPosition
-            ),
-            popupButtons: normalizePersistedPopupButtons(parsed.popupButtons),
-            customPopupCss: normalizeCustomPopupCss(parsed.customPopupCss),
+            ...profileState,
+            ...defaultReaderPreferences(),
             schedule: normalizeSchedule(parsed.schedule),
             lastCheck: normalizeDate(parsed.lastCheck),
             nextCheck: normalizeDate(parsed.nextCheck),
             lastError: normalizeOptionalString(parsed.lastError),
             dictionaries: [],
-        };
+        });
     }
 
     private async stageArchive(
@@ -4047,7 +4330,7 @@ export class HoshidictsManager {
         } else {
             dictionaries.push(staged.dictionary);
         }
-        const next: PersistedManifest = {
+        let next: PersistedManifest = {
             ...manifest,
             sortFrequencyDictionary:
                 manifest.sortFrequencyDictionary !== null &&
@@ -4061,6 +4344,18 @@ export class HoshidictsManager {
                     : null,
             dictionaries,
         };
+        if (
+            existingIndex < 0 &&
+            staged.dictionary.id !== HOSHIDICTS_CUSTOM_DICTIONARY_ID
+        ) {
+            const profile = cloneProfile(activeProfile(next));
+            profile.enabledDictionaryIds = [
+                ...profile.enabledDictionaryIds,
+                staged.dictionary.id,
+            ];
+            next = replaceActiveProfile(next, profile);
+        }
+        next = projectActiveProfile(next);
         await this.commitManifestChange(
             manifest,
             next,
@@ -4319,9 +4614,10 @@ export class HoshidictsManager {
     }
 
     private async atomicWriteManifest(manifest: PersistedManifest): Promise<void> {
+        const projected = projectActiveProfile(manifest);
         const next = {
-            ...manifest,
-            nextCheck: aggregateNextUpdateCheck(manifest, this.deps.now()),
+            ...projected,
+            nextCheck: aggregateNextUpdateCheck(projected, this.deps.now()),
         };
         await this.atomicWriteJson(
             next,
@@ -4329,43 +4625,6 @@ export class HoshidictsManager {
             MAX_MANIFEST_BYTES,
             'Hoshidicts manifest',
             '.manifest-'
-        );
-    }
-
-    private async atomicWriteMiningProfile(
-        profile: HoshidictsMiningProfile
-    ): Promise<void> {
-        await this.atomicWriteJson(
-            profile,
-            this.miningProfilePath,
-            MAX_MINING_PROFILE_BYTES,
-            'Hoshidicts mining profile',
-            '.mining-profile-'
-        );
-    }
-
-    private async atomicWriteTabGroups(
-        groups: HoshidictsDictionaryTabGroup[]
-    ): Promise<void> {
-        const normalized = normalizePersistedTabGroups({ version: 1, groups });
-        await this.atomicWriteJson(
-            normalized,
-            this.tabGroupsPath,
-            MAX_HOSHIDICTS_TAB_GROUPS_BYTES,
-            'Hoshidicts tab groups',
-            '.tab-groups-'
-        );
-    }
-
-    private async atomicWriteAudioProfile(
-        profile: HoshidictsAudioProfile
-    ): Promise<void> {
-        await this.atomicWriteJson(
-            profile,
-            this.audioProfilePath,
-            MAX_AUDIO_PROFILE_BYTES,
-            'Hoshidicts audio profile',
-            '.audio-profile-'
         );
     }
 

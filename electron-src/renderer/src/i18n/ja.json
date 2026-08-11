@@ -588,6 +588,17 @@
     "hoshidicts": {
       "appTitle": "Hoshidicts",
       "windowSubtitle": "辞書・音声・マイニングの設定",
+      "profiles": {
+        "label": "プロファイル",
+        "create": "プロファイルを作成",
+        "createPrompt": "新しいプロファイル名",
+        "manage": "プロファイルを管理",
+        "rename": "名前を変更",
+        "renamePrompt": "プロファイル名を変更",
+        "delete": "削除",
+        "deleteConfirm": "プロファイル「{name}」を削除しますか？",
+        "switching": "切り替え中..."
+      },
       "title": "Hoshidicts辞書",
       "enabled": "GSMの実験機能で有効",
       "disabled": "GSMの実験機能で無効",
@@ -1074,6 +1085,10 @@
         "preferencesSaved": "リーダー設定を保存しました。",
         "audioProfileSaved": "音声設定を保存しました。",
         "miningProfileSaved": "マイニングプロファイルを保存しました。",
+        "profileCreated": "プロファイルを作成しました。",
+        "profileSwitched": "プロファイルを切り替えました。",
+        "profileRenamed": "プロファイル名を変更しました。",
+        "profileDeleted": "プロファイルを削除しました。",
         "dictionaryImported": "辞書を{count}件インポートしました。",
         "yomitanDictionariesImported": "Yomitanから辞書{dictionaries}件をインポートしました（警告{warnings}件）。",
         "yomitanSettingsImported": "Yomitanから設定グループ{settings}件をインポートしました（警告{warnings}件）。",
@@ -1099,6 +1114,7 @@
       "errors": {
         "load": "Hoshidictsの状態を読み込めませんでした。",
         "operation": "Hoshidictsの操作に失敗しました。",
+        "profiles": "プロファイルの更新に失敗しました。",
         "import": "辞書のインポートに失敗しました。",
         "importYomitanDictionaries": "Yomitan辞書のインポートに失敗しました。",
         "importYomitanSettings": "Yomitan設定のインポートに失敗しました。",

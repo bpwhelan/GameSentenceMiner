@@ -3221,6 +3221,27 @@ mod tests {
     }
 
     #[test]
+    fn manifest_ignores_profiles_and_uses_projected_enabled_flags() {
+        let manifest: DictionaryManifest = serde_json::from_str(
+            r#"{
+                "version": 1,
+                "activeProfileId": "persona",
+                "profiles": [{"id": "persona", "name": "Persona"}],
+                "dictionaries": [
+                    {"id": "enabled", "path": "Enabled", "enabled": true},
+                    {"id": "disabled", "path": "Disabled", "enabled": false}
+                ]
+            }"#,
+        )
+        .expect("profile-aware manifest must remain native-compatible");
+
+        assert_eq!(manifest.version, 1);
+        assert_eq!(manifest.dictionaries.len(), 2);
+        assert!(manifest.dictionaries[0].enabled);
+        assert!(!manifest.dictionaries[1].enabled);
+    }
+
+    #[test]
     fn media_paths_and_raster_metadata_are_strictly_validated() {
         assert!(validate_media_dictionary("Japanese Character Names").is_ok());
         assert_eq!(

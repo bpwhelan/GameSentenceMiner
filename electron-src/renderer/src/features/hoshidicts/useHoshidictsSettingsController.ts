@@ -51,6 +51,7 @@ import {
   type HoshidictsBulkDictionaryAction,
   type HoshidictsBulkDictionaryActionRequest,
   type HoshidictsCreateTabGroupRequest,
+  type HoshidictsCreateProfileRequest,
   type HoshidictsCustomDictionaryDocument,
   type HoshidictsDeleteTabGroupRequest,
   type HoshidictsDesktopSnapshot,
@@ -66,7 +67,9 @@ import {
   type HoshidictsMoveDictionaryToPositionRequest,
   type HoshidictsMoveTabGroupRequest,
   type HoshidictsReaderPreferences,
+  type HoshidictsProfileIdRequest,
   type HoshidictsRenameDictionaryRequest,
+  type HoshidictsRenameProfileRequest,
   type HoshidictsRenameTabGroupRequest,
   type HoshidictsRecommendedDictionaryId,
   type HoshidictsSaveCustomDictionaryRequest,
@@ -243,6 +246,7 @@ export function useHoshidictsSettingsController() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [restarting, setRestarting] = useState(false);
+  const [profileSwitching, setProfileSwitching] = useState(false);
   const [backupOperation, setBackupOperation] =
     useState<HoshidictsBackupOperation | null>(null);
   const [yomitanImportProgress, setYomitanImportProgress] =
@@ -393,21 +397,33 @@ export function useHoshidictsSettingsController() {
     draftRef: readerDraftRef,
     updateDraft: updateReaderDraft,
     saving: readerSaving,
-    saveStatus: readerSaveStatus
+    saveStatus: readerSaveStatus,
+    flush: flushReader
   } = readerAutosave;
   const {
     draft: audioDraft,
     updateDraft: updateAudioDraft,
     saving: audioSaving,
-    saveStatus: audioSaveStatus
+    saveStatus: audioSaveStatus,
+    flush: flushAudio
   } = audioAutosave;
   const {
     draft: miningDraft,
     draftRef: miningDraftRef,
     updateDraft: updateMiningDraft,
     saving: miningSaving,
-    saveStatus: miningSaveStatus
+    saveStatus: miningSaveStatus,
+    flush: flushMining
   } = miningAutosave;
+
+  const flushAutosaves = useCallback(async (): Promise<boolean> => {
+    const results = await Promise.all([
+      flushReader(),
+      flushAudio(),
+      flushMining()
+    ]);
+    return results.every(Boolean);
+  }, [flushAudio, flushMining, flushReader]);
 
   const loadMiningOptions = useCallback(
     async (model?: string) => {
@@ -1003,6 +1019,69 @@ export function useHoshidictsSettingsController() {
 
   const actions = useMemo(
     () => ({
+      createProfile: async (name: string) => {
+        setProfileSwitching(true);
+        try {
+          if (!(await flushAutosaves())) return false;
+          return await runAction(
+            () =>
+              invokeIpc(
+                HOSHIDICTS_CHANNELS.createProfile,
+                { name } satisfies HoshidictsCreateProfileRequest
+              ),
+            "settings.hoshidicts.errors.profiles",
+            true
+          );
+        } finally {
+          setProfileSwitching(false);
+        }
+      },
+      switchProfile: async (id: string) => {
+        if (state?.activeProfileId === id) return true;
+        setProfileSwitching(true);
+        try {
+          if (!(await flushAutosaves())) return false;
+          return await runAction(
+            () =>
+              invokeIpc(
+                HOSHIDICTS_CHANNELS.switchProfile,
+                { id } satisfies HoshidictsProfileIdRequest
+              ),
+            "settings.hoshidicts.errors.profiles",
+            true
+          );
+        } finally {
+          setProfileSwitching(false);
+        }
+      },
+      renameProfile: (id: string, name: string) =>
+        runAction(
+          () =>
+            invokeIpc(
+              HOSHIDICTS_CHANNELS.renameProfile,
+              { id, name } satisfies HoshidictsRenameProfileRequest
+            ),
+          "settings.hoshidicts.errors.profiles"
+        ),
+      deleteProfile: async (id: string) => {
+        setProfileSwitching(true);
+        try {
+          if (state?.activeProfileId === id && !(await flushAutosaves())) {
+            return false;
+          }
+          return await runAction(
+            () =>
+              invokeIpc(
+                HOSHIDICTS_CHANNELS.deleteProfile,
+                { id } satisfies HoshidictsProfileIdRequest
+              ),
+            "settings.hoshidicts.errors.profiles",
+            state?.activeProfileId === id
+          );
+        } finally {
+          setProfileSwitching(false);
+        }
+      },
       exportBackup: async () => {
         setBackupOperation("exporting");
         try {
@@ -1224,24 +1303,27 @@ export function useHoshidictsSettingsController() {
         }
       }
     }),
-    [runAction]
+    [flushAutosaves, runAction, state?.activeProfileId]
   );
 
   const dictionaryBusy = state
     ? backupOperation !== null || isScopedBusy(state, "dictionary")
     : true;
   const preferencesBusy = state
-    ? backupOperation !== null ||
+    ? profileSwitching ||
+      backupOperation !== null ||
       isScopedBusy(state, "preferences") ||
       readerSaving
     : true;
   const miningBusy = state
-    ? backupOperation !== null ||
+    ? profileSwitching ||
+      backupOperation !== null ||
       isScopedBusy(state, "mining") ||
       miningSaving
     : true;
   const audioBusy = state
-    ? backupOperation !== null ||
+    ? profileSwitching ||
+      backupOperation !== null ||
       isScopedBusy(state, "audio") ||
       audioSaving
     : true;
@@ -1320,6 +1402,7 @@ export function useHoshidictsSettingsController() {
     actionError,
     notice,
     restarting,
+    profileSwitching,
     backupOperation,
     yomitanImportProgress,
     backupBusy,

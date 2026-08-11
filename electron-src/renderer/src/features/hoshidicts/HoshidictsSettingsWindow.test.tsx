@@ -119,6 +119,8 @@ const originalRevokeObjectUrl = Object.getOwnPropertyDescriptor(
 
 const baseState: HoshidictsDesktopSnapshot = {
   revision: 10,
+  activeProfileId: "default",
+  profiles: [{ id: "default", name: "Default" }],
   effectiveEnabled: true,
   dictionaries: [
     {
@@ -515,6 +517,80 @@ describe("HoshidictsSettingsWindow", () => {
 
     expect(rootRule).toMatch(/\bheight:\s*100vh\s*;/);
     expect(rootRule).toMatch(/\boverflow-y:\s*auto\s*;/);
+  });
+
+  it("shows the compact profile control and switches or clones profiles", async () => {
+    const profileState: HoshidictsDesktopSnapshot = {
+      ...baseState,
+      profiles: [
+        { id: "default", name: "Default" },
+        { id: "persona", name: "Persona" }
+      ]
+    };
+    invokeMock.mockImplementation(async (channel: string, ...args: unknown[]) => {
+      if (channel === HOSHIDICTS_CHANNELS.getState) return profileState;
+      if (channel === HOSHIDICTS_CHANNELS.switchProfile) {
+        return {
+          success: true,
+          outcome: { code: "profileSwitched" },
+          state: {
+            ...profileState,
+            revision: profileState.revision + 1,
+            activeProfileId: (args[0] as { id: string }).id
+          }
+        };
+      }
+      return {
+        success: true,
+        outcome: { code: "profileCreated" },
+        state: profileState
+      };
+    });
+    vi.spyOn(window, "prompt").mockReturnValue("Visual Novels");
+
+    await render();
+    const select = container.querySelector<HTMLSelectElement>(
+      "#hoshidicts-active-profile"
+    );
+    expect(Array.from(select?.options ?? []).map(({ text }) => text)).toEqual([
+      "Default",
+      "Persona"
+    ]);
+
+    await act(async () => {
+      container
+        .querySelector<HTMLInputElement>("#hoshidicts-reader-mode-hover")
+        ?.click();
+      setSelectValue(select, "persona");
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const saveIndex = invokeMock.mock.calls.findIndex(
+      ([channel]) => channel === HOSHIDICTS_CHANNELS.setReaderPreferences
+    );
+    const switchIndex = invokeMock.mock.calls.findIndex(
+      ([channel]) => channel === HOSHIDICTS_CHANNELS.switchProfile
+    );
+    expect(saveIndex).toBeGreaterThan(-1);
+    expect(switchIndex).toBeGreaterThan(saveIndex);
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.switchProfile,
+      { id: "persona" }
+    );
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Create profile"]')
+        ?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.createProfile,
+      { name: "Visual Novels" }
+    );
   });
 
   it("shows dictionary import progress beside the dictionary import controls", async () => {

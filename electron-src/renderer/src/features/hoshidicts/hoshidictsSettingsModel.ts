@@ -320,6 +320,8 @@ export const DEFAULT_MINING_OPTIONS: HoshidictsMiningOptions = {
 
 const DEFAULT_STATE: HoshidictsDesktopSnapshot = {
   revision: 0,
+  activeProfileId: "default",
+  profiles: [{ id: "default", name: "Default" }],
   effectiveEnabled: false,
   dictionaries: [],
   tabGroups: [],
@@ -661,6 +663,7 @@ export function normalizeHoshidictsDesktopState(
       popupButtons: createDefaultHoshidictsPopupButtons(),
       miningProfile: copyMiningProfile(),
       audioProfile: copyAudioProfile(),
+      profiles: DEFAULT_STATE.profiles.map((profile) => ({ ...profile })),
       tabGroups: [],
       recommendedDictionaries: DEFAULT_STATE.recommendedDictionaries.map(
         (dictionary) => ({ ...dictionary })
@@ -790,12 +793,32 @@ export function normalizeHoshidictsDesktopState(
     )
       ? candidate.sortFrequencyDictionary
       : DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY;
+  const profiles = Array.isArray(candidate.profiles)
+    ? candidate.profiles.flatMap((value) => {
+        if (!value || typeof value !== "object") return [];
+        const profile = value as { id?: unknown; name?: unknown };
+        return typeof profile.id === "string" &&
+          profile.id.length > 0 &&
+          typeof profile.name === "string" &&
+          profile.name.trim().length > 0
+          ? [{ id: profile.id, name: profile.name.trim() }]
+          : [];
+      })
+    : [];
+  const activeProfileId =
+    typeof candidate.activeProfileId === "string" &&
+    profiles.some(({ id }) => id === candidate.activeProfileId)
+      ? candidate.activeProfileId
+      : (profiles[0]?.id ?? "default");
 
   return {
     revision:
       typeof candidate.revision === "number" && candidate.revision >= 0
         ? candidate.revision
         : 0,
+    activeProfileId,
+    profiles:
+      profiles.length > 0 ? profiles : [{ id: "default", name: "Default" }],
     effectiveEnabled: candidate.effectiveEnabled === true,
     dictionaries,
     tabGroups: Array.isArray(candidate.tabGroups)
