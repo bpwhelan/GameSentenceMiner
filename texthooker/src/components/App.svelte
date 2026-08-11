@@ -320,6 +320,7 @@
 	onMount(() => {
 		mountFunction();
 		initializeAudioElement();
+		void fetchGSMTextIntakePausedState();
 		audioEventsSub = texthookerAudioEvents$.subscribe(handleAudioEvent);
 
 		return () => {
@@ -408,6 +409,21 @@
 				'This play/pause button only controls the TextFeed timer and CPH display. It does not pause GSM stats collection. Use the database button beside it to pause or resume GSM stats collection.',
 			showCancel: false,
 		};
+	}
+
+	async function fetchGSMTextIntakePausedState() {
+		try {
+			const response = await fetch(getGSMEndpoint('/get_ids'));
+			if (!response.ok) {
+				throw new Error(`HTTP error: ${response.status}`);
+			}
+			const data = await response.json();
+			if (typeof data.text_intake_paused === 'boolean') {
+				gsmTextIntakePaused = data.text_intake_paused;
+			}
+		} catch (error) {
+			console.error('Failed to fetch GSM stats collection state:', error);
+		}
 	}
 
 	async function setGSMTextIntakePaused(requestedPausedState: boolean): Promise<boolean | undefined> {

@@ -371,9 +371,24 @@ def rebuild_word_stats_cache(db: SQLiteDB) -> None:
     db.run_transaction(_rebuild)
 
 
-def _deduplicate_table_rows(db: SQLiteDB, table: str, columns: tuple[str, ...]) -> None:
-    """Drop duplicate rows that would violate an upcoming unique index."""
+def _deduplicate_table_rows(
+    db: SQLiteDB,
+    table: str,
+    columns: tuple[str, ...],
+    unique_index: str | None = None,
+) -> None:
+    """Drop duplicate rows that would violate an upcoming unique index.
+
+    Skips the expensive scan once ``unique_index`` already exists: the index
+    enforces uniqueness, so there is nothing left to deduplicate on repeat startups.
+    """
     if not db.table_exists(table):
+        return
+
+    if unique_index and db.fetchone(
+        "SELECT 1 FROM sqlite_master WHERE type='index' AND name=?",
+        (unique_index,),
+    ):
         return
 
     group_by_sql = ", ".join(columns)
@@ -409,7 +424,7 @@ def create_tokenization_indexes(db: SQLiteDB):
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_kanji_character ON kanji(character)",
         commit=True,
     )
-    _deduplicate_table_rows(db, "word_occurrences", ("word_id", "line_id"))
+    _deduplicate_table_rows(db, "word_occurrences", ("word_id", "line_id"), "idx_word_occ_unique")
     db.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_word_occ_unique ON word_occurrences(word_id, line_id)",
         commit=True,
@@ -422,7 +437,7 @@ def create_tokenization_indexes(db: SQLiteDB):
         "CREATE INDEX IF NOT EXISTS idx_word_occ_line_id ON word_occurrences(line_id)",
         commit=True,
     )
-    _deduplicate_table_rows(db, "kanji_occurrences", ("kanji_id", "line_id"))
+    _deduplicate_table_rows(db, "kanji_occurrences", ("kanji_id", "line_id"), "idx_kanji_occ_unique")
     db.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_kanji_occ_unique ON kanji_occurrences(kanji_id, line_id)",
         commit=True,
@@ -655,6 +670,22 @@ def recompute_word_first_seen_metadata(
     return updated
 
 
+def _schedule_first_seen_backfill(db: SQLiteDB) -> None:
+    """Run the missing first-seen repair on a background worker, not the caller's thread."""
+    if db.read_only:
+        return
+
+    from GameSentenceMiner.util.concurrency.work_pool import submit_background_work
+
+    def _run() -> None:
+        try:
+            recompute_word_first_seen_metadata(db, only_missing=True)
+        except Exception as exc:
+            logger.warning(f"Failed to backfill word first-seen metadata: {exc}")
+
+    submit_background_work(_run)
+
+
 def drop_tokenization_trigger(db: SQLiteDB):
     """Drop tokenization cleanup and cache-maintenance triggers."""
     db.execute("DROP TRIGGER IF EXISTS trg_game_lines_tokenization_cleanup", commit=True)
@@ -726,7 +757,10 @@ def setup_tokenization(db: SQLiteDB):
     if not word_stats_cache_already_exists:
         rebuild_word_stats_cache(db)
 
-    recompute_word_first_seen_metadata(db, only_missing=True)
+    # Repair missing first-seen metadata off the startup path: on large databases
+    # (or right after upgrading from a version that didn't track first-seen) this
+    # can touch huge numbers of rows and must not block app launch.
+    _schedule_first_seen_backfill(db)
 
     # 5. Register crons
     _migrate_tokenize_backfill_cron_job()

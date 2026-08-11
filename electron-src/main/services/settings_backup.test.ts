@@ -83,6 +83,33 @@ describe('settings backup archive', () => {
         expect(fs.existsSync(path.join(extractDir, 'gsm_overlay'))).toBe(false);
     });
 
+    it('uses one verified snapshot instead of a live SQLite/WAL file set', async () => {
+        const baseDir = makeTempDir('gsm-backup-live-db-base-');
+        const outputPath = path.join(makeTempDir('gsm-backup-live-db-out-'), 'backup.zip');
+        const extractDir = makeTempDir('gsm-backup-live-db-extract-');
+        const snapshotPath = path.join(makeTempDir('gsm-backup-live-db-snapshot-'), 'snapshot.db');
+
+        writeFile(path.join(baseDir, 'gsm.db'), 'inconsistent-main');
+        writeFile(path.join(baseDir, 'gsm.db-wal'), 'inconsistent-wal');
+        writeFile(path.join(baseDir, 'gsm.db-shm'), 'inconsistent-shm');
+        writeFile(snapshotPath, 'verified-snapshot');
+
+        const result = await createBackupArchive({
+            outputPath,
+            baseDir,
+            categories: ['database'],
+            databaseSnapshotPath: snapshotPath,
+        });
+        await extract(outputPath, { dir: extractDir });
+
+        expect(result.fileCount).toBe(1);
+        expect(fs.readFileSync(path.join(extractDir, 'GameSentenceMiner', 'gsm.db'), 'utf8')).toBe(
+            'verified-snapshot'
+        );
+        expect(fs.existsSync(path.join(extractDir, 'GameSentenceMiner', 'gsm.db-wal'))).toBe(false);
+        expect(fs.existsSync(path.join(extractDir, 'GameSentenceMiner', 'gsm.db-shm'))).toBe(false);
+    });
+
     it('archives relevant settings and excludes temp/cache/runtime folders', async () => {
         const baseDir = makeTempDir('gsm-backup-base-');
         const overlayDir = makeTempDir('gsm-backup-overlay-');

@@ -1271,6 +1271,7 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
         const reportProgress = (progress: SettingsBackupProgressEvent) => {
             emitSettingsBackupProgress(event, progress);
         };
+        let databaseSnapshotPath: string | undefined;
 
         try {
             const categories = getRequestedBackupCategories(payload);
@@ -1291,9 +1292,33 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
                 path.extname(saveResult.filePath).toLowerCase() === '.zip'
                     ? saveResult.filePath
                     : `${saveResult.filePath}.zip`;
+            if (categories.includes('database')) {
+                const response = await axios.post<{ backup_path?: string }>(
+                    `http://127.0.0.1:${getConfiguredSinglePort()}/api/database_backup`,
+                    {},
+                    { timeout: 120_000 },
+                );
+                const candidatePath = response.data?.backup_path;
+                if (typeof candidatePath !== 'string' || candidatePath.trim().length === 0) {
+                    throw new Error('The GSM backend did not return a verified database snapshot.');
+                }
+                const resolvedSnapshotPath = path.resolve(candidatePath);
+                const backupRoot = path.resolve(BASE_DIR, 'backup');
+                const relativeSnapshotPath = path.relative(backupRoot, resolvedSnapshotPath);
+                if (
+                    relativeSnapshotPath.startsWith('..') ||
+                    path.isAbsolute(relativeSnapshotPath)
+                ) {
+                    throw new Error(
+                        'The GSM backend returned a database snapshot outside the backup folder.',
+                    );
+                }
+                databaseSnapshotPath = resolvedSnapshotPath;
+            }
             const backup = await createBackupArchive({
                 outputPath,
                 categories,
+                databaseSnapshotPath,
                 onProgress: reportProgress,
             });
 
@@ -1321,6 +1346,14 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
                 success: false,
                 error: error?.message ?? String(error),
             };
+        } finally {
+            if (databaseSnapshotPath) {
+                try {
+                    await fs.promises.rm(databaseSnapshotPath, { force: true });
+                } catch (error) {
+                    console.warn('Failed to remove temporary verified database snapshot:', error);
+                }
+            }
         }
     });
 

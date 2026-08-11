@@ -130,6 +130,7 @@ export interface BackupArchiveOptions {
     baseDir?: string;
     overlayDir?: string;
     homeConfigPath?: string;
+    databaseSnapshotPath?: string;
     onProgress?: SettingsBackupProgressReporter;
     categories?: readonly SettingsBackupCategoryId[];
 }
@@ -456,13 +457,23 @@ async function collectBackupFiles(options: BackupArchiveOptions): Promise<{
     const baseDir = options.baseDir ?? getBaseDir();
     const overlayDir = options.overlayDir ?? getOverlayDataDir(baseDir);
     const homeConfigPath = options.homeConfigPath ?? getOwocrConfigPath();
+    const categories = normalizeSettingsBackupCategories(options.categories);
+    const selectedCategories = new Set(categories);
+    const useDatabaseSnapshot =
+        selectedCategories.has('database') && typeof options.databaseSnapshotPath === 'string';
 
     const roots: BackupSourceRoot[] = [
         {
             key: 'gsm',
             absolutePath: baseDir,
             archiveRoot: GSM_ARCHIVE_ROOT,
-            include: shouldIncludeGsmBackupPath,
+            include: (relativePath, isDirectory) => {
+                const [first] = splitRelativePath(relativePath);
+                if (useDatabaseSnapshot && !isDirectory && isSqliteDatabaseFile(first)) {
+                    return false;
+                }
+                return shouldIncludeGsmBackupPath(relativePath, isDirectory);
+            },
         },
         {
             key: 'overlay',
@@ -472,8 +483,6 @@ async function collectBackupFiles(options: BackupArchiveOptions): Promise<{
         },
     ];
 
-    const categories = normalizeSettingsBackupCategories(options.categories);
-    const selectedCategories = new Set(categories);
     const collected: CollectedFile[] = [];
     const includedRoots = new Set<BackupManifest['roots'][number]>();
     for (const root of roots) {
@@ -485,6 +494,18 @@ async function collectBackupFiles(options: BackupArchiveOptions): Promise<{
             includedRoots.add(root.key);
             collected.push(...files);
         }
+    }
+
+    if (useDatabaseSnapshot) {
+        const snapshotFiles = await collectStandaloneFile(
+            options.databaseSnapshotPath!,
+            `${GSM_ARCHIVE_ROOT}/gsm.db`,
+        );
+        if (snapshotFiles.length !== 1) {
+            throw new Error('The verified database snapshot is missing.');
+        }
+        includedRoots.add('gsm');
+        collected.push(...snapshotFiles);
     }
 
     const homeFiles = selectedCategories.has('ocr-configs')
@@ -725,7 +746,26 @@ async function copyRestoreFiles(
         });
 
         await fsp.mkdir(path.dirname(file.destinationPath), { recursive: true });
-        await fsp.copyFile(file.sourcePath, file.destinationPath);
+        if (file.displayPath === `${GSM_ARCHIVE_ROOT}/gsm.db`) {
+            const temporaryPath = path.join(
+                path.dirname(file.destinationPath),
+                `.${path.basename(file.destinationPath)}.${process.pid}.${Date.now()}.tmp`,
+            );
+            try {
+                await fsp.copyFile(file.sourcePath, temporaryPath);
+                const handle = await fsp.open(temporaryPath, 'r+');
+                try {
+                    await handle.sync();
+                } finally {
+                    await handle.close();
+                }
+                await fsp.rename(temporaryPath, file.destinationPath);
+            } finally {
+                await fsp.rm(temporaryPath, { force: true });
+            }
+        } else {
+            await fsp.copyFile(file.sourcePath, file.destinationPath);
+        }
         completed += 1;
 
         reportProgress(onProgress, {
@@ -755,6 +795,11 @@ async function prepareGsmRestoreTarget(
             selectedCategories.has(category) &&
             await pathExists(path.join(sourceDir, fileName))
         ) {
+            if (fileName === 'gsm.db') {
+                // Keep the old main DB until the replacement has been copied and
+                // synced. copyRestoreFiles publishes the new snapshot atomically.
+                continue;
+            }
             await removeIfExists(path.join(baseDir, fileName));
         }
     }

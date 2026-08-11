@@ -1,31 +1,36 @@
 import concurrent.futures
 import gzip
-import itertools
 import json
 import os
-import queue
 import regex
 import shutil
 import sqlite3
 import sys
 import threading
 import time
-import uuid
 from contextlib import contextmanager
 from datetime import datetime
 from datetime import timedelta
 from functools import lru_cache
 from sys import platform
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union, Type, TypeVar
+from typing import Any, Dict, List, Optional, Tuple, Union, Type, TypeVar
 
 from GameSentenceMiner.util.config.configuration import (
     get_config,
     get_stats_config,
     logger,
-    is_dev,
     sanitize_and_resolve_path,
 )
 from GameSentenceMiner.util.text_log import GameLine
+from GameSentenceMiner.util.database.sqlite_core import (
+    DB_PRIORITY_HIGH as DB_PRIORITY_HIGH,
+    DB_PRIORITY_LOW as DB_PRIORITY_LOW,
+    DB_PRIORITY_NORMAL as DB_PRIORITY_NORMAL,
+    SQLiteDB,
+    atomic_sqlite_backup,
+    durable_replace,
+    sqlite_file_uri,
+)
 
 # Matches any Unicode punctuation (\p{P}), symbol (\p{S}), or separator (\p{Z}); \p{Z} includes whitespace/separator chars
 PUNCTUATION_REGEX_PATTERN = r"[\p{P}\p{S}\p{Z}]"
@@ -71,471 +76,6 @@ def _is_tokenization_enabled() -> bool:
 # Matches repeating characters that are 3 repeats or more and limits them to three repeats.
 # For example: あああああ -> あああ or 黙れ黙れ黙れ黙れ -> 黙れ黙れ黙れ
 repeating_chars_regex = regex.compile(r"(.+?)\1{2,}")
-
-
-# --------------------------------------------------------------------------- #
-# Single-writer database plumbing                                             #
-# --------------------------------------------------------------------------- #
-# All writes are funneled through ONE dedicated writer thread per SQLiteDB
-# instance. Callers submit a work unit to a priority queue; the writer thread
-# owns the single write connection and runs each unit inside its own
-# transaction. Reads stay on per-thread read connections (WAL allows concurrent
-# readers while the writer is active), so no reader ever blocks on a writer and
-# no writer can starve the foreground: high-priority (foreground) writes always
-# run before low-priority (background/cron) writes queued after them.
-#
-# This replaces the old process-wide RLock, whose fatal flaw was that a single
-# long-held transaction (e.g. a multi-minute Anki cache sync) blocked every
-# other writer in the process — including the text-intake event loop — until it
-# finished.
-
-# Lower number = more urgent. Foreground/interactive writes should preempt
-# background/cron writes, which MUST be submitted as many small units (never one
-# long-running unit) so higher-priority work can run between them.
-DB_PRIORITY_HIGH = 0
-DB_PRIORITY_NORMAL = 50
-DB_PRIORITY_LOW = 100
-
-# Sentinel enqueued by close() to wind the writer thread down.
-_WRITER_SHUTDOWN = object()
-
-
-class _WriteResult:
-    """Lightweight stand-in for a cursor returned by a routed write.
-
-    Only ``lastrowid``/``rowcount`` are meaningful for writes, and both are plain
-    ints captured on the writer thread, so this is safe to read from any thread.
-    """
-
-    __slots__ = ("lastrowid", "rowcount")
-
-    def __init__(self, lastrowid: Optional[int], rowcount: int):
-        self.lastrowid = lastrowid
-        self.rowcount = rowcount
-
-
-class SQLiteDB:
-    """
-    Multi-purpose SQLite database utility class for general use.
-    Thread-safe for basic operations.
-    Supports optional read-only mode.
-    """
-
-    def __init__(self, db_path: str, read_only: bool = False, force_gameline_protection: bool = False):
-        self.db_path = db_path
-        self.read_only = read_only
-        testing_process = os.environ.get("GAME_SENTENCE_MINER_TESTING", "0") == "1" or "pytest" in sys.modules
-        test_data_root = os.environ.get("GSM_TEST_DATA_ROOT", "").strip()
-        is_isolated_test_database = (
-            testing_process and bool(test_data_root) and self._path_is_within(db_path, test_data_root)
-        )
-        external_read_allowed = read_only and os.environ.get("GSM_ALLOW_TEST_EXTERNAL_DB_READ_ONLY", "0") == "1"
-        if testing_process and db_path != ":memory:" and not is_isolated_test_database and not external_read_allowed:
-            raise RuntimeError(f"Refusing to open database outside GSM_TEST_DATA_ROOT from a test process: {db_path}")
-        self._allow_destructive_gameline_operations = not force_gameline_protection and (
-            db_path == ":memory:"
-            or is_isolated_test_database
-            or os.environ.get("GSM_ALLOW_DESTRUCTIVE_DB_OPERATIONS", "0") == "1"
-        )
-        self._resolved_uri, self._uri_mode = self._resolve_connection_target(db_path, read_only)
-
-        # Per-thread read connections (WAL → concurrent with the writer).
-        self._local = threading.local()
-        self._read_connections: List[sqlite3.Connection] = []
-        self._read_conn_lock = threading.Lock()
-
-        # Single-writer infrastructure. The writer thread is started lazily on the
-        # first write so read-only databases never spawn one.
-        self._write_queue: "queue.PriorityQueue" = queue.PriorityQueue(maxsize=4096)
-        self._seq = itertools.count()
-        self._writer_thread: Optional[threading.Thread] = None
-        self._writer_start_lock = threading.Lock()
-        self._write_conn: Optional[sqlite3.Connection] = None
-        self._write_tx_depth = 0  # only ever touched on the writer thread
-        self._closed = False
-        # Keep fire-and-forget write futures alive until they resolve.
-        self._pending_futures: set = set()
-
-    @staticmethod
-    def _resolve_connection_target(db_path: str, read_only: bool) -> Tuple[str, bool]:
-        """Return (uri_or_path, use_uri_mode) for sqlite3.connect().
-
-        In-memory databases are mapped to a uniquely-named shared-cache URI so the
-        writer thread and per-thread reader connections all see the *same* database
-        (a plain ``:memory:`` connection is private to a single connection).
-        """
-        if db_path == ":memory:":
-            return f"file:gsm_mem_{uuid.uuid4().hex}?mode=memory&cache=shared", True
-        if read_only:
-            return f"file:{db_path}?mode=ro", True
-        return db_path, False
-
-    @staticmethod
-    def _path_is_within(path: str, root: str) -> bool:
-        if not path or not root:
-            return False
-        try:
-            normalized_path = os.path.normcase(os.path.abspath(path))
-            normalized_root = os.path.normcase(os.path.abspath(root))
-            return os.path.commonpath((normalized_path, normalized_root)) == normalized_root
-        except (OSError, ValueError):
-            return False
-
-    def _create_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self._resolved_uri, uri=self._uri_mode, check_same_thread=False)
-        conn.execute("PRAGMA busy_timeout = 30000")
-        if not self.read_only:
-            try:
-                # WAL lets readers run concurrently with the single writer. Not all
-                # backends support it (e.g. shared-cache :memory:); ignore if so.
-                conn.execute("PRAGMA journal_mode=WAL")
-            except sqlite3.OperationalError:
-                pass
-        return conn
-
-    # -- writer thread lifecycle -------------------------------------------- #
-
-    def _on_writer_thread(self) -> bool:
-        return threading.current_thread() is self._writer_thread
-
-    def _ensure_writer_started(self) -> None:
-        if self.read_only:
-            raise RuntimeError("Cannot write in read-only mode.")
-        thread = self._writer_thread
-        if thread is not None and thread.is_alive():
-            return
-        with self._writer_start_lock:
-            if self._closed:
-                raise RuntimeError("Cannot write to a closed database.")
-            thread = self._writer_thread
-            if thread is not None and thread.is_alive():
-                return
-            ready = threading.Event()
-            self._writer_thread = threading.Thread(
-                target=self._writer_loop,
-                args=(ready,),
-                name="gsm-db-writer",
-                daemon=False,
-            )
-            self._writer_thread.start()
-            ready.wait(timeout=10)
-
-    def _writer_loop(self, ready: threading.Event) -> None:
-        try:
-            self._write_conn = self._create_connection()
-        finally:
-            ready.set()
-        while True:
-            _priority, _seq, fn, future = self._write_queue.get()
-            try:
-                if fn is _WRITER_SHUTDOWN:
-                    return
-                if not future.set_running_or_notify_cancel():
-                    continue
-                try:
-                    result = fn(self._write_conn)
-                except BaseException as exc:  # noqa: BLE001 - propagated to the caller
-                    future.set_exception(exc)
-                else:
-                    future.set_result(result)
-            finally:
-                self._write_queue.task_done()
-
-    def _submit(self, fn: "Callable[[sqlite3.Connection], Any]", priority: int) -> "concurrent.futures.Future":
-        self._ensure_writer_started()
-        future: "concurrent.futures.Future" = concurrent.futures.Future()
-        try:
-            self._write_queue.put((priority, next(self._seq), fn, future), timeout=0.25)
-        except queue.Full as exc:
-            raise RuntimeError("Database writer mailbox is backpressured") from exc
-        return future
-
-    def _submit_and_maybe_wait(self, fn, priority: int, wait: bool):
-        future = self._submit(fn, priority)
-        if wait:
-            return future.result()
-        self._pending_futures.add(future)
-        future.add_done_callback(self._pending_futures.discard)
-        return future
-
-    def _run_tx_inline(self, fn: "Callable[[sqlite3.Connection], Any]"):
-        """Run ``fn`` inside a (possibly nested) transaction on the writer thread."""
-        conn = self._write_conn
-        if self._write_tx_depth == 0:
-            conn.execute("BEGIN")
-        self._write_tx_depth += 1
-        try:
-            result = fn(conn)
-        except BaseException:
-            self._write_tx_depth -= 1
-            if self._write_tx_depth == 0:
-                conn.rollback()
-            raise
-        else:
-            self._write_tx_depth -= 1
-            if self._write_tx_depth == 0:
-                conn.commit()
-            return result
-
-    def run_transaction(
-        self,
-        fn: "Callable[[sqlite3.Connection], Any]",
-        priority: int = DB_PRIORITY_NORMAL,
-        wait: bool = True,
-    ):
-        """Run ``fn(conn)`` atomically on the writer thread.
-
-        ``fn`` may freely read and write on the supplied connection; nested
-        ``run_transaction``/``execute`` calls made from within ``fn`` run inline on
-        the same connection and participate in the same transaction. This replaces
-        the old ``with db.transaction():`` context manager for cross-thread callers.
-        """
-        if self.read_only:
-            raise RuntimeError("Cannot start a write transaction in read-only mode.")
-        if self._on_writer_thread():
-            return self._run_tx_inline(fn)
-        return self._submit_and_maybe_wait(lambda _conn: self._run_tx_inline(fn), priority, wait)
-
-    @contextmanager
-    def transaction(self):
-        """Backwards-compatible context manager — valid only on the writer thread.
-
-        Cross-thread callers must use ``run_transaction(fn)`` instead so the whole
-        transaction body runs on the single writer thread. This shim keeps existing
-        ``with self.transaction():`` usage working when reached from inside a
-        ``run_transaction`` closure (i.e. already on the writer thread).
-        """
-        if self.read_only:
-            raise RuntimeError("Cannot start a write transaction in read-only mode.")
-        if not self._on_writer_thread():
-            raise RuntimeError(
-                "SQLiteDB.transaction() must run on the writer thread; use run_transaction(fn) from other threads."
-            )
-        conn = self._write_conn
-        if self._write_tx_depth == 0:
-            conn.execute("BEGIN")
-        self._write_tx_depth += 1
-        try:
-            yield conn
-        except BaseException:
-            self._write_tx_depth -= 1
-            if self._write_tx_depth == 0:
-                conn.rollback()
-            raise
-        else:
-            self._write_tx_depth -= 1
-            if self._write_tx_depth == 0:
-                conn.commit()
-
-    def delete_where_in(
-        self,
-        table: str,
-        column: str,
-        values: List[Any],
-        chunk_size: int = 500,
-        priority: int = DB_PRIORITY_NORMAL,
-    ) -> int:
-        unique_values = [value for value in dict.fromkeys(values) if value is not None]
-        if not unique_values:
-            return 0
-
-        def op(conn: sqlite3.Connection) -> int:
-            deleted_count = 0
-            for start in range(0, len(unique_values), chunk_size):
-                chunk = unique_values[start : start + chunk_size]
-                placeholders = ",".join("?" for _ in chunk)
-                cursor = conn.cursor()
-                cursor.execute(
-                    f"DELETE FROM {table} WHERE {column} IN ({placeholders})",
-                    tuple(chunk),
-                )
-                if cursor.rowcount is not None and cursor.rowcount > 0:
-                    deleted_count += cursor.rowcount
-            return deleted_count
-
-        return self.run_transaction(op, priority=priority)
-
-    def backup(self, backup_path: str):
-        """Create a backup of the database using built in SQLite backup API."""
-        if self.read_only:
-            raise RuntimeError("Cannot backup a database opened in read-only mode.")
-
-        def op(conn: sqlite3.Connection):
-            with sqlite3.connect(backup_path, check_same_thread=False) as backup_conn:
-                conn.backup(backup_conn)
-            if is_dev:
-                logger.debug(f"Database backed up to {backup_path}")
-
-        # A raw writer job (not wrapped in BEGIN): the backup API needs a
-        # connection that is not inside an open transaction.
-        self._submit(op, DB_PRIORITY_LOW).result()
-
-    def _get_read_connection(self) -> sqlite3.Connection:
-        # On the writer thread, read through the write connection so a transaction
-        # sees its own uncommitted changes (read-your-writes).
-        if self._on_writer_thread():
-            return self._write_conn
-        conn = getattr(self._local, "conn", None)
-        if conn is None:
-            conn = self._create_connection()
-            self._local.conn = conn
-            with self._read_conn_lock:
-                self._read_connections.append(conn)
-        return conn
-
-    def execute(
-        self,
-        query: str,
-        params: Union[Tuple, Dict] = (),
-        commit: bool = False,
-        priority: int = DB_PRIORITY_NORMAL,
-        wait: bool = True,
-    ):
-        self._assert_safe_gameline_query(query)
-        if self.read_only and commit:
-            raise RuntimeError("Cannot commit changes in read-only mode.")
-
-        # Already on the writer thread (inside a run_transaction/write job): run
-        # inline so nested writes participate in the current transaction.
-        if self._on_writer_thread():
-            cur = self._write_conn.cursor()
-            cur.execute(query, params)
-            if commit and self._write_tx_depth == 0:
-                self._write_conn.commit()
-            return cur
-
-        # Reads run directly on the calling thread's read connection.
-        if not commit:
-            conn = self._get_read_connection()
-            cur = conn.cursor()
-            cur.execute(query, params)
-            return cur
-
-        # Writes from any other thread are routed to the single writer.
-        def op(conn: sqlite3.Connection) -> _WriteResult:
-            cur = conn.cursor()
-            cur.execute(query, params)
-            if self._write_tx_depth == 0:
-                conn.commit()
-            return _WriteResult(cur.lastrowid, cur.rowcount)
-
-        return self._submit_and_maybe_wait(op, priority, wait)
-
-    def _assert_safe_gameline_query(self, query: str) -> None:
-        """Block accidental full-table gameline destruction on persistent databases."""
-        if self._allow_destructive_gameline_operations:
-            return
-
-        normalized = " ".join(str(query).strip().rstrip(";").split()).lower()
-        normalized = normalized.translate(str.maketrans("", "", '"`[]'))
-        if normalized in {"delete from game_lines", "delete from main.game_lines"}:
-            raise RuntimeError(
-                "Refusing to clear the entire game_lines table in a persistent database. "
-                "Use a scoped DELETE with a WHERE clause. For intentional maintenance only, "
-                "set GSM_ALLOW_DESTRUCTIVE_DB_OPERATIONS=1."
-            )
-        if normalized in {
-            "drop table game_lines",
-            "drop table if exists game_lines",
-            "drop table main.game_lines",
-            "drop table if exists main.game_lines",
-        }:
-            raise RuntimeError(
-                "Refusing to drop the game_lines table in a persistent database. "
-                "For intentional maintenance only, set GSM_ALLOW_DESTRUCTIVE_DB_OPERATIONS=1."
-            )
-
-    def executemany(
-        self,
-        query: str,
-        seq_of_params: List[Union[Tuple, Dict]],
-        commit: bool = False,
-        priority: int = DB_PRIORITY_NORMAL,
-        wait: bool = True,
-    ):
-        self._assert_safe_gameline_query(query)
-        if self.read_only and commit:
-            raise RuntimeError("Cannot commit changes in read-only mode.")
-
-        if self._on_writer_thread():
-            cur = self._write_conn.cursor()
-            cur.executemany(query, seq_of_params)
-            if commit and self._write_tx_depth == 0:
-                self._write_conn.commit()
-            return cur
-
-        if not commit:
-            conn = self._get_read_connection()
-            cur = conn.cursor()
-            cur.executemany(query, seq_of_params)
-            return cur
-
-        params_list = list(seq_of_params)
-
-        def op(conn: sqlite3.Connection) -> _WriteResult:
-            cur = conn.cursor()
-            cur.executemany(query, params_list)
-            if self._write_tx_depth == 0:
-                conn.commit()
-            return _WriteResult(cur.lastrowid, cur.rowcount)
-
-        return self._submit_and_maybe_wait(op, priority, wait)
-
-    def fetchall(self, query: str, params: Union[Tuple, Dict] = ()) -> List[Tuple]:
-        conn = self._get_read_connection()
-        cur = conn.cursor()
-        cur.execute(query, params)
-        return cur.fetchall()
-
-    def fetchone(self, query: str, params: Union[Tuple, Dict] = ()) -> Optional[Tuple]:
-        conn = self._get_read_connection()
-        cur = conn.cursor()
-        cur.execute(query, params)
-        return cur.fetchone()
-
-    def create_table(self, table_sql: str):
-        if self.read_only:
-            raise RuntimeError("Cannot create tables in read-only mode.")
-        self.execute(table_sql, commit=True)
-
-    def table_exists(self, table: str) -> bool:
-        result = self.fetchone("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
-        return result is not None
-
-    def close(self):
-        # Wind the writer down after draining queued work, then close every
-        # connection this instance opened.
-        self._closed = True
-        thread = self._writer_thread
-        if thread is not None and thread.is_alive():
-            # Lowest priority so any pending writes flush before shutdown.
-            self._write_queue.put((DB_PRIORITY_LOW + 1, next(self._seq), _WRITER_SHUTDOWN, concurrent.futures.Future()))
-            if not self._on_writer_thread():
-                thread.join(timeout=10)
-        self._writer_thread = None
-
-        write_conn = self._write_conn
-        if write_conn is not None:
-            try:
-                write_conn.close()
-            except Exception:
-                pass
-            self._write_conn = None
-
-        with self._read_conn_lock:
-            for conn in self._read_connections:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-            self._read_connections = []
-        self._local = threading.local()
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.close()
 
 
 # Abstract base for table-mapped classes
@@ -1932,15 +1472,24 @@ def _database_backup_lock(backup_dir: str):
 
 
 def _create_sqlite_backup(source_path: str, destination_path: str) -> None:
-    source_uri = f"file:{source_path}?mode=ro"
-    with sqlite3.connect(source_uri, uri=True, check_same_thread=False) as source_conn:
+    source_uri = sqlite_file_uri(source_path, "ro")
+    source_conn = sqlite3.connect(
+        source_uri,
+        uri=True,
+        timeout=DATABASE_BACKUP_BUSY_TIMEOUT_MS / 1000,
+        isolation_level=None,
+        check_same_thread=False,
+    )
+    try:
         source_conn.execute(f"PRAGMA busy_timeout = {DATABASE_BACKUP_BUSY_TIMEOUT_MS}")
-        with sqlite3.connect(destination_path, check_same_thread=False) as backup_conn:
-            source_conn.backup(
-                backup_conn,
-                pages=DATABASE_BACKUP_PAGE_COUNT,
-                sleep=DATABASE_BACKUP_SLEEP_SECONDS,
-            )
+        atomic_sqlite_backup(
+            source_conn,
+            destination_path,
+            pages=DATABASE_BACKUP_PAGE_COUNT,
+            sleep=DATABASE_BACKUP_SLEEP_SECONDS,
+        )
+    finally:
+        source_conn.close()
 
 
 def _gzip_file(source_path: str, destination_path: str) -> None:
@@ -1951,6 +1500,8 @@ def _gzip_file(source_path: str, destination_path: str) -> None:
             compresslevel=DATABASE_BACKUP_GZIP_COMPRESSLEVEL,
         ) as gz_out:
             shutil.copyfileobj(f_in, gz_out, length=DATABASE_BACKUP_COPY_BUFFER_SIZE)
+        f_out.flush()
+        os.fsync(f_out.fileno())
 
 
 def backup_db(
@@ -1990,7 +1541,7 @@ def backup_db(
 
             _create_sqlite_backup(db_path, temp_db)
             _gzip_file(temp_db, temp_gz)
-            os.replace(temp_gz, backup_file)
+            durable_replace(temp_gz, backup_file)
             _remove_excess_database_backups(backup_dir, retention_count=retention_count)
             logger.success(f"Database backup created: {backup_file}")
             return backup_file

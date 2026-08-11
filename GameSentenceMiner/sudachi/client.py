@@ -97,6 +97,7 @@ class SudachiClient:
                     self.endpoint,
                     open_timeout=2,
                     close_timeout=1,
+                    ping_interval=None,  # localhost; reconnect on next request, keepalive only adds noise
                     max_size=16 * 1024 * 1024,
                 )
                 payload = json.loads(socket.recv(timeout=2))
@@ -131,6 +132,7 @@ class SudachiClient:
                 self.endpoint,
                 open_timeout=2,
                 close_timeout=1,
+                ping_interval=None,  # localhost; reconnect on next request, keepalive only adds noise
                 max_size=16 * 1024 * 1024,
             )
             service_info = self._receive_type("service_info")
