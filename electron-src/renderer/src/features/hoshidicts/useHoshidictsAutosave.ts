@@ -37,6 +37,7 @@ export function useHoshidictsAutosave<TDraft, TRequest>({
   const savingRef = useRef(false);
   const editVersionRef = useRef(0);
   const blockedVersionRef = useRef(-1);
+  const inFlightRef = useRef<Promise<boolean> | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
 
   const updateDraft = useCallback(
@@ -63,6 +64,77 @@ export function useHoshidictsAutosave<TDraft, TRequest>({
     [cloneDraft]
   );
 
+  const saveNow = useCallback(async (): Promise<boolean> => {
+    if (inFlightRef.current) return await inFlightRef.current;
+    if (!dirtyRef.current) return true;
+    if (
+      paused ||
+      blockedVersionRef.current === editVersionRef.current
+    ) {
+      return false;
+    }
+
+    const request = toRequest(cloneDraft(draftRef.current));
+    const version = editVersionRef.current;
+    savingRef.current = true;
+    setSaving(true);
+    setSaveStatus("saving");
+    const save = invokeIpc<HoshidictsActionResult>(channel, request)
+      .then((result) => {
+        const success = applyResult(result, false);
+        if (!success) {
+          blockedVersionRef.current = version;
+          setSaveStatus("error");
+          return false;
+        }
+        if (editVersionRef.current === version) {
+          dirtyRef.current = false;
+          setDirty(false);
+          const next = cloneDraft(savedDraft(result, request));
+          draftRef.current = next;
+          setDraft(next);
+          setSaveStatus("saved");
+        } else {
+          setSaveStatus("dirty");
+        }
+        return true;
+      })
+      .catch((error) => {
+        blockedVersionRef.current = version;
+        setActionError(
+          error instanceof Error && error.message ? error.message : errorFallback
+        );
+        setSaveStatus("error");
+        return false;
+      })
+      .finally(() => {
+        savingRef.current = false;
+        setSaving(false);
+        inFlightRef.current = null;
+      });
+    inFlightRef.current = save;
+    return await save;
+  }, [
+    applyResult,
+    channel,
+    cloneDraft,
+    errorFallback,
+    paused,
+    savedDraft,
+    setActionError,
+    toRequest
+  ]);
+
+  const flush = useCallback(async (): Promise<boolean> => {
+    while (inFlightRef.current || dirtyRef.current) {
+      const success = inFlightRef.current
+        ? await inFlightRef.current
+        : await saveNow();
+      if (!success) return false;
+    }
+    return true;
+  }, [saveNow]);
+
   useEffect(() => {
     if (
       !dirty ||
@@ -73,54 +145,18 @@ export function useHoshidictsAutosave<TDraft, TRequest>({
       return;
     }
     const timer = window.setTimeout(() => {
-      const request = toRequest(cloneDraft(draftRef.current));
-      const version = editVersionRef.current;
-      savingRef.current = true;
-      setSaving(true);
-      setSaveStatus("saving");
-      void invokeIpc<HoshidictsActionResult>(channel, request)
-        .then((result) => {
-          const success = applyResult(result, false);
-          if (!success) {
-            blockedVersionRef.current = version;
-            setSaveStatus("error");
-          } else if (editVersionRef.current === version) {
-            dirtyRef.current = false;
-            setDirty(false);
-            const next = cloneDraft(savedDraft(result, request));
-            draftRef.current = next;
-            setDraft(next);
-            setSaveStatus("saved");
-          } else {
-            setSaveStatus("dirty");
-          }
-        })
-        .catch((error) => {
-          blockedVersionRef.current = version;
-          setActionError(
-            error instanceof Error && error.message ? error.message : errorFallback
-          );
-          setSaveStatus("error");
-        })
-        .finally(() => {
-          savingRef.current = false;
-          setSaving(false);
-        });
+      void saveNow();
     }, AUTO_SAVE_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [
-    applyResult,
-    channel,
-    cloneDraft,
-    dirty,
-    draft,
-    errorFallback,
-    paused,
-    savedDraft,
-    saving,
-    setActionError,
-    toRequest
-  ]);
+  }, [dirty, draft, paused, saveNow, saving]);
 
-  return { draft, draftRef, saving, saveStatus, updateDraft, syncDraft };
+  return {
+    draft,
+    draftRef,
+    saving,
+    saveStatus,
+    updateDraft,
+    syncDraft,
+    flush
+  };
 }

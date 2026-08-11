@@ -35,6 +35,8 @@ afterEach(() => {
 function currentState(): HoshidictsManagerSnapshot {
     return {
         revision: 1,
+        activeProfileId: 'default',
+        profiles: [{ id: 'default', name: 'Default' }],
         dictionaries: [],
         tabGroups: [],
         customDictionaryActive: false,

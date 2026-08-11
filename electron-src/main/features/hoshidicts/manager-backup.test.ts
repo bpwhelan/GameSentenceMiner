@@ -325,6 +325,13 @@ describe('Hoshidicts manager full backups', () => {
             ],
         };
         await source.setAudioProfile(audioProfile);
+        const persona = await source.createProfile('Persona');
+        await source.setAudioProfile({
+            ...audioProfile,
+            volume: 22,
+        });
+        await source.setDictionaryEnabled(alpha!.id, true);
+        await source.switchProfile('default');
         const custom = await source.getCustomDictionaryDocument();
         await source.saveCustomDictionary('# Personal terms\n猫, ねこ, cat\n', custom.revision);
         sourceSnapshot = await source.getSnapshot();
@@ -372,6 +379,11 @@ describe('Hoshidicts manager full backups', () => {
             },
         ]);
         expect(restored).toMatchObject({
+            activeProfileId: 'default',
+            profiles: [
+                { id: 'default', name: 'Default' },
+                { id: persona.activeProfileId, name: 'Persona' },
+            ],
             tabGroups: [
                 { id: emptyGroup!.id, name: 'Empty', dictionaryIds: [] },
                 {
@@ -416,6 +428,7 @@ describe('Hoshidicts manager full backups', () => {
             text: '# Personal terms\n猫, ねこ, cat\n',
         });
         const restoredManifest = await readManifest(targetBase);
+        expect(restoredManifest.profiles).toEqual(sourceManifest.profiles);
         expect(
             restoredManifest.dictionaries.map((dictionary: { id: string }) => dictionary.id),
         ).toEqual(sourceManifest.dictionaries.map((dictionary: { id: string }) => dictionary.id));
@@ -458,9 +471,11 @@ describe('Hoshidicts manager full backups', () => {
                 revision: 'new',
             }),
         );
+        const manifest = await readManifest(sourceBase);
+        manifest.profiles[0].tabGroups = 'invalid';
         await fsp.writeFile(
-            statePath(sourceBase, 'tab-groups.json'),
-            JSON.stringify({ version: 1, groups: 'invalid' }),
+            statePath(sourceBase, 'manifest.json'),
+            JSON.stringify(manifest),
         );
         const backupPath = path.join(workspace, 'invalid.zip');
 
@@ -479,9 +494,11 @@ describe('Hoshidicts manager full backups', () => {
                 revision: 'new',
             }),
         );
+        const manifest = await readManifest(sourceBase);
+        manifest.profiles[0].tabGroups = 'invalid';
         await fsp.writeFile(
-            statePath(sourceBase, 'tab-groups.json'),
-            JSON.stringify({ version: 1, groups: 'invalid' }),
+            statePath(sourceBase, 'manifest.json'),
+            JSON.stringify(manifest),
         );
         const backupPath = path.join(workspace, 'invalid.zip');
         await exportHoshidictsBackup({
@@ -707,6 +724,7 @@ describe('Hoshidicts manager full backups', () => {
         const persisted = await readManifest(sourceBase);
         expect(persisted).toMatchObject({
             version: 1,
+            activeProfileId: 'default',
             dictionaries: [],
             lookupMode: 'shift',
             popupWidthPx: 560,
@@ -720,12 +738,21 @@ describe('Hoshidicts manager full backups', () => {
             showPitchAccentBadge: false,
             hidePopupGrammarTags: true,
         });
+        expect(persisted.profiles).toHaveLength(1);
+        expect(persisted.profiles[0]).toMatchObject({
+            id: 'default',
+            name: 'Default',
+            mining: defaultHoshidictsMiningProfile(),
+            audio: defaultHoshidictsAudioProfile(),
+            tabGroups: [],
+            enabledDictionaryIds: [],
+        });
         await expect(
-            fsp.readFile(statePath(sourceBase, 'mining-profile.json'), 'utf8'),
-        ).resolves.toContain('"duplicateScope"');
+            fsp.stat(statePath(sourceBase, 'mining-profile.json')),
+        ).rejects.toMatchObject({ code: 'ENOENT' });
         await expect(
-            fsp.readFile(statePath(sourceBase, 'audio-profile.json'), 'utf8'),
-        ).resolves.toContain('"sources"');
+            fsp.stat(statePath(sourceBase, 'audio-profile.json')),
+        ).rejects.toMatchObject({ code: 'ENOENT' });
 
         const targetBase = path.join(workspace, 'target');
         const { manager: target, reloadNative } = createHarness(targetBase, 'target');
