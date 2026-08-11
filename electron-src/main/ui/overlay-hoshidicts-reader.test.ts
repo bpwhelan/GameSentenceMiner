@@ -632,6 +632,9 @@ describe("Hoshidicts safe popup rendering", () => {
     const bottomChromeRule = declarationsForSelector(
       '.gsm-hoshidicts-popup[data-toolbar-position="bottom"] .gsm-hoshidicts-result-chrome'
     );
+    const bottomTabListRule = declarationsForSelector(
+      '.gsm-hoshidicts-popup[data-toolbar-position="bottom"] .gsm-hoshidicts-tab-list'
+    );
     const tabListRule =
       /\.gsm-hoshidicts-tab-list\s*\{(?<declarations>[^}]*)\}/.exec(
         css
@@ -657,6 +660,9 @@ describe("Hoshidicts safe popup rendering", () => {
     const rubyReadingRule =
       /\.gsm-hoshidicts-expression\s+rt\s*\{(?<declarations>[^}]*)\}/.exec(css)
         ?.groups?.declarations;
+    const blurredReadingRule = declarationsForSelector(
+      '.gsm-hoshidicts-popup[data-definition-blur-state="blurred"] .gsm-hoshidicts-expression rt'
+    );
     const tagRule =
       /\.gsm-hoshidicts-tag\s*\{(?<declarations>[^}]*)\}/.exec(css)
         ?.groups?.declarations;
@@ -716,8 +722,14 @@ describe("Hoshidicts safe popup rendering", () => {
     );
     expect(bottomChromeRule).toContain("top: auto");
     expect(bottomChromeRule).toContain("bottom: -11px");
+    expect(bottomChromeRule).toContain("display: flex");
+    expect(bottomChromeRule).toContain("flex-direction: column-reverse");
     expect(bottomChromeRule).toContain(
       "border-top: 1px solid var(--hoshidicts-border)"
+    );
+    expect(bottomTabListRule).toContain("border-top: 0");
+    expect(bottomTabListRule).toContain(
+      "border-bottom: 1px solid var(--hoshidicts-border)"
     );
     expect(tabListRule).toContain("width: 100%");
     expect(tabListRule).toContain("overflow-x: auto");
@@ -752,6 +764,8 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(audioActionRule).toContain("border: 1px solid transparent");
     expect(rubyReadingRule).toContain("color: var(--text-color-light1)");
     expect(rubyReadingRule).toContain("font-size: 15px");
+    expect(blurredReadingRule).toContain("filter: blur(5px)");
+    expect(blurredReadingRule).toContain("user-select: none");
     expect(tagRule).toContain("font-size: 12px");
     expect(lookupStatsRule).toContain("color: var(--hoshidicts-text)");
     expect(lookupStatsRule).toContain("font-size: 13px");
