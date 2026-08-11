@@ -206,3 +206,29 @@ describe('Hoshidicts reader frequency dictionaries', () => {
         ).toEqual(['Foo', 'Foo!']);
     });
 });
+
+describe('Hoshidicts reader preferences', () => {
+    it('projects compact definition and metadata preferences into the overlay', () => {
+        const snapshot = {
+            dictionaries: [],
+            tabGroups: [],
+            showCompactDefinitionSummary: true,
+            compactDefinitionSummaryDictionary: 'Jitendex.org',
+            hidePopupGrammarTags: true,
+            popupButtons: createDefaultHoshidictsPopupButtons(),
+        } as unknown as HoshidictsManagerSnapshot;
+
+        expect(
+            hoshidictsReaderPreferencesFromSnapshot(snapshot)
+                .showCompactDefinitionSummary
+        ).toBe(true);
+        expect(
+            hoshidictsReaderPreferencesFromSnapshot(snapshot)
+                .compactDefinitionSummaryDictionary
+        ).toBe('Jitendex.org');
+        expect(
+            hoshidictsReaderPreferencesFromSnapshot(snapshot)
+                .hidePopupGrammarTags
+        ).toBe(true);
+    });
+});
