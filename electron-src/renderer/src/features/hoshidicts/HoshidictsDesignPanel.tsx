@@ -2,11 +2,13 @@ import { Pencil, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import {
+  DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
   DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
   DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
   HOSHIDICTS_THEME_GROUPS,
   MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
   MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
+  MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH,
   MAX_HOSHIDICTS_POPUP_COLUMNS,
   MAX_HOSHIDICTS_POPUP_CUSTOM_LINK_LABEL_LENGTH,
   MAX_HOSHIDICTS_POPUP_CUSTOM_LINK_URL_LENGTH,
@@ -31,6 +33,15 @@ import { HoshidictsSaveIndicator } from "./HoshidictsSaveIndicator";
 import type { useHoshidictsSettingsController } from "./useHoshidictsSettingsController";
 
 type Controller = ReturnType<typeof useHoshidictsSettingsController>;
+
+const CUSTOM_POPUP_CSS_PLACEHOLDER = `:scope {
+  --hoshidicts-popup-background: rgb(20 24 32 / 92%);
+  border-radius: 16px;
+}
+
+.gsm-hoshidicts-expression {
+  color: #ff7eb6;
+}`;
 
 const POPUP_BUTTON_CHOICES = [
   {
@@ -284,6 +295,7 @@ export function HoshidictsDesignPanel({
     preferencesBusy,
     resetPopupSize,
     setCompactDefinitionSummaryDictionary,
+    setCustomPopupCss,
     setDefinitionBlurEnabled,
     setDefinitionBlurLookupThreshold,
     setDefinitionBlurRevealDelayMs,
@@ -825,6 +837,56 @@ export function HoshidictsDesignPanel({
               </small>
             </span>
           </label>
+        </div>
+
+        <div className="hoshidicts-design-section hoshidicts-custom-css">
+          <div className="hoshidicts-design-section__heading">
+            <strong>{t("settings.hoshidicts.design.sections.customCss")}</strong>
+            <small>{t("settings.hoshidicts.design.customCss.hint")}</small>
+          </div>
+          <label htmlFor="hoshidicts-custom-popup-css">
+            {t("settings.hoshidicts.design.customCss.label")}
+          </label>
+          <textarea
+            id="hoshidicts-custom-popup-css"
+            value={readerDraft.customPopupCss}
+            placeholder={CUSTOM_POPUP_CSS_PLACEHOLDER}
+            maxLength={MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH}
+            rows={12}
+            spellCheck={false}
+            disabled={preferencesBusy}
+            aria-describedby="hoshidicts-custom-popup-css-count hoshidicts-custom-popup-css-scope-hint"
+            onChange={(event) => setCustomPopupCss(event.currentTarget.value)}
+          />
+          <div className="hoshidicts-custom-css__footer">
+            <small id="hoshidicts-custom-popup-css-count">
+              {t("settings.hoshidicts.design.customCss.characterCount", {
+                count: readerDraft.customPopupCss.length,
+                limit: MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH
+              })}
+            </small>
+            <button
+              id="hoshidicts-custom-popup-css-reset"
+              type="button"
+              className="secondary"
+              disabled={
+                preferencesBusy ||
+                readerDraft.customPopupCss ===
+                  DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS
+              }
+              onClick={() =>
+                setCustomPopupCss(DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS)
+              }
+            >
+              {t("settings.hoshidicts.design.customCss.reset")}
+            </button>
+          </div>
+          <small
+            id="hoshidicts-custom-popup-css-scope-hint"
+            className="hoshidicts-custom-css__scope-hint"
+          >
+            {t("settings.hoshidicts.design.customCss.scopeHint")}
+          </small>
         </div>
       </section>
 
