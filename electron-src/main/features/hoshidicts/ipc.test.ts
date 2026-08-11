@@ -2338,7 +2338,9 @@ describe('Hoshidicts settings IPC', () => {
             true,
             'Pitch',
             false,
-            ':scope { color: hotpink; }'
+            ':scope { color: hotpink; }',
+            false,
+            true
         );
         expect(context.applyReaderPreferences).toHaveBeenCalledWith({
             lookupMode: 'hover',
@@ -2351,6 +2353,8 @@ describe('Hoshidicts settings IPC', () => {
             onlyScanJapaneseText: true,
             popupHideDelayMs: 850,
             showLookupCounts: false,
+            averageFrequency: false,
+            showFrequencyDictionaryNames: true,
             showCompactDefinitionSummary: true,
             compactDefinitionSummaryDictionary: 'Jitendex',
             showPitchAccentFurigana: true,

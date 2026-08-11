@@ -48,6 +48,8 @@ import {
     DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE,
     DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
     DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
+    DEFAULT_HOSHIDICTS_AVERAGE_FREQUENCY,
+    DEFAULT_HOSHIDICTS_SHOW_FREQUENCY_DICTIONARY_NAMES,
     DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
     DEFAULT_HOSHIDICTS_MAX_RESULTS,
     DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
@@ -156,6 +158,8 @@ interface PersistedDictionary extends HoshidictsDictionaryState {
 
 interface PersistedReaderPreferences
     extends HoshidictsReaderPreferencesRequest {
+    averageFrequency: boolean;
+    showFrequencyDictionaryNames: boolean;
     customPopupCss: string;
 }
 
@@ -183,6 +187,8 @@ interface PersistedManifest {
     onlyScanJapaneseText: boolean;
     popupHideDelayMs: number;
     showLookupCounts: boolean;
+    averageFrequency: boolean;
+    showFrequencyDictionaryNames: boolean;
     showCompactDefinitionSummary: boolean;
     compactDefinitionSummaryDictionary: string | null;
     showPitchAccentFurigana: boolean;
@@ -447,6 +453,9 @@ function defaultReaderPreferences(): PersistedReaderPreferences {
         onlyScanJapaneseText: DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
         popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
         showLookupCounts: true,
+        averageFrequency: DEFAULT_HOSHIDICTS_AVERAGE_FREQUENCY,
+        showFrequencyDictionaryNames:
+            DEFAULT_HOSHIDICTS_SHOW_FREQUENCY_DICTIONARY_NAMES,
         showCompactDefinitionSummary:
             DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
         compactDefinitionSummaryDictionary:
@@ -838,6 +847,9 @@ function normalizeReaderPreferences(
         onlyScanJapaneseText: value.onlyScanJapaneseText !== false,
         popupHideDelayMs: normalizePopupHideDelay(value.popupHideDelayMs),
         showLookupCounts: value.showLookupCounts !== false,
+        averageFrequency: value.averageFrequency === true,
+        showFrequencyDictionaryNames:
+            value.showFrequencyDictionaryNames !== false,
         showCompactDefinitionSummary:
             value.showCompactDefinitionSummary === true,
         compactDefinitionSummaryDictionary:
@@ -3056,7 +3068,9 @@ export class HoshidictsManager {
             snapshot.showPitchAccentFurigana,
             snapshot.pitchAccentFuriganaDictionary,
             snapshot.showPitchAccentBadge,
-            snapshot.customPopupCss
+            snapshot.customPopupCss,
+            snapshot.averageFrequency,
+            snapshot.showFrequencyDictionaryNames
         );
     }
 
@@ -3094,7 +3108,10 @@ export class HoshidictsManager {
         pitchAccentFuriganaDictionary: string | null =
             DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
         showPitchAccentBadge = DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE,
-        customPopupCss?: string
+        customPopupCss?: string,
+        averageFrequency = DEFAULT_HOSHIDICTS_AVERAGE_FREQUENCY,
+        showFrequencyDictionaryNames =
+            DEFAULT_HOSHIDICTS_SHOW_FREQUENCY_DICTIONARY_NAMES
     ): Promise<HoshidictsManagerSnapshot> {
         if (lookupMode !== 'shift' && lookupMode !== 'hover') {
             throw new Error('Hoshidicts lookup mode is invalid.');
@@ -3165,6 +3182,14 @@ export class HoshidictsManager {
         }
         if (typeof showLookupCounts !== 'boolean') {
             throw new Error('Hoshidicts lookup count preference is invalid.');
+        }
+        if (typeof averageFrequency !== 'boolean') {
+            throw new Error('Hoshidicts average frequency preference is invalid.');
+        }
+        if (typeof showFrequencyDictionaryNames !== 'boolean') {
+            throw new Error(
+                'Hoshidicts frequency dictionary name preference is invalid.'
+            );
         }
         if (typeof showCompactDefinitionSummary !== 'boolean') {
             throw new Error(
@@ -3344,6 +3369,9 @@ export class HoshidictsManager {
                 manifest.sourceHighlightEnabled !== sourceHighlightEnabled ||
                 manifest.onlyScanJapaneseText !== onlyScanJapaneseText ||
                 manifest.showLookupCounts !== showLookupCounts ||
+                manifest.averageFrequency !== averageFrequency ||
+                manifest.showFrequencyDictionaryNames !==
+                    showFrequencyDictionaryNames ||
                 manifest.showCompactDefinitionSummary !==
                     showCompactDefinitionSummary ||
                 manifest.compactDefinitionSummaryDictionary !==
@@ -3384,6 +3412,8 @@ export class HoshidictsManager {
                     onlyScanJapaneseText,
                     popupHideDelayMs,
                     showLookupCounts,
+                    averageFrequency,
+                    showFrequencyDictionaryNames,
                     showCompactDefinitionSummary,
                     compactDefinitionSummaryDictionary:
                         normalizedCompactDefinitionSummaryDictionary,
@@ -3767,6 +3797,9 @@ export class HoshidictsManager {
             onlyScanJapaneseText: manifest.onlyScanJapaneseText,
             popupHideDelayMs: manifest.popupHideDelayMs,
             showLookupCounts: manifest.showLookupCounts,
+            averageFrequency: manifest.averageFrequency,
+            showFrequencyDictionaryNames:
+                manifest.showFrequencyDictionaryNames,
             showCompactDefinitionSummary:
                 manifest.showCompactDefinitionSummary,
             compactDefinitionSummaryDictionary:

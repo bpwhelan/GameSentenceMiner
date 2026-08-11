@@ -2606,6 +2606,9 @@
         : options.onlyScanJapaneseText !== false,
       popupHideDelayMs: normalizePopupHideDelay(options.popupHideDelayMs),
       showLookupCounts: options.showLookupCounts !== false,
+      averageFrequency: options.averageFrequency === true,
+      showFrequencyDictionaryNames:
+        options.showFrequencyDictionaryNames !== false,
       showCompactDefinitionSummary:
         options.showCompactDefinitionSummary === true,
       hidePopupGrammarTags:
@@ -2881,6 +2884,7 @@
       const context = {
         level,
         preferences: { ...preferences.definitionBlur },
+        audioAutoplayBlocked: true,
         deadlineReached: false,
         hovered: false,
         lookupResolved: false,
@@ -2916,10 +2920,12 @@
         ? response.lookupCount
         : null;
       if (!Number.isInteger(lookupCount) || lookupCount < 1) {
+        context.audioAutoplayBlocked = false;
         revealDefinitions(context, "invalid-lookup-count");
         return;
       }
       if (lookupCount < context.preferences.lookupThreshold) {
+        context.audioAutoplayBlocked = false;
         revealDefinitions(context, "below-threshold");
         return;
       }
@@ -3680,7 +3686,10 @@
         : visibleLevels;
       audioController.setRenderedResults(
         orderedLevels.flatMap((level) => level.audioItems),
-        { autoPlay }
+        {
+          autoPlay: autoPlay && !preferredLevel?.definitionBlurContext
+            ?.audioAutoplayBlocked
+        }
       );
     }
 
@@ -3937,6 +3946,9 @@
         definitionBlurState: getDefinitionBlurState(definitionBlurContext),
         generation: dictionaryGeneration,
         showLookupCounts: preferences.showLookupCounts && Boolean(onLookup),
+        averageFrequency: preferences.averageFrequency,
+        showFrequencyDictionaryNames:
+          preferences.showFrequencyDictionaryNames,
         showCompactDefinitionSummary:
           preferences.showCompactDefinitionSummary,
         hidePopupGrammarTags: preferences.hidePopupGrammarTags,
@@ -3996,6 +4008,9 @@
         definitionBlurState: getDefinitionBlurState(definitionBlurContext),
         generation: dictionaryGeneration,
         showLookupCounts: preferences.showLookupCounts && Boolean(onLookup),
+        averageFrequency: preferences.averageFrequency,
+        showFrequencyDictionaryNames:
+          preferences.showFrequencyDictionaryNames,
         showCompactDefinitionSummary:
           preferences.showCompactDefinitionSummary,
         hidePopupGrammarTags: preferences.hidePopupGrammarTags,
@@ -4735,6 +4750,9 @@
 
     function recordLookup(result, definitionBlurContext, level) {
       if (!onLookup || !preferences.showLookupCounts) {
+        if (definitionBlurContext) {
+          definitionBlurContext.audioAutoplayBlocked = false;
+        }
         revealDefinitions(definitionBlurContext, "lookup-statistics-unavailable");
         return;
       }
@@ -4767,6 +4785,9 @@
             return;
           }
           applyDefinitionBlurLookupCount(definitionBlurContext, response);
+          if (definitionBlurContext?.audioAutoplayBlocked === false) {
+            syncAudioRenderedResults(level.depth, true);
+          }
           level.lookupStatsPayload = response;
           const lookupStats = level.popup.querySelector(
             ".gsm-hoshidicts-lookup-stats"
@@ -4789,7 +4810,11 @@
           ) {
             return;
           }
+          if (definitionBlurContext) {
+            definitionBlurContext.audioAutoplayBlocked = false;
+          }
           revealDefinitions(definitionBlurContext, "lookup-statistics-error");
+          syncAudioRenderedResults(level.depth, true);
           diagnostic("warn", "lookup.record-failed", {
             error: boundedString(
               error instanceof Error ? error.message : String(error),
@@ -5658,6 +5683,9 @@
       const previousSourceHighlightEnabled = preferences.sourceHighlightEnabled;
       const previousOnlyScanJapaneseText = preferences.onlyScanJapaneseText;
       const previousShowLookupCounts = preferences.showLookupCounts;
+      const previousAverageFrequency = preferences.averageFrequency;
+      const previousShowFrequencyDictionaryNames =
+        preferences.showFrequencyDictionaryNames;
       const previousShowCompactDefinitionSummary =
         preferences.showCompactDefinitionSummary;
       const previousHidePopupGrammarTags = preferences.hidePopupGrammarTags;
@@ -5740,6 +5768,18 @@
         )
           ? nextPreferences.showLookupCounts !== false
           : preferences.showLookupCounts,
+        averageFrequency: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "averageFrequency"
+        )
+          ? nextPreferences.averageFrequency === true
+          : preferences.averageFrequency,
+        showFrequencyDictionaryNames: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "showFrequencyDictionaryNames"
+        )
+          ? nextPreferences.showFrequencyDictionaryNames !== false
+          : preferences.showFrequencyDictionaryNames,
         showCompactDefinitionSummary: Object.prototype.hasOwnProperty.call(
           nextPreferences,
           "showCompactDefinitionSummary"
@@ -5942,6 +5982,9 @@
         ) ||
         previousShowCompactDefinitionSummary !==
           preferences.showCompactDefinitionSummary ||
+        previousAverageFrequency !== preferences.averageFrequency ||
+        previousShowFrequencyDictionaryNames !==
+          preferences.showFrequencyDictionaryNames ||
         previousCompactDefinitionSummaryDictionary !==
           preferences.compactDefinitionSummaryDictionary ||
         previousHidePopupGrammarTags !== preferences.hidePopupGrammarTags ||
@@ -5954,6 +5997,9 @@
         const metadataPresentationChanged =
           previousShowCompactDefinitionSummary !==
             preferences.showCompactDefinitionSummary ||
+          previousAverageFrequency !== preferences.averageFrequency ||
+          previousShowFrequencyDictionaryNames !==
+            preferences.showFrequencyDictionaryNames ||
           previousCompactDefinitionSummaryDictionary !==
             preferences.compactDefinitionSummaryDictionary ||
           previousHidePopupGrammarTags !== preferences.hidePopupGrammarTags ||
@@ -6140,6 +6186,8 @@
       onlyScanJapaneseText: preferences.onlyScanJapaneseText,
       popupHideDelayMs: preferences.popupHideDelayMs,
       showLookupCounts: preferences.showLookupCounts,
+      averageFrequency: preferences.averageFrequency,
+      showFrequencyDictionaryNames: preferences.showFrequencyDictionaryNames,
       showCompactDefinitionSummary: preferences.showCompactDefinitionSummary,
       hidePopupGrammarTags: preferences.hidePopupGrammarTags,
       compactDefinitionSummaryDictionary:

@@ -205,6 +205,8 @@ const baseState: HoshidictsDesktopSnapshot = {
   onlyScanJapaneseText: true,
   popupHideDelayMs: 300,
   showLookupCounts: true,
+  averageFrequency: false,
+  showFrequencyDictionaryNames: true,
   showCompactDefinitionSummary:
     DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
   compactDefinitionSummaryDictionary: null,
@@ -2238,6 +2240,13 @@ describe("HoshidictsSettingsWindow", () => {
     const showPitchAccentBadge = container.querySelector<HTMLInputElement>(
       "#hoshidicts-show-pitch-accent-badge"
     );
+    const averageFrequency = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-average-frequency"
+    );
+    const showFrequencyDictionaryNames =
+      container.querySelector<HTMLInputElement>(
+        "#hoshidicts-show-frequency-dictionary-names"
+      );
     const hidePopupGrammarTags = container.querySelector<HTMLInputElement>(
       "#hoshidicts-hide-popup-grammar-tags"
     );
@@ -2248,6 +2257,8 @@ describe("HoshidictsSettingsWindow", () => {
     expect(showPitchAccentFurigana?.checked).toBe(true);
     expect(pitchAccentFuriganaDictionary?.disabled).toBe(false);
     expect(showPitchAccentBadge?.checked).toBe(false);
+    expect(averageFrequency?.checked).toBe(false);
+    expect(showFrequencyDictionaryNames?.checked).toBe(true);
     expect(hidePopupGrammarTags?.checked).toBe(true);
     expect(
       Array.from(compactDefinitionSummaryDictionary?.options ?? []).map(
@@ -2270,9 +2281,11 @@ describe("HoshidictsSettingsWindow", () => {
       "Show a compact definition near the word"
     );
     expect(container.textContent).toContain(
-      "Show pitch accent in furigana"
+      "Pitch shown in furigana"
     );
     expect(container.textContent).toContain("Show pitch accent badge");
+    expect(container.textContent).toContain("Average frequencies");
+    expect(container.textContent).toContain("Show frequency dictionary names");
     expect(container.textContent).toContain(
       "Hide grammar tags in popup metadata"
     );
@@ -2284,6 +2297,8 @@ describe("HoshidictsSettingsWindow", () => {
       setSelectValue(pitchAccentFuriganaDictionary, "JMdict");
       showPitchAccentFurigana?.click();
       showPitchAccentBadge?.click();
+      averageFrequency?.click();
+      showFrequencyDictionaryNames?.click();
       hidePopupGrammarTags?.click();
       await flushAutosave();
     });
@@ -2302,6 +2317,8 @@ describe("HoshidictsSettingsWindow", () => {
         onlyScanJapaneseText: false,
         popupHideDelayMs: 850,
         showLookupCounts: false,
+        averageFrequency: true,
+        showFrequencyDictionaryNames: false,
         showCompactDefinitionSummary: true,
         compactDefinitionSummaryDictionary: "JMdict",
         showPitchAccentFurigana: false,
@@ -2956,6 +2973,8 @@ describe("HoshidictsSettingsWindow", () => {
         onlyScanJapaneseText: true,
         popupHideDelayMs: 300,
         showLookupCounts: true,
+        averageFrequency: false,
+        showFrequencyDictionaryNames: true,
         showCompactDefinitionSummary: false,
         compactDefinitionSummaryDictionary: null,
         showPitchAccentFurigana: true,
@@ -3021,6 +3040,8 @@ describe("HoshidictsSettingsWindow", () => {
         onlyScanJapaneseText: true,
         popupHideDelayMs: 300,
         showLookupCounts: true,
+        averageFrequency: false,
+        showFrequencyDictionaryNames: true,
         showCompactDefinitionSummary: false,
         compactDefinitionSummaryDictionary: null,
         showPitchAccentFurigana: true,
@@ -3164,6 +3185,8 @@ describe("HoshidictsSettingsWindow", () => {
         onlyScanJapaneseText: true,
         popupHideDelayMs: 300,
         showLookupCounts: true,
+        averageFrequency: false,
+        showFrequencyDictionaryNames: true,
         showCompactDefinitionSummary: false,
         compactDefinitionSummaryDictionary: null,
         showPitchAccentFurigana: true,
@@ -3207,6 +3230,8 @@ describe("HoshidictsSettingsWindow", () => {
         onlyScanJapaneseText: true,
         popupHideDelayMs: 300,
         showLookupCounts: true,
+        averageFrequency: false,
+        showFrequencyDictionaryNames: true,
         showCompactDefinitionSummary: false,
         compactDefinitionSummaryDictionary: null,
         showPitchAccentFurigana: true,
@@ -3289,6 +3314,8 @@ describe("HoshidictsSettingsWindow", () => {
         onlyScanJapaneseText: true,
         popupHideDelayMs: 300,
         showLookupCounts: true,
+        averageFrequency: false,
+        showFrequencyDictionaryNames: true,
         showCompactDefinitionSummary: false,
         compactDefinitionSummaryDictionary: null,
         showPitchAccentFurigana: true,
@@ -3336,6 +3363,8 @@ describe("HoshidictsSettingsWindow", () => {
         onlyScanJapaneseText: true,
         popupHideDelayMs: 300,
         showLookupCounts: true,
+        averageFrequency: false,
+        showFrequencyDictionaryNames: true,
         showCompactDefinitionSummary: false,
         compactDefinitionSummaryDictionary: null,
         showPitchAccentFurigana: true,

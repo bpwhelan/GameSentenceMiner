@@ -370,6 +370,13 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     preferences?.sortFrequencyDictionaryOrder === undefined
       ? "descending"
       : preferences.sortFrequencyDictionaryOrder;
+  const averageFrequency = preferences?.averageFrequency === undefined
+    ? false
+    : preferences.averageFrequency;
+  const showFrequencyDictionaryNames =
+    preferences?.showFrequencyDictionaryNames === undefined
+      ? true
+      : preferences.showFrequencyDictionaryNames;
   const requestedActivationKey = preferences && preferences.activationKey;
   const activationKey = requestedActivationKey === undefined
     ? DEFAULT_HOSHIDICTS_ACTIVATION_KEY
@@ -436,6 +443,8 @@ function normalizeHoshidictsReaderPreferences(preferences) {
       sortFrequencyDictionaryOrder !== "ascending" &&
       sortFrequencyDictionaryOrder !== "descending"
     ) ||
+    typeof averageFrequency !== "boolean" ||
+    typeof showFrequencyDictionaryNames !== "boolean" ||
     activationKey === null ||
     typeof sourceHighlightEnabled !== "boolean" ||
     (
@@ -494,6 +503,8 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     maxResults,
     sortFrequencyDictionary,
     sortFrequencyDictionaryOrder,
+    averageFrequency,
+    showFrequencyDictionaryNames,
     activationKey,
     sourceHighlightEnabled,
     onlyScanJapaneseText: onlyScanJapaneseText !== false,

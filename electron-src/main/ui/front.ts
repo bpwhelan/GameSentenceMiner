@@ -48,6 +48,8 @@ import {
     DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE,
     DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
     DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
+    DEFAULT_HOSHIDICTS_AVERAGE_FREQUENCY,
+    DEFAULT_HOSHIDICTS_SHOW_FREQUENCY_DICTIONARY_NAMES,
     DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
     DEFAULT_HOSHIDICTS_MAX_RESULTS,
     DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
@@ -185,6 +187,8 @@ export interface HoshidictsLookupControls {
     maxResults: number;
     sortFrequencyDictionary: string | null;
     sortFrequencyDictionaryOrder: HoshidictsSortFrequencyDictionaryOrder;
+    averageFrequency: boolean;
+    showFrequencyDictionaryNames: boolean;
 }
 
 function defaultHoshidictsLookupControls(): HoshidictsLookupControls {
@@ -195,6 +199,9 @@ function defaultHoshidictsLookupControls(): HoshidictsLookupControls {
             DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
         sortFrequencyDictionaryOrder:
             DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
+        averageFrequency: DEFAULT_HOSHIDICTS_AVERAGE_FREQUENCY,
+        showFrequencyDictionaryNames:
+            DEFAULT_HOSHIDICTS_SHOW_FREQUENCY_DICTIONARY_NAMES,
     };
 }
 
@@ -227,6 +234,9 @@ function normalizeHoshidictsLookupControls(
             )
                 ? controls.sortFrequencyDictionaryOrder
                 : DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
+        averageFrequency: controls?.averageFrequency === true,
+        showFrequencyDictionaryNames:
+            controls?.showFrequencyDictionaryNames !== false,
     };
 }
 
@@ -686,6 +696,8 @@ export function markOverlayHoshidictsReaderPreferencesApplied(
         maxResults: preferences.maxResults,
         sortFrequencyDictionary: preferences.sortFrequencyDictionary,
         sortFrequencyDictionaryOrder: preferences.sortFrequencyDictionaryOrder,
+        averageFrequency: preferences.averageFrequency,
+        showFrequencyDictionaryNames: preferences.showFrequencyDictionaryNames,
     };
     overlayHoshidictsActivationKeyAtLaunch = preferences.activationKey;
     overlayHoshidictsSourceHighlightEnabledAtLaunch =
@@ -1142,6 +1154,10 @@ export function buildHoshidictsOverlayEnvironment(
             normalizedLookupControls.sortFrequencyDictionary ?? '',
         GSM_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER:
             normalizedLookupControls.sortFrequencyDictionaryOrder,
+        GSM_HOSHIDICTS_AVERAGE_FREQUENCY:
+            normalizedLookupControls.averageFrequency ? '1' : '0',
+        GSM_HOSHIDICTS_SHOW_FREQUENCY_DICTIONARY_NAMES:
+            normalizedLookupControls.showFrequencyDictionaryNames ? '1' : '0',
     };
 }
 

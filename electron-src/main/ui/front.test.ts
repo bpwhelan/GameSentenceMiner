@@ -274,6 +274,8 @@ describe('runOverlayWithSource', () => {
             maxResults: 48,
             sortFrequencyDictionary: 'Frequency',
             sortFrequencyDictionaryOrder: 'ascending',
+            averageFrequency: true,
+            showFrequencyDictionaryNames: false,
         }));
         front.configureHoshidictsActivationKeyProvider(async () => 'F8');
         front.configureHoshidictsSourceHighlightProvider(async () => true);
@@ -325,6 +327,8 @@ describe('runOverlayWithSource', () => {
             GSM_HOSHIDICTS_MAX_RESULTS: '48',
             GSM_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY: 'Frequency',
             GSM_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER: 'ascending',
+            GSM_HOSHIDICTS_AVERAGE_FREQUENCY: '1',
+            GSM_HOSHIDICTS_SHOW_FREQUENCY_DICTIONARY_NAMES: '0',
             GSM_HOSHIDICTS_ACTIVATION_KEY: 'F8',
             GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED: '1',
             GSM_HOSHIDICTS_POPUP_HIDE_DELAY_MS: '850',
@@ -354,6 +358,8 @@ describe('runOverlayWithSource', () => {
             maxResults: 48,
             sortFrequencyDictionary: 'Frequency',
             sortFrequencyDictionaryOrder: 'ascending',
+            averageFrequency: true,
+            showFrequencyDictionaryNames: false,
         });
         expect(front.getOverlayHoshidictsActivationKeyAtLaunch()).toBe('F8');
         expect(front.getOverlayHoshidictsSourceHighlightEnabledAtLaunch()).toBe(true);
@@ -432,6 +438,8 @@ describe('runOverlayWithSource', () => {
                 onlyScanJapaneseText: true,
                 popupHideDelayMs: 1200,
                 showLookupCounts: true,
+                averageFrequency: false,
+                showFrequencyDictionaryNames: true,
                 showCompactDefinitionSummary: false,
                 compactDefinitionSummaryDictionary: null,
                 hidePopupGrammarTags: true,
@@ -469,6 +477,8 @@ describe('runOverlayWithSource', () => {
             maxResults: 20,
             sortFrequencyDictionary: null,
             sortFrequencyDictionaryOrder: 'descending',
+            averageFrequency: false,
+            showFrequencyDictionaryNames: true,
         });
         expect(front.getOverlayHoshidictsActivationKeyAtLaunch()).toBe('Space');
         expect(front.getOverlayHoshidictsSourceHighlightEnabledAtLaunch()).toBe(false);

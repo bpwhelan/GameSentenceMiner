@@ -1393,6 +1393,8 @@ describe("Hoshidicts safe popup rendering", () => {
       onlyScanJapaneseText: false,
       popupHideDelayMs: 800,
       showLookupCounts: false,
+      averageFrequency: false,
+      showFrequencyDictionaryNames: true,
       showCompactDefinitionSummary: false,
       compactDefinitionSummaryDictionary: null,
       showPitchAccentFurigana: true,
@@ -1487,6 +1489,8 @@ describe("Hoshidicts safe popup rendering", () => {
       onlyScanJapaneseText: true,
       popupHideDelayMs: 800,
       showLookupCounts: true,
+      averageFrequency: false,
+      showFrequencyDictionaryNames: true,
       showCompactDefinitionSummary: false,
       compactDefinitionSummaryDictionary: null,
       showPitchAccentFurigana: true,
@@ -1632,6 +1636,8 @@ describe("Hoshidicts safe popup rendering", () => {
       activationKey: "F9",
       popupHideDelayMs: 450,
       showLookupCounts: false,
+      averageFrequency: false,
+      showFrequencyDictionaryNames: true,
       showCompactDefinitionSummary: false,
       compactDefinitionSummaryDictionary: null,
       showPitchAccentFurigana: true,
@@ -1674,6 +1680,8 @@ describe("Hoshidicts safe popup rendering", () => {
       },
       popupHideDelayMs: 450,
       showLookupCounts: false,
+      averageFrequency: false,
+      showFrequencyDictionaryNames: true,
       showCompactDefinitionSummary: false,
       compactDefinitionSummaryDictionary: null,
       showPitchAccentFurigana: true,
@@ -2787,6 +2795,50 @@ describe("Hoshidicts compact definition summaries", () => {
 });
 
 describe("Hoshidicts definition blur", () => {
+  it("does not autoplay audio for a word whose definitions are blurred", async () => {
+    vi.useFakeTimers();
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const first = dom.window.document.getElementById("first")!;
+    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
+    const audioController = createAudioControllerStub();
+    const reader = api.createHoshidictsReader({
+      window: dom.window,
+      document: dom.window.document,
+      WebSocket: FakeWebSocket,
+      audioController,
+      lookupMode: "hover",
+      definitionBlur: {
+        enabled: true,
+        lookupThreshold: 5,
+        revealMode: "hover",
+        revealDelayMs: 5000
+      },
+      onLookup: async () => ({ success: true, lookupCount: 5 }),
+      logger: { debug() {}, info() {}, warn() {} }
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    first.dispatchEvent(new dom.window.MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: 11,
+      clientY: 11
+    }));
+    await vi.advanceTimersByTimeAsync(20);
+    const request = JSON.parse(socket.sent.at(-1)!);
+    socket.receive(lookupResult(request.requestId, "食べる"));
+    await flushPromises();
+
+    expect(reader.getPopupElement().querySelector<HTMLElement>(
+      ".gsm-hoshidicts-definitions"
+    )?.dataset.definitionBlurState).toBe("blurred");
+    expect(audioController.setRenderedResults).toHaveBeenCalled();
+    expect(audioController.setRenderedResults.mock.calls.some(
+      ([, options]) => options?.autoPlay === true
+    )).toBe(false);
+    reader.destroy();
+  });
+
   it("renders every definition pending and fails open below the lookup threshold", async () => {
     vi.useFakeTimers();
     const dom = createDom();
@@ -7760,6 +7812,8 @@ describe("Hoshidicts Shift-hover scanner", () => {
       onlyScanJapaneseText: true,
       popupHideDelayMs: 300,
       showLookupCounts: true,
+      averageFrequency: false,
+      showFrequencyDictionaryNames: true,
       showCompactDefinitionSummary: false,
       compactDefinitionSummaryDictionary: null,
       showPitchAccentFurigana: true,
@@ -7825,6 +7879,8 @@ describe("Hoshidicts Shift-hover scanner", () => {
       onlyScanJapaneseText: true,
       popupHideDelayMs: 5000,
       showLookupCounts: true,
+      averageFrequency: false,
+      showFrequencyDictionaryNames: true,
       showCompactDefinitionSummary: false,
       compactDefinitionSummaryDictionary: null,
       hidePopupGrammarTags: true,
@@ -7867,6 +7923,8 @@ describe("Hoshidicts Shift-hover scanner", () => {
       onlyScanJapaneseText: true,
       popupHideDelayMs: 0,
       showLookupCounts: true,
+      averageFrequency: false,
+      showFrequencyDictionaryNames: true,
       showCompactDefinitionSummary: false,
       compactDefinitionSummaryDictionary: null,
       hidePopupGrammarTags: true,
@@ -7910,6 +7968,8 @@ describe("Hoshidicts Shift-hover scanner", () => {
         onlyScanJapaneseText: true,
         popupHideDelayMs: 0,
         showLookupCounts: true,
+        averageFrequency: false,
+        showFrequencyDictionaryNames: true,
         showCompactDefinitionSummary: false,
         compactDefinitionSummaryDictionary: null,
         hidePopupGrammarTags: true,
@@ -9300,6 +9360,111 @@ describe("Hoshidicts Shift-hover scanner", () => {
       tags[1].querySelector<HTMLElement>(".gsm-hoshidicts-frequency-value")
         ?.dataset.frequency
     ).toBe("1234");
+    harness.reader.destroy();
+  });
+
+  it("collapses frequency dictionaries into one harmonic rank", async () => {
+    const harness = createReaderHarness({ averageFrequency: true });
+    await renderFirstLookup(harness, {
+      expression: "骨",
+      transform(response) {
+        response.results[0].term.frequencies = [
+          {
+            dictionary: "Corpus A",
+            frequencies: [
+              { value: 12000, displayValue: "12000" },
+              { value: 99999, displayValue: "99999" }
+            ]
+          },
+          {
+            dictionary: "Corpus B",
+            frequencies: [{ value: 36000, displayValue: null }]
+          }
+        ];
+      }
+    });
+
+    const popup = harness.reader.getPopupElement();
+    const frequencyTags = () =>
+      Array.from(
+        popup.querySelectorAll<HTMLElement>(
+          ".gsm-hoshidicts-tag-frequency"
+        )
+      );
+
+    expect(harness.reader.getPreferences().averageFrequency).toBe(true);
+    expect(frequencyTags()).toHaveLength(1);
+    expect(
+      frequencyTags()[0].querySelector(
+        ".gsm-hoshidicts-frequency-source"
+      )?.textContent
+    ).toBe("Frequency:");
+    expect(
+      frequencyTags()[0].querySelector(
+        ".gsm-hoshidicts-frequency-body"
+      )?.textContent
+    ).toBe("18k");
+    expect(frequencyTags()[0].getAttribute("aria-label")).toBe(
+      "Frequency: 18k"
+    );
+
+    harness.reader.updatePreferences({ averageFrequency: false });
+    expect(frequencyTags()).toHaveLength(2);
+
+    harness.reader.updatePreferences({ averageFrequency: true });
+    expect(frequencyTags()).toHaveLength(1);
+    expect(
+      frequencyTags()[0].querySelector(
+        ".gsm-hoshidicts-frequency-body"
+      )?.textContent
+    ).toBe("18k");
+
+    harness.reader.updatePreferences({ showFrequencyDictionaryNames: false });
+    expect(
+      frequencyTags()[0].querySelector(
+        ".gsm-hoshidicts-frequency-source"
+      )
+    ).toBeNull();
+    expect(frequencyTags()[0].textContent).toBe("18k");
+    harness.reader.destroy();
+  });
+
+  it("can show frequency values without dictionary names", async () => {
+    const harness = createReaderHarness({
+      showFrequencyDictionaryNames: false
+    });
+    await renderFirstLookup(harness, {
+      expression: "骨",
+      transform(response) {
+        response.results[0].term.frequencies = [{
+          dictionary: "JPDB Frequency",
+          frequencies: [{ value: 18000, displayValue: null }]
+        }];
+      }
+    });
+
+    const popup = harness.reader.getPopupElement();
+    const frequencyTag = () => popup.querySelector<HTMLElement>(
+      ".gsm-hoshidicts-tag-frequency"
+    );
+
+    expect(
+      harness.reader.getPreferences().showFrequencyDictionaryNames
+    ).toBe(false);
+    expect(
+      frequencyTag()?.querySelector(".gsm-hoshidicts-frequency-source")
+    ).toBeNull();
+    expect(frequencyTag()?.textContent).toBe("18k");
+    expect(frequencyTag()?.getAttribute("aria-label")).toBe("18k");
+
+    harness.reader.updatePreferences({ showFrequencyDictionaryNames: true });
+    expect(
+      frequencyTag()?.querySelector(".gsm-hoshidicts-frequency-source")
+        ?.textContent
+    ).toBe("JPDB Frequency");
+
+    harness.reader.updatePreferences({ showFrequencyDictionaryNames: false });
+    expect(frequencyTag()?.textContent).toBe("18k");
     harness.reader.destroy();
   });
 

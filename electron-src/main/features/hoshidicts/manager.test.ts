@@ -1949,6 +1949,8 @@ describe('Hoshidicts reader preferences', () => {
         expect(snapshot.sourceHighlightEnabled).toBe(false);
         expect(snapshot.onlyScanJapaneseText).toBe(true);
         expect(snapshot.showLookupCounts).toBe(true);
+        expect(snapshot.averageFrequency).toBe(false);
+        expect(snapshot.showFrequencyDictionaryNames).toBe(true);
         expect(snapshot.showCompactDefinitionSummary).toBe(false);
         expect(snapshot.compactDefinitionSummaryDictionary).toBeNull();
         expect(snapshot.showPitchAccentFurigana).toBe(true);
@@ -1991,6 +1993,10 @@ describe('Hoshidicts reader preferences', () => {
         expect((await manager.getSnapshot()).onlyScanJapaneseText).toBe(true);
         expect((await manager.getSnapshot()).popupHideDelayMs).toBe(300);
         expect((await manager.getSnapshot()).showLookupCounts).toBe(true);
+        expect((await manager.getSnapshot()).averageFrequency).toBe(false);
+        expect(
+            (await manager.getSnapshot()).showFrequencyDictionaryNames
+        ).toBe(true);
         expect(
             (await manager.getSnapshot()).showCompactDefinitionSummary
         ).toBe(false);
@@ -2071,7 +2077,9 @@ describe('Hoshidicts reader preferences', () => {
             false,
             '  Kanjium Pitch Accents  ',
             true,
-            ':scope { color: hotpink; }'
+            ':scope { color: hotpink; }',
+            true,
+            false
         );
 
         expect(snapshot.lookupMode).toBe('hover');
@@ -2084,6 +2092,8 @@ describe('Hoshidicts reader preferences', () => {
         expect(snapshot.onlyScanJapaneseText).toBe(false);
         expect(snapshot.popupHideDelayMs).toBe(850);
         expect(snapshot.showLookupCounts).toBe(false);
+        expect(snapshot.averageFrequency).toBe(true);
+        expect(snapshot.showFrequencyDictionaryNames).toBe(false);
         expect(snapshot.showCompactDefinitionSummary).toBe(true);
         expect(snapshot.compactDefinitionSummaryDictionary).toBe(
             'Jitendex.org'
@@ -2133,6 +2143,8 @@ describe('Hoshidicts reader preferences', () => {
         expect(readManifest(baseDir).onlyScanJapaneseText).toBe(false);
         expect(readManifest(baseDir).popupHideDelayMs).toBe(850);
         expect(readManifest(baseDir).showLookupCounts).toBe(false);
+        expect(readManifest(baseDir).averageFrequency).toBe(true);
+        expect(readManifest(baseDir).showFrequencyDictionaryNames).toBe(false);
         expect(readManifest(baseDir).showCompactDefinitionSummary).toBe(true);
         expect(readManifest(baseDir).compactDefinitionSummaryDictionary).toBe(
             'Jitendex.org'
@@ -2177,6 +2189,10 @@ describe('Hoshidicts reader preferences', () => {
         expect((await reloaded.getSnapshot()).onlyScanJapaneseText).toBe(false);
         expect((await reloaded.getSnapshot()).popupHideDelayMs).toBe(850);
         expect((await reloaded.getSnapshot()).showLookupCounts).toBe(false);
+        expect((await reloaded.getSnapshot()).averageFrequency).toBe(true);
+        expect(
+            (await reloaded.getSnapshot()).showFrequencyDictionaryNames
+        ).toBe(false);
         expect(
             (await reloaded.getSnapshot()).showCompactDefinitionSummary
         ).toBe(true);
@@ -2221,6 +2237,10 @@ describe('Hoshidicts reader preferences', () => {
         expect(shifted.onlyScanJapaneseText).toBe(false);
         expect(shifted.showLookupCounts).toBe(false);
         expect(readManifest(baseDir).showLookupCounts).toBe(false);
+        expect(shifted.averageFrequency).toBe(true);
+        expect(readManifest(baseDir).averageFrequency).toBe(true);
+        expect(shifted.showFrequencyDictionaryNames).toBe(false);
+        expect(readManifest(baseDir).showFrequencyDictionaryNames).toBe(false);
         expect(shifted.showCompactDefinitionSummary).toBe(true);
         expect(readManifest(baseDir).showCompactDefinitionSummary).toBe(true);
         expect(shifted.compactDefinitionSummaryDictionary).toBe(

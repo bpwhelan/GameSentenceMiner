@@ -235,7 +235,9 @@ function lookupControlsEqual(
         left.scanLength === right.scanLength &&
         left.maxResults === right.maxResults &&
         left.sortFrequencyDictionary === right.sortFrequencyDictionary &&
-        left.sortFrequencyDictionaryOrder === right.sortFrequencyDictionaryOrder
+        left.sortFrequencyDictionaryOrder === right.sortFrequencyDictionaryOrder &&
+        left.averageFrequency === right.averageFrequency &&
+        left.showFrequencyDictionaryNames === right.showFrequencyDictionaryNames
     );
 }
 
@@ -247,6 +249,8 @@ function lookupControlsFromPreferences(
         maxResults: preferences.maxResults,
         sortFrequencyDictionary: preferences.sortFrequencyDictionary,
         sortFrequencyDictionaryOrder: preferences.sortFrequencyDictionaryOrder,
+        averageFrequency: preferences.averageFrequency,
+        showFrequencyDictionaryNames: preferences.showFrequencyDictionaryNames,
     };
 }
 
@@ -468,6 +472,9 @@ function withDesktopState(
                                 snapshot.sortFrequencyDictionary,
                             sortFrequencyDictionaryOrder:
                                 snapshot.sortFrequencyDictionaryOrder,
+                            averageFrequency: snapshot.averageFrequency,
+                            showFrequencyDictionaryNames:
+                                snapshot.showFrequencyDictionaryNames,
                         })) ||
                     (effectiveEnabled &&
                         activationKeyAtLaunch !== null &&
@@ -1007,7 +1014,9 @@ export function registerHoshidictsIPC(
                     reader.showPitchAccentFurigana,
                     reader.pitchAccentFuriganaDictionary,
                     reader.showPitchAccentBadge,
-                    reader.customPopupCss
+                    reader.customPopupCss,
+                    reader.averageFrequency,
+                    reader.showFrequencyDictionaryNames
                 );
             }
             await applyReaderSnapshot(state, deps);
@@ -1344,6 +1353,10 @@ export function registerHoshidictsIPC(
                 typeof value.sourceHighlightEnabled !== 'boolean' ||
                 typeof value.onlyScanJapaneseText !== 'boolean' ||
                 typeof value.showLookupCounts !== 'boolean' ||
+                (value.averageFrequency !== undefined &&
+                    typeof value.averageFrequency !== 'boolean') ||
+                (value.showFrequencyDictionaryNames !== undefined &&
+                    typeof value.showFrequencyDictionaryNames !== 'boolean') ||
                 typeof value.showCompactDefinitionSummary !== 'boolean' ||
                 !isNullableDictionaryTitle(
                     value.compactDefinitionSummaryDictionary
@@ -1415,6 +1428,9 @@ export function registerHoshidictsIPC(
                             value.onlyScanJapaneseText as boolean,
                         popupHideDelayMs: value.popupHideDelayMs as number,
                         showLookupCounts: value.showLookupCounts as boolean,
+                        averageFrequency: value.averageFrequency === true,
+                        showFrequencyDictionaryNames:
+                            value.showFrequencyDictionaryNames !== false,
                         showCompactDefinitionSummary:
                             value.showCompactDefinitionSummary as boolean,
                         compactDefinitionSummaryDictionary:
@@ -1477,7 +1493,9 @@ export function registerHoshidictsIPC(
                         requestPreferences.showPitchAccentFurigana,
                         requestPreferences.pitchAccentFuriganaDictionary,
                         requestPreferences.showPitchAccentBadge,
-                        requestPreferences.customPopupCss
+                        requestPreferences.customPopupCss,
+                        requestPreferences.averageFrequency,
+                        requestPreferences.showFrequencyDictionaryNames
                     );
                     const preferences: HoshidictsReaderPreferences = {
                         ...hoshidictsReaderPreferencesFromSnapshot(state),

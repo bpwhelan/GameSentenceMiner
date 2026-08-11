@@ -206,19 +206,35 @@
     return formatCompactFrequencyNumber(frequency.value);
   }
 
+  function frequencyNumberForAverage(frequency) {
+    if (typeof frequency.displayValue === "string") {
+      const match = /^\d+/u.exec(frequency.displayValue);
+      if (match) {
+        const value = Number.parseInt(match[0], 10);
+        if (value > 0) return value;
+      }
+    }
+    return Number.isFinite(frequency.value) && frequency.value > 0
+      ? frequency.value
+      : null;
+  }
+
   function createFrequencyTag(
     documentRef,
     group,
     dictionaryDisplayName,
-    frequencies
+    frequencies,
+    showDictionaryName = true
   ) {
     const tag = createTag(documentRef, "", group.dictionary, "frequency");
     tag.dataset.dictionary = group.dictionary;
 
-    const source = documentRef.createElement("span");
-    source.className = "gsm-hoshidicts-frequency-source";
-    source.textContent = dictionaryDisplayName;
-    tag.appendChild(source);
+    if (showDictionaryName) {
+      const source = documentRef.createElement("span");
+      source.className = "gsm-hoshidicts-frequency-source";
+      source.textContent = dictionaryDisplayName;
+      tag.appendChild(source);
+    }
 
     const body = documentRef.createElement("span");
     body.className = "gsm-hoshidicts-frequency-body";
@@ -241,9 +257,12 @@
       values.appendChild(value);
     });
 
+    const frequencyLabel = frequencies
+      .map(({ display }) => display)
+      .join(", ");
     tag.setAttribute(
       "aria-label",
-      `${group.dictionary}: ${frequencies.map(({ display }) => display).join(", ")}`
+      showDictionaryName ? `${group.dictionary}: ${frequencyLabel}` : frequencyLabel
     );
     return tag;
   }
@@ -252,8 +271,37 @@
     documentRef,
     result,
     dictionaryPresentation,
-    maximumTags
+    maximumTags,
+    averageFrequency = false,
+    showFrequencyDictionaryNames = true
   ) {
+    if (averageFrequency) {
+      const frequencies = [];
+      for (const group of result.term.frequencies) {
+        for (const frequency of group.frequencies) {
+          const value = frequencyNumberForAverage(frequency);
+          if (value !== null) {
+            frequencies.push(value);
+            break;
+          }
+        }
+      }
+      if (frequencies.length === 0) return [];
+      const value = Math.floor(
+        frequencies.length /
+          frequencies.reduce((total, frequency) => total + 1 / frequency, 0)
+      );
+      const frequency = { value, displayValue: null };
+      return [
+        createFrequencyTag(
+          documentRef,
+          { dictionary: "Frequency" },
+          "Frequency:",
+          [{ display: formatCompactFrequencyNumber(value), frequency }],
+          showFrequencyDictionaryNames
+        ),
+      ];
+    }
     const tags = [];
     const seen = new Set();
     const dictionaryDisplayNames = createDictionaryDisplayNames(
@@ -292,7 +340,8 @@
           documentRef,
           group,
           dictionaryDisplayNames.get(group.dictionary) || group.dictionary,
-          frequencies
+          frequencies,
+          showFrequencyDictionaryNames
         ));
       }
     }
@@ -1308,7 +1357,12 @@
       entry,
       result,
       dictionaryPresentation = [],
-      { includeFrequency = true, includePitch = true } = {}
+      {
+        includeFrequency = true,
+        includePitch = true,
+        averageFrequency = false,
+        showFrequencyDictionaryNames = true,
+      } = {}
     ) {
       const frequencyRow = documentRef.createElement("div");
       frequencyRow.className =
@@ -1327,7 +1381,9 @@
           documentRef,
           result,
           dictionaryPresentation,
-          maxMetadataTags
+          maxMetadataTags,
+          averageFrequency,
+          showFrequencyDictionaryNames
         );
         frequencyRow.append(...frequencyTags);
         count += frequencyTags.length;
@@ -1395,14 +1451,18 @@
       capsule,
       result,
       dictionaryPresentation,
-      hideGrammarTags
+      hideGrammarTags,
+      averageFrequency,
+      showFrequencyDictionaryNames
     ) {
       capsule.replaceChildren();
       const frequencyTags = createFrequencyTags(
         documentRef,
         result,
         dictionaryPresentation,
-        maxMetadataTags
+        maxMetadataTags,
+        averageFrequency,
+        showFrequencyDictionaryNames
       );
       if (frequencyTags.length > 0) {
         const frequencies = documentRef.createElement("span");
@@ -1635,7 +1695,9 @@
             Array.isArray(renderContext.dictionaryPresentation)
               ? renderContext.dictionaryPresentation
               : [],
-            renderContext.hidePopupGrammarTags !== false
+            renderContext.hidePopupGrammarTags !== false,
+            renderContext.averageFrequency === true,
+            renderContext.showFrequencyDictionaryNames !== false
           );
           if (metadataStrip) {
             updateMetadataStripVisibility(
@@ -1655,6 +1717,9 @@
           {
             includeFrequency: resultIndex !== 0,
             includePitch: renderContext.showPitchAccentBadge === true,
+            averageFrequency: renderContext.averageFrequency === true,
+            showFrequencyDictionaryNames:
+              renderContext.showFrequencyDictionaryNames !== false,
           }
         );
 

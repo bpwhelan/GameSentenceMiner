@@ -87,6 +87,16 @@
     process.env &&
     process.env.GSM_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS === '0'
   );
+  window.gsmHoshidictsAverageFrequency = (
+    typeof process !== 'undefined' &&
+    process.env &&
+    process.env.GSM_HOSHIDICTS_AVERAGE_FREQUENCY === '1'
+  );
+  window.gsmHoshidictsShowFrequencyDictionaryNames = !(
+    typeof process !== 'undefined' &&
+    process.env &&
+    process.env.GSM_HOSHIDICTS_SHOW_FREQUENCY_DICTIONARY_NAMES === '0'
+  );
   const configuredHoshidictsScanLength = Number(
     typeof process !== 'undefined' && process.env
       ? process.env.GSM_HOSHIDICTS_SCAN_LENGTH
@@ -5381,6 +5391,13 @@ background: rgba(202, 12, 12, 0.692);
       preferences.sortFrequencyDictionaryOrder === undefined
         ? 'descending'
         : preferences.sortFrequencyDictionaryOrder;
+    const averageFrequency = preferences.averageFrequency === undefined
+      ? false
+      : preferences.averageFrequency;
+    const showFrequencyDictionaryNames =
+      preferences.showFrequencyDictionaryNames === undefined
+        ? true
+        : preferences.showFrequencyDictionaryNames;
     if (
       !Number.isInteger(scanLength) ||
       scanLength < 1 ||
@@ -5393,7 +5410,9 @@ background: rgba(202, 12, 12, 0.692);
           !sortFrequencyDictionary.trim() ||
           sortFrequencyDictionary.length > 4096)) ||
       (sortFrequencyDictionaryOrder !== 'ascending' &&
-        sortFrequencyDictionaryOrder !== 'descending')
+        sortFrequencyDictionaryOrder !== 'descending') ||
+      typeof averageFrequency !== 'boolean' ||
+      typeof showFrequencyDictionaryNames !== 'boolean'
     ) {
       return null;
     }
@@ -5402,6 +5421,8 @@ background: rgba(202, 12, 12, 0.692);
       maxResults,
       sortFrequencyDictionary,
       sortFrequencyDictionaryOrder,
+      averageFrequency,
+      showFrequencyDictionaryNames,
     };
   }
 
@@ -5516,6 +5537,9 @@ background: rgba(202, 12, 12, 0.692);
       sortFrequencyDictionary: window.gsmHoshidictsSortFrequencyDictionary,
       sortFrequencyDictionaryOrder:
         window.gsmHoshidictsSortFrequencyDictionaryOrder,
+      averageFrequency: window.gsmHoshidictsAverageFrequency,
+      showFrequencyDictionaryNames:
+        window.gsmHoshidictsShowFrequencyDictionaryNames,
       activationKey: window.gsmHoshidictsActivationKey,
       activationKeyPressed: window.gsmHoshidictsActivationKeyPressed === true,
       sourceHighlightEnabled: window.gsmHoshidictsSourceHighlightEnabled === true,
@@ -5652,6 +5676,9 @@ background: rgba(202, 12, 12, 0.692);
       lookupControls.sortFrequencyDictionary;
     window.gsmHoshidictsSortFrequencyDictionaryOrder =
       lookupControls.sortFrequencyDictionaryOrder;
+    window.gsmHoshidictsAverageFrequency = lookupControls.averageFrequency;
+    window.gsmHoshidictsShowFrequencyDictionaryNames =
+      lookupControls.showFrequencyDictionaryNames;
     window.gsmHoshidictsActivationKey =
       window.GSMHoshidictsReader.normalizeActivationKey(
         preferences.activationKey
@@ -5710,6 +5737,9 @@ background: rgba(202, 12, 12, 0.692);
         sortFrequencyDictionary: window.gsmHoshidictsSortFrequencyDictionary,
         sortFrequencyDictionaryOrder:
           window.gsmHoshidictsSortFrequencyDictionaryOrder,
+        averageFrequency: window.gsmHoshidictsAverageFrequency,
+        showFrequencyDictionaryNames:
+          window.gsmHoshidictsShowFrequencyDictionaryNames,
         activationKey: window.gsmHoshidictsActivationKey,
         sourceHighlightEnabled: window.gsmHoshidictsSourceHighlightEnabled,
         onlyScanJapaneseText: window.gsmHoshidictsOnlyScanJapaneseText,

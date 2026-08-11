@@ -238,6 +238,8 @@ describe("Hoshidicts desktop bridge", () => {
       maxResults: 48,
       sortFrequencyDictionary: "Frequency",
       sortFrequencyDictionaryOrder: "ascending",
+      averageFrequency: false,
+      showFrequencyDictionaryNames: true,
       activationKey: "F8",
       sourceHighlightEnabled: true,
       onlyScanJapaneseText: true,

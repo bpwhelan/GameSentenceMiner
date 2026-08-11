@@ -276,6 +276,9 @@ export async function startHoshidictsManager(): Promise<void> {
             sortFrequencyDictionary: snapshot.sortFrequencyDictionary,
             sortFrequencyDictionaryOrder:
                 snapshot.sortFrequencyDictionaryOrder,
+            averageFrequency: snapshot.averageFrequency,
+            showFrequencyDictionaryNames:
+                snapshot.showFrequencyDictionaryNames,
         };
     });
     configureHoshidictsActivationKeyProvider(

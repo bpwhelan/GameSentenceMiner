@@ -178,6 +178,8 @@ export const DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY:
     string | null = null;
 export const DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE = false;
 export const DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS = true;
+export const DEFAULT_HOSHIDICTS_AVERAGE_FREQUENCY = false;
+export const DEFAULT_HOSHIDICTS_SHOW_FREQUENCY_DICTIONARY_NAMES = true;
 export const DEFAULT_HOSHIDICTS_SCAN_LENGTH = 16;
 export const MIN_HOSHIDICTS_SCAN_LENGTH = 1;
 export const MAX_HOSHIDICTS_SCAN_LENGTH = 64;
@@ -693,6 +695,8 @@ export interface HoshidictsReaderPreferencesRequest {
     onlyScanJapaneseText: boolean;
     popupHideDelayMs: number;
     showLookupCounts: boolean;
+    averageFrequency?: boolean;
+    showFrequencyDictionaryNames?: boolean;
     showCompactDefinitionSummary: boolean;
     compactDefinitionSummaryDictionary: string | null;
     showPitchAccentFurigana: boolean;
@@ -735,6 +739,8 @@ export interface HoshidictsReaderTabGroup {
 
 export interface HoshidictsReaderPreferences
     extends HoshidictsReaderPreferencesRequest {
+    averageFrequency: boolean;
+    showFrequencyDictionaryNames: boolean;
     customPopupCss: string;
     // Optional at the cross-process boundary for compatibility with an older
     // overlay. Current desktop deliveries always include a normalized array.
@@ -933,6 +939,8 @@ export interface HoshidictsManagerSnapshot {
     onlyScanJapaneseText: boolean;
     popupHideDelayMs: number;
     showLookupCounts: boolean;
+    averageFrequency: boolean;
+    showFrequencyDictionaryNames: boolean;
     showCompactDefinitionSummary: boolean;
     compactDefinitionSummaryDictionary: string | null;
     showPitchAccentFurigana: boolean;
@@ -974,6 +982,8 @@ export function hoshidictsReaderPreferencesFromSnapshot(
         onlyScanJapaneseText: snapshot.onlyScanJapaneseText,
         popupHideDelayMs: snapshot.popupHideDelayMs,
         showLookupCounts: snapshot.showLookupCounts,
+        averageFrequency: snapshot.averageFrequency,
+        showFrequencyDictionaryNames: snapshot.showFrequencyDictionaryNames,
         showCompactDefinitionSummary: snapshot.showCompactDefinitionSummary,
         compactDefinitionSummaryDictionary:
             snapshot.compactDefinitionSummaryDictionary,

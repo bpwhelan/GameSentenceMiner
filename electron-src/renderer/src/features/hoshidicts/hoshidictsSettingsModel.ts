@@ -10,6 +10,8 @@ import {
   DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE,
   DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
   DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
+  DEFAULT_HOSHIDICTS_AVERAGE_FREQUENCY,
+  DEFAULT_HOSHIDICTS_SHOW_FREQUENCY_DICTIONARY_NAMES,
   DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
   DEFAULT_HOSHIDICTS_MAX_RESULTS,
   DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
@@ -343,6 +345,9 @@ const DEFAULT_STATE: HoshidictsDesktopSnapshot = {
   onlyScanJapaneseText: DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
   popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   showLookupCounts: true,
+  averageFrequency: DEFAULT_HOSHIDICTS_AVERAGE_FREQUENCY,
+  showFrequencyDictionaryNames:
+    DEFAULT_HOSHIDICTS_SHOW_FREQUENCY_DICTIONARY_NAMES,
   showCompactDefinitionSummary:
     DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
   compactDefinitionSummaryDictionary:
@@ -869,6 +874,9 @@ export function normalizeHoshidictsDesktopState(
       candidate.onlyScanJapaneseText !== false,
     popupHideDelayMs,
     showLookupCounts: candidate.showLookupCounts !== false,
+    averageFrequency: candidate.averageFrequency === true,
+    showFrequencyDictionaryNames:
+      candidate.showFrequencyDictionaryNames !== false,
     showCompactDefinitionSummary:
       candidate.showCompactDefinitionSummary === true,
     compactDefinitionSummaryDictionary:

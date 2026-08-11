@@ -11,6 +11,8 @@ import {
   DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE,
   DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
   DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
+  DEFAULT_HOSHIDICTS_AVERAGE_FREQUENCY,
+  DEFAULT_HOSHIDICTS_SHOW_FREQUENCY_DICTIONARY_NAMES,
   DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
   DEFAULT_HOSHIDICTS_MAX_RESULTS,
   DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
@@ -129,6 +131,9 @@ const defaultReaderPreferences = (): HoshidictsReaderPreferences => ({
   onlyScanJapaneseText: DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
   popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   showLookupCounts: true,
+  averageFrequency: DEFAULT_HOSHIDICTS_AVERAGE_FREQUENCY,
+  showFrequencyDictionaryNames:
+    DEFAULT_HOSHIDICTS_SHOW_FREQUENCY_DICTIONARY_NAMES,
   showCompactDefinitionSummary:
     DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
   compactDefinitionSummaryDictionary:
@@ -277,6 +282,8 @@ export function useHoshidictsSettingsController() {
       onlyScanJapaneseText: normalized.onlyScanJapaneseText,
       popupHideDelayMs: normalized.popupHideDelayMs,
       showLookupCounts: normalized.showLookupCounts,
+      averageFrequency: normalized.averageFrequency,
+      showFrequencyDictionaryNames: normalized.showFrequencyDictionaryNames,
       showCompactDefinitionSummary: normalized.showCompactDefinitionSummary,
       compactDefinitionSummaryDictionary:
         normalized.compactDefinitionSummaryDictionary,
@@ -818,6 +825,20 @@ export function useHoshidictsSettingsController() {
   const setShowLookupCounts = useCallback(
     (showLookupCounts: boolean) => {
       updateReaderPreferences({ showLookupCounts });
+    },
+    [updateReaderPreferences]
+  );
+
+  const setAverageFrequency = useCallback(
+    (averageFrequency: boolean) => {
+      updateReaderPreferences({ averageFrequency });
+    },
+    [updateReaderPreferences]
+  );
+
+  const setShowFrequencyDictionaryNames = useCallback(
+    (showFrequencyDictionaryNames: boolean) => {
+      updateReaderPreferences({ showFrequencyDictionaryNames });
     },
     [updateReaderPreferences]
   );
@@ -1368,6 +1389,8 @@ export function useHoshidictsSettingsController() {
     setPopupCustomLinks,
     resetPopupSize,
     setShowLookupCounts,
+    setAverageFrequency,
+    setShowFrequencyDictionaryNames,
     setShowCompactDefinitionSummary,
     setCompactDefinitionSummaryDictionary,
     setShowPitchAccentFurigana,
