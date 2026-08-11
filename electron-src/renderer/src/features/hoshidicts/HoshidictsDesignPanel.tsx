@@ -300,6 +300,8 @@ export function HoshidictsDesignPanel({
     setDefinitionBlurLookupThreshold,
     setDefinitionBlurRevealDelayMs,
     setDefinitionBlurRevealMode,
+    setAverageFrequency,
+    setShowFrequencyDictionaryNames,
     setHidePopupGrammarTags,
     setPitchAccentFuriganaDictionary,
     setPopupColumns,
@@ -652,6 +654,52 @@ export function HoshidictsDesignPanel({
               <small>
                 {t(
                   "settings.hoshidicts.reader.appearance.pitchAccentBadgeHint"
+                )}
+              </small>
+            </span>
+          </label>
+          <label className="hoshidicts-reader-popup-metadata">
+            <input
+              id="hoshidicts-average-frequency"
+              type="checkbox"
+              checked={readerDraft.averageFrequency}
+              disabled={preferencesBusy}
+              onChange={(event) =>
+                setAverageFrequency(event.currentTarget.checked)
+              }
+            />
+            <span>
+              <strong>
+                {t(
+                  "settings.hoshidicts.reader.appearance.averageFrequency"
+                )}
+              </strong>
+              <small>
+                {t(
+                  "settings.hoshidicts.reader.appearance.averageFrequencyHint"
+                )}
+              </small>
+            </span>
+          </label>
+          <label className="hoshidicts-reader-popup-metadata">
+            <input
+              id="hoshidicts-show-frequency-dictionary-names"
+              type="checkbox"
+              checked={readerDraft.showFrequencyDictionaryNames}
+              disabled={preferencesBusy}
+              onChange={(event) =>
+                setShowFrequencyDictionaryNames(event.currentTarget.checked)
+              }
+            />
+            <span>
+              <strong>
+                {t(
+                  "settings.hoshidicts.reader.appearance.showFrequencyDictionaryNames"
+                )}
+              </strong>
+              <small>
+                {t(
+                  "settings.hoshidicts.reader.appearance.showFrequencyDictionaryNamesHint"
                 )}
               </small>
             </span>

@@ -906,6 +906,8 @@ function currentReaderPreferences(current: HoshidictsManagerSnapshot): Hoshidict
         onlyScanJapaneseText: current.onlyScanJapaneseText,
         popupHideDelayMs: current.popupHideDelayMs,
         showLookupCounts: current.showLookupCounts,
+        averageFrequency: current.averageFrequency,
+        showFrequencyDictionaryNames: current.showFrequencyDictionaryNames,
         showCompactDefinitionSummary: current.showCompactDefinitionSummary,
         compactDefinitionSummaryDictionary:
             current.compactDefinitionSummaryDictionary,
@@ -1010,6 +1012,13 @@ function readerPreferences(
         )
     ) {
         warnings.push("Skipped Yomitan's invalid frequency sort order.");
+    }
+    if (typeof general.averageFrequency === 'boolean') {
+        result.averageFrequency = general.averageFrequency;
+    } else if (
+        Object.prototype.hasOwnProperty.call(general, 'averageFrequency')
+    ) {
+        warnings.push("Skipped Yomitan's invalid average frequency setting.");
     }
     if (
         Number.isSafeInteger(scanning.popupNestingMaxDepth) &&
