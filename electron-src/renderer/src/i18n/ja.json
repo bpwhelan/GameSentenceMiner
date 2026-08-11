@@ -638,12 +638,20 @@
           "refresh": "更新",
           "frameTitle": "HoshiDictポップアップのプレビュー"
         },
+        "customCss": {
+          "hint": "組み込みテーマを変更せずに、小さなCSSオーバーライドを追加します。",
+          "label": "カスタムポップアップCSS",
+          "characterCount": "{count} / {limit}文字",
+          "reset": "CSSをリセット",
+          "scopeHint": "ルールはポップアップのスコープ内に配置されます。ポップアップ自体をスタイルするには :scope を使用してください。"
+        },
         "sections": {
           "appearance": "外観とレイアウト",
           "content": "見出し語とメタデータ",
           "actions": "ポップアップの操作",
           "definitions": "語義",
-          "gameText": "ゲーム本文"
+          "gameText": "ゲーム本文",
+          "customCss": "高度なCSS"
         }
       },
       "reader": {

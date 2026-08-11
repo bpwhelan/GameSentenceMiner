@@ -60,6 +60,7 @@ const harness = vi.hoisted(() => ({
         viewInAnki: false,
         customLinks: [] as Array<{ label: string; url: string }>,
     },
+    customPopupCssApplied: '',
     definitionBlurAtLaunch: {
         enabled: false,
         lookupThreshold: 5,
@@ -202,6 +203,7 @@ const snapshot = {
     popupOpacityPercent: 85,
     popupToolbarPosition: 'top',
     popupButtons: createDefaultHoshidictsPopupButtons(),
+    customPopupCss: '',
     definitionBlur: {
         enabled: false,
         lookupThreshold: 5,
@@ -404,6 +406,8 @@ async function registerHarness() {
             harness.popupToolbarPositionAtLaunch,
         getOverlayPopupButtonsApplied: () =>
             harness.popupButtonsApplied,
+        getOverlayCustomPopupCssApplied: () =>
+            harness.customPopupCssApplied,
         applyReaderPreferences,
         applyAudioProfile,
         getMiningOptions,
@@ -455,6 +459,7 @@ describe('Hoshidicts settings IPC', () => {
         harness.popupOpacityPercentAtLaunch = 85;
         harness.popupToolbarPositionAtLaunch = 'top';
         harness.popupButtonsApplied = createDefaultHoshidictsPopupButtons();
+        harness.customPopupCssApplied = '';
         harness.definitionBlurAtLaunch = {
             enabled: false,
             lookupThreshold: 5,
@@ -1370,6 +1375,29 @@ describe('Hoshidicts settings IPC', () => {
         });
     });
 
+    it('requires a restart when custom popup CSS was not applied live', async () => {
+        harness.enabledAtLaunch = true;
+        const context = await registerHarness();
+        harness.manager.getSnapshot.mockResolvedValue({
+            ...snapshot,
+            customPopupCss: ':scope { color: hotpink; }',
+        });
+        const getState = harness.handlers.get('hoshidicts.getState');
+
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: true },
+        });
+
+        harness.customPopupCssApplied = ':scope { color: hotpink; }';
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: false },
+        });
+    });
+
     it('rejects requests from unrelated renderer windows', async () => {
         const context = await registerHarness();
         const getState = harness.handlers.get('hoshidicts.getState');
@@ -2187,6 +2215,7 @@ describe('Hoshidicts settings IPC', () => {
                             },
                         ],
                     },
+                    customPopupCss: ':scope { color: hotpink; }',
                     definitionBlur: {
                         enabled: true,
                         lookupThreshold: 7,
@@ -2240,7 +2269,8 @@ describe('Hoshidicts settings IPC', () => {
             false,
             true,
             'Pitch',
-            false
+            false,
+            ':scope { color: hotpink; }'
         );
         expect(context.applyReaderPreferences).toHaveBeenCalledWith({
             lookupMode: 'hover',
@@ -2278,6 +2308,7 @@ describe('Hoshidicts settings IPC', () => {
                     },
                 ],
             },
+            customPopupCss: ':scope { color: hotpink; }',
             definitionBlur: {
                 enabled: true,
                 lookupThreshold: 7,

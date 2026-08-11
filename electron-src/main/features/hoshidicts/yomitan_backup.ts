@@ -928,6 +928,7 @@ function currentReaderPreferences(current: HoshidictsManagerSnapshot): Hoshidict
                 ...link,
             })),
         },
+        customPopupCss: current.customPopupCss,
     };
 }
 

@@ -37,6 +37,7 @@ import {
     getOverlayHoshidictsPopupOpacityPercentAtLaunch,
     getOverlayHoshidictsPopupToolbarPositionAtLaunch,
     getOverlayHoshidictsPopupButtonsApplied,
+    getOverlayHoshidictsCustomPopupCssApplied,
     getOverlayHoshidictsShowLookupCountsAtLaunch,
     getOverlayHoshidictsShowCompactDefinitionSummaryAtLaunch,
     getOverlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch,
@@ -246,6 +247,8 @@ export function registerHoshidictsFeature(deps: {
             getOverlayHoshidictsPopupToolbarPositionAtLaunch,
         getOverlayPopupButtonsApplied:
             getOverlayHoshidictsPopupButtonsApplied,
+        getOverlayCustomPopupCssApplied:
+            getOverlayHoshidictsCustomPopupCssApplied,
         applyReaderPreferences,
         applyAudioProfile,
         getMiningOptions: fetchHoshidictsMiningOptions,

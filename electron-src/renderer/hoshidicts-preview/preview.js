@@ -5,6 +5,7 @@
   const SERVER_URL = "ws://127.0.0.1:7276";
   const LOOKUP_COUNT = 12;
   const SEEN_COUNT = 42;
+  const MAX_CUSTOM_POPUP_CSS_LENGTH = 32 * 1024;
 
   let reader = null;
   let currentPreferences = null;
@@ -24,6 +25,8 @@
         value.popupToolbarPosition === "bottom") &&
       typeof value.showLookupCounts === "boolean" &&
       typeof value.sourceHighlightEnabled === "boolean" &&
+      typeof value.customPopupCss === "string" &&
+      value.customPopupCss.length <= MAX_CUSTOM_POPUP_CSS_LENGTH &&
       isRecord(value.definitionBlur) &&
       typeof value.definitionBlur.enabled === "boolean" &&
       isRecord(value.popupButtons)

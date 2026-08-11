@@ -1882,6 +1882,7 @@ describe('Hoshidicts reader preferences', () => {
             viewInAnki: false,
             customLinks: [],
         });
+        expect((await manager.getSnapshot()).customPopupCss).toBe('');
         expect((await manager.getSnapshot()).definitionBlur).toEqual({
             enabled: false,
             lookupThreshold: 5,
@@ -1930,7 +1931,8 @@ describe('Hoshidicts reader preferences', () => {
             false,
             false,
             '  Kanjium Pitch Accents  ',
-            true
+            true,
+            ':scope { color: hotpink; }'
         );
 
         expect(snapshot.lookupMode).toBe('hover');
@@ -1971,6 +1973,9 @@ describe('Hoshidicts reader preferences', () => {
                 },
             ],
         });
+        expect(snapshot.customPopupCss).toBe(
+            ':scope { color: hotpink; }'
+        );
         expect(snapshot.definitionBlur).toEqual({
             enabled: true,
             lookupThreshold: 8,
@@ -2009,6 +2014,9 @@ describe('Hoshidicts reader preferences', () => {
         expect(readManifest(baseDir).popupToolbarPosition).toBe('bottom');
         expect(readManifest(baseDir).popupButtons).toEqual(
             snapshot.popupButtons
+        );
+        expect(readManifest(baseDir).customPopupCss).toBe(
+            ':scope { color: hotpink; }'
         );
         expect(readManifest(baseDir).definitionBlur).toEqual({
             enabled: true,
@@ -2052,6 +2060,9 @@ describe('Hoshidicts reader preferences', () => {
         expect((await reloaded.getSnapshot()).popupToolbarPosition).toBe('bottom');
         expect((await reloaded.getSnapshot()).popupButtons).toEqual(
             snapshot.popupButtons
+        );
+        expect((await reloaded.getSnapshot()).customPopupCss).toBe(
+            ':scope { color: hotpink; }'
         );
         expect((await reloaded.getSnapshot()).definitionBlur).toEqual({
             enabled: true,
@@ -2097,6 +2108,7 @@ describe('Hoshidicts reader preferences', () => {
         expect(shifted.popupOpacityPercent).toBe(70);
         expect(shifted.popupToolbarPosition).toBe('bottom');
         expect(shifted.popupButtons).toEqual(snapshot.popupButtons);
+        expect(shifted.customPopupCss).toBe(':scope { color: hotpink; }');
         expect(shifted.definitionBlur).toEqual({
             enabled: true,
             lookupThreshold: 8,

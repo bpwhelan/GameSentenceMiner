@@ -98,6 +98,7 @@ const {
     popupOpacityPercent: number;
     popupToolbarPosition: "top" | "bottom";
     theme: HoshidictsTheme;
+    customPopupCss: string;
     dictionaryPresentation: Array<{
       title: string;
       favorite: boolean;
@@ -204,6 +205,7 @@ describe("Hoshidicts desktop bridge", () => {
       popupHideDelayMs: 850,
       popupNestingMaxDepth: 4,
       ...popupAppearance,
+      customPopupCss: ":scope { border-radius: 16px; }",
       dictionaryPresentation: [
         {
           title: "Monolingual",
@@ -242,6 +244,7 @@ describe("Hoshidicts desktop bridge", () => {
       popupHideDelayMs: 850,
       popupNestingMaxDepth: 4,
       ...popupAppearance,
+      customPopupCss: ":scope { border-radius: 16px; }",
       dictionaryPresentation: [
         {
           title: "Monolingual",
@@ -269,6 +272,25 @@ describe("Hoshidicts desktop bridge", () => {
         ],
       },
     });
+    expect(normalizeHoshidictsReaderPreferences({
+      lookupMode: "hover",
+      activationKey: "F8",
+      sourceHighlightEnabled: true,
+      popupHideDelayMs: 850,
+      popupNestingMaxDepth: 4,
+      ...popupAppearance,
+    }).customPopupCss).toBe("");
+    for (const customPopupCss of [1, "x".repeat(32 * 1024 + 1)]) {
+      expect(() => normalizeHoshidictsReaderPreferences({
+        lookupMode: "hover",
+        activationKey: "F8",
+        sourceHighlightEnabled: true,
+        popupHideDelayMs: 850,
+        popupNestingMaxDepth: 4,
+        ...popupAppearance,
+        customPopupCss,
+      })).toThrow("Hoshidicts reader preferences are invalid.");
+    }
     expect(normalizeHoshidictsReaderPreferences({
       lookupMode: "hover",
       activationKey: "F8",

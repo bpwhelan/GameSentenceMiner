@@ -22,6 +22,7 @@ import {
     isHoshidictsSortFrequencyDictionaryOrder,
     isHoshidictsTheme,
     MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES,
+    MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH,
     MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
     MAX_HOSHIDICTS_MAX_RESULTS,
@@ -117,6 +118,7 @@ export interface HoshidictsIPCDependencies {
         | HoshidictsPopupToolbarPosition
         | null;
     getOverlayPopupButtonsApplied: () => HoshidictsPopupButtons | null;
+    getOverlayCustomPopupCssApplied: () => string | null;
     applyReaderPreferences: (
         preferences: HoshidictsReaderPreferences
     ) => Promise<boolean>;
@@ -250,6 +252,7 @@ function readerPreferencesMatchOverlay(
 ): boolean {
     const definitionBlurAtLaunch = deps.getOverlayDefinitionBlurAtLaunch();
     const popupButtonsApplied = deps.getOverlayPopupButtonsApplied();
+    const customPopupCssApplied = deps.getOverlayCustomPopupCssApplied();
     const lookupControlsAtLaunch = deps.getOverlayLookupControlsAtLaunch();
     return (
         deps.getOverlayLookupModeAtLaunch() === preferences.lookupMode &&
@@ -291,6 +294,7 @@ function readerPreferencesMatchOverlay(
             preferences.popupToolbarPosition &&
         popupButtonsApplied !== null &&
         popupButtonsEqual(popupButtonsApplied, preferences.popupButtons) &&
+        customPopupCssApplied === preferences.customPopupCss &&
         definitionBlurAtLaunch !== null &&
         definitionBlurPreferencesEqual(
             definitionBlurAtLaunch,
@@ -437,6 +441,7 @@ function withDesktopState(
     const popupColumnsAtLaunch = deps.getOverlayPopupColumnsAtLaunch();
     const themeAtLaunch = deps.getOverlayThemeAtLaunch();
     const popupButtonsApplied = deps.getOverlayPopupButtonsApplied();
+    const customPopupCssApplied = deps.getOverlayCustomPopupCssApplied();
     const effectiveEnabled = deps.getConfiguredFeatureEnabled();
     return {
         ...snapshot,
@@ -529,6 +534,9 @@ function withDesktopState(
                             popupButtonsApplied,
                             snapshot.popupButtons
                         )) ||
+                    (effectiveEnabled &&
+                        customPopupCssApplied !== null &&
+                        customPopupCssApplied !== snapshot.customPopupCss) ||
                     (effectiveEnabled &&
                         deps.getOverlayAudioProfileRestartRequired())),
         },
@@ -880,7 +888,8 @@ export function registerHoshidictsIPC(
                     reader.hidePopupGrammarTags,
                     reader.showPitchAccentFurigana,
                     reader.pitchAccentFuriganaDictionary,
-                    reader.showPitchAccentBadge
+                    reader.showPitchAccentBadge,
+                    reader.customPopupCss
                 );
             }
             await applyReaderSnapshot(state, deps);
@@ -1258,6 +1267,10 @@ export function registerHoshidictsIPC(
                     value.popupToolbarPosition
                 ) ||
                 !isHoshidictsPopupButtons(value.popupButtons) ||
+                (value.customPopupCss !== undefined &&
+                    (typeof value.customPopupCss !== 'string' ||
+                        value.customPopupCss.length >
+                            MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH)) ||
                 !isDefinitionBlurPreferences(value.definitionBlur)
             ) {
                 return {
@@ -1316,6 +1329,9 @@ export function registerHoshidictsIPC(
                         popupButtons: normalizeHoshidictsPopupButtons(
                             value.popupButtons
                         ),
+                        ...(typeof value.customPopupCss === 'string'
+                            ? { customPopupCss: value.customPopupCss }
+                            : {}),
                     };
                     const state = await manager.setReaderPreferences(
                         requestPreferences.lookupMode,
@@ -1342,7 +1358,8 @@ export function registerHoshidictsIPC(
                         requestPreferences.hidePopupGrammarTags,
                         requestPreferences.showPitchAccentFurigana,
                         requestPreferences.pitchAccentFuriganaDictionary,
-                        requestPreferences.showPitchAccentBadge
+                        requestPreferences.showPitchAccentBadge,
+                        requestPreferences.customPopupCss
                     );
                     const preferences: HoshidictsReaderPreferences = {
                         ...hoshidictsReaderPreferencesFromSnapshot(state),

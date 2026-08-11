@@ -645,12 +645,20 @@
           "refresh": "Refresh",
           "frameTitle": "HoshiDict popup preview"
         },
+        "customCss": {
+          "hint": "Add a small CSS override without changing the built-in theme.",
+          "label": "Custom popup CSS",
+          "characterCount": "{count} / {limit} characters",
+          "reset": "Reset CSS",
+          "scopeHint": "Rules are placed inside a popup scope. Use :scope to style the popup itself."
+        },
         "sections": {
           "appearance": "Appearance and layout",
           "content": "Headword and metadata",
           "actions": "Popup actions",
           "definitions": "Definitions",
-          "gameText": "Game text"
+          "gameText": "Game text",
+          "customCss": "Advanced CSS"
         }
       },
       "reader": {

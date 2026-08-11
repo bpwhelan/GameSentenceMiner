@@ -42,6 +42,7 @@ import {
     DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
     DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
     DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
+    DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
     DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
     DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE,
     DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
@@ -69,6 +70,7 @@ import {
     isHoshidictsTheme,
     normalizeHoshidictsPopupButtons,
     MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES,
+    MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH,
     MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
     MAX_HOSHIDICTS_MAX_RESULTS,
@@ -180,6 +182,7 @@ interface PersistedManifest {
     popupOpacityPercent: number;
     popupToolbarPosition: HoshidictsPopupToolbarPosition;
     popupButtons: HoshidictsPopupButtons;
+    customPopupCss: string;
     schedule: HoshidictsSchedule;
     lastCheck: string | null;
     nextCheck: string | null;
@@ -450,6 +453,7 @@ function emptyManifest(): PersistedManifest {
         popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
         popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
         popupButtons: createDefaultHoshidictsPopupButtons(),
+        customPopupCss: DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
         schedule: 'off',
         lastCheck: null,
         nextCheck: null,
@@ -688,6 +692,13 @@ function normalizePopupToolbarPosition(
     return isHoshidictsPopupToolbarPosition(value)
         ? value
         : DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION;
+}
+
+function normalizeCustomPopupCss(value: unknown): string {
+    return typeof value === 'string' &&
+        value.length <= MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH
+        ? value
+        : DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS;
 }
 
 function normalizePersistedPopupButtons(value: unknown): HoshidictsPopupButtons {
@@ -2642,7 +2653,8 @@ export class HoshidictsManager {
             snapshot.hidePopupGrammarTags,
             snapshot.showPitchAccentFurigana,
             snapshot.pitchAccentFuriganaDictionary,
-            snapshot.showPitchAccentBadge
+            snapshot.showPitchAccentBadge,
+            snapshot.customPopupCss
         );
     }
 
@@ -2679,7 +2691,8 @@ export class HoshidictsManager {
             DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
         pitchAccentFuriganaDictionary: string | null =
             DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
-        showPitchAccentBadge = DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE
+        showPitchAccentBadge = DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE,
+        customPopupCss?: string
     ): Promise<HoshidictsManagerSnapshot> {
         if (lookupMode !== 'shift' && lookupMode !== 'hover') {
             throw new Error('Hoshidicts lookup mode is invalid.');
@@ -2849,6 +2862,13 @@ export class HoshidictsManager {
             throw new Error('Hoshidicts popup opacity is invalid.');
         }
         if (
+            customPopupCss !== undefined &&
+            (typeof customPopupCss !== 'string' ||
+                customPopupCss.length > MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH)
+        ) {
+            throw new Error('Hoshidicts custom popup CSS is invalid.');
+        }
+        if (
             definitionBlur !== undefined &&
             (!Number.isInteger(definitionBlur.lookupThreshold) ||
                 definitionBlur.lookupThreshold <
@@ -2908,6 +2928,8 @@ export class HoshidictsManager {
                 popupToolbarPosition ?? manifest.popupToolbarPosition;
             const effectivePopupButtons =
                 normalizedPopupButtons ?? manifest.popupButtons;
+            const effectiveCustomPopupCss =
+                customPopupCss ?? manifest.customPopupCss;
             if (
                 manifest.lookupMode !== lookupMode ||
                 manifest.scanLength !== scanLength ||
@@ -2942,6 +2964,7 @@ export class HoshidictsManager {
                     manifest.popupButtons,
                     effectivePopupButtons
                 ) ||
+                manifest.customPopupCss !== effectiveCustomPopupCss ||
                 !definitionBlurPreferencesEqual(
                     manifest.definitionBlur,
                     effectiveDefinitionBlur
@@ -2976,6 +2999,7 @@ export class HoshidictsManager {
                     popupOpacityPercent: effectivePopupOpacityPercent,
                     popupToolbarPosition: effectivePopupToolbarPosition,
                     popupButtons: effectivePopupButtons,
+                    customPopupCss: effectiveCustomPopupCss,
                 });
             }
         }, 'preferences');
@@ -3358,6 +3382,7 @@ export class HoshidictsManager {
             popupButtons: normalizeHoshidictsPopupButtons(
                 manifest.popupButtons
             ),
+            customPopupCss: manifest.customPopupCss,
             schedule: manifest.schedule,
             lastCheck: manifest.lastCheck,
             nextCheck: manifest.nextCheck,
@@ -3763,6 +3788,7 @@ export class HoshidictsManager {
                 parsed.popupToolbarPosition
             ),
             popupButtons: normalizePersistedPopupButtons(parsed.popupButtons),
+            customPopupCss: normalizeCustomPopupCss(parsed.customPopupCss),
             schedule,
             lastCheck: legacyLastCheck,
             nextCheck: null,
@@ -3832,6 +3858,7 @@ export class HoshidictsManager {
                 parsed.popupToolbarPosition
             ),
             popupButtons: normalizePersistedPopupButtons(parsed.popupButtons),
+            customPopupCss: normalizeCustomPopupCss(parsed.customPopupCss),
             schedule: normalizeSchedule(parsed.schedule),
             lastCheck: normalizeDate(parsed.lastCheck),
             nextCheck: normalizeDate(parsed.nextCheck),

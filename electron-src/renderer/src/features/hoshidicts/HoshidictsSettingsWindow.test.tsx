@@ -13,6 +13,7 @@ import {
   createDefaultHoshidictsPopupButtons,
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
+  DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
   DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
   DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
   DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
@@ -29,6 +30,7 @@ import {
   DEFAULT_HOSHIDICTS_THEME,
   HOSHIDICTS_CHANNELS,
   HOSHIDICTS_THEMES,
+  MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH,
   type HoshidictsActionResult,
   type HoshidictsCustomDictionaryDocument,
   type HoshidictsDesktopSnapshot,
@@ -219,6 +221,7 @@ const baseState: HoshidictsDesktopSnapshot = {
   popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
   popupButtons: createDefaultHoshidictsPopupButtons(),
+  customPopupCss: DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
   schedule: "weekly",
   lastCheck: "2026-08-06T10:00:00.000Z",
   nextCheck: "2026-08-13T10:00:00.000Z",
@@ -2237,6 +2240,7 @@ describe("HoshidictsSettingsWindow", () => {
         popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
         popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
         popupButtons: createDefaultHoshidictsPopupButtons(),
+        customPopupCss: DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
     );
@@ -2457,6 +2461,91 @@ describe("HoshidictsSettingsWindow", () => {
 
     expect(scaleToFit?.getAttribute("aria-pressed")).toBe("false");
     expect(actualSize?.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("live previews, auto-saves, and resets custom popup CSS", async () => {
+    vi.useFakeTimers();
+    await render();
+    await openDesign();
+
+    const editor = container.querySelector<HTMLTextAreaElement>(
+      "#hoshidicts-custom-popup-css"
+    );
+    const reset = container.querySelector<HTMLButtonElement>(
+      "#hoshidicts-custom-popup-css-reset"
+    );
+    const frame = container.querySelector<HTMLIFrameElement>(
+      'iframe[src="./hoshidicts-preview/index.html"]'
+    );
+    const postMessage = vi.spyOn(frame!.contentWindow!, "postMessage");
+    const customPopupCss = `:scope {
+  border-radius: 18px;
+}
+
+.gsm-hoshidicts-expression {
+  color: hotpink;
+}`;
+
+    expect(editor?.value).toBe(DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS);
+    expect(editor?.maxLength).toBe(MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH);
+    expect(editor?.getAttribute("aria-describedby")).toBe(
+      "hoshidicts-custom-popup-css-count hoshidicts-custom-popup-css-scope-hint"
+    );
+    expect(editor?.placeholder).toContain("--hoshidicts-popup-background");
+    expect(reset?.disabled).toBe(true);
+    expect(hoshidictsStyles).toMatch(
+      /\.hoshidicts-window \.hoshidicts-custom-css textarea/
+    );
+
+    postMessage.mockClear();
+    await act(async () => {
+      setTextareaValue(editor, customPopupCss);
+      await Promise.resolve();
+    });
+
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "gsm.hoshidicts.preview.v1",
+        type: "preferences",
+        preferences: expect.objectContaining({ customPopupCss })
+      }),
+      expect.any(String)
+    );
+    expect(reset?.disabled).toBe(false);
+
+    await act(async () => {
+      await flushAutosave();
+    });
+    expect(invokeMock).toHaveBeenLastCalledWith(
+      HOSHIDICTS_CHANNELS.setReaderPreferences,
+      expect.objectContaining({ customPopupCss })
+    );
+
+    postMessage.mockClear();
+    await act(async () => {
+      reset?.click();
+      await Promise.resolve();
+    });
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "gsm.hoshidicts.preview.v1",
+        type: "preferences",
+        preferences: expect.objectContaining({
+          customPopupCss: DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS
+        })
+      }),
+      expect.any(String)
+    );
+
+    await act(async () => {
+      await flushAutosave();
+    });
+    expect(invokeMock).toHaveBeenLastCalledWith(
+      HOSHIDICTS_CHANNELS.setReaderPreferences,
+      expect.objectContaining({
+        customPopupCss: DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS
+      })
+    );
   });
 
   it("offers every GSM popup theme plus Girlypop in stable groups", async () => {
@@ -2805,6 +2894,7 @@ describe("HoshidictsSettingsWindow", () => {
         popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
         popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
         popupButtons: createDefaultHoshidictsPopupButtons(),
+        customPopupCss: DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
     );
@@ -2869,6 +2959,7 @@ describe("HoshidictsSettingsWindow", () => {
         popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
         popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
         popupButtons: createDefaultHoshidictsPopupButtons(),
+        customPopupCss: DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
         definitionBlur: {
           enabled: true,
           lookupThreshold: 12,
@@ -3011,6 +3102,7 @@ describe("HoshidictsSettingsWindow", () => {
         popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
         popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
         popupButtons: createDefaultHoshidictsPopupButtons(),
+        customPopupCss: DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
     );
@@ -3053,6 +3145,7 @@ describe("HoshidictsSettingsWindow", () => {
         popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
         popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
         popupButtons: createDefaultHoshidictsPopupButtons(),
+        customPopupCss: DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
     );
@@ -3134,6 +3227,7 @@ describe("HoshidictsSettingsWindow", () => {
         popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
         popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
         popupButtons: createDefaultHoshidictsPopupButtons(),
+        customPopupCss: DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
     );
@@ -3180,6 +3274,7 @@ describe("HoshidictsSettingsWindow", () => {
         popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
         popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
         popupButtons: createDefaultHoshidictsPopupButtons(),
+        customPopupCss: DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
         definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
       }
     );
@@ -4729,6 +4824,7 @@ describe("HoshidictsSettingsWindow", () => {
       popupNestingMaxDepth: undefined,
       popupColumns: undefined,
       popupButtons: undefined,
+      customPopupCss: undefined,
       definitionBlur: undefined,
       audioProfile: undefined,
       tabGroups: undefined,
@@ -4778,6 +4874,9 @@ describe("HoshidictsSettingsWindow", () => {
     expect(normalized.popupColumns).toBe(DEFAULT_HOSHIDICTS_POPUP_COLUMNS);
     expect(normalized.popupButtons).toEqual(
       createDefaultHoshidictsPopupButtons()
+    );
+    expect(normalized.customPopupCss).toBe(
+      DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS
     );
     expect(normalized.dictionaries[0].enabled).toBe(true);
     expect(normalized.dictionaries[0]).toMatchObject({

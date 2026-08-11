@@ -194,6 +194,8 @@ export const DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX = 560;
 export const DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX = 420;
 export const DEFAULT_HOSHIDICTS_POPUP_COLUMNS = 1;
 export const DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT = 85;
+export const DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS = '';
+export const MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH = 32 * 1024;
 export const HOSHIDICTS_POPUP_TOOLBAR_POSITIONS = ['top', 'bottom'] as const;
 export type HoshidictsPopupToolbarPosition =
     (typeof HOSHIDICTS_POPUP_TOOLBAR_POSITIONS)[number];
@@ -702,6 +704,7 @@ export interface HoshidictsReaderPreferencesRequest {
     popupOpacityPercent: number;
     popupToolbarPosition: HoshidictsPopupToolbarPosition;
     popupButtons: HoshidictsPopupButtons;
+    customPopupCss?: string;
 }
 
 export interface HoshidictsDictionaryPresentation {
@@ -728,6 +731,7 @@ export interface HoshidictsReaderTabGroup {
 
 export interface HoshidictsReaderPreferences
     extends HoshidictsReaderPreferencesRequest {
+    customPopupCss: string;
     // Optional at the cross-process boundary for compatibility with an older
     // overlay. Current desktop deliveries always include a normalized array.
     dictionaryPresentation?: HoshidictsDictionaryPresentation[];
@@ -931,6 +935,7 @@ export interface HoshidictsManagerSnapshot {
     popupOpacityPercent: number;
     popupToolbarPosition: HoshidictsPopupToolbarPosition;
     popupButtons: HoshidictsPopupButtons;
+    customPopupCss: string;
     schedule: HoshidictsSchedule;
     lastCheck: string | null;
     nextCheck: string | null;
@@ -973,6 +978,7 @@ export function hoshidictsReaderPreferencesFromSnapshot(
         popupOpacityPercent: snapshot.popupOpacityPercent,
         popupToolbarPosition: snapshot.popupToolbarPosition,
         popupButtons: normalizeHoshidictsPopupButtons(snapshot.popupButtons),
+        customPopupCss: snapshot.customPopupCss,
         dictionaryPresentation: (snapshot.dictionaries ?? []).map(
             ({ title, displayName, favorite, frequencyMode }) => {
                 const entry: HoshidictsDictionaryPresentation = {

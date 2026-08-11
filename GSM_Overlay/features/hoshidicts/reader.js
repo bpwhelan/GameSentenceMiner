@@ -77,6 +77,7 @@
   const MAX_POPUP_CUSTOM_LINKS = 8;
   const MAX_POPUP_CUSTOM_LINK_LABEL_LENGTH = 64;
   const MAX_POPUP_CUSTOM_LINK_URL_LENGTH = 2048;
+  const MAX_CUSTOM_POPUP_CSS_LENGTH = 32 * 1024;
   const MIN_POPUP_OPACITY_PERCENT = 0;
   const MAX_POPUP_OPACITY_PERCENT = 100;
   const DEFAULT_THEME = "default";
@@ -2505,6 +2506,12 @@
     return THEMES.has(value) ? value : fallback;
   }
 
+  function normalizeCustomPopupCss(value, fallback = "") {
+    return typeof value === "string"
+      ? value.slice(0, MAX_CUSTOM_POPUP_CSS_LENGTH)
+      : fallback;
+  }
+
   function createHoshidictsReader(options = {}) {
     const windowRef = options.window || window;
     const documentRef = options.document || document;
@@ -2635,6 +2642,7 @@
         options.popupToolbarPosition
       ),
       theme: normalizeTheme(options.theme),
+      customPopupCss: normalizeCustomPopupCss(options.customPopupCss),
       dictionaryPresentation: normalizeDictionaryPresentation(
         options.dictionaryPresentation
       ),
@@ -2701,6 +2709,8 @@
     const hoveredPopupDepths = new Set();
     const dictionaryStyleElements = [];
     const dictionaryStylesByDictionary = new Map();
+    const customPopupStyleElement = documentRef.createElement("style");
+    customPopupStyleElement.dataset.hoshidictsCustomPopupStyle = "true";
     const renderedSignatures = new Map();
     const noticeSignatures = new Map();
     const candidateSourceIds = new WeakMap();
@@ -3072,6 +3082,20 @@
       }
     }
 
+    function applyCustomPopupCss() {
+      if (!preferences.customPopupCss) {
+        customPopupStyleElement.textContent = "";
+        customPopupStyleElement.remove();
+        return;
+      }
+      customPopupStyleElement.textContent = [
+        "@scope (.gsm-hoshidicts-popup) {",
+        preferences.customPopupCss,
+        "}",
+      ].join("\n");
+      documentRef.head.appendChild(customPopupStyleElement);
+    }
+
     function cssAttributeString(value) {
       return `"${value
         .replace(/\\/gu, "\\\\")
@@ -3093,6 +3117,7 @@
         documentRef.head.appendChild(style);
         dictionaryStyleElements.push(style);
       }
+      applyCustomPopupCss();
       dictionaryStylesGeneration = generation;
       positionPopupAndDescendants(0);
     }
@@ -5650,6 +5675,7 @@
       const previousPopupOpacityPercent = preferences.popupOpacityPercent;
       const previousPopupToolbarPosition = preferences.popupToolbarPosition;
       const previousTheme = preferences.theme;
+      const previousCustomPopupCss = preferences.customPopupCss;
       const previousDictionaryPresentation = preferences.dictionaryPresentation;
       const previousDictionaryTabGroups = preferences.dictionaryTabGroups;
       const previousPopupButtons = preferences.popupButtons;
@@ -5813,6 +5839,15 @@
         theme: Object.prototype.hasOwnProperty.call(nextPreferences, "theme")
           ? normalizeTheme(nextPreferences.theme, preferences.theme)
           : preferences.theme,
+        customPopupCss: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "customPopupCss"
+        )
+          ? normalizeCustomPopupCss(
+              nextPreferences.customPopupCss,
+              preferences.customPopupCss
+            )
+          : preferences.customPopupCss,
         dictionaryPresentation: Object.prototype.hasOwnProperty.call(
           nextPreferences,
           "dictionaryPresentation"
@@ -5891,6 +5926,10 @@
         previousTheme !== preferences.theme
       ) {
         applyAppearancePreferences();
+      }
+      if (previousCustomPopupCss !== preferences.customPopupCss) {
+        applyCustomPopupCss();
+        positionAllPopups();
       }
       if (
         !dictionaryPresentationEqual(
@@ -6038,6 +6077,7 @@
       audioController.destroy();
       clearMediaState("reader_destroyed");
       clearDictionaryStyles();
+      customPopupStyleElement.remove();
       activeDictionaryGeneration = null;
       if (reconnectTimer !== null) {
         clearTimeoutFn(reconnectTimer);
@@ -6082,6 +6122,7 @@
     documentRef.documentElement.classList.add("gsm-hoshidicts-enabled");
     documentRef.documentElement.dataset.gsmHoshidictsEnabled = "true";
     applyAppearancePreferences(false);
+    applyCustomPopupCss();
     ensurePopupLevel(0);
     documentRef.addEventListener("mousemove", onMouseMove, true);
     documentRef.addEventListener("mousedown", onMouseDown, true);

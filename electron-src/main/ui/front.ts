@@ -43,6 +43,7 @@ import {
     createDefaultHoshidictsPopupButtons,
     DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
     DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
+    DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
     DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
     DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE,
     DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
@@ -126,6 +127,7 @@ let overlayHoshidictsPopupOpacityPercentAtLaunch: number | null = null;
 let overlayHoshidictsPopupToolbarPositionAtLaunch: HoshidictsPopupToolbarPosition | null =
     null;
 let overlayHoshidictsPopupButtonsApplied: HoshidictsPopupButtons | null = null;
+let overlayHoshidictsCustomPopupCssApplied: string | null = null;
 let hoshidictsLookupModeProvider: () => Promise<HoshidictsLookupMode> =
     async () => 'shift';
 let hoshidictsLookupControlsProvider: () => Promise<HoshidictsLookupControls> =
@@ -528,6 +530,7 @@ export function getOverlayRuntimeState(): OverlayRuntimeState {
         overlayHoshidictsPopupOpacityPercentAtLaunch = null;
         overlayHoshidictsPopupToolbarPositionAtLaunch = null;
         overlayHoshidictsPopupButtonsApplied = null;
+        overlayHoshidictsCustomPopupCssApplied = null;
     }
     return {
         isRunning,
@@ -661,6 +664,11 @@ export function getOverlayHoshidictsPopupButtonsApplied(): HoshidictsPopupButton
         : null;
 }
 
+export function getOverlayHoshidictsCustomPopupCssApplied(): string | null {
+    getOverlayRuntimeState();
+    return overlayHoshidictsCustomPopupCssApplied;
+}
+
 export function getOverlayHoshidictsAudioProfileRestartRequired(): boolean {
     return getOverlayRuntimeState().isRunning &&
         overlayHoshidictsAudioProfileRestartRequired;
@@ -717,6 +725,7 @@ export function markOverlayHoshidictsReaderPreferencesApplied(
             ...link,
         })),
     };
+    overlayHoshidictsCustomPopupCssApplied = preferences.customPopupCss;
     return true;
 }
 
@@ -774,6 +783,7 @@ export function stopOverlay(options: StopOverlayOptions = {}): boolean {
             overlayHoshidictsPopupOpacityPercentAtLaunch = null;
             overlayHoshidictsPopupToolbarPositionAtLaunch = null;
             overlayHoshidictsPopupButtonsApplied = null;
+            overlayHoshidictsCustomPopupCssApplied = null;
         }
         return stopRequested;
     }
@@ -805,6 +815,7 @@ export function stopOverlay(options: StopOverlayOptions = {}): boolean {
         overlayHoshidictsPopupOpacityPercentAtLaunch = null;
         overlayHoshidictsPopupToolbarPositionAtLaunch = null;
         overlayHoshidictsPopupButtonsApplied = null;
+        overlayHoshidictsCustomPopupCssApplied = null;
         return false;
     }
 
@@ -945,6 +956,8 @@ function registerOverlayProcess(
     overlayHoshidictsPopupToolbarPositionAtLaunch =
         hoshidictsPopupToolbarPosition;
     overlayHoshidictsPopupButtonsApplied = createDefaultHoshidictsPopupButtons();
+    overlayHoshidictsCustomPopupCssApplied =
+        DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS;
     overlayProcess.once('exit', () => {
         overlayProcess = null;
         overlayLaunchSource = null;
@@ -972,6 +985,7 @@ function registerOverlayProcess(
         overlayHoshidictsPopupOpacityPercentAtLaunch = null;
         overlayHoshidictsPopupToolbarPositionAtLaunch = null;
         overlayHoshidictsPopupButtonsApplied = null;
+        overlayHoshidictsCustomPopupCssApplied = null;
     });
     overlayProcess.once('error', (error: Error) => {
         console.error('Overlay process error:', error);
@@ -1001,6 +1015,7 @@ function registerOverlayProcess(
         overlayHoshidictsPopupOpacityPercentAtLaunch = null;
         overlayHoshidictsPopupToolbarPositionAtLaunch = null;
         overlayHoshidictsPopupButtonsApplied = null;
+        overlayHoshidictsCustomPopupCssApplied = null;
     });
 }
 
@@ -1476,6 +1491,9 @@ export async function runOverlayWithSource(
             : null;
         overlayHoshidictsPopupButtonsApplied = started
             ? createDefaultHoshidictsPopupButtons()
+            : null;
+        overlayHoshidictsCustomPopupCssApplied = started
+            ? DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS
             : null;
         return started;
     }

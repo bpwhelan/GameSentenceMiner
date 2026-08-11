@@ -276,6 +276,7 @@
   window.gsmHoshidictsDictionaryPresentation = [];
   window.gsmHoshidictsFrequencyDictionaries = [];
   window.gsmHoshidictsDictionaryTabGroups = [];
+  window.gsmHoshidictsCustomPopupCss = '';
   window.gsmHoshidictsPopupButtons = {
     addToAnki: true,
     audio: true,
@@ -5539,6 +5540,7 @@ background: rgba(202, 12, 12, 0.692);
       popupOpacityPercent: window.gsmHoshidictsPopupOpacityPercent,
       popupToolbarPosition: window.gsmHoshidictsPopupToolbarPosition,
       theme: window.gsmHoshidictsTheme,
+      customPopupCss: window.gsmHoshidictsCustomPopupCss,
       dictionaryPresentation: window.gsmHoshidictsDictionaryPresentation,
       frequencyDictionaries: window.gsmHoshidictsFrequencyDictionaries,
       dictionaryTabGroups: window.gsmHoshidictsDictionaryTabGroups,
@@ -5600,6 +5602,13 @@ background: rgba(202, 12, 12, 0.692);
       preferences.pitchAccentFuriganaDictionary;
     const showPitchAccentBadge = preferences.showPitchAccentBadge;
     const hidePopupGrammarTags = preferences.hidePopupGrammarTags;
+    const hasCustomPopupCss = Object.prototype.hasOwnProperty.call(
+      preferences,
+      'customPopupCss'
+    );
+    const customPopupCss = hasCustomPopupCss
+      ? preferences.customPopupCss
+      : window.gsmHoshidictsCustomPopupCss;
     const hasPopupButtons = Object.prototype.hasOwnProperty.call(
       preferences,
       'popupButtons'
@@ -5619,6 +5628,8 @@ background: rgba(202, 12, 12, 0.692);
       typeof showPitchAccentFurigana !== 'boolean' ||
       typeof showPitchAccentBadge !== 'boolean' ||
       typeof hidePopupGrammarTags !== 'boolean' ||
+      (hasCustomPopupCss &&
+        (typeof customPopupCss !== 'string' || customPopupCss.length > 32768)) ||
       (compactDefinitionSummaryDictionary !== null &&
         (typeof compactDefinitionSummaryDictionary !== 'string' ||
           !compactDefinitionSummaryDictionary.trim() ||
@@ -5668,6 +5679,9 @@ background: rgba(202, 12, 12, 0.692);
     window.gsmHoshidictsFrequencyDictionaries = frequencyDictionaries;
     window.gsmHoshidictsDictionaryTabGroups = dictionaryTabGroups;
     window.gsmHoshidictsPopupButtons = popupButtons;
+    if (hasCustomPopupCss) {
+      window.gsmHoshidictsCustomPopupCss = customPopupCss;
+    }
     const popupNestingMaxDepth = Number(preferences.popupNestingMaxDepth);
     window.gsmHoshidictsPopupNestingMaxDepth = (
       Number.isSafeInteger(popupNestingMaxDepth) && popupNestingMaxDepth >= 0
@@ -5720,6 +5734,9 @@ background: rgba(202, 12, 12, 0.692);
         popupOpacityPercent: window.gsmHoshidictsPopupOpacityPercent,
         popupToolbarPosition: window.gsmHoshidictsPopupToolbarPosition,
         theme: window.gsmHoshidictsTheme,
+        ...(hasCustomPopupCss
+          ? { customPopupCss: window.gsmHoshidictsCustomPopupCss }
+          : {}),
         dictionaryPresentation: window.gsmHoshidictsDictionaryPresentation,
         frequencyDictionaries: window.gsmHoshidictsFrequencyDictionaries,
         dictionaryTabGroups: window.gsmHoshidictsDictionaryTabGroups,

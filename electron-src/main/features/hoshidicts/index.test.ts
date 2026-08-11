@@ -103,6 +103,7 @@ const harness = vi.hoisted(() => ({
                 },
             ],
         },
+        customPopupCss: ':scope { color: hotpink; }',
         definitionBlur: {
             enabled: true,
             lookupThreshold: 9,
@@ -223,6 +224,7 @@ vi.mock('../../ui/front.js', () => ({
     getOverlayHoshidictsPopupOpacityPercentAtLaunch: () => 85,
     getOverlayHoshidictsPopupToolbarPositionAtLaunch: () => 'top',
     getOverlayHoshidictsPopupButtonsApplied: () => null,
+    getOverlayHoshidictsCustomPopupCssApplied: () => '',
     getOverlayRuntimeState: () => ({
         isRunning: false,
         source: null,
@@ -368,6 +370,7 @@ describe('Hoshidicts feature registration', () => {
                 popupOpacityPercent: 70,
                 popupToolbarPosition: 'bottom',
                 popupButtons: harness.managerSnapshot.popupButtons,
+                customPopupCss: harness.managerSnapshot.customPopupCss,
             })
         ).resolves.toBe(true);
         expect(harness.controlRequest).toHaveBeenCalledWith(
@@ -398,6 +401,7 @@ describe('Hoshidicts feature registration', () => {
                 popupOpacityPercent: 70,
                 popupToolbarPosition: 'bottom',
                 popupButtons: harness.managerSnapshot.popupButtons,
+                customPopupCss: harness.managerSnapshot.customPopupCss,
             },
             2000
         );
@@ -427,6 +431,7 @@ describe('Hoshidicts feature registration', () => {
             popupOpacityPercent: 70,
             popupToolbarPosition: 'bottom',
             popupButtons: harness.managerSnapshot.popupButtons,
+            customPopupCss: harness.managerSnapshot.customPopupCss,
         });
         await expect(
             harness.registerIPC.mock.calls[0][0].applyAudioProfile(
@@ -477,6 +482,7 @@ describe('Hoshidicts feature registration', () => {
                     popupOpacityPercent: 70,
                     popupToolbarPosition: 'bottom',
                     popupButtons: harness.managerSnapshot.popupButtons,
+                    customPopupCss: harness.managerSnapshot.customPopupCss,
                     dictionaryPresentation: [
                         {
                             title: 'Primary',

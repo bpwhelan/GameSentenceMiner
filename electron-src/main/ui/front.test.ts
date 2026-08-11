@@ -399,6 +399,7 @@ describe('runOverlayWithSource', () => {
             viewInAnki: false,
             customLinks: [],
         });
+        expect(front.getOverlayHoshidictsCustomPopupCssApplied()).toBe('');
         expect(syncCustomDictionary).toHaveBeenCalledOnce();
         expect(
             front.getOverlayHoshidictsAudioProfileRestartRequired()
@@ -459,6 +460,7 @@ describe('runOverlayWithSource', () => {
                         },
                     ],
                 },
+                customPopupCss: ':scope { color: hotpink; }',
             })
         ).toBe(true);
         expect(front.getOverlayHoshidictsLookupModeAtLaunch()).toBe('shift');
@@ -508,6 +510,9 @@ describe('runOverlayWithSource', () => {
                 },
             ],
         });
+        expect(front.getOverlayHoshidictsCustomPopupCssApplied()).toBe(
+            ':scope { color: hotpink; }'
+        );
         processHandle.emit('exit');
         expect(front.getOverlayHoshidictsLookupControlsAtLaunch()).toBeNull();
         expect(
@@ -519,6 +524,7 @@ describe('runOverlayWithSource', () => {
         expect(
             front.getOverlayHoshidictsHidePopupGrammarTagsAtLaunch()
         ).toBeNull();
+        expect(front.getOverlayHoshidictsCustomPopupCssApplied()).toBeNull();
     });
 
     it('falls back to safe definition blur launch defaults for invalid providers', async () => {

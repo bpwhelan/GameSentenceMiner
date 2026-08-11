@@ -48,6 +48,7 @@ const MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH = 128;
 const MAX_HOSHIDICTS_POPUP_CUSTOM_LINKS = 8;
 const MAX_HOSHIDICTS_POPUP_CUSTOM_LINK_LABEL_LENGTH = 64;
 const MAX_HOSHIDICTS_POPUP_CUSTOM_LINK_URL_LENGTH = 2048;
+const MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH = 32 * 1024;
 const MAX_HOSHIDICTS_EXPANDED_EXTERNAL_URL_LENGTH = 2 * 1024 * 1024;
 const DEFAULT_HOSHIDICTS_POPUP_BUTTONS = Object.freeze({
   addToAnki: true,
@@ -400,6 +401,9 @@ function normalizeHoshidictsReaderPreferences(preferences) {
   const popupOpacityPercent = preferences && preferences.popupOpacityPercent;
   const popupToolbarPosition = preferences && preferences.popupToolbarPosition;
   const theme = preferences && preferences.theme;
+  const customPopupCss = preferences?.customPopupCss === undefined
+    ? ""
+    : preferences.customPopupCss;
   const dictionaryPresentation = normalizeHoshidictsDictionaryPresentation(
     preferences && preferences.dictionaryPresentation
   );
@@ -478,7 +482,9 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     popupOpacityPercent < MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT ||
     popupOpacityPercent > MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT ||
     (popupToolbarPosition !== "top" && popupToolbarPosition !== "bottom") ||
-    !HOSHIDICTS_THEMES.has(theme)
+    !HOSHIDICTS_THEMES.has(theme) ||
+    typeof customPopupCss !== "string" ||
+    customPopupCss.length > MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH
   ) {
     throw new Error("Hoshidicts reader preferences are invalid.");
   }
@@ -505,6 +511,7 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     popupOpacityPercent,
     popupToolbarPosition,
     theme,
+    customPopupCss,
     dictionaryPresentation,
     frequencyDictionaries,
     dictionaryTabGroups,

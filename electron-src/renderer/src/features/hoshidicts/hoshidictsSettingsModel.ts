@@ -5,6 +5,7 @@ import {
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
   DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
+  DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
   DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
   DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE,
   DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
@@ -35,6 +36,7 @@ import {
   isHoshidictsTheme,
   MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
   MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
+  MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH,
   MAX_HOSHIDICTS_MAX_RESULTS,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
@@ -358,6 +360,7 @@ const DEFAULT_STATE: HoshidictsDesktopSnapshot = {
   popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
   popupButtons: createDefaultHoshidictsPopupButtons(),
+  customPopupCss: DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
   schedule: "off",
   lastCheck: null,
   nextCheck: null,
@@ -730,6 +733,11 @@ export function normalizeHoshidictsDesktopState(
   )
     ? candidate.popupToolbarPosition
     : DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION;
+  const customPopupCss =
+    typeof candidate.customPopupCss === "string" &&
+    candidate.customPopupCss.length <= MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH
+      ? candidate.customPopupCss
+      : DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS;
   let popupButtons = createDefaultHoshidictsPopupButtons();
   try {
     popupButtons = normalizeHoshidictsPopupButtons(candidate.popupButtons);
@@ -867,6 +875,7 @@ export function normalizeHoshidictsDesktopState(
     popupOpacityPercent,
     popupToolbarPosition,
     popupButtons,
+    customPopupCss,
     schedule,
     lastCheck:
       typeof candidate.lastCheck === "string" ? candidate.lastCheck : null,

@@ -179,6 +179,7 @@ function runHoshidictsReaderConfiguration(
     gsmHoshidictsPopupOpacityPercent: 85,
     gsmHoshidictsPopupToolbarPosition: "top",
     gsmHoshidictsTheme: "default",
+    gsmHoshidictsCustomPopupCss: "",
     gsmHoshidictsDictionaryTabGroups: [],
     gsmHoshidictsPopupButtons: {
       addToAnki: true,
@@ -1283,6 +1284,7 @@ describe("Hoshidicts safe popup rendering", () => {
         popupOpacityPercent: 85,
         popupToolbarPosition: "top",
         theme: "default",
+        customPopupCss: "",
         popupButtons: {
           addToAnki: true,
           audio: true,
@@ -1404,6 +1406,7 @@ describe("Hoshidicts safe popup rendering", () => {
       popupOpacityPercent: 70,
       popupToolbarPosition: "bottom",
       theme: "autumn",
+      customPopupCss: ":scope { border-radius: 16px; }",
       dictionaryPresentation: [
         { title: "Primary", favorite: false, displayName: "Main dictionary" },
         {
@@ -1462,6 +1465,11 @@ describe("Hoshidicts safe popup rendering", () => {
       dictionaryPresentation: [
         { title: "Frequency", favorite: true, frequencyMode: "invalid" }
       ]
+    });
+    expect(configured.updatePreferences).toHaveBeenCalledTimes(1);
+    configured.emitPreferences({
+      ...validPreferences,
+      customPopupCss: "x".repeat(32 * 1024 + 1)
     });
     expect(configured.updatePreferences).toHaveBeenCalledTimes(1);
   });
@@ -1899,6 +1907,7 @@ describe("Hoshidicts safe popup rendering", () => {
       document: dom.window.document,
       WebSocket: FakeWebSocket,
       lookupMode: "hover",
+      customPopupCss: ":scope { border-radius: 16px; }",
       logger: { debug() {}, info() {}, warn() {} }
     });
     const socket = FakeWebSocket.instances.at(-1)!;
@@ -1957,8 +1966,32 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(style?.textContent).toContain("@scope");
     expect(style?.textContent).toContain('span[data-sc-content="part-of-speech-info"]');
 
+    const customStyle = dom.window.document.head.querySelector<HTMLStyleElement>(
+      'style[data-hoshidicts-custom-popup-style="true"]'
+    );
+    expect(customStyle?.textContent).toContain(
+      "@scope (.gsm-hoshidicts-popup) {"
+    );
+    expect(customStyle?.textContent).toContain(
+      ":scope { border-radius: 16px; }"
+    );
+    expect(style?.nextElementSibling).toBe(customStyle);
+
+    reader.updatePreferences({
+      customPopupCss: ".gsm-hoshidicts-expression { color: hotpink; }"
+    });
+    expect(customStyle?.textContent).toContain("color: hotpink");
+    expect(reader.updatePreferences({
+      customPopupCss: "x".repeat(32 * 1024 + 1)
+    }).customPopupCss).toHaveLength(32 * 1024);
+    reader.updatePreferences({ customPopupCss: "" });
+    expect(customStyle?.isConnected).toBe(false);
+    reader.updatePreferences({ customPopupCss: ":scope { opacity: .9; }" });
+    expect(customStyle?.isConnected).toBe(true);
+
     reader.destroy();
     expect(style?.isConnected).toBe(false);
+    expect(customStyle?.isConnected).toBe(false);
   });
 
   it("opens a Jitendex internal definition link in a child popup", async () => {
@@ -7740,6 +7773,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       popupOpacityPercent: 85,
       popupToolbarPosition: "top",
       theme: "default",
+      customPopupCss: "",
       dictionaryPresentation: [],
       frequencyDictionaries: [],
       dictionaryTabGroups: [],
@@ -7804,6 +7838,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       popupOpacityPercent: 70,
       popupToolbarPosition: "bottom",
       theme: "cyberpunk",
+      customPopupCss: "",
       dictionaryPresentation: [],
       frequencyDictionaries: [],
       dictionaryTabGroups: [],
@@ -7845,6 +7880,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       popupOpacityPercent: 70,
       popupToolbarPosition: "bottom",
       theme: "cyberpunk",
+      customPopupCss: "",
       dictionaryPresentation: [],
       frequencyDictionaries: [],
       dictionaryTabGroups: [],
@@ -7887,6 +7923,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
         popupOpacityPercent: 70,
         popupToolbarPosition: "bottom",
         theme: "cyberpunk",
+        customPopupCss: "",
         dictionaryPresentation: [],
         frequencyDictionaries: [],
         dictionaryTabGroups: [],

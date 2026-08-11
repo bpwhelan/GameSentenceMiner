@@ -6,6 +6,7 @@ import {
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
   DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
+  DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
   DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
   DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE,
   DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
@@ -28,6 +29,7 @@ import {
   HOSHIDICTS_CHANNELS,
   MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
   MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
+  MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH,
   MAX_HOSHIDICTS_MAX_RESULTS,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
@@ -142,7 +144,8 @@ const defaultReaderPreferences = (): HoshidictsReaderPreferences => ({
   theme: DEFAULT_HOSHIDICTS_THEME,
   popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
-  popupButtons: createDefaultHoshidictsPopupButtons()
+  popupButtons: createDefaultHoshidictsPopupButtons(),
+  customPopupCss: DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS
 });
 
 function copyReaderPreferences(
@@ -291,7 +294,8 @@ export function useHoshidictsSettingsController() {
         customLinks: normalized.popupButtons.customLinks.map((link) => ({
           ...link
         }))
-      }
+      },
+      customPopupCss: normalized.customPopupCss
     };
     const mining = profileToDraft(normalized.miningProfile);
     const audio = copyAudioProfile(normalized.audioProfile);
@@ -741,6 +745,18 @@ export function useHoshidictsSettingsController() {
   const setPopupToolbarPosition = useCallback(
     (popupToolbarPosition: HoshidictsPopupToolbarPosition) => {
       updateReaderPreferences({ popupToolbarPosition });
+    },
+    [updateReaderPreferences]
+  );
+
+  const setCustomPopupCss = useCallback(
+    (customPopupCss: string) => {
+      updateReaderPreferences({
+        customPopupCss: customPopupCss.slice(
+          0,
+          MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH
+        )
+      });
     },
     [updateReaderPreferences]
   );
@@ -1265,6 +1281,7 @@ export function useHoshidictsSettingsController() {
     setTheme,
     setPopupOpacityPercent,
     setPopupToolbarPosition,
+    setCustomPopupCss,
     setPopupButtonEnabled,
     setPopupCustomLinks,
     resetPopupSize,

@@ -277,6 +277,38 @@
   width: 100%;
 }
 
+.hoshidicts-custom-css > label {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.hoshidicts-window .hoshidicts-custom-css textarea {
+  min-height: 220px;
+  resize: vertical;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  tab-size: 2;
+}
+
+.hoshidicts-custom-css__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hoshidicts-custom-css__footer small,
+.hoshidicts-custom-css__scope-hint {
+  color: var(--gsm-text-muted);
+}
+
+.hoshidicts-custom-css__scope-hint {
+  line-height: 1.5;
+}
+
 .hoshidicts-design__preview {
   position: sticky;
   top: 16px;
