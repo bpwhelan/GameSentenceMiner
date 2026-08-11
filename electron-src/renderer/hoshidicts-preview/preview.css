@@ -14,8 +14,8 @@ body {
 
 body {
   background:
-    radial-gradient(circle at 16% 24%, rgb(122 162 255 / 16%), transparent 34%),
-    radial-gradient(circle at 82% 74%, rgb(108 194 139 / 10%), transparent 30%),
+    linear-gradient(rgb(8 11 15 / 8%), rgb(8 11 15 / 16%)),
+    url("./preview-background.webp") center / cover no-repeat,
     #101318;
 }
 
