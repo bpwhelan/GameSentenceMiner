@@ -171,6 +171,9 @@ describe('runOverlayWithSource', () => {
                 GSM_HOSHIDICTS_ACTIVATION_KEY: 'Shift',
                 GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED: '0',
                 GSM_HOSHIDICTS_SHOW_LOOKUP_COUNTS: '1',
+                GSM_HOSHIDICTS_SHOW_COMPACT_DEFINITION_SUMMARY: '0',
+                GSM_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY: '',
+                GSM_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS: '1',
                 GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH: '10',
                 GSM_HOSHIDICTS_POPUP_WIDTH_PX: '560',
                 GSM_HOSHIDICTS_POPUP_HEIGHT_PX: '420',
@@ -213,6 +216,13 @@ describe('runOverlayWithSource', () => {
         expect(process.env.GSM_HOSHIDICTS_ACTIVATION_KEY).toBe('Shift');
         expect(process.env.GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED).toBe('0');
         expect(process.env.GSM_HOSHIDICTS_SHOW_LOOKUP_COUNTS).toBe('1');
+        expect(
+            process.env.GSM_HOSHIDICTS_SHOW_COMPACT_DEFINITION_SUMMARY
+        ).toBe('0');
+        expect(
+            process.env.GSM_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY
+        ).toBe('');
+        expect(process.env.GSM_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS).toBe('1');
         expect(process.env.GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH).toBe('10');
         expect(process.env.GSM_HOSHIDICTS_POPUP_WIDTH_PX).toBe('560');
         expect(process.env.GSM_HOSHIDICTS_POPUP_HEIGHT_PX).toBe('420');
@@ -259,6 +269,15 @@ describe('runOverlayWithSource', () => {
         front.configureHoshidictsSourceHighlightProvider(async () => true);
         front.configureHoshidictsPopupHideDelayProvider(async () => 850);
         front.configureHoshidictsShowLookupCountsProvider(async () => false);
+        front.configureHoshidictsShowCompactDefinitionSummaryProvider(
+            async () => true
+        );
+        front.configureHoshidictsCompactDefinitionSummaryDictionaryProvider(
+            async () => 'Jitendex'
+        );
+        front.configureHoshidictsHidePopupGrammarTagsProvider(
+            async () => false
+        );
         front.configureHoshidictsCustomDictionarySyncProvider(
             syncCustomDictionary
         );
@@ -291,6 +310,9 @@ describe('runOverlayWithSource', () => {
             GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED: '1',
             GSM_HOSHIDICTS_POPUP_HIDE_DELAY_MS: '850',
             GSM_HOSHIDICTS_SHOW_LOOKUP_COUNTS: '0',
+            GSM_HOSHIDICTS_SHOW_COMPACT_DEFINITION_SUMMARY: '1',
+            GSM_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY: 'Jitendex',
+            GSM_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS: '0',
             GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH: '4',
             GSM_HOSHIDICTS_POPUP_WIDTH_PX: '720',
             GSM_HOSHIDICTS_POPUP_HEIGHT_PX: '520',
@@ -314,6 +336,15 @@ describe('runOverlayWithSource', () => {
         expect(front.getOverlayHoshidictsSourceHighlightEnabledAtLaunch()).toBe(true);
         expect(front.getOverlayHoshidictsPopupHideDelayAtLaunch()).toBe(850);
         expect(front.getOverlayHoshidictsShowLookupCountsAtLaunch()).toBe(false);
+        expect(
+            front.getOverlayHoshidictsShowCompactDefinitionSummaryAtLaunch()
+        ).toBe(true);
+        expect(
+            front.getOverlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch()
+        ).toBe('Jitendex');
+        expect(
+            front.getOverlayHoshidictsHidePopupGrammarTagsAtLaunch()
+        ).toBe(false);
         expect(front.getOverlayHoshidictsPopupNestingMaxDepthAtLaunch()).toBe(4);
         expect(front.getOverlayHoshidictsPopupWidthAtLaunch()).toBe(720);
         expect(front.getOverlayHoshidictsPopupHeightAtLaunch()).toBe(520);
@@ -368,6 +399,9 @@ describe('runOverlayWithSource', () => {
                 onlyScanJapaneseText: true,
                 popupHideDelayMs: 1200,
                 showLookupCounts: true,
+                showCompactDefinitionSummary: false,
+                compactDefinitionSummaryDictionary: null,
+                hidePopupGrammarTags: true,
                 popupNestingMaxDepth: 0,
                 definitionBlur: {
                     enabled: false,
@@ -406,6 +440,15 @@ describe('runOverlayWithSource', () => {
         expect(front.getOverlayHoshidictsSourceHighlightEnabledAtLaunch()).toBe(false);
         expect(front.getOverlayHoshidictsPopupHideDelayAtLaunch()).toBe(1200);
         expect(front.getOverlayHoshidictsShowLookupCountsAtLaunch()).toBe(true);
+        expect(
+            front.getOverlayHoshidictsShowCompactDefinitionSummaryAtLaunch()
+        ).toBe(false);
+        expect(
+            front.getOverlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch()
+        ).toBeNull();
+        expect(
+            front.getOverlayHoshidictsHidePopupGrammarTagsAtLaunch()
+        ).toBe(true);
         expect(front.getOverlayHoshidictsPopupNestingMaxDepthAtLaunch()).toBe(0);
         expect(front.getOverlayHoshidictsPopupWidthAtLaunch()).toBe(680);
         expect(front.getOverlayHoshidictsPopupHeightAtLaunch()).toBe(480);
@@ -435,6 +478,15 @@ describe('runOverlayWithSource', () => {
         });
         processHandle.emit('exit');
         expect(front.getOverlayHoshidictsLookupControlsAtLaunch()).toBeNull();
+        expect(
+            front.getOverlayHoshidictsShowCompactDefinitionSummaryAtLaunch()
+        ).toBeNull();
+        expect(
+            front.getOverlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch()
+        ).toBeNull();
+        expect(
+            front.getOverlayHoshidictsHidePopupGrammarTagsAtLaunch()
+        ).toBeNull();
     });
 
     it('falls back to safe definition blur launch defaults for invalid providers', async () => {
@@ -450,6 +502,9 @@ describe('runOverlayWithSource', () => {
             revealMode: 'hover',
             revealDelayMs: 999,
         }));
+        front.configureHoshidictsCompactDefinitionSummaryDictionaryProvider(
+            async () => '   '
+        );
 
         await expect(front.runOverlayWithSource('manual')).resolves.toBe(true);
 
@@ -458,6 +513,7 @@ describe('runOverlayWithSource', () => {
             GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD: '5',
             GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_MODE: 'timed',
             GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS: '5000',
+            GSM_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY: '',
         });
     });
 

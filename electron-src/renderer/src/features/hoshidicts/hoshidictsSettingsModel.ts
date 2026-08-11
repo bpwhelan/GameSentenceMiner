@@ -3,6 +3,9 @@ import {
   createDefaultHoshidictsFieldOverwriteModes,
   createDefaultHoshidictsPopupButtons,
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
+  DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
+  DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
+  DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
   DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
   DEFAULT_HOSHIDICTS_MAX_RESULTS,
   DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
@@ -328,6 +331,11 @@ const DEFAULT_STATE: HoshidictsDesktopSnapshot = {
   onlyScanJapaneseText: DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
   popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   showLookupCounts: true,
+  showCompactDefinitionSummary:
+    DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
+  compactDefinitionSummaryDictionary:
+    DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
+  hidePopupGrammarTags: DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
   definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
   popupNestingMaxDepth: DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
   popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
@@ -817,6 +825,15 @@ export function normalizeHoshidictsDesktopState(
       candidate.onlyScanJapaneseText !== false,
     popupHideDelayMs,
     showLookupCounts: candidate.showLookupCounts !== false,
+    showCompactDefinitionSummary:
+      candidate.showCompactDefinitionSummary === true,
+    compactDefinitionSummaryDictionary:
+      typeof candidate.compactDefinitionSummaryDictionary === "string" &&
+      candidate.compactDefinitionSummaryDictionary.trim().length > 0 &&
+      candidate.compactDefinitionSummaryDictionary.length <= 4096
+        ? candidate.compactDefinitionSummaryDictionary.trim()
+        : DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
+    hidePopupGrammarTags: candidate.hidePopupGrammarTags !== false,
     definitionBlur: normalizeDefinitionBlur(candidate.definitionBlur),
     popupNestingMaxDepth,
     popupWidthPx,

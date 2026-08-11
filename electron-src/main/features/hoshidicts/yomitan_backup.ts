@@ -906,6 +906,10 @@ function currentReaderPreferences(current: HoshidictsManagerSnapshot): Hoshidict
         onlyScanJapaneseText: current.onlyScanJapaneseText,
         popupHideDelayMs: current.popupHideDelayMs,
         showLookupCounts: current.showLookupCounts,
+        showCompactDefinitionSummary: current.showCompactDefinitionSummary,
+        compactDefinitionSummaryDictionary:
+            current.compactDefinitionSummaryDictionary,
+        hidePopupGrammarTags: current.hidePopupGrammarTags,
         popupNestingMaxDepth: current.popupNestingMaxDepth,
         definitionBlur: { ...current.definitionBlur },
         popupWidthPx: current.popupWidthPx,

@@ -274,6 +274,9 @@ describe('Hoshidicts manager full backups', () => {
             'ascending',
             undefined,
             3,
+            true,
+            'Jitendex.org',
+            false,
         );
         await source.setSchedule('weekly');
         await source.setDictionarySchedule(beta!.id, 'hourly');
@@ -386,6 +389,9 @@ describe('Hoshidicts manager full backups', () => {
             sourceHighlightEnabled: true,
             popupHideDelayMs: 850,
             showLookupCounts: false,
+            showCompactDefinitionSummary: true,
+            compactDefinitionSummaryDictionary: 'Jitendex.org',
+            hidePopupGrammarTags: false,
             popupNestingMaxDepth: 12,
             definitionBlur: {
                 enabled: true,
@@ -702,6 +708,8 @@ describe('Hoshidicts manager full backups', () => {
             popupColumns: 1,
             theme: 'default',
             popupOpacityPercent: 85,
+            showCompactDefinitionSummary: false,
+            hidePopupGrammarTags: true,
         });
         await expect(
             fsp.readFile(statePath(sourceBase, 'mining-profile.json'), 'utf8'),
@@ -726,6 +734,8 @@ describe('Hoshidicts manager full backups', () => {
             popupColumns: 1,
             theme: 'default',
             popupOpacityPercent: 85,
+            showCompactDefinitionSummary: false,
+            hidePopupGrammarTags: true,
         });
     });
 });

@@ -15,6 +15,9 @@ import {
     configureHoshidictsPopupToolbarPositionProvider,
     configureHoshidictsPopupWidthProvider,
     configureHoshidictsShowLookupCountsProvider,
+    configureHoshidictsShowCompactDefinitionSummaryProvider,
+    configureHoshidictsCompactDefinitionSummaryDictionaryProvider,
+    configureHoshidictsHidePopupGrammarTagsProvider,
     configureHoshidictsSourceHighlightProvider,
     configureHoshidictsThemeProvider,
     configureHoshidictsCustomDictionarySyncProvider,
@@ -32,6 +35,9 @@ import {
     getOverlayHoshidictsPopupToolbarPositionAtLaunch,
     getOverlayHoshidictsPopupButtonsApplied,
     getOverlayHoshidictsShowLookupCountsAtLaunch,
+    getOverlayHoshidictsShowCompactDefinitionSummaryAtLaunch,
+    getOverlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch,
+    getOverlayHoshidictsHidePopupGrammarTagsAtLaunch,
     getOverlayHoshidictsSourceHighlightEnabledAtLaunch,
     getOverlayHoshidictsPopupWidthAtLaunch,
     getOverlayHoshidictsThemeAtLaunch,
@@ -203,6 +209,12 @@ export function registerHoshidictsFeature(deps: {
             getOverlayHoshidictsPopupHideDelayAtLaunch,
         getOverlayShowLookupCountsAtLaunch:
             getOverlayHoshidictsShowLookupCountsAtLaunch,
+        getOverlayShowCompactDefinitionSummaryAtLaunch:
+            getOverlayHoshidictsShowCompactDefinitionSummaryAtLaunch,
+        getOverlayCompactDefinitionSummaryDictionaryAtLaunch:
+            getOverlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch,
+        getOverlayHidePopupGrammarTagsAtLaunch:
+            getOverlayHoshidictsHidePopupGrammarTagsAtLaunch,
         getOverlayAudioProfileRestartRequired:
             getOverlayHoshidictsAudioProfileRestartRequired,
         getOverlayPopupNestingMaxDepthAtLaunch:
@@ -269,6 +281,17 @@ export async function startHoshidictsManager(): Promise<void> {
     );
     configureHoshidictsShowLookupCountsProvider(
         async () => (await manager.getSnapshot()).showLookupCounts
+    );
+    configureHoshidictsShowCompactDefinitionSummaryProvider(
+        async () =>
+            (await manager.getSnapshot()).showCompactDefinitionSummary
+    );
+    configureHoshidictsCompactDefinitionSummaryDictionaryProvider(
+        async () =>
+            (await manager.getSnapshot()).compactDefinitionSummaryDictionary
+    );
+    configureHoshidictsHidePopupGrammarTagsProvider(
+        async () => (await manager.getSnapshot()).hidePopupGrammarTags
     );
     configureHoshidictsPopupNestingMaxDepthProvider(
         async () =>

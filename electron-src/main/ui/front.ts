@@ -42,6 +42,8 @@ import { getConfiguredHoshidictsEnabled } from '../gsm_config.js';
 import {
     createDefaultHoshidictsPopupButtons,
     DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
+    DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
+    DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
     DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
     DEFAULT_HOSHIDICTS_MAX_RESULTS,
     DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
@@ -102,6 +104,10 @@ let overlayHoshidictsSourceHighlightEnabledAtLaunch: boolean | null = null;
 let overlayHoshidictsOnlyScanJapaneseTextAtLaunch: boolean | null = null;
 let overlayHoshidictsPopupHideDelayAtLaunch: number | null = null;
 let overlayHoshidictsShowLookupCountsAtLaunch: boolean | null = null;
+let overlayHoshidictsShowCompactDefinitionSummaryAtLaunch: boolean | null = null;
+let overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch: string | null =
+    null;
+let overlayHoshidictsHidePopupGrammarTagsAtLaunch: boolean | null = null;
 let overlayHoshidictsAudioProfileRestartRequired = false;
 let overlayHoshidictsPopupNestingMaxDepthAtLaunch: number | null = null;
 let overlayHoshidictsDefinitionBlurAtLaunch: HoshidictsDefinitionBlurPreferences | null = null;
@@ -127,6 +133,13 @@ let hoshidictsPopupHideDelayProvider: () => Promise<number> =
     async () => DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS;
 let hoshidictsShowLookupCountsProvider: () => Promise<boolean> =
     async () => true;
+let hoshidictsShowCompactDefinitionSummaryProvider: () => Promise<boolean> =
+    async () => DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY;
+let hoshidictsCompactDefinitionSummaryDictionaryProvider: () => Promise<
+    string | null
+> = async () => null;
+let hoshidictsHidePopupGrammarTagsProvider: () => Promise<boolean> =
+    async () => DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS;
 let hoshidictsPopupNestingMaxDepthProvider: () => Promise<number> =
     async () => DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH;
 let hoshidictsDefinitionBlurProvider: () => Promise<HoshidictsDefinitionBlurPreferences> =
@@ -241,6 +254,24 @@ export function configureHoshidictsShowLookupCountsProvider(
     provider: () => Promise<boolean>
 ): void {
     hoshidictsShowLookupCountsProvider = provider;
+}
+
+export function configureHoshidictsShowCompactDefinitionSummaryProvider(
+    provider: () => Promise<boolean>
+): void {
+    hoshidictsShowCompactDefinitionSummaryProvider = provider;
+}
+
+export function configureHoshidictsCompactDefinitionSummaryDictionaryProvider(
+    provider: () => Promise<string | null>
+): void {
+    hoshidictsCompactDefinitionSummaryDictionaryProvider = provider;
+}
+
+export function configureHoshidictsHidePopupGrammarTagsProvider(
+    provider: () => Promise<boolean>
+): void {
+    hoshidictsHidePopupGrammarTagsProvider = provider;
 }
 
 export function configureHoshidictsPopupNestingMaxDepthProvider(
@@ -449,6 +480,9 @@ export function getOverlayRuntimeState(): OverlayRuntimeState {
         overlayHoshidictsOnlyScanJapaneseTextAtLaunch = null;
         overlayHoshidictsPopupHideDelayAtLaunch = null;
         overlayHoshidictsShowLookupCountsAtLaunch = null;
+        overlayHoshidictsShowCompactDefinitionSummaryAtLaunch = null;
+        overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch = null;
+        overlayHoshidictsHidePopupGrammarTagsAtLaunch = null;
         overlayHoshidictsAudioProfileRestartRequired = false;
         overlayHoshidictsPopupNestingMaxDepthAtLaunch = null;
         overlayHoshidictsDefinitionBlurAtLaunch = null;
@@ -506,6 +540,21 @@ export function getOverlayHoshidictsPopupHideDelayAtLaunch(): number | null {
 export function getOverlayHoshidictsShowLookupCountsAtLaunch(): boolean | null {
     getOverlayRuntimeState();
     return overlayHoshidictsShowLookupCountsAtLaunch;
+}
+
+export function getOverlayHoshidictsShowCompactDefinitionSummaryAtLaunch(): boolean | null {
+    getOverlayRuntimeState();
+    return overlayHoshidictsShowCompactDefinitionSummaryAtLaunch;
+}
+
+export function getOverlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch(): string | null {
+    getOverlayRuntimeState();
+    return overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch;
+}
+
+export function getOverlayHoshidictsHidePopupGrammarTagsAtLaunch(): boolean | null {
+    getOverlayRuntimeState();
+    return overlayHoshidictsHidePopupGrammarTagsAtLaunch;
 }
 
 export function getOverlayHoshidictsPopupNestingMaxDepthAtLaunch(): number | null {
@@ -587,6 +636,12 @@ export function markOverlayHoshidictsReaderPreferencesApplied(
         preferences.onlyScanJapaneseText;
     overlayHoshidictsPopupHideDelayAtLaunch = preferences.popupHideDelayMs;
     overlayHoshidictsShowLookupCountsAtLaunch = preferences.showLookupCounts;
+    overlayHoshidictsShowCompactDefinitionSummaryAtLaunch =
+        preferences.showCompactDefinitionSummary;
+    overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch =
+        preferences.compactDefinitionSummaryDictionary;
+    overlayHoshidictsHidePopupGrammarTagsAtLaunch =
+        preferences.hidePopupGrammarTags;
     overlayHoshidictsPopupNestingMaxDepthAtLaunch =
         preferences.popupNestingMaxDepth;
     overlayHoshidictsDefinitionBlurAtLaunch = {
@@ -647,6 +702,9 @@ export function stopOverlay(options: StopOverlayOptions = {}): boolean {
             overlayHoshidictsOnlyScanJapaneseTextAtLaunch = null;
             overlayHoshidictsPopupHideDelayAtLaunch = null;
             overlayHoshidictsShowLookupCountsAtLaunch = null;
+            overlayHoshidictsShowCompactDefinitionSummaryAtLaunch = null;
+            overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch = null;
+            overlayHoshidictsHidePopupGrammarTagsAtLaunch = null;
             overlayHoshidictsAudioProfileRestartRequired = false;
             overlayHoshidictsPopupNestingMaxDepthAtLaunch = null;
             overlayHoshidictsDefinitionBlurAtLaunch = null;
@@ -672,6 +730,9 @@ export function stopOverlay(options: StopOverlayOptions = {}): boolean {
         overlayHoshidictsOnlyScanJapaneseTextAtLaunch = null;
         overlayHoshidictsPopupHideDelayAtLaunch = null;
         overlayHoshidictsShowLookupCountsAtLaunch = null;
+        overlayHoshidictsShowCompactDefinitionSummaryAtLaunch = null;
+        overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch = null;
+        overlayHoshidictsHidePopupGrammarTagsAtLaunch = null;
         overlayHoshidictsAudioProfileRestartRequired = false;
         overlayHoshidictsPopupNestingMaxDepthAtLaunch = null;
         overlayHoshidictsDefinitionBlurAtLaunch = null;
@@ -767,13 +828,16 @@ function registerOverlayProcess(
     hoshidictsPopupNestingMaxDepth: number,
     hoshidictsDefinitionBlur: HoshidictsDefinitionBlurPreferences,
     hoshidictsShowLookupCounts: boolean,
+    hoshidictsShowCompactDefinitionSummary: boolean,
+    hoshidictsCompactDefinitionSummaryDictionary: string | null,
     hoshidictsPopupWidthPx: number,
     hoshidictsPopupHeightPx: number,
     hoshidictsPopupColumns: number,
     hoshidictsTheme: HoshidictsTheme,
     hoshidictsPopupOpacityPercent: number,
     hoshidictsPopupToolbarPosition: HoshidictsPopupToolbarPosition,
-    hoshidictsLookupControls: HoshidictsLookupControls
+    hoshidictsLookupControls: HoshidictsLookupControls,
+    hoshidictsHidePopupGrammarTags: boolean
 ): void {
     overlayProcess = processHandle;
     overlayLaunchSource = source;
@@ -789,6 +853,12 @@ function registerOverlayProcess(
         hoshidictsOnlyScanJapaneseText;
     overlayHoshidictsPopupHideDelayAtLaunch = hoshidictsPopupHideDelayMs;
     overlayHoshidictsShowLookupCountsAtLaunch = hoshidictsShowLookupCounts;
+    overlayHoshidictsShowCompactDefinitionSummaryAtLaunch =
+        hoshidictsShowCompactDefinitionSummary;
+    overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch =
+        hoshidictsCompactDefinitionSummaryDictionary;
+    overlayHoshidictsHidePopupGrammarTagsAtLaunch =
+        hoshidictsHidePopupGrammarTags;
     overlayHoshidictsAudioProfileRestartRequired = false;
     overlayHoshidictsPopupNestingMaxDepthAtLaunch =
         hoshidictsPopupNestingMaxDepth;
@@ -815,6 +885,9 @@ function registerOverlayProcess(
         overlayHoshidictsOnlyScanJapaneseTextAtLaunch = null;
         overlayHoshidictsPopupHideDelayAtLaunch = null;
         overlayHoshidictsShowLookupCountsAtLaunch = null;
+        overlayHoshidictsShowCompactDefinitionSummaryAtLaunch = null;
+        overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch = null;
+        overlayHoshidictsHidePopupGrammarTagsAtLaunch = null;
         overlayHoshidictsAudioProfileRestartRequired = false;
         overlayHoshidictsPopupNestingMaxDepthAtLaunch = null;
         overlayHoshidictsDefinitionBlurAtLaunch = null;
@@ -838,6 +911,9 @@ function registerOverlayProcess(
         overlayHoshidictsOnlyScanJapaneseTextAtLaunch = null;
         overlayHoshidictsPopupHideDelayAtLaunch = null;
         overlayHoshidictsShowLookupCountsAtLaunch = null;
+        overlayHoshidictsShowCompactDefinitionSummaryAtLaunch = null;
+        overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch = null;
+        overlayHoshidictsHidePopupGrammarTagsAtLaunch = null;
         overlayHoshidictsAudioProfileRestartRequired = false;
         overlayHoshidictsPopupNestingMaxDepthAtLaunch = null;
         overlayHoshidictsDefinitionBlurAtLaunch = null;
@@ -862,6 +938,9 @@ export function buildHoshidictsOverlayEnvironment(
         ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
     },
     showLookupCounts = true,
+    showCompactDefinitionSummary =
+        DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
+    compactDefinitionSummaryDictionary: string | null = null,
     popupWidthPx = DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
     popupHeightPx = DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
     popupColumns = DEFAULT_HOSHIDICTS_POPUP_COLUMNS,
@@ -871,7 +950,8 @@ export function buildHoshidictsOverlayEnvironment(
     popupToolbarPosition: HoshidictsPopupToolbarPosition =
         DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
     lookupControls: HoshidictsLookupControls =
-        defaultHoshidictsLookupControls()
+        defaultHoshidictsLookupControls(),
+    hidePopupGrammarTags = DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS
 ): Record<string, string> {
     const normalizedDefinitionBlur =
         normalizeHoshidictsDefinitionBlur(definitionBlur);
@@ -887,6 +967,16 @@ export function buildHoshidictsOverlayEnvironment(
             onlyScanJapaneseText ? '1' : '0',
         GSM_HOSHIDICTS_POPUP_HIDE_DELAY_MS: String(popupHideDelayMs),
         GSM_HOSHIDICTS_SHOW_LOOKUP_COUNTS: showLookupCounts ? '1' : '0',
+        GSM_HOSHIDICTS_SHOW_COMPACT_DEFINITION_SUMMARY:
+            showCompactDefinitionSummary ? '1' : '0',
+        GSM_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY:
+            typeof compactDefinitionSummaryDictionary === 'string' &&
+            compactDefinitionSummaryDictionary.trim().length > 0 &&
+            compactDefinitionSummaryDictionary.length <= 4096
+                ? compactDefinitionSummaryDictionary
+                : '',
+        GSM_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS:
+            hidePopupGrammarTags ? '1' : '0',
         GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH: String(
             popupNestingMaxDepth
         ),
@@ -1050,6 +1140,11 @@ export async function runOverlayWithSource(
         DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT;
     let hoshidictsPopupHideDelayMs = DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS;
     let hoshidictsShowLookupCounts = true;
+    let hoshidictsShowCompactDefinitionSummary =
+        DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY;
+    let hoshidictsCompactDefinitionSummaryDictionary: string | null = null;
+    let hoshidictsHidePopupGrammarTags =
+        DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS;
     let hoshidictsPopupNestingMaxDepth =
         DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH;
     let hoshidictsDefinitionBlur: HoshidictsDefinitionBlurPreferences = {
@@ -1099,6 +1194,18 @@ export async function runOverlayWithSource(
                     : DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS;
             hoshidictsShowLookupCounts =
                 (await hoshidictsShowLookupCountsProvider()) !== false;
+            hoshidictsShowCompactDefinitionSummary =
+                (await hoshidictsShowCompactDefinitionSummaryProvider()) === true;
+            const configuredCompactDefinitionSummaryDictionary =
+                await hoshidictsCompactDefinitionSummaryDictionaryProvider();
+            hoshidictsCompactDefinitionSummaryDictionary =
+                typeof configuredCompactDefinitionSummaryDictionary === 'string' &&
+                configuredCompactDefinitionSummaryDictionary.trim().length > 0 &&
+                configuredCompactDefinitionSummaryDictionary.length <= 4096
+                    ? configuredCompactDefinitionSummaryDictionary
+                    : null;
+            hoshidictsHidePopupGrammarTags =
+                (await hoshidictsHidePopupGrammarTagsProvider()) !== false;
             const configuredNestingMaxDepth =
                 await hoshidictsPopupNestingMaxDepthProvider();
             hoshidictsPopupNestingMaxDepth =
@@ -1162,6 +1269,8 @@ export async function runOverlayWithSource(
         hoshidictsPopupNestingMaxDepth,
         hoshidictsDefinitionBlur,
         hoshidictsShowLookupCounts,
+        hoshidictsShowCompactDefinitionSummary,
+        hoshidictsCompactDefinitionSummaryDictionary,
         hoshidictsPopupWidthPx,
         hoshidictsPopupHeightPx,
         hoshidictsPopupColumns,
@@ -1169,7 +1278,8 @@ export async function runOverlayWithSource(
         hoshidictsPopupOpacityPercent,
         hoshidictsOnlyScanJapaneseText,
         hoshidictsPopupToolbarPosition,
-        hoshidictsLookupControls
+        hoshidictsLookupControls,
+        hoshidictsHidePopupGrammarTags
     );
     const hoshidictsControlEnvironment = buildHoshidictsControlEnvironment();
     const overlayProcessEnvironment = buildOverlayProcessEnvironment();
@@ -1209,6 +1319,15 @@ export async function runOverlayWithSource(
             : null;
         overlayHoshidictsShowLookupCountsAtLaunch = started
             ? hoshidictsShowLookupCounts
+            : null;
+        overlayHoshidictsShowCompactDefinitionSummaryAtLaunch = started
+            ? hoshidictsShowCompactDefinitionSummary
+            : null;
+        overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch = started
+            ? hoshidictsCompactDefinitionSummaryDictionary
+            : null;
+        overlayHoshidictsHidePopupGrammarTagsAtLaunch = started
+            ? hoshidictsHidePopupGrammarTags
             : null;
         overlayHoshidictsAudioProfileRestartRequired = false;
         overlayHoshidictsPopupNestingMaxDepthAtLaunch = started
@@ -1288,13 +1407,16 @@ export async function runOverlayWithSource(
             hoshidictsPopupNestingMaxDepth,
             hoshidictsDefinitionBlur,
             hoshidictsShowLookupCounts,
+            hoshidictsShowCompactDefinitionSummary,
+            hoshidictsCompactDefinitionSummaryDictionary,
             hoshidictsPopupWidthPx,
             hoshidictsPopupHeightPx,
             hoshidictsPopupColumns,
             hoshidictsTheme,
             hoshidictsPopupOpacityPercent,
             hoshidictsPopupToolbarPosition,
-            hoshidictsLookupControls
+            hoshidictsLookupControls,
+            hoshidictsHidePopupGrammarTags
         );
         console.log('Overlay launched successfully from source.');
         return true;
@@ -1323,13 +1445,16 @@ export async function runOverlayWithSource(
                 hoshidictsPopupNestingMaxDepth,
                 hoshidictsDefinitionBlur,
                 hoshidictsShowLookupCounts,
+                hoshidictsShowCompactDefinitionSummary,
+                hoshidictsCompactDefinitionSummaryDictionary,
                 hoshidictsPopupWidthPx,
                 hoshidictsPopupHeightPx,
                 hoshidictsPopupColumns,
                 hoshidictsTheme,
                 hoshidictsPopupOpacityPercent,
                 hoshidictsPopupToolbarPosition,
-                hoshidictsLookupControls
+                hoshidictsLookupControls,
+                hoshidictsHidePopupGrammarTags
             );
             console.log('Overlay launched successfully with shared Electron runtime.');
             return true;
@@ -1365,13 +1490,16 @@ export async function runOverlayWithSource(
                 hoshidictsPopupNestingMaxDepth,
                 hoshidictsDefinitionBlur,
                 hoshidictsShowLookupCounts,
+                hoshidictsShowCompactDefinitionSummary,
+                hoshidictsCompactDefinitionSummaryDictionary,
                 hoshidictsPopupWidthPx,
                 hoshidictsPopupHeightPx,
                 hoshidictsPopupColumns,
                 hoshidictsTheme,
                 hoshidictsPopupOpacityPercent,
                 hoshidictsPopupToolbarPosition,
-                hoshidictsLookupControls
+                hoshidictsLookupControls,
+                hoshidictsHidePopupGrammarTags
             );
             console.log('Overlay launched successfully with legacy standalone runtime.');
             return true;

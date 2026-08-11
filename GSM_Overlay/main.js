@@ -55,6 +55,12 @@ function normalizeHoshidictsReaderPreferencesWithDefinitionBlur(preferences) {
   const normalizedPreferences = normalizeHoshidictsReaderPreferences(preferences);
   const definitionBlur = preferences && preferences.definitionBlur;
   const showLookupCounts = preferences && preferences.showLookupCounts;
+  const showCompactDefinitionSummary =
+    preferences && preferences.showCompactDefinitionSummary;
+  const compactDefinitionSummaryDictionary =
+    preferences && preferences.compactDefinitionSummaryDictionary;
+  const hidePopupGrammarTags =
+    preferences && preferences.hidePopupGrammarTags;
   if (
     !definitionBlur ||
     typeof definitionBlur !== 'object' ||
@@ -66,13 +72,22 @@ function normalizeHoshidictsReaderPreferencesWithDefinitionBlur(preferences) {
     !Number.isInteger(definitionBlur.revealDelayMs) ||
     definitionBlur.revealDelayMs < 1000 ||
     definitionBlur.revealDelayMs > 3600000 ||
-    typeof showLookupCounts !== 'boolean'
+    typeof showLookupCounts !== 'boolean' ||
+    typeof showCompactDefinitionSummary !== 'boolean' ||
+    typeof hidePopupGrammarTags !== 'boolean' ||
+    (compactDefinitionSummaryDictionary !== null &&
+      (typeof compactDefinitionSummaryDictionary !== 'string' ||
+        !compactDefinitionSummaryDictionary.trim() ||
+        compactDefinitionSummaryDictionary.length > 4096))
   ) {
     throw new Error('Hoshidicts reader preferences are invalid.');
   }
   return {
     ...normalizedPreferences,
     showLookupCounts,
+    showCompactDefinitionSummary,
+    compactDefinitionSummaryDictionary,
+    hidePopupGrammarTags,
     definitionBlur: {
       enabled: definitionBlur.enabled,
       lookupThreshold: definitionBlur.lookupThreshold,

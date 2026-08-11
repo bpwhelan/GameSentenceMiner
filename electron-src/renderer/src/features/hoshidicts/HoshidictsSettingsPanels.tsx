@@ -922,6 +922,9 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
     setPopupToolbarPosition,
     resetPopupSize,
     setShowLookupCounts,
+    setShowCompactDefinitionSummary,
+    setCompactDefinitionSummaryDictionary,
+    setHidePopupGrammarTags,
     setDefinitionBlurEnabled,
     setDefinitionBlurLookupThreshold,
     setDefinitionBlurRevealMode,
@@ -1047,6 +1050,15 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
   const selectedUpdatableDictionaryIds = selectedDictionaries
     .filter((dictionary) => dictionary.isUpdatable)
     .map((dictionary) => dictionary.id);
+  const compactDefinitionDictionaries = state.dictionaries.filter(
+    (dictionary) => dictionary.termCount > 0
+  );
+  const compactDefinitionDictionaryIsStale =
+    readerDraft.compactDefinitionSummaryDictionary !== null &&
+    !compactDefinitionDictionaries.some(
+      (dictionary) =>
+        dictionary.title === readerDraft.compactDefinitionSummaryDictionary
+    );
   const runBulkDictionaryAction = (
     action: HoshidictsBulkDictionaryAction
   ) => {
@@ -1517,6 +1529,100 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
               {t("settings.hoshidicts.reader.appearance.resetSize")}
             </button>
           </div>
+          <label className="hoshidicts-reader-compact-summary">
+            <input
+              id="hoshidicts-show-compact-definition-summary"
+              type="checkbox"
+              checked={readerDraft.showCompactDefinitionSummary}
+              disabled={preferencesBusy}
+              onChange={(event) =>
+                setShowCompactDefinitionSummary(event.currentTarget.checked)
+              }
+            />
+            <span>
+              <strong>
+                {t(
+                  "settings.hoshidicts.reader.appearance.compactDefinitionSummary"
+                )}
+              </strong>
+              <small>
+                {t(
+                  "settings.hoshidicts.reader.appearance.compactDefinitionSummaryHint"
+                )}
+              </small>
+            </span>
+          </label>
+          <label className="hoshidicts-reader-compact-summary-dictionary">
+            <span>
+              {t(
+                "settings.hoshidicts.reader.appearance.compactDefinitionSummaryDictionary"
+              )}
+            </span>
+            <select
+              id="hoshidicts-compact-definition-summary-dictionary"
+              value={readerDraft.compactDefinitionSummaryDictionary ?? ""}
+              disabled={
+                preferencesBusy || !readerDraft.showCompactDefinitionSummary
+              }
+              onChange={(event) =>
+                setCompactDefinitionSummaryDictionary(
+                  event.currentTarget.value || null
+                )
+              }
+            >
+              <option value="">
+                {t(
+                  "settings.hoshidicts.reader.appearance.compactDefinitionSummaryDictionaryAutomatic"
+                )}
+              </option>
+              {compactDefinitionDictionaryIsStale ? (
+                <option
+                  value={readerDraft.compactDefinitionSummaryDictionary ?? ""}
+                >
+                  {t(
+                    "settings.hoshidicts.reader.appearance.compactDefinitionSummaryDictionaryUnavailable",
+                    {
+                      dictionary:
+                        readerDraft.compactDefinitionSummaryDictionary ?? ""
+                    }
+                  )}
+                </option>
+              ) : null}
+              {compactDefinitionDictionaries.map((dictionary) => (
+                <option key={dictionary.id} value={dictionary.title}>
+                  {dictionary.title}
+                </option>
+              ))}
+            </select>
+            <small>
+              {t(
+                "settings.hoshidicts.reader.appearance.compactDefinitionSummaryDictionaryHint"
+              )}
+            </small>
+          </label>
+          <label className="hoshidicts-reader-popup-metadata">
+            <input
+              id="hoshidicts-hide-popup-grammar-tags"
+              type="checkbox"
+              checked={readerDraft.hidePopupGrammarTags}
+              disabled={preferencesBusy}
+              onChange={(event) =>
+                setHidePopupGrammarTags(event.currentTarget.checked)
+              }
+            />
+            <span>
+              <strong>
+                {t(
+                  "settings.hoshidicts.reader.appearance.hidePopupGrammarTags"
+                )}
+              </strong>
+              <small>
+                {t(
+                  "settings.hoshidicts.reader.appearance.hidePopupGrammarTagsHint"
+                )}
+              </small>
+            </span>
+          </label>
         </div>
 
         <PopupButtonsControl controller={controller} />

@@ -4,6 +4,9 @@ import {
   createDefaultHoshidictsPopupButtons,
   createDefaultHoshidictsFieldOverwriteModes,
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
+  DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
+  DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
+  DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
   DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
   DEFAULT_HOSHIDICTS_MAX_RESULTS,
   DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
@@ -118,6 +121,11 @@ const defaultReaderPreferences = (): HoshidictsReaderPreferences => ({
   onlyScanJapaneseText: DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
   popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   showLookupCounts: true,
+  showCompactDefinitionSummary:
+    DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
+  compactDefinitionSummaryDictionary:
+    DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
+  hidePopupGrammarTags: DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
   popupNestingMaxDepth: DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
   definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
   popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
@@ -254,6 +262,10 @@ export function useHoshidictsSettingsController() {
       onlyScanJapaneseText: normalized.onlyScanJapaneseText,
       popupHideDelayMs: normalized.popupHideDelayMs,
       showLookupCounts: normalized.showLookupCounts,
+      showCompactDefinitionSummary: normalized.showCompactDefinitionSummary,
+      compactDefinitionSummaryDictionary:
+        normalized.compactDefinitionSummaryDictionary,
+      hidePopupGrammarTags: normalized.hidePopupGrammarTags,
       popupNestingMaxDepth: normalized.popupNestingMaxDepth,
       definitionBlur: { ...normalized.definitionBlur },
       popupWidthPx: normalized.popupWidthPx,
@@ -766,6 +778,27 @@ export function useHoshidictsSettingsController() {
     [updateReaderPreferences]
   );
 
+  const setShowCompactDefinitionSummary = useCallback(
+    (showCompactDefinitionSummary: boolean) => {
+      updateReaderPreferences({ showCompactDefinitionSummary });
+    },
+    [updateReaderPreferences]
+  );
+
+  const setCompactDefinitionSummaryDictionary = useCallback(
+    (compactDefinitionSummaryDictionary: string | null) => {
+      updateReaderPreferences({ compactDefinitionSummaryDictionary });
+    },
+    [updateReaderPreferences]
+  );
+
+  const setHidePopupGrammarTags = useCallback(
+    (hidePopupGrammarTags: boolean) => {
+      updateReaderPreferences({ hidePopupGrammarTags });
+    },
+    [updateReaderPreferences]
+  );
+
   const updateDefinitionBlur = useCallback(
     (
       update: Partial<HoshidictsReaderPreferences["definitionBlur"]>
@@ -1203,6 +1236,9 @@ export function useHoshidictsSettingsController() {
     setPopupCustomLinks,
     resetPopupSize,
     setShowLookupCounts,
+    setShowCompactDefinitionSummary,
+    setCompactDefinitionSummaryDictionary,
+    setHidePopupGrammarTags,
     setDefinitionBlurEnabled,
     setDefinitionBlurLookupThreshold,
     setDefinitionBlurRevealMode,

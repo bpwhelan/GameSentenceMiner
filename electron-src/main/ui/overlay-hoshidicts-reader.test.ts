@@ -166,6 +166,7 @@ function runHoshidictsReaderConfiguration(
     gsmHoshidictsSortFrequencyDictionary: null,
     gsmHoshidictsSortFrequencyDictionaryOrder: "descending",
     gsmHoshidictsShowLookupCounts: showLookupCounts,
+    gsmHoshidictsHidePopupGrammarTags: true,
     gsmHoshidictsSourceHighlightEnabled: sourceHighlightEnabled,
     gsmHoshidictsPopupNestingMaxDepth: popupNestingMaxDepth,
     gsmHoshidictsPopupWidthPx: 560,
@@ -632,9 +633,13 @@ describe("Hoshidicts safe popup rendering", () => {
     const bottomChromeRule = declarationsForSelector(
       '.gsm-hoshidicts-popup[data-toolbar-position="bottom"] .gsm-hoshidicts-result-chrome'
     );
-    const bottomTabListRule = declarationsForSelector(
-      '.gsm-hoshidicts-popup[data-toolbar-position="bottom"] .gsm-hoshidicts-tab-list'
+    const bottomMetadataStripRule = declarationsForSelector(
+      '.gsm-hoshidicts-popup[data-toolbar-position="bottom"] .gsm-hoshidicts-metadata-strip'
     );
+    const metadataStripRule =
+      /(?:^|\n)\.gsm-hoshidicts-metadata-strip\s*\{(?<declarations>[^}]*)\}/.exec(
+        css
+      )?.groups?.declarations;
     const tabListRule =
       /(?:^|\n)\.gsm-hoshidicts-tab-list\s*\{(?<declarations>[^}]*)\}/.exec(
         css
@@ -727,11 +732,16 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(bottomChromeRule).toContain(
       "border-top: 1px solid var(--hoshidicts-border)"
     );
-    expect(bottomTabListRule).toContain("border-top: 0");
-    expect(bottomTabListRule).toContain(
+    expect(bottomMetadataStripRule).toContain("border-top: 0");
+    expect(bottomMetadataStripRule).toContain(
       "border-bottom: 1px solid var(--hoshidicts-border)"
     );
-    expect(tabListRule).toContain("width: 100%");
+    expect(metadataStripRule).toContain("display: flex");
+    expect(metadataStripRule).toContain("width: 100%");
+    expect(metadataStripRule).toContain(
+      "border-top: 1px solid var(--hoshidicts-border)"
+    );
+    expect(tabListRule).toContain("flex: 1 1 auto");
     expect(tabListRule).toContain("overflow-x: auto");
     expect(glossaryGridRule).toContain("display: grid");
     expect(glossaryGridRule).toContain(
@@ -1300,6 +1310,9 @@ describe("Hoshidicts safe popup rendering", () => {
       onlyScanJapaneseText: false,
       popupHideDelayMs: 800,
       showLookupCounts: false,
+      showCompactDefinitionSummary: false,
+      compactDefinitionSummaryDictionary: null,
+      hidePopupGrammarTags: true,
       popupNestingMaxDepth: 3,
       popupWidthPx: 720,
       popupHeightPx: 520,
@@ -1382,6 +1395,9 @@ describe("Hoshidicts safe popup rendering", () => {
       onlyScanJapaneseText: true,
       popupHideDelayMs: 800,
       showLookupCounts: true,
+      showCompactDefinitionSummary: false,
+      compactDefinitionSummaryDictionary: null,
+      hidePopupGrammarTags: true,
       popupNestingMaxDepth: 3,
       popupWidthPx: 720,
       popupHeightPx: 520,
@@ -1424,6 +1440,9 @@ describe("Hoshidicts safe popup rendering", () => {
       sourceHighlightEnabled: true,
       popupHideDelayMs: 800,
       showLookupCounts: true,
+      showCompactDefinitionSummary: false,
+      compactDefinitionSummaryDictionary: null,
+      hidePopupGrammarTags: true,
       popupNestingMaxDepth: 3,
       popupWidthPx: 720,
       popupHeightPx: 520,
@@ -1515,6 +1534,9 @@ describe("Hoshidicts safe popup rendering", () => {
       activationKey: "F9",
       popupHideDelayMs: 450,
       showLookupCounts: false,
+      showCompactDefinitionSummary: false,
+      compactDefinitionSummaryDictionary: null,
+      hidePopupGrammarTags: true,
       popupNestingMaxDepth: 10,
       popupWidthPx: 720,
       popupHeightPx: 520,
@@ -1551,6 +1573,9 @@ describe("Hoshidicts safe popup rendering", () => {
       },
       popupHideDelayMs: 450,
       showLookupCounts: false,
+      showCompactDefinitionSummary: false,
+      compactDefinitionSummaryDictionary: null,
+      hidePopupGrammarTags: true,
       popupNestingMaxDepth: 10,
       popupWidthPx: 720,
       popupHeightPx: 520,
@@ -2264,6 +2289,374 @@ describe("Hoshidicts safe popup rendering", () => {
   });
 });
 
+describe("Hoshidicts compact definition summaries", () => {
+  it("normalizes the preferred dictionary as null or a bounded non-empty title", () => {
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+
+    expect(api.normalizeCompactDefinitionSummaryDictionary(null)).toBeNull();
+    expect(api.normalizeCompactDefinitionSummaryDictionary("  Jitendex  "))
+      .toBe("Jitendex");
+    expect(api.normalizeCompactDefinitionSummaryDictionary("   ")).toBeNull();
+    expect(api.normalizeCompactDefinitionSummaryDictionary(true)).toBeNull();
+    expect(api.normalizeCompactDefinitionSummaryDictionary("x".repeat(4097)))
+      .toBeNull();
+  });
+
+  it("keeps compact summaries strictly opt-in", async () => {
+    const harness = createReaderHarness({ lookupMode: "hover" });
+    await renderFirstLookup(harness, {
+      shiftKey: false,
+      transform(response) {
+        response.results[0].term.glossaries[0].glossary = JSON.stringify([
+          "to eat",
+          "to consume"
+        ]);
+      }
+    });
+
+    expect(harness.reader.getPreferences().showCompactDefinitionSummary)
+      .toBe(false);
+    expect(harness.reader.getPopupElement().querySelector(
+      ".gsm-hoshidicts-compact-definition-summary"
+    )).toBeNull();
+    harness.reader.updatePreferences({
+      showCompactDefinitionSummary: "true"
+    });
+    expect(harness.reader.getPreferences().showCompactDefinitionSummary)
+      .toBe(false);
+    expect(harness.reader.getPopupElement().querySelector(
+      ".gsm-hoshidicts-compact-definition-summary"
+    )).toBeNull();
+    harness.reader.destroy();
+  });
+
+  it("renders bounded JSON-array items while retaining the complete card", async () => {
+    const harness = createReaderHarness({
+      lookupMode: "hover",
+      showCompactDefinitionSummary: true
+    });
+    const definitions = Array.from(
+      { length: 8 },
+      (_, index) => `definition ${index + 1}`
+    );
+    await renderFirstLookup(harness, {
+      shiftKey: false,
+      transform(response) {
+        response.results[0].term.glossaries[0].glossary =
+          JSON.stringify(definitions);
+      }
+    });
+
+    const popup = harness.reader.getPopupElement();
+    const summary = popup.querySelector<HTMLElement>(
+      ".gsm-hoshidicts-compact-definition-summary"
+    )!;
+    expect(Array.from(summary.querySelectorAll("li"), (item) => item.textContent))
+      .toEqual(definitions.slice(0, 6));
+    expect(Array.from(summary.textContent ?? "")).toHaveLength(
+      definitions.slice(0, 6).join("").length
+    );
+    const fullCard = popup.querySelector(".gsm-hoshidicts-glossary-card");
+    expect(fullCard).not.toBeNull();
+    expect(fullCard?.querySelector(".gsm-hoshidicts-glossary-content")?.textContent)
+      .toContain("definition 8");
+    harness.reader.destroy();
+  });
+
+  it("truncates the compact text budget without truncating the full definition", async () => {
+    const harness = createReaderHarness({
+      lookupMode: "hover",
+      showCompactDefinitionSummary: true
+    });
+    const longDefinitions = ["x".repeat(239), "unabridged definition"];
+    await renderFirstLookup(harness, {
+      shiftKey: false,
+      transform(response) {
+        response.results[0].term.glossaries[0].glossary =
+          JSON.stringify(longDefinitions);
+      }
+    });
+
+    const popup = harness.reader.getPopupElement();
+    const compactText = popup.querySelector(
+      ".gsm-hoshidicts-compact-definition-summary"
+    )?.textContent ?? "";
+    expect(Array.from(compactText)).toHaveLength(240);
+    expect(compactText.endsWith("…")).toBe(true);
+    expect(popup.querySelector(".gsm-hoshidicts-glossary-content")?.textContent)
+      .toBe(longDefinitions.join(""));
+    harness.reader.destroy();
+  });
+
+  it("prioritizes Jitendex glossary nodes without copying POS or examples", async () => {
+    const harness = createReaderHarness({
+      lookupMode: "hover",
+      showCompactDefinitionSummary: true,
+      compactDefinitionSummaryDictionary: "Jitendex"
+    });
+    await renderFirstLookup(harness, {
+      shiftKey: false,
+      transform(response) {
+        const jitendexGlossary = JSON.stringify({
+          type: "structured-content",
+          content: [
+            {
+              tag: "span",
+              data: { content: "part-of-speech-info" },
+              content: "noun"
+            },
+            {
+              tag: "ul",
+              data: { content: "glossary" },
+              content: [
+                { tag: "li", content: "rash; thoughtless" },
+                { tag: "li", content: "careless; hasty; imprudent" }
+              ]
+            },
+            {
+              tag: "div",
+              data: { content: "example-sentence" },
+              content: "He acted rashly."
+            }
+          ]
+        });
+        response.results[0].term.glossaries = [
+          {
+            dictionary: "JMdict",
+            glossary: JSON.stringify(["first dictionary definition"]),
+            definitionTags: "",
+            termTags: ""
+          },
+          {
+            dictionary: "Jitendex",
+            glossary: jitendexGlossary,
+            definitionTags: "",
+            termTags: ""
+          }
+        ];
+      }
+    });
+
+    const summary = harness.reader.getPopupElement().querySelector<HTMLElement>(
+      ".gsm-hoshidicts-compact-definition-summary"
+    )!;
+    expect(Array.from(summary.querySelectorAll("li"), (item) => item.textContent))
+      .toEqual([
+        "rash; thoughtless",
+        "careless; hasty; imprudent"
+      ]);
+    expect(summary.dataset.hoshidictsDictionary).toBe("Jitendex");
+    expect(summary.textContent).not.toContain("noun");
+    expect(summary.textContent).not.toContain("He acted rashly");
+    expect(summary.querySelector("a, img, ruby, span")).toBeNull();
+    harness.reader.destroy();
+  });
+
+  it("supports plain JMdict JSON strings and arrays", async () => {
+    const harness = createReaderHarness({
+      lookupMode: "hover",
+      showCompactDefinitionSummary: true,
+      compactDefinitionSummaryDictionary: "JMdict"
+    });
+    await renderFirstLookup(harness, {
+      shiftKey: false,
+      transform(response) {
+        response.results[0].term.glossaries = [
+          {
+            dictionary: "JMdict",
+            glossary: JSON.stringify("plain definition"),
+            definitionTags: "",
+            termTags: ""
+          },
+          {
+            dictionary: "JMdict",
+            glossary: JSON.stringify(["array alternative", "another sense"]),
+            definitionTags: "",
+            termTags: ""
+          }
+        ];
+      }
+    });
+
+    const summary = harness.reader.getPopupElement().querySelector<HTMLElement>(
+      ".gsm-hoshidicts-compact-definition-summary"
+    )!;
+    expect(Array.from(summary.querySelectorAll("li"), (item) => item.textContent))
+      .toEqual(["plain definition", "array alternative", "another sense"]);
+    harness.reader.destroy();
+  });
+
+  it("supports generic structured lists without dictionary-specific markers", async () => {
+    const harness = createReaderHarness({
+      lookupMode: "hover",
+      showCompactDefinitionSummary: true,
+      compactDefinitionSummaryDictionary: "Generic structured dictionary"
+    });
+    await renderFirstLookup(harness, {
+      shiftKey: false,
+      transform(response) {
+        const glossary = response.results[0].term.glossaries[0];
+        glossary.dictionary = "Generic structured dictionary";
+        glossary.glossary = JSON.stringify({
+          type: "structured-content",
+          content: {
+            tag: "section",
+            content: {
+              tag: "ol",
+              content: [
+                { tag: "li", content: "generic first sense" },
+                { tag: "li", content: "generic second sense" }
+              ]
+            }
+          }
+        });
+      }
+    });
+
+    const summary = harness.reader.getPopupElement().querySelector<HTMLElement>(
+      ".gsm-hoshidicts-compact-definition-summary"
+    )!;
+    expect(summary.dataset.hoshidictsDictionary)
+      .toBe("Generic structured dictionary");
+    expect(Array.from(summary.querySelectorAll("li"), (item) => item.textContent))
+      .toEqual(["generic first sense", "generic second sense"]);
+    harness.reader.destroy();
+  });
+
+  it("falls back to the first extractable dictionary when preferred is absent or unusable", async () => {
+    const harness = createReaderHarness({
+      lookupMode: "hover",
+      showCompactDefinitionSummary: true,
+      compactDefinitionSummaryDictionary: "Missing dictionary"
+    });
+    await renderFirstLookup(harness, {
+      shiftKey: false,
+      transform(response) {
+        response.results[0].term.glossaries = [
+          {
+            dictionary: "JMdict",
+            glossary: JSON.stringify(["usable fallback"]),
+            definitionTags: "",
+            termTags: ""
+          },
+          {
+            dictionary: "Broken dictionary",
+            glossary: "null",
+            definitionTags: "",
+            termTags: ""
+          },
+          {
+            dictionary: "Third dictionary",
+            glossary: "third definition",
+            definitionTags: "",
+            termTags: ""
+          }
+        ];
+      }
+    });
+
+    let summary = harness.reader.getPopupElement().querySelector<HTMLElement>(
+      ".gsm-hoshidicts-compact-definition-summary"
+    )!;
+    expect(summary.dataset.hoshidictsDictionary).toBe("JMdict");
+    expect(summary.textContent).toBe("usable fallback");
+
+    harness.reader.updatePreferences({
+      compactDefinitionSummaryDictionary: "Broken dictionary"
+    });
+    summary = harness.reader.getPopupElement().querySelector<HTMLElement>(
+      ".gsm-hoshidicts-compact-definition-summary"
+    )!;
+    expect(summary.dataset.hoshidictsDictionary).toBe("JMdict");
+    expect(summary.textContent).toBe("usable fallback");
+    harness.reader.destroy();
+  });
+
+  it("falls back to leaf definition blocks for monolingual dictionaries", async () => {
+    const harness = createReaderHarness({
+      lookupMode: "hover",
+      showCompactDefinitionSummary: true,
+      compactDefinitionSummaryDictionary: "国語辞典"
+    });
+    await renderFirstLookup(harness, {
+      shiftKey: false,
+      transform(response) {
+        const monoGlossary = JSON.stringify({
+          type: "structured-content",
+          content: [
+            {
+              tag: "span",
+              data: { content: "part-of-speech-info" },
+              content: "形容動詞"
+            },
+            {
+              tag: "div",
+              content: [
+                { tag: "span", content: "言動が" },
+                {
+                  tag: "ruby",
+                  content: ["軽", { tag: "rt", content: "かる" }]
+                },
+                { tag: "span", content: "く" },
+                "、",
+                { tag: "span", content: "慎重さを欠く" },
+                { tag: "span", content: "さま。" }
+              ]
+            },
+            {
+              tag: "div",
+              data: { content: "example-sentence" },
+              content: "軽率な行動を慎む。"
+            }
+          ]
+        });
+        response.results[0].term.glossaries = [
+          {
+            dictionary: "JMdict",
+            glossary: JSON.stringify(["careless"]),
+            definitionTags: "",
+            termTags: ""
+          },
+          {
+            dictionary: "国語辞典",
+            glossary: monoGlossary,
+            definitionTags: "",
+            termTags: ""
+          }
+        ];
+      }
+    });
+
+    const summary = harness.reader.getPopupElement().querySelector<HTMLElement>(
+      ".gsm-hoshidicts-compact-definition-summary"
+    )!;
+    expect(summary.dataset.hoshidictsDictionary).toBe("国語辞典");
+    expect(Array.from(summary.querySelectorAll("li"), (item) => item.textContent))
+      .toEqual(["言動が軽く、慎重さを欠くさま。"]);
+    expect(summary.textContent).not.toContain("かる");
+    expect(summary.textContent).not.toContain("形容動詞");
+    expect(summary.textContent).not.toContain("軽率な行動を慎む");
+    harness.reader.destroy();
+  });
+
+  it("shares the popup definition-blur state and transition behavior", () => {
+    const css = fs.readFileSync(
+      path.resolve(
+        process.cwd(),
+        "GSM_Overlay/features/hoshidicts/reader.css"
+      ),
+      "utf8"
+    );
+    expect(css).toMatch(
+      /data-definition-blur-state="pending"[^{}]*compact-definition-summary[^{]*\{[^}]*filter:\s*blur\(5px\)/u
+    );
+    expect(css).toMatch(
+      /prefers-reduced-motion:[^{]+\{[\s\S]*?compact-definition-summary[^{}]*\{[^}]*transition:\s*none/u
+    );
+  });
+});
+
 describe("Hoshidicts definition blur", () => {
   it("renders every definition pending and fails open below the lookup threshold", async () => {
     vi.useFakeTimers();
@@ -2277,6 +2670,7 @@ describe("Hoshidicts definition blur", () => {
       document: dom.window.document,
       WebSocket: FakeWebSocket,
       lookupMode: "hover",
+      showCompactDefinitionSummary: true,
       definitionBlur: {
         enabled: true,
         lookupThreshold: 5,
@@ -2322,6 +2716,10 @@ describe("Hoshidicts definition blur", () => {
     expect(definitions.every(
       (element) => element.dataset.definitionBlurState === "pending"
     )).toBe(true);
+    expect(popup.dataset.definitionBlurState).toBe("pending");
+    expect(popup.querySelector(
+      ".gsm-hoshidicts-compact-definition-summary"
+    )).not.toBeNull();
     expect(popup.querySelector(".gsm-hoshidicts-expression")).not.toBeNull();
     expect(popup.querySelector(".gsm-hoshidicts-expression")?.closest(
       ".gsm-hoshidicts-definitions"
@@ -2342,6 +2740,7 @@ describe("Hoshidicts definition blur", () => {
     expect(definitions.every(
       (element) => element.dataset.definitionBlurState === undefined
     )).toBe(true);
+    expect(popup.dataset.definitionBlurState).toBeUndefined();
     reader.destroy();
   });
 
@@ -2467,6 +2866,7 @@ describe("Hoshidicts definition blur", () => {
       document: dom.window.document,
       WebSocket: FakeWebSocket,
       lookupMode: "hover",
+      showCompactDefinitionSummary: true,
       definitionBlur: {
         enabled: true,
         lookupThreshold: 5,
@@ -2505,10 +2905,14 @@ describe("Hoshidicts definition blur", () => {
     expect(definitions.every(
       (element) => element.dataset.definitionBlurState === "blurred"
     )).toBe(true);
-    definitions[1].dispatchEvent(
+    const compactSummary = reader.getPopupElement().querySelector<HTMLElement>(
+      ".gsm-hoshidicts-compact-definition-summary"
+    )!;
+    expect(compactSummary).not.toBeNull();
+    compactSummary.dispatchEvent(
       new dom.window.Event("pointerover", { bubbles: true })
     );
-    definitions[1].dispatchEvent(
+    compactSummary.dispatchEvent(
       new dom.window.Event("pointerout", { bubbles: true })
     );
     expect(definitions.every(
@@ -2692,6 +3096,140 @@ describe("Hoshidicts dictionary tabs", () => {
 
     return { dom, first, lookup, reader, second, socket };
   }
+
+  it("projects summaries with tabs and toggles them live without a new lookup", async () => {
+    const audioController = createAudioControllerStub();
+    const { lookup, reader, socket } = createLookupHarness({
+      audioController,
+      dictionaryPresentation: [
+        { title: "Main", favorite: true },
+        { title: "Backup", favorite: true }
+      ],
+      showCompactDefinitionSummary: false,
+      compactDefinitionSummaryDictionary: "Main"
+    });
+    const { popup } = await lookup((requestId) =>
+      lookupResultWithDictionaries(requestId, [
+        {
+          dictionary: "Main",
+          glossary: JSON.stringify(["main definition", "main alternative"])
+        },
+        {
+          dictionary: "Backup",
+          glossary: JSON.stringify(["backup definition"])
+        }
+      ])
+    );
+    const sentBeforeToggle = socket.sent.length;
+    expect(popup.querySelector(
+      ".gsm-hoshidicts-compact-definition-summary"
+    )).toBeNull();
+
+    Array.from(popup.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+      .find((tab) => tab.textContent === "Backup")
+      ?.click();
+    const audioCallsBeforeToggle =
+      audioController.setRenderedResults.mock.calls.length;
+    reader.updatePreferences({ showCompactDefinitionSummary: true });
+
+    expect(socket.sent).toHaveLength(sentBeforeToggle);
+    expect(reader.getPreferences().showCompactDefinitionSummary).toBe(true);
+    const summaries = popup.querySelectorAll<HTMLElement>(
+      ".gsm-hoshidicts-compact-definition-summary"
+    );
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0].dataset.hoshidictsDictionary).toBe("Backup");
+    expect(summaries[0].textContent).toBe("backup definition");
+    expect(popup.querySelector('[role="tab"][aria-selected="true"]')?.textContent)
+      .toBe("Backup");
+    expect(audioController.setRenderedResults.mock.calls).toHaveLength(
+      audioCallsBeforeToggle + 1
+    );
+    expect(audioController.setRenderedResults.mock.calls.at(-1)?.[1])
+      .toEqual({ autoPlay: false });
+    expect(popup.querySelector(".gsm-hoshidicts-glossary-card")).not.toBeNull();
+    expect(popup.querySelector(".gsm-hoshidicts-glossary-content")?.textContent)
+      .toBe("backup definition");
+
+    reader.updatePreferences({ showCompactDefinitionSummary: false });
+
+    expect(socket.sent).toHaveLength(sentBeforeToggle);
+    expect(popup.querySelector(
+      ".gsm-hoshidicts-compact-definition-summary"
+    )).toBeNull();
+    expect(popup.querySelector('[role="tab"][aria-selected="true"]')?.textContent)
+      .toBe("Backup");
+    reader.destroy();
+  });
+
+  it("switches the preferred summary live without lookup or audio autoplay", async () => {
+    const audioController = createAudioControllerStub();
+    const { lookup, reader, socket } = createLookupHarness({
+      audioController,
+      dictionaryPresentation: [
+        { title: "Main", favorite: true },
+        { title: "Backup", favorite: true }
+      ],
+      showCompactDefinitionSummary: true,
+      compactDefinitionSummaryDictionary: "Main"
+    });
+    const { popup } = await lookup((requestId) =>
+      lookupResultWithDictionaries(requestId, [
+        {
+          dictionary: "Main",
+          glossary: JSON.stringify(["main definition"])
+        },
+        {
+          dictionary: "Backup",
+          glossary: JSON.stringify(["backup definition"])
+        }
+      ])
+    );
+    const sentBeforeSwitch = socket.sent.length;
+    const audioCallsBeforeSwitch =
+      audioController.setRenderedResults.mock.calls.length;
+
+    expect(popup.querySelector<HTMLElement>(
+      ".gsm-hoshidicts-compact-definition-summary"
+    )?.dataset.hoshidictsDictionary).toBe("Main");
+    expect(popup.querySelector('[role="tab"][aria-selected="true"]')?.textContent)
+      .toBe("All");
+
+    reader.updatePreferences({
+      compactDefinitionSummaryDictionary: "  Backup  "
+    });
+
+    expect(socket.sent).toHaveLength(sentBeforeSwitch);
+    expect(reader.getPreferences().compactDefinitionSummaryDictionary)
+      .toBe("Backup");
+    const summary = popup.querySelector<HTMLElement>(
+      ".gsm-hoshidicts-compact-definition-summary"
+    )!;
+    expect(summary.dataset.hoshidictsDictionary).toBe("Backup");
+    expect(summary.textContent).toBe("backup definition");
+    expect(popup.querySelector('[role="tab"][aria-selected="true"]')?.textContent)
+      .toBe("All");
+    expect(audioController.setRenderedResults.mock.calls).toHaveLength(
+      audioCallsBeforeSwitch + 1
+    );
+    expect(audioController.setRenderedResults.mock.calls.at(-1)?.[1])
+      .toEqual({ autoPlay: false });
+
+    reader.updatePreferences({ compactDefinitionSummaryDictionary: "" });
+    expect(reader.getPreferences().compactDefinitionSummaryDictionary)
+      .toBe("Backup");
+    expect(socket.sent).toHaveLength(sentBeforeSwitch);
+
+    reader.updatePreferences({ compactDefinitionSummaryDictionary: null });
+    expect(reader.getPreferences().compactDefinitionSummaryDictionary).toBeNull();
+    expect(popup.querySelector<HTMLElement>(
+      ".gsm-hoshidicts-compact-definition-summary"
+    )?.dataset.hoshidictsDictionary).toBe("Main");
+    expect(socket.sent).toHaveLength(sentBeforeSwitch);
+    expect(audioController.setRenderedResults.mock.calls.at(-1)?.[1])
+      .toEqual({ autoPlay: false });
+    reader.destroy();
+  });
 
   it("expands repeated word and sentence placeholders independently", () => {
     const dom = createDom();
@@ -3043,12 +3581,20 @@ describe("Hoshidicts dictionary tabs", () => {
     const panel = popup.querySelector<HTMLElement>(
       ".gsm-hoshidicts-tab-panel"
     )!;
+    const metadataStrip = chrome.querySelector<HTMLElement>(
+      ".gsm-hoshidicts-metadata-strip"
+    )!;
+    const metadataCapsule = metadataStrip.querySelector<HTMLElement>(
+      ".gsm-hoshidicts-primary-metadata-capsule"
+    )!;
 
     expect(reader.getPreferences().popupToolbarPosition).toBe("top");
     expect(popup.dataset.toolbarPosition).toBe("top");
     expect(popup.firstElementChild).toBe(chrome);
     expect(chrome.nextElementSibling).toBe(form);
     expect(form.nextElementSibling).toBe(panel);
+    expect(chrome.lastElementChild).toBe(metadataStrip);
+    expect(metadataCapsule.textContent).toContain("Frequency123 ★");
 
     reader.updatePreferences({ popupToolbarPosition: "bottom" });
 
@@ -3057,6 +3603,8 @@ describe("Hoshidicts dictionary tabs", () => {
     expect(popup.firstElementChild).toBe(panel);
     expect(panel.nextElementSibling).toBe(form);
     expect(popup.lastElementChild).toBe(chrome);
+    expect(chrome.lastElementChild).toBe(metadataStrip);
+    expect(metadataCapsule.isConnected).toBe(true);
     expect(chrome.querySelector('[role="tablist"]')).not.toBeNull();
     expect(chrome.querySelector(".gsm-hoshidicts-expression")).not.toBeNull();
     expect(chrome.querySelector(".gsm-hoshidicts-mine-button")).not.toBeNull();
@@ -4227,6 +4775,206 @@ describe("Hoshidicts dictionary tabs", () => {
     expect(scrollPastEnd.defaultPrevented).toBe(false);
     reader.destroy();
   });
+
+  it("keeps the default capsule frequency-only and the tablist semantically pure", async () => {
+    const { lookup, reader } = createLookupHarness({
+      dictionaryPresentation: [
+        { title: "Main", favorite: true },
+        { title: "Backup", favorite: true }
+      ]
+    });
+    const { popup } = await lookup((requestId) =>
+      lookupResultWithDictionaries(requestId, [
+        { dictionary: "Main", glossary: "main definition" },
+        { dictionary: "Backup", glossary: "backup definition" }
+      ])
+    );
+
+    const strip = popup.querySelector<HTMLElement>(
+      ".gsm-hoshidicts-metadata-strip"
+    )!;
+    const tablist = strip.querySelector<HTMLElement>('[role="tablist"]')!;
+    const capsule = strip.querySelector<HTMLElement>(
+      ".gsm-hoshidicts-primary-metadata-capsule"
+    )!;
+    expect(reader.getPreferences().hidePopupGrammarTags).toBe(true);
+    expect(strip.hidden).toBe(false);
+    expect(capsule.parentElement).toBe(strip);
+    expect(tablist.contains(capsule)).toBe(false);
+    expect(Array.from(tablist.children).every((child) =>
+      child.getAttribute("role") === "tab"
+    )).toBe(true);
+    expect(capsule.querySelector(".gsm-hoshidicts-frequency-value")?.textContent)
+      .toBe("123 ★");
+    expect(capsule.querySelector(".gsm-hoshidicts-primary-grammar")).toBeNull();
+    expect(popup.querySelector(".gsm-hoshidicts-entry .gsm-hoshidicts-tags"))
+      .toBeNull();
+    reader.destroy();
+  });
+
+  it("shows deduplicated grammar in the capsule live without lookup or autoplay", async () => {
+    const audioController = createAudioControllerStub();
+    const { lookup, reader, socket } = createLookupHarness({
+      audioController,
+      dictionaryPresentation: [{ title: "Main", favorite: false }]
+    });
+    const { popup } = await lookup((requestId) => {
+      const response = lookupResultWithDictionaries(requestId, [
+        { dictionary: "Main", glossary: "main definition" }
+      ]);
+      response.results[0].trace = [
+        { name: "past", description: "Past tense" },
+        { name: "past", description: "Duplicate past tense" }
+      ];
+      response.results[0].term.rules = "v1 adj-na";
+      response.results[0].term.glossaries[0].termTags = "adj-na n v1";
+      return response;
+    });
+    const sentBeforeToggle = socket.sent.length;
+    const audioCallsBeforeToggle =
+      audioController.setRenderedResults.mock.calls.length;
+
+    reader.updatePreferences({ hidePopupGrammarTags: false });
+
+    expect(socket.sent).toHaveLength(sentBeforeToggle);
+    expect(reader.getPreferences().hidePopupGrammarTags).toBe(false);
+    const capsule = popup.querySelector<HTMLElement>(
+      ".gsm-hoshidicts-primary-metadata-capsule"
+    )!;
+    expect(Array.from(
+      capsule.querySelectorAll<HTMLElement>(
+        ".gsm-hoshidicts-primary-grammar-tag"
+      ),
+      (tag) => tag.textContent
+    )).toEqual(["past", "v1", "adj-na", "n"]);
+    expect(capsule.querySelector(
+      ".gsm-hoshidicts-primary-grammar-tag-deinflection"
+    )?.getAttribute("title")).toBe("Past tense");
+    expect(capsule.querySelector(".gsm-hoshidicts-frequency-value")?.textContent)
+      .toBe("123 ★");
+    expect(popup.querySelector(".gsm-hoshidicts-entry .gsm-hoshidicts-tags"))
+      .toBeNull();
+    expect(audioController.setRenderedResults.mock.calls).toHaveLength(
+      audioCallsBeforeToggle + 1
+    );
+    expect(audioController.setRenderedResults.mock.calls.at(-1)?.[1])
+      .toEqual({ autoPlay: false });
+
+    reader.updatePreferences({ hidePopupGrammarTags: true });
+    expect(socket.sent).toHaveLength(sentBeforeToggle);
+    expect(popup.querySelector(
+      ".gsm-hoshidicts-primary-grammar"
+    )).toBeNull();
+    expect(popup.querySelector(
+      ".gsm-hoshidicts-primary-metadata-capsule " +
+      ".gsm-hoshidicts-frequency-value"
+    )?.textContent).toBe("123 ★");
+    expect(audioController.setRenderedResults.mock.calls.at(-1)?.[1])
+      .toEqual({ autoPlay: false });
+    reader.destroy();
+  });
+
+  it("refreshes frequency and grammar when a dictionary tab changes the primary result", async () => {
+    const { lookup, reader } = createLookupHarness({
+      dictionaryPresentation: [
+        { title: "Main", favorite: true },
+        { title: "Backup", favorite: true }
+      ],
+      hidePopupGrammarTags: false
+    });
+    const { popup } = await lookup((requestId) => {
+      const response = lookupResult(requestId, "食べる");
+      const mainResult = response.results[0];
+      mainResult.trace = [{ name: "main-rule", description: "Main rule" }];
+      mainResult.term.glossaries = [{
+        dictionary: "Main",
+        glossary: "main definition",
+        definitionTags: "",
+        termTags: "main-tag"
+      }];
+      mainResult.term.frequencies = [{
+        dictionary: "Main frequency",
+        frequencies: [{ value: 111, displayValue: "111" }]
+      }];
+      const backupResult = {
+        ...mainResult,
+        matched: "食う",
+        deinflected: "食う",
+        trace: [{ name: "backup-rule", description: "Backup rule" }],
+        term: {
+          ...mainResult.term,
+          expression: "食う",
+          reading: "くう",
+          glossaries: [{
+            dictionary: "Backup",
+            glossary: "backup definition",
+            definitionTags: "",
+            termTags: "backup-tag"
+          }],
+          frequencies: [{
+            dictionary: "Backup frequency",
+            frequencies: [{ value: 222, displayValue: "222" }]
+          }]
+        }
+      };
+      response.results = [mainResult, backupResult];
+      return response;
+    });
+    const capsuleText = () => popup.querySelector(
+      ".gsm-hoshidicts-primary-metadata-capsule"
+    )?.textContent;
+
+    expect(capsuleText()).toContain("Main frequency111");
+    expect(capsuleText()).toContain("main-rule");
+    Array.from(popup.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+      .find((tab) => tab.textContent === "Backup")
+      ?.click();
+    expect(capsuleText()).toContain("Backup frequency222");
+    expect(capsuleText()).toContain("backup-rule");
+    expect(capsuleText()).not.toContain("main-rule");
+    expect(popup.querySelector(
+      '[role="tab"][aria-selected="true"]'
+    )?.textContent).toBe("Backup");
+    reader.destroy();
+  });
+
+  it("collapses an empty metadata strip without affecting pitch metadata", async () => {
+    const audioController = createAudioControllerStub();
+    const harness = createReaderHarness({
+      audioController,
+      lookupMode: "hover"
+    });
+    await renderFirstLookup(harness, {
+      shiftKey: false,
+      transform(response) {
+        response.results[0].term.frequencies = [];
+      }
+    });
+    const popup = harness.reader.getPopupElement();
+    const strip = popup.querySelector<HTMLElement>(
+      ".gsm-hoshidicts-metadata-strip"
+    )!;
+    expect(strip.hidden).toBe(true);
+    expect(popup.querySelector(".gsm-hoshidicts-primary-metadata-capsule")
+      ?.hasAttribute("hidden")).toBe(true);
+    expect(popup.querySelector(".gsm-hoshidicts-tag-pitch")).not.toBeNull();
+
+    const sentBeforeToggle = harness.socket.sent.length;
+    harness.reader.updatePreferences({ hidePopupGrammarTags: false });
+    expect(harness.socket.sent).toHaveLength(sentBeforeToggle);
+    expect(strip.isConnected).toBe(false);
+    const rerenderedStrip = popup.querySelector<HTMLElement>(
+      ".gsm-hoshidicts-metadata-strip"
+    )!;
+    expect(rerenderedStrip.hidden).toBe(false);
+    expect(rerenderedStrip.querySelector(
+      ".gsm-hoshidicts-primary-grammar"
+    )?.textContent).toBe("pastv1uk");
+    expect(popup.querySelector(".gsm-hoshidicts-tag-pitch")).not.toBeNull();
+    expect(audioController.setRenderedResults.mock.calls.at(-1)?.[1])
+      .toEqual({ autoPlay: false });
+    harness.reader.destroy();
+  });
 });
 
 describe("Hoshidicts Shift-hover scanner", () => {
@@ -5113,18 +5861,23 @@ describe("Hoshidicts Shift-hover scanner", () => {
     const primaryHeader = chrome?.querySelector(
       ".gsm-hoshidicts-primary-header"
     );
+    const metadataStrip = chrome?.querySelector(
+      ".gsm-hoshidicts-metadata-strip"
+    );
     const tablist = chrome?.querySelector('[role="tablist"]');
     const noteForm = popup.querySelector(".gsm-hoshidicts-note-form");
     const tabPanel = popup.querySelector(".gsm-hoshidicts-tab-panel");
     expect(popup.firstElementChild === chrome).toBe(true);
     expect(chrome?.firstElementChild === primaryHeader).toBe(true);
-    expect(primaryHeader?.nextElementSibling === tablist).toBe(true);
+    expect(primaryHeader?.nextElementSibling === metadataStrip).toBe(true);
     expect(tablist).toBeNull();
+    expect(metadataStrip?.querySelector(
+      ".gsm-hoshidicts-primary-metadata-capsule"
+    )).not.toBeNull();
     expect(tabPanel?.getAttribute("role")).toBeNull();
     expect(chrome?.nextElementSibling === noteForm).toBe(true);
     expect(noteForm?.nextElementSibling === tabPanel).toBe(true);
     expect(primaryHeader?.querySelector("ruby")).not.toBeNull();
-    expect(primaryHeader?.querySelector("rt")?.textContent).toBe("た");
     expect(primaryHeader?.querySelector(".gsm-hoshidicts-kanji-link")?.textContent)
       .toBe("食");
     expect(
@@ -5132,9 +5885,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
         ?.getAttribute("aria-label")
     ).toBe("食べる, たべる");
     expect(primaryHeader?.querySelector(".gsm-hoshidicts-reading")).toBeNull();
-    expect(
-      popup.querySelector(".gsm-hoshidicts-tag-deinflection")?.getAttribute("title")
-    ).toBe("Past tense");
+    expect(popup.querySelector(".gsm-hoshidicts-tag-deinflection")).toBeNull();
     expect(popup.textContent).toContain("JMdict");
     expect(popup.textContent).toContain("to eat");
     expect(popup.querySelector("details")?.open).toBe(true);
@@ -6833,6 +7584,9 @@ describe("Hoshidicts Shift-hover scanner", () => {
       onlyScanJapaneseText: true,
       popupHideDelayMs: 300,
       showLookupCounts: true,
+      showCompactDefinitionSummary: false,
+      compactDefinitionSummaryDictionary: null,
+      hidePopupGrammarTags: true,
       popupNestingMaxDepth: 10,
       popupWidthPx: 560,
       popupHeightPx: 420,
@@ -6890,6 +7644,9 @@ describe("Hoshidicts Shift-hover scanner", () => {
       onlyScanJapaneseText: true,
       popupHideDelayMs: 5000,
       showLookupCounts: true,
+      showCompactDefinitionSummary: false,
+      compactDefinitionSummaryDictionary: null,
+      hidePopupGrammarTags: true,
       popupNestingMaxDepth: 2,
       popupWidthPx: 720,
       popupHeightPx: 520,
@@ -6925,6 +7682,9 @@ describe("Hoshidicts Shift-hover scanner", () => {
       onlyScanJapaneseText: true,
       popupHideDelayMs: 0,
       showLookupCounts: true,
+      showCompactDefinitionSummary: false,
+      compactDefinitionSummaryDictionary: null,
+      hidePopupGrammarTags: true,
       popupNestingMaxDepth: 2,
       popupWidthPx: 720,
       popupHeightPx: 520,
@@ -6961,6 +7721,9 @@ describe("Hoshidicts Shift-hover scanner", () => {
         onlyScanJapaneseText: true,
         popupHideDelayMs: 0,
         showLookupCounts: true,
+        showCompactDefinitionSummary: false,
+        compactDefinitionSummaryDictionary: null,
+        hidePopupGrammarTags: true,
         popupNestingMaxDepth: 2,
         popupWidthPx: 720,
         popupHeightPx: 520,
@@ -8174,7 +8937,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
     reader.destroy();
   });
 
-  it("shows Hoshi-style metadata before tags and one result initially", async () => {
+  it("moves primary frequency into the toolbar and hides grammar tags by default", async () => {
     vi.useFakeTimers();
     const dom = createDom();
     const api = loadReaderModule(dom.window as unknown as Window);
@@ -8232,27 +8995,30 @@ describe("Hoshidicts Shift-hover scanner", () => {
     const metadataRows = entries[0].querySelectorAll<HTMLElement>(
       ".gsm-hoshidicts-metadata"
     );
-    expect(metadataRows).toHaveLength(2);
-    expect(metadataRows[0].querySelector(".gsm-hoshidicts-tag-frequency"))
-      .not.toBeNull();
-    expect(metadataRows[1].querySelector(".gsm-hoshidicts-tag-pitch"))
+    expect(reader.getPreferences().hidePopupGrammarTags).toBe(true);
+    expect(metadataRows).toHaveLength(1);
+    expect(metadataRows[0].querySelector(".gsm-hoshidicts-tag-pitch"))
       .not.toBeNull();
     expect(
-      metadataRows[1].querySelector(".gsm-hoshidicts-pitch-source")?.textContent
+      metadataRows[0].querySelector(".gsm-hoshidicts-pitch-source")?.textContent
     ).toBe("Pitch accent");
+    const capsule = popup.querySelector<HTMLElement>(
+      ".gsm-hoshidicts-primary-metadata-capsule"
+    )!;
+    expect(capsule.hidden).toBe(false);
     expect(
-      metadataRows[0].querySelector(".gsm-hoshidicts-frequency-source")?.textContent
+      capsule.querySelector(".gsm-hoshidicts-frequency-source")?.textContent
     ).toBe("Corpus rank");
     expect(
-      metadataRows[1].querySelector(".gsm-hoshidicts-pitch-body")?.textContent
+      metadataRows[0].querySelector(".gsm-hoshidicts-pitch-body")?.textContent
     ).toBe("ご0 [2] LHL");
-    const children = Array.from(entries[0].children);
-    expect(children.indexOf(metadataRows[0])).toBeLessThan(
-      children.indexOf(entries[0].querySelector(".gsm-hoshidicts-tags")!)
-    );
+    expect(entries[0].querySelector(".gsm-hoshidicts-frequency-metadata"))
+      .toBeNull();
+    expect(entries[0].querySelector(".gsm-hoshidicts-tags")).toBeNull();
+    expect(capsule.querySelector(".gsm-hoshidicts-primary-grammar")).toBeNull();
     expect(
       Array.from(
-        entries[0].querySelectorAll<HTMLElement>(".gsm-hoshidicts-tag-frequency")
+        capsule.querySelectorAll<HTMLElement>(".gsm-hoshidicts-tag-frequency")
       ).map((tag) =>
         tag.querySelector(".gsm-hoshidicts-frequency-body")?.textContent
       )
@@ -8265,6 +9031,10 @@ describe("Hoshidicts Shift-hover scanner", () => {
     );
     expect(expandedEntries).toHaveLength(8);
     expect(expandedEntries.some((entry) => entry.hidden)).toBe(false);
+    expect(expandedEntries[1].querySelector(
+      ".gsm-hoshidicts-frequency-metadata"
+    )).not.toBeNull();
+    expect(expandedEntries[1].querySelector(".gsm-hoshidicts-tags")).toBeNull();
     expect(popup.querySelector(".gsm-hoshidicts-show-more")).toBeNull();
     reader.destroy();
   });

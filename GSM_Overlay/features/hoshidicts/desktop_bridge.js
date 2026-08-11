@@ -378,6 +378,12 @@ function normalizeHoshidictsReaderPreferences(preferences) {
   const onlyScanJapaneseText =
     preferences && preferences.onlyScanJapaneseText;
   const popupHideDelayMs = preferences && preferences.popupHideDelayMs;
+  const showCompactDefinitionSummary =
+    preferences && preferences.showCompactDefinitionSummary;
+  const compactDefinitionSummaryDictionary =
+    preferences && preferences.compactDefinitionSummaryDictionary;
+  const hidePopupGrammarTags =
+    preferences && preferences.hidePopupGrammarTags;
   const popupNestingMaxDepth =
     preferences && preferences.popupNestingMaxDepth;
   const popupWidthPx = preferences && preferences.popupWidthPx;
@@ -429,6 +435,17 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     !Number.isInteger(popupHideDelayMs) ||
     popupHideDelayMs < 0 ||
     popupHideDelayMs > 5000 ||
+    typeof showCompactDefinitionSummary !== "boolean" ||
+    typeof hidePopupGrammarTags !== "boolean" ||
+    (
+      compactDefinitionSummaryDictionary !== null &&
+      (
+        typeof compactDefinitionSummaryDictionary !== "string" ||
+        !compactDefinitionSummaryDictionary.trim() ||
+        compactDefinitionSummaryDictionary.length >
+          MAX_HOSHIDICTS_DICTIONARY_TITLE_LENGTH
+      )
+    ) ||
     !Number.isSafeInteger(popupNestingMaxDepth) ||
     popupNestingMaxDepth < 0 ||
     !Number.isInteger(popupWidthPx) ||
@@ -458,6 +475,9 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     sourceHighlightEnabled,
     onlyScanJapaneseText: onlyScanJapaneseText !== false,
     popupHideDelayMs,
+    showCompactDefinitionSummary,
+    compactDefinitionSummaryDictionary,
+    hidePopupGrammarTags,
     popupNestingMaxDepth,
     popupWidthPx,
     popupHeightPx,

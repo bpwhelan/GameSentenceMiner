@@ -1810,6 +1810,9 @@ describe('Hoshidicts reader preferences', () => {
         expect(snapshot.sourceHighlightEnabled).toBe(false);
         expect(snapshot.onlyScanJapaneseText).toBe(true);
         expect(snapshot.showLookupCounts).toBe(true);
+        expect(snapshot.showCompactDefinitionSummary).toBe(false);
+        expect(snapshot.compactDefinitionSummaryDictionary).toBeNull();
+        expect(snapshot.hidePopupGrammarTags).toBe(true);
         expect(snapshot.popupNestingMaxDepth).toBe(10);
         expect(snapshot.popupWidthPx).toBe(560);
         expect(snapshot.popupHeightPx).toBe(420);
@@ -1847,6 +1850,13 @@ describe('Hoshidicts reader preferences', () => {
         expect((await manager.getSnapshot()).onlyScanJapaneseText).toBe(true);
         expect((await manager.getSnapshot()).popupHideDelayMs).toBe(300);
         expect((await manager.getSnapshot()).showLookupCounts).toBe(true);
+        expect(
+            (await manager.getSnapshot()).showCompactDefinitionSummary
+        ).toBe(false);
+        expect(
+            (await manager.getSnapshot()).compactDefinitionSummaryDictionary
+        ).toBeNull();
+        expect((await manager.getSnapshot()).hidePopupGrammarTags).toBe(true);
         expect((await manager.getSnapshot()).popupNestingMaxDepth).toBe(10);
         expect((await manager.getSnapshot()).popupWidthPx).toBe(560);
         expect((await manager.getSnapshot()).popupHeightPx).toBe(420);
@@ -1903,7 +1913,10 @@ describe('Hoshidicts reader preferences', () => {
                     },
                 ],
             },
-            3
+            3,
+            true,
+            '  Jitendex.org  ',
+            false
         );
 
         expect(snapshot.lookupMode).toBe('hover');
@@ -1916,6 +1929,11 @@ describe('Hoshidicts reader preferences', () => {
         expect(snapshot.onlyScanJapaneseText).toBe(false);
         expect(snapshot.popupHideDelayMs).toBe(850);
         expect(snapshot.showLookupCounts).toBe(false);
+        expect(snapshot.showCompactDefinitionSummary).toBe(true);
+        expect(snapshot.compactDefinitionSummaryDictionary).toBe(
+            'Jitendex.org'
+        );
+        expect(snapshot.hidePopupGrammarTags).toBe(false);
         expect(snapshot.popupNestingMaxDepth).toBe(12);
         expect(snapshot.popupWidthPx).toBe(720);
         expect(snapshot.popupHeightPx).toBe(520);
@@ -1953,6 +1971,11 @@ describe('Hoshidicts reader preferences', () => {
         expect(readManifest(baseDir).onlyScanJapaneseText).toBe(false);
         expect(readManifest(baseDir).popupHideDelayMs).toBe(850);
         expect(readManifest(baseDir).showLookupCounts).toBe(false);
+        expect(readManifest(baseDir).showCompactDefinitionSummary).toBe(true);
+        expect(readManifest(baseDir).compactDefinitionSummaryDictionary).toBe(
+            'Jitendex.org'
+        );
+        expect(readManifest(baseDir).hidePopupGrammarTags).toBe(false);
         expect(readManifest(baseDir).popupNestingMaxDepth).toBe(12);
         expect(readManifest(baseDir).popupWidthPx).toBe(720);
         expect(readManifest(baseDir).popupHeightPx).toBe(520);
@@ -1983,6 +2006,13 @@ describe('Hoshidicts reader preferences', () => {
         expect((await reloaded.getSnapshot()).onlyScanJapaneseText).toBe(false);
         expect((await reloaded.getSnapshot()).popupHideDelayMs).toBe(850);
         expect((await reloaded.getSnapshot()).showLookupCounts).toBe(false);
+        expect(
+            (await reloaded.getSnapshot()).showCompactDefinitionSummary
+        ).toBe(true);
+        expect(
+            (await reloaded.getSnapshot()).compactDefinitionSummaryDictionary
+        ).toBe('Jitendex.org');
+        expect((await reloaded.getSnapshot()).hidePopupGrammarTags).toBe(false);
         expect((await reloaded.getSnapshot()).popupNestingMaxDepth).toBe(12);
         expect((await reloaded.getSnapshot()).popupWidthPx).toBe(720);
         expect((await reloaded.getSnapshot()).popupHeightPx).toBe(520);
@@ -2011,6 +2041,16 @@ describe('Hoshidicts reader preferences', () => {
         expect(shifted.onlyScanJapaneseText).toBe(false);
         expect(shifted.showLookupCounts).toBe(false);
         expect(readManifest(baseDir).showLookupCounts).toBe(false);
+        expect(shifted.showCompactDefinitionSummary).toBe(true);
+        expect(readManifest(baseDir).showCompactDefinitionSummary).toBe(true);
+        expect(shifted.compactDefinitionSummaryDictionary).toBe(
+            'Jitendex.org'
+        );
+        expect(readManifest(baseDir).compactDefinitionSummaryDictionary).toBe(
+            'Jitendex.org'
+        );
+        expect(shifted.hidePopupGrammarTags).toBe(false);
+        expect(readManifest(baseDir).hidePopupGrammarTags).toBe(false);
         expect(shifted.popupNestingMaxDepth).toBe(12);
         expect(shifted.popupWidthPx).toBe(720);
         expect(shifted.popupHeightPx).toBe(520);
@@ -2149,6 +2189,110 @@ describe('Hoshidicts reader preferences', () => {
         await expect(manager.setReaderPreferences('hover', 5001, 'Shift')).rejects.toThrow(
             'hide delay is invalid'
         );
+    });
+
+    it('rejects a non-boolean compact definition summary preference', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+
+        await expect(
+            manager.setReaderPreferences(
+                'shift',
+                300,
+                'Shift',
+                false,
+                10,
+                undefined,
+                true,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                true,
+                undefined,
+                16,
+                32,
+                null,
+                'descending',
+                undefined,
+                undefined,
+                'yes' as never
+            )
+        ).rejects.toThrow('compact definition summary preference is invalid');
+    });
+
+    it('rejects invalid compact definition summary dictionary titles', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+        const setPreferredDictionary = (dictionary: string | null) =>
+            manager.setReaderPreferences(
+                'shift',
+                300,
+                'Shift',
+                false,
+                10,
+                undefined,
+                true,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                true,
+                undefined,
+                16,
+                32,
+                null,
+                'descending',
+                undefined,
+                undefined,
+                true,
+                dictionary
+            );
+
+        await expect(setPreferredDictionary('')).rejects.toThrow(
+            'compact definition summary dictionary is invalid'
+        );
+        await expect(setPreferredDictionary('   ')).rejects.toThrow(
+            'compact definition summary dictionary is invalid'
+        );
+        await expect(setPreferredDictionary('x'.repeat(4097))).rejects.toThrow(
+            'compact definition summary dictionary is invalid'
+        );
+        await expect(setPreferredDictionary(null)).resolves.toMatchObject({
+            compactDefinitionSummaryDictionary: null,
+        });
+    });
+
+    it('rejects a non-boolean popup grammar tag preference', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+
+        await expect(
+            manager.setReaderPreferences(
+                'shift',
+                300,
+                'Shift',
+                false,
+                10,
+                undefined,
+                true,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                true,
+                undefined,
+                16,
+                32,
+                null,
+                'descending',
+                undefined,
+                undefined,
+                false,
+                null,
+                'yes' as never
+            )
+        ).rejects.toThrow('popup grammar tag preference is invalid');
     });
 
     it('rejects popup dimensions and themes outside appearance bounds', async () => {

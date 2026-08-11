@@ -16,6 +16,9 @@ const harness = vi.hoisted(() => ({
     configureOnlyScanJapaneseTextProvider: vi.fn(),
     configurePopupHideDelayProvider: vi.fn(),
     configureShowLookupCountsProvider: vi.fn(),
+    configureShowCompactDefinitionSummaryProvider: vi.fn(),
+    configureCompactDefinitionSummaryDictionaryProvider: vi.fn(),
+    configureHidePopupGrammarTagsProvider: vi.fn(),
     configureCustomSyncProvider: vi.fn(),
     configurePopupNestingMaxDepthProvider: vi.fn(),
     configureDefinitionBlurProvider: vi.fn(),
@@ -72,6 +75,9 @@ const harness = vi.hoisted(() => ({
         onlyScanJapaneseText: true,
         popupHideDelayMs: 850,
         showLookupCounts: false,
+        showCompactDefinitionSummary: true,
+        compactDefinitionSummaryDictionary: 'Jitendex',
+        hidePopupGrammarTags: true,
         popupNestingMaxDepth: 4,
         popupWidthPx: 680,
         popupHeightPx: 500,
@@ -149,6 +155,12 @@ vi.mock('../../ui/front.js', () => ({
         harness.configurePopupHideDelayProvider,
     configureHoshidictsShowLookupCountsProvider:
         harness.configureShowLookupCountsProvider,
+    configureHoshidictsShowCompactDefinitionSummaryProvider:
+        harness.configureShowCompactDefinitionSummaryProvider,
+    configureHoshidictsCompactDefinitionSummaryDictionaryProvider:
+        harness.configureCompactDefinitionSummaryDictionaryProvider,
+    configureHoshidictsHidePopupGrammarTagsProvider:
+        harness.configureHidePopupGrammarTagsProvider,
     configureHoshidictsCustomDictionarySyncProvider:
         harness.configureCustomSyncProvider,
     configureHoshidictsPopupNestingMaxDepthProvider:
@@ -178,6 +190,9 @@ vi.mock('../../ui/front.js', () => ({
     getOverlayHoshidictsOnlyScanJapaneseTextAtLaunch: () => true,
     getOverlayHoshidictsPopupHideDelayAtLaunch: () => 300,
     getOverlayHoshidictsShowLookupCountsAtLaunch: () => true,
+    getOverlayHoshidictsShowCompactDefinitionSummaryAtLaunch: () => false,
+    getOverlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch: () => null,
+    getOverlayHoshidictsHidePopupGrammarTagsAtLaunch: () => true,
     getOverlayHoshidictsAudioProfileRestartRequired: () => false,
     getOverlayHoshidictsPopupNestingMaxDepthAtLaunch: () => 10,
     getOverlayHoshidictsDefinitionBlurAtLaunch: () => ({
@@ -237,6 +252,9 @@ describe('Hoshidicts feature registration', () => {
         harness.configureOnlyScanJapaneseTextProvider.mockReset();
         harness.configurePopupHideDelayProvider.mockReset();
         harness.configureShowLookupCountsProvider.mockReset();
+        harness.configureShowCompactDefinitionSummaryProvider.mockReset();
+        harness.configureCompactDefinitionSummaryDictionaryProvider.mockReset();
+        harness.configureHidePopupGrammarTagsProvider.mockReset();
         harness.configureCustomSyncProvider.mockReset();
         harness.configurePopupNestingMaxDepthProvider.mockReset();
         harness.configureDefinitionBlurProvider.mockReset();
@@ -281,6 +299,18 @@ describe('Hoshidicts feature registration', () => {
             harness.registerIPC.mock.calls[0][0]
                 .getOverlayShowLookupCountsAtLaunch()
         ).toBe(true);
+        expect(
+            harness.registerIPC.mock.calls[0][0]
+                .getOverlayShowCompactDefinitionSummaryAtLaunch()
+        ).toBe(false);
+        expect(
+            harness.registerIPC.mock.calls[0][0]
+                .getOverlayCompactDefinitionSummaryDictionaryAtLaunch()
+        ).toBeNull();
+        expect(
+            harness.registerIPC.mock.calls[0][0]
+                .getOverlayHidePopupGrammarTagsAtLaunch()
+        ).toBe(true);
         await expect(
             harness.registerIPC.mock.calls[0][0].applyReaderPreferences({
                 lookupMode: 'hover',
@@ -293,6 +323,9 @@ describe('Hoshidicts feature registration', () => {
                 onlyScanJapaneseText: true,
                 popupHideDelayMs: 850,
                 showLookupCounts: false,
+                showCompactDefinitionSummary: true,
+                compactDefinitionSummaryDictionary: 'Jitendex',
+                hidePopupGrammarTags: false,
                 popupNestingMaxDepth: 4,
                 definitionBlur: harness.managerSnapshot.definitionBlur,
                 popupWidthPx: 680,
@@ -317,6 +350,9 @@ describe('Hoshidicts feature registration', () => {
                 onlyScanJapaneseText: true,
                 popupHideDelayMs: 850,
                 showLookupCounts: false,
+                showCompactDefinitionSummary: true,
+                compactDefinitionSummaryDictionary: 'Jitendex',
+                hidePopupGrammarTags: false,
                 popupNestingMaxDepth: 4,
                 definitionBlur: harness.managerSnapshot.definitionBlur,
                 popupWidthPx: 680,
@@ -340,6 +376,9 @@ describe('Hoshidicts feature registration', () => {
             onlyScanJapaneseText: true,
             popupHideDelayMs: 850,
             showLookupCounts: false,
+            showCompactDefinitionSummary: true,
+            compactDefinitionSummaryDictionary: 'Jitendex',
+            hidePopupGrammarTags: false,
             popupNestingMaxDepth: 4,
             definitionBlur: harness.managerSnapshot.definitionBlur,
             popupWidthPx: 680,
@@ -384,6 +423,9 @@ describe('Hoshidicts feature registration', () => {
                     onlyScanJapaneseText: true,
                     popupHideDelayMs: 850,
                     showLookupCounts: false,
+                    showCompactDefinitionSummary: true,
+                    compactDefinitionSummaryDictionary: 'Jitendex',
+                    hidePopupGrammarTags: true,
                     popupNestingMaxDepth: 4,
                     definitionBlur: harness.managerSnapshot.definitionBlur,
                     popupWidthPx: 680,
@@ -480,6 +522,27 @@ describe('Hoshidicts feature registration', () => {
         const showLookupCountsProvider =
             harness.configureShowLookupCountsProvider.mock.calls[0][0];
         await expect(showLookupCountsProvider()).resolves.toBe(false);
+        expect(
+            harness.configureShowCompactDefinitionSummaryProvider
+        ).toHaveBeenCalledOnce();
+        const showCompactDefinitionSummaryProvider =
+            harness.configureShowCompactDefinitionSummaryProvider.mock.calls[0][0];
+        await expect(showCompactDefinitionSummaryProvider()).resolves.toBe(true);
+        expect(
+            harness.configureCompactDefinitionSummaryDictionaryProvider
+        ).toHaveBeenCalledOnce();
+        const compactDefinitionSummaryDictionaryProvider =
+            harness.configureCompactDefinitionSummaryDictionaryProvider.mock
+                .calls[0][0];
+        await expect(
+            compactDefinitionSummaryDictionaryProvider()
+        ).resolves.toBe('Jitendex');
+        expect(
+            harness.configureHidePopupGrammarTagsProvider
+        ).toHaveBeenCalledOnce();
+        const hidePopupGrammarTagsProvider =
+            harness.configureHidePopupGrammarTagsProvider.mock.calls[0][0];
+        await expect(hidePopupGrammarTagsProvider()).resolves.toBe(true);
         expect(
             harness.configurePopupNestingMaxDepthProvider
         ).toHaveBeenCalledOnce();

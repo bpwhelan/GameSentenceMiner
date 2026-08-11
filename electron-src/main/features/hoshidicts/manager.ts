@@ -40,6 +40,9 @@ import type {
 } from '../../../shared/features/hoshidicts.js';
 import {
     DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
+    DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
+    DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
+    DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
     DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
     DEFAULT_HOSHIDICTS_MAX_RESULTS,
     DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
@@ -159,6 +162,9 @@ interface PersistedManifest {
     onlyScanJapaneseText: boolean;
     popupHideDelayMs: number;
     showLookupCounts: boolean;
+    showCompactDefinitionSummary: boolean;
+    compactDefinitionSummaryDictionary: string | null;
+    hidePopupGrammarTags: boolean;
     popupNestingMaxDepth: number;
     definitionBlur: HoshidictsDefinitionBlurPreferences;
     popupWidthPx: number;
@@ -419,6 +425,11 @@ function emptyManifest(): PersistedManifest {
         onlyScanJapaneseText: DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
         popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
         showLookupCounts: true,
+        showCompactDefinitionSummary:
+            DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
+        compactDefinitionSummaryDictionary:
+            DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
+        hidePopupGrammarTags: DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
         popupNestingMaxDepth: DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
         definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
@@ -598,6 +609,16 @@ function normalizeSortFrequencyDictionary(value: unknown): string | null {
     return typeof value === 'string' && value.length > 0 && value.length <= 4096
         ? value
         : DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY;
+}
+
+function normalizeCompactDefinitionSummaryDictionary(
+    value: unknown
+): string | null {
+    return typeof value === 'string' &&
+        value.trim().length > 0 &&
+        value.length <= 4096
+        ? value.trim()
+        : DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY;
 }
 
 function normalizeSortFrequencyDictionaryOrder(
@@ -2604,7 +2625,10 @@ export class HoshidictsManager {
             snapshot.sortFrequencyDictionary,
             snapshot.sortFrequencyDictionaryOrder,
             undefined,
-            snapshot.popupColumns
+            snapshot.popupColumns,
+            snapshot.showCompactDefinitionSummary,
+            snapshot.compactDefinitionSummaryDictionary,
+            snapshot.hidePopupGrammarTags
         );
     }
 
@@ -2631,7 +2655,12 @@ export class HoshidictsManager {
         sortFrequencyDictionaryOrder: HoshidictsSortFrequencyDictionaryOrder =
             DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
         popupButtons?: HoshidictsPopupButtons,
-        popupColumns?: number
+        popupColumns?: number,
+        showCompactDefinitionSummary =
+            DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
+        compactDefinitionSummaryDictionary: string | null =
+            DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
+        hidePopupGrammarTags = DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS
     ): Promise<HoshidictsManagerSnapshot> {
         if (lookupMode !== 'shift' && lookupMode !== 'hover') {
             throw new Error('Hoshidicts lookup mode is invalid.');
@@ -2702,6 +2731,30 @@ export class HoshidictsManager {
         }
         if (typeof showLookupCounts !== 'boolean') {
             throw new Error('Hoshidicts lookup count preference is invalid.');
+        }
+        if (typeof showCompactDefinitionSummary !== 'boolean') {
+            throw new Error(
+                'Hoshidicts compact definition summary preference is invalid.'
+            );
+        }
+        if (
+            compactDefinitionSummaryDictionary !== null &&
+            (typeof compactDefinitionSummaryDictionary !== 'string' ||
+                compactDefinitionSummaryDictionary.trim().length === 0 ||
+                compactDefinitionSummaryDictionary.length > 4096)
+        ) {
+            throw new Error(
+                'Hoshidicts compact definition summary dictionary is invalid.'
+            );
+        }
+        const normalizedCompactDefinitionSummaryDictionary =
+            compactDefinitionSummaryDictionary === null
+                ? null
+                : compactDefinitionSummaryDictionary.trim();
+        if (typeof hidePopupGrammarTags !== 'boolean') {
+            throw new Error(
+                'Hoshidicts popup grammar tag preference is invalid.'
+            );
         }
         if (
             !Number.isSafeInteger(popupNestingMaxDepth) ||
@@ -2824,6 +2877,11 @@ export class HoshidictsManager {
                 manifest.sourceHighlightEnabled !== sourceHighlightEnabled ||
                 manifest.onlyScanJapaneseText !== onlyScanJapaneseText ||
                 manifest.showLookupCounts !== showLookupCounts ||
+                manifest.showCompactDefinitionSummary !==
+                    showCompactDefinitionSummary ||
+                manifest.compactDefinitionSummaryDictionary !==
+                    normalizedCompactDefinitionSummaryDictionary ||
+                manifest.hidePopupGrammarTags !== hidePopupGrammarTags ||
                 manifest.popupNestingMaxDepth !== popupNestingMaxDepth ||
                 manifest.popupWidthPx !== effectivePopupWidthPx ||
                 manifest.popupHeightPx !== effectivePopupHeightPx ||
@@ -2853,6 +2911,10 @@ export class HoshidictsManager {
                     onlyScanJapaneseText,
                     popupHideDelayMs,
                     showLookupCounts,
+                    showCompactDefinitionSummary,
+                    compactDefinitionSummaryDictionary:
+                        normalizedCompactDefinitionSummaryDictionary,
+                    hidePopupGrammarTags,
                     popupNestingMaxDepth,
                     definitionBlur: { ...effectiveDefinitionBlur },
                     popupWidthPx: effectivePopupWidthPx,
@@ -3224,6 +3286,11 @@ export class HoshidictsManager {
             onlyScanJapaneseText: manifest.onlyScanJapaneseText,
             popupHideDelayMs: manifest.popupHideDelayMs,
             showLookupCounts: manifest.showLookupCounts,
+            showCompactDefinitionSummary:
+                manifest.showCompactDefinitionSummary,
+            compactDefinitionSummaryDictionary:
+                manifest.compactDefinitionSummaryDictionary,
+            hidePopupGrammarTags: manifest.hidePopupGrammarTags,
             popupNestingMaxDepth: manifest.popupNestingMaxDepth,
             definitionBlur: { ...manifest.definitionBlur },
             popupWidthPx: manifest.popupWidthPx,
@@ -3611,6 +3678,13 @@ export class HoshidictsManager {
                 parsed.onlyScanJapaneseText !== false,
             popupHideDelayMs: normalizePopupHideDelay(parsed.popupHideDelayMs),
             showLookupCounts: parsed.showLookupCounts !== false,
+            showCompactDefinitionSummary:
+                parsed.showCompactDefinitionSummary === true,
+            compactDefinitionSummaryDictionary:
+                normalizeCompactDefinitionSummaryDictionary(
+                    parsed.compactDefinitionSummaryDictionary
+                ),
+            hidePopupGrammarTags: parsed.hidePopupGrammarTags !== false,
             popupNestingMaxDepth: normalizePopupNestingMaxDepth(
                 parsed.popupNestingMaxDepth
             ),
@@ -3666,6 +3740,13 @@ export class HoshidictsManager {
                 parsed.onlyScanJapaneseText !== false,
             popupHideDelayMs: normalizePopupHideDelay(parsed.popupHideDelayMs),
             showLookupCounts: parsed.showLookupCounts !== false,
+            showCompactDefinitionSummary:
+                parsed.showCompactDefinitionSummary === true,
+            compactDefinitionSummaryDictionary:
+                normalizeCompactDefinitionSummaryDictionary(
+                    parsed.compactDefinitionSummaryDictionary
+                ),
+            hidePopupGrammarTags: parsed.hidePopupGrammarTags !== false,
             popupNestingMaxDepth: normalizePopupNestingMaxDepth(
                 parsed.popupNestingMaxDepth
             ),

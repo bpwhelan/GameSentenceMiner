@@ -22,6 +22,41 @@
   const DEFAULT_MAX_METADATA_TAGS = 12;
   const DEFAULT_HIGHLIGHT_NAME = "gsm-hoshidicts-match";
   const DEFINITION_BLUR_STATES = new Set(["pending", "blurred"]);
+  const COMPACT_DEFINITION_MAX_ITEMS = 6;
+  const COMPACT_DEFINITION_MAX_CHARACTERS = 240;
+  const COMPACT_DEFINITION_MAX_NODES = 512;
+  const COMPACT_DEFINITION_MAX_DEPTH = 16;
+  const COMPACT_DEFINITION_BLOCK_TAGS = new Set([
+    "article",
+    "blockquote",
+    "br",
+    "dd",
+    "div",
+    "dt",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "li",
+    "p",
+    "section",
+    "td",
+    "th",
+    "tr",
+  ]);
+  const COMPACT_DEFINITION_IGNORED_TAGS = new Set([
+    "audio",
+    "canvas",
+    "iframe",
+    "img",
+    "rt",
+    "script",
+    "style",
+    "svg",
+    "video",
+  ]);
   const MAX_CUSTOM_DEFINITION_BYTES = 2 * 1024;
   const UTF8_ENCODER = new TextEncoder();
   const DICTIONARY_DISPLAY_ALIASES = new Map([
@@ -211,6 +246,57 @@
       `${group.dictionary}: ${frequencies.map(({ display }) => display).join(", ")}`
     );
     return tag;
+  }
+
+  function createFrequencyTags(
+    documentRef,
+    result,
+    dictionaryPresentation,
+    maximumTags
+  ) {
+    const tags = [];
+    const seen = new Set();
+    const dictionaryDisplayNames = createDictionaryDisplayNames(
+      result.term.frequencies.map(({ dictionary }) => dictionary),
+      dictionaryPresentation
+    );
+    for (const group of result.term.frequencies) {
+      const frequencies = [];
+      const seenFrequencies = new Set();
+      for (const frequency of group.frequencies) {
+        const display = formatFrequencyValue(frequency);
+        if (display === null) {
+          continue;
+        }
+        const key = JSON.stringify([frequency.value, display]);
+        if (!seenFrequencies.has(key)) {
+          seenFrequencies.add(key);
+          frequencies.push({ display, frequency });
+        }
+      }
+      frequencies.sort((left, right) =>
+        Number(isKanaFrequency(right.frequency))
+        - Number(isKanaFrequency(left.frequency))
+      );
+      const key = JSON.stringify([
+        group.dictionary,
+        frequencies.map(({ display, frequency }) => [frequency.value, display]),
+      ]);
+      if (
+        frequencies.length > 0 &&
+        !seen.has(key) &&
+        tags.length < maximumTags
+      ) {
+        seen.add(key);
+        tags.push(createFrequencyTag(
+          documentRef,
+          group,
+          dictionaryDisplayNames.get(group.dictionary) || group.dictionary,
+          frequencies
+        ));
+      }
+    }
+    return tags;
   }
 
   function createPitchTag(
@@ -492,6 +578,291 @@
       }
     }
     return dictionaries;
+  }
+
+  function isRecord(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function parseCompactDefinitionValue(rawGlossary) {
+    if (typeof rawGlossary !== "string" || !rawGlossary) {
+      return null;
+    }
+    try {
+      return JSON.parse(rawGlossary);
+    } catch {
+      return rawGlossary;
+    }
+  }
+
+  function getCompactDefinitionMarker(value) {
+    return isRecord(value?.data) && typeof value.data.content === "string"
+      ? value.data.content.trim().toLowerCase()
+      : "";
+  }
+
+  function isIgnoredCompactDefinitionSection(value) {
+    const marker = getCompactDefinitionMarker(value);
+    return marker && marker !== "glossary" && (
+      marker.startsWith("part-of-speech") ||
+      marker === "source" || marker.startsWith("source-") ||
+      marker === "attribution" || marker.startsWith("attribution-") ||
+      marker === "example" || marker === "examples" ||
+      marker.startsWith("example-") ||
+      marker === "form" || marker === "forms" ||
+      marker.startsWith("forms-")
+    );
+  }
+
+  function normalizeCompactDefinitionText(value) {
+    return String(value || "").replace(/\s+/gu, " ").trim();
+  }
+
+  function isCompactDefinitionBlock(value) {
+    return isRecord(value) && COMPACT_DEFINITION_BLOCK_TAGS.has(
+      String(value.tag || "").toLowerCase()
+    );
+  }
+
+  function collectCompactDefinitionText(value, state, depth = 0) {
+    if (
+      state.nodes >= COMPACT_DEFINITION_MAX_NODES ||
+      depth > COMPACT_DEFINITION_MAX_DEPTH
+    ) {
+      return "";
+    }
+    state.nodes += 1;
+    if (typeof value === "string" || typeof value === "number" ||
+        typeof value === "boolean") {
+      return String(value);
+    }
+    if (Array.isArray(value)) {
+      let text = "";
+      let previousWasBlock = false;
+      for (const child of value) {
+        if (state.nodes >= COMPACT_DEFINITION_MAX_NODES) break;
+        const childText = collectCompactDefinitionText(child, state, depth + 1);
+        if (!childText) continue;
+        const childIsBlock = isCompactDefinitionBlock(child);
+        if (text && (previousWasBlock || childIsBlock)) {
+          text += " ";
+        }
+        text += childText;
+        previousWasBlock = childIsBlock;
+      }
+      return text;
+    }
+    if (!isRecord(value) || isIgnoredCompactDefinitionSection(value)) {
+      return "";
+    }
+    const tag = typeof value.tag === "string" ? value.tag.toLowerCase() : "";
+    if (COMPACT_DEFINITION_IGNORED_TAGS.has(tag) || value.type === "image") {
+      return "";
+    }
+    if (value.type === "text" && Object.prototype.hasOwnProperty.call(value, "text")) {
+      return collectCompactDefinitionText(value.text, state, depth + 1);
+    }
+    return Object.prototype.hasOwnProperty.call(value, "content")
+      ? collectCompactDefinitionText(value.content, state, depth + 1)
+      : "";
+  }
+
+  function findCompactDefinitionNodes(value, predicate, state, depth = 0) {
+    if (
+      state.nodes >= COMPACT_DEFINITION_MAX_NODES ||
+      depth > COMPACT_DEFINITION_MAX_DEPTH
+    ) {
+      return [];
+    }
+    state.nodes += 1;
+    if (Array.isArray(value)) {
+      const matches = [];
+      for (const child of value) {
+        matches.push(...findCompactDefinitionNodes(
+          child,
+          predicate,
+          state,
+          depth + 1
+        ));
+        if (state.nodes >= COMPACT_DEFINITION_MAX_NODES) break;
+      }
+      return matches;
+    }
+    if (!isRecord(value) || isIgnoredCompactDefinitionSection(value)) {
+      return [];
+    }
+    if (predicate(value)) {
+      return [value];
+    }
+    return Object.prototype.hasOwnProperty.call(value, "content")
+      ? findCompactDefinitionNodes(value.content, predicate, state, depth + 1)
+      : [];
+  }
+
+  function compactDefinitionItemsFromNodes(nodes) {
+    const items = [];
+    let inspected = 0;
+    for (const node of nodes) {
+      if (inspected >= COMPACT_DEFINITION_MAX_NODES) break;
+      inspected += 1;
+      const text = normalizeCompactDefinitionText(
+        collectCompactDefinitionText(node, { nodes: 0 })
+      );
+      if (text) items.push(text);
+    }
+    return items;
+  }
+
+  function compactDefinitionItemsFromList(list) {
+    const rawChildren = Array.isArray(list.content)
+      ? list.content
+      : [list.content];
+    const children = rawChildren.slice(0, COMPACT_DEFINITION_MAX_NODES);
+    const listItems = [];
+    for (const child of children) {
+      if (isRecord(child) && String(child.tag || "").toLowerCase() === "li") {
+        listItems.push(child);
+      }
+    }
+    return compactDefinitionItemsFromNodes(
+      listItems.length > 0 ? listItems : children
+    );
+  }
+
+  function compactDefinitionItemsFromMarkedNode(node) {
+    const tag = String(node.tag || "").toLowerCase();
+    if (tag === "ul" || tag === "ol") {
+      return compactDefinitionItemsFromList(node);
+    }
+    const nestedLists = findCompactDefinitionNodes(
+      node.content,
+      (child) => {
+        const childTag = String(child.tag || "").toLowerCase();
+        return childTag === "ul" || childTag === "ol";
+      },
+      { nodes: 0 }
+    );
+    if (nestedLists.length > 0) {
+      return nestedLists.flatMap(compactDefinitionItemsFromList);
+    }
+    const leafBlocks = findCompactDefinitionNodes(
+      node.content,
+      (child) => {
+        const childTag = String(child.tag || "").toLowerCase();
+        if (!COMPACT_DEFINITION_BLOCK_TAGS.has(childTag)) return false;
+        return findCompactDefinitionNodes(
+          child.content,
+          (descendant) => COMPACT_DEFINITION_BLOCK_TAGS.has(
+            String(descendant.tag || "").toLowerCase()
+          ),
+          { nodes: 0 }
+        ).length === 0;
+      },
+      { nodes: 0 }
+    );
+    return leafBlocks.length > 0
+      ? compactDefinitionItemsFromNodes(leafBlocks)
+      : compactDefinitionItemsFromNodes([node]);
+  }
+
+  function extractCompactDefinitionItems(rawGlossary) {
+    const parsed = parseCompactDefinitionValue(rawGlossary);
+    if (parsed === null) return [];
+
+    const glossaryNodes = findCompactDefinitionNodes(
+      parsed,
+      (value) => getCompactDefinitionMarker(value) === "glossary",
+      { nodes: 0 }
+    );
+    if (glossaryNodes.length > 0) {
+      return glossaryNodes.flatMap(compactDefinitionItemsFromMarkedNode);
+    }
+
+    const semanticLists = findCompactDefinitionNodes(
+      parsed,
+      (value) => {
+        const tag = String(value.tag || "").toLowerCase();
+        return tag === "ul" || tag === "ol";
+      },
+      { nodes: 0 }
+    );
+    for (const list of semanticLists) {
+      const items = compactDefinitionItemsFromList(list);
+      if (items.length > 0) return items;
+    }
+
+    const leafBlocks = findCompactDefinitionNodes(
+      parsed,
+      (value) => {
+        const tag = String(value.tag || "").toLowerCase();
+        if (!COMPACT_DEFINITION_BLOCK_TAGS.has(tag)) return false;
+        return findCompactDefinitionNodes(
+          value.content,
+          (child) => COMPACT_DEFINITION_BLOCK_TAGS.has(
+            String(child.tag || "").toLowerCase()
+          ),
+          { nodes: 0 }
+        ).length === 0;
+      },
+      { nodes: 0 }
+    );
+    if (leafBlocks.length > 0) {
+      return compactDefinitionItemsFromNodes(leafBlocks);
+    }
+
+    if (Array.isArray(parsed)) {
+      const items = compactDefinitionItemsFromNodes(parsed);
+      if (items.length > 0) return items;
+    }
+    return compactDefinitionItemsFromNodes([parsed]);
+  }
+
+  function extractCompactDefinitionSummary(glossaries, preferredDictionary = null) {
+    const byDictionary = new Map();
+    for (const glossary of Array.isArray(glossaries) ? glossaries : []) {
+      if (!byDictionary.has(glossary.dictionary)) {
+        byDictionary.set(glossary.dictionary, []);
+      }
+      byDictionary.get(glossary.dictionary).push(glossary.glossary);
+    }
+    const dictionaries = [...byDictionary.keys()];
+    if (preferredDictionary !== null && byDictionary.has(preferredDictionary)) {
+      dictionaries.splice(dictionaries.indexOf(preferredDictionary), 1);
+      dictionaries.unshift(preferredDictionary);
+    }
+    for (const dictionary of dictionaries) {
+      const rawGlossaries = byDictionary.get(dictionary);
+      const items = [];
+      const seen = new Set();
+      let characterCount = 0;
+      for (const rawGlossary of rawGlossaries) {
+        for (const rawItem of extractCompactDefinitionItems(rawGlossary)) {
+          if (items.length >= COMPACT_DEFINITION_MAX_ITEMS) break;
+          const item = normalizeCompactDefinitionText(rawItem);
+          if (!item || seen.has(item)) continue;
+          const codePoints = Array.from(item);
+          const remaining = COMPACT_DEFINITION_MAX_CHARACTERS - characterCount;
+          if (remaining <= 0) break;
+          const bounded = codePoints.length <= remaining
+            ? item
+            : remaining === 1
+              ? "\u2026"
+              : `${codePoints.slice(0, remaining - 1).join("")}\u2026`;
+          items.push(bounded);
+          seen.add(item);
+          characterCount += Array.from(bounded).length;
+          if (bounded !== item) break;
+        }
+        if (
+          items.length >= COMPACT_DEFINITION_MAX_ITEMS ||
+          characterCount >= COMPACT_DEFINITION_MAX_CHARACTERS
+        ) {
+          break;
+        }
+      }
+      if (items.length > 0) return { dictionary, items };
+    }
+    return null;
   }
 
   function createPopupView(options) {
@@ -894,12 +1265,12 @@
       return { button: noteButton, form };
     }
 
-    function createResultChrome(primaryHeader, tabList = null) {
+    function createResultChrome(primaryHeader, metadataStrip = null) {
       const chrome = documentRef.createElement("div");
       chrome.className = "gsm-hoshidicts-result-chrome";
       chrome.appendChild(primaryHeader);
-      if (tabList) {
-        chrome.appendChild(tabList);
+      if (metadataStrip) {
+        chrome.appendChild(metadataStrip);
       }
       return chrome;
     }
@@ -933,7 +1304,12 @@
       setRenderedToolbar(toolbar, noteControls.form);
     }
 
-    function appendMetadata(entry, result, dictionaryPresentation = []) {
+    function appendMetadata(
+      entry,
+      result,
+      dictionaryPresentation = [],
+      { includeFrequency = true } = {}
+    ) {
       const frequencyRow = documentRef.createElement("div");
       frequencyRow.className =
         "gsm-hoshidicts-metadata gsm-hoshidicts-frequency-metadata";
@@ -942,46 +1318,19 @@
         "gsm-hoshidicts-metadata gsm-hoshidicts-pitch-metadata";
       const seen = new Set();
       let count = 0;
-      const frequencyDictionaryDisplayNames = createDictionaryDisplayNames(
-        result.term.frequencies.map(({ dictionary }) => dictionary),
-        dictionaryPresentation
-      );
       const pitchDictionaryDisplayNames = createDictionaryDisplayNames(
         result.term.pitches.map(({ dictionary }) => dictionary),
         dictionaryPresentation
       );
-      for (const group of result.term.frequencies) {
-        const frequencies = [];
-        const seenFrequencies = new Set();
-        for (const frequency of group.frequencies) {
-          const display = formatFrequencyValue(frequency);
-          if (display === null) {
-            continue;
-          }
-          const key = JSON.stringify([frequency.value, display]);
-          if (!seenFrequencies.has(key)) {
-            seenFrequencies.add(key);
-            frequencies.push({ display, frequency });
-          }
-        }
-        frequencies.sort((left, right) =>
-          Number(isKanaFrequency(right.frequency))
-          - Number(isKanaFrequency(left.frequency))
+      if (includeFrequency) {
+        const frequencyTags = createFrequencyTags(
+          documentRef,
+          result,
+          dictionaryPresentation,
+          maxMetadataTags
         );
-        const key = JSON.stringify([
-          group.dictionary,
-          frequencies.map(({ display, frequency }) => [frequency.value, display]),
-        ]);
-        if (frequencies.length > 0 && !seen.has(key) && count < maxMetadataTags) {
-          seen.add(key);
-          frequencyRow.appendChild(createFrequencyTag(
-            documentRef,
-            group,
-            frequencyDictionaryDisplayNames.get(group.dictionary) || group.dictionary,
-            frequencies
-          ));
-          count += 1;
-        }
+        frequencyRow.append(...frequencyTags);
+        count += frequencyTags.length;
       }
       for (const group of result.term.pitches) {
         for (const pitch of group.pitches) {
@@ -1015,11 +1364,87 @@
       }
     }
 
+    function collectGrammarMetadata(result) {
+      const metadata = [];
+      const seen = new Set();
+      const append = (text, description, kind) => {
+        const value = String(text || "").trim();
+        if (!value || seen.has(value)) {
+          return;
+        }
+        seen.add(value);
+        metadata.push({ description, kind, text: value });
+      };
+      for (const step of result.trace) {
+        append(step.name, step.description, "deinflection");
+      }
+      for (const tag of [
+        ...parseTagList(result.term.rules),
+        ...result.term.glossaries.flatMap((glossary) =>
+          parseTagList(glossary.termTags)
+        ),
+      ]) {
+        append(tag, "", "term");
+      }
+      return metadata;
+    }
+
+    function renderPrimaryMetadataCapsule(
+      capsule,
+      result,
+      dictionaryPresentation,
+      hideGrammarTags
+    ) {
+      capsule.replaceChildren();
+      const frequencyTags = createFrequencyTags(
+        documentRef,
+        result,
+        dictionaryPresentation,
+        maxMetadataTags
+      );
+      if (frequencyTags.length > 0) {
+        const frequencies = documentRef.createElement("span");
+        frequencies.className = "gsm-hoshidicts-primary-frequencies";
+        frequencies.append(...frequencyTags);
+        capsule.appendChild(frequencies);
+      }
+      if (!hideGrammarTags) {
+        const grammarMetadata = collectGrammarMetadata(result);
+        if (grammarMetadata.length > 0) {
+          const grammar = documentRef.createElement("span");
+          grammar.className = "gsm-hoshidicts-primary-grammar";
+          for (const item of grammarMetadata) {
+            const tag = documentRef.createElement("span");
+            tag.className =
+              `gsm-hoshidicts-primary-grammar-tag ` +
+              `gsm-hoshidicts-primary-grammar-tag-${item.kind}`;
+            tag.textContent = item.text;
+            if (item.description) {
+              tag.title = item.description;
+            }
+            grammar.appendChild(tag);
+          }
+          capsule.appendChild(grammar);
+        }
+      }
+      capsule.hidden = capsule.childNodes.length === 0;
+    }
+
+    function updateMetadataStripVisibility(strip, tabList, capsule) {
+      strip.hidden = !tabList && capsule.hidden;
+    }
+
     function createEntryHeader(
       result,
       candidate,
       feedback,
-      { element = null, noteButton = null, primary = false } = {}
+      {
+        element = null,
+        noteButton = null,
+        primary = false,
+        showCompactDefinitionSummary = false,
+        compactDefinitionSummaryDictionary = null,
+      } = {}
     ) {
       const header = element || documentRef.createElement("header");
       header.className = primary
@@ -1047,6 +1472,23 @@
           : expressionText
       );
       headword.appendChild(expression);
+      if (showCompactDefinitionSummary === true) {
+        const compactSummary = extractCompactDefinitionSummary(
+          result.term.glossaries,
+          compactDefinitionSummaryDictionary
+        );
+        if (compactSummary) {
+          const summary = documentRef.createElement("ul");
+          summary.className = "gsm-hoshidicts-compact-definition-summary";
+          summary.dataset.hoshidictsDictionary = compactSummary.dictionary;
+          for (const item of compactSummary.items) {
+            const listItem = documentRef.createElement("li");
+            listItem.textContent = item;
+            summary.appendChild(listItem);
+          }
+          headword.appendChild(summary);
+        }
+      }
       header.appendChild(headword);
 
       const actions = documentRef.createElement("div");
@@ -1117,7 +1559,14 @@
       results,
       candidate,
       renderContext,
-      { dictionaryDisplayNames, noteButton, primaryHeader } = {}
+      {
+        dictionaryDisplayNames,
+        metadataStrip,
+        noteButton,
+        primaryHeader,
+        primaryMetadataCapsule,
+        tabList,
+      } = {}
     ) {
       panel.replaceChildren();
       const feedback = documentRef.createElement("div");
@@ -1141,6 +1590,12 @@
           element: resultIndex === 0 ? primaryHeader : null,
           noteButton: resultIndex === 0 ? noteButton : null,
           primary: resultIndex === 0,
+          showCompactDefinitionSummary:
+            renderContext.showCompactDefinitionSummary === true,
+          compactDefinitionSummaryDictionary:
+            typeof renderContext.compactDefinitionSummaryDictionary === "string"
+              ? renderContext.compactDefinitionSummaryDictionary
+              : null,
         });
         audioItems.push(...renderedHeader.audioItems);
         miningItems.push(...renderedHeader.miningItems);
@@ -1158,38 +1613,50 @@
           entry.appendChild(lookupStats);
         }
 
+        if (resultIndex === 0 && primaryMetadataCapsule) {
+          renderPrimaryMetadataCapsule(
+            primaryMetadataCapsule,
+            result,
+            Array.isArray(renderContext.dictionaryPresentation)
+              ? renderContext.dictionaryPresentation
+              : [],
+            renderContext.hidePopupGrammarTags !== false
+          );
+          if (metadataStrip) {
+            updateMetadataStripVisibility(
+              metadataStrip,
+              tabList,
+              primaryMetadataCapsule
+            );
+          }
+        }
+
         appendMetadata(
           entry,
           result,
           Array.isArray(renderContext.dictionaryPresentation)
             ? renderContext.dictionaryPresentation
-            : []
+            : [],
+          { includeFrequency: resultIndex !== 0 }
         );
 
-        const tagRow = documentRef.createElement("div");
-        tagRow.className = "gsm-hoshidicts-tags";
-        const seenTags = new Set();
-        for (const step of result.trace) {
-          if (!seenTags.has(`trace:${step.name}`)) {
-            seenTags.add(`trace:${step.name}`);
-            tagRow.appendChild(
-              createTag(documentRef, step.name, step.description, "deinflection")
-            );
+        if (
+          resultIndex !== 0 &&
+          renderContext.hidePopupGrammarTags === false
+        ) {
+          const tagRow = documentRef.createElement("div");
+          tagRow.className = "gsm-hoshidicts-tags";
+          for (const item of collectGrammarMetadata(result)) {
+            tagRow.appendChild(createTag(
+              documentRef,
+              item.text,
+              item.description,
+              item.kind
+            ));
           }
-        }
-        for (const tag of [
-          ...parseTagList(result.term.rules),
-          ...result.term.glossaries.flatMap((glossary) =>
-            parseTagList(glossary.termTags)
-          ),
-        ]) {
-          if (!seenTags.has(`term:${tag}`)) {
-            seenTags.add(`term:${tag}`);
-            tagRow.appendChild(createTag(documentRef, tag, "", "term"));
+          if (tagRow.childNodes.length > 0) {
+            entry.appendChild(tagRow);
           }
-        }
-        if (tagRow.childNodes.length > 0) {
-          entry.appendChild(tagRow);
         }
 
         const groupedGlossaries = new Map();
@@ -1542,6 +2009,19 @@
         tabList.setAttribute("aria-label", "Dictionaries");
         tabList.setAttribute("aria-orientation", "horizontal");
       }
+      const metadataStrip = documentRef.createElement("div");
+      metadataStrip.className = "gsm-hoshidicts-metadata-strip";
+      metadataStrip.hidden = true;
+      if (tabList) {
+        metadataStrip.appendChild(tabList);
+      }
+      const primaryMetadataCapsule = documentRef.createElement("div");
+      primaryMetadataCapsule.className =
+        "gsm-hoshidicts-primary-metadata-capsule";
+      primaryMetadataCapsule.hidden = true;
+      primaryMetadataCapsule.setAttribute("role", "group");
+      primaryMetadataCapsule.setAttribute("aria-label", "Entry metadata");
+      metadataStrip.appendChild(primaryMetadataCapsule);
       const panel = documentRef.createElement("div");
       panel.id = `${idPrefix}-tab-panel`;
       panel.className = "gsm-hoshidicts-tab-panel";
@@ -1558,13 +2038,25 @@
       const primaryHeader = documentRef.createElement("header");
       primaryHeader.className =
         "gsm-hoshidicts-entry-header gsm-hoshidicts-primary-header";
-      const toolbar = createResultChrome(primaryHeader, tabList);
+      const toolbar = createResultChrome(primaryHeader, metadataStrip);
       popup.append(toolbar, noteControls.form, panel);
       setRenderedToolbar(toolbar, noteControls.form);
 
       const tabButtons = [];
-      let focusedIndex = 0;
-      let selectedIndex = 0;
+      const requestedTab = isRecord(renderContext.selectedDictionaryTab)
+        ? renderContext.selectedDictionaryTab
+        : null;
+      const requestedTabIndex = requestedTab
+        ? tabDescriptors.findIndex((descriptor) =>
+            typeof requestedTab.dictionary === "string"
+              ? descriptor.dictionary === requestedTab.dictionary
+              : typeof requestedTab.groupId === "string"
+                ? descriptor.groupId === requestedTab.groupId
+                : false
+          )
+        : -1;
+      let focusedIndex = Math.max(0, requestedTabIndex);
+      let selectedIndex = focusedIndex;
       let hasRendered = false;
       let rendered = null;
 
@@ -1626,8 +2118,11 @@
           },
           {
             dictionaryDisplayNames,
+            metadataStrip,
             noteButton: noteControls.button,
             primaryHeader,
+            primaryMetadataCapsule,
+            tabList,
           }
         );
         if (hasRendered) {
@@ -1695,7 +2190,7 @@
         }
       }, { passive: false });
 
-      activateTab(0);
+      activateTab(selectedIndex);
       return rendered;
     }
 

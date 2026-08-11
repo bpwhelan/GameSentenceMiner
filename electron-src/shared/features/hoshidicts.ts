@@ -166,6 +166,10 @@ export function isHoshidictsActivationKey(
 export const DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS = 300;
 export const DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED = false;
 export const DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT = true;
+export const DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY = false;
+export const DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY:
+    string | null = null;
+export const DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS = true;
 export const DEFAULT_HOSHIDICTS_SCAN_LENGTH = 16;
 export const MIN_HOSHIDICTS_SCAN_LENGTH = 1;
 export const MAX_HOSHIDICTS_SCAN_LENGTH = 64;
@@ -679,6 +683,9 @@ export interface HoshidictsReaderPreferencesRequest {
     onlyScanJapaneseText: boolean;
     popupHideDelayMs: number;
     showLookupCounts: boolean;
+    showCompactDefinitionSummary: boolean;
+    compactDefinitionSummaryDictionary: string | null;
+    hidePopupGrammarTags: boolean;
     popupNestingMaxDepth: number;
     definitionBlur: HoshidictsDefinitionBlurPreferences;
     popupWidthPx: number;
@@ -902,6 +909,9 @@ export interface HoshidictsManagerSnapshot {
     onlyScanJapaneseText: boolean;
     popupHideDelayMs: number;
     showLookupCounts: boolean;
+    showCompactDefinitionSummary: boolean;
+    compactDefinitionSummaryDictionary: string | null;
+    hidePopupGrammarTags: boolean;
     popupNestingMaxDepth: number;
     definitionBlur: HoshidictsDefinitionBlurPreferences;
     popupWidthPx: number;
@@ -936,6 +946,10 @@ export function hoshidictsReaderPreferencesFromSnapshot(
         onlyScanJapaneseText: snapshot.onlyScanJapaneseText,
         popupHideDelayMs: snapshot.popupHideDelayMs,
         showLookupCounts: snapshot.showLookupCounts,
+        showCompactDefinitionSummary: snapshot.showCompactDefinitionSummary,
+        compactDefinitionSummaryDictionary:
+            snapshot.compactDefinitionSummaryDictionary,
+        hidePopupGrammarTags: snapshot.hidePopupGrammarTags,
         popupNestingMaxDepth: snapshot.popupNestingMaxDepth,
         definitionBlur: { ...snapshot.definitionBlur },
         popupWidthPx: snapshot.popupWidthPx,

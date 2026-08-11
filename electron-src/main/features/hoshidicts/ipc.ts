@@ -97,6 +97,9 @@ export interface HoshidictsIPCDependencies {
     getOverlayOnlyScanJapaneseTextAtLaunch: () => boolean | null;
     getOverlayPopupHideDelayAtLaunch: () => number | null;
     getOverlayShowLookupCountsAtLaunch: () => boolean | null;
+    getOverlayShowCompactDefinitionSummaryAtLaunch: () => boolean | null;
+    getOverlayCompactDefinitionSummaryDictionaryAtLaunch: () => string | null;
+    getOverlayHidePopupGrammarTagsAtLaunch: () => boolean | null;
     getOverlayAudioProfileRestartRequired: () => boolean;
     getOverlayPopupNestingMaxDepthAtLaunch: () => number | null;
     getOverlayDefinitionBlurAtLaunch: () =>
@@ -150,6 +153,15 @@ function isSchedule(value: unknown): value is HoshidictsSchedule {
 
 function isLookupMode(value: unknown): value is HoshidictsLookupMode {
     return value === 'shift' || value === 'hover';
+}
+
+function isNullableDictionaryTitle(value: unknown): value is string | null {
+    return (
+        value === null ||
+        (typeof value === 'string' &&
+            value.trim().length > 0 &&
+            value.length <= 4096)
+    );
 }
 
 function isDefinitionBlurPreferences(
@@ -252,6 +264,12 @@ function readerPreferencesMatchOverlay(
             preferences.popupHideDelayMs &&
         deps.getOverlayShowLookupCountsAtLaunch() ===
             preferences.showLookupCounts &&
+        deps.getOverlayShowCompactDefinitionSummaryAtLaunch() ===
+            preferences.showCompactDefinitionSummary &&
+        deps.getOverlayCompactDefinitionSummaryDictionaryAtLaunch() ===
+            preferences.compactDefinitionSummaryDictionary &&
+        deps.getOverlayHidePopupGrammarTagsAtLaunch() ===
+            preferences.hidePopupGrammarTags &&
         deps.getOverlayPopupNestingMaxDepthAtLaunch() ===
             preferences.popupNestingMaxDepth &&
         deps.getOverlayPopupWidthAtLaunch() === preferences.popupWidthPx &&
@@ -390,6 +408,12 @@ function withDesktopState(
     const popupHideDelayAtLaunch = deps.getOverlayPopupHideDelayAtLaunch();
     const showLookupCountsAtLaunch =
         deps.getOverlayShowLookupCountsAtLaunch();
+    const showCompactDefinitionSummaryAtLaunch =
+        deps.getOverlayShowCompactDefinitionSummaryAtLaunch();
+    const compactDefinitionSummaryDictionaryAtLaunch =
+        deps.getOverlayCompactDefinitionSummaryDictionaryAtLaunch();
+    const hidePopupGrammarTagsAtLaunch =
+        deps.getOverlayHidePopupGrammarTagsAtLaunch();
     const popupNestingMaxDepthAtLaunch =
         deps.getOverlayPopupNestingMaxDepthAtLaunch();
     const definitionBlurAtLaunch = deps.getOverlayDefinitionBlurAtLaunch();
@@ -438,6 +462,18 @@ function withDesktopState(
                     (effectiveEnabled &&
                         showLookupCountsAtLaunch !== null &&
                         showLookupCountsAtLaunch !== snapshot.showLookupCounts) ||
+                    (effectiveEnabled &&
+                        showCompactDefinitionSummaryAtLaunch !== null &&
+                        showCompactDefinitionSummaryAtLaunch !==
+                            snapshot.showCompactDefinitionSummary) ||
+                    (effectiveEnabled &&
+                        showCompactDefinitionSummaryAtLaunch !== null &&
+                        compactDefinitionSummaryDictionaryAtLaunch !==
+                            snapshot.compactDefinitionSummaryDictionary) ||
+                    (effectiveEnabled &&
+                        hidePopupGrammarTagsAtLaunch !== null &&
+                        hidePopupGrammarTagsAtLaunch !==
+                            snapshot.hidePopupGrammarTags) ||
                     (effectiveEnabled &&
                         popupNestingMaxDepthAtLaunch !== null &&
                         popupNestingMaxDepthAtLaunch !==
@@ -811,7 +847,10 @@ export function registerHoshidictsIPC(
                     sortFrequencyDictionary,
                     reader.sortFrequencyDictionaryOrder,
                     reader.popupButtons,
-                    reader.popupColumns
+                    reader.popupColumns,
+                    reader.showCompactDefinitionSummary,
+                    reader.compactDefinitionSummaryDictionary,
+                    reader.hidePopupGrammarTags
                 );
             }
             await applyReaderSnapshot(state, deps);
@@ -1148,6 +1187,11 @@ export function registerHoshidictsIPC(
                 typeof value.sourceHighlightEnabled !== 'boolean' ||
                 typeof value.onlyScanJapaneseText !== 'boolean' ||
                 typeof value.showLookupCounts !== 'boolean' ||
+                typeof value.showCompactDefinitionSummary !== 'boolean' ||
+                !isNullableDictionaryTitle(
+                    value.compactDefinitionSummaryDictionary
+                ) ||
+                typeof value.hidePopupGrammarTags !== 'boolean' ||
                 !Number.isInteger(value.popupHideDelayMs) ||
                 (value.popupHideDelayMs as number) < 0 ||
                 (value.popupHideDelayMs as number) >
@@ -1205,6 +1249,14 @@ export function registerHoshidictsIPC(
                             value.onlyScanJapaneseText as boolean,
                         popupHideDelayMs: value.popupHideDelayMs as number,
                         showLookupCounts: value.showLookupCounts as boolean,
+                        showCompactDefinitionSummary:
+                            value.showCompactDefinitionSummary as boolean,
+                        compactDefinitionSummaryDictionary:
+                            value.compactDefinitionSummaryDictionary as
+                                | string
+                                | null,
+                        hidePopupGrammarTags:
+                            value.hidePopupGrammarTags as boolean,
                         popupNestingMaxDepth:
                             value.popupNestingMaxDepth as number,
                         definitionBlur: {
@@ -1241,7 +1293,10 @@ export function registerHoshidictsIPC(
                         requestPreferences.sortFrequencyDictionary,
                         requestPreferences.sortFrequencyDictionaryOrder,
                         requestPreferences.popupButtons,
-                        requestPreferences.popupColumns
+                        requestPreferences.popupColumns,
+                        requestPreferences.showCompactDefinitionSummary,
+                        requestPreferences.compactDefinitionSummaryDictionary,
+                        requestPreferences.hidePopupGrammarTags
                     );
                     const preferences: HoshidictsReaderPreferences = {
                         ...hoshidictsReaderPreferencesFromSnapshot(state),

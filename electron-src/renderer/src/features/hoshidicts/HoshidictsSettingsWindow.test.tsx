@@ -12,6 +12,8 @@ import {
   createDefaultHoshidictsFieldOverwriteModes,
   createDefaultHoshidictsPopupButtons,
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
+  DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
+  DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
   DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
   DEFAULT_HOSHIDICTS_MAX_RESULTS,
   DEFAULT_HOSHIDICTS_POPUP_COLUMNS,
@@ -197,6 +199,10 @@ const baseState: HoshidictsDesktopSnapshot = {
   onlyScanJapaneseText: true,
   popupHideDelayMs: 300,
   showLookupCounts: true,
+  showCompactDefinitionSummary:
+    DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
+  compactDefinitionSummaryDictionary: null,
+  hidePopupGrammarTags: DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
   definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
   popupNestingMaxDepth: 10,
   popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
@@ -2091,22 +2097,53 @@ describe("HoshidictsSettingsWindow", () => {
     const showLookupCounts = container.querySelector<HTMLInputElement>(
       "#hoshidicts-show-lookup-counts"
     );
+    const showCompactDefinitionSummary =
+      container.querySelector<HTMLInputElement>(
+        "#hoshidicts-show-compact-definition-summary"
+      );
+    const compactDefinitionSummaryDictionary =
+      container.querySelector<HTMLSelectElement>(
+        "#hoshidicts-compact-definition-summary-dictionary"
+      );
+    const hidePopupGrammarTags = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-hide-popup-grammar-tags"
+    );
     const onlyScanJapaneseText = container.querySelector<HTMLInputElement>(
       "#hoshidicts-only-scan-japanese-text"
     );
 
     expect(showLookupCounts?.checked).toBe(true);
+    expect(showCompactDefinitionSummary?.checked).toBe(false);
+    expect(compactDefinitionSummaryDictionary?.disabled).toBe(true);
+    expect(hidePopupGrammarTags?.checked).toBe(true);
+    expect(
+      Array.from(compactDefinitionSummaryDictionary?.options ?? []).map(
+        (option) => [option.value, option.textContent]
+      )
+    ).toEqual([
+      ["", "Automatic"],
+      ["JMdict", "JMdict"]
+    ]);
     expect(onlyScanJapaneseText?.checked).toBe(true);
     expect(container.textContent).toContain(
       "Only scan words written entirely in Japanese"
     );
     expect(container.textContent).toContain("Show seen and lookup counts");
+    expect(container.textContent).toContain(
+      "Show a compact definition near the word"
+    );
+    expect(container.textContent).toContain(
+      "Hide grammar tags in popup metadata"
+    );
 
     await act(async () => {
       hover?.click();
       setInputValue(delay, "850");
       setInputValue(maxDepth, "12");
       showLookupCounts?.click();
+      showCompactDefinitionSummary?.click();
+      setSelectValue(compactDefinitionSummaryDictionary, "JMdict");
+      hidePopupGrammarTags?.click();
       onlyScanJapaneseText?.click();
       await flushAutosave();
     });
@@ -2125,6 +2162,9 @@ describe("HoshidictsSettingsWindow", () => {
         onlyScanJapaneseText: false,
         popupHideDelayMs: 850,
         showLookupCounts: false,
+        showCompactDefinitionSummary: true,
+        compactDefinitionSummaryDictionary: "JMdict",
+        hidePopupGrammarTags: false,
         popupNestingMaxDepth: 12,
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
@@ -2141,6 +2181,44 @@ describe("HoshidictsSettingsWindow", () => {
       expect.anything()
     );
     expect(container.textContent).toContain("Saved");
+  });
+
+  it("keeps an unavailable preferred definition dictionary visible", async () => {
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === HOSHIDICTS_CHANNELS.getState) {
+        return {
+          ...baseState,
+          showCompactDefinitionSummary: true,
+          compactDefinitionSummaryDictionary: "Removed Mono Dictionary"
+        };
+      }
+      if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
+        return miningOptions;
+      }
+      if (channel === HOSHIDICTS_CHANNELS.getCustomDictionary) {
+        return customDocument;
+      }
+      return {
+        success: true,
+        outcome: { code: "preferencesSaved" },
+        state: { ...baseState, revision: ++revision }
+      };
+    });
+
+    await render();
+
+    const dictionary = container.querySelector<HTMLSelectElement>(
+      "#hoshidicts-compact-definition-summary-dictionary"
+    );
+    expect(dictionary?.value).toBe("Removed Mono Dictionary");
+    expect(dictionary?.disabled).toBe(false);
+    expect(
+      Array.from(dictionary?.options ?? []).map((option) => option.textContent)
+    ).toEqual([
+      "Automatic",
+      "Removed Mono Dictionary (not installed)",
+      "JMdict"
+    ]);
   });
 
   it("configures bounded lookup scan and result limits", async () => {
@@ -2610,6 +2688,9 @@ describe("HoshidictsSettingsWindow", () => {
         onlyScanJapaneseText: true,
         popupHideDelayMs: 300,
         showLookupCounts: true,
+        showCompactDefinitionSummary: false,
+        compactDefinitionSummaryDictionary: null,
+        hidePopupGrammarTags: true,
         popupNestingMaxDepth: 10,
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
@@ -2667,6 +2748,9 @@ describe("HoshidictsSettingsWindow", () => {
         onlyScanJapaneseText: true,
         popupHideDelayMs: 300,
         showLookupCounts: true,
+        showCompactDefinitionSummary: false,
+        compactDefinitionSummaryDictionary: null,
+        hidePopupGrammarTags: true,
         popupNestingMaxDepth: 10,
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
@@ -2801,6 +2885,9 @@ describe("HoshidictsSettingsWindow", () => {
         onlyScanJapaneseText: true,
         popupHideDelayMs: 300,
         showLookupCounts: true,
+        showCompactDefinitionSummary: false,
+        compactDefinitionSummaryDictionary: null,
+        hidePopupGrammarTags: true,
         popupNestingMaxDepth: 0,
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
@@ -2837,6 +2924,9 @@ describe("HoshidictsSettingsWindow", () => {
         onlyScanJapaneseText: true,
         popupHideDelayMs: 300,
         showLookupCounts: true,
+        showCompactDefinitionSummary: false,
+        compactDefinitionSummaryDictionary: null,
+        hidePopupGrammarTags: true,
         popupNestingMaxDepth: 1,
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
@@ -2912,6 +3002,9 @@ describe("HoshidictsSettingsWindow", () => {
         onlyScanJapaneseText: true,
         popupHideDelayMs: 300,
         showLookupCounts: true,
+        showCompactDefinitionSummary: false,
+        compactDefinitionSummaryDictionary: null,
+        hidePopupGrammarTags: true,
         popupNestingMaxDepth: 10,
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
@@ -2952,6 +3045,9 @@ describe("HoshidictsSettingsWindow", () => {
         onlyScanJapaneseText: true,
         popupHideDelayMs: 300,
         showLookupCounts: true,
+        showCompactDefinitionSummary: false,
+        compactDefinitionSummaryDictionary: null,
+        hidePopupGrammarTags: true,
         popupNestingMaxDepth: 10,
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
         popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
@@ -4426,7 +4522,8 @@ describe("HoshidictsSettingsWindow", () => {
       "フィールド",
       "値",
       "選択したAnkiノートタイプのすべてのフィールドを表示します",
-      "既出回数と検索回数を表示"
+      "既出回数と検索回数を表示",
+      "単語の近くに短い語義を表示"
     ],
     [
       "ukr",
@@ -4442,7 +4539,8 @@ describe("HoshidictsSettingsWindow", () => {
       "Поле",
       "Значення",
       "Показано всі поля вибраного типу нотатки Anki",
-      "Показувати кількість зустрічей і пошуків"
+      "Показувати кількість зустрічей і пошуків",
+      "Показувати коротке визначення біля слова"
     ]
   ])(
     "localizes the standalone window in %s",
@@ -4460,7 +4558,8 @@ describe("HoshidictsSettingsWindow", () => {
       fieldHeader,
       valueHeader,
       mappingHint,
-      lookupCounts
+      lookupCounts,
+      compactDefinitionSummary
     ) => {
       await render(locale);
       expect(container.textContent).toContain(subtitle);
@@ -4473,6 +4572,7 @@ describe("HoshidictsSettingsWindow", () => {
       expect(container.textContent).toContain(popupScanning);
       expect(container.textContent).toContain(definitionBlur);
       expect(container.textContent).toContain(lookupCounts);
+      expect(container.textContent).toContain(compactDefinitionSummary);
       await openMining();
       expect(
         Array.from(
@@ -4496,6 +4596,9 @@ describe("HoshidictsSettingsWindow", () => {
       onlyScanJapaneseText: undefined,
       popupHideDelayMs: undefined,
       showLookupCounts: undefined,
+      showCompactDefinitionSummary: undefined,
+      compactDefinitionSummaryDictionary: undefined,
+      hidePopupGrammarTags: undefined,
       popupNestingMaxDepth: undefined,
       popupColumns: undefined,
       popupButtons: undefined,
@@ -4536,6 +4639,9 @@ describe("HoshidictsSettingsWindow", () => {
     expect(normalized.onlyScanJapaneseText).toBe(true);
     expect(normalized.popupHideDelayMs).toBe(300);
     expect(normalized.showLookupCounts).toBe(true);
+    expect(normalized.showCompactDefinitionSummary).toBe(false);
+    expect(normalized.compactDefinitionSummaryDictionary).toBeNull();
+    expect(normalized.hidePopupGrammarTags).toBe(true);
     expect(normalized.definitionBlur).toEqual(
       DEFAULT_HOSHIDICTS_DEFINITION_BLUR
     );

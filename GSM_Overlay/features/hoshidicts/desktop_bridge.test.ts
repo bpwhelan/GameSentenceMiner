@@ -85,6 +85,9 @@ const {
     sourceHighlightEnabled: boolean;
     onlyScanJapaneseText: boolean;
     popupHideDelayMs: number;
+    showCompactDefinitionSummary: boolean;
+    compactDefinitionSummaryDictionary: string | null;
+    hidePopupGrammarTags: boolean;
     popupNestingMaxDepth: number;
     popupWidthPx: number;
     popupHeightPx: number;
@@ -147,6 +150,9 @@ describe("Hoshidicts desktop bridge", () => {
     popupOpacityPercent: 70,
     popupToolbarPosition: "bottom" as const,
     theme: "autumn" as const,
+    showCompactDefinitionSummary: false,
+    compactDefinitionSummaryDictionary: null,
+    hidePopupGrammarTags: true,
   };
 
   it("normalizes only canonical single-key accelerators supported by the input server", () => {
@@ -496,7 +502,54 @@ describe("Hoshidicts desktop bridge", () => {
         popupOpacityPercent: 70,
         popupToolbarPosition: "top",
         theme,
+        showCompactDefinitionSummary: true,
+        compactDefinitionSummaryDictionary: null,
+        hidePopupGrammarTags: true,
       }).theme).toBe(theme);
+    }
+  });
+
+  it("requires an explicit compact definition summary preference", () => {
+    const valid = {
+      lookupMode: "hover",
+      activationKey: "F8",
+      sourceHighlightEnabled: true,
+      popupHideDelayMs: 850,
+      popupNestingMaxDepth: 4,
+      ...popupAppearance,
+    };
+    expect(normalizeHoshidictsReaderPreferences({
+      ...valid,
+      showCompactDefinitionSummary: true,
+      compactDefinitionSummaryDictionary: "Jitendex",
+    }).showCompactDefinitionSummary).toBe(true);
+    expect(normalizeHoshidictsReaderPreferences({
+      ...valid,
+      compactDefinitionSummaryDictionary: "Jitendex",
+    }).compactDefinitionSummaryDictionary).toBe("Jitendex");
+    for (const showCompactDefinitionSummary of [undefined, "yes", 1]) {
+      expect(() => normalizeHoshidictsReaderPreferences({
+        ...valid,
+        showCompactDefinitionSummary,
+      })).toThrow("Hoshidicts reader preferences are invalid.");
+    }
+    for (const compactDefinitionSummaryDictionary of [
+      undefined,
+      "",
+      "   ",
+      "x".repeat(4097),
+      1,
+    ]) {
+      expect(() => normalizeHoshidictsReaderPreferences({
+        ...valid,
+        compactDefinitionSummaryDictionary,
+      })).toThrow("Hoshidicts reader preferences are invalid.");
+    }
+    for (const hidePopupGrammarTags of [undefined, "yes", 1]) {
+      expect(() => normalizeHoshidictsReaderPreferences({
+        ...valid,
+        hidePopupGrammarTags,
+      })).toThrow("Hoshidicts reader preferences are invalid.");
     }
   });
 

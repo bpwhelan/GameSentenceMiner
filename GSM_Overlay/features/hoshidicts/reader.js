@@ -126,6 +126,8 @@
   const DEFAULT_ACTIVATION_KEY = "Shift";
   const DEFAULT_SOURCE_HIGHLIGHT_ENABLED = false;
   const DEFAULT_ONLY_SCAN_JAPANESE_TEXT = true;
+  const DEFAULT_SHOW_COMPACT_DEFINITION_SUMMARY = false;
+  const DEFAULT_HIDE_POPUP_GRAMMAR_TAGS = true;
   const DEFAULT_POPUP_NESTING_MAX_DEPTH = 10;
   const MAX_POPUP_HIDE_DELAY_MS = 5 * 1000;
   const DEFAULT_DEFINITION_BLUR_PREFERENCES = Object.freeze({
@@ -442,6 +444,20 @@
       : fallback;
   }
 
+  function normalizeCompactDefinitionSummaryDictionary(value, fallback = null) {
+    if (value === null) {
+      return null;
+    }
+    if (typeof value !== "string") {
+      return fallback;
+    }
+    const normalized = value.trim();
+    return normalized.length > 0 &&
+      normalized.length <= MAX_DICTIONARY_PRESENTATION_TITLE_LENGTH
+      ? normalized
+      : fallback;
+  }
+
   function normalizeSortFrequencyDictionaryOrder(value, fallback = "descending") {
     return value === "ascending" || value === "descending" ? value : fallback;
   }
@@ -707,7 +723,13 @@
       : segments;
   }
 
-  function appendExpressionRuby(documentRef, parent, expression, reading, onKanjiClick) {
+  function appendExpressionRuby(
+    documentRef,
+    parent,
+    expression,
+    reading,
+    onKanjiClick
+  ) {
     const appendText = (target, text) => {
       for (const character of Array.from(text)) {
         if (!HAN_CHARACTER_PATTERN.test(character) || typeof onKanjiClick !== "function") {
@@ -2436,6 +2458,16 @@
         : options.onlyScanJapaneseText !== false,
       popupHideDelayMs: normalizePopupHideDelay(options.popupHideDelayMs),
       showLookupCounts: options.showLookupCounts !== false,
+      showCompactDefinitionSummary:
+        options.showCompactDefinitionSummary === true,
+      hidePopupGrammarTags:
+        options.hidePopupGrammarTags === undefined
+          ? DEFAULT_HIDE_POPUP_GRAMMAR_TAGS
+          : options.hidePopupGrammarTags !== false,
+      compactDefinitionSummaryDictionary:
+        normalizeCompactDefinitionSummaryDictionary(
+          options.compactDefinitionSummaryDictionary
+        ),
       definitionBlur: normalizeDefinitionBlurPreferences(options.definitionBlur),
       popupNestingMaxDepth: normalizePopupNestingMaxDepth(
         options.popupNestingMaxDepth
@@ -2754,7 +2786,10 @@
       if (
         !isActiveDefinitionBlur(context) ||
         !(event.target instanceof windowRef.Element) ||
-        !event.target.closest(".gsm-hoshidicts-definitions")
+        !event.target.closest(
+          ".gsm-hoshidicts-definitions, " +
+          ".gsm-hoshidicts-compact-definition-summary"
+        )
       ) {
         return;
       }
@@ -3724,6 +3759,11 @@
         definitionBlurState: getDefinitionBlurState(definitionBlurContext),
         generation: dictionaryGeneration,
         showLookupCounts: preferences.showLookupCounts && Boolean(onLookup),
+        showCompactDefinitionSummary:
+          preferences.showCompactDefinitionSummary,
+        hidePopupGrammarTags: preferences.hidePopupGrammarTags,
+        compactDefinitionSummaryDictionary:
+          preferences.compactDefinitionSummaryDictionary,
         dictionaryPresentation: preferences.dictionaryPresentation,
         dictionaryTabGroups: preferences.dictionaryTabGroups,
         onInternalLink: (link) => openStructuredLink(link, targetDepth),
@@ -3746,7 +3786,7 @@
       void startMiningRefresh(level, rendered.miningItems, rendered.feedback);
     }
 
-    function restoreTermView(targetDepth) {
+    function restoreTermView(targetDepth, { autoPlay = true } = {}) {
       const level = popupLevels[targetDepth];
       if (!level || !level.termView) return;
       const {
@@ -3761,11 +3801,25 @@
       latestTargetDepth = targetDepth;
       latestRequestMode = "term-first";
       latestRequestText = candidate.query;
+      const selectedTab = level.popup.querySelector(
+        '[role="tab"][aria-selected="true"]'
+      );
+      const selectedDictionaryTab = selectedTab?.dataset.dictionary
+        ? { dictionary: selectedTab.dataset.dictionary }
+        : selectedTab?.dataset.groupId
+          ? { groupId: selectedTab.dataset.groupId }
+          : null;
       preparePopupContent("restore_term_results", targetDepth);
       const rendered = level.view.renderResults(results, candidate, {
         definitionBlurState: getDefinitionBlurState(definitionBlurContext),
         generation: dictionaryGeneration,
         showLookupCounts: preferences.showLookupCounts && Boolean(onLookup),
+        showCompactDefinitionSummary:
+          preferences.showCompactDefinitionSummary,
+        hidePopupGrammarTags: preferences.hidePopupGrammarTags,
+        compactDefinitionSummaryDictionary:
+          preferences.compactDefinitionSummaryDictionary,
+        selectedDictionaryTab,
         dictionaryPresentation: preferences.dictionaryPresentation,
         dictionaryTabGroups: preferences.dictionaryTabGroups,
         onInternalLink: (link) => openStructuredLink(link, targetDepth),
@@ -3789,7 +3843,7 @@
       level.miningItems = rendered.miningItems;
       level.miningFeedback = rendered.feedback;
       showPopup(candidate, targetDepth);
-      syncAudioRenderedResults(targetDepth, true);
+      syncAudioRenderedResults(targetDepth, autoPlay);
       void startMiningRefresh(level, rendered.miningItems, rendered.feedback);
     }
 
@@ -5418,6 +5472,11 @@
       const previousSourceHighlightEnabled = preferences.sourceHighlightEnabled;
       const previousOnlyScanJapaneseText = preferences.onlyScanJapaneseText;
       const previousShowLookupCounts = preferences.showLookupCounts;
+      const previousShowCompactDefinitionSummary =
+        preferences.showCompactDefinitionSummary;
+      const previousHidePopupGrammarTags = preferences.hidePopupGrammarTags;
+      const previousCompactDefinitionSummaryDictionary =
+        preferences.compactDefinitionSummaryDictionary;
       const previousMaxDepth = preferences.popupNestingMaxDepth;
       const previousPopupWidthPx = preferences.popupWidthPx;
       const previousPopupHeightPx = preferences.popupHeightPx;
@@ -5489,6 +5548,27 @@
         )
           ? nextPreferences.showLookupCounts !== false
           : preferences.showLookupCounts,
+        showCompactDefinitionSummary: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "showCompactDefinitionSummary"
+        )
+          ? nextPreferences.showCompactDefinitionSummary === true
+          : preferences.showCompactDefinitionSummary,
+        hidePopupGrammarTags: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "hidePopupGrammarTags"
+        )
+          ? nextPreferences.hidePopupGrammarTags !== false
+          : preferences.hidePopupGrammarTags,
+        compactDefinitionSummaryDictionary: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "compactDefinitionSummaryDictionary"
+        )
+          ? normalizeCompactDefinitionSummaryDictionary(
+              nextPreferences.compactDefinitionSummaryDictionary,
+              preferences.compactDefinitionSummaryDictionary
+            )
+          : preferences.compactDefinitionSummaryDictionary,
         definitionBlur: Object.prototype.hasOwnProperty.call(
           nextPreferences,
           "definitionBlur"
@@ -5633,11 +5713,24 @@
         !dictionaryTabGroupsEqual(
           previousDictionaryTabGroups,
           preferences.dictionaryTabGroups
-        )
+        ) ||
+        previousShowCompactDefinitionSummary !==
+          preferences.showCompactDefinitionSummary ||
+        previousCompactDefinitionSummaryDictionary !==
+          preferences.compactDefinitionSummaryDictionary ||
+        previousHidePopupGrammarTags !== preferences.hidePopupGrammarTags
       ) {
+        const metadataPresentationChanged =
+          previousShowCompactDefinitionSummary !==
+            preferences.showCompactDefinitionSummary ||
+          previousCompactDefinitionSummaryDictionary !==
+            preferences.compactDefinitionSummaryDictionary ||
+          previousHidePopupGrammarTags !== preferences.hidePopupGrammarTags;
         for (const level of popupLevels) {
           if (level.visible && level.termView) {
-            restoreTermView(level.depth);
+            restoreTermView(level.depth, {
+              autoPlay: !metadataPresentationChanged,
+            });
           }
         }
       }
@@ -5809,6 +5902,10 @@
       onlyScanJapaneseText: preferences.onlyScanJapaneseText,
       popupHideDelayMs: preferences.popupHideDelayMs,
       showLookupCounts: preferences.showLookupCounts,
+      showCompactDefinitionSummary: preferences.showCompactDefinitionSummary,
+      hidePopupGrammarTags: preferences.hidePopupGrammarTags,
+      compactDefinitionSummaryDictionary:
+        preferences.compactDefinitionSummaryDictionary,
       popupNestingMaxDepth: preferences.popupNestingMaxDepth,
       popupWidthPx: preferences.popupWidthPx,
       popupHeightPx: preferences.popupHeightPx,
@@ -5863,6 +5960,8 @@
     DEFAULT_POPUP_TOOLBAR_POSITION,
     DEFAULT_POPUP_NESTING_MAX_DEPTH,
     DEFAULT_POPUP_WIDTH_PX,
+    DEFAULT_HIDE_POPUP_GRAMMAR_TAGS,
+    DEFAULT_SHOW_COMPACT_DEFINITION_SUMMARY,
     DEFAULT_SOURCE_HIGHLIGHT_ENABLED,
     DEFAULT_THEME,
     INITIAL_VISIBLE_RESULTS,
@@ -5912,6 +6011,7 @@
     normalizeLookupResults,
     normalizeSortFrequencyDictionary,
     normalizeSortFrequencyDictionaryOrder,
+    normalizeCompactDefinitionSummaryDictionary,
     prioritizeLookupResultsByReading,
     resolveGsmApiBaseUrl,
     resolveLookupCandidate,

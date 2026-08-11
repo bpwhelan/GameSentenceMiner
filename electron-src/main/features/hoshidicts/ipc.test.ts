@@ -39,6 +39,9 @@ const harness = vi.hoisted(() => ({
     onlyScanJapaneseTextAtLaunch: true as boolean | null,
     popupHideDelayAtLaunch: 300 as number | null,
     showLookupCountsAtLaunch: true as boolean | null,
+    showCompactDefinitionSummaryAtLaunch: false as boolean | null,
+    compactDefinitionSummaryDictionaryAtLaunch: null as string | null,
+    hidePopupGrammarTagsAtLaunch: true as boolean | null,
     audioProfileRestartRequired: false,
     popupNestingMaxDepthAtLaunch: 10 as number | null,
     popupWidthAtLaunch: 560 as number | null,
@@ -182,6 +185,9 @@ const snapshot = {
     onlyScanJapaneseText: true,
     popupHideDelayMs: 300,
     showLookupCounts: true,
+    showCompactDefinitionSummary: false,
+    compactDefinitionSummaryDictionary: null,
+    hidePopupGrammarTags: true,
     popupNestingMaxDepth: 10,
     popupWidthPx: 560,
     popupHeightPx: 420,
@@ -363,6 +369,12 @@ async function registerHarness() {
             harness.popupHideDelayAtLaunch,
         getOverlayShowLookupCountsAtLaunch: () =>
             harness.showLookupCountsAtLaunch,
+        getOverlayShowCompactDefinitionSummaryAtLaunch: () =>
+            harness.showCompactDefinitionSummaryAtLaunch,
+        getOverlayCompactDefinitionSummaryDictionaryAtLaunch: () =>
+            harness.compactDefinitionSummaryDictionaryAtLaunch,
+        getOverlayHidePopupGrammarTagsAtLaunch: () =>
+            harness.hidePopupGrammarTagsAtLaunch,
         getOverlayAudioProfileRestartRequired: () =>
             harness.audioProfileRestartRequired,
         getOverlayPopupNestingMaxDepthAtLaunch: () =>
@@ -416,6 +428,9 @@ describe('Hoshidicts settings IPC', () => {
         harness.onlyScanJapaneseTextAtLaunch = true;
         harness.popupHideDelayAtLaunch = 300;
         harness.showLookupCountsAtLaunch = true;
+        harness.showCompactDefinitionSummaryAtLaunch = false;
+        harness.compactDefinitionSummaryDictionaryAtLaunch = null;
+        harness.hidePopupGrammarTagsAtLaunch = true;
         harness.audioProfileRestartRequired = false;
         harness.popupNestingMaxDepthAtLaunch = 10;
         harness.popupWidthAtLaunch = 560;
@@ -1009,6 +1024,55 @@ describe('Hoshidicts settings IPC', () => {
         ).resolves.toMatchObject({
             overlay: { running: true, restartRequired: false },
         });
+
+        harness.showCompactDefinitionSummaryAtLaunch = true;
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: true },
+        });
+
+        harness.showCompactDefinitionSummaryAtLaunch = false;
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: false },
+        });
+
+        harness.compactDefinitionSummaryDictionaryAtLaunch = 'Jitendex';
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: true },
+        });
+
+        harness.compactDefinitionSummaryDictionaryAtLaunch = null;
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: false },
+        });
+
+        harness.hidePopupGrammarTagsAtLaunch = false;
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: true },
+        });
+
+        harness.hidePopupGrammarTagsAtLaunch = null;
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: false },
+        });
+
+        harness.hidePopupGrammarTagsAtLaunch = true;
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: false },
+        });
     });
 
     it('restarts a running overlay when disabling Shift cannot apply live', async () => {
@@ -1033,6 +1097,9 @@ describe('Hoshidicts settings IPC', () => {
                     onlyScanJapaneseText: true,
                     popupHideDelayMs: 300,
                     showLookupCounts: true,
+                    showCompactDefinitionSummary: false,
+                    compactDefinitionSummaryDictionary: null,
+                    hidePopupGrammarTags: true,
                     popupNestingMaxDepth: 10,
                     popupWidthPx: 560,
                     popupHeightPx: 420,
@@ -1049,6 +1116,53 @@ describe('Hoshidicts settings IPC', () => {
             outcome: { code: 'preferencesSaved' },
         });
         expect(context.restartOverlay).toHaveBeenCalledOnce();
+    });
+
+    it('restarts when hiding popup grammar tags cannot apply live', async () => {
+        harness.enabledAtLaunch = true;
+        const context = await registerHarness();
+        const setReaderPreferences = harness.handlers.get(
+            'hoshidicts.setReaderPreferences'
+        );
+        context.applyReaderPreferences.mockResolvedValueOnce(false);
+
+        await expect(
+            setReaderPreferences?.(
+                { sender: context.settingsContents },
+                {
+                    ...snapshot,
+                    hidePopupGrammarTags: false,
+                }
+            )
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'preferencesSaved' },
+        });
+        expect(context.restartOverlay).toHaveBeenCalledOnce();
+    });
+
+    it('only compares the compact definition dictionary after launch state is known', async () => {
+        harness.enabledAtLaunch = true;
+        harness.showCompactDefinitionSummaryAtLaunch = null;
+        const context = await registerHarness();
+        harness.manager.getSnapshot.mockResolvedValue({
+            ...snapshot,
+            compactDefinitionSummaryDictionary: 'Jitendex',
+        });
+        const getState = harness.handlers.get('hoshidicts.getState');
+
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: false },
+        });
+
+        harness.showCompactDefinitionSummaryAtLaunch = false;
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: true },
+        });
     });
 
     it('restarts when a lookup-control change cannot apply live', async () => {
@@ -1073,6 +1187,9 @@ describe('Hoshidicts settings IPC', () => {
                     onlyScanJapaneseText: true,
                     popupHideDelayMs: 300,
                     showLookupCounts: true,
+                    showCompactDefinitionSummary: false,
+                    compactDefinitionSummaryDictionary: null,
+                    hidePopupGrammarTags: true,
                     popupNestingMaxDepth: 10,
                     popupWidthPx: 560,
                     popupHeightPx: 420,
@@ -1118,6 +1235,9 @@ describe('Hoshidicts settings IPC', () => {
                     onlyScanJapaneseText: true,
                     popupHideDelayMs: 300,
                     showLookupCounts: true,
+                    showCompactDefinitionSummary: false,
+                    compactDefinitionSummaryDictionary: null,
+                    hidePopupGrammarTags: true,
                     popupNestingMaxDepth: 10,
                     popupWidthPx: 560,
                     popupHeightPx: 420,
@@ -1974,6 +2094,9 @@ describe('Hoshidicts settings IPC', () => {
                     onlyScanJapaneseText: true,
                     popupHideDelayMs: 850,
                     showLookupCounts: 'yes',
+                    showCompactDefinitionSummary: false,
+                    compactDefinitionSummaryDictionary: null,
+                    hidePopupGrammarTags: true,
                     popupNestingMaxDepth: 4,
                     popupWidthPx: 560,
                     popupHeightPx: 420,
@@ -2015,6 +2138,9 @@ describe('Hoshidicts settings IPC', () => {
                     onlyScanJapaneseText: true,
                     popupHideDelayMs: 850,
                     showLookupCounts: false,
+                    showCompactDefinitionSummary: true,
+                    compactDefinitionSummaryDictionary: 'Jitendex',
+                    hidePopupGrammarTags: false,
                     popupNestingMaxDepth: 4,
                     popupWidthPx: 560,
                     popupHeightPx: 420,
@@ -2082,6 +2208,9 @@ describe('Hoshidicts settings IPC', () => {
                 ],
             },
             3,
+            true,
+            'Jitendex',
+            false
         );
         expect(context.applyReaderPreferences).toHaveBeenCalledWith({
             lookupMode: 'hover',
@@ -2094,6 +2223,9 @@ describe('Hoshidicts settings IPC', () => {
             onlyScanJapaneseText: true,
             popupHideDelayMs: 850,
             showLookupCounts: false,
+            showCompactDefinitionSummary: true,
+            compactDefinitionSummaryDictionary: 'Jitendex',
+            hidePopupGrammarTags: false,
             popupNestingMaxDepth: 4,
             popupWidthPx: 560,
             popupHeightPx: 420,
@@ -2286,6 +2418,68 @@ describe('Hoshidicts settings IPC', () => {
         });
     });
 
+    it('rejects malformed compact definition dictionary preferences', async () => {
+        const context = await registerHarness();
+        const setReaderPreferences = harness.handlers.get(
+            'hoshidicts.setReaderPreferences'
+        );
+        const valid = {
+            lookupMode: 'hover',
+            scanLength: 16,
+            maxResults: 32,
+            sortFrequencyDictionary: null,
+            sortFrequencyDictionaryOrder: 'descending',
+            activationKey: 'F8',
+            sourceHighlightEnabled: true,
+            onlyScanJapaneseText: true,
+            popupHideDelayMs: 850,
+            showLookupCounts: true,
+            showCompactDefinitionSummary: true,
+            compactDefinitionSummaryDictionary: null,
+            hidePopupGrammarTags: true,
+            popupNestingMaxDepth: 4,
+            popupWidthPx: 560,
+            popupHeightPx: 420,
+            popupColumns: 1,
+            theme: 'default',
+            popupOpacityPercent: 85,
+            popupToolbarPosition: 'top',
+            popupButtons: snapshot.popupButtons,
+            definitionBlur: snapshot.definitionBlur,
+        };
+
+        for (const compactDefinitionSummaryDictionary of [
+            undefined,
+            '',
+            '   ',
+            'x'.repeat(4097),
+            42,
+        ]) {
+            await expect(
+                setReaderPreferences?.(
+                    { sender: context.settingsContents },
+                    { ...valid, compactDefinitionSummaryDictionary }
+                )
+            ).resolves.toMatchObject({
+                success: false,
+                error: 'Hoshidicts reader preferences are invalid.',
+            });
+        }
+        for (const hidePopupGrammarTags of [undefined, 'yes', 1]) {
+            await expect(
+                setReaderPreferences?.(
+                    { sender: context.settingsContents },
+                    { ...valid, hidePopupGrammarTags }
+                )
+            ).resolves.toMatchObject({
+                success: false,
+                error: 'Hoshidicts reader preferences are invalid.',
+            });
+        }
+        expect(harness.manager.setReaderPreferences).not.toHaveBeenCalled();
+        expect(context.applyReaderPreferences).not.toHaveBeenCalled();
+    });
+
     it('rejects malformed definition blur reader preferences', async () => {
         const context = await registerHarness();
         const setReaderPreferences = harness.handlers.get(
@@ -2302,6 +2496,9 @@ describe('Hoshidicts settings IPC', () => {
             onlyScanJapaneseText: true,
             popupHideDelayMs: 850,
             showLookupCounts: true,
+            showCompactDefinitionSummary: false,
+            compactDefinitionSummaryDictionary: null,
+            hidePopupGrammarTags: true,
             popupNestingMaxDepth: 4,
             popupWidthPx: 560,
             popupHeightPx: 420,
@@ -2355,6 +2552,9 @@ describe('Hoshidicts settings IPC', () => {
             onlyScanJapaneseText: true,
             popupHideDelayMs: 850,
             showLookupCounts: true,
+            showCompactDefinitionSummary: false,
+            compactDefinitionSummaryDictionary: null,
+            hidePopupGrammarTags: true,
             popupNestingMaxDepth: 4,
             popupWidthPx: 560,
             popupHeightPx: 420,
