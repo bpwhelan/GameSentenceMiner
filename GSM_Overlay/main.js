@@ -59,6 +59,12 @@ function normalizeHoshidictsReaderPreferencesWithDefinitionBlur(preferences) {
     preferences && preferences.showCompactDefinitionSummary;
   const compactDefinitionSummaryDictionary =
     preferences && preferences.compactDefinitionSummaryDictionary;
+  const showPitchAccentFurigana =
+    preferences && preferences.showPitchAccentFurigana;
+  const pitchAccentFuriganaDictionary =
+    preferences && preferences.pitchAccentFuriganaDictionary;
+  const showPitchAccentBadge =
+    preferences && preferences.showPitchAccentBadge;
   const hidePopupGrammarTags =
     preferences && preferences.hidePopupGrammarTags;
   if (
@@ -74,11 +80,18 @@ function normalizeHoshidictsReaderPreferencesWithDefinitionBlur(preferences) {
     definitionBlur.revealDelayMs > 3600000 ||
     typeof showLookupCounts !== 'boolean' ||
     typeof showCompactDefinitionSummary !== 'boolean' ||
+    typeof showPitchAccentFurigana !== 'boolean' ||
+    typeof showPitchAccentBadge !== 'boolean' ||
     typeof hidePopupGrammarTags !== 'boolean' ||
     (compactDefinitionSummaryDictionary !== null &&
       (typeof compactDefinitionSummaryDictionary !== 'string' ||
         !compactDefinitionSummaryDictionary.trim() ||
         compactDefinitionSummaryDictionary.length > 4096))
+    ||
+    (pitchAccentFuriganaDictionary !== null &&
+      (typeof pitchAccentFuriganaDictionary !== 'string' ||
+        !pitchAccentFuriganaDictionary.trim() ||
+        pitchAccentFuriganaDictionary.length > 4096))
   ) {
     throw new Error('Hoshidicts reader preferences are invalid.');
   }
@@ -87,6 +100,9 @@ function normalizeHoshidictsReaderPreferencesWithDefinitionBlur(preferences) {
     showLookupCounts,
     showCompactDefinitionSummary,
     compactDefinitionSummaryDictionary,
+    showPitchAccentFurigana,
+    pitchAccentFuriganaDictionary,
+    showPitchAccentBadge,
     hidePopupGrammarTags,
     definitionBlur: {
       enabled: definitionBlur.enabled,

@@ -208,12 +208,15 @@ describe('Hoshidicts reader frequency dictionaries', () => {
 });
 
 describe('Hoshidicts reader preferences', () => {
-    it('projects compact definition and metadata preferences into the overlay', () => {
+    it('projects compact definition, pitch, and metadata preferences into the overlay', () => {
         const snapshot = {
             dictionaries: [],
             tabGroups: [],
             showCompactDefinitionSummary: true,
             compactDefinitionSummaryDictionary: 'Jitendex.org',
+            showPitchAccentFurigana: false,
+            pitchAccentFuriganaDictionary: 'Kanjium Pitch Accents',
+            showPitchAccentBadge: true,
             hidePopupGrammarTags: true,
             popupButtons: createDefaultHoshidictsPopupButtons(),
         } as unknown as HoshidictsManagerSnapshot;
@@ -226,6 +229,18 @@ describe('Hoshidicts reader preferences', () => {
             hoshidictsReaderPreferencesFromSnapshot(snapshot)
                 .compactDefinitionSummaryDictionary
         ).toBe('Jitendex.org');
+        expect(
+            hoshidictsReaderPreferencesFromSnapshot(snapshot)
+                .showPitchAccentFurigana
+        ).toBe(false);
+        expect(
+            hoshidictsReaderPreferencesFromSnapshot(snapshot)
+                .pitchAccentFuriganaDictionary
+        ).toBe('Kanjium Pitch Accents');
+        expect(
+            hoshidictsReaderPreferencesFromSnapshot(snapshot)
+                .showPitchAccentBadge
+        ).toBe(true);
         expect(
             hoshidictsReaderPreferencesFromSnapshot(snapshot)
                 .hidePopupGrammarTags

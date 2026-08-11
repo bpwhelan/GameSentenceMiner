@@ -62,6 +62,26 @@
     configuredHoshidictsCompactDefinitionSummaryDictionary.trim().length > 0 &&
     configuredHoshidictsCompactDefinitionSummaryDictionary.length <= 4096
   ) ? configuredHoshidictsCompactDefinitionSummaryDictionary : null;
+  window.gsmHoshidictsShowPitchAccentFurigana = !(
+    typeof process !== 'undefined' &&
+    process.env &&
+    process.env.GSM_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA === '0'
+  );
+  const configuredHoshidictsPitchAccentFuriganaDictionary = (
+    typeof process !== 'undefined' && process.env
+      ? process.env.GSM_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY
+      : ''
+  );
+  window.gsmHoshidictsPitchAccentFuriganaDictionary = (
+    typeof configuredHoshidictsPitchAccentFuriganaDictionary === 'string' &&
+    configuredHoshidictsPitchAccentFuriganaDictionary.trim().length > 0 &&
+    configuredHoshidictsPitchAccentFuriganaDictionary.length <= 4096
+  ) ? configuredHoshidictsPitchAccentFuriganaDictionary : null;
+  window.gsmHoshidictsShowPitchAccentBadge = (
+    typeof process !== 'undefined' &&
+    process.env &&
+    process.env.GSM_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE === '1'
+  );
   window.gsmHoshidictsHidePopupGrammarTags = !(
     typeof process !== 'undefined' &&
     process.env &&
@@ -5505,6 +5525,11 @@ background: rgba(202, 12, 12, 0.692);
         window.gsmHoshidictsShowCompactDefinitionSummary,
       compactDefinitionSummaryDictionary:
         window.gsmHoshidictsCompactDefinitionSummaryDictionary,
+      showPitchAccentFurigana:
+        window.gsmHoshidictsShowPitchAccentFurigana,
+      pitchAccentFuriganaDictionary:
+        window.gsmHoshidictsPitchAccentFuriganaDictionary,
+      showPitchAccentBadge: window.gsmHoshidictsShowPitchAccentBadge,
       hidePopupGrammarTags: window.gsmHoshidictsHidePopupGrammarTags,
       definitionBlur: window.gsmHoshidictsDefinitionBlur,
       popupNestingMaxDepth: window.gsmHoshidictsPopupNestingMaxDepth,
@@ -5570,6 +5595,10 @@ background: rgba(202, 12, 12, 0.692);
     const appearance = validateHoshidictsAppearance(preferences);
     const compactDefinitionSummaryDictionary =
       preferences.compactDefinitionSummaryDictionary;
+    const showPitchAccentFurigana = preferences.showPitchAccentFurigana;
+    const pitchAccentFuriganaDictionary =
+      preferences.pitchAccentFuriganaDictionary;
+    const showPitchAccentBadge = preferences.showPitchAccentBadge;
     const hidePopupGrammarTags = preferences.hidePopupGrammarTags;
     const hasPopupButtons = Object.prototype.hasOwnProperty.call(
       preferences,
@@ -5587,11 +5616,18 @@ background: rgba(202, 12, 12, 0.692);
       !frequencyDictionaries ||
       !lookupControls ||
       !appearance ||
+      typeof showPitchAccentFurigana !== 'boolean' ||
+      typeof showPitchAccentBadge !== 'boolean' ||
       typeof hidePopupGrammarTags !== 'boolean' ||
       (compactDefinitionSummaryDictionary !== null &&
         (typeof compactDefinitionSummaryDictionary !== 'string' ||
           !compactDefinitionSummaryDictionary.trim() ||
           compactDefinitionSummaryDictionary.length > 4096))
+      ||
+      (pitchAccentFuriganaDictionary !== null &&
+        (typeof pitchAccentFuriganaDictionary !== 'string' ||
+          !pitchAccentFuriganaDictionary.trim() ||
+          pitchAccentFuriganaDictionary.length > 4096))
     ) {
       return;
     }
@@ -5622,6 +5658,11 @@ background: rgba(202, 12, 12, 0.692);
       preferences.showCompactDefinitionSummary === true;
     window.gsmHoshidictsCompactDefinitionSummaryDictionary =
       compactDefinitionSummaryDictionary;
+    window.gsmHoshidictsShowPitchAccentFurigana =
+      showPitchAccentFurigana;
+    window.gsmHoshidictsPitchAccentFuriganaDictionary =
+      pitchAccentFuriganaDictionary;
+    window.gsmHoshidictsShowPitchAccentBadge = showPitchAccentBadge;
     window.gsmHoshidictsHidePopupGrammarTags = hidePopupGrammarTags;
     window.gsmHoshidictsDictionaryPresentation = dictionaryPresentation;
     window.gsmHoshidictsFrequencyDictionaries = frequencyDictionaries;
@@ -5664,6 +5705,12 @@ background: rgba(202, 12, 12, 0.692);
           window.gsmHoshidictsShowCompactDefinitionSummary,
         compactDefinitionSummaryDictionary:
           window.gsmHoshidictsCompactDefinitionSummaryDictionary,
+        showPitchAccentFurigana:
+          window.gsmHoshidictsShowPitchAccentFurigana,
+        pitchAccentFuriganaDictionary:
+          window.gsmHoshidictsPitchAccentFuriganaDictionary,
+        showPitchAccentBadge:
+          window.gsmHoshidictsShowPitchAccentBadge,
         hidePopupGrammarTags: window.gsmHoshidictsHidePopupGrammarTags,
         definitionBlur: window.gsmHoshidictsDefinitionBlur,
         popupNestingMaxDepth: window.gsmHoshidictsPopupNestingMaxDepth,

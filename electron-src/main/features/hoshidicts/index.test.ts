@@ -18,6 +18,9 @@ const harness = vi.hoisted(() => ({
     configureShowLookupCountsProvider: vi.fn(),
     configureShowCompactDefinitionSummaryProvider: vi.fn(),
     configureCompactDefinitionSummaryDictionaryProvider: vi.fn(),
+    configureShowPitchAccentFuriganaProvider: vi.fn(),
+    configurePitchAccentFuriganaDictionaryProvider: vi.fn(),
+    configureShowPitchAccentBadgeProvider: vi.fn(),
     configureHidePopupGrammarTagsProvider: vi.fn(),
     configureCustomSyncProvider: vi.fn(),
     configurePopupNestingMaxDepthProvider: vi.fn(),
@@ -77,6 +80,9 @@ const harness = vi.hoisted(() => ({
         showLookupCounts: false,
         showCompactDefinitionSummary: true,
         compactDefinitionSummaryDictionary: 'Jitendex',
+        showPitchAccentFurigana: true,
+        pitchAccentFuriganaDictionary: 'Pitch',
+        showPitchAccentBadge: false,
         hidePopupGrammarTags: true,
         popupNestingMaxDepth: 4,
         popupWidthPx: 680,
@@ -159,6 +165,12 @@ vi.mock('../../ui/front.js', () => ({
         harness.configureShowCompactDefinitionSummaryProvider,
     configureHoshidictsCompactDefinitionSummaryDictionaryProvider:
         harness.configureCompactDefinitionSummaryDictionaryProvider,
+    configureHoshidictsShowPitchAccentFuriganaProvider:
+        harness.configureShowPitchAccentFuriganaProvider,
+    configureHoshidictsPitchAccentFuriganaDictionaryProvider:
+        harness.configurePitchAccentFuriganaDictionaryProvider,
+    configureHoshidictsShowPitchAccentBadgeProvider:
+        harness.configureShowPitchAccentBadgeProvider,
     configureHoshidictsHidePopupGrammarTagsProvider:
         harness.configureHidePopupGrammarTagsProvider,
     configureHoshidictsCustomDictionarySyncProvider:
@@ -192,6 +204,9 @@ vi.mock('../../ui/front.js', () => ({
     getOverlayHoshidictsShowLookupCountsAtLaunch: () => true,
     getOverlayHoshidictsShowCompactDefinitionSummaryAtLaunch: () => false,
     getOverlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch: () => null,
+    getOverlayHoshidictsShowPitchAccentFuriganaAtLaunch: () => true,
+    getOverlayHoshidictsPitchAccentFuriganaDictionaryAtLaunch: () => null,
+    getOverlayHoshidictsShowPitchAccentBadgeAtLaunch: () => false,
     getOverlayHoshidictsHidePopupGrammarTagsAtLaunch: () => true,
     getOverlayHoshidictsAudioProfileRestartRequired: () => false,
     getOverlayHoshidictsPopupNestingMaxDepthAtLaunch: () => 10,
@@ -254,6 +269,9 @@ describe('Hoshidicts feature registration', () => {
         harness.configureShowLookupCountsProvider.mockReset();
         harness.configureShowCompactDefinitionSummaryProvider.mockReset();
         harness.configureCompactDefinitionSummaryDictionaryProvider.mockReset();
+        harness.configureShowPitchAccentFuriganaProvider.mockReset();
+        harness.configurePitchAccentFuriganaDictionaryProvider.mockReset();
+        harness.configureShowPitchAccentBadgeProvider.mockReset();
         harness.configureHidePopupGrammarTagsProvider.mockReset();
         harness.configureCustomSyncProvider.mockReset();
         harness.configurePopupNestingMaxDepthProvider.mockReset();
@@ -309,6 +327,18 @@ describe('Hoshidicts feature registration', () => {
         ).toBeNull();
         expect(
             harness.registerIPC.mock.calls[0][0]
+                .getOverlayShowPitchAccentFuriganaAtLaunch()
+        ).toBe(true);
+        expect(
+            harness.registerIPC.mock.calls[0][0]
+                .getOverlayPitchAccentFuriganaDictionaryAtLaunch()
+        ).toBeNull();
+        expect(
+            harness.registerIPC.mock.calls[0][0]
+                .getOverlayShowPitchAccentBadgeAtLaunch()
+        ).toBe(false);
+        expect(
+            harness.registerIPC.mock.calls[0][0]
                 .getOverlayHidePopupGrammarTagsAtLaunch()
         ).toBe(true);
         await expect(
@@ -325,6 +355,9 @@ describe('Hoshidicts feature registration', () => {
                 showLookupCounts: false,
                 showCompactDefinitionSummary: true,
                 compactDefinitionSummaryDictionary: 'Jitendex',
+                showPitchAccentFurigana: true,
+                pitchAccentFuriganaDictionary: 'Pitch',
+                showPitchAccentBadge: false,
                 hidePopupGrammarTags: false,
                 popupNestingMaxDepth: 4,
                 definitionBlur: harness.managerSnapshot.definitionBlur,
@@ -352,6 +385,9 @@ describe('Hoshidicts feature registration', () => {
                 showLookupCounts: false,
                 showCompactDefinitionSummary: true,
                 compactDefinitionSummaryDictionary: 'Jitendex',
+                showPitchAccentFurigana: true,
+                pitchAccentFuriganaDictionary: 'Pitch',
+                showPitchAccentBadge: false,
                 hidePopupGrammarTags: false,
                 popupNestingMaxDepth: 4,
                 definitionBlur: harness.managerSnapshot.definitionBlur,
@@ -378,6 +414,9 @@ describe('Hoshidicts feature registration', () => {
             showLookupCounts: false,
             showCompactDefinitionSummary: true,
             compactDefinitionSummaryDictionary: 'Jitendex',
+            showPitchAccentFurigana: true,
+            pitchAccentFuriganaDictionary: 'Pitch',
+            showPitchAccentBadge: false,
             hidePopupGrammarTags: false,
             popupNestingMaxDepth: 4,
             definitionBlur: harness.managerSnapshot.definitionBlur,
@@ -425,6 +464,9 @@ describe('Hoshidicts feature registration', () => {
                     showLookupCounts: false,
                     showCompactDefinitionSummary: true,
                     compactDefinitionSummaryDictionary: 'Jitendex',
+                    showPitchAccentFurigana: true,
+                    pitchAccentFuriganaDictionary: 'Pitch',
+                    showPitchAccentBadge: false,
                     hidePopupGrammarTags: true,
                     popupNestingMaxDepth: 4,
                     definitionBlur: harness.managerSnapshot.definitionBlur,
@@ -537,6 +579,26 @@ describe('Hoshidicts feature registration', () => {
         await expect(
             compactDefinitionSummaryDictionaryProvider()
         ).resolves.toBe('Jitendex');
+        expect(
+            harness.configureShowPitchAccentFuriganaProvider
+        ).toHaveBeenCalledOnce();
+        const showPitchAccentFuriganaProvider =
+            harness.configureShowPitchAccentFuriganaProvider.mock.calls[0][0];
+        await expect(showPitchAccentFuriganaProvider()).resolves.toBe(true);
+        expect(
+            harness.configurePitchAccentFuriganaDictionaryProvider
+        ).toHaveBeenCalledOnce();
+        const pitchAccentFuriganaDictionaryProvider =
+            harness.configurePitchAccentFuriganaDictionaryProvider.mock.calls[0][0];
+        await expect(
+            pitchAccentFuriganaDictionaryProvider()
+        ).resolves.toBe('Pitch');
+        expect(
+            harness.configureShowPitchAccentBadgeProvider
+        ).toHaveBeenCalledOnce();
+        const showPitchAccentBadgeProvider =
+            harness.configureShowPitchAccentBadgeProvider.mock.calls[0][0];
+        await expect(showPitchAccentBadgeProvider()).resolves.toBe(false);
         expect(
             harness.configureHidePopupGrammarTagsProvider
         ).toHaveBeenCalledOnce();

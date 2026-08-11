@@ -127,6 +127,8 @@
   const DEFAULT_SOURCE_HIGHLIGHT_ENABLED = false;
   const DEFAULT_ONLY_SCAN_JAPANESE_TEXT = true;
   const DEFAULT_SHOW_COMPACT_DEFINITION_SUMMARY = false;
+  const DEFAULT_SHOW_PITCH_ACCENT_FURIGANA = true;
+  const DEFAULT_SHOW_PITCH_ACCENT_BADGE = false;
   const DEFAULT_HIDE_POPUP_GRAMMAR_TAGS = true;
   const DEFAULT_POPUP_NESTING_MAX_DEPTH = 10;
   const MAX_POPUP_HIDE_DELAY_MS = 5 * 1000;
@@ -183,6 +185,10 @@
   const KANJI_SEGMENT_PATTERN =
     /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u{20000}-\u{2fa1f}\u3005]+|[^\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u{20000}-\u{2fa1f}\u3005]+/gu;
   const KANA_PATTERN = /[\u3040-\u30ff\uff66-\uff9f]/u;
+  const PITCH_SMALL_KANA = new Set(Array.from(
+    "ゃゅょぁぃぅぇぉゎャュョァィゥェォヮ"
+  ));
+  const COMBINING_MARK_PATTERN = /\p{Mark}/u;
   const ALLOWED_STRUCTURED_TAGS = new Set([
     "a",
     "br",
@@ -611,6 +617,95 @@
     );
   }
 
+  function splitPitchAccentMorae(reading) {
+    const morae = [];
+    for (const character of Array.from(String(reading || "").normalize("NFC"))) {
+      const previousIndex = morae.length - 1;
+      if (
+        previousIndex >= 0 &&
+        (PITCH_SMALL_KANA.has(character) || COMBINING_MARK_PATTERN.test(character))
+      ) {
+        morae[previousIndex] += character;
+      } else {
+        morae.push(character);
+      }
+    }
+    return morae;
+  }
+
+  function buildPitchAccentMorae(reading, position) {
+    const morae = splitPitchAccentMorae(reading);
+    if (
+      morae.length === 0 ||
+      !Number.isInteger(position) ||
+      position < 0 ||
+      position > morae.length
+    ) {
+      return null;
+    }
+
+    const levels = morae.map((_, index) => {
+      if (position === 0) {
+        return index === 0 ? "low" : "high";
+      }
+      if (position === 1) {
+        return index === 0 ? "high" : "low";
+      }
+      return index === 0 || index >= position ? "low" : "high";
+    });
+    const levelAfterWord = position === 0 ? "high" : "low";
+    return morae.map((text, index) => {
+      const level = levels[index];
+      const nextLevel = levels[index + 1] || levelAfterWord;
+      return {
+        text,
+        level,
+        transition: level === nextLevel
+          ? null
+          : level === "low" ? "rise" : "drop",
+      };
+    });
+  }
+
+  function selectPitchAccent(
+    pitchGroups,
+    preferredDictionary = null,
+    moraCount = null
+  ) {
+    const groups = Array.isArray(pitchGroups) ? pitchGroups : [];
+    const maximumPosition = Number.isInteger(moraCount) && moraCount >= 0
+      ? moraCount
+      : null;
+    const preferred = typeof preferredDictionary === "string"
+      ? preferredDictionary.trim()
+      : "";
+    const orderedGroups = preferred
+      ? [
+          ...groups.filter((group) => group?.dictionary === preferred),
+          ...groups.filter((group) => group?.dictionary !== preferred),
+        ]
+      : groups;
+    for (const group of orderedGroups) {
+      if (!isRecord(group) || !Array.isArray(group.pitches)) {
+        continue;
+      }
+      for (const pitch of group.pitches) {
+        if (
+          isRecord(pitch) &&
+          Number.isInteger(pitch.position) &&
+          pitch.position >= 0 &&
+          (maximumPosition === null || pitch.position <= maximumPosition)
+        ) {
+          return {
+            dictionary: boundedString(group.dictionary, 4096),
+            pitch,
+          };
+        }
+      }
+    }
+    return null;
+  }
+
   function createFuriganaSegment(text, reading) {
     return { text, reading };
   }
@@ -728,7 +823,8 @@
     parent,
     expression,
     reading,
-    onKanjiClick
+    onKanjiClick,
+    pitchOptions = {}
   ) {
     const appendText = (target, text) => {
       for (const character of Array.from(text)) {
@@ -749,6 +845,51 @@
         target.appendChild(button);
       }
     };
+    const pitchReading = reading || expression;
+    const selectedPitch = pitchOptions.enabled === false
+      ? null
+      : selectPitchAccent(
+          pitchOptions.groups,
+          pitchOptions.dictionary,
+          splitPitchAccentMorae(pitchReading).length
+        );
+    const pitchedMorae = selectedPitch
+      ? buildPitchAccentMorae(pitchReading, selectedPitch.pitch.position)
+      : null;
+    if (pitchedMorae) {
+      const ruby = documentRef.createElement("ruby");
+      ruby.className = "gsm-hoshidicts-pitch-ruby";
+      appendText(ruby, expression);
+
+      const rt = documentRef.createElement("rt");
+      rt.className = "gsm-hoshidicts-pitch-reading";
+      rt.dataset.pitchPosition = String(selectedPitch.pitch.position);
+      if (selectedPitch.dictionary) {
+        rt.dataset.pitchDictionary = selectedPitch.dictionary;
+      }
+      rt.title = [
+        selectedPitch.dictionary,
+        `Pitch accent ${selectedPitch.pitch.position}`,
+      ].filter(Boolean).join(" · ");
+
+      const contour = documentRef.createElement("span");
+      contour.className = "gsm-hoshidicts-pitch-contour";
+      for (const mora of pitchedMorae) {
+        const span = documentRef.createElement("span");
+        span.className = "gsm-hoshidicts-pitch-mora";
+        span.dataset.pitchLevel = mora.level;
+        if (mora.transition) {
+          span.dataset.pitchTransition = mora.transition;
+        }
+        span.textContent = mora.text;
+        contour.appendChild(span);
+      }
+      rt.appendChild(contour);
+      ruby.appendChild(rt);
+      parent.appendChild(ruby);
+      return;
+    }
+
     for (const segment of segmentFurigana(expression, reading)) {
       if (!segment.reading) {
         appendText(parent, segment.text);
@@ -2468,6 +2609,18 @@
         normalizeCompactDefinitionSummaryDictionary(
           options.compactDefinitionSummaryDictionary
         ),
+      showPitchAccentFurigana:
+        options.showPitchAccentFurigana === undefined
+          ? DEFAULT_SHOW_PITCH_ACCENT_FURIGANA
+          : options.showPitchAccentFurigana !== false,
+      pitchAccentFuriganaDictionary:
+        normalizeCompactDefinitionSummaryDictionary(
+          options.pitchAccentFuriganaDictionary
+        ),
+      showPitchAccentBadge:
+        options.showPitchAccentBadge === undefined
+          ? DEFAULT_SHOW_PITCH_ACCENT_BADGE
+          : options.showPitchAccentBadge === true,
       definitionBlur: normalizeDefinitionBlurPreferences(options.definitionBlur),
       popupNestingMaxDepth: normalizePopupNestingMaxDepth(
         options.popupNestingMaxDepth
@@ -3764,6 +3917,10 @@
         hidePopupGrammarTags: preferences.hidePopupGrammarTags,
         compactDefinitionSummaryDictionary:
           preferences.compactDefinitionSummaryDictionary,
+        showPitchAccentFurigana: preferences.showPitchAccentFurigana,
+        pitchAccentFuriganaDictionary:
+          preferences.pitchAccentFuriganaDictionary,
+        showPitchAccentBadge: preferences.showPitchAccentBadge,
         dictionaryPresentation: preferences.dictionaryPresentation,
         dictionaryTabGroups: preferences.dictionaryTabGroups,
         onInternalLink: (link) => openStructuredLink(link, targetDepth),
@@ -3819,6 +3976,10 @@
         hidePopupGrammarTags: preferences.hidePopupGrammarTags,
         compactDefinitionSummaryDictionary:
           preferences.compactDefinitionSummaryDictionary,
+        showPitchAccentFurigana: preferences.showPitchAccentFurigana,
+        pitchAccentFuriganaDictionary:
+          preferences.pitchAccentFuriganaDictionary,
+        showPitchAccentBadge: preferences.showPitchAccentBadge,
         selectedDictionaryTab,
         dictionaryPresentation: preferences.dictionaryPresentation,
         dictionaryTabGroups: preferences.dictionaryTabGroups,
@@ -5477,6 +5638,11 @@
       const previousHidePopupGrammarTags = preferences.hidePopupGrammarTags;
       const previousCompactDefinitionSummaryDictionary =
         preferences.compactDefinitionSummaryDictionary;
+      const previousShowPitchAccentFurigana =
+        preferences.showPitchAccentFurigana;
+      const previousPitchAccentFuriganaDictionary =
+        preferences.pitchAccentFuriganaDictionary;
+      const previousShowPitchAccentBadge = preferences.showPitchAccentBadge;
       const previousMaxDepth = preferences.popupNestingMaxDepth;
       const previousPopupWidthPx = preferences.popupWidthPx;
       const previousPopupHeightPx = preferences.popupHeightPx;
@@ -5569,6 +5735,27 @@
               preferences.compactDefinitionSummaryDictionary
             )
           : preferences.compactDefinitionSummaryDictionary,
+        showPitchAccentFurigana: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "showPitchAccentFurigana"
+        )
+          ? nextPreferences.showPitchAccentFurigana !== false
+          : preferences.showPitchAccentFurigana,
+        pitchAccentFuriganaDictionary: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "pitchAccentFuriganaDictionary"
+        )
+          ? normalizeCompactDefinitionSummaryDictionary(
+              nextPreferences.pitchAccentFuriganaDictionary,
+              preferences.pitchAccentFuriganaDictionary
+            )
+          : preferences.pitchAccentFuriganaDictionary,
+        showPitchAccentBadge: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "showPitchAccentBadge"
+        )
+          ? nextPreferences.showPitchAccentBadge === true
+          : preferences.showPitchAccentBadge,
         definitionBlur: Object.prototype.hasOwnProperty.call(
           nextPreferences,
           "definitionBlur"
@@ -5718,14 +5905,24 @@
           preferences.showCompactDefinitionSummary ||
         previousCompactDefinitionSummaryDictionary !==
           preferences.compactDefinitionSummaryDictionary ||
-        previousHidePopupGrammarTags !== preferences.hidePopupGrammarTags
+        previousHidePopupGrammarTags !== preferences.hidePopupGrammarTags ||
+        previousShowPitchAccentFurigana !==
+          preferences.showPitchAccentFurigana ||
+        previousPitchAccentFuriganaDictionary !==
+          preferences.pitchAccentFuriganaDictionary ||
+        previousShowPitchAccentBadge !== preferences.showPitchAccentBadge
       ) {
         const metadataPresentationChanged =
           previousShowCompactDefinitionSummary !==
             preferences.showCompactDefinitionSummary ||
           previousCompactDefinitionSummaryDictionary !==
             preferences.compactDefinitionSummaryDictionary ||
-          previousHidePopupGrammarTags !== preferences.hidePopupGrammarTags;
+          previousHidePopupGrammarTags !== preferences.hidePopupGrammarTags ||
+          previousShowPitchAccentFurigana !==
+            preferences.showPitchAccentFurigana ||
+          previousPitchAccentFuriganaDictionary !==
+            preferences.pitchAccentFuriganaDictionary ||
+          previousShowPitchAccentBadge !== preferences.showPitchAccentBadge;
         for (const level of popupLevels) {
           if (level.visible && level.termView) {
             restoreTermView(level.depth, {
@@ -5906,6 +6103,10 @@
       hidePopupGrammarTags: preferences.hidePopupGrammarTags,
       compactDefinitionSummaryDictionary:
         preferences.compactDefinitionSummaryDictionary,
+      showPitchAccentFurigana: preferences.showPitchAccentFurigana,
+      pitchAccentFuriganaDictionary:
+        preferences.pitchAccentFuriganaDictionary,
+      showPitchAccentBadge: preferences.showPitchAccentBadge,
       popupNestingMaxDepth: preferences.popupNestingMaxDepth,
       popupWidthPx: preferences.popupWidthPx,
       popupHeightPx: preferences.popupHeightPx,
@@ -5962,6 +6163,8 @@
     DEFAULT_POPUP_WIDTH_PX,
     DEFAULT_HIDE_POPUP_GRAMMAR_TAGS,
     DEFAULT_SHOW_COMPACT_DEFINITION_SUMMARY,
+    DEFAULT_SHOW_PITCH_ACCENT_FURIGANA,
+    DEFAULT_SHOW_PITCH_ACCENT_BADGE,
     DEFAULT_SOURCE_HIGHLIGHT_ENABLED,
     DEFAULT_THEME,
     INITIAL_VISIBLE_RESULTS,
@@ -6012,11 +6215,14 @@
     normalizeSortFrequencyDictionary,
     normalizeSortFrequencyDictionaryOrder,
     normalizeCompactDefinitionSummaryDictionary,
+    buildPitchAccentMorae,
     prioritizeLookupResultsByReading,
     resolveGsmApiBaseUrl,
     resolveLookupCandidate,
     resolveGlossaryLookupCandidate,
     segmentFurigana,
+    selectPitchAccent,
     setMiningButtonState,
+    splitPitchAccentMorae,
   };
 }));

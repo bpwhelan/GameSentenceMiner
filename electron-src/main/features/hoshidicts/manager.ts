@@ -42,6 +42,9 @@ import {
     DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
     DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
     DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
+    DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
+    DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE,
+    DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
     DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
     DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
     DEFAULT_HOSHIDICTS_MAX_RESULTS,
@@ -164,6 +167,9 @@ interface PersistedManifest {
     showLookupCounts: boolean;
     showCompactDefinitionSummary: boolean;
     compactDefinitionSummaryDictionary: string | null;
+    showPitchAccentFurigana: boolean;
+    pitchAccentFuriganaDictionary: string | null;
+    showPitchAccentBadge: boolean;
     hidePopupGrammarTags: boolean;
     popupNestingMaxDepth: number;
     definitionBlur: HoshidictsDefinitionBlurPreferences;
@@ -429,6 +435,11 @@ function emptyManifest(): PersistedManifest {
             DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
         compactDefinitionSummaryDictionary:
             DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
+        showPitchAccentFurigana:
+            DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
+        pitchAccentFuriganaDictionary:
+            DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
+        showPitchAccentBadge: DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE,
         hidePopupGrammarTags: DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
         popupNestingMaxDepth: DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
         definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
@@ -2628,7 +2639,10 @@ export class HoshidictsManager {
             snapshot.popupColumns,
             snapshot.showCompactDefinitionSummary,
             snapshot.compactDefinitionSummaryDictionary,
-            snapshot.hidePopupGrammarTags
+            snapshot.hidePopupGrammarTags,
+            snapshot.showPitchAccentFurigana,
+            snapshot.pitchAccentFuriganaDictionary,
+            snapshot.showPitchAccentBadge
         );
     }
 
@@ -2660,7 +2674,12 @@ export class HoshidictsManager {
             DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
         compactDefinitionSummaryDictionary: string | null =
             DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
-        hidePopupGrammarTags = DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS
+        hidePopupGrammarTags = DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
+        showPitchAccentFurigana =
+            DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
+        pitchAccentFuriganaDictionary: string | null =
+            DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
+        showPitchAccentBadge = DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE
     ): Promise<HoshidictsManagerSnapshot> {
         if (lookupMode !== 'shift' && lookupMode !== 'hover') {
             throw new Error('Hoshidicts lookup mode is invalid.');
@@ -2751,6 +2770,30 @@ export class HoshidictsManager {
             compactDefinitionSummaryDictionary === null
                 ? null
                 : compactDefinitionSummaryDictionary.trim();
+        if (typeof showPitchAccentFurigana !== 'boolean') {
+            throw new Error(
+                'Hoshidicts pitch accent furigana preference is invalid.'
+            );
+        }
+        if (
+            pitchAccentFuriganaDictionary !== null &&
+            (typeof pitchAccentFuriganaDictionary !== 'string' ||
+                pitchAccentFuriganaDictionary.trim().length === 0 ||
+                pitchAccentFuriganaDictionary.length > 4096)
+        ) {
+            throw new Error(
+                'Hoshidicts pitch accent furigana dictionary is invalid.'
+            );
+        }
+        const normalizedPitchAccentFuriganaDictionary =
+            pitchAccentFuriganaDictionary === null
+                ? null
+                : pitchAccentFuriganaDictionary.trim();
+        if (typeof showPitchAccentBadge !== 'boolean') {
+            throw new Error(
+                'Hoshidicts pitch accent badge preference is invalid.'
+            );
+        }
         if (typeof hidePopupGrammarTags !== 'boolean') {
             throw new Error(
                 'Hoshidicts popup grammar tag preference is invalid.'
@@ -2881,6 +2924,11 @@ export class HoshidictsManager {
                     showCompactDefinitionSummary ||
                 manifest.compactDefinitionSummaryDictionary !==
                     normalizedCompactDefinitionSummaryDictionary ||
+                manifest.showPitchAccentFurigana !==
+                    showPitchAccentFurigana ||
+                manifest.pitchAccentFuriganaDictionary !==
+                    normalizedPitchAccentFuriganaDictionary ||
+                manifest.showPitchAccentBadge !== showPitchAccentBadge ||
                 manifest.hidePopupGrammarTags !== hidePopupGrammarTags ||
                 manifest.popupNestingMaxDepth !== popupNestingMaxDepth ||
                 manifest.popupWidthPx !== effectivePopupWidthPx ||
@@ -2914,6 +2962,10 @@ export class HoshidictsManager {
                     showCompactDefinitionSummary,
                     compactDefinitionSummaryDictionary:
                         normalizedCompactDefinitionSummaryDictionary,
+                    showPitchAccentFurigana,
+                    pitchAccentFuriganaDictionary:
+                        normalizedPitchAccentFuriganaDictionary,
+                    showPitchAccentBadge,
                     hidePopupGrammarTags,
                     popupNestingMaxDepth,
                     definitionBlur: { ...effectiveDefinitionBlur },
@@ -3290,6 +3342,10 @@ export class HoshidictsManager {
                 manifest.showCompactDefinitionSummary,
             compactDefinitionSummaryDictionary:
                 manifest.compactDefinitionSummaryDictionary,
+            showPitchAccentFurigana: manifest.showPitchAccentFurigana,
+            pitchAccentFuriganaDictionary:
+                manifest.pitchAccentFuriganaDictionary,
+            showPitchAccentBadge: manifest.showPitchAccentBadge,
             hidePopupGrammarTags: manifest.hidePopupGrammarTags,
             popupNestingMaxDepth: manifest.popupNestingMaxDepth,
             definitionBlur: { ...manifest.definitionBlur },
@@ -3684,6 +3740,13 @@ export class HoshidictsManager {
                 normalizeCompactDefinitionSummaryDictionary(
                     parsed.compactDefinitionSummaryDictionary
                 ),
+            showPitchAccentFurigana:
+                parsed.showPitchAccentFurigana !== false,
+            pitchAccentFuriganaDictionary:
+                normalizeCompactDefinitionSummaryDictionary(
+                    parsed.pitchAccentFuriganaDictionary
+                ),
+            showPitchAccentBadge: parsed.showPitchAccentBadge === true,
             hidePopupGrammarTags: parsed.hidePopupGrammarTags !== false,
             popupNestingMaxDepth: normalizePopupNestingMaxDepth(
                 parsed.popupNestingMaxDepth
@@ -3746,6 +3809,13 @@ export class HoshidictsManager {
                 normalizeCompactDefinitionSummaryDictionary(
                     parsed.compactDefinitionSummaryDictionary
                 ),
+            showPitchAccentFurigana:
+                parsed.showPitchAccentFurigana !== false,
+            pitchAccentFuriganaDictionary:
+                normalizeCompactDefinitionSummaryDictionary(
+                    parsed.pitchAccentFuriganaDictionary
+                ),
+            showPitchAccentBadge: parsed.showPitchAccentBadge === true,
             hidePopupGrammarTags: parsed.hidePopupGrammarTags !== false,
             popupNestingMaxDepth: normalizePopupNestingMaxDepth(
                 parsed.popupNestingMaxDepth

@@ -1575,6 +1575,46 @@ html[data-hoshidicts-theme="girlypop"] .gsm-hoshidicts-popup {
   user-select: none;
 }
 
+.gsm-hoshidicts-pitch-reading {
+  overflow: visible;
+  padding: 1px 0 2px;
+}
+
+.gsm-hoshidicts-pitch-contour {
+  display: inline-flex;
+  align-items: stretch;
+  color: var(--text-color-light1);
+  white-space: nowrap;
+}
+
+.gsm-hoshidicts-pitch-mora {
+  position: relative;
+  display: inline-block;
+  margin-right: -1px;
+  padding: 2px 1px;
+  border-top: 2px solid transparent;
+  border-bottom: 2px solid transparent;
+  line-height: 1;
+}
+
+.gsm-hoshidicts-pitch-mora[data-pitch-level="high"] {
+  border-top-color: var(--hoshidicts-pitch);
+}
+
+.gsm-hoshidicts-pitch-mora[data-pitch-level="low"] {
+  border-bottom-color: var(--hoshidicts-pitch);
+}
+
+.gsm-hoshidicts-pitch-mora[data-pitch-transition]::after {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  right: -1px;
+  bottom: 0;
+  border-right: 2px solid var(--hoshidicts-pitch);
+  content: "";
+}
+
 .gsm-hoshidicts-popup[data-definition-blur-state="pending"] .gsm-hoshidicts-expression rt,
 .gsm-hoshidicts-popup[data-definition-blur-state="blurred"] .gsm-hoshidicts-expression rt {
   filter: blur(5px);

@@ -615,9 +615,36 @@
       },
       "tabs": {
         "dictionaries": "辞書",
+        "design": "デザイン",
         "audio": "音声",
         "custom": "カスタム",
         "mining": "Ankiマイニング"
+      },
+      "design": {
+        "title": "ポップアップのデザイン",
+        "subtitle": "左側の設定を変更すると、ライブプレビューにすぐ反映されます。",
+        "preview": {
+          "title": "ポップアップのライブプレビュー",
+          "status": {
+            "loading": "読み込み中",
+            "connecting": "接続中",
+            "ready": "ライブ",
+            "error": "プレビューを表示できません"
+          },
+          "sizeMode": "プレビューサイズ",
+          "scaleToFit": "全体を表示",
+          "actualSize": "実寸",
+          "scalePercent": "{percent}%",
+          "refresh": "更新",
+          "frameTitle": "HoshiDictポップアップのプレビュー"
+        },
+        "sections": {
+          "appearance": "外観とレイアウト",
+          "content": "見出し語とメタデータ",
+          "actions": "ポップアップの操作",
+          "definitions": "語義",
+          "gameText": "ゲーム本文"
+        }
       },
       "reader": {
         "title": "リーダーの動作",
@@ -681,8 +708,16 @@
           "compactDefinitionSummaryDictionaryAutomatic": "自動",
           "compactDefinitionSummaryDictionaryHint": "優先する辞書に項目がない場合は、別の辞書から自動的に選びます。",
           "compactDefinitionSummaryDictionaryUnavailable": "{dictionary}（未インストール）",
+          "pitchAccentFurigana": "ふりがなにピッチアクセントを表示",
+          "pitchAccentFuriganaHint": "単語の上の読み全体にJL風の高低線を表示します。",
+          "pitchAccentFuriganaDictionary": "ピッチアクセント辞書",
+          "pitchAccentFuriganaDictionaryAutomatic": "自動（最初の有効なピッチ辞書）",
+          "pitchAccentFuriganaDictionaryHint": "自動では、その読みに有効なアクセントがある最初のピッチ辞書を使用します。",
+          "pitchAccentFuriganaDictionaryUnavailable": "{dictionary}（未インストール）",
+          "pitchAccentBadge": "ピッチアクセントのバッジを表示",
+          "pitchAccentBadgeHint": "各項目上部のメタデータ欄に、辞書のピッチアクセントバッジを表示します。",
           "hidePopupGrammarTags": "ポップアップのメタデータで文法タグを非表示",
-          "hidePopupGrammarTagsHint": "ポップアップのメタデータには頻度のみを表示します。語義内のラベルはそのまま表示されます。",
+          "hidePopupGrammarTagsHint": "ポップアップのメタデータから文法ラベルを隠します。頻度と、有効にしたピッチアクセントバッジは表示されます。",
           "pixels": "px",
           "resetSize": "サイズをリセット"
         },

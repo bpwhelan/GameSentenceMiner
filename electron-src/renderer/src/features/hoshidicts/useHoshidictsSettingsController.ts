@@ -6,6 +6,9 @@ import {
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
   DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
+  DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
+  DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE,
+  DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
   DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
   DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
   DEFAULT_HOSHIDICTS_MAX_RESULTS,
@@ -125,6 +128,11 @@ const defaultReaderPreferences = (): HoshidictsReaderPreferences => ({
     DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
   compactDefinitionSummaryDictionary:
     DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
+  showPitchAccentFurigana:
+    DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
+  pitchAccentFuriganaDictionary:
+    DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
+  showPitchAccentBadge: DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE,
   hidePopupGrammarTags: DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
   popupNestingMaxDepth: DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
   definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
@@ -265,6 +273,10 @@ export function useHoshidictsSettingsController() {
       showCompactDefinitionSummary: normalized.showCompactDefinitionSummary,
       compactDefinitionSummaryDictionary:
         normalized.compactDefinitionSummaryDictionary,
+      showPitchAccentFurigana: normalized.showPitchAccentFurigana,
+      pitchAccentFuriganaDictionary:
+        normalized.pitchAccentFuriganaDictionary,
+      showPitchAccentBadge: normalized.showPitchAccentBadge,
       hidePopupGrammarTags: normalized.hidePopupGrammarTags,
       popupNestingMaxDepth: normalized.popupNestingMaxDepth,
       definitionBlur: { ...normalized.definitionBlur },
@@ -792,6 +804,27 @@ export function useHoshidictsSettingsController() {
     [updateReaderPreferences]
   );
 
+  const setShowPitchAccentFurigana = useCallback(
+    (showPitchAccentFurigana: boolean) => {
+      updateReaderPreferences({ showPitchAccentFurigana });
+    },
+    [updateReaderPreferences]
+  );
+
+  const setPitchAccentFuriganaDictionary = useCallback(
+    (pitchAccentFuriganaDictionary: string | null) => {
+      updateReaderPreferences({ pitchAccentFuriganaDictionary });
+    },
+    [updateReaderPreferences]
+  );
+
+  const setShowPitchAccentBadge = useCallback(
+    (showPitchAccentBadge: boolean) => {
+      updateReaderPreferences({ showPitchAccentBadge });
+    },
+    [updateReaderPreferences]
+  );
+
   const setHidePopupGrammarTags = useCallback(
     (hidePopupGrammarTags: boolean) => {
       updateReaderPreferences({ hidePopupGrammarTags });
@@ -1238,6 +1271,9 @@ export function useHoshidictsSettingsController() {
     setShowLookupCounts,
     setShowCompactDefinitionSummary,
     setCompactDefinitionSummaryDictionary,
+    setShowPitchAccentFurigana,
+    setPitchAccentFuriganaDictionary,
+    setShowPitchAccentBadge,
     setHidePopupGrammarTags,
     setDefinitionBlurEnabled,
     setDefinitionBlurLookupThreshold,

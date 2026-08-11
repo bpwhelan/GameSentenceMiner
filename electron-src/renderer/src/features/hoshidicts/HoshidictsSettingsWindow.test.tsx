@@ -13,6 +13,8 @@ import {
   createDefaultHoshidictsPopupButtons,
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
+  DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
+  DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
   DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
   DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
   DEFAULT_HOSHIDICTS_MAX_RESULTS,
@@ -202,6 +204,11 @@ const baseState: HoshidictsDesktopSnapshot = {
   showCompactDefinitionSummary:
     DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
   compactDefinitionSummaryDictionary: null,
+  showPitchAccentFurigana:
+    DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
+  pitchAccentFuriganaDictionary:
+    DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
+  showPitchAccentBadge: false,
   hidePopupGrammarTags: DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
   definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
   popupNestingMaxDepth: 10,
@@ -420,6 +427,13 @@ describe("HoshidictsSettingsWindow", () => {
         }
       }
     });
+    vi.stubGlobal(
+      "ResizeObserver",
+      class ResizeObserver {
+        observe() {}
+        disconnect() {}
+      }
+    );
 
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -463,6 +477,17 @@ describe("HoshidictsSettingsWindow", () => {
     );
     await act(async () => {
       tab?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+
+  async function openDesign() {
+    const designTab = container.querySelector<HTMLButtonElement>(
+      ".hoshidicts-window__tabs button:nth-child(2)"
+    );
+    await act(async () => {
+      designTab?.click();
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -2094,6 +2119,24 @@ describe("HoshidictsSettingsWindow", () => {
     const maxDepth = container.querySelector<HTMLInputElement>(
       "#hoshidicts-popup-nesting-max-depth"
     );
+    const onlyScanJapaneseText = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-only-scan-japanese-text"
+    );
+
+    expect(onlyScanJapaneseText?.checked).toBe(true);
+    expect(container.textContent).toContain(
+      "Only scan words written entirely in Japanese"
+    );
+
+    await act(async () => {
+      hover?.click();
+      setInputValue(delay, "850");
+      setInputValue(maxDepth, "12");
+      onlyScanJapaneseText?.click();
+      await Promise.resolve();
+    });
+    await openDesign();
+
     const showLookupCounts = container.querySelector<HTMLInputElement>(
       "#hoshidicts-show-lookup-counts"
     );
@@ -2105,16 +2148,27 @@ describe("HoshidictsSettingsWindow", () => {
       container.querySelector<HTMLSelectElement>(
         "#hoshidicts-compact-definition-summary-dictionary"
       );
+    const showPitchAccentFurigana =
+      container.querySelector<HTMLInputElement>(
+        "#hoshidicts-show-pitch-accent-furigana"
+      );
+    const pitchAccentFuriganaDictionary =
+      container.querySelector<HTMLSelectElement>(
+        "#hoshidicts-pitch-accent-furigana-dictionary"
+      );
+    const showPitchAccentBadge = container.querySelector<HTMLInputElement>(
+      "#hoshidicts-show-pitch-accent-badge"
+    );
     const hidePopupGrammarTags = container.querySelector<HTMLInputElement>(
       "#hoshidicts-hide-popup-grammar-tags"
-    );
-    const onlyScanJapaneseText = container.querySelector<HTMLInputElement>(
-      "#hoshidicts-only-scan-japanese-text"
     );
 
     expect(showLookupCounts?.checked).toBe(true);
     expect(showCompactDefinitionSummary?.checked).toBe(false);
     expect(compactDefinitionSummaryDictionary?.disabled).toBe(true);
+    expect(showPitchAccentFurigana?.checked).toBe(true);
+    expect(pitchAccentFuriganaDictionary?.disabled).toBe(false);
+    expect(showPitchAccentBadge?.checked).toBe(false);
     expect(hidePopupGrammarTags?.checked).toBe(true);
     expect(
       Array.from(compactDefinitionSummaryDictionary?.options ?? []).map(
@@ -2124,27 +2178,34 @@ describe("HoshidictsSettingsWindow", () => {
       ["", "Automatic"],
       ["JMdict", "JMdict"]
     ]);
-    expect(onlyScanJapaneseText?.checked).toBe(true);
-    expect(container.textContent).toContain(
-      "Only scan words written entirely in Japanese"
-    );
+    expect(
+      Array.from(pitchAccentFuriganaDictionary?.options ?? []).map(
+        (option) => [option.value, option.textContent]
+      )
+    ).toEqual([
+      ["", "Automatic (first enabled pitch dictionary)"],
+      ["JMdict", "JMdict"]
+    ]);
     expect(container.textContent).toContain("Show seen and lookup counts");
     expect(container.textContent).toContain(
       "Show a compact definition near the word"
     );
     expect(container.textContent).toContain(
+      "Show pitch accent in furigana"
+    );
+    expect(container.textContent).toContain("Show pitch accent badge");
+    expect(container.textContent).toContain(
       "Hide grammar tags in popup metadata"
     );
 
     await act(async () => {
-      hover?.click();
-      setInputValue(delay, "850");
-      setInputValue(maxDepth, "12");
       showLookupCounts?.click();
       showCompactDefinitionSummary?.click();
       setSelectValue(compactDefinitionSummaryDictionary, "JMdict");
+      setSelectValue(pitchAccentFuriganaDictionary, "JMdict");
+      showPitchAccentFurigana?.click();
+      showPitchAccentBadge?.click();
       hidePopupGrammarTags?.click();
-      onlyScanJapaneseText?.click();
       await flushAutosave();
     });
 
@@ -2164,6 +2225,9 @@ describe("HoshidictsSettingsWindow", () => {
         showLookupCounts: false,
         showCompactDefinitionSummary: true,
         compactDefinitionSummaryDictionary: "JMdict",
+        showPitchAccentFurigana: false,
+        pitchAccentFuriganaDictionary: "JMdict",
+        showPitchAccentBadge: true,
         hidePopupGrammarTags: false,
         popupNestingMaxDepth: 12,
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
@@ -2206,6 +2270,7 @@ describe("HoshidictsSettingsWindow", () => {
     });
 
     await render();
+    await openDesign();
 
     const dictionary = container.querySelector<HTMLSelectElement>(
       "#hoshidicts-compact-definition-summary-dictionary"
@@ -2346,24 +2411,57 @@ describe("HoshidictsSettingsWindow", () => {
     }
   });
 
-  it("keeps lookup counts with the reader settings", async () => {
+  it("moves visual controls into Design and keeps reader behavior in Dictionaries", async () => {
     await render();
-    const countsToggle = container.querySelector<HTMLInputElement>(
-      "#hoshidicts-show-lookup-counts"
+    expect(container.querySelector("#hoshidicts-show-lookup-counts")).toBeNull();
+    expect(container.querySelector("#hoshidicts-popup-theme")).toBeNull();
+    expect(container.querySelector(".hoshidicts-reader-delay")).not.toBeNull();
+    expect(
+      container.querySelector("#hoshidicts-popup-content-scanning")
+    ).not.toBeNull();
+
+    await openDesign();
+
+    expect(
+      container.querySelector("#hoshidicts-show-lookup-counts")
+    ).not.toBeNull();
+    expect(container.querySelector("#hoshidicts-popup-theme")).not.toBeNull();
+    expect(container.querySelector(".hoshidicts-reader-delay")).toBeNull();
+    expect(
+      container.querySelector("#hoshidicts-popup-content-scanning")
+    ).toBeNull();
+  });
+
+  it("shows the live popup preview with fit and actual-size modes", async () => {
+    await render();
+    await openDesign();
+
+    const frame = container.querySelector<HTMLIFrameElement>(
+      'iframe[src="./hoshidicts-preview/index.html"]'
     );
-    const hideDelay = container.querySelector(
-      ".hoshidicts-reader-delay"
+    const scaleToFit = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Scale to fit"
+    );
+    const actualSize = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Actual size"
     );
 
-    expect(countsToggle).not.toBeNull();
-    expect(hideDelay).not.toBeNull();
-    expect(countsToggle?.closest(".hoshidicts-section")).toBe(
-      hideDelay?.closest(".hoshidicts-section")
-    );
+    expect(frame?.title).toBe("HoshiDict popup preview");
+    expect(scaleToFit?.getAttribute("aria-pressed")).toBe("true");
+    expect(actualSize?.getAttribute("aria-pressed")).toBe("false");
+
+    await act(async () => {
+      actualSize?.click();
+      await Promise.resolve();
+    });
+
+    expect(scaleToFit?.getAttribute("aria-pressed")).toBe("false");
+    expect(actualSize?.getAttribute("aria-pressed")).toBe("true");
   });
 
   it("offers every GSM popup theme plus Girlypop in stable groups", async () => {
     await render();
+    await openDesign();
     const theme = container.querySelector<HTMLSelectElement>(
       "#hoshidicts-popup-theme"
     );
@@ -2390,6 +2488,7 @@ describe("HoshidictsSettingsWindow", () => {
   it("auto-saves whether the popup toolbar is at the top or bottom", async () => {
     vi.useFakeTimers();
     await render();
+    await openDesign();
     const toolbarPosition = container.querySelector<HTMLSelectElement>(
       "#hoshidicts-popup-toolbar-position"
     );
@@ -2419,6 +2518,7 @@ describe("HoshidictsSettingsWindow", () => {
   it("controls the popup buttons and custom links", async () => {
     vi.useFakeTimers();
     await render();
+    await openDesign();
 
     const addToAnki = container.querySelector<HTMLInputElement>(
       "#hoshidicts-popup-button-add-to-anki"
@@ -2574,6 +2674,7 @@ describe("HoshidictsSettingsWindow", () => {
     "localizes popup theme groups and Girlypop in %s",
     async (locale, groupLabels, girlypopLabel) => {
       await render(locale);
+      await openDesign();
       const theme = container.querySelector<HTMLSelectElement>(
         "#hoshidicts-popup-theme"
       );
@@ -2594,6 +2695,7 @@ describe("HoshidictsSettingsWindow", () => {
   it("auto-saves popup appearance and keeps columns on size reset", async () => {
     vi.useFakeTimers();
     await render();
+    await openDesign();
     const theme = container.querySelector<HTMLSelectElement>(
       "#hoshidicts-popup-theme"
     );
@@ -2659,6 +2761,7 @@ describe("HoshidictsSettingsWindow", () => {
   it("keeps source highlighting off by default and auto-saves when enabled", async () => {
     vi.useFakeTimers();
     await render();
+    await openDesign();
     const sourceHighlight = container.querySelector<HTMLInputElement>(
       "#hoshidicts-source-highlight-enabled"
     );
@@ -2690,6 +2793,9 @@ describe("HoshidictsSettingsWindow", () => {
         showLookupCounts: true,
         showCompactDefinitionSummary: false,
         compactDefinitionSummaryDictionary: null,
+        showPitchAccentFurigana: true,
+        pitchAccentFuriganaDictionary: null,
+        showPitchAccentBadge: false,
         hidePopupGrammarTags: true,
         popupNestingMaxDepth: 10,
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
@@ -2707,6 +2813,7 @@ describe("HoshidictsSettingsWindow", () => {
   it("auto-saves definition blur preferences as one nested setting", async () => {
     vi.useFakeTimers();
     await render();
+    await openDesign();
 
     const enabled = container.querySelector<HTMLInputElement>(
       "#hoshidicts-definition-blur-enabled"
@@ -2750,6 +2857,9 @@ describe("HoshidictsSettingsWindow", () => {
         showLookupCounts: true,
         showCompactDefinitionSummary: false,
         compactDefinitionSummaryDictionary: null,
+        showPitchAccentFurigana: true,
+        pitchAccentFuriganaDictionary: null,
+        showPitchAccentBadge: false,
         hidePopupGrammarTags: true,
         popupNestingMaxDepth: 10,
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
@@ -2781,6 +2891,7 @@ describe("HoshidictsSettingsWindow", () => {
       }
     }));
     await render();
+    await openDesign();
 
     expect(
       container.querySelector("#hoshidicts-definition-blur-reveal-delay")
@@ -2820,6 +2931,7 @@ describe("HoshidictsSettingsWindow", () => {
   it("clamps definition blur inputs to the supported bounds", async () => {
     vi.useFakeTimers();
     await render();
+    await openDesign();
 
     await act(async () => {
       setInputValue(
@@ -2887,6 +2999,9 @@ describe("HoshidictsSettingsWindow", () => {
         showLookupCounts: true,
         showCompactDefinitionSummary: false,
         compactDefinitionSummaryDictionary: null,
+        showPitchAccentFurigana: true,
+        pitchAccentFuriganaDictionary: null,
+        showPitchAccentBadge: false,
         hidePopupGrammarTags: true,
         popupNestingMaxDepth: 0,
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
@@ -2926,6 +3041,9 @@ describe("HoshidictsSettingsWindow", () => {
         showLookupCounts: true,
         showCompactDefinitionSummary: false,
         compactDefinitionSummaryDictionary: null,
+        showPitchAccentFurigana: true,
+        pitchAccentFuriganaDictionary: null,
+        showPitchAccentBadge: false,
         hidePopupGrammarTags: true,
         popupNestingMaxDepth: 1,
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
@@ -3004,6 +3122,9 @@ describe("HoshidictsSettingsWindow", () => {
         showLookupCounts: true,
         showCompactDefinitionSummary: false,
         compactDefinitionSummaryDictionary: null,
+        showPitchAccentFurigana: true,
+        pitchAccentFuriganaDictionary: null,
+        showPitchAccentBadge: false,
         hidePopupGrammarTags: true,
         popupNestingMaxDepth: 10,
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
@@ -3047,6 +3168,9 @@ describe("HoshidictsSettingsWindow", () => {
         showLookupCounts: true,
         showCompactDefinitionSummary: false,
         compactDefinitionSummaryDictionary: null,
+        showPitchAccentFurigana: true,
+        pitchAccentFuriganaDictionary: null,
+        showPitchAccentBadge: false,
         hidePopupGrammarTags: true,
         popupNestingMaxDepth: 10,
         popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
@@ -4566,10 +4690,11 @@ describe("HoshidictsSettingsWindow", () => {
       expect(container.textContent).toContain(recommended);
       expect(container.textContent).toContain(changeKey);
       expect(container.textContent).toContain(resetKey);
-      expect(container.textContent).toContain(sourceHighlight);
       expect(container.textContent).toContain(frequencyMode);
       expect(container.textContent).toContain(custom);
       expect(container.textContent).toContain(popupScanning);
+      await openDesign();
+      expect(container.textContent).toContain(sourceHighlight);
       expect(container.textContent).toContain(definitionBlur);
       expect(container.textContent).toContain(lookupCounts);
       expect(container.textContent).toContain(compactDefinitionSummary);
@@ -4598,6 +4723,8 @@ describe("HoshidictsSettingsWindow", () => {
       showLookupCounts: undefined,
       showCompactDefinitionSummary: undefined,
       compactDefinitionSummaryDictionary: undefined,
+      showPitchAccentFurigana: undefined,
+      pitchAccentFuriganaDictionary: undefined,
       hidePopupGrammarTags: undefined,
       popupNestingMaxDepth: undefined,
       popupColumns: undefined,
@@ -4641,6 +4768,8 @@ describe("HoshidictsSettingsWindow", () => {
     expect(normalized.showLookupCounts).toBe(true);
     expect(normalized.showCompactDefinitionSummary).toBe(false);
     expect(normalized.compactDefinitionSummaryDictionary).toBeNull();
+    expect(normalized.showPitchAccentFurigana).toBe(true);
+    expect(normalized.pitchAccentFuriganaDictionary).toBeNull();
     expect(normalized.hidePopupGrammarTags).toBe(true);
     expect(normalized.definitionBlur).toEqual(
       DEFAULT_HOSHIDICTS_DEFINITION_BLUR

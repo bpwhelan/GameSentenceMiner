@@ -173,6 +173,9 @@ describe('runOverlayWithSource', () => {
                 GSM_HOSHIDICTS_SHOW_LOOKUP_COUNTS: '1',
                 GSM_HOSHIDICTS_SHOW_COMPACT_DEFINITION_SUMMARY: '0',
                 GSM_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY: '',
+                GSM_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA: '1',
+                GSM_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY: '',
+                GSM_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE: '0',
                 GSM_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS: '1',
                 GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH: '10',
                 GSM_HOSHIDICTS_POPUP_WIDTH_PX: '560',
@@ -222,6 +225,13 @@ describe('runOverlayWithSource', () => {
         expect(
             process.env.GSM_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY
         ).toBe('');
+        expect(
+            process.env.GSM_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA
+        ).toBe('1');
+        expect(
+            process.env.GSM_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY
+        ).toBe('');
+        expect(process.env.GSM_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE).toBe('0');
         expect(process.env.GSM_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS).toBe('1');
         expect(process.env.GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH).toBe('10');
         expect(process.env.GSM_HOSHIDICTS_POPUP_WIDTH_PX).toBe('560');
@@ -275,6 +285,15 @@ describe('runOverlayWithSource', () => {
         front.configureHoshidictsCompactDefinitionSummaryDictionaryProvider(
             async () => 'Jitendex'
         );
+        front.configureHoshidictsShowPitchAccentFuriganaProvider(
+            async () => false
+        );
+        front.configureHoshidictsPitchAccentFuriganaDictionaryProvider(
+            async () => 'Kanjium Pitch Accents'
+        );
+        front.configureHoshidictsShowPitchAccentBadgeProvider(
+            async () => true
+        );
         front.configureHoshidictsHidePopupGrammarTagsProvider(
             async () => false
         );
@@ -312,6 +331,10 @@ describe('runOverlayWithSource', () => {
             GSM_HOSHIDICTS_SHOW_LOOKUP_COUNTS: '0',
             GSM_HOSHIDICTS_SHOW_COMPACT_DEFINITION_SUMMARY: '1',
             GSM_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY: 'Jitendex',
+            GSM_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA: '0',
+            GSM_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY:
+                'Kanjium Pitch Accents',
+            GSM_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE: '1',
             GSM_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS: '0',
             GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH: '4',
             GSM_HOSHIDICTS_POPUP_WIDTH_PX: '720',
@@ -342,6 +365,15 @@ describe('runOverlayWithSource', () => {
         expect(
             front.getOverlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch()
         ).toBe('Jitendex');
+        expect(
+            front.getOverlayHoshidictsShowPitchAccentFuriganaAtLaunch()
+        ).toBe(false);
+        expect(
+            front.getOverlayHoshidictsPitchAccentFuriganaDictionaryAtLaunch()
+        ).toBe('Kanjium Pitch Accents');
+        expect(
+            front.getOverlayHoshidictsShowPitchAccentBadgeAtLaunch()
+        ).toBe(true);
         expect(
             front.getOverlayHoshidictsHidePopupGrammarTagsAtLaunch()
         ).toBe(false);

@@ -5,6 +5,9 @@ import {
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
   DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
+  DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
+  DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE,
+  DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
   DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
   DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
   DEFAULT_HOSHIDICTS_MAX_RESULTS,
@@ -68,7 +71,12 @@ import {
   type HoshidictsSchedule
 } from "../../../../shared/features/hoshidicts";
 
-export type HoshidictsView = "dictionaries" | "custom" | "audio" | "mining";
+export type HoshidictsView =
+  | "dictionaries"
+  | "design"
+  | "custom"
+  | "audio"
+  | "mining";
 export type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
 export type MiningField = HoshidictsMiningFieldName;
 export type MiningProfileDraft = Omit<HoshidictsMiningProfile, "tags"> & {
@@ -335,6 +343,11 @@ const DEFAULT_STATE: HoshidictsDesktopSnapshot = {
     DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
   compactDefinitionSummaryDictionary:
     DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
+  showPitchAccentFurigana:
+    DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
+  pitchAccentFuriganaDictionary:
+    DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
+  showPitchAccentBadge: DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE,
   hidePopupGrammarTags: DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
   definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
   popupNestingMaxDepth: DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
@@ -833,6 +846,15 @@ export function normalizeHoshidictsDesktopState(
       candidate.compactDefinitionSummaryDictionary.length <= 4096
         ? candidate.compactDefinitionSummaryDictionary.trim()
         : DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
+    showPitchAccentFurigana:
+      candidate.showPitchAccentFurigana !== false,
+    pitchAccentFuriganaDictionary:
+      typeof candidate.pitchAccentFuriganaDictionary === "string" &&
+      candidate.pitchAccentFuriganaDictionary.trim().length > 0 &&
+      candidate.pitchAccentFuriganaDictionary.length <= 4096
+        ? candidate.pitchAccentFuriganaDictionary.trim()
+        : DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
+    showPitchAccentBadge: candidate.showPitchAccentBadge === true,
     hidePopupGrammarTags: candidate.hidePopupGrammarTags !== false,
     definitionBlur: normalizeDefinitionBlur(candidate.definitionBlur),
     popupNestingMaxDepth,

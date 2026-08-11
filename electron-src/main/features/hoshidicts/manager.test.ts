@@ -1812,6 +1812,8 @@ describe('Hoshidicts reader preferences', () => {
         expect(snapshot.showLookupCounts).toBe(true);
         expect(snapshot.showCompactDefinitionSummary).toBe(false);
         expect(snapshot.compactDefinitionSummaryDictionary).toBeNull();
+        expect(snapshot.showPitchAccentFurigana).toBe(true);
+        expect(snapshot.pitchAccentFuriganaDictionary).toBeNull();
         expect(snapshot.hidePopupGrammarTags).toBe(true);
         expect(snapshot.popupNestingMaxDepth).toBe(10);
         expect(snapshot.popupWidthPx).toBe(560);
@@ -1856,6 +1858,15 @@ describe('Hoshidicts reader preferences', () => {
         expect(
             (await manager.getSnapshot()).compactDefinitionSummaryDictionary
         ).toBeNull();
+        expect(
+            (await manager.getSnapshot()).showPitchAccentFurigana
+        ).toBe(true);
+        expect(
+            (await manager.getSnapshot()).pitchAccentFuriganaDictionary
+        ).toBeNull();
+        expect(
+            (await manager.getSnapshot()).showPitchAccentBadge
+        ).toBe(false);
         expect((await manager.getSnapshot()).hidePopupGrammarTags).toBe(true);
         expect((await manager.getSnapshot()).popupNestingMaxDepth).toBe(10);
         expect((await manager.getSnapshot()).popupWidthPx).toBe(560);
@@ -1916,7 +1927,10 @@ describe('Hoshidicts reader preferences', () => {
             3,
             true,
             '  Jitendex.org  ',
-            false
+            false,
+            false,
+            '  Kanjium Pitch Accents  ',
+            true
         );
 
         expect(snapshot.lookupMode).toBe('hover');
@@ -1932,6 +1946,10 @@ describe('Hoshidicts reader preferences', () => {
         expect(snapshot.showCompactDefinitionSummary).toBe(true);
         expect(snapshot.compactDefinitionSummaryDictionary).toBe(
             'Jitendex.org'
+        );
+        expect(snapshot.showPitchAccentFurigana).toBe(false);
+        expect(snapshot.pitchAccentFuriganaDictionary).toBe(
+            'Kanjium Pitch Accents'
         );
         expect(snapshot.hidePopupGrammarTags).toBe(false);
         expect(snapshot.popupNestingMaxDepth).toBe(12);
@@ -1975,7 +1993,13 @@ describe('Hoshidicts reader preferences', () => {
         expect(readManifest(baseDir).compactDefinitionSummaryDictionary).toBe(
             'Jitendex.org'
         );
+        expect(readManifest(baseDir).showPitchAccentFurigana).toBe(false);
+        expect(readManifest(baseDir).pitchAccentFuriganaDictionary).toBe(
+            'Kanjium Pitch Accents'
+        );
         expect(readManifest(baseDir).hidePopupGrammarTags).toBe(false);
+        expect(snapshot.showPitchAccentBadge).toBe(true);
+        expect(readManifest(baseDir).showPitchAccentBadge).toBe(true);
         expect(readManifest(baseDir).popupNestingMaxDepth).toBe(12);
         expect(readManifest(baseDir).popupWidthPx).toBe(720);
         expect(readManifest(baseDir).popupHeightPx).toBe(520);
@@ -2012,6 +2036,12 @@ describe('Hoshidicts reader preferences', () => {
         expect(
             (await reloaded.getSnapshot()).compactDefinitionSummaryDictionary
         ).toBe('Jitendex.org');
+        expect(
+            (await reloaded.getSnapshot()).showPitchAccentFurigana
+        ).toBe(false);
+        expect(
+            (await reloaded.getSnapshot()).pitchAccentFuriganaDictionary
+        ).toBe('Kanjium Pitch Accents');
         expect((await reloaded.getSnapshot()).hidePopupGrammarTags).toBe(false);
         expect((await reloaded.getSnapshot()).popupNestingMaxDepth).toBe(12);
         expect((await reloaded.getSnapshot()).popupWidthPx).toBe(720);
@@ -2048,6 +2078,14 @@ describe('Hoshidicts reader preferences', () => {
         );
         expect(readManifest(baseDir).compactDefinitionSummaryDictionary).toBe(
             'Jitendex.org'
+        );
+        expect(shifted.showPitchAccentFurigana).toBe(false);
+        expect(readManifest(baseDir).showPitchAccentFurigana).toBe(false);
+        expect(shifted.pitchAccentFuriganaDictionary).toBe(
+            'Kanjium Pitch Accents'
+        );
+        expect(readManifest(baseDir).pitchAccentFuriganaDictionary).toBe(
+            'Kanjium Pitch Accents'
         );
         expect(shifted.hidePopupGrammarTags).toBe(false);
         expect(readManifest(baseDir).hidePopupGrammarTags).toBe(false);
@@ -2293,6 +2331,91 @@ describe('Hoshidicts reader preferences', () => {
                 'yes' as never
             )
         ).rejects.toThrow('popup grammar tag preference is invalid');
+    });
+
+    it('rejects invalid pitch accent furigana preferences', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+        const setPitchPreferences = (
+            showPitchAccentFurigana: boolean,
+            pitchAccentFuriganaDictionary: string | null
+        ) =>
+            manager.setReaderPreferences(
+                'shift',
+                300,
+                'Shift',
+                false,
+                10,
+                undefined,
+                true,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                true,
+                undefined,
+                16,
+                32,
+                null,
+                'descending',
+                undefined,
+                undefined,
+                false,
+                null,
+                true,
+                showPitchAccentFurigana,
+                pitchAccentFuriganaDictionary
+            );
+
+        await expect(
+            setPitchPreferences('yes' as never, null)
+        ).rejects.toThrow('pitch accent furigana preference is invalid');
+        for (const dictionary of ['', '   ', 'x'.repeat(4097)]) {
+            await expect(
+                setPitchPreferences(true, dictionary)
+            ).rejects.toThrow('pitch accent furigana dictionary is invalid');
+        }
+        await expect(
+            setPitchPreferences(true, '  Kanjium Pitch Accents  ')
+        ).resolves.toMatchObject({
+            showPitchAccentFurigana: true,
+            pitchAccentFuriganaDictionary: 'Kanjium Pitch Accents',
+        });
+    });
+
+    it('rejects a non-boolean pitch accent badge preference', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+
+        await expect(
+            manager.setReaderPreferences(
+                'shift',
+                300,
+                'Shift',
+                false,
+                10,
+                undefined,
+                true,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                true,
+                undefined,
+                16,
+                32,
+                null,
+                'descending',
+                undefined,
+                undefined,
+                false,
+                null,
+                true,
+                true,
+                null,
+                'yes' as never
+            )
+        ).rejects.toThrow('pitch accent badge preference is invalid');
     });
 
     it('rejects popup dimensions and themes outside appearance bounds', async () => {

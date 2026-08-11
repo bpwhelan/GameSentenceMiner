@@ -277,6 +277,9 @@ describe('Hoshidicts manager full backups', () => {
             true,
             'Jitendex.org',
             false,
+            false,
+            'Kanjium Pitch Accents',
+            true,
         );
         await source.setSchedule('weekly');
         await source.setDictionarySchedule(beta!.id, 'hourly');
@@ -391,6 +394,9 @@ describe('Hoshidicts manager full backups', () => {
             showLookupCounts: false,
             showCompactDefinitionSummary: true,
             compactDefinitionSummaryDictionary: 'Jitendex.org',
+            showPitchAccentFurigana: false,
+            pitchAccentFuriganaDictionary: 'Kanjium Pitch Accents',
+            showPitchAccentBadge: true,
             hidePopupGrammarTags: false,
             popupNestingMaxDepth: 12,
             definitionBlur: {
@@ -709,6 +715,9 @@ describe('Hoshidicts manager full backups', () => {
             theme: 'default',
             popupOpacityPercent: 85,
             showCompactDefinitionSummary: false,
+            showPitchAccentFurigana: true,
+            pitchAccentFuriganaDictionary: null,
+            showPitchAccentBadge: false,
             hidePopupGrammarTags: true,
         });
         await expect(
@@ -735,6 +744,9 @@ describe('Hoshidicts manager full backups', () => {
             theme: 'default',
             popupOpacityPercent: 85,
             showCompactDefinitionSummary: false,
+            showPitchAccentFurigana: true,
+            pitchAccentFuriganaDictionary: null,
+            showPitchAccentBadge: false,
             hidePopupGrammarTags: true,
         });
     });

@@ -169,6 +169,10 @@ export const DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT = true;
 export const DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY = false;
 export const DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY:
     string | null = null;
+export const DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA = true;
+export const DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY:
+    string | null = null;
+export const DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE = false;
 export const DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS = true;
 export const DEFAULT_HOSHIDICTS_SCAN_LENGTH = 16;
 export const MIN_HOSHIDICTS_SCAN_LENGTH = 1;
@@ -685,6 +689,9 @@ export interface HoshidictsReaderPreferencesRequest {
     showLookupCounts: boolean;
     showCompactDefinitionSummary: boolean;
     compactDefinitionSummaryDictionary: string | null;
+    showPitchAccentFurigana: boolean;
+    pitchAccentFuriganaDictionary: string | null;
+    showPitchAccentBadge: boolean;
     hidePopupGrammarTags: boolean;
     popupNestingMaxDepth: number;
     definitionBlur: HoshidictsDefinitionBlurPreferences;
@@ -911,6 +918,9 @@ export interface HoshidictsManagerSnapshot {
     showLookupCounts: boolean;
     showCompactDefinitionSummary: boolean;
     compactDefinitionSummaryDictionary: string | null;
+    showPitchAccentFurigana: boolean;
+    pitchAccentFuriganaDictionary: string | null;
+    showPitchAccentBadge: boolean;
     hidePopupGrammarTags: boolean;
     popupNestingMaxDepth: number;
     definitionBlur: HoshidictsDefinitionBlurPreferences;
@@ -949,6 +959,10 @@ export function hoshidictsReaderPreferencesFromSnapshot(
         showCompactDefinitionSummary: snapshot.showCompactDefinitionSummary,
         compactDefinitionSummaryDictionary:
             snapshot.compactDefinitionSummaryDictionary,
+        showPitchAccentFurigana: snapshot.showPitchAccentFurigana,
+        pitchAccentFuriganaDictionary:
+            snapshot.pitchAccentFuriganaDictionary,
+        showPitchAccentBadge: snapshot.showPitchAccentBadge,
         hidePopupGrammarTags: snapshot.hidePopupGrammarTags,
         popupNestingMaxDepth: snapshot.popupNestingMaxDepth,
         definitionBlur: { ...snapshot.definitionBlur },

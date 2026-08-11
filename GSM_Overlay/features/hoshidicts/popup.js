@@ -1308,7 +1308,7 @@
       entry,
       result,
       dictionaryPresentation = [],
-      { includeFrequency = true } = {}
+      { includeFrequency = true, includePitch = true } = {}
     ) {
       const frequencyRow = documentRef.createElement("div");
       frequencyRow.className =
@@ -1332,27 +1332,29 @@
         frequencyRow.append(...frequencyTags);
         count += frequencyTags.length;
       }
-      for (const group of result.term.pitches) {
-        for (const pitch of group.pitches) {
-          const reading = String(
-            result.term.reading || result.term.expression || ""
-          ).trim();
-          const key = JSON.stringify([
-            group.dictionary,
-            reading,
-            pitch.position,
-            pitch.pattern,
-          ]);
-          if (!seen.has(key) && count < maxMetadataTags) {
-            seen.add(key);
-            pitchRow.appendChild(createPitchTag(
-              documentRef,
-              group,
-              pitchDictionaryDisplayNames.get(group.dictionary) || group.dictionary,
-              pitch,
-              reading
-            ));
-            count += 1;
+      if (includePitch) {
+        for (const group of result.term.pitches) {
+          for (const pitch of group.pitches) {
+            const reading = String(
+              result.term.reading || result.term.expression || ""
+            ).trim();
+            const key = JSON.stringify([
+              group.dictionary,
+              reading,
+              pitch.position,
+              pitch.pattern,
+            ]);
+            if (!seen.has(key) && count < maxMetadataTags) {
+              seen.add(key);
+              pitchRow.appendChild(createPitchTag(
+                documentRef,
+                group,
+                pitchDictionaryDisplayNames.get(group.dictionary) || group.dictionary,
+                pitch,
+                reading
+              ));
+              count += 1;
+            }
           }
         }
       }
@@ -1444,6 +1446,8 @@
         primary = false,
         showCompactDefinitionSummary = false,
         compactDefinitionSummaryDictionary = null,
+        showPitchAccentFurigana = true,
+        pitchAccentFuriganaDictionary = null,
       } = {}
     ) {
       const header = element || documentRef.createElement("header");
@@ -1463,7 +1467,12 @@
         expression,
         expressionText,
         readingText,
-        (character) => onKanjiClick(character, result, candidate)
+        (character) => onKanjiClick(character, result, candidate),
+        {
+          enabled: showPitchAccentFurigana,
+          groups: result.term.pitches,
+          dictionary: pitchAccentFuriganaDictionary,
+        }
       );
       expression.setAttribute(
         "aria-label",
@@ -1596,6 +1605,12 @@
             typeof renderContext.compactDefinitionSummaryDictionary === "string"
               ? renderContext.compactDefinitionSummaryDictionary
               : null,
+          showPitchAccentFurigana:
+            renderContext.showPitchAccentFurigana !== false,
+          pitchAccentFuriganaDictionary:
+            typeof renderContext.pitchAccentFuriganaDictionary === "string"
+              ? renderContext.pitchAccentFuriganaDictionary
+              : null,
         });
         audioItems.push(...renderedHeader.audioItems);
         miningItems.push(...renderedHeader.miningItems);
@@ -1637,7 +1652,10 @@
           Array.isArray(renderContext.dictionaryPresentation)
             ? renderContext.dictionaryPresentation
             : [],
-          { includeFrequency: resultIndex !== 0 }
+          {
+            includeFrequency: resultIndex !== 0,
+            includePitch: renderContext.showPitchAccentBadge === true,
+          }
         );
 
         if (

@@ -17,6 +17,9 @@ import {
     configureHoshidictsShowLookupCountsProvider,
     configureHoshidictsShowCompactDefinitionSummaryProvider,
     configureHoshidictsCompactDefinitionSummaryDictionaryProvider,
+    configureHoshidictsPitchAccentFuriganaDictionaryProvider,
+    configureHoshidictsShowPitchAccentBadgeProvider,
+    configureHoshidictsShowPitchAccentFuriganaProvider,
     configureHoshidictsHidePopupGrammarTagsProvider,
     configureHoshidictsSourceHighlightProvider,
     configureHoshidictsThemeProvider,
@@ -37,6 +40,9 @@ import {
     getOverlayHoshidictsShowLookupCountsAtLaunch,
     getOverlayHoshidictsShowCompactDefinitionSummaryAtLaunch,
     getOverlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch,
+    getOverlayHoshidictsPitchAccentFuriganaDictionaryAtLaunch,
+    getOverlayHoshidictsShowPitchAccentBadgeAtLaunch,
+    getOverlayHoshidictsShowPitchAccentFuriganaAtLaunch,
     getOverlayHoshidictsHidePopupGrammarTagsAtLaunch,
     getOverlayHoshidictsSourceHighlightEnabledAtLaunch,
     getOverlayHoshidictsPopupWidthAtLaunch,
@@ -213,6 +219,12 @@ export function registerHoshidictsFeature(deps: {
             getOverlayHoshidictsShowCompactDefinitionSummaryAtLaunch,
         getOverlayCompactDefinitionSummaryDictionaryAtLaunch:
             getOverlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch,
+        getOverlayShowPitchAccentFuriganaAtLaunch:
+            getOverlayHoshidictsShowPitchAccentFuriganaAtLaunch,
+        getOverlayPitchAccentFuriganaDictionaryAtLaunch:
+            getOverlayHoshidictsPitchAccentFuriganaDictionaryAtLaunch,
+        getOverlayShowPitchAccentBadgeAtLaunch:
+            getOverlayHoshidictsShowPitchAccentBadgeAtLaunch,
         getOverlayHidePopupGrammarTagsAtLaunch:
             getOverlayHoshidictsHidePopupGrammarTagsAtLaunch,
         getOverlayAudioProfileRestartRequired:
@@ -289,6 +301,16 @@ export async function startHoshidictsManager(): Promise<void> {
     configureHoshidictsCompactDefinitionSummaryDictionaryProvider(
         async () =>
             (await manager.getSnapshot()).compactDefinitionSummaryDictionary
+    );
+    configureHoshidictsShowPitchAccentFuriganaProvider(
+        async () => (await manager.getSnapshot()).showPitchAccentFurigana
+    );
+    configureHoshidictsPitchAccentFuriganaDictionaryProvider(
+        async () =>
+            (await manager.getSnapshot()).pitchAccentFuriganaDictionary
+    );
+    configureHoshidictsShowPitchAccentBadgeProvider(
+        async () => (await manager.getSnapshot()).showPitchAccentBadge
     );
     configureHoshidictsHidePopupGrammarTagsProvider(
         async () => (await manager.getSnapshot()).hidePopupGrammarTags

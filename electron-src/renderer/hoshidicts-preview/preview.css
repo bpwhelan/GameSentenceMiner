@@ -1,0 +1,56 @@
+:root {
+  color-scheme: dark;
+  font-family: "Noto Sans CJK JP", "Noto Sans JP", "Yu Gothic UI", Meiryo,
+    sans-serif;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background:
+    radial-gradient(circle at 16% 24%, rgb(122 162 255 / 16%), transparent 34%),
+    radial-gradient(circle at 82% 74%, rgb(108 194 139 / 10%), transparent 30%),
+    #101318;
+}
+
+.preview-scene {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.preview-sentence {
+  position: absolute;
+  right: 48px;
+  bottom: 32px;
+  left: 48px;
+  min-width: 0;
+  padding: 10px 15px;
+  border: 1px solid rgb(255 255 255 / 11%);
+  border-radius: 10px;
+  background: rgb(8 11 15 / 78%);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 34%);
+  color: #eef2f7;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.45;
+  letter-spacing: 0.03em;
+  text-align: center;
+  user-select: text;
+}
+
+.preview-sentence .text-box {
+  display: inline;
+}
+
+.preview-sentence ::selection {
+  background: transparent;
+  color: inherit;
+}

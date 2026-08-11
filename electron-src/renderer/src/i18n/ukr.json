@@ -615,9 +615,36 @@
       },
       "tabs": {
         "dictionaries": "Словники",
+        "design": "Дизайн",
         "audio": "Аудіо",
         "custom": "Власний",
         "mining": "Видобування Anki"
+      },
+      "design": {
+        "title": "Дизайн спливного вікна",
+        "subtitle": "Зміни ліворуч одразу з’являються в попередньому перегляді.",
+        "preview": {
+          "title": "Попередній перегляд спливного вікна",
+          "status": {
+            "loading": "Завантаження",
+            "connecting": "Підключення",
+            "ready": "Наживо",
+            "error": "Попередній перегляд недоступний"
+          },
+          "sizeMode": "Розмір попереднього перегляду",
+          "scaleToFit": "Вмістити",
+          "actualSize": "Фактичний розмір",
+          "scalePercent": "{percent}%",
+          "refresh": "Оновити",
+          "frameTitle": "Попередній перегляд спливного вікна HoshiDict"
+        },
+        "sections": {
+          "appearance": "Вигляд і макет",
+          "content": "Заголовне слово й метадані",
+          "actions": "Дії спливного вікна",
+          "definitions": "Визначення",
+          "gameText": "Текст гри"
+        }
       },
       "reader": {
         "title": "Поведінка читача",
@@ -681,8 +708,16 @@
           "compactDefinitionSummaryDictionaryAutomatic": "Автоматично",
           "compactDefinitionSummaryDictionaryHint": "Якщо бажаний словник не має статті для слова, автоматично використовується інший.",
           "compactDefinitionSummaryDictionaryUnavailable": "{dictionary} (не встановлено)",
+          "pitchAccentFurigana": "Показувати акцент у фуріґані",
+          "pitchAccentFuriganaHint": "Малює лінію висоти тону в стилі JL безпосередньо над повним читанням слова.",
+          "pitchAccentFuriganaDictionary": "Словник акценту",
+          "pitchAccentFuriganaDictionaryAutomatic": "Автоматично (перший увімкнений словник акценту)",
+          "pitchAccentFuriganaDictionaryHint": "В автоматичному режимі використовується перший увімкнений словник із дійсним акцентом для цього читання.",
+          "pitchAccentFuriganaDictionaryUnavailable": "{dictionary} (не встановлено)",
+          "pitchAccentBadge": "Показувати позначку тонального наголосу",
+          "pitchAccentBadgeHint": "Показує словникову позначку тонального наголосу в рядку метаданих угорі кожної статті.",
           "hidePopupGrammarTags": "Приховувати граматичні позначки в метаданих спливного вікна",
-          "hidePopupGrammarTagsHint": "У метаданих спливного вікна залишається лише частотність. Позначки всередині визначень не змінюються.",
+          "hidePopupGrammarTagsHint": "Приховує граматичні позначки з метаданих. Частотність і ввімкнена позначка тонального наголосу залишаються видимими.",
           "pixels": "px",
           "resetSize": "Скинути розмір"
         },

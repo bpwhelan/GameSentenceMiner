@@ -382,6 +382,12 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     preferences && preferences.showCompactDefinitionSummary;
   const compactDefinitionSummaryDictionary =
     preferences && preferences.compactDefinitionSummaryDictionary;
+  const showPitchAccentFurigana =
+    preferences && preferences.showPitchAccentFurigana;
+  const pitchAccentFuriganaDictionary =
+    preferences && preferences.pitchAccentFuriganaDictionary;
+  const showPitchAccentBadge =
+    preferences && preferences.showPitchAccentBadge;
   const hidePopupGrammarTags =
     preferences && preferences.hidePopupGrammarTags;
   const popupNestingMaxDepth =
@@ -436,6 +442,8 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     popupHideDelayMs < 0 ||
     popupHideDelayMs > 5000 ||
     typeof showCompactDefinitionSummary !== "boolean" ||
+    typeof showPitchAccentFurigana !== "boolean" ||
+    typeof showPitchAccentBadge !== "boolean" ||
     typeof hidePopupGrammarTags !== "boolean" ||
     (
       compactDefinitionSummaryDictionary !== null &&
@@ -443,6 +451,15 @@ function normalizeHoshidictsReaderPreferences(preferences) {
         typeof compactDefinitionSummaryDictionary !== "string" ||
         !compactDefinitionSummaryDictionary.trim() ||
         compactDefinitionSummaryDictionary.length >
+          MAX_HOSHIDICTS_DICTIONARY_TITLE_LENGTH
+      )
+    ) ||
+    (
+      pitchAccentFuriganaDictionary !== null &&
+      (
+        typeof pitchAccentFuriganaDictionary !== "string" ||
+        !pitchAccentFuriganaDictionary.trim() ||
+        pitchAccentFuriganaDictionary.length >
           MAX_HOSHIDICTS_DICTIONARY_TITLE_LENGTH
       )
     ) ||
@@ -477,6 +494,9 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     popupHideDelayMs,
     showCompactDefinitionSummary,
     compactDefinitionSummaryDictionary,
+    showPitchAccentFurigana,
+    pitchAccentFuriganaDictionary,
+    showPitchAccentBadge,
     hidePopupGrammarTags,
     popupNestingMaxDepth,
     popupWidthPx,

@@ -99,6 +99,9 @@ export interface HoshidictsIPCDependencies {
     getOverlayShowLookupCountsAtLaunch: () => boolean | null;
     getOverlayShowCompactDefinitionSummaryAtLaunch: () => boolean | null;
     getOverlayCompactDefinitionSummaryDictionaryAtLaunch: () => string | null;
+    getOverlayShowPitchAccentFuriganaAtLaunch: () => boolean | null;
+    getOverlayPitchAccentFuriganaDictionaryAtLaunch: () => string | null;
+    getOverlayShowPitchAccentBadgeAtLaunch: () => boolean | null;
     getOverlayHidePopupGrammarTagsAtLaunch: () => boolean | null;
     getOverlayAudioProfileRestartRequired: () => boolean;
     getOverlayPopupNestingMaxDepthAtLaunch: () => number | null;
@@ -268,6 +271,12 @@ function readerPreferencesMatchOverlay(
             preferences.showCompactDefinitionSummary &&
         deps.getOverlayCompactDefinitionSummaryDictionaryAtLaunch() ===
             preferences.compactDefinitionSummaryDictionary &&
+        deps.getOverlayShowPitchAccentFuriganaAtLaunch() ===
+            preferences.showPitchAccentFurigana &&
+        deps.getOverlayPitchAccentFuriganaDictionaryAtLaunch() ===
+            preferences.pitchAccentFuriganaDictionary &&
+        deps.getOverlayShowPitchAccentBadgeAtLaunch() ===
+            preferences.showPitchAccentBadge &&
         deps.getOverlayHidePopupGrammarTagsAtLaunch() ===
             preferences.hidePopupGrammarTags &&
         deps.getOverlayPopupNestingMaxDepthAtLaunch() ===
@@ -412,6 +421,12 @@ function withDesktopState(
         deps.getOverlayShowCompactDefinitionSummaryAtLaunch();
     const compactDefinitionSummaryDictionaryAtLaunch =
         deps.getOverlayCompactDefinitionSummaryDictionaryAtLaunch();
+    const showPitchAccentFuriganaAtLaunch =
+        deps.getOverlayShowPitchAccentFuriganaAtLaunch();
+    const pitchAccentFuriganaDictionaryAtLaunch =
+        deps.getOverlayPitchAccentFuriganaDictionaryAtLaunch();
+    const showPitchAccentBadgeAtLaunch =
+        deps.getOverlayShowPitchAccentBadgeAtLaunch();
     const hidePopupGrammarTagsAtLaunch =
         deps.getOverlayHidePopupGrammarTagsAtLaunch();
     const popupNestingMaxDepthAtLaunch =
@@ -470,6 +485,18 @@ function withDesktopState(
                         showCompactDefinitionSummaryAtLaunch !== null &&
                         compactDefinitionSummaryDictionaryAtLaunch !==
                             snapshot.compactDefinitionSummaryDictionary) ||
+                    (effectiveEnabled &&
+                        showPitchAccentFuriganaAtLaunch !== null &&
+                        showPitchAccentFuriganaAtLaunch !==
+                            snapshot.showPitchAccentFurigana) ||
+                    (effectiveEnabled &&
+                        showPitchAccentFuriganaAtLaunch !== null &&
+                        pitchAccentFuriganaDictionaryAtLaunch !==
+                            snapshot.pitchAccentFuriganaDictionary) ||
+                    (effectiveEnabled &&
+                        showPitchAccentBadgeAtLaunch !== null &&
+                        showPitchAccentBadgeAtLaunch !==
+                            snapshot.showPitchAccentBadge) ||
                     (effectiveEnabled &&
                         hidePopupGrammarTagsAtLaunch !== null &&
                         hidePopupGrammarTagsAtLaunch !==
@@ -850,7 +877,10 @@ export function registerHoshidictsIPC(
                     reader.popupColumns,
                     reader.showCompactDefinitionSummary,
                     reader.compactDefinitionSummaryDictionary,
-                    reader.hidePopupGrammarTags
+                    reader.hidePopupGrammarTags,
+                    reader.showPitchAccentFurigana,
+                    reader.pitchAccentFuriganaDictionary,
+                    reader.showPitchAccentBadge
                 );
             }
             await applyReaderSnapshot(state, deps);
@@ -1191,6 +1221,11 @@ export function registerHoshidictsIPC(
                 !isNullableDictionaryTitle(
                     value.compactDefinitionSummaryDictionary
                 ) ||
+                typeof value.showPitchAccentFurigana !== 'boolean' ||
+                !isNullableDictionaryTitle(
+                    value.pitchAccentFuriganaDictionary
+                ) ||
+                typeof value.showPitchAccentBadge !== 'boolean' ||
                 typeof value.hidePopupGrammarTags !== 'boolean' ||
                 !Number.isInteger(value.popupHideDelayMs) ||
                 (value.popupHideDelayMs as number) < 0 ||
@@ -1255,6 +1290,14 @@ export function registerHoshidictsIPC(
                             value.compactDefinitionSummaryDictionary as
                                 | string
                                 | null,
+                        showPitchAccentFurigana:
+                            value.showPitchAccentFurigana as boolean,
+                        pitchAccentFuriganaDictionary:
+                            value.pitchAccentFuriganaDictionary as
+                                | string
+                                | null,
+                        showPitchAccentBadge:
+                            value.showPitchAccentBadge as boolean,
                         hidePopupGrammarTags:
                             value.hidePopupGrammarTags as boolean,
                         popupNestingMaxDepth:
@@ -1296,7 +1339,10 @@ export function registerHoshidictsIPC(
                         requestPreferences.popupColumns,
                         requestPreferences.showCompactDefinitionSummary,
                         requestPreferences.compactDefinitionSummaryDictionary,
-                        requestPreferences.hidePopupGrammarTags
+                        requestPreferences.hidePopupGrammarTags,
+                        requestPreferences.showPitchAccentFurigana,
+                        requestPreferences.pitchAccentFuriganaDictionary,
+                        requestPreferences.showPitchAccentBadge
                     );
                     const preferences: HoshidictsReaderPreferences = {
                         ...hoshidictsReaderPreferencesFromSnapshot(state),

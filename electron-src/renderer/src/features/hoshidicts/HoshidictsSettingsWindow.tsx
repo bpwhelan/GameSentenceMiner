@@ -7,6 +7,7 @@ import {
 } from "../../../../shared/features/hoshidicts";
 import { useTranslation } from "../../i18n";
 import { HoshidictsAudioPanel } from "./HoshidictsAudioPanel";
+import { HoshidictsDesignPanel } from "./HoshidictsDesignPanel";
 import {
   CustomDictionaryPanel,
   DictionariesPanel,
@@ -30,6 +31,7 @@ const HOSHIDICTS_TABS: Array<{
     view: "dictionaries",
     labelKey: "settings.hoshidicts.tabs.dictionaries"
   },
+  { view: "design", labelKey: "settings.hoshidicts.tabs.design" },
   { view: "custom", labelKey: "settings.hoshidicts.tabs.custom" },
   { view: "audio", labelKey: "settings.hoshidicts.tabs.audio" },
   { view: "mining", labelKey: "settings.hoshidicts.tabs.mining" }
@@ -178,7 +180,11 @@ export function HoshidictsSettingsWindow() {
         ))}
       </nav>
 
-      <main className="hoshidicts-window__content">
+      <main
+        className={`hoshidicts-window__content${
+          view === "design" ? " hoshidicts-window__content--design" : ""
+        }`}
+      >
         {state?.busy && !importProgressIsLocal ? (
           <div className="hoshidicts-window__progress" role="status">
             <span>{progressLabel}</span>
@@ -211,6 +217,8 @@ export function HoshidictsSettingsWindow() {
           </div>
         ) : view === "dictionaries" ? (
           <DictionariesPanel controller={controller} />
+        ) : view === "design" ? (
+          <HoshidictsDesignPanel controller={controller} />
         ) : view === "audio" ? (
           <HoshidictsAudioPanel controller={controller} />
         ) : view === "custom" ? (

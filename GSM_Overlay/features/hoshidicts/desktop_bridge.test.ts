@@ -87,6 +87,9 @@ const {
     popupHideDelayMs: number;
     showCompactDefinitionSummary: boolean;
     compactDefinitionSummaryDictionary: string | null;
+    showPitchAccentFurigana: boolean;
+    pitchAccentFuriganaDictionary: string | null;
+    showPitchAccentBadge: boolean;
     hidePopupGrammarTags: boolean;
     popupNestingMaxDepth: number;
     popupWidthPx: number;
@@ -152,6 +155,9 @@ describe("Hoshidicts desktop bridge", () => {
     theme: "autumn" as const,
     showCompactDefinitionSummary: false,
     compactDefinitionSummaryDictionary: null,
+    showPitchAccentFurigana: true,
+    pitchAccentFuriganaDictionary: null,
+    showPitchAccentBadge: false,
     hidePopupGrammarTags: true,
   };
 
@@ -504,6 +510,9 @@ describe("Hoshidicts desktop bridge", () => {
         theme,
         showCompactDefinitionSummary: true,
         compactDefinitionSummaryDictionary: null,
+        showPitchAccentFurigana: true,
+        pitchAccentFuriganaDictionary: null,
+        showPitchAccentBadge: false,
         hidePopupGrammarTags: true,
       }).theme).toBe(theme);
     }

@@ -166,6 +166,10 @@ function runHoshidictsReaderConfiguration(
     gsmHoshidictsSortFrequencyDictionary: null,
     gsmHoshidictsSortFrequencyDictionaryOrder: "descending",
     gsmHoshidictsShowLookupCounts: showLookupCounts,
+    gsmHoshidictsShowCompactDefinitionSummary: false,
+    gsmHoshidictsCompactDefinitionSummaryDictionary: null,
+    gsmHoshidictsShowPitchAccentFurigana: true,
+    gsmHoshidictsPitchAccentFuriganaDictionary: null,
     gsmHoshidictsHidePopupGrammarTags: true,
     gsmHoshidictsSourceHighlightEnabled: sourceHighlightEnabled,
     gsmHoshidictsPopupNestingMaxDepth: popupNestingMaxDepth,
@@ -1010,6 +1014,59 @@ describe("Hoshidicts safe popup rendering", () => {
     ]);
   });
 
+  it("groups pitch readings by mora and builds every Tokyo pitch contour", () => {
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+
+    expect(api.splitPitchAccentMorae("きょう")).toEqual(["きょ", "う"]);
+    expect(api.splitPitchAccentMorae("がっこう")).toEqual([
+      "が",
+      "っ",
+      "こ",
+      "う"
+    ]);
+    expect(api.buildPitchAccentMorae("たべる", 0)).toEqual([
+      { text: "た", level: "low", transition: "rise" },
+      { text: "べ", level: "high", transition: null },
+      { text: "る", level: "high", transition: null }
+    ]);
+    expect(api.buildPitchAccentMorae("たべる", 1)).toEqual([
+      { text: "た", level: "high", transition: "drop" },
+      { text: "べ", level: "low", transition: null },
+      { text: "る", level: "low", transition: null }
+    ]);
+    expect(api.buildPitchAccentMorae("たべる", 2)).toEqual([
+      { text: "た", level: "low", transition: "rise" },
+      { text: "べ", level: "high", transition: "drop" },
+      { text: "る", level: "low", transition: null }
+    ]);
+    expect(api.buildPitchAccentMorae("たべる", 3)).toEqual([
+      { text: "た", level: "low", transition: "rise" },
+      { text: "べ", level: "high", transition: null },
+      { text: "る", level: "high", transition: "drop" }
+    ]);
+    expect(api.buildPitchAccentMorae("たべる", 4)).toBeNull();
+
+    const pitchGroups = [
+      {
+        dictionary: "First",
+        pitches: [{ position: 99 }, { position: 1 }]
+      },
+      {
+        dictionary: "Preferred",
+        pitches: [{ position: -1 }, { position: 2 }]
+      }
+    ];
+    expect(api.selectPitchAccent(pitchGroups, "Preferred", 3)).toMatchObject({
+      dictionary: "Preferred",
+      pitch: { position: 2 }
+    });
+    expect(api.selectPitchAccent(pitchGroups, "Missing", 3)).toMatchObject({
+      dictionary: "First",
+      pitch: { position: 1 }
+    });
+  });
+
   it("links to dedicated settings from Overlay Settings instead of the overlay toolbar", async () => {
     const { button, click, invoke, overlayHtml, settingsHtml } =
       loadHoshidictsSettingsLinkWiring();
@@ -1057,6 +1114,11 @@ describe("Hoshidicts safe popup rendering", () => {
       "85%"
     );
     expect(enabled.window.gsmHoshidictsShowLookupCounts).toBe(true);
+    expect(enabled.window.gsmHoshidictsShowPitchAccentFurigana).toBe(true);
+    expect(enabled.window.gsmHoshidictsShowPitchAccentBadge).toBe(false);
+    expect(
+      enabled.window.gsmHoshidictsPitchAccentFuriganaDictionary
+    ).toBeNull();
     expect(enabled.window.gsmHoshidictsPopupButtons).toEqual({
       addToAnki: true,
       audio: true,
@@ -1094,6 +1156,25 @@ describe("Hoshidicts safe popup rendering", () => {
         "0"
       ).window.gsmHoshidictsShowLookupCounts
     ).toBe(false);
+    const pitchConfigured = runOverlayFeatureBootstrap(
+      true,
+      "hover",
+      undefined,
+      undefined,
+      undefined,
+      {
+        GSM_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA: "0",
+        GSM_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE: "1",
+        GSM_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY:
+          "Kanjium Pitch Accents"
+      }
+    );
+    expect(pitchConfigured.window.gsmHoshidictsShowPitchAccentFurigana)
+      .toBe(false);
+    expect(pitchConfigured.window.gsmHoshidictsShowPitchAccentBadge)
+      .toBe(true);
+    expect(pitchConfigured.window.gsmHoshidictsPitchAccentFuriganaDictionary)
+      .toBe("Kanjium Pitch Accents");
     const themed = runOverlayFeatureBootstrap(
       true,
       "shift",
@@ -1312,6 +1393,9 @@ describe("Hoshidicts safe popup rendering", () => {
       showLookupCounts: false,
       showCompactDefinitionSummary: false,
       compactDefinitionSummaryDictionary: null,
+      showPitchAccentFurigana: true,
+      pitchAccentFuriganaDictionary: null,
+      showPitchAccentBadge: false,
       hidePopupGrammarTags: true,
       popupNestingMaxDepth: 3,
       popupWidthPx: 720,
@@ -1397,6 +1481,9 @@ describe("Hoshidicts safe popup rendering", () => {
       showLookupCounts: true,
       showCompactDefinitionSummary: false,
       compactDefinitionSummaryDictionary: null,
+      showPitchAccentFurigana: true,
+      pitchAccentFuriganaDictionary: null,
+      showPitchAccentBadge: false,
       hidePopupGrammarTags: true,
       popupNestingMaxDepth: 3,
       popupWidthPx: 720,
@@ -1442,6 +1529,9 @@ describe("Hoshidicts safe popup rendering", () => {
       showLookupCounts: true,
       showCompactDefinitionSummary: false,
       compactDefinitionSummaryDictionary: null,
+      showPitchAccentFurigana: true,
+      pitchAccentFuriganaDictionary: null,
+      showPitchAccentBadge: false,
       hidePopupGrammarTags: true,
       popupNestingMaxDepth: 3,
       popupWidthPx: 720,
@@ -1536,6 +1626,9 @@ describe("Hoshidicts safe popup rendering", () => {
       showLookupCounts: false,
       showCompactDefinitionSummary: false,
       compactDefinitionSummaryDictionary: null,
+      showPitchAccentFurigana: true,
+      pitchAccentFuriganaDictionary: null,
+      showPitchAccentBadge: false,
       hidePopupGrammarTags: true,
       popupNestingMaxDepth: 10,
       popupWidthPx: 720,
@@ -1575,6 +1668,9 @@ describe("Hoshidicts safe popup rendering", () => {
       showLookupCounts: false,
       showCompactDefinitionSummary: false,
       compactDefinitionSummaryDictionary: null,
+      showPitchAccentFurigana: true,
+      pitchAccentFuriganaDictionary: null,
+      showPitchAccentBadge: false,
       hidePopupGrammarTags: true,
       popupNestingMaxDepth: 10,
       popupWidthPx: 720,
@@ -4942,7 +5038,8 @@ describe("Hoshidicts dictionary tabs", () => {
     const audioController = createAudioControllerStub();
     const harness = createReaderHarness({
       audioController,
-      lookupMode: "hover"
+      lookupMode: "hover",
+      showPitchAccentBadge: true
     });
     await renderFirstLookup(harness, {
       shiftKey: false,
@@ -4973,6 +5070,29 @@ describe("Hoshidicts dictionary tabs", () => {
     expect(popup.querySelector(".gsm-hoshidicts-tag-pitch")).not.toBeNull();
     expect(audioController.setRenderedResults.mock.calls.at(-1)?.[1])
       .toEqual({ autoPlay: false });
+    harness.reader.destroy();
+  });
+
+  it("toggles the inline contour and pitch badge independently", async () => {
+    const harness = createReaderHarness({ lookupMode: "hover" });
+    await renderFirstLookup(harness, { shiftKey: false });
+    const popup = harness.reader.getPopupElement();
+
+    expect(popup.querySelector(".gsm-hoshidicts-pitch-reading")).not.toBeNull();
+    expect(popup.querySelector(".gsm-hoshidicts-tag-pitch")).toBeNull();
+
+    const sentBeforeToggle = harness.socket.sent.length;
+    harness.reader.updatePreferences({
+      showPitchAccentFurigana: false,
+      showPitchAccentBadge: true
+    });
+
+    expect(harness.socket.sent).toHaveLength(sentBeforeToggle);
+    expect(popup.querySelector(".gsm-hoshidicts-pitch-reading")).toBeNull();
+    expect(popup.querySelector(".gsm-hoshidicts-tag-pitch")).not.toBeNull();
+
+    harness.reader.updatePreferences({ showPitchAccentBadge: false });
+    expect(popup.querySelector(".gsm-hoshidicts-tag-pitch")).toBeNull();
     harness.reader.destroy();
   });
 });
@@ -5878,6 +5998,29 @@ describe("Hoshidicts Shift-hover scanner", () => {
     expect(chrome?.nextElementSibling === noteForm).toBe(true);
     expect(noteForm?.nextElementSibling === tabPanel).toBe(true);
     expect(primaryHeader?.querySelector("ruby")).not.toBeNull();
+    const pitchReading = primaryHeader?.querySelector<HTMLElement>(
+      ".gsm-hoshidicts-pitch-reading"
+    );
+    expect(pitchReading?.textContent).toBe("たべる");
+    expect(pitchReading?.dataset.pitchPosition).toBe("2");
+    expect(pitchReading?.dataset.pitchDictionary).toBe("Pitch");
+    expect(popup.querySelector(".gsm-hoshidicts-tag-pitch")).toBeNull();
+    expect(
+      Array.from(
+        pitchReading?.querySelectorAll<HTMLElement>(
+          ".gsm-hoshidicts-pitch-mora"
+        ) || [],
+        (mora) => ({
+          level: mora.dataset.pitchLevel,
+          text: mora.textContent,
+          transition: mora.dataset.pitchTransition,
+        })
+      )
+    ).toEqual([
+      { level: "low", text: "た", transition: "rise" },
+      { level: "high", text: "べ", transition: "drop" },
+      { level: "low", text: "る", transition: undefined }
+    ]);
     expect(primaryHeader?.querySelector(".gsm-hoshidicts-kanji-link")?.textContent)
       .toBe("食");
     expect(
@@ -7586,6 +7729,9 @@ describe("Hoshidicts Shift-hover scanner", () => {
       showLookupCounts: true,
       showCompactDefinitionSummary: false,
       compactDefinitionSummaryDictionary: null,
+      showPitchAccentFurigana: true,
+      pitchAccentFuriganaDictionary: null,
+      showPitchAccentBadge: false,
       hidePopupGrammarTags: true,
       popupNestingMaxDepth: 10,
       popupWidthPx: 560,
@@ -7621,6 +7767,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       popupOpacityPercent: 70,
       popupToolbarPosition: "bottom",
       theme: "cyberpunk",
+      showPitchAccentBadge: true,
       definitionBlur: {
         enabled: true,
         lookupThreshold: 2_000_000,
@@ -7647,6 +7794,9 @@ describe("Hoshidicts Shift-hover scanner", () => {
       showCompactDefinitionSummary: false,
       compactDefinitionSummaryDictionary: null,
       hidePopupGrammarTags: true,
+      showPitchAccentFurigana: true,
+      pitchAccentFuriganaDictionary: null,
+      showPitchAccentBadge: true,
       popupNestingMaxDepth: 2,
       popupWidthPx: 720,
       popupHeightPx: 520,
@@ -7685,6 +7835,9 @@ describe("Hoshidicts Shift-hover scanner", () => {
       showCompactDefinitionSummary: false,
       compactDefinitionSummaryDictionary: null,
       hidePopupGrammarTags: true,
+      showPitchAccentFurigana: true,
+      pitchAccentFuriganaDictionary: null,
+      showPitchAccentBadge: true,
       popupNestingMaxDepth: 2,
       popupWidthPx: 720,
       popupHeightPx: 520,
@@ -7724,6 +7877,9 @@ describe("Hoshidicts Shift-hover scanner", () => {
         showCompactDefinitionSummary: false,
         compactDefinitionSummaryDictionary: null,
         hidePopupGrammarTags: true,
+        showPitchAccentFurigana: true,
+        pitchAccentFuriganaDictionary: null,
+        showPitchAccentBadge: true,
         popupNestingMaxDepth: 2,
         popupWidthPx: 720,
         popupHeightPx: 520,
@@ -8948,6 +9104,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       document: dom.window.document,
       WebSocket: FakeWebSocket,
       lookupMode: "hover",
+      showPitchAccentBadge: true,
       dictionaryPresentation: [
         { title: "Frequency", favorite: false, displayName: "Corpus rank" },
         { title: "Pitch", favorite: false, displayName: "Pitch accent" }

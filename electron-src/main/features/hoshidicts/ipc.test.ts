@@ -41,6 +41,9 @@ const harness = vi.hoisted(() => ({
     showLookupCountsAtLaunch: true as boolean | null,
     showCompactDefinitionSummaryAtLaunch: false as boolean | null,
     compactDefinitionSummaryDictionaryAtLaunch: null as string | null,
+    showPitchAccentFuriganaAtLaunch: true as boolean | null,
+    pitchAccentFuriganaDictionaryAtLaunch: null as string | null,
+    showPitchAccentBadgeAtLaunch: false as boolean | null,
     hidePopupGrammarTagsAtLaunch: true as boolean | null,
     audioProfileRestartRequired: false,
     popupNestingMaxDepthAtLaunch: 10 as number | null,
@@ -187,6 +190,9 @@ const snapshot = {
     showLookupCounts: true,
     showCompactDefinitionSummary: false,
     compactDefinitionSummaryDictionary: null,
+    showPitchAccentFurigana: true,
+    pitchAccentFuriganaDictionary: null,
+    showPitchAccentBadge: false,
     hidePopupGrammarTags: true,
     popupNestingMaxDepth: 10,
     popupWidthPx: 560,
@@ -373,6 +379,12 @@ async function registerHarness() {
             harness.showCompactDefinitionSummaryAtLaunch,
         getOverlayCompactDefinitionSummaryDictionaryAtLaunch: () =>
             harness.compactDefinitionSummaryDictionaryAtLaunch,
+        getOverlayShowPitchAccentFuriganaAtLaunch: () =>
+            harness.showPitchAccentFuriganaAtLaunch,
+        getOverlayPitchAccentFuriganaDictionaryAtLaunch: () =>
+            harness.pitchAccentFuriganaDictionaryAtLaunch,
+        getOverlayShowPitchAccentBadgeAtLaunch: () =>
+            harness.showPitchAccentBadgeAtLaunch,
         getOverlayHidePopupGrammarTagsAtLaunch: () =>
             harness.hidePopupGrammarTagsAtLaunch,
         getOverlayAudioProfileRestartRequired: () =>
@@ -430,6 +442,9 @@ describe('Hoshidicts settings IPC', () => {
         harness.showLookupCountsAtLaunch = true;
         harness.showCompactDefinitionSummaryAtLaunch = false;
         harness.compactDefinitionSummaryDictionaryAtLaunch = null;
+        harness.showPitchAccentFuriganaAtLaunch = true;
+        harness.pitchAccentFuriganaDictionaryAtLaunch = null;
+        harness.showPitchAccentBadgeAtLaunch = false;
         harness.hidePopupGrammarTagsAtLaunch = true;
         harness.audioProfileRestartRequired = false;
         harness.popupNestingMaxDepthAtLaunch = 10;
@@ -1099,6 +1114,9 @@ describe('Hoshidicts settings IPC', () => {
                     showLookupCounts: true,
                     showCompactDefinitionSummary: false,
                     compactDefinitionSummaryDictionary: null,
+                    showPitchAccentFurigana: true,
+                    pitchAccentFuriganaDictionary: null,
+                    showPitchAccentBadge: false,
                     hidePopupGrammarTags: true,
                     popupNestingMaxDepth: 10,
                     popupWidthPx: 560,
@@ -1189,6 +1207,9 @@ describe('Hoshidicts settings IPC', () => {
                     showLookupCounts: true,
                     showCompactDefinitionSummary: false,
                     compactDefinitionSummaryDictionary: null,
+                    showPitchAccentFurigana: true,
+                    pitchAccentFuriganaDictionary: null,
+                    showPitchAccentBadge: false,
                     hidePopupGrammarTags: true,
                     popupNestingMaxDepth: 10,
                     popupWidthPx: 560,
@@ -1237,6 +1258,9 @@ describe('Hoshidicts settings IPC', () => {
                     showLookupCounts: true,
                     showCompactDefinitionSummary: false,
                     compactDefinitionSummaryDictionary: null,
+                    showPitchAccentFurigana: true,
+                    pitchAccentFuriganaDictionary: null,
+                    showPitchAccentBadge: false,
                     hidePopupGrammarTags: true,
                     popupNestingMaxDepth: 10,
                     popupWidthPx: 560,
@@ -2140,6 +2164,9 @@ describe('Hoshidicts settings IPC', () => {
                     showLookupCounts: false,
                     showCompactDefinitionSummary: true,
                     compactDefinitionSummaryDictionary: 'Jitendex',
+                    showPitchAccentFurigana: true,
+                    pitchAccentFuriganaDictionary: 'Pitch',
+                    showPitchAccentBadge: false,
                     hidePopupGrammarTags: false,
                     popupNestingMaxDepth: 4,
                     popupWidthPx: 560,
@@ -2210,6 +2237,9 @@ describe('Hoshidicts settings IPC', () => {
             3,
             true,
             'Jitendex',
+            false,
+            true,
+            'Pitch',
             false
         );
         expect(context.applyReaderPreferences).toHaveBeenCalledWith({
@@ -2225,6 +2255,9 @@ describe('Hoshidicts settings IPC', () => {
             showLookupCounts: false,
             showCompactDefinitionSummary: true,
             compactDefinitionSummaryDictionary: 'Jitendex',
+            showPitchAccentFurigana: true,
+            pitchAccentFuriganaDictionary: 'Pitch',
+            showPitchAccentBadge: false,
             hidePopupGrammarTags: false,
             popupNestingMaxDepth: 4,
             popupWidthPx: 560,
@@ -2436,6 +2469,9 @@ describe('Hoshidicts settings IPC', () => {
             showLookupCounts: true,
             showCompactDefinitionSummary: true,
             compactDefinitionSummaryDictionary: null,
+            showPitchAccentFurigana: true,
+            pitchAccentFuriganaDictionary: null,
+            showPitchAccentBadge: false,
             hidePopupGrammarTags: true,
             popupNestingMaxDepth: 4,
             popupWidthPx: 560,
@@ -2476,6 +2512,17 @@ describe('Hoshidicts settings IPC', () => {
                 error: 'Hoshidicts reader preferences are invalid.',
             });
         }
+        for (const showPitchAccentBadge of [undefined, 'yes', 1]) {
+            await expect(
+                setReaderPreferences?.(
+                    { sender: context.settingsContents },
+                    { ...valid, showPitchAccentBadge }
+                )
+            ).resolves.toMatchObject({
+                success: false,
+                error: 'Hoshidicts reader preferences are invalid.',
+            });
+        }
         expect(harness.manager.setReaderPreferences).not.toHaveBeenCalled();
         expect(context.applyReaderPreferences).not.toHaveBeenCalled();
     });
@@ -2498,6 +2545,9 @@ describe('Hoshidicts settings IPC', () => {
             showLookupCounts: true,
             showCompactDefinitionSummary: false,
             compactDefinitionSummaryDictionary: null,
+            showPitchAccentFurigana: true,
+            pitchAccentFuriganaDictionary: null,
+            showPitchAccentBadge: false,
             hidePopupGrammarTags: true,
             popupNestingMaxDepth: 4,
             popupWidthPx: 560,
@@ -2554,6 +2604,9 @@ describe('Hoshidicts settings IPC', () => {
             showLookupCounts: true,
             showCompactDefinitionSummary: false,
             compactDefinitionSummaryDictionary: null,
+            showPitchAccentFurigana: true,
+            pitchAccentFuriganaDictionary: null,
+            showPitchAccentBadge: false,
             hidePopupGrammarTags: true,
             popupNestingMaxDepth: 4,
             popupWidthPx: 560,

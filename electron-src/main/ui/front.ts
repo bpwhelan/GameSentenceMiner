@@ -43,6 +43,9 @@ import {
     createDefaultHoshidictsPopupButtons,
     DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
     DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
+    DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
+    DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE,
+    DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
     DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
     DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
     DEFAULT_HOSHIDICTS_MAX_RESULTS,
@@ -107,6 +110,10 @@ let overlayHoshidictsShowLookupCountsAtLaunch: boolean | null = null;
 let overlayHoshidictsShowCompactDefinitionSummaryAtLaunch: boolean | null = null;
 let overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch: string | null =
     null;
+let overlayHoshidictsShowPitchAccentFuriganaAtLaunch: boolean | null = null;
+let overlayHoshidictsPitchAccentFuriganaDictionaryAtLaunch: string | null =
+    null;
+let overlayHoshidictsShowPitchAccentBadgeAtLaunch: boolean | null = null;
 let overlayHoshidictsHidePopupGrammarTagsAtLaunch: boolean | null = null;
 let overlayHoshidictsAudioProfileRestartRequired = false;
 let overlayHoshidictsPopupNestingMaxDepthAtLaunch: number | null = null;
@@ -138,6 +145,13 @@ let hoshidictsShowCompactDefinitionSummaryProvider: () => Promise<boolean> =
 let hoshidictsCompactDefinitionSummaryDictionaryProvider: () => Promise<
     string | null
 > = async () => null;
+let hoshidictsShowPitchAccentFuriganaProvider: () => Promise<boolean> =
+    async () => DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA;
+let hoshidictsPitchAccentFuriganaDictionaryProvider: () => Promise<
+    string | null
+> = async () => DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY;
+let hoshidictsShowPitchAccentBadgeProvider: () => Promise<boolean> =
+    async () => DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE;
 let hoshidictsHidePopupGrammarTagsProvider: () => Promise<boolean> =
     async () => DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS;
 let hoshidictsPopupNestingMaxDepthProvider: () => Promise<number> =
@@ -266,6 +280,24 @@ export function configureHoshidictsCompactDefinitionSummaryDictionaryProvider(
     provider: () => Promise<string | null>
 ): void {
     hoshidictsCompactDefinitionSummaryDictionaryProvider = provider;
+}
+
+export function configureHoshidictsShowPitchAccentFuriganaProvider(
+    provider: () => Promise<boolean>
+): void {
+    hoshidictsShowPitchAccentFuriganaProvider = provider;
+}
+
+export function configureHoshidictsPitchAccentFuriganaDictionaryProvider(
+    provider: () => Promise<string | null>
+): void {
+    hoshidictsPitchAccentFuriganaDictionaryProvider = provider;
+}
+
+export function configureHoshidictsShowPitchAccentBadgeProvider(
+    provider: () => Promise<boolean>
+): void {
+    hoshidictsShowPitchAccentBadgeProvider = provider;
 }
 
 export function configureHoshidictsHidePopupGrammarTagsProvider(
@@ -482,6 +514,9 @@ export function getOverlayRuntimeState(): OverlayRuntimeState {
         overlayHoshidictsShowLookupCountsAtLaunch = null;
         overlayHoshidictsShowCompactDefinitionSummaryAtLaunch = null;
         overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch = null;
+        overlayHoshidictsShowPitchAccentFuriganaAtLaunch = null;
+        overlayHoshidictsPitchAccentFuriganaDictionaryAtLaunch = null;
+        overlayHoshidictsShowPitchAccentBadgeAtLaunch = null;
         overlayHoshidictsHidePopupGrammarTagsAtLaunch = null;
         overlayHoshidictsAudioProfileRestartRequired = false;
         overlayHoshidictsPopupNestingMaxDepthAtLaunch = null;
@@ -550,6 +585,21 @@ export function getOverlayHoshidictsShowCompactDefinitionSummaryAtLaunch(): bool
 export function getOverlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch(): string | null {
     getOverlayRuntimeState();
     return overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch;
+}
+
+export function getOverlayHoshidictsShowPitchAccentFuriganaAtLaunch(): boolean | null {
+    getOverlayRuntimeState();
+    return overlayHoshidictsShowPitchAccentFuriganaAtLaunch;
+}
+
+export function getOverlayHoshidictsPitchAccentFuriganaDictionaryAtLaunch(): string | null {
+    getOverlayRuntimeState();
+    return overlayHoshidictsPitchAccentFuriganaDictionaryAtLaunch;
+}
+
+export function getOverlayHoshidictsShowPitchAccentBadgeAtLaunch(): boolean | null {
+    getOverlayRuntimeState();
+    return overlayHoshidictsShowPitchAccentBadgeAtLaunch;
 }
 
 export function getOverlayHoshidictsHidePopupGrammarTagsAtLaunch(): boolean | null {
@@ -640,6 +690,12 @@ export function markOverlayHoshidictsReaderPreferencesApplied(
         preferences.showCompactDefinitionSummary;
     overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch =
         preferences.compactDefinitionSummaryDictionary;
+    overlayHoshidictsShowPitchAccentFuriganaAtLaunch =
+        preferences.showPitchAccentFurigana;
+    overlayHoshidictsPitchAccentFuriganaDictionaryAtLaunch =
+        preferences.pitchAccentFuriganaDictionary;
+    overlayHoshidictsShowPitchAccentBadgeAtLaunch =
+        preferences.showPitchAccentBadge;
     overlayHoshidictsHidePopupGrammarTagsAtLaunch =
         preferences.hidePopupGrammarTags;
     overlayHoshidictsPopupNestingMaxDepthAtLaunch =
@@ -704,6 +760,9 @@ export function stopOverlay(options: StopOverlayOptions = {}): boolean {
             overlayHoshidictsShowLookupCountsAtLaunch = null;
             overlayHoshidictsShowCompactDefinitionSummaryAtLaunch = null;
             overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch = null;
+            overlayHoshidictsShowPitchAccentFuriganaAtLaunch = null;
+            overlayHoshidictsPitchAccentFuriganaDictionaryAtLaunch = null;
+            overlayHoshidictsShowPitchAccentBadgeAtLaunch = null;
             overlayHoshidictsHidePopupGrammarTagsAtLaunch = null;
             overlayHoshidictsAudioProfileRestartRequired = false;
             overlayHoshidictsPopupNestingMaxDepthAtLaunch = null;
@@ -732,6 +791,9 @@ export function stopOverlay(options: StopOverlayOptions = {}): boolean {
         overlayHoshidictsShowLookupCountsAtLaunch = null;
         overlayHoshidictsShowCompactDefinitionSummaryAtLaunch = null;
         overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch = null;
+        overlayHoshidictsShowPitchAccentFuriganaAtLaunch = null;
+        overlayHoshidictsPitchAccentFuriganaDictionaryAtLaunch = null;
+        overlayHoshidictsShowPitchAccentBadgeAtLaunch = null;
         overlayHoshidictsHidePopupGrammarTagsAtLaunch = null;
         overlayHoshidictsAudioProfileRestartRequired = false;
         overlayHoshidictsPopupNestingMaxDepthAtLaunch = null;
@@ -837,7 +899,10 @@ function registerOverlayProcess(
     hoshidictsPopupOpacityPercent: number,
     hoshidictsPopupToolbarPosition: HoshidictsPopupToolbarPosition,
     hoshidictsLookupControls: HoshidictsLookupControls,
-    hoshidictsHidePopupGrammarTags: boolean
+    hoshidictsHidePopupGrammarTags: boolean,
+    hoshidictsShowPitchAccentFurigana: boolean,
+    hoshidictsPitchAccentFuriganaDictionary: string | null,
+    hoshidictsShowPitchAccentBadge: boolean
 ): void {
     overlayProcess = processHandle;
     overlayLaunchSource = source;
@@ -857,6 +922,12 @@ function registerOverlayProcess(
         hoshidictsShowCompactDefinitionSummary;
     overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch =
         hoshidictsCompactDefinitionSummaryDictionary;
+    overlayHoshidictsShowPitchAccentFuriganaAtLaunch =
+        hoshidictsShowPitchAccentFurigana;
+    overlayHoshidictsPitchAccentFuriganaDictionaryAtLaunch =
+        hoshidictsPitchAccentFuriganaDictionary;
+    overlayHoshidictsShowPitchAccentBadgeAtLaunch =
+        hoshidictsShowPitchAccentBadge;
     overlayHoshidictsHidePopupGrammarTagsAtLaunch =
         hoshidictsHidePopupGrammarTags;
     overlayHoshidictsAudioProfileRestartRequired = false;
@@ -887,6 +958,9 @@ function registerOverlayProcess(
         overlayHoshidictsShowLookupCountsAtLaunch = null;
         overlayHoshidictsShowCompactDefinitionSummaryAtLaunch = null;
         overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch = null;
+        overlayHoshidictsShowPitchAccentFuriganaAtLaunch = null;
+        overlayHoshidictsPitchAccentFuriganaDictionaryAtLaunch = null;
+        overlayHoshidictsShowPitchAccentBadgeAtLaunch = null;
         overlayHoshidictsHidePopupGrammarTagsAtLaunch = null;
         overlayHoshidictsAudioProfileRestartRequired = false;
         overlayHoshidictsPopupNestingMaxDepthAtLaunch = null;
@@ -913,6 +987,9 @@ function registerOverlayProcess(
         overlayHoshidictsShowLookupCountsAtLaunch = null;
         overlayHoshidictsShowCompactDefinitionSummaryAtLaunch = null;
         overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch = null;
+        overlayHoshidictsShowPitchAccentFuriganaAtLaunch = null;
+        overlayHoshidictsPitchAccentFuriganaDictionaryAtLaunch = null;
+        overlayHoshidictsShowPitchAccentBadgeAtLaunch = null;
         overlayHoshidictsHidePopupGrammarTagsAtLaunch = null;
         overlayHoshidictsAudioProfileRestartRequired = false;
         overlayHoshidictsPopupNestingMaxDepthAtLaunch = null;
@@ -951,7 +1028,12 @@ export function buildHoshidictsOverlayEnvironment(
         DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
     lookupControls: HoshidictsLookupControls =
         defaultHoshidictsLookupControls(),
-    hidePopupGrammarTags = DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS
+    hidePopupGrammarTags = DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
+    showPitchAccentFurigana =
+        DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
+    pitchAccentFuriganaDictionary: string | null =
+        DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
+    showPitchAccentBadge = DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE
 ): Record<string, string> {
     const normalizedDefinitionBlur =
         normalizeHoshidictsDefinitionBlur(definitionBlur);
@@ -975,6 +1057,16 @@ export function buildHoshidictsOverlayEnvironment(
             compactDefinitionSummaryDictionary.length <= 4096
                 ? compactDefinitionSummaryDictionary
                 : '',
+        GSM_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA:
+            showPitchAccentFurigana ? '1' : '0',
+        GSM_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY:
+            typeof pitchAccentFuriganaDictionary === 'string' &&
+            pitchAccentFuriganaDictionary.trim().length > 0 &&
+            pitchAccentFuriganaDictionary.length <= 4096
+                ? pitchAccentFuriganaDictionary
+                : '',
+        GSM_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE:
+            showPitchAccentBadge ? '1' : '0',
         GSM_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS:
             hidePopupGrammarTags ? '1' : '0',
         GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH: String(
@@ -1143,6 +1235,12 @@ export async function runOverlayWithSource(
     let hoshidictsShowCompactDefinitionSummary =
         DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY;
     let hoshidictsCompactDefinitionSummaryDictionary: string | null = null;
+    let hoshidictsShowPitchAccentFurigana =
+        DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA;
+    let hoshidictsPitchAccentFuriganaDictionary: string | null =
+        DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY;
+    let hoshidictsShowPitchAccentBadge =
+        DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE;
     let hoshidictsHidePopupGrammarTags =
         DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS;
     let hoshidictsPopupNestingMaxDepth =
@@ -1204,6 +1302,18 @@ export async function runOverlayWithSource(
                 configuredCompactDefinitionSummaryDictionary.length <= 4096
                     ? configuredCompactDefinitionSummaryDictionary
                     : null;
+            hoshidictsShowPitchAccentFurigana =
+                (await hoshidictsShowPitchAccentFuriganaProvider()) !== false;
+            const configuredPitchAccentFuriganaDictionary =
+                await hoshidictsPitchAccentFuriganaDictionaryProvider();
+            hoshidictsPitchAccentFuriganaDictionary =
+                typeof configuredPitchAccentFuriganaDictionary === 'string' &&
+                configuredPitchAccentFuriganaDictionary.trim().length > 0 &&
+                configuredPitchAccentFuriganaDictionary.length <= 4096
+                    ? configuredPitchAccentFuriganaDictionary
+                    : null;
+            hoshidictsShowPitchAccentBadge =
+                (await hoshidictsShowPitchAccentBadgeProvider()) === true;
             hoshidictsHidePopupGrammarTags =
                 (await hoshidictsHidePopupGrammarTagsProvider()) !== false;
             const configuredNestingMaxDepth =
@@ -1279,7 +1389,10 @@ export async function runOverlayWithSource(
         hoshidictsOnlyScanJapaneseText,
         hoshidictsPopupToolbarPosition,
         hoshidictsLookupControls,
-        hoshidictsHidePopupGrammarTags
+        hoshidictsHidePopupGrammarTags,
+        hoshidictsShowPitchAccentFurigana,
+        hoshidictsPitchAccentFuriganaDictionary,
+        hoshidictsShowPitchAccentBadge
     );
     const hoshidictsControlEnvironment = buildHoshidictsControlEnvironment();
     const overlayProcessEnvironment = buildOverlayProcessEnvironment();
@@ -1325,6 +1438,15 @@ export async function runOverlayWithSource(
             : null;
         overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch = started
             ? hoshidictsCompactDefinitionSummaryDictionary
+            : null;
+        overlayHoshidictsShowPitchAccentFuriganaAtLaunch = started
+            ? hoshidictsShowPitchAccentFurigana
+            : null;
+        overlayHoshidictsPitchAccentFuriganaDictionaryAtLaunch = started
+            ? hoshidictsPitchAccentFuriganaDictionary
+            : null;
+        overlayHoshidictsShowPitchAccentBadgeAtLaunch = started
+            ? hoshidictsShowPitchAccentBadge
             : null;
         overlayHoshidictsHidePopupGrammarTagsAtLaunch = started
             ? hoshidictsHidePopupGrammarTags
@@ -1416,7 +1538,10 @@ export async function runOverlayWithSource(
             hoshidictsPopupOpacityPercent,
             hoshidictsPopupToolbarPosition,
             hoshidictsLookupControls,
-            hoshidictsHidePopupGrammarTags
+            hoshidictsHidePopupGrammarTags,
+            hoshidictsShowPitchAccentFurigana,
+            hoshidictsPitchAccentFuriganaDictionary,
+            hoshidictsShowPitchAccentBadge
         );
         console.log('Overlay launched successfully from source.');
         return true;
@@ -1452,10 +1577,13 @@ export async function runOverlayWithSource(
                 hoshidictsPopupColumns,
                 hoshidictsTheme,
                 hoshidictsPopupOpacityPercent,
-                hoshidictsPopupToolbarPosition,
-                hoshidictsLookupControls,
-                hoshidictsHidePopupGrammarTags
-            );
+            hoshidictsPopupToolbarPosition,
+            hoshidictsLookupControls,
+            hoshidictsHidePopupGrammarTags,
+            hoshidictsShowPitchAccentFurigana,
+            hoshidictsPitchAccentFuriganaDictionary,
+            hoshidictsShowPitchAccentBadge
+        );
             console.log('Overlay launched successfully with shared Electron runtime.');
             return true;
         } catch (error) {
@@ -1497,10 +1625,13 @@ export async function runOverlayWithSource(
                 hoshidictsPopupColumns,
                 hoshidictsTheme,
                 hoshidictsPopupOpacityPercent,
-                hoshidictsPopupToolbarPosition,
-                hoshidictsLookupControls,
-                hoshidictsHidePopupGrammarTags
-            );
+            hoshidictsPopupToolbarPosition,
+            hoshidictsLookupControls,
+            hoshidictsHidePopupGrammarTags,
+            hoshidictsShowPitchAccentFurigana,
+            hoshidictsPitchAccentFuriganaDictionary,
+            hoshidictsShowPitchAccentBadge
+        );
             console.log('Overlay launched successfully with legacy standalone runtime.');
             return true;
         } catch (error) {

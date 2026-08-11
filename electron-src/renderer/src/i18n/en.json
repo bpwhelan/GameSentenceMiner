@@ -622,9 +622,36 @@
       },
       "tabs": {
         "dictionaries": "Dictionaries",
+        "design": "Design",
         "audio": "Audio",
         "custom": "Custom",
         "mining": "Anki Mining"
+      },
+      "design": {
+        "title": "Popup design",
+        "subtitle": "Changes on the left appear immediately in the live preview.",
+        "preview": {
+          "title": "Live popup preview",
+          "status": {
+            "loading": "Loading",
+            "connecting": "Connecting",
+            "ready": "Live",
+            "error": "Preview unavailable"
+          },
+          "sizeMode": "Preview size",
+          "scaleToFit": "Scale to fit",
+          "actualSize": "Actual size",
+          "scalePercent": "{percent}%",
+          "refresh": "Refresh",
+          "frameTitle": "HoshiDict popup preview"
+        },
+        "sections": {
+          "appearance": "Appearance and layout",
+          "content": "Headword and metadata",
+          "actions": "Popup actions",
+          "definitions": "Definitions",
+          "gameText": "Game text"
+        }
       },
       "reader": {
         "title": "Reader behavior",
@@ -688,8 +715,16 @@
           "compactDefinitionSummaryDictionaryAutomatic": "Automatic",
           "compactDefinitionSummaryDictionaryHint": "Falls back automatically when the preferred dictionary has no entry for the word.",
           "compactDefinitionSummaryDictionaryUnavailable": "{dictionary} (not installed)",
+          "pitchAccentFurigana": "Show pitch accent in furigana",
+          "pitchAccentFuriganaHint": "Draws a JL-style high/low contour through the complete reading above the word.",
+          "pitchAccentFuriganaDictionary": "Pitch accent dictionary",
+          "pitchAccentFuriganaDictionaryAutomatic": "Automatic (first enabled pitch dictionary)",
+          "pitchAccentFuriganaDictionaryHint": "Automatic uses the first enabled pitch dictionary which has a valid accent for the reading.",
+          "pitchAccentFuriganaDictionaryUnavailable": "{dictionary} (not installed)",
+          "pitchAccentBadge": "Show pitch accent badge",
+          "pitchAccentBadgeHint": "Shows the dictionary pitch-accent chip in the metadata strip at the top of each entry.",
           "hidePopupGrammarTags": "Hide grammar tags in popup metadata",
-          "hidePopupGrammarTagsHint": "Keeps only frequency in the popup metadata. Definition-specific labels remain visible.",
+          "hidePopupGrammarTagsHint": "Hides grammar labels from popup metadata. Frequency and any enabled pitch-accent badge remain visible.",
           "pixels": "px",
           "resetSize": "Reset size"
         },
