@@ -5,7 +5,6 @@
   const SERVER_URL = "ws://127.0.0.1:7276";
   const LOOKUP_COUNT = 12;
   const SEEN_COUNT = 42;
-  const MAX_CUSTOM_POPUP_CSS_LENGTH = 32 * 1024;
 
   let reader = null;
   let currentPreferences = null;
@@ -14,45 +13,8 @@
     return typeof value === "object" && value !== null && !Array.isArray(value);
   }
 
-  function isReaderPreferences(value) {
-    return (
-      isRecord(value) &&
-      Number.isInteger(value.popupWidthPx) &&
-      Number.isInteger(value.popupHeightPx) &&
-      Number.isInteger(value.popupColumns) &&
-      typeof value.theme === "string" &&
-      (value.popupToolbarPosition === "top" ||
-        value.popupToolbarPosition === "bottom") &&
-      typeof value.showLookupCounts === "boolean" &&
-      typeof value.sourceHighlightEnabled === "boolean" &&
-      typeof value.customPopupCss === "string" &&
-      value.customPopupCss.length <= MAX_CUSTOM_POPUP_CSS_LENGTH &&
-      isRecord(value.definitionBlur) &&
-      typeof value.definitionBlur.enabled === "boolean" &&
-      isRecord(value.popupButtons)
-    );
-  }
-
-  function parentOrigin() {
-    if (!document.referrer) return "*";
-    try {
-      const origin = new URL(document.referrer).origin;
-      return origin === "null" ? "*" : origin;
-    } catch {
-      return "*";
-    }
-  }
-
-  function isParentOrigin(origin) {
-    const expectedOrigin = parentOrigin();
-    return expectedOrigin === "*" || origin === expectedOrigin;
-  }
-
   function post(message) {
-    window.parent.postMessage(
-      { channel: PREVIEW_CHANNEL, ...message },
-      parentOrigin()
-    );
+    window.parent.postMessage({ channel: PREVIEW_CHANNEL, ...message }, "*");
   }
 
   function setStatus(status) {
@@ -250,23 +212,14 @@
   }
 
   window.addEventListener("message", (event) => {
-    if (
-      event.source !== window.parent ||
-      !isParentOrigin(event.origin) ||
-      !isRecord(event.data)
-    ) {
-      return;
-    }
+    if (event.source !== window.parent || !isRecord(event.data)) return;
     const message = event.data;
     if (message.channel !== PREVIEW_CHANNEL) return;
     if (message.type === "refresh") {
       requestLookup();
       return;
     }
-    if (
-      message.type === "preferences" &&
-      isReaderPreferences(message.preferences)
-    ) {
+    if (message.type === "preferences" && isRecord(message.preferences)) {
       applyPreferences(message.preferences);
     }
   });
