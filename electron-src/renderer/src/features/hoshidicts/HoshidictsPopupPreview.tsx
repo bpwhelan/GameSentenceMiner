@@ -56,37 +56,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isPreviewStatus(value: unknown): value is PreviewStatus {
-  return (
-    value === "loading" ||
-    value === "connecting" ||
-    value === "ready" ||
-    value === "error"
-  );
-}
-
 function parsePreviewFrameMessage(value: unknown): PreviewFrameMessage | null {
-  if (
-    !isRecord(value) ||
-    value.channel !== PREVIEW_CHANNEL ||
-    (value.type !== "frame-ready" && value.type !== "status")
-  ) {
-    return null;
-  }
-  if (value.type === "frame-ready") {
-    return { channel: PREVIEW_CHANNEL, type: "frame-ready" };
-  }
-  return isPreviewStatus(value.status)
-    ? { channel: PREVIEW_CHANNEL, type: "status", status: value.status }
+  return isRecord(value) && value.channel === PREVIEW_CHANNEL
+    ? (value as unknown as PreviewFrameMessage)
     : null;
-}
-
-function previewTargetOrigin(): string {
-  return window.location.origin === "null" ? "*" : window.location.origin;
-}
-
-function isExpectedFrameOrigin(origin: string): boolean {
-  return window.location.origin === "null" || origin === window.location.origin;
 }
 
 export function HoshidictsPopupPreview({
@@ -103,10 +76,7 @@ export function HoshidictsPopupPreview({
   const stageHeight = preferences.popupHeightPx + STAGE_VERTICAL_PADDING;
 
   const postToPreview = useCallback((message: PreviewParentMessage) => {
-    iframeRef.current?.contentWindow?.postMessage(
-      message,
-      previewTargetOrigin()
-    );
+    iframeRef.current?.contentWindow?.postMessage(message, "*");
   }, []);
 
   const sendPreferences = useCallback(() => {
@@ -135,12 +105,7 @@ export function HoshidictsPopupPreview({
 
   useEffect(() => {
     const onMessage = (event: MessageEvent<unknown>) => {
-      if (
-        event.source !== iframeRef.current?.contentWindow ||
-        !isExpectedFrameOrigin(event.origin)
-      ) {
-        return;
-      }
+      if (event.source !== iframeRef.current?.contentWindow) return;
       const message = parsePreviewFrameMessage(event.data);
       if (!message) return;
       if (message.type === "frame-ready") {
