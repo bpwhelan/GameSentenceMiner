@@ -7,7 +7,7 @@ import {
     createDefaultHoshidictsPopupButtons,
     createDefaultHoshidictsReaderPreferences,
     DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
-    DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
+    HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
     HOSHIDICTS_MINING_FIELD_MARKERS,
     hoshidictsDefinitionBlurEqual,
     hoshidictsPopupButtonsEqual,
@@ -146,7 +146,7 @@ describe('Hoshidicts mining field markers', () => {
     });
 
     it('installs Jitendex and JMdict as the default term dictionaries', () => {
-        expect(DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.slice(0, 2)).toEqual([
+        expect(HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.slice(0, 2)).toEqual([
             'jitendex',
             'jmdict',
         ]);
