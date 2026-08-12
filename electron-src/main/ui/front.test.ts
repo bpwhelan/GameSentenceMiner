@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { makeHoshidictsReaderPreferences } from '../features/hoshidicts/test_helpers.js';
+
 const existsSyncMock = vi.fn();
 const spawnMock = vi.fn();
 const execFileMock = vi.fn();
@@ -113,6 +115,49 @@ async function loadFrontModule() {
     return import('./front.js');
 }
 
+/**
+ * Must be called after loadFrontModule so the test shares the runtime-state
+ * instance front.js configured with its overlay-liveness provider.
+ */
+async function loadHoshidictsRuntime() {
+    return import('../features/hoshidicts/runtime_state.js');
+}
+
+/** The launch environment produced by the default reader preferences. */
+const DEFAULT_HOSHIDICTS_ENVIRONMENT = {
+    GSM_HOSHIDICTS_LOOKUP_MODE: 'shift',
+    GSM_HOSHIDICTS_SCAN_LENGTH: '16',
+    GSM_HOSHIDICTS_MAX_RESULTS: '32',
+    GSM_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY: '',
+    GSM_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER: 'descending',
+    GSM_HOSHIDICTS_AVERAGE_FREQUENCY: '0',
+    GSM_HOSHIDICTS_SHOW_FREQUENCY_DICTIONARY_NAMES: '1',
+    GSM_HOSHIDICTS_ACTIVATION_KEY: 'Shift',
+    GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED: '0',
+    GSM_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT: '1',
+    GSM_HOSHIDICTS_POPUP_HIDE_DELAY_MS: '300',
+    GSM_HOSHIDICTS_SHOW_LOOKUP_COUNTS: '1',
+    GSM_HOSHIDICTS_SHOW_COMPACT_DEFINITION_SUMMARY: '0',
+    GSM_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT: '3',
+    GSM_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY: '',
+    GSM_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA: '1',
+    GSM_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY: '',
+    GSM_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE: '0',
+    GSM_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS: '1',
+    GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH: '10',
+    GSM_HOSHIDICTS_POPUP_WIDTH_PX: '560',
+    GSM_HOSHIDICTS_POPUP_HEIGHT_PX: '420',
+    GSM_HOSHIDICTS_POPUP_COLUMNS: '1',
+    GSM_HOSHIDICTS_THEME: 'default',
+    GSM_HOSHIDICTS_POPUP_OPACITY_PERCENT: '85',
+    GSM_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX: '16',
+    GSM_HOSHIDICTS_POPUP_TOOLBAR_POSITION: 'top',
+    GSM_HOSHIDICTS_DEFINITION_BLUR_ENABLED: '0',
+    GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD: '5',
+    GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_MODE: 'timed',
+    GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS: '5000',
+} as const;
+
 describe('runOverlayWithSource', () => {
     beforeEach(() => {
         isDevValue = false;
@@ -161,34 +206,9 @@ describe('runOverlayWithSource', () => {
             detached: false,
             stdio: 'ignore',
             env: expect.objectContaining({
+                ...DEFAULT_HOSHIDICTS_ENVIRONMENT,
                 GSM_HOSHIDICTS_CONTROL_PORT: '4567',
                 GSM_HOSHIDICTS_ENABLED: '0',
-                GSM_HOSHIDICTS_LOOKUP_MODE: 'shift',
-                GSM_HOSHIDICTS_SCAN_LENGTH: '16',
-                GSM_HOSHIDICTS_MAX_RESULTS: '32',
-                GSM_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY: '',
-                GSM_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER: 'descending',
-                GSM_HOSHIDICTS_ACTIVATION_KEY: 'Shift',
-                GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED: '0',
-                GSM_HOSHIDICTS_SHOW_LOOKUP_COUNTS: '1',
-                GSM_HOSHIDICTS_SHOW_COMPACT_DEFINITION_SUMMARY: '0',
-                GSM_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY: '',
-                GSM_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA: '1',
-                GSM_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY: '',
-                GSM_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE: '0',
-                GSM_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS: '1',
-                GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH: '10',
-                GSM_HOSHIDICTS_POPUP_WIDTH_PX: '560',
-                GSM_HOSHIDICTS_POPUP_HEIGHT_PX: '420',
-                GSM_HOSHIDICTS_POPUP_COLUMNS: '1',
-                GSM_HOSHIDICTS_THEME: 'default',
-                GSM_HOSHIDICTS_POPUP_OPACITY_PERCENT: '85',
-                GSM_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX: '16',
-                GSM_HOSHIDICTS_POPUP_TOOLBAR_POSITION: 'top',
-                GSM_HOSHIDICTS_DEFINITION_BLUR_ENABLED: '0',
-                GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD: '5',
-                GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_MODE: 'timed',
-                GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS: '5000',
             }),
         });
         expect(
@@ -215,38 +235,11 @@ describe('runOverlayWithSource', () => {
         await expect(runOverlayWithSource('startup')).resolves.toBe(true);
 
         expect(startInProcessOverlayMock).toHaveBeenCalledTimes(1);
-        expect(process.env.GSM_HOSHIDICTS_ENABLED).toBe('1');
-        expect(process.env.GSM_HOSHIDICTS_LOOKUP_MODE).toBe('shift');
-        expect(process.env.GSM_HOSHIDICTS_ACTIVATION_KEY).toBe('Shift');
-        expect(process.env.GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED).toBe('0');
-        expect(process.env.GSM_HOSHIDICTS_SHOW_LOOKUP_COUNTS).toBe('1');
-        expect(
-            process.env.GSM_HOSHIDICTS_SHOW_COMPACT_DEFINITION_SUMMARY
-        ).toBe('0');
-        expect(
-            process.env.GSM_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY
-        ).toBe('');
-        expect(
-            process.env.GSM_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA
-        ).toBe('1');
-        expect(
-            process.env.GSM_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY
-        ).toBe('');
-        expect(process.env.GSM_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE).toBe('0');
-        expect(process.env.GSM_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS).toBe('1');
-        expect(process.env.GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH).toBe('10');
-        expect(process.env.GSM_HOSHIDICTS_POPUP_WIDTH_PX).toBe('560');
-        expect(process.env.GSM_HOSHIDICTS_POPUP_HEIGHT_PX).toBe('420');
-        expect(process.env.GSM_HOSHIDICTS_POPUP_COLUMNS).toBe('1');
-        expect(process.env.GSM_HOSHIDICTS_THEME).toBe('default');
-        expect(process.env.GSM_HOSHIDICTS_POPUP_OPACITY_PERCENT).toBe('85');
-        expect(process.env.GSM_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX).toBe('16');
-        expect(process.env.GSM_HOSHIDICTS_POPUP_TOOLBAR_POSITION).toBe('top');
-        expect(process.env.GSM_HOSHIDICTS_DEFINITION_BLUR_ENABLED).toBe('0');
-        expect(process.env.GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD).toBe('5');
-        expect(process.env.GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_MODE).toBe('timed');
-        expect(process.env.GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS).toBe('5000');
-        expect(process.env.GSM_HOSHIDICTS_CONTROL_PORT).toBe('4567');
+        expect(process.env).toMatchObject({
+            ...DEFAULT_HOSHIDICTS_ENVIRONMENT,
+            GSM_HOSHIDICTS_ENABLED: '1',
+            GSM_HOSHIDICTS_CONTROL_PORT: '4567',
+        });
         expect(spawnMock).not.toHaveBeenCalled();
         expect(getOverlayRuntimeState()).toEqual({
             isRunning: true,
@@ -269,60 +262,46 @@ describe('runOverlayWithSource', () => {
         spawnMock.mockReturnValue(processHandle);
 
         const front = await loadFrontModule();
+        const runtime = await loadHoshidictsRuntime();
         const syncCustomDictionary = vi.fn(async () => undefined);
-        front.configureHoshidictsLookupModeProvider(async () => 'hover');
-        front.configureHoshidictsLookupControlsProvider(async () => ({
+        const configured = makeHoshidictsReaderPreferences({
+            lookupMode: 'hover',
             scanLength: 24,
             maxResults: 48,
             sortFrequencyDictionary: 'Frequency',
             sortFrequencyDictionaryOrder: 'ascending',
             averageFrequency: true,
             showFrequencyDictionaryNames: false,
-        }));
-        front.configureHoshidictsActivationKeyProvider(async () => 'F8');
-        front.configureHoshidictsSourceHighlightProvider(async () => true);
-        front.configureHoshidictsPopupHideDelayProvider(async () => 850);
-        front.configureHoshidictsShowLookupCountsProvider(async () => false);
-        front.configureHoshidictsShowCompactDefinitionSummaryProvider(
-            async () => true
-        );
-        front.configureHoshidictsCompactDefinitionSummaryCountProvider(
-            async () => 5
-        );
-        front.configureHoshidictsCompactDefinitionSummaryDictionaryProvider(
-            async () => 'Jitendex'
-        );
-        front.configureHoshidictsShowPitchAccentFuriganaProvider(
-            async () => false
-        );
-        front.configureHoshidictsPitchAccentFuriganaDictionaryProvider(
-            async () => 'Kanjium Pitch Accents'
-        );
-        front.configureHoshidictsShowPitchAccentBadgeProvider(
-            async () => true
-        );
-        front.configureHoshidictsHidePopupGrammarTagsProvider(
-            async () => false
-        );
-        front.configureHoshidictsCustomDictionarySyncProvider(
-            syncCustomDictionary
-        );
-        front.configureHoshidictsPopupNestingMaxDepthProvider(async () => 4);
-        front.configureHoshidictsDefinitionBlurProvider(async () => ({
-            enabled: true,
-            lookupThreshold: 8,
-            revealMode: 'hover',
-            revealDelayMs: 7000,
-        }));
-        front.configureHoshidictsPopupWidthProvider(async () => 720);
-        front.configureHoshidictsPopupHeightProvider(async () => 520);
-        front.configureHoshidictsPopupColumnsProvider(async () => 3);
-        front.configureHoshidictsThemeProvider(async () => 'cyberpunk');
-        front.configureHoshidictsPopupOpacityPercentProvider(async () => 70);
-        front.configureHoshidictsPopupBackdropBlurPxProvider(async () => 24);
-        front.configureHoshidictsPopupToolbarPositionProvider(
-            async () => 'bottom'
-        );
+            activationKey: 'F8',
+            sourceHighlightEnabled: true,
+            popupHideDelayMs: 850,
+            showLookupCounts: false,
+            showCompactDefinitionSummary: true,
+            compactDefinitionSummaryCount: 5,
+            compactDefinitionSummaryDictionary: 'Jitendex',
+            showPitchAccentFurigana: false,
+            pitchAccentFuriganaDictionary: 'Kanjium Pitch Accents',
+            showPitchAccentBadge: true,
+            hidePopupGrammarTags: false,
+            popupNestingMaxDepth: 4,
+            definitionBlur: {
+                enabled: true,
+                lookupThreshold: 8,
+                revealMode: 'hover',
+                revealDelayMs: 7000,
+            },
+            popupWidthPx: 720,
+            popupHeightPx: 520,
+            popupColumns: 3,
+            theme: 'cyberpunk',
+            popupOpacityPercent: 70,
+            popupBackdropBlurPx: 24,
+            popupToolbarPosition: 'bottom',
+        });
+        runtime.configureHoshidictsRuntime({
+            readerPreferences: async () => configured,
+            customDictionarySync: syncCustomDictionary,
+        });
 
         await expect(front.runOverlayWithSource('manual')).resolves.toBe(true);
 
@@ -360,223 +339,117 @@ describe('runOverlayWithSource', () => {
             GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_MODE: 'hover',
             GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS: '7000',
         });
-        expect(front.getOverlayHoshidictsLookupModeAtLaunch()).toBe('hover');
-        expect(front.getOverlayHoshidictsLookupControlsAtLaunch()).toEqual({
-            scanLength: 24,
-            maxResults: 48,
-            sortFrequencyDictionary: 'Frequency',
-            sortFrequencyDictionaryOrder: 'ascending',
-            averageFrequency: true,
-            showFrequencyDictionaryNames: false,
-        });
-        expect(front.getOverlayHoshidictsActivationKeyAtLaunch()).toBe('F8');
-        expect(front.getOverlayHoshidictsSourceHighlightEnabledAtLaunch()).toBe(true);
-        expect(front.getOverlayHoshidictsPopupHideDelayAtLaunch()).toBe(850);
-        expect(front.getOverlayHoshidictsShowLookupCountsAtLaunch()).toBe(false);
-        expect(
-            front.getOverlayHoshidictsShowCompactDefinitionSummaryAtLaunch()
-        ).toBe(true);
-        expect(
-            front.getOverlayHoshidictsCompactDefinitionSummaryCountAtLaunch()
-        ).toBe(5);
-        expect(
-            front.getOverlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch()
-        ).toBe('Jitendex');
-        expect(
-            front.getOverlayHoshidictsShowPitchAccentFuriganaAtLaunch()
-        ).toBe(false);
-        expect(
-            front.getOverlayHoshidictsPitchAccentFuriganaDictionaryAtLaunch()
-        ).toBe('Kanjium Pitch Accents');
-        expect(
-            front.getOverlayHoshidictsShowPitchAccentBadgeAtLaunch()
-        ).toBe(true);
-        expect(
-            front.getOverlayHoshidictsHidePopupGrammarTagsAtLaunch()
-        ).toBe(false);
-        expect(front.getOverlayHoshidictsPopupNestingMaxDepthAtLaunch()).toBe(4);
-        expect(front.getOverlayHoshidictsPopupWidthAtLaunch()).toBe(720);
-        expect(front.getOverlayHoshidictsPopupHeightAtLaunch()).toBe(520);
-        expect(front.getOverlayHoshidictsPopupColumnsAtLaunch()).toBe(3);
-        expect(front.getOverlayHoshidictsThemeAtLaunch()).toBe('cyberpunk');
-        expect(front.getOverlayHoshidictsPopupOpacityPercentAtLaunch()).toBe(70);
-        expect(front.getOverlayHoshidictsPopupBackdropBlurPxAtLaunch()).toBe(24);
-        expect(front.getOverlayHoshidictsPopupToolbarPositionAtLaunch()).toBe(
-            'bottom'
+        expect(runtime.getHoshidictsEnabledAtLaunch()).toBe(true);
+        expect(runtime.getAppliedHoshidictsReaderPreferences()).toEqual(
+            configured
         );
-        expect(front.getOverlayHoshidictsDefinitionBlurAtLaunch()).toEqual({
-            enabled: true,
-            lookupThreshold: 8,
-            revealMode: 'hover',
-            revealDelayMs: 7000,
-        });
-        expect(front.getOverlayHoshidictsPopupButtonsApplied()).toEqual({
-            addToAnki: true,
-            audio: true,
-            customDefinition: true,
-            viewInAnki: false,
-            customLinks: [],
-        });
-        expect(front.getOverlayHoshidictsCustomPopupCssApplied()).toBe('');
         expect(syncCustomDictionary).toHaveBeenCalledOnce();
-        expect(
-            front.getOverlayHoshidictsAudioProfileRestartRequired()
-        ).toBe(false);
-        expect(front.markOverlayHoshidictsAudioProfileSyncFailed()).toBe(true);
-        expect(
-            front.getOverlayHoshidictsAudioProfileRestartRequired()
-        ).toBe(true);
-        expect(
-            front.markOverlayHoshidictsAudioProfileApplied({
-                version: 1,
-                enabled: true,
-                autoPlay: false,
-                volume: 100,
-                sources: [],
-            })
-        ).toBe(true);
-        expect(
-            front.getOverlayHoshidictsAudioProfileRestartRequired()
-        ).toBe(false);
-        expect(
-            front.markOverlayHoshidictsReaderPreferencesApplied({
-                lookupMode: 'shift',
-                scanLength: 12,
-                maxResults: 20,
-                sortFrequencyDictionary: null,
-                sortFrequencyDictionaryOrder: 'descending',
-                activationKey: 'Space',
-                sourceHighlightEnabled: false,
-                onlyScanJapaneseText: true,
-                popupHideDelayMs: 1200,
-                showLookupCounts: true,
-                averageFrequency: false,
-                showFrequencyDictionaryNames: true,
-                showCompactDefinitionSummary: false,
-                compactDefinitionSummaryCount: 2,
-                compactDefinitionSummaryDictionary: null,
-                hidePopupGrammarTags: true,
-                popupNestingMaxDepth: 0,
-                definitionBlur: {
-                    enabled: false,
-                    lookupThreshold: 10,
-                    revealMode: 'timed',
-                    revealDelayMs: 9000,
-                },
-                popupWidthPx: 680,
-                popupHeightPx: 480,
-                popupColumns: 2,
-                theme: 'autumn',
-                popupOpacityPercent: 65,
-                popupBackdropBlurPx: 6,
-                popupToolbarPosition: 'top',
-                popupButtons: {
-                    addToAnki: false,
-                    audio: true,
-                    customDefinition: false,
-                    viewInAnki: true,
-                    customLinks: [
-                        {
-                            label: 'Jisho',
-                            url: 'https://jisho.org/search/%w?sentence=%s',
-                        },
-                    ],
-                },
-                customPopupCss: ':scope { color: hotpink; }',
-            })
-        ).toBe(true);
-        expect(front.getOverlayHoshidictsLookupModeAtLaunch()).toBe('shift');
-        expect(front.getOverlayHoshidictsLookupControlsAtLaunch()).toEqual({
+
+        expect(runtime.isHoshidictsAudioRestartRequired()).toBe(false);
+        expect(runtime.markHoshidictsAudioProfileSyncFailed()).toBe(true);
+        expect(runtime.isHoshidictsAudioRestartRequired()).toBe(true);
+        expect(runtime.markHoshidictsAudioProfileApplied()).toBe(true);
+        expect(runtime.isHoshidictsAudioRestartRequired()).toBe(false);
+
+        const applied = makeHoshidictsReaderPreferences({
+            lookupMode: 'shift',
             scanLength: 12,
             maxResults: 20,
-            sortFrequencyDictionary: null,
-            sortFrequencyDictionaryOrder: 'descending',
-            averageFrequency: false,
-            showFrequencyDictionaryNames: true,
+            popupHideDelayMs: 1200,
+            activationKey: 'Space',
+            compactDefinitionSummaryCount: 2,
+            popupNestingMaxDepth: 0,
+            definitionBlur: {
+                enabled: false,
+                lookupThreshold: 10,
+                revealMode: 'timed',
+                revealDelayMs: 9000,
+            },
+            popupWidthPx: 680,
+            popupHeightPx: 480,
+            popupColumns: 2,
+            theme: 'autumn',
+            popupOpacityPercent: 65,
+            popupBackdropBlurPx: 6,
+            popupButtons: {
+                addToAnki: false,
+                audio: true,
+                customDefinition: false,
+                viewInAnki: true,
+                customLinks: [
+                    {
+                        label: 'Jisho',
+                        url: 'https://jisho.org/search/%w?sentence=%s',
+                    },
+                ],
+            },
+            customPopupCss: ':scope { color: hotpink; }',
         });
-        expect(front.getOverlayHoshidictsActivationKeyAtLaunch()).toBe('Space');
-        expect(front.getOverlayHoshidictsSourceHighlightEnabledAtLaunch()).toBe(false);
-        expect(front.getOverlayHoshidictsPopupHideDelayAtLaunch()).toBe(1200);
-        expect(front.getOverlayHoshidictsShowLookupCountsAtLaunch()).toBe(true);
         expect(
-            front.getOverlayHoshidictsShowCompactDefinitionSummaryAtLaunch()
-        ).toBe(false);
-        expect(
-            front.getOverlayHoshidictsCompactDefinitionSummaryCountAtLaunch()
-        ).toBe(2);
-        expect(
-            front.getOverlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch()
-        ).toBeNull();
-        expect(
-            front.getOverlayHoshidictsHidePopupGrammarTagsAtLaunch()
+            runtime.markHoshidictsReaderPreferencesApplied(applied)
         ).toBe(true);
-        expect(front.getOverlayHoshidictsPopupNestingMaxDepthAtLaunch()).toBe(0);
-        expect(front.getOverlayHoshidictsPopupWidthAtLaunch()).toBe(680);
-        expect(front.getOverlayHoshidictsPopupHeightAtLaunch()).toBe(480);
-        expect(front.getOverlayHoshidictsPopupColumnsAtLaunch()).toBe(2);
-        expect(front.getOverlayHoshidictsThemeAtLaunch()).toBe('autumn');
-        expect(front.getOverlayHoshidictsPopupOpacityPercentAtLaunch()).toBe(65);
-        expect(front.getOverlayHoshidictsPopupBackdropBlurPxAtLaunch()).toBe(6);
-        expect(front.getOverlayHoshidictsPopupToolbarPositionAtLaunch()).toBe(
-            'top'
-        );
-        expect(front.getOverlayHoshidictsDefinitionBlurAtLaunch()).toEqual({
-            enabled: false,
-            lookupThreshold: 10,
-            revealMode: 'timed',
-            revealDelayMs: 9000,
-        });
-        expect(front.getOverlayHoshidictsPopupButtonsApplied()).toEqual({
-            addToAnki: false,
-            audio: true,
-            customDefinition: false,
-            viewInAnki: true,
-            customLinks: [
-                {
-                    label: 'Jisho',
-                    url: 'https://jisho.org/search/%w?sentence=%s',
-                },
-            ],
-        });
-        expect(front.getOverlayHoshidictsCustomPopupCssApplied()).toBe(
-            ':scope { color: hotpink; }'
-        );
+        expect(runtime.getAppliedHoshidictsReaderPreferences()).toEqual(applied);
+
         processHandle.emit('exit');
-        expect(front.getOverlayHoshidictsLookupControlsAtLaunch()).toBeNull();
+        expect(runtime.getAppliedHoshidictsReaderPreferences()).toBeNull();
+        expect(runtime.getHoshidictsEnabledAtLaunch()).toBeNull();
+        expect(runtime.isHoshidictsAudioRestartRequired()).toBe(false);
         expect(
-            front.getOverlayHoshidictsShowCompactDefinitionSummaryAtLaunch()
-        ).toBeNull();
-        expect(
-            front.getOverlayHoshidictsCompactDefinitionSummaryCountAtLaunch()
-        ).toBeNull();
-        expect(
-            front.getOverlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch()
-        ).toBeNull();
-        expect(
-            front.getOverlayHoshidictsHidePopupGrammarTagsAtLaunch()
-        ).toBeNull();
-        expect(front.getOverlayHoshidictsCustomPopupCssApplied()).toBeNull();
+            runtime.markHoshidictsReaderPreferencesApplied(applied)
+        ).toBe(false);
+        expect(runtime.markHoshidictsAudioProfileApplied()).toBe(false);
+        expect(runtime.markHoshidictsAudioProfileSyncFailed()).toBe(false);
     });
 
-    it('falls back to safe definition blur launch defaults for invalid providers', async () => {
+    it('keeps the launch configuration at defaults while the feature is off', async () => {
+        isDevValue = true;
+        hoshidictsEnabledValue = false;
+        existsSyncMock.mockReturnValue(true);
+        spawnMock.mockReturnValue(createProcessHandle());
+
+        const front = await loadFrontModule();
+        const runtime = await loadHoshidictsRuntime();
+        const readerPreferences = vi.fn(async () =>
+            makeHoshidictsReaderPreferences({ lookupMode: 'hover' })
+        );
+        const syncCustomDictionary = vi.fn(async () => undefined);
+        runtime.configureHoshidictsRuntime({
+            readerPreferences,
+            customDictionarySync: syncCustomDictionary,
+        });
+
+        await expect(front.runOverlayWithSource('manual')).resolves.toBe(true);
+
+        expect(readerPreferences).not.toHaveBeenCalled();
+        expect(syncCustomDictionary).not.toHaveBeenCalled();
+        expect(spawnMock.mock.calls[0][2].env).toMatchObject({
+            ...DEFAULT_HOSHIDICTS_ENVIRONMENT,
+            GSM_HOSHIDICTS_ENABLED: '0',
+        });
+        expect(runtime.getHoshidictsEnabledAtLaunch()).toBe(false);
+    });
+
+    it('falls back to safe launch defaults for out-of-range preferences', async () => {
         isDevValue = true;
         hoshidictsEnabledValue = true;
         existsSyncMock.mockReturnValue(true);
         spawnMock.mockReturnValue(createProcessHandle());
 
         const front = await loadFrontModule();
-        front.configureHoshidictsDefinitionBlurProvider(async () => ({
-            enabled: true,
-            lookupThreshold: 0,
-            revealMode: 'hover',
-            revealDelayMs: 999,
-        }));
-        front.configureHoshidictsCompactDefinitionSummaryDictionaryProvider(
-            async () => '   '
-        );
-        front.configureHoshidictsCompactDefinitionSummaryCountProvider(
-            async () => 99
-        );
+        const runtime = await loadHoshidictsRuntime();
+        runtime.configureHoshidictsRuntime({
+            readerPreferences: async () =>
+                makeHoshidictsReaderPreferences({
+                    definitionBlur: {
+                        enabled: true,
+                        lookupThreshold: 0,
+                        revealMode: 'hover',
+                        revealDelayMs: 999,
+                    },
+                    compactDefinitionSummaryDictionary: '   ',
+                    compactDefinitionSummaryCount: 99,
+                }),
+        });
 
         await expect(front.runOverlayWithSource('manual')).resolves.toBe(true);
 
@@ -588,6 +461,34 @@ describe('runOverlayWithSource', () => {
             GSM_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT: '3',
             GSM_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY: '',
         });
+    });
+
+    it('falls back to launch defaults when the preference provider rejects', async () => {
+        isDevValue = true;
+        hoshidictsEnabledValue = true;
+        existsSyncMock.mockReturnValue(true);
+        spawnMock.mockReturnValue(createProcessHandle());
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        const front = await loadFrontModule();
+        const runtime = await loadHoshidictsRuntime();
+        runtime.configureHoshidictsRuntime({
+            readerPreferences: async () => {
+                throw new Error('manifest unreadable');
+            },
+        });
+
+        await expect(front.runOverlayWithSource('manual')).resolves.toBe(true);
+
+        expect(spawnMock.mock.calls[0][2].env).toMatchObject({
+            ...DEFAULT_HOSHIDICTS_ENVIRONMENT,
+            GSM_HOSHIDICTS_ENABLED: '1',
+        });
+        expect(warn).toHaveBeenCalledWith(
+            expect.stringContaining('using defaults'),
+            expect.any(Error)
+        );
+        warn.mockRestore();
     });
 
     it('does not wait for custom dictionary synchronization before launching', async () => {
@@ -603,9 +504,10 @@ describe('runOverlayWithSource', () => {
                 })
         );
         const front = await loadFrontModule();
-        front.configureHoshidictsCustomDictionarySyncProvider(
-            syncCustomDictionary
-        );
+        const runtime = await loadHoshidictsRuntime();
+        runtime.configureHoshidictsRuntime({
+            customDictionarySync: syncCustomDictionary,
+        });
 
         const launch = front.runOverlayWithSource('manual');
 
@@ -626,8 +528,11 @@ describe('runOverlayWithSource', () => {
         spawnMock.mockReturnValue(createProcessHandle());
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const front = await loadFrontModule();
-        front.configureHoshidictsCustomDictionarySyncProvider(async () => {
-            throw new Error('custom refresh failed');
+        const runtime = await loadHoshidictsRuntime();
+        runtime.configureHoshidictsRuntime({
+            customDictionarySync: async () => {
+                throw new Error('custom refresh failed');
+            },
         });
 
         await expect(front.runOverlayWithSource('manual')).resolves.toBe(true);

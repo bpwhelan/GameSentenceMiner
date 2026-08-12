@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import {
+    makeHoshidictsDictionary,
+    makeHoshidictsReaderPreferences,
+    makeHoshidictsSnapshot,
+} from './test_helpers.js';
+
 const harness = vi.hoisted(() => ({
     controlConnected: true,
     controlHandlers: null as null | {
@@ -9,30 +15,10 @@ const harness = vi.hoisted(() => ({
     },
     openWindow: vi.fn(async () => ({})),
     registerIPC: vi.fn(),
-    configureLookupModeProvider: vi.fn(),
-    configureLookupControlsProvider: vi.fn(),
-    configureActivationKeyProvider: vi.fn(),
-    configureSourceHighlightProvider: vi.fn(),
-    configureOnlyScanJapaneseTextProvider: vi.fn(),
-    configurePopupHideDelayProvider: vi.fn(),
-    configureShowLookupCountsProvider: vi.fn(),
-    configureShowCompactDefinitionSummaryProvider: vi.fn(),
-    configureCompactDefinitionSummaryCountProvider: vi.fn(),
-    configureCompactDefinitionSummaryDictionaryProvider: vi.fn(),
-    configureShowPitchAccentFuriganaProvider: vi.fn(),
-    configurePitchAccentFuriganaDictionaryProvider: vi.fn(),
-    configureShowPitchAccentBadgeProvider: vi.fn(),
-    configureHidePopupGrammarTagsProvider: vi.fn(),
-    configureCustomSyncProvider: vi.fn(),
-    configurePopupNestingMaxDepthProvider: vi.fn(),
-    configureDefinitionBlurProvider: vi.fn(),
-    configurePopupWidthProvider: vi.fn(),
-    configurePopupHeightProvider: vi.fn(),
-    configurePopupColumnsProvider: vi.fn(),
-    configureThemeProvider: vi.fn(),
-    configurePopupOpacityPercentProvider: vi.fn(),
-    configurePopupBackdropBlurPxProvider: vi.fn(),
-    configurePopupToolbarPositionProvider: vi.fn(),
+    configureRuntime: vi.fn(),
+    enabledAtLaunch: false as boolean | null,
+    appliedReaderPreferences: null as unknown,
+    audioRestartRequired: false,
     markPreferencesApplied: vi.fn(() => true),
     markAudioApplied: vi.fn(() => true),
     markAudioSyncFailed: vi.fn(() => true),
@@ -48,87 +34,7 @@ const harness = vi.hoisted(() => ({
         filePath: '/tmp/custom-dictionary.txt',
     })),
     addCustomEntry: vi.fn(async () => ({})),
-    managerSnapshot: {
-        dictionaries: [
-            {
-                title: 'Primary',
-                displayName: 'Core lexicon',
-                termCount: 1,
-                favorite: true,
-            },
-            {
-                title: 'Frequency only',
-                termCount: 0,
-                favorite: true,
-                enabled: true,
-                frequencyCount: 12,
-                frequencyMode: 'rank-based' as const,
-            },
-            {
-                title: 'Backup',
-                termCount: 1,
-                favorite: false,
-            },
-        ],
-        lookupMode: 'hover',
-        scanLength: 24,
-        maxResults: 48,
-        sortFrequencyDictionary: 'Frequency only',
-        sortFrequencyDictionaryOrder: 'ascending' as const,
-        activationKey: 'F8',
-        sourceHighlightEnabled: true,
-        onlyScanJapaneseText: true,
-        popupHideDelayMs: 850,
-        showLookupCounts: false,
-        showCompactDefinitionSummary: true,
-        compactDefinitionSummaryCount: 5,
-        compactDefinitionSummaryDictionary: 'Jitendex',
-        showPitchAccentFurigana: true,
-        pitchAccentFuriganaDictionary: 'Pitch',
-        showPitchAccentBadge: false,
-        hidePopupGrammarTags: true,
-        popupNestingMaxDepth: 4,
-        popupWidthPx: 680,
-        popupHeightPx: 500,
-        popupColumns: 3,
-        theme: 'autumn' as const,
-        popupOpacityPercent: 70,
-        popupBackdropBlurPx: 24,
-        popupToolbarPosition: 'bottom' as const,
-        popupButtons: {
-            addToAnki: false,
-            audio: true,
-            customDefinition: true,
-            viewInAnki: true,
-            customLinks: [
-                {
-                    label: 'Jisho',
-                    url: 'https://jisho.org/search/%w',
-                },
-            ],
-        },
-        customPopupCss: ':scope { color: hotpink; }',
-        definitionBlur: {
-            enabled: true,
-            lookupThreshold: 9,
-            revealMode: 'hover' as const,
-            revealDelayMs: 7500,
-        },
-        audioProfile: {
-            version: 1 as const,
-            enabled: true,
-            autoPlay: false,
-            volume: 100,
-            sources: [
-                {
-                    id: 'jpod101',
-                    type: 'jpod101' as const,
-                    url: '',
-                    voice: '',
-                },
-            ],
-        },
-    },
+    managerSnapshot: null as unknown,
 }));
 
 vi.mock('./control_channel.js', () => ({
@@ -153,98 +59,19 @@ vi.mock('../../gsm_config.js', () => ({
 }));
 
 vi.mock('../../ui/front.js', () => ({
-    configureHoshidictsLookupModeProvider: harness.configureLookupModeProvider,
-    configureHoshidictsLookupControlsProvider:
-        harness.configureLookupControlsProvider,
-    configureHoshidictsActivationKeyProvider:
-        harness.configureActivationKeyProvider,
-    configureHoshidictsSourceHighlightProvider:
-        harness.configureSourceHighlightProvider,
-    configureHoshidictsOnlyScanJapaneseTextProvider:
-        harness.configureOnlyScanJapaneseTextProvider,
-    configureHoshidictsPopupHideDelayProvider:
-        harness.configurePopupHideDelayProvider,
-    configureHoshidictsShowLookupCountsProvider:
-        harness.configureShowLookupCountsProvider,
-    configureHoshidictsShowCompactDefinitionSummaryProvider:
-        harness.configureShowCompactDefinitionSummaryProvider,
-    configureHoshidictsCompactDefinitionSummaryCountProvider:
-        harness.configureCompactDefinitionSummaryCountProvider,
-    configureHoshidictsCompactDefinitionSummaryDictionaryProvider:
-        harness.configureCompactDefinitionSummaryDictionaryProvider,
-    configureHoshidictsShowPitchAccentFuriganaProvider:
-        harness.configureShowPitchAccentFuriganaProvider,
-    configureHoshidictsPitchAccentFuriganaDictionaryProvider:
-        harness.configurePitchAccentFuriganaDictionaryProvider,
-    configureHoshidictsShowPitchAccentBadgeProvider:
-        harness.configureShowPitchAccentBadgeProvider,
-    configureHoshidictsHidePopupGrammarTagsProvider:
-        harness.configureHidePopupGrammarTagsProvider,
-    configureHoshidictsCustomDictionarySyncProvider:
-        harness.configureCustomSyncProvider,
-    configureHoshidictsPopupNestingMaxDepthProvider:
-        harness.configurePopupNestingMaxDepthProvider,
-    configureHoshidictsDefinitionBlurProvider:
-        harness.configureDefinitionBlurProvider,
-    configureHoshidictsPopupWidthProvider: harness.configurePopupWidthProvider,
-    configureHoshidictsPopupHeightProvider:
-        harness.configurePopupHeightProvider,
-    configureHoshidictsPopupColumnsProvider:
-        harness.configurePopupColumnsProvider,
-    configureHoshidictsThemeProvider: harness.configureThemeProvider,
-    configureHoshidictsPopupOpacityPercentProvider:
-        harness.configurePopupOpacityPercentProvider,
-    configureHoshidictsPopupBackdropBlurPxProvider:
-        harness.configurePopupBackdropBlurPxProvider,
-    configureHoshidictsPopupToolbarPositionProvider:
-        harness.configurePopupToolbarPositionProvider,
-    getOverlayHoshidictsEnabledAtLaunch: () => false,
-    getOverlayHoshidictsLookupModeAtLaunch: () => 'shift',
-    getOverlayHoshidictsLookupControlsAtLaunch: () => ({
-        scanLength: 16,
-        maxResults: 32,
-        sortFrequencyDictionary: null,
-        sortFrequencyDictionaryOrder: 'descending',
-    }),
-    getOverlayHoshidictsActivationKeyAtLaunch: () => 'Shift',
-    getOverlayHoshidictsSourceHighlightEnabledAtLaunch: () => false,
-    getOverlayHoshidictsOnlyScanJapaneseTextAtLaunch: () => true,
-    getOverlayHoshidictsPopupHideDelayAtLaunch: () => 300,
-    getOverlayHoshidictsShowLookupCountsAtLaunch: () => true,
-    getOverlayHoshidictsShowCompactDefinitionSummaryAtLaunch: () => false,
-    getOverlayHoshidictsCompactDefinitionSummaryCountAtLaunch: () => 3,
-    getOverlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch: () => null,
-    getOverlayHoshidictsShowPitchAccentFuriganaAtLaunch: () => true,
-    getOverlayHoshidictsPitchAccentFuriganaDictionaryAtLaunch: () => null,
-    getOverlayHoshidictsShowPitchAccentBadgeAtLaunch: () => false,
-    getOverlayHoshidictsHidePopupGrammarTagsAtLaunch: () => true,
-    getOverlayHoshidictsAudioProfileRestartRequired: () => false,
-    getOverlayHoshidictsPopupNestingMaxDepthAtLaunch: () => 10,
-    getOverlayHoshidictsDefinitionBlurAtLaunch: () => ({
-        enabled: false,
-        lookupThreshold: 5,
-        revealMode: 'timed',
-        revealDelayMs: 5000,
-    }),
-    getOverlayHoshidictsPopupWidthAtLaunch: () => 560,
-    getOverlayHoshidictsPopupHeightAtLaunch: () => 420,
-    getOverlayHoshidictsPopupColumnsAtLaunch: () => 1,
-    getOverlayHoshidictsThemeAtLaunch: () => 'default',
-    getOverlayHoshidictsPopupOpacityPercentAtLaunch: () => 85,
-    getOverlayHoshidictsPopupBackdropBlurPxAtLaunch: () => 16,
-    getOverlayHoshidictsPopupToolbarPositionAtLaunch: () => 'top',
-    getOverlayHoshidictsPopupButtonsApplied: () => null,
-    getOverlayHoshidictsCustomPopupCssApplied: () => '',
-    getOverlayRuntimeState: () => ({
-        isRunning: false,
-        source: null,
-    }),
+    getOverlayRuntimeState: () => ({ isRunning: false, source: null }),
     restartOverlay: vi.fn(async () => true),
-    markOverlayHoshidictsReaderPreferencesApplied:
-        harness.markPreferencesApplied,
-    markOverlayHoshidictsAudioProfileApplied: harness.markAudioApplied,
-    markOverlayHoshidictsAudioProfileSyncFailed:
-        harness.markAudioSyncFailed,
+}));
+
+vi.mock('./runtime_state.js', () => ({
+    configureHoshidictsRuntime: harness.configureRuntime,
+    getHoshidictsEnabledAtLaunch: () => harness.enabledAtLaunch,
+    getAppliedHoshidictsReaderPreferences: () =>
+        harness.appliedReaderPreferences,
+    isHoshidictsAudioRestartRequired: () => harness.audioRestartRequired,
+    markHoshidictsReaderPreferencesApplied: harness.markPreferencesApplied,
+    markHoshidictsAudioProfileApplied: harness.markAudioApplied,
+    markHoshidictsAudioProfileSyncFailed: harness.markAudioSyncFailed,
 }));
 
 vi.mock('./ipc.js', () => ({
@@ -266,42 +93,112 @@ vi.mock('./window.js', () => ({
     openHoshidictsSettingsWindow: harness.openWindow,
 }));
 
+/** The stored reader preferences the mocked manager persists. */
+const readerPreferences = makeHoshidictsReaderPreferences({
+    lookupMode: 'hover',
+    scanLength: 24,
+    maxResults: 48,
+    sortFrequencyDictionary: 'Frequency only',
+    sortFrequencyDictionaryOrder: 'ascending',
+    activationKey: 'F8',
+    sourceHighlightEnabled: true,
+    onlyScanJapaneseText: true,
+    popupHideDelayMs: 850,
+    showLookupCounts: false,
+    showCompactDefinitionSummary: true,
+    compactDefinitionSummaryCount: 5,
+    compactDefinitionSummaryDictionary: 'Jitendex',
+    showPitchAccentFurigana: true,
+    pitchAccentFuriganaDictionary: 'Pitch',
+    showPitchAccentBadge: false,
+    hidePopupGrammarTags: true,
+    popupNestingMaxDepth: 4,
+    definitionBlur: {
+        enabled: true,
+        lookupThreshold: 9,
+        revealMode: 'hover',
+        revealDelayMs: 7500,
+    },
+    popupWidthPx: 680,
+    popupHeightPx: 500,
+    popupColumns: 3,
+    theme: 'autumn',
+    popupOpacityPercent: 70,
+    popupBackdropBlurPx: 24,
+    popupToolbarPosition: 'bottom',
+    popupButtons: {
+        addToAnki: false,
+        audio: true,
+        customDefinition: true,
+        viewInAnki: true,
+        customLinks: [{ label: 'Jisho', url: 'https://jisho.org/search/%w' }],
+    },
+    customPopupCss: ':scope { color: hotpink; }',
+});
+
+/** The dictionary context the overlay is told about alongside the preferences. */
+const readerDictionaryContext = {
+    dictionaryPresentation: [
+        { title: 'Primary', favorite: true, displayName: 'Core lexicon' },
+        {
+            title: 'Frequency only',
+            favorite: true,
+            frequencyMode: 'rank-based',
+        },
+        { title: 'Backup', favorite: false },
+    ],
+    frequencyDictionaries: ['Frequency only'],
+    dictionaryTabGroups: [],
+};
+
+const managerSnapshot = makeHoshidictsSnapshot({
+    ...readerPreferences,
+    dictionaries: [
+        makeHoshidictsDictionary({
+            id: 'primary',
+            title: 'Primary',
+            displayName: 'Core lexicon',
+            favorite: true,
+        }),
+        makeHoshidictsDictionary({
+            id: 'frequency-only',
+            title: 'Frequency only',
+            termCount: 0,
+            favorite: true,
+            frequencyCount: 12,
+            frequencyMode: 'rank-based',
+        }),
+        makeHoshidictsDictionary({ id: 'backup', title: 'Backup' }),
+    ],
+    audioProfile: {
+        version: 1,
+        enabled: true,
+        autoPlay: false,
+        volume: 100,
+        sources: [{ id: 'jpod101', type: 'jpod101', url: '', voice: '' }],
+    },
+});
+harness.managerSnapshot = managerSnapshot;
+
+/** Preferences plus the derived dictionary context, as delivered to the reader. */
+const deliveredPreferences = {
+    ...readerPreferences,
+    ...readerDictionaryContext,
+};
+
+function ipcDependencies(): any {
+    return harness.registerIPC.mock.calls[0][0];
+}
+
 describe('Hoshidicts feature registration', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
         harness.controlConnected = true;
         harness.controlHandlers = null;
-        harness.configureLookupModeProvider.mockReset();
-        harness.configureLookupControlsProvider.mockReset();
-        harness.configureActivationKeyProvider.mockReset();
-        harness.configureSourceHighlightProvider.mockReset();
-        harness.configureOnlyScanJapaneseTextProvider.mockReset();
-        harness.configurePopupHideDelayProvider.mockReset();
-        harness.configureShowLookupCountsProvider.mockReset();
-        harness.configureShowCompactDefinitionSummaryProvider.mockReset();
-        harness.configureCompactDefinitionSummaryCountProvider.mockReset();
-        harness.configureCompactDefinitionSummaryDictionaryProvider.mockReset();
-        harness.configureShowPitchAccentFuriganaProvider.mockReset();
-        harness.configurePitchAccentFuriganaDictionaryProvider.mockReset();
-        harness.configureShowPitchAccentBadgeProvider.mockReset();
-        harness.configureHidePopupGrammarTagsProvider.mockReset();
-        harness.configureCustomSyncProvider.mockReset();
-        harness.configurePopupNestingMaxDepthProvider.mockReset();
-        harness.configureDefinitionBlurProvider.mockReset();
-        harness.configurePopupWidthProvider.mockReset();
-        harness.configurePopupHeightProvider.mockReset();
-        harness.configurePopupColumnsProvider.mockReset();
-        harness.configureThemeProvider.mockReset();
-        harness.configurePopupOpacityPercentProvider.mockReset();
-        harness.configurePopupBackdropBlurPxProvider.mockReset();
-        harness.startManager.mockClear();
-        harness.stopManager.mockClear();
-        harness.startControl.mockClear();
-        harness.stopControl.mockClear();
-        harness.controlRequest.mockClear();
-        harness.syncCustomDictionary.mockClear();
-        harness.addCustomEntry.mockClear();
+        harness.enabledAtLaunch = false;
+        harness.appliedReaderPreferences = null;
+        harness.audioRestartRequired = false;
     });
 
     it('registers local IPC and preserves every overlay control operation', async () => {
@@ -312,162 +209,42 @@ describe('Hoshidicts feature registration', () => {
             getMainWindow: () => null,
         });
         expect(harness.registerIPC).toHaveBeenCalledOnce();
-        expect(
-            harness.registerIPC.mock.calls[0][0].getConfiguredFeatureEnabled()
-        ).toBe(true);
-        expect(
-            harness.registerIPC.mock.calls[0][0].getOverlayLookupModeAtLaunch()
-        ).toBe('shift');
-        expect(
-            harness.registerIPC.mock.calls[0][0]
-                .getOverlayLookupControlsAtLaunch()
-        ).toEqual({
-            scanLength: 16,
-            maxResults: 32,
-            sortFrequencyDictionary: null,
-            sortFrequencyDictionaryOrder: 'descending',
-        });
-        expect(
-            harness.registerIPC.mock.calls[0][0]
-                .getOverlayShowLookupCountsAtLaunch()
-        ).toBe(true);
-        expect(
-            harness.registerIPC.mock.calls[0][0]
-                .getOverlayShowCompactDefinitionSummaryAtLaunch()
-        ).toBe(false);
-        expect(
-            harness.registerIPC.mock.calls[0][0]
-                .getOverlayCompactDefinitionSummaryCountAtLaunch()
-        ).toBe(3);
-        expect(
-            harness.registerIPC.mock.calls[0][0]
-                .getOverlayCompactDefinitionSummaryDictionaryAtLaunch()
-        ).toBeNull();
-        expect(
-            harness.registerIPC.mock.calls[0][0]
-                .getOverlayShowPitchAccentFuriganaAtLaunch()
-        ).toBe(true);
-        expect(
-            harness.registerIPC.mock.calls[0][0]
-                .getOverlayPitchAccentFuriganaDictionaryAtLaunch()
-        ).toBeNull();
-        expect(
-            harness.registerIPC.mock.calls[0][0]
-                .getOverlayShowPitchAccentBadgeAtLaunch()
-        ).toBe(false);
-        expect(
-            harness.registerIPC.mock.calls[0][0]
-                .getOverlayHidePopupGrammarTagsAtLaunch()
-        ).toBe(true);
+        const deps = ipcDependencies();
+
+        // The desktop state getters are now one object plus two flags.
+        expect(deps.getConfiguredFeatureEnabled()).toBe(true);
+        expect(deps.getOverlayFeatureEnabledAtLaunch()).toBe(false);
+        expect(deps.getAppliedReaderPreferences()).toBeNull();
+        expect(deps.getOverlayAudioProfileRestartRequired()).toBe(false);
+        harness.appliedReaderPreferences = readerPreferences;
+        harness.enabledAtLaunch = true;
+        harness.audioRestartRequired = true;
+        expect(deps.getAppliedReaderPreferences()).toEqual(readerPreferences);
+        expect(deps.getOverlayFeatureEnabledAtLaunch()).toBe(true);
+        expect(deps.getOverlayAudioProfileRestartRequired()).toBe(true);
+
         await expect(
-            harness.registerIPC.mock.calls[0][0].applyReaderPreferences({
-                lookupMode: 'hover',
-                scanLength: 24,
-                maxResults: 48,
-                sortFrequencyDictionary: 'Frequency only',
-                sortFrequencyDictionaryOrder: 'ascending',
-                activationKey: 'F8',
-                sourceHighlightEnabled: true,
-                onlyScanJapaneseText: true,
-                popupHideDelayMs: 850,
-                showLookupCounts: false,
-                showCompactDefinitionSummary: true,
-                compactDefinitionSummaryCount: 5,
-                compactDefinitionSummaryDictionary: 'Jitendex',
-                showPitchAccentFurigana: true,
-                pitchAccentFuriganaDictionary: 'Pitch',
-                showPitchAccentBadge: false,
-                hidePopupGrammarTags: false,
-                popupNestingMaxDepth: 4,
-                definitionBlur: harness.managerSnapshot.definitionBlur,
-                popupWidthPx: 680,
-                popupHeightPx: 500,
-                popupColumns: 3,
-                theme: 'autumn',
-                popupOpacityPercent: 70,
-                popupBackdropBlurPx: 24,
-                popupToolbarPosition: 'bottom',
-                popupButtons: harness.managerSnapshot.popupButtons,
-                customPopupCss: harness.managerSnapshot.customPopupCss,
-            })
+            deps.applyReaderPreferences(deliveredPreferences)
         ).resolves.toBe(true);
         expect(harness.controlRequest).toHaveBeenCalledWith(
             'hoshidicts.readerPreferences',
-            {
-                lookupMode: 'hover',
-                scanLength: 24,
-                maxResults: 48,
-                sortFrequencyDictionary: 'Frequency only',
-                sortFrequencyDictionaryOrder: 'ascending',
-                activationKey: 'F8',
-                sourceHighlightEnabled: true,
-                onlyScanJapaneseText: true,
-                popupHideDelayMs: 850,
-                showLookupCounts: false,
-                showCompactDefinitionSummary: true,
-                compactDefinitionSummaryCount: 5,
-                compactDefinitionSummaryDictionary: 'Jitendex',
-                showPitchAccentFurigana: true,
-                pitchAccentFuriganaDictionary: 'Pitch',
-                showPitchAccentBadge: false,
-                hidePopupGrammarTags: false,
-                popupNestingMaxDepth: 4,
-                definitionBlur: harness.managerSnapshot.definitionBlur,
-                popupWidthPx: 680,
-                popupHeightPx: 500,
-                popupColumns: 3,
-                theme: 'autumn',
-                popupOpacityPercent: 70,
-                popupBackdropBlurPx: 24,
-                popupToolbarPosition: 'bottom',
-                popupButtons: harness.managerSnapshot.popupButtons,
-                customPopupCss: harness.managerSnapshot.customPopupCss,
-            },
+            deliveredPreferences,
             2000
         );
-        expect(harness.markPreferencesApplied).toHaveBeenCalledWith({
-            lookupMode: 'hover',
-            scanLength: 24,
-            maxResults: 48,
-            sortFrequencyDictionary: 'Frequency only',
-            sortFrequencyDictionaryOrder: 'ascending',
-            activationKey: 'F8',
-            sourceHighlightEnabled: true,
-            onlyScanJapaneseText: true,
-            popupHideDelayMs: 850,
-            showLookupCounts: false,
-            showCompactDefinitionSummary: true,
-            compactDefinitionSummaryCount: 5,
-            compactDefinitionSummaryDictionary: 'Jitendex',
-            showPitchAccentFurigana: true,
-            pitchAccentFuriganaDictionary: 'Pitch',
-            showPitchAccentBadge: false,
-            hidePopupGrammarTags: false,
-            popupNestingMaxDepth: 4,
-            definitionBlur: harness.managerSnapshot.definitionBlur,
-            popupWidthPx: 680,
-            popupHeightPx: 500,
-            popupColumns: 3,
-            theme: 'autumn',
-            popupOpacityPercent: 70,
-            popupBackdropBlurPx: 24,
-            popupToolbarPosition: 'bottom',
-            popupButtons: harness.managerSnapshot.popupButtons,
-            customPopupCss: harness.managerSnapshot.customPopupCss,
-        });
+        expect(harness.markPreferencesApplied).toHaveBeenCalledWith(
+            deliveredPreferences
+        );
+
         await expect(
-            harness.registerIPC.mock.calls[0][0].applyAudioProfile(
-                harness.managerSnapshot.audioProfile
-            )
+            deps.applyAudioProfile(managerSnapshot.audioProfile)
         ).resolves.toBe(true);
         expect(harness.controlRequest).toHaveBeenCalledWith(
             'hoshidicts.audioProfile',
-            harness.managerSnapshot.audioProfile,
+            managerSnapshot.audioProfile,
             2000
         );
-        expect(harness.markAudioApplied).toHaveBeenCalledWith(
-            harness.managerSnapshot.audioProfile
-        );
+        expect(harness.markAudioApplied).toHaveBeenCalledWith();
+
         await expect(
             harness.controlHandlers?.openSettings()
         ).resolves.toEqual({ opened: true });
@@ -478,59 +255,12 @@ describe('Hoshidicts feature registration', () => {
         await vi.waitFor(() => {
             expect(harness.controlRequest).toHaveBeenCalledWith(
                 'hoshidicts.readerPreferences',
-                {
-                    lookupMode: 'hover',
-                    scanLength: 24,
-                    maxResults: 48,
-                    sortFrequencyDictionary: 'Frequency only',
-                    sortFrequencyDictionaryOrder: 'ascending',
-                    activationKey: 'F8',
-                    sourceHighlightEnabled: true,
-                    onlyScanJapaneseText: true,
-                    popupHideDelayMs: 850,
-                    showLookupCounts: false,
-                    showCompactDefinitionSummary: true,
-                    compactDefinitionSummaryCount: 5,
-                    compactDefinitionSummaryDictionary: 'Jitendex',
-                    showPitchAccentFurigana: true,
-                    pitchAccentFuriganaDictionary: 'Pitch',
-                    showPitchAccentBadge: false,
-                    hidePopupGrammarTags: true,
-                    popupNestingMaxDepth: 4,
-                    definitionBlur: harness.managerSnapshot.definitionBlur,
-                    popupWidthPx: 680,
-                    popupHeightPx: 500,
-                    popupColumns: 3,
-                    theme: 'autumn',
-                    popupOpacityPercent: 70,
-                    popupBackdropBlurPx: 24,
-                    popupToolbarPosition: 'bottom',
-                    popupButtons: harness.managerSnapshot.popupButtons,
-                    customPopupCss: harness.managerSnapshot.customPopupCss,
-                    dictionaryPresentation: [
-                        {
-                            title: 'Primary',
-                            favorite: true,
-                            displayName: 'Core lexicon',
-                        },
-                        {
-                            title: 'Frequency only',
-                            favorite: true,
-                            frequencyMode: 'rank-based',
-                        },
-                        {
-                            title: 'Backup',
-                            favorite: false,
-                        },
-                    ],
-                    frequencyDictionaries: ['Frequency only'],
-                    dictionaryTabGroups: [],
-                },
+                deliveredPreferences,
                 2000
             );
             expect(harness.controlRequest).toHaveBeenCalledWith(
                 'hoshidicts.audioProfile',
-                harness.managerSnapshot.audioProfile,
+                managerSnapshot.audioProfile,
                 2000
             );
         });
@@ -550,9 +280,12 @@ describe('Hoshidicts feature registration', () => {
         await expect(
             harness.controlHandlers?.addCustomEntry({ term: '猫' })
         ).rejects.toThrow('fields must be strings');
+        await expect(
+            harness.controlHandlers?.addCustomEntry('猫')
+        ).rejects.toThrow('must be an object');
     });
 
-    it('wires the persisted lookup mode into overlay launches after startup', async () => {
+    it('wires the persisted preferences into overlay launches after startup', async () => {
         const { startHoshidictsManager } = await import('./index.js');
 
         await startHoshidictsManager();
@@ -562,140 +295,18 @@ describe('Hoshidicts feature registration', () => {
         expect(
             harness.syncCustomDictionary.mock.invocationCallOrder[0]
         ).toBeLessThan(harness.startManager.mock.invocationCallOrder[0]);
-        expect(harness.configureLookupModeProvider).toHaveBeenCalledOnce();
-        const provider = harness.configureLookupModeProvider.mock.calls[0][0];
-        await expect(provider()).resolves.toBe('hover');
-        expect(harness.configureLookupControlsProvider).toHaveBeenCalledOnce();
-        const lookupControlsProvider =
-            harness.configureLookupControlsProvider.mock.calls[0][0];
-        await expect(lookupControlsProvider()).resolves.toEqual({
-            scanLength: 24,
-            maxResults: 48,
-            sortFrequencyDictionary: 'Frequency only',
-            sortFrequencyDictionaryOrder: 'ascending',
-        });
-        expect(harness.configureActivationKeyProvider).toHaveBeenCalledOnce();
-        const activationKeyProvider =
-            harness.configureActivationKeyProvider.mock.calls[0][0];
-        await expect(activationKeyProvider()).resolves.toBe('F8');
-        expect(harness.configureSourceHighlightProvider).toHaveBeenCalledOnce();
-        const sourceHighlightProvider =
-            harness.configureSourceHighlightProvider.mock.calls[0][0];
-        await expect(sourceHighlightProvider()).resolves.toBe(true);
-        expect(
-            harness.configurePopupHideDelayProvider
-        ).toHaveBeenCalledOnce();
-        const delayProvider =
-            harness.configurePopupHideDelayProvider.mock.calls[0][0];
-        await expect(delayProvider()).resolves.toBe(850);
-        expect(
-            harness.configureShowLookupCountsProvider
-        ).toHaveBeenCalledOnce();
-        const showLookupCountsProvider =
-            harness.configureShowLookupCountsProvider.mock.calls[0][0];
-        await expect(showLookupCountsProvider()).resolves.toBe(false);
-        expect(
-            harness.configureShowCompactDefinitionSummaryProvider
-        ).toHaveBeenCalledOnce();
-        const showCompactDefinitionSummaryProvider =
-            harness.configureShowCompactDefinitionSummaryProvider.mock.calls[0][0];
-        await expect(showCompactDefinitionSummaryProvider()).resolves.toBe(true);
-        expect(
-            harness.configureCompactDefinitionSummaryCountProvider
-        ).toHaveBeenCalledOnce();
-        const compactDefinitionSummaryCountProvider =
-            harness.configureCompactDefinitionSummaryCountProvider.mock
-                .calls[0][0];
-        await expect(compactDefinitionSummaryCountProvider()).resolves.toBe(5);
-        expect(
-            harness.configureCompactDefinitionSummaryDictionaryProvider
-        ).toHaveBeenCalledOnce();
-        const compactDefinitionSummaryDictionaryProvider =
-            harness.configureCompactDefinitionSummaryDictionaryProvider.mock
-                .calls[0][0];
-        await expect(
-            compactDefinitionSummaryDictionaryProvider()
-        ).resolves.toBe('Jitendex');
-        expect(
-            harness.configureShowPitchAccentFuriganaProvider
-        ).toHaveBeenCalledOnce();
-        const showPitchAccentFuriganaProvider =
-            harness.configureShowPitchAccentFuriganaProvider.mock.calls[0][0];
-        await expect(showPitchAccentFuriganaProvider()).resolves.toBe(true);
-        expect(
-            harness.configurePitchAccentFuriganaDictionaryProvider
-        ).toHaveBeenCalledOnce();
-        const pitchAccentFuriganaDictionaryProvider =
-            harness.configurePitchAccentFuriganaDictionaryProvider.mock.calls[0][0];
-        await expect(
-            pitchAccentFuriganaDictionaryProvider()
-        ).resolves.toBe('Pitch');
-        expect(
-            harness.configureShowPitchAccentBadgeProvider
-        ).toHaveBeenCalledOnce();
-        const showPitchAccentBadgeProvider =
-            harness.configureShowPitchAccentBadgeProvider.mock.calls[0][0];
-        await expect(showPitchAccentBadgeProvider()).resolves.toBe(false);
-        expect(
-            harness.configureHidePopupGrammarTagsProvider
-        ).toHaveBeenCalledOnce();
-        const hidePopupGrammarTagsProvider =
-            harness.configureHidePopupGrammarTagsProvider.mock.calls[0][0];
-        await expect(hidePopupGrammarTagsProvider()).resolves.toBe(true);
-        expect(
-            harness.configurePopupNestingMaxDepthProvider
-        ).toHaveBeenCalledOnce();
-        const depthProvider =
-            harness.configurePopupNestingMaxDepthProvider.mock.calls[0][0];
-        await expect(depthProvider()).resolves.toBe(4);
-        expect(
-            harness.configureDefinitionBlurProvider
-        ).toHaveBeenCalledOnce();
-        const definitionBlurProvider =
-            harness.configureDefinitionBlurProvider.mock.calls[0][0];
-        await expect(definitionBlurProvider()).resolves.toEqual({
-            enabled: true,
-            lookupThreshold: 9,
-            revealMode: 'hover',
-            revealDelayMs: 7500,
-        });
-        expect(harness.configurePopupWidthProvider).toHaveBeenCalledOnce();
-        await expect(
-            harness.configurePopupWidthProvider.mock.calls[0][0]()
-        ).resolves.toBe(680);
-        expect(harness.configurePopupHeightProvider).toHaveBeenCalledOnce();
-        await expect(
-            harness.configurePopupHeightProvider.mock.calls[0][0]()
-        ).resolves.toBe(500);
-        expect(harness.configurePopupColumnsProvider).toHaveBeenCalledOnce();
-        await expect(
-            harness.configurePopupColumnsProvider.mock.calls[0][0]()
-        ).resolves.toBe(3);
-        expect(harness.configureThemeProvider).toHaveBeenCalledOnce();
-        await expect(
-            harness.configureThemeProvider.mock.calls[0][0]()
-        ).resolves.toBe('autumn');
-        expect(
-            harness.configurePopupOpacityPercentProvider
-        ).toHaveBeenCalledOnce();
-        await expect(
-            harness.configurePopupOpacityPercentProvider.mock.calls[0][0]()
-        ).resolves.toBe(70);
-        expect(
-            harness.configurePopupBackdropBlurPxProvider
-        ).toHaveBeenCalledOnce();
-        await expect(
-            harness.configurePopupBackdropBlurPxProvider.mock.calls[0][0]()
-        ).resolves.toBe(24);
-        expect(
-            harness.configurePopupToolbarPositionProvider
-        ).toHaveBeenCalledOnce();
-        await expect(
-            harness.configurePopupToolbarPositionProvider.mock.calls[0][0]()
-        ).resolves.toBe('bottom');
-        expect(harness.configureCustomSyncProvider).toHaveBeenCalledOnce();
-        const syncProvider = harness.configureCustomSyncProvider.mock.calls[0][0];
-        await expect(syncProvider()).resolves.toBeUndefined();
+        expect(harness.configureRuntime).toHaveBeenCalledOnce();
+
+        // One runtime configuration replaces the per-preference providers.
+        const providers = harness.configureRuntime.mock.calls[0][0];
+        expect(Object.keys(providers).sort()).toEqual([
+            'customDictionarySync',
+            'readerPreferences',
+        ]);
+        await expect(providers.readerPreferences()).resolves.toEqual(
+            deliveredPreferences
+        );
+        await expect(providers.customDictionarySync()).resolves.toBeUndefined();
         expect(harness.syncCustomDictionary).toHaveBeenCalledTimes(2);
         expect(harness.startControl).toHaveBeenCalledOnce();
     });
@@ -712,8 +323,7 @@ describe('Hoshidicts feature registration', () => {
             expect.stringContaining('during startup'),
             failure
         );
-        expect(harness.configureLookupModeProvider).toHaveBeenCalledOnce();
-        expect(harness.configureCustomSyncProvider).toHaveBeenCalledOnce();
+        expect(harness.configureRuntime).toHaveBeenCalledOnce();
     });
 
     it('does not hold application startup open while custom import is running', async () => {
@@ -747,15 +357,30 @@ describe('Hoshidicts feature registration', () => {
         registerHoshidictsFeature({ getMainWindow: () => null });
 
         await expect(
-            harness.registerIPC.mock.calls[0][0].applyAudioProfile(
-                harness.managerSnapshot.audioProfile
-            )
+            ipcDependencies().applyAudioProfile(managerSnapshot.audioProfile)
         ).resolves.toBe(false);
         expect(harness.markAudioSyncFailed).toHaveBeenCalledOnce();
         expect(warn).toHaveBeenCalledWith(
             expect.stringContaining('audio settings'),
             expect.any(Error)
         );
+    });
+
+    it('marks a disconnected reader stale without contacting it', async () => {
+        harness.controlConnected = false;
+        const { registerHoshidictsFeature } = await import('./index.js');
+
+        registerHoshidictsFeature({ getMainWindow: () => null });
+
+        await expect(
+            ipcDependencies().applyAudioProfile(managerSnapshot.audioProfile)
+        ).resolves.toBe(false);
+        await expect(
+            ipcDependencies().applyReaderPreferences(deliveredPreferences)
+        ).resolves.toBe(false);
+        expect(harness.markAudioSyncFailed).toHaveBeenCalledOnce();
+        expect(harness.markPreferencesApplied).not.toHaveBeenCalled();
+        expect(harness.controlRequest).not.toHaveBeenCalled();
     });
 
     it('does not overwrite a live audio update with an older connection snapshot', async () => {
@@ -780,11 +405,11 @@ describe('Hoshidicts feature registration', () => {
         });
 
         const liveProfile = {
-            ...harness.managerSnapshot.audioProfile,
+            ...managerSnapshot.audioProfile,
             volume: 42,
         };
         await expect(
-            harness.registerIPC.mock.calls[0][0].applyAudioProfile(liveProfile)
+            ipcDependencies().applyAudioProfile(liveProfile)
         ).resolves.toBe(true);
         finishInitialPreferences();
         await vi.waitFor(() => {
@@ -797,7 +422,7 @@ describe('Hoshidicts feature registration', () => {
             liveProfile,
             2000
         );
-        expect(harness.markAudioApplied).toHaveBeenCalledWith(liveProfile);
+        expect(harness.markAudioApplied).toHaveBeenCalledWith();
         expect(harness.markAudioSyncFailed).not.toHaveBeenCalled();
     });
 

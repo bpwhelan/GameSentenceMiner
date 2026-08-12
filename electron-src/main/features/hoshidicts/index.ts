@@ -1,67 +1,17 @@
 import type { BrowserWindow } from 'electron';
 
 import { getConfiguredHoshidictsEnabled } from '../../gsm_config.js';
+import { getOverlayRuntimeState, restartOverlay } from '../../ui/front.js';
 import {
-    configureHoshidictsActivationKeyProvider,
-    configureHoshidictsDefinitionBlurProvider,
-    configureHoshidictsLookupControlsProvider,
-    configureHoshidictsLookupModeProvider,
-    configureHoshidictsOnlyScanJapaneseTextProvider,
-    configureHoshidictsPopupHideDelayProvider,
-    configureHoshidictsPopupHeightProvider,
-    configureHoshidictsPopupColumnsProvider,
-    configureHoshidictsPopupNestingMaxDepthProvider,
-    configureHoshidictsPopupOpacityPercentProvider,
-    configureHoshidictsPopupBackdropBlurPxProvider,
-    configureHoshidictsPopupToolbarPositionProvider,
-    configureHoshidictsPopupWidthProvider,
-    configureHoshidictsShowLookupCountsProvider,
-    configureHoshidictsShowCompactDefinitionSummaryProvider,
-    configureHoshidictsCompactDefinitionSummaryCountProvider,
-    configureHoshidictsCompactDefinitionSummaryDictionaryProvider,
-    configureHoshidictsPitchAccentFuriganaDictionaryProvider,
-    configureHoshidictsShowPitchAccentBadgeProvider,
-    configureHoshidictsShowPitchAccentFuriganaProvider,
-    configureHoshidictsHidePopupGrammarTagsProvider,
-    configureHoshidictsSourceHighlightProvider,
-    configureHoshidictsThemeProvider,
-    configureHoshidictsCustomDictionarySyncProvider,
-    getOverlayHoshidictsEnabledAtLaunch,
-    getOverlayHoshidictsActivationKeyAtLaunch,
-    getOverlayHoshidictsDefinitionBlurAtLaunch,
-    getOverlayHoshidictsLookupControlsAtLaunch,
-    getOverlayHoshidictsLookupModeAtLaunch,
-    getOverlayHoshidictsOnlyScanJapaneseTextAtLaunch,
-    getOverlayHoshidictsPopupHideDelayAtLaunch,
-    getOverlayHoshidictsPopupHeightAtLaunch,
-    getOverlayHoshidictsPopupColumnsAtLaunch,
-    getOverlayHoshidictsPopupNestingMaxDepthAtLaunch,
-    getOverlayHoshidictsPopupOpacityPercentAtLaunch,
-    getOverlayHoshidictsPopupBackdropBlurPxAtLaunch,
-    getOverlayHoshidictsPopupToolbarPositionAtLaunch,
-    getOverlayHoshidictsPopupButtonsApplied,
-    getOverlayHoshidictsCustomPopupCssApplied,
-    getOverlayHoshidictsShowLookupCountsAtLaunch,
-    getOverlayHoshidictsShowCompactDefinitionSummaryAtLaunch,
-    getOverlayHoshidictsCompactDefinitionSummaryCountAtLaunch,
-    getOverlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch,
-    getOverlayHoshidictsPitchAccentFuriganaDictionaryAtLaunch,
-    getOverlayHoshidictsShowPitchAccentBadgeAtLaunch,
-    getOverlayHoshidictsShowPitchAccentFuriganaAtLaunch,
-    getOverlayHoshidictsHidePopupGrammarTagsAtLaunch,
-    getOverlayHoshidictsSourceHighlightEnabledAtLaunch,
-    getOverlayHoshidictsPopupWidthAtLaunch,
-    getOverlayHoshidictsThemeAtLaunch,
-    getOverlayHoshidictsAudioProfileRestartRequired,
-    getOverlayRuntimeState,
-    markOverlayHoshidictsAudioProfileApplied,
-    markOverlayHoshidictsAudioProfileSyncFailed,
-    markOverlayHoshidictsReaderPreferencesApplied,
-    restartOverlay,
-} from '../../ui/front.js';
+    configureHoshidictsRuntime,
+    getAppliedHoshidictsReaderPreferences,
+    getHoshidictsEnabledAtLaunch,
+    isHoshidictsAudioRestartRequired,
+    markHoshidictsAudioProfileApplied,
+    markHoshidictsAudioProfileSyncFailed,
+    markHoshidictsReaderPreferencesApplied,
+} from './runtime_state.js';
 import {
-    DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
-    DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
     hoshidictsReaderPreferencesFromSnapshot,
     type HoshidictsAudioProfile,
     type HoshidictsCustomEntryRequest,
@@ -129,7 +79,7 @@ async function deliverReaderPreferences(
         if (revision !== readerPreferencesRevision) {
             return false;
         }
-        return markOverlayHoshidictsReaderPreferencesApplied(preferences);
+        return markHoshidictsReaderPreferencesApplied(preferences);
     } catch (error) {
         console.warn('[Hoshidicts] Could not update the running reader.', error);
         return false;
@@ -154,7 +104,7 @@ async function deliverAudioProfile(
         return false;
     }
     if (!isHoshidictsReaderControlConnected()) {
-        markOverlayHoshidictsAudioProfileSyncFailed();
+        markHoshidictsAudioProfileSyncFailed();
         return false;
     }
     try {
@@ -166,9 +116,9 @@ async function deliverAudioProfile(
         if (revision !== audioProfileRevision) {
             return false;
         }
-        return markOverlayHoshidictsAudioProfileApplied(profile);
+        return markHoshidictsAudioProfileApplied();
     } catch (error) {
-        markOverlayHoshidictsAudioProfileSyncFailed();
+        markHoshidictsAudioProfileSyncFailed();
         console.warn('[Hoshidicts] Could not update reader audio settings.', error);
         return false;
     }
@@ -206,59 +156,9 @@ export function registerHoshidictsFeature(deps: {
         openSettingsWindow: openHoshidictsSettingsWindow,
         getOverlayRuntimeState,
         getConfiguredFeatureEnabled: getConfiguredHoshidictsEnabled,
-        getOverlayFeatureEnabledAtLaunch:
-            getOverlayHoshidictsEnabledAtLaunch,
-        getOverlayLookupModeAtLaunch:
-            getOverlayHoshidictsLookupModeAtLaunch,
-        getOverlayLookupControlsAtLaunch:
-            getOverlayHoshidictsLookupControlsAtLaunch,
-        getOverlayActivationKeyAtLaunch:
-            getOverlayHoshidictsActivationKeyAtLaunch,
-        getOverlaySourceHighlightEnabledAtLaunch:
-            getOverlayHoshidictsSourceHighlightEnabledAtLaunch,
-        getOverlayOnlyScanJapaneseTextAtLaunch:
-            getOverlayHoshidictsOnlyScanJapaneseTextAtLaunch,
-        getOverlayPopupHideDelayAtLaunch:
-            getOverlayHoshidictsPopupHideDelayAtLaunch,
-        getOverlayShowLookupCountsAtLaunch:
-            getOverlayHoshidictsShowLookupCountsAtLaunch,
-        getOverlayShowCompactDefinitionSummaryAtLaunch:
-            getOverlayHoshidictsShowCompactDefinitionSummaryAtLaunch,
-        getOverlayCompactDefinitionSummaryCountAtLaunch:
-            getOverlayHoshidictsCompactDefinitionSummaryCountAtLaunch,
-        getOverlayCompactDefinitionSummaryDictionaryAtLaunch:
-            getOverlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch,
-        getOverlayShowPitchAccentFuriganaAtLaunch:
-            getOverlayHoshidictsShowPitchAccentFuriganaAtLaunch,
-        getOverlayPitchAccentFuriganaDictionaryAtLaunch:
-            getOverlayHoshidictsPitchAccentFuriganaDictionaryAtLaunch,
-        getOverlayShowPitchAccentBadgeAtLaunch:
-            getOverlayHoshidictsShowPitchAccentBadgeAtLaunch,
-        getOverlayHidePopupGrammarTagsAtLaunch:
-            getOverlayHoshidictsHidePopupGrammarTagsAtLaunch,
-        getOverlayAudioProfileRestartRequired:
-            getOverlayHoshidictsAudioProfileRestartRequired,
-        getOverlayPopupNestingMaxDepthAtLaunch:
-            getOverlayHoshidictsPopupNestingMaxDepthAtLaunch,
-        getOverlayDefinitionBlurAtLaunch:
-            getOverlayHoshidictsDefinitionBlurAtLaunch,
-        getOverlayPopupWidthAtLaunch:
-            getOverlayHoshidictsPopupWidthAtLaunch,
-        getOverlayPopupHeightAtLaunch:
-            getOverlayHoshidictsPopupHeightAtLaunch,
-        getOverlayPopupColumnsAtLaunch:
-            getOverlayHoshidictsPopupColumnsAtLaunch,
-        getOverlayThemeAtLaunch: getOverlayHoshidictsThemeAtLaunch,
-        getOverlayPopupOpacityPercentAtLaunch:
-            getOverlayHoshidictsPopupOpacityPercentAtLaunch,
-        getOverlayPopupBackdropBlurPxAtLaunch:
-            getOverlayHoshidictsPopupBackdropBlurPxAtLaunch,
-        getOverlayPopupToolbarPositionAtLaunch:
-            getOverlayHoshidictsPopupToolbarPositionAtLaunch,
-        getOverlayPopupButtonsApplied:
-            getOverlayHoshidictsPopupButtonsApplied,
-        getOverlayCustomPopupCssApplied:
-            getOverlayHoshidictsCustomPopupCssApplied,
+        getOverlayFeatureEnabledAtLaunch: getHoshidictsEnabledAtLaunch,
+        getAppliedReaderPreferences: getAppliedHoshidictsReaderPreferences,
+        getOverlayAudioProfileRestartRequired: isHoshidictsAudioRestartRequired,
         applyReaderPreferences,
         applyAudioProfile,
         getMiningOptions: fetchHoshidictsMiningOptions,
@@ -275,99 +175,12 @@ export async function startHoshidictsManager(): Promise<void> {
         );
     });
     await startManager();
-    configureHoshidictsLookupModeProvider(
-        async () => (await manager.getSnapshot()).lookupMode
-    );
-    configureHoshidictsLookupControlsProvider(async () => {
-        const snapshot = await manager.getSnapshot();
-        return {
-            scanLength: snapshot.scanLength,
-            maxResults: snapshot.maxResults,
-            sortFrequencyDictionary: snapshot.sortFrequencyDictionary,
-            sortFrequencyDictionaryOrder:
-                snapshot.sortFrequencyDictionaryOrder,
-            averageFrequency: snapshot.averageFrequency,
-            showFrequencyDictionaryNames:
-                snapshot.showFrequencyDictionaryNames,
-        };
-    });
-    configureHoshidictsActivationKeyProvider(
-        async () => (await getHoshidictsManager().getSnapshot()).activationKey
-    );
-    configureHoshidictsSourceHighlightProvider(
-        async () =>
-            (await getHoshidictsManager().getSnapshot())
-                .sourceHighlightEnabled
-    );
-    configureHoshidictsOnlyScanJapaneseTextProvider(
-        async () =>
-            (await getHoshidictsManager().getSnapshot())
-                .onlyScanJapaneseText
-    );
-    configureHoshidictsPopupHideDelayProvider(
-        async () => (await manager.getSnapshot()).popupHideDelayMs
-    );
-    configureHoshidictsShowLookupCountsProvider(
-        async () => (await manager.getSnapshot()).showLookupCounts
-    );
-    configureHoshidictsShowCompactDefinitionSummaryProvider(
-        async () =>
-            (await manager.getSnapshot()).showCompactDefinitionSummary
-    );
-    configureHoshidictsCompactDefinitionSummaryCountProvider(
-        async () =>
-            (await manager.getSnapshot()).compactDefinitionSummaryCount ??
-            DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT
-    );
-    configureHoshidictsCompactDefinitionSummaryDictionaryProvider(
-        async () =>
-            (await manager.getSnapshot()).compactDefinitionSummaryDictionary
-    );
-    configureHoshidictsShowPitchAccentFuriganaProvider(
-        async () => (await manager.getSnapshot()).showPitchAccentFurigana
-    );
-    configureHoshidictsPitchAccentFuriganaDictionaryProvider(
-        async () =>
-            (await manager.getSnapshot()).pitchAccentFuriganaDictionary
-    );
-    configureHoshidictsShowPitchAccentBadgeProvider(
-        async () => (await manager.getSnapshot()).showPitchAccentBadge
-    );
-    configureHoshidictsHidePopupGrammarTagsProvider(
-        async () => (await manager.getSnapshot()).hidePopupGrammarTags
-    );
-    configureHoshidictsPopupNestingMaxDepthProvider(
-        async () =>
-            (await getHoshidictsManager().getSnapshot()).popupNestingMaxDepth
-    );
-    configureHoshidictsDefinitionBlurProvider(
-        async () => (await manager.getSnapshot()).definitionBlur
-    );
-    configureHoshidictsPopupWidthProvider(
-        async () => (await manager.getSnapshot()).popupWidthPx
-    );
-    configureHoshidictsPopupHeightProvider(
-        async () => (await manager.getSnapshot()).popupHeightPx
-    );
-    configureHoshidictsPopupColumnsProvider(
-        async () => (await manager.getSnapshot()).popupColumns
-    );
-    configureHoshidictsThemeProvider(
-        async () => (await manager.getSnapshot()).theme
-    );
-    configureHoshidictsPopupOpacityPercentProvider(
-        async () => (await manager.getSnapshot()).popupOpacityPercent
-    );
-    configureHoshidictsPopupBackdropBlurPxProvider(
-        async () =>
-            (await manager.getSnapshot()).popupBackdropBlurPx ??
-            DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX
-    );
-    configureHoshidictsPopupToolbarPositionProvider(
-        async () => (await manager.getSnapshot()).popupToolbarPosition
-    );
-    configureHoshidictsCustomDictionarySyncProvider(async () => {
-        await manager.syncCustomDictionary();
+    configureHoshidictsRuntime({
+        readerPreferences: async () =>
+            hoshidictsReaderPreferencesFromSnapshot(await manager.getSnapshot()),
+        customDictionarySync: async () => {
+            await manager.syncCustomDictionary();
+        },
     });
     configureHoshidictsControlChannel({
         async openSettings() {
@@ -380,7 +193,7 @@ export async function startHoshidictsManager(): Promise<void> {
         },
         onReaderReady() {
             void synchronizeConnectedReader().catch((error) => {
-                markOverlayHoshidictsAudioProfileSyncFailed();
+                markHoshidictsAudioProfileSyncFailed();
                 console.warn(
                     '[Hoshidicts] Could not initialize the connected reader.',
                     error
