@@ -681,6 +681,13 @@ export function useHoshidictsSettingsController() {
     [applyResult, loadMiningOptions, t]
   );
 
+  /** runAction for the entries that are just one IPC call and one error key. */
+  const ipcAction = useCallback(
+    (channel: string, fallbackKey: string, ...args: unknown[]) =>
+      runAction(() => invokeIpc(channel, ...args), fallbackKey),
+    [runAction]
+  );
+
   const actions = useMemo(
     () => ({
       createProfile: async (name: string) => {
@@ -719,13 +726,10 @@ export function useHoshidictsSettingsController() {
         }
       },
       renameProfile: (id: string, name: string) =>
-        runAction(
-          () =>
-            invokeIpc(
-              HOSHIDICTS_CHANNELS.renameProfile,
-              { id, name } satisfies HoshidictsRenameProfileRequest
-            ),
-          "settings.hoshidicts.errors.profiles"
+        ipcAction(
+          HOSHIDICTS_CHANNELS.renameProfile,
+          "settings.hoshidicts.errors.profiles",
+          { id, name } satisfies HoshidictsRenameProfileRequest
         ),
       deleteProfile: async (id: string) => {
         setProfileSwitching(true);
@@ -770,9 +774,9 @@ export function useHoshidictsSettingsController() {
         }
       },
       importDictionary: () =>
-        runAction(
-          () => invokeIpc(HOSHIDICTS_CHANNELS.importDictionary),
-          "settings.hoshidicts.errors.import"
+        ipcAction(
+          HOSHIDICTS_CHANNELS.importDictionary,
+          "settings.hoshidicts.errors.import",
         ),
       importYomitanDictionaries: async () => {
         setBackupOperation("importingYomitanDictionaries");
@@ -801,45 +805,38 @@ export function useHoshidictsSettingsController() {
         }
       },
       checkUpdates: () =>
-        runAction(
-          () => invokeIpc(HOSHIDICTS_CHANNELS.checkUpdates),
-          "settings.hoshidicts.errors.update"
+        ipcAction(
+          HOSHIDICTS_CHANNELS.checkUpdates,
+          "settings.hoshidicts.errors.update",
         ),
       installAllRecommended: () =>
-        runAction(
-          () => invokeIpc(HOSHIDICTS_CHANNELS.installAllRecommended),
-          "settings.hoshidicts.errors.recommended"
+        ipcAction(
+          HOSHIDICTS_CHANNELS.installAllRecommended,
+          "settings.hoshidicts.errors.recommended",
         ),
       installRecommended: (id: HoshidictsRecommendedDictionaryId) =>
-        runAction(
-          () => invokeIpc(HOSHIDICTS_CHANNELS.installRecommended, { id }),
-          "settings.hoshidicts.errors.recommended"
+        ipcAction(
+          HOSHIDICTS_CHANNELS.installRecommended,
+          "settings.hoshidicts.errors.recommended",
+          { id }
         ),
       removeDictionary: (id: string) =>
-        runAction(
-          () => invokeIpc(HOSHIDICTS_CHANNELS.removeDictionary, id),
-          "settings.hoshidicts.errors.remove"
+        ipcAction(
+          HOSHIDICTS_CHANNELS.removeDictionary,
+          "settings.hoshidicts.errors.remove",
+          id
         ),
       setDictionaryEnabled: (id: string, enabled: boolean) =>
-        runAction(
-          () =>
-            invokeIpc(HOSHIDICTS_CHANNELS.setDictionaryEnabled, {
-              id,
-              enabled
-            }),
-          "settings.hoshidicts.errors.operation"
+        ipcAction(
+          HOSHIDICTS_CHANNELS.setDictionaryEnabled,
+          "settings.hoshidicts.errors.operation",
+          { id, enabled }
         ),
       setDictionaryPresentation: (id: string, favorite: boolean) =>
-        runAction(
-          () =>
-            invokeIpc(
-              HOSHIDICTS_CHANNELS.setDictionaryPresentation,
-              {
-                id,
-                favorite
-              } satisfies HoshidictsDictionaryPresentationRequest
-            ),
-          "settings.hoshidicts.errors.operation"
+        ipcAction(
+          HOSHIDICTS_CHANNELS.setDictionaryPresentation,
+          "settings.hoshidicts.errors.operation",
+          { id, favorite } satisfies HoshidictsDictionaryPresentationRequest
         ),
       bulkDictionaryAction: (
         action: HoshidictsBulkDictionaryAction,
@@ -856,104 +853,71 @@ export function useHoshidictsSettingsController() {
             : "settings.hoshidicts.errors.operation"
         ),
       createTabGroup: (name: string, dictionaryId?: string) =>
-        runAction(
-          () =>
-            invokeIpc(
-              HOSHIDICTS_CHANNELS.createTabGroup,
-              {
-                name,
-                ...(dictionaryId ? { dictionaryId } : {})
-              } satisfies HoshidictsCreateTabGroupRequest
-            ),
-          "settings.hoshidicts.errors.tabGroups"
+        ipcAction(
+          HOSHIDICTS_CHANNELS.createTabGroup,
+          "settings.hoshidicts.errors.tabGroups",
+          { name, ...(dictionaryId ? { dictionaryId } : {}) } satisfies HoshidictsCreateTabGroupRequest
         ),
       setTabGroupMembership: (
         groupId: string,
         dictionaryId: string,
         member: boolean
       ) =>
-        runAction(
-          () =>
-            invokeIpc(
-              HOSHIDICTS_CHANNELS.setTabGroupMembership,
-              {
-                groupId,
-                dictionaryId,
-                member
-              } satisfies HoshidictsSetTabGroupMembershipRequest
-            ),
-          "settings.hoshidicts.errors.tabGroups"
+        ipcAction(
+          HOSHIDICTS_CHANNELS.setTabGroupMembership,
+          "settings.hoshidicts.errors.tabGroups",
+          { groupId, dictionaryId, member } satisfies HoshidictsSetTabGroupMembershipRequest
         ),
       renameTabGroup: (groupId: string, name: string) =>
-        runAction(
-          () =>
-            invokeIpc(
-              HOSHIDICTS_CHANNELS.renameTabGroup,
-              { groupId, name } satisfies HoshidictsRenameTabGroupRequest
-            ),
-          "settings.hoshidicts.errors.tabGroups"
+        ipcAction(
+          HOSHIDICTS_CHANNELS.renameTabGroup,
+          "settings.hoshidicts.errors.tabGroups",
+          { groupId, name } satisfies HoshidictsRenameTabGroupRequest
         ),
       deleteTabGroup: (groupId: string) =>
-        runAction(
-          () =>
-            invokeIpc(
-              HOSHIDICTS_CHANNELS.deleteTabGroup,
-              { groupId } satisfies HoshidictsDeleteTabGroupRequest
-            ),
-          "settings.hoshidicts.errors.tabGroups"
+        ipcAction(
+          HOSHIDICTS_CHANNELS.deleteTabGroup,
+          "settings.hoshidicts.errors.tabGroups",
+          { groupId } satisfies HoshidictsDeleteTabGroupRequest
         ),
       moveTabGroup: (groupId: string, direction: HoshidictsMoveDirection) =>
-        runAction(
-          () =>
-            invokeIpc(
-              HOSHIDICTS_CHANNELS.moveTabGroup,
-              { groupId, direction } satisfies HoshidictsMoveTabGroupRequest
-            ),
-          "settings.hoshidicts.errors.tabGroups"
+        ipcAction(
+          HOSHIDICTS_CHANNELS.moveTabGroup,
+          "settings.hoshidicts.errors.tabGroups",
+          { groupId, direction } satisfies HoshidictsMoveTabGroupRequest
         ),
       setDictionarySchedule: (
         id: string,
         schedule: HoshidictsSchedule | null
       ) =>
-        runAction(
-          () =>
-            invokeIpc(
-              HOSHIDICTS_CHANNELS.setDictionarySchedule,
-              { id, schedule } satisfies HoshidictsDictionaryScheduleRequest
-            ),
-          "settings.hoshidicts.errors.dictionarySchedule"
+        ipcAction(
+          HOSHIDICTS_CHANNELS.setDictionarySchedule,
+          "settings.hoshidicts.errors.dictionarySchedule",
+          { id, schedule } satisfies HoshidictsDictionaryScheduleRequest
         ),
       renameDictionary: (id: string, displayName: string | null) =>
-        runAction(
-          () =>
-            invokeIpc(
-              HOSHIDICTS_CHANNELS.renameDictionary,
-              {
-                id,
-                displayName
-              } satisfies HoshidictsRenameDictionaryRequest
-            ),
-          "settings.hoshidicts.errors.rename"
+        ipcAction(
+          HOSHIDICTS_CHANNELS.renameDictionary,
+          "settings.hoshidicts.errors.rename",
+          { id, displayName } satisfies HoshidictsRenameDictionaryRequest
         ),
       moveDictionary: (id: string, direction: HoshidictsMoveDirection) =>
-        runAction(
-          () =>
-            invokeIpc(HOSHIDICTS_CHANNELS.moveDictionary, { id, direction }),
-          "settings.hoshidicts.errors.operation"
+        ipcAction(
+          HOSHIDICTS_CHANNELS.moveDictionary,
+          "settings.hoshidicts.errors.operation",
+          { id, direction }
         ),
       moveDictionaryToPosition: (id: string, position: number) =>
-        runAction(
-          () =>
-            invokeIpc(
-              HOSHIDICTS_CHANNELS.moveDictionaryToPosition,
-              { id, position } satisfies HoshidictsMoveDictionaryToPositionRequest
-            ),
-          "settings.hoshidicts.errors.operation"
+        ipcAction(
+          HOSHIDICTS_CHANNELS.moveDictionaryToPosition,
+          "settings.hoshidicts.errors.operation",
+          { id, position } satisfies HoshidictsMoveDictionaryToPositionRequest
         ),
       setSchedule: (schedule: HoshidictsSchedule) =>
-        runAction(
-          () => invokeIpc(HOSHIDICTS_CHANNELS.setSchedule, schedule),
-          "settings.hoshidicts.errors.schedule"
+        ipcAction(
+          HOSHIDICTS_CHANNELS.setSchedule,
+          "settings.hoshidicts.errors.schedule",
+          schedule
         ),
       restartOverlay: async () => {
         setRestarting(true);
