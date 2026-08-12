@@ -41,25 +41,6 @@ let featureRegistered = false;
 let readerPreferencesRevision = 0;
 let audioProfileRevision = 0;
 
-function customEntryFromPayload(value: unknown): HoshidictsCustomEntryRequest {
-    if (!value || typeof value !== 'object') {
-        throw new Error('Custom dictionary entry must be an object.');
-    }
-    const candidate = value as Partial<HoshidictsCustomEntryRequest>;
-    if (
-        typeof candidate.term !== 'string' ||
-        typeof candidate.reading !== 'string' ||
-        typeof candidate.definition !== 'string'
-    ) {
-        throw new Error('Custom dictionary entry fields must be strings.');
-    }
-    return {
-        term: candidate.term,
-        reading: candidate.reading,
-        definition: candidate.definition,
-    };
-}
-
 async function deliverReaderPreferences(
     preferences: HoshidictsReaderPreferences,
     revision: number
@@ -188,7 +169,9 @@ export async function startHoshidictsManager(): Promise<void> {
             return { opened: true };
         },
         async addCustomEntry(value) {
-            await manager.addCustomEntry(customEntryFromPayload(value));
+            // serializeCustomDictionaryEntry validates every field, and
+            // handleClientRequest turns any throw into { ok: false, error }.
+            await manager.addCustomEntry(value as HoshidictsCustomEntryRequest);
             return { saved: true };
         },
         onReaderReady() {

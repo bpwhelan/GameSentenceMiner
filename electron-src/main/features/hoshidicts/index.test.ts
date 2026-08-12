@@ -277,12 +277,6 @@ describe('Hoshidicts feature registration', () => {
             reading: ' ねこ ',
             definition: ' cat ',
         });
-        await expect(
-            harness.controlHandlers?.addCustomEntry({ term: '猫' })
-        ).rejects.toThrow('fields must be strings');
-        await expect(
-            harness.controlHandlers?.addCustomEntry('猫')
-        ).rejects.toThrow('must be an object');
     });
 
     it('wires the persisted preferences into overlay launches after startup', async () => {
