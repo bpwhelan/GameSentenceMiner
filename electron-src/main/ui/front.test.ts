@@ -294,60 +294,12 @@ describe('runOverlayWithSource', () => {
         );
         expect(syncCustomDictionary).toHaveBeenCalledOnce();
 
-        expect(runtime.isHoshidictsAudioRestartRequired()).toBe(false);
-        expect(runtime.markHoshidictsAudioProfileSyncFailed()).toBe(true);
-        expect(runtime.isHoshidictsAudioRestartRequired()).toBe(true);
-        expect(runtime.markHoshidictsAudioProfileApplied()).toBe(true);
-        expect(runtime.isHoshidictsAudioRestartRequired()).toBe(false);
-
-        const applied = makeHoshidictsReaderPreferences({
-            lookupMode: 'shift',
-            scanLength: 12,
-            maxResults: 20,
-            popupHideDelayMs: 1200,
-            activationKey: 'Space',
-            compactDefinitionSummaryCount: 2,
-            popupNestingMaxDepth: 0,
-            definitionBlur: {
-                enabled: false,
-                lookupThreshold: 10,
-                revealMode: 'timed',
-                revealDelayMs: 9000,
-            },
-            popupWidthPx: 680,
-            popupHeightPx: 480,
-            popupColumns: 2,
-            theme: 'autumn',
-            popupOpacityPercent: 65,
-            popupBackdropBlurPx: 6,
-            popupButtons: {
-                addToAnki: false,
-                audio: true,
-                customDefinition: false,
-                viewInAnki: true,
-                customLinks: [
-                    {
-                        label: 'Jisho',
-                        url: 'https://jisho.org/search/%w?sentence=%s',
-                    },
-                ],
-            },
-            customPopupCss: ':scope { color: hotpink; }',
-        });
-        expect(
-            runtime.markHoshidictsReaderPreferencesApplied(applied)
-        ).toBe(true);
-        expect(runtime.getAppliedHoshidictsReaderPreferences()).toEqual(applied);
-
+        // The audio-restart drive and the markApplied round-trip are pinned in
+        // runtime_state.test.ts; what is front-specific is that a spawned
+        // overlay exiting clears the recorded launch state.
         processHandle.emit('exit');
         expect(runtime.getAppliedHoshidictsReaderPreferences()).toBeNull();
         expect(runtime.getHoshidictsEnabledAtLaunch()).toBeNull();
-        expect(runtime.isHoshidictsAudioRestartRequired()).toBe(false);
-        expect(
-            runtime.markHoshidictsReaderPreferencesApplied(applied)
-        ).toBe(false);
-        expect(runtime.markHoshidictsAudioProfileApplied()).toBe(false);
-        expect(runtime.markHoshidictsAudioProfileSyncFailed()).toBe(false);
     });
 
     it('keeps the launch configuration at defaults while the feature is off', async () => {
