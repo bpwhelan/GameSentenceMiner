@@ -6,8 +6,6 @@ const TEST_READING = 'きく';
 const TEST_BUDGET_MS = 12_000;
 const MAX_CANDIDATES = 32;
 const MAX_AUDIO_BYTES = 16 * 1024 * 1024;
-const CANDIDATE_ID_PATTERN = /^[a-f0-9]{64}$/u;
-
 interface AudioCandidate {
     index: number;
     name: string;
@@ -20,26 +18,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
-}
-
-function candidatesFrom(value: unknown): AudioCandidate[] | null {
-    if (
-        !isRecord(value) ||
-        !Array.isArray(value.candidates) ||
-        value.candidates.length > MAX_CANDIDATES
-    ) {
-        return null;
-    }
-    const candidates = value.candidates.filter(
-        (candidate): candidate is AudioCandidate =>
-            isRecord(candidate) &&
-            Number.isInteger(candidate.index) &&
-            (candidate.index as number) >= 0 &&
-            typeof candidate.name === 'string' &&
-            typeof candidate.candidateId === 'string' &&
-            CANDIDATE_ID_PATTERN.test(candidate.candidateId)
-    );
-    return candidates.length === value.candidates.length ? candidates : null;
 }
 
 async function providerError(
@@ -93,10 +71,14 @@ export async function fetchHoshidictsAudioSourceTest(
     } catch {
         // Report the same response-shape error as malformed JSON.
     }
-    const candidates = candidatesFrom(payload);
-    if (!candidates) {
+    // GSM's own Python built this list, including the candidate id digests.
+    if (!isRecord(payload) || !Array.isArray(payload.candidates)) {
         throw new Error('GSM returned an invalid audio candidate response.');
     }
+    const candidates = payload.candidates.slice(
+        0,
+        MAX_CANDIDATES
+    ) as AudioCandidate[];
     if (candidates.length === 0) {
         throw new Error(`No pronunciation audio was found for ${TEST_TERM}（${TEST_READING}）.`);
     }

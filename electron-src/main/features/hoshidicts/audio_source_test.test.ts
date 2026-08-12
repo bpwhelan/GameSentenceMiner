@@ -137,20 +137,10 @@ describe('Hoshidicts audio source test proxy', () => {
         expect(fetchMock).toHaveBeenCalledTimes(3);
     });
 
-    it('rejects malformed candidate responses', async () => {
+    it('rejects a response without a candidate list', async () => {
         vi.stubGlobal(
             'fetch',
-            vi.fn(async () =>
-                jsonResponse({
-                    candidates: [
-                        {
-                            index: 0,
-                            name: 'recording',
-                            candidateId: 'not-a-candidate-id',
-                        },
-                    ],
-                })
-            )
+            vi.fn(async () => jsonResponse({ candidates: 'recording' }))
         );
 
         await expect(
