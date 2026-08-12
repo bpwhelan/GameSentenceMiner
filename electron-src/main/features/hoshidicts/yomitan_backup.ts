@@ -909,6 +909,8 @@ function currentReaderPreferences(current: HoshidictsManagerSnapshot): Hoshidict
         averageFrequency: current.averageFrequency,
         showFrequencyDictionaryNames: current.showFrequencyDictionaryNames,
         showCompactDefinitionSummary: current.showCompactDefinitionSummary,
+        compactDefinitionSummaryCount:
+            current.compactDefinitionSummaryCount,
         compactDefinitionSummaryDictionary:
             current.compactDefinitionSummaryDictionary,
         showPitchAccentFurigana: current.showPitchAccentFurigana,

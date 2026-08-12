@@ -8,6 +8,7 @@ import {
   HOSHIDICTS_THEME_GROUPS,
   MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
   MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
+  MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
   MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH,
   MAX_HOSHIDICTS_POPUP_COLUMNS,
   MAX_HOSHIDICTS_POPUP_CUSTOM_LINK_LABEL_LENGTH,
@@ -18,6 +19,7 @@ import {
   MAX_HOSHIDICTS_POPUP_WIDTH_PX,
   MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
   MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
+  MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
   MIN_HOSHIDICTS_POPUP_COLUMNS,
   MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
   MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
@@ -310,6 +312,7 @@ export function HoshidictsDesignPanel({
     setPopupToolbarPosition,
     setPopupWidthPx,
     setShowCompactDefinitionSummary,
+    setCompactDefinitionSummaryCount,
     setShowLookupCounts,
     setShowPitchAccentBadge,
     setShowPitchAccentFurigana,
@@ -517,6 +520,29 @@ export function HoshidictsDesignPanel({
                 )}
               </small>
             </span>
+          </label>
+          <label className="hoshidicts-reader-compact-summary-dictionary">
+            <span>
+              {t(
+                "settings.hoshidicts.reader.appearance.compactDefinitionSummaryCount"
+              )}
+            </span>
+            <input
+              id="hoshidicts-compact-definition-summary-count"
+              type="number"
+              min={MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT}
+              max={MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT}
+              step={1}
+              value={readerDraft.compactDefinitionSummaryCount}
+              disabled={
+                preferencesBusy || !readerDraft.showCompactDefinitionSummary
+              }
+              onChange={(event) =>
+                setCompactDefinitionSummaryCount(
+                  event.currentTarget.valueAsNumber
+                )
+              }
+            />
           </label>
           <label className="hoshidicts-reader-compact-summary-dictionary">
             <span>
@@ -947,3 +973,4 @@ export function HoshidictsDesignPanel({
     </div>
   );
 }
+
