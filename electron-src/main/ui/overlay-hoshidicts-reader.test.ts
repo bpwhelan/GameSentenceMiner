@@ -1247,9 +1247,6 @@ describe("Hoshidicts safe popup rendering", () => {
       customPopupCss: ".gsm-hoshidicts-expression { color: hotpink; }"
     });
     expect(customStyle?.textContent).toContain("color: hotpink");
-    expect(reader.updatePreferences({
-      customPopupCss: "x".repeat(32 * 1024 + 1)
-    }).customPopupCss).toHaveLength(32 * 1024);
     reader.updatePreferences({ customPopupCss: "" });
     expect(customStyle?.isConnected).toBe(false);
     reader.updatePreferences({ customPopupCss: ":scope { opacity: .9; }" });
@@ -1680,14 +1677,6 @@ describe("Hoshidicts compact definition summaries", () => {
       }
     });
 
-    expect(harness.reader.getPreferences().showCompactDefinitionSummary)
-      .toBe(false);
-    expect(harness.reader.getPopupElement().querySelector(
-      ".gsm-hoshidicts-compact-definition-summary"
-    )).toBeNull();
-    harness.reader.updatePreferences({
-      showCompactDefinitionSummary: "true"
-    });
     expect(harness.reader.getPreferences().showCompactDefinitionSummary)
       .toBe(false);
     expect(harness.reader.getPopupElement().querySelector(
@@ -2474,7 +2463,7 @@ describe("Hoshidicts dictionary tabs", () => {
       .toBe("All");
 
     reader.updatePreferences({
-      compactDefinitionSummaryDictionary: "  Backup  "
+      compactDefinitionSummaryDictionary: "Backup"
     });
 
     expect(socket.sent).toHaveLength(sentBeforeSwitch);
@@ -2493,9 +2482,6 @@ describe("Hoshidicts dictionary tabs", () => {
     expect(audioController.setRenderedResults.mock.calls.at(-1)?.[1])
       .toEqual({ autoPlay: false });
 
-    reader.updatePreferences({ compactDefinitionSummaryDictionary: "" });
-    expect(reader.getPreferences().compactDefinitionSummaryDictionary)
-      .toBe("Backup");
     expect(socket.sent).toHaveLength(sentBeforeSwitch);
 
     reader.updatePreferences({ compactDefinitionSummaryDictionary: null });
@@ -2596,35 +2582,9 @@ describe("Hoshidicts dictionary tabs", () => {
       .toBe("Weblio");
   });
 
-  it("normalizes optional dictionary aliases without changing canonical titles", () => {
+  it("clones ordered frequency dictionary preferences on the way out", () => {
     const { reader } = createLookupHarness({
-      dictionaryPresentation: [
-        { title: "Main", favorite: true, displayName: "  Friendly name  " },
-        { title: "Backup", favorite: false, displayName: "   " }
-      ]
-    });
-
-    expect(reader.getPreferences().dictionaryPresentation).toEqual([
-      { title: "Main", favorite: true, displayName: "Friendly name" },
-      { title: "Backup", favorite: false }
-    ]);
-    const longAlias = "長".repeat(5000);
-    reader.updatePreferences({
-      dictionaryPresentation: [
-        { title: "Main", favorite: true, displayName: longAlias }
-      ]
-    });
-    expect(
-      reader.getPreferences().dictionaryPresentation[0].displayName
-    ).toHaveLength(4096);
-    expect(reader.getPreferences().dictionaryPresentation[0].title).toBe(
-      "Main"
-    );
-  });
-
-  it("normalizes and clones ordered frequency dictionary preferences", () => {
-    const { reader } = createLookupHarness({
-      frequencyDictionaries: ["Foo", "", "Foo", "Foo!"]
+      frequencyDictionaries: ["Foo", "Foo!"]
     });
 
     const firstSnapshot = reader.getPreferences();
@@ -2640,8 +2600,6 @@ describe("Hoshidicts dictionary tabs", () => {
       "Foo!",
       "Foo"
     ]);
-    reader.updatePreferences({ frequencyDictionaries: undefined });
-    expect(reader.getPreferences().frequencyDictionaries).toEqual([]);
   });
 
   it("includes every configured frequency dictionary in duplicate and mining payloads", async () => {
@@ -4660,39 +4618,6 @@ describe("Hoshidicts Shift-hover scanner", () => {
     });
   });
 
-  it("treats an invalid lookup mode as Shift activation", async () => {
-    vi.useFakeTimers();
-    const dom = createDom();
-    const api = loadReaderModule(dom.window as unknown as Window);
-    const first = dom.window.document.getElementById("first")!;
-    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
-    const logger = {
-      debug: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn()
-    };
-
-    const reader = api.createHoshidictsReader({
-      window: dom.window,
-      document: dom.window.document,
-      WebSocket: FakeWebSocket,
-      lookupMode: "invalid",
-      logger
-    });
-    const socket = FakeWebSocket.instances[0];
-    socket.open();
-
-    await hover(dom, first);
-
-    expect(socket.sent).toHaveLength(1);
-    expect(logger.info).toHaveBeenCalledWith(
-      expect.stringContaining('"requiresShift":true')
-    );
-    expect(logger.info).toHaveBeenCalledWith(
-      expect.stringContaining("[HoshidictsReader] hover.activation-key-required")
-    );
-  });
-
   it("logs initialization, the Shift requirement, socket state, and lookup outcome", async () => {
     vi.useFakeTimers();
     const dom = createDom();
@@ -5933,7 +5858,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
     expect(reader.getPreferences()).toEqual(readerPreferences());
   });
 
-  it("updates and clamps live reader preferences", () => {
+  it("applies live reader preferences to the DOM", () => {
     const { dom, reader } = createReaderHarness({
       fakeTimers: false,
       openSocket: false,
@@ -5970,9 +5895,9 @@ describe("Hoshidicts Shift-hover scanner", () => {
       maxResults: 48,
       sortFrequencyDictionary: "Frequency",
       sortFrequencyDictionaryOrder: "ascending",
-      activationKey: "f24",
+      activationKey: "F24",
       sourceHighlightEnabled: true,
-      popupHideDelayMs: 9000,
+      popupHideDelayMs: 5000,
       popupNestingMaxDepth: 2,
       popupWidthPx: 720,
       popupHeightPx: 520,
@@ -5983,20 +5908,11 @@ describe("Hoshidicts Shift-hover scanner", () => {
       showPitchAccentBadge: true,
       definitionBlur: {
         enabled: true,
-        lookupThreshold: 2_000_000,
+        lookupThreshold: 1_000_000,
         revealMode: "hover",
-        revealDelayMs: 20
+        revealDelayMs: 1000
       }
     })).toEqual(applied);
-    expect(reader.updatePreferences({ popupHideDelayMs: -20 })).toEqual({
-      ...applied,
-      popupHideDelayMs: 0
-    });
-    // An invalid nesting depth keeps the last accepted value.
-    expect(reader.updatePreferences({ popupNestingMaxDepth: -1 })).toEqual({
-      ...applied,
-      popupHideDelayMs: 0
-    });
     expect(dom.window.document.documentElement.dataset.hoshidictsTheme).toBe(
       "cyberpunk"
     );
@@ -6058,9 +5974,6 @@ describe("Hoshidicts Shift-hover scanner", () => {
         theme
       );
     }
-    expect(reader.updatePreferences({ theme: "not-a-theme" }).theme).toBe(
-      HOSHIDICTS_THEMES.at(-1)
-    );
   });
 
   it("opens one child from definition text, preserves its parent, and prunes live", async () => {

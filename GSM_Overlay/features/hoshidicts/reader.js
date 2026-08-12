@@ -59,55 +59,19 @@
   const MIN_LOOKUP_MAX_RESULTS = BOUNDS.maxResults.min;
   const MAX_LOOKUP_MAX_RESULTS = BOUNDS.maxResults.max;
   const INITIAL_VISIBLE_RESULTS = 1;
-  const DEFAULT_POPUP_HIDE_DELAY_MS = READER_DEFAULTS.popupHideDelayMs;
-  const MAX_POPUP_HIDE_DELAY_MS = BOUNDS.popupHideDelayMs.max;
   const POPUP_TRANSFER_GRACE_MS = 80;
-  const DEFAULT_POPUP_WIDTH_PX = READER_DEFAULTS.popupWidthPx;
-  const DEFAULT_POPUP_HEIGHT_PX = READER_DEFAULTS.popupHeightPx;
-  const DEFAULT_POPUP_COLUMNS = READER_DEFAULTS.popupColumns;
-  const MIN_POPUP_WIDTH_PX = BOUNDS.popupWidthPx.min;
-  const MAX_POPUP_WIDTH_PX = BOUNDS.popupWidthPx.max;
-  const MIN_POPUP_HEIGHT_PX = BOUNDS.popupHeightPx.min;
-  const MAX_POPUP_HEIGHT_PX = BOUNDS.popupHeightPx.max;
-  const MIN_POPUP_COLUMNS = BOUNDS.popupColumns.min;
-  const MAX_POPUP_COLUMNS = BOUNDS.popupColumns.max;
-  const DEFAULT_POPUP_OPACITY_PERCENT = READER_DEFAULTS.popupOpacityPercent;
-  const MIN_POPUP_OPACITY_PERCENT = BOUNDS.popupOpacityPercent.min;
-  const MAX_POPUP_OPACITY_PERCENT = BOUNDS.popupOpacityPercent.max;
-  const DEFAULT_POPUP_BACKDROP_BLUR_PX = READER_DEFAULTS.popupBackdropBlurPx;
-  const MIN_POPUP_BACKDROP_BLUR_PX = BOUNDS.popupBackdropBlurPx.min;
-  const MAX_POPUP_BACKDROP_BLUR_PX = BOUNDS.popupBackdropBlurPx.max;
-  const DEFAULT_POPUP_TOOLBAR_POSITION = READER_DEFAULTS.popupToolbarPosition;
   const DEFAULT_POPUP_BUTTONS = constants.DEFAULT_POPUP_BUTTONS;
   const MAX_POPUP_CUSTOM_LINKS = LIMITS.popupCustomLinks;
   const MAX_POPUP_CUSTOM_LINK_LABEL_LENGTH = LIMITS.popupCustomLinkLabelLength;
   const MAX_POPUP_CUSTOM_LINK_URL_LENGTH = LIMITS.popupCustomLinkUrlLength;
-  const MAX_CUSTOM_POPUP_CSS_LENGTH = LIMITS.customPopupCssLength;
   const DEFAULT_THEME = READER_DEFAULTS.theme;
   const DEFAULT_ACTIVATION_KEY = constants.DEFAULT_ACTIVATION_KEY;
-  const DEFAULT_SOURCE_HIGHLIGHT_ENABLED = READER_DEFAULTS.sourceHighlightEnabled;
-  const DEFAULT_ONLY_SCAN_JAPANESE_TEXT = READER_DEFAULTS.onlyScanJapaneseText;
-  const DEFAULT_SHOW_COMPACT_DEFINITION_SUMMARY =
-    READER_DEFAULTS.showCompactDefinitionSummary;
   const DEFAULT_COMPACT_DEFINITION_SUMMARY_COUNT =
     READER_DEFAULTS.compactDefinitionSummaryCount;
   const MIN_COMPACT_DEFINITION_SUMMARY_COUNT =
     BOUNDS.compactDefinitionSummaryCount.min;
   const MAX_COMPACT_DEFINITION_SUMMARY_COUNT =
     BOUNDS.compactDefinitionSummaryCount.max;
-  const DEFAULT_SHOW_PITCH_ACCENT_FURIGANA = READER_DEFAULTS.showPitchAccentFurigana;
-  const DEFAULT_SHOW_PITCH_ACCENT_BADGE = READER_DEFAULTS.showPitchAccentBadge;
-  const DEFAULT_HIDE_POPUP_GRAMMAR_TAGS = READER_DEFAULTS.hidePopupGrammarTags;
-  const DEFAULT_POPUP_NESTING_MAX_DEPTH = READER_DEFAULTS.popupNestingMaxDepth;
-  const DEFAULT_DEFINITION_BLUR_PREFERENCES = constants.DEFAULT_DEFINITION_BLUR;
-  const MIN_DEFINITION_BLUR_LOOKUP_THRESHOLD =
-    BOUNDS.definitionBlurLookupThreshold.min;
-  const MAX_DEFINITION_BLUR_LOOKUP_THRESHOLD =
-    BOUNDS.definitionBlurLookupThreshold.max;
-  const MIN_DEFINITION_BLUR_REVEAL_DELAY_MS =
-    BOUNDS.definitionBlurRevealDelayMs.min;
-  const MAX_DEFINITION_BLUR_REVEAL_DELAY_MS =
-    BOUNDS.definitionBlurRevealDelayMs.max;
   const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
   const MAX_LOOKUP_TEXT_BYTES = 4 * 1024;
   const MAX_MEDIA_RESPONSE_BYTES = 6 * 1024 * 1024;
@@ -134,7 +98,6 @@
   const RECONNECT_MAX_DELAY_MS = 12 * 1000;
   const MINING_STATUS_CACHE_MS = 5 * 1000;
   const MAX_VISIBLE_METADATA_TAGS = 12;
-  const MAX_DICTIONARY_PRESENTATION_ENTRIES = LIMITS.dictionaryPresentation;
   const MAX_DICTIONARY_PRESENTATION_TITLE_LENGTH = LIMITS.dictionaryTitleLength;
   const SOURCE_HIGHLIGHT_NAME = "gsm-hoshidicts-match";
   const JAPANESE_ONLY_TOKEN_PATTERN =
@@ -399,17 +362,6 @@
       : fallback;
   }
 
-  function normalizeSortFrequencyDictionary(value, fallback = null) {
-    if (value === null) {
-      return null;
-    }
-    return typeof value === "string" &&
-      value.trim().length > 0 &&
-      value.length <= MAX_DICTIONARY_PRESENTATION_TITLE_LENGTH
-      ? value
-      : fallback;
-  }
-
   function normalizeCompactDefinitionSummaryDictionary(value, fallback = null) {
     if (value === null) {
       return null;
@@ -433,10 +385,6 @@
       value <= MAX_COMPACT_DEFINITION_SUMMARY_COUNT
       ? value
       : fallback;
-  }
-
-  function normalizeSortFrequencyDictionaryOrder(value, fallback = "descending") {
-    return value === "ascending" || value === "descending" ? value : fallback;
   }
 
   function normalizeLookupResults(payload, maxResults = LOOKUP_MAX_RESULTS) {
@@ -2235,85 +2183,6 @@
     };
   }
 
-  function normalizePopupHideDelay(value, fallback = DEFAULT_POPUP_HIDE_DELAY_MS) {
-    if (!Number.isFinite(value)) {
-      return fallback;
-    }
-    return Math.max(0, Math.min(MAX_POPUP_HIDE_DELAY_MS, Math.trunc(value)));
-  }
-
-  function normalizeDictionaryPresentation(value, fallback = []) {
-    if (!Array.isArray(value)) {
-      return fallback.map((entry) => ({ ...entry }));
-    }
-    const normalized = [];
-    const titles = new Set();
-    for (const entry of value.slice(0, MAX_DICTIONARY_PRESENTATION_ENTRIES)) {
-      if (!isRecord(entry)) {
-        continue;
-      }
-      const title = boundedString(
-        entry.title,
-        MAX_DICTIONARY_PRESENTATION_TITLE_LENGTH
-      );
-      if (
-        !title.trim() ||
-        titles.has(title) ||
-        typeof entry.favorite !== "boolean"
-      ) {
-        continue;
-      }
-      titles.add(title);
-      const normalizedEntry = {
-        title,
-        favorite: entry.favorite,
-      };
-      const displayName = boundedString(
-        entry.displayName,
-        MAX_DICTIONARY_PRESENTATION_TITLE_LENGTH
-      ).trim();
-      if (displayName) {
-        normalizedEntry.displayName = displayName;
-      }
-      if (
-        entry.frequencyMode === "rank-based" ||
-        entry.frequencyMode === "occurrence-based"
-      ) {
-        normalizedEntry.frequencyMode = entry.frequencyMode;
-      }
-      normalized.push(normalizedEntry);
-    }
-    return normalized;
-  }
-
-  function normalizeFrequencyDictionaries(value, fallback = []) {
-    if (!Array.isArray(value)) {
-      return [...fallback];
-    }
-    const normalized = [];
-    const titles = new Set();
-    for (const entry of value.slice(0, MAX_DICTIONARY_PRESENTATION_ENTRIES)) {
-      const title = boundedString(
-        entry,
-        MAX_DICTIONARY_PRESENTATION_TITLE_LENGTH
-      );
-      if (!title.trim() || titles.has(title)) {
-        continue;
-      }
-      titles.add(title);
-      normalized.push(title);
-    }
-    return normalized;
-  }
-
-  function normalizeDictionaryTabGroups(value, fallback = []) {
-    const groups = Array.isArray(value) ? value : fallback;
-    return groups.map((group) => ({
-      ...group,
-      dictionaries: [...group.dictionaries],
-    }));
-  }
-
   function dictionaryPresentationEqual(left, right) {
     return left.length === right.length && left.every((entry, index) => {
       const other = right[index];
@@ -2337,108 +2206,8 @@
     });
   }
 
-  function normalizeDefinitionBlurPreferences(
-    value,
-    fallback = DEFAULT_DEFINITION_BLUR_PREFERENCES
-  ) {
-    const source = isRecord(value) ? value : {};
-    const baseline = isRecord(fallback)
-      ? fallback
-      : DEFAULT_DEFINITION_BLUR_PREFERENCES;
-    const normalizeInteger = (candidate, minimum, maximum, defaultValue) =>
-      Number.isFinite(candidate)
-        ? Math.max(minimum, Math.min(maximum, Math.trunc(candidate)))
-        : defaultValue;
-    return {
-      enabled: typeof source.enabled === "boolean"
-        ? source.enabled
-        : baseline.enabled === true,
-      lookupThreshold: normalizeInteger(
-        source.lookupThreshold,
-        MIN_DEFINITION_BLUR_LOOKUP_THRESHOLD,
-        MAX_DEFINITION_BLUR_LOOKUP_THRESHOLD,
-        baseline.lookupThreshold
-      ),
-      revealMode: source.revealMode === "hover" || source.revealMode === "timed"
-        ? source.revealMode
-        : baseline.revealMode === "hover" ? "hover" : "timed",
-      revealDelayMs: normalizeInteger(
-        source.revealDelayMs,
-        MIN_DEFINITION_BLUR_REVEAL_DELAY_MS,
-        MAX_DEFINITION_BLUR_REVEAL_DELAY_MS,
-        baseline.revealDelayMs
-      ),
-    };
-  }
-
-  function normalizePopupNestingMaxDepth(
-    value,
-    fallback = DEFAULT_POPUP_NESTING_MAX_DEPTH
-  ) {
-    return Number.isSafeInteger(value) && value >= 0 ? value : fallback;
-  }
-
-  function normalizePopupWidth(value, fallback = DEFAULT_POPUP_WIDTH_PX) {
-    return Number.isInteger(value) &&
-      value >= MIN_POPUP_WIDTH_PX &&
-      value <= MAX_POPUP_WIDTH_PX
-      ? value
-      : fallback;
-  }
-
-  function normalizePopupHeight(value, fallback = DEFAULT_POPUP_HEIGHT_PX) {
-    return Number.isInteger(value) &&
-      value >= MIN_POPUP_HEIGHT_PX &&
-      value <= MAX_POPUP_HEIGHT_PX
-      ? value
-      : fallback;
-  }
-
-  function normalizePopupColumns(value, fallback = DEFAULT_POPUP_COLUMNS) {
-    return Number.isInteger(value) &&
-      value >= MIN_POPUP_COLUMNS &&
-      value <= MAX_POPUP_COLUMNS
-      ? value
-      : fallback;
-  }
-
-  function normalizePopupOpacityPercent(
-    value,
-    fallback = DEFAULT_POPUP_OPACITY_PERCENT
-  ) {
-    return Number.isInteger(value) &&
-      value >= MIN_POPUP_OPACITY_PERCENT &&
-      value <= MAX_POPUP_OPACITY_PERCENT
-      ? value
-      : fallback;
-  }
-
-  function normalizePopupBackdropBlurPx(
-    value,
-    fallback = DEFAULT_POPUP_BACKDROP_BLUR_PX
-  ) {
-    return Number.isInteger(value) &&
-      value >= MIN_POPUP_BACKDROP_BLUR_PX &&
-      value <= MAX_POPUP_BACKDROP_BLUR_PX
-      ? value
-      : fallback;
-  }
-
-  function normalizePopupToolbarPosition(
-    value,
-    fallback = DEFAULT_POPUP_TOOLBAR_POSITION
-  ) {
-    return value === "top" || value === "bottom" ? value : fallback;
-  }
-
   function normalizeTheme(value, fallback = DEFAULT_THEME) {
     return THEMES.has(value) ? value : fallback;
-  }
-
-  function normalizeCustomPopupCss(value, fallback = "") {
-    return typeof value === "string"
-      ? value.slice(0, MAX_CUSTOM_POPUP_CSS_LENGTH)
-      : fallback;
   }
 
   function createHoshidictsReader(options = {}) {
@@ -2518,80 +2287,17 @@
         ? windowRef.URL.revokeObjectURL.bind(windowRef.URL)
         : () => {};
 
-    let preferences = {
-      lookupMode: options.lookupMode === "hover" ? "hover" : "shift",
-      scanLength: normalizeLookupScanLength(options.scanLength),
-      maxResults: normalizeLookupMaxResults(options.maxResults),
-      sortFrequencyDictionary: normalizeSortFrequencyDictionary(
-        options.sortFrequencyDictionary
-      ),
-      sortFrequencyDictionaryOrder: normalizeSortFrequencyDictionaryOrder(
-        options.sortFrequencyDictionaryOrder
-      ),
-      activationKey: normalizeActivationKey(options.activationKey),
-      sourceHighlightEnabled: options.sourceHighlightEnabled === true,
-      onlyScanJapaneseText: options.onlyScanJapaneseText === undefined
-        ? DEFAULT_ONLY_SCAN_JAPANESE_TEXT
-        : options.onlyScanJapaneseText !== false,
-      popupHideDelayMs: normalizePopupHideDelay(options.popupHideDelayMs),
-      showLookupCounts: options.showLookupCounts !== false,
-      averageFrequency: options.averageFrequency === true,
-      showFrequencyDictionaryNames:
-        options.showFrequencyDictionaryNames !== false,
-      showCompactDefinitionSummary:
-        options.showCompactDefinitionSummary === true,
-      compactDefinitionSummaryCount: normalizeCompactDefinitionSummaryCount(
-        options.compactDefinitionSummaryCount
-      ),
-      hidePopupGrammarTags:
-        options.hidePopupGrammarTags === undefined
-          ? DEFAULT_HIDE_POPUP_GRAMMAR_TAGS
-          : options.hidePopupGrammarTags !== false,
-      compactDefinitionSummaryDictionary:
-        normalizeCompactDefinitionSummaryDictionary(
-          options.compactDefinitionSummaryDictionary
-        ),
-      showPitchAccentFurigana:
-        options.showPitchAccentFurigana === undefined
-          ? DEFAULT_SHOW_PITCH_ACCENT_FURIGANA
-          : options.showPitchAccentFurigana !== false,
-      pitchAccentFuriganaDictionary:
-        normalizeCompactDefinitionSummaryDictionary(
-          options.pitchAccentFuriganaDictionary
-        ),
-      showPitchAccentBadge:
-        options.showPitchAccentBadge === undefined
-          ? DEFAULT_SHOW_PITCH_ACCENT_BADGE
-          : options.showPitchAccentBadge === true,
-      definitionBlur: normalizeDefinitionBlurPreferences(options.definitionBlur),
-      popupNestingMaxDepth: normalizePopupNestingMaxDepth(
-        options.popupNestingMaxDepth
-      ),
-      popupWidthPx: normalizePopupWidth(options.popupWidthPx),
-      popupHeightPx: normalizePopupHeight(options.popupHeightPx),
-      popupColumns: normalizePopupColumns(options.popupColumns),
-      popupOpacityPercent: normalizePopupOpacityPercent(
-        options.popupOpacityPercent
-      ),
-      popupBackdropBlurPx: normalizePopupBackdropBlurPx(
-        options.popupBackdropBlurPx
-      ),
-      popupToolbarPosition: normalizePopupToolbarPosition(
-        options.popupToolbarPosition
-      ),
-      theme: normalizeTheme(options.theme),
-      customPopupCss: normalizeCustomPopupCss(options.customPopupCss),
-      dictionaryPresentation: normalizeDictionaryPresentation(
-        options.dictionaryPresentation
-      ),
-      frequencyDictionaries: normalizeFrequencyDictionaries(
-        options.frequencyDictionaries
-      ),
-      dictionaryTabGroups: normalizeDictionaryTabGroups(
-        options.dictionaryTabGroups
-      ),
-      popupButtons: normalizePopupButtons(options.popupButtons),
-    };
+    // bootstrap.js spreads a complete, already-validated preference set into
+    // options (preferences.js returns all 33 keys or null). Fall back to the
+    // reader's own defaults per key so direct callers can pass a subset.
+    const preferenceKeys = Object.keys(READER_DEFAULTS);
+    let preferences = JSON.parse(JSON.stringify(READER_DEFAULTS));
+    for (const key of preferenceKeys) {
+      if (options[key] !== undefined) {
+        preferences[key] = options[key];
+      }
+    }
+
     let socket = null;
     let reconnectTimer = null;
     let reconnectAttempt = 0;
@@ -5511,275 +5217,22 @@
 
     function updatePreferences(nextPreferences = {}) {
       const hadHideTimer = hideTimer !== null;
-      const previousMode = preferences.lookupMode;
-      const previousScanLength = preferences.scanLength;
-      const previousMaxResults = preferences.maxResults;
-      const previousSortFrequencyDictionary =
-        preferences.sortFrequencyDictionary;
-      const previousSortFrequencyDictionaryOrder =
-        preferences.sortFrequencyDictionaryOrder;
-      const definitionBlurWasEnabled = preferences.definitionBlur.enabled;
-      const previousActivationKey = preferences.activationKey;
-      const previousSourceHighlightEnabled = preferences.sourceHighlightEnabled;
-      const previousOnlyScanJapaneseText = preferences.onlyScanJapaneseText;
-      const previousShowLookupCounts = preferences.showLookupCounts;
-      const previousAverageFrequency = preferences.averageFrequency;
-      const previousShowFrequencyDictionaryNames =
-        preferences.showFrequencyDictionaryNames;
-      const previousShowCompactDefinitionSummary =
-        preferences.showCompactDefinitionSummary;
-      const previousCompactDefinitionSummaryCount =
-        preferences.compactDefinitionSummaryCount;
-      const previousHidePopupGrammarTags = preferences.hidePopupGrammarTags;
-      const previousCompactDefinitionSummaryDictionary =
-        preferences.compactDefinitionSummaryDictionary;
-      const previousShowPitchAccentFurigana =
-        preferences.showPitchAccentFurigana;
-      const previousPitchAccentFuriganaDictionary =
-        preferences.pitchAccentFuriganaDictionary;
-      const previousShowPitchAccentBadge = preferences.showPitchAccentBadge;
-      const previousMaxDepth = preferences.popupNestingMaxDepth;
-      const previousPopupWidthPx = preferences.popupWidthPx;
-      const previousPopupHeightPx = preferences.popupHeightPx;
-      const previousPopupColumns = preferences.popupColumns;
-      const previousPopupOpacityPercent = preferences.popupOpacityPercent;
-      const previousPopupBackdropBlurPx = preferences.popupBackdropBlurPx;
-      const previousPopupToolbarPosition = preferences.popupToolbarPosition;
-      const previousTheme = preferences.theme;
-      const previousCustomPopupCss = preferences.customPopupCss;
-      const previousDictionaryPresentation = preferences.dictionaryPresentation;
-      const previousDictionaryTabGroups = preferences.dictionaryTabGroups;
-      const previousPopupButtons = preferences.popupButtons;
-      preferences = {
-        lookupMode: Object.prototype.hasOwnProperty.call(nextPreferences, "lookupMode")
-          ? nextPreferences.lookupMode === "hover" ? "hover" : "shift"
-          : preferences.lookupMode,
-        scanLength: Object.prototype.hasOwnProperty.call(nextPreferences, "scanLength")
-          ? normalizeLookupScanLength(nextPreferences.scanLength, preferences.scanLength)
-          : preferences.scanLength,
-        maxResults: Object.prototype.hasOwnProperty.call(nextPreferences, "maxResults")
-          ? normalizeLookupMaxResults(nextPreferences.maxResults, preferences.maxResults)
-          : preferences.maxResults,
-        sortFrequencyDictionary: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "sortFrequencyDictionary"
-        )
-          ? normalizeSortFrequencyDictionary(
-              nextPreferences.sortFrequencyDictionary,
-              preferences.sortFrequencyDictionary
-            )
-          : preferences.sortFrequencyDictionary,
-        sortFrequencyDictionaryOrder: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "sortFrequencyDictionaryOrder"
-        )
-          ? normalizeSortFrequencyDictionaryOrder(
-              nextPreferences.sortFrequencyDictionaryOrder,
-              preferences.sortFrequencyDictionaryOrder
-            )
-          : preferences.sortFrequencyDictionaryOrder,
-        activationKey: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "activationKey"
-        )
-          ? normalizeActivationKey(nextPreferences.activationKey)
-          : preferences.activationKey,
-        sourceHighlightEnabled: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "sourceHighlightEnabled"
-        )
-          ? nextPreferences.sourceHighlightEnabled === true
-          : preferences.sourceHighlightEnabled,
-        onlyScanJapaneseText: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "onlyScanJapaneseText"
-        )
-          ? nextPreferences.onlyScanJapaneseText !== false
-          : preferences.onlyScanJapaneseText,
-        popupHideDelayMs: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "popupHideDelayMs"
-        )
-          ? normalizePopupHideDelay(
-              nextPreferences.popupHideDelayMs,
-              preferences.popupHideDelayMs
-            )
-          : preferences.popupHideDelayMs,
-        showLookupCounts: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "showLookupCounts"
-        )
-          ? nextPreferences.showLookupCounts !== false
-          : preferences.showLookupCounts,
-        averageFrequency: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "averageFrequency"
-        )
-          ? nextPreferences.averageFrequency === true
-          : preferences.averageFrequency,
-        showFrequencyDictionaryNames: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "showFrequencyDictionaryNames"
-        )
-          ? nextPreferences.showFrequencyDictionaryNames !== false
-          : preferences.showFrequencyDictionaryNames,
-        showCompactDefinitionSummary: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "showCompactDefinitionSummary"
-        )
-          ? nextPreferences.showCompactDefinitionSummary === true
-          : preferences.showCompactDefinitionSummary,
-        compactDefinitionSummaryCount: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "compactDefinitionSummaryCount"
-        )
-          ? normalizeCompactDefinitionSummaryCount(
-              nextPreferences.compactDefinitionSummaryCount,
-              preferences.compactDefinitionSummaryCount
-            )
-          : preferences.compactDefinitionSummaryCount,
-        hidePopupGrammarTags: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "hidePopupGrammarTags"
-        )
-          ? nextPreferences.hidePopupGrammarTags !== false
-          : preferences.hidePopupGrammarTags,
-        compactDefinitionSummaryDictionary: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "compactDefinitionSummaryDictionary"
-        )
-          ? normalizeCompactDefinitionSummaryDictionary(
-              nextPreferences.compactDefinitionSummaryDictionary,
-              preferences.compactDefinitionSummaryDictionary
-            )
-          : preferences.compactDefinitionSummaryDictionary,
-        showPitchAccentFurigana: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "showPitchAccentFurigana"
-        )
-          ? nextPreferences.showPitchAccentFurigana !== false
-          : preferences.showPitchAccentFurigana,
-        pitchAccentFuriganaDictionary: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "pitchAccentFuriganaDictionary"
-        )
-          ? normalizeCompactDefinitionSummaryDictionary(
-              nextPreferences.pitchAccentFuriganaDictionary,
-              preferences.pitchAccentFuriganaDictionary
-            )
-          : preferences.pitchAccentFuriganaDictionary,
-        showPitchAccentBadge: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "showPitchAccentBadge"
-        )
-          ? nextPreferences.showPitchAccentBadge === true
-          : preferences.showPitchAccentBadge,
-        definitionBlur: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "definitionBlur"
-        )
-          ? normalizeDefinitionBlurPreferences(
-              nextPreferences.definitionBlur,
-              preferences.definitionBlur
-            )
-          : preferences.definitionBlur,
-        popupNestingMaxDepth: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "popupNestingMaxDepth"
-        )
-          ? normalizePopupNestingMaxDepth(
-              nextPreferences.popupNestingMaxDepth,
-              preferences.popupNestingMaxDepth
-            )
-          : preferences.popupNestingMaxDepth,
-        popupWidthPx: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "popupWidthPx"
-        )
-          ? normalizePopupWidth(nextPreferences.popupWidthPx, preferences.popupWidthPx)
-          : preferences.popupWidthPx,
-        popupHeightPx: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "popupHeightPx"
-        )
-          ? normalizePopupHeight(nextPreferences.popupHeightPx, preferences.popupHeightPx)
-          : preferences.popupHeightPx,
-        popupColumns: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "popupColumns"
-        )
-          ? normalizePopupColumns(nextPreferences.popupColumns, preferences.popupColumns)
-          : preferences.popupColumns,
-        popupOpacityPercent: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "popupOpacityPercent"
-        )
-          ? normalizePopupOpacityPercent(
-              nextPreferences.popupOpacityPercent,
-              preferences.popupOpacityPercent
-            )
-          : preferences.popupOpacityPercent,
-        popupBackdropBlurPx: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "popupBackdropBlurPx"
-        )
-          ? normalizePopupBackdropBlurPx(
-              nextPreferences.popupBackdropBlurPx,
-              preferences.popupBackdropBlurPx
-            )
-          : preferences.popupBackdropBlurPx,
-        popupToolbarPosition: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "popupToolbarPosition"
-        )
-          ? normalizePopupToolbarPosition(
-              nextPreferences.popupToolbarPosition,
-              preferences.popupToolbarPosition
-            )
-          : preferences.popupToolbarPosition,
-        theme: Object.prototype.hasOwnProperty.call(nextPreferences, "theme")
-          ? normalizeTheme(nextPreferences.theme, preferences.theme)
-          : preferences.theme,
-        customPopupCss: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "customPopupCss"
-        )
-          ? normalizeCustomPopupCss(
-              nextPreferences.customPopupCss,
-              preferences.customPopupCss
-            )
-          : preferences.customPopupCss,
-        dictionaryPresentation: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "dictionaryPresentation"
-        )
-          ? normalizeDictionaryPresentation(nextPreferences.dictionaryPresentation)
-          : preferences.dictionaryPresentation,
-        frequencyDictionaries: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "frequencyDictionaries"
-        )
-          ? normalizeFrequencyDictionaries(nextPreferences.frequencyDictionaries)
-          : preferences.frequencyDictionaries,
-        dictionaryTabGroups: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "dictionaryTabGroups"
-        )
-          ? normalizeDictionaryTabGroups(nextPreferences.dictionaryTabGroups)
-          : preferences.dictionaryTabGroups,
-        popupButtons: Object.prototype.hasOwnProperty.call(
-          nextPreferences,
-          "popupButtons"
-        )
-          ? normalizePopupButtons(nextPreferences.popupButtons, preferences.popupButtons)
-          : preferences.popupButtons,
-      };
-      if (definitionBlurWasEnabled && !preferences.definitionBlur.enabled) {
+      // desktop_bridge.js throws and bootstrap.js drops anything that is not a
+      // complete, valid preference set, so a partial payload here only ever
+      // comes from the reader's own callers.
+      const previous = preferences;
+      preferences = { ...preferences };
+      for (const key of preferenceKeys) {
+        if (nextPreferences[key] !== undefined) {
+          preferences[key] = nextPreferences[key];
+        }
+      }
+      if (previous.definitionBlur.enabled && !preferences.definitionBlur.enabled) {
         for (const level of popupLevels) {
           invalidateDefinitionBlur(level);
         }
       }
-      if (previousShowLookupCounts && !preferences.showLookupCounts) {
+      if (previous.showLookupCounts && !preferences.showLookupCounts) {
         lookupStatsGeneration += 1;
         for (const level of popupLevels) {
           level.lookupStatsRequestGeneration += 1;
@@ -5797,83 +5250,83 @@
         clearHideTimer();
         scheduleHide(pendingHideReason);
       }
-      const activationKeyChanged = previousActivationKey !== preferences.activationKey;
+      const activationKeyChanged = previous.activationKey !== preferences.activationKey;
       if (activationKeyChanged) {
         localShiftPressed = false;
         globalActivationKeyPressed = false;
       }
-      if (previousSourceHighlightEnabled !== preferences.sourceHighlightEnabled) {
+      if (previous.sourceHighlightEnabled !== preferences.sourceHighlightEnabled) {
         for (const level of popupLevels) {
           level.view.setSourceHighlightEnabled(preferences.sourceHighlightEnabled);
         }
       }
-      if (preferences.popupNestingMaxDepth < previousMaxDepth) {
+      if (preferences.popupNestingMaxDepth < previous.popupNestingMaxDepth) {
         pruneFromDepth(
           preferences.popupNestingMaxDepth + 1,
           "depth-limit-changed"
         );
       }
-      if (previousPopupToolbarPosition !== preferences.popupToolbarPosition) {
+      if (previous.popupToolbarPosition !== preferences.popupToolbarPosition) {
         for (const level of popupLevels) {
           level.view.setToolbarPosition(preferences.popupToolbarPosition);
         }
         positionAllPopups();
       }
       if (
-        previousPopupWidthPx !== preferences.popupWidthPx ||
-        previousPopupHeightPx !== preferences.popupHeightPx ||
-        previousPopupColumns !== preferences.popupColumns ||
-        previousPopupOpacityPercent !== preferences.popupOpacityPercent ||
-        previousPopupBackdropBlurPx !== preferences.popupBackdropBlurPx ||
-        previousTheme !== preferences.theme
+        previous.popupWidthPx !== preferences.popupWidthPx ||
+        previous.popupHeightPx !== preferences.popupHeightPx ||
+        previous.popupColumns !== preferences.popupColumns ||
+        previous.popupOpacityPercent !== preferences.popupOpacityPercent ||
+        previous.popupBackdropBlurPx !== preferences.popupBackdropBlurPx ||
+        previous.theme !== preferences.theme
       ) {
         applyAppearancePreferences();
       }
-      if (previousCustomPopupCss !== preferences.customPopupCss) {
+      if (previous.customPopupCss !== preferences.customPopupCss) {
         applyCustomPopupCss();
         positionAllPopups();
       }
       if (
         !dictionaryPresentationEqual(
-          previousDictionaryPresentation,
+          previous.dictionaryPresentation,
           preferences.dictionaryPresentation
         ) ||
         !dictionaryTabGroupsEqual(
-          previousDictionaryTabGroups,
+          previous.dictionaryTabGroups,
           preferences.dictionaryTabGroups
         ) ||
-        previousShowCompactDefinitionSummary !==
+        previous.showCompactDefinitionSummary !==
           preferences.showCompactDefinitionSummary ||
-        previousCompactDefinitionSummaryCount !==
+        previous.compactDefinitionSummaryCount !==
           preferences.compactDefinitionSummaryCount ||
-        previousAverageFrequency !== preferences.averageFrequency ||
-        previousShowFrequencyDictionaryNames !==
+        previous.averageFrequency !== preferences.averageFrequency ||
+        previous.showFrequencyDictionaryNames !==
           preferences.showFrequencyDictionaryNames ||
-        previousCompactDefinitionSummaryDictionary !==
+        previous.compactDefinitionSummaryDictionary !==
           preferences.compactDefinitionSummaryDictionary ||
-        previousHidePopupGrammarTags !== preferences.hidePopupGrammarTags ||
-        previousShowPitchAccentFurigana !==
+        previous.hidePopupGrammarTags !== preferences.hidePopupGrammarTags ||
+        previous.showPitchAccentFurigana !==
           preferences.showPitchAccentFurigana ||
-        previousPitchAccentFuriganaDictionary !==
+        previous.pitchAccentFuriganaDictionary !==
           preferences.pitchAccentFuriganaDictionary ||
-        previousShowPitchAccentBadge !== preferences.showPitchAccentBadge
+        previous.showPitchAccentBadge !== preferences.showPitchAccentBadge
       ) {
         const metadataPresentationChanged =
-          previousShowCompactDefinitionSummary !==
+          previous.showCompactDefinitionSummary !==
             preferences.showCompactDefinitionSummary ||
-          previousCompactDefinitionSummaryCount !==
+          previous.compactDefinitionSummaryCount !==
             preferences.compactDefinitionSummaryCount ||
-          previousAverageFrequency !== preferences.averageFrequency ||
-          previousShowFrequencyDictionaryNames !==
+          previous.averageFrequency !== preferences.averageFrequency ||
+          previous.showFrequencyDictionaryNames !==
             preferences.showFrequencyDictionaryNames ||
-          previousCompactDefinitionSummaryDictionary !==
+          previous.compactDefinitionSummaryDictionary !==
             preferences.compactDefinitionSummaryDictionary ||
-          previousHidePopupGrammarTags !== preferences.hidePopupGrammarTags ||
-          previousShowPitchAccentFurigana !==
+          previous.hidePopupGrammarTags !== preferences.hidePopupGrammarTags ||
+          previous.showPitchAccentFurigana !==
             preferences.showPitchAccentFurigana ||
-          previousPitchAccentFuriganaDictionary !==
+          previous.pitchAccentFuriganaDictionary !==
             preferences.pitchAccentFuriganaDictionary ||
-          previousShowPitchAccentBadge !== preferences.showPitchAccentBadge;
+          previous.showPitchAccentBadge !== preferences.showPitchAccentBadge;
         for (const level of popupLevels) {
           if (level.visible && level.termView) {
             restoreTermView(level.depth, {
@@ -5882,15 +5335,15 @@
           }
         }
       }
-      if (!popupButtonsEqual(previousPopupButtons, preferences.popupButtons)) {
+      if (!popupButtonsEqual(previous.popupButtons, preferences.popupButtons)) {
         for (const level of popupLevels) {
           level.view.setPopupButtons(preferences.popupButtons);
         }
-        if (previousPopupButtons.audio !== preferences.popupButtons.audio) {
+        if (previous.popupButtons.audio !== preferences.popupButtons.audio) {
           syncAudioRenderedResults(null, false);
         }
         if (
-          previousPopupButtons.addToAnki !== preferences.popupButtons.addToAnki
+          previous.popupButtons.addToAnki !== preferences.popupButtons.addToAnki
         ) {
           for (const level of popupLevels) {
             if (
@@ -5909,15 +5362,15 @@
         positionAllPopups();
       }
       const activationPreferencesChanged =
-        previousMode !== preferences.lookupMode ||
+        previous.lookupMode !== preferences.lookupMode ||
         activationKeyChanged ||
-        previousOnlyScanJapaneseText !== preferences.onlyScanJapaneseText;
+        previous.onlyScanJapaneseText !== preferences.onlyScanJapaneseText;
       const lookupRequestPreferencesChanged =
-        previousScanLength !== preferences.scanLength ||
-        previousMaxResults !== preferences.maxResults ||
-        previousSortFrequencyDictionary !==
+        previous.scanLength !== preferences.scanLength ||
+        previous.maxResults !== preferences.maxResults ||
+        previous.sortFrequencyDictionary !==
           preferences.sortFrequencyDictionary ||
-        previousSortFrequencyDictionaryOrder !==
+        previous.sortFrequencyDictionaryOrder !==
           preferences.sortFrequencyDictionaryOrder;
       if (activationPreferencesChanged) {
         activationRequirementLogged = false;
@@ -5928,7 +5381,7 @@
           scanPointer(lastPointer, isActivationKeyPressed());
         }
       } else if (lookupRequestPreferencesChanged) {
-        if (previousScanLength !== preferences.scanLength && lastPointer) {
+        if (previous.scanLength !== preferences.scanLength && lastPointer) {
           renderedSignatures.clear();
           noticeSignatures.clear();
           invalidateLookup();
@@ -6120,47 +5573,10 @@
   }
 
   return {
-    DEFAULT_DEFINITION_BLUR_PREFERENCES,
     DEFAULT_ACTIVATION_KEY,
-    DEFAULT_POPUP_HIDE_DELAY_MS,
-    DEFAULT_POPUP_HEIGHT_PX,
-    DEFAULT_POPUP_COLUMNS,
-    DEFAULT_POPUP_OPACITY_PERCENT,
-    DEFAULT_POPUP_BACKDROP_BLUR_PX,
     DEFAULT_POPUP_BUTTONS,
-    DEFAULT_POPUP_TOOLBAR_POSITION,
-    DEFAULT_POPUP_NESTING_MAX_DEPTH,
-    DEFAULT_POPUP_WIDTH_PX,
-    DEFAULT_HIDE_POPUP_GRAMMAR_TAGS,
-    DEFAULT_SHOW_COMPACT_DEFINITION_SUMMARY,
     DEFAULT_COMPACT_DEFINITION_SUMMARY_COUNT,
-    DEFAULT_SHOW_PITCH_ACCENT_FURIGANA,
-    DEFAULT_SHOW_PITCH_ACCENT_BADGE,
-    DEFAULT_SOURCE_HIGHLIGHT_ENABLED,
     DEFAULT_THEME,
-    INITIAL_VISIBLE_RESULTS,
-    LOOKUP_MAX_RESULTS,
-    LOOKUP_REQUEST_TIMEOUT_MS,
-    LOOKUP_SCAN_LENGTH,
-    MAX_LOOKUP_MAX_RESULTS,
-    MAX_LOOKUP_SCAN_LENGTH,
-    MAX_POPUP_HIDE_DELAY_MS,
-    MAX_POPUP_HEIGHT_PX,
-    MAX_POPUP_COLUMNS,
-    MAX_POPUP_OPACITY_PERCENT,
-    MAX_POPUP_BACKDROP_BLUR_PX,
-    MAX_POPUP_WIDTH_PX,
-    MAX_DEFINITION_BLUR_LOOKUP_THRESHOLD,
-    MAX_DEFINITION_BLUR_REVEAL_DELAY_MS,
-    MIN_DEFINITION_BLUR_LOOKUP_THRESHOLD,
-    MIN_DEFINITION_BLUR_REVEAL_DELAY_MS,
-    MIN_POPUP_HEIGHT_PX,
-    MIN_POPUP_COLUMNS,
-    MIN_LOOKUP_MAX_RESULTS,
-    MIN_LOOKUP_SCAN_LENGTH,
-    MIN_POPUP_OPACITY_PERCENT,
-    MIN_POPUP_BACKDROP_BLUR_PX,
-    MIN_POPUP_WIDTH_PX,
     appendExpressionRuby,
     appendTextOnlyGlossary,
     calculatePopupPosition,
@@ -6171,30 +5587,14 @@
     expandPopupButtonUrl,
     normalizeActivationKey,
     normalizeAudioProfile,
-    normalizeDefinitionBlurPreferences,
-    normalizePopupHideDelay,
-    normalizePopupToolbarPosition,
-    normalizePopupHeight,
-    normalizePopupColumns,
-    normalizeKanjiLookup,
-    normalizeLookupMaxResults,
-    normalizeLookupScanLength,
-    normalizePopupNestingMaxDepth,
-    normalizePopupWidth,
     normalizeTheme,
-    normalizePopupOpacityPercent,
-    normalizePopupBackdropBlurPx,
     normalizePopupButtons,
     normalizeLookupResults,
-    normalizeSortFrequencyDictionary,
-    normalizeSortFrequencyDictionaryOrder,
     normalizeCompactDefinitionSummaryDictionary,
     normalizeCompactDefinitionSummaryCount,
     buildPitchAccentMorae,
     prioritizeLookupResultsByReading,
     resolveGsmApiBaseUrl,
-    resolveLookupCandidate,
-    resolveGlossaryLookupCandidate,
     segmentFurigana,
     selectPitchAccent,
     setMiningButtonState,
