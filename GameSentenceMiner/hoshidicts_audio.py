@@ -10,22 +10,26 @@ import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from html.parser import HTMLParser
-from pathlib import Path
 from typing import Any
-from urllib.parse import quote, urljoin, urlencode, urlsplit
+from urllib.parse import urljoin, urlencode, urlsplit
 
 import requests
 
-from GameSentenceMiner.util.config.configuration import get_app_directory
+from GameSentenceMiner.hoshidicts_audio_profile import (
+    DOWNLOADABLE_SOURCE_TYPES,
+    HoshidictsAudioError,
+    MAX_AUDIO_SOURCES,
+    MAX_URL_LENGTH,
+    TTS_SOURCE_TYPES,
+    find_source,
+    load_hoshidicts_audio_profile,
+    normalize_hoshidicts_audio_profile,
+    profile_string,
+    substitute_custom_url,
+    validate_http_url,
+)
 
-HOSHIDICTS_AUDIO_PROFILE_FILE = "audio-profile.json"
-HOSHIDICTS_AUDIO_PROFILE_VERSION = 1
-MAX_PROFILE_BYTES = 64 * 1024
 MAX_AUDIO_REQUEST_BYTES = 32 * 1024
-MAX_AUDIO_SOURCES = 32
-MAX_SOURCE_ID_LENGTH = 128
-MAX_URL_LENGTH = 4096
-MAX_VOICE_LENGTH = 255
 MAX_TERM_LENGTH = 4096
 MAX_CANDIDATE_NAME_LENGTH = 255
 MAX_DISCOVERY_BYTES = 2 * 1024 * 1024
@@ -39,32 +43,9 @@ MAX_MINING_AUDIO_ATTEMPTS = 32
 CANDIDATE_CACHE_SECONDS = 5 * 60.0
 MEDIA_CACHE_SECONDS = 30 * 60.0
 
-SOURCE_TYPES = frozenset(
-    {
-        "jpod101",
-        "language-pod-101",
-        "jisho",
-        "custom",
-        "custom-json",
-        "text-to-speech",
-        "text-to-speech-reading",
-    }
-)
-BUILTIN_SOURCE_TYPES = frozenset({"jpod101", "language-pod-101", "jisho"})
-CUSTOM_SOURCE_TYPES = frozenset({"custom", "custom-json"})
-TTS_SOURCE_TYPES = frozenset({"text-to-speech", "text-to-speech-reading"})
-DOWNLOADABLE_SOURCE_TYPES = BUILTIN_SOURCE_TYPES | CUSTOM_SOURCE_TYPES
-_SOURCE_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 _CANDIDATE_ID_PATTERN = re.compile(r"^[a-f0-9]{64}$")
-_PLACEHOLDER_PATTERN = re.compile(r"\{([^{}]*)\}")
 _INVALID_JPOD101_DIGEST = "ae6398b5a27bc8c0a771df6c907ade794be15518174773c58c7c7ddd17098906"
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
-
-
-class HoshidictsAudioError(Exception):
-    def __init__(self, message: str, status_code: int = 400):
-        super().__init__(message)
-        self.status_code = status_code
 
 
 @dataclass(frozen=True)
@@ -72,57 +53,6 @@ class AudioMedia:
     data: bytes
     content_type: str
     extension: str
-
-
-def _default_source(source_id: str, source_type: str) -> dict[str, str]:
-    return {"id": source_id, "type": source_type, "url": "", "voice": ""}
-
-
-def default_hoshidicts_audio_profile() -> dict[str, Any]:
-    return {
-        "version": HOSHIDICTS_AUDIO_PROFILE_VERSION,
-        "enabled": True,
-        "autoPlay": False,
-        "volume": 100,
-        "sources": [
-            _default_source("jpod101", "jpod101"),
-            _default_source("language-pod-101", "language-pod-101"),
-            _default_source("jisho", "jisho"),
-        ],
-    }
-
-
-def get_hoshidicts_audio_profile_path() -> Path:
-    return Path(get_app_directory()) / "dictionaries" / "hoshidicts" / HOSHIDICTS_AUDIO_PROFILE_FILE
-
-
-def _profile_string(value: Any, label: str, maximum: int) -> str:
-    if not isinstance(value, str) or "\x00" in value or len(value) > maximum:
-        raise HoshidictsAudioError(f"{label} is invalid.")
-    return value
-
-
-def _validate_http_url(url: str, *, label: str = "Hoshidicts audio URL") -> str:
-    if not url or any(ord(character) < 32 for character in url):
-        raise HoshidictsAudioError(f"{label} must be an absolute HTTP(S) URL.")
-    try:
-        parsed = urlsplit(url)
-        hostname = parsed.hostname
-        port = parsed.port
-    except ValueError as exc:
-        raise HoshidictsAudioError(f"{label} must be an absolute HTTP(S) URL.") from exc
-    if (
-        parsed.scheme.lower() not in {"http", "https"}
-        or not hostname
-        or parsed.username is not None
-        or parsed.password is not None
-        or port is not None
-        and not 1 <= port <= 65535
-    ):
-        raise HoshidictsAudioError(f"{label} must be an absolute HTTP(S) URL without a username or password.")
-    if "{" in parsed.netloc or "}" in parsed.netloc:
-        raise HoshidictsAudioError(f"{label} cannot use placeholders in its authority.")
-    return url
 
 
 def _url_origin(url: str) -> str:
@@ -178,7 +108,7 @@ def _validate_network_target(
     *,
     private_network_origin: str | None,
 ) -> tuple[str, list[ipaddress.IPv4Address | ipaddress.IPv6Address]]:
-    url = _validate_http_url(url)
+    url = validate_http_url(url)
     addresses = _resolved_addresses(url)
     if any(not address.is_global for address in addresses) and _url_origin(url) != private_network_origin:
         raise HoshidictsAudioError(
@@ -193,126 +123,6 @@ def _remaining_request_seconds(deadline: float) -> float:
     if remaining <= 0:
         raise HoshidictsAudioError("Hoshidicts audio provider request timed out.", 504)
     return remaining
-
-
-def _substitute_custom_url(url: str, term: str, reading: str) -> str:
-    values = {
-        "term": quote(term, safe=""),
-        "expression": quote(term, safe=""),
-        "reading": quote(reading, safe=""),
-        "language": "ja",
-    }
-    return _PLACEHOLDER_PATTERN.sub(lambda match: values.get(match.group(1), match.group(0)), url)
-
-
-def _validate_custom_url_template(url: str) -> None:
-    without_placeholders = _PLACEHOLDER_PATTERN.sub("", url)
-    if "{" in without_placeholders or "}" in without_placeholders:
-        raise HoshidictsAudioError("Hoshidicts audio source URL is invalid.")
-
-
-def normalize_hoshidicts_audio_profile(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise HoshidictsAudioError("Hoshidicts audio profile must be an object.")
-    version = value.get("version", HOSHIDICTS_AUDIO_PROFILE_VERSION)
-    if isinstance(version, bool) or version != HOSHIDICTS_AUDIO_PROFILE_VERSION:
-        raise HoshidictsAudioError("Hoshidicts audio profile version is unsupported.")
-
-    enabled = value.get("enabled", True)
-    auto_play = value.get("autoPlay", False)
-    volume = value.get("volume", 100)
-    if volume is None:
-        volume = 100
-    if not isinstance(enabled, bool):
-        raise HoshidictsAudioError("Hoshidicts audio enabled setting is invalid.")
-    if not isinstance(auto_play, bool):
-        raise HoshidictsAudioError("Hoshidicts audio autoplay setting is invalid.")
-    if not isinstance(volume, int) or isinstance(volume, bool) or not 0 <= volume <= 100:
-        raise HoshidictsAudioError("Hoshidicts audio volume is invalid.")
-
-    raw_sources = value.get("sources", default_hoshidicts_audio_profile()["sources"])
-    if raw_sources is None:
-        raw_sources = default_hoshidicts_audio_profile()["sources"]
-    if not isinstance(raw_sources, list) or len(raw_sources) > MAX_AUDIO_SOURCES:
-        raise HoshidictsAudioError("Hoshidicts audio sources are invalid.")
-    sources = []
-    source_ids = set()
-    for raw_source in raw_sources:
-        if not isinstance(raw_source, dict):
-            raise HoshidictsAudioError("Hoshidicts audio source is invalid.")
-        source_id = _profile_string(
-            raw_source.get("id", ""),
-            "Hoshidicts audio source ID",
-            MAX_SOURCE_ID_LENGTH,
-        ).strip()
-        if not source_id or _SOURCE_ID_PATTERN.fullmatch(source_id) is None:
-            raise HoshidictsAudioError("Hoshidicts audio source ID is invalid.")
-        if source_id in source_ids:
-            raise HoshidictsAudioError("Hoshidicts audio source IDs must be unique.")
-        source_ids.add(source_id)
-
-        source_type = raw_source.get("type")
-        if not isinstance(source_type, str) or source_type not in SOURCE_TYPES:
-            raise HoshidictsAudioError("Hoshidicts audio source type is invalid.")
-        raw_url = raw_source.get("url", "")
-        raw_voice = raw_source.get("voice", "")
-        url = _profile_string(
-            "" if raw_url is None else raw_url,
-            "Hoshidicts audio source URL",
-            MAX_URL_LENGTH,
-        ).strip()
-        voice = _profile_string(
-            "" if raw_voice is None else raw_voice,
-            "Hoshidicts audio source voice",
-            MAX_VOICE_LENGTH,
-        ).strip()
-        if source_type in BUILTIN_SOURCE_TYPES and (url or voice):
-            raise HoshidictsAudioError("Built-in Hoshidicts audio sources cannot define a URL or voice.")
-        if source_type in CUSTOM_SOURCE_TYPES:
-            if voice:
-                raise HoshidictsAudioError("Custom Hoshidicts audio sources cannot define a voice.")
-            if url:
-                _validate_custom_url_template(url)
-                _validate_http_url(url, label="Hoshidicts audio source URL")
-                _validate_http_url(
-                    _substitute_custom_url(url, "term", "reading"),
-                    label="Hoshidicts audio source URL",
-                )
-        if source_type in TTS_SOURCE_TYPES and url:
-            raise HoshidictsAudioError("Hoshidicts text-to-speech sources cannot define a URL.")
-        sources.append({"id": source_id, "type": source_type, "url": url, "voice": voice})
-
-    return {
-        "version": HOSHIDICTS_AUDIO_PROFILE_VERSION,
-        "enabled": enabled,
-        "autoPlay": auto_play,
-        "volume": volume,
-        "sources": sources,
-    }
-
-
-def load_hoshidicts_audio_profile(profile_path: Path | None = None) -> dict[str, Any]:
-    path = profile_path or get_hoshidicts_audio_profile_path()
-    try:
-        stat = path.stat()
-    except FileNotFoundError:
-        return default_hoshidicts_audio_profile()
-    if not path.is_file() or stat.st_size <= 0 or stat.st_size > MAX_PROFILE_BYTES:
-        raise HoshidictsAudioError("Hoshidicts audio profile has an invalid size.")
-    try:
-        parsed = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError) as exc:
-        raise HoshidictsAudioError(f"Could not read the Hoshidicts audio profile: {exc}") from exc
-    return normalize_hoshidicts_audio_profile(parsed)
-
-
-def load_hoshidicts_audio_profile_or_default(profile_path: Path | None = None) -> dict[str, Any]:
-    try:
-        if profile_path is None:
-            return load_hoshidicts_audio_profile()
-        return load_hoshidicts_audio_profile(profile_path)
-    except (HoshidictsAudioError, OSError):
-        return default_hoshidicts_audio_profile()
 
 
 class _BoundedTTLCache:
@@ -465,7 +275,7 @@ def _request_bytes(
 ) -> tuple[bytes, str, str]:
     if deadline is None:
         deadline = time.monotonic() + MAX_PROVIDER_REQUEST_SECONDS
-    current_url = _validate_http_url(url)
+    current_url = validate_http_url(url)
     current_method = method.upper()
     current_data = data
     for redirect_count in range(MAX_REDIRECTS + 1):
@@ -504,7 +314,7 @@ def _request_bytes(
                 location = response.headers.get("Location")
                 if redirect_count >= MAX_REDIRECTS or not location:
                     raise HoshidictsAudioError("Hoshidicts audio provider redirected too many times.", 502)
-                current_url = _validate_http_url(urljoin(current_url, location))
+                current_url = validate_http_url(urljoin(current_url, location))
                 if response.status_code in {301, 302, 303} and current_method == "POST":
                     current_method = "GET"
                     current_data = None
@@ -626,9 +436,9 @@ def _validate_custom_audio_list(value: Any) -> list[dict[str, str]]:
     for item in raw_sources[:MAX_AUDIO_SOURCES]:
         if not isinstance(item, dict) or "url" not in item or not set(item) <= {"url", "name"}:
             raise HoshidictsAudioError("Hoshidicts custom JSON audio response is invalid.", 502)
-        url = _profile_string(item["url"], "Hoshidicts custom JSON audio URL", MAX_URL_LENGTH)
-        name = _profile_string(item.get("name", ""), "Hoshidicts audio candidate name", MAX_CANDIDATE_NAME_LENGTH)
-        _validate_http_url(url, label="Hoshidicts custom JSON audio URL")
+        url = profile_string(item["url"], "Hoshidicts custom JSON audio URL", MAX_URL_LENGTH)
+        name = profile_string(item.get("name", ""), "Hoshidicts audio candidate name", MAX_CANDIDATE_NAME_LENGTH)
+        validate_http_url(url, label="Hoshidicts custom JSON audio URL")
         candidates.append({"url": url, "name": name})
     return candidates
 
@@ -674,7 +484,7 @@ def _resolve_source_candidates(
         for row in parser.rows:
             if not row["url"] or reading != term and row["reading"] != reading:
                 continue
-            url = _validate_http_url(urljoin(response_url, row["url"]))
+            url = validate_http_url(urljoin(response_url, row["url"]))
             if url not in seen:
                 seen.add(url)
                 output.append({"url": url, "name": ""})
@@ -695,7 +505,7 @@ def _resolve_source_candidates(
         parser.feed(body.decode("utf-8", errors="replace"))
         if not parser.url:
             return []
-        return [{"url": _validate_http_url(urljoin(response_url, parser.url)), "name": ""}]
+        return [{"url": validate_http_url(urljoin(response_url, parser.url)), "name": ""}]
 
     if source_type == "custom":
         url = source["url"]
@@ -703,7 +513,7 @@ def _resolve_source_candidates(
             return []
         return [
             {
-                "url": _validate_http_url(_substitute_custom_url(url, term, reading)),
+                "url": validate_http_url(substitute_custom_url(url, term, reading)),
                 "name": "",
                 "privateNetworkOrigin": _private_network_origin(url),
             }
@@ -715,7 +525,7 @@ def _resolve_source_candidates(
             return []
         body, _content_type, _response_url = _request_bytes(
             "GET",
-            _substitute_custom_url(url, term, reading),
+            substitute_custom_url(url, term, reading),
             maximum=MAX_CUSTOM_JSON_BYTES,
             accept="application/json",
             private_network_origin=_private_network_origin(url),
@@ -742,16 +552,6 @@ def _request_term(value: Any, label: str, *, allow_empty: bool) -> str:
     return value
 
 
-def _find_source(profile: dict[str, Any], source_id: str) -> dict[str, str]:
-    source_id = _request_term(source_id, "Hoshidicts audio source ID", allow_empty=False)
-    if len(source_id) > MAX_SOURCE_ID_LENGTH or _SOURCE_ID_PATTERN.fullmatch(source_id) is None:
-        raise HoshidictsAudioError("Hoshidicts audio source ID is invalid.")
-    source = next((item for item in profile["sources"] if item["id"] == source_id), None)
-    if source is None:
-        raise HoshidictsAudioError("Hoshidicts audio source does not exist.", 404)
-    return source
-
-
 def _private_candidates(
     profile: dict[str, Any],
     term: str,
@@ -762,7 +562,7 @@ def _private_candidates(
 ) -> tuple[dict[str, str], list[dict[str, Any]]]:
     if not profile["enabled"]:
         raise HoshidictsAudioError("Hoshidicts audio is disabled.", 503)
-    source = _find_source(profile, source_id)
+    source = find_source(profile, source_id)
     if source["type"] not in DOWNLOADABLE_SOURCE_TYPES:
         raise HoshidictsAudioError(
             "This Hoshidicts audio source is available only through local speech synthesis.", 422

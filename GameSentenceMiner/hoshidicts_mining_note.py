@@ -968,7 +968,8 @@ def _css_string(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\a ")
 
 
-def _css_next_delimiter(value: str, start: int) -> tuple[int, str] | None:
+def _css_scan(value: str, start: int = 0):
+    """Yield (index, character, nesting) for characters outside comments and strings."""
     quote = None
     escaped = False
     comment = False
@@ -1004,84 +1005,39 @@ def _css_next_delimiter(value: str, start: int) -> tuple[int, str] | None:
             brackets += 1
         elif character == "]" and brackets:
             brackets -= 1
-        elif not parentheses and not brackets and character in {"{", ";"}:
-            return index, character
+        else:
+            yield index, character, parentheses + brackets
         index += 1
-    return None
+
+
+def _css_next_delimiter(value: str, start: int) -> tuple[int, str] | None:
+    return next(
+        (
+            (index, character)
+            for index, character, nesting in _css_scan(value, start)
+            if not nesting and character in {"{", ";"}
+        ),
+        None,
+    )
 
 
 def _css_matching_brace(value: str, opening: int) -> int | None:
-    quote = None
-    escaped = False
-    comment = False
     depth = 1
-    index = opening + 1
-    while index < len(value):
-        character = value[index]
-        following = value[index + 1] if index + 1 < len(value) else ""
-        if comment:
-            if character == "*" and following == "/":
-                comment = False
-                index += 2
-                continue
-        elif quote is not None:
-            if escaped:
-                escaped = False
-            elif character == "\\":
-                escaped = True
-            elif character == quote:
-                quote = None
-        elif character == "/" and following == "*":
-            comment = True
-            index += 2
-            continue
-        elif character in {'"', "'"}:
-            quote = character
-        elif character == "{":
+    for index, character, _nesting in _css_scan(value, opening + 1):
+        if character == "{":
             depth += 1
         elif character == "}":
             depth -= 1
             if depth == 0:
                 return index
-        index += 1
     return None
 
 
 def _split_css_selectors(value: str) -> list[str]:
     selectors = []
     start = 0
-    quote = None
-    escaped = False
-    comment = False
-    parentheses = 0
-    brackets = 0
-    for index, character in enumerate(value):
-        following = value[index + 1] if index + 1 < len(value) else ""
-        if comment:
-            if character == "*" and following == "/":
-                comment = False
-            continue
-        if quote is not None:
-            if escaped:
-                escaped = False
-            elif character == "\\":
-                escaped = True
-            elif character == quote:
-                quote = None
-            continue
-        if character == "/" and following == "*":
-            comment = True
-        elif character in {'"', "'"}:
-            quote = character
-        elif character == "(":
-            parentheses += 1
-        elif character == ")" and parentheses:
-            parentheses -= 1
-        elif character == "[":
-            brackets += 1
-        elif character == "]" and brackets:
-            brackets -= 1
-        elif character == "," and not parentheses and not brackets:
+    for index, character, nesting in _css_scan(value):
+        if character == "," and not nesting:
             selectors.append(value[start:index].strip())
             start = index + 1
     selectors.append(value[start:].strip())
