@@ -33,11 +33,8 @@
   const MAX_AUDIO_SOURCES = constants.LIMITS.audioSources;
   const MAX_AUDIO_CANDIDATES = constants.LIMITS.audioCandidates;
   const MAX_TEXT_LENGTH = constants.LIMITS.audioTextLength;
-  const SOURCE_TYPES = constants.AUDIO_SOURCE_TYPE_SET;
   const TTS_SOURCE_TYPES = constants.TTS_AUDIO_SOURCE_TYPES;
   const SOURCE_LABELS = constants.AUDIO_SOURCE_LABELS;
-  const MIN_VOLUME = constants.BOUNDS.audioVolume.min;
-  const MAX_VOLUME = constants.BOUNDS.audioVolume.max;
   const DEFAULT_AUDIO_PROFILE = Object.freeze({
     version: 1,
     enabled: true,
