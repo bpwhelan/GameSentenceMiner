@@ -1698,11 +1698,18 @@ KIKU_LAPIS_FIELDS = [
     "Frequency",
     "PitchPosition",
 ]
+# The semantic-field profile a legacy Kiku/Lapis setup would have saved, derived
+# from the real Kiku mapping so it cannot drift from it.
+KIKU_LAPIS_FIELD_MAP = {
+    ("definition" if slot == "glossary" else slot): field_name
+    for field_name, (slot, _template) in hoshidicts_mining.KIKU_FIELD_TEMPLATES.items()
+    if slot in {"expression", "reading", "glossary", "sentence", "frequency", "pitch"}
+}
 
 
 def test_mining_formats_kiku_lapis_pitch_position_as_numeric_positions(monkeypatch):
     fake_anki = FakeAnki(fields=KIKU_LAPIS_FIELDS, model_names=["Kiku"])
-    profile = make_mining_profile(model="Kiku", fields=dict(hoshidicts_mining.KIKU_LAPIS_FIELD_MAP))
+    profile = make_mining_profile(model="Kiku", fields=dict(KIKU_LAPIS_FIELD_MAP))
     wire(monkeypatch, fake_anki, profile)
 
     hoshidicts_mining.mine_hoshidicts_note(make_payload())
