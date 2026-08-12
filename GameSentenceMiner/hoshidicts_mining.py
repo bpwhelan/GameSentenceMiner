@@ -100,13 +100,6 @@ KIKU_FIELD_TEMPLATES = {
     "FreqSort": ("frequency-sort", "{frequency-harmonic-rank}"),
     "MiscInfo": ("document-title", "{document-title}"),
 }
-# Compatibility for legacy semantic profiles. Kiku mappings themselves are
-# maintained only in KIKU_FIELD_TEMPLATES above.
-KIKU_LAPIS_FIELD_MAP = {
-    ("definition" if slot == "glossary" else slot): field_name
-    for field_name, (slot, _template) in KIKU_FIELD_TEMPLATES.items()
-    if slot in {"expression", "reading", "glossary", "sentence", "frequency", "pitch"}
-}
 FIELD_TEMPLATE_SUGGESTION_SLOTS = (
     "expression",
     "expression-furigana",
