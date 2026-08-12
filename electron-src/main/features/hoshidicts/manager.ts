@@ -34,7 +34,6 @@ import type {
     HoshidictsYomitanDictionaryPreference,
 } from '../../../shared/features/hoshidicts.js';
 import {
-    DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
     MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES,
     MAX_HOSHIDICTS_PROFILE_NAME_LENGTH,
     MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH,
@@ -266,7 +265,7 @@ async function readJsonFile(
     return JSON.parse(raw.replace(/^\uFEFF/, '')) as unknown;
 }
 
-export const HOSHIDICTS_CUSTOM_DICTIONARY_FILE_NAME = 'custom-dictionary.txt';
+const HOSHIDICTS_CUSTOM_DICTIONARY_FILE_NAME = 'custom-dictionary.txt';
 export const HOSHIDICTS_CUSTOM_DICTIONARY_TITLE = 'GSM Custom Dictionary';
 export const HOSHIDICTS_CUSTOM_DICTIONARY_ID = 'gsm-managed-custom-dictionary-v1';
 
@@ -858,14 +857,6 @@ function recommendedDictionaryForPersisted(
     );
 }
 
-function isDefaultRecommendedDictionary(
-    id: HoshidictsRecommendedDictionaryId
-): boolean {
-    return DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.some(
-        (defaultId) => defaultId === id
-    );
-}
-
 function recommendedDictionaryStates(
     manifest: PersistedManifest
 ): HoshidictsRecommendedDictionaryState[] {
@@ -917,13 +908,13 @@ function generatedIndexMatchesRecommendationIdentity(
         : index.title === recommended.expectedTitle;
 }
 
-export function getHoshidictsScheduleIntervalMs(
+function getHoshidictsScheduleIntervalMs(
     schedule: HoshidictsSchedule
 ): number | null {
     return schedule === 'off' ? null : SCHEDULE_INTERVALS[schedule];
 }
 
-export function getNextHoshidictsCheck(
+function getNextHoshidictsCheck(
     schedule: HoshidictsSchedule,
     lastCheck: string | null,
     now: Date
@@ -942,7 +933,7 @@ export function getNextHoshidictsCheck(
     return new Date(previous.getTime() + interval).toISOString();
 }
 
-export function isHoshidictsCheckDue(
+function isHoshidictsCheckDue(
     schedule: HoshidictsSchedule,
     nextCheck: string | null,
     now: Date
@@ -1011,7 +1002,7 @@ function aggregateNextUpdateCheck(
     return nextCheck;
 }
 
-export function stableHoshidictsDictionaryId(title: string): string {
+function stableHoshidictsDictionaryId(title: string): string {
     return createHash('sha256').update(title.normalize('NFC'), 'utf8').digest('hex').slice(0, 32);
 }
 
@@ -1070,6 +1061,21 @@ async function readGeneratedIndex(dictionaryPath: string): Promise<GeneratedInde
     };
 }
 
+async function requireNonEmptyDictionaryFiles(
+    dictionaryPath: string,
+    fileNames: readonly string[]
+): Promise<void> {
+    for (const fileName of fileNames) {
+        const filePath = path.join(dictionaryPath, fileName);
+        const stat = await fsp.stat(filePath).catch((error) => {
+            throw new Error(`Dictionary is missing ${fileName}: ${errorMessage(error)}`);
+        });
+        if (!stat.isFile() || stat.size === 0) {
+            throw new Error(`Dictionary file ${fileName} is empty or not a file.`);
+        }
+    }
+}
+
 async function validateNativeDictionaryFiles(dictionaryPath: string): Promise<void> {
     const markerChecks = await Promise.all(
         HOSHIDICTS_MARKERS.map(async (marker) => {
@@ -1083,33 +1089,15 @@ async function validateNativeDictionaryFiles(dictionaryPath: string): Promise<vo
     if (!markerChecks.some(Boolean)) {
         throw new Error('Dictionary is missing a Hoshidicts format marker.');
     }
-
-    for (const fileName of REQUIRED_DICTIONARY_FILES) {
-        const filePath = path.join(dictionaryPath, fileName);
-        const stat = await fsp.stat(filePath).catch((error) => {
-            throw new Error(`Dictionary is missing ${fileName}: ${errorMessage(error)}`);
-        });
-        if (!stat.isFile() || stat.size === 0) {
-            throw new Error(`Dictionary file ${fileName} is empty or not a file.`);
-        }
-    }
+    await requireNonEmptyDictionaryFiles(dictionaryPath, REQUIRED_DICTIONARY_FILES);
 }
 
 async function validateNativeMediaFiles(
     dictionaryPath: string,
     mediaCount: number
 ): Promise<void> {
-    if (mediaCount <= 0) {
-        return;
-    }
-    for (const fileName of REQUIRED_MEDIA_FILES) {
-        const filePath = path.join(dictionaryPath, fileName);
-        const stat = await fsp.stat(filePath).catch((error) => {
-            throw new Error(`Dictionary is missing ${fileName}: ${errorMessage(error)}`);
-        });
-        if (!stat.isFile() || stat.size === 0) {
-            throw new Error(`Dictionary file ${fileName} is empty or not a file.`);
-        }
+    if (mediaCount > 0) {
+        await requireNonEmptyDictionaryFiles(dictionaryPath, REQUIRED_MEDIA_FILES);
     }
 }
 
@@ -1356,7 +1344,7 @@ function parseImportReport(stdout: string): HoshidictsImportReport {
     };
 }
 
-export async function runHoshidictsImport(
+async function runHoshidictsImport(
     archivePath: string,
     outputDir: string
 ): Promise<HoshidictsImportReport> {
@@ -1437,7 +1425,7 @@ export async function runHoshidictsImport(
     });
 }
 
-export async function reloadHoshidictsNativeState(): Promise<number> {
+async function reloadHoshidictsNativeState(): Promise<number> {
     const requestId = `desktop-reload-${randomUUID()}`;
     const url = `ws://127.0.0.1:${DEFAULT_INPUT_SERVER_PORT}`;
     return await new Promise<number>((resolve, reject) => {
@@ -1572,7 +1560,7 @@ async function readResponseBytes(response: Response, maxBytes: number): Promise<
     }
 }
 
-export async function fetchHoshidictsRemoteIndex(
+async function fetchHoshidictsRemoteIndex(
     url: string
 ): Promise<HoshidictsRemoteIndex> {
     const response = await fetch(url, {
@@ -1600,7 +1588,7 @@ export async function fetchHoshidictsRemoteIndex(
     };
 }
 
-export async function downloadHoshidictsArchive(
+async function downloadHoshidictsArchive(
     url: string,
     outputPath: string
 ): Promise<void> {
@@ -1905,7 +1893,6 @@ export class HoshidictsManager {
             let manifest = await this.readManifest();
             const missing = RECOMMENDED_HOSHIDICTS_DICTIONARIES.filter(
                 (recommended) =>
-                    isDefaultRecommendedDictionary(recommended.id) &&
                     !manifestHasRecommendedDictionary(manifest, recommended)
             );
             for (let index = 0; index < missing.length; index += 1) {
@@ -2431,15 +2418,8 @@ export class HoshidictsManager {
                 throw new Error('Dictionary update schedule is invalid.');
             }
             const manifest = await this.readManifest();
-            let next: PersistedManifest = {
-                ...manifest,
-                schedule,
-            };
-            next = {
-                ...next,
-                nextCheck: aggregateNextUpdateCheck(next, this.deps.now()),
-            };
-            await this.atomicWriteManifest(next);
+            // atomicWriteManifest recomputes nextCheck from the schedule it writes.
+            await this.atomicWriteManifest({ ...manifest, schedule });
         }, 'preferences');
         return await this.getSnapshot();
     }
@@ -2474,13 +2454,7 @@ export class HoshidictsManager {
                 ...dictionary,
             }));
             dictionaries[index].updateScheduleOverride = schedule;
-            const next: PersistedManifest = {
-                ...manifest,
-                dictionaries,
-                nextCheck: null,
-            };
-            next.nextCheck = aggregateNextUpdateCheck(next, this.deps.now());
-            await this.atomicWriteManifest(next);
+            await this.atomicWriteManifest({ ...manifest, dictionaries });
         }, 'preferences');
         return await this.getSnapshot();
     }
@@ -2891,7 +2865,6 @@ export class HoshidictsManager {
                 nextCheck: null,
                 lastError: errors.length > 0 ? errors.join('\n') : null,
             };
-            manifest.nextCheck = aggregateNextUpdateCheck(manifest, checkedAt);
             await this.atomicWriteManifest(manifest);
             this.setProgress({
                 phase: 'checking',
@@ -3672,7 +3645,6 @@ export class HoshidictsManager {
         newGenerationRoot: string | null,
         oldDictionaryPath: string | null
     ): Promise<void> {
-        next = pinCustomDictionary(next);
         const previousRaw = await this.readManifestRaw();
         await this.atomicWriteManifest(next);
         this.setProgress({ phase: 'reloading' });

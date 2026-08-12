@@ -432,16 +432,13 @@ export const HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS = [
 ] as const;
 export type HoshidictsRecommendedDictionaryId =
     (typeof HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS)[number];
-export const DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS = [
-    'jitendex',
-    'jmdict',
-    'jmnedict',
-    'bccwj',
-    'jpdbv2-kana',
-    'jiten',
-    'kanjium-pitch',
-    'kanjidic',
-] as const satisfies readonly HoshidictsRecommendedDictionaryId[];
+/**
+ * Every recommended dictionary is installed by "install all". This alias exists
+ * so the callers that mean "the default set" read that way; give it its own
+ * literal if the two ever have to diverge.
+ */
+export const DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS =
+    HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS;
 export const MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES = 16 * 1024 * 1024;
 export const MAX_HOSHIDICTS_CUSTOM_TERM_BYTES = 4 * 1024;
 export const MAX_HOSHIDICTS_CUSTOM_READING_BYTES = 4 * 1024;
