@@ -4,12 +4,21 @@ The Hoshidicts overlay integration contains or adapts GPL-licensed work from
 the following projects:
 
 - [Hoshidicts](https://github.com/Manhhao/hoshidicts), pinned at
-  [c2cb93b](https://github.com/bee-san/hoshidicts/tree/c2cb93b007daf47640218d75ca4f8b546918f7ac)
-  from upstream [PR #18](https://github.com/Manhhao/hoshidicts/pull/18) as the
-  recursive `GSM_Overlay/input_server/hoshidicts` submodule and statically
-  linked into `gsm_overlay_server`. Hoshidicts is licensed under GPL-3.0; its
-  complete license is included at
-  `GSM_Overlay/input_server/hoshidicts/LICENSE`.
+  [49ea3cc](https://github.com/bee-san/hoshidicts/tree/49ea3cca4ea7b7570a64575dc02ad198dd86e689)
+  (tagged `gsm-pin-2026-08-09`) as the recursive
+  `GSM_Overlay/input_server/hoshidicts` submodule and statically linked into
+  `gsm_overlay_server`. Hoshidicts is licensed under GPL-3.0; its complete
+  license is included at `GSM_Overlay/input_server/hoshidicts/LICENSE`.
+
+  The pin is a fork of upstream because it carries the `hd_lookup_run_v3`
+  lookup ABI, which upstream does not have. The separable fixes it also
+  carries have been submitted upstream as
+  [#18](https://github.com/Manhhao/hoshidicts/pull/18) (UTF-8 filesystem
+  paths), [#21](https://github.com/Manhhao/hoshidicts/pull/21) (missing
+  `<cstdint>`), [#22](https://github.com/Manhhao/hoshidicts/pull/22) (bounded
+  kanji query materialization), and
+  [#23](https://github.com/Manhhao/hoshidicts/pull/23) (kana width
+  normalization order).
 - [Hoshi Reader](https://github.com/Manhhao/Hoshi-Reader/tree/c31c9d0ce376ff83bf6a91d908bf9f8e0fb4947b/Features/Popup),
   whose popup structure and furigana presentation informed
   `features/hoshidicts/reader.js`, `features/hoshidicts/popup.js`, and
