@@ -875,9 +875,9 @@
     return `${match[1]}${unit}`;
   }
 
-  function normalizeLengthSequence(value) {
+  function normalizeLengthSequence(value, allowNegative = false) {
     if (typeof value === "number") {
-      return normalizeLengthToken(value);
+      return normalizeLengthToken(value, allowNegative);
     }
     if (!isSafeCssToken(value)) {
       return null;
@@ -886,26 +886,31 @@
     if (tokens.length < 1 || tokens.length > 4) {
       return null;
     }
-    const normalized = tokens.map((token) => normalizeLengthToken(token));
+    const normalized = tokens.map((token) => normalizeLengthToken(token, allowNegative));
     return normalized.every((token) => token !== null) ? normalized.join(" ") : null;
   }
 
-  function normalizeSignedLengthSequence(value) {
-    if (typeof value === "number") {
-      return normalizeLengthToken(value, true);
-    }
-    if (!isSafeCssToken(value)) {
-      return null;
-    }
-    const tokens = value.trim().split(/\s+/u);
-    if (tokens.length < 1 || tokens.length > 4) {
-      return null;
-    }
-    const normalized = tokens.map((token) => normalizeLengthToken(token, true));
-    return normalized.every((token) => token !== null) ? normalized.join(" ") : null;
-  }
+  // Value kinds that are one pattern match against a string. The rest need
+  // their own handling and stay spelled out below.
+  const STRUCTURED_STYLE_PATTERNS = new Map([
+    ["border-style", /^(?:none|hidden|dotted|dashed|solid|double)$/u],
+    ["clip-path", /^(?:circle|ellipse|inset)\([0-9.,%+\-\s]+\)$/u],
+    [
+      "cursor",
+      /^(?:auto|default|pointer|help|text|wait|progress|not-allowed|zoom-in|zoom-out)$/u,
+    ],
+    ["font-style", /^(?:normal|italic)$/u],
+    ["text-align", /^(?:start|end|left|right|center|justify|match-parent)$/u],
+    ["text-decoration-style", /^(?:solid|double|dotted|dashed|wavy)$/u],
+    ["white-space", /^(?:normal|nowrap|pre|pre-wrap|pre-line|break-spaces)$/u],
+    ["word-break", /^(?:normal|break-all|keep-all|break-word)$/u],
+  ]);
 
   function normalizeStructuredStyleValue(kind, value) {
+    const pattern = STRUCTURED_STYLE_PATTERNS.get(kind);
+    if (pattern) {
+      return typeof value === "string" && pattern.test(value) ? value : null;
+    }
     if (kind === "color") {
       return normalizeColor(value);
     }
@@ -913,6 +918,7 @@
       return normalizeLengthToken(value);
     }
     if (kind === "signed-length") {
+      // A bare number here means em, not the px normalizeLengthToken assumes.
       if (typeof value === "number") {
         return Number.isFinite(value) && Math.abs(value) <= 16
           ? `${value}em`
@@ -924,18 +930,7 @@
       return normalizeLengthSequence(value);
     }
     if (kind === "signed-length-sequence") {
-      return normalizeSignedLengthSequence(value);
-    }
-    if (kind === "border-style") {
-      return typeof value === "string" &&
-        /^(?:none|hidden|dotted|dashed|solid|double)$/u.test(value)
-        ? value
-        : null;
-    }
-    if (kind === "font-style") {
-      return typeof value === "string" && /^(?:normal|italic)$/u.test(value)
-        ? value
-        : null;
+      return normalizeLengthSequence(value, true);
     }
     if (kind === "font-weight") {
       if (
@@ -953,24 +948,12 @@
         ? value.trim()
         : null;
     }
-    if (kind === "text-align") {
-      return typeof value === "string" &&
-        /^(?:start|end|left|right|center|justify|match-parent)$/u.test(value)
-        ? value
-        : null;
-    }
     if (kind === "text-decoration-line") {
       const values = Array.isArray(value) ? value : [value];
       return values.length >= 1 && values.length <= 4 && values.every(
         (item) => typeof item === "string" &&
           /^(?:none|underline|overline|line-through|blink)$/u.test(item)
       ) ? values.join(" ") : null;
-    }
-    if (kind === "text-decoration-style") {
-      return typeof value === "string" &&
-        /^(?:solid|double|dotted|dashed|wavy)$/u.test(value)
-        ? value
-        : null;
     }
     if (kind === "vertical-align") {
       if (
@@ -980,30 +963,6 @@
         return value;
       }
       return normalizeLengthToken(value, true);
-    }
-    if (kind === "white-space") {
-      return typeof value === "string" &&
-        /^(?:normal|nowrap|pre|pre-wrap|pre-line|break-spaces)$/u.test(value)
-        ? value
-        : null;
-    }
-    if (kind === "word-break") {
-      return typeof value === "string" &&
-        /^(?:normal|break-all|keep-all|break-word)$/u.test(value)
-        ? value
-        : null;
-    }
-    if (kind === "cursor") {
-      return typeof value === "string" &&
-        /^(?:auto|default|pointer|help|text|wait|progress|not-allowed|zoom-in|zoom-out)$/u.test(value)
-        ? value
-        : null;
-    }
-    if (kind === "clip-path") {
-      return typeof value === "string" &&
-        /^(?:circle|ellipse|inset)\([0-9.,%+\-\s]+\)$/u.test(value)
-        ? value
-        : null;
     }
     if (kind === "safe-css-token") {
       return isSafeCssToken(value) ? value.trim() : null;
