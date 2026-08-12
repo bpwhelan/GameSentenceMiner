@@ -1,4 +1,6 @@
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::ffi::{c_char, c_int, CStr, CString};
 use std::fs;
@@ -6,26 +8,30 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Component, Path, PathBuf};
 use std::ptr;
 use std::slice;
+use std::sync::{Arc, Mutex as StdMutex};
+use tokio::sync::Mutex;
+use tokio::task;
+use tracing::{info, warn};
 
-pub const MANIFEST_FILE_NAME: &str = "manifest.json";
-pub const DEFAULT_LOOKUP_SCAN_LENGTH: usize = 16;
-pub const MIN_LOOKUP_SCAN_LENGTH: usize = 1;
-pub const MAX_LOOKUP_SCAN_LENGTH: usize = 64;
-pub const DEFAULT_LOOKUP_MAX_RESULTS: c_int = 32;
-pub const MIN_LOOKUP_MAX_RESULTS: c_int = 1;
-pub const MAX_LOOKUP_MAX_RESULTS: c_int = 256;
-pub const MAX_LOOKUP_TEXT_BYTES: usize = 4 * 1024;
-pub const MAX_LOOKUP_PRIMARY_READING_BYTES: usize = 4 * 1024;
-pub const MAX_LOOKUP_SORT_DICTIONARY_BYTES: usize = 4 * 1024;
-pub const MAX_LOOKUP_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
-pub const MAX_REQUEST_ID_BYTES: usize = 128;
-pub const MAX_MEDIA_DICTIONARY_BYTES: usize = 1024;
-pub const MAX_MEDIA_PATH_BYTES: usize = 4 * 1024;
-pub const MAX_MEDIA_BYTES: usize = 4 * 1024 * 1024;
-pub const MAX_MEDIA_RESPONSE_BYTES: usize = 6 * 1024 * 1024;
-pub const MAX_MEDIA_DIMENSION: u32 = 4096;
-pub const MAX_MEDIA_PIXELS: u64 = 16 * 1024 * 1024;
-pub const MAX_STYLES_RESPONSE_BYTES: usize = 3 * 1024 * 1024;
+const MANIFEST_FILE_NAME: &str = "manifest.json";
+const DEFAULT_LOOKUP_SCAN_LENGTH: usize = 16;
+const MIN_LOOKUP_SCAN_LENGTH: usize = 1;
+const MAX_LOOKUP_SCAN_LENGTH: usize = 64;
+const DEFAULT_LOOKUP_MAX_RESULTS: c_int = 32;
+const MIN_LOOKUP_MAX_RESULTS: c_int = 1;
+const MAX_LOOKUP_MAX_RESULTS: c_int = 256;
+const MAX_LOOKUP_TEXT_BYTES: usize = 4 * 1024;
+const MAX_LOOKUP_PRIMARY_READING_BYTES: usize = 4 * 1024;
+const MAX_LOOKUP_SORT_DICTIONARY_BYTES: usize = 4 * 1024;
+const MAX_LOOKUP_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
+const MAX_REQUEST_ID_BYTES: usize = 128;
+const MAX_MEDIA_DICTIONARY_BYTES: usize = 1024;
+const MAX_MEDIA_PATH_BYTES: usize = 4 * 1024;
+const MAX_MEDIA_BYTES: usize = 4 * 1024 * 1024;
+const MAX_MEDIA_RESPONSE_BYTES: usize = 6 * 1024 * 1024;
+const MAX_MEDIA_DIMENSION: u32 = 4096;
+const MAX_MEDIA_PIXELS: u64 = 16 * 1024 * 1024;
+const MAX_STYLES_RESPONSE_BYTES: usize = 3 * 1024 * 1024;
 
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 const MAX_DICTIONARIES: usize = 256;
@@ -49,40 +55,27 @@ const HOSHIDICTS_MARKERS: [&str; 4] = [
     ".hoshidicts_1",
 ];
 
-#[repr(C)]
-struct HdImportResult {
-    _private: [u8; 0],
+/// Opaque native handle: only ever held behind a pointer.
+macro_rules! hd_opaque {
+    ($($name:ident),+ $(,)?) => {
+        $(
+            #[repr(C)]
+            struct $name {
+                _private: [u8; 0],
+            }
+        )+
+    };
 }
 
-#[repr(C)]
-struct HdDeinflector {
-    _private: [u8; 0],
-}
-
-#[repr(C)]
-struct HdQuery {
-    _private: [u8; 0],
-}
-
-#[repr(C)]
-struct HdLookup {
-    _private: [u8; 0],
-}
-
-#[repr(C)]
-struct HdLookupResults {
-    _private: [u8; 0],
-}
-
-#[repr(C)]
-struct HdKanjiResults {
-    _private: [u8; 0],
-}
-
-#[repr(C)]
-struct HdStyles {
-    _private: [u8; 0],
-}
+hd_opaque!(
+    HdImportResult,
+    HdDeinflector,
+    HdQuery,
+    HdLookup,
+    HdLookupResults,
+    HdKanjiResults,
+    HdStyles,
+);
 
 #[derive(Clone, Copy)]
 #[repr(C)]
@@ -290,13 +283,13 @@ extern "C" {
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(untagged)]
-pub enum RequestId {
+enum RequestId {
     Number(u64),
     Text(String),
 }
 
 impl RequestId {
-    pub fn validate(&self) -> Result<(), String> {
+    fn validate(&self) -> Result<(), String> {
         match self {
             Self::Number(_) => Ok(()),
             Self::Text(value) if value.len() <= MAX_REQUEST_ID_BYTES => Ok(()),
@@ -309,18 +302,18 @@ impl RequestId {
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
-pub enum LookupFrequencySortOrder {
+enum LookupFrequencySortOrder {
     Ascending,
     Descending,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LookupOptions {
-    pub scan_length: usize,
-    pub max_results: c_int,
-    pub primary_reading: Option<String>,
-    pub sort_frequency_dictionary: Option<String>,
-    pub sort_frequency_order: LookupFrequencySortOrder,
+struct LookupOptions {
+    scan_length: usize,
+    max_results: c_int,
+    primary_reading: Option<String>,
+    sort_frequency_dictionary: Option<String>,
+    sort_frequency_order: LookupFrequencySortOrder,
 }
 
 impl Default for LookupOptions {
@@ -336,7 +329,7 @@ impl Default for LookupOptions {
 }
 
 impl LookupOptions {
-    pub fn from_request(
+    fn from_request(
         scan_length: Option<i64>,
         max_results: Option<i64>,
         primary_reading: Option<String>,
@@ -402,96 +395,96 @@ fn normalize_optional_lookup_string(
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct LookupTrace {
-    pub name: String,
-    pub description: String,
+struct LookupTrace {
+    name: String,
+    description: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct LookupGlossary {
-    pub dictionary: String,
-    pub glossary: String,
-    pub definition_tags: String,
-    pub term_tags: String,
+struct LookupGlossary {
+    dictionary: String,
+    glossary: String,
+    definition_tags: String,
+    term_tags: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct LookupFrequency {
-    pub value: f64,
-    pub display_value: Option<String>,
+struct LookupFrequency {
+    value: f64,
+    display_value: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct LookupFrequencyEntry {
-    pub dictionary: String,
-    pub frequencies: Vec<LookupFrequency>,
+struct LookupFrequencyEntry {
+    dictionary: String,
+    frequencies: Vec<LookupFrequency>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct LookupPitch {
-    pub position: i32,
-    pub pattern: String,
-    pub nasal: Vec<i32>,
-    pub devoice: Vec<i32>,
+struct LookupPitch {
+    position: i32,
+    pattern: String,
+    nasal: Vec<i32>,
+    devoice: Vec<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct LookupPitchEntry {
-    pub dictionary: String,
-    pub pitches: Vec<LookupPitch>,
-    pub transcriptions: Vec<String>,
+struct LookupPitchEntry {
+    dictionary: String,
+    pitches: Vec<LookupPitch>,
+    transcriptions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct LookupTerm {
-    pub expression: String,
-    pub reading: String,
-    pub rules: String,
-    pub score: i32,
-    pub glossaries: Vec<LookupGlossary>,
-    pub frequencies: Vec<LookupFrequencyEntry>,
-    pub pitches: Vec<LookupPitchEntry>,
+struct LookupTerm {
+    expression: String,
+    reading: String,
+    rules: String,
+    score: i32,
+    glossaries: Vec<LookupGlossary>,
+    frequencies: Vec<LookupFrequencyEntry>,
+    pitches: Vec<LookupPitchEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct LookupResult {
-    pub matched: String,
-    pub deinflected: String,
-    pub trace: Vec<LookupTrace>,
-    pub term: LookupTerm,
-    pub preprocessor_steps: i32,
+struct LookupResult {
+    matched: String,
+    deinflected: String,
+    trace: Vec<LookupTrace>,
+    term: LookupTerm,
+    preprocessor_steps: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MediaFile {
-    pub media_type: &'static str,
-    pub data: Vec<u8>,
-    pub width: u32,
-    pub height: u32,
+struct MediaFile {
+    media_type: &'static str,
+    data: Vec<u8>,
+    width: u32,
+    height: u32,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct DictionaryStyle {
-    pub dictionary: String,
-    pub styles: String,
+struct DictionaryStyle {
+    dictionary: String,
+    styles: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum StylesError {
+enum StylesError {
     StaleGeneration,
     Internal(String),
 }
 
 impl StylesError {
-    pub const fn code(&self) -> &'static str {
+    const fn code(&self) -> &'static str {
         match self {
             Self::StaleGeneration => "stale_generation",
             Self::Internal(_) => "internal_error",
@@ -500,7 +493,7 @@ impl StylesError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MediaError {
+enum MediaError {
     InvalidRequestId,
     InvalidDictionary,
     InvalidPath,
@@ -513,7 +506,7 @@ pub enum MediaError {
 }
 
 impl MediaError {
-    pub const fn code(self) -> &'static str {
+    const fn code(self) -> &'static str {
         match self {
             Self::InvalidRequestId => "invalid_request_id",
             Self::InvalidDictionary => "invalid_dictionary",
@@ -530,27 +523,27 @@ impl MediaError {
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct LookupKanjiStat {
-    pub name: String,
-    pub value: String,
+struct LookupKanjiStat {
+    name: String,
+    value: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct LookupKanjiEntry {
-    pub dictionary: String,
-    pub onyomi: String,
-    pub kunyomi: String,
-    pub tags: String,
-    pub definitions: Vec<String>,
-    pub stats: Vec<LookupKanjiStat>,
+struct LookupKanjiEntry {
+    dictionary: String,
+    onyomi: String,
+    kunyomi: String,
+    tags: String,
+    definitions: Vec<String>,
+    stats: Vec<LookupKanjiStat>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct LookupKanji {
-    pub character: String,
-    pub entries: Vec<LookupKanjiEntry>,
+struct LookupKanji {
+    character: String,
+    entries: Vec<LookupKanjiEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -600,44 +593,28 @@ impl ImportReport {
     }
 }
 
-struct ImportResultGuard(*mut HdImportResult);
+/// Owns one native result handle and releases it with its own free function.
+macro_rules! hd_owned {
+    ($($guard:ident($handle:ident) => $free:ident;)+) => {
+        $(
+            struct $guard(*mut $handle);
 
-impl Drop for ImportResultGuard {
-    fn drop(&mut self) {
-        if !self.0.is_null() {
-            unsafe { hd_import_result_free(self.0) };
-        }
-    }
+            impl Drop for $guard {
+                fn drop(&mut self) {
+                    if !self.0.is_null() {
+                        unsafe { $free(self.0) };
+                    }
+                }
+            }
+        )+
+    };
 }
 
-struct LookupResultsGuard(*mut HdLookupResults);
-
-impl Drop for LookupResultsGuard {
-    fn drop(&mut self) {
-        if !self.0.is_null() {
-            unsafe { hd_lookup_results_free(self.0) };
-        }
-    }
-}
-
-struct KanjiResultsGuard(*mut HdKanjiResults);
-
-impl Drop for KanjiResultsGuard {
-    fn drop(&mut self) {
-        if !self.0.is_null() {
-            unsafe { hd_kanji_results_free(self.0) };
-        }
-    }
-}
-
-struct StylesGuard(*mut HdStyles);
-
-impl Drop for StylesGuard {
-    fn drop(&mut self) {
-        if !self.0.is_null() {
-            unsafe { hd_styles_free(self.0) };
-        }
-    }
+hd_owned! {
+    ImportResultGuard(HdImportResult) => hd_import_result_free;
+    LookupResultsGuard(HdLookupResults) => hd_lookup_results_free;
+    KanjiResultsGuard(HdKanjiResults) => hd_kanji_results_free;
+    StylesGuard(HdStyles) => hd_styles_free;
 }
 
 #[derive(Debug, Deserialize)]
@@ -855,32 +832,25 @@ fn validate_relative_dictionary_path(path: &str) -> Result<PathBuf, String> {
     Ok(candidate)
 }
 
-fn read_dictionary_index(dictionary_path: &Path) -> Result<DictionaryIndex, String> {
-    let index_path = dictionary_path.join("index.json");
-    let metadata = fs::metadata(&index_path).map_err(|error| {
-        format!(
-            "dictionary is missing generated index.json at {}: {error}",
-            index_path.display()
-        )
-    })?;
-    if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_MANIFEST_BYTES {
+/// Read one small JSON file, refusing anything empty, oversized, or not a file
+/// before it is allocated.
+fn read_bounded_json<T: serde::de::DeserializeOwned>(
+    path: &Path,
+    maximum_bytes: u64,
+    label: &str,
+) -> Result<T, String> {
+    let display = path.display();
+    let metadata =
+        fs::metadata(path).map_err(|error| format!("missing {label} at {display}: {error}"))?;
+    if !metadata.is_file() || metadata.len() == 0 || metadata.len() > maximum_bytes {
         return Err(format!(
-            "dictionary generated index.json has an invalid size at {}",
-            index_path.display()
+            "{label} is empty, oversized, or not a file: {display}"
         ));
     }
-    let contents = fs::read_to_string(&index_path).map_err(|error| {
-        format!(
-            "failed to read generated dictionary index {}: {error}",
-            index_path.display()
-        )
-    })?;
-    serde_json::from_str(&contents).map_err(|error| {
-        format!(
-            "failed to parse generated dictionary index {}: {error}",
-            index_path.display()
-        )
-    })
+    let contents = fs::read_to_string(path)
+        .map_err(|error| format!("failed to read {label} at {display}: {error}"))?;
+    serde_json::from_str(&contents)
+        .map_err(|error| format!("failed to parse {label} at {display}: {error}"))
 }
 
 #[derive(Debug)]
@@ -1165,7 +1135,11 @@ fn validate_dictionary_directory(dictionary_path: &Path) -> Result<DictionarySpe
         }
     }
 
-    let index = read_dictionary_index(dictionary_path)?;
+    let index: DictionaryIndex = read_bounded_json(
+        &dictionary_path.join("index.json"),
+        MAX_MANIFEST_BYTES,
+        "generated dictionary index.json",
+    )?;
     if index.title.trim().is_empty() {
         return Err(format!(
             "dictionary generated index has no title: {}",
@@ -1199,18 +1173,8 @@ fn load_dictionary_specs(root: &Path) -> Result<Vec<DictionarySpec>, String> {
     if !manifest_path.exists() {
         return Ok(Vec::new());
     }
-    let manifest_metadata = fs::metadata(&manifest_path)
-        .map_err(|error| format!("failed to inspect Hoshidicts manifest: {error}"))?;
-    if !manifest_metadata.is_file()
-        || manifest_metadata.len() == 0
-        || manifest_metadata.len() > MAX_MANIFEST_BYTES
-    {
-        return Err("Hoshidicts manifest is empty, oversized, or not a file".into());
-    }
-    let contents = fs::read_to_string(&manifest_path)
-        .map_err(|error| format!("failed to read Hoshidicts manifest: {error}"))?;
-    let manifest: DictionaryManifest = serde_json::from_str(&contents)
-        .map_err(|error| format!("failed to parse Hoshidicts manifest: {error}"))?;
+    let manifest: DictionaryManifest =
+        read_bounded_json(&manifest_path, MAX_MANIFEST_BYTES, "Hoshidicts manifest")?;
     if manifest.version != 1 {
         return Err(format!(
             "unsupported Hoshidicts manifest version: {}",
@@ -1854,7 +1818,7 @@ unsafe fn copy_pitch_entries(
         .collect()
 }
 
-pub fn validate_lookup_text(text: &str) -> Result<(), String> {
+fn validate_lookup_text(text: &str) -> Result<(), String> {
     if text.is_empty() {
         return Err("lookup text must not be empty".into());
     }
@@ -1869,7 +1833,7 @@ pub fn validate_lookup_text(text: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn validate_media_dictionary(dictionary: &str) -> Result<(), MediaError> {
+fn validate_media_dictionary(dictionary: &str) -> Result<(), MediaError> {
     if dictionary.is_empty()
         || dictionary.len() > MAX_MEDIA_DICTIONARY_BYTES
         || dictionary.chars().any(char::is_control)
@@ -1879,7 +1843,7 @@ pub fn validate_media_dictionary(dictionary: &str) -> Result<(), MediaError> {
     Ok(())
 }
 
-pub fn validate_media_path(path: &str) -> Result<(), MediaError> {
+fn validate_media_path(path: &str) -> Result<(), MediaError> {
     if path.is_empty()
         || path.len() > MAX_MEDIA_PATH_BYTES
         || path.starts_with('/')
@@ -2428,14 +2392,14 @@ fn webp_dimensions(data: &[u8]) -> Result<(u32, u32), MediaError> {
     Err(MediaError::UnsupportedMediaType)
 }
 
-pub struct HoshidictsService {
+struct HoshidictsService {
     root: PathBuf,
     engine: Option<NativeEngine>,
     generation: u64,
 }
 
 impl HoshidictsService {
-    pub fn new(root: PathBuf) -> Self {
+    fn new(root: PathBuf) -> Self {
         Self {
             root,
             engine: None,
@@ -2443,7 +2407,7 @@ impl HoshidictsService {
         }
     }
 
-    pub fn activate(&mut self) -> Result<usize, String> {
+    fn activate(&mut self) -> Result<usize, String> {
         if self.engine.is_none() {
             self.engine = Some(NativeEngine::load(&self.root)?);
             self.advance_generation();
@@ -2451,12 +2415,12 @@ impl HoshidictsService {
         Ok(self.dictionary_count())
     }
 
-    pub fn deactivate(&mut self) {
+    fn deactivate(&mut self) {
         self.engine = None;
         self.advance_generation();
     }
 
-    pub fn reload(&mut self) -> Result<usize, String> {
+    fn reload(&mut self) -> Result<usize, String> {
         let replacement = NativeEngine::load(&self.root)?;
         let dictionary_count = replacement.dictionary_count;
         self.engine = Some(replacement);
@@ -2465,11 +2429,11 @@ impl HoshidictsService {
     }
 
     #[cfg(test)]
-    pub fn lookup(&mut self, text: &str) -> Result<Vec<LookupResult>, String> {
+    fn lookup(&mut self, text: &str) -> Result<Vec<LookupResult>, String> {
         self.lookup_with_options(text, &LookupOptions::default())
     }
 
-    pub fn lookup_with_options(
+    fn lookup_with_options(
         &mut self,
         text: &str,
         options: &LookupOptions,
@@ -2481,7 +2445,7 @@ impl HoshidictsService {
             .lookup(text, options)
     }
 
-    pub fn lookup_kanji(&mut self, character: &str) -> Result<LookupKanji, String> {
+    fn lookup_kanji(&mut self, character: &str) -> Result<LookupKanji, String> {
         self.activate()?;
         self.engine
             .as_ref()
@@ -2489,7 +2453,7 @@ impl HoshidictsService {
             .lookup_kanji(character)
     }
 
-    pub fn media(
+    fn media(
         &self,
         generation: u64,
         dictionary: &str,
@@ -2506,7 +2470,7 @@ impl HoshidictsService {
             .media(dictionary, path)
     }
 
-    pub fn styles(&self, generation: u64) -> Result<Vec<DictionaryStyle>, StylesError> {
+    fn styles(&self, generation: u64) -> Result<Vec<DictionaryStyle>, StylesError> {
         if generation != self.generation || self.engine.is_none() {
             return Err(StylesError::StaleGeneration);
         }
@@ -2517,7 +2481,7 @@ impl HoshidictsService {
             .map_err(StylesError::Internal)
     }
 
-    pub fn generation(&self) -> u64 {
+    fn generation(&self) -> u64 {
         self.generation
     }
 
@@ -2529,15 +2493,587 @@ impl HoshidictsService {
     }
 
     #[cfg(test)]
-    pub fn is_loaded(&self) -> bool {
+    fn is_loaded(&self) -> bool {
         self.engine.is_some()
     }
 
-    pub fn dictionary_count(&self) -> usize {
+    fn dictionary_count(&self) -> usize {
         self.engine
             .as_ref()
             .map(|engine| engine.dictionary_count)
             .unwrap_or(0)
+    }
+}
+
+// ============================== client bridge ===============================
+// Everything below owns the `hoshidicts_*` websocket protocol. The overlay
+// server reaches it through exactly two entry points: `handle_client_message`
+// for requests and `SharedHoshidicts::apply_feature_state` for feature leases.
+
+const LOOKUP_RESULT: &str = "hoshidicts_lookup_result";
+const MEDIA_RESULT: &str = "hoshidicts_media_result";
+const STYLES_RESULT: &str = "hoshidicts_styles_result";
+const RELOAD_RESULT: &str = "hoshidicts_reload_result";
+const FEATURE_DISABLED_MESSAGE: &str = "Hoshidicts is not enabled for this connection";
+const FEATURE_DISABLED_CODE: &str = "feature_disabled";
+
+/// The native service plus the gate that serializes native calls.
+#[derive(Clone)]
+pub struct SharedHoshidicts {
+    service: Arc<StdMutex<HoshidictsService>>,
+    operation_gate: Arc<Mutex<()>>,
+}
+
+impl SharedHoshidicts {
+    pub fn new(root: PathBuf) -> Self {
+        Self {
+            service: Arc::new(StdMutex::new(HoshidictsService::new(root))),
+            operation_gate: Arc::new(Mutex::new(())),
+        }
+    }
+
+    async fn run_blocking<T, F>(&self, operation: F) -> Result<T, String>
+    where
+        T: Send + 'static,
+        F: FnOnce(&mut HoshidictsService) -> T + Send + 'static,
+    {
+        // Wait for exclusive access without consuming a blocking-pool thread. Move
+        // the permit into the blocking task so cancellation cannot admit another
+        // native call before this one has actually finished.
+        let operation_permit = self.operation_gate.clone().lock_owned().await;
+        let service = self.service.clone();
+        task::spawn_blocking(move || {
+            let _operation_permit = operation_permit;
+            let mut service = service
+                .lock()
+                .map_err(|_| "Hoshidicts service lock is poisoned".to_string())?;
+            Ok(operation(&mut service))
+        })
+        .await
+        .map_err(|error| format!("Hoshidicts blocking task failed: {error}"))?
+    }
+
+    /// Load or unload the native engine when the feature lease changes.
+    pub async fn apply_feature_state(&self, enabled: bool, was_enabled: bool) {
+        if enabled == was_enabled {
+            return;
+        }
+        if enabled {
+            match self.run_blocking(HoshidictsService::activate).await {
+                Ok(Ok(dictionary_count)) => {
+                    info!("Hoshidicts activated with {dictionary_count} dictionaries")
+                }
+                Ok(Err(error)) | Err(error) => warn!("failed to activate Hoshidicts: {error}"),
+            }
+        } else if let Err(error) = self.run_blocking(|service| service.deactivate()).await {
+            warn!("failed to deactivate Hoshidicts: {error}");
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+enum LookupRequestMode {
+    #[default]
+    TermFirst,
+    Kanji,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct LookupRequestOptions {
+    #[serde(default)]
+    scan_length: Option<i64>,
+    #[serde(default)]
+    max_results: Option<i64>,
+    #[serde(default)]
+    primary_reading: Option<String>,
+    #[serde(default)]
+    sort_frequency_dictionary: Option<String>,
+    #[serde(default)]
+    sort_frequency_dictionary_order: Option<LookupFrequencySortOrder>,
+}
+
+impl LookupRequestOptions {
+    fn validate(self) -> Result<LookupOptions, String> {
+        LookupOptions::from_request(
+            self.scan_length,
+            self.max_results,
+            self.primary_reading,
+            self.sort_frequency_dictionary,
+            self.sort_frequency_dictionary_order,
+        )
+    }
+}
+
+/// The `hoshidicts_*` client messages. Anything else deserializes to `None` and
+/// is left to the caller.
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(tag = "type")]
+enum Request {
+    #[serde(rename = "hoshidicts_lookup", rename_all = "camelCase")]
+    Lookup {
+        request_id: RequestId,
+        #[serde(default)]
+        text: String,
+        #[serde(default)]
+        mode: LookupRequestMode,
+        #[serde(flatten)]
+        options: LookupRequestOptions,
+    },
+
+    #[serde(rename = "hoshidicts_media", rename_all = "camelCase")]
+    Media {
+        request_id: RequestId,
+        generation: u64,
+        dictionary: String,
+        path: String,
+    },
+
+    #[serde(rename = "hoshidicts_styles", rename_all = "camelCase")]
+    Styles {
+        request_id: RequestId,
+        generation: u64,
+    },
+
+    #[serde(rename = "hoshidicts_reload", rename_all = "camelCase")]
+    Reload { request_id: RequestId },
+}
+
+/// Handle one Hoshidicts request and return the reply to send back. Returns
+/// `None` for anything that is not a Hoshidicts message.
+pub async fn handle_client_message(
+    message: &str,
+    enabled: bool,
+    hoshidicts: &SharedHoshidicts,
+) -> Option<String> {
+    Some(match serde_json::from_str::<Request>(message).ok()? {
+        Request::Lookup {
+            request_id,
+            text,
+            mode,
+            options,
+        } => lookup_payload(request_id, text, mode, options, enabled, hoshidicts).await,
+        Request::Media {
+            request_id,
+            generation,
+            dictionary,
+            path,
+        } => {
+            media_payload(
+                request_id, generation, dictionary, path, enabled, hoshidicts,
+            )
+            .await
+        }
+        Request::Styles {
+            request_id,
+            generation,
+        } => styles_payload(request_id, generation, enabled, hoshidicts).await,
+        Request::Reload { request_id } => reload_payload(request_id, enabled, hoshidicts).await,
+    })
+}
+
+/// Serialize one reply: the envelope every kind shares, plus that kind's own
+/// fields. `error` of `None` means success.
+fn reply(
+    kind: &str,
+    request_id: Value,
+    generation: u64,
+    feature_disabled: bool,
+    error: Option<&str>,
+    fields: Value,
+) -> String {
+    let mut payload = serde_json::json!({
+        "type": kind,
+        "requestId": request_id,
+        "success": error.is_none(),
+        "generation": generation,
+        "featureDisabled": feature_disabled,
+        "error": error,
+    });
+    if let (Some(envelope), Value::Object(fields)) = (payload.as_object_mut(), fields) {
+        envelope.extend(fields);
+    }
+    payload.to_string()
+}
+
+/// `RequestId` is echoed back for correlation, or null when it was rejected.
+fn request_id_value(request_id: RequestId) -> Value {
+    serde_json::to_value(request_id).unwrap_or(Value::Null)
+}
+
+// --------------------------------- lookup -----------------------------------
+
+fn lookup_reply(
+    request_id: Value,
+    dictionary_count: usize,
+    generation: u64,
+    outcome: Result<(Vec<LookupResult>, Option<LookupKanji>), String>,
+    feature_disabled: bool,
+) -> String {
+    let (results, kanji, error) = match outcome {
+        Ok((results, kanji)) => (results, kanji, None),
+        Err(error) => (Vec::new(), None, Some(error)),
+    };
+    reply(
+        LOOKUP_RESULT,
+        request_id,
+        generation,
+        feature_disabled,
+        error.as_deref(),
+        serde_json::json!({
+            "results": results,
+            "kanji": kanji,
+            "dictionaryCount": dictionary_count,
+        }),
+    )
+}
+
+/// A lookup must stay one complete JSON response, so an oversized one is
+/// replaced rather than truncated.
+fn enforce_lookup_response_limit(
+    request_id: Value,
+    dictionary_count: usize,
+    generation: u64,
+    serialized: String,
+) -> String {
+    if serialized.len() <= MAX_LOOKUP_RESPONSE_BYTES {
+        return serialized;
+    }
+    lookup_reply(
+        request_id,
+        dictionary_count,
+        generation,
+        Err(format!(
+            "lookup response exceeds the {MAX_LOOKUP_RESPONSE_BYTES}-byte limit"
+        )),
+        false,
+    )
+}
+
+fn is_han_character(character: char) -> bool {
+    matches!(
+        character as u32,
+        0x3400..=0x4dbf
+            | 0x4e00..=0x9fff
+            | 0xf900..=0xfaff
+            | 0x20000..=0x2fa1f
+    )
+}
+
+fn first_han_character(text: &str) -> Option<String> {
+    text.chars()
+        .next()
+        .filter(|character| is_han_character(*character))
+        .map(|character| character.to_string())
+}
+
+/// Kanji entries for the first Han character of the query, dropped when the
+/// dictionaries hold none.
+fn kanji_fallback(
+    service: &mut HoshidictsService,
+    text: &str,
+) -> Result<Option<LookupKanji>, String> {
+    let Some(character) = first_han_character(text) else {
+        return Ok(None);
+    };
+    let result = service.lookup_kanji(&character)?;
+    Ok((!result.entries.is_empty()).then_some(result))
+}
+
+async fn lookup_payload(
+    request_id: RequestId,
+    text: String,
+    mode: LookupRequestMode,
+    request_options: LookupRequestOptions,
+    enabled: bool,
+    hoshidicts: &SharedHoshidicts,
+) -> String {
+    if let Err(error) = request_id.validate() {
+        return lookup_reply(Value::Null, 0, 0, Err(error), false);
+    }
+    let request_id = request_id_value(request_id);
+    if !enabled {
+        return lookup_reply(request_id, 0, 0, Err(FEATURE_DISABLED_MESSAGE.into()), true);
+    }
+    let lookup_options = if mode == LookupRequestMode::TermFirst {
+        match request_options.validate() {
+            Ok(options) => options,
+            Err(error) => return lookup_reply(request_id, 0, 0, Err(error), false),
+        }
+    } else {
+        LookupOptions::default()
+    };
+
+    let (outcome, dictionary_count, generation) = match hoshidicts
+        .run_blocking(move |service| {
+            let outcome = (|| -> Result<(Vec<LookupResult>, Option<LookupKanji>), String> {
+                let terms = match mode {
+                    LookupRequestMode::TermFirst => {
+                        service.lookup_with_options(&text, &lookup_options)?
+                    }
+                    LookupRequestMode::Kanji => Vec::new(),
+                };
+                // Kanji entries are a fallback for a query no term matched, and
+                // are the only result kanji mode asks for.
+                let kanji = if terms.is_empty() {
+                    kanji_fallback(service, &text)?
+                } else {
+                    None
+                };
+                Ok((terms, kanji))
+            })();
+            (outcome, service.dictionary_count(), service.generation())
+        })
+        .await
+    {
+        Ok(outcome) => outcome,
+        Err(error) => (Err(error), 0, 0),
+    };
+    let payload = lookup_reply(
+        request_id.clone(),
+        dictionary_count,
+        generation,
+        outcome,
+        false,
+    );
+    enforce_lookup_response_limit(request_id, dictionary_count, generation, payload)
+}
+
+// --------------------------------- styles -----------------------------------
+
+fn styles_reply(
+    request_id: Value,
+    generation: u64,
+    outcome: Result<Vec<DictionaryStyle>, &str>,
+    feature_disabled: bool,
+) -> String {
+    let (styles, error) = match outcome {
+        Ok(styles) => (styles, None),
+        Err(code) => (Vec::new(), Some(code)),
+    };
+    reply(
+        STYLES_RESULT,
+        request_id,
+        generation,
+        feature_disabled,
+        error,
+        serde_json::json!({
+            "styles": styles,
+            "staleGeneration": error == Some(StylesError::StaleGeneration.code()),
+        }),
+    )
+}
+
+/// Stylesheets are dictionary-supplied text whose JSON escaping can multiply its
+/// size, so an oversized styles response is replaced with an empty one.
+fn styles_success_reply(
+    request_id: Value,
+    generation: u64,
+    styles: Vec<DictionaryStyle>,
+) -> String {
+    let payload = styles_reply(request_id.clone(), generation, Ok(styles), false);
+    if payload.len() <= MAX_STYLES_RESPONSE_BYTES {
+        payload
+    } else {
+        styles_reply(request_id, generation, Err("response_too_large"), false)
+    }
+}
+
+async fn styles_payload(
+    request_id: RequestId,
+    generation: u64,
+    enabled: bool,
+    hoshidicts: &SharedHoshidicts,
+) -> String {
+    if request_id.validate().is_err() {
+        return styles_reply(Value::Null, generation, Err("invalid_request_id"), false);
+    }
+    let request_id = request_id_value(request_id);
+    if !enabled {
+        return styles_reply(request_id, generation, Err(FEATURE_DISABLED_CODE), true);
+    }
+
+    let code = match hoshidicts
+        .run_blocking(move |service| service.styles(generation))
+        .await
+    {
+        Ok(Ok(styles)) => return styles_success_reply(request_id, generation, styles),
+        Ok(Err(error)) => {
+            if let StylesError::Internal(message) = &error {
+                warn!("failed to copy Hoshidicts dictionary styles: {message}");
+            }
+            error.code()
+        }
+        Err(error) => {
+            warn!("failed to read Hoshidicts dictionary styles: {error}");
+            "internal_error"
+        }
+    };
+    styles_reply(request_id, generation, Err(code), false)
+}
+
+// ---------------------------------- media -----------------------------------
+
+/// Never reflect an oversized untrusted field back into a response envelope.
+fn echo_within(value: &str, maximum_bytes: usize) -> &str {
+    if value.len() <= maximum_bytes {
+        value
+    } else {
+        ""
+    }
+}
+
+/// The request fields every media reply echoes back for correlation.
+#[derive(Clone)]
+struct MediaEnvelope {
+    request_id: Value,
+    generation: u64,
+    dictionary: String,
+    path: String,
+}
+
+impl MediaEnvelope {
+    fn reply(
+        &self,
+        media: Option<MediaFile>,
+        error: Option<&str>,
+        feature_disabled: bool,
+    ) -> String {
+        let (media_type, data_base64, byte_length, width, height) = match media {
+            Some(media) => (
+                Some(media.media_type),
+                Some(BASE64_STANDARD.encode(&media.data)),
+                media.data.len(),
+                Some(media.width),
+                Some(media.height),
+            ),
+            None => (None, None, 0, None, None),
+        };
+        reply(
+            MEDIA_RESULT,
+            self.request_id.clone(),
+            self.generation,
+            feature_disabled,
+            error,
+            serde_json::json!({
+                "dictionary": echo_within(&self.dictionary, MAX_MEDIA_DICTIONARY_BYTES),
+                "path": echo_within(&self.path, MAX_MEDIA_PATH_BYTES),
+                "mediaType": media_type,
+                "byteLength": byte_length,
+                "dataBase64": data_base64,
+                "width": width,
+                "height": height,
+                "staleGeneration": error == Some(MediaError::StaleGeneration.code()),
+            }),
+        )
+    }
+
+    fn failure(&self, error: &str, feature_disabled: bool) -> String {
+        self.reply(None, Some(error), feature_disabled)
+    }
+
+    /// Base64 expands the payload, so a media response that grew past the limit
+    /// is replaced with a `media_too_large` failure.
+    fn success(&self, media: MediaFile) -> String {
+        let payload = self.reply(Some(media), None, false);
+        if payload.len() <= MAX_MEDIA_RESPONSE_BYTES {
+            payload
+        } else {
+            self.failure(MediaError::MediaTooLarge.code(), false)
+        }
+    }
+}
+
+async fn media_payload(
+    request_id: RequestId,
+    generation: u64,
+    dictionary: String,
+    path: String,
+    enabled: bool,
+    hoshidicts: &SharedHoshidicts,
+) -> String {
+    let mut envelope = MediaEnvelope {
+        request_id: Value::Null,
+        generation,
+        dictionary,
+        path,
+    };
+    if request_id.validate().is_err() {
+        return envelope.failure(MediaError::InvalidRequestId.code(), false);
+    }
+    envelope.request_id = request_id_value(request_id);
+    if !enabled {
+        return envelope.failure(FEATURE_DISABLED_CODE, true);
+    }
+
+    let operation = envelope.clone();
+    match hoshidicts
+        .run_blocking(move |service| {
+            match service.media(operation.generation, &operation.dictionary, &operation.path) {
+                Ok(media) => operation.success(media),
+                Err(error) => operation.failure(error.code(), false),
+            }
+        })
+        .await
+    {
+        Ok(payload) => payload,
+        Err(_) => envelope.failure(MediaError::InternalError.code(), false),
+    }
+}
+
+// --------------------------------- reload -----------------------------------
+
+fn reload_reply(
+    request_id: Value,
+    dictionary_count: usize,
+    generation: u64,
+    error: Option<&str>,
+    feature_disabled: bool,
+) -> String {
+    reply(
+        RELOAD_RESULT,
+        request_id,
+        generation,
+        feature_disabled,
+        error,
+        serde_json::json!({ "dictionaryCount": dictionary_count }),
+    )
+}
+
+async fn reload_payload(
+    request_id: RequestId,
+    enabled: bool,
+    hoshidicts: &SharedHoshidicts,
+) -> String {
+    if let Err(error) = request_id.validate() {
+        return reload_reply(Value::Null, 0, 0, Some(&error), false);
+    }
+    let request_id = request_id_value(request_id);
+    if !enabled {
+        return reload_reply(request_id, 0, 0, Some(FEATURE_DISABLED_MESSAGE), true);
+    }
+
+    let (result, active_dictionary_count, generation) = match hoshidicts
+        .run_blocking(|service| {
+            let result = service.reload();
+            let active_dictionary_count = service.dictionary_count();
+            (result, active_dictionary_count, service.generation())
+        })
+        .await
+    {
+        Ok(outcome) => outcome,
+        Err(error) => (Err(error), 0, 0),
+    };
+    match result {
+        Ok(dictionary_count) => reload_reply(request_id, dictionary_count, generation, None, false),
+        Err(error) => reload_reply(
+            request_id,
+            active_dictionary_count,
+            generation,
+            Some(&error),
+            false,
+        ),
     }
 }
 
@@ -2546,12 +3082,28 @@ mod tests {
     use super::*;
     use std::io::Write;
     use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use zip::write::SimpleFileOptions;
 
     static NEXT_TEST_DIR: AtomicU64 = AtomicU64::new(1);
     const TEST_PNG: &[u8] =
         b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x02\0\0\0\x03\x08\x06\0\0\0\0\0\0\0";
+
+    /// Borrow test bytes as the native string view the C API hands back.
+    fn hd_str(bytes: &[u8]) -> HdStr {
+        HdStr {
+            ptr: bytes.as_ptr().cast::<c_char>(),
+            len: bytes.len(),
+        }
+    }
+
+    /// The null view the C API hands back for an absent string.
+    fn hd_null_str() -> HdStr {
+        HdStr {
+            ptr: ptr::null(),
+            len: 0,
+        }
+    }
 
     fn test_avif(width: u32, height: u32) -> Vec<u8> {
         let mut data = Vec::new();
@@ -2631,10 +3183,18 @@ mod tests {
         dictionary
     }
 
-    fn write_manifest(root: &Path, path: &str) {
+    /// A manifest enabling `paths`, in order, with generated ids.
+    fn write_manifest(root: &Path, paths: &[&str]) {
+        let dictionaries = paths
+            .iter()
+            .enumerate()
+            .map(|(index, path)| {
+                serde_json::json!({ "id": format!("dictionary-{index}"), "path": path })
+            })
+            .collect::<Vec<_>>();
         fs::write(
             root.join(MANIFEST_FILE_NAME),
-            format!(r#"{{"version":1,"dictionaries":[{{"id":"test","path":"{path}"}}]}}"#),
+            serde_json::json!({ "version": 1, "dictionaries": dictionaries }).to_string(),
         )
         .expect("write manifest");
     }
@@ -2682,7 +3242,7 @@ mod tests {
 
     fn media_dictionary(root: &Path, entries: &[(&str, &[u8])]) -> PathBuf {
         let dictionary = write_dictionary(root, "Test", 1, 0);
-        write_manifest(root, "Test");
+        write_manifest(root, &["Test"]);
         set_dictionary_media_count(
             &dictionary,
             u64::try_from(entries.len()).expect("media count"),
@@ -2691,9 +3251,9 @@ mod tests {
         dictionary
     }
 
-    fn write_zip_archive(path: &Path, entries: &[(&str, &str)]) {
-        let file = fs::File::create(path).expect("create archive");
-        let mut archive = zip::ZipWriter::new(file);
+    /// Write one uncompressed Yomitan dictionary archive from literal members.
+    fn write_zip_archive<C: AsRef<[u8]>>(path: &Path, entries: &[(&str, C)]) {
+        let mut archive = zip::ZipWriter::new(fs::File::create(path).expect("create archive"));
         let options =
             SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
         for (name, contents) in entries {
@@ -2701,35 +3261,42 @@ mod tests {
                 .start_file(*name, options)
                 .expect("start archive file");
             archive
-                .write_all(contents.as_bytes())
+                .write_all(contents.as_ref())
                 .expect("write archive file");
         }
         archive.finish().expect("finish archive");
     }
 
+    fn archive_index(title: &str) -> Vec<u8> {
+        serde_json::json!({
+            "title": title,
+            "revision": "1",
+            "format": 3,
+            "sequenced": false,
+            "sourceLanguage": "ja",
+        })
+        .to_string()
+        .into_bytes()
+    }
+
     fn write_modern_media_archive(path: &Path, avif: &[u8], svg: &[u8]) {
-        let file = fs::File::create(path).expect("create archive");
-        let mut archive = zip::ZipWriter::new(file);
-        let options =
-            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
-        for (name, contents) in [
-            (
-                "index.json",
-                br#"{"title":"Modern Media","revision":"1","format":3,"sourceLanguage":"ja"}"#
-                    .as_slice(),
-            ),
-            (
-                "term_bank_1.json",
-                r#"[["画像","がぞう","","",0,[{"type":"structured-content","content":[{"tag":"img","path":"graphics/test.avif"},{"tag":"img","path":"glyphs/test.svg"}]}],1,""]]"#
-                    .as_bytes(),
-            ),
-            ("graphics/test.avif", avif),
-            ("glyphs/test.svg", svg),
-        ] {
-            archive.start_file(name, options).expect("start archive file");
-            archive.write_all(contents).expect("write archive file");
-        }
-        archive.finish().expect("finish archive");
+        write_zip_archive(
+            path,
+            &[
+                (
+                    "index.json",
+                    br#"{"title":"Modern Media","revision":"1","format":3,"sourceLanguage":"ja"}"#
+                        .as_slice(),
+                ),
+                (
+                    "term_bank_1.json",
+                    r#"[["画像","がぞう","","",0,[{"type":"structured-content","content":[{"tag":"img","path":"graphics/test.avif"},{"tag":"img","path":"glyphs/test.svg"}]}],1,""]]"#
+                        .as_bytes(),
+                ),
+                ("graphics/test.avif", avif),
+                ("glyphs/test.svg", svg),
+            ],
+        );
     }
 
     fn write_test_archive(path: &Path, include_terms: bool) {
@@ -2746,49 +3313,6 @@ mod tests {
         include_terms: bool,
         kanji_entry_count: usize,
     ) {
-        let file = fs::File::create(path).expect("create archive");
-        let mut archive = zip::ZipWriter::new(file);
-        let options =
-            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
-        archive
-            .start_file("index.json", options)
-            .expect("start index");
-        let index = serde_json::json!({
-            "title": title,
-            "revision": "1",
-            "format": 3,
-            "sequenced": false,
-            "sourceLanguage": "ja",
-        })
-        .to_string();
-        archive.write_all(index.as_bytes()).expect("write index");
-        if include_terms {
-            archive
-                .start_file("term_bank_1.json", options)
-                .expect("start term bank");
-            archive
-                .write_all(
-                    r#"[["食べる","たべる","","v1",0,[{"type":"structured-content","content":[{"tag":"span","content":"to eat"},{"tag":"img","path":"img/test.png","width":2,"height":3,"sizeUnits":"px"}]}],1,""]]"#
-                        .as_bytes(),
-                )
-                .expect("write term bank");
-            archive
-                .start_file("term_meta_bank_1.json", options)
-                .expect("start term metadata bank");
-            archive
-                .write_all(
-                    r#"[["食べる","freq",{"reading":"たべる","frequency":{"value":123.5,"displayValue":"123.5 ★"}}],["食べる","pitch",{"reading":"たべる","pitches":[{"position":2,"nasal":[1],"devoice":[2]}]}]]"#
-                        .as_bytes(),
-                )
-                .expect("write term metadata bank");
-            archive
-                .start_file("img/test.png", options)
-                .expect("start media");
-            archive.write_all(TEST_PNG).expect("write media");
-        }
-        archive
-            .start_file("kanji_bank_1.json", options)
-            .expect("start kanji bank");
         let kanji_entry = serde_json::json!([
             "食",
             "ショク ジキ",
@@ -2797,14 +3321,27 @@ mod tests {
             ["eat", "food"],
             { "strokes": "9", "grade": "2" }
         ]);
-        archive
-            .write_all(
-                serde_json::to_string(&vec![kanji_entry; kanji_entry_count])
-                    .expect("serialize kanji bank")
-                    .as_bytes(),
-            )
-            .expect("write kanji bank");
-        archive.finish().expect("finish archive");
+        let mut entries: Vec<(&str, Vec<u8>)> = vec![("index.json", archive_index(title))];
+        if include_terms {
+            entries.extend([
+                (
+                    "term_bank_1.json",
+                    r#"[["食べる","たべる","","v1",0,[{"type":"structured-content","content":[{"tag":"span","content":"to eat"},{"tag":"img","path":"img/test.png","width":2,"height":3,"sizeUnits":"px"}]}],1,""]]"#
+                        .into(),
+                ),
+                (
+                    "term_meta_bank_1.json",
+                    r#"[["食べる","freq",{"reading":"たべる","frequency":{"value":123.5,"displayValue":"123.5 ★"}}],["食べる","pitch",{"reading":"たべる","pitches":[{"position":2,"nasal":[1],"devoice":[2]}]}]]"#
+                        .into(),
+                ),
+                ("img/test.png", TEST_PNG.to_vec()),
+            ]);
+        }
+        entries.push((
+            "kanji_bank_1.json",
+            serde_json::to_vec(&vec![kanji_entry; kanji_entry_count]).expect("kanji bank"),
+        ));
+        write_zip_archive(path, &entries);
     }
 
     fn write_frequency_only_archive(path: &Path) {
@@ -2933,46 +3470,40 @@ mod tests {
     }
 
     fn write_large_glossary_archive(path: &Path, title: &str, marker: &str) {
-        let file = fs::File::create(path).expect("create large glossary archive");
-        let mut archive = zip::ZipWriter::new(file);
-        let options =
-            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
-        archive
-            .start_file("index.json", options)
-            .expect("start large glossary index");
-        archive
-            .write_all(
-                serde_json::json!({
-                    "title": title,
-                    "revision": "1",
-                    "format": 3,
-                    "sourceLanguage": "ja",
-                })
-                .to_string()
-                .as_bytes(),
-            )
-            .expect("write large glossary index");
-        archive
-            .start_file("term_bank_1.json", options)
-            .expect("start large glossary term bank");
         let glossary = format!("{marker}:{}", "x".repeat(140 * 1024));
-        archive
-            .write_all(
-                serde_json::to_vec(&vec![serde_json::json!([
-                    "膨大",
-                    "ぼうだい",
-                    "",
-                    "",
-                    0,
-                    [glossary],
-                    1,
-                    ""
-                ])])
-                .expect("serialize large glossary term bank")
-                .as_slice(),
-            )
-            .expect("write large glossary term bank");
-        archive.finish().expect("finish large glossary archive");
+        let term_bank = serde_json::to_vec(&vec![serde_json::json!([
+            "膨大",
+            "ぼうだい",
+            "",
+            "",
+            0,
+            [glossary],
+            1,
+            ""
+        ])])
+        .expect("serialize large glossary term bank");
+        write_zip_archive(
+            path,
+            &[
+                ("index.json", archive_index(title)),
+                ("term_bank_1.json", term_bank),
+            ],
+        );
+    }
+
+    /// Import one archive written by `write`, enable it under `title`, and return
+    /// the import report next to a service that can query it.
+    fn imported_service(
+        root: &Path,
+        title: &str,
+        write: impl FnOnce(&Path),
+    ) -> (HoshidictsService, ImportReport) {
+        let archive_path = root.join(format!("{title}.zip"));
+        write(&archive_path);
+        let report = import_dictionary(&archive_path, root);
+        assert!(report.success, "dictionary import failed: {}", report.error);
+        write_manifest(root, &[title]);
+        (HoshidictsService::new(root.to_path_buf()), report)
     }
 
     #[test]
@@ -3093,17 +3624,10 @@ mod tests {
                 .contains("too many dictionary styles"));
         }
 
-        let dictionary = b"Test";
         let oversized_css = vec![b'x'; MAX_DICTIONARY_STYLE_BYTES + 1];
         let oversized = [HdDictionaryStyle {
-            dict_name: HdStr {
-                ptr: dictionary.as_ptr().cast::<c_char>(),
-                len: dictionary.len(),
-            },
-            styles: HdStr {
-                ptr: oversized_css.as_ptr().cast::<c_char>(),
-                len: oversized_css.len(),
-            },
+            dict_name: hd_str(b"Test"),
+            styles: hd_str(&oversized_css),
         }];
         unsafe {
             assert!(copy_dictionary_styles(oversized.as_ptr(), oversized.len())
@@ -3113,14 +3637,8 @@ mod tests {
 
         let css = vec![b'x'; MAX_DICTIONARY_STYLE_BYTES];
         let repeated = HdDictionaryStyle {
-            dict_name: HdStr {
-                ptr: dictionary.as_ptr().cast::<c_char>(),
-                len: dictionary.len(),
-            },
-            styles: HdStr {
-                ptr: css.as_ptr().cast::<c_char>(),
-                len: css.len(),
-            },
+            dict_name: hd_str(b"Test"),
+            styles: hd_str(&css),
         };
         let aggregate = vec![repeated; MAX_DICTIONARY_STYLES_BYTES / css.len() + 1];
         unsafe {
@@ -3132,30 +3650,20 @@ mod tests {
 
     #[test]
     fn frequency_v2_preserves_fractional_values_and_nullable_display_values() {
-        let dictionary = b"Frequency Test";
         let values = [
             HdFrequencyV2 {
                 value: 12.5,
-                display_value: HdStr {
-                    ptr: ptr::null(),
-                    len: 0,
-                },
+                display_value: hd_null_str(),
                 display_value_is_null: 1,
             },
             HdFrequencyV2 {
                 value: 7.25,
-                display_value: HdStr {
-                    ptr: ptr::null(),
-                    len: 0,
-                },
+                display_value: hd_null_str(),
                 display_value_is_null: 0,
             },
         ];
         let entries = [HdFrequencyEntryV2 {
-            dict_name: HdStr {
-                ptr: dictionary.as_ptr().cast(),
-                len: dictionary.len(),
-            },
+            dict_name: hd_str(b"Frequency Test"),
             frequencies: values.as_ptr(),
             frequencies_count: values.len(),
         }];
@@ -3194,17 +3702,11 @@ mod tests {
     fn frequency_v2_rejects_non_finite_values() {
         let values = [HdFrequencyV2 {
             value: f64::NAN,
-            display_value: HdStr {
-                ptr: ptr::null(),
-                len: 0,
-            },
+            display_value: hd_null_str(),
             display_value_is_null: 1,
         }];
         let entries = [HdFrequencyEntryV2 {
-            dict_name: HdStr {
-                ptr: ptr::null(),
-                len: 0,
-            },
+            dict_name: hd_null_str(),
             frequencies: values.as_ptr(),
             frequencies_count: values.len(),
         }];
@@ -3260,21 +3762,27 @@ mod tests {
             assert_eq!(validate_media_path(path), Err(MediaError::InvalidPath));
         }
 
-        assert_eq!(raster_metadata(TEST_PNG), Ok(("image/png", 2, 3)));
-        assert_eq!(
-            raster_metadata(b"GIF89a\x02\0\x03\0"),
-            Ok(("image/gif", 2, 3))
-        );
-        assert_eq!(
-            raster_metadata(&[
-                0xff, 0xd8, 0xff, 0xc0, 0, 11, 8, 0, 3, 0, 2, 1, 1, 0x11, 0, 0xff, 0xd9,
-            ]),
-            Ok(("image/jpeg", 2, 3))
-        );
-        assert_eq!(
-            raster_metadata(b"RIFF\x16\0\0\0WEBPVP8X\x0a\0\0\0\0\0\0\0\x01\0\0\x02\0\0"),
-            Ok(("image/webp", 2, 3))
-        );
+        // Every supported raster format reports 2x3 from its header alone.
+        for (media_type, data) in [
+            ("image/png", TEST_PNG),
+            ("image/gif", b"GIF89a\x02\0\x03\0".as_slice()),
+            (
+                "image/jpeg",
+                &[
+                    0xff, 0xd8, 0xff, 0xc0, 0, 11, 8, 0, 3, 0, 2, 1, 1, 0x11, 0, 0xff, 0xd9,
+                ],
+            ),
+            (
+                "image/webp",
+                b"RIFF\x16\0\0\0WEBPVP8X\x0a\0\0\0\0\0\0\0\x01\0\0\x02\0\0",
+            ),
+        ] {
+            assert_eq!(
+                raster_metadata(data),
+                Ok((media_type, 2, 3)),
+                "{media_type}"
+            );
+        }
         assert_eq!(
             validate_media_dimensions(MAX_MEDIA_DIMENSION + 1, 1),
             Err(MediaError::InvalidDimensions)
@@ -3303,26 +3811,21 @@ mod tests {
     fn avif_and_svg_media_metadata_reject_malformed_or_active_content() {
         let mut truncated_avif = test_avif(2, 3);
         truncated_avif.truncate(truncated_avif.len() - 1);
-        assert_eq!(
-            raster_metadata(&truncated_avif),
-            Err(MediaError::UnsupportedMediaType)
-        );
-        assert_eq!(
-            raster_metadata(br#"<svg width="2"></svg>"#),
-            Err(MediaError::UnsupportedMediaType)
-        );
-        assert_eq!(
-            raster_metadata(br#"<svg width="2" height="3"><script>alert(1)</script></svg>"#),
-            Err(MediaError::UnsupportedMediaType)
-        );
-        assert_eq!(
-            raster_metadata(br#"<svg width="2" height="3" onload="alert(1)"></svg>"#),
-            Err(MediaError::UnsupportedMediaType)
-        );
-        assert_eq!(
-            raster_metadata(br#"<svg width="2" height="3"></svgx>"#),
-            Err(MediaError::UnsupportedMediaType)
-        );
+        for data in [
+            truncated_avif.as_slice(),
+            // Missing a dimension, then scripted or malformed markup.
+            br#"<svg width="2"></svg>"#,
+            br#"<svg width="2" height="3"><script>alert(1)</script></svg>"#,
+            br#"<svg width="2" height="3" onload="alert(1)"></svg>"#,
+            br#"<svg width="2" height="3"></svgx>"#,
+        ] {
+            assert_eq!(
+                raster_metadata(data),
+                Err(MediaError::UnsupportedMediaType),
+                "{}",
+                String::from_utf8_lossy(data)
+            );
+        }
         let oversized = raster_metadata(br#"<svg viewBox="0 0 4097 1"></svg>"#)
             .expect("metadata remains independently parseable");
         assert_eq!(
@@ -3345,11 +3848,7 @@ mod tests {
         let report = import_dictionary(&archive_path, &root.0);
         assert!(report.success, "dictionary import failed: {}", report.error);
         assert_eq!(report.media_count, 2);
-        fs::write(
-            root.0.join(MANIFEST_FILE_NAME),
-            r#"{"version":1,"dictionaries":[{"id":"modern","path":"Modern Media"}]}"#,
-        )
-        .expect("write manifest");
+        write_manifest(&root.0, &["Modern Media"]);
 
         let mut service = HoshidictsService::new(root.0.clone());
         assert_eq!(service.activate().expect("activate dictionary"), 1);
@@ -3372,7 +3871,7 @@ mod tests {
     fn manifest_validation_requires_marker_index_content_and_native_files() {
         let root = TestDir::new("validation");
         let dictionary = write_dictionary(&root.0, "generations/test/1/Test", 1, 0);
-        write_manifest(&root.0, "generations/test/1/Test");
+        write_manifest(&root.0, &["generations/test/1/Test"]);
         assert_eq!(
             load_dictionary_specs(&root.0)
                 .expect("valid manifest")
@@ -3396,26 +3895,52 @@ mod tests {
     }
 
     #[test]
-    fn dictionary_index_classifies_term_only_content() {
-        let root = TestDir::new("term-only");
-        let dictionary = write_dictionary_with_counts(&root.0, "dictionary", 1, &[], 0);
-
-        let spec = validate_dictionary_directory(&dictionary).expect("term-only dictionary");
-        assert!(spec.has_terms);
-        assert!(!spec.has_frequency);
-        assert!(!spec.has_pitch);
-        assert!(!spec.has_kanji);
-        assert_eq!(
-            spec.query_kinds().collect::<Vec<_>>(),
-            [DictionaryKind::Term]
-        );
+    fn dictionary_index_classifies_content_by_declared_counts() {
+        let root = TestDir::new("classification");
+        // (label, terms, term metadata counts, kanji, queryable roles). The roles
+        // are exactly the `has_*` flags that were set, in declaration order.
+        for (label, terms, term_meta, kanji, roles) in [
+            ("term", 1, &[][..], 0, &[DictionaryKind::Term][..]),
+            (
+                "frequency",
+                0,
+                &[("freq", 1)][..],
+                0,
+                &[DictionaryKind::Frequency][..],
+            ),
+            (
+                "pitch",
+                0,
+                &[("pitch", 1)][..],
+                0,
+                &[DictionaryKind::Pitch][..],
+            ),
+            ("ipa", 0, &[("ipa", 1)][..], 0, &[DictionaryKind::Pitch][..]),
+            ("kanji", 0, &[][..], 1, &[DictionaryKind::Kanji][..]),
+            (
+                "everything",
+                1,
+                &[("freq", 1), ("pitch", 1)][..],
+                1,
+                &[
+                    DictionaryKind::Term,
+                    DictionaryKind::Frequency,
+                    DictionaryKind::Pitch,
+                    DictionaryKind::Kanji,
+                ][..],
+            ),
+        ] {
+            let dictionary = write_dictionary_with_counts(&root.0, label, terms, term_meta, kanji);
+            let spec = validate_dictionary_directory(&dictionary).expect(label);
+            assert_eq!(spec.query_kinds().collect::<Vec<_>>(), roles, "{label}");
+        }
     }
 
     #[test]
     fn dictionary_with_media_requires_a_valid_native_media_layout() {
         let root = TestDir::new("media-validation");
         let dictionary = write_dictionary(&root.0, "Test", 1, 0);
-        write_manifest(&root.0, "Test");
+        write_manifest(&root.0, &["Test"]);
         set_dictionary_media_count(&dictionary, 2);
         let error = load_dictionary_specs(&root.0).expect_err("missing media files must fail");
         assert!(error.contains("media.idx"));
@@ -3426,22 +3951,6 @@ mod tests {
                 .expect("media layout is valid")
                 .len(),
             1
-        );
-    }
-
-    #[test]
-    fn dictionary_index_classifies_frequency_only_content() {
-        let root = TestDir::new("frequency-only");
-        let dictionary = write_dictionary_with_counts(&root.0, "dictionary", 0, &[("freq", 1)], 0);
-
-        let spec = validate_dictionary_directory(&dictionary).expect("frequency-only dictionary");
-        assert!(!spec.has_terms);
-        assert!(spec.has_frequency);
-        assert!(!spec.has_pitch);
-        assert!(!spec.has_kanji);
-        assert_eq!(
-            spec.query_kinds().collect::<Vec<_>>(),
-            [DictionaryKind::Frequency]
         );
     }
 
@@ -3510,33 +4019,33 @@ mod tests {
         let dictionary = media_dictionary(&root.0, &[("a", &[1])]);
         let media_path = dictionary.join("media.bin");
 
-        fs::write(&media_path, [1, 0, b'a', 1, 0]).expect("write truncated blob header");
-        assert!(load_dictionary_specs(&root.0)
-            .expect_err("truncated blob header must fail")
-            .contains("truncated path or blob length header"));
-
-        fs::write(&media_path, [1, 0, 0xff, 1, 0, 0, 0, 1]).expect("write invalid UTF-8 path");
-        assert!(load_dictionary_specs(&root.0)
-            .expect_err("invalid UTF-8 path must fail")
-            .contains("non-UTF-8 path"));
-
         let mut oversized_blob = vec![1, 0, b'a'];
         oversized_blob.extend_from_slice(
             &u32::try_from(MAX_MEDIA_BYTES + 1)
                 .expect("oversized blob length")
                 .to_le_bytes(),
         );
-        fs::write(&media_path, oversized_blob).expect("write oversized blob header");
-        assert!(load_dictionary_specs(&root.0)
-            .expect_err("oversized blob must fail")
-            .contains("invalid blob length"));
+        // (corrupted media.bin, expected rejection)
+        for (record, expected) in [
+            (
+                vec![1, 0, b'a', 1, 0],
+                "truncated path or blob length header",
+            ),
+            (vec![1, 0, 0xff, 1, 0, 0, 0, 1], "non-UTF-8 path"),
+            (oversized_blob, "invalid blob length"),
+        ] {
+            fs::write(&media_path, record).expect("write corrupted media record");
+            assert!(load_dictionary_specs(&root.0)
+                .expect_err(expected)
+                .contains(expected));
+        }
     }
 
     #[test]
     fn undeclared_native_media_files_are_rejected_before_loading() {
         let root = TestDir::new("undeclared-media");
         let dictionary = write_dictionary(&root.0, "Test", 1, 0);
-        write_manifest(&root.0, "Test");
+        write_manifest(&root.0, &["Test"]);
         fs::write(dictionary.join("media.idx"), 0u32.to_le_bytes())
             .expect("write unexpected media index");
         fs::write(dictionary.join("media.bin"), []).expect("write unexpected media data");
@@ -3560,43 +4069,6 @@ mod tests {
     }
 
     #[test]
-    fn dictionary_index_classifies_pitch_only_content() {
-        let root = TestDir::new("pitch-only");
-        let dictionary = write_dictionary_with_counts(&root.0, "dictionary", 0, &[("pitch", 1)], 0);
-
-        let spec = validate_dictionary_directory(&dictionary).expect("pitch-only dictionary");
-        assert!(!spec.has_terms);
-        assert!(!spec.has_frequency);
-        assert!(spec.has_pitch);
-        assert!(!spec.has_kanji);
-        assert_eq!(
-            spec.query_kinds().collect::<Vec<_>>(),
-            [DictionaryKind::Pitch]
-        );
-
-        let ipa_dictionary =
-            write_dictionary_with_counts(&root.0, "ipa-dictionary", 0, &[("ipa", 1)], 0);
-        let ipa_spec = validate_dictionary_directory(&ipa_dictionary).expect("IPA-only dictionary");
-        assert!(ipa_spec.has_pitch);
-    }
-
-    #[test]
-    fn dictionary_index_classifies_kanji_only_content() {
-        let root = TestDir::new("kanji-only-index");
-        let dictionary = write_dictionary_with_counts(&root.0, "dictionary", 0, &[], 1);
-
-        let spec = validate_dictionary_directory(&dictionary).expect("kanji-only dictionary");
-        assert!(!spec.has_terms);
-        assert!(!spec.has_frequency);
-        assert!(!spec.has_pitch);
-        assert!(spec.has_kanji);
-        assert_eq!(
-            spec.query_kinds().collect::<Vec<_>>(),
-            [DictionaryKind::Kanji]
-        );
-    }
-
-    #[test]
     fn dictionary_index_rejects_empty_or_unsupported_content() {
         let root = TestDir::new("empty");
         let empty_dictionary = write_dictionary_with_counts(&root.0, "empty", 0, &[], 0);
@@ -3615,7 +4087,7 @@ mod tests {
     fn declared_media_count_is_bounded_before_file_allocation() {
         let root = TestDir::new("media-count-limit");
         let dictionary = write_dictionary(&root.0, "Test", 1, 0);
-        write_manifest(&root.0, "Test");
+        write_manifest(&root.0, &["Test"]);
         set_dictionary_media_count(&dictionary, MAX_MEDIA_RECORDS + 1);
 
         assert!(load_dictionary_specs(&root.0)
@@ -3626,7 +4098,7 @@ mod tests {
     #[test]
     fn manifest_rejects_paths_outside_the_fixed_root() {
         let root = TestDir::new("path-escape");
-        write_manifest(&root.0, "../outside");
+        write_manifest(&root.0, &["../outside"]);
         assert!(load_dictionary_specs(&root.0)
             .expect_err("path escape must fail")
             .contains("normalized relative path"));
@@ -3689,11 +4161,7 @@ mod tests {
                 error: String::new(),
             }
         );
-        fs::write(
-            root.0.join(MANIFEST_FILE_NAME),
-            r#"{"version":1,"dictionaries":[{"id":"test","path":"Test Dictionary"},{"id":"frequency","path":"Standalone Frequency"}]}"#,
-        )
-        .expect("write manifest");
+        write_manifest(&root.0, &["Test Dictionary", "Standalone Frequency"]);
 
         let mut service = HoshidictsService::new(root.0.clone());
         assert_eq!(service.activate().expect("activate dictionaries"), 2);
@@ -3794,22 +4262,7 @@ mod tests {
             let report = import_dictionary(&archive_path, &root.0);
             assert!(report.success, "dictionary import failed: {}", report.error);
         }
-        fs::write(
-            root.0.join(MANIFEST_FILE_NAME),
-            serde_json::json!({
-                "version": 1,
-                "dictionaries": titles
-                    .iter()
-                    .enumerate()
-                    .map(|(index, title)| serde_json::json!({
-                        "id": format!("large-{index}"),
-                        "path": title,
-                    }))
-                    .collect::<Vec<_>>(),
-            })
-            .to_string(),
-        )
-        .expect("write large glossary manifest");
+        write_manifest(&root.0, &titles);
 
         let mut service = HoshidictsService::new(root.0.clone());
         assert_eq!(
@@ -3843,24 +4296,14 @@ mod tests {
     #[test]
     fn imported_dictionary_redirects_are_followed_without_rendering_raw_tuples() {
         let root = TestDir::new("redirect-lookup");
-        let archive_path = root.0.join("redirect.zip");
-        write_redirect_lookup_archive(&archive_path);
-
-        let report = import_dictionary(&archive_path, &root.0);
-        assert!(report.success, "dictionary import failed: {}", report.error);
+        let (mut service, report) =
+            imported_service(&root.0, "Redirect Lookup", write_redirect_lookup_archive);
         assert_eq!(report.term_count, 2);
         assert!(root
             .0
             .join("Redirect Lookup")
             .join(".hoshidicts_4")
             .is_file());
-        fs::write(
-            root.0.join(MANIFEST_FILE_NAME),
-            r#"{"version":1,"dictionaries":[{"id":"redirect","path":"Redirect Lookup"}]}"#,
-        )
-        .expect("write manifest");
-
-        let mut service = HoshidictsService::new(root.0.clone());
         let results = service.lookup("喰べる").expect("redirect lookup");
         let source = results
             .iter()
@@ -3899,17 +4342,8 @@ mod tests {
     #[test]
     fn lookup_options_apply_primary_reading_before_the_configured_result_cap() {
         let root = TestDir::new("lookup-ranking");
-        let archive_path = root.0.join("ranking.zip");
-        write_lookup_ranking_archive(&archive_path);
-        let report = import_dictionary(&archive_path, &root.0);
-        assert!(report.success, "dictionary import failed: {}", report.error);
-        fs::write(
-            root.0.join(MANIFEST_FILE_NAME),
-            r#"{"version":1,"dictionaries":[{"id":"ranking","path":"Lookup Ranking"}]}"#,
-        )
-        .expect("write manifest");
-
-        let mut service = HoshidictsService::new(root.0.clone());
+        let (mut service, _) =
+            imported_service(&root.0, "Lookup Ranking", write_lookup_ranking_archive);
         let ordinary = service.lookup("語").expect("ordinary lookup");
         assert_eq!(ordinary.len(), DEFAULT_LOOKUP_MAX_RESULTS as usize);
         assert!(ordinary
@@ -3950,11 +4384,7 @@ mod tests {
             let report = import_dictionary(archive, &root.0);
             assert!(report.success, "dictionary import failed: {}", report.error);
         }
-        fs::write(
-            root.0.join(MANIFEST_FILE_NAME),
-            r#"{"version":1,"dictionaries":[{"id":"terms","path":"Frequency Sort Terms"},{"id":"frequency","path":"Explicit Rank"}]}"#,
-        )
-        .expect("write manifest");
+        write_manifest(&root.0, &["Frequency Sort Terms", "Explicit Rank"]);
 
         let readings = |results: Vec<LookupResult>| {
             results
@@ -4002,18 +4432,7 @@ mod tests {
     #[test]
     fn ffi_dictionary_styles_are_owned_and_generation_checked() {
         let root = TestDir::new("ffi-styles");
-        let archive_path = root.0.join("styled.zip");
-        write_styled_archive(&archive_path);
-
-        let report = import_dictionary(&archive_path, &root.0);
-        assert!(report.success, "dictionary import failed: {}", report.error);
-        fs::write(
-            root.0.join(MANIFEST_FILE_NAME),
-            r#"{"version":1,"dictionaries":[{"id":"styled","path":"Styled Dictionary"}]}"#,
-        )
-        .expect("write manifest");
-
-        let mut service = HoshidictsService::new(root.0.clone());
+        let (mut service, _) = imported_service(&root.0, "Styled Dictionary", write_styled_archive);
         assert_eq!(service.activate().expect("activate dictionary"), 1);
         let generation = service.generation();
         assert_eq!(
@@ -4040,19 +4459,9 @@ mod tests {
     #[test]
     fn imported_hiragana_reading_matches_kana_and_kanji_variants() {
         let root = TestDir::new("kana-width");
-        let archive_path = root.0.join("kana.zip");
-        write_kana_lookup_archive(&archive_path);
-
-        let report = import_dictionary(&archive_path, &root.0);
-        assert!(report.success, "dictionary import failed: {}", report.error);
+        let (mut service, report) =
+            imported_service(&root.0, "Kana Lookup", write_kana_lookup_archive);
         assert_eq!(report.term_count, 1);
-        fs::write(
-            root.0.join(MANIFEST_FILE_NAME),
-            r#"{"version":1,"dictionaries":[{"id":"kana","path":"Kana Lookup"}]}"#,
-        )
-        .expect("write manifest");
-
-        let mut service = HoshidictsService::new(root.0.clone());
         assert_eq!(service.activate().expect("activate dictionary"), 1);
         for source in ["ワガハイ", "ﾜｶﾞﾊｲ", "ワガハイ", "わがはい", "我輩"]
         {
@@ -4071,19 +4480,11 @@ mod tests {
     #[test]
     fn pure_kanji_dictionary_activates_without_a_term_role() {
         let root = TestDir::new("kanji-only");
-        let archive_path = root.0.join("kanji.zip");
-        write_test_archive(&archive_path, false);
-        let report = import_dictionary(&archive_path, &root.0);
-        assert!(report.success);
+        let (mut service, report) = imported_service(&root.0, "Test Dictionary", |path| {
+            write_test_archive(path, false)
+        });
         assert_eq!(report.term_count, 0);
         assert_eq!(report.kanji_count, 1);
-        fs::write(
-            root.0.join(MANIFEST_FILE_NAME),
-            r#"{"version":1,"dictionaries":[{"id":"kanji","path":"Test Dictionary"}]}"#,
-        )
-        .expect("write manifest");
-
-        let mut service = HoshidictsService::new(root.0.clone());
         assert_eq!(service.activate().expect("activate kanji dictionary"), 1);
         assert!(service.lookup("食").expect("term lookup").is_empty());
         assert_eq!(
@@ -4099,19 +4500,10 @@ mod tests {
     #[test]
     fn unicode_paths_and_titles_round_trip_through_native_import_and_lookup() {
         let root = TestDir::new("unicode-㋕");
-        let archive_path = root.0.join("JPDBv2㋕.zip");
-        write_test_archive_with_title(&archive_path, "JPDBv2㋕", true);
-
-        let report = import_dictionary(&archive_path, &root.0);
-        assert!(report.success, "{}", report.error);
+        let (mut service, report) = imported_service(&root.0, "JPDBv2㋕", |path| {
+            write_test_archive_with_title(path, "JPDBv2㋕", true)
+        });
         assert_eq!(report.title, "JPDBv2㋕");
-        fs::write(
-            root.0.join(MANIFEST_FILE_NAME),
-            r#"{"version":1,"dictionaries":[{"id":"jpdb","path":"JPDBv2㋕"}]}"#,
-        )
-        .expect("write manifest");
-
-        let mut service = HoshidictsService::new(root.0.clone());
         assert_eq!(service.activate().expect("activate Unicode dictionary"), 1);
         assert!(service
             .lookup("食べた")
@@ -4123,23 +4515,14 @@ mod tests {
     #[test]
     fn native_kanji_query_rejects_oversized_materialization_before_ffi_copy() {
         let root = TestDir::new("bounded-native-kanji");
-        let archive_path = root.0.join("duplicate-kanji.zip");
-        write_test_archive_with_kanji_entries(
-            &archive_path,
-            "Duplicate Kanji",
-            false,
-            MAX_KANJI_ENTRIES + 1,
-        );
-
-        let report = import_dictionary(&archive_path, &root.0);
-        assert!(report.success, "{}", report.error);
-        fs::write(
-            root.0.join(MANIFEST_FILE_NAME),
-            r#"{"version":1,"dictionaries":[{"id":"bounded","path":"Duplicate Kanji"}]}"#,
-        )
-        .expect("write manifest");
-
-        let mut service = HoshidictsService::new(root.0.clone());
+        let (mut service, _) = imported_service(&root.0, "Duplicate Kanji", |path| {
+            write_test_archive_with_kanji_entries(
+                path,
+                "Duplicate Kanji",
+                false,
+                MAX_KANJI_ENTRIES + 1,
+            )
+        });
         assert_eq!(service.activate().expect("activate dictionary"), 1);
         assert!(service
             .lookup_kanji("食")
@@ -4164,5 +4547,460 @@ mod tests {
             assert!(validate_dictionary_title(title).is_err(), "{title}");
         }
         assert!(validate_dictionary_title("日本語辞書").is_ok());
+    }
+
+    // ---------------------------- client bridge -----------------------------
+
+    fn unused_service() -> SharedHoshidicts {
+        SharedHoshidicts::new(PathBuf::from("unused"))
+    }
+
+    fn parse_request(message: &str) -> Request {
+        serde_json::from_str(message).expect("Hoshidicts request should deserialize")
+    }
+
+    /// Drive one request through the single bridge entry point and return the
+    /// parsed reply.
+    async fn reply_for(
+        request: serde_json::Value,
+        enabled: bool,
+        service: &SharedHoshidicts,
+    ) -> Value {
+        let payload = handle_client_message(&request.to_string(), enabled, service)
+            .await
+            .expect("Hoshidicts request should be handled");
+        serde_json::from_str(&payload).expect("reply should be one valid JSON value")
+    }
+
+    /// Failure replies must still carry the full media envelope, with no media.
+    fn assert_media_failure(value: &Value, error: &str, stale_generation: bool) {
+        assert_eq!(value["type"], MEDIA_RESULT);
+        assert_eq!(value["success"], false);
+        assert_eq!(value["mediaType"], Value::Null);
+        assert_eq!(value["byteLength"], 0);
+        assert_eq!(value["dataBase64"], Value::Null);
+        assert_eq!(value["width"], Value::Null);
+        assert_eq!(value["height"], Value::Null);
+        assert_eq!(value["staleGeneration"], stale_generation);
+        assert_eq!(value["error"], error);
+    }
+
+    #[test]
+    fn requests_deserialize_with_correlated_request_ids() {
+        assert_eq!(
+            parse_request(
+                r#"{"type":"hoshidicts_lookup","requestId":"lookup-1","text":"食べた","scanLength":21,"maxResults":48,"primaryReading":"たべた","sortFrequencyDictionary":"BCCWJ","sortFrequencyDictionaryOrder":"ascending"}"#
+            ),
+            Request::Lookup {
+                request_id: RequestId::Text("lookup-1".into()),
+                text: "食べた".into(),
+                mode: LookupRequestMode::TermFirst,
+                options: LookupRequestOptions {
+                    scan_length: Some(21),
+                    max_results: Some(48),
+                    primary_reading: Some("たべた".into()),
+                    sort_frequency_dictionary: Some("BCCWJ".into()),
+                    sort_frequency_dictionary_order: Some(LookupFrequencySortOrder::Ascending),
+                },
+            }
+        );
+        assert_eq!(
+            parse_request(
+                r#"{"type":"hoshidicts_lookup","requestId":"lookup-kanji","text":"食","mode":"kanji"}"#
+            ),
+            Request::Lookup {
+                request_id: RequestId::Text("lookup-kanji".into()),
+                text: "食".into(),
+                mode: LookupRequestMode::Kanji,
+                options: LookupRequestOptions::default(),
+            }
+        );
+        assert_eq!(
+            parse_request(r#"{"type":"hoshidicts_reload","requestId":42}"#),
+            Request::Reload {
+                request_id: RequestId::Number(42),
+            }
+        );
+        assert_eq!(
+            parse_request(
+                r#"{"type":"hoshidicts_media","requestId":"media-1","generation":7,"dictionary":"Japanese Character Names","path":"img/c123.jpg"}"#
+            ),
+            Request::Media {
+                request_id: RequestId::Text("media-1".into()),
+                generation: 7,
+                dictionary: "Japanese Character Names".into(),
+                path: "img/c123.jpg".into(),
+            }
+        );
+        assert_eq!(
+            parse_request(r#"{"type":"hoshidicts_styles","requestId":"styles-1","generation":7}"#),
+            Request::Styles {
+                request_id: RequestId::Text("styles-1".into()),
+                generation: 7,
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn non_hoshidicts_messages_are_left_to_the_caller() {
+        let service = unused_service();
+        for message in [
+            r#"{"type":"tokenize","text":"食べた"}"#,
+            r#"{"type":"hoshidicts_unknown","requestId":1}"#,
+            // A Hoshidicts message without a request id cannot be correlated, so
+            // it is ignored exactly like any other unroutable message.
+            r#"{"type":"hoshidicts_lookup","text":"食べた"}"#,
+            "not json",
+        ] {
+            assert!(
+                handle_client_message(message, true, &service)
+                    .await
+                    .is_none(),
+                "{message}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn lookup_runs_through_the_blocking_boundary_and_preserves_correlation() {
+        let value = reply_for(
+            serde_json::json!({"type":"hoshidicts_lookup","requestId":42,"text":"食べる"}),
+            true,
+            &unused_service(),
+        )
+        .await;
+        assert_eq!(value["type"], LOOKUP_RESULT);
+        assert_eq!(value["requestId"], 42);
+        assert_eq!(value["success"], true);
+        assert_eq!(value["dictionaryCount"], 0);
+        assert_ne!(value["generation"], 0);
+        assert_eq!(value["featureDisabled"], false);
+        assert_eq!(value["results"], serde_json::json!([]));
+        assert_eq!(value["kanji"], Value::Null);
+        assert_eq!(value["error"], Value::Null);
+    }
+
+    #[tokio::test]
+    async fn lookup_failures_stay_correlated_and_keep_an_empty_result_shape() {
+        let service = unused_service();
+        // (request, enabled, echoed requestId, featureDisabled, error fragment)
+        for (request, enabled, echoed_id, feature_disabled, error) in [
+            (
+                serde_json::json!({"type":"hoshidicts_lookup","requestId":"lookup-2","text":"食べる"}),
+                false,
+                serde_json::json!("lookup-2"),
+                true,
+                FEATURE_DISABLED_MESSAGE,
+            ),
+            (
+                serde_json::json!({
+                    "type": "hoshidicts_lookup",
+                    "requestId": "x".repeat(MAX_REQUEST_ID_BYTES + 1),
+                    "text": "食べる",
+                }),
+                true,
+                Value::Null,
+                false,
+                "requestId",
+            ),
+            (
+                serde_json::json!({
+                    "type": "hoshidicts_lookup",
+                    "requestId": "lookup-invalid-options",
+                    "text": "食べる",
+                    "scanLength": 0,
+                }),
+                true,
+                serde_json::json!("lookup-invalid-options"),
+                false,
+                "scanLength",
+            ),
+        ] {
+            let value = reply_for(request, enabled, &service).await;
+            assert_eq!(value["type"], LOOKUP_RESULT);
+            assert_eq!(value["requestId"], echoed_id);
+            assert_eq!(value["success"], false);
+            assert_eq!(value["results"], serde_json::json!([]));
+            assert_eq!(value["kanji"], Value::Null);
+            assert_eq!(value["dictionaryCount"], 0);
+            assert_eq!(value["featureDisabled"], feature_disabled);
+            assert!(value["error"]
+                .as_str()
+                .expect("lookup error message")
+                .contains(error));
+        }
+    }
+
+    #[test]
+    fn large_lookup_payload_stays_one_complete_json_response() {
+        let request_id = serde_json::json!("lookup-large");
+        let dictionaries = ["Large Alpha", "Large Beta", "Large Gamma"];
+        let serialized = lookup_reply(
+            request_id.clone(),
+            dictionaries.len(),
+            7,
+            Ok((
+                vec![LookupResult {
+                    matched: "膨大".into(),
+                    deinflected: "膨大".into(),
+                    trace: Vec::new(),
+                    term: LookupTerm {
+                        expression: "膨大".into(),
+                        reading: "ぼうだい".into(),
+                        rules: String::new(),
+                        score: 0,
+                        glossaries: dictionaries
+                            .iter()
+                            .enumerate()
+                            .map(|(index, dictionary)| LookupGlossary {
+                                dictionary: (*dictionary).into(),
+                                glossary: format!("definition-{index}:{}", "x".repeat(140 * 1024)),
+                                definition_tags: String::new(),
+                                term_tags: String::new(),
+                            })
+                            .collect(),
+                        frequencies: Vec::new(),
+                        pitches: Vec::new(),
+                    },
+                    preprocessor_steps: 0,
+                }],
+                None,
+            )),
+            false,
+        );
+        assert!(serialized.len() > 256 * 1024);
+        assert!(serialized.len() < MAX_LOOKUP_RESPONSE_BYTES);
+
+        let response =
+            enforce_lookup_response_limit(request_id, dictionaries.len(), 7, serialized.clone());
+        assert_eq!(response, serialized);
+        let value: Value = serde_json::from_str(&response).expect("lookup payload");
+        let preserved = value["results"][0]["term"]["glossaries"]
+            .as_array()
+            .expect("glossaries");
+        assert_eq!(preserved.len(), dictionaries.len());
+        for dictionary in dictionaries {
+            assert!(preserved
+                .iter()
+                .any(|glossary| glossary["dictionary"] == dictionary));
+        }
+    }
+
+    #[test]
+    fn kanji_fallback_uses_only_the_first_han_character() {
+        assert_eq!(first_han_character("食べる").as_deref(), Some("食"));
+        assert_eq!(first_han_character("𠮟る").as_deref(), Some("𠮟"));
+        assert_eq!(first_han_character("べる"), None);
+        assert_eq!(first_han_character("。食"), None);
+    }
+
+    #[tokio::test]
+    async fn styles_replies_keep_a_stable_shape_for_every_outcome() {
+        let service = unused_service();
+        let generation = service
+            .run_blocking(|service| {
+                service.activate().expect("activate empty service");
+                service.generation()
+            })
+            .await
+            .expect("blocking styles setup");
+
+        let loaded = reply_for(
+            serde_json::json!({"type":"hoshidicts_styles","requestId":"styles-2","generation":generation}),
+            true,
+            &service,
+        )
+        .await;
+        assert_eq!(loaded["type"], STYLES_RESULT);
+        assert_eq!(loaded["requestId"], "styles-2");
+        assert_eq!(loaded["success"], true);
+        assert_eq!(loaded["generation"], generation);
+        assert_eq!(loaded["styles"], serde_json::json!([]));
+        assert_eq!(loaded["featureDisabled"], false);
+        assert_eq!(loaded["staleGeneration"], false);
+        assert_eq!(loaded["error"], Value::Null);
+
+        // (enabled, generation, expected featureDisabled, expected staleGeneration, expected error)
+        for (enabled, requested_generation, feature_disabled, stale, error) in [
+            (false, 3, true, false, FEATURE_DISABLED_CODE),
+            (true, 99, false, true, "stale_generation"),
+        ] {
+            let value = reply_for(
+                serde_json::json!({"type":"hoshidicts_styles","requestId":9,"generation":requested_generation}),
+                enabled,
+                &service,
+            )
+            .await;
+            assert_eq!(value["requestId"], 9);
+            assert_eq!(value["success"], false);
+            assert_eq!(value["generation"], requested_generation);
+            assert_eq!(value["styles"], serde_json::json!([]));
+            assert_eq!(value["featureDisabled"], feature_disabled);
+            assert_eq!(value["staleGeneration"], stale);
+            assert_eq!(value["error"], error);
+        }
+    }
+
+    #[test]
+    fn styles_response_rejects_json_escape_expansion() {
+        let styles = (0..7)
+            .map(|index| DictionaryStyle {
+                dictionary: format!("Dictionary {index}"),
+                styles: "\0".repeat(256 * 1024),
+            })
+            .collect();
+        let payload = styles_success_reply(serde_json::json!("styles-large"), 12, styles);
+        assert!(payload.len() <= MAX_STYLES_RESPONSE_BYTES);
+        let value: Value = serde_json::from_str(&payload).expect("valid styles response");
+        assert_eq!(value["requestId"], "styles-large");
+        assert_eq!(value["success"], false);
+        assert_eq!(value["generation"], 12);
+        assert_eq!(value["styles"], serde_json::json!([]));
+        assert_eq!(value["featureDisabled"], false);
+        assert_eq!(value["staleGeneration"], false);
+        assert_eq!(value["error"], "response_too_large");
+    }
+
+    #[tokio::test]
+    async fn media_failures_use_a_stable_correlated_envelope() {
+        let service = unused_service();
+        // (enabled, path, expected error, expected featureDisabled, expected staleGeneration)
+        for (enabled, path, error, feature_disabled, stale) in [
+            (
+                true,
+                "../escape.png",
+                MediaError::InvalidPath.code(),
+                false,
+                false,
+            ),
+            (
+                true,
+                "img/test.png",
+                MediaError::StaleGeneration.code(),
+                false,
+                true,
+            ),
+            (false, "img/test.png", FEATURE_DISABLED_CODE, true, false),
+        ] {
+            let value = reply_for(
+                serde_json::json!({
+                    "type": "hoshidicts_media",
+                    "requestId": "media-2",
+                    "generation": 99,
+                    "dictionary": "Test",
+                    "path": path,
+                }),
+                enabled,
+                &service,
+            )
+            .await;
+            assert_media_failure(&value, error, stale);
+            assert_eq!(value["requestId"], "media-2");
+            assert_eq!(value["generation"], 99);
+            assert_eq!(value["dictionary"], "Test");
+            assert_eq!(value["path"], path);
+            assert_eq!(value["featureDisabled"], feature_disabled);
+        }
+    }
+
+    #[test]
+    fn media_success_envelope_includes_base64_and_dimensions() {
+        let payload = MediaEnvelope {
+            request_id: serde_json::json!("media-success"),
+            generation: 11,
+            dictionary: "Test".into(),
+            path: "img/test.png".into(),
+        }
+        .success(MediaFile {
+            media_type: "image/png",
+            data: vec![0, 1, 2, 253],
+            width: 320,
+            height: 200,
+        });
+        let value: Value = serde_json::from_str(&payload).expect("valid media response");
+        assert_eq!(value["type"], MEDIA_RESULT);
+        assert_eq!(value["requestId"], "media-success");
+        assert_eq!(value["success"], true);
+        assert_eq!(value["generation"], 11);
+        assert_eq!(value["dictionary"], "Test");
+        assert_eq!(value["path"], "img/test.png");
+        assert_eq!(value["mediaType"], "image/png");
+        assert_eq!(value["byteLength"], 4);
+        assert_eq!(value["dataBase64"], "AAEC/Q==");
+        assert_eq!(value["width"], 320);
+        assert_eq!(value["height"], 200);
+        assert_eq!(value["featureDisabled"], false);
+        assert_eq!(value["staleGeneration"], false);
+        assert_eq!(value["error"], Value::Null);
+    }
+
+    #[tokio::test]
+    async fn reload_reports_feature_state_and_preserves_correlation() {
+        let service = unused_service();
+        let disabled = reply_for(
+            serde_json::json!({"type":"hoshidicts_reload","requestId":7}),
+            false,
+            &service,
+        )
+        .await;
+        assert_eq!(disabled["type"], RELOAD_RESULT);
+        assert_eq!(disabled["requestId"], 7);
+        assert_eq!(disabled["success"], false);
+        assert_eq!(disabled["dictionaryCount"], 0);
+        assert_eq!(disabled["featureDisabled"], true);
+        assert_eq!(disabled["error"], FEATURE_DISABLED_MESSAGE);
+
+        let reloaded = reply_for(
+            serde_json::json!({"type":"hoshidicts_reload","requestId":8}),
+            true,
+            &service,
+        )
+        .await;
+        assert_eq!(reloaded["requestId"], 8);
+        assert_eq!(reloaded["success"], true);
+        assert_eq!(reloaded["dictionaryCount"], 0);
+        assert_ne!(reloaded["generation"], 0);
+        assert_eq!(reloaded["featureDisabled"], false);
+        assert_eq!(reloaded["error"], Value::Null);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn blocking_work_does_not_stall_the_async_runtime() {
+        let service = unused_service();
+        let slow_operation = service.run_blocking(|_| {
+            std::thread::sleep(Duration::from_millis(100));
+        });
+        tokio::pin!(slow_operation);
+
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_millis(10)) => {}
+            result = &mut slow_operation => {
+                panic!("blocking work completed before the async heartbeat: {result:?}");
+            }
+        }
+
+        slow_operation
+            .await
+            .expect("blocking Hoshidicts work should complete");
+    }
+
+    #[tokio::test]
+    async fn feature_lease_transitions_load_and_unload_the_engine() {
+        let root = TestDir::new("feature-lease");
+        let service = SharedHoshidicts::new(root.0.clone());
+        async fn is_loaded(service: &SharedHoshidicts) -> bool {
+            service
+                .run_blocking(|service| service.is_loaded())
+                .await
+                .expect("engine state")
+        }
+
+        // No transition, no native work.
+        service.apply_feature_state(false, false).await;
+        assert!(!is_loaded(&service).await);
+        service.apply_feature_state(true, false).await;
+        assert!(is_loaded(&service).await);
+        service.apply_feature_state(false, true).await;
+        assert!(!is_loaded(&service).await);
     }
 }
