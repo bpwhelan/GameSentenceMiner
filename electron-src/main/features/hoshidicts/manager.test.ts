@@ -5,8 +5,11 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+    createDefaultHoshidictsPopupButtons,
+    createDefaultHoshidictsReaderPreferences,
     DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
     HOSHIDICTS_MINING_FIELD_MARKERS,
+    MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH,
     MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH,
     MAX_HOSHIDICTS_TAB_GROUPS_BYTES,
 } from '../../../shared/features/hoshidicts.js';
@@ -29,6 +32,7 @@ import {
     type HoshidictsManagerDependencies,
     type HoshidictsRemoteIndex,
 } from './manager.js';
+import { makeHoshidictsReaderPreferences } from './test_helpers.js';
 
 interface TestArchive {
     title: string;
@@ -155,6 +159,84 @@ function readActiveProfile(baseDir: string): any {
     const manifest = readManifest(baseDir);
     return manifest.profiles.find(
         (profile: { id: string }) => profile.id === manifest.activeProfileId
+    );
+}
+
+/**
+ * Makes the manifest rollback write fail by pre-creating the temporary file the
+ * atomic write will try to open exclusively. The block is armed only once the
+ * replacement reload has failed, so it does not depend on how many random ids
+ * the writes before it happened to consume.
+ */
+function blockManifestRollback(baseDir: string) {
+    const blockedTemporaryPath = path.join(
+        baseDir,
+        'dictionaries',
+        'hoshidicts',
+        '.manifest-rollback-blocked.tmp'
+    );
+    let sequence = 0;
+    let armed = false;
+    let reloads = 0;
+    return {
+        // Only the first write after the failed reload — the rollback — is
+        // blocked; any bookkeeping write after it must still succeed.
+        randomId: () => {
+            if (armed) {
+                armed = false;
+                return 'rollback-blocked';
+            }
+            return `test-${sequence++}`;
+        },
+        rejectSecondReload: async (): Promise<number> => {
+            reloads += 1;
+            if (reloads === 2) {
+                fs.mkdirSync(path.dirname(blockedTemporaryPath), {
+                    recursive: true,
+                });
+                fs.writeFileSync(
+                    blockedTemporaryPath,
+                    'block rollback temp creation',
+                    'utf8'
+                );
+                armed = true;
+                throw new Error('replacement rejected');
+            }
+            return 1;
+        },
+        reloadCount: () => reloads,
+    };
+}
+
+/** Persists a manifest whose only profile carries the supplied reader settings. */
+function writeProfileManifest(
+    manager: HoshidictsManager,
+    reader: Record<string, unknown>
+): void {
+    fs.mkdirSync(path.dirname(manager.manifestPath), { recursive: true });
+    fs.writeFileSync(
+        manager.manifestPath,
+        JSON.stringify({
+            version: 1,
+            activeProfileId: 'default',
+            profiles: [
+                {
+                    id: 'default',
+                    name: 'Default',
+                    reader,
+                    mining: defaultHoshidictsMiningProfile(),
+                    audio: defaultHoshidictsAudioProfile(),
+                    tabGroups: [],
+                    enabledDictionaryIds: [],
+                },
+            ],
+            schedule: 'off',
+            lastCheck: null,
+            nextCheck: null,
+            lastError: null,
+            dictionaries: [],
+        }),
+        'utf8'
     );
 }
 
@@ -481,28 +563,13 @@ describe('Hoshidicts immutable generations', () => {
             revision: 'published-but-not-loaded',
             sourceLanguage: 'ja',
         });
-        let reloadCount = 0;
+        const rollback = blockManifestRollback(baseDir);
         const { manager } = createHarness(baseDir, {
-            reloadNative: async () => {
-                reloadCount += 1;
-                if (reloadCount === 2) {
-                    throw new Error('replacement rejected');
-                }
-                return 1;
-            },
+            reloadNative: rollback.rejectSecondReload,
+            randomId: rollback.randomId,
         });
 
         await manager.importDictionary(first);
-        fs.writeFileSync(
-            path.join(
-                baseDir,
-                'dictionaries',
-                'hoshidicts',
-                '.manifest-test-4.tmp'
-            ),
-            'block rollback temp creation',
-            'utf8'
-        );
 
         await expect(manager.importDictionary(replacement)).rejects.toThrow(
             'generation was retained for recovery'
@@ -522,7 +589,7 @@ describe('Hoshidicts immutable generations', () => {
                 )
             )
         ).toBe(true);
-        expect(reloadCount).toBe(2);
+        expect(rollback.reloadCount()).toBe(2);
     });
 
     it('serializes simultaneous imports', async () => {
@@ -1513,15 +1580,10 @@ describe('Hoshidicts managed custom dictionary', () => {
 
     it('retains the matching new source when manifest rollback cannot be published', async () => {
         const baseDir = makeTempDir();
-        let reloadCount = 0;
+        const rollback = blockManifestRollback(baseDir);
         const { manager } = createHarness(baseDir, {
-            reloadNative: async () => {
-                reloadCount += 1;
-                if (reloadCount === 2) {
-                    throw new Error('replacement rejected');
-                }
-                return 1;
-            },
+            reloadNative: rollback.rejectSecondReload,
+            randomId: rollback.randomId,
         });
         const missing = await manager.getCustomDictionaryDocument();
         const working = await manager.saveCustomDictionary(
@@ -1529,16 +1591,6 @@ describe('Hoshidicts managed custom dictionary', () => {
             missing.revision
         );
         const previousManifest = readManifest(baseDir);
-        fs.writeFileSync(
-            path.join(
-                baseDir,
-                'dictionaries',
-                'hoshidicts',
-                '.manifest-test-8.tmp'
-            ),
-            'block rollback temp creation',
-            'utf8'
-        );
         const replacementText = '公開, こうかい, Published for recovery\n';
 
         await expect(
@@ -1552,7 +1604,7 @@ describe('Hoshidicts managed custom dictionary', () => {
         expect(fs.readFileSync(manager.customDictionaryPath, 'utf8')).toBe(
             replacementText
         );
-        expect(reloadCount).toBe(2);
+        expect(rollback.reloadCount()).toBe(2);
     });
 
     it('does not leave a source file or generation after an initial reload failure', async () => {
@@ -1635,9 +1687,10 @@ describe('Hoshidicts mining profile', () => {
             fieldTemplates: null,
         });
         expect(readActiveProfile(baseDir).mining).toEqual(snapshot.miningProfile);
+        // The manifest plus the two files the Python backend reads; no strays.
         expect(
-            fs.readdirSync(path.join(baseDir, 'dictionaries', 'hoshidicts'))
-        ).toEqual(['manifest.json']);
+            fs.readdirSync(path.join(baseDir, 'dictionaries', 'hoshidicts')).sort()
+        ).toEqual(['audio-profile.json', 'manifest.json', 'mining-profile.json']);
     });
 
     it('ignores the removed standalone mining profile storage', async () => {
@@ -1870,9 +1923,10 @@ describe('Hoshidicts audio profile', () => {
         });
         expect(snapshot.progress).toEqual({ phase: 'idle', scope: 'audio' });
         expect(readActiveProfile(baseDir).audio).toEqual(snapshot.audioProfile);
+        // The manifest plus the two files the Python backend reads; no strays.
         expect(
-            fs.readdirSync(path.join(baseDir, 'dictionaries', 'hoshidicts'))
-        ).toEqual(['manifest.json']);
+            fs.readdirSync(path.join(baseDir, 'dictionaries', 'hoshidicts')).sort()
+        ).toEqual(['audio-profile.json', 'manifest.json', 'mining-profile.json']);
     });
 
     it('ignores the removed standalone audio profile storage', async () => {
@@ -1922,369 +1976,145 @@ describe('Hoshidicts audio profile', () => {
 });
 
 describe('Hoshidicts reader preferences', () => {
-    it('loads legacy manifests with Shift lookup and lookup counts enabled', async () => {
-        const baseDir = makeTempDir();
-        const { manager } = createHarness(baseDir);
-        fs.mkdirSync(path.dirname(manager.manifestPath), { recursive: true });
-        fs.writeFileSync(
-            manager.manifestPath,
-            JSON.stringify({
+    const defaultPreferences = createDefaultHoshidictsReaderPreferences();
+    const readerPreferenceFields = Object.keys(
+        defaultPreferences
+    ) as (keyof typeof defaultPreferences)[];
+
+    it.each([
+        [
+            'a manifest without any profile',
+            {
                 version: 1,
                 schedule: 'off',
                 lastCheck: null,
                 nextCheck: null,
                 lastError: null,
                 dictionaries: [],
-            }),
+            },
+        ],
+        [
+            'a profile whose reader settings are empty',
+            {
+                version: 1,
+                activeProfileId: 'default',
+                profiles: [
+                    {
+                        id: 'default',
+                        name: 'Default',
+                        reader: {},
+                        mining: defaultHoshidictsMiningProfile(),
+                        audio: defaultHoshidictsAudioProfile(),
+                        tabGroups: [],
+                        enabledDictionaryIds: [],
+                    },
+                ],
+                schedule: 'off',
+                lastCheck: null,
+                nextCheck: null,
+                lastError: null,
+                dictionaries: [],
+            },
+        ],
+    ])('serves default reader preferences for %s', async (_label, manifest) => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+        fs.mkdirSync(path.dirname(manager.manifestPath), { recursive: true });
+        fs.writeFileSync(
+            manager.manifestPath,
+            JSON.stringify(manifest),
             'utf8'
         );
 
-        const snapshot = await manager.getSnapshot();
-        expect(snapshot.lookupMode).toBe('shift');
-        expect(snapshot.scanLength).toBe(16);
-        expect(snapshot.maxResults).toBe(32);
-        expect(snapshot.sortFrequencyDictionary).toBeNull();
-        expect(snapshot.sortFrequencyDictionaryOrder).toBe('descending');
-        expect(snapshot.activationKey).toBe('Shift');
-        expect(snapshot.sourceHighlightEnabled).toBe(false);
-        expect(snapshot.onlyScanJapaneseText).toBe(true);
-        expect(snapshot.showLookupCounts).toBe(true);
-        expect(snapshot.averageFrequency).toBe(false);
-        expect(snapshot.showFrequencyDictionaryNames).toBe(true);
-        expect(snapshot.showCompactDefinitionSummary).toBe(false);
-        expect(snapshot.compactDefinitionSummaryCount).toBe(3);
-        expect(snapshot.compactDefinitionSummaryDictionary).toBeNull();
-        expect(snapshot.showPitchAccentFurigana).toBe(true);
-        expect(snapshot.pitchAccentFuriganaDictionary).toBeNull();
-        expect(snapshot.hidePopupGrammarTags).toBe(true);
-        expect(snapshot.popupNestingMaxDepth).toBe(10);
-        expect(snapshot.popupWidthPx).toBe(560);
-        expect(snapshot.popupHeightPx).toBe(420);
-        expect(snapshot.popupColumns).toBe(1);
-        expect(snapshot.theme).toBe('default');
-        expect(snapshot.popupToolbarPosition).toBe('top');
-        expect(snapshot.popupButtons).toEqual({
-            addToAnki: true,
-            audio: true,
-            customDefinition: true,
-            viewInAnki: false,
-            customLinks: [],
-        });
-        expect(snapshot.definitionBlur).toEqual({
-            enabled: false,
-            lookupThreshold: 5,
-            revealMode: 'timed',
-            revealDelayMs: 5000,
-        });
+        expect(await manager.getSnapshot()).toMatchObject(defaultPreferences);
     });
 
-    it('defaults new state to Shift and persists hover lookup', async () => {
+    it('defaults new state to Shift and persists every saved reader preference', async () => {
         const baseDir = makeTempDir();
         const { manager } = createHarness(baseDir);
 
-        expect((await manager.getSnapshot()).lookupMode).toBe('shift');
-        expect((await manager.getSnapshot()).scanLength).toBe(16);
-        expect((await manager.getSnapshot()).maxResults).toBe(32);
-        expect((await manager.getSnapshot()).sortFrequencyDictionary).toBeNull();
-        expect((await manager.getSnapshot()).sortFrequencyDictionaryOrder).toBe(
-            'descending'
-        );
-        expect((await manager.getSnapshot()).activationKey).toBe('Shift');
-        expect((await manager.getSnapshot()).sourceHighlightEnabled).toBe(false);
-        expect((await manager.getSnapshot()).onlyScanJapaneseText).toBe(true);
-        expect((await manager.getSnapshot()).popupHideDelayMs).toBe(300);
-        expect((await manager.getSnapshot()).showLookupCounts).toBe(true);
-        expect((await manager.getSnapshot()).averageFrequency).toBe(false);
-        expect(
-            (await manager.getSnapshot()).showFrequencyDictionaryNames
-        ).toBe(true);
-        expect(
-            (await manager.getSnapshot()).showCompactDefinitionSummary
-        ).toBe(false);
-        expect(
-            (await manager.getSnapshot()).compactDefinitionSummaryCount
-        ).toBe(3);
-        expect(
-            (await manager.getSnapshot()).compactDefinitionSummaryDictionary
-        ).toBeNull();
-        expect(
-            (await manager.getSnapshot()).showPitchAccentFurigana
-        ).toBe(true);
-        expect(
-            (await manager.getSnapshot()).pitchAccentFuriganaDictionary
-        ).toBeNull();
-        expect(
-            (await manager.getSnapshot()).showPitchAccentBadge
-        ).toBe(false);
-        expect((await manager.getSnapshot()).hidePopupGrammarTags).toBe(true);
-        expect((await manager.getSnapshot()).popupNestingMaxDepth).toBe(10);
-        expect((await manager.getSnapshot()).popupWidthPx).toBe(560);
-        expect((await manager.getSnapshot()).popupHeightPx).toBe(420);
-        expect((await manager.getSnapshot()).popupColumns).toBe(1);
-        expect((await manager.getSnapshot()).theme).toBe('default');
-        expect((await manager.getSnapshot()).popupOpacityPercent).toBe(85);
-        expect((await manager.getSnapshot()).popupToolbarPosition).toBe('top');
-        expect((await manager.getSnapshot()).popupButtons).toEqual({
-            addToAnki: true,
-            audio: true,
-            customDefinition: true,
-            viewInAnki: false,
-            customLinks: [],
-        });
-        expect((await manager.getSnapshot()).customPopupCss).toBe('');
-        expect((await manager.getSnapshot()).definitionBlur).toEqual({
-            enabled: false,
-            lookupThreshold: 5,
-            revealMode: 'timed',
-            revealDelayMs: 5000,
-        });
+        expect(await manager.getSnapshot()).toMatchObject(defaultPreferences);
 
-        const snapshot = await manager.setReaderPreferences(
-            'hover',
-            850,
-            'F8',
-            true,
-            12,
-            {
+        const saved = makeHoshidictsReaderPreferences({
+            lookupMode: 'hover',
+            popupHideDelayMs: 850,
+            activationKey: 'F8',
+            sourceHighlightEnabled: true,
+            onlyScanJapaneseText: false,
+            popupNestingMaxDepth: 12,
+            definitionBlur: {
                 enabled: true,
                 lookupThreshold: 8,
                 revealMode: 'hover',
                 revealDelayMs: 7000,
             },
-            false,
-            720,
-            520,
-            'girlypop',
-            70,
-            false,
-            'bottom',
-            24,
-            48,
-            null,
-            'ascending',
-            {
+            showLookupCounts: false,
+            averageFrequency: true,
+            showFrequencyDictionaryNames: false,
+            popupWidthPx: 720,
+            popupHeightPx: 520,
+            popupColumns: 3,
+            theme: 'girlypop',
+            popupOpacityPercent: 70,
+            popupBackdropBlurPx: 24,
+            popupToolbarPosition: 'bottom',
+            scanLength: 24,
+            maxResults: 48,
+            sortFrequencyDictionary: null,
+            sortFrequencyDictionaryOrder: 'ascending',
+            showCompactDefinitionSummary: true,
+            compactDefinitionSummaryCount: 4,
+            compactDefinitionSummaryDictionary: 'Jitendex.org',
+            showPitchAccentFurigana: false,
+            pitchAccentFuriganaDictionary: 'Kanjium Pitch Accents',
+            showPitchAccentBadge: true,
+            hidePopupGrammarTags: false,
+            customPopupCss: ':scope { color: hotpink; }',
+            popupButtons: {
                 addToAnki: false,
                 audio: true,
                 customDefinition: false,
                 viewInAnki: true,
                 customLinks: [
                     {
-                        label: '  Jisho  ',
-                        url: '  https://jisho.org/search/%w?sentence=%s  ',
+                        label: 'Jisho',
+                        url: 'https://jisho.org/search/%w?sentence=%s',
                     },
                 ],
             },
-            3,
-            true,
-            4,
-            '  Jitendex.org  ',
-            false,
-            false,
-            '  Kanjium Pitch Accents  ',
-            true,
-            ':scope { color: hotpink; }',
-            true,
-            false
+        });
+
+        // Dictionary titles and custom link fields are canonicalized on save.
+        const snapshot = await manager.setReaderPreferences(
+            makeHoshidictsReaderPreferences({
+                ...saved,
+                compactDefinitionSummaryDictionary: '  Jitendex.org  ',
+                pitchAccentFuriganaDictionary: '  Kanjium Pitch Accents  ',
+                popupButtons: {
+                    ...saved.popupButtons,
+                    customLinks: [
+                        {
+                            label: '  Jisho  ',
+                            url: '  https://jisho.org/search/%w?sentence=%s  ',
+                        },
+                    ],
+                },
+            })
         );
 
-        expect(snapshot.lookupMode).toBe('hover');
-        expect(snapshot.scanLength).toBe(24);
-        expect(snapshot.maxResults).toBe(48);
-        expect(snapshot.sortFrequencyDictionary).toBeNull();
-        expect(snapshot.sortFrequencyDictionaryOrder).toBe('ascending');
-        expect(snapshot.activationKey).toBe('F8');
-        expect(snapshot.sourceHighlightEnabled).toBe(true);
-        expect(snapshot.onlyScanJapaneseText).toBe(false);
-        expect(snapshot.popupHideDelayMs).toBe(850);
-        expect(snapshot.showLookupCounts).toBe(false);
-        expect(snapshot.averageFrequency).toBe(true);
-        expect(snapshot.showFrequencyDictionaryNames).toBe(false);
-        expect(snapshot.showCompactDefinitionSummary).toBe(true);
-        expect(snapshot.compactDefinitionSummaryCount).toBe(4);
-        expect(snapshot.compactDefinitionSummaryDictionary).toBe(
-            'Jitendex.org'
-        );
-        expect(snapshot.showPitchAccentFurigana).toBe(false);
-        expect(snapshot.pitchAccentFuriganaDictionary).toBe(
-            'Kanjium Pitch Accents'
-        );
-        expect(snapshot.hidePopupGrammarTags).toBe(false);
-        expect(snapshot.popupNestingMaxDepth).toBe(12);
-        expect(snapshot.popupWidthPx).toBe(720);
-        expect(snapshot.popupHeightPx).toBe(520);
-        expect(snapshot.popupColumns).toBe(3);
-        expect(snapshot.theme).toBe('girlypop');
-        expect(snapshot.popupOpacityPercent).toBe(70);
-        expect(snapshot.popupToolbarPosition).toBe('bottom');
-        expect(snapshot.popupButtons).toEqual({
-            addToAnki: false,
-            audio: true,
-            customDefinition: false,
-            viewInAnki: true,
-            customLinks: [
-                {
-                    label: 'Jisho',
-                    url: 'https://jisho.org/search/%w?sentence=%s',
-                },
-            ],
-        });
-        expect(snapshot.customPopupCss).toBe(
-            ':scope { color: hotpink; }'
-        );
-        expect(snapshot.definitionBlur).toEqual({
-            enabled: true,
-            lookupThreshold: 8,
-            revealMode: 'hover',
-            revealDelayMs: 7000,
-        });
-        expect(readManifest(baseDir).lookupMode).toBe('hover');
-        expect(readManifest(baseDir).scanLength).toBe(24);
-        expect(readManifest(baseDir).maxResults).toBe(48);
-        expect(readManifest(baseDir).sortFrequencyDictionary).toBeNull();
-        expect(readManifest(baseDir).sortFrequencyDictionaryOrder).toBe(
-            'ascending'
-        );
-        expect(readManifest(baseDir).activationKey).toBe('F8');
-        expect(readManifest(baseDir).sourceHighlightEnabled).toBe(true);
-        expect(readManifest(baseDir).onlyScanJapaneseText).toBe(false);
-        expect(readManifest(baseDir).popupHideDelayMs).toBe(850);
-        expect(readManifest(baseDir).showLookupCounts).toBe(false);
-        expect(readManifest(baseDir).averageFrequency).toBe(true);
-        expect(readManifest(baseDir).showFrequencyDictionaryNames).toBe(false);
-        expect(readManifest(baseDir).showCompactDefinitionSummary).toBe(true);
-        expect(readManifest(baseDir).compactDefinitionSummaryCount).toBe(4);
-        expect(readManifest(baseDir).compactDefinitionSummaryDictionary).toBe(
-            'Jitendex.org'
-        );
-        expect(readManifest(baseDir).showPitchAccentFurigana).toBe(false);
-        expect(readManifest(baseDir).pitchAccentFuriganaDictionary).toBe(
-            'Kanjium Pitch Accents'
-        );
-        expect(readManifest(baseDir).hidePopupGrammarTags).toBe(false);
-        expect(snapshot.showPitchAccentBadge).toBe(true);
-        expect(readManifest(baseDir).showPitchAccentBadge).toBe(true);
-        expect(readManifest(baseDir).popupNestingMaxDepth).toBe(12);
-        expect(readManifest(baseDir).popupWidthPx).toBe(720);
-        expect(readManifest(baseDir).popupHeightPx).toBe(520);
-        expect(readManifest(baseDir).popupColumns).toBe(3);
-        expect(readManifest(baseDir).theme).toBe('girlypop');
-        expect(readManifest(baseDir).popupOpacityPercent).toBe(70);
-        expect(readManifest(baseDir).popupToolbarPosition).toBe('bottom');
-        expect(readManifest(baseDir).popupButtons).toEqual(
-            snapshot.popupButtons
-        );
-        expect(readManifest(baseDir).customPopupCss).toBe(
-            ':scope { color: hotpink; }'
-        );
-        expect(readManifest(baseDir).definitionBlur).toEqual({
-            enabled: true,
-            lookupThreshold: 8,
-            revealMode: 'hover',
-            revealDelayMs: 7000,
-        });
+        expect(snapshot).toMatchObject(saved);
+        expect(readActiveProfile(baseDir).reader).toEqual(saved);
+        expect(Object.keys(readManifest(baseDir))).not.toContain('lookupMode');
 
         const reloaded = createHarness(baseDir).manager;
-        expect((await reloaded.getSnapshot()).lookupMode).toBe('hover');
-        expect((await reloaded.getSnapshot()).scanLength).toBe(24);
-        expect((await reloaded.getSnapshot()).maxResults).toBe(48);
-        expect((await reloaded.getSnapshot()).sortFrequencyDictionary).toBeNull();
-        expect((await reloaded.getSnapshot()).sortFrequencyDictionaryOrder).toBe(
-            'ascending'
-        );
-        expect((await reloaded.getSnapshot()).activationKey).toBe('F8');
-        expect((await reloaded.getSnapshot()).sourceHighlightEnabled).toBe(true);
-        expect((await reloaded.getSnapshot()).onlyScanJapaneseText).toBe(false);
-        expect((await reloaded.getSnapshot()).popupHideDelayMs).toBe(850);
-        expect((await reloaded.getSnapshot()).showLookupCounts).toBe(false);
-        expect((await reloaded.getSnapshot()).averageFrequency).toBe(true);
-        expect(
-            (await reloaded.getSnapshot()).showFrequencyDictionaryNames
-        ).toBe(false);
-        expect(
-            (await reloaded.getSnapshot()).showCompactDefinitionSummary
-        ).toBe(true);
-        expect(
-            (await reloaded.getSnapshot()).compactDefinitionSummaryCount
-        ).toBe(4);
-        expect(
-            (await reloaded.getSnapshot()).compactDefinitionSummaryDictionary
-        ).toBe('Jitendex.org');
-        expect(
-            (await reloaded.getSnapshot()).showPitchAccentFurigana
-        ).toBe(false);
-        expect(
-            (await reloaded.getSnapshot()).pitchAccentFuriganaDictionary
-        ).toBe('Kanjium Pitch Accents');
-        expect((await reloaded.getSnapshot()).hidePopupGrammarTags).toBe(false);
-        expect((await reloaded.getSnapshot()).popupNestingMaxDepth).toBe(12);
-        expect((await reloaded.getSnapshot()).popupWidthPx).toBe(720);
-        expect((await reloaded.getSnapshot()).popupHeightPx).toBe(520);
-        expect((await reloaded.getSnapshot()).popupColumns).toBe(3);
-        expect((await reloaded.getSnapshot()).theme).toBe('girlypop');
-        expect((await reloaded.getSnapshot()).popupOpacityPercent).toBe(70);
-        expect((await reloaded.getSnapshot()).popupToolbarPosition).toBe('bottom');
-        expect((await reloaded.getSnapshot()).popupButtons).toEqual(
-            snapshot.popupButtons
-        );
-        expect((await reloaded.getSnapshot()).customPopupCss).toBe(
-            ':scope { color: hotpink; }'
-        );
-        expect((await reloaded.getSnapshot()).definitionBlur).toEqual({
-            enabled: true,
-            lookupThreshold: 8,
-            revealMode: 'hover',
-            revealDelayMs: 7000,
-        });
+        expect(await reloaded.getSnapshot()).toMatchObject(saved);
 
+        // Switching lookup mode leaves every other preference untouched.
         const shifted = await reloaded.setLookupMode('shift');
-        expect(shifted.lookupMode).toBe('shift');
-        expect(shifted.scanLength).toBe(24);
-        expect(shifted.maxResults).toBe(48);
-        expect(shifted.sortFrequencyDictionary).toBeNull();
-        expect(shifted.sortFrequencyDictionaryOrder).toBe('ascending');
-        expect(shifted.activationKey).toBe('F8');
-        expect(shifted.sourceHighlightEnabled).toBe(true);
-        expect(shifted.onlyScanJapaneseText).toBe(false);
-        expect(shifted.showLookupCounts).toBe(false);
-        expect(readManifest(baseDir).showLookupCounts).toBe(false);
-        expect(shifted.averageFrequency).toBe(true);
-        expect(readManifest(baseDir).averageFrequency).toBe(true);
-        expect(shifted.showFrequencyDictionaryNames).toBe(false);
-        expect(readManifest(baseDir).showFrequencyDictionaryNames).toBe(false);
-        expect(shifted.showCompactDefinitionSummary).toBe(true);
-        expect(readManifest(baseDir).showCompactDefinitionSummary).toBe(true);
-        expect(shifted.compactDefinitionSummaryCount).toBe(4);
-        expect(readManifest(baseDir).compactDefinitionSummaryCount).toBe(4);
-        expect(shifted.compactDefinitionSummaryDictionary).toBe(
-            'Jitendex.org'
-        );
-        expect(readManifest(baseDir).compactDefinitionSummaryDictionary).toBe(
-            'Jitendex.org'
-        );
-        expect(shifted.showPitchAccentFurigana).toBe(false);
-        expect(readManifest(baseDir).showPitchAccentFurigana).toBe(false);
-        expect(shifted.pitchAccentFuriganaDictionary).toBe(
-            'Kanjium Pitch Accents'
-        );
-        expect(readManifest(baseDir).pitchAccentFuriganaDictionary).toBe(
-            'Kanjium Pitch Accents'
-        );
-        expect(shifted.hidePopupGrammarTags).toBe(false);
-        expect(readManifest(baseDir).hidePopupGrammarTags).toBe(false);
-        expect(shifted.popupNestingMaxDepth).toBe(12);
-        expect(shifted.popupWidthPx).toBe(720);
-        expect(shifted.popupHeightPx).toBe(520);
-        expect(shifted.popupColumns).toBe(3);
-        expect(shifted.theme).toBe('girlypop');
-        expect(shifted.popupOpacityPercent).toBe(70);
-        expect(shifted.popupToolbarPosition).toBe('bottom');
-        expect(shifted.popupButtons).toEqual(snapshot.popupButtons);
-        expect(shifted.customPopupCss).toBe(':scope { color: hotpink; }');
-        expect(shifted.definitionBlur).toEqual({
-            enabled: true,
-            lookupThreshold: 8,
-            revealMode: 'hover',
-            revealDelayMs: 7000,
+        expect(shifted).toMatchObject({ ...saved, lookupMode: 'shift' });
+        expect(readActiveProfile(baseDir).reader).toEqual({
+            ...saved,
+            lookupMode: 'shift',
         });
     });
 
@@ -2306,44 +2136,35 @@ describe('Hoshidicts reader preferences', () => {
 
         const enableSorting = () =>
             manager.setReaderPreferences(
-                'shift',
-                300,
-                'Shift',
-                false,
-                10,
-                undefined,
-                true,
-                560,
-                420,
-                'default',
-                85,
-                true,
-                'top',
-                16,
-                32,
-                'Frequency',
-                'ascending'
+                makeHoshidictsReaderPreferences({
+                    sortFrequencyDictionary: 'Frequency',
+                    sortFrequencyDictionaryOrder: 'ascending',
+                })
             );
         const sorted = await enableSorting();
         expect(sorted.sortFrequencyDictionary).toBe('Frequency');
         expect(sorted.sortFrequencyDictionaryOrder).toBe('ascending');
-        expect(readManifest(baseDir)).toMatchObject({
+        expect(readActiveProfile(baseDir).reader).toMatchObject({
             sortFrequencyDictionary: 'Frequency',
             sortFrequencyDictionaryOrder: 'ascending',
         });
 
         const disabled = await manager.setDictionaryEnabled(dictionary.id, false);
         expect(disabled.sortFrequencyDictionary).toBeNull();
-        expect(readManifest(baseDir).sortFrequencyDictionary).toBeNull();
+        expect(
+            readActiveProfile(baseDir).reader.sortFrequencyDictionary
+        ).toBeNull();
 
         await manager.setDictionaryEnabled(dictionary.id, true);
         await enableSorting();
         const removed = await manager.removeDictionary(dictionary.id);
         expect(removed.sortFrequencyDictionary).toBeNull();
-        expect(readManifest(baseDir).sortFrequencyDictionary).toBeNull();
+        expect(
+            readActiveProfile(baseDir).reader.sortFrequencyDictionary
+        ).toBeNull();
     });
 
-    it('rejects invalid lookup bounds and non-frequency sort dictionaries', async () => {
+    it('rejects a frequency sort dictionary that is not an installed frequency dictionary', async () => {
         const baseDir = makeTempDir();
         const archivesDir = makeTempDir();
         const { manager } = createHarness(baseDir);
@@ -2354,40 +2175,13 @@ describe('Hoshidicts reader preferences', () => {
                 sourceLanguage: 'ja',
             })
         );
-        const setLookupPreferences = (
-            scanLength: number,
-            maxResults: number,
-            dictionary: string | null,
-            order: 'ascending' | 'descending'
-        ) =>
-            manager.setReaderPreferences(
-                'shift',
-                300,
-                'Shift',
-                false,
-                10,
-                undefined,
-                true,
-                560,
-                420,
-                'default',
-                85,
-                true,
-                'top',
-                scanLength,
-                maxResults,
-                dictionary,
-                order
-            );
 
-        await expect(setLookupPreferences(0, 32, null, 'descending')).rejects.toThrow(
-            'scan length is invalid'
-        );
-        await expect(setLookupPreferences(16, 257, null, 'descending')).rejects.toThrow(
-            'maximum result count is invalid'
-        );
         await expect(
-            setLookupPreferences(16, 32, 'Terms', 'descending')
+            manager.setReaderPreferences(
+                makeHoshidictsReaderPreferences({
+                    sortFrequencyDictionary: 'Terms',
+                })
+            )
         ).rejects.toThrow('frequency sort dictionary is not installed');
     });
 
@@ -2400,473 +2194,315 @@ describe('Hoshidicts reader preferences', () => {
         ).rejects.toThrow('lookup mode is invalid');
     });
 
-    it('rejects popup hide delays outside the reader preference bounds', async () => {
-        const baseDir = makeTempDir();
-        const { manager } = createHarness(baseDir);
+    it.each([null, 'preferences', 42, []])(
+        'rejects a request that is not a preferences object (%j)',
+        async (request) => {
+            const baseDir = makeTempDir();
+            const { manager } = createHarness(baseDir);
 
-        await expect(manager.setReaderPreferences('hover', -1, 'Shift')).rejects.toThrow(
-            'hide delay is invalid'
-        );
-        await expect(manager.setReaderPreferences('hover', 5001, 'Shift')).rejects.toThrow(
-            'hide delay is invalid'
-        );
-    });
-
-    it('rejects a non-boolean compact definition summary preference', async () => {
-        const baseDir = makeTempDir();
-        const { manager } = createHarness(baseDir);
-
-        await expect(
-            manager.setReaderPreferences(
-                'shift',
-                300,
-                'Shift',
-                false,
-                10,
-                undefined,
-                true,
-                undefined,
-                undefined,
-                undefined,
-                undefined,
-                true,
-                undefined,
-                16,
-                32,
-                null,
-                'descending',
-                undefined,
-                undefined,
-                'yes' as never
-            )
-        ).rejects.toThrow('compact definition summary preference is invalid');
-    });
-
-    it('rejects invalid compact definition summary counts', async () => {
-        const baseDir = makeTempDir();
-        const { manager } = createHarness(baseDir);
-        const setCount = (count: number) =>
-            manager.setReaderPreferences(
-                'shift',
-                300,
-                'Shift',
-                false,
-                10,
-                undefined,
-                true,
-                undefined,
-                undefined,
-                undefined,
-                undefined,
-                true,
-                undefined,
-                16,
-                32,
-                null,
-                'descending',
-                undefined,
-                undefined,
-                true,
-                count
-            );
-
-        for (const count of [0, 7, 1.5]) {
-            await expect(setCount(count)).rejects.toThrow(
-                'compact definition summary count is invalid'
-            );
-        }
-    });
-
-    it('rejects invalid compact definition summary dictionary titles', async () => {
-        const baseDir = makeTempDir();
-        const { manager } = createHarness(baseDir);
-        const setPreferredDictionary = (dictionary: string | null) =>
-            manager.setReaderPreferences(
-                'shift',
-                300,
-                'Shift',
-                false,
-                10,
-                undefined,
-                true,
-                undefined,
-                undefined,
-                undefined,
-                undefined,
-                true,
-                undefined,
-                16,
-                32,
-                null,
-                'descending',
-                undefined,
-                undefined,
-                true,
-                3,
-                dictionary
-            );
-
-        await expect(setPreferredDictionary('')).rejects.toThrow(
-            'compact definition summary dictionary is invalid'
-        );
-        await expect(setPreferredDictionary('   ')).rejects.toThrow(
-            'compact definition summary dictionary is invalid'
-        );
-        await expect(setPreferredDictionary('x'.repeat(4097))).rejects.toThrow(
-            'compact definition summary dictionary is invalid'
-        );
-        await expect(setPreferredDictionary(null)).resolves.toMatchObject({
-            compactDefinitionSummaryDictionary: null,
-        });
-    });
-
-    it('rejects a non-boolean popup grammar tag preference', async () => {
-        const baseDir = makeTempDir();
-        const { manager } = createHarness(baseDir);
-
-        await expect(
-            manager.setReaderPreferences(
-                'shift',
-                300,
-                'Shift',
-                false,
-                10,
-                undefined,
-                true,
-                undefined,
-                undefined,
-                undefined,
-                undefined,
-                true,
-                undefined,
-                16,
-                32,
-                null,
-                'descending',
-                undefined,
-                undefined,
-                false,
-                3,
-                null,
-                'yes' as never
-            )
-        ).rejects.toThrow('popup grammar tag preference is invalid');
-    });
-
-    it('rejects invalid pitch accent furigana preferences', async () => {
-        const baseDir = makeTempDir();
-        const { manager } = createHarness(baseDir);
-        const setPitchPreferences = (
-            showPitchAccentFurigana: boolean,
-            pitchAccentFuriganaDictionary: string | null
-        ) =>
-            manager.setReaderPreferences(
-                'shift',
-                300,
-                'Shift',
-                false,
-                10,
-                undefined,
-                true,
-                undefined,
-                undefined,
-                undefined,
-                undefined,
-                true,
-                undefined,
-                16,
-                32,
-                null,
-                'descending',
-                undefined,
-                undefined,
-                false,
-                3,
-                null,
-                true,
-                showPitchAccentFurigana,
-                pitchAccentFuriganaDictionary
-            );
-
-        await expect(
-            setPitchPreferences('yes' as never, null)
-        ).rejects.toThrow('pitch accent furigana preference is invalid');
-        for (const dictionary of ['', '   ', 'x'.repeat(4097)]) {
             await expect(
-                setPitchPreferences(true, dictionary)
-            ).rejects.toThrow('pitch accent furigana dictionary is invalid');
+                manager.setReaderPreferences(request as never)
+            ).rejects.toThrow('Hoshidicts reader preferences are invalid.');
         }
-        await expect(
-            setPitchPreferences(true, '  Kanjium Pitch Accents  ')
-        ).resolves.toMatchObject({
-            showPitchAccentFurigana: true,
-            pitchAccentFuriganaDictionary: 'Kanjium Pitch Accents',
-        });
-    });
+    );
 
-    it('rejects a non-boolean pitch accent badge preference', async () => {
-        const baseDir = makeTempDir();
-        const { manager } = createHarness(baseDir);
+    // A complete request is now mandatory; there is no "omit to keep the stored
+    // value" behaviour left to fall back on.
+    it.each(readerPreferenceFields)(
+        'rejects a request that omits %s',
+        async (field) => {
+            const baseDir = makeTempDir();
+            const { manager } = createHarness(baseDir);
+            const request: Record<string, unknown> =
+                makeHoshidictsReaderPreferences();
+            delete request[field];
 
-        await expect(
-            manager.setReaderPreferences(
-                'shift',
-                300,
-                'Shift',
-                false,
-                10,
-                undefined,
-                true,
-                undefined,
-                undefined,
-                undefined,
-                undefined,
-                true,
-                undefined,
-                16,
-                32,
-                null,
-                'descending',
-                undefined,
-                undefined,
-                false,
-                3,
-                null,
-                true,
-                true,
-                null,
-                'yes' as never
-            )
-        ).rejects.toThrow('pitch accent badge preference is invalid');
-    });
+            await expect(
+                manager.setReaderPreferences(request as never)
+            ).rejects.toThrow(/ (is|are) invalid\.$/u);
+        }
+    );
 
-    it('rejects popup dimensions and themes outside appearance bounds', async () => {
-        const baseDir = makeTempDir();
-        const { manager } = createHarness(baseDir);
-
-        await expect(
-            manager.setReaderPreferences(
-                'hover', 300, 'Shift', false, 10, undefined, true, 279
-            )
-        ).rejects.toThrow('popup width is invalid');
-        await expect(
-            manager.setReaderPreferences(
-                'hover', 300, 'Shift', false, 10, undefined, true, 560, 901
-            )
-        ).rejects.toThrow('popup height is invalid');
-        await expect(
-            manager.setReaderPreferences(
-                'hover', 300, 'Shift', false, 10, undefined, true, 560, 420,
-                'neon' as never
-            )
-        ).rejects.toThrow('theme is invalid');
-        await expect(
-            manager.setReaderPreferences(
-                'hover', 300, 'Shift', false, 10, undefined, true, 560, 420,
-                'default', 101
-            )
-        ).rejects.toThrow('opacity is invalid');
-        await expect(
-            manager.setReaderPreferences(
-                'hover', 300, 'Shift', false, 10, undefined, true, 560, 420,
-                'default', 70.5
-            )
-        ).rejects.toThrow('opacity is invalid');
-        await expect(
-            manager.setReaderPreferences(
-                'hover', 300, 'Shift', false, 10, undefined, true, 560, 420,
-                'default', 70, true, 'side' as never
-            )
-        ).rejects.toThrow('toolbar position is invalid');
-        await expect(
-            manager.setReaderPreferences(
-                'hover', 300, 'Shift', false, 10, undefined, true, 560, 420,
-                'default', 85, true, 'top', 16, 32, null, 'descending',
-                undefined, 0
-            )
-        ).rejects.toThrow('column count is invalid');
-        await expect(
-            manager.setReaderPreferences(
-                'hover', 300, 'Shift', false, 10, undefined, true, 560, 420,
-                'default', 85, true, 'top', 16, 32, null, 'descending',
-                undefined, 5
-            )
-        ).rejects.toThrow('column count is invalid');
-    });
-
-    it('rejects unsupported activation keys', async () => {
-        const baseDir = makeTempDir();
-        const { manager } = createHarness(baseDir);
-
-        await expect(
-            manager.setReaderPreferences('shift', 300, 'MediaPlayPause' as never)
-        ).rejects.toThrow('activation key is invalid');
-    });
-
-    it('defaults malformed persisted popup buttons and rejects invalid updates', async () => {
-        const baseDir = makeTempDir();
-        const { manager } = createHarness(baseDir);
-        fs.mkdirSync(path.dirname(manager.manifestPath), { recursive: true });
-        fs.writeFileSync(
-            manager.manifestPath,
-            JSON.stringify({
-                version: 1,
-                popupButtons: {
-                    addToAnki: true,
-                    audio: true,
-                    customDefinition: true,
-                    viewInAnki: false,
-                    customLinks: [
-                        {
-                            label: '',
-                            url: 'javascript:alert(1)',
-                        },
-                    ],
-                },
-                schedule: 'off',
-                dictionaries: [],
-            }),
-            'utf8'
-        );
-
-        expect((await manager.getSnapshot()).popupButtons).toEqual({
-            addToAnki: true,
-            audio: true,
-            customDefinition: true,
-            viewInAnki: false,
-            customLinks: [],
-        });
-        await expect(
-            manager.setReaderPreferences(
-                'shift',
-                300,
-                'Shift',
-                false,
-                10,
-                undefined,
-                true,
-                undefined,
-                undefined,
-                undefined,
-                undefined,
-                true,
-                'top',
-                16,
-                32,
-                null,
-                'descending',
-                {
-                    addToAnki: true,
-                    audio: true,
-                    customDefinition: true,
-                    viewInAnki: false,
-                    customLinks: [
-                        { label: 'Unsafe', url: 'file:///tmp/word' },
-                    ],
-                }
-            )
-        ).rejects.toThrow('popup buttons are invalid');
-    });
-
-    it('rejects non-boolean source highlighting preferences', async () => {
-        const baseDir = makeTempDir();
-        const { manager } = createHarness(baseDir);
-
-        await expect(
-            manager.setReaderPreferences('shift', 300, 'Shift', 'yes' as never)
-        ).rejects.toThrow('source highlight preference is invalid');
-    });
-
-    it('rejects non-boolean lookup count preferences', async () => {
-        const baseDir = makeTempDir();
-        const { manager } = createHarness(baseDir);
-
-        await expect(
-            manager.setReaderPreferences(
-                'shift',
-                300,
-                'Shift',
-                false,
-                10,
-                undefined,
-                'yes' as never
-            )
-        ).rejects.toThrow('lookup count preference is invalid');
-    });
-
-    it('defaults invalid persisted popup nesting depths and rejects invalid updates', async () => {
-        const baseDir = makeTempDir();
-        const { manager } = createHarness(baseDir);
-        fs.mkdirSync(path.dirname(manager.manifestPath), { recursive: true });
-        fs.writeFileSync(
-            manager.manifestPath,
-            JSON.stringify({
-                version: 1,
-                lookupMode: 'hover',
-                popupHideDelayMs: 850,
-                popupNestingMaxDepth: -1,
-                schedule: 'off',
-                lastCheck: null,
-                nextCheck: null,
-                lastError: null,
-                dictionaries: [],
-            }),
-            'utf8'
-        );
-
-        expect((await manager.getSnapshot()).popupNestingMaxDepth).toBe(10);
-        await expect(
-            manager.setReaderPreferences('hover', 850, 'Shift', false, -1)
-        ).rejects.toThrow('nesting depth is invalid');
-        await expect(
-            manager.setReaderPreferences('hover', 850, 'Shift', false, 1.5)
-        ).rejects.toThrow('nesting depth is invalid');
-        await expect(
-            manager.setReaderPreferences(
-                'hover',
-                850,
-                'Shift',
-                false,
-                Number.MAX_SAFE_INTEGER + 1
-            )
-        ).rejects.toThrow('nesting depth is invalid');
-    });
-
-    it('rejects invalid definition blur preference bounds', async () => {
-        const baseDir = makeTempDir();
-        const { manager } = createHarness(baseDir);
-        const definitionBlur = {
-            enabled: true,
-            lookupThreshold: 5,
-            revealMode: 'timed' as const,
-            revealDelayMs: 5000,
-        };
-
-        await expect(
-            manager.setReaderPreferences('shift', 300, 'Shift', false, 10, {
-                ...definitionBlur,
+    it.each([
+        ['lookupMode', 'automatic', 'lookup mode is invalid'],
+        ['scanLength', 0, 'scan length is invalid'],
+        ['scanLength', 65, 'scan length is invalid'],
+        ['scanLength', 1.5, 'scan length is invalid'],
+        ['maxResults', 0, 'maximum result count is invalid'],
+        ['maxResults', 257, 'maximum result count is invalid'],
+        [
+            'sortFrequencyDictionary',
+            '',
+            'frequency sort dictionary is invalid',
+        ],
+        [
+            'sortFrequencyDictionary',
+            'x'.repeat(4097),
+            'frequency sort dictionary is invalid',
+        ],
+        ['sortFrequencyDictionary', 42, 'frequency sort dictionary is invalid'],
+        [
+            'sortFrequencyDictionaryOrder',
+            'random',
+            'frequency sort order is invalid',
+        ],
+        ['popupHideDelayMs', -1, 'popup hide delay is invalid'],
+        ['popupHideDelayMs', 5001, 'popup hide delay is invalid'],
+        ['activationKey', 'MediaPlayPause', 'activation key is invalid'],
+        [
+            'sourceHighlightEnabled',
+            'yes',
+            'source highlight preference is invalid',
+        ],
+        [
+            'onlyScanJapaneseText',
+            'yes',
+            'Japanese-only scan preference is invalid',
+        ],
+        ['popupToolbarPosition', 'side', 'toolbar position is invalid'],
+        [
+            'popupButtons',
+            {
+                addToAnki: true,
+                audio: true,
+                customDefinition: true,
+                viewInAnki: false,
+                customLinks: [{ label: 'Unsafe', url: 'file:///tmp/word' }],
+            },
+            'popup buttons are invalid',
+        ],
+        ['showLookupCounts', 'yes', 'lookup count preference is invalid'],
+        ['averageFrequency', 'yes', 'average frequency preference is invalid'],
+        [
+            'showFrequencyDictionaryNames',
+            'yes',
+            'frequency dictionary name preference is invalid',
+        ],
+        [
+            'showCompactDefinitionSummary',
+            'yes',
+            'compact definition summary preference is invalid',
+        ],
+        [
+            'compactDefinitionSummaryCount',
+            0,
+            'compact definition summary count is invalid',
+        ],
+        [
+            'compactDefinitionSummaryCount',
+            7,
+            'compact definition summary count is invalid',
+        ],
+        [
+            'compactDefinitionSummaryCount',
+            1.5,
+            'compact definition summary count is invalid',
+        ],
+        [
+            'compactDefinitionSummaryDictionary',
+            '',
+            'compact definition summary dictionary is invalid',
+        ],
+        [
+            'compactDefinitionSummaryDictionary',
+            '   ',
+            'compact definition summary dictionary is invalid',
+        ],
+        [
+            'compactDefinitionSummaryDictionary',
+            'x'.repeat(4097),
+            'compact definition summary dictionary is invalid',
+        ],
+        [
+            'showPitchAccentFurigana',
+            'yes',
+            'pitch accent furigana preference is invalid',
+        ],
+        [
+            'pitchAccentFuriganaDictionary',
+            '',
+            'pitch accent furigana dictionary is invalid',
+        ],
+        [
+            'pitchAccentFuriganaDictionary',
+            '   ',
+            'pitch accent furigana dictionary is invalid',
+        ],
+        [
+            'pitchAccentFuriganaDictionary',
+            'x'.repeat(4097),
+            'pitch accent furigana dictionary is invalid',
+        ],
+        [
+            'showPitchAccentBadge',
+            'yes',
+            'pitch accent badge preference is invalid',
+        ],
+        [
+            'hidePopupGrammarTags',
+            'yes',
+            'popup grammar tag preference is invalid',
+        ],
+        ['popupNestingMaxDepth', -1, 'popup nesting depth is invalid'],
+        ['popupNestingMaxDepth', 1.5, 'popup nesting depth is invalid'],
+        [
+            'popupNestingMaxDepth',
+            Number.MAX_SAFE_INTEGER + 1,
+            'popup nesting depth is invalid',
+        ],
+        [
+            'definitionBlur',
+            {
+                enabled: 'yes',
+                lookupThreshold: 5,
+                revealMode: 'timed',
+                revealDelayMs: 5000,
+            },
+            'definition blur enabled state is invalid',
+        ],
+        [
+            'definitionBlur',
+            {
+                enabled: true,
                 lookupThreshold: 0,
-            })
-        ).rejects.toThrow('lookup threshold is invalid');
-        await expect(
-            manager.setReaderPreferences('shift', 300, 'Shift', false, 10, {
-                ...definitionBlur,
+                revealMode: 'timed',
+                revealDelayMs: 5000,
+            },
+            'lookup threshold is invalid',
+        ],
+        [
+            'definitionBlur',
+            {
+                enabled: true,
                 lookupThreshold: 1_000_001,
-            })
-        ).rejects.toThrow('lookup threshold is invalid');
-        await expect(
-            manager.setReaderPreferences('shift', 300, 'Shift', false, 10, {
-                ...definitionBlur,
+                revealMode: 'timed',
+                revealDelayMs: 5000,
+            },
+            'lookup threshold is invalid',
+        ],
+        [
+            'definitionBlur',
+            {
+                enabled: true,
+                lookupThreshold: 5,
+                revealMode: 'click',
+                revealDelayMs: 5000,
+            },
+            'reveal mode is invalid',
+        ],
+        [
+            'definitionBlur',
+            {
+                enabled: true,
+                lookupThreshold: 5,
+                revealMode: 'timed',
                 revealDelayMs: 999,
-            })
-        ).rejects.toThrow('reveal delay is invalid');
-        await expect(
-            manager.setReaderPreferences('shift', 300, 'Shift', false, 10, {
-                ...definitionBlur,
+            },
+            'reveal delay is invalid',
+        ],
+        [
+            'definitionBlur',
+            {
+                enabled: true,
+                lookupThreshold: 5,
+                revealMode: 'timed',
                 revealDelayMs: 3_600_001,
-            })
-        ).rejects.toThrow('reveal delay is invalid');
+            },
+            'reveal delay is invalid',
+        ],
+        ['popupWidthPx', 279, 'popup width is invalid'],
+        ['popupWidthPx', 1201, 'popup width is invalid'],
+        ['popupHeightPx', 199, 'popup height is invalid'],
+        ['popupHeightPx', 901, 'popup height is invalid'],
+        ['popupColumns', 0, 'popup column count is invalid'],
+        ['popupColumns', 5, 'popup column count is invalid'],
+        ['theme', 'neon', 'theme is invalid'],
+        ['popupOpacityPercent', -1, 'popup opacity is invalid'],
+        ['popupOpacityPercent', 101, 'popup opacity is invalid'],
+        ['popupOpacityPercent', 70.5, 'popup opacity is invalid'],
+        ['popupBackdropBlurPx', -1, 'popup backdrop blur is invalid'],
+        ['popupBackdropBlurPx', 33, 'popup backdrop blur is invalid'],
+        ['customPopupCss', 42, 'custom popup CSS is invalid'],
+        [
+            'customPopupCss',
+            'x'.repeat(MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH + 1),
+            'custom popup CSS is invalid',
+        ],
+    ])('rejects %s = %j with "%s"', async (field, value, message) => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+
+        await expect(
+            manager.setReaderPreferences(
+                makeHoshidictsReaderPreferences({ [field]: value })
+            )
+        ).rejects.toThrow(message);
     });
+
+    it('accepts null for every optional dictionary title', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+
+        await expect(
+            manager.setReaderPreferences(
+                makeHoshidictsReaderPreferences({
+                    sortFrequencyDictionary: null,
+                    compactDefinitionSummaryDictionary: null,
+                    pitchAccentFuriganaDictionary: null,
+                })
+            )
+        ).resolves.toMatchObject({
+            sortFrequencyDictionary: null,
+            compactDefinitionSummaryDictionary: null,
+            pitchAccentFuriganaDictionary: null,
+        });
+    });
+
+    // Persisted settings are read tolerantly: a single unusable field falls back
+    // to its default instead of making the whole profile unreadable.
+    it.each([
+        [
+            'popupButtons',
+            {
+                addToAnki: true,
+                audio: true,
+                customDefinition: true,
+                viewInAnki: false,
+                customLinks: [{ label: '', url: 'javascript:alert(1)' }],
+            },
+            createDefaultHoshidictsPopupButtons(),
+        ],
+        ['popupNestingMaxDepth', -1, 10],
+        [
+            'definitionBlur',
+            { enabled: 'yes' },
+            {
+                enabled: false,
+                lookupThreshold: 5,
+                revealMode: 'timed',
+                revealDelayMs: 5000,
+            },
+        ],
+        ['theme', 'neon', 'default'],
+        ['popupWidthPx', 10_000, 560],
+        ['compactDefinitionSummaryDictionary', '   ', null],
+        ['customPopupCss', 42, ''],
+        ['activationKey', 'MediaPlayPause', 'Shift'],
+    ])(
+        'defaults an invalid persisted %s',
+        async (field, persisted, expected) => {
+            const baseDir = makeTempDir();
+            const { manager } = createHarness(baseDir);
+            writeProfileManifest(manager, {
+                ...defaultPreferences,
+                [field]: persisted,
+            });
+
+            expect(await manager.getSnapshot()).toMatchObject({
+                [field]: expected,
+            });
+        }
+    );
 });
 
 describe('Hoshidicts snapshots', () => {
@@ -2883,12 +2519,22 @@ describe('Hoshidicts snapshots', () => {
     it('preserves reader and mining preferences when dictionary hydration fails', async () => {
         const baseDir = makeTempDir();
         const { manager } = createHarness(baseDir);
-        await manager.setReaderPreferences('hover', 900, 'Space', true, 0, {
-            enabled: true,
-            lookupThreshold: 12,
-            revealMode: 'hover',
-            revealDelayMs: 6000,
-        }, false);
+        await manager.setReaderPreferences(
+            makeHoshidictsReaderPreferences({
+                lookupMode: 'hover',
+                popupHideDelayMs: 900,
+                activationKey: 'Space',
+                sourceHighlightEnabled: true,
+                popupNestingMaxDepth: 0,
+                definitionBlur: {
+                    enabled: true,
+                    lookupThreshold: 12,
+                    revealMode: 'hover',
+                    revealDelayMs: 6000,
+                },
+                showLookupCounts: false,
+            })
+        );
         await manager.setMiningProfile({
             deck: 'Mining',
             model: 'Kiku',
@@ -3637,15 +3283,10 @@ describe('Hoshidicts updates and schedule', () => {
             indexUrl: 'https://dict.example/index.json',
             downloadUrl: 'https://dict.example/dictionary.zip',
         };
-        let reloadCount = 0;
+        const rollback = blockManifestRollback(baseDir);
         const { manager } = createHarness(baseDir, {
-            reloadNative: async () => {
-                reloadCount += 1;
-                if (reloadCount === 2) {
-                    throw new Error('replacement rejected');
-                }
-                return 1;
-            },
+            reloadNative: rollback.rejectSecondReload,
+            randomId: rollback.randomId,
             fetchRemoteIndex: async () => ({
                 revision: update.revision,
                 downloadUrl: update.downloadUrl ?? null,
@@ -3657,16 +3298,6 @@ describe('Hoshidicts updates and schedule', () => {
         });
 
         await manager.importDictionary(archive);
-        fs.writeFileSync(
-            path.join(
-                baseDir,
-                'dictionaries',
-                'hoshidicts',
-                '.manifest-test-5.tmp'
-            ),
-            'block rollback temp creation',
-            'utf8'
-        );
 
         const snapshot = await manager.checkForUpdates();
 
@@ -3683,7 +3314,7 @@ describe('Hoshidicts updates and schedule', () => {
             )
         );
         expect(generations).toHaveLength(2);
-        expect(reloadCount).toBe(2);
+        expect(rollback.reloadCount()).toBe(2);
     });
 
     it('persists dictionary overrides while inheriting the global schedule by default', async () => {

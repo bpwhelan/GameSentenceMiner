@@ -18,6 +18,7 @@ import {
     type HoshidictsImportReport,
     type HoshidictsManagerDependencies,
 } from './manager.js';
+import { makeHoshidictsReaderPreferences } from './test_helpers.js';
 
 interface TestArchive {
     title: string;
@@ -164,7 +165,6 @@ async function readStateFiles(baseDirectory: string): Promise<Record<string, Buf
         'mining-profile.json',
         'audio-profile.json',
         'custom-dictionary.txt',
-        'tab-groups.json',
     ]) {
         try {
             result[fileName] = await fsp.readFile(statePath(baseDirectory, fileName));
@@ -249,38 +249,38 @@ describe('Hoshidicts manager full backups', () => {
         const emptyGroup = tabGroupSnapshot.tabGroups.find(({ name }) => name === 'Empty');
         expect(emptyGroup).toBeDefined();
         await source.moveTabGroup(emptyGroup!.id, -1);
-        await source.setReaderPreferences(
-            'hover',
-            850,
-            'F8',
-            true,
-            12,
-            {
+        const readerPreferences = makeHoshidictsReaderPreferences({
+            lookupMode: 'hover',
+            popupHideDelayMs: 850,
+            activationKey: 'F8',
+            sourceHighlightEnabled: true,
+            popupNestingMaxDepth: 12,
+            definitionBlur: {
                 enabled: true,
                 lookupThreshold: 8,
                 revealMode: 'hover',
                 revealDelayMs: 7000,
             },
-            false,
-            720,
-            520,
-            'girlypop',
-            70,
-            true,
-            'top',
-            24,
-            48,
-            'Beta',
-            'ascending',
-            undefined,
-            3,
-            true,
-            'Jitendex.org',
-            false,
-            false,
-            'Kanjium Pitch Accents',
-            true,
-        );
+            showLookupCounts: false,
+            popupWidthPx: 720,
+            popupHeightPx: 520,
+            theme: 'girlypop',
+            popupOpacityPercent: 70,
+            onlyScanJapaneseText: true,
+            popupToolbarPosition: 'top',
+            scanLength: 24,
+            maxResults: 48,
+            sortFrequencyDictionary: 'Beta',
+            sortFrequencyDictionaryOrder: 'ascending',
+            popupColumns: 3,
+            showCompactDefinitionSummary: true,
+            compactDefinitionSummaryDictionary: 'Jitendex.org',
+            showPitchAccentFurigana: false,
+            pitchAccentFuriganaDictionary: 'Kanjium Pitch Accents',
+            showPitchAccentBadge: true,
+            hidePopupGrammarTags: false,
+        });
+        await source.setReaderPreferences(readerPreferences);
         await source.setSchedule('weekly');
         await source.setDictionarySchedule(beta!.id, 'hourly');
         const miningProfile = {
@@ -395,33 +395,8 @@ describe('Hoshidicts manager full backups', () => {
             customDictionaryActive: true,
             miningProfile,
             audioProfile,
-            lookupMode: 'hover',
-            scanLength: 24,
-            maxResults: 48,
-            sortFrequencyDictionary: 'Beta',
-            sortFrequencyDictionaryOrder: 'ascending',
-            activationKey: 'F8',
-            sourceHighlightEnabled: true,
-            popupHideDelayMs: 850,
-            showLookupCounts: false,
-            showCompactDefinitionSummary: true,
-            compactDefinitionSummaryDictionary: 'Jitendex.org',
-            showPitchAccentFurigana: false,
-            pitchAccentFuriganaDictionary: 'Kanjium Pitch Accents',
-            showPitchAccentBadge: true,
-            hidePopupGrammarTags: false,
-            popupNestingMaxDepth: 12,
-            definitionBlur: {
-                enabled: true,
-                lookupThreshold: 8,
-                revealMode: 'hover',
-                revealDelayMs: 7000,
-            },
-            popupWidthPx: 720,
-            popupHeightPx: 520,
-            popupColumns: 3,
-            theme: 'girlypop',
-            popupOpacityPercent: 70,
+            // Every reader preference round-trips, not just a sampled subset.
+            ...readerPreferences,
             schedule: 'weekly',
         });
         await expect(target.getCustomDictionaryDocument()).resolves.toMatchObject({
@@ -726,33 +701,27 @@ describe('Hoshidicts manager full backups', () => {
             version: 1,
             activeProfileId: 'default',
             dictionaries: [],
-            lookupMode: 'shift',
-            popupWidthPx: 560,
-            popupHeightPx: 420,
-            popupColumns: 1,
-            theme: 'default',
-            popupOpacityPercent: 85,
-            showCompactDefinitionSummary: false,
-            showPitchAccentFurigana: true,
-            pitchAccentFuriganaDictionary: null,
-            showPitchAccentBadge: false,
-            hidePopupGrammarTags: true,
         });
         expect(persisted.profiles).toHaveLength(1);
+        // The active profile is the only owner of reader settings; the manifest
+        // root no longer mirrors them.
         expect(persisted.profiles[0]).toMatchObject({
             id: 'default',
             name: 'Default',
+            reader: makeHoshidictsReaderPreferences(),
             mining: defaultHoshidictsMiningProfile(),
             audio: defaultHoshidictsAudioProfile(),
             tabGroups: [],
             enabledDictionaryIds: [],
         });
+        expect(Object.keys(persisted)).not.toContain('lookupMode');
+        // The backend mirrors of the active profile are written alongside it.
         await expect(
             fsp.stat(statePath(sourceBase, 'mining-profile.json')),
-        ).rejects.toMatchObject({ code: 'ENOENT' });
+        ).resolves.toMatchObject({ isFile: expect.any(Function) });
         await expect(
             fsp.stat(statePath(sourceBase, 'audio-profile.json')),
-        ).rejects.toMatchObject({ code: 'ENOENT' });
+        ).resolves.toMatchObject({ isFile: expect.any(Function) });
 
         const targetBase = path.join(workspace, 'target');
         const { manager: target, reloadNative } = createHarness(targetBase, 'target');
@@ -764,17 +733,7 @@ describe('Hoshidicts manager full backups', () => {
         expect(restored.audioProfile).toEqual(defaultHoshidictsAudioProfile());
         expect(restored).toMatchObject({
             customDictionaryActive: false,
-            lookupMode: 'shift',
-            popupWidthPx: 560,
-            popupHeightPx: 420,
-            popupColumns: 1,
-            theme: 'default',
-            popupOpacityPercent: 85,
-            showCompactDefinitionSummary: false,
-            showPitchAccentFurigana: true,
-            pitchAccentFuriganaDictionary: null,
-            showPitchAccentBadge: false,
-            hidePopupGrammarTags: true,
+            ...makeHoshidictsReaderPreferences(),
         });
     });
 });

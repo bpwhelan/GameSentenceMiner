@@ -21,87 +21,31 @@ import type {
     HoshidictsCustomEntryRequest,
     HoshidictsDictionaryTabGroup,
     HoshidictsDictionaryState,
-    HoshidictsDefinitionBlurPreferences,
-    HoshidictsActivationKey,
     HoshidictsFrequencyMode,
     HoshidictsManagerSnapshot,
     HoshidictsLookupMode,
     HoshidictsMiningProfile,
     HoshidictsProgress,
     HoshidictsProgressPhase,
-    HoshidictsPopupButtons,
-    HoshidictsPopupToolbarPosition,
     HoshidictsReaderPreferencesRequest,
     HoshidictsRecommendedDictionaryId,
     HoshidictsRecommendedDictionaryState,
     HoshidictsSchedule,
-    HoshidictsSortFrequencyDictionaryOrder,
-    HoshidictsTheme,
     HoshidictsYomitanDictionaryPreference,
 } from '../../../shared/features/hoshidicts.js';
 import {
-    DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
-    DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
-    DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
-    DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
-    DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
-    DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
-    DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE,
-    DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
-    DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
-    DEFAULT_HOSHIDICTS_AVERAGE_FREQUENCY,
-    DEFAULT_HOSHIDICTS_SHOW_FREQUENCY_DICTIONARY_NAMES,
-    DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
-    DEFAULT_HOSHIDICTS_MAX_RESULTS,
     DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
-    DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
-    DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
-    DEFAULT_HOSHIDICTS_POPUP_COLUMNS,
-    DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
-    DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
-    DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
-    DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
-    DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
-    DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
-    DEFAULT_HOSHIDICTS_SCAN_LENGTH,
-    DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
-    DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
-    DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
-    DEFAULT_HOSHIDICTS_THEME,
-    createDefaultHoshidictsPopupButtons,
-    isHoshidictsActivationKey,
-    isHoshidictsPopupToolbarPosition,
-    isHoshidictsSortFrequencyDictionaryOrder,
-    isHoshidictsTheme,
-    normalizeHoshidictsPopupButtons,
     MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES,
-    MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH,
-    MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
-    MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
-    MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
-    MAX_HOSHIDICTS_MAX_RESULTS,
     MAX_HOSHIDICTS_PROFILE_NAME_LENGTH,
-    MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
-    MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
-    MAX_HOSHIDICTS_POPUP_COLUMNS,
-    MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT,
-    MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
-    MAX_HOSHIDICTS_POPUP_WIDTH_PX,
-    MAX_HOSHIDICTS_SCAN_LENGTH,
     MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH,
-    MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
-    MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
-    MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
-    MIN_HOSHIDICTS_MAX_RESULTS,
-    MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
-    MIN_HOSHIDICTS_POPUP_COLUMNS,
-    MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
-    MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
-    MIN_HOSHIDICTS_POPUP_WIDTH_PX,
-    MIN_HOSHIDICTS_SCAN_LENGTH,
+    assertHoshidictsReaderPreferences,
+    createDefaultHoshidictsReaderPreferences,
+    hoshidictsReaderPreferencesEqual,
+    normalizeHoshidictsReaderPreferences,
 } from '../../../shared/features/hoshidicts.js';
 import {
     defaultHoshidictsAudioProfile,
+    HOSHIDICTS_AUDIO_PROFILE_FILE_NAME,
     normalizeHoshidictsAudioProfile,
 } from './audio_profile.js';
 import {
@@ -113,6 +57,7 @@ import {
 } from './custom_dictionary.js';
 import {
     defaultHoshidictsMiningProfile,
+    HOSHIDICTS_MINING_PROFILE_FILE_NAME,
     normalizeHoshidictsMiningProfile,
 } from './profile.js';
 import {
@@ -162,14 +107,7 @@ interface PersistedDictionary extends HoshidictsDictionaryState {
     recommendedId: HoshidictsRecommendedDictionaryId | null;
 }
 
-interface PersistedReaderPreferences
-    extends HoshidictsReaderPreferencesRequest {
-    averageFrequency: boolean;
-    showFrequencyDictionaryNames: boolean;
-    compactDefinitionSummaryCount: number;
-    customPopupCss: string;
-    popupBackdropBlurPx: number;
-}
+type PersistedReaderPreferences = HoshidictsReaderPreferencesRequest;
 
 interface PersistedSettingsProfile {
     id: string;
@@ -181,40 +119,14 @@ interface PersistedSettingsProfile {
     enabledDictionaryIds: string[];
 }
 
+/**
+ * The active profile owns every setting; the manifest never mirrors its reader
+ * preferences, so there is nothing to keep in sync.
+ */
 interface PersistedManifest {
     version: 1;
     activeProfileId: string;
     profiles: PersistedSettingsProfile[];
-    lookupMode: HoshidictsLookupMode;
-    scanLength: number;
-    maxResults: number;
-    sortFrequencyDictionary: string | null;
-    sortFrequencyDictionaryOrder: HoshidictsSortFrequencyDictionaryOrder;
-    activationKey: HoshidictsActivationKey;
-    sourceHighlightEnabled: boolean;
-    onlyScanJapaneseText: boolean;
-    popupHideDelayMs: number;
-    showLookupCounts: boolean;
-    averageFrequency: boolean;
-    showFrequencyDictionaryNames: boolean;
-    showCompactDefinitionSummary: boolean;
-    compactDefinitionSummaryCount: number;
-    compactDefinitionSummaryDictionary: string | null;
-    showPitchAccentFurigana: boolean;
-    pitchAccentFuriganaDictionary: string | null;
-    showPitchAccentBadge: boolean;
-    hidePopupGrammarTags: boolean;
-    popupNestingMaxDepth: number;
-    definitionBlur: HoshidictsDefinitionBlurPreferences;
-    popupWidthPx: number;
-    popupHeightPx: number;
-    popupColumns: number;
-    theme: HoshidictsTheme;
-    popupOpacityPercent: number;
-    popupBackdropBlurPx: number;
-    popupToolbarPosition: HoshidictsPopupToolbarPosition;
-    popupButtons: HoshidictsPopupButtons;
-    customPopupCss: string;
     schedule: HoshidictsSchedule;
     lastCheck: string | null;
     nextCheck: string | null;
@@ -291,9 +203,10 @@ export interface HoshidictsManagerDependencies {
 }
 
 const MANIFEST_FILE_NAME = 'manifest.json';
-export const HOSHIDICTS_TAB_GROUPS_FILE_NAME = 'tab-groups.json';
 const MANIFEST_VERSION = 1;
 const MAX_MANIFEST_BYTES = 1024 * 1024;
+// Matches MAX_PROFILE_BYTES in the Python backend, which reads these files.
+const MAX_BACKEND_PROFILE_BYTES = 64 * 1024;
 const MAX_TAB_GROUP_COUNT = 256;
 const MAX_TAB_GROUP_DICTIONARIES = 256;
 const MAX_ARCHIVE_INDEX_BYTES = 1024 * 1024;
@@ -448,56 +361,11 @@ const SCHEDULE_INTERVALS: Record<Exclude<HoshidictsSchedule, 'off'>, number> = {
     monthly: 30 * 24 * 60 * 60 * 1000,
 };
 
-function defaultReaderPreferences(): PersistedReaderPreferences {
-    return {
-        lookupMode: 'shift',
-        scanLength: DEFAULT_HOSHIDICTS_SCAN_LENGTH,
-        maxResults: DEFAULT_HOSHIDICTS_MAX_RESULTS,
-        sortFrequencyDictionary:
-            DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
-        sortFrequencyDictionaryOrder:
-            DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
-        activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
-        sourceHighlightEnabled:
-            DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
-        onlyScanJapaneseText: DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
-        popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
-        showLookupCounts: true,
-        averageFrequency: DEFAULT_HOSHIDICTS_AVERAGE_FREQUENCY,
-        showFrequencyDictionaryNames:
-            DEFAULT_HOSHIDICTS_SHOW_FREQUENCY_DICTIONARY_NAMES,
-        showCompactDefinitionSummary:
-            DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
-        compactDefinitionSummaryCount:
-            DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
-        compactDefinitionSummaryDictionary:
-            DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
-        showPitchAccentFurigana:
-            DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
-        pitchAccentFuriganaDictionary:
-            DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
-        showPitchAccentBadge: DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE,
-        hidePopupGrammarTags: DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
-        popupNestingMaxDepth: DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
-        definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
-        popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
-        popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
-        popupColumns: DEFAULT_HOSHIDICTS_POPUP_COLUMNS,
-        theme: DEFAULT_HOSHIDICTS_THEME,
-        popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
-        popupBackdropBlurPx: DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
-        popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
-        popupButtons: createDefaultHoshidictsPopupButtons(),
-        customPopupCss: DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
-    };
-}
-
 function emptyManifest(): PersistedManifest {
-    const reader = defaultReaderPreferences();
     const profile: PersistedSettingsProfile = {
         id: 'default',
         name: 'Default',
-        reader,
+        reader: createDefaultHoshidictsReaderPreferences(),
         mining: defaultHoshidictsMiningProfile(),
         audio: defaultHoshidictsAudioProfile(),
         tabGroups: [],
@@ -507,7 +375,6 @@ function emptyManifest(): PersistedManifest {
         version: MANIFEST_VERSION,
         activeProfileId: profile.id,
         profiles: [profile],
-        ...reader,
         schedule: 'off',
         lastCheck: null,
         nextCheck: null,
@@ -646,184 +513,6 @@ function normalizeScheduleOverride(value: unknown): HoshidictsSchedule | null {
         : null;
 }
 
-function normalizePopupHideDelay(value: unknown): number {
-    return Number.isInteger(value) &&
-        (value as number) >= 0 &&
-        (value as number) <= MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS
-        ? (value as number)
-        : DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS;
-}
-
-function normalizeScanLength(value: unknown): number {
-    return Number.isInteger(value) &&
-        (value as number) >= MIN_HOSHIDICTS_SCAN_LENGTH &&
-        (value as number) <= MAX_HOSHIDICTS_SCAN_LENGTH
-        ? (value as number)
-        : DEFAULT_HOSHIDICTS_SCAN_LENGTH;
-}
-
-function normalizeMaxResults(value: unknown): number {
-    return Number.isInteger(value) &&
-        (value as number) >= MIN_HOSHIDICTS_MAX_RESULTS &&
-        (value as number) <= MAX_HOSHIDICTS_MAX_RESULTS
-        ? (value as number)
-        : DEFAULT_HOSHIDICTS_MAX_RESULTS;
-}
-
-function normalizeSortFrequencyDictionary(value: unknown): string | null {
-    return typeof value === 'string' && value.length > 0 && value.length <= 4096
-        ? value
-        : DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY;
-}
-
-function normalizeCompactDefinitionSummaryDictionary(
-    value: unknown
-): string | null {
-    return typeof value === 'string' &&
-        value.trim().length > 0 &&
-        value.length <= 4096
-        ? value.trim()
-        : DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY;
-}
-
-function normalizeCompactDefinitionSummaryCount(value: unknown): number {
-    return Number.isInteger(value) &&
-        (value as number) >= MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT &&
-        (value as number) <= MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT
-        ? (value as number)
-        : DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT;
-}
-
-function normalizeSortFrequencyDictionaryOrder(
-    value: unknown
-): HoshidictsSortFrequencyDictionaryOrder {
-    return isHoshidictsSortFrequencyDictionaryOrder(value)
-        ? value
-        : DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER;
-}
-
-function normalizePopupNestingMaxDepth(value: unknown): number {
-    return Number.isSafeInteger(value) && (value as number) >= 0
-        ? (value as number)
-        : DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH;
-}
-
-function normalizePopupWidth(value: unknown): number {
-    return Number.isInteger(value) &&
-        (value as number) >= MIN_HOSHIDICTS_POPUP_WIDTH_PX &&
-        (value as number) <= MAX_HOSHIDICTS_POPUP_WIDTH_PX
-        ? (value as number)
-        : DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX;
-}
-
-function normalizePopupHeight(value: unknown): number {
-    return Number.isInteger(value) &&
-        (value as number) >= MIN_HOSHIDICTS_POPUP_HEIGHT_PX &&
-        (value as number) <= MAX_HOSHIDICTS_POPUP_HEIGHT_PX
-        ? (value as number)
-        : DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX;
-}
-
-function normalizePopupColumns(value: unknown): number {
-    return Number.isInteger(value) &&
-        (value as number) >= MIN_HOSHIDICTS_POPUP_COLUMNS &&
-        (value as number) <= MAX_HOSHIDICTS_POPUP_COLUMNS
-        ? (value as number)
-        : DEFAULT_HOSHIDICTS_POPUP_COLUMNS;
-}
-
-function normalizeTheme(value: unknown): HoshidictsTheme {
-    return isHoshidictsTheme(value) ? value : DEFAULT_HOSHIDICTS_THEME;
-}
-
-function normalizePopupOpacityPercent(value: unknown): number {
-    return Number.isInteger(value) &&
-        (value as number) >= MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT &&
-        (value as number) <= MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT
-        ? (value as number)
-        : DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT;
-}
-
-function normalizePopupBackdropBlurPx(value: unknown): number {
-    return Number.isInteger(value) &&
-        (value as number) >= MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX &&
-        (value as number) <= MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX
-        ? (value as number)
-        : DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX;
-}
-
-function normalizePopupToolbarPosition(
-    value: unknown
-): HoshidictsPopupToolbarPosition {
-    return isHoshidictsPopupToolbarPosition(value)
-        ? value
-        : DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION;
-}
-
-function normalizeCustomPopupCss(value: unknown): string {
-    return typeof value === 'string' &&
-        value.length <= MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH
-        ? value
-        : DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS;
-}
-
-function normalizePersistedPopupButtons(value: unknown): HoshidictsPopupButtons {
-    try {
-        return normalizeHoshidictsPopupButtons(value);
-    } catch {
-        return createDefaultHoshidictsPopupButtons();
-    }
-}
-
-function popupButtonsEqual(
-    left: HoshidictsPopupButtons,
-    right: HoshidictsPopupButtons
-): boolean {
-    return (
-        left.addToAnki === right.addToAnki &&
-        left.audio === right.audio &&
-        left.customDefinition === right.customDefinition &&
-        left.viewInAnki === right.viewInAnki &&
-        left.customLinks.length === right.customLinks.length &&
-        left.customLinks.every(
-            (link, index) =>
-                link.label === right.customLinks[index]?.label &&
-                link.url === right.customLinks[index]?.url
-        )
-    );
-}
-
-function normalizeDefinitionBlur(
-    value: unknown
-): HoshidictsDefinitionBlurPreferences {
-    if (!isRecord(value)) {
-        return { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR };
-    }
-    return {
-        enabled:
-            typeof value.enabled === 'boolean'
-                ? value.enabled
-                : DEFAULT_HOSHIDICTS_DEFINITION_BLUR.enabled,
-        lookupThreshold:
-            Number.isInteger(value.lookupThreshold) &&
-            (value.lookupThreshold as number) >=
-                MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD &&
-            (value.lookupThreshold as number) <=
-                MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD
-                ? (value.lookupThreshold as number)
-                : DEFAULT_HOSHIDICTS_DEFINITION_BLUR.lookupThreshold,
-        revealMode: value.revealMode === 'hover' ? 'hover' : 'timed',
-        revealDelayMs:
-            Number.isInteger(value.revealDelayMs) &&
-            (value.revealDelayMs as number) >=
-                MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS &&
-            (value.revealDelayMs as number) <=
-                MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS
-                ? (value.revealDelayMs as number)
-                : DEFAULT_HOSHIDICTS_DEFINITION_BLUR.revealDelayMs,
-    };
-}
-
 function normalizeProfileName(value: unknown): string {
     if (typeof value !== 'string') {
         throw new Error('Profile name is invalid.');
@@ -850,71 +539,33 @@ function normalizeReaderPreferences(
     if (!isRecord(value)) {
         throw new Error('Hoshidicts profile reader settings are invalid.');
     }
-    const requestedSortFrequencyDictionary =
-        normalizeSortFrequencyDictionary(value.sortFrequencyDictionary);
+    const reader = normalizeHoshidictsReaderPreferences(value);
     return {
-        lookupMode: value.lookupMode === 'hover' ? 'hover' : 'shift',
-        scanLength: normalizeScanLength(value.scanLength),
-        maxResults: normalizeMaxResults(value.maxResults),
-        sortFrequencyDictionary:
-            requestedSortFrequencyDictionary !== null &&
-            dictionaries.some(
-                (dictionary) =>
-                    dictionary.title === requestedSortFrequencyDictionary &&
-                    enabledDictionaryIds.has(dictionary.id) &&
-                    dictionary.frequencyCount > 0
-            )
-                ? requestedSortFrequencyDictionary
-                : null,
-        sortFrequencyDictionaryOrder: normalizeSortFrequencyDictionaryOrder(
-            value.sortFrequencyDictionaryOrder
+        ...reader,
+        sortFrequencyDictionary: usableSortFrequencyDictionary(
+            reader.sortFrequencyDictionary,
+            dictionaries,
+            (dictionary) => enabledDictionaryIds.has(dictionary.id)
         ),
-        activationKey: isHoshidictsActivationKey(value.activationKey)
-            ? value.activationKey
-            : DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
-        sourceHighlightEnabled: value.sourceHighlightEnabled === true,
-        onlyScanJapaneseText: value.onlyScanJapaneseText !== false,
-        popupHideDelayMs: normalizePopupHideDelay(value.popupHideDelayMs),
-        showLookupCounts: value.showLookupCounts !== false,
-        averageFrequency: value.averageFrequency === true,
-        showFrequencyDictionaryNames:
-            value.showFrequencyDictionaryNames !== false,
-        showCompactDefinitionSummary:
-            value.showCompactDefinitionSummary === true,
-        compactDefinitionSummaryCount: normalizeCompactDefinitionSummaryCount(
-            value.compactDefinitionSummaryCount
-        ),
-        compactDefinitionSummaryDictionary:
-            normalizeCompactDefinitionSummaryDictionary(
-                value.compactDefinitionSummaryDictionary
-            ),
-        showPitchAccentFurigana: value.showPitchAccentFurigana !== false,
-        pitchAccentFuriganaDictionary:
-            normalizeCompactDefinitionSummaryDictionary(
-                value.pitchAccentFuriganaDictionary
-            ),
-        showPitchAccentBadge: value.showPitchAccentBadge === true,
-        hidePopupGrammarTags: value.hidePopupGrammarTags !== false,
-        popupNestingMaxDepth: normalizePopupNestingMaxDepth(
-            value.popupNestingMaxDepth
-        ),
-        definitionBlur: normalizeDefinitionBlur(value.definitionBlur),
-        popupWidthPx: normalizePopupWidth(value.popupWidthPx),
-        popupHeightPx: normalizePopupHeight(value.popupHeightPx),
-        popupColumns: normalizePopupColumns(value.popupColumns),
-        theme: normalizeTheme(value.theme),
-        popupOpacityPercent: normalizePopupOpacityPercent(
-            value.popupOpacityPercent
-        ),
-        popupBackdropBlurPx: normalizePopupBackdropBlurPx(
-            value.popupBackdropBlurPx
-        ),
-        popupToolbarPosition: normalizePopupToolbarPosition(
-            value.popupToolbarPosition
-        ),
-        popupButtons: normalizePersistedPopupButtons(value.popupButtons),
-        customPopupCss: normalizeCustomPopupCss(value.customPopupCss),
     };
+}
+
+/** Frequency sorting only works while its dictionary is installed and enabled. */
+function usableSortFrequencyDictionary(
+    title: string | null,
+    dictionaries: readonly PersistedDictionary[],
+    isEnabled: (dictionary: PersistedDictionary) => boolean = (dictionary) =>
+        dictionary.enabled
+): string | null {
+    return title !== null &&
+        dictionaries.some(
+            (dictionary) =>
+                dictionary.title === title &&
+                isEnabled(dictionary) &&
+                dictionary.frequencyCount > 0
+        )
+        ? title
+        : null;
 }
 
 function normalizePersistedProfiles(
@@ -1003,6 +654,39 @@ function activeProfile(manifest: PersistedManifest): PersistedSettingsProfile {
     return profile;
 }
 
+function activeReader(manifest: PersistedManifest): PersistedReaderPreferences {
+    return activeProfile(manifest).reader;
+}
+
+interface SerializedBackendProfiles {
+    mining: Buffer;
+    audio: Buffer;
+}
+
+function serializeBackendProfile(value: unknown, label: string): Buffer {
+    const serialized = Buffer.from(`${JSON.stringify(value, null, 2)}\n`, 'utf8');
+    if (serialized.length > MAX_BACKEND_PROFILE_BYTES) {
+        throw new Error(`${label} exceeded its size limit.`);
+    }
+    return serialized;
+}
+
+/** Rejects a profile the Python backend would refuse to read. */
+function serializeBackendProfiles(
+    profile: PersistedSettingsProfile
+): SerializedBackendProfiles {
+    return {
+        mining: serializeBackendProfile(
+            profile.mining,
+            'Hoshidicts mining profile'
+        ),
+        audio: serializeBackendProfile(
+            profile.audio,
+            'Hoshidicts audio profile'
+        ),
+    };
+}
+
 function cloneProfile(profile: PersistedSettingsProfile): PersistedSettingsProfile {
     return structuredClone(profile);
 }
@@ -1022,11 +706,9 @@ function replaceActiveProfile(
 }
 
 function projectActiveProfile(manifest: PersistedManifest): PersistedManifest {
-    const profile = activeProfile(manifest);
-    const enabledIds = new Set(profile.enabledDictionaryIds);
+    const enabledIds = new Set(activeProfile(manifest).enabledDictionaryIds);
     return pinCustomDictionary({
         ...manifest,
-        ...profile.reader,
         dictionaries: manifest.dictionaries.map((dictionary) => ({
             ...dictionary,
             enabled:
@@ -1034,18 +716,6 @@ function projectActiveProfile(manifest: PersistedManifest): PersistedManifest {
                 enabledIds.has(dictionary.id),
         })),
     });
-}
-
-function definitionBlurPreferencesEqual(
-    left: HoshidictsDefinitionBlurPreferences,
-    right: HoshidictsDefinitionBlurPreferences
-): boolean {
-    return (
-        left.enabled === right.enabled &&
-        left.lookupThreshold === right.lookupThreshold &&
-        left.revealMode === right.revealMode &&
-        left.revealDelayMs === right.revealDelayMs
-    );
 }
 
 function normalizeDate(value: unknown): string | null {
@@ -2001,6 +1671,8 @@ export class HoshidictsManager {
     readonly rootDir: string;
     readonly manifestPath: string;
     readonly customDictionaryPath: string;
+    readonly miningProfilePath: string;
+    readonly audioProfilePath: string;
 
     private readonly deps: HoshidictsManagerDependencies;
     private operationQueue: Promise<void> = Promise.resolve();
@@ -2021,6 +1693,14 @@ export class HoshidictsManager {
         this.customDictionaryPath = path.join(
             this.rootDir,
             HOSHIDICTS_CUSTOM_DICTIONARY_FILE_NAME
+        );
+        this.miningProfilePath = path.join(
+            this.rootDir,
+            HOSHIDICTS_MINING_PROFILE_FILE_NAME
+        );
+        this.audioProfilePath = path.join(
+            this.rootDir,
+            HOSHIDICTS_AUDIO_PROFILE_FILE_NAME
         );
         this.deps = { ...defaultDependencies(), ...dependencies };
     }
@@ -2197,17 +1877,13 @@ export class HoshidictsManager {
                         dictionary.id !== HOSHIDICTS_CUSTOM_DICTIONARY_ID
                 )
                 .map(({ id }) => id);
+            const previousSortFrequencyDictionary =
+                profile.reader.sortFrequencyDictionary;
             profile.reader.sortFrequencyDictionary =
-                    manifest.sortFrequencyDictionary !== null &&
-                    dictionaries.some(
-                        (dictionary) =>
-                            dictionary.title ===
-                                manifest.sortFrequencyDictionary &&
-                            dictionary.enabled &&
-                            dictionary.frequencyCount > 0
-                    )
-                        ? manifest.sortFrequencyDictionary
-                        : null;
+                usableSortFrequencyDictionary(
+                    previousSortFrequencyDictionary,
+                    dictionaries
+                );
             const next = replaceActiveProfile(
                 { ...manifest, dictionaries },
                 profile
@@ -2216,7 +1892,7 @@ export class HoshidictsManager {
                 JSON.stringify(projectActiveProfile(next).dictionaries) !==
                     JSON.stringify(manifest.dictionaries) ||
                 profile.reader.sortFrequencyDictionary !==
-                    manifest.sortFrequencyDictionary
+                    previousSortFrequencyDictionary
             ) {
                 await this.commitManifestChange(manifest, next, null, null);
             }
@@ -2310,10 +1986,6 @@ export class HoshidictsManager {
             const next: PersistedManifest = {
                 ...manifest,
                 profiles,
-                sortFrequencyDictionary:
-                    manifest.sortFrequencyDictionary === existing.title
-                        ? null
-                        : manifest.sortFrequencyDictionary,
                 dictionaries: manifest.dictionaries.filter(
                     (dictionary) => dictionary.id !== id
                 ),
@@ -2406,16 +2078,18 @@ export class HoshidictsManager {
                     ? { ...dictionary, [field]: value }
                     : { ...dictionary }
             );
+            const activeSortFrequencyDictionary =
+                activeReader(manifest).sortFrequencyDictionary;
             const sortFrequencyDictionary =
                 field === 'enabled' &&
                 !value &&
                 dictionaries.some(
                     (dictionary) =>
                         selectedIds.has(dictionary.id) &&
-                        manifest.sortFrequencyDictionary === dictionary.title
+                        activeSortFrequencyDictionary === dictionary.title
                 )
                     ? null
-                    : manifest.sortFrequencyDictionary;
+                    : activeSortFrequencyDictionary;
             if (field === 'enabled') {
                 const profile = cloneProfile(activeProfile(manifest));
                 const enabledIds = new Set(profile.enabledDictionaryIds);
@@ -3067,6 +2741,9 @@ export class HoshidictsManager {
                 await disposePreparedHoshidictsBackupRestore(prepared);
             }
         });
+        // Restoration replaces the manifest outside atomicWriteManifest, so the
+        // backend profile files still have to catch up.
+        await this.syncBackendProfiles();
         return await this.getSnapshot();
     }
 
@@ -3077,435 +2754,47 @@ export class HoshidictsManager {
             throw new Error('Hoshidicts lookup mode is invalid.');
         }
         const snapshot = await this.getSnapshot();
-        return await this.setReaderPreferences(
+        return await this.setReaderPreferences({
+            ...normalizeHoshidictsReaderPreferences(snapshot),
             lookupMode,
-            snapshot.popupHideDelayMs,
-            snapshot.activationKey,
-            snapshot.sourceHighlightEnabled,
-            snapshot.popupNestingMaxDepth,
-            undefined,
-            snapshot.showLookupCounts,
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-            snapshot.onlyScanJapaneseText,
-            snapshot.popupToolbarPosition,
-            snapshot.scanLength,
-            snapshot.maxResults,
-            snapshot.sortFrequencyDictionary,
-            snapshot.sortFrequencyDictionaryOrder,
-            undefined,
-            snapshot.popupColumns,
-            snapshot.showCompactDefinitionSummary,
-            snapshot.compactDefinitionSummaryCount,
-            snapshot.compactDefinitionSummaryDictionary,
-            snapshot.hidePopupGrammarTags,
-            snapshot.showPitchAccentFurigana,
-            snapshot.pitchAccentFuriganaDictionary,
-            snapshot.showPitchAccentBadge,
-            snapshot.customPopupCss,
-            snapshot.averageFrequency,
-            snapshot.showFrequencyDictionaryNames
-        );
+        });
     }
 
     async setReaderPreferences(
-        lookupMode: HoshidictsLookupMode,
-        popupHideDelayMs: number,
-        activationKey: HoshidictsActivationKey,
-        sourceHighlightEnabled: boolean =
-            DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
-        popupNestingMaxDepth: number =
-            DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
-        definitionBlur?: HoshidictsDefinitionBlurPreferences,
-        showLookupCounts = true,
-        popupWidthPx?: number,
-        popupHeightPx?: number,
-        theme?: HoshidictsTheme,
-        popupOpacityPercent?: number,
-        onlyScanJapaneseText = DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
-        popupToolbarPosition?: HoshidictsPopupToolbarPosition,
-        scanLength = DEFAULT_HOSHIDICTS_SCAN_LENGTH,
-        maxResults = DEFAULT_HOSHIDICTS_MAX_RESULTS,
-        sortFrequencyDictionary: string | null =
-            DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
-        sortFrequencyDictionaryOrder: HoshidictsSortFrequencyDictionaryOrder =
-            DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
-        popupButtons?: HoshidictsPopupButtons,
-        popupColumns?: number,
-        showCompactDefinitionSummary =
-            DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
-        compactDefinitionSummaryCount =
-            DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
-        compactDefinitionSummaryDictionary: string | null =
-            DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
-        hidePopupGrammarTags = DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
-        showPitchAccentFurigana =
-            DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
-        pitchAccentFuriganaDictionary: string | null =
-            DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
-        showPitchAccentBadge = DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE,
-        customPopupCss?: string,
-        averageFrequency = DEFAULT_HOSHIDICTS_AVERAGE_FREQUENCY,
-        showFrequencyDictionaryNames =
-            DEFAULT_HOSHIDICTS_SHOW_FREQUENCY_DICTIONARY_NAMES,
-        popupBackdropBlurPx?: number
+        request: HoshidictsReaderPreferencesRequest
     ): Promise<HoshidictsManagerSnapshot> {
-        if (lookupMode !== 'shift' && lookupMode !== 'hover') {
-            throw new Error('Hoshidicts lookup mode is invalid.');
-        }
-        if (
-            !Number.isInteger(scanLength) ||
-            scanLength < MIN_HOSHIDICTS_SCAN_LENGTH ||
-            scanLength > MAX_HOSHIDICTS_SCAN_LENGTH
-        ) {
-            throw new Error('Hoshidicts scan length is invalid.');
-        }
-        if (
-            !Number.isInteger(maxResults) ||
-            maxResults < MIN_HOSHIDICTS_MAX_RESULTS ||
-            maxResults > MAX_HOSHIDICTS_MAX_RESULTS
-        ) {
-            throw new Error('Hoshidicts maximum result count is invalid.');
-        }
-        if (
-            sortFrequencyDictionary !== null &&
-            (typeof sortFrequencyDictionary !== 'string' ||
-                sortFrequencyDictionary.length === 0 ||
-                sortFrequencyDictionary.length > 4096)
-        ) {
-            throw new Error('Hoshidicts frequency sort dictionary is invalid.');
-        }
-        if (
-            !isHoshidictsSortFrequencyDictionaryOrder(
-                sortFrequencyDictionaryOrder
-            )
-        ) {
-            throw new Error('Hoshidicts frequency sort order is invalid.');
-        }
-        if (
-            !Number.isInteger(popupHideDelayMs) ||
-            popupHideDelayMs < 0 ||
-            popupHideDelayMs > MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS
-        ) {
-            throw new Error('Hoshidicts popup hide delay is invalid.');
-        }
-        if (!isHoshidictsActivationKey(activationKey)) {
-            throw new Error('Hoshidicts activation key is invalid.');
-        }
-        if (typeof sourceHighlightEnabled !== 'boolean') {
-            throw new Error(
-                'Hoshidicts source highlight preference is invalid.'
-            );
-        }
-        if (typeof onlyScanJapaneseText !== 'boolean') {
-            throw new Error(
-                'Hoshidicts Japanese-only scan preference is invalid.'
-            );
-        }
-        if (
-            popupToolbarPosition !== undefined &&
-            !isHoshidictsPopupToolbarPosition(popupToolbarPosition)
-        ) {
-            throw new Error('Hoshidicts popup toolbar position is invalid.');
-        }
-        let normalizedPopupButtons: HoshidictsPopupButtons | undefined;
-        if (popupButtons !== undefined) {
-            try {
-                normalizedPopupButtons =
-                    normalizeHoshidictsPopupButtons(popupButtons);
-            } catch {
-                throw new Error('Hoshidicts popup buttons are invalid.');
-            }
-        }
-        if (typeof showLookupCounts !== 'boolean') {
-            throw new Error('Hoshidicts lookup count preference is invalid.');
-        }
-        if (typeof averageFrequency !== 'boolean') {
-            throw new Error('Hoshidicts average frequency preference is invalid.');
-        }
-        if (typeof showFrequencyDictionaryNames !== 'boolean') {
-            throw new Error(
-                'Hoshidicts frequency dictionary name preference is invalid.'
-            );
-        }
-        if (typeof showCompactDefinitionSummary !== 'boolean') {
-            throw new Error(
-                'Hoshidicts compact definition summary preference is invalid.'
-            );
-        }
-        if (
-            !Number.isInteger(compactDefinitionSummaryCount) ||
-            compactDefinitionSummaryCount <
-                MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT ||
-            compactDefinitionSummaryCount >
-                MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT
-        ) {
-            throw new Error(
-                'Hoshidicts compact definition summary count is invalid.'
-            );
-        }
-        if (
-            compactDefinitionSummaryDictionary !== null &&
-            (typeof compactDefinitionSummaryDictionary !== 'string' ||
-                compactDefinitionSummaryDictionary.trim().length === 0 ||
-                compactDefinitionSummaryDictionary.length > 4096)
-        ) {
-            throw new Error(
-                'Hoshidicts compact definition summary dictionary is invalid.'
-            );
-        }
-        const normalizedCompactDefinitionSummaryDictionary =
-            compactDefinitionSummaryDictionary === null
-                ? null
-                : compactDefinitionSummaryDictionary.trim();
-        if (typeof showPitchAccentFurigana !== 'boolean') {
-            throw new Error(
-                'Hoshidicts pitch accent furigana preference is invalid.'
-            );
-        }
-        if (
-            pitchAccentFuriganaDictionary !== null &&
-            (typeof pitchAccentFuriganaDictionary !== 'string' ||
-                pitchAccentFuriganaDictionary.trim().length === 0 ||
-                pitchAccentFuriganaDictionary.length > 4096)
-        ) {
-            throw new Error(
-                'Hoshidicts pitch accent furigana dictionary is invalid.'
-            );
-        }
-        const normalizedPitchAccentFuriganaDictionary =
-            pitchAccentFuriganaDictionary === null
-                ? null
-                : pitchAccentFuriganaDictionary.trim();
-        if (typeof showPitchAccentBadge !== 'boolean') {
-            throw new Error(
-                'Hoshidicts pitch accent badge preference is invalid.'
-            );
-        }
-        if (typeof hidePopupGrammarTags !== 'boolean') {
-            throw new Error(
-                'Hoshidicts popup grammar tag preference is invalid.'
-            );
-        }
-        if (
-            !Number.isSafeInteger(popupNestingMaxDepth) ||
-            popupNestingMaxDepth < 0
-        ) {
-            throw new Error('Hoshidicts popup nesting depth is invalid.');
-        }
-        if (
-            definitionBlur !== undefined &&
-            typeof definitionBlur.enabled !== 'boolean'
-        ) {
-            throw new Error(
-                'Hoshidicts definition blur enabled state is invalid.'
-            );
-        }
-        if (
-            popupWidthPx !== undefined &&
-            (!Number.isInteger(popupWidthPx) ||
-                popupWidthPx < MIN_HOSHIDICTS_POPUP_WIDTH_PX ||
-                popupWidthPx > MAX_HOSHIDICTS_POPUP_WIDTH_PX)
-        ) {
-            throw new Error('Hoshidicts popup width is invalid.');
-        }
-        if (
-            popupHeightPx !== undefined &&
-            (!Number.isInteger(popupHeightPx) ||
-                popupHeightPx < MIN_HOSHIDICTS_POPUP_HEIGHT_PX ||
-                popupHeightPx > MAX_HOSHIDICTS_POPUP_HEIGHT_PX)
-        ) {
-            throw new Error('Hoshidicts popup height is invalid.');
-        }
-        if (
-            popupColumns !== undefined &&
-            (!Number.isInteger(popupColumns) ||
-                popupColumns < MIN_HOSHIDICTS_POPUP_COLUMNS ||
-                popupColumns > MAX_HOSHIDICTS_POPUP_COLUMNS)
-        ) {
-            throw new Error('Hoshidicts popup column count is invalid.');
-        }
-        if (theme !== undefined && !isHoshidictsTheme(theme)) {
-            throw new Error('Hoshidicts theme is invalid.');
-        }
-        if (
-            popupOpacityPercent !== undefined &&
-            (!Number.isInteger(popupOpacityPercent) ||
-                popupOpacityPercent < MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT ||
-                popupOpacityPercent > MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT)
-        ) {
-            throw new Error('Hoshidicts popup opacity is invalid.');
-        }
-        if (
-            popupBackdropBlurPx !== undefined &&
-            (!Number.isInteger(popupBackdropBlurPx) ||
-                popupBackdropBlurPx <
-                    MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX ||
-                popupBackdropBlurPx >
-                    MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX)
-        ) {
-            throw new Error('Hoshidicts popup backdrop blur is invalid.');
-        }
-        if (
-            customPopupCss !== undefined &&
-            (typeof customPopupCss !== 'string' ||
-                customPopupCss.length > MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH)
-        ) {
-            throw new Error('Hoshidicts custom popup CSS is invalid.');
-        }
-        if (
-            definitionBlur !== undefined &&
-            (!Number.isInteger(definitionBlur.lookupThreshold) ||
-                definitionBlur.lookupThreshold <
-                    MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD ||
-                definitionBlur.lookupThreshold >
-                    MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD)
-        ) {
-            throw new Error(
-                'Hoshidicts definition blur lookup threshold is invalid.'
-            );
-        }
-        if (
-            definitionBlur !== undefined &&
-            definitionBlur.revealMode !== 'timed' &&
-            definitionBlur.revealMode !== 'hover'
-        ) {
-            throw new Error('Hoshidicts definition blur reveal mode is invalid.');
-        }
-        if (
-            definitionBlur !== undefined &&
-            (!Number.isInteger(definitionBlur.revealDelayMs) ||
-                definitionBlur.revealDelayMs <
-                    MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS ||
-                definitionBlur.revealDelayMs >
-                    MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS)
-        ) {
-            throw new Error(
-                'Hoshidicts definition blur reveal delay is invalid.'
-            );
-        }
-        await this.enqueue('saving', async () => {
-            const manifest = await this.readManifest();
-            if (
-                sortFrequencyDictionary !== null &&
-                !manifest.dictionaries.some(
-                    (dictionary) =>
-                        dictionary.title === sortFrequencyDictionary &&
-                        dictionary.enabled &&
-                        dictionary.frequencyCount > 0
-                )
-            ) {
-                throw new Error(
-                    'Hoshidicts frequency sort dictionary is not installed.'
-                );
-            }
-            const effectiveDefinitionBlur =
-                definitionBlur ?? manifest.definitionBlur;
-            const effectivePopupWidthPx = popupWidthPx ?? manifest.popupWidthPx;
-            const effectivePopupHeightPx =
-                popupHeightPx ?? manifest.popupHeightPx;
-            const effectivePopupColumns =
-                popupColumns ?? manifest.popupColumns;
-            const effectiveTheme = theme ?? manifest.theme;
-            const effectivePopupOpacityPercent =
-                popupOpacityPercent ?? manifest.popupOpacityPercent;
-            const effectivePopupBackdropBlurPx =
-                popupBackdropBlurPx ?? manifest.popupBackdropBlurPx;
-            const effectivePopupToolbarPosition =
-                popupToolbarPosition ?? manifest.popupToolbarPosition;
-            const effectivePopupButtons =
-                normalizedPopupButtons ?? manifest.popupButtons;
-            const effectiveCustomPopupCss =
-                customPopupCss ?? manifest.customPopupCss;
-            if (
-                manifest.lookupMode !== lookupMode ||
-                manifest.scanLength !== scanLength ||
-                manifest.maxResults !== maxResults ||
-                manifest.sortFrequencyDictionary !== sortFrequencyDictionary ||
-                manifest.sortFrequencyDictionaryOrder !==
-                    sortFrequencyDictionaryOrder ||
-                manifest.popupHideDelayMs !== popupHideDelayMs ||
-                manifest.activationKey !== activationKey ||
-                manifest.sourceHighlightEnabled !== sourceHighlightEnabled ||
-                manifest.onlyScanJapaneseText !== onlyScanJapaneseText ||
-                manifest.showLookupCounts !== showLookupCounts ||
-                manifest.averageFrequency !== averageFrequency ||
-                manifest.showFrequencyDictionaryNames !==
-                    showFrequencyDictionaryNames ||
-                manifest.showCompactDefinitionSummary !==
-                    showCompactDefinitionSummary ||
-                manifest.compactDefinitionSummaryCount !==
-                    compactDefinitionSummaryCount ||
-                manifest.compactDefinitionSummaryDictionary !==
-                    normalizedCompactDefinitionSummaryDictionary ||
-                manifest.showPitchAccentFurigana !==
-                    showPitchAccentFurigana ||
-                manifest.pitchAccentFuriganaDictionary !==
-                    normalizedPitchAccentFuriganaDictionary ||
-                manifest.showPitchAccentBadge !== showPitchAccentBadge ||
-                manifest.hidePopupGrammarTags !== hidePopupGrammarTags ||
-                manifest.popupNestingMaxDepth !== popupNestingMaxDepth ||
-                manifest.popupWidthPx !== effectivePopupWidthPx ||
-                manifest.popupHeightPx !== effectivePopupHeightPx ||
-                manifest.popupColumns !== effectivePopupColumns ||
-                manifest.theme !== effectiveTheme ||
-                manifest.popupOpacityPercent !== effectivePopupOpacityPercent ||
-                manifest.popupBackdropBlurPx !==
-                    effectivePopupBackdropBlurPx ||
-                manifest.popupToolbarPosition !==
-                    effectivePopupToolbarPosition ||
-                !popupButtonsEqual(
-                    manifest.popupButtons,
-                    effectivePopupButtons
-                ) ||
-                manifest.customPopupCss !== effectiveCustomPopupCss ||
-                !definitionBlurPreferencesEqual(
-                    manifest.definitionBlur,
-                    effectiveDefinitionBlur
-                )
-            ) {
+        const reader = assertHoshidictsReaderPreferences(request);
+        await this.enqueue(
+            'saving',
+            async () => {
+                const manifest = await this.readManifest();
+                if (
+                    reader.sortFrequencyDictionary !== null &&
+                    usableSortFrequencyDictionary(
+                        reader.sortFrequencyDictionary,
+                        manifest.dictionaries
+                    ) === null
+                ) {
+                    throw new Error(
+                        'Hoshidicts frequency sort dictionary is not installed.'
+                    );
+                }
+                if (
+                    hoshidictsReaderPreferencesEqual(
+                        reader,
+                        activeReader(manifest)
+                    )
+                ) {
+                    return;
+                }
                 const profile = cloneProfile(activeProfile(manifest));
-                profile.reader = {
-                    lookupMode,
-                    scanLength,
-                    maxResults,
-                    sortFrequencyDictionary,
-                    sortFrequencyDictionaryOrder,
-                    activationKey,
-                    sourceHighlightEnabled,
-                    onlyScanJapaneseText,
-                    popupHideDelayMs,
-                    showLookupCounts,
-                    averageFrequency,
-                    showFrequencyDictionaryNames,
-                    showCompactDefinitionSummary,
-                    compactDefinitionSummaryCount,
-                    compactDefinitionSummaryDictionary:
-                        normalizedCompactDefinitionSummaryDictionary,
-                    showPitchAccentFurigana,
-                    pitchAccentFuriganaDictionary:
-                        normalizedPitchAccentFuriganaDictionary,
-                    showPitchAccentBadge,
-                    hidePopupGrammarTags,
-                    popupNestingMaxDepth,
-                    definitionBlur: { ...effectiveDefinitionBlur },
-                    popupWidthPx: effectivePopupWidthPx,
-                    popupHeightPx: effectivePopupHeightPx,
-                    popupColumns: effectivePopupColumns,
-                    theme: effectiveTheme,
-                    popupOpacityPercent: effectivePopupOpacityPercent,
-                    popupBackdropBlurPx: effectivePopupBackdropBlurPx,
-                    popupToolbarPosition: effectivePopupToolbarPosition,
-                    popupButtons: effectivePopupButtons,
-                    customPopupCss: effectiveCustomPopupCss,
-                };
+                profile.reader = reader;
                 await this.atomicWriteManifest(
                     replaceActiveProfile(manifest, profile)
                 );
-            }
-        }, 'preferences');
+            },
+            'preferences'
+        );
         return await this.getSnapshot();
     }
 
@@ -3854,44 +3143,7 @@ export class HoshidictsManager {
             recommendedDictionaries: recommendedDictionaryStates(manifest),
             miningProfile: structuredClone(profile.mining),
             audioProfile: structuredClone(profile.audio),
-            lookupMode: manifest.lookupMode,
-            scanLength: manifest.scanLength,
-            maxResults: manifest.maxResults,
-            sortFrequencyDictionary: manifest.sortFrequencyDictionary,
-            sortFrequencyDictionaryOrder:
-                manifest.sortFrequencyDictionaryOrder,
-            activationKey: manifest.activationKey,
-            sourceHighlightEnabled: manifest.sourceHighlightEnabled,
-            onlyScanJapaneseText: manifest.onlyScanJapaneseText,
-            popupHideDelayMs: manifest.popupHideDelayMs,
-            showLookupCounts: manifest.showLookupCounts,
-            averageFrequency: manifest.averageFrequency,
-            showFrequencyDictionaryNames:
-                manifest.showFrequencyDictionaryNames,
-            showCompactDefinitionSummary:
-                manifest.showCompactDefinitionSummary,
-            compactDefinitionSummaryCount:
-                manifest.compactDefinitionSummaryCount,
-            compactDefinitionSummaryDictionary:
-                manifest.compactDefinitionSummaryDictionary,
-            showPitchAccentFurigana: manifest.showPitchAccentFurigana,
-            pitchAccentFuriganaDictionary:
-                manifest.pitchAccentFuriganaDictionary,
-            showPitchAccentBadge: manifest.showPitchAccentBadge,
-            hidePopupGrammarTags: manifest.hidePopupGrammarTags,
-            popupNestingMaxDepth: manifest.popupNestingMaxDepth,
-            definitionBlur: { ...manifest.definitionBlur },
-            popupWidthPx: manifest.popupWidthPx,
-            popupHeightPx: manifest.popupHeightPx,
-            popupColumns: manifest.popupColumns,
-            theme: manifest.theme,
-            popupOpacityPercent: manifest.popupOpacityPercent,
-            popupBackdropBlurPx: manifest.popupBackdropBlurPx,
-            popupToolbarPosition: manifest.popupToolbarPosition,
-            popupButtons: normalizeHoshidictsPopupButtons(
-                manifest.popupButtons
-            ),
-            customPopupCss: manifest.customPopupCss,
+            ...normalizeHoshidictsReaderPreferences(profile.reader),
             schedule: manifest.schedule,
             lastCheck: manifest.lastCheck,
             nextCheck: manifest.nextCheck,
@@ -4215,7 +3467,6 @@ export class HoshidictsManager {
         let manifest: PersistedManifest = {
             version: MANIFEST_VERSION,
             ...profileState,
-            ...defaultReaderPreferences(),
             schedule,
             lastCheck: legacyLastCheck,
             nextCheck: null,
@@ -4245,7 +3496,6 @@ export class HoshidictsManager {
         return projectActiveProfile({
             version: MANIFEST_VERSION,
             ...profileState,
-            ...defaultReaderPreferences(),
             schedule: normalizeSchedule(parsed.schedule),
             lastCheck: normalizeDate(parsed.lastCheck),
             nextCheck: normalizeDate(parsed.nextCheck),
@@ -4434,20 +3684,7 @@ export class HoshidictsManager {
         } else {
             dictionaries.push(staged.dictionary);
         }
-        let next: PersistedManifest = {
-            ...manifest,
-            sortFrequencyDictionary:
-                manifest.sortFrequencyDictionary !== null &&
-                dictionaries.some(
-                    (dictionary) =>
-                        dictionary.title === manifest.sortFrequencyDictionary &&
-                        dictionary.enabled &&
-                        dictionary.frequencyCount > 0
-                )
-                    ? manifest.sortFrequencyDictionary
-                    : null,
-            dictionaries,
-        };
+        let next: PersistedManifest = { ...manifest, dictionaries };
         if (
             existingIndex < 0 &&
             staged.dictionary.id !== HOSHIDICTS_CUSTOM_DICTIONARY_ID
@@ -4700,9 +3937,17 @@ export class HoshidictsManager {
     ): Promise<void> {
         if (raw === null) {
             await fsp.rm(this.manifestPath, { force: true });
+            await Promise.all([
+                fsp.rm(this.miningProfilePath, { force: true }),
+                fsp.rm(this.audioProfilePath, { force: true }),
+            ]);
             return;
         }
         await this.atomicWriteBuffer(raw);
+        // The abandoned profile must not stay published to the Python backend.
+        await this.publishBackendProfiles(
+            serializeBackendProfiles(activeProfile(previous))
+        );
         // Verify the restored bytes before asking native code to consume them.
         const restored = await this.readManifest();
         if (
@@ -4723,6 +3968,10 @@ export class HoshidictsManager {
             ...projected,
             nextCheck: aggregateNextUpdateCheck(projected, this.deps.now()),
         };
+        // The backend profile files have a tighter size limit than the manifest,
+        // so serialize them first: an oversized profile must fail the save
+        // before it commits rather than after.
+        const backendProfiles = serializeBackendProfiles(activeProfile(next));
         await this.atomicWriteJson(
             next,
             this.manifestPath,
@@ -4730,6 +3979,50 @@ export class HoshidictsManager {
             'Hoshidicts manifest',
             '.manifest-'
         );
+        await this.publishBackendProfiles(backendProfiles);
+    }
+
+    /**
+     * The Python backend reads the active mining and audio profiles from their
+     * own files, so mirror them out of the manifest whenever it changes.
+     */
+    async syncBackendProfiles(): Promise<void> {
+        await this.writeBackendProfiles(
+            activeProfile(await this.readManifest())
+        );
+    }
+
+    private async writeBackendProfiles(
+        profile: PersistedSettingsProfile
+    ): Promise<void> {
+        await this.publishBackendProfiles(serializeBackendProfiles(profile));
+    }
+
+    /**
+     * Only reached once the manifest itself is committed, so a write failure
+     * here cannot fail the save. The manifest stays authoritative and the next
+     * save or startup sync republishes.
+     */
+    private async publishBackendProfiles(
+        profiles: SerializedBackendProfiles
+    ): Promise<void> {
+        try {
+            await this.atomicWriteBuffer(
+                profiles.mining,
+                this.miningProfilePath,
+                '.mining-profile-'
+            );
+            await this.atomicWriteBuffer(
+                profiles.audio,
+                this.audioProfilePath,
+                '.audio-profile-'
+            );
+        } catch (error) {
+            console.warn(
+                '[Hoshidicts] Could not publish the mining and audio profiles for the backend; the manifest is saved and they will be republished on the next save or restart.',
+                error
+            );
+        }
     }
 
     private async atomicWriteJson(
@@ -4784,6 +4077,16 @@ export function getHoshidictsManager(): HoshidictsManager {
 
 export async function startHoshidictsManager(): Promise<void> {
     const manager = getHoshidictsManager();
+    // An install whose manifest predates the backend profile files still needs
+    // them written before the Python backend reads them.
+    try {
+        await manager.syncBackendProfiles();
+    } catch (error) {
+        console.warn(
+            '[Hoshidicts] Could not publish the mining and audio profiles for the backend.',
+            error
+        );
+    }
     manager.startScheduler();
 }
 
