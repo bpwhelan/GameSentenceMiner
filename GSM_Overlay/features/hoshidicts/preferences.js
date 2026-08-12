@@ -317,11 +317,9 @@
     return parseSafeHttpUrl(value)?.toString() ?? null;
   }
 
-  function normalizePopupButtons(value, fallback) {
+  function normalizePopupButtons(value) {
     if (value === undefined) {
-      return fallback === undefined
-        ? { ...READER_DEFAULTS.popupButtons, customLinks: [] }
-        : fallback;
+      return { ...READER_DEFAULTS.popupButtons, customLinks: [] };
     }
     if (
       !isPlainObject(value) ||
@@ -391,34 +389,11 @@
     return normalized;
   }
 
-  function cloneReaderPreferences(preferences) {
-    if (!isPlainObject(preferences)) {
-      return null;
-    }
-    return JSON.parse(JSON.stringify(preferences));
-  }
-
-  function readerPreferencesEqual(left, right) {
-    if (!isPlainObject(left) || !isPlainObject(right)) {
-      return false;
-    }
-    const keys = Object.keys(FIELD_SPECS);
-    return keys.every(
-      (key) => JSON.stringify(left[key]) === JSON.stringify(right[key])
-    );
-  }
-
+  // The per-field normalizers are reached through FIELD_SPECS; only these three
+  // are called from outside the module.
   return {
-    cloneReaderPreferences,
     normalizeActivationKey,
-    normalizeDefinitionBlur,
-    normalizeDictionaryPresentation,
-    normalizeDictionaryTabGroups,
     normalizeExternalUrl,
-    normalizeFrequencyDictionaries,
-    normalizePopupButtons,
-    parseSafeHttpUrl,
-    normalizeReaderPreferences,
-    readerPreferencesEqual
+    normalizeReaderPreferences
   };
 }));
