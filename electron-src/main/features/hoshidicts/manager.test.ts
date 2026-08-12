@@ -1001,7 +1001,7 @@ describe('Hoshidicts immutable generations', () => {
 
         await expect(
             manager.renameDictionary('not a valid id', 'Alias')
-        ).rejects.toThrow('Dictionary id is invalid');
+        ).rejects.toThrow('Dictionary is not installed.');
         await expect(
             manager.renameDictionary(HOSHIDICTS_CUSTOM_DICTIONARY_ID, 'Alias')
         ).rejects.toThrow('custom dictionary');

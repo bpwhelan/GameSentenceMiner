@@ -1950,9 +1950,6 @@ export class HoshidictsManager {
 
     async removeDictionary(id: string): Promise<HoshidictsManagerSnapshot> {
         await this.enqueue('removing', async () => {
-            if (!SAFE_ID_PATTERN.test(id)) {
-                throw new Error('Dictionary id is invalid.');
-            }
             if (id === HOSHIDICTS_CUSTOM_DICTIONARY_ID) {
                 throw new Error('The custom dictionary is managed from its editor.');
             }
@@ -2039,9 +2036,6 @@ export class HoshidictsManager {
         }
         const uniqueIds = [...new Set(ids)];
         for (const id of uniqueIds) {
-            if (typeof id !== 'string' || !SAFE_ID_PATTERN.test(id)) {
-                throw new Error('Dictionary id is invalid.');
-            }
             if (id === HOSHIDICTS_CUSTOM_DICTIONARY_ID) {
                 throw new Error(
                     field === 'enabled'
@@ -2125,9 +2119,6 @@ export class HoshidictsManager {
             const normalizedName = normalizeTabGroupName(name);
             const manifest = await this.readManifest();
             if (dictionaryId !== undefined) {
-                if (!SAFE_ID_PATTERN.test(dictionaryId)) {
-                    throw new Error('Dictionary id is invalid.');
-                }
                 const dictionary = manifest.dictionaries.find(
                     ({ id }) => id === dictionaryId
                 );
@@ -2152,9 +2143,6 @@ export class HoshidictsManager {
             do {
                 id = `group-${this.deps.randomId()}`;
             } while (groups.some((group) => group.id === id));
-            if (!SAFE_ID_PATTERN.test(id)) {
-                throw new Error('Could not create a tab group id.');
-            }
             groups.push({
                 id,
                 name: normalizedName,
@@ -2174,11 +2162,7 @@ export class HoshidictsManager {
         member: boolean
     ): Promise<HoshidictsManagerSnapshot> {
         await this.enqueue('saving', async () => {
-            if (
-                !SAFE_ID_PATTERN.test(groupId) ||
-                !SAFE_ID_PATTERN.test(dictionaryId) ||
-                typeof member !== 'boolean'
-            ) {
+            if (typeof member !== 'boolean') {
                 throw new Error('Tab group membership is invalid.');
             }
             const manifest = await this.readManifest();
@@ -2233,9 +2217,6 @@ export class HoshidictsManager {
         name: string
     ): Promise<HoshidictsManagerSnapshot> {
         await this.enqueue('saving', async () => {
-            if (!SAFE_ID_PATTERN.test(groupId)) {
-                throw new Error('Tab group id is invalid.');
-            }
             const normalizedName = normalizeTabGroupName(name);
             const manifest = await this.readManifest();
             const profile = cloneProfile(activeProfile(manifest));
@@ -2268,9 +2249,6 @@ export class HoshidictsManager {
 
     async deleteTabGroup(groupId: string): Promise<HoshidictsManagerSnapshot> {
         await this.enqueue('saving', async () => {
-            if (!SAFE_ID_PATTERN.test(groupId)) {
-                throw new Error('Tab group id is invalid.');
-            }
             const manifest = await this.readManifest();
             const profile = cloneProfile(activeProfile(manifest));
             const groups = profile.tabGroups;
@@ -2291,10 +2269,7 @@ export class HoshidictsManager {
         direction: -1 | 1
     ): Promise<HoshidictsManagerSnapshot> {
         await this.enqueue('saving', async () => {
-            if (
-                !SAFE_ID_PATTERN.test(groupId) ||
-                (direction !== -1 && direction !== 1)
-            ) {
+            if (direction !== -1 && direction !== 1) {
                 throw new Error('Tab group move is invalid.');
             }
             const manifest = await this.readManifest();
@@ -2323,9 +2298,6 @@ export class HoshidictsManager {
         displayName: string | null
     ): Promise<HoshidictsManagerSnapshot> {
         await this.enqueue('saving', async () => {
-            if (!SAFE_ID_PATTERN.test(id)) {
-                throw new Error('Dictionary id is invalid.');
-            }
             if (id === HOSHIDICTS_CUSTOM_DICTIONARY_ID) {
                 throw new Error(
                     'The custom dictionary name is managed automatically.'
@@ -2360,9 +2332,6 @@ export class HoshidictsManager {
         direction: -1 | 1
     ): Promise<HoshidictsManagerSnapshot> {
         await this.enqueue('saving', async () => {
-            if (!SAFE_ID_PATTERN.test(id)) {
-                throw new Error('Dictionary id is invalid.');
-            }
             if (id === HOSHIDICTS_CUSTOM_DICTIONARY_ID) {
                 throw new Error('The custom dictionary is always first.');
             }
@@ -2406,9 +2375,6 @@ export class HoshidictsManager {
         position: number
     ): Promise<HoshidictsManagerSnapshot> {
         await this.enqueue('saving', async () => {
-            if (!SAFE_ID_PATTERN.test(id)) {
-                throw new Error('Dictionary id is invalid.');
-            }
             if (id === HOSHIDICTS_CUSTOM_DICTIONARY_ID) {
                 throw new Error('The custom dictionary is always first.');
             }
@@ -2483,9 +2449,6 @@ export class HoshidictsManager {
         schedule: HoshidictsSchedule | null
     ): Promise<HoshidictsManagerSnapshot> {
         await this.enqueue('saving', async () => {
-            if (!SAFE_ID_PATTERN.test(id)) {
-                throw new Error('Dictionary id is invalid.');
-            }
             if (
                 schedule !== null &&
                 !['off', 'hourly', 'daily', 'weekly', 'monthly'].includes(schedule)
@@ -2565,9 +2528,6 @@ export class HoshidictsManager {
             do {
                 id = `profile-${this.deps.randomId()}`;
             } while (manifest.profiles.some((profile) => profile.id === id));
-            if (!SAFE_ID_PATTERN.test(id)) {
-                throw new Error('Could not create a profile id.');
-            }
             const profile = {
                 ...cloneProfile(activeProfile(manifest)),
                 id,
@@ -2584,9 +2544,6 @@ export class HoshidictsManager {
 
     async switchProfile(id: string): Promise<HoshidictsManagerSnapshot> {
         await this.enqueue('saving', async () => {
-            if (!SAFE_ID_PATTERN.test(id)) {
-                throw new Error('Profile id is invalid.');
-            }
             const manifest = await this.readManifest();
             if (manifest.activeProfileId === id) {
                 return;
@@ -2617,9 +2574,6 @@ export class HoshidictsManager {
         name: string
     ): Promise<HoshidictsManagerSnapshot> {
         await this.enqueue('saving', async () => {
-            if (!SAFE_ID_PATTERN.test(id)) {
-                throw new Error('Profile id is invalid.');
-            }
             const normalizedName = normalizeProfileName(name);
             const manifest = await this.readManifest();
             const index = manifest.profiles.findIndex(
@@ -2650,9 +2604,6 @@ export class HoshidictsManager {
 
     async deleteProfile(id: string): Promise<HoshidictsManagerSnapshot> {
         await this.enqueue('saving', async () => {
-            if (!SAFE_ID_PATTERN.test(id)) {
-                throw new Error('Profile id is invalid.');
-            }
             const manifest = await this.readManifest();
             if (manifest.profiles.length === 1) {
                 throw new Error('The final profile cannot be deleted.');
@@ -2811,17 +2762,7 @@ export class HoshidictsManager {
         const selectedIds =
             dictionaryIds === undefined
                 ? null
-                : new Set(
-                      dictionaryIds.map((id) => {
-                          if (
-                              typeof id !== 'string' ||
-                              !SAFE_ID_PATTERN.test(id)
-                          ) {
-                              throw new Error('Dictionary id is invalid.');
-                          }
-                          return id;
-                      })
-                  );
+                : new Set<string>(dictionaryIds);
         await this.enqueue('checking', async () => {
             let manifest = await this.readManifest();
             if (
