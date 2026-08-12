@@ -2326,6 +2326,38 @@ def test_mining_overwrites_first_same_type_duplicate_in_exact_deck(monkeypatch):
     assert fake_anki.events == []
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("食べる", "食べる"),
+        # Unescaped wildcards would let the overwrite target a different note.
+        ("te*t", "te\\*t"),
+        ("te_t", "te\\_t"),
+        # A trailing backslash would otherwise escape the closing quote.
+        ("path\\", "path\\\\"),
+        ('say "hi"', 'say \\"hi\\"'),
+        ("a:b", "a\\:b"),
+    ],
+)
+def test_duplicate_note_query_escapes_anki_search_syntax(value, expected):
+    query = hoshidicts_anki.duplicate_note_query(
+        {"deckName": "Mining", "fields": {"Expression": value}},
+        "Expression",
+        "collection",
+    )
+
+    assert query == f'"expression:{expected}"'
+
+
+def test_browse_word_escapes_search_syntax_and_html(monkeypatch):
+    queries = []
+    monkeypatch.setattr(hoshidicts_anki, "invoke", lambda action, **kwargs: queries.append(kwargs["query"]))
+
+    hoshidicts_anki.browse_word('a*b_c\\d"e<f&g')
+
+    assert queries == ['"a\\*b\\_c\\\\d\\"e&lt;f&amp;g"']
+
+
 def test_overwrite_rejects_a_duplicate_from_another_note_type(monkeypatch):
     fake_anki = FakeAnki(
         responses=duplicate_responses(

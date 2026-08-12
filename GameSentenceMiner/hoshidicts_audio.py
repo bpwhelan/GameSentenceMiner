@@ -10,7 +10,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Any
-from urllib.parse import urljoin, urlencode
+from urllib.parse import quote, urljoin, urlencode
 
 import requests
 
@@ -43,7 +43,6 @@ MEDIA_CACHE_SECONDS = 30 * 60.0
 
 _CANDIDATE_ID_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 _INVALID_JPOD101_DIGEST = "ae6398b5a27bc8c0a771df6c907ade794be15518174773c58c7c7ddd17098906"
-_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
 
 @dataclass(frozen=True)
@@ -175,9 +174,13 @@ def _request_bytes(
                 f"Hoshidicts audio provider returned HTTP {response.status_code}.",
                 502,
             )
+        if len(getattr(response, "history", ())) > MAX_REDIRECTS:
+            raise HoshidictsAudioError("Hoshidicts audio provider redirected too many times.", 502)
+        # Redirects skip the pre-request check, so re-validate what actually served us.
+        final_url = validate_http_url(getattr(response, "url", None) or url)
         body = _read_limited_response(response, maximum, deadline)
         content_type = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
-        return body, content_type, getattr(response, "url", None) or url
+        return body, content_type, final_url
     except requests.RequestException:
         raise HoshidictsAudioError("Hoshidicts audio provider request failed.", 502) from None
     finally:
@@ -273,7 +276,8 @@ class _JishoAudioParser(HTMLParser):
 
 
 def _is_entirely_kana(value: str) -> bool:
-    return bool(value) and all("\u3040" <= character <= "\u30ff" or character == "ー" for character in value)
+    # U+3040-U+30FF spans hiragana and katakana, including the prolonged sound mark.
+    return bool(value) and all("\u3040" <= character <= "\u30ff" for character in value)
 
 
 def _validate_custom_audio_list(value: Any) -> list[dict[str, str]]:
@@ -345,7 +349,8 @@ def _resolve_source_candidates(
         return output
 
     if source_type == "jisho":
-        fetch_url = f"https://jisho.org/search/{term}"
+        # An unescaped "?" or "#" in the term would truncate the search path.
+        fetch_url = f"https://jisho.org/search/{quote(term, safe='')}"
         body, _content_type, response_url = _request_bytes(
             "GET",
             fetch_url,

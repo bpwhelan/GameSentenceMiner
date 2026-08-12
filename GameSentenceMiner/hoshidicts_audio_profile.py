@@ -12,26 +12,12 @@ HOSHIDICTS_AUDIO_PROFILE_FILE = "audio-profile.json"
 HOSHIDICTS_AUDIO_PROFILE_VERSION = 1
 MAX_PROFILE_BYTES = 64 * 1024
 MAX_AUDIO_SOURCES = 32
-MAX_SOURCE_ID_LENGTH = 128
 MAX_URL_LENGTH = 4096
-MAX_VOICE_LENGTH = 255
 
-SOURCE_TYPES = frozenset(
-    {
-        "jpod101",
-        "language-pod-101",
-        "jisho",
-        "custom",
-        "custom-json",
-        "text-to-speech",
-        "text-to-speech-reading",
-    }
-)
 BUILTIN_SOURCE_TYPES = frozenset({"jpod101", "language-pod-101", "jisho"})
 CUSTOM_SOURCE_TYPES = frozenset({"custom", "custom-json"})
 TTS_SOURCE_TYPES = frozenset({"text-to-speech", "text-to-speech-reading"})
 DOWNLOADABLE_SOURCE_TYPES = BUILTIN_SOURCE_TYPES | CUSTOM_SOURCE_TYPES
-SOURCE_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 PLACEHOLDER_PATTERN = re.compile(r"\{([^{}]*)\}")
 
 
@@ -61,8 +47,8 @@ def validate_http_url(url: str, *, label: str = "Hoshidicts audio URL") -> str:
         or not hostname
         or parsed.username is not None
         or parsed.password is not None
-        or port is not None
-        and not 1 <= port <= 65535
+        # urlsplit already rejects ports above 65535; this catches port 0.
+        or (port is not None and not 1 <= port <= 65535)
     ):
         raise HoshidictsAudioError(f"{label} must be an absolute HTTP(S) URL without a username or password.")
     if "{" in parsed.netloc or "}" in parsed.netloc:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 from typing import Any
 
 from GameSentenceMiner.hoshidicts_mining_note import (
@@ -50,13 +51,22 @@ def root_deck_name(deck_name: str) -> str:
     return deck_name.split("::", 1)[0]
 
 
-def browse_word(word: str) -> None:
-    """Open Anki's browser with a literal, collection-wide word search."""
-    escaped = word.replace("\\", "\\\\")
+def escape_query_value(value: str) -> str:
+    """Escape a value for use inside a quoted Anki search term.
+
+    ``*`` and ``_`` stay wildcards inside quotes, and a trailing backslash would
+    escape the closing quote, so both have to be neutralised.
+    """
+    escaped = value.replace("\\", "\\\\")
     for character in ('"', "*", "_", ":"):
         escaped = escaped.replace(character, f"\\{character}")
-    escaped = escaped.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    invoke("guiBrowse", query=f'"{escaped}"')
+    return escaped
+
+
+def browse_word(word: str) -> None:
+    """Open Anki's browser with a literal, collection-wide word search."""
+    # Fields are stored as HTML, so the search text has to match that encoding.
+    invoke("guiBrowse", query=f'"{escape_query_value(html.escape(word, quote=False))}"')
 
 
 def store_media(filename: str, data_base64: str, *, label: str) -> str:
@@ -173,10 +183,6 @@ def check_duplicates(notes: list[dict[str, Any]], first_model_field: str) -> lis
     return results
 
 
-def _escape_query_value(value: str) -> str:
-    return value.replace('"', "")
-
-
 def duplicate_note_query(
     note: dict[str, Any],
     first_model_field: str,
@@ -185,9 +191,9 @@ def duplicate_note_query(
     parts = []
     if duplicate_scope in {"deck", "deck-root"}:
         deck = note["deckName"] if duplicate_scope == "deck" else root_deck_name(note["deckName"])
-        parts.append(f'"deck:{_escape_query_value(deck)}"')
+        parts.append(f'"deck:{escape_query_value(deck)}"')
     field_value = str(note["fields"].get(first_model_field, ""))
-    parts.append(f'"{first_model_field.lower()}:{_escape_query_value(field_value)}"')
+    parts.append(f'"{first_model_field.lower()}:{escape_query_value(field_value)}"')
     return " ".join(parts)
 
 
