@@ -24,7 +24,6 @@ const MAX_LOOKUP_TEXT_BYTES: usize = 4 * 1024;
 const MAX_LOOKUP_PRIMARY_READING_BYTES: usize = 4 * 1024;
 const MAX_LOOKUP_SORT_DICTIONARY_BYTES: usize = 4 * 1024;
 const MAX_LOOKUP_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
-const MAX_REQUEST_ID_BYTES: usize = 128;
 const MAX_MEDIA_DICTIONARY_BYTES: usize = 1024;
 const MAX_MEDIA_PATH_BYTES: usize = 4 * 1024;
 const MAX_MEDIA_BYTES: usize = 4 * 1024 * 1024;
@@ -285,18 +284,6 @@ enum RequestId {
     Text(String),
 }
 
-impl RequestId {
-    fn validate(&self) -> Result<(), String> {
-        match self {
-            Self::Number(_) => Ok(()),
-            Self::Text(value) if value.len() <= MAX_REQUEST_ID_BYTES => Ok(()),
-            Self::Text(_) => Err(format!(
-                "requestId exceeds the {MAX_REQUEST_ID_BYTES}-byte limit"
-            )),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 enum LookupFrequencySortOrder {
@@ -326,68 +313,49 @@ impl Default for LookupOptions {
 }
 
 impl LookupOptions {
+    /// Every field comes from the overlay, which already bounds scanLength and
+    /// maxResults to exactly these ranges, so out-of-range values mean a bug on
+    /// our own side rather than a request worth rejecting: clamp and serve.
     fn from_request(
         scan_length: Option<i64>,
         max_results: Option<i64>,
         primary_reading: Option<String>,
         sort_frequency_dictionary: Option<String>,
         sort_frequency_order: Option<LookupFrequencySortOrder>,
-    ) -> Result<Self, String> {
-        let scan_length = scan_length.unwrap_or(DEFAULT_LOOKUP_SCAN_LENGTH as i64);
-        if !(MIN_LOOKUP_SCAN_LENGTH as i64..=MAX_LOOKUP_SCAN_LENGTH as i64).contains(&scan_length) {
-            return Err(format!(
-                "scanLength must be between {MIN_LOOKUP_SCAN_LENGTH} and {MAX_LOOKUP_SCAN_LENGTH}"
-            ));
-        }
-        let max_results = max_results.unwrap_or(DEFAULT_LOOKUP_MAX_RESULTS as i64);
-        if !(MIN_LOOKUP_MAX_RESULTS as i64..=MAX_LOOKUP_MAX_RESULTS as i64).contains(&max_results) {
-            return Err(format!(
-                "maxResults must be between {MIN_LOOKUP_MAX_RESULTS} and {MAX_LOOKUP_MAX_RESULTS}"
-            ));
-        }
-
-        let primary_reading = normalize_optional_lookup_string(
-            primary_reading,
-            MAX_LOOKUP_PRIMARY_READING_BYTES,
-            "primaryReading",
-        )?;
-        let sort_frequency_dictionary = normalize_optional_lookup_string(
-            sort_frequency_dictionary,
-            MAX_LOOKUP_SORT_DICTIONARY_BYTES,
-            "sortFrequencyDictionary",
-        )?;
-
-        Ok(Self {
-            scan_length: usize::try_from(scan_length)
-                .map_err(|_| "scanLength cannot fit in memory".to_string())?,
-            max_results: c_int::try_from(max_results)
-                .map_err(|_| "maxResults cannot fit in the native API".to_string())?,
-            primary_reading,
-            sort_frequency_dictionary,
+    ) -> Self {
+        let clamp = |value: Option<i64>, default: i64, min: i64, max: i64| {
+            value.unwrap_or(default).clamp(min, max)
+        };
+        // The byte bound stays: tungstenite admits messages up to 64 MiB.
+        let bounded = |value: Option<String>, maximum_bytes: usize| {
+            value.filter(|value| {
+                !value.is_empty()
+                    && value.len() <= maximum_bytes
+                    && !value.chars().any(char::is_control)
+            })
+        };
+        Self {
+            scan_length: clamp(
+                scan_length,
+                DEFAULT_LOOKUP_SCAN_LENGTH as i64,
+                MIN_LOOKUP_SCAN_LENGTH as i64,
+                MAX_LOOKUP_SCAN_LENGTH as i64,
+            ) as usize,
+            max_results: clamp(
+                max_results,
+                DEFAULT_LOOKUP_MAX_RESULTS as i64,
+                MIN_LOOKUP_MAX_RESULTS as i64,
+                MAX_LOOKUP_MAX_RESULTS as i64,
+            ) as c_int,
+            primary_reading: bounded(primary_reading, MAX_LOOKUP_PRIMARY_READING_BYTES),
+            sort_frequency_dictionary: bounded(
+                sort_frequency_dictionary,
+                MAX_LOOKUP_SORT_DICTIONARY_BYTES,
+            ),
             sort_frequency_order: sort_frequency_order
                 .unwrap_or(LookupFrequencySortOrder::Descending),
-        })
+        }
     }
-}
-
-fn normalize_optional_lookup_string(
-    value: Option<String>,
-    maximum_bytes: usize,
-    label: &str,
-) -> Result<Option<String>, String> {
-    let Some(value) = value else {
-        return Ok(None);
-    };
-    if value.is_empty() {
-        return Ok(None);
-    }
-    if value.len() > maximum_bytes {
-        return Err(format!("{label} exceeds the {maximum_bytes}-byte limit"));
-    }
-    if value.chars().any(char::is_control) {
-        return Err(format!("{label} contains a control character"));
-    }
-    Ok(Some(value))
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -489,7 +457,6 @@ impl StylesError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MediaError {
-    InvalidRequestId,
     InvalidDictionary,
     InvalidPath,
     NotFound,
@@ -502,7 +469,6 @@ enum MediaError {
 impl MediaError {
     const fn code(self) -> &'static str {
         match self {
-            Self::InvalidRequestId => "invalid_request_id",
             Self::InvalidDictionary => "invalid_dictionary",
             Self::InvalidPath => "invalid_path",
             Self::NotFound => "not_found",
@@ -1510,9 +1476,9 @@ impl NativeEngine {
         })
     }
 
+    /// The caller (`HoshidictsService::media`) validates the dictionary and path
+    /// before the generation check, so both arrive already bounded.
     fn media(&self, dictionary: &str, path: &str) -> Result<MediaFile, MediaError> {
-        validate_media_dictionary(dictionary)?;
-        validate_media_path(path)?;
         let dictionary = CString::new(dictionary).map_err(|_| MediaError::InvalidDictionary)?;
         let path = CString::new(path).map_err(|_| MediaError::InvalidPath)?;
         let native =
@@ -2051,7 +2017,7 @@ struct LookupRequestOptions {
 }
 
 impl LookupRequestOptions {
-    fn validate(self) -> Result<LookupOptions, String> {
+    fn resolve(self) -> LookupOptions {
         LookupOptions::from_request(
             self.scan_length,
             self.max_results,
@@ -2245,18 +2211,12 @@ async fn lookup_payload(
     enabled: bool,
     hoshidicts: &SharedHoshidicts,
 ) -> String {
-    if let Err(error) = request_id.validate() {
-        return lookup_reply(Value::Null, 0, 0, Err(error), false);
-    }
     let request_id = request_id_value(request_id);
     if !enabled {
         return lookup_reply(request_id, 0, 0, Err(FEATURE_DISABLED_MESSAGE.into()), true);
     }
     let lookup_options = if mode == LookupRequestMode::TermFirst {
-        match request_options.validate() {
-            Ok(options) => options,
-            Err(error) => return lookup_reply(request_id, 0, 0, Err(error), false),
-        }
+        request_options.resolve()
     } else {
         LookupOptions::default()
     };
@@ -2342,9 +2302,6 @@ async fn styles_payload(
     enabled: bool,
     hoshidicts: &SharedHoshidicts,
 ) -> String {
-    if request_id.validate().is_err() {
-        return styles_reply(Value::Null, generation, Err("invalid_request_id"), false);
-    }
     let request_id = request_id_value(request_id);
     if !enabled {
         return styles_reply(request_id, generation, Err(FEATURE_DISABLED_CODE), true);
@@ -2372,14 +2329,6 @@ async fn styles_payload(
 // ---------------------------------- media -----------------------------------
 
 /// Never reflect an oversized untrusted field back into a response envelope.
-fn echo_within(value: &str, maximum_bytes: usize) -> &str {
-    if value.len() <= maximum_bytes {
-        value
-    } else {
-        ""
-    }
-}
-
 /// The request fields every media reply echoes back for correlation.
 #[derive(Clone)]
 struct MediaEnvelope {
@@ -2411,8 +2360,8 @@ impl MediaEnvelope {
             feature_disabled,
             error,
             serde_json::json!({
-                "dictionary": echo_within(&self.dictionary, MAX_MEDIA_DICTIONARY_BYTES),
-                "path": echo_within(&self.path, MAX_MEDIA_PATH_BYTES),
+                "dictionary": self.dictionary,
+                "path": self.path,
                 "mediaType": media_type,
                 "byteLength": byte_length,
                 "dataBase64": data_base64,
@@ -2451,9 +2400,6 @@ async fn media_payload(
         dictionary,
         path,
     };
-    if request_id.validate().is_err() {
-        return envelope.failure(MediaError::InvalidRequestId.code(), false);
-    }
     envelope.request_id = request_id_value(request_id);
     if !enabled {
         return envelope.failure(FEATURE_DISABLED_CODE, true);
@@ -2498,9 +2444,6 @@ async fn reload_payload(
     enabled: bool,
     hoshidicts: &SharedHoshidicts,
 ) -> String {
-    if let Err(error) = request_id.validate() {
-        return reload_reply(Value::Null, 0, 0, Some(&error), false);
-    }
     let request_id = request_id_value(request_id);
     if !enabled {
         return reload_reply(request_id, 0, 0, Some(FEATURE_DISABLED_MESSAGE), true);
@@ -2959,22 +2902,16 @@ mod tests {
     }
 
     #[test]
-    fn request_ids_and_lookup_text_are_bounded() {
-        assert!(RequestId::Number(42).validate().is_ok());
-        assert!(RequestId::Text("request-42".into()).validate().is_ok());
-        assert!(RequestId::Text("x".repeat(MAX_REQUEST_ID_BYTES + 1))
-            .validate()
-            .is_err());
+    fn lookup_text_is_bounded() {
         assert!(validate_lookup_text("").is_err());
         assert!(validate_lookup_text(&"x".repeat(MAX_LOOKUP_TEXT_BYTES + 1)).is_err());
     }
 
     #[test]
-    fn lookup_options_match_yomitan_defaults_and_validate_bounds() {
+    fn lookup_options_match_yomitan_defaults_and_clamp_out_of_range_fields() {
         assert_eq!(DEFAULT_LOOKUP_SCAN_LENGTH, 16);
         assert_eq!(DEFAULT_LOOKUP_MAX_RESULTS, 32);
-        let defaults = LookupOptions::from_request(None, None, None, None, None)
-            .expect("default lookup options");
+        let defaults = LookupOptions::from_request(None, None, None, None, None);
         assert_eq!(defaults, LookupOptions::default());
         assert_eq!(defaults.sort_frequency_dictionary, None);
 
@@ -2984,8 +2921,7 @@ mod tests {
             Some("よみ".into()),
             Some("BCCWJ".into()),
             Some(LookupFrequencySortOrder::Ascending),
-        )
-        .expect("configured lookup options");
+        );
         assert_eq!(configured.scan_length, 64);
         assert_eq!(configured.max_results, 256);
         assert_eq!(configured.primary_reading.as_deref(), Some("よみ"));
@@ -2998,36 +2934,31 @@ mod tests {
             LookupFrequencySortOrder::Ascending
         );
 
-        for (scan_length, max_results) in [
-            (Some(0), None),
-            (Some(65), None),
-            (None, Some(0)),
-            (None, Some(257)),
+        // The overlay bounds these to the same ranges, so anything outside
+        // them is our own bug: clamp to the nearest legal value and serve.
+        for (scan_length, max_results, expected_scan, expected_results) in [
+            (Some(0), None, 1, DEFAULT_LOOKUP_MAX_RESULTS),
+            (Some(65), None, 64, DEFAULT_LOOKUP_MAX_RESULTS),
+            (None, Some(0), DEFAULT_LOOKUP_SCAN_LENGTH, 1),
+            (None, Some(257), DEFAULT_LOOKUP_SCAN_LENGTH, 256),
         ] {
-            assert!(
-                LookupOptions::from_request(scan_length, max_results, None, None, None).is_err()
-            );
+            let clamped = LookupOptions::from_request(scan_length, max_results, None, None, None);
+            assert_eq!(clamped.scan_length, expected_scan);
+            assert_eq!(clamped.max_results, expected_results);
         }
-        assert!(LookupOptions::from_request(
-            None,
-            None,
-            Some("x".repeat(MAX_LOOKUP_PRIMARY_READING_BYTES + 1)),
-            None,
-            None
-        )
-        .is_err());
-        assert!(
-            LookupOptions::from_request(None, None, Some("bad\0reading".into()), None, None)
-                .is_err()
-        );
-        assert!(LookupOptions::from_request(
-            None,
-            None,
-            None,
-            Some("bad\ndictionary".into()),
-            None
-        )
-        .is_err());
+        // Oversized or control-bearing strings drop to None rather than failing
+        // the whole lookup.
+        for (primary_reading, sort_dictionary) in [
+            (Some("x".repeat(MAX_LOOKUP_PRIMARY_READING_BYTES + 1)), None),
+            (Some("bad\0reading".into()), None),
+            (None, Some("bad\ndictionary".to_string())),
+            (Some(String::new()), None),
+        ] {
+            let dropped =
+                LookupOptions::from_request(None, None, primary_reading, sort_dictionary, None);
+            assert_eq!(dropped.primary_reading, None);
+            assert_eq!(dropped.sort_frequency_dictionary, None);
+        }
     }
 
     #[test]
@@ -4070,52 +4001,23 @@ mod tests {
     #[tokio::test]
     async fn lookup_failures_stay_correlated_and_keep_an_empty_result_shape() {
         let service = unused_service();
-        // (request, enabled, echoed requestId, featureDisabled, error fragment)
-        for (request, enabled, echoed_id, feature_disabled, error) in [
-            (
-                serde_json::json!({"type":"hoshidicts_lookup","requestId":"lookup-2","text":"食べる"}),
-                false,
-                serde_json::json!("lookup-2"),
-                true,
-                FEATURE_DISABLED_MESSAGE,
-            ),
-            (
-                serde_json::json!({
-                    "type": "hoshidicts_lookup",
-                    "requestId": "x".repeat(MAX_REQUEST_ID_BYTES + 1),
-                    "text": "食べる",
-                }),
-                true,
-                Value::Null,
-                false,
-                "requestId",
-            ),
-            (
-                serde_json::json!({
-                    "type": "hoshidicts_lookup",
-                    "requestId": "lookup-invalid-options",
-                    "text": "食べる",
-                    "scanLength": 0,
-                }),
-                true,
-                serde_json::json!("lookup-invalid-options"),
-                false,
-                "scanLength",
-            ),
-        ] {
-            let value = reply_for(request, enabled, &service).await;
-            assert_eq!(value["type"], LOOKUP_RESULT);
-            assert_eq!(value["requestId"], echoed_id);
-            assert_eq!(value["success"], false);
-            assert_eq!(value["results"], serde_json::json!([]));
-            assert_eq!(value["kanji"], Value::Null);
-            assert_eq!(value["dictionaryCount"], 0);
-            assert_eq!(value["featureDisabled"], feature_disabled);
-            assert!(value["error"]
-                .as_str()
-                .expect("lookup error message")
-                .contains(error));
-        }
+        let value = reply_for(
+            serde_json::json!({"type":"hoshidicts_lookup","requestId":"lookup-2","text":"食べる"}),
+            false,
+            &service,
+        )
+        .await;
+        assert_eq!(value["type"], LOOKUP_RESULT);
+        assert_eq!(value["requestId"], "lookup-2");
+        assert_eq!(value["success"], false);
+        assert_eq!(value["results"], serde_json::json!([]));
+        assert_eq!(value["kanji"], Value::Null);
+        assert_eq!(value["dictionaryCount"], 0);
+        assert_eq!(value["featureDisabled"], true);
+        assert!(value["error"]
+            .as_str()
+            .expect("lookup error message")
+            .contains(FEATURE_DISABLED_MESSAGE));
     }
 
     #[test]
