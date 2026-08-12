@@ -65,6 +65,8 @@
   const MAX_POPUP_CUSTOM_LINK_URL_LENGTH = LIMITS.popupCustomLinkUrlLength;
   const DEFAULT_THEME = READER_DEFAULTS.theme;
   const DEFAULT_ACTIVATION_KEY = constants.DEFAULT_ACTIVATION_KEY;
+  const NAMED_ACTIVATION_KEYS = constants.NAMED_ACTIVATION_KEYS;
+  const PUNCTUATION_ACTIVATION_KEYS = constants.PUNCTUATION_ACTIVATION_KEYS;
   const DEFAULT_COMPACT_DEFINITION_SUMMARY_COUNT =
     READER_DEFAULTS.compactDefinitionSummaryCount;
   const MIN_COMPACT_DEFINITION_SUMMARY_COUNT =
@@ -196,30 +198,6 @@
     ["verticalAlign", ["vertical-align", "vertical-align"]],
     ["whiteSpace", ["white-space", "white-space"]],
     ["wordBreak", ["word-break", "word-break"]],
-  ]);
-  const NAMED_ACTIVATION_KEYS = new Map([
-    ["ctrl", "Ctrl"],
-    ["alt", "Alt"],
-    ["shift", "Shift"],
-    ["cmd", "Cmd"],
-    ["space", "Space"],
-    ["return", "Return"],
-    ["escape", "Escape"],
-    ["backspace", "Backspace"],
-    ["delete", "Delete"],
-    ["tab", "Tab"],
-    ["up", "Up"],
-    ["down", "Down"],
-    ["left", "Left"],
-    ["right", "Right"],
-    ["home", "Home"],
-    ["end", "End"],
-    ["pageup", "PageUp"],
-    ["pagedown", "PageDown"],
-    ["insert", "Insert"],
-  ]);
-  const PUNCTUATION_ACTIVATION_KEYS = new Set([
-    "-", "=", "[", "]", "\\", ";", "'", ",", ".", "/", "`",
   ]);
 
   function isRecord(value) {
