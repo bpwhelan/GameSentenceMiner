@@ -138,18 +138,6 @@ export function sortFrequencyDictionaryOrderForMode(
   return mode === "rank-based" ? "ascending" : "descending";
 }
 
-export const MINING_FIELDS: Array<{
-  id: MiningField;
-  labelKey: string;
-}> = [
-  { id: "expression", labelKey: "settings.hoshidicts.mining.fields.expression" },
-  { id: "reading", labelKey: "settings.hoshidicts.mining.fields.reading" },
-  { id: "definition", labelKey: "settings.hoshidicts.mining.fields.definition" },
-  { id: "sentence", labelKey: "settings.hoshidicts.mining.fields.sentence" },
-  { id: "frequency", labelKey: "settings.hoshidicts.mining.fields.frequency" },
-  { id: "pitch", labelKey: "settings.hoshidicts.mining.fields.pitch" },
-  { id: "audio", labelKey: "settings.hoshidicts.mining.fields.audio" }
-];
 
 const MINING_FIELD_MARKER_LABEL_KEYS: Record<
   HoshidictsMiningFieldMarker,

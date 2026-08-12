@@ -15,7 +15,6 @@ import {
     hoshidictsReaderPreferencesFromSnapshot,
     isHoshidictsPopupButtons,
     isHoshidictsPopupCustomLinkTemplate,
-    isHoshidictsReaderPreferences,
     MAX_HOSHIDICTS_POPUP_CUSTOM_LINK_LABEL_LENGTH,
     MAX_HOSHIDICTS_POPUP_CUSTOM_LINKS,
     MAX_HOSHIDICTS_POPUP_CUSTOM_LINK_URL_LENGTH,
@@ -302,7 +301,6 @@ describe('Hoshidicts reader preference helpers', () => {
             popupButtons: createDefaultHoshidictsPopupButtons(),
             customPopupCss: '',
         });
-        expect(isHoshidictsReaderPreferences(defaultPreferences)).toBe(true);
     });
 
     it('canonicalizes an accepted request and drops unrelated keys', () => {
@@ -339,7 +337,6 @@ describe('Hoshidicts reader preference helpers', () => {
             expect(() => assertHoshidictsReaderPreferences(value)).toThrow(
                 'Hoshidicts reader preferences are invalid.'
             );
-            expect(isHoshidictsReaderPreferences(value)).toBe(false);
         }
     );
 
@@ -350,7 +347,6 @@ describe('Hoshidicts reader preference helpers', () => {
         expect(() => assertHoshidictsReaderPreferences(request)).toThrow(
             / (is|are) invalid\.$/u
         );
-        expect(isHoshidictsReaderPreferences(request)).toBe(false);
     });
 
     it.each(preferenceFields)(

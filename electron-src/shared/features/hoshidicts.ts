@@ -174,11 +174,7 @@ export const DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY = false;
 export const DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT = 3;
 export const MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT = 1;
 export const MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT = 6;
-export const DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY:
-    string | null = null;
 export const DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA = true;
-export const DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY:
-    string | null = null;
 export const DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE = false;
 export const DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS = true;
 export const DEFAULT_HOSHIDICTS_AVERAGE_FREQUENCY = false;
@@ -189,8 +185,6 @@ export const MAX_HOSHIDICTS_SCAN_LENGTH = 64;
 export const DEFAULT_HOSHIDICTS_MAX_RESULTS = 32;
 export const MIN_HOSHIDICTS_MAX_RESULTS = 1;
 export const MAX_HOSHIDICTS_MAX_RESULTS = 256;
-export const DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY: string | null =
-    null;
 export const DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER: HoshidictsSortFrequencyDictionaryOrder =
     'descending';
 export function isHoshidictsSortFrequencyDictionaryOrder(
@@ -612,8 +606,6 @@ export const HOSHIDICTS_MINING_FIELD_MARKERS = [
 
 export type HoshidictsMiningFieldMarker =
     (typeof HOSHIDICTS_MINING_FIELD_MARKERS)[number]['id'];
-export type HoshidictsMiningFieldMarkerValue =
-    (typeof HOSHIDICTS_MINING_FIELD_MARKERS)[number]['value'];
 
 export const HOSHIDICTS_DUPLICATE_SCOPES = [
     'collection',
@@ -1162,17 +1154,6 @@ export function assertHoshidictsReaderPreferences(
         );
     }
     return preferences as unknown as HoshidictsReaderPreferencesRequest;
-}
-
-export function isHoshidictsReaderPreferences(
-    value: unknown
-): value is HoshidictsReaderPreferencesRequest {
-    try {
-        assertHoshidictsReaderPreferences(value);
-        return true;
-    } catch {
-        return false;
-    }
 }
 
 /** Replaces unusable fields with their defaults instead of throwing. */
