@@ -207,7 +207,6 @@
     "text-to-speech-reading",
   ]);
   const AUDIO_SOURCE_LABELS = Object.freeze({
-    jp101: "JapanesePod101",
     jpod101: "JapanesePod101",
     "language-pod-101": "LanguagePod101",
     jisho: "Jisho",
