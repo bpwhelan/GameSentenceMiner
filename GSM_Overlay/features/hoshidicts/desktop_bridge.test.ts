@@ -5,10 +5,7 @@ import {
   HOSHIDICTS_CONTROL_METHODS,
   HoshidictsControlChannel,
 } from "../../../electron-src/main/features/hoshidicts/control_channel";
-import {
-  HOSHIDICTS_THEMES,
-  type HoshidictsTheme,
-} from "../../../electron-src/shared/features/hoshidicts";
+import { HOSHIDICTS_THEMES } from "../../../electron-src/shared/features/hoshidicts";
 
 const require = createRequire(import.meta.url);
 const {
@@ -73,53 +70,7 @@ const {
     fallback?: string | null
   ) => string | null;
   normalizeHoshidictsExternalUrl: (value: unknown) => string;
-  normalizeHoshidictsReaderPreferences: (
-    value: unknown
-  ) => {
-    lookupMode: "shift" | "hover";
-    scanLength: number;
-    maxResults: number;
-    sortFrequencyDictionary: string | null;
-    sortFrequencyDictionaryOrder: "ascending" | "descending";
-    activationKey: string;
-    sourceHighlightEnabled: boolean;
-    onlyScanJapaneseText: boolean;
-    popupHideDelayMs: number;
-    showCompactDefinitionSummary: boolean;
-    compactDefinitionSummaryCount: number;
-    compactDefinitionSummaryDictionary: string | null;
-    showPitchAccentFurigana: boolean;
-    pitchAccentFuriganaDictionary: string | null;
-    showPitchAccentBadge: boolean;
-    hidePopupGrammarTags: boolean;
-    popupNestingMaxDepth: number;
-    popupWidthPx: number;
-    popupHeightPx: number;
-    popupColumns: number;
-    popupBackdropBlurPx: number;
-    popupOpacityPercent: number;
-    popupToolbarPosition: "top" | "bottom";
-    theme: HoshidictsTheme;
-    customPopupCss: string;
-    dictionaryPresentation: Array<{
-      title: string;
-      favorite: boolean;
-      displayName?: string;
-    }>;
-    frequencyDictionaries: string[];
-    dictionaryTabGroups: Array<{
-      id: string;
-      name: string;
-      dictionaries: string[];
-    }>;
-    popupButtons: {
-      addToAnki: boolean;
-      audio: boolean;
-      customDefinition: boolean;
-      viewInAnki: boolean;
-      customLinks: Array<{ label: string; url: string }>;
-    };
-  };
+  normalizeHoshidictsReaderPreferences: (value: unknown) => Record<string, any>;
 };
 
 const channels: HoshidictsControlChannel[] = [];
@@ -149,22 +100,38 @@ async function startControlChannel(options: {
 }
 
 describe("Hoshidicts desktop bridge", () => {
-  const popupAppearance = {
-    popupWidthPx: 680,
-    popupHeightPx: 500,
-    popupColumns: 3,
-    popupBackdropBlurPx: 24,
-    popupOpacityPercent: 70,
-    popupToolbarPosition: "bottom" as const,
-    theme: "autumn" as const,
-    showCompactDefinitionSummary: false,
-    compactDefinitionSummaryCount: 3,
-    compactDefinitionSummaryDictionary: null,
-    showPitchAccentFurigana: true,
-    pitchAccentFuriganaDictionary: null,
-    showPitchAccentBadge: false,
-    hidePopupGrammarTags: true,
-  };
+  /** One complete, valid live-preference payload; overrides exercise one field. */
+  function validPreferences(overrides: Record<string, unknown> = {}) {
+    return {
+      lookupMode: "hover",
+      activationKey: "F8",
+      sourceHighlightEnabled: true,
+      popupHideDelayMs: 850,
+      popupNestingMaxDepth: 4,
+      showLookupCounts: true,
+      showCompactDefinitionSummary: false,
+      compactDefinitionSummaryCount: 3,
+      compactDefinitionSummaryDictionary: null,
+      showPitchAccentFurigana: true,
+      pitchAccentFuriganaDictionary: null,
+      showPitchAccentBadge: false,
+      hidePopupGrammarTags: true,
+      definitionBlur: {
+        enabled: false,
+        lookupThreshold: 5,
+        revealMode: "timed",
+        revealDelayMs: 5000,
+      },
+      popupWidthPx: 680,
+      popupHeightPx: 500,
+      popupColumns: 3,
+      popupBackdropBlurPx: 24,
+      popupOpacityPercent: 70,
+      popupToolbarPosition: "bottom",
+      theme: "autumn",
+      ...overrides,
+    } as Record<string, any>;
+  }
 
   it("normalizes only canonical single-key accelerators supported by the input server", () => {
     expect(normalizeHoshidictsActivationKey(undefined)).toBe("Shift");
@@ -197,18 +164,13 @@ describe("Hoshidicts desktop bridge", () => {
     }
   });
 
-  it("strictly preserves the source highlight preference for live delivery", () => {
-    expect(normalizeHoshidictsReaderPreferences({
-      lookupMode: "hover",
+it("normalizes one complete live preference payload", () => {
+    expect(normalizeHoshidictsReaderPreferences(validPreferences({
+      activationKey: "f8",
       scanLength: 24,
       maxResults: 48,
       sortFrequencyDictionary: "Frequency",
       sortFrequencyDictionaryOrder: "ascending",
-      activationKey: "f8",
-      sourceHighlightEnabled: true,
-      popupHideDelayMs: 850,
-      popupNestingMaxDepth: 4,
-      ...popupAppearance,
       customPopupCss: ":scope { border-radius: 16px; }",
       dictionaryPresentation: [
         {
@@ -232,25 +194,19 @@ describe("Hoshidicts desktop bridge", () => {
         audio: false,
         customDefinition: true,
         viewInAnki: true,
-        customLinks: [
-          { label: "Jisho", url: "https://jisho.org/search/%w" },
-        ],
+        customLinks: [{ label: "Jisho", url: "https://jisho.org/search/%w" }],
       },
-    })).toEqual({
-      lookupMode: "hover",
+    }))).toEqual(validPreferences({
+      activationKey: "F8",
       scanLength: 24,
       maxResults: 48,
       sortFrequencyDictionary: "Frequency",
       sortFrequencyDictionaryOrder: "ascending",
       averageFrequency: false,
       showFrequencyDictionaryNames: true,
-      activationKey: "F8",
-      sourceHighlightEnabled: true,
       onlyScanJapaneseText: true,
-      popupHideDelayMs: 850,
-      popupNestingMaxDepth: 4,
-      ...popupAppearance,
       customPopupCss: ":scope { border-radius: 16px; }",
+      // Unknown entry keys are dropped and tab-group names are trimmed.
       dictionaryPresentation: [
         {
           title: "Monolingual",
@@ -273,95 +229,96 @@ describe("Hoshidicts desktop bridge", () => {
         audio: false,
         customDefinition: true,
         viewInAnki: true,
-        customLinks: [
-          { label: "Jisho", url: "https://jisho.org/search/%w" },
-        ],
+        customLinks: [{ label: "Jisho", url: "https://jisho.org/search/%w" }],
       },
-    });
-    expect(normalizeHoshidictsReaderPreferences({
-      lookupMode: "hover",
-      activationKey: "F8",
-      sourceHighlightEnabled: true,
-      popupHideDelayMs: 850,
-      popupNestingMaxDepth: 4,
-      ...popupAppearance,
-    }).customPopupCss).toBe("");
-    for (const customPopupCss of [1, "x".repeat(32 * 1024 + 1)]) {
-      expect(() => normalizeHoshidictsReaderPreferences({
-        lookupMode: "hover",
-        activationKey: "F8",
-        sourceHighlightEnabled: true,
-        popupHideDelayMs: 850,
-        popupNestingMaxDepth: 4,
-        ...popupAppearance,
-        customPopupCss,
-      })).toThrow("Hoshidicts reader preferences are invalid.");
-    }
-    expect(normalizeHoshidictsReaderPreferences({
-      lookupMode: "hover",
-      activationKey: "F8",
-      sourceHighlightEnabled: true,
-      popupHideDelayMs: 850,
-      popupNestingMaxDepth: 4,
-      ...popupAppearance,
-    }).dictionaryPresentation).toEqual([]);
-    expect(normalizeHoshidictsReaderPreferences({
-      lookupMode: "hover",
-      activationKey: "F8",
-      sourceHighlightEnabled: true,
-      popupHideDelayMs: 850,
-      popupNestingMaxDepth: 4,
-      ...popupAppearance,
-    }).frequencyDictionaries).toEqual([]);
-    expect(normalizeHoshidictsReaderPreferences({
-      lookupMode: "hover",
-      activationKey: "F8",
-      sourceHighlightEnabled: true,
-      popupHideDelayMs: 850,
-      popupNestingMaxDepth: 4,
-      ...popupAppearance,
-    }).dictionaryTabGroups).toEqual([]);
-    expect(normalizeHoshidictsReaderPreferences({
-      lookupMode: "hover",
-      activationKey: "F8",
-      sourceHighlightEnabled: true,
-      popupHideDelayMs: 850,
-      popupNestingMaxDepth: 4,
-      ...popupAppearance,
-    }).popupButtons).toEqual({
+    }));
+  });
+
+  it.each([
+    ["customPopupCss", ""],
+    ["dictionaryPresentation", []],
+    ["frequencyDictionaries", []],
+    ["dictionaryTabGroups", []],
+    ["popupColumns", 1],
+    ["scanLength", 16],
+    ["maxResults", 32],
+    ["sortFrequencyDictionary", null],
+    ["sortFrequencyDictionaryOrder", "descending"],
+    ["averageFrequency", false],
+    ["showFrequencyDictionaryNames", true],
+    ["onlyScanJapaneseText", true],
+    ["compactDefinitionSummaryCount", 3],
+    ["popupBackdropBlurPx", 16],
+    ["popupButtons", {
       addToAnki: true,
       audio: true,
       customDefinition: true,
       viewInAnki: false,
       customLinks: [],
-    });
-    expect(normalizeHoshidictsReaderPreferences({
-      lookupMode: "hover",
-      activationKey: "F8",
-      sourceHighlightEnabled: true,
-      popupHideDelayMs: 850,
-      popupNestingMaxDepth: 4,
-      ...popupAppearance,
-      popupColumns: undefined,
-    }).popupColumns).toBe(1);
-    for (const popupColumns of [0, 5, 1.5]) {
-      expect(() => normalizeHoshidictsReaderPreferences({
-        lookupMode: "hover",
-        activationKey: "F8",
-        sourceHighlightEnabled: true,
-        popupHideDelayMs: 850,
-        popupNestingMaxDepth: 4,
-        ...popupAppearance,
-        popupColumns,
-      })).toThrow("Hoshidicts reader preferences are invalid.");
-    }
-    expect(() => normalizeHoshidictsReaderPreferences({
-      lookupMode: "hover",
-      activationKey: "F8",
-      sourceHighlightEnabled: true,
-      popupHideDelayMs: 850,
-      popupNestingMaxDepth: 4,
-      ...popupAppearance,
+    }],
+  ])("defaults an omitted %s", (field, expected) => {
+    const payload = validPreferences({ [field]: undefined });
+
+    expect(normalizeHoshidictsReaderPreferences(payload)[field]).toEqual(expected);
+  });
+
+  it.each([
+    ["a non-boolean source highlight flag", { sourceHighlightEnabled: "true" }],
+    ["a non-boolean japanese-only scan flag", { onlyScanJapaneseText: "yes" }],
+    ["a missing source highlight flag", { sourceHighlightEnabled: undefined }],
+    ["a negative popup nesting depth", { popupNestingMaxDepth: -1 }],
+    ["a non-string custom popup CSS", { customPopupCss: 1 }],
+    ["oversized custom popup CSS", { customPopupCss: "x".repeat(32 * 1024 + 1) }],
+    ["a popup width below the minimum", { popupWidthPx: 279 }],
+    ["an unknown theme", { theme: "neon" }],
+    ["an out-of-range opacity", { popupOpacityPercent: 101 }],
+    ["an out-of-range backdrop blur", { popupBackdropBlurPx: 33 }],
+    ["zero popup columns", { popupColumns: 0 }],
+    ["too many popup columns", { popupColumns: 5 }],
+    ["fractional popup columns", { popupColumns: 1.5 }],
+    ["a missing compact-summary flag", { showCompactDefinitionSummary: undefined }],
+    ["a non-boolean compact-summary flag", { showCompactDefinitionSummary: "yes" }],
+    ["a numeric compact-summary flag", { showCompactDefinitionSummary: 1 }],
+    ["a missing compact-summary dictionary", { compactDefinitionSummaryDictionary: undefined }],
+    ["an empty compact-summary dictionary", { compactDefinitionSummaryDictionary: "" }],
+    ["a blank compact-summary dictionary", { compactDefinitionSummaryDictionary: "   " }],
+    ["an over-long compact-summary dictionary", { compactDefinitionSummaryDictionary: "x".repeat(4097) }],
+    ["a numeric compact-summary dictionary", { compactDefinitionSummaryDictionary: 1 }],
+    ["a compact-summary count below one", { compactDefinitionSummaryCount: 0 }],
+    ["a compact-summary count above six", { compactDefinitionSummaryCount: 7 }],
+    ["a fractional compact-summary count", { compactDefinitionSummaryCount: 1.5 }],
+    ["a string compact-summary count", { compactDefinitionSummaryCount: "3" }],
+    ["a missing grammar-tag flag", { hidePopupGrammarTags: undefined }],
+    ["a non-boolean grammar-tag flag", { hidePopupGrammarTags: "yes" }],
+    ["a numeric grammar-tag flag", { hidePopupGrammarTags: 1 }],
+    ["a missing lookup-count flag", { showLookupCounts: undefined }],
+    ["a non-boolean lookup-count flag", { showLookupCounts: "false" }],
+    ["a missing definition blur profile", { definitionBlur: undefined }],
+    ["a blur threshold below one", {
+      definitionBlur: {
+        enabled: true,
+        lookupThreshold: 0,
+        revealMode: "timed",
+        revealDelayMs: 5000,
+      },
+    }],
+    ["an over-long blur reveal delay", {
+      definitionBlur: {
+        enabled: true,
+        lookupThreshold: 5,
+        revealMode: "timed",
+        revealDelayMs: 3_600_001,
+      },
+    }],
+    ["an unknown blur reveal mode", {
+      definitionBlur: {
+        enabled: true,
+        lookupThreshold: 5,
+        revealMode: "fade",
+        revealDelayMs: 5000,
+      },
+    }],
+    ["an unsafe popup link", {
       popupButtons: {
         addToAnki: true,
         audio: true,
@@ -369,246 +326,69 @@ describe("Hoshidicts desktop bridge", () => {
         viewInAnki: false,
         customLinks: [{ label: "Unsafe", url: "javascript:alert(1)" }],
       },
-    })).toThrow("Hoshidicts reader preferences are invalid.");
-    expect(() => normalizeHoshidictsReaderPreferences({
-      lookupMode: "hover",
-      activationKey: "F8",
-      sourceHighlightEnabled: "true",
-      popupHideDelayMs: 850,
-      popupNestingMaxDepth: 4,
-      ...popupAppearance,
-    })).toThrow("Hoshidicts reader preferences are invalid.");
-    expect(() => normalizeHoshidictsReaderPreferences({
-      lookupMode: "hover",
-      activationKey: "F8",
-      popupHideDelayMs: 850,
-      popupNestingMaxDepth: 4,
-      ...popupAppearance,
-    })).toThrow("Hoshidicts reader preferences are invalid.");
-    expect(() => normalizeHoshidictsReaderPreferences({
-      lookupMode: "hover",
-      activationKey: "F8",
-      sourceHighlightEnabled: true,
-      popupHideDelayMs: 850,
-      popupNestingMaxDepth: -1,
-      ...popupAppearance,
-    })).toThrow("Hoshidicts reader preferences are invalid.");
-    expect(() => normalizeHoshidictsReaderPreferences({
-      lookupMode: "hover",
-      activationKey: "F8",
-      sourceHighlightEnabled: true,
-      popupHideDelayMs: 850,
-      popupNestingMaxDepth: 4,
-      ...popupAppearance,
-      dictionaryPresentation: [
-        { title: "Broken", favorite: "yes" },
-      ],
-    })).toThrow("Hoshidicts reader preferences are invalid.");
-    expect(() => normalizeHoshidictsReaderPreferences({
-      lookupMode: "hover",
-      activationKey: "F8",
-      sourceHighlightEnabled: true,
-      popupHideDelayMs: 850,
-      popupNestingMaxDepth: 4,
-      ...popupAppearance,
+    }],
+    ["a non-boolean dictionary favorite", {
+      dictionaryPresentation: [{ title: "Broken", favorite: "yes" }],
+    }],
+    ["repeated dictionary titles", {
       dictionaryPresentation: [
         { title: "Repeated", favorite: true },
         { title: "Repeated", favorite: false },
       ],
-    })).toThrow("Hoshidicts reader preferences are invalid.");
-    expect(() => normalizeHoshidictsReaderPreferences({
-      lookupMode: "hover",
-      activationKey: "F8",
-      sourceHighlightEnabled: true,
-      popupHideDelayMs: 850,
-      popupNestingMaxDepth: 4,
-      ...popupAppearance,
-      frequencyDictionaries: ["Foo", "Foo"],
-    })).toThrow("Hoshidicts reader preferences are invalid.");
-    expect(() => normalizeHoshidictsReaderPreferences({
-      lookupMode: "hover",
-      activationKey: "F8",
-      sourceHighlightEnabled: true,
-      popupHideDelayMs: 850,
-      popupNestingMaxDepth: 4,
-      ...popupAppearance,
-      popupWidthPx: 279,
-    })).toThrow("Hoshidicts reader preferences are invalid.");
-    expect(() => normalizeHoshidictsReaderPreferences({
-      lookupMode: "hover",
-      activationKey: "F8",
-      sourceHighlightEnabled: true,
-      popupHideDelayMs: 850,
-      popupNestingMaxDepth: 4,
-      ...popupAppearance,
-      theme: "neon",
-    })).toThrow("Hoshidicts reader preferences are invalid.");
-    expect(() => normalizeHoshidictsReaderPreferences({
-      lookupMode: "hover",
-      activationKey: "F8",
-      sourceHighlightEnabled: true,
-      popupHideDelayMs: 850,
-      popupNestingMaxDepth: 4,
-      ...popupAppearance,
-      popupOpacityPercent: 101,
-    })).toThrow("Hoshidicts reader preferences are invalid.");
-    expect(() => normalizeHoshidictsReaderPreferences({
-      lookupMode: "hover",
-      activationKey: "F8",
-      sourceHighlightEnabled: true,
-      popupHideDelayMs: 850,
-      popupNestingMaxDepth: 4,
-      ...popupAppearance,
-      popupBackdropBlurPx: 33,
-    })).toThrow("Hoshidicts reader preferences are invalid.");
-    expect(() => normalizeHoshidictsReaderPreferences({
-      lookupMode: "hover",
-      activationKey: "F8",
-      sourceHighlightEnabled: true,
-      popupHideDelayMs: 850,
-      popupNestingMaxDepth: 4,
-      ...popupAppearance,
-      dictionaryPresentation: [
-        { title: "Broken", favorite: true, displayName: "   " },
-      ],
-    })).toThrow("Hoshidicts reader preferences are invalid.");
-    expect(() => normalizeHoshidictsReaderPreferences({
-      lookupMode: "hover",
-      activationKey: "F8",
-      sourceHighlightEnabled: true,
-      popupHideDelayMs: 850,
-      popupNestingMaxDepth: 4,
-      ...popupAppearance,
+    }],
+    ["a blank dictionary display name", {
+      dictionaryPresentation: [{ title: "Broken", favorite: true, displayName: "   " }],
+    }],
+    ["an over-long dictionary display name", {
       dictionaryPresentation: [
         { title: "Broken", favorite: true, displayName: "x".repeat(4097) },
       ],
-    })).toThrow("Hoshidicts reader preferences are invalid.");
-    expect(() => normalizeHoshidictsReaderPreferences({
-      lookupMode: "hover",
-      activationKey: "F8",
-      sourceHighlightEnabled: true,
-      popupHideDelayMs: 850,
-      popupNestingMaxDepth: 4,
-      ...popupAppearance,
+    }],
+    ["an unknown frequency mode", {
       dictionaryPresentation: [
         { title: "Broken", favorite: true, frequencyMode: "most-popular" },
       ],
-    })).toThrow("Hoshidicts reader preferences are invalid.");
-    expect(() => normalizeHoshidictsReaderPreferences({
-      lookupMode: "hover",
-      activationKey: "F8",
-      sourceHighlightEnabled: true,
-      popupHideDelayMs: 850,
-      popupNestingMaxDepth: 4,
-      ...popupAppearance,
+    }],
+    ["repeated frequency dictionaries", { frequencyDictionaries: ["Foo", "Foo"] }],
+    ["repeated tab-group names", {
       dictionaryTabGroups: [
         { id: "one", name: "Reference", dictionaries: ["Main"] },
         { id: "two", name: "Reference", dictionaries: ["Backup"] },
       ],
-    })).toThrow("Hoshidicts reader preferences are invalid.");
-    expect(() => normalizeHoshidictsReaderPreferences({
-      lookupMode: "hover",
-      activationKey: "F8",
-      sourceHighlightEnabled: true,
-      popupHideDelayMs: 850,
-      popupNestingMaxDepth: 4,
-      ...popupAppearance,
-      dictionaryTabGroups: [
-        { id: "one", name: "g".repeat(129), dictionaries: ["Main"] },
-      ],
-    })).toThrow("Hoshidicts reader preferences are invalid.");
-    expect(() => normalizeHoshidictsReaderPreferences({
-      lookupMode: "hover",
-      activationKey: "F8",
-      sourceHighlightEnabled: true,
-      popupHideDelayMs: 850,
-      popupNestingMaxDepth: 4,
-      ...popupAppearance,
+    }],
+    ["an over-long tab-group name", {
+      dictionaryTabGroups: [{ id: "one", name: "g".repeat(129), dictionaries: ["Main"] }],
+    }],
+    ["repeated dictionaries inside a tab group", {
       dictionaryTabGroups: [
         { id: "one", name: "Reference", dictionaries: ["Main", "Main"] },
       ],
-    })).toThrow("Hoshidicts reader preferences are invalid.");
+    }],
+  ])("rejects live preferences with %s", (_label, overrides) => {
+    expect(() => normalizeHoshidictsReaderPreferences(validPreferences(overrides)))
+      .toThrow("Hoshidicts reader preferences are invalid.");
   });
 
-  it("accepts every canonical popup theme for live preference delivery", () => {
+  it.each(HOSHIDICTS_THEMES)("accepts the canonical %s popup theme", (theme) => {
     expect(HOSHIDICTS_THEMES).toHaveLength(41);
-    for (const theme of HOSHIDICTS_THEMES) {
-      expect(normalizeHoshidictsReaderPreferences({
-        lookupMode: "hover",
-        activationKey: "F8",
-        sourceHighlightEnabled: true,
-        popupHideDelayMs: 850,
-        popupNestingMaxDepth: 4,
-        popupWidthPx: 680,
-        popupHeightPx: 500,
-        popupColumns: 3,
-        popupOpacityPercent: 70,
-        popupToolbarPosition: "top",
-        theme,
-        showCompactDefinitionSummary: true,
-        compactDefinitionSummaryDictionary: null,
-        showPitchAccentFurigana: true,
-        pitchAccentFuriganaDictionary: null,
-        showPitchAccentBadge: false,
-        hidePopupGrammarTags: true,
-      }).theme).toBe(theme);
-    }
+
+    expect(normalizeHoshidictsReaderPreferences(validPreferences({ theme })).theme)
+      .toBe(theme);
   });
 
-  it("requires an explicit compact definition summary preference", () => {
-    const valid = {
-      lookupMode: "hover",
-      activationKey: "F8",
-      sourceHighlightEnabled: true,
-      popupHideDelayMs: 850,
-      popupNestingMaxDepth: 4,
-      ...popupAppearance,
-    };
-    expect(normalizeHoshidictsReaderPreferences({
-      ...valid,
+  it("keeps an explicit compact definition summary selection", () => {
+    expect(normalizeHoshidictsReaderPreferences(validPreferences({
       showCompactDefinitionSummary: true,
       compactDefinitionSummaryCount: 5,
       compactDefinitionSummaryDictionary: "Jitendex",
-    })).toMatchObject({
+    }))).toMatchObject({
       showCompactDefinitionSummary: true,
       compactDefinitionSummaryCount: 5,
+      compactDefinitionSummaryDictionary: "Jitendex",
     });
-    expect(normalizeHoshidictsReaderPreferences({
-      ...valid,
-      compactDefinitionSummaryDictionary: "Jitendex",
-    }).compactDefinitionSummaryDictionary).toBe("Jitendex");
-    for (const showCompactDefinitionSummary of [undefined, "yes", 1]) {
-      expect(() => normalizeHoshidictsReaderPreferences({
-        ...valid,
-        showCompactDefinitionSummary,
-      })).toThrow("Hoshidicts reader preferences are invalid.");
-    }
-    for (const compactDefinitionSummaryDictionary of [
-      undefined,
-      "",
-      "   ",
-      "x".repeat(4097),
-      1,
-    ]) {
-      expect(() => normalizeHoshidictsReaderPreferences({
-        ...valid,
-        compactDefinitionSummaryDictionary,
-      })).toThrow("Hoshidicts reader preferences are invalid.");
-    }
-    for (const compactDefinitionSummaryCount of [0, 7, 1.5, "3"]) {
-      expect(() => normalizeHoshidictsReaderPreferences({
-        ...valid,
-        compactDefinitionSummaryCount,
-      })).toThrow("Hoshidicts reader preferences are invalid.");
-    }
-    for (const hidePopupGrammarTags of [undefined, "yes", 1]) {
-      expect(() => normalizeHoshidictsReaderPreferences({
-        ...valid,
-        hidePopupGrammarTags,
-      })).toThrow("Hoshidicts reader preferences are invalid.");
-    }
   });
 
+  
   it("adds a stateful activation binding without replacing route-all hotkeys", () => {
     const routeHandler = vi.fn();
     const registry = new Map<string, Record<string, unknown>>([

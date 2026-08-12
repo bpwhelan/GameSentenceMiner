@@ -13,16 +13,20 @@
 (function (root, factory) {
   const popupApi = root && root.GSMHoshidictsPopup;
   const audioApi = root && root.GSMHoshidictsAudio;
-  const api = factory(popupApi, audioApi);
+  const constants = root && root.GSMHoshidictsConstants;
+  const api = factory(popupApi, audioApi, constants);
   if (typeof module !== "undefined" && module.exports) {
     module.exports = api;
   }
   if (root) {
     root.GSMHoshidictsReader = api;
   }
-}(typeof window !== "undefined" ? window : globalThis, function (popupApi, audioApi) {
+}(typeof window !== "undefined" ? window : globalThis, function (popupApi, audioApi, constants) {
   "use strict";
 
+  if (!constants || !constants.READER_DEFAULTS) {
+    throw new Error("Hoshidicts constants must load before the reader.");
+  }
   if (
     !popupApi ||
     typeof popupApi.createPopupView !== "function" ||
@@ -47,108 +51,63 @@
   } = audioApi;
 
   const LOOKUP_REQUEST_TIMEOUT_MS = 4 * 1000;
-  const LOOKUP_SCAN_LENGTH = 16;
-  const MIN_LOOKUP_SCAN_LENGTH = 1;
-  const MAX_LOOKUP_SCAN_LENGTH = 64;
-  const LOOKUP_MAX_RESULTS = 32;
-  const MIN_LOOKUP_MAX_RESULTS = 1;
-  const MAX_LOOKUP_MAX_RESULTS = 256;
+  const { BOUNDS, LIMITS, READER_DEFAULTS, THEME_SET: THEMES } = constants;
+  const LOOKUP_SCAN_LENGTH = READER_DEFAULTS.scanLength;
+  const MIN_LOOKUP_SCAN_LENGTH = BOUNDS.scanLength.min;
+  const MAX_LOOKUP_SCAN_LENGTH = BOUNDS.scanLength.max;
+  const LOOKUP_MAX_RESULTS = READER_DEFAULTS.maxResults;
+  const MIN_LOOKUP_MAX_RESULTS = BOUNDS.maxResults.min;
+  const MAX_LOOKUP_MAX_RESULTS = BOUNDS.maxResults.max;
   const INITIAL_VISIBLE_RESULTS = 1;
-  const DEFAULT_POPUP_HIDE_DELAY_MS = 300;
+  const DEFAULT_POPUP_HIDE_DELAY_MS = READER_DEFAULTS.popupHideDelayMs;
+  const MAX_POPUP_HIDE_DELAY_MS = BOUNDS.popupHideDelayMs.max;
   const POPUP_TRANSFER_GRACE_MS = 80;
-  const DEFAULT_POPUP_WIDTH_PX = 560;
-  const DEFAULT_POPUP_HEIGHT_PX = 420;
-  const DEFAULT_POPUP_COLUMNS = 1;
-  const MIN_POPUP_WIDTH_PX = 280;
-  const MAX_POPUP_WIDTH_PX = 1200;
-  const MIN_POPUP_HEIGHT_PX = 200;
-  const MAX_POPUP_HEIGHT_PX = 900;
-  const MIN_POPUP_COLUMNS = 1;
-  const MAX_POPUP_COLUMNS = 4;
-  const DEFAULT_POPUP_OPACITY_PERCENT = 85;
-  const DEFAULT_POPUP_BACKDROP_BLUR_PX = 16;
-  const DEFAULT_POPUP_TOOLBAR_POSITION = "top";
-  const DEFAULT_POPUP_BUTTONS = Object.freeze({
-    addToAnki: true,
-    audio: true,
-    customDefinition: true,
-    viewInAnki: false,
-    customLinks: Object.freeze([]),
-  });
-  const MAX_POPUP_CUSTOM_LINKS = 8;
-  const MAX_POPUP_CUSTOM_LINK_LABEL_LENGTH = 64;
-  const MAX_POPUP_CUSTOM_LINK_URL_LENGTH = 2048;
-  const MAX_CUSTOM_POPUP_CSS_LENGTH = 32 * 1024;
-  const MIN_POPUP_OPACITY_PERCENT = 0;
-  const MAX_POPUP_OPACITY_PERCENT = 100;
-  const MIN_POPUP_BACKDROP_BLUR_PX = 0;
-  const MAX_POPUP_BACKDROP_BLUR_PX = 32;
-  const DEFAULT_THEME = "default";
-  const THEMES = new Set([
-    "default",
-    "catppuccin-mocha",
-    "solarized-dark",
-    "dark",
-    "synthwave",
-    "halloween",
-    "forest",
-    "aqua",
-    "black",
-    "luxury",
-    "dracula",
-    "business",
-    "night",
-    "coffee",
-    "dim",
-    "sunset",
-    "abyss",
-    "girlypop",
-    "solarized-light",
-    "light",
-    "cupcake",
-    "bumblebee",
-    "emerald",
-    "corporate",
-    "retro",
-    "cyberpunk",
-    "valentine",
-    "garden",
-    "lofi",
-    "pastel",
-    "fantasy",
-    "wireframe",
-    "cmyk",
-    "autumn",
-    "acid",
-    "lemonade",
-    "winter",
-    "nord",
-    "caramellatte",
-    "silk",
-    "high-contrast",
-  ]);
-  const DEFAULT_ACTIVATION_KEY = "Shift";
-  const DEFAULT_SOURCE_HIGHLIGHT_ENABLED = false;
-  const DEFAULT_ONLY_SCAN_JAPANESE_TEXT = true;
-  const DEFAULT_SHOW_COMPACT_DEFINITION_SUMMARY = false;
-  const DEFAULT_COMPACT_DEFINITION_SUMMARY_COUNT = 3;
-  const MIN_COMPACT_DEFINITION_SUMMARY_COUNT = 1;
-  const MAX_COMPACT_DEFINITION_SUMMARY_COUNT = 6;
-  const DEFAULT_SHOW_PITCH_ACCENT_FURIGANA = true;
-  const DEFAULT_SHOW_PITCH_ACCENT_BADGE = false;
-  const DEFAULT_HIDE_POPUP_GRAMMAR_TAGS = true;
-  const DEFAULT_POPUP_NESTING_MAX_DEPTH = 10;
-  const MAX_POPUP_HIDE_DELAY_MS = 5 * 1000;
-  const DEFAULT_DEFINITION_BLUR_PREFERENCES = Object.freeze({
-    enabled: false,
-    lookupThreshold: 5,
-    revealMode: "timed",
-    revealDelayMs: 5 * 1000,
-  });
-  const MIN_DEFINITION_BLUR_LOOKUP_THRESHOLD = 1;
-  const MAX_DEFINITION_BLUR_LOOKUP_THRESHOLD = 1_000_000;
-  const MIN_DEFINITION_BLUR_REVEAL_DELAY_MS = 1000;
-  const MAX_DEFINITION_BLUR_REVEAL_DELAY_MS = 60 * 60 * 1000;
+  const DEFAULT_POPUP_WIDTH_PX = READER_DEFAULTS.popupWidthPx;
+  const DEFAULT_POPUP_HEIGHT_PX = READER_DEFAULTS.popupHeightPx;
+  const DEFAULT_POPUP_COLUMNS = READER_DEFAULTS.popupColumns;
+  const MIN_POPUP_WIDTH_PX = BOUNDS.popupWidthPx.min;
+  const MAX_POPUP_WIDTH_PX = BOUNDS.popupWidthPx.max;
+  const MIN_POPUP_HEIGHT_PX = BOUNDS.popupHeightPx.min;
+  const MAX_POPUP_HEIGHT_PX = BOUNDS.popupHeightPx.max;
+  const MIN_POPUP_COLUMNS = BOUNDS.popupColumns.min;
+  const MAX_POPUP_COLUMNS = BOUNDS.popupColumns.max;
+  const DEFAULT_POPUP_OPACITY_PERCENT = READER_DEFAULTS.popupOpacityPercent;
+  const MIN_POPUP_OPACITY_PERCENT = BOUNDS.popupOpacityPercent.min;
+  const MAX_POPUP_OPACITY_PERCENT = BOUNDS.popupOpacityPercent.max;
+  const DEFAULT_POPUP_BACKDROP_BLUR_PX = READER_DEFAULTS.popupBackdropBlurPx;
+  const MIN_POPUP_BACKDROP_BLUR_PX = BOUNDS.popupBackdropBlurPx.min;
+  const MAX_POPUP_BACKDROP_BLUR_PX = BOUNDS.popupBackdropBlurPx.max;
+  const DEFAULT_POPUP_TOOLBAR_POSITION = READER_DEFAULTS.popupToolbarPosition;
+  const DEFAULT_POPUP_BUTTONS = constants.DEFAULT_POPUP_BUTTONS;
+  const MAX_POPUP_CUSTOM_LINKS = LIMITS.popupCustomLinks;
+  const MAX_POPUP_CUSTOM_LINK_LABEL_LENGTH = LIMITS.popupCustomLinkLabelLength;
+  const MAX_POPUP_CUSTOM_LINK_URL_LENGTH = LIMITS.popupCustomLinkUrlLength;
+  const MAX_CUSTOM_POPUP_CSS_LENGTH = LIMITS.customPopupCssLength;
+  const DEFAULT_THEME = READER_DEFAULTS.theme;
+  const DEFAULT_ACTIVATION_KEY = constants.DEFAULT_ACTIVATION_KEY;
+  const DEFAULT_SOURCE_HIGHLIGHT_ENABLED = READER_DEFAULTS.sourceHighlightEnabled;
+  const DEFAULT_ONLY_SCAN_JAPANESE_TEXT = READER_DEFAULTS.onlyScanJapaneseText;
+  const DEFAULT_SHOW_COMPACT_DEFINITION_SUMMARY =
+    READER_DEFAULTS.showCompactDefinitionSummary;
+  const DEFAULT_COMPACT_DEFINITION_SUMMARY_COUNT =
+    READER_DEFAULTS.compactDefinitionSummaryCount;
+  const MIN_COMPACT_DEFINITION_SUMMARY_COUNT =
+    BOUNDS.compactDefinitionSummaryCount.min;
+  const MAX_COMPACT_DEFINITION_SUMMARY_COUNT =
+    BOUNDS.compactDefinitionSummaryCount.max;
+  const DEFAULT_SHOW_PITCH_ACCENT_FURIGANA = READER_DEFAULTS.showPitchAccentFurigana;
+  const DEFAULT_SHOW_PITCH_ACCENT_BADGE = READER_DEFAULTS.showPitchAccentBadge;
+  const DEFAULT_HIDE_POPUP_GRAMMAR_TAGS = READER_DEFAULTS.hidePopupGrammarTags;
+  const DEFAULT_POPUP_NESTING_MAX_DEPTH = READER_DEFAULTS.popupNestingMaxDepth;
+  const DEFAULT_DEFINITION_BLUR_PREFERENCES = constants.DEFAULT_DEFINITION_BLUR;
+  const MIN_DEFINITION_BLUR_LOOKUP_THRESHOLD =
+    BOUNDS.definitionBlurLookupThreshold.min;
+  const MAX_DEFINITION_BLUR_LOOKUP_THRESHOLD =
+    BOUNDS.definitionBlurLookupThreshold.max;
+  const MIN_DEFINITION_BLUR_REVEAL_DELAY_MS =
+    BOUNDS.definitionBlurRevealDelayMs.min;
+  const MAX_DEFINITION_BLUR_REVEAL_DELAY_MS =
+    BOUNDS.definitionBlurRevealDelayMs.max;
   const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
   const MAX_LOOKUP_TEXT_BYTES = 4 * 1024;
   const MAX_MEDIA_RESPONSE_BYTES = 6 * 1024 * 1024;
@@ -181,8 +140,8 @@
   const RECONNECT_MAX_DELAY_MS = 12 * 1000;
   const MINING_STATUS_CACHE_MS = 5 * 1000;
   const MAX_VISIBLE_METADATA_TAGS = 12;
-  const MAX_DICTIONARY_PRESENTATION_ENTRIES = 256;
-  const MAX_DICTIONARY_PRESENTATION_TITLE_LENGTH = 4096;
+  const MAX_DICTIONARY_PRESENTATION_ENTRIES = LIMITS.dictionaryPresentation;
+  const MAX_DICTIONARY_PRESENTATION_TITLE_LENGTH = LIMITS.dictionaryTitleLength;
   const SOURCE_HIGHLIGHT_NAME = "gsm-hoshidicts-match";
   const JAPANESE_ONLY_TOKEN_PATTERN =
     /^[\u3005-\u3007\u303b\u3040-\u30ff\u31f0-\u31ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff66-\uff9f\u{20000}-\u{2fa1f}]+$/u;

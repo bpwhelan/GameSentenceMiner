@@ -30,18 +30,15 @@ const {
   registerHotkeyWithFallback,
 } = require('./hotkey_settings');
 const {
-  appendHoshidictsDiagnostic,
-  normalizeConsoleMessageArguments,
+  attachHoshidictsRendererDiagnostics,
 } = require('./features/hoshidicts/diagnostics');
 const {
   createHoshidictsActivationHotkeyController,
-  createHoshidictsReaderPreferencesDelivery,
-  createHoshidictsReaderPreferencesBridge,
+  createHoshidictsWindowBridge,
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   dispatchAppHotkeyInputServerMessage,
   normalizeHoshidictsActivationKey,
   normalizeHoshidictsExternalUrl,
-  normalizeHoshidictsReaderPreferences,
   requestHoshidictsSettingsOpen,
 } = require('./features/hoshidicts/desktop_bridge');
 const {
@@ -50,74 +47,6 @@ const {
 } = require('./features/reader_engine_selection');
 const { shouldRevealAutomaticOverlay, shouldShowOverlayOnReady } = require('./automatic_visibility');
 const { URL } = require('url');
-
-function normalizeHoshidictsReaderPreferencesWithDefinitionBlur(preferences) {
-  const normalizedPreferences = normalizeHoshidictsReaderPreferences(preferences);
-  const definitionBlur = preferences && preferences.definitionBlur;
-  const showLookupCounts = preferences && preferences.showLookupCounts;
-  const showCompactDefinitionSummary =
-    preferences && preferences.showCompactDefinitionSummary;
-  const compactDefinitionSummaryCount =
-    normalizedPreferences.compactDefinitionSummaryCount;
-  const compactDefinitionSummaryDictionary =
-    preferences && preferences.compactDefinitionSummaryDictionary;
-  const showPitchAccentFurigana =
-    preferences && preferences.showPitchAccentFurigana;
-  const pitchAccentFuriganaDictionary =
-    preferences && preferences.pitchAccentFuriganaDictionary;
-  const showPitchAccentBadge =
-    preferences && preferences.showPitchAccentBadge;
-  const hidePopupGrammarTags =
-    preferences && preferences.hidePopupGrammarTags;
-  if (
-    !definitionBlur ||
-    typeof definitionBlur !== 'object' ||
-    typeof definitionBlur.enabled !== 'boolean' ||
-    !Number.isInteger(definitionBlur.lookupThreshold) ||
-    definitionBlur.lookupThreshold < 1 ||
-    definitionBlur.lookupThreshold > 1000000 ||
-    (definitionBlur.revealMode !== 'timed' && definitionBlur.revealMode !== 'hover') ||
-    !Number.isInteger(definitionBlur.revealDelayMs) ||
-    definitionBlur.revealDelayMs < 1000 ||
-    definitionBlur.revealDelayMs > 3600000 ||
-    typeof showLookupCounts !== 'boolean' ||
-    typeof showCompactDefinitionSummary !== 'boolean' ||
-    !Number.isInteger(compactDefinitionSummaryCount) ||
-    compactDefinitionSummaryCount < 1 ||
-    compactDefinitionSummaryCount > 6 ||
-    typeof showPitchAccentFurigana !== 'boolean' ||
-    typeof showPitchAccentBadge !== 'boolean' ||
-    typeof hidePopupGrammarTags !== 'boolean' ||
-    (compactDefinitionSummaryDictionary !== null &&
-      (typeof compactDefinitionSummaryDictionary !== 'string' ||
-        !compactDefinitionSummaryDictionary.trim() ||
-        compactDefinitionSummaryDictionary.length > 4096))
-    ||
-    (pitchAccentFuriganaDictionary !== null &&
-      (typeof pitchAccentFuriganaDictionary !== 'string' ||
-        !pitchAccentFuriganaDictionary.trim() ||
-        pitchAccentFuriganaDictionary.length > 4096))
-  ) {
-    throw new Error('Hoshidicts reader preferences are invalid.');
-  }
-  return {
-    ...normalizedPreferences,
-    showLookupCounts,
-    showCompactDefinitionSummary,
-    compactDefinitionSummaryCount,
-    compactDefinitionSummaryDictionary,
-    showPitchAccentFurigana,
-    pitchAccentFuriganaDictionary,
-    showPitchAccentBadge,
-    hidePopupGrammarTags,
-    definitionBlur: {
-      enabled: definitionBlur.enabled,
-      lookupThreshold: definitionBlur.lookupThreshold,
-      revealMode: definitionBlur.revealMode,
-      revealDelayMs: definitionBlur.revealDelayMs,
-    },
-  };
-}
 
 const IN_PROCESS_OVERLAY = process.env.GSM_OVERLAY_IN_PROCESS === '1';
 const OVERLAY_HOST_SYMBOL = Symbol.for('gsm.overlay.host');
@@ -133,14 +62,6 @@ const nativeSetTimeout = global.setTimeout;
 const nativeClearTimeout = global.clearTimeout;
 const nativeSetInterval = global.setInterval;
 const nativeClearInterval = global.clearInterval;
-const HOSHIDICTS_CUSTOM_TERM_BYTES = 4 * 1024;
-const HOSHIDICTS_CUSTOM_READING_BYTES = 4 * 1024;
-const HOSHIDICTS_CUSTOM_DEFINITION_BYTES = 2 * 1024;
-
-function isJsonStringWithinUtf8Limit(value, maxBytes) {
-  return Buffer.byteLength(JSON.stringify(value), "utf8") <= maxBytes + 2;
-}
-
 function setTimeout(callback, delay, ...args) {
   let timer = null;
   timer = nativeSetTimeout((...callbackArgs) => {
@@ -202,38 +123,6 @@ function registerOverlayEmitterListener(emitter, event, listener, once = false) 
     emitter.on(event, listener);
   }
   return listener;
-}
-
-function attachHoshidictsRendererDiagnostics(browserWindow) {
-  if (process.env.GSM_HOSHIDICTS_ENABLED !== '1') {
-    return;
-  }
-
-  try {
-    appendHoshidictsDiagnostic(hoshidictsDiagnosticLogPath, {
-      level: 'info',
-      message: `[HoshidictsReader] diagnostics.ready ${JSON.stringify({
-        logPath: hoshidictsDiagnosticLogPath,
-      })}`,
-    });
-  } catch (error) {
-    console.warn('[HoshidictsDiagnostics] Could not initialize the log file:', error);
-  }
-
-  registerOverlayEmitterListener(
-    browserWindow.webContents,
-    'console-message',
-    (_event, ...args) => {
-      try {
-        appendHoshidictsDiagnostic(
-          hoshidictsDiagnosticLogPath,
-          normalizeConsoleMessageArguments(args)
-        );
-      } catch (error) {
-        console.warn('[HoshidictsDiagnostics] Could not append renderer diagnostics:', error);
-      }
-    }
-  );
 }
 
 function removeOverlayEmitterListeners() {
@@ -1928,9 +1817,7 @@ let resizeMode = false;
 let yomitanShown = false;
 let gamepadNavigationActive = false; // True while renderer gamepad navigation keeps overlay focused
 let mainWindow = null;
-let hoshidictsReaderPreferencesBridge = null;
-let hoshidictsReaderPreferencesDelivery = null;
-let hoshidictsAudioPreferencesDelivery = null;
+let hoshidictsWindowBridge = null;
 let startupNotificationWindow = null;
 let startupNotificationCloseTimer = null;
 let afkHidden = false; // true when AFK timer hid the overlay
@@ -6742,18 +6629,8 @@ async function startOverlayAppImpl() {
     closeAppHotkeyInputServerConnection();
     stopOverlayWebSockets();
     void stopGamepadServer("app-will-quit");
-    if (hoshidictsReaderPreferencesBridge) {
-      hoshidictsReaderPreferencesBridge.destroy();
-      hoshidictsReaderPreferencesBridge = null;
-    }
-    if (hoshidictsReaderPreferencesDelivery) {
-      hoshidictsReaderPreferencesDelivery.clear();
-      hoshidictsReaderPreferencesDelivery = null;
-    }
-    if (hoshidictsAudioPreferencesDelivery) {
-      hoshidictsAudioPreferencesDelivery.clear();
-      hoshidictsAudioPreferencesDelivery = null;
-    }
+    hoshidictsWindowBridge?.destroy();
+    hoshidictsWindowBridge = null;
     if (pendingDisplaySyncTimer) {
       clearTimeout(pendingDisplaySyncTimer);
       pendingDisplaySyncTimer = null;
@@ -6806,101 +6683,33 @@ async function startOverlayAppImpl() {
     show: false,
   });
   if (process.env.GSM_HOSHIDICTS_ENABLED === '1') {
-    hoshidictsReaderPreferencesDelivery = createHoshidictsReaderPreferencesDelivery(
-      (preferences) => {
-        if (!mainWindow || mainWindow.isDestroyed()) {
-          throw new Error('Hoshidicts reader window is unavailable.');
-        }
-        mainWindow.webContents.send(
-          'hoshidicts-reader-preferences',
-          preferences
-        );
-      }
-    );
-    hoshidictsAudioPreferencesDelivery = createHoshidictsReaderPreferencesDelivery(
-      (preferences) => {
-        if (!mainWindow || mainWindow.isDestroyed()) {
-          throw new Error('Hoshidicts reader window is unavailable.');
-        }
-        mainWindow.webContents.send(
-          'hoshidicts-audio-preferences',
-          preferences
-        );
-      }
-    );
-    hoshidictsReaderPreferencesBridge = createHoshidictsReaderPreferencesBridge({
-      onPreferences(preferences) {
-        const normalizedPreferences =
-          normalizeHoshidictsReaderPreferencesWithDefinitionBlur(preferences);
-        if (!mainWindow || mainWindow.isDestroyed()) {
-          throw new Error('Hoshidicts reader window is unavailable.');
-        }
-        configureHoshidictsActivationHotkey(normalizedPreferences, {
+    hoshidictsWindowBridge = createHoshidictsWindowBridge({
+      getWebContents: () => (
+        mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null
+      ),
+      onReaderPreferences(preferences) {
+        configureHoshidictsActivationHotkey(preferences, {
           reason: 'hoshidicts-live-preferences',
         });
-        hoshidictsReaderPreferencesDelivery.enqueue(normalizedPreferences);
-      },
-      onAudioPreferences(profile) {
-        const allowedSourceTypes = new Set([
-          'jpod101',
-          'language-pod-101',
-          'jisho',
-          'custom',
-          'custom-json',
-          'text-to-speech',
-          'text-to-speech-reading',
-        ]);
-        if (
-          !profile ||
-          profile.version !== 1 ||
-          typeof profile.enabled !== 'boolean' ||
-          typeof profile.autoPlay !== 'boolean' ||
-          !Number.isInteger(profile.volume) ||
-          profile.volume < 0 ||
-          profile.volume > 100 ||
-          !Array.isArray(profile.sources) ||
-          profile.sources.length > 32 ||
-          !profile.sources.every((source) =>
-            source &&
-            typeof source.id === 'string' &&
-            source.id.length > 0 &&
-            source.id.length <= 128 &&
-            allowedSourceTypes.has(source.type) &&
-            typeof source.url === 'string' &&
-            source.url.length <= 4096 &&
-            typeof source.voice === 'string' &&
-            source.voice.length <= 255
-          )
-        ) {
-          throw new Error('Hoshidicts audio preferences are invalid.');
-        }
-        if (!mainWindow || mainWindow.isDestroyed()) {
-          throw new Error('Hoshidicts reader window is unavailable.');
-        }
-        hoshidictsAudioPreferencesDelivery.enqueue(profile);
       },
     });
   }
   mainWindow.webContents.on('did-start-loading', () => {
-    if (hoshidictsReaderPreferencesDelivery) {
-      hoshidictsReaderPreferencesDelivery.markNotReady();
-    }
-    if (hoshidictsAudioPreferencesDelivery) {
-      hoshidictsAudioPreferencesDelivery.markNotReady();
-    }
+    hoshidictsWindowBridge?.markNotReady();
   });
   mainWindow.webContents.on('did-finish-load', () => {
-    if (hoshidictsReaderPreferencesDelivery) {
-      hoshidictsReaderPreferencesDelivery.markReady();
-    }
-    if (hoshidictsAudioPreferencesDelivery) {
-      hoshidictsAudioPreferencesDelivery.markReady();
-    }
+    hoshidictsWindowBridge?.markReady();
     sendHoshidictsActivationKeyState(
       hoshidictsActivationHotkeyController.isPressed()
     );
   });
-  attachHoshidictsRendererDiagnostics(mainWindow);
+  attachHoshidictsRendererDiagnostics({
+    logPath: process.env.GSM_HOSHIDICTS_ENABLED === '1'
+      ? hoshidictsDiagnosticLogPath
+      : '',
+    registerListener: registerOverlayEmitterListener,
+    webContents: mainWindow.webContents,
+  });
   lastDisplaySyncSignature = getOverlayDisplaySyncSignature();
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -7209,45 +7018,10 @@ async function startOverlayAppImpl() {
     ) {
       throw new Error("Custom dictionary request came from an invalid window.");
     }
-    const term = payload && typeof payload.term === "string"
-      ? payload.term.trim()
-      : "";
-    const reading = payload && typeof payload.reading === "string"
-      ? payload.reading.trim()
-      : "";
-    const definition = payload && typeof payload.definition === "string"
-      ? payload.definition.trim()
-      : "";
-    if (!term || !reading || !definition) {
-      throw new Error("Term, reading, and definition are required.");
-    }
-    if (term.startsWith("#")) {
-      throw new Error("Custom dictionary terms cannot begin with #.");
-    }
-    if (
-      !isJsonStringWithinUtf8Limit(term, HOSHIDICTS_CUSTOM_TERM_BYTES) ||
-      !isJsonStringWithinUtf8Limit(
-        reading,
-        HOSHIDICTS_CUSTOM_READING_BYTES
-      ) ||
-      !isJsonStringWithinUtf8Limit(
-        definition,
-        HOSHIDICTS_CUSTOM_DEFINITION_BYTES
-      )
-    ) {
-      throw new Error("Custom dictionary entry is too large.");
-    }
-    if (
-      !hoshidictsReaderPreferencesBridge ||
-      typeof hoshidictsReaderPreferencesBridge.requestAddCustomEntry !== "function"
-    ) {
+    if (!hoshidictsWindowBridge) {
       throw new Error("Hoshidicts desktop control channel is unavailable.");
     }
-    return await hoshidictsReaderPreferencesBridge.requestAddCustomEntry({
-      term,
-      reading,
-      definition,
-    });
+    return await hoshidictsWindowBridge.requestAddCustomEntry(payload);
   });
 
   ipcMain.handle("hoshidicts-open-external", async (event, payload) => {
@@ -8210,18 +7984,8 @@ async function stopOverlayApp() {
         }
       });
       runOverlayCleanupStep('Hoshidicts reader preferences bridge', () => {
-        if (hoshidictsReaderPreferencesBridge) {
-          hoshidictsReaderPreferencesBridge.destroy();
-          hoshidictsReaderPreferencesBridge = null;
-        }
-        if (hoshidictsReaderPreferencesDelivery) {
-          hoshidictsReaderPreferencesDelivery.clear();
-          hoshidictsReaderPreferencesDelivery = null;
-        }
-        if (hoshidictsAudioPreferencesDelivery) {
-          hoshidictsAudioPreferencesDelivery.clear();
-          hoshidictsAudioPreferencesDelivery = null;
-        }
+        hoshidictsWindowBridge?.destroy();
+        hoshidictsWindowBridge = null;
       });
 
       runOverlayCleanupStep('pause requests', () => releaseAllOverlayPauseRequests());

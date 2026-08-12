@@ -1,47 +1,16 @@
-import fs from "node:fs";
-import path from "node:path";
-import vm from "node:vm";
-
-import { JSDOM } from "jsdom";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+import {
+  createPopupDom as createDom,
+  flushPromises as flushAsync,
+  loadAudioModule,
+  resetReaderTestState
+} from "../../../GSM_Overlay/features/hoshidicts/test_helpers";
 
 const CANDIDATE_ID = "a".repeat(64);
 const SECOND_CANDIDATE_ID = "b".repeat(64);
 
-function loadAudioModule(window: Window) {
-  const source = fs.readFileSync(
-    path.resolve(
-      process.cwd(),
-      "GSM_Overlay/features/hoshidicts/audio.js"
-    ),
-    "utf8"
-  );
-  const module = { exports: {} as any };
-  const context = {
-    AbortController,
-    Blob,
-    TextEncoder,
-    URL,
-    clearTimeout,
-    console,
-    exports: module.exports,
-    globalThis: window,
-    module,
-    setTimeout,
-    window
-  } as Record<string, any>;
-  vm.runInNewContext(source, context, {
-    filename: "GSM_Overlay/features/hoshidicts/audio.js"
-  });
-  return module.exports;
-}
-
-function createDom() {
-  return new JSDOM(
-    "<!doctype html><html><body><section id=popup></section></body></html>",
-    { pretendToBeVisual: true, url: "file:///overlay/index.html" }
-  );
-}
+const flushPromises = () => flushAsync(8);
 
 function result(expression = "食べる", reading = "たべる") {
   return { term: { expression, reading } };
@@ -102,16 +71,7 @@ function createControllerHarness(options: Record<string, any> = {}) {
   return { button, controller, dom, term };
 }
 
-async function flushPromises() {
-  for (let index = 0; index < 8; index += 1) {
-    await Promise.resolve();
-  }
-}
-
-afterEach(() => {
-  vi.useRealTimers();
-  vi.restoreAllMocks();
-});
+afterEach(resetReaderTestState);
 
 describe("Hoshidicts audio client", () => {
   it("uses only the local candidates and media endpoints", async () => {
