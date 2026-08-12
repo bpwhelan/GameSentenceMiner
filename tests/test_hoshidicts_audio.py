@@ -6,55 +6,17 @@ from pathlib import Path
 import pytest
 from flask import Flask
 
-from GameSentenceMiner import hoshidicts_audio
+from GameSentenceMiner import hoshidicts_audio, hoshidicts_audio_profile
 from GameSentenceMiner.web import hoshidicts_api
+from tests.test_hoshidicts_factories import (
+    FakeResponse,
+    make_audio_profile,
+    make_audio_source,
+    mp3_bytes,
+    opus_bytes,
+)
 
-
-class FakeResponse:
-    def __init__(
-        self,
-        body: bytes,
-        *,
-        content_type: str = "text/html",
-        status_code: int = 200,
-        headers: dict[str, str] | None = None,
-    ):
-        self._body = body
-        self.status_code = status_code
-        self.headers = {"Content-Type": content_type, **(headers or {})}
-
-    def iter_content(self, chunk_size=64 * 1024):
-        yield from (self._body[index : index + chunk_size] for index in range(0, len(self._body), chunk_size))
-
-    def close(self):
-        pass
-
-
-def _profile(*sources, **overrides):
-    profile = hoshidicts_audio.default_hoshidicts_audio_profile()
-    profile.update(overrides)
-    if sources:
-        profile["sources"] = list(sources)
-    return profile
-
-
-def _source(source_id: str, source_type: str, *, url: str = "", voice: str = ""):
-    return {
-        "id": source_id,
-        "type": source_type,
-        "url": url,
-        "voice": voice,
-    }
-
-
-def _mp3(payload: bytes = b"pronunciation") -> bytes:
-    frame = b"\xff\xfb\x90\x64" + payload
-    return b"ID3\x04\x00\x00\x00\x00\x00\x00" + frame.ljust(417, b"\x00")
-
-
-def _opus(payload: bytes = b"pronunciation") -> bytes:
-    packet = b"OpusHead" + payload
-    return b"OggS" + (b"\x00" * 22) + bytes((1, len(packet))) + packet
+HoshidictsAudioError = hoshidicts_audio_profile.HoshidictsAudioError
 
 
 @pytest.fixture(autouse=True)
@@ -84,10 +46,19 @@ def audio_api_client():
     return app.test_client()
 
 
-def test_audio_profile_defaults_and_strict_normalization(tmp_path):
-    assert hoshidicts_audio.load_hoshidicts_audio_profile(tmp_path / "missing.json") == _profile()
+def _respond(monkeypatch, response):
+    """Answer every provider request with one response or a request handler."""
+    monkeypatch.setattr(
+        hoshidicts_audio,
+        "_pinned_request",
+        response if callable(response) else (lambda *_args, **_kwargs: response),
+    )
 
-    normalized = hoshidicts_audio.normalize_hoshidicts_audio_profile(
+
+def test_audio_profile_defaults_and_strict_normalization(tmp_path):
+    assert hoshidicts_audio_profile.load_hoshidicts_audio_profile(tmp_path / "missing.json") == make_audio_profile()
+
+    normalized = hoshidicts_audio_profile.normalize_hoshidicts_audio_profile(
         {
             "version": 1,
             "enabled": False,
@@ -107,35 +78,33 @@ def test_audio_profile_defaults_and_strict_normalization(tmp_path):
         "autoPlay": True,
         "volume": 25,
         "sources": [
-            _source("direct", "custom", url="https://audio.test/{term}"),
-            _source("tts", "text-to-speech", voice="ja-JP"),
-            _source("jisho", "jisho"),
+            make_audio_source("direct", "custom", url="https://audio.test/{term}"),
+            make_audio_source("tts", "text-to-speech", voice="ja-JP"),
+            make_audio_source("jisho", "jisho"),
         ],
     }
 
-    with pytest.raises(hoshidicts_audio.HoshidictsAudioError, match="unique"):
-        hoshidicts_audio.normalize_hoshidicts_audio_profile(
-            {
-                "sources": [
-                    {"id": "same", "type": "jisho"},
-                    {"id": "same", "type": "jpod101"},
-                ]
-            }
-        )
-    with pytest.raises(hoshidicts_audio.HoshidictsAudioError, match="volume"):
-        hoshidicts_audio.normalize_hoshidicts_audio_profile({"volume": 1.5})
-    with pytest.raises(hoshidicts_audio.HoshidictsAudioError, match="version"):
-        hoshidicts_audio.normalize_hoshidicts_audio_profile({"version": True})
-    with pytest.raises(hoshidicts_audio.HoshidictsAudioError, match="URL"):
-        hoshidicts_audio.normalize_hoshidicts_audio_profile(
-            {"sources": [{"id": "bad", "type": "custom", "url": "file:///tmp/audio.mp3"}]}
-        )
-    with pytest.raises(hoshidicts_audio.HoshidictsAudioError, match="URL"):
-        hoshidicts_audio.normalize_hoshidicts_audio_profile(
-            {"sources": [{"id": "bad", "type": "custom", "url": "http://{term}/audio.mp3"}]}
-        )
-    with pytest.raises(hoshidicts_audio.HoshidictsAudioError, match="URL"):
-        hoshidicts_audio.normalize_hoshidicts_audio_profile(
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ({"version": True}, "version"),
+        ({"version": 2}, "version"),
+        ({"enabled": "yes"}, "enabled setting"),
+        ({"autoPlay": "yes"}, "autoplay setting"),
+        ({"volume": 1.5}, "volume"),
+        ({"volume": 101}, "volume"),
+        ({"sources": "jisho"}, "sources are invalid"),
+        ({"sources": [{"id": "same", "type": "jisho"}, {"id": "same", "type": "jpod101"}]}, "unique"),
+        ({"sources": [{"id": "bad id", "type": "jisho"}]}, "source ID is invalid"),
+        ({"sources": [{"id": "x", "type": "unknown"}]}, "source type is invalid"),
+        ({"sources": [{"id": "jp", "type": "jpod101", "url": "https://audio.test/"}]}, "Built-in"),
+        ({"sources": [{"id": "jp", "type": "jisho", "voice": "ja-JP"}]}, "Built-in"),
+        ({"sources": [{"id": "c", "type": "custom", "voice": "ja-JP"}]}, "cannot define a voice"),
+        ({"sources": [{"id": "t", "type": "text-to-speech", "url": "https://audio.test/"}]}, "text-to-speech"),
+        ({"sources": [{"id": "bad", "type": "custom", "url": "file:///tmp/audio.mp3"}]}, "URL"),
+        ({"sources": [{"id": "bad", "type": "custom", "url": "http://{term}/audio.mp3"}]}, "URL"),
+        (
             {
                 "sources": [
                     {
@@ -144,18 +113,34 @@ def test_audio_profile_defaults_and_strict_normalization(tmp_path):
                         "url": "http://127.0.0.1:5050/?term={term}&reading={reading",
                     }
                 ]
-            }
-        )
+            },
+            "URL",
+        ),
+    ],
+)
+def test_audio_profile_rejects_invalid_values(value, message):
+    with pytest.raises(HoshidictsAudioError, match=message):
+        hoshidicts_audio_profile.normalize_hoshidicts_audio_profile(value)
 
+
+def test_audio_profile_file_size_is_bounded(tmp_path):
     oversized = tmp_path / "audio-profile.json"
-    oversized.write_bytes(b" " * (hoshidicts_audio.MAX_PROFILE_BYTES + 1))
-    with pytest.raises(hoshidicts_audio.HoshidictsAudioError, match="invalid size"):
-        hoshidicts_audio.load_hoshidicts_audio_profile(oversized)
-    assert hoshidicts_audio.load_hoshidicts_audio_profile_or_default(oversized) == _profile()
+    oversized.write_bytes(b" " * (hoshidicts_audio_profile.MAX_PROFILE_BYTES + 1))
+
+    with pytest.raises(HoshidictsAudioError, match="invalid size"):
+        hoshidicts_audio_profile.load_hoshidicts_audio_profile(oversized)
+    assert hoshidicts_audio_profile.load_hoshidicts_audio_profile_or_default(oversized) == make_audio_profile()
 
 
-def test_jpod101_candidate_matches_yomitan_kana_behavior(monkeypatch):
-    profile = _profile(_source("jp", "jpod101"))
+def test_profile_path_uses_the_hoshidicts_data_directory(monkeypatch, tmp_path):
+    monkeypatch.setattr(hoshidicts_audio_profile, "get_app_directory", lambda: str(tmp_path))
+    assert hoshidicts_audio_profile.get_hoshidicts_audio_profile_path() == (
+        Path(tmp_path) / "dictionaries" / "hoshidicts" / "audio-profile.json"
+    )
+
+
+def test_jpod101_candidate_matches_yomitan_kana_behavior():
+    profile = make_audio_profile(make_audio_source("jp", "jpod101"))
 
     candidates = hoshidicts_audio.get_audio_candidates("食べる", "たべる", "jp", profile=profile)
     kana_candidates = hoshidicts_audio.get_audio_candidates("かな", "かな", "jp", profile=profile)
@@ -189,10 +174,7 @@ def test_languagepod101_and_jisho_discover_only_matching_audio(monkeypatch):
           <source src="//cdn.example.com/taberu.mp3">
         </audio>
     """
-    responses = [
-        FakeResponse(languagepod_html),
-        FakeResponse(jisho_html),
-    ]
+    responses = [FakeResponse(languagepod_html), FakeResponse(jisho_html)]
 
     def request(method, url, **kwargs):
         response = responses.pop(0)
@@ -201,17 +183,19 @@ def test_languagepod101_and_jisho_discover_only_matching_audio(monkeypatch):
             assert kwargs["data"]["search_query"] == "食べる"
         return response
 
-    monkeypatch.setattr(hoshidicts_audio, "_pinned_request", request)
+    _respond(monkeypatch, request)
 
-    languagepod = hoshidicts_audio._resolve_source_candidates(_source("pod", "language-pod-101"), "食べる", "たべる")
-    jisho = hoshidicts_audio._resolve_source_candidates(_source("jisho", "jisho"), "食べる", "たべる")
+    languagepod = hoshidicts_audio._resolve_source_candidates(
+        make_audio_source("pod", "language-pod-101"), "食べる", "たべる"
+    )
+    jisho = hoshidicts_audio._resolve_source_candidates(make_audio_source("jisho", "jisho"), "食べる", "たべる")
 
     assert [item["url"] for item in languagepod] == ["https://www.japanesepod101.com/good.mp3"]
     assert [item["url"] for item in jisho] == ["https://cdn.example.com/taberu.mp3"]
 
 
 def test_custom_url_substitution_encodes_values_and_custom_json_is_exact(monkeypatch):
-    direct = _source(
+    direct = make_audio_source(
         "direct",
         "custom",
         url="https://audio.test/play?term={term}&reading={reading}&lang={language}&x={unknown}",
@@ -221,49 +205,46 @@ def test_custom_url_substitution_encodes_values_and_custom_json_is_exact(monkeyp
         == "https://audio.test/play?term=%E9%A3%9F%20%26%3F%23%2F%E3%81%B9%E3%82%8B"
         "&reading=%E3%81%9F%2F%E3%81%B9%3F%E3%82%8B&lang=ja&x={unknown}"
     )
-    assert hoshidicts_audio._substitute_custom_url(
+    assert hoshidicts_audio_profile.substitute_custom_url(
         "http://127.0.0.1:5050/?expression={expression}&reading={reading}",
         "食べる",
         "たべる",
     ) == ("http://127.0.0.1:5050/?expression=%E9%A3%9F%E3%81%B9%E3%82%8B&reading=%E3%81%9F%E3%81%B9%E3%82%8B")
 
-    response = FakeResponse(
-        json.dumps(
-            {
-                "type": "audioSourceList",
-                "audioSources": [
-                    {"url": "https://cdn.test/a.mp3", "name": "Tokyo"},
-                    {"url": "http://127.0.0.1:9000/b.ogg"},
-                ],
-            }
-        ).encode(),
-        content_type="application/json",
+    _respond(
+        monkeypatch,
+        FakeResponse(
+            json.dumps(
+                {
+                    "type": "audioSourceList",
+                    "audioSources": [
+                        {"url": "https://cdn.test/a.mp3", "name": "Tokyo"},
+                        {"url": "http://127.0.0.1:9000/b.ogg"},
+                    ],
+                }
+            ).encode(),
+            content_type="application/json",
+        ),
     )
-    monkeypatch.setattr(hoshidicts_audio, "_pinned_request", lambda *_args, **_kwargs: response)
+    json_source = make_audio_source("json", "custom-json", url="https://api.test/{term}")
 
-    candidates = hoshidicts_audio._resolve_source_candidates(
-        _source("json", "custom-json", url="https://api.test/{term}"),
-        "食べる",
-        "たべる",
-    )
+    candidates = hoshidicts_audio._resolve_source_candidates(json_source, "食べる", "たべる")
 
     assert [(item["name"], item["url"]) for item in candidates] == [
         ("Tokyo", "https://cdn.test/a.mp3"),
         ("", "http://127.0.0.1:9000/b.ogg"),
     ]
 
-    invalid = FakeResponse(
-        json.dumps({"type": "audioSourceList", "audioSources": [], "extra": True}).encode(),
-        content_type="application/json",
+    _respond(
+        monkeypatch,
+        FakeResponse(
+            json.dumps({"type": "audioSourceList", "audioSources": [], "extra": True}).encode(),
+            content_type="application/json",
+        ),
     )
-    monkeypatch.setattr(hoshidicts_audio, "_pinned_request", lambda *_args, **_kwargs: invalid)
     hoshidicts_audio.clear_audio_cache()
-    with pytest.raises(hoshidicts_audio.HoshidictsAudioError, match="custom JSON"):
-        hoshidicts_audio._resolve_source_candidates(
-            _source("json", "custom-json", url="https://api.test/{term}"),
-            "食べる",
-            "たべる",
-        )
+    with pytest.raises(HoshidictsAudioError, match="custom JSON"):
+        hoshidicts_audio._resolve_source_candidates(json_source, "食べる", "たべる")
 
 
 def test_local_audio_yomichan_contract_discovers_and_downloads_opus(monkeypatch):
@@ -271,7 +252,7 @@ def test_local_audio_yomichan_contract_discovers_and_downloads_opus(monkeypatch)
     # Local Audio Server v1.7.0 can advertise localhost media URLs even when
     # Yomitan configured discovery through 127.0.0.1.
     media_url = "http://localhost:5050/nhk16/taberu.opus"
-    audio = _opus()
+    audio = opus_bytes()
     calls = []
 
     def request(method, url, **_kwargs):
@@ -290,9 +271,9 @@ def test_local_audio_yomichan_contract_discovers_and_downloads_opus(monkeypatch)
             return FakeResponse(audio, content_type="audio/ogg")
         raise AssertionError(f"Unexpected local audio URL: {url}")
 
-    monkeypatch.setattr(hoshidicts_audio, "_pinned_request", request)
-    profile = _profile(
-        _source(
+    _respond(monkeypatch, request)
+    profile = make_audio_profile(
+        make_audio_source(
             "local-audio",
             "custom-json",
             url="http://127.0.0.1:5050/?term={term}&reading={reading}",
@@ -310,46 +291,34 @@ def test_local_audio_yomichan_contract_discovers_and_downloads_opus(monkeypatch)
         profile=profile,
     )
 
-    assert candidates == [
-        {
-            "index": 0,
-            "name": "NHK16",
-            "candidateId": candidates[0]["candidateId"],
-        }
-    ]
-    expected_media = hoshidicts_audio.AudioMedia(
-        data=audio,
-        content_type="audio/ogg",
-        extension="ogg",
-    )
+    assert candidates == [{"index": 0, "name": "NHK16", "candidateId": candidates[0]["candidateId"]}]
+    expected_media = hoshidicts_audio.AudioMedia(data=audio, content_type="audio/ogg", extension="ogg")
     assert mined_media == expected_media
     assert media == expected_media
     assert calls == [("GET", discovery_url), ("GET", media_url)]
 
 
 def test_custom_json_truncates_large_yomitan_audio_lists(monkeypatch):
-    response = FakeResponse(
-        json.dumps(
-            {
-                "type": "audioSourceList",
-                "audioSources": [
-                    {
-                        "name": f"Recording {index}",
-                        "url": f"http://127.0.0.1:5050/jpod/{index}.mp3",
-                    }
-                    for index in range(hoshidicts_audio.MAX_AUDIO_SOURCES + 1)
-                ],
-            }
-        ).encode(),
-        content_type="application/json",
+    _respond(
+        monkeypatch,
+        FakeResponse(
+            json.dumps(
+                {
+                    "type": "audioSourceList",
+                    "audioSources": [
+                        {
+                            "name": f"Recording {index}",
+                            "url": f"http://127.0.0.1:5050/jpod/{index}.mp3",
+                        }
+                        for index in range(hoshidicts_audio.MAX_AUDIO_SOURCES + 1)
+                    ],
+                }
+            ).encode(),
+            content_type="application/json",
+        ),
     )
-    monkeypatch.setattr(
-        hoshidicts_audio,
-        "_pinned_request",
-        lambda *_args, **_kwargs: response,
-    )
-    profile = _profile(
-        _source(
+    profile = make_audio_profile(
+        make_audio_source(
             "local-audio",
             "custom-json",
             url="http://127.0.0.1:5050/?term={term}&reading={reading}",
@@ -363,15 +332,15 @@ def test_custom_json_truncates_large_yomitan_audio_lists(monkeypatch):
 
 
 def test_media_download_is_bounded_validated_and_cached(monkeypatch):
-    body = _mp3()
+    body = mp3_bytes()
     calls = []
 
-    def request(method, url, **kwargs):
+    def request(method, url, **_kwargs):
         calls.append((method, url))
         return FakeResponse(body, content_type="audio/mpeg")
 
-    monkeypatch.setattr(hoshidicts_audio, "_pinned_request", request)
-    profile = _profile(_source("direct", "custom", url="https://audio.test/{term}.mp3"))
+    _respond(monkeypatch, request)
+    profile = make_audio_profile(make_audio_source("direct", "custom", url="https://audio.test/{term}.mp3"))
 
     mined = hoshidicts_audio.get_mining_audio("食べる", "たべる", profile=profile)
     first = hoshidicts_audio.get_audio_media("食べる", "たべる", "direct", 0, profile=profile)
@@ -384,32 +353,23 @@ def test_media_download_is_bounded_validated_and_cached(monkeypatch):
     assert second == first
     assert calls == [("GET", "https://audio.test/%E9%A3%9F%E3%81%B9%E3%82%8B.mp3")]
 
-    monkeypatch.setattr(
-        hoshidicts_audio,
-        "_pinned_request",
-        lambda *_args, **_kwargs: FakeResponse(b"<html>missing</html>", content_type="text/html"),
-    )
-    hoshidicts_audio.clear_audio_cache()
-    with pytest.raises(hoshidicts_audio.HoshidictsAudioError, match="valid audio"):
-        hoshidicts_audio.get_audio_media("食べる", "たべる", "direct", 0, profile=profile)
 
-    for header_only in (
-        b"OggS" + b"\x00" * 64,
-        b"\x00\x00\x00\x18ftypisom" + b"\x00" * 64,
-        b"\x1aE\xdf\xa3" + b"\x00" * 64,
-        b"\xff\xfb",
-    ):
-        monkeypatch.setattr(
-            hoshidicts_audio,
-            "_pinned_request",
-            lambda *_args, _body=header_only, **_kwargs: FakeResponse(
-                _body,
-                content_type="audio/mpeg",
-            ),
-        )
-        hoshidicts_audio.clear_audio_cache()
-        with pytest.raises(hoshidicts_audio.HoshidictsAudioError, match="valid audio"):
-            hoshidicts_audio.get_audio_media("食べる", "たべる", "direct", 0, profile=profile)
+@pytest.mark.parametrize(
+    ("body", "content_type"),
+    [
+        pytest.param(b"<html>missing</html>", "text/html", id="html-error-page"),
+        pytest.param(b"OggS" + b"\x00" * 64, "audio/mpeg", id="ogg-header-without-packet"),
+        pytest.param(b"\x00\x00\x00\x18ftypisom" + b"\x00" * 64, "audio/mpeg", id="mp4-without-audio-track"),
+        pytest.param(b"\x1aE\xdf\xa3" + b"\x00" * 64, "audio/mpeg", id="webm-without-audio-codec"),
+        pytest.param(b"\xff\xfb", "audio/mpeg", id="truncated-mp3-frame"),
+    ],
+)
+def test_media_download_rejects_content_that_is_not_audio(monkeypatch, body, content_type):
+    _respond(monkeypatch, FakeResponse(body, content_type=content_type))
+    profile = make_audio_profile(make_audio_source("direct", "custom", url="https://audio.test/{term}.mp3"))
+
+    with pytest.raises(HoshidictsAudioError, match="valid audio"):
+        hoshidicts_audio.get_audio_media("食べる", "たべる", "direct", 0, profile=profile)
 
 
 def test_provider_redirects_and_streamed_responses_are_bounded(monkeypatch):
@@ -423,37 +383,27 @@ def test_provider_redirects_and_streamed_responses_are_bounded(monkeypatch):
             headers={"Location": f"/redirect-{len(redirect_calls)}"},
         )
 
-    monkeypatch.setattr(hoshidicts_audio, "_pinned_request", redirecting)
-    profile = _profile(_source("direct", "custom", url="https://audio.test/start"))
-    with pytest.raises(hoshidicts_audio.HoshidictsAudioError, match="redirected too many"):
+    _respond(monkeypatch, redirecting)
+    profile = make_audio_profile(make_audio_source("direct", "custom", url="https://audio.test/start"))
+    with pytest.raises(HoshidictsAudioError, match="redirected too many"):
         hoshidicts_audio.get_audio_media("食べる", "たべる", "direct", 0, profile=profile)
     assert len(redirect_calls) == hoshidicts_audio.MAX_REDIRECTS + 1
 
-    oversized_json = FakeResponse(
-        b"x" * (hoshidicts_audio.MAX_CUSTOM_JSON_BYTES + 1),
-        content_type="application/json",
+    _respond(
+        monkeypatch,
+        FakeResponse(b"x" * (hoshidicts_audio.MAX_CUSTOM_JSON_BYTES + 1), content_type="application/json"),
     )
-    monkeypatch.setattr(
-        hoshidicts_audio,
-        "_pinned_request",
-        lambda *_args, **_kwargs: oversized_json,
-    )
-    with pytest.raises(hoshidicts_audio.HoshidictsAudioError, match="too large"):
+    with pytest.raises(HoshidictsAudioError, match="too large"):
         hoshidicts_audio._resolve_source_candidates(
-            _source("json", "custom-json", url="https://api.test/audio"),
+            make_audio_source("json", "custom-json", url="https://api.test/audio"),
             "食べる",
             "たべる",
         )
 
     monkeypatch.setattr(hoshidicts_audio, "MAX_AUDIO_BYTES", 8)
-    oversized_audio = FakeResponse(_mp3(), content_type="audio/mpeg")
-    monkeypatch.setattr(
-        hoshidicts_audio,
-        "_pinned_request",
-        lambda *_args, **_kwargs: oversized_audio,
-    )
+    _respond(monkeypatch, FakeResponse(mp3_bytes(), content_type="audio/mpeg"))
     hoshidicts_audio.clear_audio_cache()
-    with pytest.raises(hoshidicts_audio.HoshidictsAudioError, match="too large"):
+    with pytest.raises(HoshidictsAudioError, match="too large"):
         hoshidicts_audio.get_audio_media("食べる", "たべる", "direct", 0, profile=profile)
 
 
@@ -468,26 +418,22 @@ def test_public_providers_cannot_redirect_to_private_networks(monkeypatch):
             headers={"Location": "http://127.0.0.1:8080/private.mp3"},
         )
 
-    monkeypatch.setattr(hoshidicts_audio, "_pinned_request", request)
-    profile = _profile(_source("direct", "custom", url="https://audio.test/start"))
+    _respond(monkeypatch, request)
+    profile = make_audio_profile(make_audio_source("direct", "custom", url="https://audio.test/start"))
 
-    with pytest.raises(hoshidicts_audio.HoshidictsAudioError, match="private network"):
+    with pytest.raises(HoshidictsAudioError, match="private network"):
         hoshidicts_audio.get_audio_media("食べる", "たべる", "direct", 0, profile=profile)
 
     assert calls == [("GET", "https://audio.test/start")]
 
 
 def test_explicit_loopback_provider_remains_supported(monkeypatch):
-    monkeypatch.setattr(
-        hoshidicts_audio,
-        "_pinned_request",
-        lambda method, url, **_kwargs: FakeResponse(_mp3(), content_type="audio/mpeg"),
-    )
-    profile = _profile(_source("local", "custom", url="http://127.0.0.1:9000/{term}.mp3"))
+    _respond(monkeypatch, FakeResponse(mp3_bytes(), content_type="audio/mpeg"))
+    profile = make_audio_profile(make_audio_source("local", "custom", url="http://127.0.0.1:9000/{term}.mp3"))
 
     media = hoshidicts_audio.get_audio_media("食べる", "たべる", "local", 0, profile=profile)
 
-    assert media.data == _mp3()
+    assert media.data == mp3_bytes()
 
 
 def test_explicit_loopback_provider_cannot_pivot_to_another_private_origin(monkeypatch):
@@ -501,12 +447,12 @@ def test_explicit_loopback_provider_cannot_pivot_to_another_private_origin(monke
                 status_code=302,
                 headers={"Location": "http://127.0.0.1:9001/private.mp3"},
             )
-        return FakeResponse(_mp3(), content_type="audio/mpeg")
+        return FakeResponse(mp3_bytes(), content_type="audio/mpeg")
 
-    monkeypatch.setattr(hoshidicts_audio, "_pinned_request", request)
-    profile = _profile(_source("local", "custom", url="http://127.0.0.1:9000/{term}.mp3"))
+    _respond(monkeypatch, request)
+    profile = make_audio_profile(make_audio_source("local", "custom", url="http://127.0.0.1:9000/{term}.mp3"))
 
-    with pytest.raises(hoshidicts_audio.HoshidictsAudioError, match="private network"):
+    with pytest.raises(HoshidictsAudioError, match="private network"):
         hoshidicts_audio.get_audio_media("食べる", "たべる", "local", 0, profile=profile)
 
     assert calls == [("GET", "http://127.0.0.1:9000/%E9%A3%9F%E3%81%B9%E3%82%8B.mp3")]
@@ -527,11 +473,11 @@ def test_private_custom_json_cannot_permit_a_different_private_origin(monkeypatc
             content_type="application/json",
         )
 
-    monkeypatch.setattr(hoshidicts_audio, "_pinned_request", request)
-    profile = _profile(_source("local-json", "custom-json", url="http://127.0.0.1:9000/list"))
+    _respond(monkeypatch, request)
+    profile = make_audio_profile(make_audio_source("local-json", "custom-json", url="http://127.0.0.1:9000/list"))
     candidate = hoshidicts_audio.get_audio_candidates("食べる", "たべる", "local-json", profile=profile)[0]
 
-    with pytest.raises(hoshidicts_audio.HoshidictsAudioError, match="private network"):
+    with pytest.raises(HoshidictsAudioError, match="private network"):
         hoshidicts_audio.get_audio_media(
             "食べる",
             "たべる",
@@ -569,13 +515,9 @@ def test_provider_stream_has_an_overall_deadline(monkeypatch):
     ticks = iter([0.0, 0.0, 1.1, 1.2])
     monkeypatch.setattr(hoshidicts_audio.time, "monotonic", lambda: next(ticks, 1.2))
     monkeypatch.setattr(hoshidicts_audio, "MAX_PROVIDER_REQUEST_SECONDS", 1.0)
-    monkeypatch.setattr(
-        hoshidicts_audio,
-        "_pinned_request",
-        lambda *_args, **_kwargs: SlowResponse(b"", content_type="audio/mpeg"),
-    )
+    _respond(monkeypatch, SlowResponse(b"", content_type="audio/mpeg"))
 
-    with pytest.raises(hoshidicts_audio.HoshidictsAudioError, match="timed out"):
+    with pytest.raises(HoshidictsAudioError, match="timed out"):
         hoshidicts_audio._request_bytes("GET", "https://audio.test/slow", maximum=1024)
 
 
@@ -590,16 +532,12 @@ def test_candidate_id_rejects_a_reordered_dynamic_list(monkeypatch):
             content_type="application/json",
         ),
     ]
-    monkeypatch.setattr(
-        hoshidicts_audio,
-        "_pinned_request",
-        lambda *_args, **_kwargs: responses.pop(0),
-    )
-    profile = _profile(_source("json", "custom-json", url="https://api.test/audio"))
+    _respond(monkeypatch, lambda *_args, **_kwargs: responses.pop(0))
+    profile = make_audio_profile(make_audio_source("json", "custom-json", url="https://api.test/audio"))
     candidate = hoshidicts_audio.get_audio_candidates("食べる", "たべる", "json", profile=profile)[0]
     hoshidicts_audio.clear_audio_cache()
 
-    with pytest.raises(hoshidicts_audio.HoshidictsAudioError, match="changed") as error:
+    with pytest.raises(HoshidictsAudioError, match="changed") as error:
         hoshidicts_audio.get_audio_media(
             "食べる",
             "たべる",
@@ -614,9 +552,9 @@ def test_candidate_id_rejects_a_reordered_dynamic_list(monkeypatch):
 
 
 def test_mining_audio_has_a_download_attempt_budget(monkeypatch):
-    profile = _profile(
-        _source("one", "custom", url="https://one.test/audio"),
-        _source("two", "custom", url="https://two.test/audio"),
+    profile = make_audio_profile(
+        make_audio_source("one", "custom", url="https://one.test/audio"),
+        make_audio_source("two", "custom", url="https://two.test/audio"),
     )
     monkeypatch.setattr(
         hoshidicts_audio,
@@ -629,26 +567,25 @@ def test_mining_audio_has_a_download_attempt_budget(monkeypatch):
 
     def unavailable(candidate, _source, *, deadline=None):
         attempts.append((candidate["index"], deadline))
-        raise hoshidicts_audio.HoshidictsAudioError("missing", 404)
+        raise HoshidictsAudioError("missing", 404)
 
     monkeypatch.setattr(hoshidicts_audio, "_download_candidate", unavailable)
 
-    with pytest.raises(hoshidicts_audio.HoshidictsAudioError, match="attempt limit"):
+    with pytest.raises(HoshidictsAudioError, match="attempt limit"):
         hoshidicts_audio.get_mining_audio("食べる", "たべる", profile=profile)
 
     assert len(attempts) == hoshidicts_audio.MAX_MINING_AUDIO_ATTEMPTS
 
 
 def test_provider_errors_do_not_echo_secret_urls(monkeypatch):
-    monkeypatch.setattr(
-        hoshidicts_audio,
-        "_pinned_request",
+    _respond(
+        monkeypatch,
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             hoshidicts_audio.requests.ConnectionError("failed https://audio.test/file?apiKey=super-secret")
         ),
     )
 
-    with pytest.raises(hoshidicts_audio.HoshidictsAudioError) as error:
+    with pytest.raises(HoshidictsAudioError) as error:
         hoshidicts_audio._request_bytes(
             "GET",
             "https://audio.test/file?apiKey=super-secret",
@@ -660,30 +597,29 @@ def test_provider_errors_do_not_echo_secret_urls(monkeypatch):
 
 
 def test_mining_skips_tts_and_falls_through_downloadable_sources(monkeypatch):
-    profile = _profile(
-        _source("tts", "text-to-speech", voice="ja-JP"),
-        _source("empty", "custom", url=""),
+    profile = make_audio_profile(
+        make_audio_source("tts", "text-to-speech", voice="ja-JP"),
+        make_audio_source("empty", "custom", url=""),
     )
-    monkeypatch.setattr(
-        hoshidicts_audio,
-        "_pinned_request",
+    _respond(
+        monkeypatch,
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("TTS must remain local")),
     )
 
-    with pytest.raises(hoshidicts_audio.HoshidictsAudioError, match="No pronunciation audio") as error:
+    with pytest.raises(HoshidictsAudioError, match="No pronunciation audio") as error:
         hoshidicts_audio.get_mining_audio("食べる", "たべる", profile=profile)
 
     assert error.value.status_code == 404
 
 
 def test_audio_routes_never_accept_a_remote_url_from_the_client(monkeypatch, audio_api_client):
-    profile = _profile(_source("safe", "custom", url="https://configured.test/{term}.mp3"))
-    monkeypatch.setattr(hoshidicts_api, "load_hoshidicts_audio_profile", lambda: profile)
+    profile = make_audio_profile(make_audio_source("safe", "custom", url="https://configured.test/{term}.mp3"))
+    monkeypatch.setattr(hoshidicts_api, "load_hoshidicts_audio_profile_or_default", lambda: profile)
     monkeypatch.setattr(
         hoshidicts_api,
         "get_audio_media",
         lambda term, reading, source_id, candidate_index, candidate_id, *, profile: hoshidicts_audio.AudioMedia(
-            data=_mp3(),
+            data=mp3_bytes(),
             content_type="audio/mpeg",
             extension="mp3",
         ),
@@ -737,7 +673,7 @@ def test_audio_routes_never_accept_a_remote_url_from_the_client(monkeypatch, aud
     )
     assert media.status_code == 200
     assert media.mimetype == "audio/mpeg"
-    assert media.data == _mp3()
+    assert media.data == mp3_bytes()
 
     remote = audio_api_client.post(
         "/api/hoshidicts/audio/candidates",
@@ -748,18 +684,10 @@ def test_audio_routes_never_accept_a_remote_url_from_the_client(monkeypatch, aud
 
 
 def test_audio_routes_require_json_content_type(audio_api_client):
-    payload = {"term": "食べる", "reading": "たべる", "sourceId": "jpod101"}
-
     wrong_content_type = audio_api_client.post(
         "/api/hoshidicts/audio/candidates",
-        data=json.dumps(payload),
+        data=json.dumps({"term": "食べる", "reading": "たべる", "sourceId": "jpod101"}),
         content_type="text/plain",
     )
+
     assert wrong_content_type.status_code == 415
-
-
-def test_profile_path_uses_the_hoshidicts_data_directory(monkeypatch, tmp_path):
-    monkeypatch.setattr(hoshidicts_audio, "get_app_directory", lambda: str(tmp_path))
-    assert hoshidicts_audio.get_hoshidicts_audio_profile_path() == (
-        Path(tmp_path) / "dictionaries" / "hoshidicts" / "audio-profile.json"
-    )

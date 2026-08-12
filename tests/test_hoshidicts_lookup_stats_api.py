@@ -10,6 +10,25 @@ from GameSentenceMiner.util.database.db import SQLiteDB
 from GameSentenceMiner.web import hoshidicts_api
 
 
+def _stat(term, reading="", *, count=1, first=100.0, last=200.0):
+    return {
+        "term": term,
+        "reading": reading,
+        "lookup_count": count,
+        "first_looked_up_at": first,
+        "last_looked_up_at": last,
+    }
+
+
+def _patch_record(monkeypatch, *, recorded=None, **stat_overrides):
+    def record_lookup(term, reading):
+        if recorded is not None:
+            recorded.append((term, reading))
+        return _stat(term, reading, **stat_overrides)
+
+    monkeypatch.setattr(hoshidicts_api.TermLookupStatsTable, "record_lookup", record_lookup)
+
+
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr(
@@ -25,22 +44,7 @@ def client(monkeypatch):
 
 def test_post_lookup_stats_normalizes_and_returns_current_count(client, monkeypatch):
     recorded = []
-
-    def record_lookup(term, reading):
-        recorded.append((term, reading))
-        return {
-            "term": term,
-            "reading": reading,
-            "lookup_count": 3,
-            "first_looked_up_at": 100.0,
-            "last_looked_up_at": 200.0,
-        }
-
-    monkeypatch.setattr(
-        hoshidicts_api.TermLookupStatsTable,
-        "record_lookup",
-        record_lookup,
-    )
+    _patch_record(monkeypatch, recorded=recorded, count=3)
 
     response = client.post(
         "/api/hoshidicts/lookup-stats",
@@ -62,22 +66,7 @@ def test_post_lookup_stats_normalizes_and_returns_current_count(client, monkeypa
 
 def test_post_lookup_stats_allows_an_omitted_reading(client, monkeypatch):
     recorded = []
-
-    def fake_record(term, reading):
-        recorded.append((term, reading))
-        return {
-            "term": term,
-            "reading": reading,
-            "lookup_count": 1,
-            "first_looked_up_at": 1.0,
-            "last_looked_up_at": 1.0,
-        }
-
-    monkeypatch.setattr(
-        hoshidicts_api.TermLookupStatsTable,
-        "record_lookup",
-        fake_record,
-    )
+    _patch_record(monkeypatch, recorded=recorded)
 
     response = client.post("/api/hoshidicts/lookup-stats", json={"term": "猫"})
 
@@ -150,17 +139,7 @@ def test_post_lookup_stats_returns_generic_unavailable_error(client, monkeypatch
 
 
 def test_post_lookup_stats_returns_seen_count(client, monkeypatch):
-    monkeypatch.setattr(
-        hoshidicts_api.TermLookupStatsTable,
-        "record_lookup",
-        lambda term, reading: {
-            "term": term,
-            "reading": reading,
-            "lookup_count": 2,
-            "first_looked_up_at": 100.0,
-            "last_looked_up_at": 200.0,
-        },
-    )
+    _patch_record(monkeypatch, count=2)
     monkeypatch.setattr(
         hoshidicts_api.TermLookupStatsTable,
         "get_seen_count",
@@ -177,17 +156,7 @@ def test_post_lookup_stats_returns_seen_count(client, monkeypatch):
 
 
 def test_post_lookup_stats_keeps_recording_success_when_seen_count_is_unavailable(client, monkeypatch):
-    monkeypatch.setattr(
-        hoshidicts_api.TermLookupStatsTable,
-        "record_lookup",
-        lambda term, reading: {
-            "term": term,
-            "reading": reading,
-            "lookup_count": 1,
-            "first_looked_up_at": 100.0,
-            "last_looked_up_at": 100.0,
-        },
-    )
+    _patch_record(monkeypatch)
 
     def fail_seen_count(_term):
         raise RuntimeError("tokenization cache unavailable")
@@ -216,15 +185,7 @@ def test_get_lookup_stats_returns_paginated_camel_case_results(client, monkeypat
         return {
             "total_lookups": 7,
             "unique_terms": 2,
-            "items": [
-                {
-                    "term": "食べる",
-                    "reading": "たべる",
-                    "lookup_count": 5,
-                    "first_looked_up_at": 100.0,
-                    "last_looked_up_at": 200.0,
-                }
-            ],
+            "items": [_stat("食べる", "たべる", count=5)],
         }
 
     monkeypatch.setattr(hoshidicts_api.TermLookupStatsTable, "get_stats", get_stats)

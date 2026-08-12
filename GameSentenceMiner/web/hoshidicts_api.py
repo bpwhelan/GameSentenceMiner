@@ -10,19 +10,21 @@ from flask import Response, jsonify, request
 from werkzeug.exceptions import RequestEntityTooLarge
 
 from GameSentenceMiner.hoshidicts_audio import (
-    HoshidictsAudioError,
     MAX_AUDIO_REQUEST_BYTES,
     get_audio_candidates,
     get_audio_media,
-    load_hoshidicts_audio_profile_or_default as load_hoshidicts_audio_profile,
     validate_audio_api_request,
 )
-
-from GameSentenceMiner.hoshidicts_mining import (
+from GameSentenceMiner.hoshidicts_audio_profile import (
+    HoshidictsAudioError,
+    load_hoshidicts_audio_profile_or_default,
+)
+from GameSentenceMiner.hoshidicts_mining_note import (
     HoshidictsMiningError,
-    MAX_BROWSE_REQUEST_BYTES,
-    MAX_DUPLICATE_CHECK_REQUEST_BYTES,
     MAX_REQUEST_BYTES,
+)
+from GameSentenceMiner.hoshidicts_mining import (
+    MAX_BROWSE_REQUEST_BYTES,
     browse_hoshidicts_word,
     check_hoshidicts_notes,
     get_hoshidicts_mining_options,
@@ -198,7 +200,7 @@ def register_hoshidicts_api_routes(app) -> None:
                 read_bounded_json(MAX_AUDIO_REQUEST_BYTES, HoshidictsAudioError, "Hoshidicts audio"),
                 include_candidate=False,
             )
-            profile = load_hoshidicts_audio_profile()
+            profile = load_hoshidicts_audio_profile_or_default()
             return jsonify(
                 {
                     "candidates": get_audio_candidates(
@@ -223,7 +225,7 @@ def register_hoshidicts_api_routes(app) -> None:
                 read_bounded_json(MAX_AUDIO_REQUEST_BYTES, HoshidictsAudioError, "Hoshidicts audio"),
                 include_candidate=True,
             )
-            profile = load_hoshidicts_audio_profile()
+            profile = load_hoshidicts_audio_profile_or_default()
             media = get_audio_media(
                 payload["term"],
                 payload["reading"],
@@ -257,7 +259,7 @@ def register_hoshidicts_api_routes(app) -> None:
     def api_hoshidicts_mining_check():
         try:
             payload = read_bounded_json(
-                MAX_DUPLICATE_CHECK_REQUEST_BYTES,
+                MAX_REQUEST_BYTES,
                 HoshidictsMiningError,
                 "Duplicate check",
             )

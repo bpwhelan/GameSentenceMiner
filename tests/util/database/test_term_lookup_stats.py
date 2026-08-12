@@ -19,6 +19,34 @@ def restore_lookup_stats_database():
         TermLookupStatsTable._db = previous
 
 
+def _stat(term, reading, *, count=1, first, last=None):
+    return {
+        "term": term,
+        "reading": reading,
+        "lookup_count": count,
+        "first_looked_up_at": first,
+        "last_looked_up_at": first if last is None else last,
+    }
+
+
+def _create_tokenization_tables(database, *, cache=True):
+    database.execute("CREATE TABLE words (id INTEGER PRIMARY KEY, word TEXT NOT NULL)", commit=True)
+    database.execute(
+        "CREATE TABLE word_occurrences (word_id INTEGER NOT NULL, line_id TEXT NOT NULL)",
+        commit=True,
+    )
+    if cache:
+        database.execute(
+            """
+            CREATE TABLE word_stats_cache (
+                word_id INTEGER PRIMARY KEY,
+                occurrence_count INTEGER NOT NULL
+            )
+            """,
+            commit=True,
+        )
+
+
 @pytest.fixture
 def lookup_db():
     database = SQLiteDB(":memory:")
@@ -56,20 +84,8 @@ def test_repeated_lookup_increments_and_preserves_first_timestamp(lookup_db):
     first = TermLookupStatsTable.record_lookup("食べる", "たべる", 100.0)
     second = TermLookupStatsTable.record_lookup("食べる", "たべる", 150.0)
 
-    assert first == {
-        "term": "食べる",
-        "reading": "たべる",
-        "lookup_count": 1,
-        "first_looked_up_at": 100.0,
-        "last_looked_up_at": 100.0,
-    }
-    assert second == {
-        "term": "食べる",
-        "reading": "たべる",
-        "lookup_count": 2,
-        "first_looked_up_at": 100.0,
-        "last_looked_up_at": 150.0,
-    }
+    assert first == _stat("食べる", "たべる", first=100.0)
+    assert second == _stat("食べる", "たべる", count=2, first=100.0, last=150.0)
 
 
 def test_out_of_order_writes_keep_timestamp_bounds_valid(lookup_db):
@@ -95,15 +111,7 @@ def test_lookup_stats_separate_readings_and_order_by_count_then_recency(lookup_d
     assert stats["unique_terms"] == 3
     assert [item["term"] for item in stats["items"]] == ["食べる", "生"]
     assert [item["reading"] for item in stats["items"]] == ["たべる", "せい"]
-    assert TermLookupStatsTable.get_stats(limit=2, offset=2)["items"] == [
-        {
-            "term": "生",
-            "reading": "なま",
-            "lookup_count": 1,
-            "first_looked_up_at": 120.0,
-            "last_looked_up_at": 120.0,
-        }
-    ]
+    assert TermLookupStatsTable.get_stats(limit=2, offset=2)["items"] == [_stat("生", "なま", first=120.0)]
     empty_page = TermLookupStatsTable.get_stats(limit=2, offset=99)
     assert empty_page == {
         "total_lookups": 5,
@@ -166,15 +174,7 @@ def test_lookup_stats_persist_when_database_reopens(tmp_path):
     second_database = SQLiteDB(str(path))
     try:
         TermLookupStatsTable.set_db(second_database)
-        assert TermLookupStatsTable.get_stats(limit=10, offset=0)["items"] == [
-            {
-                "term": "学ぶ",
-                "reading": "まなぶ",
-                "lookup_count": 1,
-                "first_looked_up_at": 500.0,
-                "last_looked_up_at": 500.0,
-            }
-        ]
+        assert TermLookupStatsTable.get_stats(limit=10, offset=0)["items"] == [_stat("学ぶ", "まなぶ", first=500.0)]
     finally:
         second_database.close()
 
@@ -191,23 +191,7 @@ def test_seen_count_is_unavailable_without_tokenization_tables(lookup_db):
 
 
 def test_seen_count_uses_word_stats_cache_and_returns_zero_for_unseen_terms(lookup_db):
-    lookup_db.execute(
-        "CREATE TABLE words (id INTEGER PRIMARY KEY, word TEXT NOT NULL)",
-        commit=True,
-    )
-    lookup_db.execute(
-        """
-        CREATE TABLE word_stats_cache (
-            word_id INTEGER PRIMARY KEY,
-            occurrence_count INTEGER NOT NULL
-        )
-        """,
-        commit=True,
-    )
-    lookup_db.execute(
-        "CREATE TABLE word_occurrences (word_id INTEGER NOT NULL, line_id TEXT NOT NULL)",
-        commit=True,
-    )
+    _create_tokenization_tables(lookup_db)
     lookup_db.execute(
         "INSERT INTO words (id, word) VALUES (?, ?)",
         (1, "食べる"),
@@ -229,14 +213,7 @@ def test_seen_count_uses_word_stats_cache_and_returns_zero_for_unseen_terms(look
 
 
 def test_seen_count_falls_back_to_raw_occurrences_when_cache_is_missing(lookup_db):
-    lookup_db.execute(
-        "CREATE TABLE words (id INTEGER PRIMARY KEY, word TEXT NOT NULL)",
-        commit=True,
-    )
-    lookup_db.execute(
-        "CREATE TABLE word_occurrences (word_id INTEGER NOT NULL, line_id TEXT NOT NULL)",
-        commit=True,
-    )
+    _create_tokenization_tables(lookup_db, cache=False)
     lookup_db.execute(
         "INSERT INTO words (id, word) VALUES (?, ?)",
         (1, "読む"),

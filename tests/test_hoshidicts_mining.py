@@ -5,78 +5,58 @@ from types import SimpleNamespace
 import pytest
 from flask import Flask
 
-from GameSentenceMiner import hoshidicts_audio, hoshidicts_mining
+from GameSentenceMiner import hoshidicts_audio_profile, hoshidicts_markers, hoshidicts_mining
+from GameSentenceMiner import hoshidicts_mining_note as note_module
 from GameSentenceMiner.web import hoshidicts_api
+from tests.test_hoshidicts_factories import (
+    AUDIO_MEDIA,
+    DEFAULT_MODEL_FIELDS,
+    DUPLICATE_ERROR,
+    FakeAnki,
+    duplicate_responses,
+    make_audio_profile,
+    make_config,
+    make_field_templates,
+    make_mining_profile,
+    make_note_fields,
+    make_note_info,
+    make_overwrite_modes,
+    make_payload,
+    make_term_payload,
+    wire,
+    wire_audio,
+)
 
-
-def _profile(**overrides):
-    profile = hoshidicts_mining.default_hoshidicts_mining_profile()
-    profile.update(overrides)
-    return profile
-
-
-def _config():
-    return SimpleNamespace(
-        anki=SimpleNamespace(
-            enabled=True,
-            note_type="Mining",
-            word_field="Expression",
-            sentence_field="Sentence",
-            custom_tags=["GSM"],
-            tags_to_check=["mine"],
-        )
-    )
-
-
-def _payload():
-    return {
-        "sentence": "昨日、食べた。",
-        "matchOffset": 3,
-        "result": {
-            "matched": "食べた",
-            "deinflected": "食べる",
-            "preprocessorSteps": 0,
-            "trace": [{"name": "past", "description": "past tense"}],
-            "term": {
-                "expression": "食べる",
-                "reading": "たべる",
-                "rules": "v1",
-                "score": 100,
-                "glossaries": [
-                    {
-                        "dictionary": "JMdict",
-                        "glossary": '["to eat",{"tag":"br"},{"content":"consume"}]',
-                        "definitionTags": "food",
-                        "termTags": "common",
-                    }
-                ],
-                "frequencies": [
-                    {
-                        "dictionary": "Frequency",
-                        "frequencies": [{"value": 123, "displayValue": "123 ★"}],
-                    }
-                ],
-                "pitches": [
-                    {
-                        "dictionary": "Pitch",
-                        "pitches": [
-                            {
-                                "position": 2,
-                                "pattern": "LHL",
-                                "nasal": [1],
-                                "devoice": [2],
-                            }
-                        ],
-                        "transcriptions": ["tabeɾɯ"],
-                    }
-                ],
-            },
-        },
-    }
+KIKU_V2_FIELDS = [
+    "Expression",
+    "ExpressionFurigana",
+    "ExpressionReading",
+    "ExpressionAudio",
+    "RelatedExpression",
+    "SelectionText",
+    "MainDefinition",
+    "DefinitionPicture",
+    "Sentence",
+    "SentenceFurigana",
+    "SentenceTranslation",
+    "SentenceAudio",
+    "Picture",
+    "Glossary",
+    "Hint",
+    "IsWordAndSentenceCard",
+    "IsClickCard",
+    "IsSentenceCard",
+    "IsAudioCard",
+    "PitchPosition",
+    "PitchCategories",
+    "Frequency",
+    "FreqSort",
+    "MiscInfo",
+]
 
 
 def _rich_jitendex_payload():
-    payload = _payload()
+    payload = make_payload()
     payload["result"]["term"]["glossaries"] = [
         {
             "dictionary": "Jitendex",
@@ -270,102 +250,25 @@ def _kiku_yomitan_parity_payload():
     }
 
 
-class FakeAnki:
-    def __init__(self, fields=None, note_id=42, model_names=None, decks=None):
-        self.fields = fields or [
-            "Expression",
-            "Reading",
-            "Definition",
-            "Sentence",
-            "Frequency",
-            "PitchAccent",
-        ]
-        self.note_id = note_id
-        self.model_names = model_names or ["Mining"]
-        self.decks = decks or ["Default", "Mining"]
-        self.calls = []
-        self.events = []
-
-    def invoke(self, action, **kwargs):
-        self.calls.append((action, kwargs))
-        if action == "modelNames":
-            return self.model_names
-        if action == "modelFieldNames":
-            return self.fields
-        if action == "deckNames":
-            return self.decks
-        if action == "addNote":
-            return self.note_id
-        if action == "storeMediaFile":
-            return kwargs["filename"]
-        if action == "updateNoteFields":
-            return None
-        raise AssertionError(action)
-
-    def _prepare_anki_tags(self):
-        return ["GSM", "Game::Test"]
-
-    def handle_incoming_anki_event(self, payload):
-        self.events.append(payload)
-        return "note_added"
+def _validated(payload):
+    return hoshidicts_mining.validate_hoshidicts_mining_request(payload)
 
 
-def _wire(monkeypatch, fake_anki, profile=None):
-    hoshidicts_mining._clear_mining_status_cache()
-    monkeypatch.setattr(hoshidicts_mining, "get_config", _config)
-    monkeypatch.setattr(
-        hoshidicts_mining,
-        "load_hoshidicts_mining_profile",
-        lambda: profile or _profile(),
+def _marker_values(payload, markers, **kwargs):
+    """Rendered values for templates that only use the given markers."""
+    return hoshidicts_mining._template_values_for_fields(
+        _validated(payload),
+        {"anki": SimpleNamespace()},
+        make_field_templates({marker: f"{{{marker}}}" for marker in markers}),
+        **kwargs,
     )
-    monkeypatch.setattr(
-        hoshidicts_mining,
-        "_get_anki_module",
-        lambda: fake_anki,
-    )
-
-
-_AUDIO_MEDIA = hoshidicts_audio.AudioMedia(
-    data=b"ID3pronunciation",
-    content_type="audio/mpeg",
-    extension="mp3",
-)
-
-
-def _wire_audio(
-    monkeypatch,
-    fake_anki,
-    *,
-    mining_profile=None,
-    audio_profile=None,
-    media=_AUDIO_MEDIA,
-    error=None,
-    resolver=None,
-):
-    _wire(monkeypatch, fake_anki, mining_profile)
-    audio_profile = audio_profile or hoshidicts_audio.default_hoshidicts_audio_profile()
-    monkeypatch.setattr(
-        hoshidicts_audio,
-        "load_hoshidicts_audio_profile_or_default",
-        lambda: audio_profile,
-    )
-
-    if resolver is None:
-
-        def resolver(*_args, **_kwargs):
-            if error is not None:
-                raise error
-            return media
-
-    monkeypatch.setattr(hoshidicts_audio, "get_mining_audio", resolver)
-    return audio_profile
 
 
 def test_profile_defaults_and_normalization(tmp_path):
     missing = tmp_path / "missing.json"
-    assert hoshidicts_mining.load_hoshidicts_mining_profile(missing) == _profile()
+    assert hoshidicts_mining.load_hoshidicts_mining_profile(missing) == make_mining_profile()
     saved = tmp_path / "mining-profile.json"
-    saved.write_text(json.dumps(_profile(fields={"audio": "WordAudio"})), encoding="utf-8")
+    saved.write_text(json.dumps(make_mining_profile(fields={"audio": "WordAudio"})), encoding="utf-8")
     assert hoshidicts_mining.load_hoshidicts_mining_profile(saved)["fields"]["audio"] == "WordAudio"
 
     profile = hoshidicts_mining.normalize_hoshidicts_mining_profile(
@@ -415,32 +318,27 @@ def test_profile_v3_normalizes_target_field_templates_without_trimming_values():
     profile = hoshidicts_mining.normalize_hoshidicts_mining_profile(
         {
             "version": 3,
-            "fieldTemplates": {
-                "Front": {
-                    "value": "  x {expression}  ",
-                    "overwriteMode": "overwrite",
-                },
-                "Extra": {"value": "", "overwriteMode": "append"},
-            },
+            "fieldTemplates": make_field_templates(
+                {
+                    "Front": ("  x {expression}  ", "overwrite"),
+                    "Extra": ("", "append"),
+                }
+            ),
         }
     )
-    assert profile["fieldTemplates"] == {
-        "Front": {
-            "value": "  x {expression}  ",
-            "overwriteMode": "overwrite",
-        },
-        "Extra": {"value": "", "overwriteMode": "append"},
-    }
+    assert profile["fieldTemplates"] == make_field_templates(
+        {
+            "Front": ("  x {expression}  ", "overwrite"),
+            "Extra": ("", "append"),
+        }
+    )
 
 
 def test_profile_v3_preserves_exact_case_sensitive_target_keys():
     profile = hoshidicts_mining.normalize_hoshidicts_mining_profile(
         {
             "version": 3,
-            "fieldTemplates": {
-                " Front ": {"value": "one", "overwriteMode": "coalesce"},
-                "front": {"value": "two", "overwriteMode": "append"},
-            },
+            "fieldTemplates": make_field_templates({" Front ": "one", "front": ("two", "append")}),
         }
     )
 
@@ -487,15 +385,13 @@ def test_profile_normalizes_yomitan_duplicate_settings_and_overwrite_modes():
     assert profile["duplicateScope"] == "deck-root"
     assert profile["duplicateScopeCheckAllModels"] is True
     assert profile["duplicateBehavior"] == "overwrite"
-    assert profile["fieldOverwriteModes"] == {
-        "expression": "overwrite",
-        "reading": "skip",
-        "definition": "append",
-        "sentence": "prepend",
-        "frequency": "coalesce-new",
-        "pitch": "coalesce",
-        "audio": "coalesce",
-    }
+    assert profile["fieldOverwriteModes"] == make_overwrite_modes(
+        expression="overwrite",
+        reading="skip",
+        definition="append",
+        sentence="prepend",
+        frequency="coalesce-new",
+    )
 
 
 @pytest.mark.parametrize(
@@ -503,20 +399,22 @@ def test_profile_normalizes_yomitan_duplicate_settings_and_overwrite_modes():
     [
         ({"duplicateScope": "note"}, "duplicate scope"),
         ({"duplicateBehavior": "allow"}, "duplicate behavior"),
-        (
-            {"fieldOverwriteModes": {"expression": "replace"}},
-            "overwrite mode",
-        ),
+        ({"duplicatePolicy": "ignore"}, "duplicate policy"),
+        ({"fieldOverwriteModes": {"expression": "replace"}}, "overwrite mode"),
+        ({"fields": []}, "mining fields"),
+        ({"disabledFields": ["nope"]}, "disabled mining field"),
+        ({"tags": "hoshidicts"}, "mining tags"),
+        ({"version": 4}, "version is unsupported"),
     ],
 )
-def test_profile_rejects_invalid_duplicate_settings(overrides, message):
+def test_profile_rejects_invalid_settings(overrides, message):
     with pytest.raises(hoshidicts_mining.HoshidictsMiningError, match=message):
         hoshidicts_mining.normalize_hoshidicts_mining_profile(overrides)
 
 
 def test_status_inherits_gsm_fields_and_auto_maps_dictionary_fields(monkeypatch):
     fake_anki = FakeAnki()
-    _wire(monkeypatch, fake_anki)
+    wire(monkeypatch, fake_anki)
 
     status = hoshidicts_mining.get_hoshidicts_mining_status()
 
@@ -554,218 +452,125 @@ def test_options_load_anki_choices_and_suggest_kiku_lapis_fields(monkeypatch):
         model_names=["Basic", "Kiku"],
         decks=["Default", "Japanese"],
     )
-    _wire(monkeypatch, fake_anki, _profile(model="Kiku", deck="Japanese"))
+    wire(monkeypatch, fake_anki, make_mining_profile(model="Kiku", deck="Japanese"))
 
     options = hoshidicts_mining.get_hoshidicts_mining_options()
 
-    legacy_options = {
+    kiku_fields = {
+        "expression": "Expression",
+        "reading": "ExpressionReading",
+        "definition": "Glossary",
+        "sentence": "Sentence",
+        "frequency": "Frequency",
+        "pitch": "PitchPosition",
+        "audio": "",
+    }
+    expected = {
         "connected": True,
         "gsmAnkiEnabled": True,
         "decks": ["Default", "Japanese"],
         "noteTypes": ["Basic", "Kiku"],
         "selectedNoteType": "Kiku",
         "fields": fields,
-        "suggestedFields": {
-            "expression": "Expression",
-            "reading": "ExpressionReading",
-            "definition": "Glossary",
-            "sentence": "Sentence",
-            "frequency": "Frequency",
-            "pitch": "PitchPosition",
-            "audio": "",
-        },
-        "resolvedFields": {
-            "expression": "Expression",
-            "reading": "ExpressionReading",
-            "definition": "Glossary",
-            "sentence": "Sentence",
-            "frequency": "Frequency",
-            "pitch": "PitchPosition",
-            "audio": "",
-        },
+        "suggestedFields": kiku_fields,
+        "resolvedFields": kiku_fields,
         "warnings": [],
         "error": None,
     }
-    assert {key: options[key] for key in legacy_options} == legacy_options
-    assert (
-        "modelFieldNames",
-        {
-            "timeout": hoshidicts_mining.ANKI_CONNECT_TIMEOUT_SECONDS,
-            "modelName": "Kiku",
-        },
-    ) in fake_anki.calls
-
-
-def test_options_leave_unknown_first_field_blank_instead_of_guessing_by_position(monkeypatch):
-    fields = [
-        "Mystery",
-        "ExpressionReading",
-        "Glossary",
-        "Sentence",
-        "Frequency",
-        "PitchPosition",
-        "WordAudio",
-        "Extra",
-    ]
-    fake_anki = FakeAnki(fields=fields)
-    _wire(monkeypatch, fake_anki)
-
-    options = hoshidicts_mining.get_hoshidicts_mining_options()
-
-    assert options["suggestedFieldTemplates"] == {
-        "Mystery": "",
-        "ExpressionReading": "{reading}",
-        "Glossary": "{glossary}",
-        "Sentence": "{cloze-prefix}<b>{cloze-body}</b>{cloze-suffix}",
-        "Frequency": "{frequencies}",
-        "PitchPosition": "{pitch-accent-positions}",
-        "WordAudio": "{audio}",
-        "Extra": "",
+    assert {key: options[key] for key in expected} == expected
+    assert fake_anki.kwargs_for("modelFieldNames") == {
+        "timeout": hoshidicts_mining.ANKI_CONNECT_TIMEOUT_SECONDS,
+        "modelName": "Kiku",
     }
-    assert options["resolvedFieldTemplates"] == {
-        field: {"value": value, "overwriteMode": "coalesce"}
-        for field, value in options["suggestedFieldTemplates"].items()
-    }
-
-
-def test_options_match_kiku_v2_yomitan_field_setup(monkeypatch):
-    fields = [
-        "Expression",
-        "ExpressionFurigana",
-        "ExpressionReading",
-        "ExpressionAudio",
-        "RelatedExpression",
-        "SelectionText",
-        "MainDefinition",
-        "DefinitionPicture",
-        "Sentence",
-        "SentenceFurigana",
-        "SentenceTranslation",
-        "SentenceAudio",
-        "Picture",
-        "Glossary",
-        "Hint",
-        "IsWordAndSentenceCard",
-        "IsClickCard",
-        "IsSentenceCard",
-        "IsAudioCard",
-        "PitchPosition",
-        "PitchCategories",
-        "Frequency",
-        "FreqSort",
-        "MiscInfo",
-    ]
-    fake_anki = FakeAnki(fields=fields, model_names=["Kiku"])
-    _wire(monkeypatch, fake_anki, _profile(model="Kiku"))
-
-    options = hoshidicts_mining.get_hoshidicts_mining_options()
-
-    assert options["suggestedFieldTemplates"] == {
-        "Expression": "{expression}",
-        "ExpressionFurigana": "{furigana-plain}",
-        "ExpressionReading": "{reading}",
-        "ExpressionAudio": "{audio}",
-        "RelatedExpression": "",
-        "SelectionText": "{popup-selection-text}",
-        "MainDefinition": "{main-definition}",
-        "DefinitionPicture": "",
-        "Sentence": "{cloze-prefix}<b>{cloze-body}</b>{cloze-suffix}",
-        "SentenceFurigana": "{sentence-furigana-plain}",
-        "SentenceTranslation": "",
-        "SentenceAudio": "",
-        "Picture": "",
-        "Glossary": "{glossary}",
-        "Hint": "",
-        "IsWordAndSentenceCard": "",
-        "IsClickCard": "",
-        "IsSentenceCard": "",
-        "IsAudioCard": "",
-        "PitchPosition": "{pitch-accent-positions}",
-        "PitchCategories": "{pitch-accent-categories}",
-        "Frequency": "{frequencies}",
-        "FreqSort": "{frequency-harmonic-rank}",
-        "MiscInfo": "{document-title}",
-    }
-
-
-def test_kiku_yomitan_sort_and_pitch_markers_render_matching_values():
-    payload = _payload()
-    payload["documentTitle"] = "Kiku source title"
-    payload["popupSelectionText"] = "食べた"
-    payload["result"]["term"]["frequencies"] = [
-        {
-            "dictionary": "Rank A",
-            "frequencyMode": "rank-based",
-            "frequencies": [{"value": 100, "displayValue": "100 rank"}],
-        },
-        {
-            "dictionary": "Rank B",
-            "frequencyMode": "rank-based",
-            "frequencies": [{"value": 400, "displayValue": None}],
-        },
-        {
-            "dictionary": "Occurrence",
-            "frequencyMode": "occurrence-based",
-            "frequencies": [{"value": 50_000, "displayValue": None}],
-        },
-    ]
-    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
-
-    values = hoshidicts_mining._field_template_values(request)
-
-    assert values["{popup-selection-text}"] == "食べた"
-    assert values["{document-title}"] == "Kiku source title"
-    assert values["{cloze-prefix}"] == "昨日、"
-    assert values["{cloze-body}"] == "食べた"
-    assert values["{cloze-suffix}"] == "。"
-    assert values["{pitch-accent-positions}"] == "2"
-    assert values["{pitch-accent-categories}"] == "kifuku"
-    assert values["{frequency-harmonic-rank}"] == "160"
 
 
 @pytest.mark.parametrize(
-    ("rules", "reading", "position", "expected"),
+    ("model", "fields", "expected"),
     [
-        ("", "たべる", 0, "heiban"),
-        ("", "たべる", 1, "atamadaka"),
-        ("", "たべる", 2, "nakadaka"),
-        ("", "たべる", 3, "odaka"),
-        ("v1", "たべる", 2, "kifuku"),
-        ("vs n", "きょう", 2, "odaka"),
+        pytest.param(
+            "",
+            [
+                "Mystery",
+                "ExpressionReading",
+                "Glossary",
+                "Sentence",
+                "Frequency",
+                "PitchPosition",
+                "WordAudio",
+                "Extra",
+            ],
+            {
+                "Mystery": "",
+                "ExpressionReading": "{reading}",
+                "Glossary": "{glossary}",
+                "Sentence": "{cloze-prefix}<b>{cloze-body}</b>{cloze-suffix}",
+                "Frequency": "{frequencies}",
+                "PitchPosition": "{pitch-accent-positions}",
+                "WordAudio": "{audio}",
+                "Extra": "",
+            },
+            id="unknown-first-field-is-not-guessed-by-position",
+        ),
+        pytest.param(
+            "Kiku",
+            KIKU_V2_FIELDS,
+            {
+                "Expression": "{expression}",
+                "ExpressionFurigana": "{furigana-plain}",
+                "ExpressionReading": "{reading}",
+                "ExpressionAudio": "{audio}",
+                "RelatedExpression": "",
+                "SelectionText": "{popup-selection-text}",
+                "MainDefinition": "{main-definition}",
+                "DefinitionPicture": "",
+                "Sentence": "{cloze-prefix}<b>{cloze-body}</b>{cloze-suffix}",
+                "SentenceFurigana": "{sentence-furigana-plain}",
+                "SentenceTranslation": "",
+                "SentenceAudio": "",
+                "Picture": "",
+                "Glossary": "{glossary}",
+                "Hint": "",
+                "IsWordAndSentenceCard": "",
+                "IsClickCard": "",
+                "IsSentenceCard": "",
+                "IsAudioCard": "",
+                "PitchPosition": "{pitch-accent-positions}",
+                "PitchCategories": "{pitch-accent-categories}",
+                "Frequency": "{frequencies}",
+                "FreqSort": "{frequency-harmonic-rank}",
+                "MiscInfo": "{document-title}",
+            },
+            id="kiku-v2-yomitan-field-setup",
+        ),
+        pytest.param(
+            "",
+            ["ID", "Expression", "Word", "Reading", "Kana", "Extra"],
+            {
+                "ID": "",
+                "Expression": "{expression}",
+                "Word": "",
+                "Reading": "{reading}",
+                "Kana": "",
+                "Extra": "",
+            },
+            id="only-one-target-per-semantic-field",
+        ),
+        pytest.param(
+            "",
+            ["Reading", "Expression", "Extra"],
+            {"Reading": "{reading}", "Expression": "{expression}", "Extra": ""},
+            id="atypically-ordered-first-field-beats-the-fallback",
+        ),
     ],
 )
-def test_kiku_pitch_categories_match_yomitan(
-    rules,
-    reading,
-    position,
-    expected,
-):
-    payload = _payload()
-    payload["result"]["term"]["rules"] = rules
-    payload["result"]["term"]["reading"] = reading
-    payload["result"]["term"]["pitches"][0]["pitches"][0]["position"] = position
-    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
-
-    values = hoshidicts_mining._field_template_values(request)
-
-    assert values["{pitch-accent-categories}"] == expected
-
-
-def test_options_suggest_only_one_target_per_semantic_field(monkeypatch):
-    fields = ["ID", "Expression", "Word", "Reading", "Kana", "Extra"]
-    fake_anki = FakeAnki(fields=fields)
-    _wire(monkeypatch, fake_anki)
+def test_options_suggest_yomitan_field_templates(monkeypatch, model, fields, expected):
+    fake_anki = FakeAnki(fields=fields, model_names=["Mining", "Kiku"])
+    wire(monkeypatch, fake_anki, make_mining_profile(model=model))
 
     options = hoshidicts_mining.get_hoshidicts_mining_options()
 
-    assert options["suggestedFieldTemplates"] == {
-        "ID": "",
-        "Expression": "{expression}",
-        "Word": "",
-        "Reading": "{reading}",
-        "Kana": "",
-        "Extra": "",
-    }
+    assert options["suggestedFieldTemplates"] == expected
+    assert options["resolvedFieldTemplates"] == make_field_templates(expected)
 
 
 @pytest.mark.parametrize(
@@ -788,45 +593,30 @@ def test_options_compose_inherited_config_semantics_on_an_alias_target(
     expected,
 ):
     fake_anki = FakeAnki(fields=fields)
-    config = _config()
-    config.anki.word_field = word_field
-    config.anki.sentence_field = sentence_field
-    _wire(monkeypatch, fake_anki)
-    monkeypatch.setattr(hoshidicts_mining, "get_config", lambda: config)
+    wire(
+        monkeypatch,
+        fake_anki,
+        config=make_config(word_field=word_field, sentence_field=sentence_field),
+    )
 
     options = hoshidicts_mining.get_hoshidicts_mining_options()
 
     assert options["suggestedFieldTemplates"] == {fields[0]: expected}
-    assert options["resolvedFieldTemplates"] == {fields[0]: {"value": expected, "overwriteMode": "coalesce"}}
-
-
-def test_options_match_an_atypically_ordered_first_field_before_using_fallback(monkeypatch):
-    fake_anki = FakeAnki(fields=["Reading", "Expression", "Extra"])
-    _wire(monkeypatch, fake_anki)
-
-    options = hoshidicts_mining.get_hoshidicts_mining_options()
-
-    assert options["suggestedFieldTemplates"] == {
-        "Reading": "{reading}",
-        "Expression": "{expression}",
-        "Extra": "",
-    }
+    assert options["resolvedFieldTemplates"] == make_field_templates({fields[0]: expected})
 
 
 def test_options_use_authoritative_templates_and_warn_about_stale_targets(monkeypatch):
-    fields = ["Front", "Reading", "Extra"]
-    fake_anki = FakeAnki(fields=fields)
-    profile = _profile(
-        fieldTemplates={
-            "Front": {
-                "value": "x {expression}",
-                "overwriteMode": "overwrite",
-            },
-            "Reading": {"value": "", "overwriteMode": "append"},
-            "Removed": {"value": "stale", "overwriteMode": "coalesce"},
-        }
+    fake_anki = FakeAnki(fields=["Front", "Reading", "Extra"])
+    profile = make_mining_profile(
+        fieldTemplates=make_field_templates(
+            {
+                "Front": ("x {expression}", "overwrite"),
+                "Reading": ("", "append"),
+                "Removed": "stale",
+            }
+        )
     )
-    _wire(monkeypatch, fake_anki, profile)
+    wire(monkeypatch, fake_anki, profile)
 
     options = hoshidicts_mining.get_hoshidicts_mining_options()
 
@@ -835,43 +625,28 @@ def test_options_use_authoritative_templates_and_warn_about_stale_targets(monkey
         "Reading": "{reading}",
         "Extra": "",
     }
-    assert options["resolvedFieldTemplates"] == {
-        "Front": {"value": "x {expression}", "overwriteMode": "overwrite"},
-        "Reading": {"value": "", "overwriteMode": "append"},
-        "Extra": {"value": "", "overwriteMode": "coalesce"},
-    }
+    assert options["resolvedFieldTemplates"] == make_field_templates(
+        {"Front": ("x {expression}", "overwrite"), "Reading": ("", "append"), "Extra": ""}
+    )
     assert options["warnings"] == ['Hoshidicts field template "Removed" is not in note type "Mining".']
 
 
 def test_status_recognizes_semantics_in_raw_yomitan_templates(monkeypatch):
     fields = ["Front", "Reading", "Definition", "Sentence", "Frequency", "PitchPosition"]
     fake_anki = FakeAnki(fields=fields)
-    profile = _profile(
-        fieldTemplates={
-            "Front": {"value": "{expression}", "overwriteMode": "coalesce"},
-            "Reading": {
-                "value": "{furigana-plain}",
-                "overwriteMode": "coalesce",
-            },
-            "Definition": {
-                "value": "{jpmn-primary-definition}",
-                "overwriteMode": "coalesce",
-            },
-            "Sentence": {
-                "value": "{cloze-prefix}<b>{cloze-body}</b>{cloze-suffix}",
-                "overwriteMode": "coalesce",
-            },
-            "Frequency": {
-                "value": "{single-frequency-number-Frequency}",
-                "overwriteMode": "coalesce",
-            },
-            "PitchPosition": {
-                "value": "{pitch-accent-positions}",
-                "overwriteMode": "coalesce",
-            },
-        }
+    profile = make_mining_profile(
+        fieldTemplates=make_field_templates(
+            {
+                "Front": "{expression}",
+                "Reading": "{furigana-plain}",
+                "Definition": "{jpmn-primary-definition}",
+                "Sentence": "{cloze-prefix}<b>{cloze-body}</b>{cloze-suffix}",
+                "Frequency": "{single-frequency-number-Frequency}",
+                "PitchPosition": "{pitch-accent-positions}",
+            }
+        )
     )
-    _wire(monkeypatch, fake_anki, profile)
+    wire(monkeypatch, fake_anki, profile)
 
     status = hoshidicts_mining.get_hoshidicts_mining_status()
 
@@ -889,16 +664,8 @@ def test_status_recognizes_semantics_in_raw_yomitan_templates(monkeypatch):
 
 def test_status_rejects_a_blank_first_field_template(monkeypatch):
     fake_anki = FakeAnki(fields=["Front", "Expression"])
-    profile = _profile(
-        fieldTemplates={
-            "Front": {"value": "", "overwriteMode": "coalesce"},
-            "Expression": {
-                "value": "{expression}",
-                "overwriteMode": "coalesce",
-            },
-        }
-    )
-    _wire(monkeypatch, fake_anki, profile)
+    profile = make_mining_profile(fieldTemplates=make_field_templates({"Front": "", "Expression": "{expression}"}))
+    wire(monkeypatch, fake_anki, profile)
 
     status = hoshidicts_mining.get_hoshidicts_mining_status()
 
@@ -918,11 +685,8 @@ def test_options_accept_a_selected_note_type_and_detect_a_renamed_lapis_schema(m
         "Frequency",
         "PitchPosition",
     ]
-    fake_anki = FakeAnki(
-        fields=fields,
-        model_names=["Mining", "My Japanese Card"],
-    )
-    _wire(monkeypatch, fake_anki)
+    fake_anki = FakeAnki(fields=fields, model_names=["Mining", "My Japanese Card"])
+    wire(monkeypatch, fake_anki)
 
     options = hoshidicts_mining.get_hoshidicts_mining_options("my japanese card")
 
@@ -935,72 +699,53 @@ def test_options_accept_a_selected_note_type_and_detect_a_renamed_lapis_schema(m
 
 
 def test_options_selected_different_note_type_ignores_saved_target_templates(monkeypatch):
-    fields = ["Expression", "Reading", "Extra"]
     fake_anki = FakeAnki(
-        fields=fields,
+        fields=["Expression", "Reading", "Extra"],
         model_names=["Old Card", "New Card"],
     )
-    profile = _profile(
+    profile = make_mining_profile(
         model="Old Card",
-        fieldTemplates={
-            "Expression": {
-                "value": "old {definition}",
-                "overwriteMode": "append",
-            },
-            "Reading": {
-                "value": "old literal",
-                "overwriteMode": "overwrite",
-            },
-        },
+        fieldTemplates=make_field_templates(
+            {
+                "Expression": ("old {definition}", "append"),
+                "Reading": ("old literal", "overwrite"),
+            }
+        ),
     )
-    _wire(monkeypatch, fake_anki, profile)
+    wire(monkeypatch, fake_anki, profile)
 
     options = hoshidicts_mining.get_hoshidicts_mining_options("new card")
 
     assert options["selectedNoteType"] == "New Card"
-    assert options["resolvedFieldTemplates"] == {
-        "Expression": {"value": "{expression}", "overwriteMode": "coalesce"},
-        "Reading": {"value": "{reading}", "overwriteMode": "coalesce"},
-        "Extra": {"value": "", "overwriteMode": "coalesce"},
-    }
+    assert options["resolvedFieldTemplates"] == make_field_templates(
+        {"Expression": "{expression}", "Reading": "{reading}", "Extra": ""}
+    )
     assert options["warnings"] == []
 
 
 def test_options_explicit_automatic_uses_config_model_without_old_legacy_mappings(monkeypatch):
-    fields = ["Expression", "Reading", "Sentence"]
     fake_anki = FakeAnki(
-        fields=fields,
+        fields=["Expression", "Reading", "Sentence"],
         model_names=["Old Card", "Configured Card"],
     )
-    profile = _profile(
+    profile = make_mining_profile(
         model="Old Card",
-        fields={
-            **_profile()["fields"],
-            "reading": "Sentence",
-        },
+        fields={**make_mining_profile()["fields"], "reading": "Sentence"},
         disabledFields=["expression"],
-        fieldOverwriteModes={
-            **_profile()["fieldOverwriteModes"],
-            "reading": "append",
-            "sentence": "overwrite",
-        },
+        fieldOverwriteModes=make_overwrite_modes(reading="append", sentence="overwrite"),
     )
-    config = _config()
-    config.anki.note_type = "Configured Card"
-    _wire(monkeypatch, fake_anki, profile)
-    monkeypatch.setattr(hoshidicts_mining, "get_config", lambda: config)
+    wire(monkeypatch, fake_anki, profile, config=make_config(note_type="Configured Card"))
 
     options = hoshidicts_mining.get_hoshidicts_mining_options("")
 
     assert options["selectedNoteType"] == "Configured Card"
-    assert options["resolvedFieldTemplates"] == {
-        "Expression": {"value": "{expression}", "overwriteMode": "coalesce"},
-        "Reading": {"value": "{reading}", "overwriteMode": "coalesce"},
-        "Sentence": {
-            "value": "{cloze-prefix}<b>{cloze-body}</b>{cloze-suffix}",
-            "overwriteMode": "coalesce",
-        },
-    }
+    assert options["resolvedFieldTemplates"] == make_field_templates(
+        {
+            "Expression": "{expression}",
+            "Reading": "{reading}",
+            "Sentence": "{cloze-prefix}<b>{cloze-body}</b>{cloze-suffix}",
+        }
+    )
     assert options["resolvedFields"] == {
         "expression": "Expression",
         "reading": "Reading",
@@ -1013,39 +758,23 @@ def test_options_explicit_automatic_uses_config_model_without_old_legacy_mapping
 
 
 def test_options_explicit_same_note_type_keeps_saved_templates(monkeypatch):
-    fake_anki = FakeAnki(
-        fields=["Expression", "Reading"],
-        model_names=["Mining"],
-    )
-    profile = _profile(
+    fake_anki = FakeAnki(fields=["Expression", "Reading"], model_names=["Mining"])
+    profile = make_mining_profile(
         model="MINING",
-        fieldTemplates={
-            "Expression": {
-                "value": "saved {expression}",
-                "overwriteMode": "append",
-            },
-        },
+        fieldTemplates=make_field_templates({"Expression": ("saved {expression}", "append")}),
     )
-    _wire(monkeypatch, fake_anki, profile)
+    wire(monkeypatch, fake_anki, profile)
 
     options = hoshidicts_mining.get_hoshidicts_mining_options("mining")
 
-    assert options["resolvedFieldTemplates"] == {
-        "Expression": {
-            "value": "saved {expression}",
-            "overwriteMode": "append",
-        },
-        "Reading": {"value": "", "overwriteMode": "coalesce"},
-    }
+    assert options["resolvedFieldTemplates"] == make_field_templates(
+        {"Expression": ("saved {expression}", "append"), "Reading": ""}
+    )
 
 
 def test_options_probe_ankiconnect_when_gsm_anki_is_disabled(monkeypatch):
     fake_anki = FakeAnki()
-    config = _config()
-    config.anki.enabled = False
-    monkeypatch.setattr(hoshidicts_mining, "get_config", lambda: config)
-    monkeypatch.setattr(hoshidicts_mining, "load_hoshidicts_mining_profile", _profile)
-    monkeypatch.setattr(hoshidicts_mining, "_get_anki_module", lambda: fake_anki)
+    wire(monkeypatch, fake_anki, config=make_config(enabled=False))
 
     options = hoshidicts_mining.get_hoshidicts_mining_options()
 
@@ -1055,19 +784,11 @@ def test_options_probe_ankiconnect_when_gsm_anki_is_disabled(monkeypatch):
     assert options["decks"] == ["Default", "Mining"]
     assert options["fields"] == fake_anki.fields
     assert options["error"] == "GSM Anki integration is disabled."
-    assert [action for action, _kwargs in fake_anki.calls] == [
-        "modelNames",
-        "deckNames",
-        "modelFieldNames",
-    ]
+    assert fake_anki.actions() == ["modelNames", "deckNames", "modelFieldNames"]
 
 
 def test_options_report_an_ankiconnect_failure(monkeypatch):
-    class OfflineAnki(FakeAnki):
-        def invoke(self, action, **kwargs):
-            raise RuntimeError("connection refused")
-
-    _wire(monkeypatch, OfflineAnki())
+    wire(monkeypatch, FakeAnki(responses={"*": RuntimeError("connection refused")}))
 
     options = hoshidicts_mining.get_hoshidicts_mining_options()
 
@@ -1077,15 +798,8 @@ def test_options_report_an_ankiconnect_failure(monkeypatch):
 
 
 def test_options_keep_partial_ankiconnect_results(monkeypatch):
-    class PartialAnki(FakeAnki):
-        def invoke(self, action, **kwargs):
-            if action == "deckNames":
-                self.calls.append((action, kwargs))
-                raise TimeoutError("deck lookup timed out")
-            return super().invoke(action, **kwargs)
-
-    fake_anki = PartialAnki(model_names=["Mining"])
-    _wire(monkeypatch, fake_anki)
+    fake_anki = FakeAnki(responses={"deckNames": TimeoutError("deck lookup timed out")})
+    wire(monkeypatch, fake_anki)
 
     options = hoshidicts_mining.get_hoshidicts_mining_options()
 
@@ -1098,11 +812,22 @@ def test_options_keep_partial_ankiconnect_results(monkeypatch):
     assert options["warnings"] == ["Could not load Anki decks: deck lookup timed out"]
 
 
+def test_status_deduplicates_short_lived_ankiconnect_checks(monkeypatch):
+    fake_anki = FakeAnki()
+    wire(monkeypatch, fake_anki)
+
+    first = hoshidicts_mining.get_hoshidicts_mining_status()
+    second = hoshidicts_mining.get_hoshidicts_mining_status()
+
+    assert first == second
+    assert fake_anki.actions() == ["modelFieldNames", "deckNames"]
+
+
 def test_mining_preserves_dictionary_metadata_and_queues_gsm_enrichment(monkeypatch):
     fake_anki = FakeAnki()
-    _wire(monkeypatch, fake_anki)
+    wire(monkeypatch, fake_anki)
 
-    result = hoshidicts_mining.mine_hoshidicts_note(_payload())
+    result = hoshidicts_mining.mine_hoshidicts_note(make_payload())
 
     assert result == {
         "success": True,
@@ -1110,7 +835,7 @@ def test_mining_preserves_dictionary_metadata_and_queues_gsm_enrichment(monkeypa
         "unmappedFields": ["audio"],
         "audio": {"status": "skipped"},
     }
-    add_note = next(kwargs["note"] for action, kwargs in fake_anki.calls if action == "addNote")
+    add_note = fake_anki.note_for()
     assert add_note["deckName"] == "Default"
     assert add_note["modelName"] == "Mining"
     assert add_note["fields"]["Expression"] == "食べる"
@@ -1134,13 +859,7 @@ def test_mining_preserves_dictionary_metadata_and_queues_gsm_enrichment(monkeypa
             "checkAllModels": False,
         },
     }
-    assert add_note["tags"] == [
-        "GSM",
-        "Game::Test",
-        "mine",
-        "hoshidicts",
-        "overlay",
-    ]
+    assert add_note["tags"] == ["GSM", "Game::Test", "mine", "hoshidicts", "overlay"]
     assert fake_anki.events == [
         {
             "event": "note_added",
@@ -1153,25 +872,21 @@ def test_mining_preserves_dictionary_metadata_and_queues_gsm_enrichment(monkeypa
 def test_mining_renders_target_templates_literals_and_all_blank_fields(monkeypatch):
     fields = ["Front", "Reading", "Definition", "Custom", "Unused"]
     fake_anki = FakeAnki(fields=fields)
-    profile = _profile(
-        fieldTemplates={
-            "Front": {
-                "value": "prefix {expression} / {reading}",
-                "overwriteMode": "coalesce",
-            },
-            "Definition": {
-                "value": "{definition}",
-                "overwriteMode": "coalesce",
-            },
-            "Custom": {"value": "x", "overwriteMode": "coalesce"},
-            "Unused": {"value": "", "overwriteMode": "coalesce"},
-        }
+    profile = make_mining_profile(
+        fieldTemplates=make_field_templates(
+            {
+                "Front": "prefix {expression} / {reading}",
+                "Definition": "{definition}",
+                "Custom": "x",
+                "Unused": "",
+            }
+        )
     )
-    _wire(monkeypatch, fake_anki, profile)
+    wire(monkeypatch, fake_anki, profile)
 
-    hoshidicts_mining.mine_hoshidicts_note(_payload())
+    hoshidicts_mining.mine_hoshidicts_note(make_payload())
 
-    note = next(kwargs["note"] for action, kwargs in fake_anki.calls if action == "addNote")
+    note = fake_anki.note_for()
     assert list(note["fields"]) == fields
     assert note["fields"]["Front"] == "prefix 食べる / たべる"
     assert note["fields"]["Reading"] == ""
@@ -1181,50 +896,21 @@ def test_mining_renders_target_templates_literals_and_all_blank_fields(monkeypat
 
 
 def test_mining_renders_common_raw_yomitan_field_markers(monkeypatch):
-    fields = [
-        "Front",
-        "Reading",
-        "Definition",
-        "Sentence",
-        "Frequency",
-        "PitchPosition",
-        "PitchGraph",
-    ]
-    fake_anki = FakeAnki(fields=fields)
-    profile = _profile(
-        fieldTemplates={
-            "Front": {"value": "{expression}", "overwriteMode": "coalesce"},
-            "Reading": {
-                "value": "{furigana-plain}",
-                "overwriteMode": "coalesce",
-            },
-            "Definition": {
-                "value": "{jpmn-primary-definition}",
-                "overwriteMode": "coalesce",
-            },
-            "Sentence": {
-                "value": "{cloze-prefix}<b>{cloze-body}</b>{cloze-suffix}",
-                "overwriteMode": "coalesce",
-            },
-            "Frequency": {
-                "value": "{single-frequency-number-Frequency}",
-                "overwriteMode": "coalesce",
-            },
-            "PitchPosition": {
-                "value": "{pitch-accent-positions}",
-                "overwriteMode": "coalesce",
-            },
-            "PitchGraph": {
-                "value": "{pitch-accent-graphs}",
-                "overwriteMode": "coalesce",
-            },
-        }
-    )
-    _wire(monkeypatch, fake_anki, profile)
+    templates = {
+        "Front": "{expression}",
+        "Reading": "{furigana-plain}",
+        "Definition": "{jpmn-primary-definition}",
+        "Sentence": "{cloze-prefix}<b>{cloze-body}</b>{cloze-suffix}",
+        "Frequency": "{single-frequency-number-Frequency}",
+        "PitchPosition": "{pitch-accent-positions}",
+        "PitchGraph": "{pitch-accent-graphs}",
+    }
+    fake_anki = FakeAnki(fields=list(templates))
+    wire(monkeypatch, fake_anki, make_mining_profile(fieldTemplates=make_field_templates(templates)))
 
-    hoshidicts_mining.mine_hoshidicts_note(_payload())
+    hoshidicts_mining.mine_hoshidicts_note(make_payload())
 
-    note = next(kwargs["note"] for action, kwargs in fake_anki.calls if action == "addNote")
+    note = fake_anki.note_for()
     assert note["fields"]["Front"] == "食べる"
     assert note["fields"]["Reading"] == "食[た]べる"
     assert "to eat" in note["fields"]["Definition"]
@@ -1234,67 +920,100 @@ def test_mining_renders_common_raw_yomitan_field_markers(monkeypatch):
     assert "LHL" in note["fields"]["PitchGraph"]
 
 
-def test_expression_furigana_uses_segmented_anki_syntax_and_ruby():
-    payload = _payload()
-    payload["result"]["term"]["expression"] = "頭を抱える"
-    payload["result"]["term"]["reading"] = "あたまをかかえる"
-    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+def test_kiku_yomitan_sort_and_pitch_markers_render_matching_values():
+    payload = make_payload(documentTitle="Kiku source title", popupSelectionText="食べた")
+    payload["result"]["term"]["frequencies"] = [
+        {
+            "dictionary": "Rank A",
+            "frequencyMode": "rank-based",
+            "frequencies": [{"value": 100, "displayValue": "100 rank"}],
+        },
+        {
+            "dictionary": "Rank B",
+            "frequencyMode": "rank-based",
+            "frequencies": [{"value": 400, "displayValue": None}],
+        },
+        {
+            "dictionary": "Occurrence",
+            "frequencyMode": "occurrence-based",
+            "frequencies": [{"value": 50_000, "displayValue": None}],
+        },
+    ]
 
-    values = hoshidicts_mining._field_template_values(request)
+    values = hoshidicts_mining._field_template_values(_validated(payload))
 
-    assert values["{furigana-plain}"] == "頭[あたま]を 抱[かか]える"
-    assert values["{furigana}"] == ("<ruby>頭<rt>あたま</rt></ruby>を<ruby>抱<rt>かか</rt></ruby>える")
+    assert values["{popup-selection-text}"] == "食べた"
+    assert values["{document-title}"] == "Kiku source title"
+    assert values["{cloze-prefix}"] == "昨日、"
+    assert values["{cloze-body}"] == "食べた"
+    assert values["{cloze-suffix}"] == "。"
+    assert values["{pitch-accent-positions}"] == "2"
+    assert values["{pitch-accent-categories}"] == "kifuku"
+    assert values["{frequency-harmonic-rank}"] == "160"
 
 
-def test_expression_furigana_skips_equivalent_hiragana_and_katakana():
-    payload = _payload()
-    payload["result"]["term"]["expression"] = "ワガハイ"
-    payload["result"]["term"]["reading"] = "わがはい"
-    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+@pytest.mark.parametrize(
+    ("rules", "reading", "position", "expected"),
+    [
+        ("", "たべる", 0, "heiban"),
+        ("", "たべる", 1, "atamadaka"),
+        ("", "たべる", 2, "nakadaka"),
+        ("", "たべる", 3, "odaka"),
+        ("v1", "たべる", 2, "kifuku"),
+        ("vs n", "きょう", 2, "odaka"),
+    ],
+)
+def test_kiku_pitch_categories_match_yomitan(rules, reading, position, expected):
+    payload = make_term_payload(rules=rules, reading=reading)
+    payload["result"]["term"]["pitches"][0]["pitches"][0]["position"] = position
 
-    values = hoshidicts_mining._field_template_values(request)
+    values = hoshidicts_mining._field_template_values(_validated(payload))
 
-    assert values["{furigana-plain}"] == "ワガハイ"
-    assert values["{furigana}"] == "ワガハイ"
+    assert values["{pitch-accent-categories}"] == expected
+
+
+@pytest.mark.parametrize(
+    ("expression", "reading", "plain", "ruby"),
+    [
+        (
+            "頭を抱える",
+            "あたまをかかえる",
+            "頭[あたま]を 抱[かか]える",
+            "<ruby>頭<rt>あたま</rt></ruby>を<ruby>抱<rt>かか</rt></ruby>える",
+        ),
+        ("ワガハイ", "わがはい", "ワガハイ", "ワガハイ"),
+    ],
+)
+def test_expression_furigana_uses_segmented_anki_syntax_and_ruby(expression, reading, plain, ruby):
+    payload = make_term_payload(expression=expression, reading=reading)
+
+    values = hoshidicts_mining._field_template_values(_validated(payload))
+
+    assert values["{furigana-plain}"] == plain
+    assert values["{furigana}"] == ruby
 
 
 def test_expression_ruby_furigana_preserves_intentional_source_space(monkeypatch):
-    payload = _payload()
-    payload["result"]["term"]["expression"] = "foo 食べる"
-    payload["result"]["term"]["reading"] = "foo たべる"
-    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+    payload = make_term_payload(expression="foo 食べる", reading="foo たべる")
     monkeypatch.setattr(
         hoshidicts_mining,
         "_expression_furigana_plain",
         lambda _expression, _reading: "foo 食[た]べる",
     )
 
-    values = hoshidicts_mining._field_template_values(request)
+    values = hoshidicts_mining._field_template_values(_validated(payload))
 
     assert values["{furigana}"] == "foo <ruby>食<rt>た</rt></ruby>べる"
     assert values["{furigana-plain}"] == "foo 食[た]べる"
     assert (
-        hoshidicts_mining._render_anki_furigana(
-            "foo 食[た]べる",
-            ruby=True,
-            source="alignment fails",
-        )
+        hoshidicts_mining._render_anki_furigana("foo 食[た]べる", ruby=True, source="alignment fails")
         == "foo <ruby>食<rt>た</rt></ruby>べる"
     )
 
 
-def test_sentence_ruby_furigana_preserves_space_before_highlight(monkeypatch):
-    request = hoshidicts_mining.validate_hoshidicts_mining_request(
-        {
-            **_payload(),
-            "sentence": "foo 食べる",
-            "matchOffset": 4,
-            "result": {
-                **_payload()["result"],
-                "matched": "食べる",
-            },
-        }
-    )
+def test_sentence_ruby_furigana_preserves_space_before_highlight():
+    payload = make_payload(sentence="foo 食べる", matchOffset=4)
+    payload["result"]["matched"] = "食べる"
     fake_anki = SimpleNamespace(
         tokenizer=SimpleNamespace(reading=lambda _sentence: "foo  食[た]べる"),
         _preserve_html_tags_for_furigana=lambda source, _reading: source.replace(
@@ -1303,37 +1022,28 @@ def test_sentence_ruby_furigana_preserves_space_before_highlight(monkeypatch):
         ),
     )
 
-    rich, plain = hoshidicts_mining._sentence_furigana_values(request, fake_anki, {})
+    rich, plain = hoshidicts_mining._sentence_furigana_values(_validated(payload), fake_anki, {})
 
     assert rich == "foo <b><ruby>食<rt>た</rt></ruby>べる</b>"
     assert plain == "foo <b> 食[た]べる</b>"
 
 
 def test_field_template_unknown_brace_literals_are_not_treated_as_markers():
-    request = hoshidicts_mining.validate_hoshidicts_mining_request(_payload())
     values = hoshidicts_mining._field_template_values(
-        request,
+        _validated(make_payload()),
         audio_value="[sound:test.mp3]",
     )
     unknown_literals = "{audiobook}|{expressionless}|{spreadsheet-reading-list}"
 
-    rendered = hoshidicts_mining._render_field_template(
-        f"{unknown_literals}|{{audio}}|{{expression}}",
-        values,
-    )
+    rendered = hoshidicts_markers.render_template(f"{unknown_literals}|{{audio}}|{{expression}}", values)
 
     assert rendered == f"{unknown_literals}|[sound:test.mp3]|食べる"
-    assert hoshidicts_mining._template_uses_audio(unknown_literals) is False
-    assert hoshidicts_mining._semantic_field_targets(
-        {
-            "Literal": {
-                "value": unknown_literals,
-                "overwriteMode": "coalesce",
-            }
-        }
-    ) == {key: "" for key in hoshidicts_mining.FIELD_KEYS}
+    assert hoshidicts_markers.template_uses_audio(unknown_literals) is False
+    assert hoshidicts_markers.semantic_field_targets(make_field_templates({"Literal": unknown_literals})) == {
+        key: "" for key in hoshidicts_markers.FIELD_KEYS
+    }
 
-    unsupported = hoshidicts_mining._render_field_template(
+    unsupported = hoshidicts_markers.render_template(
         "{url}<br>{document-title}<br>{clipboard-text}<br>{screenshot}<br>{audiobook}",
         values,
     )
@@ -1343,9 +1053,8 @@ def test_field_template_unknown_brace_literals_are_not_treated_as_markers():
 def test_jitendex_structured_glossary_preserves_semantic_html_without_styles():
     payload = _rich_jitendex_payload()
     payload.pop("dictionaryStyles")
-    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
 
-    rendered = hoshidicts_mining._definition_html(request)
+    rendered = note_module.definition_html(_validated(payload))
 
     assert rendered.startswith('<div style="text-align: left;" class="yomitan-glossary"><ol>')
     assert rendered.count('<li data-dictionary="') == 2
@@ -1381,7 +1090,7 @@ def test_jitendex_structured_glossary_preserves_semantic_html_without_styles():
 
 
 def test_structured_glossary_outer_list_wraps_each_structured_item_and_preserves_mixed_entries():
-    payload = _payload()
+    payload = make_payload()
     payload["result"]["term"]["glossaries"][0]["glossary"] = json.dumps(
         [
             "plain <one>\nsecond line",
@@ -1397,8 +1106,7 @@ def test_structured_glossary_outer_list_wraps_each_structured_item_and_preserves
         ]
     )
 
-    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
-    rendered = hoshidicts_mining._definition_html(request)
+    rendered = note_module.definition_html(_validated(payload))
 
     assert rendered.count('<span class="structured-content">') == 2
     expected_segments = [
@@ -1412,9 +1120,9 @@ def test_structured_glossary_outer_list_wraps_each_structured_item_and_preserves
 
 
 def test_dictionary_styles_accept_list_or_object_and_scope_selected_pages():
-    request = hoshidicts_mining.validate_hoshidicts_mining_request(_rich_jitendex_payload())
+    request = _validated(_rich_jitendex_payload())
 
-    rendered = hoshidicts_mining._definition_html(request)
+    rendered = note_module.definition_html(request)
 
     assert request["dictionaryStyles"] == {
         "Jitendex": '[data-sc-content|="example-sentence"] { color: #c44; }',
@@ -1430,11 +1138,11 @@ def test_dictionary_styles_accept_list_or_object_and_scope_selected_pages():
     object_payload["dictionaryStyles"] = {
         "Jitendex": ("@media (min-width: 10px) {.sense, [data-sc-content=glossary] { color: red; }}"),
     }
-    object_request = hoshidicts_mining.validate_hoshidicts_mining_request(object_payload)
+    object_request = _validated(object_payload)
     assert object_request["dictionaryStyles"] == {
         "Jitendex": ("@media (min-width: 10px) {.sense, [data-sc-content=glossary] { color: red; }}"),
     }
-    object_rendered = hoshidicts_mining._definition_html(object_request)
+    object_rendered = note_module.definition_html(object_request)
     assert "@media (min-width: 10px)" in object_rendered
     assert '.yomitan-glossary [data-dictionary="Jitendex"] .sense' in object_rendered
     assert ('.yomitan-glossary [data-dictionary="Jitendex"] [data-sc-content=glossary]') in object_rendered
@@ -1443,9 +1151,8 @@ def test_dictionary_styles_accept_list_or_object_and_scope_selected_pages():
 def test_static_yomitan_glossary_variants_preserve_their_exact_semantics():
     payload = _rich_jitendex_payload()
     payload["result"]["term"]["glossaries"][-1]["glossary"] = "I; me\nself <unsafe>"
-    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
 
-    values = hoshidicts_mining._field_template_values(request)
+    values = hoshidicts_mining._field_template_values(_validated(payload))
 
     full = values["{glossary}"]
     assert full == values["{definition}"]
@@ -1500,14 +1207,17 @@ def test_static_yomitan_glossary_variants_preserve_their_exact_semantics():
     assert '<li data-dictionary="JMdict">' not in first_no_dictionary
 
 
-def test_yomitan_dictionary_kebab_case_matches_unicode_rules():
-    assert (
-        hoshidicts_mining._yomitan_kebab_case("  Character_Dictionary　東京!! 2026  ")
-        == "character-dictionary-東京-2026"
-    )
-    assert hoshidicts_mining._yomitan_kebab_case("École__猫 $$$") == "école-猫"
-    assert hoshidicts_mining._yomitan_kebab_case("A—B---C") == "ab-c"
-    assert hoshidicts_mining._yomitan_kebab_case("İ") == "i\u0307"
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("  Character_Dictionary　東京!! 2026  ", "character-dictionary-東京-2026"),
+        ("École__猫 $$$", "école-猫"),
+        ("A—B---C", "ab-c"),
+        ("İ", "i̇"),
+    ],
+)
+def test_yomitan_dictionary_kebab_case_matches_unicode_rules(value, expected):
+    assert hoshidicts_mining._yomitan_kebab_case(value) == expected
 
 
 def test_dynamic_single_glossary_markers_render_only_used_dictionary_variants():
@@ -1516,7 +1226,6 @@ def test_dynamic_single_glossary_markers_render_only_used_dictionary_variants():
     for glossary in payload["result"]["term"]["glossaries"][:2]:
         glossary["dictionary"] = dictionary
     payload["dictionaryStyles"][0]["dictionary"] = dictionary
-    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
     base = "single-glossary-character-dictionary-東京-2026"
     used_markers = [
         base,
@@ -1526,13 +1235,8 @@ def test_dynamic_single_glossary_markers_render_only_used_dictionary_variants():
         f"{base}-plain-no-dictionary",
         "single-glossary-removed-dictionary",
     ]
-    templates = {marker: {"value": f"{{{marker}}}", "overwriteMode": "coalesce"} for marker in used_markers}
 
-    values = hoshidicts_mining._template_values_for_fields(
-        request,
-        {"anki": SimpleNamespace()},
-        templates,
-    )
+    values = _marker_values(payload, used_markers)
 
     dynamic_values = {key: value for key, value in values.items() if key.startswith("{single-glossary-")}
     assert set(dynamic_values) == {f"{{{marker}}}" for marker in used_markers[:-1]}
@@ -1562,17 +1266,11 @@ def test_dynamic_single_glossary_markers_render_only_used_dictionary_variants():
     assert "JMdict" not in plain_no_dictionary
     assert set(re.findall(r"<[^>]+>", plain_no_dictionary)) == {"<br>"}
 
-    assert (
-        hoshidicts_mining._render_field_template(
-            "{single-glossary-removed-dictionary}",
-            values,
-        )
-        == ""
-    )
+    assert hoshidicts_markers.render_template("{single-glossary-removed-dictionary}", values) == ""
 
 
 def test_dynamic_single_glossary_exact_dictionary_name_wins_suffix_ambiguity():
-    payload = _payload()
+    payload = make_payload()
     payload["result"]["term"]["glossaries"] = [
         {
             "dictionary": "Foo",
@@ -1587,21 +1285,9 @@ def test_dynamic_single_glossary_exact_dictionary_name_wins_suffix_ambiguity():
             "termTags": "",
         },
     ]
-    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
     marker = "single-glossary-foo-brief"
-    templates = {
-        "Definition": {
-            "value": f"{{{marker}}}",
-            "overwriteMode": "coalesce",
-        }
-    }
 
-    values = hoshidicts_mining._template_values_for_fields(
-        request,
-        {"anki": SimpleNamespace()},
-        templates,
-    )
-    rendered = values[f"{{{marker}}}"]
+    rendered = _marker_values(payload, [marker])[f"{{{marker}}}"]
 
     assert 'data-dictionary="Foo Brief"' in rendered
     assert 'data-dictionary="Foo"' not in rendered
@@ -1610,13 +1296,9 @@ def test_dynamic_single_glossary_exact_dictionary_name_wins_suffix_ambiguity():
 
 
 def test_dynamic_single_frequency_markers_use_canonical_slug_alias_and_exact_display_html():
-    payload = _payload()
-    payload["dictionaryAliases"] = [
-        {
-            "dictionary": "Corpus Rank 2026!",
-            "alias": "Corpus <Rank>",
-        }
-    ]
+    payload = make_payload(
+        dictionaryAliases=[{"dictionary": "Corpus Rank 2026!", "alias": "Corpus <Rank>"}],
+    )
     payload["result"]["term"]["frequencies"] = [
         {
             "dictionary": "Corpus Rank 2026!",
@@ -1631,25 +1313,14 @@ def test_dynamic_single_frequency_markers_use_canonical_slug_alias_and_exact_dis
             "frequencies": [{"value": 7, "displayValue": "other value"}],
         },
     ]
-    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
     display_marker = "single-frequency-corpus-rank-2026"
     number_marker = "single-frequency-number-corpus-rank-2026"
     alias_slug_marker = "single-frequency-corpus-rank"
     missing_marker = "single-frequency-removed-dictionary"
-    templates = {
-        marker: {"value": f"{{{marker}}}", "overwriteMode": "coalesce"}
-        for marker in (
-            display_marker,
-            number_marker,
-            alias_slug_marker,
-            missing_marker,
-        )
-    }
 
-    values = hoshidicts_mining._template_values_for_fields(
-        request,
-        {"anki": SimpleNamespace()},
-        templates,
+    values = _marker_values(
+        payload,
+        [display_marker, number_marker, alias_slug_marker, missing_marker],
     )
 
     assert values[f"{{{display_marker}}}"] == (
@@ -1658,8 +1329,8 @@ def test_dynamic_single_frequency_markers_use_canonical_slug_alias_and_exact_dis
     assert values[f"{{{number_marker}}}"] == "1"
     assert f"{{{alias_slug_marker}}}" not in values
     assert f"{{{missing_marker}}}" not in values
-    assert hoshidicts_mining._render_field_template(f"{{{alias_slug_marker}}}", values) == ""
-    assert hoshidicts_mining._render_field_template(f"{{{missing_marker}}}", values) == ""
+    assert hoshidicts_markers.render_template(f"{{{alias_slug_marker}}}", values) == ""
+    assert hoshidicts_markers.render_template(f"{{{missing_marker}}}", values) == ""
 
 
 @pytest.mark.parametrize(
@@ -1687,30 +1358,14 @@ def test_dynamic_single_frequency_number_matches_yomitan_first_value_semantics(
     frequency_mode,
     expected,
 ):
-    payload = _payload()
-    group = {
-        "dictionary": "Frequency",
-        "frequencies": frequencies,
-    }
+    payload = make_payload()
+    group = {"dictionary": "Frequency", "frequencies": frequencies}
     if frequency_mode is not None:
         group["frequencyMode"] = frequency_mode
     payload["result"]["term"]["frequencies"] = [group]
-    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
     marker = "single-frequency-number-frequency"
-    templates = {
-        "Frequency": {
-            "value": f"{{{marker}}}",
-            "overwriteMode": "coalesce",
-        }
-    }
 
-    values = hoshidicts_mining._template_values_for_fields(
-        request,
-        {"anki": SimpleNamespace()},
-        templates,
-    )
-
-    assert values[f"{{{marker}}}"] == expected
+    assert _marker_values(payload, [marker])[f"{{{marker}}}"] == expected
 
 
 @pytest.mark.parametrize(
@@ -1737,61 +1392,32 @@ def test_dynamic_single_frequency_marker_collisions_follow_yomitan_last_definiti
             "frequencies": [{"value": 13, "displayValue": "13 rank"}],
         },
     }
-    payload = _payload()
+    payload = make_payload()
     payload["result"]["term"]["frequencies"] = [groups[dictionary] for dictionary in dictionary_order]
-    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
     marker = "single-frequency-number-foo"
-    templates = {
-        "Frequency": {
-            "value": f"{{{marker}}}",
-            "overwriteMode": "coalesce",
-        }
-    }
 
-    values = hoshidicts_mining._template_values_for_fields(
-        request,
-        {"anki": SimpleNamespace()},
-        templates,
-    )
-
-    assert values[f"{{{marker}}}"] == expected
+    assert _marker_values(payload, [marker])[f"{{{marker}}}"] == expected
 
 
 def test_dynamic_single_frequency_marker_collision_uses_configured_dictionary_order_when_owner_has_no_value():
-    payload = _payload()
-    payload["frequencyDictionaries"] = ["Foo", "Foo!"]
+    payload = make_payload(frequencyDictionaries=["Foo", "Foo!"])
     payload["result"]["term"]["frequencies"] = [
         {
             "dictionary": "Foo",
             "frequencies": [{"value": 7, "displayValue": "7 rank"}],
         }
     ]
-    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
     marker = "single-frequency-foo"
-    templates = {
-        "Frequency": {
-            "value": f"{{{marker}}}",
-            "overwriteMode": "coalesce",
-        }
-    }
 
-    values = hoshidicts_mining._template_values_for_fields(
-        request,
-        {"anki": SimpleNamespace()},
-        templates,
-    )
-
-    assert values[f"{{{marker}}}"] == ""
+    assert _marker_values(payload, [marker])[f"{{{marker}}}"] == ""
 
 
 def test_dictionary_style_grouping_nesting_is_bounded_without_unscoped_fallback():
-    payload = _payload()
-    payload["dictionaryStyles"] = {
-        "JMdict": ("@media all{" * 1100) + ".sense{color:red}" + ("}" * 1100),
-    }
-    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+    payload = make_payload(
+        dictionaryStyles={"JMdict": ("@media all{" * 1100) + ".sense{color:red}" + ("}" * 1100)},
+    )
 
-    rendered = hoshidicts_mining._definition_html(request)
+    rendered = note_module.definition_html(_validated(payload))
 
     assert rendered.count("@media all") < 100
     assert ".sense{color:red}" not in rendered
@@ -1799,13 +1425,13 @@ def test_dictionary_style_grouping_nesting_is_bounded_without_unscoped_fallback(
 
 
 def test_dictionary_style_scoping_handles_comments_before_at_rules_and_selector_commas():
-    payload = _payload()
-    payload["dictionaryStyles"] = {
-        "JMdict": ("/* header */ @media all { span { color: red; } }/* a,b */ span, em { font-weight: bold; }"),
-    }
-    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+    payload = make_payload(
+        dictionaryStyles={
+            "JMdict": ("/* header */ @media all { span { color: red; } }/* a,b */ span, em { font-weight: bold; }"),
+        },
+    )
 
-    rendered = hoshidicts_mining._definition_html(request)
+    rendered = note_module.definition_html(_validated(payload))
     scope = '.yomitan-glossary [data-dictionary="JMdict"]'
 
     assert f"/* header */ @media all {{ {scope} span" in rendered
@@ -1815,52 +1441,33 @@ def test_dictionary_style_scoping_handles_comments_before_at_rules_and_selector_
 
 
 def test_dictionary_styles_enforce_count_and_utf8_byte_limits():
-    payload = _payload()
-    payload["dictionaryStyles"] = {
-        "JMdict": "x" * hoshidicts_mining.MAX_DICTIONARY_STYLE_BYTES,
-    }
-    request = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
-    assert len(request["dictionaryStyles"]["JMdict"]) == hoshidicts_mining.MAX_DICTIONARY_STYLE_BYTES
+    payload = make_payload(dictionaryStyles={"JMdict": "x" * note_module.MAX_DICTIONARY_STYLE_BYTES})
+    assert len(_validated(payload)["dictionaryStyles"]["JMdict"]) == note_module.MAX_DICTIONARY_STYLE_BYTES
 
-    payload["dictionaryStyles"] = {
-        "JMdict": "界" * ((hoshidicts_mining.MAX_DICTIONARY_STYLE_BYTES // 3) + 1),
-    }
+    payload["dictionaryStyles"] = {"JMdict": "界" * ((note_module.MAX_DICTIONARY_STYLE_BYTES // 3) + 1)}
     with pytest.raises(
         hoshidicts_mining.HoshidictsMiningError,
         match="dictionary styles are invalid",
     ):
-        hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+        _validated(payload)
 
-    payload["dictionaryStyles"] = {
-        f"Dictionary {index}": "" for index in range(hoshidicts_mining.MAX_DICTIONARY_STYLES + 1)
-    }
+    payload["dictionaryStyles"] = {f"Dictionary {index}": "" for index in range(note_module.MAX_DICTIONARY_STYLES + 1)}
     with pytest.raises(
         hoshidicts_mining.HoshidictsMiningError,
         match="dictionary styles are invalid",
     ):
-        hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+        _validated(payload)
 
 
 def test_duplicate_check_endpoint_preserves_dictionary_styles_in_rendered_note(monkeypatch):
-    class CheckAnki(FakeAnki):
-        def invoke(self, action, **kwargs):
-            if action == "canAddNotesWithErrorDetail":
-                self.calls.append((action, kwargs))
-                return [{"canAdd": True, "error": None}]
-            return super().invoke(action, **kwargs)
-
-    fake_anki = CheckAnki(fields=["Definition"])
-    _wire(
+    fake_anki = FakeAnki(
+        fields=["Definition"],
+        responses={"canAddNotesWithErrorDetail": [{"canAdd": True, "error": None}]},
+    )
+    wire(
         monkeypatch,
         fake_anki,
-        _profile(
-            fieldTemplates={
-                "Definition": {
-                    "value": "{definition}",
-                    "overwriteMode": "coalesce",
-                }
-            }
-        ),
+        make_mining_profile(fieldTemplates=make_field_templates({"Definition": "{definition}"})),
     )
     app = Flask(__name__)
     hoshidicts_api.register_hoshidicts_api_routes(app)
@@ -1872,10 +1479,7 @@ def test_duplicate_check_endpoint_preserves_dictionary_styles_in_rendered_note(m
 
     assert response.status_code == 200
     assert response.get_json()["success"] is True
-    check_note = next(
-        kwargs["notes"][0] for action, kwargs in fake_anki.calls if action == "canAddNotesWithErrorDetail"
-    )
-    definition = check_note["fields"]["Definition"]
+    definition = fake_anki.kwargs_for("canAddNotesWithErrorDetail")["notes"][0]["fields"]["Definition"]
     assert '<style>.yomitan-glossary [data-dictionary="Jitendex"]' in definition
     assert '.yomitan-glossary [data-dictionary="JMdict"] .gloss-sc-li' in definition
     assert "Not selected" not in definition
@@ -1883,26 +1487,17 @@ def test_duplicate_check_endpoint_preserves_dictionary_styles_in_rendered_note(m
 
 def test_duplicate_check_endpoint_marks_a_rendered_blank_first_field_as_note_specific(monkeypatch):
     fake_anki = FakeAnki(fields=["Reading"])
-    _wire(
+    wire(
         monkeypatch,
         fake_anki,
-        _profile(
-            fieldTemplates={
-                "Reading": {
-                    "value": "{reading}",
-                    "overwriteMode": "coalesce",
-                }
-            }
-        ),
+        make_mining_profile(fieldTemplates=make_field_templates({"Reading": "{reading}"})),
     )
-    payload = _payload()
-    payload["result"]["term"]["reading"] = ""
     app = Flask(__name__)
     hoshidicts_api.register_hoshidicts_api_routes(app)
 
     response = app.test_client().post(
         "/api/hoshidicts/mining/check",
-        json={"notes": [payload]},
+        json={"notes": [make_term_payload(reading="")]},
     )
 
     assert response.status_code == 422
@@ -1910,22 +1505,22 @@ def test_duplicate_check_endpoint_marks_a_rendered_blank_first_field_as_note_spe
         "success": False,
         "error": 'The first Anki field "Reading" is empty. Map it to a value before mining.',
     }
-    assert not any(action.startswith("canAddNotes") for action, _kwargs in fake_anki.calls)
+    assert not any(action.startswith("canAddNotes") for action in fake_anki.actions())
 
 
 def test_rich_definition_markers_render_primary_full_dictionary_and_furigana(monkeypatch):
-    fields = [
-        "Expression",
-        "ExpressionFurigana",
-        "ExpressionRuby",
-        "SentenceFurigana",
-        "SentenceRuby",
-        "MainDefinition",
-        "Glossary",
-        "Definition",
-        "Dictionary",
-    ]
-    fake_anki = FakeAnki(fields=fields)
+    templates = {
+        "Expression": "{expression}",
+        "ExpressionFurigana": "{furigana-plain}",
+        "ExpressionRuby": "{furigana}",
+        "SentenceFurigana": "{sentence-furigana-plain}",
+        "SentenceRuby": "{sentence-furigana}",
+        "MainDefinition": "{main-definition}",
+        "Glossary": "{glossary}",
+        "Definition": "{definition}",
+        "Dictionary": "{dictionary}",
+    }
+    fake_anki = FakeAnki(fields=list(templates))
     reading_calls = []
 
     def reading(sentence):
@@ -1939,36 +1534,11 @@ def test_rich_definition_markers_render_primary_full_dictionary_and_furigana(mon
 
     fake_anki.tokenizer = SimpleNamespace(reading=reading)
     fake_anki._preserve_html_tags_for_furigana = preserve
-    profile = _profile(
-        fieldTemplates={
-            "Expression": {"value": "{expression}", "overwriteMode": "coalesce"},
-            "ExpressionFurigana": {
-                "value": "{furigana-plain}",
-                "overwriteMode": "coalesce",
-            },
-            "ExpressionRuby": {"value": "{furigana}", "overwriteMode": "coalesce"},
-            "SentenceFurigana": {
-                "value": "{sentence-furigana-plain}",
-                "overwriteMode": "coalesce",
-            },
-            "SentenceRuby": {
-                "value": "{sentence-furigana}",
-                "overwriteMode": "coalesce",
-            },
-            "MainDefinition": {
-                "value": "{main-definition}",
-                "overwriteMode": "coalesce",
-            },
-            "Glossary": {"value": "{glossary}", "overwriteMode": "coalesce"},
-            "Definition": {"value": "{definition}", "overwriteMode": "coalesce"},
-            "Dictionary": {"value": "{dictionary}", "overwriteMode": "coalesce"},
-        }
-    )
-    _wire(monkeypatch, fake_anki, profile)
+    wire(monkeypatch, fake_anki, make_mining_profile(fieldTemplates=make_field_templates(templates)))
 
     hoshidicts_mining.mine_hoshidicts_note(_rich_jitendex_payload())
 
-    note = next(kwargs["note"] for action, kwargs in fake_anki.calls if action == "addNote")
+    note = fake_anki.note_for()
     assert reading_calls == ["昨日、食べた。"]
     assert note["fields"]["ExpressionFurigana"] == "食[た]べる"
     assert note["fields"]["ExpressionRuby"] == "<ruby>食<rt>た</rt></ruby>べる"
@@ -1985,44 +1555,30 @@ def test_rich_definition_markers_render_primary_full_dictionary_and_furigana(mon
 
 
 def test_kiku_yomitan_parity_check_and_mine_preserve_rich_multi_dictionary_note(monkeypatch):
-    class ParityAnki(FakeAnki):
-        def invoke(self, action, **kwargs):
-            if action == "canAddNotesWithErrorDetail":
-                self.calls.append((action, kwargs))
-                return [{"canAdd": True, "error": None}]
-            return super().invoke(action, **kwargs)
-
-    fields = ["Glossary", "MainDefinition", "Expression", "YomitanContext"]
-    fake_anki = ParityAnki(fields=fields)
-    profile = _profile(
-        fieldTemplates={
-            "Glossary": {"value": "{glossary}", "overwriteMode": "overwrite"},
-            "MainDefinition": {
-                "value": "{main-definition}",
-                "overwriteMode": "overwrite",
-            },
-            "Expression": {"value": "{expression}", "overwriteMode": "overwrite"},
-            "YomitanContext": {
-                "value": (
-                    "{dictionary}|{dictionary-alias}|{conjugation}|{part-of-speech}|"
-                    "{phonetic-transcriptions}|{tags}|{popup-selection-text}|"
-                    "{document-title}|{search-query}"
-                ),
-                "overwriteMode": "overwrite",
-            },
-        }
+    templates = {
+        "Glossary": ("{glossary}", "overwrite"),
+        "MainDefinition": ("{main-definition}", "overwrite"),
+        "Expression": ("{expression}", "overwrite"),
+        "YomitanContext": (
+            "{dictionary}|{dictionary-alias}|{conjugation}|{part-of-speech}|"
+            "{phonetic-transcriptions}|{tags}|{popup-selection-text}|"
+            "{document-title}|{search-query}",
+            "overwrite",
+        ),
+    }
+    fake_anki = FakeAnki(
+        fields=list(templates),
+        responses={"canAddNotesWithErrorDetail": [{"canAdd": True, "error": None}]},
     )
-    _wire(monkeypatch, fake_anki, profile)
+    wire(monkeypatch, fake_anki, make_mining_profile(fieldTemplates=make_field_templates(templates)))
     payload = _kiku_yomitan_parity_payload()
 
     check = hoshidicts_mining.check_hoshidicts_notes({"notes": [payload]})
     result = hoshidicts_mining.mine_hoshidicts_note(payload)
 
     assert check["results"] == [{"state": "addable", "canAdd": True, "duplicate": False}]
-    checked_note = next(
-        kwargs["notes"][0] for action, kwargs in fake_anki.calls if action == "canAddNotesWithErrorDetail"
-    )
-    added_note = next(kwargs["note"] for action, kwargs in fake_anki.calls if action == "addNote")
+    checked_note = fake_anki.kwargs_for("canAddNotesWithErrorDetail")["notes"][0]
+    added_note = fake_anki.note_for()
     assert checked_note["fields"]["Glossary"] == added_note["fields"]["Glossary"]
     glossary = added_note["fields"]["Glossary"]
     main = added_note["fields"]["MainDefinition"]
@@ -2038,15 +1594,42 @@ def test_kiku_yomitan_parity_check_and_mine_preserve_rich_multi_dictionary_note(
     assert 'data-pronunciation-type="phonetic-transcription">bɯtɕikamasɯ' in context
     assert 'data-details="colloquial"' in context
     assert "ぶちかまして|GSM Kiku parity|ぶちかましてやれ" in context
-    media_call = next(kwargs for action, kwargs in fake_anki.calls if action == "storeMediaFile")
+    media_call = fake_anki.kwargs_for("storeMediaFile")
     assert media_call["filename"] == ("yomitan_dictionary_media_37d6f763c8ebb201e600de788daaa4cfe00ba13c.jpeg")
     assert media_call["data"] == "/9j/4AA="
     assert result["noteId"] == 42
 
 
+@pytest.mark.parametrize(
+    ("stored_filename", "message"),
+    [
+        pytest.param("", "did not return a stored dictionary media filename", id="blank-filename"),
+        pytest.param(
+            RuntimeError("media collection is locked"),
+            "Could not store Hoshidicts dictionary media",
+            id="storage-error",
+        ),
+    ],
+)
+def test_mining_reports_dictionary_media_storage_failures(monkeypatch, stored_filename, message):
+    templates = {"Glossary": "{glossary}", "Expression": "{expression}"}
+    fake_anki = FakeAnki(fields=list(templates), responses={"storeMediaFile": stored_filename})
+    wire(monkeypatch, fake_anki, make_mining_profile(fieldTemplates=make_field_templates(templates)))
+
+    with pytest.raises(hoshidicts_mining.HoshidictsMiningError, match=message) as error:
+        hoshidicts_mining.mine_hoshidicts_note(_kiku_yomitan_parity_payload())
+
+    assert error.value.status_code == 502
+    assert "addNote" not in fake_anki.actions()
+
+
 def test_sentence_furigana_falls_back_to_safe_highlighted_sentence(monkeypatch):
-    fields = ["Expression", "SentenceFurigana", "SentenceRuby"]
-    fake_anki = FakeAnki(fields=fields)
+    templates = {
+        "Expression": "{expression}",
+        "SentenceFurigana": "{sentence-furigana-plain}",
+        "SentenceRuby": "{sentence-furigana}",
+    }
+    fake_anki = FakeAnki(fields=list(templates))
 
     def fail_reading(_sentence):
         raise RuntimeError("tokenizer unavailable")
@@ -2055,37 +1638,23 @@ def test_sentence_furigana_falls_back_to_safe_highlighted_sentence(monkeypatch):
     fake_anki._preserve_html_tags_for_furigana = lambda *_args: pytest.fail(
         "preservation should not run after tokenization fails"
     )
-    profile = _profile(
-        fieldTemplates={
-            "Expression": {"value": "{expression}", "overwriteMode": "coalesce"},
-            "SentenceFurigana": {
-                "value": "{sentence-furigana-plain}",
-                "overwriteMode": "coalesce",
-            },
-            "SentenceRuby": {
-                "value": "{sentence-furigana}",
-                "overwriteMode": "coalesce",
-            },
-        }
-    )
-    _wire(monkeypatch, fake_anki, profile)
+    wire(monkeypatch, fake_anki, make_mining_profile(fieldTemplates=make_field_templates(templates)))
 
-    hoshidicts_mining.mine_hoshidicts_note(_payload())
+    hoshidicts_mining.mine_hoshidicts_note(make_payload())
 
-    note = next(kwargs["note"] for action, kwargs in fake_anki.calls if action == "addNote")
+    note = fake_anki.note_for()
     assert note["fields"]["SentenceFurigana"] == "昨日、<b>食べた</b>。"
     assert note["fields"]["SentenceRuby"] == "昨日、<b>食べた</b>。"
 
 
 def test_duplicate_check_batch_caches_sentence_tokenization(monkeypatch):
-    class CheckAnki(FakeAnki):
-        def invoke(self, action, **kwargs):
-            if action == "canAddNotesWithErrorDetail":
-                self.calls.append((action, kwargs))
-                return [{"canAdd": True, "error": None} for _note in kwargs["notes"]]
-            return super().invoke(action, **kwargs)
-
-    fake_anki = CheckAnki(fields=["Expression", "SentenceFurigana"])
+    templates = {"Expression": "{expression}", "SentenceFurigana": "{sentence-furigana-plain}"}
+    fake_anki = FakeAnki(
+        fields=list(templates),
+        responses={
+            "canAddNotesWithErrorDetail": lambda notes, **_kwargs: [{"canAdd": True, "error": None} for _note in notes]
+        },
+    )
     reading_calls = []
 
     def reading(sentence):
@@ -2094,18 +1663,9 @@ def test_duplicate_check_batch_caches_sentence_tokenization(monkeypatch):
 
     fake_anki.tokenizer = SimpleNamespace(reading=reading)
     fake_anki._preserve_html_tags_for_furigana = lambda source, _reading: source
-    profile = _profile(
-        fieldTemplates={
-            "Expression": {"value": "{expression}", "overwriteMode": "coalesce"},
-            "SentenceFurigana": {
-                "value": "{sentence-furigana-plain}",
-                "overwriteMode": "coalesce",
-            },
-        }
-    )
-    _wire(monkeypatch, fake_anki, profile)
+    wire(monkeypatch, fake_anki, make_mining_profile(fieldTemplates=make_field_templates(templates)))
 
-    result = hoshidicts_mining.check_hoshidicts_notes({"notes": [_payload(), _payload()]})
+    result = hoshidicts_mining.check_hoshidicts_notes({"notes": [make_payload(), make_payload()]})
 
     assert result["success"] is True
     assert reading_calls == ["昨日、食べた。"]
@@ -2113,67 +1673,50 @@ def test_duplicate_check_batch_caches_sentence_tokenization(monkeypatch):
 
 def test_mining_rejects_an_explicitly_blank_first_model_field(monkeypatch):
     fake_anki = FakeAnki(fields=["Front", "Expression"])
-    profile = _profile(
-        fieldTemplates={
-            "Front": {"value": "", "overwriteMode": "coalesce"},
-            "Expression": {
-                "value": "{expression}",
-                "overwriteMode": "coalesce",
-            },
-        }
+    wire(
+        monkeypatch,
+        fake_anki,
+        make_mining_profile(fieldTemplates=make_field_templates({"Front": "", "Expression": "{expression}"})),
     )
-    _wire(monkeypatch, fake_anki, profile)
 
     with pytest.raises(
         hoshidicts_mining.HoshidictsMiningError,
         match='first Anki field "Front" is empty',
     ):
-        hoshidicts_mining.mine_hoshidicts_note(_payload())
+        hoshidicts_mining.mine_hoshidicts_note(make_payload())
 
-    assert not any(action == "addNote" for action, _kwargs in fake_anki.calls)
+    assert "addNote" not in fake_anki.actions()
+
+
+KIKU_LAPIS_FIELDS = [
+    "Expression",
+    "ExpressionReading",
+    "Glossary",
+    "Sentence",
+    "Frequency",
+    "PitchPosition",
+]
 
 
 def test_mining_formats_kiku_lapis_pitch_position_as_numeric_positions(monkeypatch):
-    fields = [
-        "Expression",
-        "ExpressionReading",
-        "Glossary",
-        "Sentence",
-        "Frequency",
-        "PitchPosition",
-    ]
-    fake_anki = FakeAnki(fields=fields, model_names=["Kiku"])
-    profile = _profile(
-        model="Kiku",
-        fields={key: value for key, value in hoshidicts_mining.KIKU_LAPIS_FIELD_MAP.items()},
-    )
-    _wire(monkeypatch, fake_anki, profile)
+    fake_anki = FakeAnki(fields=KIKU_LAPIS_FIELDS, model_names=["Kiku"])
+    profile = make_mining_profile(model="Kiku", fields=dict(hoshidicts_mining.KIKU_LAPIS_FIELD_MAP))
+    wire(monkeypatch, fake_anki, profile)
 
-    hoshidicts_mining.mine_hoshidicts_note(_payload())
+    hoshidicts_mining.mine_hoshidicts_note(make_payload())
 
-    note = next(kwargs["note"] for action, kwargs in fake_anki.calls if action == "addNote")
+    note = fake_anki.note_for()
     assert note["fields"]["PitchPosition"] == "2"
     assert "LHL" not in note["fields"]["PitchPosition"]
 
 
 def test_mining_automatically_maps_kiku_lapis_without_saved_field_overrides(monkeypatch):
-    fields = [
-        "Expression",
-        "ExpressionReading",
-        "Glossary",
-        "Sentence",
-        "Frequency",
-        "PitchPosition",
-    ]
-    fake_anki = FakeAnki(fields=fields, model_names=["Kiku"])
-    config = _config()
-    config.anki.note_type = "Kiku"
-    _wire(monkeypatch, fake_anki)
-    monkeypatch.setattr(hoshidicts_mining, "get_config", lambda: config)
+    fake_anki = FakeAnki(fields=KIKU_LAPIS_FIELDS, model_names=["Kiku"])
+    wire(monkeypatch, fake_anki, config=make_config(note_type="Kiku"))
 
-    hoshidicts_mining.mine_hoshidicts_note(_payload())
+    hoshidicts_mining.mine_hoshidicts_note(make_payload())
 
-    note = next(kwargs["note"] for action, kwargs in fake_anki.calls if action == "addNote")
+    note = fake_anki.note_for()
     assert note["fields"]["ExpressionReading"] == "たべる"
     assert "Reading" not in note["fields"]
     assert note["fields"]["Glossary"]
@@ -2182,18 +1725,14 @@ def test_mining_automatically_maps_kiku_lapis_without_saved_field_overrides(monk
 
 def test_mining_honors_explicitly_disabled_fields(monkeypatch):
     fake_anki = FakeAnki()
-    _wire(
-        monkeypatch,
-        fake_anki,
-        _profile(disabledFields=["reading", "frequency", "pitch"]),
-    )
+    wire(monkeypatch, fake_anki, make_mining_profile(disabledFields=["reading", "frequency", "pitch"]))
 
     options = hoshidicts_mining.get_hoshidicts_mining_options()
-    result = hoshidicts_mining.mine_hoshidicts_note(_payload())
+    result = hoshidicts_mining.mine_hoshidicts_note(make_payload())
 
     assert options["suggestedFields"]["reading"] == "Reading"
     assert options["resolvedFields"]["reading"] == ""
-    note = next(kwargs["note"] for action, kwargs in fake_anki.calls if action == "addNote")
+    note = fake_anki.note_for()
     assert note["fields"]["Reading"] == ""
     assert note["fields"]["Frequency"] == ""
     assert note["fields"]["PitchAccent"] == ""
@@ -2202,19 +1741,12 @@ def test_mining_honors_explicitly_disabled_fields(monkeypatch):
 
 def test_mining_reports_optional_data_not_supported_by_the_model(monkeypatch):
     fake_anki = FakeAnki(fields=["Expression", "Sentence"])
-    _wire(monkeypatch, fake_anki)
+    wire(monkeypatch, fake_anki)
 
-    result = hoshidicts_mining.mine_hoshidicts_note(_payload())
+    result = hoshidicts_mining.mine_hoshidicts_note(make_payload())
 
-    assert result["unmappedFields"] == [
-        "reading",
-        "definition",
-        "frequency",
-        "pitch",
-        "audio",
-    ]
-    add_note = next(kwargs["note"] for action, kwargs in fake_anki.calls if action == "addNote")
-    assert add_note["fields"] == {
+    assert result["unmappedFields"] == ["reading", "definition", "frequency", "pitch", "audio"]
+    assert fake_anki.note_for()["fields"] == {
         "Expression": "食べる",
         "Sentence": "昨日、<b>食べた</b>。",
     }
@@ -2222,7 +1754,7 @@ def test_mining_reports_optional_data_not_supported_by_the_model(monkeypatch):
 
 def test_mining_honors_profile_overrides(monkeypatch):
     fake_anki = FakeAnki(fields=["Front", "Kana", "Back", "Context", "Rank", "Accent"])
-    profile = _profile(
+    profile = make_mining_profile(
         deck="Mining",
         model="Custom",
         fields={
@@ -2238,21 +1770,14 @@ def test_mining_honors_profile_overrides(monkeypatch):
         duplicateScope="deck-root",
         duplicateScopeCheckAllModels=True,
     )
-    _wire(monkeypatch, fake_anki, profile)
+    wire(monkeypatch, fake_anki, profile)
 
-    hoshidicts_mining.mine_hoshidicts_note(_payload())
+    hoshidicts_mining.mine_hoshidicts_note(make_payload())
 
-    add_note = next(kwargs["note"] for action, kwargs in fake_anki.calls if action == "addNote")
+    add_note = fake_anki.note_for()
     assert add_note["deckName"] == "Mining"
     assert add_note["modelName"] == "Custom"
-    assert set(add_note["fields"]) == {
-        "Front",
-        "Kana",
-        "Back",
-        "Context",
-        "Rank",
-        "Accent",
-    }
+    assert set(add_note["fields"]) == {"Front", "Kana", "Back", "Context", "Rank", "Accent"}
     assert add_note["options"] == {
         "allowDuplicate": True,
         "duplicateScope": "deck",
@@ -2270,26 +1795,17 @@ def test_migrated_shared_target_keeps_the_first_semantics_overwrite_mode(monkeyp
     profile = hoshidicts_mining.normalize_hoshidicts_mining_profile(
         {
             "version": 2,
-            "fields": {
-                "expression": "Front",
-                "definition": "Front",
-            },
-            "fieldOverwriteModes": {
-                "expression": "append",
-                "definition": "overwrite",
-            },
+            "fields": {"expression": "Front", "definition": "Front"},
+            "fieldOverwriteModes": {"expression": "append", "definition": "overwrite"},
         }
     )
-    _wire(monkeypatch, fake_anki, profile)
+    wire(monkeypatch, fake_anki, profile)
 
     options = hoshidicts_mining.get_hoshidicts_mining_options()
 
-    assert options["resolvedFieldTemplates"] == {
-        "Front": {
-            "value": "{expression}<br>{definition}",
-            "overwriteMode": "append",
-        }
-    }
+    assert options["resolvedFieldTemplates"] == make_field_templates(
+        {"Front": ("{expression}<br>{definition}", "append")}
+    )
 
 
 def test_migrated_shared_target_omits_separators_for_empty_values(monkeypatch):
@@ -2297,96 +1813,68 @@ def test_migrated_shared_target_omits_separators_for_empty_values(monkeypatch):
     profile = hoshidicts_mining.normalize_hoshidicts_mining_profile(
         {
             "version": 2,
-            "fields": {
-                "expression": "Front",
-                "reading": "Front",
-                "frequency": "Front",
-            },
+            "fields": {"expression": "Front", "reading": "Front", "frequency": "Front"},
         }
     )
-    _wire(monkeypatch, fake_anki, profile)
-    payload = _payload()
-    payload["result"]["term"]["reading"] = ""
-    payload["result"]["term"]["frequencies"] = []
+    wire(monkeypatch, fake_anki, profile)
+    payload = make_term_payload(reading="", frequencies=[])
 
     hoshidicts_mining.mine_hoshidicts_note(payload)
 
-    note = next(kwargs["note"] for action, kwargs in fake_anki.calls if action == "addNote")
-    assert note["fields"] == {"Front": "食べる"}
+    assert fake_anki.note_for()["fields"] == {"Front": "食べる"}
 
 
 def test_mining_stores_selected_pronunciation_after_note_creation(monkeypatch):
-    fake_anki = FakeAnki(fields=[*FakeAnki().fields, "WordAudio"])
-    audio_profile = hoshidicts_audio.default_hoshidicts_audio_profile()
+    fake_anki = FakeAnki(fields=[*DEFAULT_MODEL_FIELDS, "WordAudio"])
+    audio_profile = make_audio_profile()
+    selection = {"sourceId": "jisho", "candidateIndex": 1, "candidateId": "a" * 64}
 
-    def get_mining_audio(term, reading, selection, *, profile):
+    def get_mining_audio(term, reading, requested_selection, *, profile):
         assert (term, reading) == ("食べる", "たべる")
-        assert selection == {
-            "sourceId": "jisho",
-            "candidateIndex": 1,
-            "candidateId": "a" * 64,
-        }
+        assert requested_selection == selection
         assert profile is audio_profile
-        return _AUDIO_MEDIA
+        return AUDIO_MEDIA
 
-    _wire_audio(
-        monkeypatch,
-        fake_anki,
-        audio_profile=audio_profile,
-        resolver=get_mining_audio,
-    )
-    payload = _payload()
-    payload["audioSelection"] = {
-        "sourceId": "jisho",
-        "candidateIndex": 1,
-        "candidateId": "a" * 64,
-    }
-    payload["result"]["term"]["expression"] = " 食べる "
-    payload["result"]["term"]["reading"] = " たべる "
+    wire_audio(monkeypatch, fake_anki, audio_profile=audio_profile, resolver=get_mining_audio)
+    payload = make_term_payload(expression=" 食べる ", reading=" たべる ")
+    payload["audioSelection"] = selection
 
     result = hoshidicts_mining.mine_hoshidicts_note(payload)
 
     assert result["audio"]["status"] == "stored"
     assert result["audio"]["filename"].startswith("gsm_hoshidicts_")
-    actions = [action for action, _kwargs in fake_anki.calls]
+    actions = fake_anki.actions()
     assert actions.index("addNote") < actions.index("storeMediaFile") < actions.index("updateNoteFields")
-    stored = next(kwargs for action, kwargs in fake_anki.calls if action == "storeMediaFile")
+    stored = fake_anki.kwargs_for("storeMediaFile")
     assert stored["filename"] == result["audio"]["filename"]
     assert stored["data"] == "SUQzcHJvbnVuY2lhdGlvbg=="
-    updated = next(kwargs for action, kwargs in fake_anki.calls if action == "updateNoteFields")
-    assert updated["note"] == {
+    assert fake_anki.note_for("updateNoteFields") == {
         "id": 42,
         "fields": {"WordAudio": f"[sound:{result['audio']['filename']}]"},
     }
 
 
 def test_mining_renders_compound_audio_template_after_storing_media(monkeypatch):
-    fake_anki = FakeAnki(fields=["Front", "Sound", "Extra"])
-    profile = _profile(
-        fieldTemplates={
-            "Front": {
-                "value": "{expression}",
-                "overwriteMode": "coalesce",
-            },
-            "Sound": {
-                "value": "Audio: {audio} ({reading})",
-                "overwriteMode": "coalesce",
-            },
-            "Extra": {"value": "", "overwriteMode": "coalesce"},
-        }
+    templates = {
+        "Front": "{expression}",
+        "Sound": "Audio: {audio} ({reading})",
+        "Extra": "",
+    }
+    fake_anki = FakeAnki(fields=list(templates))
+    wire_audio(
+        monkeypatch,
+        fake_anki,
+        mining_profile=make_mining_profile(fieldTemplates=make_field_templates(templates)),
     )
-    _wire_audio(monkeypatch, fake_anki, mining_profile=profile)
 
-    result = hoshidicts_mining.mine_hoshidicts_note(_payload())
+    result = hoshidicts_mining.mine_hoshidicts_note(make_payload())
 
-    added = next(kwargs["note"] for action, kwargs in fake_anki.calls if action == "addNote")
-    assert added["fields"] == {
+    assert fake_anki.note_for()["fields"] == {
         "Front": "食べる",
         "Sound": "Audio:  (たべる)",
         "Extra": "",
     }
-    updated = next(kwargs["note"] for action, kwargs in fake_anki.calls if action == "updateNoteFields")
-    assert updated == {
+    assert fake_anki.note_for("updateNoteFields") == {
         "id": 42,
         "fields": {"Sound": f"Audio: [sound:{result['audio']['filename']}] (たべる)"},
     }
@@ -2394,7 +1882,7 @@ def test_mining_renders_compound_audio_template_after_storing_media(monkeypatch)
 
 def test_mining_appends_audio_when_the_field_already_contains_text(monkeypatch):
     fake_anki = FakeAnki(fields=["Front", "Sentence"])
-    profile = _profile(
+    profile = make_mining_profile(
         model="Custom",
         fields={
             "expression": "Front",
@@ -2407,45 +1895,42 @@ def test_mining_appends_audio_when_the_field_already_contains_text(monkeypatch):
         },
         disabledFields=["reading", "definition", "frequency", "pitch"],
     )
-    _wire_audio(monkeypatch, fake_anki, mining_profile=profile)
+    wire_audio(monkeypatch, fake_anki, mining_profile=profile)
 
-    result = hoshidicts_mining.mine_hoshidicts_note(_payload())
+    result = hoshidicts_mining.mine_hoshidicts_note(make_payload())
 
-    updated = next(kwargs for action, kwargs in fake_anki.calls if action == "updateNoteFields")
-    assert updated["note"]["fields"]["Front"] == (f"食べる<br>[sound:{result['audio']['filename']}]")
+    assert fake_anki.note_for("updateNoteFields")["fields"]["Front"] == (
+        f"食べる<br>[sound:{result['audio']['filename']}]"
+    )
 
 
 def test_mining_audio_unavailable_is_nonfatal(monkeypatch):
-    fake_anki = FakeAnki(fields=[*FakeAnki().fields, "PronunciationAudio"])
-    _wire_audio(
+    fake_anki = FakeAnki(fields=[*DEFAULT_MODEL_FIELDS, "PronunciationAudio"])
+    wire_audio(
         monkeypatch,
         fake_anki,
-        error=hoshidicts_audio.HoshidictsAudioError("No pronunciation audio is available.", 404),
+        error=hoshidicts_audio_profile.HoshidictsAudioError("No pronunciation audio is available.", 404),
     )
 
-    result = hoshidicts_mining.mine_hoshidicts_note(_payload())
+    result = hoshidicts_mining.mine_hoshidicts_note(make_payload())
 
     assert result["success"] is True
     assert result["audio"] == {
         "status": "unavailable",
         "warning": "No pronunciation audio is available.",
     }
-    assert [action for action, _kwargs in fake_anki.calls if action in {"storeMediaFile", "updateNoteFields"}] == []
+    assert not {"storeMediaFile", "updateNoteFields"} & set(fake_anki.actions())
     assert fake_anki.events[-1]["note_id"] == 42
 
 
 def test_mining_audio_store_failure_is_nonfatal(monkeypatch):
-    class StoreFailureAnki(FakeAnki):
-        def invoke(self, action, **kwargs):
-            if action == "storeMediaFile":
-                self.calls.append((action, kwargs))
-                raise RuntimeError("media collection is locked")
-            return super().invoke(action, **kwargs)
+    fake_anki = FakeAnki(
+        fields=[*DEFAULT_MODEL_FIELDS, "Pronunciation"],
+        responses={"storeMediaFile": RuntimeError("media collection is locked")},
+    )
+    wire_audio(monkeypatch, fake_anki)
 
-    fake_anki = StoreFailureAnki(fields=[*FakeAnki().fields, "Pronunciation"])
-    _wire_audio(monkeypatch, fake_anki)
-
-    result = hoshidicts_mining.mine_hoshidicts_note(_payload())
+    result = hoshidicts_mining.mine_hoshidicts_note(make_payload())
 
     assert result["success"] is True
     assert result["audio"]["status"] == "failed"
@@ -2454,115 +1939,86 @@ def test_mining_audio_store_failure_is_nonfatal(monkeypatch):
 
 
 def test_mining_audio_disabled_is_skipped_without_resolution(monkeypatch):
-    fake_anki = FakeAnki(fields=[*FakeAnki().fields, "WordAudio"])
-    audio_profile = hoshidicts_audio.default_hoshidicts_audio_profile()
-    audio_profile["enabled"] = False
+    fake_anki = FakeAnki(fields=[*DEFAULT_MODEL_FIELDS, "WordAudio"])
 
     def unexpected_resolution(*_args, **_kwargs):
         raise AssertionError("disabled audio must not resolve")
 
-    _wire_audio(
+    wire_audio(
         monkeypatch,
         fake_anki,
-        audio_profile=audio_profile,
+        audio_profile=make_audio_profile(enabled=False),
         resolver=unexpected_resolution,
     )
 
-    result = hoshidicts_mining.mine_hoshidicts_note(_payload())
+    result = hoshidicts_mining.mine_hoshidicts_note(make_payload())
 
     assert result["audio"] == {"status": "skipped"}
 
 
 def test_mining_auto_maps_standard_audio_but_not_sentence_audio(monkeypatch):
-    fake_anki = FakeAnki(fields=[*FakeAnki().fields, "Audio", "SentenceAudio"])
-    _wire_audio(monkeypatch, fake_anki)
+    fake_anki = FakeAnki(fields=[*DEFAULT_MODEL_FIELDS, "Audio", "SentenceAudio"])
+    wire_audio(monkeypatch, fake_anki)
 
-    result = hoshidicts_mining.mine_hoshidicts_note(_payload())
+    result = hoshidicts_mining.mine_hoshidicts_note(make_payload())
 
     assert result["audio"]["status"] == "stored"
-    updated = next(kwargs for action, kwargs in fake_anki.calls if action == "updateNoteFields")
-    assert updated["note"]["fields"] == {"Audio": f"[sound:{result['audio']['filename']}]"}
-    assert "SentenceAudio" not in updated["note"]["fields"]
+    assert fake_anki.note_for("updateNoteFields")["fields"] == {"Audio": f"[sound:{result['audio']['filename']}]"}
 
 
 def test_duplicate_note_rejection_happens_before_audio_download(monkeypatch):
-    class DuplicateAnki(FakeAnki):
-        def invoke(self, action, **kwargs):
-            if action == "addNote":
-                self.calls.append((action, kwargs))
-                raise RuntimeError("cannot create note because it is a duplicate")
-            return super().invoke(action, **kwargs)
-
-    fake_anki = DuplicateAnki(fields=[*FakeAnki().fields, "Pronunciation"])
-    called = False
+    fake_anki = FakeAnki(
+        fields=[*DEFAULT_MODEL_FIELDS, "Pronunciation"],
+        responses={"addNote": RuntimeError(DUPLICATE_ERROR)},
+    )
 
     def get_mining_audio(*_args, **_kwargs):
-        nonlocal called
-        called = True
         raise AssertionError("audio must not be resolved for a rejected note")
 
-    _wire_audio(monkeypatch, fake_anki, resolver=get_mining_audio)
+    wire_audio(monkeypatch, fake_anki, resolver=get_mining_audio)
 
     with pytest.raises(hoshidicts_mining.HoshidictsMiningError, match="already exists"):
-        hoshidicts_mining.mine_hoshidicts_note(_payload())
-
-    assert called is False
+        hoshidicts_mining.mine_hoshidicts_note(make_payload())
 
 
-def test_mining_audio_selection_validation_rejects_urls_and_bad_indexes():
-    payload = _payload()
-    payload["audioSelection"] = {
-        "sourceId": "jisho",
-        "candidateIndex": 0,
-        "url": "https://attacker.test/audio.mp3",
-    }
+@pytest.mark.parametrize(
+    "audio_selection",
+    [
+        {
+            "sourceId": "jisho",
+            "candidateIndex": 0,
+            "url": "https://attacker.test/audio.mp3",
+        },
+        {"sourceId": "jisho", "candidateIndex": True},
+        {"sourceId": "jisho", "candidateIndex": 0, "candidateId": "short"},
+        {"sourceId": "bad id", "candidateIndex": 0, "candidateId": "a" * 64},
+    ],
+)
+def test_mining_audio_selection_validation_rejects_unsafe_selections(audio_selection):
+    payload = make_payload(audioSelection=audio_selection)
+
     with pytest.raises(hoshidicts_mining.HoshidictsMiningError, match="audio selection"):
-        hoshidicts_mining.validate_hoshidicts_mining_request(payload)
-
-    payload["audioSelection"] = {"sourceId": "jisho", "candidateIndex": True}
-    with pytest.raises(hoshidicts_mining.HoshidictsMiningError, match="audio selection"):
-        hoshidicts_mining.validate_hoshidicts_mining_request(payload)
-
-
-def test_status_deduplicates_short_lived_ankiconnect_checks(monkeypatch):
-    fake_anki = FakeAnki()
-    _wire(monkeypatch, fake_anki)
-
-    first = hoshidicts_mining.get_hoshidicts_mining_status()
-    second = hoshidicts_mining.get_hoshidicts_mining_status()
-
-    assert first == second
-    assert [action for action, _kwargs in fake_anki.calls] == [
-        "modelFieldNames",
-        "deckNames",
-    ]
+        _validated(payload)
 
 
 def test_validation_uses_the_overlay_utf16_offset():
-    payload = _payload()
-    payload["sentence"] = "😀食べた"
-    payload["matchOffset"] = 2
+    payload = make_payload(sentence="😀食べた", matchOffset=2)
 
-    validated = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
-
-    assert validated["matched"] == "食べた"
+    assert _validated(payload)["matched"] == "食べた"
 
     payload["matchOffset"] = 1
     with pytest.raises(
         hoshidicts_mining.HoshidictsMiningError,
         match="splits a Unicode character",
     ):
-        hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+        _validated(payload)
 
-    payload = _payload()
-    payload["sentence"] = "<食べた&"
-    payload["matchOffset"] = 1
-    validated = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
-    assert hoshidicts_mining._highlight_sentence_match(validated) == ("&lt;<b>食べた</b>&amp;")
+    escaped = _validated(make_payload(sentence="<食べた&", matchOffset=1))
+    assert note_module.highlight_sentence_match(escaped) == "&lt;<b>食べた</b>&amp;"
 
 
 def test_validation_preserves_large_glossaries_from_more_than_64_dictionaries():
-    payload = _payload()
+    payload = make_payload()
     tail_marker = "FIRST_DICTIONARY_TAIL"
     structured_glossary = json.dumps(
         {
@@ -2581,83 +2037,61 @@ def test_validation_preserves_large_glossaries_from_more_than_64_dictionaries():
     ]
     assert len(json.dumps(payload).encode("utf-8")) > 256 * 1024
 
-    normalized = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+    normalized = _validated(payload)
 
     glossaries = normalized["term"]["glossaries"]
     assert len(glossaries) == 70
     assert glossaries[0]["glossary"] == structured_glossary
     assert glossaries[-1]["dictionary"] == "Dictionary 69"
-    rendered = hoshidicts_mining._definition_html(normalized)
+    rendered = note_module.definition_html(normalized)
     assert tail_marker in rendered
     assert "definition-69" in rendered
-    assert tail_marker in hoshidicts_mining._glossary_text(structured_glossary)
+    assert tail_marker in note_module._glossary_text(structured_glossary)
 
 
 def test_validation_preserves_decimal_and_nullable_frequency_displays():
-    payload = _payload()
-    payload["result"]["term"]["frequencies"][0]["frequencies"] = [
+    payload = make_payload()
+    frequencies = [
         {"value": 12.75, "displayValue": None},
         {"value": 8, "displayValue": ""},
         {"value": -1.5, "displayValue": "<rare>"},
     ]
+    payload["result"]["term"]["frequencies"][0]["frequencies"] = frequencies
 
-    validated = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+    validated = _validated(payload)
 
-    assert validated["term"]["frequencies"][0]["frequencies"] == [
-        {"value": 12.75, "displayValue": None},
-        {"value": 8, "displayValue": ""},
-        {"value": -1.5, "displayValue": "<rare>"},
-    ]
-    assert hoshidicts_mining._frequency_html(validated) == ("<b>Frequency</b>: 12.75, , &lt;rare&gt;")
+    assert validated["term"]["frequencies"][0]["frequencies"] == frequencies
+    assert note_module.frequency_html(validated) == "<b>Frequency</b>: 12.75, , &lt;rare&gt;"
 
 
 def test_validation_normalizes_configured_frequency_dictionary_registry():
-    payload = _payload()
-    payload["frequencyDictionaries"] = ["Foo", "Foo", "Foo!"]
+    payload = make_payload(frequencyDictionaries=["Foo", "Foo", "Foo!"])
 
-    validated = hoshidicts_mining.validate_hoshidicts_mining_request(payload)
-
-    assert validated["frequencyDictionaries"] == ["Foo", "Foo!"]
+    assert _validated(payload)["frequencyDictionaries"] == ["Foo", "Foo!"]
 
     payload["frequencyDictionaries"] = [""]
     with pytest.raises(
         hoshidicts_mining.HoshidictsMiningError,
         match="frequency dictionary name",
     ):
-        hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+        _validated(payload)
 
 
-@pytest.mark.parametrize(
-    "value",
-    [True, float("nan"), float("inf"), float("-inf")],
-)
+@pytest.mark.parametrize("value", [True, float("nan"), float("inf"), float("-inf")])
 def test_validation_rejects_non_finite_or_boolean_frequency_values(value):
-    payload = _payload()
+    payload = make_payload()
     payload["result"]["term"]["frequencies"][0]["frequencies"] = [{"value": value, "displayValue": None}]
 
-    with pytest.raises(
-        hoshidicts_mining.HoshidictsMiningError,
-        match="frequency is invalid",
-    ):
-        hoshidicts_mining.validate_hoshidicts_mining_request(payload)
+    with pytest.raises(hoshidicts_mining.HoshidictsMiningError, match="frequency is invalid"):
+        _validated(payload)
 
 
 def test_duplicate_rejection_returns_a_conflict(monkeypatch):
-    class DuplicateAnki(FakeAnki):
-        def invoke(self, action, **kwargs):
-            if action == "addNote":
-                self.calls.append((action, kwargs))
-                raise RuntimeError("cannot create note because it is a duplicate")
-            return super().invoke(action, **kwargs)
+    fake_anki = FakeAnki(responses={"addNote": RuntimeError(DUPLICATE_ERROR)})
+    wire(monkeypatch, fake_anki)
 
-    fake_anki = DuplicateAnki()
-    _wire(monkeypatch, fake_anki)
-
-    with pytest.raises(
-        hoshidicts_mining.HoshidictsMiningError,
-        match="already exists",
-    ) as error:
-        hoshidicts_mining.mine_hoshidicts_note(_payload())
+    with pytest.raises(hoshidicts_mining.HoshidictsMiningError, match="already exists") as error:
+        hoshidicts_mining.mine_hoshidicts_note(make_payload())
 
     assert error.value.status_code == 409
     assert fake_anki.events == []
@@ -2665,39 +2099,29 @@ def test_duplicate_rejection_returns_a_conflict(monkeypatch):
 
 def test_null_add_note_result_is_not_misclassified_as_a_duplicate(monkeypatch):
     fake_anki = FakeAnki(note_id=None)
-    _wire(monkeypatch, fake_anki)
+    wire(monkeypatch, fake_anki)
 
-    with pytest.raises(
-        hoshidicts_mining.HoshidictsMiningError,
-        match="did not return a note ID",
-    ) as error:
-        hoshidicts_mining.mine_hoshidicts_note(_payload())
+    with pytest.raises(hoshidicts_mining.HoshidictsMiningError, match="did not return a note ID") as error:
+        hoshidicts_mining.mine_hoshidicts_note(make_payload())
 
     assert error.value.status_code == 502
     assert fake_anki.events == []
 
 
 def test_duplicate_check_uses_first_model_field_and_error_detail(monkeypatch):
-    class DetailAnki(FakeAnki):
-        def invoke(self, action, **kwargs):
-            if action == "canAddNotesWithErrorDetail":
-                self.calls.append((action, kwargs))
-                return [
-                    {"canAdd": True, "error": None},
-                    {
-                        "canAdd": False,
-                        "error": "cannot create note because it is a duplicate",
-                    },
-                    {"canAdd": False, "error": "first field is empty"},
-                ]
-            return super().invoke(action, **kwargs)
+    fake_anki = FakeAnki(
+        fields=["Sentence", "Expression", "Reading", "Definition", "Frequency", "PitchAccent"],
+        responses={
+            "canAddNotesWithErrorDetail": [
+                {"canAdd": True, "error": None},
+                {"canAdd": False, "error": DUPLICATE_ERROR},
+                {"canAdd": False, "error": "first field is empty"},
+            ]
+        },
+    )
+    wire(monkeypatch, fake_anki)
 
-    fields = ["Sentence", "Expression", "Reading", "Definition", "Frequency", "PitchAccent"]
-    fake_anki = DetailAnki(fields=fields)
-    _wire(monkeypatch, fake_anki)
-    notes = [_payload(), _payload(), _payload()]
-
-    result = hoshidicts_mining.check_hoshidicts_notes({"notes": notes})
+    result = hoshidicts_mining.check_hoshidicts_notes({"notes": [make_payload() for _ in range(3)]})
 
     assert result == {
         "success": True,
@@ -2714,7 +2138,7 @@ def test_duplicate_check_uses_first_model_field_and_error_detail(monkeypatch):
             },
         ],
     }
-    check_notes = next(kwargs["notes"] for action, kwargs in fake_anki.calls if action == "canAddNotesWithErrorDetail")
+    check_notes = fake_anki.kwargs_for("canAddNotesWithErrorDetail")["notes"]
     assert [list(note["fields"]) for note in check_notes] == [["Sentence"]] * 3
     assert check_notes[0]["fields"]["Sentence"] == "昨日、<b>食べた</b>。"
     assert check_notes[0]["options"] == {
@@ -2729,59 +2153,82 @@ def test_duplicate_check_uses_first_model_field_and_error_detail(monkeypatch):
 
 
 def test_duplicate_check_still_detects_duplicates_when_new_notes_are_allowed(monkeypatch):
-    class DetailAnki(FakeAnki):
-        def invoke(self, action, **kwargs):
-            if action == "canAddNotesWithErrorDetail":
-                self.calls.append((action, kwargs))
-                assert kwargs["notes"][0]["options"]["allowDuplicate"] is False
-                return [
-                    {
-                        "canAdd": False,
-                        "error": "cannot create note because it is a duplicate",
-                    }
-                ]
-            return super().invoke(action, **kwargs)
+    fake_anki = FakeAnki(responses=duplicate_responses())
+    wire(monkeypatch, fake_anki, make_mining_profile(duplicateBehavior="new"))
 
-    fake_anki = DetailAnki()
-    _wire(monkeypatch, fake_anki, _profile(duplicateBehavior="new"))
-
-    result = hoshidicts_mining.check_hoshidicts_notes({"notes": [_payload()]})
+    result = hoshidicts_mining.check_hoshidicts_notes({"notes": [make_payload()]})
 
     assert result == {
         "success": True,
         "checkForDuplicates": True,
         "duplicateBehavior": "new",
-        "results": [
-            {"state": "duplicate", "canAdd": True, "duplicate": True},
-        ],
+        "results": [{"state": "duplicate", "canAdd": True, "duplicate": True}],
     }
+    # Duplicates stay detectable because the check itself never allows them.
+    assert fake_anki.kwargs_for("canAddNotesWithErrorDetail")["notes"][0]["options"]["allowDuplicate"] is False
 
 
 def test_duplicate_check_can_be_disabled_without_calling_ankiconnect(monkeypatch):
     fake_anki = FakeAnki()
-    _wire(
+    wire(
         monkeypatch,
         fake_anki,
-        _profile(checkForDuplicates=False, duplicateBehavior="prevent"),
+        make_mining_profile(checkForDuplicates=False, duplicateBehavior="prevent"),
     )
 
-    result = hoshidicts_mining.check_hoshidicts_notes({"notes": [_payload()]})
+    result = hoshidicts_mining.check_hoshidicts_notes({"notes": [make_payload()]})
 
     assert result == {
         "success": True,
         "checkForDuplicates": False,
         "duplicateBehavior": "prevent",
-        "results": [
-            {"state": "addable", "canAdd": True, "duplicate": False},
-        ],
+        "results": [{"state": "addable", "canAdd": True, "duplicate": False}],
     }
-    assert not any(action in {"canAddNotes", "canAddNotesWithErrorDetail"} for action, _kwargs in fake_anki.calls)
+    assert not any(action.startswith("canAddNotes") for action in fake_anki.actions())
+
+
+def test_duplicate_check_accepts_more_than_the_legacy_sixteen_note_limit(monkeypatch):
+    wire(monkeypatch, FakeAnki(), make_mining_profile(checkForDuplicates=False))
+
+    result = hoshidicts_mining.check_hoshidicts_notes({"notes": [make_payload()] * 33})
+
+    assert result["success"] is True
+    assert len(result["results"]) == 33
+
+
+def test_duplicate_check_falls_back_to_paired_can_add_notes_for_older_ankiconnect(monkeypatch):
+    fake_anki = FakeAnki(
+        responses={
+            "canAddNotesWithErrorDetail": RuntimeError("unsupported action"),
+            "canAddNotes": lambda notes, **_kwargs: [notes[0]["options"]["allowDuplicate"]],
+        }
+    )
+    wire(monkeypatch, fake_anki)
+
+    result = hoshidicts_mining.check_hoshidicts_notes({"notes": [make_payload()]})
+
+    assert result["results"] == [{"state": "duplicate", "canAdd": False, "duplicate": True}]
+    assert [kwargs["notes"][0]["options"]["allowDuplicate"] for kwargs in fake_anki.all_kwargs("canAddNotes")] == [
+        True,
+        False,
+    ]
+
+
+def test_duplicate_check_does_not_hide_non_compatibility_errors(monkeypatch):
+    fake_anki = FakeAnki(responses={"canAddNotesWithErrorDetail": RuntimeError("collection is unavailable")})
+    wire(monkeypatch, fake_anki)
+
+    with pytest.raises(RuntimeError, match="collection is unavailable"):
+        hoshidicts_mining.check_hoshidicts_notes({"notes": [make_payload()]})
+
+    assert "canAddNotes" not in fake_anki.actions()
 
 
 @pytest.mark.parametrize(
     ("mode", "existing", "new", "expected"),
     [
         ("overwrite", "old", "new", "new"),
+        ("overwrite", "old", "", ""),
         ("skip", "old", "new", "old"),
         ("append", "old", "new", "oldnew"),
         ("prepend", "old", "new", "newold"),
@@ -2792,45 +2239,22 @@ def test_duplicate_check_can_be_disabled_without_calling_ankiconnect(monkeypatch
     ],
 )
 def test_yomitan_overwrite_field_modes(mode, existing, new, expected):
-    assert hoshidicts_mining._overwrite_field(existing, new, mode) == expected
-
-
-def test_overwrite_mode_can_clear_a_mapped_field_when_the_new_value_is_empty():
-    profile = _profile()
-    profile["fieldOverwriteModes"]["reading"] = "overwrite"
-    fields = {key: "" for key in hoshidicts_mining.FIELD_KEYS}
-    fields["expression"] = "Expression"
-    fields["reading"] = "Reading"
-    resolved = {"profile": profile, "fields": fields}
-
-    overwritten = hoshidicts_mining._overwritten_note_fields(
-        {"fields": {"Expression": "食べる"}},
-        {"Expression": "old expression", "Reading": "old reading"},
-        resolved,
-    )
-
-    assert overwritten == {"Expression": "old expression", "Reading": ""}
+    assert hoshidicts_markers.overwrite_field(existing, new, mode) == expected
 
 
 def test_v3_target_field_overwrite_modes_include_explicit_blank_values():
-    resolved = {
-        "fieldTemplates": {
-            "Keep": {"value": "{reading}", "overwriteMode": "skip"},
-            "Append": {"value": "x", "overwriteMode": "append"},
-            "Clear": {"value": "", "overwriteMode": "overwrite"},
-            "Audio": {"value": "{audio}", "overwriteMode": "append"},
-            "AudioWithSeparator": {
-                "value": "<br>{audio}<br/>",
-                "overwriteMode": "overwrite",
-            },
-            "Compound": {
-                "value": "{definition}<br>{audio}",
-                "overwriteMode": "append",
-            },
+    field_templates = make_field_templates(
+        {
+            "Keep": ("{reading}", "skip"),
+            "Append": ("x", "append"),
+            "Clear": ("", "overwrite"),
+            "Audio": ("{audio}", "append"),
+            "AudioWithSeparator": ("<br>{audio}<br/>", "overwrite"),
+            "Compound": ("{definition}<br>{audio}", "append"),
         }
-    }
+    )
 
-    overwritten = hoshidicts_mining._overwritten_note_fields(
+    overwritten = hoshidicts_markers.overwritten_note_fields(
         {
             "fields": {
                 "Keep": "new reading",
@@ -2849,7 +2273,7 @@ def test_v3_target_field_overwrite_modes_include_explicit_blank_values():
             "AudioWithSeparator": "[sound:also-old.mp3]",
             "Compound": "old definition",
         },
-        resolved,
+        field_templates,
     )
 
     assert overwritten == {
@@ -2861,83 +2285,58 @@ def test_v3_target_field_overwrite_modes_include_explicit_blank_values():
 
 
 def test_mining_overwrites_first_same_type_duplicate_in_exact_deck(monkeypatch):
-    class OverwriteAnki(FakeAnki):
-        def invoke(self, action, **kwargs):
-            if action == "canAddNotesWithErrorDetail":
-                self.calls.append((action, kwargs))
-                return [
+    fields = list(DEFAULT_MODEL_FIELDS)
+    fake_anki = FakeAnki(
+        decks=["Default", "Mining", "Mining::Child"],
+        responses=duplicate_responses(
+            findNotes=[41, 42],
+            notesInfo=[
+                make_note_info(41, {field: f"child {field}" for field in fields}, cards=[410]),
+                make_note_info(
+                    42,
                     {
-                        "canAdd": False,
-                        "error": "cannot create note because it is a duplicate",
-                    }
-                ]
-            if action == "findNotes":
-                self.calls.append((action, kwargs))
-                assert kwargs["query"] == '"deck:Mining" "expression:食べる"'
-                return [41, 42]
-            if action == "notesInfo":
-                self.calls.append((action, kwargs))
-                return [
-                    {
-                        "noteId": 41,
-                        "modelName": "Mining",
-                        "cards": [410],
-                        "fields": {
-                            field: {"value": f"child {field}", "order": index}
-                            for index, field in enumerate(self.fields)
-                        },
+                        "Expression": "old expression",
+                        "Reading": "old reading",
+                        "Definition": "old definition",
+                        "Sentence": "old sentence",
+                        "Frequency": "old frequency",
+                        "PitchAccent": "old pitch",
                     },
-                    {
-                        "noteId": 42,
-                        "modelName": "Mining",
-                        "cards": [420],
-                        "fields": {
-                            "Expression": {"value": "old expression", "order": 0},
-                            "Reading": {"value": "old reading", "order": 1},
-                            "Definition": {"value": "old definition", "order": 2},
-                            "Sentence": {"value": "old sentence", "order": 3},
-                            "Frequency": {"value": "old frequency", "order": 4},
-                            "PitchAccent": {"value": "old pitch", "order": 5},
-                        },
-                    },
-                ]
-            if action == "cardsInfo":
-                self.calls.append((action, kwargs))
-                return [
-                    {"cardId": 410, "note": 41, "deckName": "Mining::Child"},
-                    {"cardId": 420, "note": 42, "deckName": "Mining"},
-                ]
-            if action == "addNote":
-                raise AssertionError("a duplicate note must be updated, not added")
-            return super().invoke(action, **kwargs)
-
-    fake_anki = OverwriteAnki(decks=["Default", "Mining", "Mining::Child"])
-    overwrite_modes = {
-        **_profile()["fieldOverwriteModes"],
-        "expression": "overwrite",
-        "reading": "skip",
-        "definition": "append",
-        "sentence": "prepend",
-        "frequency": "coalesce-new",
-        "pitch": "coalesce",
-    }
-    _wire(
+                    cards=[420],
+                ),
+            ],
+            cardsInfo=[
+                {"cardId": 410, "note": 41, "deckName": "Mining::Child"},
+                {"cardId": 420, "note": 42, "deckName": "Mining"},
+            ],
+            addNote=AssertionError("a duplicate note must be updated, not added"),
+        ),
+    )
+    wire(
         monkeypatch,
         fake_anki,
-        _profile(
+        make_mining_profile(
             deck="Mining",
             duplicateScope="deck",
             duplicateBehavior="overwrite",
-            fieldOverwriteModes=overwrite_modes,
+            fieldOverwriteModes=make_overwrite_modes(
+                expression="overwrite",
+                reading="skip",
+                definition="append",
+                sentence="prepend",
+                frequency="coalesce-new",
+                pitch="coalesce",
+            ),
         ),
     )
 
-    result = hoshidicts_mining.mine_hoshidicts_note(_payload())
+    result = hoshidicts_mining.mine_hoshidicts_note(make_payload())
 
     assert result["noteId"] == 42
     assert result["overwritten"] is True
     assert result["audio"] == {"status": "skipped"}
-    update = next(kwargs["note"] for action, kwargs in fake_anki.calls if action == "updateNoteFields")
+    assert fake_anki.kwargs_for("findNotes")["query"] == '"deck:Mining" "expression:食べる"'
+    update = fake_anki.note_for("updateNoteFields")
     assert update["id"] == 42
     assert update["fields"]["Expression"] == "食べる"
     assert update["fields"]["Reading"] == "old reading"
@@ -2949,262 +2348,138 @@ def test_mining_overwrites_first_same_type_duplicate_in_exact_deck(monkeypatch):
 
 
 def test_overwrite_rejects_a_duplicate_from_another_note_type(monkeypatch):
-    class OtherModelAnki(FakeAnki):
-        def invoke(self, action, **kwargs):
-            if action == "canAddNotesWithErrorDetail":
-                self.calls.append((action, kwargs))
-                return [
-                    {
-                        "canAdd": False,
-                        "error": "cannot create note because it is a duplicate",
-                    }
-                ]
-            if action == "findNotes":
-                self.calls.append((action, kwargs))
-                return [99]
-            if action == "notesInfo":
-                self.calls.append((action, kwargs))
-                return [
-                    {
-                        "noteId": 99,
-                        "modelName": "Different note type",
-                        "cards": [990],
-                        "fields": {"Expression": {"value": "食べる", "order": 0}},
-                    }
-                ]
-            if action in {"addNote", "updateNoteFields"}:
-                raise AssertionError("a cross-note-type duplicate cannot be changed")
-            return super().invoke(action, **kwargs)
-
-    fake_anki = OtherModelAnki()
-    _wire(
+    fake_anki = FakeAnki(
+        responses=duplicate_responses(
+            {"Expression": "食べる"},
+            note_id=99,
+            model="Different note type",
+            cards=[990],
+            addNote=AssertionError("a cross-note-type duplicate cannot be changed"),
+            updateNoteFields=AssertionError("a cross-note-type duplicate cannot be changed"),
+        )
+    )
+    wire(
         monkeypatch,
         fake_anki,
-        _profile(
-            duplicateBehavior="overwrite",
-            duplicateScopeCheckAllModels=True,
-        ),
+        make_mining_profile(duplicateBehavior="overwrite", duplicateScopeCheckAllModels=True),
     )
 
-    with pytest.raises(
-        hoshidicts_mining.HoshidictsMiningError,
-        match="different note type",
-    ) as error:
-        hoshidicts_mining.mine_hoshidicts_note(_payload())
+    with pytest.raises(hoshidicts_mining.HoshidictsMiningError, match="different note type") as error:
+        hoshidicts_mining.mine_hoshidicts_note(make_payload())
 
     assert error.value.status_code == 409
 
 
-def test_duplicate_check_only_offers_overwrite_for_a_resolvable_note(monkeypatch):
-    class OverwriteCheckAnki(FakeAnki):
-        def invoke(self, action, **kwargs):
-            if action == "canAddNotesWithErrorDetail":
-                self.calls.append((action, kwargs))
-                return [
-                    {
-                        "canAdd": False,
-                        "error": "cannot create note because it is a duplicate",
-                    }
-                ]
-            if action == "findNotes":
-                self.calls.append((action, kwargs))
-                return [42]
-            if action == "notesInfo":
-                self.calls.append((action, kwargs))
-                return [
-                    {
-                        "noteId": 42,
-                        "modelName": "Mining",
-                        "cards": [420],
-                        "fields": {"Expression": {"value": "食べる", "order": 0}},
-                    }
-                ]
-            return super().invoke(action, **kwargs)
-
-    fake_anki = OverwriteCheckAnki()
-    _wire(monkeypatch, fake_anki, _profile(duplicateBehavior="overwrite"))
-
-    result = hoshidicts_mining.check_hoshidicts_notes({"notes": [_payload()]})
-
-    assert result == {
-        "success": True,
-        "checkForDuplicates": True,
-        "duplicateBehavior": "overwrite",
-        "results": [
+@pytest.mark.parametrize(
+    ("existing_fields", "expected"),
+    [
+        pytest.param(
+            {"Expression": "食べる"},
             {
                 "state": "duplicate",
                 "canAdd": True,
                 "duplicate": True,
                 "action": "overwrite",
-            }
-        ],
+            },
+            id="resolvable-duplicate",
+        ),
+        pytest.param(
+            None,
+            {
+                "state": "duplicate",
+                "canAdd": False,
+                "duplicate": True,
+                "error": (
+                    "A duplicate exists, but it uses a different note type "
+                    "or is outside the selected deck scope and cannot be overwritten."
+                ),
+            },
+            id="unresolvable-duplicate",
+        ),
+    ],
+)
+def test_duplicate_check_only_offers_overwrite_for_a_resolvable_note(monkeypatch, existing_fields, expected):
+    responses = (
+        duplicate_responses(existing_fields, cards=[420])
+        if existing_fields is not None
+        else duplicate_responses(findNotes=[])
+    )
+    fake_anki = FakeAnki(responses=responses)
+    wire(monkeypatch, fake_anki, make_mining_profile(duplicateBehavior="overwrite"))
+
+    result = hoshidicts_mining.check_hoshidicts_notes({"notes": [make_payload()]})
+
+    assert result == {
+        "success": True,
+        "checkForDuplicates": True,
+        "duplicateBehavior": "overwrite",
+        "results": [expected],
     }
 
 
-def test_overwrite_coalesce_preserves_existing_audio_without_downloading(monkeypatch):
-    class AudioOverwriteAnki(FakeAnki):
-        def invoke(self, action, **kwargs):
-            if action == "canAddNotesWithErrorDetail":
-                self.calls.append((action, kwargs))
-                return [
-                    {
-                        "canAdd": False,
-                        "error": "cannot create note because it is a duplicate",
-                    }
-                ]
-            if action == "findNotes":
-                self.calls.append((action, kwargs))
-                return [42]
-            if action == "notesInfo":
-                self.calls.append((action, kwargs))
-                return [
-                    {
-                        "noteId": 42,
-                        "modelName": "Mining",
-                        "cards": [420],
-                        "fields": {
-                            **{field: {"value": "", "order": index} for index, field in enumerate(self.fields)},
-                            "Expression": {"value": "食べる", "order": 0},
-                            "WordAudio": {
-                                "value": "[sound:existing.mp3]",
-                                "order": len(self.fields) - 1,
-                            },
-                        },
-                    }
-                ]
-            return super().invoke(action, **kwargs)
-
-    fake_anki = AudioOverwriteAnki(fields=[*FakeAnki().fields, "WordAudio"])
+@pytest.mark.parametrize(
+    ("profile_overrides", "fields", "expected_status"),
+    [
+        pytest.param({}, None, "preserved", id="semantic-coalesce-preserves-existing-audio"),
+        pytest.param(
+            {"fieldOverwriteModes": make_overwrite_modes(audio="append")},
+            None,
+            "stored",
+            id="semantic-append-adds-new-audio",
+        ),
+        pytest.param(
+            {
+                "fieldTemplates": make_field_templates(
+                    {"Expression": "{expression}", "WordAudio": ("{audio}", "append")}
+                )
+            },
+            ["Expression", "WordAudio"],
+            "stored",
+            id="v3-target-append-adds-new-audio",
+        ),
+    ],
+)
+def test_duplicate_overwrite_applies_the_audio_overwrite_mode(
+    monkeypatch,
+    profile_overrides,
+    fields,
+    expected_status,
+):
+    fields = fields or [*DEFAULT_MODEL_FIELDS, "WordAudio"]
+    fake_anki = FakeAnki(
+        fields=fields,
+        responses=duplicate_responses(
+            make_note_fields(fields, Expression="食べる", WordAudio="[sound:existing.mp3]"),
+            cards=[420],
+        ),
+    )
 
     def unexpected_audio(*_args, **_kwargs):
         raise AssertionError("coalesce must preserve existing audio without a download")
 
-    _wire_audio(
+    wire_audio(
         monkeypatch,
         fake_anki,
-        mining_profile=_profile(duplicateBehavior="overwrite"),
-        resolver=unexpected_audio,
+        mining_profile=make_mining_profile(duplicateBehavior="overwrite", **profile_overrides),
+        resolver=unexpected_audio if expected_status == "preserved" else None,
     )
 
-    result = hoshidicts_mining.mine_hoshidicts_note(_payload())
+    result = hoshidicts_mining.mine_hoshidicts_note(make_payload())
 
     assert result["overwritten"] is True
-    assert result["audio"] == {"status": "preserved"}
-    assert not any(action == "storeMediaFile" for action, _kwargs in fake_anki.calls)
-
-
-def test_overwrite_append_adds_new_audio_after_existing_audio(monkeypatch):
-    class AudioAppendAnki(FakeAnki):
-        def invoke(self, action, **kwargs):
-            if action == "canAddNotesWithErrorDetail":
-                self.calls.append((action, kwargs))
-                return [
-                    {
-                        "canAdd": False,
-                        "error": "cannot create note because it is a duplicate",
-                    }
-                ]
-            if action == "findNotes":
-                self.calls.append((action, kwargs))
-                return [42]
-            if action == "notesInfo":
-                self.calls.append((action, kwargs))
-                return [
-                    {
-                        "noteId": 42,
-                        "modelName": "Mining",
-                        "cards": [420],
-                        "fields": {
-                            **{field: {"value": "", "order": index} for index, field in enumerate(self.fields)},
-                            "Expression": {"value": "食べる", "order": 0},
-                            "WordAudio": {
-                                "value": "[sound:existing.mp3]",
-                                "order": len(self.fields) - 1,
-                            },
-                        },
-                    }
-                ]
-            return super().invoke(action, **kwargs)
-
-    fake_anki = AudioAppendAnki(fields=[*FakeAnki().fields, "WordAudio"])
-    profile = _profile(duplicateBehavior="overwrite")
-    profile["fieldOverwriteModes"]["audio"] = "append"
-    _wire_audio(monkeypatch, fake_anki, mining_profile=profile)
-
-    result = hoshidicts_mining.mine_hoshidicts_note(_payload())
-
-    assert result["audio"]["status"] == "stored"
-    audio_update = [
-        kwargs["note"]
-        for action, kwargs in fake_anki.calls
-        if action == "updateNoteFields" and "WordAudio" in kwargs["note"]["fields"]
-    ]
-    assert audio_update == [
-        {
-            "id": 42,
-            "fields": {"WordAudio": (f"[sound:existing.mp3][sound:{result['audio']['filename']}]")},
-        }
-    ]
-
-
-def test_v3_target_audio_overwrite_mode_appends_to_existing_audio(monkeypatch):
-    class DirectAudioOverwriteAnki(FakeAnki):
-        def invoke(self, action, **kwargs):
-            if action == "canAddNotesWithErrorDetail":
-                self.calls.append((action, kwargs))
-                return [
-                    {
-                        "canAdd": False,
-                        "error": "cannot create note because it is a duplicate",
-                    }
-                ]
-            if action == "findNotes":
-                self.calls.append((action, kwargs))
-                return [42]
-            if action == "notesInfo":
-                self.calls.append((action, kwargs))
-                return [
-                    {
-                        "noteId": 42,
-                        "modelName": "Mining",
-                        "cards": [420],
-                        "fields": {
-                            "Expression": {"value": "食べる", "order": 0},
-                            "WordAudio": {
-                                "value": "[sound:existing.mp3]",
-                                "order": 1,
-                            },
-                        },
-                    }
-                ]
-            return super().invoke(action, **kwargs)
-
-    fake_anki = DirectAudioOverwriteAnki(fields=["Expression", "WordAudio"])
-    profile = _profile(
-        duplicateBehavior="overwrite",
-        fieldTemplates={
-            "Expression": {
-                "value": "{expression}",
-                "overwriteMode": "coalesce",
-            },
-            "WordAudio": {"value": "{audio}", "overwriteMode": "append"},
-        },
-    )
-    _wire_audio(monkeypatch, fake_anki, mining_profile=profile)
-
-    result = hoshidicts_mining.mine_hoshidicts_note(_payload())
-
-    audio_updates = [
-        kwargs["note"]
-        for action, kwargs in fake_anki.calls
-        if action == "updateNoteFields" and "WordAudio" in kwargs["note"]["fields"]
-    ]
-    assert audio_updates == [
-        {
-            "id": 42,
-            "fields": {"WordAudio": f"[sound:existing.mp3][sound:{result['audio']['filename']}]"},
-        }
-    ]
+    assert result["audio"]["status"] == expected_status
+    audio_updates = [note for note in fake_anki.notes_for("updateNoteFields") if "WordAudio" in note["fields"]]
+    if expected_status == "preserved":
+        assert result["audio"] == {"status": "preserved"}
+        assert "storeMediaFile" not in fake_anki.actions()
+        assert audio_updates == []
+    else:
+        assert audio_updates == [
+            {
+                "id": 42,
+                "fields": {"WordAudio": f"[sound:existing.mp3][sound:{result['audio']['filename']}]"},
+            }
+        ]
 
 
 @pytest.mark.parametrize(
@@ -3221,75 +2496,43 @@ def test_duplicate_overwrite_keeps_compound_content_when_audio_cannot_be_added(
     overwrite_mode,
     expected_status,
 ):
-    class CompoundAudioOverwriteAnki(FakeAnki):
-        def invoke(self, action, **kwargs):
-            if action == "canAddNotesWithErrorDetail":
-                self.calls.append((action, kwargs))
-                return [
-                    {
-                        "canAdd": False,
-                        "error": "cannot create note because it is a duplicate",
-                    }
-                ]
-            if action == "findNotes":
-                self.calls.append((action, kwargs))
-                return [42]
-            if action == "notesInfo":
-                self.calls.append((action, kwargs))
-                return [
-                    {
-                        "noteId": 42,
-                        "modelName": "Mining",
-                        "fields": {
-                            "Expression": {"value": "食べる", "order": 0},
-                            "Combined": {"value": "old combined", "order": 1},
-                            "WordAudio": {
-                                "value": "[sound:existing.mp3]",
-                                "order": 2,
-                            },
-                        },
-                    }
-                ]
-            if action == "addNote":
-                raise AssertionError("a duplicate note must be updated, not added")
-            return super().invoke(action, **kwargs)
-
-    fake_anki = CompoundAudioOverwriteAnki(fields=["Expression", "Combined", "WordAudio"])
-    profile = _profile(
+    fields = ["Expression", "Combined", "WordAudio"]
+    fake_anki = FakeAnki(
+        fields=fields,
+        responses=duplicate_responses(
+            {
+                "Expression": "食べる",
+                "Combined": "old combined",
+                "WordAudio": "[sound:existing.mp3]",
+            },
+            addNote=AssertionError("a duplicate note must be updated, not added"),
+        ),
+    )
+    profile = make_mining_profile(
         duplicateBehavior="overwrite",
-        fieldTemplates={
-            "Expression": {
-                "value": "{expression}",
-                "overwriteMode": "coalesce",
-            },
-            "Combined": {
-                "value": "{definition}<br>{audio}",
-                "overwriteMode": overwrite_mode,
-            },
-            "WordAudio": {
-                "value": "{audio}",
-                "overwriteMode": "overwrite",
-            },
-        },
+        fieldTemplates=make_field_templates(
+            {
+                "Expression": "{expression}",
+                "Combined": ("{definition}<br>{audio}", overwrite_mode),
+                "WordAudio": ("{audio}", "overwrite"),
+            }
+        ),
     )
-    audio_profile = hoshidicts_audio.default_hoshidicts_audio_profile()
-    audio_profile["enabled"] = audio_state != "disabled"
-    audio_error = (
-        hoshidicts_audio.HoshidictsAudioError("No pronunciation audio is available.", 404)
-        if audio_state == "unavailable"
-        else None
-    )
-    _wire_audio(
+    wire_audio(
         monkeypatch,
         fake_anki,
         mining_profile=profile,
-        audio_profile=audio_profile,
-        error=audio_error,
+        audio_profile=make_audio_profile(enabled=audio_state != "disabled"),
+        error=(
+            hoshidicts_audio_profile.HoshidictsAudioError("No pronunciation audio is available.", 404)
+            if audio_state == "unavailable"
+            else None
+        ),
     )
 
-    result = hoshidicts_mining.mine_hoshidicts_note(_payload())
+    result = hoshidicts_mining.mine_hoshidicts_note(make_payload())
 
-    updates = [kwargs["note"] for action, kwargs in fake_anki.calls if action == "updateNoteFields"]
+    updates = fake_anki.notes_for("updateNoteFields")
     initial_combined = updates[0]["fields"]["Combined"]
     assert "to eat" in initial_combined
     assert not initial_combined.endswith("<br>")
@@ -3307,67 +2550,9 @@ def test_duplicate_overwrite_keeps_compound_content_when_audio_cannot_be_added(
         assert len(updates) == 1
 
 
-def test_duplicate_check_falls_back_to_paired_can_add_notes_for_older_ankiconnect(monkeypatch):
-    class LegacyAnki(FakeAnki):
-        def invoke(self, action, **kwargs):
-            if action == "canAddNotesWithErrorDetail":
-                self.calls.append((action, kwargs))
-                raise RuntimeError("unsupported action")
-            if action == "canAddNotes":
-                self.calls.append((action, kwargs))
-                allow_duplicate = kwargs["notes"][0]["options"]["allowDuplicate"]
-                return [True] if allow_duplicate else [False]
-            return super().invoke(action, **kwargs)
-
-    fake_anki = LegacyAnki()
-    _wire(monkeypatch, fake_anki)
-
-    result = hoshidicts_mining.check_hoshidicts_notes({"notes": [_payload()]})
-
-    assert result["results"] == [{"state": "duplicate", "canAdd": False, "duplicate": True}]
-    can_add_calls = [
-        kwargs["notes"][0]["options"]["allowDuplicate"] for action, kwargs in fake_anki.calls if action == "canAddNotes"
-    ]
-    assert can_add_calls == [True, False]
-
-
-def test_duplicate_check_does_not_hide_non_compatibility_errors(monkeypatch):
-    class BrokenAnki(FakeAnki):
-        def invoke(self, action, **kwargs):
-            if action == "canAddNotesWithErrorDetail":
-                self.calls.append((action, kwargs))
-                raise RuntimeError("collection is unavailable")
-            return super().invoke(action, **kwargs)
-
-    fake_anki = BrokenAnki()
-    _wire(monkeypatch, fake_anki)
-
-    with pytest.raises(RuntimeError, match="collection is unavailable"):
-        hoshidicts_mining.check_hoshidicts_notes({"notes": [_payload()]})
-
-    assert not any(action == "canAddNotes" for action, _kwargs in fake_anki.calls)
-
-
-def test_duplicate_check_accepts_more_than_the_legacy_sixteen_note_limit(monkeypatch):
-    fake_anki = FakeAnki()
-    _wire(monkeypatch, fake_anki, _profile(checkForDuplicates=False))
-
-    result = hoshidicts_mining.check_hoshidicts_notes({"notes": [_payload()] * 33})
-
-    assert result["success"] is True
-    assert len(result["results"]) == 33
-
-
 def test_browse_hoshidicts_word_opens_broad_literal_anki_search(monkeypatch):
-    class BrowseAnki(FakeAnki):
-        def invoke(self, action, **kwargs):
-            if action == "guiBrowse":
-                self.calls.append((action, kwargs))
-                return [101, 202]
-            return super().invoke(action, **kwargs)
-
-    fake_anki = BrowseAnki()
-    _wire(monkeypatch, fake_anki)
+    fake_anki = FakeAnki(responses={"guiBrowse": [101, 202]})
+    wire(monkeypatch, fake_anki)
 
     result = hoshidicts_mining.browse_hoshidicts_word({"word": 'word" OR deck:*_\\:<&>'})
 
@@ -3397,7 +2582,7 @@ def test_browse_hoshidicts_word_opens_broad_literal_anki_search(monkeypatch):
 )
 def test_browse_hoshidicts_word_rejects_invalid_words(monkeypatch, payload):
     fake_anki = FakeAnki()
-    _wire(monkeypatch, fake_anki)
+    wire(monkeypatch, fake_anki)
 
     with pytest.raises(hoshidicts_mining.HoshidictsMiningError):
         hoshidicts_mining.browse_hoshidicts_word(payload)
@@ -3407,10 +2592,7 @@ def test_browse_hoshidicts_word_rejects_invalid_words(monkeypatch, payload):
 
 def test_browse_hoshidicts_word_requires_enabled_anki_integration(monkeypatch):
     fake_anki = FakeAnki()
-    config = _config()
-    config.anki.enabled = False
-    monkeypatch.setattr(hoshidicts_mining, "get_config", lambda: config)
-    monkeypatch.setattr(hoshidicts_mining, "_get_anki_module", lambda: fake_anki)
+    wire(monkeypatch, fake_anki, config=make_config(enabled=False))
 
     with pytest.raises(
         hoshidicts_mining.HoshidictsMiningError,
@@ -3423,14 +2605,7 @@ def test_browse_hoshidicts_word_requires_enabled_anki_integration(monkeypatch):
 
 
 def test_browse_hoshidicts_word_reports_anki_connect_failures(monkeypatch):
-    class OfflineAnki(FakeAnki):
-        def invoke(self, action, **kwargs):
-            if action == "guiBrowse":
-                raise RuntimeError("AnkiConnect is offline")
-            return super().invoke(action, **kwargs)
-
-    fake_anki = OfflineAnki()
-    _wire(monkeypatch, fake_anki)
+    wire(monkeypatch, FakeAnki(responses={"guiBrowse": RuntimeError("AnkiConnect is offline")}))
 
     with pytest.raises(
         hoshidicts_mining.HoshidictsMiningError,
@@ -3445,11 +2620,7 @@ def test_hoshidicts_routes_expose_status_and_mining_errors(monkeypatch):
     app = Flask(__name__)
     hoshidicts_api.register_hoshidicts_api_routes(app)
     option_models = []
-    monkeypatch.setattr(
-        hoshidicts_api,
-        "get_hoshidicts_mining_status",
-        lambda: {"available": True},
-    )
+    monkeypatch.setattr(hoshidicts_api, "get_hoshidicts_mining_status", lambda: {"available": True})
 
     def mining_options(model=None):
         option_models.append(model)
@@ -3458,11 +2629,7 @@ def test_hoshidicts_routes_expose_status_and_mining_errors(monkeypatch):
             "selectedNoteType": "Mining" if model is None else model,
         }
 
-    monkeypatch.setattr(
-        hoshidicts_api,
-        "get_hoshidicts_mining_options",
-        mining_options,
-    )
+    monkeypatch.setattr(hoshidicts_api, "get_hoshidicts_mining_options", mining_options)
     mining_calls = []
 
     def mine(payload):
@@ -3504,10 +2671,7 @@ def test_hoshidicts_routes_expose_status_and_mining_errors(monkeypatch):
         "results": [],
         "payload": {"notes": []},
     }
-    response = client.post(
-        "/api/hoshidicts/mining/browse",
-        json={"word": "食べる"},
-    )
+    response = client.post("/api/hoshidicts/mining/browse", json={"word": "食べる"})
     assert response.status_code == 200
     assert response.get_json() == {"success": True}
     assert browse_calls == [{"word": "食べる"}]
