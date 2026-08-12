@@ -9,6 +9,7 @@ import Assembler from 'stream-json/assembler.js';
 import type { Token } from 'stream-json/parser.js';
 
 import {
+    DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
     HOSHIDICTS_AUDIO_SOURCE_TYPES,
     HOSHIDICTS_DUPLICATE_BEHAVIORS,
     HOSHIDICTS_DUPLICATE_SCOPES,
@@ -925,6 +926,9 @@ function currentReaderPreferences(current: HoshidictsManagerSnapshot): Hoshidict
         popupColumns: current.popupColumns,
         theme: current.theme,
         popupOpacityPercent: current.popupOpacityPercent,
+        popupBackdropBlurPx:
+            current.popupBackdropBlurPx ??
+            DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
         popupToolbarPosition: current.popupToolbarPosition,
         popupButtons: {
             ...current.popupButtons,

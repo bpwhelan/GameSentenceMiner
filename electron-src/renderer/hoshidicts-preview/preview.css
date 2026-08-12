@@ -14,7 +14,6 @@ body {
 
 body {
   background:
-    linear-gradient(rgb(8 11 15 / 8%), rgb(8 11 15 / 16%)),
     url("./preview-background.webp") center / cover no-repeat,
     #101318;
 }
