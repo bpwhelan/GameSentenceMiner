@@ -57,6 +57,7 @@ from GameSentenceMiner.hoshidicts_mining_note import (
     plain_definition_html,
     single_frequency_html,
     single_frequency_number_text,
+    split_sentence_match,
     validate_hoshidicts_mining_request,
 )
 from GameSentenceMiner.util.config.configuration import get_app_directory, get_config
@@ -686,12 +687,7 @@ _ANKI_FURIGANA_SEGMENT_PATTERN = re.compile(r"([^\s<>\[\]]+)\[([^\[\]<>]+)\]")
 
 
 def _raw_highlight_sentence_match(request: dict[str, Any]) -> str:
-    encoded = request["sentence"].encode("utf-16-le")
-    start = request["matchOffset"] * 2
-    end = start + len(request["matched"].encode("utf-16-le"))
-    prefix = encoded[:start].decode("utf-16-le")
-    highlighted = encoded[start:end].decode("utf-16-le")
-    suffix = encoded[end:].decode("utf-16-le")
+    prefix, highlighted, suffix = split_sentence_match(request)
     return f"{prefix}{_FURIGANA_HIGHLIGHT_OPEN}{highlighted}{_FURIGANA_HIGHLIGHT_CLOSE}{suffix}"
 
 
