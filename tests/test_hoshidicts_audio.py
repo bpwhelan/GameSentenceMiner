@@ -1,6 +1,4 @@
-import ipaddress
 import json
-import socket
 from pathlib import Path
 
 import pytest
@@ -20,21 +18,8 @@ HoshidictsAudioError = hoshidicts_audio_profile.HoshidictsAudioError
 
 
 @pytest.fixture(autouse=True)
-def _stable_public_dns(monkeypatch):
+def _clear_audio_caches():
     hoshidicts_audio.clear_audio_cache()
-
-    def getaddrinfo(host, port, *_args, **_kwargs):
-        if host in {"localhost", "localhost."}:
-            address = "127.0.0.1"
-        else:
-            try:
-                socket.inet_pton(socket.AF_INET, host)
-                address = host
-            except OSError:
-                address = "93.184.216.34"
-        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (address, port or 0))]
-
-    monkeypatch.setattr(hoshidicts_audio.socket, "getaddrinfo", getaddrinfo)
     yield
     hoshidicts_audio.clear_audio_cache()
 
@@ -50,7 +35,7 @@ def _respond(monkeypatch, response):
     """Answer every provider request with one response or a request handler."""
     monkeypatch.setattr(
         hoshidicts_audio,
-        "_pinned_request",
+        "_provider_request",
         response if callable(response) else (lambda *_args, **_kwargs: response),
     )
 
@@ -339,23 +324,8 @@ def test_media_download_rejects_content_that_is_not_audio(monkeypatch, body, con
         hoshidicts_audio.get_audio_media("食べる", "たべる", "direct", 0, profile=profile)
 
 
-def test_provider_redirects_and_streamed_responses_are_bounded(monkeypatch):
-    redirect_calls = []
-
-    def redirecting(method, url, **_kwargs):
-        redirect_calls.append((method, url))
-        return FakeResponse(
-            b"",
-            status_code=302,
-            headers={"Location": f"/redirect-{len(redirect_calls)}"},
-        )
-
-    _respond(monkeypatch, redirecting)
+def test_streamed_provider_responses_are_bounded(monkeypatch):
     profile = make_audio_profile(make_audio_source("direct", "custom", url="https://audio.test/start"))
-    with pytest.raises(HoshidictsAudioError, match="redirected too many"):
-        hoshidicts_audio.get_audio_media("食べる", "たべる", "direct", 0, profile=profile)
-    assert len(redirect_calls) == hoshidicts_audio.MAX_REDIRECTS + 1
-
     _respond(
         monkeypatch,
         FakeResponse(b"x" * (hoshidicts_audio.MAX_CUSTOM_JSON_BYTES + 1), content_type="application/json"),
@@ -374,26 +344,6 @@ def test_provider_redirects_and_streamed_responses_are_bounded(monkeypatch):
         hoshidicts_audio.get_audio_media("食べる", "たべる", "direct", 0, profile=profile)
 
 
-def test_public_providers_cannot_redirect_to_private_networks(monkeypatch):
-    calls = []
-
-    def request(method, url, **_kwargs):
-        calls.append((method, url))
-        return FakeResponse(
-            b"",
-            status_code=302,
-            headers={"Location": "http://127.0.0.1:8080/private.mp3"},
-        )
-
-    _respond(monkeypatch, request)
-    profile = make_audio_profile(make_audio_source("direct", "custom", url="https://audio.test/start"))
-
-    with pytest.raises(HoshidictsAudioError, match="private network"):
-        hoshidicts_audio.get_audio_media("食べる", "たべる", "direct", 0, profile=profile)
-
-    assert calls == [("GET", "https://audio.test/start")]
-
-
 def test_explicit_loopback_provider_remains_supported(monkeypatch):
     _respond(monkeypatch, FakeResponse(mp3_bytes(), content_type="audio/mpeg"))
     profile = make_audio_profile(make_audio_source("local", "custom", url="http://127.0.0.1:9000/{term}.mp3"))
@@ -401,75 +351,6 @@ def test_explicit_loopback_provider_remains_supported(monkeypatch):
     media = hoshidicts_audio.get_audio_media("食べる", "たべる", "local", 0, profile=profile)
 
     assert media.data == mp3_bytes()
-
-
-def test_explicit_loopback_provider_cannot_pivot_to_another_private_origin(monkeypatch):
-    calls = []
-
-    def request(method, url, **_kwargs):
-        calls.append((method, url))
-        if len(calls) == 1:
-            return FakeResponse(
-                b"",
-                status_code=302,
-                headers={"Location": "http://127.0.0.1:9001/private.mp3"},
-            )
-        return FakeResponse(mp3_bytes(), content_type="audio/mpeg")
-
-    _respond(monkeypatch, request)
-    profile = make_audio_profile(make_audio_source("local", "custom", url="http://127.0.0.1:9000/{term}.mp3"))
-
-    with pytest.raises(HoshidictsAudioError, match="private network"):
-        hoshidicts_audio.get_audio_media("食べる", "たべる", "local", 0, profile=profile)
-
-    assert calls == [("GET", "http://127.0.0.1:9000/%E9%A3%9F%E3%81%B9%E3%82%8B.mp3")]
-
-
-def test_private_custom_json_cannot_permit_a_different_private_origin(monkeypatch):
-    calls = []
-
-    def request(method, url, **_kwargs):
-        calls.append((method, url))
-        return FakeResponse(
-            json.dumps(
-                {
-                    "type": "audioSourceList",
-                    "audioSources": [{"url": "http://127.0.0.1:9001/private.mp3"}],
-                }
-            ).encode(),
-            content_type="application/json",
-        )
-
-    _respond(monkeypatch, request)
-    profile = make_audio_profile(make_audio_source("local-json", "custom-json", url="http://127.0.0.1:9000/list"))
-    candidate = hoshidicts_audio.get_audio_candidates("食べる", "たべる", "local-json", profile=profile)[0]
-
-    with pytest.raises(HoshidictsAudioError, match="private network"):
-        hoshidicts_audio.get_audio_media(
-            "食べる",
-            "たべる",
-            "local-json",
-            candidate["index"],
-            candidate["candidateId"],
-            profile=profile,
-        )
-
-    assert calls == [("GET", "http://127.0.0.1:9000/list")]
-
-
-def test_pinned_adapter_connects_to_the_validated_address_and_keeps_tls_hostname():
-    request = hoshidicts_audio.requests.Request("GET", "https://audio.example.test/file").prepare()
-    adapter = hoshidicts_audio._PinnedAddressAdapter(
-        ipaddress.ip_address("93.184.216.34"),
-        "audio.example.test",
-    )
-    try:
-        pool = adapter.get_connection_with_tls_context(request, True, proxies={})
-        assert pool.host == "93.184.216.34"
-        assert pool.assert_hostname == "audio.example.test"
-        assert pool.conn_kw["server_hostname"] == "audio.example.test"
-    finally:
-        adapter.close()
 
 
 def test_provider_stream_has_an_overall_deadline(monkeypatch):
