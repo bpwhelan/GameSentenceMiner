@@ -1483,4 +1483,74 @@ describe('parseYomitanDictionaryBackup', () => {
         expect(prepared.settings?.profileName).toBe('Imported');
         await prepared.cleanup();
     });
+
+    it('tolerates a byte-order mark on a settings backup', async () => {
+        const root = fs.mkdtempSync(
+            path.join(os.tmpdir(), 'gsm-yomitan-settings-bom-')
+        );
+        tempDirs.push(root);
+        const inputPath = path.join(root, 'settings.json');
+        fs.writeFileSync(
+            inputPath,
+            `﻿${JSON.stringify({
+                version: 0,
+                options: {
+                    profileCurrent: 0,
+                    profiles: [{ name: 'Imported', options: { dictionaries: [] } }],
+                },
+            })}`
+        );
+
+        const prepared = await prepareYomitanSettingsBackup(
+            inputPath,
+            currentState()
+        );
+
+        expect(prepared.settings?.profileName).toBe('Imported');
+        await prepared.cleanup();
+    });
+
+    // The path is a file the user picked from a dialog, so it can be anything.
+    it.each([
+        ['is not JSON', 'not a backup', 'is not a Yomitan settings backup'],
+        ['is empty', '', 'is empty'],
+    ])('rejects a settings backup that %s', async (_case, contents, message) => {
+        const root = fs.mkdtempSync(
+            path.join(os.tmpdir(), 'gsm-yomitan-settings-invalid-')
+        );
+        tempDirs.push(root);
+        const inputPath = path.join(root, 'settings.json');
+        fs.writeFileSync(inputPath, contents);
+
+        await expect(
+            prepareYomitanSettingsBackup(inputPath, currentState())
+        ).rejects.toThrow(message);
+    });
+
+    it('rejects a settings backup larger than its size limit without reading it', async () => {
+        const root = fs.mkdtempSync(
+            path.join(os.tmpdir(), 'gsm-yomitan-settings-large-')
+        );
+        tempDirs.push(root);
+        const inputPath = path.join(root, 'settings.json');
+        // Sparse, so the test does not actually write 16 MiB.
+        const handle = fs.openSync(inputPath, 'w');
+        fs.ftruncateSync(handle, 16 * 1024 * 1024 + 1);
+        fs.closeSync(handle);
+
+        await expect(
+            prepareYomitanSettingsBackup(inputPath, currentState())
+        ).rejects.toThrow('too large to be a Yomitan settings backup');
+    });
+
+    it('rejects a directory chosen as a settings backup', async () => {
+        const root = fs.mkdtempSync(
+            path.join(os.tmpdir(), 'gsm-yomitan-settings-dir-')
+        );
+        tempDirs.push(root);
+
+        await expect(
+            prepareYomitanSettingsBackup(root, currentState())
+        ).rejects.toThrow('is empty');
+    });
 });
