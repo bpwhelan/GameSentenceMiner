@@ -122,17 +122,16 @@ struct HdGlossaryEntry {
 
 #[derive(Clone, Copy)]
 #[repr(C)]
-struct HdFrequencyV2 {
-    value: f64,
+struct HdFrequency {
+    value: i32,
     display_value: HdStr,
-    display_value_is_null: c_int,
 }
 
 #[derive(Clone, Copy)]
 #[repr(C)]
-struct HdFrequencyEntryV2 {
+struct HdFrequencyEntry {
     dict_name: HdStr,
-    frequencies: *const HdFrequencyV2,
+    frequencies: *const HdFrequency,
     frequencies_count: usize,
 }
 
@@ -159,14 +158,14 @@ struct HdPitchEntry {
 
 #[derive(Clone, Copy)]
 #[repr(C)]
-struct HdTermResultV2 {
+struct HdTermResult {
     expression: HdStr,
     reading: HdStr,
     rules: HdStr,
     score: i32,
     glossaries: *const HdGlossaryEntry,
     glossaries_count: usize,
-    frequencies: *const HdFrequencyEntryV2,
+    frequencies: *const HdFrequencyEntry,
     frequencies_count: usize,
     pitches: *const HdPitchEntry,
     pitches_count: usize,
@@ -181,18 +180,18 @@ struct HdTransformGroup {
 
 #[derive(Clone, Copy)]
 #[repr(C)]
-struct HdLookupResultV2 {
+struct HdLookupResult {
     matched: HdStr,
     deinflected: HdStr,
     trace: *const HdTransformGroup,
     trace_count: usize,
-    term: HdTermResultV2,
+    term: HdTermResult,
     preprocessor_steps: i32,
 }
 
 #[derive(Clone, Copy)]
 #[repr(C)]
-struct HdLookupOptionsV3 {
+struct HdLookupOptions {
     primary_reading: HdStr,
     frequency_dictionary: HdStr,
     frequency_order: i32,
@@ -269,13 +268,13 @@ extern "C" {
 
     fn hd_lookup_new(query: *mut HdQuery, deinflector: *mut HdDeinflector) -> *mut HdLookup;
     fn hd_lookup_free(lookup: *mut HdLookup);
-    fn hd_lookup_run_v3(
+    fn hd_lookup_run_with_options(
         lookup: *const HdLookup,
         lookup_string: *const c_char,
         max_results: c_int,
         scan_length: usize,
-        options: *const HdLookupOptionsV3,
-        out_results: *mut *const HdLookupResultV2,
+        options: *const HdLookupOptions,
+        out_results: *mut *const HdLookupResult,
         out_count: *mut usize,
     ) -> *mut HdLookupResults;
     fn hd_lookup_results_free(results: *mut HdLookupResults);
@@ -412,8 +411,8 @@ struct LookupGlossary {
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 struct LookupFrequency {
-    value: f64,
-    display_value: Option<String>,
+    value: i32,
+    display_value: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -1318,7 +1317,7 @@ impl NativeEngine {
                 LookupFrequencySortOrder::Descending => HD_LOOKUP_FREQUENCY_ORDER_DESCENDING,
             }
         };
-        let native_options = HdLookupOptionsV3 {
+        let native_options = HdLookupOptions {
             primary_reading: optional_hd_string(options.primary_reading.as_deref()),
             frequency_dictionary: optional_hd_string(options.sort_frequency_dictionary.as_deref()),
             frequency_order,
@@ -1326,7 +1325,7 @@ impl NativeEngine {
         let mut result_pointer = ptr::null();
         let mut result_count = 0usize;
         let owned_results = unsafe {
-            hd_lookup_run_v3(
+            hd_lookup_run_with_options(
                 self.lookup,
                 lookup_text.as_ptr(),
                 options.max_results,
@@ -1727,7 +1726,7 @@ unsafe fn copy_hd_string_bounded_with_limit(
 }
 
 unsafe fn copy_frequency_entries(
-    pointer: *const HdFrequencyEntryV2,
+    pointer: *const HdFrequencyEntry,
     count: usize,
     budget: &mut NativeCopyBudget,
 ) -> Result<Vec<LookupFrequencyEntry>, String> {
@@ -1741,20 +1740,13 @@ unsafe fn copy_frequency_entries(
             )?
             .iter()
             .map(|frequency| {
-                if !frequency.value.is_finite() {
-                    return Err("native frequency value was not finite".into());
-                }
                 Ok(LookupFrequency {
                     value: frequency.value,
-                    display_value: if frequency.display_value_is_null != 0 {
-                        None
-                    } else {
-                        Some(copy_hd_string_bounded(
-                            frequency.display_value,
-                            "frequency display value",
-                            budget,
-                        )?)
-                    },
+                    display_value: copy_hd_string_bounded(
+                        frequency.display_value,
+                        "frequency display value",
+                        budget,
+                    )?,
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
@@ -3331,7 +3323,7 @@ mod tests {
                 ),
                 (
                     "term_meta_bank_1.json",
-                    r#"[["食べる","freq",{"reading":"たべる","frequency":{"value":123.5,"displayValue":"123.5 ★"}}],["食べる","pitch",{"reading":"たべる","pitches":[{"position":2,"nasal":[1],"devoice":[2]}]}]]"#
+                    r#"[["食べる","freq",{"reading":"たべる","frequency":{"value":123,"displayValue":"123 ★"}}],["食べる","pitch",{"reading":"たべる","pitches":[{"position":2,"nasal":[1],"devoice":[2]}]}]]"#
                         .into(),
                 ),
                 ("img/test.png", TEST_PNG.to_vec()),
@@ -3354,7 +3346,7 @@ mod tests {
                 ),
                 (
                     "term_meta_bank_1.json",
-                    r#"[["食べる","freq",{"reading":"たべる","frequency":"22.5 rank"}]]"#,
+                    r#"[["食べる","freq",{"reading":"たべる","frequency":{"value":22,"displayValue":"22 rank"}}]]"#,
                 ),
             ],
         );
@@ -3649,20 +3641,20 @@ mod tests {
     }
 
     #[test]
-    fn frequency_v2_preserves_fractional_values_and_nullable_display_values() {
+    fn frequencies_copy_values_and_display_values_verbatim() {
+        // Native display values are always present; an archive that omits one
+        // gets it synthesised from the numeric value during import.
         let values = [
-            HdFrequencyV2 {
-                value: 12.5,
-                display_value: hd_null_str(),
-                display_value_is_null: 1,
+            HdFrequency {
+                value: 1,
+                display_value: hd_str("1㋕".as_bytes()),
             },
-            HdFrequencyV2 {
-                value: 7.25,
-                display_value: hd_null_str(),
-                display_value_is_null: 0,
+            HdFrequency {
+                value: 7,
+                display_value: hd_str(b""),
             },
         ];
-        let entries = [HdFrequencyEntryV2 {
+        let entries = [HdFrequencyEntry {
             dict_name: hd_str(b"Frequency Test"),
             frequencies: values.as_ptr(),
             frequencies_count: values.len(),
@@ -3682,44 +3674,21 @@ mod tests {
                 dictionary: "Frequency Test".into(),
                 frequencies: vec![
                     LookupFrequency {
-                        value: 12.5,
-                        display_value: None,
+                        value: 1,
+                        display_value: "1㋕".into(),
                     },
                     LookupFrequency {
-                        value: 7.25,
-                        display_value: Some(String::new()),
+                        value: 7,
+                        display_value: String::new(),
                     },
                 ],
             }]
         );
 
         let json = serde_json::to_value(&copied).expect("serialize frequencies");
-        assert!(json[0]["frequencies"][0]["displayValue"].is_null());
+        assert_eq!(json[0]["frequencies"][0]["displayValue"], "1㋕");
+        assert_eq!(json[0]["frequencies"][0]["value"], 1);
         assert_eq!(json[0]["frequencies"][1]["displayValue"], "");
-    }
-
-    #[test]
-    fn frequency_v2_rejects_non_finite_values() {
-        let values = [HdFrequencyV2 {
-            value: f64::NAN,
-            display_value: hd_null_str(),
-            display_value_is_null: 1,
-        }];
-        let entries = [HdFrequencyEntryV2 {
-            dict_name: hd_null_str(),
-            frequencies: values.as_ptr(),
-            frequencies_count: values.len(),
-        }];
-
-        assert!(unsafe {
-            copy_frequency_entries(
-                entries.as_ptr(),
-                entries.len(),
-                &mut NativeCopyBudget::new(),
-            )
-        }
-        .expect_err("non-finite value must fail")
-        .contains("not finite"));
     }
 
     #[test]
@@ -4177,15 +4146,15 @@ mod tests {
                 LookupFrequencyEntry {
                     dictionary: "Test Dictionary".into(),
                     frequencies: vec![LookupFrequency {
-                        value: 123.5,
-                        display_value: Some("123.5 ★".into()),
+                        value: 123,
+                        display_value: "123 ★".into(),
                     }],
                 },
                 LookupFrequencyEntry {
                     dictionary: "Standalone Frequency".into(),
                     frequencies: vec![LookupFrequency {
-                        value: 22.5,
-                        display_value: Some("22.5 rank".into()),
+                        value: 22,
+                        display_value: "22 rank".into(),
                     }],
                 }
             ]
