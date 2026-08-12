@@ -4,7 +4,6 @@ import {
     ipcMain,
     type IpcMainInvokeEvent,
     type OpenDialogOptions,
-    type SaveDialogOptions,
 } from 'electron';
 
 import type { OverlayRuntimeState } from '../../ui/front.js';
@@ -47,16 +46,9 @@ import {
     type HoshidictsRenameDictionaryRequest,
     type HoshidictsRecommendedDictionaryId,
     type HoshidictsSchedule,
-    type HoshidictsYomitanImportProgress,
-    type HoshidictsYomitanImportReport,
 } from '../../../shared/features/hoshidicts.js';
 import { getHoshidictsManager, type HoshidictsManager } from './manager.js';
 import { fetchHoshidictsAudioSourceTest } from './audio_source_test.js';
-import {
-    prepareYomitanDictionaryBackup,
-    prepareYomitanSettingsBackup,
-    type YomitanPreparedDictionary,
-} from './yomitan_backup.js';
 
 export interface HoshidictsIPCDependencies {
     getMainWindow: () => BrowserWindow | null;
@@ -81,8 +73,8 @@ export interface HoshidictsIPCDependencies {
  * call the manager, optionally push the result to a running reader, and report
  * one outcome. Describing them in a table keeps that boilerplate out of the
  * eighteen handlers that used to repeat it. Handlers with their own
- * requirements — file selection, streamed import, backup export and
- * restoration, progress reporting, audio source tests — stay handwritten below.
+ * requirements, such as file selection and audio source tests, stay
+ * handwritten below.
  */
 interface HoshidictsManagerAction {
     /** Message returned when the request is malformed; omit if it cannot be. */
@@ -131,7 +123,7 @@ function hoshidictsManagerActions(
                 typeof request.id === 'string',
             run: async (request: HoshidictsProfileIdRequest, deps) => {
                 const state = await manager.switchProfile(request.id);
-                await applyRestoredSnapshot(
+                await applyReaderAndAudioSnapshot(
                     state,
                     deps,
                     'The profile was switched, but its settings could not be applied to the running overlay. Restart the overlay to use the selected profile.'
@@ -157,7 +149,7 @@ function hoshidictsManagerActions(
                 const before = await manager.getSnapshot();
                 const state = await manager.deleteProfile(request.id);
                 if (before.activeProfileId === request.id) {
-                    await applyRestoredSnapshot(
+                    await applyReaderAndAudioSnapshot(
                         state,
                         deps,
                         'The profile was deleted, but the replacement profile could not be applied to the running overlay. Restart the overlay to use it.'
@@ -352,19 +344,6 @@ function registerHoshidictsManagerActions(
 
 let ipcRegistered = false;
 
-function sendYomitanImportProgress(
-    deps: HoshidictsIPCDependencies,
-    progress: HoshidictsYomitanImportProgress | null
-): void {
-    const window = deps.getSettingsWindow();
-    if (window && !window.isDestroyed()) {
-        window.webContents.send(
-            HOSHIDICTS_CHANNELS.yomitanImportProgress,
-            progress
-        );
-    }
-}
-
 function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
 }
@@ -421,11 +400,10 @@ async function applyReaderSnapshot(
     }
 }
 
-async function applyRestoredSnapshot(
+async function applyReaderAndAudioSnapshot(
     snapshot: HoshidictsManagerSnapshot,
     deps: HoshidictsIPCDependencies,
-    failureMessage =
-        'Backup was restored, but its settings could not be applied to the running overlay. Restart the overlay to use the restored settings.'
+    failureMessage: string
 ): Promise<void> {
     let readerApplied = false;
     let audioApplied = false;
@@ -458,14 +436,6 @@ async function applyRestoredSnapshot(
     if (!restarted) {
         throw new Error(failureMessage);
     }
-}
-
-function backupDefaultFileName(now = new Date()): string {
-    const timestamp = now
-        .toISOString()
-        .replace(/\.\d{3}Z$/u, '')
-        .replace(/:/gu, '-');
-    return `hoshidicts-backup-${timestamp}.zip`;
 }
 
 function isRecommendedDictionaryId(
@@ -655,267 +625,6 @@ export function registerHoshidictsIPC(
             },
             { code: 'dictionaryImported', count: result.filePaths.length }
         );
-    });
-
-    ipcMain.handle(HOSHIDICTS_CHANNELS.importYomitanDictionaries, async (event) => {
-        const settingsWindow = assertSettingsSender(event, deps);
-        const options: OpenDialogOptions = {
-            title: 'Import Dictionaries from Yomitan',
-            properties: ['openFile'],
-            filters: [{ name: 'Yomitan Dictionary Backup', extensions: ['json'] }],
-        };
-        const result = await dialog.showOpenDialog(settingsWindow, options);
-        if (result.canceled || result.filePaths.length === 0) {
-            return await canceledResult(deps);
-        }
-
-        let prepared: Awaited<
-            ReturnType<typeof prepareYomitanDictionaryBackup>
-        > | null = null;
-        try {
-            const before = await manager.getSnapshot();
-            const installedTitles = new Set(
-                before.dictionaries.map((dictionary) => dictionary.title)
-            );
-            const report: HoshidictsYomitanImportReport = {
-                imported: 0,
-                replaced: 0,
-                failed: 0,
-                settings: [],
-                warnings: [],
-            };
-            let state = before;
-            const importPreparedDictionary = async (
-                dictionary: YomitanPreparedDictionary
-            ): Promise<void> => {
-                sendYomitanImportProgress(deps, {
-                    phase: 'importing',
-                    current: dictionary.current,
-                    total: dictionary.total,
-                    title: dictionary.title,
-                });
-                try {
-                    state = await manager.importDictionary(
-                        dictionary.archivePath
-                    );
-                    if (installedTitles.has(dictionary.title)) {
-                        report.replaced += 1;
-                    } else {
-                        report.imported += 1;
-                        installedTitles.add(dictionary.title);
-                    }
-                } catch (error) {
-                    report.failed += 1;
-                    report.warnings.push(
-                        `${dictionary.title}: ${errorMessage(error)}`
-                    );
-                }
-            };
-            prepared = await prepareYomitanDictionaryBackup(
-                result.filePaths[0],
-                ({ current, total, title }) =>
-                    sendYomitanImportProgress(deps, {
-                        phase: 'preparing',
-                        current,
-                        total,
-                        title,
-                    }),
-                importPreparedDictionary,
-                (progress) =>
-                    sendYomitanImportProgress(deps, {
-                        phase: 'reading',
-                        ...progress,
-                    })
-            );
-            for (
-                let index = 0;
-                index < prepared.dictionaries.length;
-                index += 1
-            ) {
-                const dictionary = prepared.dictionaries[index];
-                await importPreparedDictionary({
-                    ...dictionary,
-                    current: index + 1,
-                    total: prepared.dictionaries.length,
-                });
-            }
-
-            await applyReaderSnapshot(state, deps);
-            if (report.imported + report.replaced === 0) {
-                throw new Error(
-                    report.warnings[0] ||
-                        'The Yomitan backup did not contain dictionaries to import.'
-                );
-            }
-            return {
-                success: true,
-                outcome: {
-                    code: 'yomitanDictionariesImported',
-                    count: report.imported + report.replaced,
-                },
-                yomitanReport: report,
-                state: withDesktopState(state, deps),
-            } satisfies HoshidictsActionResult;
-        } catch (error) {
-            return await failedResult(deps, errorMessage(error));
-        } finally {
-            try {
-                await prepared?.cleanup();
-            } finally {
-                sendYomitanImportProgress(deps, null);
-            }
-        }
-    });
-
-    ipcMain.handle(HOSHIDICTS_CHANNELS.importYomitanSettings, async (event) => {
-        const settingsWindow = assertSettingsSender(event, deps);
-        const options: OpenDialogOptions = {
-            title: 'Import Settings from Yomitan',
-            properties: ['openFile'],
-            filters: [{ name: 'Yomitan Settings Backup', extensions: ['json'] }],
-        };
-        const result = await dialog.showOpenDialog(settingsWindow, options);
-        if (result.canceled || result.filePaths.length === 0) {
-            return await canceledResult(deps);
-        }
-
-        let prepared: Awaited<ReturnType<typeof prepareYomitanSettingsBackup>> | null = null;
-        try {
-            let state = await manager.getSnapshot();
-            prepared = await prepareYomitanSettingsBackup(result.filePaths[0], state);
-            const settings = prepared.settings;
-            if (!settings || settings.groups.length === 0) {
-                throw new Error('The Yomitan backup did not contain supported settings to import.');
-            }
-            const report: HoshidictsYomitanImportReport = {
-                imported: 0,
-                replaced: 0,
-                failed: 0,
-                settings: settings.groups,
-                warnings: [...settings.warnings],
-            };
-            if (settings.dictionaries.length > 0) {
-                state = await manager.applyYomitanDictionaryPreferences(settings.dictionaries);
-            }
-            if (settings.miningProfile) {
-                state = await manager.setMiningProfile(settings.miningProfile);
-            }
-            if (settings.audioProfile) {
-                state = await manager.setAudioProfile(settings.audioProfile);
-                await deps.applyAudioProfile(state.audioProfile);
-            }
-            if (settings.readerPreferences) {
-                const reader = settings.readerPreferences;
-                const sortFrequencyDictionary =
-                    reader.sortFrequencyDictionary !== null &&
-                    state.dictionaries.some(
-                        (dictionary) =>
-                            dictionary.title ===
-                                reader.sortFrequencyDictionary &&
-                            dictionary.enabled &&
-                            dictionary.frequencyCount > 0
-                    )
-                        ? reader.sortFrequencyDictionary
-                        : null;
-                if (
-                    reader.sortFrequencyDictionary !== null &&
-                    sortFrequencyDictionary === null
-                ) {
-                    report.warnings.push(
-                        `Turned off unavailable frequency sorting dictionary: ${reader.sortFrequencyDictionary}.`
-                    );
-                }
-                state = await manager.setReaderPreferences({
-                    ...reader,
-                    sortFrequencyDictionary,
-                });
-            }
-            await applyReaderSnapshot(state, deps);
-            return {
-                success: true,
-                outcome: {
-                    code: 'yomitanSettingsImported',
-                    count: report.settings.length,
-                },
-                yomitanReport: report,
-                state: withDesktopState(state, deps),
-            } satisfies HoshidictsActionResult;
-        } catch (error) {
-            return await failedResult(deps, errorMessage(error));
-        } finally {
-            await prepared?.cleanup();
-        }
-    });
-
-    ipcMain.handle(HOSHIDICTS_CHANNELS.exportBackup, async (event) => {
-        const settingsWindow = assertSettingsSender(event, deps);
-        const options: SaveDialogOptions = {
-            title: 'Export Hoshidicts Backup',
-            defaultPath: backupDefaultFileName(),
-            filters: [{ name: 'Hoshidicts Backup', extensions: ['zip'] }],
-        };
-        const result = await dialog.showSaveDialog(settingsWindow, options);
-        if (result.canceled || !result.filePath) {
-            return await canceledResult(deps);
-        }
-
-        try {
-            const outputPath = result.filePath.toLowerCase().endsWith('.zip')
-                ? result.filePath
-                : `${result.filePath}.zip`;
-            await manager.exportBackup(outputPath);
-            return {
-                success: true,
-                outcome: { code: 'backupExported' },
-                state: await currentState(deps),
-            } satisfies HoshidictsActionResult;
-        } catch (error) {
-            return await failedResult(deps, errorMessage(error));
-        }
-    });
-
-    ipcMain.handle(HOSHIDICTS_CHANNELS.restoreBackup, async (event) => {
-        const settingsWindow = assertSettingsSender(event, deps);
-        const options: OpenDialogOptions = {
-            title: 'Restore Hoshidicts Backup',
-            properties: ['openFile'],
-            filters: [{ name: 'Hoshidicts Backup', extensions: ['zip'] }],
-        };
-        const result = await dialog.showOpenDialog(settingsWindow, options);
-        if (result.canceled || result.filePaths.length === 0) {
-            return await canceledResult(deps);
-        }
-
-        const confirmationOptions = {
-            type: 'warning' as const,
-            title: 'Restore Hoshidicts Backup',
-            message: 'Replace all Hoshidicts data with this backup?',
-            detail: 'This replaces all installed dictionaries, tab groups, reader settings, mining and audio settings, and the custom dictionary. The restore cannot be undone unless you export the current Hoshidicts data first.',
-            buttons: ['Restore Backup', 'Cancel'],
-            defaultId: 1,
-            cancelId: 1,
-        };
-        const confirmation = settingsWindow
-            ? await dialog.showMessageBox(
-                  settingsWindow,
-                  confirmationOptions
-              )
-            : await dialog.showMessageBox(confirmationOptions);
-        if (confirmation.response !== 0) {
-            return await canceledResult(deps);
-        }
-
-        try {
-            const state = await manager.restoreBackup(result.filePaths[0]);
-            await applyRestoredSnapshot(state, deps);
-            return {
-                success: true,
-                outcome: { code: 'backupRestored' },
-                state: withDesktopState(state, deps),
-            } satisfies HoshidictsActionResult;
-        } catch (error) {
-            return await failedResult(deps, errorMessage(error));
-        }
     });
 
     ipcMain.handle(

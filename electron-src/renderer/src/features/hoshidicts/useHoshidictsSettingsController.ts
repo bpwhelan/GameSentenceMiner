@@ -37,8 +37,7 @@ import {
   type HoshidictsRenameTabGroupRequest,
   type HoshidictsSaveCustomDictionaryRequest,
   type HoshidictsSchedule,
-  type HoshidictsSetTabGroupMembershipRequest,
-  type HoshidictsYomitanImportProgress
+  type HoshidictsSetTabGroupMembershipRequest
 } from "../../../../shared/features/hoshidicts";
 import { useTranslation } from "../../i18n";
 import { invokeIpc, onIpc } from "../../lib/ipc";
@@ -138,12 +137,6 @@ interface DraftSynchronizers {
   mining: SyncDraft<MiningProfileDraft>;
 }
 
-type HoshidictsBackupOperation =
-  | "exporting"
-  | "restoring"
-  | "importingYomitanDictionaries"
-  | "importingYomitanSettings";
-
 export function useHoshidictsSettingsController() {
   const t = useTranslation();
   const [view, setView] = useState<HoshidictsView>("dictionaries");
@@ -175,10 +168,6 @@ export function useHoshidictsSettingsController() {
   const [notice, setNotice] = useState<string | null>(null);
   const [restarting, setRestarting] = useState(false);
   const [profileSwitching, setProfileSwitching] = useState(false);
-  const [backupOperation, setBackupOperation] =
-    useState<HoshidictsBackupOperation | null>(null);
-  const [yomitanImportProgress, setYomitanImportProgress] =
-    useState<HoshidictsYomitanImportProgress | null>(null);
   const draftSynchronizersRef = useRef<DraftSynchronizers | null>(null);
 
   useEffect(() => {
@@ -216,12 +205,7 @@ export function useHoshidictsSettingsController() {
       if (!result.outcome) return null;
       return t(`settings.hoshidicts.outcomes.${result.outcome.code}`, {
         count: result.outcome.count ?? 0,
-        title: result.outcome.title ?? "",
-        dictionaries:
-          (result.yomitanReport?.imported ?? 0) +
-          (result.yomitanReport?.replaced ?? 0),
-        settings: result.yomitanReport?.settings.length ?? 0,
-        warnings: result.yomitanReport?.warnings.length ?? 0
+        title: result.outcome.title ?? ""
       });
     },
     [t]
@@ -426,21 +410,10 @@ export function useHoshidictsSettingsController() {
         if (!disposed) applyState(snapshot);
       }
     );
-    const unsubscribeYomitanImportProgress = onIpc(
-      HOSHIDICTS_CHANNELS.yomitanImportProgress,
-      (_event, progress) => {
-        if (!disposed) {
-          setYomitanImportProgress(
-            progress as HoshidictsYomitanImportProgress | null
-          );
-        }
-      }
-    );
     return () => {
       disposed = true;
       window.removeEventListener("focus", refresh);
       unsubscribe();
-      unsubscribeYomitanImportProgress();
     };
   }, [applyState, loadMiningOptions, t]);
 
@@ -750,60 +723,11 @@ export function useHoshidictsSettingsController() {
           setProfileSwitching(false);
         }
       },
-      exportBackup: async () => {
-        setBackupOperation("exporting");
-        try {
-          return await runAction(
-            () => invokeIpc(HOSHIDICTS_CHANNELS.exportBackup),
-            "settings.hoshidicts.errors.exportBackup"
-          );
-        } finally {
-          setBackupOperation(null);
-        }
-      },
-      restoreBackup: async () => {
-        setBackupOperation("restoring");
-        try {
-          return await runAction(
-            () => invokeIpc(HOSHIDICTS_CHANNELS.restoreBackup),
-            "settings.hoshidicts.errors.restoreBackup",
-            true
-          );
-        } finally {
-          setBackupOperation(null);
-        }
-      },
       importDictionary: () =>
         ipcAction(
           HOSHIDICTS_CHANNELS.importDictionary,
           "settings.hoshidicts.errors.import",
         ),
-      importYomitanDictionaries: async () => {
-        setBackupOperation("importingYomitanDictionaries");
-        setYomitanImportProgress(null);
-        try {
-          return await runAction(
-            () => invokeIpc(HOSHIDICTS_CHANNELS.importYomitanDictionaries),
-            "settings.hoshidicts.errors.importYomitanDictionaries",
-            true
-          );
-        } finally {
-          setYomitanImportProgress(null);
-          setBackupOperation(null);
-        }
-      },
-      importYomitanSettings: async () => {
-        setBackupOperation("importingYomitanSettings");
-        try {
-          return await runAction(
-            () => invokeIpc(HOSHIDICTS_CHANNELS.importYomitanSettings),
-            "settings.hoshidicts.errors.importYomitanSettings",
-            true
-          );
-        } finally {
-          setBackupOperation(null);
-        }
-      },
       checkUpdates: () =>
         ipcAction(
           HOSHIDICTS_CHANNELS.checkUpdates,
@@ -934,39 +858,25 @@ export function useHoshidictsSettingsController() {
     [flushAutosaves, runAction, state?.activeProfileId]
   );
 
-  const dictionaryBusy = state
-    ? backupOperation !== null || isScopedBusy(state, "dictionary")
-    : true;
+  const dictionaryBusy = state ? isScopedBusy(state, "dictionary") : true;
   const preferencesBusy = state
     ? profileSwitching ||
-      backupOperation !== null ||
       isScopedBusy(state, "preferences") ||
       readerSaving
     : true;
   const miningBusy = state
     ? profileSwitching ||
-      backupOperation !== null ||
       isScopedBusy(state, "mining") ||
       miningSaving
     : true;
   const audioBusy = state
     ? profileSwitching ||
-      backupOperation !== null ||
       isScopedBusy(state, "audio") ||
       audioSaving
     : true;
   const customBusy = state
-    ? backupOperation !== null ||
-      isScopedBusy(state, "custom") ||
+    ? isScopedBusy(state, "custom") ||
       customLoading ||
-      customSaving
-    : true;
-  const backupBusy = state
-    ? backupOperation !== null ||
-      state.busy ||
-      readerSaving ||
-      miningSaving ||
-      audioSaving ||
       customSaving
     : true;
 
@@ -1008,9 +918,6 @@ export function useHoshidictsSettingsController() {
     notice,
     restarting,
     profileSwitching,
-    backupOperation,
-    yomitanImportProgress,
-    backupBusy,
     dictionaryBusy,
     preferencesBusy,
     audioBusy,

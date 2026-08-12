@@ -503,45 +503,6 @@
   color: var(--gsm-success-text);
 }
 
-.hoshidicts-backups__status {
-  flex-wrap: wrap;
-  justify-content: flex-start;
-  margin: 14px 0 0;
-}
-
-.hoshidicts-backups__progress {
-  margin-left: auto;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--gsm-text-secondary);
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.hoshidicts-backups__reading-meter {
-  width: 100%;
-  height: 6px;
-  flex: 0 0 100%;
-  overflow: hidden;
-  appearance: none;
-  border: 0;
-  border-radius: 999px;
-  background: var(--gsm-surface-2);
-  accent-color: var(--gsm-accent);
-}
-
-.hoshidicts-backups__reading-meter::-webkit-progress-bar {
-  border-radius: inherit;
-  background: var(--gsm-surface-2);
-}
-
-.hoshidicts-backups__reading-meter::-webkit-progress-value {
-  border-radius: inherit;
-  background: var(--gsm-accent);
-}
-
 .hoshidicts-window__loading {
   min-height: 240px;
   display: grid;

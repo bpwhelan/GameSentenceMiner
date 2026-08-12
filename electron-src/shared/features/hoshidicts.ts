@@ -9,12 +9,7 @@ export const HOSHIDICTS_CHANNELS = {
     openSettings: 'hoshidicts.openSettings',
     getState: 'hoshidicts.getState',
     progress: 'hoshidicts.progress',
-    yomitanImportProgress: 'hoshidicts.yomitanImportProgress',
     importDictionary: 'hoshidicts.import',
-    importYomitanDictionaries: 'hoshidicts.importYomitanDictionaries',
-    importYomitanSettings: 'hoshidicts.importYomitanSettings',
-    exportBackup: 'hoshidicts.exportBackup',
-    restoreBackup: 'hoshidicts.restoreBackup',
     installAllRecommended: 'hoshidicts.installAllRecommended',
     installRecommended: 'hoshidicts.installRecommended',
     checkUpdates: 'hoshidicts.checkUpdates',
@@ -1310,39 +1305,6 @@ export interface HoshidictsProgress {
     total?: number;
 }
 
-export type HoshidictsYomitanImportProgress =
-    | {
-          phase: 'reading';
-          completedBytes: number;
-          totalBytes: number;
-          estimatedSecondsRemaining: number | null;
-      }
-    | {
-          phase: 'preparing' | 'importing';
-          current: number;
-          total: number;
-          title: string;
-      };
-
-export interface HoshidictsYomitanDictionaryPreference {
-    title: string;
-    enabled: boolean;
-}
-
-export type HoshidictsYomitanSettingsGroup =
-    | 'dictionaries'
-    | 'reader'
-    | 'anki'
-    | 'audio';
-
-export interface HoshidictsYomitanImportReport {
-    imported: number;
-    replaced: number;
-    failed: number;
-    settings: HoshidictsYomitanSettingsGroup[];
-    warnings: string[];
-}
-
 export interface HoshidictsCustomDictionaryDocument {
     text: string;
     revision: string;
@@ -1439,10 +1401,6 @@ export interface HoshidictsActionResult {
             | 'profileRenamed'
             | 'profileDeleted'
             | 'dictionaryImported'
-            | 'yomitanDictionariesImported'
-            | 'yomitanSettingsImported'
-            | 'backupExported'
-            | 'backupRestored'
             | 'recommendedInstalled'
             | 'updatesChecked'
             | 'dictionaryRemoved'
@@ -1453,7 +1411,6 @@ export interface HoshidictsActionResult {
         title?: string;
     };
     document?: HoshidictsCustomDictionaryDocument;
-    yomitanReport?: HoshidictsYomitanImportReport;
     state: HoshidictsDesktopSnapshot;
 }
 

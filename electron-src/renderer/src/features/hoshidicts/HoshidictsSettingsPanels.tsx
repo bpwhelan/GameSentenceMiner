@@ -1,13 +1,10 @@
 import {
-  ArchiveRestore,
   ArrowDown,
   ArrowUp,
   ChevronDown,
-  Download,
   EllipsisVertical,
   Eraser,
   FileArchive,
-  FileJson,
   FolderPlus,
   Keyboard,
   Pencil,
@@ -805,9 +802,6 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
     setReaderPreference,
     setBoundedReaderInteger,
     setPopupContentScanningEnabled,
-    backupOperation,
-    yomitanImportProgress,
-    backupBusy,
     dictionaryBusy,
     preferencesBusy,
     actions
@@ -934,80 +928,6 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
   const recommendedExpanded =
     recommendedExpandedOverride ??
     (state.dictionaries.length === 0 && !state.customDictionaryActive);
-  const importingYomitan =
-    backupOperation === "importingYomitanDictionaries" ||
-    backupOperation === "importingYomitanSettings";
-  const yomitanReadingPercent =
-    backupOperation === "importingYomitanDictionaries" &&
-    yomitanImportProgress?.phase === "reading" &&
-    yomitanImportProgress.totalBytes > 0
-      ? yomitanImportProgress.completedBytes >=
-        yomitanImportProgress.totalBytes
-        ? 100
-        : Math.min(
-            99,
-            Math.max(
-              0,
-              Math.floor(
-                (yomitanImportProgress.completedBytes /
-                  yomitanImportProgress.totalBytes) *
-                  100
-              )
-            )
-          )
-      : null;
-  let yomitanReadingEta: string | null = null;
-  if (
-    yomitanImportProgress?.phase === "reading" &&
-    yomitanImportProgress.estimatedSecondsRemaining !== null
-  ) {
-    const seconds = Math.max(
-      1,
-      Math.ceil(yomitanImportProgress.estimatedSecondsRemaining)
-    );
-    if (seconds < 60) {
-      yomitanReadingEta = t("settings.hoshidicts.backups.etaSeconds", {
-        seconds
-      });
-    } else {
-      const minutes = Math.ceil(seconds / 60);
-      yomitanReadingEta =
-        minutes < 60
-          ? t("settings.hoshidicts.backups.etaMinutes", { minutes })
-          : t("settings.hoshidicts.backups.etaHours", {
-              hours: Math.floor(minutes / 60),
-              minutes: minutes % 60
-            });
-    }
-  }
-  const yomitanReadingSummary =
-    yomitanReadingPercent === null
-      ? null
-      : t(
-          yomitanReadingEta
-            ? "settings.hoshidicts.backups.progressEstimate"
-            : "settings.hoshidicts.backups.progressPercent",
-          {
-            percent: yomitanReadingPercent,
-            eta: yomitanReadingEta
-          }
-        );
-  const yomitanDictionaryImportProgress =
-    backupOperation === "importingYomitanDictionaries" &&
-    yomitanImportProgress !== null
-      ? yomitanImportProgress.phase === "reading"
-        ? t("settings.hoshidicts.backups.readingYomitanDictionaries")
-        : t(
-            yomitanImportProgress.phase === "preparing"
-              ? "settings.hoshidicts.backups.preparingYomitanDictionary"
-              : "settings.hoshidicts.backups.importingYomitanDictionary",
-            {
-              current: yomitanImportProgress.current,
-              total: yomitanImportProgress.total,
-              title: yomitanImportProgress.title
-            }
-          )
-      : null;
   const lastCheck = formatTimestamp(state.lastCheck);
   const nextCheck = formatTimestamp(state.nextCheck);
 
@@ -1274,9 +1194,7 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
               {t("settings.hoshidicts.checkNow")}
             </button>
           </div>
-          {state.busy &&
-          state.progress.phase === "importing" &&
-          !importingYomitan ? (
+          {state.busy && state.progress.phase === "importing" ? (
             <div
               className="hoshidicts-window__progress hoshidicts-dictionary-import-progress"
               role="status"
@@ -2011,79 +1929,6 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
         )}
       </section>
 
-      <section className="hoshidicts-section hoshidicts-backups">
-        <div className="hoshidicts-section__heading">
-          <div>
-            <h2>{t("settings.hoshidicts.backups.title")}</h2>
-            <p>{t("settings.hoshidicts.backups.subtitle")}</p>
-          </div>
-        </div>
-        <div className="hoshidicts-actions">
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => void actions.exportBackup()}
-            disabled={backupBusy}
-          >
-            <Download size={17} aria-hidden="true" />
-            {t("settings.hoshidicts.backups.exportHoshidicts")}
-          </button>
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => void actions.restoreBackup()}
-            disabled={backupBusy}
-          >
-            <ArchiveRestore size={17} aria-hidden="true" />
-            {t("settings.hoshidicts.backups.restoreHoshidicts")}
-          </button>
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => void actions.importYomitanDictionaries()}
-            disabled={backupBusy}
-          >
-            <FileArchive size={17} aria-hidden="true" />
-            {t("settings.hoshidicts.backups.importDictionaries")}
-          </button>
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => void actions.importYomitanSettings()}
-            disabled={backupBusy}
-          >
-            <FileJson size={17} aria-hidden="true" />
-            {t("settings.hoshidicts.backups.importSettings")}
-          </button>
-        </div>
-        {backupOperation ? (
-          <div
-            className="hoshidicts-window__progress hoshidicts-backups__status"
-            role="status"
-            aria-live="polite"
-            aria-atomic="true"
-          >
-            <span>{t(`settings.hoshidicts.backups.${backupOperation}`)}</span>
-            {yomitanDictionaryImportProgress ? (
-              <span className="hoshidicts-backups__progress">
-                {yomitanDictionaryImportProgress}
-                {yomitanReadingSummary ? ` ${yomitanReadingSummary}` : null}
-              </span>
-            ) : null}
-            {yomitanReadingPercent !== null ? (
-              <progress
-                className="hoshidicts-backups__reading-meter"
-                aria-label={t(
-                  "settings.hoshidicts.backups.readingYomitanDictionaries"
-                )}
-                aria-valuetext={yomitanReadingSummary ?? undefined}
-                max={100}
-                value={yomitanReadingPercent}
-              />
-            ) : null}
-          </div>
-        ) : null}
-      </section>
     </div>
   );
 }
