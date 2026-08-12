@@ -690,6 +690,11 @@ export const DEFAULT_HOSHIDICTS_DEFINITION_BLUR = {
     revealDelayMs: 5000,
 } as const satisfies HoshidictsDefinitionBlurPreferences;
 
+/**
+ * Every reader preference is required. Hoshidicts is unreleased, so there is no
+ * legacy data to migrate and no reason for a partial internal shape; only
+ * imported Yomitan settings arrive incomplete, and they are normalized first.
+ */
 export interface HoshidictsReaderPreferencesRequest {
     lookupMode: HoshidictsLookupMode;
     scanLength: number;
@@ -701,10 +706,10 @@ export interface HoshidictsReaderPreferencesRequest {
     onlyScanJapaneseText: boolean;
     popupHideDelayMs: number;
     showLookupCounts: boolean;
-    averageFrequency?: boolean;
-    showFrequencyDictionaryNames?: boolean;
+    averageFrequency: boolean;
+    showFrequencyDictionaryNames: boolean;
     showCompactDefinitionSummary: boolean;
-    compactDefinitionSummaryCount?: number;
+    compactDefinitionSummaryCount: number;
     compactDefinitionSummaryDictionary: string | null;
     showPitchAccentFurigana: boolean;
     pitchAccentFuriganaDictionary: string | null;
@@ -717,10 +722,10 @@ export interface HoshidictsReaderPreferencesRequest {
     popupColumns: number;
     theme: HoshidictsTheme;
     popupOpacityPercent: number;
-    popupBackdropBlurPx?: number;
+    popupBackdropBlurPx: number;
     popupToolbarPosition: HoshidictsPopupToolbarPosition;
     popupButtons: HoshidictsPopupButtons;
-    customPopupCss?: string;
+    customPopupCss: string;
 }
 
 export interface HoshidictsDictionaryPresentation {
@@ -745,22 +750,474 @@ export interface HoshidictsReaderTabGroup {
     dictionaries: string[];
 }
 
+/**
+ * The reader preferences plus the read-only dictionary context the overlay needs
+ * to render them. The context fields are derived from a manager snapshot rather
+ * than stored, so they are absent from a plain preferences object.
+ */
 export interface HoshidictsReaderPreferences
     extends HoshidictsReaderPreferencesRequest {
-    averageFrequency: boolean;
-    showFrequencyDictionaryNames: boolean;
-    compactDefinitionSummaryCount: number;
-    customPopupCss: string;
-    popupBackdropBlurPx: number;
-    // Optional at the cross-process boundary for compatibility with an older
-    // overlay. Current desktop deliveries always include a normalized array.
     dictionaryPresentation?: HoshidictsDictionaryPresentation[];
     // Ordered enabled frequency dictionaries are used to register Yomitan's
     // dynamic single-frequency-* mining markers, including dictionaries which
     // do not contribute a value to the current lookup result.
     frequencyDictionaries?: string[];
-    // Optional for compatibility with overlays built before tab groups.
     dictionaryTabGroups?: HoshidictsReaderTabGroup[];
+}
+
+export type HoshidictsNumericReaderPreference = {
+    [K in keyof HoshidictsReaderPreferencesRequest]: HoshidictsReaderPreferencesRequest[K] extends number
+        ? K
+        : never;
+}[keyof HoshidictsReaderPreferencesRequest];
+
+type ReaderPreferenceKey = keyof HoshidictsReaderPreferencesRequest;
+type ReaderPreferenceValue = HoshidictsReaderPreferencesRequest[ReaderPreferenceKey];
+
+/**
+ * One entry per reader preference. Defaults, tolerant normalization, strict
+ * validation and equality are all derived from this table so a new preference
+ * only has to be described once.
+ */
+interface HoshidictsReaderPreferenceSpec {
+    key: ReaderPreferenceKey;
+    createDefault: () => ReaderPreferenceValue;
+    /** Returns null when the value is acceptable, otherwise the error message. */
+    validate: (value: unknown) => string | null;
+    /** Copies and canonicalizes an already-valid value. */
+    canonicalize: (value: ReaderPreferenceValue) => ReaderPreferenceValue;
+    equals: (left: ReaderPreferenceValue, right: ReaderPreferenceValue) => boolean;
+}
+
+const identity = (value: ReaderPreferenceValue): ReaderPreferenceValue => value;
+const strictEquals = (
+    left: ReaderPreferenceValue,
+    right: ReaderPreferenceValue
+): boolean => left === right;
+
+function booleanPreference(
+    key: ReaderPreferenceKey,
+    message: string,
+    defaultValue: boolean
+): HoshidictsReaderPreferenceSpec {
+    return {
+        key,
+        createDefault: () => defaultValue,
+        validate: (value) => (typeof value === 'boolean' ? null : message),
+        canonicalize: identity,
+        equals: strictEquals,
+    };
+}
+
+function integerPreference(
+    key: ReaderPreferenceKey,
+    message: string,
+    defaultValue: number,
+    minimum: number,
+    maximum: number
+): HoshidictsReaderPreferenceSpec {
+    return {
+        key,
+        createDefault: () => defaultValue,
+        validate: (value) =>
+            Number.isInteger(value) &&
+            (value as number) >= minimum &&
+            (value as number) <= maximum
+                ? null
+                : message,
+        canonicalize: identity,
+        equals: strictEquals,
+    };
+}
+
+function choicePreference<T extends ReaderPreferenceValue>(
+    key: ReaderPreferenceKey,
+    message: string,
+    defaultValue: T,
+    isValid: (value: unknown) => boolean
+): HoshidictsReaderPreferenceSpec {
+    return {
+        key,
+        createDefault: () => defaultValue,
+        validate: (value) => (isValid(value) ? null : message),
+        canonicalize: identity,
+        equals: strictEquals,
+    };
+}
+
+/**
+ * A dictionary title, or null when the feature is turned off. `trim` mirrors the
+ * per-field behaviour the manager already had: some titles are stored verbatim,
+ * others trimmed.
+ */
+function dictionaryTitlePreference(
+    key: ReaderPreferenceKey,
+    message: string,
+    options: { trim: boolean }
+): HoshidictsReaderPreferenceSpec {
+    return {
+        key,
+        createDefault: () => null,
+        validate: (value) => {
+            if (value === null) {
+                return null;
+            }
+            if (typeof value !== 'string' || value.length > 4096) {
+                return message;
+            }
+            const meaningful = options.trim ? value.trim() : value;
+            return meaningful.length > 0 ? null : message;
+        },
+        canonicalize: (value) =>
+            options.trim && typeof value === 'string' ? value.trim() : value,
+        equals: strictEquals,
+    };
+}
+
+const HOSHIDICTS_READER_PREFERENCE_SPECS: readonly HoshidictsReaderPreferenceSpec[] =
+    [
+        choicePreference(
+            'lookupMode',
+            'Hoshidicts lookup mode is invalid.',
+            'shift',
+            (value) => value === 'shift' || value === 'hover'
+        ),
+        integerPreference(
+            'scanLength',
+            'Hoshidicts scan length is invalid.',
+            DEFAULT_HOSHIDICTS_SCAN_LENGTH,
+            MIN_HOSHIDICTS_SCAN_LENGTH,
+            MAX_HOSHIDICTS_SCAN_LENGTH
+        ),
+        integerPreference(
+            'maxResults',
+            'Hoshidicts maximum result count is invalid.',
+            DEFAULT_HOSHIDICTS_MAX_RESULTS,
+            MIN_HOSHIDICTS_MAX_RESULTS,
+            MAX_HOSHIDICTS_MAX_RESULTS
+        ),
+        dictionaryTitlePreference(
+            'sortFrequencyDictionary',
+            'Hoshidicts frequency sort dictionary is invalid.',
+            { trim: false }
+        ),
+        choicePreference(
+            'sortFrequencyDictionaryOrder',
+            'Hoshidicts frequency sort order is invalid.',
+            DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
+            isHoshidictsSortFrequencyDictionaryOrder
+        ),
+        integerPreference(
+            'popupHideDelayMs',
+            'Hoshidicts popup hide delay is invalid.',
+            DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+            0,
+            MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS
+        ),
+        choicePreference(
+            'activationKey',
+            'Hoshidicts activation key is invalid.',
+            DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
+            isHoshidictsActivationKey
+        ),
+        booleanPreference(
+            'sourceHighlightEnabled',
+            'Hoshidicts source highlight preference is invalid.',
+            DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED
+        ),
+        booleanPreference(
+            'onlyScanJapaneseText',
+            'Hoshidicts Japanese-only scan preference is invalid.',
+            DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT
+        ),
+        choicePreference(
+            'popupToolbarPosition',
+            'Hoshidicts popup toolbar position is invalid.',
+            DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
+            isHoshidictsPopupToolbarPosition
+        ),
+        {
+            key: 'popupButtons',
+            createDefault: createDefaultHoshidictsPopupButtons,
+            validate: (value) =>
+                isHoshidictsPopupButtons(value)
+                    ? null
+                    : 'Hoshidicts popup buttons are invalid.',
+            canonicalize: (value) =>
+                normalizeHoshidictsPopupButtons(value),
+            equals: (left, right) =>
+                hoshidictsPopupButtonsEqual(
+                    left as HoshidictsPopupButtons,
+                    right as HoshidictsPopupButtons
+                ),
+        },
+        booleanPreference(
+            'showLookupCounts',
+            'Hoshidicts lookup count preference is invalid.',
+            true
+        ),
+        booleanPreference(
+            'averageFrequency',
+            'Hoshidicts average frequency preference is invalid.',
+            DEFAULT_HOSHIDICTS_AVERAGE_FREQUENCY
+        ),
+        booleanPreference(
+            'showFrequencyDictionaryNames',
+            'Hoshidicts frequency dictionary name preference is invalid.',
+            DEFAULT_HOSHIDICTS_SHOW_FREQUENCY_DICTIONARY_NAMES
+        ),
+        booleanPreference(
+            'showCompactDefinitionSummary',
+            'Hoshidicts compact definition summary preference is invalid.',
+            DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY
+        ),
+        integerPreference(
+            'compactDefinitionSummaryCount',
+            'Hoshidicts compact definition summary count is invalid.',
+            DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
+            MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
+            MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT
+        ),
+        dictionaryTitlePreference(
+            'compactDefinitionSummaryDictionary',
+            'Hoshidicts compact definition summary dictionary is invalid.',
+            { trim: true }
+        ),
+        booleanPreference(
+            'showPitchAccentFurigana',
+            'Hoshidicts pitch accent furigana preference is invalid.',
+            DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA
+        ),
+        dictionaryTitlePreference(
+            'pitchAccentFuriganaDictionary',
+            'Hoshidicts pitch accent furigana dictionary is invalid.',
+            { trim: true }
+        ),
+        booleanPreference(
+            'showPitchAccentBadge',
+            'Hoshidicts pitch accent badge preference is invalid.',
+            DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE
+        ),
+        booleanPreference(
+            'hidePopupGrammarTags',
+            'Hoshidicts popup grammar tag preference is invalid.',
+            DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS
+        ),
+        {
+            key: 'popupNestingMaxDepth',
+            createDefault: () => DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
+            validate: (value) =>
+                Number.isSafeInteger(value) && (value as number) >= 0
+                    ? null
+                    : 'Hoshidicts popup nesting depth is invalid.',
+            canonicalize: identity,
+            equals: strictEquals,
+        },
+        {
+            key: 'definitionBlur',
+            createDefault: () => ({ ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR }),
+            validate: validateDefinitionBlur,
+            canonicalize: (value) => ({
+                ...(value as HoshidictsDefinitionBlurPreferences),
+            }),
+            equals: (left, right) =>
+                hoshidictsDefinitionBlurEqual(
+                    left as HoshidictsDefinitionBlurPreferences,
+                    right as HoshidictsDefinitionBlurPreferences
+                ),
+        },
+        integerPreference(
+            'popupWidthPx',
+            'Hoshidicts popup width is invalid.',
+            DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
+            MIN_HOSHIDICTS_POPUP_WIDTH_PX,
+            MAX_HOSHIDICTS_POPUP_WIDTH_PX
+        ),
+        integerPreference(
+            'popupHeightPx',
+            'Hoshidicts popup height is invalid.',
+            DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
+            MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
+            MAX_HOSHIDICTS_POPUP_HEIGHT_PX
+        ),
+        integerPreference(
+            'popupColumns',
+            'Hoshidicts popup column count is invalid.',
+            DEFAULT_HOSHIDICTS_POPUP_COLUMNS,
+            MIN_HOSHIDICTS_POPUP_COLUMNS,
+            MAX_HOSHIDICTS_POPUP_COLUMNS
+        ),
+        choicePreference(
+            'theme',
+            'Hoshidicts theme is invalid.',
+            DEFAULT_HOSHIDICTS_THEME,
+            isHoshidictsTheme
+        ),
+        integerPreference(
+            'popupOpacityPercent',
+            'Hoshidicts popup opacity is invalid.',
+            DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+            MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+            MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT
+        ),
+        integerPreference(
+            'popupBackdropBlurPx',
+            'Hoshidicts popup backdrop blur is invalid.',
+            DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
+            MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
+            MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX
+        ),
+        {
+            key: 'customPopupCss',
+            createDefault: () => DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
+            validate: (value) =>
+                typeof value === 'string' &&
+                value.length <= MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH
+                    ? null
+                    : 'Hoshidicts custom popup CSS is invalid.',
+            canonicalize: identity,
+            equals: strictEquals,
+        },
+    ];
+
+function validateDefinitionBlur(value: unknown): string | null {
+    if (!isHoshidictsRecord(value)) {
+        return 'Hoshidicts definition blur enabled state is invalid.';
+    }
+    if (typeof value.enabled !== 'boolean') {
+        return 'Hoshidicts definition blur enabled state is invalid.';
+    }
+    if (
+        !Number.isInteger(value.lookupThreshold) ||
+        (value.lookupThreshold as number) <
+            MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD ||
+        (value.lookupThreshold as number) >
+            MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD
+    ) {
+        return 'Hoshidicts definition blur lookup threshold is invalid.';
+    }
+    if (value.revealMode !== 'timed' && value.revealMode !== 'hover') {
+        return 'Hoshidicts definition blur reveal mode is invalid.';
+    }
+    if (
+        !Number.isInteger(value.revealDelayMs) ||
+        (value.revealDelayMs as number) <
+            MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS ||
+        (value.revealDelayMs as number) >
+            MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS
+    ) {
+        return 'Hoshidicts definition blur reveal delay is invalid.';
+    }
+    return null;
+}
+
+export function hoshidictsDefinitionBlurEqual(
+    left: HoshidictsDefinitionBlurPreferences,
+    right: HoshidictsDefinitionBlurPreferences
+): boolean {
+    return (
+        left.enabled === right.enabled &&
+        left.lookupThreshold === right.lookupThreshold &&
+        left.revealMode === right.revealMode &&
+        left.revealDelayMs === right.revealDelayMs
+    );
+}
+
+export function hoshidictsPopupButtonsEqual(
+    left: HoshidictsPopupButtons,
+    right: HoshidictsPopupButtons
+): boolean {
+    return (
+        left.addToAnki === right.addToAnki &&
+        left.audio === right.audio &&
+        left.customDefinition === right.customDefinition &&
+        left.viewInAnki === right.viewInAnki &&
+        left.customLinks.length === right.customLinks.length &&
+        left.customLinks.every(
+            (link, index) =>
+                link.label === right.customLinks[index]?.label &&
+                link.url === right.customLinks[index]?.url
+        )
+    );
+}
+
+export function createDefaultHoshidictsReaderPreferences(): HoshidictsReaderPreferencesRequest {
+    const preferences: Record<string, unknown> = {};
+    for (const spec of HOSHIDICTS_READER_PREFERENCE_SPECS) {
+        preferences[spec.key] = spec.createDefault();
+    }
+    return preferences as unknown as HoshidictsReaderPreferencesRequest;
+}
+
+/**
+ * Rejects anything that is not a complete, in-range set of reader preferences.
+ * The thrown message names the offending field so the settings window can show
+ * it directly.
+ */
+export function assertHoshidictsReaderPreferences(
+    value: unknown
+): HoshidictsReaderPreferencesRequest {
+    if (!isHoshidictsRecord(value)) {
+        throw new Error('Hoshidicts reader preferences are invalid.');
+    }
+    const preferences: Record<string, unknown> = {};
+    for (const spec of HOSHIDICTS_READER_PREFERENCE_SPECS) {
+        const candidate = value[spec.key];
+        const failure = spec.validate(candidate);
+        if (failure !== null) {
+            throw new Error(failure);
+        }
+        preferences[spec.key] = spec.canonicalize(
+            candidate as ReaderPreferenceValue
+        );
+    }
+    return preferences as unknown as HoshidictsReaderPreferencesRequest;
+}
+
+export function isHoshidictsReaderPreferences(
+    value: unknown
+): value is HoshidictsReaderPreferencesRequest {
+    try {
+        assertHoshidictsReaderPreferences(value);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/** Replaces unusable fields with their defaults instead of throwing. */
+export function normalizeHoshidictsReaderPreferences(
+    value: unknown
+): HoshidictsReaderPreferencesRequest {
+    const source = isHoshidictsRecord(value) ? value : {};
+    const preferences: Record<string, unknown> = {};
+    for (const spec of HOSHIDICTS_READER_PREFERENCE_SPECS) {
+        const candidate = source[spec.key];
+        preferences[spec.key] =
+            spec.validate(candidate) === null
+                ? spec.canonicalize(candidate as ReaderPreferenceValue)
+                : spec.createDefault();
+    }
+    return preferences as unknown as HoshidictsReaderPreferencesRequest;
+}
+
+export function cloneHoshidictsReaderPreferences<
+    T extends HoshidictsReaderPreferences,
+>(preferences: T): T {
+    return structuredClone(preferences);
+}
+
+/** Compares the stored preferences only; derived dictionary context is ignored. */
+export function hoshidictsReaderPreferencesEqual(
+    left: HoshidictsReaderPreferencesRequest,
+    right: HoshidictsReaderPreferencesRequest | null
+): boolean {
+    if (right === null) {
+        return false;
+    }
+    return HOSHIDICTS_READER_PREFERENCE_SPECS.every((spec) =>
+        spec.equals(left[spec.key], right[spec.key])
+    );
 }
 
 export interface HoshidictsAudioSource {
@@ -929,7 +1386,8 @@ export interface HoshidictsProfileSummary {
     name: string;
 }
 
-export interface HoshidictsManagerSnapshot {
+export interface HoshidictsManagerSnapshot
+    extends HoshidictsReaderPreferencesRequest {
     revision: number;
     activeProfileId: string;
     profiles: HoshidictsProfileSummary[];
@@ -939,36 +1397,6 @@ export interface HoshidictsManagerSnapshot {
     recommendedDictionaries: HoshidictsRecommendedDictionaryState[];
     miningProfile: HoshidictsMiningProfile;
     audioProfile: HoshidictsAudioProfile;
-    lookupMode: HoshidictsLookupMode;
-    scanLength: number;
-    maxResults: number;
-    sortFrequencyDictionary: string | null;
-    sortFrequencyDictionaryOrder: HoshidictsSortFrequencyDictionaryOrder;
-    activationKey: HoshidictsActivationKey;
-    sourceHighlightEnabled: boolean;
-    onlyScanJapaneseText: boolean;
-    popupHideDelayMs: number;
-    showLookupCounts: boolean;
-    averageFrequency: boolean;
-    showFrequencyDictionaryNames: boolean;
-    showCompactDefinitionSummary: boolean;
-    compactDefinitionSummaryCount?: number;
-    compactDefinitionSummaryDictionary: string | null;
-    showPitchAccentFurigana: boolean;
-    pitchAccentFuriganaDictionary: string | null;
-    showPitchAccentBadge: boolean;
-    hidePopupGrammarTags: boolean;
-    popupNestingMaxDepth: number;
-    definitionBlur: HoshidictsDefinitionBlurPreferences;
-    popupWidthPx: number;
-    popupHeightPx: number;
-    popupColumns: number;
-    theme: HoshidictsTheme;
-    popupOpacityPercent: number;
-    popupBackdropBlurPx?: number;
-    popupToolbarPosition: HoshidictsPopupToolbarPosition;
-    popupButtons: HoshidictsPopupButtons;
-    customPopupCss: string;
     schedule: HoshidictsSchedule;
     lastCheck: string | null;
     nextCheck: string | null;
@@ -984,52 +1412,7 @@ export function hoshidictsReaderPreferencesFromSnapshot(
         (snapshot.dictionaries ?? []).map(({ id, title }) => [id, title])
     );
     return {
-        lookupMode: snapshot.lookupMode,
-        scanLength: snapshot.scanLength,
-        maxResults: snapshot.maxResults,
-        sortFrequencyDictionary: snapshot.sortFrequencyDictionary,
-        sortFrequencyDictionaryOrder: snapshot.sortFrequencyDictionaryOrder,
-        activationKey: snapshot.activationKey,
-        sourceHighlightEnabled: snapshot.sourceHighlightEnabled,
-        onlyScanJapaneseText: snapshot.onlyScanJapaneseText,
-        popupHideDelayMs: snapshot.popupHideDelayMs,
-        showLookupCounts: snapshot.showLookupCounts,
-        averageFrequency: snapshot.averageFrequency,
-        showFrequencyDictionaryNames: snapshot.showFrequencyDictionaryNames,
-        showCompactDefinitionSummary: snapshot.showCompactDefinitionSummary,
-        compactDefinitionSummaryCount:
-            Number.isInteger(snapshot.compactDefinitionSummaryCount) &&
-            (snapshot.compactDefinitionSummaryCount as number) >=
-                MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT &&
-            (snapshot.compactDefinitionSummaryCount as number) <=
-                MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT
-                ? (snapshot.compactDefinitionSummaryCount as number)
-                : DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
-        compactDefinitionSummaryDictionary:
-            snapshot.compactDefinitionSummaryDictionary,
-        showPitchAccentFurigana: snapshot.showPitchAccentFurigana,
-        pitchAccentFuriganaDictionary:
-            snapshot.pitchAccentFuriganaDictionary,
-        showPitchAccentBadge: snapshot.showPitchAccentBadge,
-        hidePopupGrammarTags: snapshot.hidePopupGrammarTags,
-        popupNestingMaxDepth: snapshot.popupNestingMaxDepth,
-        definitionBlur: { ...snapshot.definitionBlur },
-        popupWidthPx: snapshot.popupWidthPx,
-        popupHeightPx: snapshot.popupHeightPx,
-        popupColumns: snapshot.popupColumns,
-        theme: snapshot.theme,
-        popupOpacityPercent: snapshot.popupOpacityPercent,
-        popupBackdropBlurPx:
-            Number.isInteger(snapshot.popupBackdropBlurPx) &&
-            (snapshot.popupBackdropBlurPx as number) >=
-                MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX &&
-            (snapshot.popupBackdropBlurPx as number) <=
-                MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX
-                ? (snapshot.popupBackdropBlurPx as number)
-                : DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
-        popupToolbarPosition: snapshot.popupToolbarPosition,
-        popupButtons: normalizeHoshidictsPopupButtons(snapshot.popupButtons),
-        customPopupCss: snapshot.customPopupCss,
+        ...normalizeHoshidictsReaderPreferences(snapshot),
         dictionaryPresentation: (snapshot.dictionaries ?? []).map(
             ({ title, displayName, favorite, frequencyMode }) => {
                 const entry: HoshidictsDictionaryPresentation = {
@@ -1064,7 +1447,6 @@ export function hoshidictsReaderPreferencesFromSnapshot(
 }
 
 export interface HoshidictsDesktopSnapshot extends HoshidictsManagerSnapshot {
-    compactDefinitionSummaryCount: number;
     effectiveEnabled: boolean;
     overlay: {
         running: boolean;
