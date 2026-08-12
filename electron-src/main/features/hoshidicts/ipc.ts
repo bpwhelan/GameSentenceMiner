@@ -13,7 +13,6 @@ import {
     assertHoshidictsReaderPreferences,
     hoshidictsReaderPreferencesEqual,
     normalizeHoshidictsReaderPreferences,
-    DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
     HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
     hoshidictsReaderPreferencesFromSnapshot,
     MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES,
@@ -925,10 +924,7 @@ export function registerHoshidictsIPC(
             assertSettingsSender(event, deps);
             const before = await manager.getSnapshot();
             const missingCount = before.recommendedDictionaries.filter(
-                (dictionary) =>
-                    DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.some(
-                        (dictionaryId) => dictionaryId === dictionary.id
-                    ) && !dictionary.installed
+                (dictionary) => !dictionary.installed
             ).length;
             return await runAction(
                 deps,

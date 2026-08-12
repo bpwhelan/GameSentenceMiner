@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     createDefaultHoshidictsPopupButtons,
     createDefaultHoshidictsReaderPreferences,
-    DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
+    HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
     HOSHIDICTS_MINING_FIELD_MARKERS,
     MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH,
     MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH,
@@ -2345,7 +2345,7 @@ describe('Hoshidicts import policy', () => {
             expect.stringContaining('KANJIDIC_english.zip'),
         ]);
         expect(
-            DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.every((id) =>
+            HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.every((id) =>
                 RECOMMENDED_HOSHIDICTS_DICTIONARIES.some(
                     (dictionary) => dictionary.id === id
                 )
@@ -2449,7 +2449,7 @@ describe('Hoshidicts import policy', () => {
         const snapshot = await manager.installRecommendedDictionaries();
         const defaults = RECOMMENDED_HOSHIDICTS_DICTIONARIES.filter(
             (dictionary) =>
-                DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.some(
+                HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.some(
                     (id) => id === dictionary.id
                 )
         );
@@ -2466,7 +2466,7 @@ describe('Hoshidicts import policy', () => {
         expect(snapshot.recommendedDictionaries).toEqual(
             RECOMMENDED_HOSHIDICTS_DICTIONARIES.map((dictionary) => ({
                 id: dictionary.id,
-                installed: DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.some(
+                installed: HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.some(
                     (id) => id === dictionary.id
                 ),
             }))

@@ -27,7 +27,7 @@ import {
 
 import {
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
-  DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
+  HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
   HOSHIDICTS_FIELD_OVERWRITE_MODES,
   MAX_HOSHIDICTS_MAX_RESULTS,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
@@ -1335,13 +1335,9 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
               className="secondary"
               disabled={
                 dictionaryBusy ||
-                state.recommendedDictionaries
-                  .filter((dictionary) =>
-                    DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.some(
-                      (dictionaryId) => dictionaryId === dictionary.id
-                    )
-                  )
-                  .every((dictionary) => dictionary.installed)
+                state.recommendedDictionaries.every(
+                  (dictionary) => dictionary.installed
+                )
               }
               onClick={() => void actions.installAllRecommended()}
             >

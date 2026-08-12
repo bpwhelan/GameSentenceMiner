@@ -10,7 +10,7 @@ import {
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_AVERAGE_FREQUENCY,
   DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
-  DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
+  HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
   DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
   DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
   DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
@@ -179,7 +179,7 @@ export function makeHoshidictsSnapshot(
     tabGroups: [],
     customDictionaryActive: false,
     // The main process always sends the full catalogue, one entry per id.
-    recommendedDictionaries: DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.map(
+    recommendedDictionaries: HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.map(
       (id) => ({ id, installed: id === "jmdict" })
     ),
     miningProfile: makeHoshidictsMiningProfile(),

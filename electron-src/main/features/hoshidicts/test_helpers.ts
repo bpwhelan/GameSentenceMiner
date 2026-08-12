@@ -7,7 +7,7 @@ import {
     createDefaultHoshidictsAudioProfile,
     createDefaultHoshidictsFieldOverwriteModes,
     createDefaultHoshidictsReaderPreferences,
-    DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
+    HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
     type HoshidictsDictionaryState,
     type HoshidictsManagerSnapshot,
     type HoshidictsMiningFields,
@@ -128,7 +128,7 @@ export function makeHoshidictsSnapshot(
         tabGroups: [],
         customDictionaryActive: false,
         recommendedDictionaries:
-            DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.map((id) => ({
+            HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS.map((id) => ({
                 id,
                 installed: false,
             })),
