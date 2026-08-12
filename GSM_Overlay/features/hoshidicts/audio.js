@@ -81,46 +81,19 @@
     };
   }
 
-  function normalizeAudioProfile(value) {
+  /**
+   * desktop_bridge.js throws on an invalid audio profile before bootstrap.js
+   * forwards it, so this only fills in fields a partial payload omitted.
+   */
+  function mergeAudioProfile(value) {
     const profile = isRecord(value) ? value : {};
-    const normalized = cloneAudioProfile();
-    if (typeof profile.enabled === "boolean") {
-      normalized.enabled = profile.enabled;
-    }
-    if (typeof profile.autoPlay === "boolean") {
-      normalized.autoPlay = profile.autoPlay;
-    }
-    if (Number.isFinite(profile.volume)) {
-      normalized.volume = Math.max(
-        MIN_VOLUME,
-        Math.min(MAX_VOLUME, Math.trunc(profile.volume))
-      );
-    }
-    if (!Array.isArray(profile.sources)) {
-      return normalized;
-    }
-
-    const sourceIds = new Set();
-    normalized.sources = [];
-    for (const rawSource of profile.sources.slice(0, MAX_AUDIO_SOURCES)) {
-      if (!isRecord(rawSource)) {
-        continue;
-      }
-      const id = boundedString(rawSource.id, 128).trim();
-      const rawType = boundedString(rawSource.type, 64).trim();
-      const type = rawType === "jp101" ? "jpod101" : rawType;
-      if (!id || sourceIds.has(id) || !SOURCE_TYPES.has(type)) {
-        continue;
-      }
-      sourceIds.add(id);
-      normalized.sources.push({
-        id,
-        type,
-        url: boundedString(rawSource.url, 4096),
-        voice: boundedString(rawSource.voice, 255),
-      });
-    }
-    return normalized;
+    return {
+      ...DEFAULT_AUDIO_PROFILE,
+      ...profile,
+      sources: Array.isArray(profile.sources)
+        ? profile.sources.map((source) => ({ ...source }))
+        : DEFAULT_AUDIO_PROFILE.sources.map((source) => ({ ...source })),
+    };
   }
 
   function normalizeLocalHttpBaseUrl(value) {
@@ -350,7 +323,7 @@
     const revokeObjectURL = typeof options.revokeObjectURL === "function"
       ? options.revokeObjectURL
       : (url) => windowRef.URL.revokeObjectURL(url);
-    let preferences = normalizeAudioProfile(
+    let preferences = mergeAudioProfile(
       options.audioPreferences || options.audioProfile
     );
     let destroyed = false;
@@ -1011,7 +984,7 @@
     function updatePreferences(nextPreferences = {}) {
       const previousEnabled = preferences.enabled;
       const previousSourceSignature = JSON.stringify(preferences.sources);
-      const nextProfile = normalizeAudioProfile({
+      const nextProfile = mergeAudioProfile({
         ...preferences,
         ...(isRecord(nextPreferences) ? nextPreferences : {}),
         sources: isRecord(nextPreferences) && Array.isArray(nextPreferences.sources)
@@ -1072,7 +1045,6 @@
     createHoshidictsAudioClient,
     createHoshidictsAudioController,
     normalizeLocalHttpBaseUrl,
-    normalizeAudioProfile,
     setAudioButtonState,
   };
 }));

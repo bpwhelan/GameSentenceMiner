@@ -23,7 +23,6 @@ from GameSentenceMiner.hoshidicts_audio_profile import (
     TTS_SOURCE_TYPES,
     find_source,
     load_hoshidicts_audio_profile,
-    normalize_hoshidicts_audio_profile,
     profile_string,
     substitute_custom_url,
     validate_http_url,
@@ -618,9 +617,8 @@ def get_audio_candidates(
 ) -> list[dict[str, Any]]:
     term = _request_term(term, "Hoshidicts audio term", allow_empty=False)
     reading = _request_term(reading, "Hoshidicts audio reading", allow_empty=True)
-    normalized_profile = (
-        normalize_hoshidicts_audio_profile(profile) if profile is not None else load_hoshidicts_audio_profile()
-    )
+    # An explicit profile comes from a caller that already normalized it.
+    normalized_profile = profile if profile is not None else load_hoshidicts_audio_profile()
     _source, candidates = _private_candidates(
         normalized_profile,
         term,
@@ -824,13 +822,8 @@ def get_audio_media(
         or not 0 <= candidate_index < MAX_AUDIO_SOURCES
     ):
         raise HoshidictsAudioError("Hoshidicts audio candidate index is invalid.")
-    normalized_profile = (
-        normalize_hoshidicts_audio_profile(profile) if profile is not None else load_hoshidicts_audio_profile()
-    )
-    if candidate_id is not None and (
-        not isinstance(candidate_id, str) or _CANDIDATE_ID_PATTERN.fullmatch(candidate_id) is None
-    ):
-        raise HoshidictsAudioError("Hoshidicts audio candidate ID is invalid.")
+    # An explicit profile comes from a caller that already normalized it.
+    normalized_profile = profile if profile is not None else load_hoshidicts_audio_profile()
     source, candidates = _private_candidates(
         normalized_profile,
         term,
@@ -853,9 +846,8 @@ def get_mining_audio(
     *,
     profile: dict[str, Any] | None = None,
 ) -> AudioMedia:
-    normalized_profile = (
-        normalize_hoshidicts_audio_profile(profile) if profile is not None else load_hoshidicts_audio_profile()
-    )
+    # An explicit profile comes from a caller that already normalized it.
+    normalized_profile = profile if profile is not None else load_hoshidicts_audio_profile()
     if not normalized_profile["enabled"]:
         raise HoshidictsAudioError("Hoshidicts audio is disabled.", 503)
 

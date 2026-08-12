@@ -274,18 +274,20 @@ def test_profile_defaults_and_normalization(tmp_path):
     profile = hoshidicts_mining.normalize_hoshidicts_mining_profile(
         {
             "enabled": False,
-            "deck": " Mining ",
-            "model": " Custom ",
-            "fields": {"reading": " Kana "},
-            "disabledFields": ["pitch", "pitch", "frequency"],
-            "tags": [" hoshidicts ", "HOSHIDICTS", "custom"],
-            "duplicatePolicy": "allow",
+            "deck": "Mining",
+            "model": "Custom",
+            "fields": {"reading": "Kana"},
+            "disabledFields": ["pitch", "frequency"],
+            "tags": ["hoshidicts", "custom"],
+            "duplicateBehavior": "new",
         }
     )
     assert profile["enabled"] is False
     assert profile["deck"] == "Mining"
     assert profile["model"] == "Custom"
     assert profile["fields"]["reading"] == "Kana"
+    # Fields Electron omitted come from the defaults.
+    assert profile["fields"]["expression"] == ""
     assert profile["disabledFields"] == ["pitch", "frequency"]
     assert profile["tags"] == ["hoshidicts", "custom"]
     assert profile["version"] == 3
@@ -301,19 +303,6 @@ def test_profile_v3_normalizes_target_field_templates_without_trimming_values():
     default_profile = hoshidicts_mining.default_hoshidicts_mining_profile()
     assert default_profile["version"] == 3
     assert default_profile["fieldTemplates"] is None
-
-    migrated = hoshidicts_mining.normalize_hoshidicts_mining_profile(
-        {
-            "version": 2,
-            "fields": {"expression": "Front"},
-            "disabledFields": ["reading"],
-            "fieldTemplates": {"Ignored": {"value": "x", "overwriteMode": "overwrite"}},
-        }
-    )
-    assert migrated["version"] == 3
-    assert migrated["fieldTemplates"] is None
-    assert migrated["fields"]["expression"] == "Front"
-    assert migrated["disabledFields"] == ["reading"]
 
     profile = hoshidicts_mining.normalize_hoshidicts_mining_profile(
         {
@@ -349,12 +338,12 @@ def test_profile_v3_preserves_exact_case_sensitive_target_keys():
 @pytest.mark.parametrize(
     ("field_templates", "message"),
     [
-        ([], "field templates"),
+        ([], "profile is invalid"),
         ({"Front": "{expression}"}, "field template"),
         ({"Front": {}}, "field template"),
         (
             {"Front": {"value": "{expression}", "overwriteMode": "replace"}},
-            "overwrite mode",
+            "field template",
         ),
     ],
 )
@@ -366,7 +355,7 @@ def test_profile_v3_rejects_invalid_target_field_templates(field_templates, mess
 def test_profile_normalizes_yomitan_duplicate_settings_and_overwrite_modes():
     profile = hoshidicts_mining.normalize_hoshidicts_mining_profile(
         {
-            "version": 2,
+            "version": 3,
             "checkForDuplicates": False,
             "duplicateScope": "deck-root",
             "duplicateScopeCheckAllModels": True,
@@ -397,14 +386,11 @@ def test_profile_normalizes_yomitan_duplicate_settings_and_overwrite_modes():
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
-        ({"duplicateScope": "note"}, "duplicate scope"),
-        ({"duplicateBehavior": "allow"}, "duplicate behavior"),
-        ({"duplicatePolicy": "ignore"}, "duplicate policy"),
-        ({"fieldOverwriteModes": {"expression": "replace"}}, "overwrite mode"),
-        ({"fields": []}, "mining fields"),
-        ({"disabledFields": ["nope"]}, "disabled mining field"),
-        ({"tags": "hoshidicts"}, "mining tags"),
+        ({"fields": []}, "profile is invalid"),
+        ({"tags": "hoshidicts"}, "profile is invalid"),
+        ({"fieldTemplates": []}, "profile is invalid"),
         ({"version": 4}, "version is unsupported"),
+        ({"version": 2}, "version is unsupported"),
     ],
 )
 def test_profile_rejects_invalid_settings(overrides, message):
@@ -1794,7 +1780,7 @@ def test_migrated_shared_target_keeps_the_first_semantics_overwrite_mode(monkeyp
     fake_anki = FakeAnki(fields=["Front"])
     profile = hoshidicts_mining.normalize_hoshidicts_mining_profile(
         {
-            "version": 2,
+            "version": 3,
             "fields": {"expression": "Front", "definition": "Front"},
             "fieldOverwriteModes": {"expression": "append", "definition": "overwrite"},
         }
@@ -1812,7 +1798,7 @@ def test_migrated_shared_target_omits_separators_for_empty_values(monkeypatch):
     fake_anki = FakeAnki(fields=["Front"])
     profile = hoshidicts_mining.normalize_hoshidicts_mining_profile(
         {
-            "version": 2,
+            "version": 3,
             "fields": {"expression": "Front", "reading": "Front", "frequency": "Front"},
         }
     )

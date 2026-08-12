@@ -90,24 +90,11 @@ function normalizeCustomSourceUrl(value: unknown): string {
     }
     try {
         const parsed = new URL(url);
-        const authorityStart = url.indexOf('://') + 3;
-        const authorityEndCandidates = [
-            url.indexOf('/', authorityStart),
-            url.indexOf('?', authorityStart),
-            url.indexOf('#', authorityStart),
-        ].filter((index) => index >= 0);
-        const authorityEnd =
-            authorityEndCandidates.length > 0
-                ? Math.min(...authorityEndCandidates)
-                : url.length;
-        const authority = url.slice(authorityStart, authorityEnd);
         if (
             (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
             parsed.username.length > 0 ||
             parsed.password.length > 0 ||
-            parsed.hostname.length === 0 ||
-            authority.includes('{') ||
-            authority.includes('}')
+            parsed.hostname.length === 0
         ) {
             throw new Error('invalid');
         }

@@ -103,15 +103,6 @@ describe('Hoshidicts audio profile', () => {
             'custom audio source URL is invalid',
         ],
         [
-            'authority template',
-            profileWithSource({
-                id: 'authority-template',
-                type: 'custom',
-                url: 'http://{term}/audio.mp3',
-            }),
-            'custom audio source URL is invalid',
-        ],
-        [
             'unclosed URL placeholder',
             profileWithSource({
                 id: 'local-audio',

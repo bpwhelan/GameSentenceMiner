@@ -17,7 +17,6 @@ from GameSentenceMiner import hoshidicts_audio as _audio
 from GameSentenceMiner import hoshidicts_audio_profile as _audio_profile
 from GameSentenceMiner.hoshidicts_anki import (
     ANKI_CONNECT_TIMEOUT_SECONDS,
-    MAX_OPTION_NAMES,
     MEDIA_TIMEOUT_SECONDS,
     NOTE_TIMEOUT_SECONDS,
     browse_word,
@@ -65,7 +64,6 @@ from GameSentenceMiner.util.config.configuration import get_app_directory, get_c
 
 HOSHIDICTS_MINING_PROFILE_FILE = "mining-profile.json"
 HOSHIDICTS_MINING_PROFILE_VERSION = 3
-LEGACY_HOSHIDICTS_MINING_PROFILE_VERSIONS = (1, 2)
 MAX_PROFILE_BYTES = 64 * 1024
 MAX_BROWSE_REQUEST_BYTES = 64 * 1024
 MINING_STATUS_CACHE_SECONDS = 2.0
@@ -154,114 +152,45 @@ def get_hoshidicts_mining_profile_path() -> Path:
     return Path(get_app_directory()) / "dictionaries" / "hoshidicts" / HOSHIDICTS_MINING_PROFILE_FILE
 
 
-def _normalize_field_templates(value: Any) -> dict[str, dict[str, str]] | None:
-    if value is None:
-        return None
-    if not isinstance(value, dict) or len(value) > MAX_OPTION_NAMES:
-        raise HoshidictsMiningError("Hoshidicts field templates are invalid.")
-    field_templates = {}
-    for raw_field_name, raw_template in value.items():
-        field_name = bounded_string(
-            raw_field_name,
-            "Hoshidicts field template name",
-            255,
-            allow_empty=False,
-        )
-        template_value = raw_template.get("value") if isinstance(raw_template, dict) else None
-        if not isinstance(template_value, str):
-            raise HoshidictsMiningError(f'Hoshidicts field template "{field_name}" is invalid.')
-        overwrite_mode = raw_template.get("overwriteMode", "coalesce")
-        if overwrite_mode not in FIELD_OVERWRITE_MODES:
-            raise HoshidictsMiningError(f'Hoshidicts field template "{field_name}" overwrite mode is invalid.')
-        field_templates[field_name] = {
-            "value": template_value,
-            "overwriteMode": overwrite_mode,
-        }
-    return field_templates
-
-
 def normalize_hoshidicts_mining_profile(value: Any) -> dict[str, Any]:
+    """Fill in defaults for a profile Electron already validated.
+
+    manager.ts normalizes this profile field by field before writing
+    mining-profile.json, so only the shape the card builder indexes through is
+    re-checked here. The raise is deliberate: a half-restored profile that fell
+    back to defaults would silently send cards to deck "Default", and
+    hoshidicts-backup.ts copies this file verbatim out of a user-picked ZIP.
+    """
     if not isinstance(value, dict):
         raise HoshidictsMiningError("Hoshidicts mining profile must be an object.")
-    source_version = value.get("version", LEGACY_HOSHIDICTS_MINING_PROFILE_VERSIONS[0])
-    if source_version not in {
-        *LEGACY_HOSHIDICTS_MINING_PROFILE_VERSIONS,
-        HOSHIDICTS_MINING_PROFILE_VERSION,
-    }:
+    if value.get("version", HOSHIDICTS_MINING_PROFILE_VERSION) != HOSHIDICTS_MINING_PROFILE_VERSION:
         raise HoshidictsMiningError("Hoshidicts mining profile version is unsupported.")
 
-    raw_fields = value.get("fields", {})
-    if not isinstance(raw_fields, dict):
-        raise HoshidictsMiningError("Hoshidicts mining fields must be an object.")
-    fields = {
-        key: bounded_string(raw_fields.get(key, ""), f"Hoshidicts {key} field", 255).strip() for key in FIELD_KEYS
-    }
-
-    raw_disabled_fields = value.get("disabledFields", [])
-    if not isinstance(raw_disabled_fields, list) or len(raw_disabled_fields) > len(FIELD_KEYS):
-        raise HoshidictsMiningError("Hoshidicts disabled mining fields are invalid.")
-    disabled_fields = []
-    for raw_field in raw_disabled_fields:
-        if raw_field not in FIELD_KEYS:
-            raise HoshidictsMiningError("Hoshidicts disabled mining field is invalid.")
-        if raw_field not in disabled_fields:
-            disabled_fields.append(raw_field)
-
-    raw_tags = value.get("tags", ["hoshidicts"])
-    if not isinstance(raw_tags, list) or len(raw_tags) > 32:
-        raise HoshidictsMiningError("Hoshidicts mining tags are invalid.")
-    tags = _unique_tags(
-        [bounded_string(raw_tag, "Hoshidicts mining tag", 255) for raw_tag in raw_tags],
-    )
-
-    duplicate_policy = value.get("duplicatePolicy", "prevent")
-    if duplicate_policy not in {"prevent", "allow"}:
-        raise HoshidictsMiningError("Hoshidicts duplicate policy is invalid.")
-    check_for_duplicates = value.get("checkForDuplicates", True)
-    if not isinstance(check_for_duplicates, bool):
-        raise HoshidictsMiningError("Hoshidicts duplicate check setting is invalid.")
-    duplicate_scope = value.get("duplicateScope", "collection")
-    if duplicate_scope not in DUPLICATE_SCOPES:
-        raise HoshidictsMiningError("Hoshidicts duplicate scope is invalid.")
-    duplicate_scope_check_all_models = value.get("duplicateScopeCheckAllModels", False)
-    if not isinstance(duplicate_scope_check_all_models, bool):
-        raise HoshidictsMiningError("Hoshidicts duplicate note type setting is invalid.")
-    duplicate_behavior = value.get("duplicateBehavior")
-    if duplicate_behavior is None:
-        duplicate_behavior = "new" if duplicate_policy == "allow" else "prevent"
-    if duplicate_behavior not in DUPLICATE_BEHAVIORS:
-        raise HoshidictsMiningError("Hoshidicts duplicate behavior is invalid.")
-
-    raw_overwrite_modes = value.get("fieldOverwriteModes", {})
+    profile = {**default_hoshidicts_mining_profile(), **value}
+    profile["version"] = HOSHIDICTS_MINING_PROFILE_VERSION
+    raw_fields = profile.get("fields")
+    raw_tags = profile.get("tags")
+    raw_templates = profile.get("fieldTemplates")
+    if (
+        not isinstance(raw_fields, dict)
+        or not isinstance(raw_tags, list)
+        or (raw_templates is not None and not isinstance(raw_templates, dict))
+    ):
+        raise HoshidictsMiningError("Hoshidicts mining profile is invalid.")
+    for field_name, raw_template in (raw_templates or {}).items():
+        if (
+            not isinstance(raw_template, dict)
+            or not isinstance(raw_template.get("value"), str)
+            or raw_template.get("overwriteMode") not in FIELD_OVERWRITE_MODES
+        ):
+            raise HoshidictsMiningError(f'Hoshidicts field template "{field_name}" is invalid.')
+    raw_overwrite_modes = profile.get("fieldOverwriteModes")
     if not isinstance(raw_overwrite_modes, dict):
-        raise HoshidictsMiningError("Hoshidicts field overwrite modes are invalid.")
-    field_overwrite_modes = {}
-    for key in FIELD_KEYS:
-        mode = raw_overwrite_modes.get(key, "coalesce")
-        if mode not in FIELD_OVERWRITE_MODES:
-            raise HoshidictsMiningError(f"Hoshidicts {key} overwrite mode is invalid.")
-        field_overwrite_modes[key] = mode
-
-    return {
-        "version": HOSHIDICTS_MINING_PROFILE_VERSION,
-        "enabled": value.get("enabled", True) is not False,
-        "deck": bounded_string(value.get("deck", "Default"), "Hoshidicts deck", 255).strip() or "Default",
-        "model": bounded_string(value.get("model", ""), "Hoshidicts note type", 255).strip(),
-        "fields": fields,
-        "disabledFields": disabled_fields,
-        # Only the current profile version stores per-target field templates.
-        "fieldTemplates": (
-            _normalize_field_templates(value.get("fieldTemplates"))
-            if source_version == HOSHIDICTS_MINING_PROFILE_VERSION
-            else None
-        ),
-        "tags": tags,
-        "checkForDuplicates": check_for_duplicates,
-        "duplicateScope": duplicate_scope,
-        "duplicateScopeCheckAllModels": duplicate_scope_check_all_models,
-        "duplicateBehavior": duplicate_behavior,
-        "fieldOverwriteModes": field_overwrite_modes,
-    }
+        raise HoshidictsMiningError("Hoshidicts mining profile is invalid.")
+    profile["fields"] = {key: str(raw_fields.get(key) or "") for key in FIELD_KEYS}
+    profile["fieldOverwriteModes"] = {key: raw_overwrite_modes.get(key, "coalesce") for key in FIELD_KEYS}
+    profile["tags"] = _unique_tags([str(raw_tag) for raw_tag in raw_tags])
+    return profile
 
 
 def load_hoshidicts_mining_profile(
