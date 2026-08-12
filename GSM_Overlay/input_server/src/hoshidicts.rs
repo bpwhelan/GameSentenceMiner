@@ -793,114 +793,52 @@ fn read_bounded_json<T: serde::de::DeserializeOwned>(
         .map_err(|error| format!("failed to parse {label} at {display}: {error}"))
 }
 
-#[derive(Debug)]
-struct MediaRecordMetadata {
-    path: String,
-    end: u64,
-}
+const MEDIA_FRAMING_ERROR: &str = "dictionary media.bin has a malformed record";
 
-fn read_exact_at(
-    file: &mut fs::File,
-    offset: u64,
-    buffer: &mut [u8],
-    file_path: &Path,
-    label: &str,
-) -> Result<(), String> {
-    file.seek(SeekFrom::Start(offset)).map_err(|error| {
-        format!(
-            "failed to seek to {label} in {}: {error}",
-            file_path.display()
-        )
-    })?;
-    file.read_exact(buffer).map_err(|error| {
-        format!(
-            "failed to read {label} from {}: {error}",
-            file_path.display()
-        )
-    })
-}
-
-fn read_media_record_metadata(
+/// Bounds one record's framing and returns where it ends.
+///
+/// Mandatory rather than defensive: query.cpp indexes the mmap as
+/// `media.data + offset` and reads the blob length with no bounds checking of
+/// its own, and both the path length and the blob length come out of a
+/// user-downloaded Yomitan ZIP.
+fn media_record_end(
     media_file: &mut fs::File,
-    media_path: &Path,
     media_size: u64,
-    record_offset: u64,
-) -> Result<MediaRecordMetadata, String> {
-    let path_length_end = record_offset
+    offset: u64,
+) -> Result<u64, String> {
+    let framing = || MEDIA_FRAMING_ERROR.to_string();
+    let mut path_header = [0u8; 2];
+    media_file
+        .seek(SeekFrom::Start(offset))
+        .and_then(|_| media_file.read_exact(&mut path_header))
+        .map_err(|_| framing())?;
+    let path_length = u64::from(u16::from_le_bytes(path_header));
+    if path_length == 0 || path_length > MAX_MEDIA_PATH_BYTES as u64 {
+        return Err(framing());
+    }
+
+    let blob_header_offset = offset
         .checked_add(2)
-        .ok_or_else(|| "dictionary media record offset overflowed".to_string())?;
-    if path_length_end > media_size {
-        return Err(format!(
-            "dictionary media record at offset {record_offset} has a truncated path length header"
-        ));
-    }
-
-    let mut path_length_bytes = [0u8; 2];
-    read_exact_at(
-        media_file,
-        record_offset,
-        &mut path_length_bytes,
-        media_path,
-        "media path length",
-    )?;
-    let path_length = usize::from(u16::from_le_bytes(path_length_bytes));
-    if path_length == 0 || path_length > MAX_MEDIA_PATH_BYTES {
-        return Err(format!(
-            "dictionary media record at offset {record_offset} has an invalid path length"
-        ));
-    }
-
-    let path_end = path_length_end
-        .checked_add(path_length as u64)
-        .ok_or_else(|| "dictionary media path length overflowed".to_string())?;
-    let blob_length_end = path_end
-        .checked_add(4)
-        .ok_or_else(|| "dictionary media blob header offset overflowed".to_string())?;
-    if blob_length_end > media_size {
-        return Err(format!(
-            "dictionary media record at offset {record_offset} has a truncated path or blob length header"
-        ));
-    }
-
-    let mut path_bytes = vec![0u8; path_length];
-    read_exact_at(
-        media_file,
-        path_length_end,
-        &mut path_bytes,
-        media_path,
-        "media path",
-    )?;
-    let path = String::from_utf8(path_bytes).map_err(|_| {
-        format!("dictionary media record at offset {record_offset} has a non-UTF-8 path")
-    })?;
-    validate_media_path(&path).map_err(|_| {
-        format!("dictionary media record at offset {record_offset} has a non-normalized path")
-    })?;
-
-    let mut blob_length_bytes = [0u8; 4];
-    read_exact_at(
-        media_file,
-        path_end,
-        &mut blob_length_bytes,
-        media_path,
-        "media blob length",
-    )?;
-    let blob_length = u64::from(u32::from_le_bytes(blob_length_bytes));
+        .and_then(|value| value.checked_add(path_length))
+        .ok_or_else(framing)?;
+    let mut blob_header = [0u8; 4];
+    media_file
+        .seek(SeekFrom::Start(blob_header_offset))
+        .and_then(|_| media_file.read_exact(&mut blob_header))
+        .map_err(|_| framing())?;
+    let blob_length = u64::from(u32::from_le_bytes(blob_header));
     if blob_length == 0 || blob_length > MAX_MEDIA_BYTES as u64 {
-        return Err(format!(
-            "dictionary media record at offset {record_offset} has an invalid blob length"
-        ));
-    }
-    let end = blob_length_end
-        .checked_add(blob_length)
-        .ok_or_else(|| "dictionary media blob length overflowed".to_string())?;
-    if end > media_size {
-        return Err(format!(
-            "dictionary media record at offset {record_offset} extends past the end of media.bin"
-        ));
+        return Err(framing());
     }
 
-    Ok(MediaRecordMetadata { path, end })
+    let end = blob_header_offset
+        .checked_add(4)
+        .and_then(|value| value.checked_add(blob_length))
+        .ok_or_else(framing)?;
+    if end > media_size {
+        return Err(framing());
+    }
+    Ok(end)
 }
 
 fn validate_native_media_files(dictionary_path: &Path, declared_count: u64) -> Result<(), String> {
@@ -990,10 +928,15 @@ fn validate_native_media_files(dictionary_path: &Path, declared_count: u64) -> R
 
     let count = usize::try_from(declared_count)
         .map_err(|_| "dictionary media count cannot fit in memory".to_string())?;
-    let mut records = Vec::new();
-    records
-        .try_reserve_exact(count)
-        .map_err(|_| "dictionary media index is too large to validate".to_string())?;
+    let mut media_file = fs::File::open(&media_path).map_err(|error| {
+        format!(
+            "failed to open dictionary media data {}: {error}",
+            media_path.display()
+        )
+    })?;
+    // The importer sorts these and writes them contiguously; re-deriving that
+    // only re-checks our own writer. What matters is that every offset frames a
+    // record inside media.bin, which is what query.cpp assumes.
     for index in 0..count {
         let mut offset_bytes = [0u8; 8];
         index_file.read_exact(&mut offset_bytes).map_err(|error| {
@@ -1002,47 +945,11 @@ fn validate_native_media_files(dictionary_path: &Path, declared_count: u64) -> R
                 index_path.display()
             )
         })?;
-        records.push((u64::from_le_bytes(offset_bytes), 0u64));
-    }
-
-    let mut media_file = fs::File::open(&media_path).map_err(|error| {
-        format!(
-            "failed to open dictionary media data {}: {error}",
-            media_path.display()
-        )
-    })?;
-    let mut previous_path: Option<String> = None;
-    for (offset, end) in &mut records {
-        let record = read_media_record_metadata(&mut media_file, &media_path, media_size, *offset)?;
-        if previous_path
-            .as_ref()
-            .is_some_and(|previous| previous > &record.path)
-        {
-            return Err("dictionary media.idx paths are not sorted".into());
-        }
-        previous_path = Some(record.path);
-        *end = record.end;
-    }
-
-    records.sort_unstable_by_key(|(offset, _)| *offset);
-    let mut expected_offset = 0u64;
-    for (offset, end) in records {
-        if offset != expected_offset {
-            let problem = if offset < expected_offset {
-                "overlapping or duplicate"
-            } else {
-                "non-contiguous"
-            };
-            return Err(format!(
-                "dictionary media.idx contains {problem} record offsets: expected {expected_offset}, found {offset}"
-            ));
-        }
-        expected_offset = end;
-    }
-    if expected_offset != media_size {
-        return Err(format!(
-            "dictionary media records do not cover media.bin: covered {expected_offset} of {media_size} bytes"
-        ));
+        media_record_end(
+            &mut media_file,
+            media_size,
+            u64::from_le_bytes(offset_bytes),
+        )?;
     }
 
     Ok(())
@@ -3295,7 +3202,7 @@ mod tests {
     }
 
     #[test]
-    fn media_index_offsets_must_reference_sorted_contiguous_records() {
+    fn media_index_offsets_must_frame_a_record_inside_media_bin() {
         let root = TestDir::new("media-index-offsets");
         let dictionary = media_dictionary(&root.0, &[("img/a.png", &[1]), ("img/b.png", &[2])]);
         let index_path = dictionary.join("media.idx");
@@ -3303,33 +3210,14 @@ mod tests {
         let valid_index = fs::read(&index_path).expect("read valid index");
         let media_size = fs::metadata(&media_path).expect("media metadata").len();
 
-        let mut out_of_bounds = valid_index.clone();
-        out_of_bounds[4..12].copy_from_slice(&media_size.to_le_bytes());
-        fs::write(&index_path, out_of_bounds).expect("write out-of-bounds offset");
-        assert!(load_dictionary_specs(&root.0)
-            .expect_err("out-of-bounds offset must fail")
-            .contains("truncated path length header"));
-
-        let mut unsorted = valid_index.clone();
-        let first = unsorted[4..12].to_vec();
-        let second = unsorted[12..20].to_vec();
-        unsorted[4..12].copy_from_slice(&second);
-        unsorted[12..20].copy_from_slice(&first);
-        fs::write(&index_path, unsorted).expect("write unsorted offsets");
-        assert!(load_dictionary_specs(&root.0)
-            .expect_err("unsorted indexed paths must fail")
-            .contains("paths are not sorted"));
-
-        let mut media = fs::read(&media_path).expect("read media data");
-        let second_offset = u64::from_le_bytes(valid_index[12..20].try_into().unwrap());
-        media.insert(usize::try_from(second_offset).unwrap(), 0xff);
-        let mut gapped_index = valid_index;
-        gapped_index[12..20].copy_from_slice(&(second_offset + 1).to_le_bytes());
-        fs::write(&media_path, media).expect("write gapped media data");
-        fs::write(&index_path, gapped_index).expect("write gapped index");
-        assert!(load_dictionary_specs(&root.0)
-            .expect_err("non-contiguous media records must fail")
-            .contains("non-contiguous"));
+        for offset in [media_size, media_size - 1, u64::MAX] {
+            let mut corrupted = valid_index.clone();
+            corrupted[4..12].copy_from_slice(&offset.to_le_bytes());
+            fs::write(&index_path, corrupted).expect("write out-of-bounds offset");
+            assert!(load_dictionary_specs(&root.0)
+                .expect_err("an offset outside media.bin must fail")
+                .contains(MEDIA_FRAMING_ERROR));
+        }
     }
 
     #[test]
@@ -3344,19 +3232,18 @@ mod tests {
                 .expect("oversized blob length")
                 .to_le_bytes(),
         );
-        // (corrupted media.bin, expected rejection)
-        for (record, expected) in [
-            (
-                vec![1, 0, b'a', 1, 0],
-                "truncated path or blob length header",
-            ),
-            (vec![1, 0, 0xff, 1, 0, 0, 0, 1], "non-UTF-8 path"),
-            (oversized_blob, "invalid blob length"),
+        // A truncated blob-length header, a zero path length, and a blob length
+        // past the end of the file all fail the framing bound. A non-UTF-8 path
+        // no longer does: the path bytes are skipped rather than decoded.
+        for record in [
+            vec![1, 0, b'a', 1, 0],
+            vec![0, 0, b'a', 1, 0, 0, 0],
+            oversized_blob,
         ] {
             fs::write(&media_path, record).expect("write corrupted media record");
             assert!(load_dictionary_specs(&root.0)
-                .expect_err(expected)
-                .contains(expected));
+                .expect_err("a malformed record must fail")
+                .contains(MEDIA_FRAMING_ERROR));
         }
     }
 
