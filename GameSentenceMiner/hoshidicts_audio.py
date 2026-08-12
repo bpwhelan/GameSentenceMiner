@@ -1,17 +1,16 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
-import ipaddress
 import json
 import re
-import socket
 import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Any
-from urllib.parse import urljoin, urlencode, urlsplit
+from urllib.parse import urljoin, urlencode
 
 import requests
 
@@ -52,69 +51,6 @@ class AudioMedia:
     data: bytes
     content_type: str
     extension: str
-
-
-def _url_origin(url: str) -> str:
-    parsed = urlsplit(url)
-    scheme = parsed.scheme.lower()
-    hostname = (parsed.hostname or "").rstrip(".").casefold()
-    try:
-        is_loopback = ipaddress.ip_address(hostname).is_loopback
-    except ValueError:
-        is_loopback = hostname == "localhost"
-    if is_loopback:
-        hostname = "loopback"
-    port = parsed.port or (443 if scheme == "https" else 80)
-    host = f"[{hostname}]" if ":" in hostname else hostname
-    return f"{scheme}://{host}:{port}"
-
-
-def _private_network_origin(url: str) -> str | None:
-    """Trust private destinations only at an explicitly configured origin."""
-    hostname = (urlsplit(url).hostname or "").rstrip(".").casefold()
-    if hostname == "localhost":
-        return _url_origin(url)
-    try:
-        return _url_origin(url) if not ipaddress.ip_address(hostname).is_global else None
-    except ValueError:
-        return None
-
-
-def _resolved_addresses(url: str) -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
-    parsed = urlsplit(url)
-    hostname = parsed.hostname or ""
-    port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
-    try:
-        records = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
-    except OSError as exc:
-        raise HoshidictsAudioError("Hoshidicts audio provider hostname could not be resolved.", 502) from exc
-    addresses = []
-    for record in records:
-        raw_address = str(record[4][0]).split("%", 1)[0]
-        try:
-            address = ipaddress.ip_address(raw_address)
-        except ValueError as exc:
-            raise HoshidictsAudioError("Hoshidicts audio provider resolved to an invalid address.", 502) from exc
-        if address not in addresses:
-            addresses.append(address)
-    if not addresses:
-        raise HoshidictsAudioError("Hoshidicts audio provider hostname could not be resolved.", 502)
-    return addresses
-
-
-def _validate_network_target(
-    url: str,
-    *,
-    private_network_origin: str | None,
-) -> tuple[str, list[ipaddress.IPv4Address | ipaddress.IPv6Address]]:
-    url = validate_http_url(url)
-    addresses = _resolved_addresses(url)
-    if any(not address.is_global for address in addresses) and _url_origin(url) != private_network_origin:
-        raise HoshidictsAudioError(
-            "Hoshidicts audio providers cannot access a private network from this source.",
-            403,
-        )
-    return url, addresses
 
 
 def _remaining_request_seconds(deadline: float) -> float:
@@ -194,72 +130,16 @@ def _read_limited_response(response: requests.Response, maximum: int, deadline: 
     return b"".join(chunks)
 
 
-class _PinnedAddressAdapter(requests.adapters.HTTPAdapter):
-    """Connect to an approved address while retaining the original HTTP/TLS host."""
-
-    def __init__(self, address: ipaddress.IPv4Address | ipaddress.IPv6Address, server_hostname: str):
-        self._address = str(address)
-        self._server_hostname = server_hostname
-        super().__init__(max_retries=0)
-
-    def get_connection_with_tls_context(self, request, verify, proxies=None, cert=None):
-        host_params, pool_kwargs = self.build_connection_pool_key_attributes(
-            request,
-            verify,
-            cert,
-        )
-        host_params["host"] = self._address
-        if host_params["scheme"] == "https":
-            pool_kwargs["assert_hostname"] = self._server_hostname
-            pool_kwargs["server_hostname"] = self._server_hostname
-        return self.poolmanager.connection_from_host(
-            **host_params,
-            pool_kwargs=pool_kwargs,
-        )
-
-
-def _pinned_request(
+def _provider_request(
     method: str,
     url: str,
     *,
-    address: ipaddress.IPv4Address | ipaddress.IPv6Address,
     data: dict[str, str] | None,
     headers: dict[str, str],
-    timeout: requests.adapters.TimeoutSauce,
+    timeout: tuple[float, float],
 ) -> requests.Response:
-    parsed = urlsplit(url)
-    hostname = (parsed.hostname or "").encode("idna").decode("ascii")
-    host_header = f"[{hostname}]" if ":" in hostname else hostname
-    if parsed.port is not None:
-        host_header = f"{host_header}:{parsed.port}"
-    session = requests.Session()
-    session.trust_env = False
-    session.mount(
-        f"{parsed.scheme.lower()}://",
-        _PinnedAddressAdapter(address, hostname),
-    )
-    try:
-        response = session.request(
-            method,
-            url,
-            data=data,
-            headers={**headers, "Host": host_header},
-            timeout=timeout,
-            stream=True,
-            allow_redirects=False,
-        )
-    except Exception:
-        session.close()
-        raise
-    setattr(response, "_hoshidicts_session", session)
-    return response
-
-
-def _close_response(response: requests.Response) -> None:
-    response.close()
-    session = getattr(response, "_hoshidicts_session", None)
-    if session is not None:
-        session.close()
+    """The single seam for provider HTTP, so tests can stub the network."""
+    return requests.request(method, url, data=data, headers=headers, timeout=timeout, stream=True, allow_redirects=True)
 
 
 def _request_bytes(
@@ -269,68 +149,41 @@ def _request_bytes(
     maximum: int,
     data: dict[str, str] | None = None,
     accept: str = "*/*",
-    private_network_origin: str | None = None,
     deadline: float | None = None,
 ) -> tuple[bytes, str, str]:
     if deadline is None:
         deadline = time.monotonic() + MAX_PROVIDER_REQUEST_SECONDS
-    current_url = validate_http_url(url)
-    current_method = method.upper()
-    current_data = data
-    for redirect_count in range(MAX_REDIRECTS + 1):
-        _remaining_request_seconds(deadline)
-        current_url, approved_addresses = _validate_network_target(
-            current_url,
-            private_network_origin=private_network_origin,
+    remaining = _remaining_request_seconds(deadline)
+    response = None
+    try:
+        response = _provider_request(
+            method.upper(),
+            validate_http_url(url),
+            data=data,
+            headers={
+                "Accept": accept,
+                "Accept-Encoding": "identity",
+                "User-Agent": "GameSentenceMiner-Hoshidicts-Audio/1",
+            },
+            timeout=(
+                min(REQUEST_TIMEOUT_SECONDS[0], remaining),
+                min(REQUEST_TIMEOUT_SECONDS[1], remaining),
+            ),
         )
-        response = None
-        for address in approved_addresses:
-            remaining = _remaining_request_seconds(deadline)
-            try:
-                response = _pinned_request(
-                    current_method,
-                    current_url,
-                    address=address,
-                    data=current_data,
-                    headers={
-                        "Accept": accept,
-                        "Accept-Encoding": "identity",
-                        "User-Agent": "GameSentenceMiner-Hoshidicts-Audio/1",
-                    },
-                    timeout=requests.adapters.TimeoutSauce(
-                        total=remaining,
-                        connect=min(REQUEST_TIMEOUT_SECONDS[0], remaining),
-                        read=min(REQUEST_TIMEOUT_SECONDS[1], remaining),
-                    ),
-                )
-                break
-            except requests.RequestException:
-                continue
-        if response is None:
-            raise HoshidictsAudioError("Hoshidicts audio provider request failed.", 502) from None
-        try:
-            if response.status_code in _REDIRECT_STATUSES:
-                location = response.headers.get("Location")
-                if redirect_count >= MAX_REDIRECTS or not location:
-                    raise HoshidictsAudioError("Hoshidicts audio provider redirected too many times.", 502)
-                current_url = validate_http_url(urljoin(current_url, location))
-                if response.status_code in {301, 302, 303} and current_method == "POST":
-                    current_method = "GET"
-                    current_data = None
-                continue
-            if not 200 <= response.status_code < 300:
-                raise HoshidictsAudioError(
-                    f"Hoshidicts audio provider returned HTTP {response.status_code}.",
-                    502,
-                )
-            body = _read_limited_response(response, maximum, deadline)
-            content_type = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
-            return body, content_type, current_url
-        except requests.RequestException:
-            raise HoshidictsAudioError("Hoshidicts audio provider response failed.", 502) from None
-        finally:
-            _close_response(response)
-    raise HoshidictsAudioError("Hoshidicts audio provider redirected too many times.", 502)
+        if not 200 <= response.status_code < 300:
+            raise HoshidictsAudioError(
+                f"Hoshidicts audio provider returned HTTP {response.status_code}.",
+                502,
+            )
+        body = _read_limited_response(response, maximum, deadline)
+        content_type = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        return body, content_type, getattr(response, "url", None) or url
+    except requests.RequestException:
+        raise HoshidictsAudioError("Hoshidicts audio provider request failed.", 502) from None
+    finally:
+        if response is not None:
+            with contextlib.suppress(Exception):
+                response.close()
 
 
 _VOID_HTML_TAGS = frozenset(
@@ -514,7 +367,6 @@ def _resolve_source_candidates(
             {
                 "url": validate_http_url(substitute_custom_url(url, term, reading)),
                 "name": "",
-                "privateNetworkOrigin": _private_network_origin(url),
             }
         ]
 
@@ -527,18 +379,13 @@ def _resolve_source_candidates(
             substitute_custom_url(url, term, reading),
             maximum=MAX_CUSTOM_JSON_BYTES,
             accept="application/json",
-            private_network_origin=_private_network_origin(url),
             deadline=deadline,
         )
         try:
             value = json.loads(body.decode("utf-8-sig"))
         except (UnicodeDecodeError, ValueError) as exc:
             raise HoshidictsAudioError("Hoshidicts custom JSON audio response is invalid.", 502) from exc
-        private_network_origin = _private_network_origin(url)
-        return [
-            {**candidate, "privateNetworkOrigin": private_network_origin}
-            for candidate in _validate_custom_audio_list(value)
-        ]
+        return [{**candidate} for candidate in _validate_custom_audio_list(value)]
 
     if source_type in TTS_SOURCE_TYPES:
         return []
@@ -570,18 +417,11 @@ def _private_candidates(
     cached = _candidate_cache.get(cache_key)
     if cached is None:
         resolved = _resolve_source_candidates(source, term, reading, deadline=deadline)
-        cached = tuple(
-            (
-                item["url"],
-                item["name"],
-                item.get("privateNetworkOrigin"),
-            )
-            for item in resolved[:MAX_AUDIO_SOURCES]
-        )
-        size = sum(len(url.encode()) + len(name.encode()) for url, name, _private_origin in cached)
+        cached = tuple((item["url"], item["name"]) for item in resolved[:MAX_AUDIO_SOURCES])
+        size = sum(len(url.encode()) + len(name.encode()) for url, name in cached)
         _candidate_cache.put(cache_key, cached, ttl=CANDIDATE_CACHE_SECONDS, size=size)
     candidates = []
-    for index, (url, name, private_network_origin) in enumerate(cached):
+    for index, (url, name) in enumerate(cached):
         candidate_id_payload = json.dumps(
             {
                 "source": source,
@@ -589,7 +429,6 @@ def _private_candidates(
                 "reading": reading,
                 "index": index,
                 "url": url,
-                "privateNetworkOrigin": private_network_origin,
             },
             ensure_ascii=False,
             sort_keys=True,
@@ -601,7 +440,6 @@ def _private_candidates(
                 "url": url,
                 "name": name,
                 "candidateId": hashlib.sha256(candidate_id_payload).hexdigest(),
-                "privateNetworkOrigin": private_network_origin,
             }
         )
     return source, candidates
@@ -767,8 +605,7 @@ def _download_candidate(
     *,
     deadline: float | None = None,
 ) -> AudioMedia:
-    private_network_origin = candidate.get("privateNetworkOrigin")
-    cache_key = (source["type"], candidate["url"], private_network_origin)
+    cache_key = (source["type"], candidate["url"])
     cached = _media_cache.get(cache_key)
     if cached is not None:
         return AudioMedia(
@@ -781,7 +618,6 @@ def _download_candidate(
         candidate["url"],
         maximum=MAX_AUDIO_BYTES,
         accept="audio/*,application/octet-stream",
-        private_network_origin=private_network_origin,
         deadline=deadline,
     )
     detected = _detect_audio_format(data)
