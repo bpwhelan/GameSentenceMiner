@@ -88,7 +88,6 @@
   const MAX_MINING_REQUEST_BYTES = 64 * 1024 * 1024;
   const MAX_DUPLICATE_CHECK_REQUEST_BYTES = 64 * 1024 * 1024;
   const MINING_REQUEST_TIMEOUT_MS = 90 * 1000;
-  const MAX_LOOKUP_STATS_REQUEST_BYTES = 4 * 1024;
   const MAX_LOOKUP_STATS_TEXT_LENGTH = 256;
   const LOOKUP_STATS_REQUEST_TIMEOUT_MS = 2 * 1000;
   const MAX_STRUCTURED_DEPTH = 24;
@@ -1972,10 +1971,14 @@
     return error;
   }
 
-  function createHoshidictsMiningClient(options = {}) {
+  /**
+   * The GSM-local HTTP transport both API clients share: base URL, fetch
+   * implementation, and one abortable request with a timeout. The response
+   * handling genuinely differs, so it stays with each client.
+   */
+  function createLocalJsonTransport(options, defaultTimeoutMs) {
     const baseUrl =
-      normalizeLocalHttpBaseUrl(options.baseUrl) ||
-      "http://127.0.0.1:7275";
+      normalizeLocalHttpBaseUrl(options.baseUrl) || "http://127.0.0.1:7275";
     const fetchImpl =
       typeof options.fetch === "function"
         ? options.fetch
@@ -1985,22 +1988,41 @@
     const timeoutMs =
       Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
         ? Math.trunc(options.timeoutMs)
-        : MINING_REQUEST_TIMEOUT_MS;
+        : defaultTimeoutMs;
 
-    async function request(path, init = {}) {
-      if (!fetchImpl) {
-        throw new Error("GSM mining is unavailable.");
-      }
+    async function send(path, init) {
       const controller =
         typeof AbortController === "function" ? new AbortController() : null;
       const timeoutId = controller
         ? setTimeout(() => controller.abort(), timeoutMs)
         : null;
       try {
-        const response = await fetchImpl(`${baseUrl}${path}`, {
+        return await fetchImpl(`${baseUrl}${path}`, {
           ...init,
           signal: controller ? controller.signal : undefined,
         });
+      } finally {
+        if (timeoutId !== null) {
+          clearTimeout(timeoutId);
+        }
+      }
+    }
+
+    return { fetchImpl, send };
+  }
+
+  function createHoshidictsMiningClient(options = {}) {
+    const { fetchImpl, send } = createLocalJsonTransport(
+      options,
+      MINING_REQUEST_TIMEOUT_MS
+    );
+
+    async function request(path, init = {}) {
+      if (!fetchImpl) {
+        throw new Error("GSM mining is unavailable.");
+      }
+      try {
+        const response = await send(path, init);
         let payload;
         try {
           payload = await response.json();
@@ -2029,10 +2051,6 @@
           throw new Error("GSM mining request timed out.");
         }
         throw error;
-      } finally {
-        if (timeoutId !== null) {
-          clearTimeout(timeoutId);
-        }
       }
     }
 
@@ -2081,39 +2099,19 @@
   }
 
   function createHoshidictsLookupStatsClient(options = {}) {
-    const baseUrl =
-      normalizeLocalHttpBaseUrl(options.baseUrl) ||
-      "http://127.0.0.1:7275";
-    const fetchImpl =
-      typeof options.fetch === "function"
-        ? options.fetch
-        : typeof fetch === "function"
-          ? fetch.bind(globalThis)
-          : null;
-    const timeoutMs =
-      Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
-        ? Math.trunc(options.timeoutMs)
-        : LOOKUP_STATS_REQUEST_TIMEOUT_MS;
+    const { fetchImpl, send } = createLocalJsonTransport(
+      options,
+      LOOKUP_STATS_REQUEST_TIMEOUT_MS
+    );
     const pendingRecords = new Map();
 
     async function sendRecord(body) {
-      const controller =
-        typeof AbortController === "function" ? new AbortController() : null;
-      const timeoutId = controller
-        ? setTimeout(() => controller.abort(), timeoutMs)
-        : null;
       try {
-        const response = await fetchImpl(
-          `${baseUrl}/api/hoshidicts/lookup-stats`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body,
-            signal: controller ? controller.signal : undefined,
-          }
-        );
+        const response = await send("/api/hoshidicts/lookup-stats", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        });
         let responsePayload;
         try {
           responsePayload = await response.json();
@@ -2129,10 +2127,6 @@
           throw new Error("GSM lookup statistics request timed out.");
         }
         throw error;
-      } finally {
-        if (timeoutId !== null) {
-          clearTimeout(timeoutId);
-        }
       }
     }
 
@@ -2158,9 +2152,6 @@
           throw new Error("The lookup statistics payload is invalid.");
         }
         const body = JSON.stringify({ term, reading });
-        if (utf8Length(body) > MAX_LOOKUP_STATS_REQUEST_BYTES) {
-          throw new Error("The lookup statistics payload is too large.");
-        }
 
         // SQLite increments are atomic, but concurrent HTTP requests can still
         // arrive in the opposite order from their lookups. Keep writes for one
@@ -3864,14 +3855,15 @@
       return styles;
     }
 
-    function attachDictionaryStylesWithinBudget(payload, styles, byteBudget) {
-      if (styles.length === 0 || byteBudget <= 0) {
+    /** Adds as many entries as `byteBudget` allows, dropping the rest. */
+    function attachWithinBudget(payload, key, entries, byteBudget) {
+      if (entries.length === 0 || byteBudget <= 0) {
         return { payload, bytesAdded: 0 };
       }
-      const propertyBytes = utf8Length(',"dictionaryStyles":[]');
+      const propertyBytes = utf8Length(`,"${key}":[]`);
       const included = [];
       let bytesAdded = 0;
-      for (const entry of styles) {
+      for (const entry of entries) {
         const entryBytes = utf8Length(JSON.stringify(entry));
         const nextBytes = entryBytes + (included.length === 0 ? propertyBytes : 1);
         if (bytesAdded + nextBytes > byteBudget) {
@@ -3882,31 +3874,7 @@
       }
       return included.length === 0
         ? { payload, bytesAdded: 0 }
-        : {
-            payload: { ...payload, dictionaryStyles: included },
-            bytesAdded,
-          };
-    }
-
-    function attachDictionaryMediaWithinBudget(payload, media, byteBudget) {
-      if (media.length === 0 || byteBudget <= 0) {
-        return { payload, bytesAdded: 0 };
-      }
-      const propertyBytes = utf8Length(',"dictionaryMedia":[]');
-      const included = [];
-      let bytesAdded = 0;
-      for (const entry of media) {
-        const entryBytes = utf8Length(JSON.stringify(entry));
-        const nextBytes = entryBytes + (included.length === 0 ? propertyBytes : 1);
-        if (bytesAdded + nextBytes > byteBudget) {
-          continue;
-        }
-        included.push(entry);
-        bytesAdded += nextBytes;
-      }
-      return included.length === 0
-        ? { payload, bytesAdded: 0 }
-        : { payload: { ...payload, dictionaryMedia: included }, bytesAdded };
+        : { payload: { ...payload, [key]: included }, bytesAdded };
     }
 
     function createDuplicateCheckPayload(level, miningItems) {
@@ -3920,15 +3888,17 @@
           miningItems[index].result,
           generation
         );
-        const mediaAttachment = attachDictionaryMediaWithinBudget(
+        const mediaAttachment = attachWithinBudget(
           notes[index],
+          "dictionaryMedia",
           media,
           remainingBytes
         );
         notes[index] = mediaAttachment.payload;
         remainingBytes -= mediaAttachment.bytesAdded;
-        const { payload, bytesAdded } = attachDictionaryStylesWithinBudget(
+        const { payload, bytesAdded } = attachWithinBudget(
           notes[index],
+          "dictionaryStyles",
           getMiningDictionaryStyles(miningItems[index].result, generation),
           remainingBytes
         );
@@ -4221,13 +4191,15 @@
               level.depth,
               mediaReferences
             );
-        const mediaAttachment = attachDictionaryMediaWithinBudget(
+        const mediaAttachment = attachWithinBudget(
           basePayload,
+          "dictionaryMedia",
           dictionaryMedia,
           MAX_MINING_REQUEST_BYTES - utf8Length(JSON.stringify(basePayload))
         );
-        const { payload: miningPayload } = attachDictionaryStylesWithinBudget(
+        const { payload: miningPayload } = attachWithinBudget(
           mediaAttachment.payload,
+          "dictionaryStyles",
           getMiningDictionaryStyles(
             result,
             generation
