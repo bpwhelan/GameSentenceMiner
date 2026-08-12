@@ -146,9 +146,8 @@ def normalize_hoshidicts_mining_profile(value: Any) -> dict[str, Any]:
 
     manager.ts normalizes this profile field by field before writing
     mining-profile.json, so only the shape the card builder indexes through is
-    re-checked here. The raise is deliberate: a half-restored profile that fell
-    back to defaults would silently send cards to deck "Default", and
-    hoshidicts-backup.ts copies this file verbatim out of a user-picked ZIP.
+    re-checked here. The raise is deliberate: silently falling back for a
+    malformed profile could send cards to deck "Default".
     """
     if not isinstance(value, dict):
         raise HoshidictsMiningError("Hoshidicts mining profile must be an object.")

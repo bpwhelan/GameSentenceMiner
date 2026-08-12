@@ -153,7 +153,6 @@
     "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.1",
     "semver": "^7.7.4",
-    "stream-json": "^2.1.0",
     "tar": "^7.5.13",
     "ws": "^8.20.0",
     "yauzl": "^2.10.0"
