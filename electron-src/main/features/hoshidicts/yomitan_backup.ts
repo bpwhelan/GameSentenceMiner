@@ -195,34 +195,6 @@ function exportRowValue(row: unknown, inbound: boolean): unknown {
     return unwrapTypeson(unwrapped[1]);
 }
 
-function tableRows(root: JsonRecord): Array<{
-    tableName: string;
-    inbound: boolean;
-    rows: unknown[];
-}> {
-    const data = isRecord(root.data) ? root.data : null;
-    if (
-        root.formatName !== 'dexie' ||
-        root.formatVersion !== 1 ||
-        data?.databaseName !== 'dict' ||
-        !Array.isArray(data.data)
-    ) {
-        throw new Error('The selected file is not a Yomitan dictionary backup.');
-    }
-    return data.data.flatMap((value) => {
-        if (!isRecord(value) || typeof value.tableName !== 'string' || !Array.isArray(value.rows)) {
-            return [];
-        }
-        return [
-            {
-                tableName: value.tableName,
-                inbound: value.inbound === true,
-                rows: value.rows,
-            },
-        ];
-    });
-}
-
 function copyIndexString(target: JsonRecord, source: JsonRecord, key: string): void {
     if (typeof source[key] === 'string' && source[key].length > 0) {
         target[key] = source[key];
@@ -331,22 +303,6 @@ function parseDictionarySummary(
         index: dictionaryIndex(summary),
         styles: stringValue(summary.styles),
     };
-}
-
-function addDictionarySummary(
-    dictionaries: Map<string, ParsedYomitanDictionary>,
-    row: unknown,
-    inbound: boolean
-): void {
-    const summary = parseDictionarySummary(row, inbound);
-    if (!summary) {
-        return;
-    }
-    dictionaries.set(summary.title, {
-        ...summary,
-        banks: emptyBanks(),
-        media: new Map(),
-    });
 }
 
 type ParsedDictionaryRow =
@@ -460,56 +416,6 @@ function parseDictionaryRow(
         default:
             return null;
     }
-}
-
-function addDictionaryRow(
-    dictionaries: Map<string, ParsedYomitanDictionary>,
-    tableName: string,
-    row: unknown,
-    inbound: boolean
-): void {
-    const parsed = parseDictionaryRow(tableName, row, inbound);
-    if (!parsed) {
-        return;
-    }
-    const dictionary = dictionaries.get(parsed.dictionary);
-    if (!dictionary) {
-        return;
-    }
-    if (parsed.kind === 'bank') {
-        dictionary.banks[parsed.bank].push(parsed.entry);
-    } else {
-        dictionary.media.set(parsed.mediaPath, parsed.content);
-    }
-}
-
-export function parseYomitanDictionaryBackup(value: unknown): ParsedYomitanDictionary[] {
-    if (!isRecord(value)) {
-        throw new Error('The selected file is not a Yomitan dictionary backup.');
-    }
-    const tables = tableRows(value);
-    const dictionaries = new Map<string, ParsedYomitanDictionary>();
-    for (const table of tables) {
-        if (table.tableName !== 'dictionaries') {
-            continue;
-        }
-        for (const row of table.rows) {
-            addDictionarySummary(dictionaries, row, table.inbound);
-        }
-    }
-    if (dictionaries.size === 0) {
-        throw new Error('The Yomitan backup does not contain dictionaries.');
-    }
-
-    for (const table of tables) {
-        if (table.tableName === 'dictionaries') {
-            continue;
-        }
-        for (const row of table.rows) {
-            addDictionaryRow(dictionaries, table.tableName, row, table.inbound);
-        }
-    }
-    return [...dictionaries.values()];
 }
 
 interface DictionaryBackupSignature {
