@@ -1,6 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { createDefaultHoshidictsReaderPreferences } from '../../shared/features/hoshidicts.js';
 import { makeHoshidictsReaderPreferences } from '../features/hoshidicts/test_helpers.js';
+
+/** Mirrors buildHoshidictsOverlayEnvironment: everything but customPopupCss. */
+function hoshidictsEnvironmentFor(
+    preferences: Record<string, unknown>
+): { GSM_HOSHIDICTS_READER_PREFERENCES: string } {
+    const { customPopupCss: _customPopupCss, ...carried } = preferences;
+    return { GSM_HOSHIDICTS_READER_PREFERENCES: JSON.stringify(carried) };
+}
 
 const existsSyncMock = vi.fn();
 const spawnMock = vi.fn();
@@ -124,39 +133,9 @@ async function loadHoshidictsRuntime() {
 }
 
 /** The launch environment produced by the default reader preferences. */
-const DEFAULT_HOSHIDICTS_ENVIRONMENT = {
-    GSM_HOSHIDICTS_LOOKUP_MODE: 'shift',
-    GSM_HOSHIDICTS_SCAN_LENGTH: '16',
-    GSM_HOSHIDICTS_MAX_RESULTS: '32',
-    GSM_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY: '',
-    GSM_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER: 'descending',
-    GSM_HOSHIDICTS_AVERAGE_FREQUENCY: '0',
-    GSM_HOSHIDICTS_SHOW_FREQUENCY_DICTIONARY_NAMES: '1',
-    GSM_HOSHIDICTS_ACTIVATION_KEY: 'Shift',
-    GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED: '0',
-    GSM_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT: '1',
-    GSM_HOSHIDICTS_POPUP_HIDE_DELAY_MS: '300',
-    GSM_HOSHIDICTS_SHOW_LOOKUP_COUNTS: '1',
-    GSM_HOSHIDICTS_SHOW_COMPACT_DEFINITION_SUMMARY: '0',
-    GSM_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT: '3',
-    GSM_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY: '',
-    GSM_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA: '1',
-    GSM_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY: '',
-    GSM_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE: '0',
-    GSM_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS: '1',
-    GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH: '10',
-    GSM_HOSHIDICTS_POPUP_WIDTH_PX: '560',
-    GSM_HOSHIDICTS_POPUP_HEIGHT_PX: '420',
-    GSM_HOSHIDICTS_POPUP_COLUMNS: '1',
-    GSM_HOSHIDICTS_THEME: 'default',
-    GSM_HOSHIDICTS_POPUP_OPACITY_PERCENT: '85',
-    GSM_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX: '16',
-    GSM_HOSHIDICTS_POPUP_TOOLBAR_POSITION: 'top',
-    GSM_HOSHIDICTS_DEFINITION_BLUR_ENABLED: '0',
-    GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD: '5',
-    GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_MODE: 'timed',
-    GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS: '5000',
-} as const;
+const DEFAULT_HOSHIDICTS_ENVIRONMENT = hoshidictsEnvironmentFor(
+    createDefaultHoshidictsReaderPreferences()
+);
 
 describe('runOverlayWithSource', () => {
     beforeEach(() => {
@@ -307,37 +286,7 @@ describe('runOverlayWithSource', () => {
 
         expect(spawnMock.mock.calls[0][2].env).toMatchObject({
             GSM_HOSHIDICTS_ENABLED: '1',
-            GSM_HOSHIDICTS_LOOKUP_MODE: 'hover',
-            GSM_HOSHIDICTS_SCAN_LENGTH: '24',
-            GSM_HOSHIDICTS_MAX_RESULTS: '48',
-            GSM_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY: 'Frequency',
-            GSM_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER: 'ascending',
-            GSM_HOSHIDICTS_AVERAGE_FREQUENCY: '1',
-            GSM_HOSHIDICTS_SHOW_FREQUENCY_DICTIONARY_NAMES: '0',
-            GSM_HOSHIDICTS_ACTIVATION_KEY: 'F8',
-            GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED: '1',
-            GSM_HOSHIDICTS_POPUP_HIDE_DELAY_MS: '850',
-            GSM_HOSHIDICTS_SHOW_LOOKUP_COUNTS: '0',
-            GSM_HOSHIDICTS_SHOW_COMPACT_DEFINITION_SUMMARY: '1',
-            GSM_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT: '5',
-            GSM_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY: 'Jitendex',
-            GSM_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA: '0',
-            GSM_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY:
-                'Kanjium Pitch Accents',
-            GSM_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE: '1',
-            GSM_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS: '0',
-            GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH: '4',
-            GSM_HOSHIDICTS_POPUP_WIDTH_PX: '720',
-            GSM_HOSHIDICTS_POPUP_HEIGHT_PX: '520',
-            GSM_HOSHIDICTS_POPUP_COLUMNS: '3',
-            GSM_HOSHIDICTS_THEME: 'cyberpunk',
-            GSM_HOSHIDICTS_POPUP_OPACITY_PERCENT: '70',
-            GSM_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX: '24',
-            GSM_HOSHIDICTS_POPUP_TOOLBAR_POSITION: 'bottom',
-            GSM_HOSHIDICTS_DEFINITION_BLUR_ENABLED: '1',
-            GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD: '8',
-            GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_MODE: 'hover',
-            GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS: '7000',
+            ...hoshidictsEnvironmentFor(configured),
         });
         expect(runtime.getHoshidictsEnabledAtLaunch()).toBe(true);
         expect(runtime.getAppliedHoshidictsReaderPreferences()).toEqual(
@@ -453,14 +402,19 @@ describe('runOverlayWithSource', () => {
 
         await expect(front.runOverlayWithSource('manual')).resolves.toBe(true);
 
-        expect(spawnMock.mock.calls[0][2].env).toMatchObject({
-            GSM_HOSHIDICTS_DEFINITION_BLUR_ENABLED: '0',
-            GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD: '5',
-            GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_MODE: 'timed',
-            GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS: '5000',
-            GSM_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT: '3',
-            GSM_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY: '',
-        });
+        // buildHoshidictsOverlayEnvironment normalizes before serializing, so a
+        // field the spec table rejects reaches the overlay as its default.
+        const carried = JSON.parse(
+            spawnMock.mock.calls[0][2].env.GSM_HOSHIDICTS_READER_PREFERENCES
+        );
+        const defaults = createDefaultHoshidictsReaderPreferences();
+        expect(carried.definitionBlur).toEqual(defaults.definitionBlur);
+        expect(carried.compactDefinitionSummaryCount).toBe(
+            defaults.compactDefinitionSummaryCount
+        );
+        expect(carried.compactDefinitionSummaryDictionary).toBe(
+            defaults.compactDefinitionSummaryDictionary
+        );
     });
 
     it('falls back to launch defaults when the preference provider rejects', async () => {

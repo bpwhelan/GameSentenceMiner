@@ -30,7 +30,7 @@ describe('Hoshidicts overlay runtime state', () => {
     // overlay starts with their defaults regardless of what is saved. Recording
     // the saved values instead would suppress the restart prompt forever if the
     // control channel never connected.
-    it('records the launch defaults for settings the environment cannot carry', () => {
+    it('records the launch default only for custom CSS, which the environment cannot carry', () => {
         const preferences = makeHoshidictsReaderPreferences({
             theme: 'girlypop',
             customPopupCss: ':scope { color: hotpink; }',
@@ -49,10 +49,10 @@ describe('Hoshidicts overlay runtime state', () => {
 
         const applied = getAppliedHoshidictsReaderPreferences();
         expect(applied?.theme).toBe('girlypop');
+        // Only customPopupCss is dropped, so the restart prompt is accurate at
+        // launch instead of firing for every non-default popup-button choice.
         expect(applied?.customPopupCss).toBe(DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS);
-        expect(applied?.popupButtons).toEqual(
-            createDefaultHoshidictsPopupButtons()
-        );
+        expect(applied?.popupButtons).toEqual(preferences.popupButtons);
     });
 
     it('records the delivered values once the reader applies them', () => {

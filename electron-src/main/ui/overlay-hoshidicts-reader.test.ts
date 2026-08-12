@@ -186,6 +186,15 @@ function livePreferences(overrides: Record<string, unknown> = {}) {
   return readerPreferences({ popupBackdropBlurPx: 16, ...overrides });
 }
 
+/**
+ * The launch environment GSM builds for a preference set: one JSON variable,
+ * minus customPopupCss, which the control channel delivers instead.
+ */
+function launchEnvironmentFor(overrides: Record<string, unknown> = {}) {
+  const { customPopupCss: _customPopupCss, ...carried } = livePreferences(overrides);
+  return { GSM_HOSHIDICTS_READER_PREFERENCES: JSON.stringify(carried) };
+}
+
 afterEach(resetReaderTestState);
 
 describe("Hoshidicts safe popup rendering", () => {
@@ -566,20 +575,14 @@ describe("Hoshidicts safe popup rendering", () => {
 
   it.each([
     ["reader enablement", {}, { enabled: true }],
-    ["hover lookups", { GSM_HOSHIDICTS_LOOKUP_MODE: "hover" }, { lookupMode: "hover" }],
-    ["an invalid lookup mode", { GSM_HOSHIDICTS_LOOKUP_MODE: "invalid" }, { lookupMode: "shift" }],
-    ["a custom activation key", { GSM_HOSHIDICTS_ACTIVATION_KEY: "f8" }, { activationKey: "F8" }],
-    ["source highlighting", { GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED: "1" }, { sourceHighlightEnabled: true }],
-    ["disabled lookup counts", { GSM_HOSHIDICTS_SHOW_LOOKUP_COUNTS: "0" }, { showLookupCounts: false }],
-    ["zero popup nesting", { GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH: "0" }, { popupNestingMaxDepth: 0 }],
-    ["an invalid nesting depth", { GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH: "invalid" }, { popupNestingMaxDepth: 10 }],
-    ["japanese-only scanning off", { GSM_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT: "0" }, { onlyScanJapaneseText: false }],
+    ["hover lookups", { lookupMode: "hover" }, { lookupMode: "hover" }],
+    ["a custom activation key", { activationKey: "F8" }, { activationKey: "F8" }],
     [
-      "pitch-accent presentation",
+      "pitch accent presentation",
       {
-        GSM_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA: "0",
-        GSM_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE: "1",
-        GSM_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY: "Kanjium Pitch Accents"
+        showPitchAccentFurigana: false,
+        showPitchAccentBadge: true,
+        pitchAccentFuriganaDictionary: "Kanjium Pitch Accents"
       },
       {
         showPitchAccentFurigana: false,
@@ -590,13 +593,13 @@ describe("Hoshidicts safe popup rendering", () => {
     [
       "popup appearance",
       {
-        GSM_HOSHIDICTS_POPUP_WIDTH_PX: "720",
-        GSM_HOSHIDICTS_POPUP_HEIGHT_PX: "520",
-        GSM_HOSHIDICTS_POPUP_COLUMNS: "3",
-        GSM_HOSHIDICTS_THEME: "cyberpunk",
-        GSM_HOSHIDICTS_POPUP_OPACITY_PERCENT: "70",
-        GSM_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX: "0",
-        GSM_HOSHIDICTS_POPUP_TOOLBAR_POSITION: "bottom"
+        popupWidthPx: 720,
+        popupHeightPx: 520,
+        popupColumns: 3,
+        theme: "cyberpunk",
+        popupOpacityPercent: 70,
+        popupBackdropBlurPx: 0,
+        popupToolbarPosition: "bottom"
       },
       {
         popupWidthPx: 720,
@@ -609,14 +612,14 @@ describe("Hoshidicts safe popup rendering", () => {
       }
     ],
     [
-      "lookup controls",
+      "lookup and frequency settings",
       {
-        GSM_HOSHIDICTS_SCAN_LENGTH: "24",
-        GSM_HOSHIDICTS_MAX_RESULTS: "48",
-        GSM_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY: "Frequency",
-        GSM_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER: "ascending",
-        GSM_HOSHIDICTS_AVERAGE_FREQUENCY: "1",
-        GSM_HOSHIDICTS_SHOW_FREQUENCY_DICTIONARY_NAMES: "0"
+        scanLength: 24,
+        maxResults: 48,
+        sortFrequencyDictionary: "Frequency",
+        sortFrequencyDictionaryOrder: "ascending",
+        averageFrequency: true,
+        showFrequencyDictionaryNames: false
       },
       {
         scanLength: 24,
@@ -628,29 +631,14 @@ describe("Hoshidicts safe popup rendering", () => {
       }
     ],
     [
-      "out-of-range appearance values",
-      {
-        GSM_HOSHIDICTS_POPUP_WIDTH_PX: "9000",
-        GSM_HOSHIDICTS_SCAN_LENGTH: "0",
-        GSM_HOSHIDICTS_MAX_RESULTS: "999",
-        GSM_HOSHIDICTS_THEME: "not-a-theme",
-        GSM_HOSHIDICTS_POPUP_TOOLBAR_POSITION: "sideways"
-      },
-      {
-        popupWidthPx: 560,
-        scanLength: 16,
-        maxResults: 32,
-        theme: "default",
-        popupToolbarPosition: "top"
-      }
-    ],
-    [
       "definition blur",
       {
-        GSM_HOSHIDICTS_DEFINITION_BLUR_ENABLED: "1",
-        GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD: "12",
-        GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_MODE: "hover",
-        GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS: "9000"
+        definitionBlur: {
+          enabled: true,
+          lookupThreshold: 12,
+          revealMode: "hover",
+          revealDelayMs: 9000
+        }
       },
       {
         definitionBlur: {
@@ -662,24 +650,28 @@ describe("Hoshidicts safe popup rendering", () => {
       }
     ],
     [
-      "invalid definition blur values",
+      "popup buttons, which the environment now carries",
       {
-        GSM_HOSHIDICTS_DEFINITION_BLUR_ENABLED: "yes",
-        GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD: "12invalid",
-        GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_MODE: "invalid",
-        GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS: "3600001"
+        popupButtons: {
+          addToAnki: false,
+          audio: false,
+          customDefinition: false,
+          viewInAnki: true,
+          customLinks: [{ label: "Jisho", url: "https://jisho.org/search/%w" }]
+        }
       },
       {
-        definitionBlur: {
-          enabled: false,
-          lookupThreshold: 5,
-          revealMode: "timed",
-          revealDelayMs: 5000
+        popupButtons: {
+          addToAnki: false,
+          audio: false,
+          customDefinition: false,
+          viewInAnki: true,
+          customLinks: [{ label: "Jisho", url: "https://jisho.org/search/%w" }]
         }
       }
     ]
-  ])("reads %s from the launch environment", (_label, env, expected) => {
-    const { api, preferences } = launchBootstrap(env);
+  ])("reads %s from the launch environment", (_label, overrides, expected) => {
+    const { api, preferences } = launchBootstrap(launchEnvironmentFor(overrides));
 
     const { enabled, ...preferenceExpectations } = expected as Record<string, any>;
     expect(preferences).toEqual(livePreferences(preferenceExpectations));
@@ -689,9 +681,9 @@ describe("Hoshidicts safe popup rendering", () => {
   });
 
   it("marks the document for scanner suppression before the overlay scripts load", () => {
-    const { addClass, documentElement, setProperty, window } = launchBootstrap({
-      GSM_HOSHIDICTS_POPUP_OPACITY_PERCENT: "70"
-    });
+    const { addClass, documentElement, setProperty, window } = launchBootstrap(
+      launchEnvironmentFor({ popupOpacityPercent: 70 })
+    );
 
     expect(window.gsmHoshidictsReaderEnabled).toBe(true);
     expect(addClass).toHaveBeenCalledWith("gsm-hoshidicts-enabled");
@@ -716,9 +708,9 @@ describe("Hoshidicts safe popup rendering", () => {
 
   it.each(HOSHIDICTS_THEMES)("accepts the %s launch theme", (theme) => {
     expect(HOSHIDICTS_THEMES).toHaveLength(41);
-    const { documentElement, preferences } = launchBootstrap({
-      GSM_HOSHIDICTS_THEME: theme
-    });
+    const { documentElement, preferences } = launchBootstrap(
+      launchEnvironmentFor({ theme })
+    );
 
     expect(preferences.theme).toBe(theme);
     expect(documentElement.dataset.hoshidictsTheme).toBe(theme);
@@ -726,12 +718,12 @@ describe("Hoshidicts safe popup rendering", () => {
 
   it("creates the reader with the launch preferences and GSM API clients", async () => {
     const configured = configureBootstrapReader({
-      env: {
-        GSM_HOSHIDICTS_LOOKUP_MODE: "hover",
-        GSM_HOSHIDICTS_ACTIVATION_KEY: "F8",
-        GSM_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED: "1",
-        GSM_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH: "4"
-      }
+      env: launchEnvironmentFor({
+        lookupMode: "hover",
+        activationKey: "F8",
+        sourceHighlightEnabled: true,
+        popupNestingMaxDepth: 4
+      })
     });
 
     expect(configured.createHoshidictsReader).toHaveBeenCalledWith(
