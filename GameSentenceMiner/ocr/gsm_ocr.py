@@ -1564,10 +1564,16 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
         if not self._v2_last_processed_text:
             return False
         if chunks and self._v2_last_processed_chunks:
-            return all(
-                _v2_texts_stable(prev_chunk, new_chunk, self.config.duplicate_threshold)
-                for prev_chunk, new_chunk in zip(self._v2_last_processed_chunks, chunks, strict=False)
-            ) and len(chunks) == len(self._v2_last_processed_chunks)
+            # OCR1 may keep only a persistent UI fragment after the dialogue
+            # disappears. Treat that subset as already processed just as the
+            # filtering pipeline does, rather than stabilizing it into a new
+            # full-frame OCR2 request.
+            return compare_ocr_results(
+                self._v2_last_processed_chunks,
+                chunks,
+                threshold=self.config.duplicate_threshold,
+                settings=self.config.compare_settings,
+            )
         return _v2_texts_stable(self._v2_last_processed_text, text, self.config.duplicate_threshold)
 
     def _flush_v2_pending_text(self, *, reason: str = "unspecified") -> bool:

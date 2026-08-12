@@ -804,7 +804,17 @@ class OWOCRAreaSelectorWidget(QWidget):
 
             loaded_count = 0
             if "rectangles" in config_data:
-                win_geom = config_data.get("window_geometry", {})
+                # Window-relative percentages must be projected through the
+                # geometry of the capture currently shown by the selector.
+                # Reusing the saved window origin here shifts every rectangle
+                # whenever the game window has moved since the config was
+                # written. Monitor capture is the exception: it shows the full
+                # monitor, so the last known window origin is needed to place
+                # window-relative rectangles on that monitor.
+                saved_win_geom = config_data.get("window_geometry", {})
+                win_geom = (
+                    saved_win_geom if self.select_monitor_area else (self.target_window_geometry or saved_win_geom)
+                )
                 win_w = int(win_geom.get("width", self.screenshot_img.width or 1) or 1)
                 win_h = int(win_geom.get("height", self.screenshot_img.height or 1) or 1)
                 win_l = int(win_geom.get("left", 0) or 0)
