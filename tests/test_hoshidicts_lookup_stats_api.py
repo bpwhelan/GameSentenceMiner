@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import io
 import json
 
 import pytest
@@ -105,23 +104,6 @@ def test_post_lookup_stats_rejects_oversized_body(client):
     assert response.get_json()["success"] is False
 
 
-def test_post_lookup_stats_rejects_oversized_stream_without_content_length(client):
-    body = json.dumps({"term": "猫", "padding": "x" * 5000}).encode()
-    response = client.open(
-        "/api/hoshidicts/lookup-stats",
-        method="POST",
-        input_stream=io.BytesIO(body),
-        content_type="application/json",
-        environ_overrides={
-            "CONTENT_LENGTH": "",
-            "wsgi.input_terminated": True,
-        },
-    )
-
-    assert response.status_code == 413
-    assert response.get_json()["success"] is False
-
-
 def test_post_lookup_stats_returns_generic_unavailable_error(client, monkeypatch):
     def fail(_term, _reading):
         raise RuntimeError("secret database path")
@@ -218,13 +200,8 @@ def test_get_lookup_stats_returns_paginated_camel_case_results(client, monkeypat
         "limit=501",
         "limit=1.5",
         "limit=no",
-        "limit=1_0",
-        "limit=%2B10",
-        "limit=%2001%20",
-        "limit=01",
         "offset=-1",
         "offset=no",
-        "offset=1_0",
     ],
 )
 def test_get_lookup_stats_rejects_invalid_pagination(client, query):

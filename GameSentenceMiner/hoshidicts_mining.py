@@ -16,7 +16,6 @@ from GameSentenceMiner import hoshidicts_anki as _anki
 from GameSentenceMiner import hoshidicts_audio as _audio
 from GameSentenceMiner import hoshidicts_audio_profile as _audio_profile
 from GameSentenceMiner.hoshidicts_anki import (
-    ANKI_CONNECT_TIMEOUT_SECONDS,
     MEDIA_TIMEOUT_SECONDS,
     NOTE_TIMEOUT_SECONDS,
     browse_word,
@@ -67,7 +66,6 @@ HOSHIDICTS_MINING_PROFILE_VERSION = 3
 MAX_PROFILE_BYTES = 64 * 1024
 MAX_BROWSE_REQUEST_BYTES = 64 * 1024
 MINING_STATUS_CACHE_SECONDS = 2.0
-MINING_STATUS_WAIT_SECONDS = (ANKI_CONNECT_TIMEOUT_SECONDS * 2) + 0.5
 
 DUPLICATE_SCOPES = ("collection", "deck", "deck-root")
 DUPLICATE_BEHAVIORS = ("prevent", "overwrite", "new")
@@ -590,38 +588,24 @@ def _resolve_mining_configuration(
 
 
 _status_cache_lock = threading.Lock()
-_status_cache_key: tuple[Any, ...] | None = None
+_status_cache_key: str | None = None
 _status_cache_value: dict[str, Any] | None = None
 _status_cache_expires_at = 0.0
-_status_in_flight: dict[tuple[Any, ...], threading.Event] = {}
 
 
-def _mining_status_cache_key(
-    profile: dict[str, Any],
-    config: Any,
-) -> tuple[Any, ...]:
-    return (
-        profile.get("enabled", True),
-        profile.get("deck", ""),
-        profile.get("model", ""),
-        tuple((key, profile.get("fields", {}).get(key, "")) for key in FIELD_KEYS),
-        tuple(profile.get("disabledFields", [])),
-        (
-            None
-            if profile.get("fieldTemplates") is None
-            else tuple(
-                (
-                    field_name,
-                    template.get("value", ""),
-                    template.get("overwriteMode", "coalesce"),
-                )
-                for field_name, template in profile["fieldTemplates"].items()
-            )
-        ),
-        bool(config.anki.enabled),
-        str(config.anki.note_type or ""),
-        str(config.anki.word_field or ""),
-        str(config.anki.sentence_field or ""),
+def _mining_status_cache_key(profile: dict[str, Any], config: Any) -> str:
+    return json.dumps(
+        [
+            profile,
+            [
+                bool(config.anki.enabled),
+                str(config.anki.note_type or ""),
+                str(config.anki.word_field or ""),
+                str(config.anki.sentence_field or ""),
+            ],
+        ],
+        sort_keys=True,
+        default=str,
     )
 
 
@@ -631,10 +615,6 @@ def _clear_mining_status_cache() -> None:
         _status_cache_key = None
         _status_cache_value = None
         _status_cache_expires_at = 0.0
-        events = list(_status_in_flight.values())
-        _status_in_flight.clear()
-    for event in events:
-        event.set()
 
 
 def _compute_mining_status(
@@ -674,33 +654,17 @@ def get_hoshidicts_mining_status() -> dict[str, Any]:
         }
 
     now = time.monotonic()
-    owner = False
     with _status_cache_lock:
         if _status_cache_key == cache_key and _status_cache_value is not None and now < _status_cache_expires_at:
             return deepcopy(_status_cache_value)
-        event = _status_in_flight.get(cache_key)
-        if event is None:
-            event = threading.Event()
-            _status_in_flight[cache_key] = event
-            owner = True
 
-    if not owner:
-        event.wait(MINING_STATUS_WAIT_SECONDS)
-        with _status_cache_lock:
-            if _status_cache_key == cache_key and _status_cache_value is not None:
-                return deepcopy(_status_cache_value)
-        return {
-            "available": False,
-            "error": "Timed out while checking AnkiConnect through GSM.",
-        }
-
+    # Concurrent callers may both compute this; the 2 s cache keeps that rare and
+    # the duplicate work is one AnkiConnect round trip.
     status = _compute_mining_status(profile, config)
     with _status_cache_lock:
         _status_cache_key = cache_key
         _status_cache_value = deepcopy(status)
         _status_cache_expires_at = time.monotonic() + MINING_STATUS_CACHE_SECONDS
-        _status_in_flight.pop(cache_key, None)
-        event.set()
     return status
 
 
