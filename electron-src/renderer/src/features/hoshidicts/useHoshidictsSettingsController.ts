@@ -1,62 +1,40 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  createDefaultHoshidictsPopupButtons,
+  cloneHoshidictsReaderPreferences,
   createDefaultHoshidictsFieldOverwriteModes,
-  DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
-  DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
-  DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
-  DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
-  DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
-  DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
-  DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE,
-  DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
-  DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
-  DEFAULT_HOSHIDICTS_AVERAGE_FREQUENCY,
-  DEFAULT_HOSHIDICTS_SHOW_FREQUENCY_DICTIONARY_NAMES,
-  DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
-  DEFAULT_HOSHIDICTS_MAX_RESULTS,
-  DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
+  createDefaultHoshidictsReaderPreferences,
   DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
-  DEFAULT_HOSHIDICTS_POPUP_COLUMNS,
-  DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
-  DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
-  DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
-  DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
   DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
-  DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
-  DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
-  DEFAULT_HOSHIDICTS_SCAN_LENGTH,
-  DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
-  DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
-  DEFAULT_HOSHIDICTS_THEME,
   HOSHIDICTS_CHANNELS,
   MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH,
+  normalizeHoshidictsReaderPreferences,
   type HoshidictsActionResult,
   type HoshidictsAudioProfile,
   type HoshidictsBulkDictionaryAction,
   type HoshidictsBulkDictionaryActionRequest,
-  type HoshidictsCreateTabGroupRequest,
   type HoshidictsCreateProfileRequest,
+  type HoshidictsCreateTabGroupRequest,
   type HoshidictsCustomDictionaryDocument,
   type HoshidictsDefinitionBlurPreferences,
   type HoshidictsDeleteTabGroupRequest,
   type HoshidictsDesktopSnapshot,
-  type HoshidictsFieldOverwriteMode,
   type HoshidictsDictionaryPresentationRequest,
   type HoshidictsDictionaryScheduleRequest,
+  type HoshidictsFieldOverwriteMode,
   type HoshidictsMiningOptions,
   type HoshidictsMiningProfile,
-  type HoshidictsPopupButtons,
-  type HoshidictsMoveDirection,
   type HoshidictsMoveDictionaryToPositionRequest,
+  type HoshidictsMoveDirection,
   type HoshidictsMoveTabGroupRequest,
-  type HoshidictsReaderPreferences,
+  type HoshidictsNumericReaderPreference,
+  type HoshidictsPopupButtons,
   type HoshidictsProfileIdRequest,
+  type HoshidictsReaderPreferences,
+  type HoshidictsRecommendedDictionaryId,
   type HoshidictsRenameDictionaryRequest,
   type HoshidictsRenameProfileRequest,
   type HoshidictsRenameTabGroupRequest,
-  type HoshidictsRecommendedDictionaryId,
   type HoshidictsSaveCustomDictionaryRequest,
   type HoshidictsSchedule,
   type HoshidictsSetTabGroupMembershipRequest,
@@ -98,78 +76,6 @@ function resetMiningFieldMappings(
   };
 }
 
-const defaultReaderPreferences = (): HoshidictsReaderPreferences => ({
-  lookupMode: "shift",
-  scanLength: DEFAULT_HOSHIDICTS_SCAN_LENGTH,
-  maxResults: DEFAULT_HOSHIDICTS_MAX_RESULTS,
-  sortFrequencyDictionary: DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
-  sortFrequencyDictionaryOrder:
-    DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
-  activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
-  sourceHighlightEnabled: DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED,
-  onlyScanJapaneseText: DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
-  popupHideDelayMs: DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
-  showLookupCounts: true,
-  averageFrequency: DEFAULT_HOSHIDICTS_AVERAGE_FREQUENCY,
-  showFrequencyDictionaryNames:
-    DEFAULT_HOSHIDICTS_SHOW_FREQUENCY_DICTIONARY_NAMES,
-  showCompactDefinitionSummary:
-    DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
-  compactDefinitionSummaryCount:
-    DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
-  compactDefinitionSummaryDictionary:
-    DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
-  showPitchAccentFurigana:
-    DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
-  pitchAccentFuriganaDictionary:
-    DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
-  showPitchAccentBadge: DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE,
-  hidePopupGrammarTags: DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
-  popupNestingMaxDepth: DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
-  definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
-  popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
-  popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
-  popupColumns: DEFAULT_HOSHIDICTS_POPUP_COLUMNS,
-  theme: DEFAULT_HOSHIDICTS_THEME,
-  popupBackdropBlurPx: DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
-  popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
-  popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
-  popupButtons: createDefaultHoshidictsPopupButtons(),
-  customPopupCss: DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS
-});
-
-function copyReaderPreferences(
-  preferences: HoshidictsReaderPreferences
-): HoshidictsReaderPreferences {
-  return {
-    ...preferences,
-    definitionBlur: { ...preferences.definitionBlur },
-    popupButtons: {
-      ...preferences.popupButtons,
-      customLinks: preferences.popupButtons.customLinks.map((link) => ({
-        ...link
-      }))
-    }
-  };
-}
-
-const READER_PREFERENCE_KEYS = Object.keys(
-  defaultReaderPreferences()
-) as Array<keyof HoshidictsReaderPreferences>;
-
-/** Reads the reader draft out of a normalized snapshot, key by key. */
-function readerDraftFromSnapshot(
-  snapshot: HoshidictsDesktopSnapshot
-): HoshidictsReaderPreferences {
-  const draft = defaultReaderPreferences();
-  const values = draft as unknown as Record<string, unknown>;
-  for (const key of READER_PREFERENCE_KEYS) {
-    const value = (snapshot as Partial<HoshidictsReaderPreferences>)[key];
-    if (value !== undefined) values[key] = value;
-  }
-  return copyReaderPreferences(draft);
-}
-
 function clampInteger(
   value: number,
   minimum: number,
@@ -178,12 +84,6 @@ function clampInteger(
   if (!Number.isFinite(value)) return null;
   return Math.min(maximum, Math.max(minimum, Math.round(value)));
 }
-
-type NumericReaderPreference = {
-  [K in keyof HoshidictsReaderPreferences]-?: HoshidictsReaderPreferences[K] extends number
-    ? K
-    : never;
-}[keyof HoshidictsReaderPreferences];
 
 type NumericDefinitionBlurPreference = {
   [K in keyof HoshidictsDefinitionBlurPreferences]-?: HoshidictsDefinitionBlurPreferences[K] extends number
@@ -295,7 +195,7 @@ export function useHoshidictsSettingsController() {
     const synchronizers = draftSynchronizersRef.current;
     if (!synchronizers) return normalized;
 
-    const reader = readerDraftFromSnapshot(normalized);
+    const reader = normalizeHoshidictsReaderPreferences(normalized);
     const mining = profileToDraft(normalized.miningProfile);
     const audio = copyAudioProfile(normalized.audioProfile);
     if (!initializedRef.current) {
@@ -351,9 +251,9 @@ export function useHoshidictsSettingsController() {
   );
 
   const readerAutosave = useHoshidictsAutosave({
-    initialDraft: defaultReaderPreferences,
-    cloneDraft: copyReaderPreferences,
-    toRequest: copyReaderPreferences,
+    initialDraft: createDefaultHoshidictsReaderPreferences,
+    cloneDraft: cloneHoshidictsReaderPreferences,
+    toRequest: cloneHoshidictsReaderPreferences,
     savedDraft: savedReaderDraft,
     channel: HOSHIDICTS_CHANNELS.setReaderPreferences,
     errorFallback: t("settings.hoshidicts.errors.readerPreferences"),
@@ -612,7 +512,7 @@ export function useHoshidictsSettingsController() {
 
   const setBoundedReaderInteger = useCallback(
     (
-      key: NumericReaderPreference,
+      key: HoshidictsNumericReaderPreference,
       value: number,
       minimum: number,
       maximum: number
