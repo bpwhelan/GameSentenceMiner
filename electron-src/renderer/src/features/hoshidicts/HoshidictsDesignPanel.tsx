@@ -389,6 +389,27 @@ export function HoshidictsDesignPanel({
     ...readerDraft
   };
 
+  // The appearance numbers are rendered in two runs, either side of the
+  // toolbar-position select.
+  const renderAppearanceNumber = (
+    setting: (typeof APPEARANCE_NUMBERS)[number]
+  ) => (
+    <HoshidictsNumberSetting
+      key={setting.id}
+      id={setting.id}
+      label={t(setting.labelKey)}
+      unit={setting.unitKey ? t(setting.unitKey) : undefined}
+      min={setting.min}
+      max={setting.max}
+      step={setting.step}
+      value={readerDraft[setting.key]}
+      disabled={preferencesBusy}
+      onChange={(value) =>
+        setBoundedReaderInteger(setting.key, value, setting.min, setting.max)
+      }
+    />
+  );
+
   return (
     <div className="hoshidicts-design">
       <section className="hoshidicts-design__controls">
@@ -427,27 +448,7 @@ export function HoshidictsDesignPanel({
                 </optgroup>
               ))}
             </HoshidictsSelectSetting>
-            {APPEARANCE_NUMBERS.slice(0, 2).map((setting) => (
-              <HoshidictsNumberSetting
-                key={setting.id}
-                id={setting.id}
-                label={t(setting.labelKey)}
-                unit={setting.unitKey ? t(setting.unitKey) : undefined}
-                min={setting.min}
-                max={setting.max}
-                step={setting.step}
-                value={readerDraft[setting.key]}
-                disabled={preferencesBusy}
-                onChange={(value) =>
-                  setBoundedReaderInteger(
-                    setting.key,
-                    value,
-                    setting.min,
-                    setting.max
-                  )
-                }
-              />
-            ))}
+            {APPEARANCE_NUMBERS.slice(0, 2).map(renderAppearanceNumber)}
             <HoshidictsSelectSetting
               id="hoshidicts-popup-toolbar-position"
               label={t("settings.hoshidicts.reader.appearance.toolbarPosition")}
@@ -474,27 +475,7 @@ export function HoshidictsDesignPanel({
                 )
               }
             />
-            {APPEARANCE_NUMBERS.slice(2).map((setting) => (
-              <HoshidictsNumberSetting
-                key={setting.id}
-                id={setting.id}
-                label={t(setting.labelKey)}
-                unit={setting.unitKey ? t(setting.unitKey) : undefined}
-                min={setting.min}
-                max={setting.max}
-                step={setting.step}
-                value={readerDraft[setting.key]}
-                disabled={preferencesBusy}
-                onChange={(value) =>
-                  setBoundedReaderInteger(
-                    setting.key,
-                    value,
-                    setting.min,
-                    setting.max
-                  )
-                }
-              />
-            ))}
+            {APPEARANCE_NUMBERS.slice(2).map(renderAppearanceNumber)}
             <button
               type="button"
               className="secondary hoshidicts-reader-appearance__reset"
