@@ -83,10 +83,43 @@ function appendHoshidictsDiagnostic(logPath, entry, options = {}) {
   return true;
 }
 
+/**
+ * Mirrors overlay renderer console output into the Hoshidicts diagnostic log.
+ * `registerListener` lets the overlay keep ownership of listener cleanup.
+ */
+function attachHoshidictsRendererDiagnostics(options = {}) {
+  const { logPath, registerListener, webContents } = options;
+  if (!logPath || !webContents || typeof registerListener !== "function") {
+    return false;
+  }
+  const warn = (message, error) => {
+    console.warn(`[HoshidictsDiagnostics] ${message}`, error);
+  };
+  try {
+    appendHoshidictsDiagnostic(logPath, {
+      level: "info",
+      message: `${HOSHIDICTS_LOG_PREFIX} diagnostics.ready ${JSON.stringify({
+        logPath,
+      })}`,
+    });
+  } catch (error) {
+    warn("Could not initialize the log file:", error);
+  }
+  registerListener(webContents, "console-message", (_event, ...args) => {
+    try {
+      appendHoshidictsDiagnostic(logPath, normalizeConsoleMessageArguments(args));
+    } catch (error) {
+      warn("Could not append renderer diagnostics:", error);
+    }
+  });
+  return true;
+}
+
 module.exports = {
   DEFAULT_MAX_LOG_BYTES,
   HOSHIDICTS_LOG_PREFIX,
   appendHoshidictsDiagnostic,
+  attachHoshidictsRendererDiagnostics,
   formatHoshidictsDiagnosticLine,
   normalizeConsoleMessageArguments,
 };

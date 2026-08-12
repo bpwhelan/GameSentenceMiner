@@ -97,4 +97,43 @@ describe("Hoshidicts renderer diagnostics", () => {
     expect(fs.existsSync(`${logPath}.1`)).toBe(true);
     expect(fs.readFileSync(logPath, "utf8")).toContain("reader.destroyed");
   });
+  it("mirrors renderer console output into the diagnostic log", () => {
+    const directory = makeTempDir();
+    const logPath = path.join(directory, "logs", "hoshidicts-reader.log");
+    const listeners: Array<[unknown, string, (...args: any[]) => void]> = [];
+    const webContents = { id: 1 };
+
+    expect(
+      diagnostics.attachHoshidictsRendererDiagnostics({
+        logPath,
+        registerListener: (target: unknown, event: string, listener: any) => {
+          listeners.push([target, event, listener]);
+        },
+        webContents
+      })
+    ).toBe(true);
+    expect(fs.readFileSync(logPath, "utf8")).toContain("diagnostics.ready");
+    expect(listeners).toHaveLength(1);
+    expect(listeners[0][0]).toBe(webContents);
+    expect(listeners[0][1]).toBe("console-message");
+
+    listeners[0][2]({}, {
+      level: "warning",
+      message: "[HoshidictsReader] lookup.failed",
+      lineNumber: 7,
+      sourceId: "file:///overlay/reader.js"
+    });
+    expect(fs.readFileSync(logPath, "utf8")).toContain("lookup.failed");
+
+    // A disabled feature (no log path) must not register any listener.
+    expect(
+      diagnostics.attachHoshidictsRendererDiagnostics({
+        logPath: "",
+        registerListener: () => {
+          throw new Error("must not register");
+        },
+        webContents
+      })
+    ).toBe(false);
+  });
 });

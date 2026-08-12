@@ -9,47 +9,35 @@
  */
 
 (function (root, factory) {
-  const api = factory();
+  const constants = (root && root.GSMHoshidictsConstants) ||
+    (typeof require === "function" ? require("./constants") : null);
+  const api = factory(constants);
   if (typeof module !== "undefined" && module.exports) {
     module.exports = api;
   }
   if (root) {
     root.GSMHoshidictsAudio = api;
   }
-}(typeof window !== "undefined" ? window : globalThis, function () {
+}(typeof window !== "undefined" ? window : globalThis, function (constants) {
   "use strict";
+
+  if (!constants || !constants.LIMITS) {
+    throw new Error("Hoshidicts constants must load before audio support.");
+  }
 
   const AUDIO_AUTOPLAY_DELAY_MS = 200;
   const AUDIO_REQUEST_TIMEOUT_MS = 8 * 1000;
   const AUDIO_FALLBACK_TOTAL_TIMEOUT_MS = 12 * 1000;
   const AUDIO_DISCOVERY_CONCURRENCY = 3;
   const MAX_AUDIO_FALLBACK_ATTEMPTS = 12;
-  const MAX_AUDIO_SOURCES = 32;
-  const MAX_AUDIO_CANDIDATES = 32;
-  const MAX_TEXT_LENGTH = 4096;
-  const SOURCE_TYPES = new Set([
-    "jpod101",
-    "language-pod-101",
-    "jisho",
-    "custom",
-    "custom-json",
-    "text-to-speech",
-    "text-to-speech-reading",
-  ]);
-  const TTS_SOURCE_TYPES = new Set([
-    "text-to-speech",
-    "text-to-speech-reading",
-  ]);
-  const SOURCE_LABELS = {
-    jp101: "JapanesePod101",
-    jpod101: "JapanesePod101",
-    "language-pod-101": "LanguagePod101",
-    jisho: "Jisho",
-    custom: "Custom URL",
-    "custom-json": "Custom JSON",
-    "text-to-speech": "Text-to-speech (term)",
-    "text-to-speech-reading": "Text-to-speech (reading)",
-  };
+  const MAX_AUDIO_SOURCES = constants.LIMITS.audioSources;
+  const MAX_AUDIO_CANDIDATES = constants.LIMITS.audioCandidates;
+  const MAX_TEXT_LENGTH = constants.LIMITS.audioTextLength;
+  const SOURCE_TYPES = constants.AUDIO_SOURCE_TYPE_SET;
+  const TTS_SOURCE_TYPES = constants.TTS_AUDIO_SOURCE_TYPES;
+  const SOURCE_LABELS = constants.AUDIO_SOURCE_LABELS;
+  const MIN_VOLUME = constants.BOUNDS.audioVolume.min;
+  const MAX_VOLUME = constants.BOUNDS.audioVolume.max;
   const DEFAULT_AUDIO_PROFILE = Object.freeze({
     version: 1,
     enabled: true,
@@ -103,7 +91,10 @@
       normalized.autoPlay = profile.autoPlay;
     }
     if (Number.isFinite(profile.volume)) {
-      normalized.volume = Math.max(0, Math.min(100, Math.trunc(profile.volume)));
+      normalized.volume = Math.max(
+        MIN_VOLUME,
+        Math.min(MAX_VOLUME, Math.trunc(profile.volume))
+      );
     }
     if (!Array.isArray(profile.sources)) {
       return normalized;
