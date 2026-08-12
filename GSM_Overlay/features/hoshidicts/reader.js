@@ -3429,6 +3429,39 @@
       syncAudioRenderedResults(null, false);
     }
 
+    /**
+     * Every option renderResults takes for a term view. A fresh lookup and a
+     * restored one must agree on all of them, so they are described once.
+     */
+    function termRenderOptions(
+      targetDepth,
+      dictionaryGeneration,
+      definitionBlurContext
+    ) {
+      return {
+        definitionBlurState: getDefinitionBlurState(definitionBlurContext),
+        generation: dictionaryGeneration,
+        showLookupCounts: preferences.showLookupCounts && Boolean(onLookup),
+        averageFrequency: preferences.averageFrequency,
+        showFrequencyDictionaryNames: preferences.showFrequencyDictionaryNames,
+        showCompactDefinitionSummary: preferences.showCompactDefinitionSummary,
+        compactDefinitionSummaryCount:
+          preferences.compactDefinitionSummaryCount,
+        hidePopupGrammarTags: preferences.hidePopupGrammarTags,
+        compactDefinitionSummaryDictionary:
+          preferences.compactDefinitionSummaryDictionary,
+        showPitchAccentFurigana: preferences.showPitchAccentFurigana,
+        pitchAccentFuriganaDictionary: preferences.pitchAccentFuriganaDictionary,
+        showPitchAccentBadge: preferences.showPitchAccentBadge,
+        dictionaryPresentation: preferences.dictionaryPresentation,
+        dictionaryTabGroups: preferences.dictionaryTabGroups,
+        onInternalLink: (link) => openStructuredLink(link, targetDepth),
+        resolveMedia: dictionaryGeneration === null
+          ? null
+          : (request) => resolveMedia({ ...request, depth: targetDepth }),
+      };
+    }
+
     function renderTermResults(
       results,
       candidate,
@@ -3454,31 +3487,11 @@
         signature,
         definitionBlurContext,
       };
-      const rendered = level.view.renderResults(results, candidate, {
-        definitionBlurState: getDefinitionBlurState(definitionBlurContext),
-        generation: dictionaryGeneration,
-        showLookupCounts: preferences.showLookupCounts && Boolean(onLookup),
-        averageFrequency: preferences.averageFrequency,
-        showFrequencyDictionaryNames:
-          preferences.showFrequencyDictionaryNames,
-        showCompactDefinitionSummary:
-          preferences.showCompactDefinitionSummary,
-        compactDefinitionSummaryCount:
-          preferences.compactDefinitionSummaryCount,
-        hidePopupGrammarTags: preferences.hidePopupGrammarTags,
-        compactDefinitionSummaryDictionary:
-          preferences.compactDefinitionSummaryDictionary,
-        showPitchAccentFurigana: preferences.showPitchAccentFurigana,
-        pitchAccentFuriganaDictionary:
-          preferences.pitchAccentFuriganaDictionary,
-        showPitchAccentBadge: preferences.showPitchAccentBadge,
-        dictionaryPresentation: preferences.dictionaryPresentation,
-        dictionaryTabGroups: preferences.dictionaryTabGroups,
-        onInternalLink: (link) => openStructuredLink(link, targetDepth),
-        resolveMedia: dictionaryGeneration === null
-          ? null
-          : (request) => resolveMedia({ ...request, depth: targetDepth }),
-      });
+      const rendered = level.view.renderResults(
+        results,
+        candidate,
+        termRenderOptions(targetDepth, dictionaryGeneration, definitionBlurContext)
+      );
       for (const button of rendered.miningButtons) {
         button.hidden = true;
       }
@@ -3519,30 +3532,12 @@
           : null;
       preparePopupContent("restore_term_results", targetDepth);
       const rendered = level.view.renderResults(results, candidate, {
-        definitionBlurState: getDefinitionBlurState(definitionBlurContext),
-        generation: dictionaryGeneration,
-        showLookupCounts: preferences.showLookupCounts && Boolean(onLookup),
-        averageFrequency: preferences.averageFrequency,
-        showFrequencyDictionaryNames:
-          preferences.showFrequencyDictionaryNames,
-        showCompactDefinitionSummary:
-          preferences.showCompactDefinitionSummary,
-        compactDefinitionSummaryCount:
-          preferences.compactDefinitionSummaryCount,
-        hidePopupGrammarTags: preferences.hidePopupGrammarTags,
-        compactDefinitionSummaryDictionary:
-          preferences.compactDefinitionSummaryDictionary,
-        showPitchAccentFurigana: preferences.showPitchAccentFurigana,
-        pitchAccentFuriganaDictionary:
-          preferences.pitchAccentFuriganaDictionary,
-        showPitchAccentBadge: preferences.showPitchAccentBadge,
+        ...termRenderOptions(
+          targetDepth,
+          dictionaryGeneration,
+          definitionBlurContext
+        ),
         selectedDictionaryTab,
-        dictionaryPresentation: preferences.dictionaryPresentation,
-        dictionaryTabGroups: preferences.dictionaryTabGroups,
-        onInternalLink: (link) => openStructuredLink(link, targetDepth),
-        resolveMedia: dictionaryGeneration === null
-          ? null
-          : (request) => resolveMedia({ ...request, depth: targetDepth }),
       });
       for (const button of rendered.miningButtons) {
         button.hidden = true;
@@ -3864,9 +3859,7 @@
         duplicateInfo.duplicateBehavior
       )
         ? duplicateInfo.duplicateBehavior
-        : duplicateInfo.duplicatePolicy === "allow"
-          ? "new"
-          : "prevent";
+        : "prevent";
       const message = typeof noteInfo.error === "string"
         ? noteInfo.error
         : "";
@@ -5123,6 +5116,31 @@
       return true;
     }
 
+    /**
+     * The preference set published back to the desktop bridge: deep-copied so a
+     * caller cannot mutate reader state, and without popupBackdropBlurPx, which
+     * preferences.js therefore treats as optional.
+     */
+    function publicPreferences() {
+      const {
+        popupBackdropBlurPx: _popupBackdropBlurPx,
+        ...published
+      } = preferences;
+      return {
+        ...published,
+        definitionBlur: { ...preferences.definitionBlur },
+        dictionaryPresentation: preferences.dictionaryPresentation.map(
+          (entry) => ({ ...entry })
+        ),
+        frequencyDictionaries: [...preferences.frequencyDictionaries],
+        dictionaryTabGroups: preferences.dictionaryTabGroups.map((group) => ({
+          ...group,
+          dictionaries: [...group.dictionaries],
+        })),
+        popupButtons: clonePopupButtons(preferences.popupButtons),
+      };
+    }
+
     function updatePreferences(nextPreferences = {}) {
       const hadHideTimer = hideTimer !== null;
       // desktop_bridge.js throws and bootstrap.js drops anything that is not a
@@ -5299,21 +5317,7 @@
         }
       }
       diagnostic("info", "preferences.updated", preferences);
-      const updatedPreferences = {
-        ...preferences,
-        definitionBlur: { ...preferences.definitionBlur },
-        dictionaryPresentation: preferences.dictionaryPresentation.map(
-          (entry) => ({ ...entry })
-        ),
-        frequencyDictionaries: [...preferences.frequencyDictionaries],
-        dictionaryTabGroups: preferences.dictionaryTabGroups.map((group) => ({
-          ...group,
-          dictionaries: [...group.dictionaries],
-        })),
-        popupButtons: clonePopupButtons(preferences.popupButtons),
-      };
-      delete updatedPreferences.popupBackdropBlurPx;
-      return updatedPreferences;
+      return publicPreferences();
     }
 
     function updateAudioPreferences(nextPreferences = {}) {
@@ -5453,25 +5457,7 @@
       getPopupElements: () => popupLevels
         .filter((level) => level.visible)
         .map((level) => level.popup),
-      getPreferences: () => {
-        const {
-          popupBackdropBlurPx: _popupBackdropBlurPx,
-          ...publicPreferences
-        } = preferences;
-        return {
-          ...publicPreferences,
-          definitionBlur: { ...preferences.definitionBlur },
-          dictionaryPresentation: preferences.dictionaryPresentation.map(
-            (entry) => ({ ...entry })
-          ),
-          frequencyDictionaries: [...preferences.frequencyDictionaries],
-          dictionaryTabGroups: preferences.dictionaryTabGroups.map((group) => ({
-            ...group,
-            dictionaries: [...group.dictionaries],
-          })),
-          popupButtons: clonePopupButtons(preferences.popupButtons),
-        };
-      },
+      getPreferences: publicPreferences,
       getAudioPreferences: () => audioController.getPreferences(),
       positionPopup: positionAllPopups,
       setActivationKeyPressed,

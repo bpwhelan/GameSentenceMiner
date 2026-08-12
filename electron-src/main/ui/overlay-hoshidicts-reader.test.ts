@@ -1104,7 +1104,7 @@ describe("Hoshidicts safe popup rendering", () => {
         if (url.endsWith("/check")) {
           return {
             success: true,
-            duplicatePolicy: "prevent",
+            duplicateBehavior: "prevent",
             results: [{ state: "addable", canAdd: true, duplicate: false }]
           };
         }
@@ -1138,7 +1138,7 @@ describe("Hoshidicts safe popup rendering", () => {
     const duplicateCheck = { notes: [{ sentence: "食べる" }] };
     await expect(client.check(duplicateCheck)).resolves.toMatchObject({
       success: true,
-      duplicatePolicy: "prevent"
+      duplicateBehavior: "prevent"
     });
     await expect(client.mine({ sentence: "食べる" })).resolves.toMatchObject({
       success: true,
@@ -2234,7 +2234,7 @@ describe("Hoshidicts dictionary tabs", () => {
   it("includes every configured frequency dictionary in duplicate and mining payloads", async () => {
     const checkMiningNotes = vi.fn(async (payload) => ({
       success: true,
-      duplicatePolicy: "prevent",
+      duplicateBehavior: "prevent",
       results: payload.notes.map(() => ({
         state: "addable",
         canAdd: true,
@@ -2999,7 +2999,7 @@ describe("Hoshidicts dictionary tabs", () => {
   it("mines selected glossaries with only their current dictionary styles", async () => {
     const checkMiningNotes = vi.fn(async (payload) => ({
       success: true,
-      duplicatePolicy: "prevent",
+      duplicateBehavior: "prevent",
       results: payload.notes.map(() => ({
         state: "addable",
         canAdd: true,
@@ -3237,7 +3237,7 @@ describe("Hoshidicts dictionary tabs", () => {
   it("clears mining styles on generation changes and ignores stale responses", async () => {
     const checkMiningNotes = vi.fn(async (payload) => ({
       success: true,
-      duplicatePolicy: "prevent",
+      duplicateBehavior: "prevent",
       results: payload.notes.map(() => ({
         state: "addable",
         canAdd: true,
@@ -3319,7 +3319,7 @@ describe("Hoshidicts dictionary tabs", () => {
   it("keeps complete dictionary styles in large mining requests", async () => {
     const checkMiningNotes = vi.fn(async (payload) => ({
       success: true,
-      duplicatePolicy: "prevent",
+      duplicateBehavior: "prevent",
       results: payload.notes.map(() => ({
         state: "addable",
         canAdd: true,
@@ -6818,7 +6818,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
   it("disables an existing note when duplicate prevention is enabled", async () => {
     const checkMiningNotes = vi.fn(async (payload) => ({
       success: true,
-      duplicatePolicy: "prevent",
+      duplicateBehavior: "prevent",
       results: payload.notes.map((note) =>
         note.result.term.expression === "食べる"
           ? {
@@ -6932,7 +6932,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
     for (let index = 0; index < checks.length; index += 1) {
       checks[index]!.resolve({
         success: true,
-        duplicatePolicy: "prevent",
+        duplicateBehavior: "prevent",
         results: [{ state: "addable", canAdd: true, duplicate: false }]
       });
       await flushPromises();
@@ -6955,7 +6955,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
   it("continues after one note-specific duplicate-check result is invalid", async () => {
     const checkMiningNotes = vi.fn(async (payload) => ({
       success: true,
-      duplicatePolicy: "prevent",
+      duplicateBehavior: "prevent",
       results: payload.notes.map((note) =>
         note.result.term.expression === "食べる"
           ? {
@@ -7010,7 +7010,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       }
       return {
         success: true,
-        duplicatePolicy: "prevent",
+        duplicateBehavior: "prevent",
         results: [{ state: "addable", canAdd: true, duplicate: false }]
       };
     });
@@ -7094,7 +7094,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
     const harness = createReaderHarness({
       checkMiningNotes: async () => ({
         success: true,
-        duplicatePolicy: "allow",
+        duplicateBehavior: "new",
         results: [{
           state: "duplicate",
           canAdd: true,
@@ -7169,12 +7169,12 @@ describe("Hoshidicts Shift-hover scanner", () => {
     const checkMiningNotes = vi.fn()
       .mockResolvedValueOnce({
         success: true,
-        duplicatePolicy: "prevent",
+        duplicateBehavior: "prevent",
         results: [{ state: "addable", canAdd: true, duplicate: false }]
       })
       .mockResolvedValueOnce({
         success: true,
-        duplicatePolicy: "prevent",
+        duplicateBehavior: "prevent",
         results: [{ state: "duplicate", canAdd: false, duplicate: true }]
       });
     const harness = createReaderHarness({
@@ -7251,7 +7251,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
 
     secondCheck.resolve({
       success: true,
-      duplicatePolicy: "prevent",
+      duplicateBehavior: "prevent",
       results: [{ state: "addable", canAdd: true, duplicate: false }]
     });
     await flushPromises();
@@ -7262,7 +7262,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
 
     firstCheck.resolve({
       success: true,
-      duplicatePolicy: "prevent",
+      duplicateBehavior: "prevent",
       results: [{ state: "duplicate", canAdd: false, duplicate: true }]
     });
     await flushPromises();
@@ -7275,12 +7275,12 @@ describe("Hoshidicts Shift-hover scanner", () => {
     const checkMiningNotes = vi.fn()
       .mockResolvedValueOnce({
         success: true,
-        duplicatePolicy: "prevent",
+        duplicateBehavior: "prevent",
         results: [{ state: "addable", canAdd: true, duplicate: false }]
       })
       .mockResolvedValueOnce({
         success: true,
-        duplicatePolicy: "prevent",
+        duplicateBehavior: "prevent",
         results: [{ state: "duplicate", canAdd: false, duplicate: true }]
       });
     const mine = vi.fn(() => finishMine.promise);
