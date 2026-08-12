@@ -237,18 +237,23 @@ def _utf16_suffix(text: str, offset: int) -> str:
         raise HoshidictsMiningError("Hoshidicts match offset splits a Unicode character.") from exc
 
 
-def highlight_sentence_match(request: dict[str, Any]) -> str:
-    sentence = request["sentence"]
-    matched = request["matched"]
-    encoded = sentence.encode("utf-16-le")
+def split_sentence_match(request: dict[str, Any]) -> tuple[str, str, str]:
+    """Sentence split around the matched text, in the payload's UTF-16 offsets."""
+    encoded = request["sentence"].encode("utf-16-le")
     start = request["matchOffset"] * 2
-    end = start + len(matched.encode("utf-16-le"))
+    end = start + len(request["matched"].encode("utf-16-le"))
     try:
-        prefix = encoded[:start].decode("utf-16-le")
-        highlighted = encoded[start:end].decode("utf-16-le")
-        suffix = encoded[end:].decode("utf-16-le")
+        return (
+            encoded[:start].decode("utf-16-le"),
+            encoded[start:end].decode("utf-16-le"),
+            encoded[end:].decode("utf-16-le"),
+        )
     except UnicodeDecodeError as exc:
         raise HoshidictsMiningError("Hoshidicts match offset splits a Unicode character.") from exc
+
+
+def highlight_sentence_match(request: dict[str, Any]) -> str:
+    prefix, highlighted, suffix = split_sentence_match(request)
     return f"{html.escape(prefix)}<b>{html.escape(highlighted)}</b>{html.escape(suffix)}"
 
 
@@ -458,11 +463,22 @@ STRUCTURED_CONTENT_EM_PROPERTIES = {
 }
 MAX_STRUCTURED_CONTENT_NODES = 1_048_576
 MAX_STRUCTURED_CONTENT_DEPTH = 64
+_STRUCTURED_HREF_PATTERN = re.compile(r"^(?:https?:|\?)", re.IGNORECASE)
 
 
 def _plain_glossary_html(value: str) -> str:
     lines = [line.strip() for line in value.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
     return "<br>".join(html.escape(line) for line in lines if line)
+
+
+def _structured_link_href(value: dict[str, Any]) -> str | None:
+    """A structured-content link target, or None when the dictionary's is unusable.
+
+    Yomitan's schema only permits http(s) and internal "?" query links, so an
+    installed dictionary cannot smuggle a "javascript:" URL onto a mined card.
+    """
+    href = value.get("href")
+    return href if isinstance(href, str) and _STRUCTURED_HREF_PATTERN.match(href) else None
 
 
 def _structured_data_attribute_name(value: str) -> str | None:
@@ -531,8 +547,8 @@ def _structured_content_attributes(value: dict[str, Any], tag: str) -> str:
     if tag == "details" and value.get("open") is True:
         attributes.append(("open", None))
     if tag == "a":
-        href = value.get("href")
-        if isinstance(href, str):
+        href = _structured_link_href(value)
+        if href is not None:
             attributes.append(("href", href))
             attributes.append(("data-external", "false" if href.startswith("?") else "true"))
 
@@ -634,8 +650,8 @@ def _structured_content_html(
         return f"<br{attributes}>"
     if tag == "a":
         content = f'<span class="gloss-link-text">{content}</span>'
-        href = value.get("href")
-        if isinstance(href, str) and not href.startswith("?"):
+        href = _structured_link_href(value)
+        if href is not None and not href.startswith("?"):
             content += '<span class="gloss-link-external-icon icon" data-icon="external-link"></span>'
     rendered = f"<{tag}{attributes}>{content}</{tag}>"
     if tag == "table":
@@ -958,11 +974,19 @@ def plain_definition_html(
     return "<br>".join(rendered_groups)
 
 
+def _frequency_number_text(value: int | float) -> str:
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
 def frequency_html(result: dict[str, Any]) -> str:
     groups = []
     for group in result["term"]["frequencies"]:
         values = [
-            frequency["displayValue"] if frequency["displayValue"] is not None else str(frequency["value"])
+            frequency["displayValue"]
+            if frequency["displayValue"] is not None
+            else _frequency_number_text(frequency["value"])
             for frequency in group["frequencies"]
         ]
         if values:
@@ -970,12 +994,6 @@ def frequency_html(result: dict[str, Any]) -> str:
                 f"<b>{html.escape(group['dictionary'])}</b>: " + ", ".join(html.escape(value) for value in values)
             )
     return "<br>".join(groups)
-
-
-def _frequency_number_text(value: int | float) -> str:
-    if isinstance(value, float) and value.is_integer():
-        return str(int(value))
-    return str(value)
 
 
 def single_frequency_html(
