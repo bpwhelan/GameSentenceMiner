@@ -9,6 +9,7 @@ from PIL import Image
 import GameSentenceMiner.ocr.gsm_ocr as gsm_ocr
 from GameSentenceMiner.ocr import owocr_area_selector_qt as area_selector_qt
 from GameSentenceMiner.ocr.gsm_ocr_config import Monitor, OCRConfig, Rectangle
+from GameSentenceMiner.owocr.owocr import ocr as ocr_module
 from GameSentenceMiner.owocr.owocr.ocr import post_process
 from GameSentenceMiner.owocr.owocr import ocr_runtime as run_module
 
@@ -101,6 +102,83 @@ def test_ocr_suppresses_empty_recognition_log_only_for_duplicate_filtering(
         message for message in info_messages if message.startswith(f"OCR Run {pass_number}: Text recognized")
     ]
     assert bool(recognized_logs) is expect_recognized_log
+
+
+def test_oneocr_furigana_filter_is_not_undone_by_structured_text_rebuild(monkeypatch):
+    dialogue = ocr_module.Line(
+        text="本文です",
+        bounding_box=ocr_module.BoundingBox(center_x=0.5, center_y=0.4, width=0.8, height=0.4),
+        words=[],
+    )
+    small_text = ocr_module.Line(
+        text="最新号",
+        bounding_box=ocr_module.BoundingBox(center_x=0.5, center_y=0.8, width=0.1, height=0.1),
+        words=[],
+    )
+    ocr_result = ocr_module.OcrResult(
+        image_properties=ocr_module.ImageProperties(width=200, height=100),
+        engine_capabilities=ocr_module.OneOCR.capabilities,
+        paragraphs=[
+            ocr_module.Paragraph(
+                bounding_box=dialogue.bounding_box,
+                lines=[dialogue, small_text],
+            )
+        ],
+    )
+    engine_result = ocr_module.ocr_result_to_oneocr_tuple(
+        (True, ocr_result),
+        furigana_filter_sensitivity=20,
+        prefer_axis_spacing=True,
+    )
+    assert engine_result[1] == dialogue.text
+    assert [line["text"] for line in engine_result[2]] == [dialogue.text]
+
+    class FakeOneOCR:
+        name = "oneocr"
+        readable_name = "OneOCR"
+
+        def __call__(self, _img, furigana_filter_sensitivity=0):
+            assert furigana_filter_sensitivity is None
+            return engine_result
+
+    class FakeFiltering:
+        def __call__(self, text, _last_result, **_kwargs):
+            return text, [text] if text else []
+
+        def extract_text_from_ocr_result(self, result):
+            return "\n".join(line.text for paragraph in result.paragraphs for line in paragraph.lines)
+
+        def order_paragraphs_and_lines(self, result):
+            return result
+
+    monkeypatch.setattr(
+        run_module,
+        "config",
+        SimpleNamespace(get_general=lambda key: {"engine_color": "cyan", "notifications": False}.get(key)),
+    )
+    monkeypatch.setattr(
+        run_module,
+        "logger",
+        SimpleNamespace(opt=lambda **_kwargs: SimpleNamespace(info=lambda *_args, **_kwargs: None)),
+    )
+    monkeypatch.setattr(run_module, "engine_instances", [FakeOneOCR()], raising=False)
+    monkeypatch.setattr(run_module, "engine_index", 0, raising=False)
+    monkeypatch.setattr(run_module, "auto_pause_handler", None, raising=False)
+    monkeypatch.setattr(run_module, "get_ocr_language", lambda: "ja")
+    monkeypatch.setattr(run_module, "get_furigana_filter_sensitivity", lambda: 20)
+    monkeypatch.setattr(run_module, "get_ocr_advanced_debug_logging", lambda: False)
+    monkeypatch.setattr(run_module, "do_configured_ocr_replacements", lambda text: text)
+
+    orig_text, text, _payload = run_module.process_and_write_results(
+        Image.new("RGB", (200, 100), color="white"),
+        filtering=FakeFiltering(),
+        furigana_filter_sensitivity=None,
+        return_payload=True,
+        apply_area_filters=False,
+    )
+
+    assert text == dialogue.text
+    assert orig_text == [dialogue.text]
 
 
 def test_resolve_requested_engines_prioritizes_cli_values():

@@ -130,6 +130,7 @@ scripts/enter_key_probe.py
 scripts/ocr_metrics_benchmark.py
 electron-src/assets/prerelease.json
 /build/lib/GameSentenceMiner
+/build/lib.*
 /build/overlay
 .hypothesis/
 /.reference
@@ -140,3 +141,6 @@ electron-src/assets/prerelease.json
 /.owocr
 /native/windows-audio-capture/target
 native/windows-audio-capture/bin/x64/gsm-windows-audio-capture.exe
+/native/gsm-native/target
+/GameSentenceMiner/_native*.pyd
+/GameSentenceMiner/_native*.so

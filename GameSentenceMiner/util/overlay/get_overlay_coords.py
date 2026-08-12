@@ -28,6 +28,8 @@ from GameSentenceMiner.ocr.image_scaling import (
     ScaledSize,
 )
 from GameSentenceMiner.owocr.owocr.ocr_runtime import apply_ocr_config_to_image, TextFiltering
+from GameSentenceMiner.native import ocr as native_ocr
+from GameSentenceMiner.native.runtime import NativeMode, get_native_mode
 from GameSentenceMiner.util.config.configuration import (
     OverlayEngine,
     OverlayManualBackgroundMode,
@@ -763,13 +765,19 @@ class OverlayProcessor:
         )
 
     def _unload_ocr_engines_if_inactive(self, activity_generation: int) -> None:
-        """Release OCR resources unless newer overlay OCR activity occurred."""
+        """Release OCR and capture resources unless newer overlay activity occurred."""
         if activity_generation != self._ocr_engine_activity_generation:
             return
         self._ocr_engine_unload_handle = None
         if any([self.oneocr, self.meikiocr, self.screenai, self.lens]):
             logger.info("Unloading overlay OCR engine after 5 minutes of inactivity")
         self._close_ocr_engines()
+        try:
+            from GameSentenceMiner.obs.screenshot_capture import stop_wgc_sessions
+
+            stop_wgc_sessions()
+        except Exception as e:
+            logger.debug(f"Error closing idle overlay capture session: {e}")
 
     def _ensure_correct_engine_loaded(self):
         """Ensures the correct OCR engine is loaded based on current configuration."""
@@ -1135,6 +1143,105 @@ class OverlayProcessor:
         self._last_monitor_workarea_warning = message
 
     def _filter_local_ocr_results_by_language(
+        self, ocr_results: Optional[List[Dict[str, Any]]]
+    ) -> List[Dict[str, Any]]:
+        if not ocr_results:
+            return []
+
+        regex_obj = self.regex
+        if regex_obj is None:
+            return list(ocr_results)
+
+        language = self._native_overlay_filter_language(regex_obj)
+        mode = get_native_mode("ocr")
+        if language is None or mode is NativeMode.PYTHON or not native_ocr.has_overlay_language_filter():
+            return self._filter_local_ocr_results_by_language_python(ocr_results)
+
+        native_lines = []
+        for source_id, line in enumerate(ocr_results):
+            if not isinstance(line, dict):
+                continue
+            words = []
+            raw_words = line.get("words")
+            if isinstance(raw_words, list):
+                words = [
+                    (source_word_id, str(word.get("text", "") or ""))
+                    for source_word_id, word in enumerate(raw_words)
+                    if isinstance(word, dict)
+                ]
+            native_lines.append((source_id, str(line.get("text", "") or ""), words))
+
+        try:
+            decisions = native_ocr.filter_overlay_language(language=language, lines=native_lines)
+            native_result = self._rebuild_native_overlay_filter_result(ocr_results, decisions)
+        except Exception as exc:
+            logger.warning(f"Native overlay language filtering failed; using Python fallback: {exc}")
+            return self._filter_local_ocr_results_by_language_python(ocr_results)
+
+        if mode is not NativeMode.SHADOW:
+            return native_result
+
+        python_result = self._filter_local_ocr_results_by_language_python(ocr_results)
+        if native_result != python_result:
+            logger.warning("Native overlay language-filter shadow result differs from the Python reference")
+        return python_result
+
+    def _native_overlay_filter_language(self, regex_obj) -> Optional[str]:
+        language = str(getattr(self, "ocr_language", "") or get_ocr_language() or "")
+        if not language or get_regex is None:
+            return None
+        try:
+            expected_regex = get_regex(language)
+        except Exception:
+            return None
+        if getattr(regex_obj, "pattern", None) != getattr(expected_regex, "pattern", None):
+            return None
+        return language
+
+    @staticmethod
+    def _rebuild_native_overlay_filter_result(ocr_results, decisions):
+        filtered_results = []
+        for decision in decisions:
+            if not 0 <= decision.source_id < len(ocr_results):
+                continue
+            line = ocr_results[decision.source_id]
+            if not isinstance(line, dict):
+                continue
+
+            line_copy = copy.deepcopy(line)
+            words = line.get("words")
+            if decision.use_words and isinstance(words, list):
+                kept_words = [
+                    copy.deepcopy(words[source_word_id])
+                    for source_word_id in decision.source_word_ids
+                    if 0 <= source_word_id < len(words) and isinstance(words[source_word_id], dict)
+                ]
+                if not kept_words:
+                    continue
+                joined_word_text = "".join(str(word.get("text", "") or "") for word in kept_words)
+                normalized_line_text, normalized_word_texts = normalize_japanese_ocr_text_and_segments(
+                    joined_word_text,
+                    [str(word.get("text", "") or "") for word in kept_words],
+                )
+                line_copy["words"] = kept_words
+                for word_copy, normalized_word_text in zip(line_copy["words"], normalized_word_texts or []):
+                    word_copy["text"] = normalized_word_text
+                line_copy["text"] = normalized_line_text
+            else:
+                line_copy["text"] = normalize_japanese_ocr_dashes(str(line.get("text", "") or ""))
+                if isinstance(words, list) and words:
+                    normalized_words = []
+                    for word in words:
+                        if not isinstance(word, dict):
+                            continue
+                        normalized_word = copy.deepcopy(word)
+                        normalized_word["text"] = normalize_japanese_ocr_dashes(str(word.get("text", "") or ""))
+                        normalized_words.append(normalized_word)
+                    line_copy["words"] = normalized_words
+            filtered_results.append(line_copy)
+        return filtered_results
+
+    def _filter_local_ocr_results_by_language_python(
         self, ocr_results: Optional[List[Dict[str, Any]]]
     ) -> List[Dict[str, Any]]:
         if not ocr_results:

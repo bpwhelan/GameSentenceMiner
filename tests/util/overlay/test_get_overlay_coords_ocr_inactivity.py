@@ -1,4 +1,9 @@
+import importlib
+
 from GameSentenceMiner.util.overlay import get_overlay_coords
+
+
+screenshot_capture_module = importlib.import_module("GameSentenceMiner.obs.screenshot_capture")
 
 
 class _FakeTimerHandle:
@@ -49,10 +54,12 @@ def test_new_ocr_activity_cancels_pending_unload():
     assert processor._ocr_engine_unload_handle is None
 
 
-def test_inactivity_unloads_all_ocr_engines():
+def test_inactivity_unloads_all_ocr_engines_and_capture_session(monkeypatch):
     processor = get_overlay_coords.OverlayProcessor()
     engines = [_FakeEngine() for _ in range(4)]
     processor.oneocr, processor.meikiocr, processor.screenai, processor.lens = engines
+    stop_capture_calls = []
+    monkeypatch.setattr(screenshot_capture_module, "stop_wgc_sessions", lambda: stop_capture_calls.append(True))
 
     processor._unload_ocr_engines_if_inactive(processor._ocr_engine_activity_generation)
 
@@ -61,12 +68,15 @@ def test_inactivity_unloads_all_ocr_engines():
     assert processor.meikiocr is None
     assert processor.screenai is None
     assert processor.lens is None
+    assert stop_capture_calls == [True]
 
 
-def test_stale_inactivity_callback_does_not_unload_active_engine():
+def test_stale_inactivity_callback_does_not_unload_active_engine_or_capture(monkeypatch):
     processor = get_overlay_coords.OverlayProcessor()
     engine = _FakeEngine()
     processor.oneocr = engine
+    stop_capture_calls = []
+    monkeypatch.setattr(screenshot_capture_module, "stop_wgc_sessions", lambda: stop_capture_calls.append(True))
     stale_generation = processor._ocr_engine_activity_generation
     processor._mark_ocr_engine_active()
 
@@ -74,3 +84,4 @@ def test_stale_inactivity_callback_does_not_unload_active_engine():
 
     assert engine.close_calls == 0
     assert processor.oneocr is engine
+    assert stop_capture_calls == []

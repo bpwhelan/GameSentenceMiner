@@ -1,119 +1,169 @@
-name: Build and Publish Python Package
+name: Build and Publish Python Prerelease
 
 on:
   push:
     branches:
-      - develop # Or your default branch
-  workflow_dispatch: # Allow manual trigger
+      - develop
+  workflow_dispatch:
 
 jobs:
-  build-and-publish-python:
+  prepare:
     runs-on: ubuntu-latest
     permissions:
-      contents: read # Needed for checkout
-      id-token: write # Needed for trusted publishing (optional but recommended)
-
+      contents: read
+    outputs:
+      package_version: ${{ steps.package_meta.outputs.package_version }}
+      should_publish: ${{ steps.check_version.outputs.should_publish }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: true
 
-      - name: Set up Python environment
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: "3.11"
 
-      # ---- Step 1: Install minimal dependencies for check ----
-      - name: Install check dependencies
+      - name: Read package metadata
+        id: package_meta
         run: |
-          python -m pip install --upgrade pip toml requests
+          python - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
 
-      # ---- Step 2: Check if version exists on PyPI (Moved Earlier) ----
-      - name: Check if version exists on PyPI
-        id: check_version # Give the step an ID to reference its outputs
-        run: |
-          # Extract package name and version from pyproject.toml
-          # Adjust parsing if using Poetry ([tool.poetry]) or other structures
-          PACKAGE_NAME=$(python -c "import toml; print(toml.load('pyproject.toml')['project']['name'])")
-          VERSION=$(python -c "import toml; print(toml.load('pyproject.toml')['project']['version'])")
+          with Path("pyproject.toml").open("rb") as stream:
+              project = tomllib.load(stream)["project"]
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"package_version={project['version']}\n")
+          print(f"Package: {project['name']} {project['version']}")
+          PY
 
-          echo "Checking Package: $PACKAGE_NAME"
-          echo "Checking Version: $VERSION"
-
-          # IF version does not have "dev" or "rc" in it, we skip building
-          if [[ "$VERSION" != *"dev"* && "$VERSION" != *"rc"* ]]; then
-            echo "Version $VERSION is not a dev or rc version. Skipping publish."
-            echo "should_publish=false" >> $GITHUB_OUTPUT
-            exit 0
-          else:
-            echo "Version $VERSION is a dev or rc version. Proceeding to check PyPI."
-          fi
-
-          # Query PyPI API (uses 'requests' installed above)
-          # Exits with 0 if version DOES NOT exist, 1 if it DOES exist
-          python - << EOF
-          import sys
-          import requests
-
-          package_name = "$PACKAGE_NAME"
-          version = "$VERSION"
-          url = f"https://pypi.org/pypi/{package_name}/{version}/json"
-
-          print(f"Checking URL: {url}")
-          response = requests.get(url)
-
-          if response.status_code == 404:
-              print(f"Version {version} (or package {package_name}) not found on PyPI. Proceeding.")
-              sys.exit(0) # Version does not exist, OK to proceed
-          elif response.status_code == 200:
-              print(f"Version {version} already exists on PyPI. Halting further steps.")
-              sys.exit(1) # Version exists, DO NOT proceed
-          else:
-              print(f"Error checking PyPI: Status Code {response.status_code}")
-              print(response.text)
-              sys.exit(0) # Some other error occurred, try to publish anyway
-          EOF
-
-          # Set output based on the exit code of the python script
-          if [ $? -eq 0 ]; then
-            echo "Version check passed (version does not exist)."
-            echo "should_publish=true" >> $GITHUB_OUTPUT
-          else
-            echo "Version check failed (version exists or error)."
-            echo "should_publish=false" >> $GITHUB_OUTPUT
-          fi
-        # Continue even if the python script exits non-zero (version exists)
-        # The 'if' condition on the next steps handles the logic
-        continue-on-error: true
-
-      # ---- Step 3: Install build/publish dependencies (Conditional) ----
-      - name: Install build and publish dependencies
-        if: steps.check_version.outputs.should_publish == 'true'
-        run: |
-          # Only install these if the check passed
-          # Note: pip is already upgraded, toml/requests already installed
-          python -m pip install --upgrade setuptools wheel twine build
-
-      # ---- Step 4: Build the package (Conditional) ----
-      - name: Build the package
-        if: steps.check_version.outputs.should_publish == 'true'
-        run: |
-          python -m build
-
-      # ---- Step 5: Publish package to PyPI (Conditional) ----
-      - name: Publish package to PyPI
-        if: steps.check_version.outputs.should_publish == 'true'
+      - name: Check prerelease version on PyPI
+        id: check_version
         env:
-          # Recommended: Use PyPI Trusted Publishing
-          # If using tokens:
+          PACKAGE_VERSION: ${{ steps.package_meta.outputs.package_version }}
+        run: |
+          python - <<'PY'
+          import os
+          import urllib.error
+          import urllib.request
+          from pathlib import Path
+
+          version = os.environ["PACKAGE_VERSION"]
+          should_publish = "false"
+          if "dev" in version or "rc" in version:
+              should_publish = "true"
+              url = f"https://pypi.org/pypi/GameSentenceMiner/{version}/json"
+              try:
+                  with urllib.request.urlopen(url, timeout=30):
+                      should_publish = "false"
+              except urllib.error.HTTPError as exc:
+                  if exc.code != 404:
+                      print(f"Unexpected PyPI response {exc.code}; attempting publish")
+              except Exception as exc:
+                  print(f"Version check failed ({exc}); attempting publish")
+          else:
+              print(f"Version {version} is not a dev or rc version; skipping publish")
+
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"should_publish={should_publish}\n")
+          PY
+
+  build-wheels:
+    needs: prepare
+    if: needs.prepare.outputs.should_publish == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - ubuntu-latest
+          - macos-15
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install wheel builder
+        run: python -m pip install --upgrade cibuildwheel
+
+      - name: Build stable-ABI wheel
+        env:
+          CIBW_BUILD: cp310-*
+          CIBW_ARCHS_WINDOWS: AMD64
+          CIBW_ARCHS_LINUX: x86_64
+          CIBW_ARCHS_MACOS: arm64
+          CIBW_BEFORE_BUILD_LINUX: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
+          CIBW_ENVIRONMENT_LINUX: 'PATH="$PATH:$HOME/.cargo/bin"'
+          CIBW_TEST_COMMAND: 'python -c "from GameSentenceMiner import _native; assert _native.api_version() == 1"'
+        run: python -m cibuildwheel --output-dir wheelhouse
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-prerelease-wheel-${{ matrix.os }}
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+
+  build-sdist:
+    needs: prepare
+    if: needs.prepare.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build source distribution
+        run: |
+          python -m pip install --upgrade build
+          python -m build --sdist --outdir sdist
+
+      - name: Upload source distribution
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-prerelease-sdist
+          path: sdist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    needs:
+      - prepare
+      - build-wheels
+      - build-sdist
+    if: needs.prepare.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          pattern: python-prerelease-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish package to PyPI
+        env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
         run: |
-          twine upload dist/*
+          python -m pip install --upgrade twine
+          python -m twine upload dist/*
 
-      # ---- Optional Step: Report Skipped Publish ----
-      - name: Report skipped publish (if applicable)
-        if: steps.check_version.outputs.should_publish == 'false'
-        run: |
-          echo "Publish skipped because version found on PyPI or check failed."
+  report-skipped:
+    needs: prepare
+    if: needs.prepare.outputs.should_publish == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Publish skipped for version ${{ needs.prepare.outputs.package_version }}."

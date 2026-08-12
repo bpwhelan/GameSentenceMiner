@@ -105,6 +105,60 @@ def test_filter_local_ocr_results_by_language_normalizes_katakana_long_vowels():
     assert [word["text"] for word in result[0]["words"]] == ["ス", "ー", "パ", "ー"]
 
 
+def test_filter_local_ocr_results_uses_native_batch_for_standard_language_regex(monkeypatch):
+    processor = get_overlay_coords.OverlayProcessor()
+    processor.ocr_language = "ja"
+    processor.regex = get_overlay_coords.get_regex("ja")
+    calls = []
+
+    def fake_native_filter(*, language, lines):
+        calls.append((language, lines))
+        return [
+            get_overlay_coords.native_ocr.OverlayFilterDecision(
+                source_id=1,
+                use_words=True,
+                source_word_ids=[0, 1],
+            )
+        ]
+
+    monkeypatch.setenv("GSM_NATIVE_OCR_MODE", "native")
+    monkeypatch.setattr(get_overlay_coords.native_ocr, "has_overlay_language_filter", lambda: True)
+    monkeypatch.setattr(get_overlay_coords.native_ocr, "filter_overlay_language", fake_native_filter)
+    source = [
+        {"text": "hello", "bounding_rect": {"x1": 1}, "words": []},
+        {
+            "text": "HP です",
+            "bounding_rect": {"x1": 2},
+            "words": [
+                {"text": "HP", "bounding_rect": {"x1": 2}},
+                {"text": "です", "bounding_rect": {"x1": 3}},
+            ],
+        },
+    ]
+
+    result = processor._filter_local_ocr_results_by_language(source)
+
+    assert calls == [
+        (
+            "ja",
+            [
+                (0, "hello", []),
+                (1, "HP です", [(0, "HP"), (1, "です")]),
+            ],
+        )
+    ]
+    assert result == [
+        {
+            "text": "HPです",
+            "bounding_rect": {"x1": 2},
+            "words": [
+                {"text": "HP", "bounding_rect": {"x1": 2}},
+                {"text": "です", "bounding_rect": {"x1": 3}},
+            ],
+        }
+    ]
+
+
 def test_filter_precomputed_results_by_minimum_character_size_removes_small_words():
     processor = get_overlay_coords.OverlayProcessor()
     source = [

@@ -37,9 +37,17 @@ from GameSentenceMiner.util.config.electron_config import (
 from GameSentenceMiner.ocr.image_scaling import (
     scale_dimensions_to_minimum_bounds,
 )
+from GameSentenceMiner.native import ocr as native_ocr
+from GameSentenceMiner.native.runtime import NativeMode, get_native_mode
 from GameSentenceMiner.obs.screenshot_capture import (
     _capture_hwnd_windows_graphics_capture,
     is_image_empty,
+)
+from GameSentenceMiner.owocr.owocr.ocr import (
+    BoundingBox as StructuredBoundingBox,
+    Line as StructuredLine,
+    OcrResult as StructuredOcrResult,
+    Paragraph as StructuredParagraph,
 )
 
 import signal
@@ -365,7 +373,20 @@ def _join_selected_blocks_with_source_separators(source_text, blocks, selected_i
     return "".join(result_parts)
 
 
-def _rebuild_text_from_structured_result(raw_response_dict, coords, filtering, is_second_ocr=False):
+def _rebuild_text_from_structured_result(
+    raw_response_dict,
+    coords,
+    filtering,
+    is_second_ocr=False,
+    furigana_filter_active=False,
+):
+    # Coordinate-aware engines such as OneOCR already applied the configured
+    # size filter to their returned text and line geometry. Their structured
+    # response intentionally retains every raw line for area-filter checks, so
+    # rebuilding from it here would restore the furigana that was just removed.
+    if furigana_filter_active:
+        return None
+
     if raw_response_dict and isinstance(raw_response_dict, dict) and "paragraphs" in raw_response_dict and filtering:
         try:
             ocr_result = dict_to_ocr_result(raw_response_dict)
@@ -1104,6 +1125,15 @@ class TextFiltering:
         }
 
         self.last_few_results = {}
+        self._python_filter_initialized = False
+
+    def _ensure_python_filter_backend(self):
+        """Load the legacy classifier only when fallback or shadow mode needs it."""
+        if getattr(self, "_python_filter_initialized", False):
+            return
+        if hasattr(self, "classify") or getattr(self, "accurate_filtering", False):
+            self._python_filter_initialized = True
+            return
         try:
             import warnings
 
@@ -1132,10 +1162,12 @@ class TextFiltering:
                 device=device,
             )
             self.accurate_filtering = True
-        except:
+        except Exception:
             import langid
 
             self.classify = langid.classify
+            self.accurate_filtering = False
+        self._python_filter_initialized = True
 
     def _get_regex(self, lang):
         if lang == "ja":
@@ -1184,6 +1216,146 @@ class TextFiltering:
     # --- Layout Analysis Methods (ported from upstream owocr) ---
 
     def order_paragraphs_and_lines(self, ocr_result):
+        mode = get_native_mode("ocr")
+        if mode is NativeMode.PYTHON or not native_ocr.is_available():
+            return self._order_paragraphs_and_lines_python(ocr_result)
+
+        try:
+            native_result = self._order_paragraphs_and_lines_native(ocr_result)
+        except Exception as exc:
+            logger.warning(f"Native OCR layout failed; using Python fallback: {exc}")
+            return self._order_paragraphs_and_lines_python(ocr_result)
+
+        if mode is not NativeMode.SHADOW:
+            return native_result
+
+        python_result = self._order_paragraphs_and_lines_python(copy.deepcopy(ocr_result))
+        if self._layout_signature(native_result) != self._layout_signature(python_result):
+            logger.warning("Native OCR layout shadow result differs from the Python reference")
+        return python_result
+
+    def _order_paragraphs_and_lines_native(self, ocr_result):
+        self.furigana_filter = get_furigana_filter_sensitivity() > 0
+        source_lines = {}
+        native_lines = []
+        source_id = 0
+
+        for paragraph in ocr_result.paragraphs:
+            paragraph_direction = getattr(paragraph, "writing_direction", None)
+            for line in paragraph.lines:
+                line_text = self.get_line_text(line)
+                if not line_text.strip():
+                    continue
+                if line.text is None:
+                    line.text = line_text
+                bbox = line.bounding_box
+                source_lines[source_id] = line
+                native_lines.append(
+                    (
+                        source_id,
+                        line_text,
+                        float(bbox.center_x),
+                        float(bbox.center_y),
+                        float(bbox.width),
+                        float(bbox.height),
+                        getattr(line, "writing_direction", None),
+                        paragraph_direction,
+                    )
+                )
+                source_id += 1
+
+        if not native_lines:
+            return ocr_result
+
+        image_properties = ocr_result.image_properties
+        native_paragraphs = native_ocr.order_layout(
+            lines=native_lines,
+            image_width=float(getattr(image_properties, "width", 0) or 0),
+            image_height=float(getattr(image_properties, "height", 0) or 0),
+            language=str(get_ocr_language() or self.initial_lang),
+            furigana_filter=self.furigana_filter,
+            support_center_aligned_text=self.support_center_aligned_text,
+            merge_close_paragraphs=self.merge_close_paragraphs,
+        )
+
+        paragraphs = []
+        for native_paragraph in native_paragraphs:
+            paragraph_lines = []
+            for native_line in native_paragraph.lines:
+                originals = [source_lines[source_id] for source_id in native_line.source_ids]
+                if len(originals) == 1 and originals[0].text == native_line.text:
+                    line = originals[0]
+                else:
+                    words = []
+                    for original in originals:
+                        words.extend(original.words)
+                    center_x, center_y, width, height = native_line.bounding_box
+                    line = StructuredLine(
+                        bounding_box=StructuredBoundingBox(
+                            center_x=center_x,
+                            center_y=center_y,
+                            width=width,
+                            height=height,
+                        ),
+                        words=words,
+                        text=native_line.text,
+                    )
+                paragraph_lines.append(line)
+
+            center_x, center_y, width, height = native_paragraph.bounding_box
+            paragraphs.append(
+                StructuredParagraph(
+                    bounding_box=StructuredBoundingBox(
+                        center_x=center_x,
+                        center_y=center_y,
+                        width=width,
+                        height=height,
+                    ),
+                    lines=paragraph_lines,
+                    writing_direction=native_paragraph.writing_direction,
+                )
+            )
+
+        return StructuredOcrResult(
+            image_properties=ocr_result.image_properties,
+            engine_capabilities=ocr_result.engine_capabilities,
+            paragraphs=paragraphs,
+        )
+
+    @staticmethod
+    def _layout_signature(ocr_result):
+        return [
+            (
+                paragraph.writing_direction,
+                tuple(
+                    round(value, 8)
+                    for value in (
+                        paragraph.bounding_box.center_x,
+                        paragraph.bounding_box.center_y,
+                        paragraph.bounding_box.width,
+                        paragraph.bounding_box.height,
+                    )
+                ),
+                [
+                    (
+                        line.text,
+                        tuple(
+                            round(value, 8)
+                            for value in (
+                                line.bounding_box.center_x,
+                                line.bounding_box.center_y,
+                                line.bounding_box.width,
+                                line.bounding_box.height,
+                            )
+                        ),
+                    )
+                    for line in paragraph.lines
+                ],
+            )
+            for paragraph in ocr_result.paragraphs
+        ]
+
+    def _order_paragraphs_and_lines_python(self, ocr_result):
         # Update sensitivity config
         self.furigana_filter = get_furigana_filter_sensitivity() > 0
 
@@ -1979,6 +2151,49 @@ class TextFiltering:
         return connected_components
 
     def extract_text_from_ocr_result(self, result_data):
+        mode = get_native_mode("ocr")
+        if mode is NativeMode.PYTHON or not native_ocr.is_available():
+            return self._extract_text_from_ocr_result_python(result_data)
+
+        line_entries = self._spatial_line_entries(result_data)
+        try:
+            native_result = native_ocr.build_spatial_text(line_entries)
+        except Exception as exc:
+            logger.warning(f"Native spatial text construction failed; using Python fallback: {exc}")
+            return self._extract_text_from_ocr_result_python(result_data)
+
+        if mode is not NativeMode.SHADOW:
+            return native_result
+        python_result = self._extract_text_from_ocr_result_python(result_data)
+        if native_result != python_result:
+            logger.warning("Native spatial text shadow result differs from the Python reference")
+        return python_result
+
+    def _spatial_line_entries(self, result_data):
+        line_entries = []
+        image_height = max(float(getattr(result_data.image_properties, "height", 0) or 0), 1.0)
+        image_width = max(float(getattr(result_data.image_properties, "width", 0) or 0), 1.0)
+
+        for paragraph in result_data.paragraphs:
+            paragraph_is_vertical = bool(getattr(paragraph, "writing_direction", None) == "TOP_TO_BOTTOM")
+            for line in paragraph.lines:
+                line_text = self.get_line_text(line)
+                if not line_text:
+                    continue
+                bbox = line.bounding_box
+                line_entries.append(
+                    (
+                        line_text,
+                        float(getattr(bbox, "center_x", 0.0) or 0.0) * image_width,
+                        float(getattr(bbox, "center_y", 0.0) or 0.0) * image_height,
+                        float(getattr(bbox, "width", 0.0) or 0.0) * image_width,
+                        float(getattr(bbox, "height", 0.0) or 0.0) * image_height,
+                        paragraph_is_vertical,
+                    )
+                )
+        return line_entries
+
+    def _extract_text_from_ocr_result_python(self, result_data):
         line_entries = []
         image_height = max(float(getattr(result_data.image_properties, "height", 0) or 0), 1.0)
         image_width = max(float(getattr(result_data.image_properties, "width", 0) or 0), 1.0)
@@ -2005,6 +2220,32 @@ class TextFiltering:
         return build_spatial_text(line_entries)
 
     def __call__(self, text, last_result, engine=None, is_second_ocr=False):
+        self._refresh_segmenter_language()
+        mode = get_native_mode("ocr")
+        if mode is NativeMode.PYTHON or not native_ocr.is_available():
+            self._ensure_python_filter_backend()
+            return self._filter_text_python(text, last_result, engine=engine, is_second_ocr=is_second_ocr)
+
+        original_history = copy.deepcopy(self.last_few_results)
+        try:
+            native_result = self._filter_text_native(text, last_result, engine=engine, is_second_ocr=is_second_ocr)
+        except Exception as exc:
+            self.last_few_results = original_history
+            logger.warning(f"Native OCR text filtering failed; using Python fallback: {exc}")
+            self._ensure_python_filter_backend()
+            return self._filter_text_python(text, last_result, engine=engine, is_second_ocr=is_second_ocr)
+
+        if mode is not NativeMode.SHADOW:
+            return native_result
+
+        self.last_few_results = original_history
+        self._ensure_python_filter_backend()
+        python_result = self._filter_text_python(text, last_result, engine=engine, is_second_ocr=is_second_ocr)
+        if native_result != python_result:
+            logger.warning("Native OCR text filtering shadow result differs from the Python reference")
+        return python_result
+
+    def _refresh_segmenter_language(self):
         lang = get_ocr_language()
         if self.initial_lang != lang:
             from pysbd import Segmenter, languages
@@ -2015,6 +2256,41 @@ class TextFiltering:
                 self.segmenter = PassthroughSegmenter()
             self.initial_lang = get_ocr_language()
             self.regex = self._get_regex(lang)
+
+    def _filter_text_native(self, text, last_result, engine=None, is_second_ocr=False):
+        lang = str(get_ocr_language() or self.initial_lang)
+        blocks = [str(block) for block in self.segmenter.segment(text)]
+        previous_blocks = []
+        try:
+            if isinstance(last_result, list):
+                previous_blocks = [str(block) for block in last_result if block is not None]
+            elif last_result and last_result[1] == engine_index:
+                previous_blocks = [str(block) for block in (last_result[0] or []) if block is not None]
+        except Exception as exc:
+            logger.error(f"Error processing last_result {last_result}: {exc}")
+
+        historic_compare_blocks = []
+        if engine and not is_second_ocr:
+            for previous_result in self.last_few_results.get(engine, []):
+                historic_compare_blocks.extend(str(block) for block in previous_result if block)
+
+        result = native_ocr.filter_text(
+            source_text=str(text or ""),
+            blocks=blocks,
+            language=lang,
+            previous_blocks=previous_blocks,
+            historic_compare_blocks=historic_compare_blocks,
+        )
+
+        if engine and not is_second_ocr:
+            history = self.last_few_results.setdefault(engine, deque(maxlen=3))
+            history.append(result.compare_blocks)
+        return result.text, result.all_blocks
+
+    def _filter_text_python(self, text, last_result, engine=None, is_second_ocr=False):
+        self._refresh_segmenter_language()
+        self._ensure_python_filter_backend()
+        lang = get_ocr_language()
 
         def _normalize_last_result_block(block_text):
             if block_text is None:
@@ -4003,8 +4279,15 @@ def process_and_write_results(
                 return "", "", detection_payload
             return str(detection_payload), str(detection_payload)
 
+        effective_furigana_sensitivity = (
+            get_furigana_filter_sensitivity() if furigana_filter_sensitivity is None else furigana_filter_sensitivity
+        )
         rebuilt_text = _rebuild_text_from_structured_result(
-            raw_response_dict, coords, filtering, is_second_ocr=is_second_ocr
+            raw_response_dict,
+            coords,
+            filtering,
+            is_second_ocr=is_second_ocr,
+            furigana_filter_active=_safe_int(effective_furigana_sensitivity) > 0,
         )
         if rebuilt_text is not None:
             text = rebuilt_text

@@ -35,6 +35,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache native Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native/gsm-native -> native/gsm-native/target
+
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
