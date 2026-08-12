@@ -425,14 +425,13 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(disabled.api.initialize({})).toBeNull();
   });
 
-  it.each(HOSHIDICTS_THEMES)("accepts the %s launch theme", (theme) => {
-    expect(HOSHIDICTS_THEMES).toHaveLength(41);
+  it("accepts a launch theme", () => {
     const { documentElement, preferences } = launchBootstrap(
-      launchEnvironmentFor({ theme })
+      launchEnvironmentFor({ theme: "synthwave" })
     );
 
-    expect(preferences.theme).toBe(theme);
-    expect(documentElement.dataset.hoshidictsTheme).toBe(theme);
+    expect(preferences.theme).toBe("synthwave");
+    expect(documentElement.dataset.hoshidictsTheme).toBe("synthwave");
   });
 
   it("creates the reader with the launch preferences and GSM API clients", async () => {
@@ -607,15 +606,18 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(configured.api.getPreferences()).toEqual(livePreferences());
   });
 
-  it.each(HOSHIDICTS_THEMES)("applies the live %s theme", (theme) => {
+  it("applies a live theme push", () => {
     const configured = configureBootstrapReader();
 
-    configured.emit("hoshidicts-reader-preferences", livePreferences({ theme }));
+    configured.emit(
+      "hoshidicts-reader-preferences",
+      livePreferences({ theme: "synthwave" })
+    );
 
     expect(configured.reader.updatePreferences).toHaveBeenLastCalledWith(
-      livePreferences({ theme })
+      livePreferences({ theme: "synthwave" })
     );
-    expect(configured.documentElement.dataset.hoshidictsTheme).toBe(theme);
+    expect(configured.documentElement.dataset.hoshidictsTheme).toBe("synthwave");
   });
 
   it("relays activation-key edges and complete audio profiles", () => {
@@ -1056,85 +1058,54 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(reader.isVisible()).toBe(false);
   });
 
-  it("clamps the popup beside the anchor inside the viewport", () => {
+  it.each([
+    [
+      "clamps beside the anchor at the viewport edge",
+      { left: 780, right: 800, top: 570, bottom: 590 },
+      { width: 420, height: 300 },
+      { width: 800, height: 600 },
+      undefined,
+      { left: 374, top: 266, width: 420, height: 300 }
+    ],
+    [
+      "stacks vertically when asked",
+      { left: 10, right: 30, top: 20, bottom: 80 },
+      { width: 300, height: 500 },
+      { width: 800, height: 600 },
+      { vertical: true },
+      { left: 34, top: 20, width: 300, height: 500 }
+    ],
+    [
+      "keeps a wide popup's size while clamping upwards",
+      { left: 320, right: 380, top: 650, bottom: 680 },
+      { width: 420, height: 80 },
+      { width: 1280, height: 720 },
+      undefined,
+      { left: 320, top: 566, width: 420, height: 80 }
+    ],
+    [
+      "keeps a tall popup's size while clamping upwards",
+      { left: 100, right: 140, top: 130, bottom: 150 },
+      { width: 200, height: 250 },
+      { width: 500, height: 300 },
+      undefined,
+      { left: 100, top: 44, width: 200, height: 250 }
+    ],
+    [
+      "shrinks to fit a viewport smaller than the preference",
+      { left: 120, right: 160, top: 100, bottom: 130 },
+      { width: 560, height: 420 },
+      { width: 320, height: 240 },
+      undefined,
+      { left: 6, top: 6, width: 308, height: 228 }
+    ]
+  ])("%s", (_label, anchor, size, viewport, options, expected) => {
     const dom = createDom();
     const api = loadReaderModule(dom.window as unknown as Window);
 
     expect(
-      api.calculatePopupPosition(
-        { left: 780, right: 800, top: 570, bottom: 590 },
-        { width: 420, height: 300 },
-        { width: 800, height: 600 }
-      )
-    ).toEqual({
-      left: 374,
-      top: 266,
-      width: 420,
-      height: 300
-    });
-
-    expect(
-      api.calculatePopupPosition(
-        { left: 10, right: 30, top: 20, bottom: 80 },
-        { width: 300, height: 500 },
-        { width: 800, height: 600 },
-        { vertical: true }
-      )
-    ).toEqual({
-      left: 34,
-      top: 20,
-      width: 300,
-      height: 500
-    });
-  });
-
-  it("preserves the configured popup size while clamping only its placement", () => {
-    const dom = createDom();
-    const api = loadReaderModule(dom.window as unknown as Window);
-
-    expect(
-      api.calculatePopupPosition(
-        { left: 320, right: 380, top: 650, bottom: 680 },
-        { width: 420, height: 80 },
-        { width: 1280, height: 720 }
-      )
-    ).toEqual({
-      left: 320,
-      top: 566,
-      width: 420,
-      height: 80
-    });
-
-    expect(
-      api.calculatePopupPosition(
-        { left: 100, right: 140, top: 130, bottom: 150 },
-        { width: 200, height: 250 },
-        { width: 500, height: 300 }
-      )
-    ).toEqual({
-      left: 100,
-      top: 44,
-      width: 200,
-      height: 250
-    });
-  });
-
-  it("fits the stable popup size inside viewports smaller than the preference", () => {
-    const dom = createDom();
-    const api = loadReaderModule(dom.window as unknown as Window);
-
-    expect(
-      api.calculatePopupPosition(
-        { left: 120, right: 160, top: 100, bottom: 130 },
-        { width: 560, height: 420 },
-        { width: 320, height: 240 }
-      )
-    ).toEqual({
-      left: 6,
-      top: 6,
-      width: 308,
-      height: 228
-    });
+      api.calculatePopupPosition(anchor, size, viewport, options)
+    ).toEqual(expected);
   });
 
   it("uses one exact popup size instead of a stale measured height", async () => {

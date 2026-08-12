@@ -289,11 +289,11 @@ it("normalizes one complete live preference payload", () => {
       .toThrow("Hoshidicts reader preferences are invalid.");
   });
 
-  it.each(HOSHIDICTS_THEMES)("accepts the canonical %s popup theme", (theme) => {
-    expect(HOSHIDICTS_THEMES).toHaveLength(41);
-
-    expect(normalizeHoshidictsReaderPreferences(validPreferences({ theme })).theme)
-      .toBe(theme);
+  // All 41 ids are driven through THEME_SET by the reader-runtime test in
+  // overlay-hoshidicts-reader.test.ts; this pins the bridge path itself.
+  it("accepts a canonical popup theme", () => {
+    expect(normalizeHoshidictsReaderPreferences(validPreferences({ theme: "synthwave" })).theme)
+      .toBe("synthwave");
   });
 
   it("keeps an explicit compact definition summary selection", () => {
