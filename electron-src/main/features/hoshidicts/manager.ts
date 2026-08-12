@@ -42,6 +42,7 @@ import type {
 import {
     DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
     DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
+    DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
     DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
     DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
     DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
@@ -74,6 +75,7 @@ import {
     normalizeHoshidictsPopupButtons,
     MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES,
     MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH,
+    MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
     MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
     MAX_HOSHIDICTS_MAX_RESULTS,
@@ -86,6 +88,7 @@ import {
     MAX_HOSHIDICTS_SCAN_LENGTH,
     MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH,
     MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
+    MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
     MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
     MIN_HOSHIDICTS_MAX_RESULTS,
     MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
@@ -160,6 +163,7 @@ interface PersistedReaderPreferences
     extends HoshidictsReaderPreferencesRequest {
     averageFrequency: boolean;
     showFrequencyDictionaryNames: boolean;
+    compactDefinitionSummaryCount: number;
     customPopupCss: string;
 }
 
@@ -190,6 +194,7 @@ interface PersistedManifest {
     averageFrequency: boolean;
     showFrequencyDictionaryNames: boolean;
     showCompactDefinitionSummary: boolean;
+    compactDefinitionSummaryCount: number;
     compactDefinitionSummaryDictionary: string | null;
     showPitchAccentFurigana: boolean;
     pitchAccentFuriganaDictionary: string | null;
@@ -458,6 +463,8 @@ function defaultReaderPreferences(): PersistedReaderPreferences {
             DEFAULT_HOSHIDICTS_SHOW_FREQUENCY_DICTIONARY_NAMES,
         showCompactDefinitionSummary:
             DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
+        compactDefinitionSummaryCount:
+            DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
         compactDefinitionSummaryDictionary:
             DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
         showPitchAccentFurigana:
@@ -673,6 +680,14 @@ function normalizeCompactDefinitionSummaryDictionary(
         : DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY;
 }
 
+function normalizeCompactDefinitionSummaryCount(value: unknown): number {
+    return Number.isInteger(value) &&
+        (value as number) >= MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT &&
+        (value as number) <= MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT
+        ? (value as number)
+        : DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT;
+}
+
 function normalizeSortFrequencyDictionaryOrder(
     value: unknown
 ): HoshidictsSortFrequencyDictionaryOrder {
@@ -852,6 +867,9 @@ function normalizeReaderPreferences(
             value.showFrequencyDictionaryNames !== false,
         showCompactDefinitionSummary:
             value.showCompactDefinitionSummary === true,
+        compactDefinitionSummaryCount: normalizeCompactDefinitionSummaryCount(
+            value.compactDefinitionSummaryCount
+        ),
         compactDefinitionSummaryDictionary:
             normalizeCompactDefinitionSummaryDictionary(
                 value.compactDefinitionSummaryDictionary
@@ -3063,6 +3081,7 @@ export class HoshidictsManager {
             undefined,
             snapshot.popupColumns,
             snapshot.showCompactDefinitionSummary,
+            snapshot.compactDefinitionSummaryCount,
             snapshot.compactDefinitionSummaryDictionary,
             snapshot.hidePopupGrammarTags,
             snapshot.showPitchAccentFurigana,
@@ -3100,6 +3119,8 @@ export class HoshidictsManager {
         popupColumns?: number,
         showCompactDefinitionSummary =
             DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
+        compactDefinitionSummaryCount =
+            DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
         compactDefinitionSummaryDictionary: string | null =
             DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
         hidePopupGrammarTags = DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
@@ -3194,6 +3215,17 @@ export class HoshidictsManager {
         if (typeof showCompactDefinitionSummary !== 'boolean') {
             throw new Error(
                 'Hoshidicts compact definition summary preference is invalid.'
+            );
+        }
+        if (
+            !Number.isInteger(compactDefinitionSummaryCount) ||
+            compactDefinitionSummaryCount <
+                MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT ||
+            compactDefinitionSummaryCount >
+                MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT
+        ) {
+            throw new Error(
+                'Hoshidicts compact definition summary count is invalid.'
             );
         }
         if (
@@ -3374,6 +3406,8 @@ export class HoshidictsManager {
                     showFrequencyDictionaryNames ||
                 manifest.showCompactDefinitionSummary !==
                     showCompactDefinitionSummary ||
+                manifest.compactDefinitionSummaryCount !==
+                    compactDefinitionSummaryCount ||
                 manifest.compactDefinitionSummaryDictionary !==
                     normalizedCompactDefinitionSummaryDictionary ||
                 manifest.showPitchAccentFurigana !==
@@ -3415,6 +3449,7 @@ export class HoshidictsManager {
                     averageFrequency,
                     showFrequencyDictionaryNames,
                     showCompactDefinitionSummary,
+                    compactDefinitionSummaryCount,
                     compactDefinitionSummaryDictionary:
                         normalizedCompactDefinitionSummaryDictionary,
                     showPitchAccentFurigana,
@@ -3802,6 +3837,8 @@ export class HoshidictsManager {
                 manifest.showFrequencyDictionaryNames,
             showCompactDefinitionSummary:
                 manifest.showCompactDefinitionSummary,
+            compactDefinitionSummaryCount:
+                manifest.compactDefinitionSummaryCount,
             compactDefinitionSummaryDictionary:
                 manifest.compactDefinitionSummaryDictionary,
             showPitchAccentFurigana: manifest.showPitchAccentFurigana,

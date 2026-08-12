@@ -167,6 +167,7 @@ function runHoshidictsReaderConfiguration(
     gsmHoshidictsSortFrequencyDictionaryOrder: "descending",
     gsmHoshidictsShowLookupCounts: showLookupCounts,
     gsmHoshidictsShowCompactDefinitionSummary: false,
+    gsmHoshidictsCompactDefinitionSummaryCount: 3,
     gsmHoshidictsCompactDefinitionSummaryDictionary: null,
     gsmHoshidictsShowPitchAccentFurigana: true,
     gsmHoshidictsPitchAccentFuriganaDictionary: null,
@@ -1396,6 +1397,7 @@ describe("Hoshidicts safe popup rendering", () => {
       averageFrequency: false,
       showFrequencyDictionaryNames: true,
       showCompactDefinitionSummary: false,
+      compactDefinitionSummaryCount: 3,
       compactDefinitionSummaryDictionary: null,
       showPitchAccentFurigana: true,
       pitchAccentFuriganaDictionary: null,
@@ -1492,6 +1494,7 @@ describe("Hoshidicts safe popup rendering", () => {
       averageFrequency: false,
       showFrequencyDictionaryNames: true,
       showCompactDefinitionSummary: false,
+      compactDefinitionSummaryCount: 3,
       compactDefinitionSummaryDictionary: null,
       showPitchAccentFurigana: true,
       pitchAccentFuriganaDictionary: null,
@@ -1540,6 +1543,7 @@ describe("Hoshidicts safe popup rendering", () => {
       popupHideDelayMs: 800,
       showLookupCounts: true,
       showCompactDefinitionSummary: false,
+      compactDefinitionSummaryCount: 3,
       compactDefinitionSummaryDictionary: null,
       showPitchAccentFurigana: true,
       pitchAccentFuriganaDictionary: null,
@@ -1639,6 +1643,7 @@ describe("Hoshidicts safe popup rendering", () => {
       averageFrequency: false,
       showFrequencyDictionaryNames: true,
       showCompactDefinitionSummary: false,
+      compactDefinitionSummaryCount: 3,
       compactDefinitionSummaryDictionary: null,
       showPitchAccentFurigana: true,
       pitchAccentFuriganaDictionary: null,
@@ -1683,6 +1688,7 @@ describe("Hoshidicts safe popup rendering", () => {
       averageFrequency: false,
       showFrequencyDictionaryNames: true,
       showCompactDefinitionSummary: false,
+      compactDefinitionSummaryCount: 3,
       compactDefinitionSummaryDictionary: null,
       showPitchAccentFurigana: true,
       pitchAccentFuriganaDictionary: null,
@@ -2438,6 +2444,10 @@ describe("Hoshidicts compact definition summaries", () => {
     expect(api.normalizeCompactDefinitionSummaryDictionary(true)).toBeNull();
     expect(api.normalizeCompactDefinitionSummaryDictionary("x".repeat(4097)))
       .toBeNull();
+    expect(api.normalizeCompactDefinitionSummaryCount(undefined)).toBe(3);
+    expect(api.normalizeCompactDefinitionSummaryCount(5)).toBe(5);
+    expect(api.normalizeCompactDefinitionSummaryCount(0)).toBe(3);
+    expect(api.normalizeCompactDefinitionSummaryCount(7)).toBe(3);
   });
 
   it("keeps compact summaries strictly opt-in", async () => {
@@ -2468,7 +2478,7 @@ describe("Hoshidicts compact definition summaries", () => {
     harness.reader.destroy();
   });
 
-  it("renders bounded JSON-array items while retaining the complete card", async () => {
+  it("renders the chosen number of items while retaining the complete card", async () => {
     const harness = createReaderHarness({
       lookupMode: "hover",
       showCompactDefinitionSummary: true
@@ -2486,14 +2496,23 @@ describe("Hoshidicts compact definition summaries", () => {
     });
 
     const popup = harness.reader.getPopupElement();
-    const summary = popup.querySelector<HTMLElement>(
+    let summary = popup.querySelector<HTMLElement>(
+      ".gsm-hoshidicts-compact-definition-summary"
+    )!;
+    expect(harness.reader.getPreferences().compactDefinitionSummaryCount)
+      .toBe(3);
+    expect(Array.from(summary.querySelectorAll("li"), (item) => item.textContent))
+      .toEqual(definitions.slice(0, 3));
+    expect(Array.from(summary.textContent ?? "")).toHaveLength(
+      definitions.slice(0, 3).join("").length
+    );
+
+    harness.reader.updatePreferences({ compactDefinitionSummaryCount: 5 });
+    summary = popup.querySelector<HTMLElement>(
       ".gsm-hoshidicts-compact-definition-summary"
     )!;
     expect(Array.from(summary.querySelectorAll("li"), (item) => item.textContent))
-      .toEqual(definitions.slice(0, 6));
-    expect(Array.from(summary.textContent ?? "")).toHaveLength(
-      definitions.slice(0, 6).join("").length
-    );
+      .toEqual(definitions.slice(0, 5));
     const fullCard = popup.querySelector(".gsm-hoshidicts-glossary-card");
     expect(fullCard).not.toBeNull();
     expect(fullCard?.querySelector(".gsm-hoshidicts-glossary-content")?.textContent)
@@ -2530,6 +2549,7 @@ describe("Hoshidicts compact definition summaries", () => {
     const harness = createReaderHarness({
       lookupMode: "hover",
       showCompactDefinitionSummary: true,
+      compactDefinitionSummaryCount: 3,
       compactDefinitionSummaryDictionary: "Jitendex"
     });
     await renderFirstLookup(harness, {
@@ -2594,6 +2614,7 @@ describe("Hoshidicts compact definition summaries", () => {
     const harness = createReaderHarness({
       lookupMode: "hover",
       showCompactDefinitionSummary: true,
+      compactDefinitionSummaryCount: 3,
       compactDefinitionSummaryDictionary: "JMdict"
     });
     await renderFirstLookup(harness, {
@@ -2628,6 +2649,7 @@ describe("Hoshidicts compact definition summaries", () => {
     const harness = createReaderHarness({
       lookupMode: "hover",
       showCompactDefinitionSummary: true,
+      compactDefinitionSummaryCount: 3,
       compactDefinitionSummaryDictionary: "Generic structured dictionary"
     });
     await renderFirstLookup(harness, {
@@ -2665,6 +2687,7 @@ describe("Hoshidicts compact definition summaries", () => {
     const harness = createReaderHarness({
       lookupMode: "hover",
       showCompactDefinitionSummary: true,
+      compactDefinitionSummaryCount: 3,
       compactDefinitionSummaryDictionary: "Missing dictionary"
     });
     await renderFirstLookup(harness, {
@@ -2714,6 +2737,7 @@ describe("Hoshidicts compact definition summaries", () => {
     const harness = createReaderHarness({
       lookupMode: "hover",
       showCompactDefinitionSummary: true,
+      compactDefinitionSummaryCount: 3,
       compactDefinitionSummaryDictionary: "国語辞典"
     });
     await renderFirstLookup(harness, {
@@ -2852,6 +2876,7 @@ describe("Hoshidicts definition blur", () => {
       WebSocket: FakeWebSocket,
       lookupMode: "hover",
       showCompactDefinitionSummary: true,
+      compactDefinitionSummaryCount: 3,
       definitionBlur: {
         enabled: true,
         lookupThreshold: 5,
@@ -3048,6 +3073,7 @@ describe("Hoshidicts definition blur", () => {
       WebSocket: FakeWebSocket,
       lookupMode: "hover",
       showCompactDefinitionSummary: true,
+      compactDefinitionSummaryCount: 3,
       definitionBlur: {
         enabled: true,
         lookupThreshold: 5,
@@ -3287,6 +3313,7 @@ describe("Hoshidicts dictionary tabs", () => {
         { title: "Backup", favorite: true }
       ],
       showCompactDefinitionSummary: false,
+      compactDefinitionSummaryCount: 3,
       compactDefinitionSummaryDictionary: "Main"
     });
     const { popup } = await lookup((requestId) =>
@@ -3352,6 +3379,7 @@ describe("Hoshidicts dictionary tabs", () => {
         { title: "Backup", favorite: true }
       ],
       showCompactDefinitionSummary: true,
+      compactDefinitionSummaryCount: 3,
       compactDefinitionSummaryDictionary: "Main"
     });
     const { popup } = await lookup((requestId) =>
@@ -7815,6 +7843,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       averageFrequency: false,
       showFrequencyDictionaryNames: true,
       showCompactDefinitionSummary: false,
+      compactDefinitionSummaryCount: 3,
       compactDefinitionSummaryDictionary: null,
       showPitchAccentFurigana: true,
       pitchAccentFuriganaDictionary: null,
@@ -7882,6 +7911,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       averageFrequency: false,
       showFrequencyDictionaryNames: true,
       showCompactDefinitionSummary: false,
+      compactDefinitionSummaryCount: 3,
       compactDefinitionSummaryDictionary: null,
       hidePopupGrammarTags: true,
       showPitchAccentFurigana: true,
@@ -7926,6 +7956,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
       averageFrequency: false,
       showFrequencyDictionaryNames: true,
       showCompactDefinitionSummary: false,
+      compactDefinitionSummaryCount: 3,
       compactDefinitionSummaryDictionary: null,
       hidePopupGrammarTags: true,
       showPitchAccentFurigana: true,
@@ -7971,6 +8002,7 @@ describe("Hoshidicts Shift-hover scanner", () => {
         averageFrequency: false,
         showFrequencyDictionaryNames: true,
         showCompactDefinitionSummary: false,
+        compactDefinitionSummaryCount: 3,
         compactDefinitionSummaryDictionary: null,
         hidePopupGrammarTags: true,
         showPitchAccentFurigana: true,
@@ -10570,3 +10602,5 @@ describe("Hoshidicts Shift-hover scanner", () => {
     reader.destroy();
   });
 });
+
+

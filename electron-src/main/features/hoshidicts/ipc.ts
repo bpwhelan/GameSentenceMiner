@@ -13,6 +13,7 @@ import type {
 } from '../../ui/front.js';
 import {
     HOSHIDICTS_CHANNELS,
+    DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
     DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
     HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
     hoshidictsReaderPreferencesFromSnapshot,
@@ -23,6 +24,7 @@ import {
     isHoshidictsTheme,
     MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES,
     MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH,
+    MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
     MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
     MAX_HOSHIDICTS_MAX_RESULTS,
@@ -34,6 +36,7 @@ import {
     MAX_HOSHIDICTS_PROFILE_NAME_LENGTH,
     MAX_HOSHIDICTS_SCAN_LENGTH,
     MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
+    MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
     MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
     MIN_HOSHIDICTS_MAX_RESULTS,
     MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
@@ -103,6 +106,7 @@ export interface HoshidictsIPCDependencies {
     getOverlayPopupHideDelayAtLaunch: () => number | null;
     getOverlayShowLookupCountsAtLaunch: () => boolean | null;
     getOverlayShowCompactDefinitionSummaryAtLaunch: () => boolean | null;
+    getOverlayCompactDefinitionSummaryCountAtLaunch: () => number | null;
     getOverlayCompactDefinitionSummaryDictionaryAtLaunch: () => string | null;
     getOverlayShowPitchAccentFuriganaAtLaunch: () => boolean | null;
     getOverlayPitchAccentFuriganaDictionaryAtLaunch: () => string | null;
@@ -280,6 +284,8 @@ function readerPreferencesMatchOverlay(
             preferences.showLookupCounts &&
         deps.getOverlayShowCompactDefinitionSummaryAtLaunch() ===
             preferences.showCompactDefinitionSummary &&
+        deps.getOverlayCompactDefinitionSummaryCountAtLaunch() ===
+            preferences.compactDefinitionSummaryCount &&
         deps.getOverlayCompactDefinitionSummaryDictionaryAtLaunch() ===
             preferences.compactDefinitionSummaryDictionary &&
         deps.getOverlayShowPitchAccentFuriganaAtLaunch() ===
@@ -431,6 +437,8 @@ function withDesktopState(
         deps.getOverlayShowLookupCountsAtLaunch();
     const showCompactDefinitionSummaryAtLaunch =
         deps.getOverlayShowCompactDefinitionSummaryAtLaunch();
+    const compactDefinitionSummaryCountAtLaunch =
+        deps.getOverlayCompactDefinitionSummaryCountAtLaunch();
     const compactDefinitionSummaryDictionaryAtLaunch =
         deps.getOverlayCompactDefinitionSummaryDictionaryAtLaunch();
     const showPitchAccentFuriganaAtLaunch =
@@ -453,6 +461,9 @@ function withDesktopState(
     const effectiveEnabled = deps.getConfiguredFeatureEnabled();
     return {
         ...snapshot,
+        compactDefinitionSummaryCount:
+            snapshot.compactDefinitionSummaryCount ??
+            DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
         effectiveEnabled,
         overlay: {
             running: overlay.isRunning,
@@ -497,6 +508,11 @@ function withDesktopState(
                         showCompactDefinitionSummaryAtLaunch !== null &&
                         showCompactDefinitionSummaryAtLaunch !==
                             snapshot.showCompactDefinitionSummary) ||
+                    (effectiveEnabled &&
+                        compactDefinitionSummaryCountAtLaunch !== null &&
+                        compactDefinitionSummaryCountAtLaunch !==
+                            (snapshot.compactDefinitionSummaryCount ??
+                                DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT)) ||
                     (effectiveEnabled &&
                         showCompactDefinitionSummaryAtLaunch !== null &&
                         compactDefinitionSummaryDictionaryAtLaunch !==
@@ -1009,6 +1025,7 @@ export function registerHoshidictsIPC(
                     reader.popupButtons,
                     reader.popupColumns,
                     reader.showCompactDefinitionSummary,
+                    reader.compactDefinitionSummaryCount,
                     reader.compactDefinitionSummaryDictionary,
                     reader.hidePopupGrammarTags,
                     reader.showPitchAccentFurigana,
@@ -1333,6 +1350,9 @@ export function registerHoshidictsIPC(
         async (event, request: unknown) => {
             assertSettingsSender(event, deps);
             const value = request as Partial<HoshidictsReaderPreferencesRequest> | null;
+            const compactDefinitionSummaryCount =
+                value?.compactDefinitionSummaryCount ??
+                DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT;
             if (
                 !value ||
                 !isLookupMode(value.lookupMode) ||
@@ -1358,6 +1378,11 @@ export function registerHoshidictsIPC(
                 (value.showFrequencyDictionaryNames !== undefined &&
                     typeof value.showFrequencyDictionaryNames !== 'boolean') ||
                 typeof value.showCompactDefinitionSummary !== 'boolean' ||
+                !Number.isInteger(compactDefinitionSummaryCount) ||
+                compactDefinitionSummaryCount <
+                    MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT ||
+                compactDefinitionSummaryCount >
+                    MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT ||
                 !isNullableDictionaryTitle(
                     value.compactDefinitionSummaryDictionary
                 ) ||
@@ -1433,6 +1458,7 @@ export function registerHoshidictsIPC(
                             value.showFrequencyDictionaryNames !== false,
                         showCompactDefinitionSummary:
                             value.showCompactDefinitionSummary as boolean,
+                        compactDefinitionSummaryCount,
                         compactDefinitionSummaryDictionary:
                             value.compactDefinitionSummaryDictionary as
                                 | string
@@ -1488,6 +1514,7 @@ export function registerHoshidictsIPC(
                         requestPreferences.popupButtons,
                         requestPreferences.popupColumns,
                         requestPreferences.showCompactDefinitionSummary,
+                        requestPreferences.compactDefinitionSummaryCount,
                         requestPreferences.compactDefinitionSummaryDictionary,
                         requestPreferences.hidePopupGrammarTags,
                         requestPreferences.showPitchAccentFurigana,
@@ -2040,3 +2067,4 @@ export function registerHoshidictsIPC(
         }
     });
 }
+

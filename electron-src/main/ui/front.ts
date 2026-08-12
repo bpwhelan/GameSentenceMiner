@@ -43,6 +43,7 @@ import {
     createDefaultHoshidictsPopupButtons,
     DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
     DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
+    DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
     DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
     DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
     DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE,
@@ -70,6 +71,7 @@ import {
     isHoshidictsSortFrequencyDictionaryOrder,
     isHoshidictsTheme,
     MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
+    MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
     MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
     MAX_HOSHIDICTS_MAX_RESULTS,
     MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
@@ -79,6 +81,7 @@ import {
     MAX_HOSHIDICTS_POPUP_WIDTH_PX,
     MAX_HOSHIDICTS_SCAN_LENGTH,
     MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
+    MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
     MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
     MIN_HOSHIDICTS_MAX_RESULTS,
     MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
@@ -111,6 +114,7 @@ let overlayHoshidictsOnlyScanJapaneseTextAtLaunch: boolean | null = null;
 let overlayHoshidictsPopupHideDelayAtLaunch: number | null = null;
 let overlayHoshidictsShowLookupCountsAtLaunch: boolean | null = null;
 let overlayHoshidictsShowCompactDefinitionSummaryAtLaunch: boolean | null = null;
+let overlayHoshidictsCompactDefinitionSummaryCountAtLaunch: number | null = null;
 let overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch: string | null =
     null;
 let overlayHoshidictsShowPitchAccentFuriganaAtLaunch: boolean | null = null;
@@ -146,6 +150,8 @@ let hoshidictsShowLookupCountsProvider: () => Promise<boolean> =
     async () => true;
 let hoshidictsShowCompactDefinitionSummaryProvider: () => Promise<boolean> =
     async () => DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY;
+let hoshidictsCompactDefinitionSummaryCountProvider: () => Promise<number> =
+    async () => DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT;
 let hoshidictsCompactDefinitionSummaryDictionaryProvider: () => Promise<
     string | null
 > = async () => null;
@@ -286,6 +292,12 @@ export function configureHoshidictsShowCompactDefinitionSummaryProvider(
     provider: () => Promise<boolean>
 ): void {
     hoshidictsShowCompactDefinitionSummaryProvider = provider;
+}
+
+export function configureHoshidictsCompactDefinitionSummaryCountProvider(
+    provider: () => Promise<number>
+): void {
+    hoshidictsCompactDefinitionSummaryCountProvider = provider;
 }
 
 export function configureHoshidictsCompactDefinitionSummaryDictionaryProvider(
@@ -525,6 +537,7 @@ export function getOverlayRuntimeState(): OverlayRuntimeState {
         overlayHoshidictsPopupHideDelayAtLaunch = null;
         overlayHoshidictsShowLookupCountsAtLaunch = null;
         overlayHoshidictsShowCompactDefinitionSummaryAtLaunch = null;
+        overlayHoshidictsCompactDefinitionSummaryCountAtLaunch = null;
         overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch = null;
         overlayHoshidictsShowPitchAccentFuriganaAtLaunch = null;
         overlayHoshidictsPitchAccentFuriganaDictionaryAtLaunch = null;
@@ -593,6 +606,11 @@ export function getOverlayHoshidictsShowLookupCountsAtLaunch(): boolean | null {
 export function getOverlayHoshidictsShowCompactDefinitionSummaryAtLaunch(): boolean | null {
     getOverlayRuntimeState();
     return overlayHoshidictsShowCompactDefinitionSummaryAtLaunch;
+}
+
+export function getOverlayHoshidictsCompactDefinitionSummaryCountAtLaunch(): number | null {
+    getOverlayRuntimeState();
+    return overlayHoshidictsCompactDefinitionSummaryCountAtLaunch;
 }
 
 export function getOverlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch(): string | null {
@@ -708,6 +726,8 @@ export function markOverlayHoshidictsReaderPreferencesApplied(
     overlayHoshidictsShowLookupCountsAtLaunch = preferences.showLookupCounts;
     overlayHoshidictsShowCompactDefinitionSummaryAtLaunch =
         preferences.showCompactDefinitionSummary;
+    overlayHoshidictsCompactDefinitionSummaryCountAtLaunch =
+        preferences.compactDefinitionSummaryCount;
     overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch =
         preferences.compactDefinitionSummaryDictionary;
     overlayHoshidictsShowPitchAccentFuriganaAtLaunch =
@@ -780,6 +800,7 @@ export function stopOverlay(options: StopOverlayOptions = {}): boolean {
             overlayHoshidictsPopupHideDelayAtLaunch = null;
             overlayHoshidictsShowLookupCountsAtLaunch = null;
             overlayHoshidictsShowCompactDefinitionSummaryAtLaunch = null;
+            overlayHoshidictsCompactDefinitionSummaryCountAtLaunch = null;
             overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch = null;
             overlayHoshidictsShowPitchAccentFuriganaAtLaunch = null;
             overlayHoshidictsPitchAccentFuriganaDictionaryAtLaunch = null;
@@ -812,6 +833,7 @@ export function stopOverlay(options: StopOverlayOptions = {}): boolean {
         overlayHoshidictsPopupHideDelayAtLaunch = null;
         overlayHoshidictsShowLookupCountsAtLaunch = null;
         overlayHoshidictsShowCompactDefinitionSummaryAtLaunch = null;
+        overlayHoshidictsCompactDefinitionSummaryCountAtLaunch = null;
         overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch = null;
         overlayHoshidictsShowPitchAccentFuriganaAtLaunch = null;
         overlayHoshidictsPitchAccentFuriganaDictionaryAtLaunch = null;
@@ -914,6 +936,7 @@ function registerOverlayProcess(
     hoshidictsDefinitionBlur: HoshidictsDefinitionBlurPreferences,
     hoshidictsShowLookupCounts: boolean,
     hoshidictsShowCompactDefinitionSummary: boolean,
+    hoshidictsCompactDefinitionSummaryCount: number,
     hoshidictsCompactDefinitionSummaryDictionary: string | null,
     hoshidictsPopupWidthPx: number,
     hoshidictsPopupHeightPx: number,
@@ -943,6 +966,8 @@ function registerOverlayProcess(
     overlayHoshidictsShowLookupCountsAtLaunch = hoshidictsShowLookupCounts;
     overlayHoshidictsShowCompactDefinitionSummaryAtLaunch =
         hoshidictsShowCompactDefinitionSummary;
+    overlayHoshidictsCompactDefinitionSummaryCountAtLaunch =
+        hoshidictsCompactDefinitionSummaryCount;
     overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch =
         hoshidictsCompactDefinitionSummaryDictionary;
     overlayHoshidictsShowPitchAccentFuriganaAtLaunch =
@@ -982,6 +1007,7 @@ function registerOverlayProcess(
         overlayHoshidictsPopupHideDelayAtLaunch = null;
         overlayHoshidictsShowLookupCountsAtLaunch = null;
         overlayHoshidictsShowCompactDefinitionSummaryAtLaunch = null;
+        overlayHoshidictsCompactDefinitionSummaryCountAtLaunch = null;
         overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch = null;
         overlayHoshidictsShowPitchAccentFuriganaAtLaunch = null;
         overlayHoshidictsPitchAccentFuriganaDictionaryAtLaunch = null;
@@ -1012,6 +1038,7 @@ function registerOverlayProcess(
         overlayHoshidictsPopupHideDelayAtLaunch = null;
         overlayHoshidictsShowLookupCountsAtLaunch = null;
         overlayHoshidictsShowCompactDefinitionSummaryAtLaunch = null;
+        overlayHoshidictsCompactDefinitionSummaryCountAtLaunch = null;
         overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch = null;
         overlayHoshidictsShowPitchAccentFuriganaAtLaunch = null;
         overlayHoshidictsPitchAccentFuriganaDictionaryAtLaunch = null;
@@ -1044,6 +1071,8 @@ export function buildHoshidictsOverlayEnvironment(
     showLookupCounts = true,
     showCompactDefinitionSummary =
         DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
+    compactDefinitionSummaryCount =
+        DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
     compactDefinitionSummaryDictionary: string | null = null,
     popupWidthPx = DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
     popupHeightPx = DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
@@ -1066,6 +1095,14 @@ export function buildHoshidictsOverlayEnvironment(
         normalizeHoshidictsDefinitionBlur(definitionBlur);
     const normalizedLookupControls =
         normalizeHoshidictsLookupControls(lookupControls);
+    const normalizedCompactDefinitionSummaryCount =
+        Number.isInteger(compactDefinitionSummaryCount) &&
+        compactDefinitionSummaryCount >=
+            MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT &&
+        compactDefinitionSummaryCount <=
+            MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT
+            ? compactDefinitionSummaryCount
+            : DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT;
     return {
         GSM_HOSHIDICTS_ENABLED: enabled ? '1' : '0',
         GSM_HOSHIDICTS_LOOKUP_MODE: lookupMode,
@@ -1078,6 +1115,8 @@ export function buildHoshidictsOverlayEnvironment(
         GSM_HOSHIDICTS_SHOW_LOOKUP_COUNTS: showLookupCounts ? '1' : '0',
         GSM_HOSHIDICTS_SHOW_COMPACT_DEFINITION_SUMMARY:
             showCompactDefinitionSummary ? '1' : '0',
+        GSM_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT:
+            String(normalizedCompactDefinitionSummaryCount),
         GSM_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY:
             typeof compactDefinitionSummaryDictionary === 'string' &&
             compactDefinitionSummaryDictionary.trim().length > 0 &&
@@ -1265,6 +1304,8 @@ export async function runOverlayWithSource(
     let hoshidictsShowLookupCounts = true;
     let hoshidictsShowCompactDefinitionSummary =
         DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY;
+    let hoshidictsCompactDefinitionSummaryCount =
+        DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT;
     let hoshidictsCompactDefinitionSummaryDictionary: string | null = null;
     let hoshidictsShowPitchAccentFurigana =
         DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA;
@@ -1325,6 +1366,16 @@ export async function runOverlayWithSource(
                 (await hoshidictsShowLookupCountsProvider()) !== false;
             hoshidictsShowCompactDefinitionSummary =
                 (await hoshidictsShowCompactDefinitionSummaryProvider()) === true;
+            const configuredCompactDefinitionSummaryCount =
+                await hoshidictsCompactDefinitionSummaryCountProvider();
+            hoshidictsCompactDefinitionSummaryCount =
+                Number.isInteger(configuredCompactDefinitionSummaryCount) &&
+                configuredCompactDefinitionSummaryCount >=
+                    MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT &&
+                configuredCompactDefinitionSummaryCount <=
+                    MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT
+                    ? configuredCompactDefinitionSummaryCount
+                    : DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT;
             const configuredCompactDefinitionSummaryDictionary =
                 await hoshidictsCompactDefinitionSummaryDictionaryProvider();
             hoshidictsCompactDefinitionSummaryDictionary =
@@ -1411,6 +1462,7 @@ export async function runOverlayWithSource(
         hoshidictsDefinitionBlur,
         hoshidictsShowLookupCounts,
         hoshidictsShowCompactDefinitionSummary,
+        hoshidictsCompactDefinitionSummaryCount,
         hoshidictsCompactDefinitionSummaryDictionary,
         hoshidictsPopupWidthPx,
         hoshidictsPopupHeightPx,
@@ -1466,6 +1518,9 @@ export async function runOverlayWithSource(
             : null;
         overlayHoshidictsShowCompactDefinitionSummaryAtLaunch = started
             ? hoshidictsShowCompactDefinitionSummary
+            : null;
+        overlayHoshidictsCompactDefinitionSummaryCountAtLaunch = started
+            ? hoshidictsCompactDefinitionSummaryCount
             : null;
         overlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch = started
             ? hoshidictsCompactDefinitionSummaryDictionary
@@ -1564,6 +1619,7 @@ export async function runOverlayWithSource(
             hoshidictsDefinitionBlur,
             hoshidictsShowLookupCounts,
             hoshidictsShowCompactDefinitionSummary,
+            hoshidictsCompactDefinitionSummaryCount,
             hoshidictsCompactDefinitionSummaryDictionary,
             hoshidictsPopupWidthPx,
             hoshidictsPopupHeightPx,
@@ -1605,6 +1661,7 @@ export async function runOverlayWithSource(
                 hoshidictsDefinitionBlur,
                 hoshidictsShowLookupCounts,
                 hoshidictsShowCompactDefinitionSummary,
+                hoshidictsCompactDefinitionSummaryCount,
                 hoshidictsCompactDefinitionSummaryDictionary,
                 hoshidictsPopupWidthPx,
                 hoshidictsPopupHeightPx,
@@ -1653,6 +1710,7 @@ export async function runOverlayWithSource(
                 hoshidictsDefinitionBlur,
                 hoshidictsShowLookupCounts,
                 hoshidictsShowCompactDefinitionSummary,
+                hoshidictsCompactDefinitionSummaryCount,
                 hoshidictsCompactDefinitionSummaryDictionary,
                 hoshidictsPopupWidthPx,
                 hoshidictsPopupHeightPx,
@@ -1718,3 +1776,4 @@ async function getAllOCRConfigs(): Promise<OCRGame[]> {
     //     return [];
     // }
 }
+

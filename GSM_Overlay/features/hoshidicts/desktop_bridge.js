@@ -43,6 +43,9 @@ const MAX_HOSHIDICTS_SCAN_LENGTH = 64;
 const DEFAULT_HOSHIDICTS_MAX_RESULTS = 32;
 const MIN_HOSHIDICTS_MAX_RESULTS = 1;
 const MAX_HOSHIDICTS_MAX_RESULTS = 256;
+const DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT = 3;
+const MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT = 1;
+const MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT = 6;
 const MAX_HOSHIDICTS_DICTIONARY_TAB_GROUPS = 256;
 const MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH = 128;
 const MAX_HOSHIDICTS_POPUP_CUSTOM_LINKS = 8;
@@ -388,6 +391,10 @@ function normalizeHoshidictsReaderPreferences(preferences) {
   const popupHideDelayMs = preferences && preferences.popupHideDelayMs;
   const showCompactDefinitionSummary =
     preferences && preferences.showCompactDefinitionSummary;
+  const compactDefinitionSummaryCount =
+    preferences?.compactDefinitionSummaryCount === undefined
+      ? DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT
+      : preferences.compactDefinitionSummaryCount;
   const compactDefinitionSummaryDictionary =
     preferences && preferences.compactDefinitionSummaryDictionary;
   const showPitchAccentFurigana =
@@ -455,6 +462,11 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     popupHideDelayMs < 0 ||
     popupHideDelayMs > 5000 ||
     typeof showCompactDefinitionSummary !== "boolean" ||
+    !Number.isInteger(compactDefinitionSummaryCount) ||
+    compactDefinitionSummaryCount <
+      MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT ||
+    compactDefinitionSummaryCount >
+      MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT ||
     typeof showPitchAccentFurigana !== "boolean" ||
     typeof showPitchAccentBadge !== "boolean" ||
     typeof hidePopupGrammarTags !== "boolean" ||
@@ -510,6 +522,7 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     onlyScanJapaneseText: onlyScanJapaneseText !== false,
     popupHideDelayMs,
     showCompactDefinitionSummary,
+    compactDefinitionSummaryCount,
     compactDefinitionSummaryDictionary,
     showPitchAccentFurigana,
     pitchAccentFuriganaDictionary,
@@ -974,3 +987,4 @@ module.exports = {
   requestHoshidictsSettingsOpen,
   resolveHoshidictsControlConfig,
 };
+

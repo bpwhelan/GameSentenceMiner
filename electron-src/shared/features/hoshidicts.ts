@@ -171,6 +171,9 @@ export const DEFAULT_HOSHIDICTS_POPUP_HIDE_DELAY_MS = 300;
 export const DEFAULT_HOSHIDICTS_SOURCE_HIGHLIGHT_ENABLED = false;
 export const DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT = true;
 export const DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY = false;
+export const DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT = 3;
+export const MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT = 1;
+export const MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT = 6;
 export const DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY:
     string | null = null;
 export const DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA = true;
@@ -698,6 +701,7 @@ export interface HoshidictsReaderPreferencesRequest {
     averageFrequency?: boolean;
     showFrequencyDictionaryNames?: boolean;
     showCompactDefinitionSummary: boolean;
+    compactDefinitionSummaryCount?: number;
     compactDefinitionSummaryDictionary: string | null;
     showPitchAccentFurigana: boolean;
     pitchAccentFuriganaDictionary: string | null;
@@ -741,6 +745,7 @@ export interface HoshidictsReaderPreferences
     extends HoshidictsReaderPreferencesRequest {
     averageFrequency: boolean;
     showFrequencyDictionaryNames: boolean;
+    compactDefinitionSummaryCount: number;
     customPopupCss: string;
     // Optional at the cross-process boundary for compatibility with an older
     // overlay. Current desktop deliveries always include a normalized array.
@@ -942,6 +947,7 @@ export interface HoshidictsManagerSnapshot {
     averageFrequency: boolean;
     showFrequencyDictionaryNames: boolean;
     showCompactDefinitionSummary: boolean;
+    compactDefinitionSummaryCount?: number;
     compactDefinitionSummaryDictionary: string | null;
     showPitchAccentFurigana: boolean;
     pitchAccentFuriganaDictionary: string | null;
@@ -985,6 +991,14 @@ export function hoshidictsReaderPreferencesFromSnapshot(
         averageFrequency: snapshot.averageFrequency,
         showFrequencyDictionaryNames: snapshot.showFrequencyDictionaryNames,
         showCompactDefinitionSummary: snapshot.showCompactDefinitionSummary,
+        compactDefinitionSummaryCount:
+            Number.isInteger(snapshot.compactDefinitionSummaryCount) &&
+            (snapshot.compactDefinitionSummaryCount as number) >=
+                MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT &&
+            (snapshot.compactDefinitionSummaryCount as number) <=
+                MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT
+                ? (snapshot.compactDefinitionSummaryCount as number)
+                : DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
         compactDefinitionSummaryDictionary:
             snapshot.compactDefinitionSummaryDictionary,
         showPitchAccentFurigana: snapshot.showPitchAccentFurigana,
@@ -1036,6 +1050,7 @@ export function hoshidictsReaderPreferencesFromSnapshot(
 }
 
 export interface HoshidictsDesktopSnapshot extends HoshidictsManagerSnapshot {
+    compactDefinitionSummaryCount: number;
     effectiveEnabled: boolean;
     overlay: {
         running: boolean;
@@ -1171,3 +1186,4 @@ export interface HoshidictsSaveCustomDictionaryRequest {
 }
 
 export type HoshidictsCustomEntryRequest = HoshidictsCustomDictionaryEntry;
+

@@ -730,6 +730,7 @@
           "columns": "Definition columns",
           "compactDefinitionSummary": "Show a compact definition near the word",
           "compactDefinitionSummaryHint": "Places a short definition beside the word and reading while keeping the full dictionary entry below.",
+          "compactDefinitionSummaryCount": "Definitions shown",
           "compactDefinitionSummaryDictionary": "Preferred dictionary",
           "compactDefinitionSummaryDictionaryAutomatic": "Automatic",
           "compactDefinitionSummaryDictionaryHint": "Falls back automatically when the preferred dictionary has no entry for the word.",
@@ -1927,3 +1928,4 @@
     }
   }
 }
+

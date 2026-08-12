@@ -723,6 +723,7 @@
           "columns": "定義の列数",
           "compactDefinitionSummary": "単語の近くに短い語義を表示",
           "compactDefinitionSummaryHint": "単語と読みのそばに短い語義を表示し、下には辞書の全文をそのまま表示します。",
+          "compactDefinitionSummaryCount": "表示する語義数",
           "compactDefinitionSummaryDictionary": "優先する辞書",
           "compactDefinitionSummaryDictionaryAutomatic": "自動",
           "compactDefinitionSummaryDictionaryHint": "優先する辞書に項目がない場合は、別の辞書から自動的に選びます。",
@@ -1847,3 +1848,4 @@
     }
   }
 }
+

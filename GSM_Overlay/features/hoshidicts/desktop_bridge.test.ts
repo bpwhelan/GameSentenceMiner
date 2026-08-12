@@ -86,6 +86,7 @@ const {
     onlyScanJapaneseText: boolean;
     popupHideDelayMs: number;
     showCompactDefinitionSummary: boolean;
+    compactDefinitionSummaryCount: number;
     compactDefinitionSummaryDictionary: string | null;
     showPitchAccentFurigana: boolean;
     pitchAccentFuriganaDictionary: string | null;
@@ -155,6 +156,7 @@ describe("Hoshidicts desktop bridge", () => {
     popupToolbarPosition: "bottom" as const,
     theme: "autumn" as const,
     showCompactDefinitionSummary: false,
+    compactDefinitionSummaryCount: 3,
     compactDefinitionSummaryDictionary: null,
     showPitchAccentFurigana: true,
     pitchAccentFuriganaDictionary: null,
@@ -554,8 +556,12 @@ describe("Hoshidicts desktop bridge", () => {
     expect(normalizeHoshidictsReaderPreferences({
       ...valid,
       showCompactDefinitionSummary: true,
+      compactDefinitionSummaryCount: 5,
       compactDefinitionSummaryDictionary: "Jitendex",
-    }).showCompactDefinitionSummary).toBe(true);
+    })).toMatchObject({
+      showCompactDefinitionSummary: true,
+      compactDefinitionSummaryCount: 5,
+    });
     expect(normalizeHoshidictsReaderPreferences({
       ...valid,
       compactDefinitionSummaryDictionary: "Jitendex",
@@ -576,6 +582,12 @@ describe("Hoshidicts desktop bridge", () => {
       expect(() => normalizeHoshidictsReaderPreferences({
         ...valid,
         compactDefinitionSummaryDictionary,
+      })).toThrow("Hoshidicts reader preferences are invalid.");
+    }
+    for (const compactDefinitionSummaryCount of [0, 7, 1.5, "3"]) {
+      expect(() => normalizeHoshidictsReaderPreferences({
+        ...valid,
+        compactDefinitionSummaryCount,
       })).toThrow("Hoshidicts reader preferences are invalid.");
     }
     for (const hidePopupGrammarTags of [undefined, "yes", 1]) {
@@ -921,3 +933,4 @@ describe("Hoshidicts desktop bridge", () => {
     }
   });
 });
+

@@ -1952,6 +1952,7 @@ describe('Hoshidicts reader preferences', () => {
         expect(snapshot.averageFrequency).toBe(false);
         expect(snapshot.showFrequencyDictionaryNames).toBe(true);
         expect(snapshot.showCompactDefinitionSummary).toBe(false);
+        expect(snapshot.compactDefinitionSummaryCount).toBe(3);
         expect(snapshot.compactDefinitionSummaryDictionary).toBeNull();
         expect(snapshot.showPitchAccentFurigana).toBe(true);
         expect(snapshot.pitchAccentFuriganaDictionary).toBeNull();
@@ -2000,6 +2001,9 @@ describe('Hoshidicts reader preferences', () => {
         expect(
             (await manager.getSnapshot()).showCompactDefinitionSummary
         ).toBe(false);
+        expect(
+            (await manager.getSnapshot()).compactDefinitionSummaryCount
+        ).toBe(3);
         expect(
             (await manager.getSnapshot()).compactDefinitionSummaryDictionary
         ).toBeNull();
@@ -2072,6 +2076,7 @@ describe('Hoshidicts reader preferences', () => {
             },
             3,
             true,
+            4,
             '  Jitendex.org  ',
             false,
             false,
@@ -2095,6 +2100,7 @@ describe('Hoshidicts reader preferences', () => {
         expect(snapshot.averageFrequency).toBe(true);
         expect(snapshot.showFrequencyDictionaryNames).toBe(false);
         expect(snapshot.showCompactDefinitionSummary).toBe(true);
+        expect(snapshot.compactDefinitionSummaryCount).toBe(4);
         expect(snapshot.compactDefinitionSummaryDictionary).toBe(
             'Jitendex.org'
         );
@@ -2146,6 +2152,7 @@ describe('Hoshidicts reader preferences', () => {
         expect(readManifest(baseDir).averageFrequency).toBe(true);
         expect(readManifest(baseDir).showFrequencyDictionaryNames).toBe(false);
         expect(readManifest(baseDir).showCompactDefinitionSummary).toBe(true);
+        expect(readManifest(baseDir).compactDefinitionSummaryCount).toBe(4);
         expect(readManifest(baseDir).compactDefinitionSummaryDictionary).toBe(
             'Jitendex.org'
         );
@@ -2197,6 +2204,9 @@ describe('Hoshidicts reader preferences', () => {
             (await reloaded.getSnapshot()).showCompactDefinitionSummary
         ).toBe(true);
         expect(
+            (await reloaded.getSnapshot()).compactDefinitionSummaryCount
+        ).toBe(4);
+        expect(
             (await reloaded.getSnapshot()).compactDefinitionSummaryDictionary
         ).toBe('Jitendex.org');
         expect(
@@ -2243,6 +2253,8 @@ describe('Hoshidicts reader preferences', () => {
         expect(readManifest(baseDir).showFrequencyDictionaryNames).toBe(false);
         expect(shifted.showCompactDefinitionSummary).toBe(true);
         expect(readManifest(baseDir).showCompactDefinitionSummary).toBe(true);
+        expect(shifted.compactDefinitionSummaryCount).toBe(4);
+        expect(readManifest(baseDir).compactDefinitionSummaryCount).toBe(4);
         expect(shifted.compactDefinitionSummaryDictionary).toBe(
             'Jitendex.org'
         );
@@ -2430,6 +2442,41 @@ describe('Hoshidicts reader preferences', () => {
         ).rejects.toThrow('compact definition summary preference is invalid');
     });
 
+    it('rejects invalid compact definition summary counts', async () => {
+        const baseDir = makeTempDir();
+        const { manager } = createHarness(baseDir);
+        const setCount = (count: number) =>
+            manager.setReaderPreferences(
+                'shift',
+                300,
+                'Shift',
+                false,
+                10,
+                undefined,
+                true,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                true,
+                undefined,
+                16,
+                32,
+                null,
+                'descending',
+                undefined,
+                undefined,
+                true,
+                count
+            );
+
+        for (const count of [0, 7, 1.5]) {
+            await expect(setCount(count)).rejects.toThrow(
+                'compact definition summary count is invalid'
+            );
+        }
+    });
+
     it('rejects invalid compact definition summary dictionary titles', async () => {
         const baseDir = makeTempDir();
         const { manager } = createHarness(baseDir);
@@ -2455,6 +2502,7 @@ describe('Hoshidicts reader preferences', () => {
                 undefined,
                 undefined,
                 true,
+                3,
                 dictionary
             );
 
@@ -2498,6 +2546,7 @@ describe('Hoshidicts reader preferences', () => {
                 undefined,
                 undefined,
                 false,
+                3,
                 null,
                 'yes' as never
             )
@@ -2532,6 +2581,7 @@ describe('Hoshidicts reader preferences', () => {
                 undefined,
                 undefined,
                 false,
+                3,
                 null,
                 true,
                 showPitchAccentFurigana,
@@ -2580,6 +2630,7 @@ describe('Hoshidicts reader preferences', () => {
                 undefined,
                 undefined,
                 false,
+                3,
                 null,
                 true,
                 true,

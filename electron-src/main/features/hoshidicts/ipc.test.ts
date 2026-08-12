@@ -40,6 +40,7 @@ const harness = vi.hoisted(() => ({
     popupHideDelayAtLaunch: 300 as number | null,
     showLookupCountsAtLaunch: true as boolean | null,
     showCompactDefinitionSummaryAtLaunch: false as boolean | null,
+    compactDefinitionSummaryCountAtLaunch: 3 as number | null,
     compactDefinitionSummaryDictionaryAtLaunch: null as string | null,
     showPitchAccentFuriganaAtLaunch: true as boolean | null,
     pitchAccentFuriganaDictionaryAtLaunch: null as string | null,
@@ -196,6 +197,7 @@ const snapshot = {
     popupHideDelayMs: 300,
     showLookupCounts: true,
     showCompactDefinitionSummary: false,
+    compactDefinitionSummaryCount: 3,
     compactDefinitionSummaryDictionary: null,
     showPitchAccentFurigana: true,
     pitchAccentFuriganaDictionary: null,
@@ -389,6 +391,8 @@ async function registerHarness() {
             harness.showLookupCountsAtLaunch,
         getOverlayShowCompactDefinitionSummaryAtLaunch: () =>
             harness.showCompactDefinitionSummaryAtLaunch,
+        getOverlayCompactDefinitionSummaryCountAtLaunch: () =>
+            harness.compactDefinitionSummaryCountAtLaunch,
         getOverlayCompactDefinitionSummaryDictionaryAtLaunch: () =>
             harness.compactDefinitionSummaryDictionaryAtLaunch,
         getOverlayShowPitchAccentFuriganaAtLaunch: () =>
@@ -455,6 +459,7 @@ describe('Hoshidicts settings IPC', () => {
         harness.popupHideDelayAtLaunch = 300;
         harness.showLookupCountsAtLaunch = true;
         harness.showCompactDefinitionSummaryAtLaunch = false;
+        harness.compactDefinitionSummaryCountAtLaunch = 3;
         harness.compactDefinitionSummaryDictionaryAtLaunch = null;
         harness.showPitchAccentFuriganaAtLaunch = true;
         harness.pitchAccentFuriganaDictionaryAtLaunch = null;
@@ -1127,6 +1132,15 @@ describe('Hoshidicts settings IPC', () => {
             overlay: { running: true, restartRequired: false },
         });
 
+        harness.compactDefinitionSummaryCountAtLaunch = 4;
+        await expect(
+            getState?.({ sender: context.settingsContents })
+        ).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: true },
+        });
+
+        harness.compactDefinitionSummaryCountAtLaunch = 3;
+
         harness.compactDefinitionSummaryDictionaryAtLaunch = 'Jitendex';
         await expect(
             getState?.({ sender: context.settingsContents })
@@ -1186,6 +1200,7 @@ describe('Hoshidicts settings IPC', () => {
                     popupHideDelayMs: 300,
                     showLookupCounts: true,
                     showCompactDefinitionSummary: false,
+                    compactDefinitionSummaryCount: 3,
                     compactDefinitionSummaryDictionary: null,
                     showPitchAccentFurigana: true,
                     pitchAccentFuriganaDictionary: null,
@@ -1279,6 +1294,7 @@ describe('Hoshidicts settings IPC', () => {
                     popupHideDelayMs: 300,
                     showLookupCounts: true,
                     showCompactDefinitionSummary: false,
+                    compactDefinitionSummaryCount: 3,
                     compactDefinitionSummaryDictionary: null,
                     showPitchAccentFurigana: true,
                     pitchAccentFuriganaDictionary: null,
@@ -1330,6 +1346,7 @@ describe('Hoshidicts settings IPC', () => {
                     popupHideDelayMs: 300,
                     showLookupCounts: true,
                     showCompactDefinitionSummary: false,
+                    compactDefinitionSummaryCount: 3,
                     compactDefinitionSummaryDictionary: null,
                     showPitchAccentFurigana: true,
                     pitchAccentFuriganaDictionary: null,
@@ -2215,6 +2232,7 @@ describe('Hoshidicts settings IPC', () => {
                     popupHideDelayMs: 850,
                     showLookupCounts: 'yes',
                     showCompactDefinitionSummary: false,
+                    compactDefinitionSummaryCount: 3,
                     compactDefinitionSummaryDictionary: null,
                     hidePopupGrammarTags: true,
                     popupNestingMaxDepth: 4,
@@ -2259,6 +2277,7 @@ describe('Hoshidicts settings IPC', () => {
                     popupHideDelayMs: 850,
                     showLookupCounts: false,
                     showCompactDefinitionSummary: true,
+                    compactDefinitionSummaryCount: 3,
                     compactDefinitionSummaryDictionary: 'Jitendex',
                     showPitchAccentFurigana: true,
                     pitchAccentFuriganaDictionary: 'Pitch',
@@ -2333,6 +2352,7 @@ describe('Hoshidicts settings IPC', () => {
             },
             3,
             true,
+            3,
             'Jitendex',
             false,
             true,
@@ -2356,6 +2376,7 @@ describe('Hoshidicts settings IPC', () => {
             averageFrequency: false,
             showFrequencyDictionaryNames: true,
             showCompactDefinitionSummary: true,
+            compactDefinitionSummaryCount: 3,
             compactDefinitionSummaryDictionary: 'Jitendex',
             showPitchAccentFurigana: true,
             pitchAccentFuriganaDictionary: 'Pitch',
@@ -2571,6 +2592,7 @@ describe('Hoshidicts settings IPC', () => {
             popupHideDelayMs: 850,
             showLookupCounts: true,
             showCompactDefinitionSummary: true,
+            compactDefinitionSummaryCount: 3,
             compactDefinitionSummaryDictionary: null,
             showPitchAccentFurigana: true,
             pitchAccentFuriganaDictionary: null,
@@ -2598,6 +2620,17 @@ describe('Hoshidicts settings IPC', () => {
                 setReaderPreferences?.(
                     { sender: context.settingsContents },
                     { ...valid, compactDefinitionSummaryDictionary }
+                )
+            ).resolves.toMatchObject({
+                success: false,
+                error: 'Hoshidicts reader preferences are invalid.',
+            });
+        }
+        for (const compactDefinitionSummaryCount of [0, 7, 1.5, '3']) {
+            await expect(
+                setReaderPreferences?.(
+                    { sender: context.settingsContents },
+                    { ...valid, compactDefinitionSummaryCount }
                 )
             ).resolves.toMatchObject({
                 success: false,
@@ -2647,6 +2680,7 @@ describe('Hoshidicts settings IPC', () => {
             popupHideDelayMs: 850,
             showLookupCounts: true,
             showCompactDefinitionSummary: false,
+            compactDefinitionSummaryCount: 3,
             compactDefinitionSummaryDictionary: null,
             showPitchAccentFurigana: true,
             pitchAccentFuriganaDictionary: null,
@@ -2706,6 +2740,7 @@ describe('Hoshidicts settings IPC', () => {
             popupHideDelayMs: 850,
             showLookupCounts: true,
             showCompactDefinitionSummary: false,
+            compactDefinitionSummaryCount: 3,
             compactDefinitionSummaryDictionary: null,
             showPitchAccentFurigana: true,
             pitchAccentFuriganaDictionary: null,
@@ -2752,3 +2787,4 @@ describe('Hoshidicts settings IPC', () => {
         expect(context.applyReaderPreferences).not.toHaveBeenCalled();
     });
 });
+

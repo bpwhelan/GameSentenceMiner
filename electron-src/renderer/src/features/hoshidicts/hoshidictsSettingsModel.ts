@@ -4,6 +4,7 @@ import {
   createDefaultHoshidictsPopupButtons,
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
+  DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
   DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
   DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
   DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
@@ -37,6 +38,7 @@ import {
   isHoshidictsPopupToolbarPosition,
   isHoshidictsTheme,
   MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
+  MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
   MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
   MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH,
   MAX_HOSHIDICTS_MAX_RESULTS,
@@ -47,6 +49,7 @@ import {
   MAX_HOSHIDICTS_POPUP_WIDTH_PX,
   MAX_HOSHIDICTS_SCAN_LENGTH,
   MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
+  MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
   MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
   MIN_HOSHIDICTS_MAX_RESULTS,
   MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
@@ -350,6 +353,8 @@ const DEFAULT_STATE: HoshidictsDesktopSnapshot = {
     DEFAULT_HOSHIDICTS_SHOW_FREQUENCY_DICTIONARY_NAMES,
   showCompactDefinitionSummary:
     DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
+  compactDefinitionSummaryCount:
+    DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
   compactDefinitionSummaryDictionary:
     DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
   showPitchAccentFurigana:
@@ -728,6 +733,14 @@ export function normalizeHoshidictsDesktopState(
     (candidate.popupColumns as number) <= MAX_HOSHIDICTS_POPUP_COLUMNS
       ? (candidate.popupColumns as number)
       : DEFAULT_HOSHIDICTS_POPUP_COLUMNS;
+  const compactDefinitionSummaryCount =
+    Number.isInteger(candidate.compactDefinitionSummaryCount) &&
+    (candidate.compactDefinitionSummaryCount as number) >=
+      MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT &&
+    (candidate.compactDefinitionSummaryCount as number) <=
+      MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT
+      ? (candidate.compactDefinitionSummaryCount as number)
+      : DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT;
   const popupOpacityPercent =
     Number.isInteger(candidate.popupOpacityPercent) &&
     (candidate.popupOpacityPercent as number) >=
@@ -879,6 +892,7 @@ export function normalizeHoshidictsDesktopState(
       candidate.showFrequencyDictionaryNames !== false,
     showCompactDefinitionSummary:
       candidate.showCompactDefinitionSummary === true,
+    compactDefinitionSummaryCount,
     compactDefinitionSummaryDictionary:
       typeof candidate.compactDefinitionSummaryDictionary === "string" &&
       candidate.compactDefinitionSummaryDictionary.trim().length > 0 &&
@@ -1117,3 +1131,4 @@ export function formatTimestamp(value: string | null): string | null {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date.toLocaleString();
 }
+

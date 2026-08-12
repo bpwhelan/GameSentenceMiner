@@ -723,6 +723,7 @@
           "columns": "Стовпці визначень",
           "compactDefinitionSummary": "Показувати коротке визначення біля слова",
           "compactDefinitionSummaryHint": "Показує коротке визначення поруч зі словом і читанням, зберігаючи повну словникову статтю нижче.",
+          "compactDefinitionSummaryCount": "Кількість визначень",
           "compactDefinitionSummaryDictionary": "Бажаний словник",
           "compactDefinitionSummaryDictionaryAutomatic": "Автоматично",
           "compactDefinitionSummaryDictionaryHint": "Якщо бажаний словник не має статті для слова, автоматично використовується інший.",
@@ -1847,3 +1848,4 @@
     }
   }
 }
+

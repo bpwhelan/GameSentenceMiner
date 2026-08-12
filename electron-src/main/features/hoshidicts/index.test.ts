@@ -17,6 +17,7 @@ const harness = vi.hoisted(() => ({
     configurePopupHideDelayProvider: vi.fn(),
     configureShowLookupCountsProvider: vi.fn(),
     configureShowCompactDefinitionSummaryProvider: vi.fn(),
+    configureCompactDefinitionSummaryCountProvider: vi.fn(),
     configureCompactDefinitionSummaryDictionaryProvider: vi.fn(),
     configureShowPitchAccentFuriganaProvider: vi.fn(),
     configurePitchAccentFuriganaDictionaryProvider: vi.fn(),
@@ -79,6 +80,7 @@ const harness = vi.hoisted(() => ({
         popupHideDelayMs: 850,
         showLookupCounts: false,
         showCompactDefinitionSummary: true,
+        compactDefinitionSummaryCount: 5,
         compactDefinitionSummaryDictionary: 'Jitendex',
         showPitchAccentFurigana: true,
         pitchAccentFuriganaDictionary: 'Pitch',
@@ -164,6 +166,8 @@ vi.mock('../../ui/front.js', () => ({
         harness.configureShowLookupCountsProvider,
     configureHoshidictsShowCompactDefinitionSummaryProvider:
         harness.configureShowCompactDefinitionSummaryProvider,
+    configureHoshidictsCompactDefinitionSummaryCountProvider:
+        harness.configureCompactDefinitionSummaryCountProvider,
     configureHoshidictsCompactDefinitionSummaryDictionaryProvider:
         harness.configureCompactDefinitionSummaryDictionaryProvider,
     configureHoshidictsShowPitchAccentFuriganaProvider:
@@ -204,6 +208,7 @@ vi.mock('../../ui/front.js', () => ({
     getOverlayHoshidictsPopupHideDelayAtLaunch: () => 300,
     getOverlayHoshidictsShowLookupCountsAtLaunch: () => true,
     getOverlayHoshidictsShowCompactDefinitionSummaryAtLaunch: () => false,
+    getOverlayHoshidictsCompactDefinitionSummaryCountAtLaunch: () => 3,
     getOverlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch: () => null,
     getOverlayHoshidictsShowPitchAccentFuriganaAtLaunch: () => true,
     getOverlayHoshidictsPitchAccentFuriganaDictionaryAtLaunch: () => null,
@@ -270,6 +275,7 @@ describe('Hoshidicts feature registration', () => {
         harness.configurePopupHideDelayProvider.mockReset();
         harness.configureShowLookupCountsProvider.mockReset();
         harness.configureShowCompactDefinitionSummaryProvider.mockReset();
+        harness.configureCompactDefinitionSummaryCountProvider.mockReset();
         harness.configureCompactDefinitionSummaryDictionaryProvider.mockReset();
         harness.configureShowPitchAccentFuriganaProvider.mockReset();
         harness.configurePitchAccentFuriganaDictionaryProvider.mockReset();
@@ -325,6 +331,10 @@ describe('Hoshidicts feature registration', () => {
         ).toBe(false);
         expect(
             harness.registerIPC.mock.calls[0][0]
+                .getOverlayCompactDefinitionSummaryCountAtLaunch()
+        ).toBe(3);
+        expect(
+            harness.registerIPC.mock.calls[0][0]
                 .getOverlayCompactDefinitionSummaryDictionaryAtLaunch()
         ).toBeNull();
         expect(
@@ -356,6 +366,7 @@ describe('Hoshidicts feature registration', () => {
                 popupHideDelayMs: 850,
                 showLookupCounts: false,
                 showCompactDefinitionSummary: true,
+                compactDefinitionSummaryCount: 5,
                 compactDefinitionSummaryDictionary: 'Jitendex',
                 showPitchAccentFurigana: true,
                 pitchAccentFuriganaDictionary: 'Pitch',
@@ -387,6 +398,7 @@ describe('Hoshidicts feature registration', () => {
                 popupHideDelayMs: 850,
                 showLookupCounts: false,
                 showCompactDefinitionSummary: true,
+                compactDefinitionSummaryCount: 5,
                 compactDefinitionSummaryDictionary: 'Jitendex',
                 showPitchAccentFurigana: true,
                 pitchAccentFuriganaDictionary: 'Pitch',
@@ -417,6 +429,7 @@ describe('Hoshidicts feature registration', () => {
             popupHideDelayMs: 850,
             showLookupCounts: false,
             showCompactDefinitionSummary: true,
+            compactDefinitionSummaryCount: 5,
             compactDefinitionSummaryDictionary: 'Jitendex',
             showPitchAccentFurigana: true,
             pitchAccentFuriganaDictionary: 'Pitch',
@@ -468,6 +481,7 @@ describe('Hoshidicts feature registration', () => {
                     popupHideDelayMs: 850,
                     showLookupCounts: false,
                     showCompactDefinitionSummary: true,
+                    compactDefinitionSummaryCount: 5,
                     compactDefinitionSummaryDictionary: 'Jitendex',
                     showPitchAccentFurigana: true,
                     pitchAccentFuriganaDictionary: 'Pitch',
@@ -576,6 +590,13 @@ describe('Hoshidicts feature registration', () => {
         const showCompactDefinitionSummaryProvider =
             harness.configureShowCompactDefinitionSummaryProvider.mock.calls[0][0];
         await expect(showCompactDefinitionSummaryProvider()).resolves.toBe(true);
+        expect(
+            harness.configureCompactDefinitionSummaryCountProvider
+        ).toHaveBeenCalledOnce();
+        const compactDefinitionSummaryCountProvider =
+            harness.configureCompactDefinitionSummaryCountProvider.mock
+                .calls[0][0];
+        await expect(compactDefinitionSummaryCountProvider()).resolves.toBe(5);
         expect(
             harness.configureCompactDefinitionSummaryDictionaryProvider
         ).toHaveBeenCalledOnce();
@@ -799,3 +820,4 @@ describe('Hoshidicts feature registration', () => {
         );
     });
 });
+

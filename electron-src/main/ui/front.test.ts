@@ -284,6 +284,9 @@ describe('runOverlayWithSource', () => {
         front.configureHoshidictsShowCompactDefinitionSummaryProvider(
             async () => true
         );
+        front.configureHoshidictsCompactDefinitionSummaryCountProvider(
+            async () => 5
+        );
         front.configureHoshidictsCompactDefinitionSummaryDictionaryProvider(
             async () => 'Jitendex'
         );
@@ -334,6 +337,7 @@ describe('runOverlayWithSource', () => {
             GSM_HOSHIDICTS_POPUP_HIDE_DELAY_MS: '850',
             GSM_HOSHIDICTS_SHOW_LOOKUP_COUNTS: '0',
             GSM_HOSHIDICTS_SHOW_COMPACT_DEFINITION_SUMMARY: '1',
+            GSM_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT: '5',
             GSM_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY: 'Jitendex',
             GSM_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA: '0',
             GSM_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY:
@@ -368,6 +372,9 @@ describe('runOverlayWithSource', () => {
         expect(
             front.getOverlayHoshidictsShowCompactDefinitionSummaryAtLaunch()
         ).toBe(true);
+        expect(
+            front.getOverlayHoshidictsCompactDefinitionSummaryCountAtLaunch()
+        ).toBe(5);
         expect(
             front.getOverlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch()
         ).toBe('Jitendex');
@@ -441,6 +448,7 @@ describe('runOverlayWithSource', () => {
                 averageFrequency: false,
                 showFrequencyDictionaryNames: true,
                 showCompactDefinitionSummary: false,
+                compactDefinitionSummaryCount: 2,
                 compactDefinitionSummaryDictionary: null,
                 hidePopupGrammarTags: true,
                 popupNestingMaxDepth: 0,
@@ -488,6 +496,9 @@ describe('runOverlayWithSource', () => {
             front.getOverlayHoshidictsShowCompactDefinitionSummaryAtLaunch()
         ).toBe(false);
         expect(
+            front.getOverlayHoshidictsCompactDefinitionSummaryCountAtLaunch()
+        ).toBe(2);
+        expect(
             front.getOverlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch()
         ).toBeNull();
         expect(
@@ -529,6 +540,9 @@ describe('runOverlayWithSource', () => {
             front.getOverlayHoshidictsShowCompactDefinitionSummaryAtLaunch()
         ).toBeNull();
         expect(
+            front.getOverlayHoshidictsCompactDefinitionSummaryCountAtLaunch()
+        ).toBeNull();
+        expect(
             front.getOverlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch()
         ).toBeNull();
         expect(
@@ -553,6 +567,9 @@ describe('runOverlayWithSource', () => {
         front.configureHoshidictsCompactDefinitionSummaryDictionaryProvider(
             async () => '   '
         );
+        front.configureHoshidictsCompactDefinitionSummaryCountProvider(
+            async () => 99
+        );
 
         await expect(front.runOverlayWithSource('manual')).resolves.toBe(true);
 
@@ -561,6 +578,7 @@ describe('runOverlayWithSource', () => {
             GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD: '5',
             GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_MODE: 'timed',
             GSM_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS: '5000',
+            GSM_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT: '3',
             GSM_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY: '',
         });
     });
@@ -693,3 +711,4 @@ describe('runOverlayWithSource', () => {
         });
     });
 });
+

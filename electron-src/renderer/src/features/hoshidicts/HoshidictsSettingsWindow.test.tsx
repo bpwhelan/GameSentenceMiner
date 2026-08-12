@@ -13,6 +13,7 @@ import {
   createDefaultHoshidictsPopupButtons,
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
+  DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
   DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
   DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
   DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
@@ -209,6 +210,8 @@ const baseState: HoshidictsDesktopSnapshot = {
   showFrequencyDictionaryNames: true,
   showCompactDefinitionSummary:
     DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
+  compactDefinitionSummaryCount:
+    DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
   compactDefinitionSummaryDictionary: null,
   showPitchAccentFurigana:
     DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
@@ -2229,6 +2232,10 @@ describe("HoshidictsSettingsWindow", () => {
       container.querySelector<HTMLSelectElement>(
         "#hoshidicts-compact-definition-summary-dictionary"
       );
+    const compactDefinitionSummaryCount =
+      container.querySelector<HTMLInputElement>(
+        "#hoshidicts-compact-definition-summary-count"
+      );
     const showPitchAccentFurigana =
       container.querySelector<HTMLInputElement>(
         "#hoshidicts-show-pitch-accent-furigana"
@@ -2253,6 +2260,8 @@ describe("HoshidictsSettingsWindow", () => {
 
     expect(showLookupCounts?.checked).toBe(true);
     expect(showCompactDefinitionSummary?.checked).toBe(false);
+    expect(compactDefinitionSummaryCount?.value).toBe("3");
+    expect(compactDefinitionSummaryCount?.disabled).toBe(true);
     expect(compactDefinitionSummaryDictionary?.disabled).toBe(true);
     expect(showPitchAccentFurigana?.checked).toBe(true);
     expect(pitchAccentFuriganaDictionary?.disabled).toBe(false);
@@ -2293,6 +2302,7 @@ describe("HoshidictsSettingsWindow", () => {
     await act(async () => {
       showLookupCounts?.click();
       showCompactDefinitionSummary?.click();
+      setInputValue(compactDefinitionSummaryCount, "5");
       setSelectValue(compactDefinitionSummaryDictionary, "JMdict");
       setSelectValue(pitchAccentFuriganaDictionary, "JMdict");
       showPitchAccentFurigana?.click();
@@ -2320,6 +2330,7 @@ describe("HoshidictsSettingsWindow", () => {
         averageFrequency: true,
         showFrequencyDictionaryNames: false,
         showCompactDefinitionSummary: true,
+        compactDefinitionSummaryCount: 5,
         compactDefinitionSummaryDictionary: "JMdict",
         showPitchAccentFurigana: false,
         pitchAccentFuriganaDictionary: "JMdict",
@@ -2350,6 +2361,7 @@ describe("HoshidictsSettingsWindow", () => {
         return {
           ...baseState,
           showCompactDefinitionSummary: true,
+          compactDefinitionSummaryCount: 3,
           compactDefinitionSummaryDictionary: "Removed Mono Dictionary"
         };
       }
@@ -2976,6 +2988,7 @@ describe("HoshidictsSettingsWindow", () => {
         averageFrequency: false,
         showFrequencyDictionaryNames: true,
         showCompactDefinitionSummary: false,
+        compactDefinitionSummaryCount: 3,
         compactDefinitionSummaryDictionary: null,
         showPitchAccentFurigana: true,
         pitchAccentFuriganaDictionary: null,
@@ -3043,6 +3056,7 @@ describe("HoshidictsSettingsWindow", () => {
         averageFrequency: false,
         showFrequencyDictionaryNames: true,
         showCompactDefinitionSummary: false,
+        compactDefinitionSummaryCount: 3,
         compactDefinitionSummaryDictionary: null,
         showPitchAccentFurigana: true,
         pitchAccentFuriganaDictionary: null,
@@ -3188,6 +3202,7 @@ describe("HoshidictsSettingsWindow", () => {
         averageFrequency: false,
         showFrequencyDictionaryNames: true,
         showCompactDefinitionSummary: false,
+        compactDefinitionSummaryCount: 3,
         compactDefinitionSummaryDictionary: null,
         showPitchAccentFurigana: true,
         pitchAccentFuriganaDictionary: null,
@@ -3233,6 +3248,7 @@ describe("HoshidictsSettingsWindow", () => {
         averageFrequency: false,
         showFrequencyDictionaryNames: true,
         showCompactDefinitionSummary: false,
+        compactDefinitionSummaryCount: 3,
         compactDefinitionSummaryDictionary: null,
         showPitchAccentFurigana: true,
         pitchAccentFuriganaDictionary: null,
@@ -3317,6 +3333,7 @@ describe("HoshidictsSettingsWindow", () => {
         averageFrequency: false,
         showFrequencyDictionaryNames: true,
         showCompactDefinitionSummary: false,
+        compactDefinitionSummaryCount: 3,
         compactDefinitionSummaryDictionary: null,
         showPitchAccentFurigana: true,
         pitchAccentFuriganaDictionary: null,
@@ -3366,6 +3383,7 @@ describe("HoshidictsSettingsWindow", () => {
         averageFrequency: false,
         showFrequencyDictionaryNames: true,
         showCompactDefinitionSummary: false,
+        compactDefinitionSummaryCount: 3,
         compactDefinitionSummaryDictionary: null,
         showPitchAccentFurigana: true,
         pitchAccentFuriganaDictionary: null,
@@ -4922,6 +4940,7 @@ describe("HoshidictsSettingsWindow", () => {
       popupHideDelayMs: undefined,
       showLookupCounts: undefined,
       showCompactDefinitionSummary: undefined,
+      compactDefinitionSummaryCount: undefined,
       compactDefinitionSummaryDictionary: undefined,
       showPitchAccentFurigana: undefined,
       pitchAccentFuriganaDictionary: undefined,
@@ -4968,6 +4987,7 @@ describe("HoshidictsSettingsWindow", () => {
     expect(normalized.popupHideDelayMs).toBe(300);
     expect(normalized.showLookupCounts).toBe(true);
     expect(normalized.showCompactDefinitionSummary).toBe(false);
+    expect(normalized.compactDefinitionSummaryCount).toBe(3);
     expect(normalized.compactDefinitionSummaryDictionary).toBeNull();
     expect(normalized.showPitchAccentFurigana).toBe(true);
     expect(normalized.pitchAccentFuriganaDictionary).toBeNull();
@@ -5159,3 +5179,4 @@ describe("HoshidictsSettingsWindow", () => {
     });
   });
 });
+

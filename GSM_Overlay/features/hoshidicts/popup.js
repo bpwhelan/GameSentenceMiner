@@ -22,7 +22,9 @@
   const DEFAULT_MAX_METADATA_TAGS = 12;
   const DEFAULT_HIGHLIGHT_NAME = "gsm-hoshidicts-match";
   const DEFINITION_BLUR_STATES = new Set(["pending", "blurred"]);
-  const COMPACT_DEFINITION_MAX_ITEMS = 6;
+  const DEFAULT_COMPACT_DEFINITION_SUMMARY_COUNT = 3;
+  const MIN_COMPACT_DEFINITION_SUMMARY_COUNT = 1;
+  const MAX_COMPACT_DEFINITION_SUMMARY_COUNT = 6;
   const COMPACT_DEFINITION_MAX_CHARACTERS = 240;
   const COMPACT_DEFINITION_MAX_NODES = 512;
   const COMPACT_DEFINITION_MAX_DEPTH = 16;
@@ -866,7 +868,16 @@
     return compactDefinitionItemsFromNodes([parsed]);
   }
 
-  function extractCompactDefinitionSummary(glossaries, preferredDictionary = null) {
+  function extractCompactDefinitionSummary(
+    glossaries,
+    preferredDictionary = null,
+    maximumItems = DEFAULT_COMPACT_DEFINITION_SUMMARY_COUNT
+  ) {
+    const itemLimit = Number.isInteger(maximumItems) &&
+      maximumItems >= MIN_COMPACT_DEFINITION_SUMMARY_COUNT &&
+      maximumItems <= MAX_COMPACT_DEFINITION_SUMMARY_COUNT
+      ? maximumItems
+      : DEFAULT_COMPACT_DEFINITION_SUMMARY_COUNT;
     const byDictionary = new Map();
     for (const glossary of Array.isArray(glossaries) ? glossaries : []) {
       if (!byDictionary.has(glossary.dictionary)) {
@@ -886,7 +897,7 @@
       let characterCount = 0;
       for (const rawGlossary of rawGlossaries) {
         for (const rawItem of extractCompactDefinitionItems(rawGlossary)) {
-          if (items.length >= COMPACT_DEFINITION_MAX_ITEMS) break;
+          if (items.length >= itemLimit) break;
           const item = normalizeCompactDefinitionText(rawItem);
           if (!item || seen.has(item)) continue;
           const codePoints = Array.from(item);
@@ -903,7 +914,7 @@
           if (bounded !== item) break;
         }
         if (
-          items.length >= COMPACT_DEFINITION_MAX_ITEMS ||
+          items.length >= itemLimit ||
           characterCount >= COMPACT_DEFINITION_MAX_CHARACTERS
         ) {
           break;
@@ -1505,6 +1516,8 @@
         noteButton = null,
         primary = false,
         showCompactDefinitionSummary = false,
+        compactDefinitionSummaryCount =
+          DEFAULT_COMPACT_DEFINITION_SUMMARY_COUNT,
         compactDefinitionSummaryDictionary = null,
         showPitchAccentFurigana = true,
         pitchAccentFuriganaDictionary = null,
@@ -1544,7 +1557,8 @@
       if (showCompactDefinitionSummary === true) {
         const compactSummary = extractCompactDefinitionSummary(
           result.term.glossaries,
-          compactDefinitionSummaryDictionary
+          compactDefinitionSummaryDictionary,
+          compactDefinitionSummaryCount
         );
         if (compactSummary) {
           const summary = documentRef.createElement("ul");
@@ -1661,6 +1675,8 @@
           primary: resultIndex === 0,
           showCompactDefinitionSummary:
             renderContext.showCompactDefinitionSummary === true,
+          compactDefinitionSummaryCount:
+            renderContext.compactDefinitionSummaryCount,
           compactDefinitionSummaryDictionary:
             typeof renderContext.compactDefinitionSummaryDictionary === "string"
               ? renderContext.compactDefinitionSummaryDictionary
@@ -2297,3 +2313,4 @@
     setMiningButtonState,
   };
 }));
+

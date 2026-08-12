@@ -57,6 +57,8 @@ function normalizeHoshidictsReaderPreferencesWithDefinitionBlur(preferences) {
   const showLookupCounts = preferences && preferences.showLookupCounts;
   const showCompactDefinitionSummary =
     preferences && preferences.showCompactDefinitionSummary;
+  const compactDefinitionSummaryCount =
+    normalizedPreferences.compactDefinitionSummaryCount;
   const compactDefinitionSummaryDictionary =
     preferences && preferences.compactDefinitionSummaryDictionary;
   const showPitchAccentFurigana =
@@ -80,6 +82,9 @@ function normalizeHoshidictsReaderPreferencesWithDefinitionBlur(preferences) {
     definitionBlur.revealDelayMs > 3600000 ||
     typeof showLookupCounts !== 'boolean' ||
     typeof showCompactDefinitionSummary !== 'boolean' ||
+    !Number.isInteger(compactDefinitionSummaryCount) ||
+    compactDefinitionSummaryCount < 1 ||
+    compactDefinitionSummaryCount > 6 ||
     typeof showPitchAccentFurigana !== 'boolean' ||
     typeof showPitchAccentBadge !== 'boolean' ||
     typeof hidePopupGrammarTags !== 'boolean' ||
@@ -99,6 +104,7 @@ function normalizeHoshidictsReaderPreferencesWithDefinitionBlur(preferences) {
     ...normalizedPreferences,
     showLookupCounts,
     showCompactDefinitionSummary,
+    compactDefinitionSummaryCount,
     compactDefinitionSummaryDictionary,
     showPitchAccentFurigana,
     pitchAccentFuriganaDictionary,
@@ -8313,3 +8319,4 @@ if (!IN_PROCESS_OVERLAY) {
     app.quit();
   });
 }
+

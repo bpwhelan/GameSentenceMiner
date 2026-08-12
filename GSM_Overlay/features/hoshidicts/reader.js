@@ -128,6 +128,9 @@
   const DEFAULT_SOURCE_HIGHLIGHT_ENABLED = false;
   const DEFAULT_ONLY_SCAN_JAPANESE_TEXT = true;
   const DEFAULT_SHOW_COMPACT_DEFINITION_SUMMARY = false;
+  const DEFAULT_COMPACT_DEFINITION_SUMMARY_COUNT = 3;
+  const MIN_COMPACT_DEFINITION_SUMMARY_COUNT = 1;
+  const MAX_COMPACT_DEFINITION_SUMMARY_COUNT = 6;
   const DEFAULT_SHOW_PITCH_ACCENT_FURIGANA = true;
   const DEFAULT_SHOW_PITCH_ACCENT_BADGE = false;
   const DEFAULT_HIDE_POPUP_GRAMMAR_TAGS = true;
@@ -462,6 +465,17 @@
     return normalized.length > 0 &&
       normalized.length <= MAX_DICTIONARY_PRESENTATION_TITLE_LENGTH
       ? normalized
+      : fallback;
+  }
+
+  function normalizeCompactDefinitionSummaryCount(
+    value,
+    fallback = DEFAULT_COMPACT_DEFINITION_SUMMARY_COUNT
+  ) {
+    return Number.isInteger(value) &&
+      value >= MIN_COMPACT_DEFINITION_SUMMARY_COUNT &&
+      value <= MAX_COMPACT_DEFINITION_SUMMARY_COUNT
+      ? value
       : fallback;
   }
 
@@ -2611,6 +2625,9 @@
         options.showFrequencyDictionaryNames !== false,
       showCompactDefinitionSummary:
         options.showCompactDefinitionSummary === true,
+      compactDefinitionSummaryCount: normalizeCompactDefinitionSummaryCount(
+        options.compactDefinitionSummaryCount
+      ),
       hidePopupGrammarTags:
         options.hidePopupGrammarTags === undefined
           ? DEFAULT_HIDE_POPUP_GRAMMAR_TAGS
@@ -3951,6 +3968,8 @@
           preferences.showFrequencyDictionaryNames,
         showCompactDefinitionSummary:
           preferences.showCompactDefinitionSummary,
+        compactDefinitionSummaryCount:
+          preferences.compactDefinitionSummaryCount,
         hidePopupGrammarTags: preferences.hidePopupGrammarTags,
         compactDefinitionSummaryDictionary:
           preferences.compactDefinitionSummaryDictionary,
@@ -4013,6 +4032,8 @@
           preferences.showFrequencyDictionaryNames,
         showCompactDefinitionSummary:
           preferences.showCompactDefinitionSummary,
+        compactDefinitionSummaryCount:
+          preferences.compactDefinitionSummaryCount,
         hidePopupGrammarTags: preferences.hidePopupGrammarTags,
         compactDefinitionSummaryDictionary:
           preferences.compactDefinitionSummaryDictionary,
@@ -5688,6 +5709,8 @@
         preferences.showFrequencyDictionaryNames;
       const previousShowCompactDefinitionSummary =
         preferences.showCompactDefinitionSummary;
+      const previousCompactDefinitionSummaryCount =
+        preferences.compactDefinitionSummaryCount;
       const previousHidePopupGrammarTags = preferences.hidePopupGrammarTags;
       const previousCompactDefinitionSummaryDictionary =
         preferences.compactDefinitionSummaryDictionary;
@@ -5786,6 +5809,15 @@
         )
           ? nextPreferences.showCompactDefinitionSummary === true
           : preferences.showCompactDefinitionSummary,
+        compactDefinitionSummaryCount: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "compactDefinitionSummaryCount"
+        )
+          ? normalizeCompactDefinitionSummaryCount(
+              nextPreferences.compactDefinitionSummaryCount,
+              preferences.compactDefinitionSummaryCount
+            )
+          : preferences.compactDefinitionSummaryCount,
         hidePopupGrammarTags: Object.prototype.hasOwnProperty.call(
           nextPreferences,
           "hidePopupGrammarTags"
@@ -5982,6 +6014,8 @@
         ) ||
         previousShowCompactDefinitionSummary !==
           preferences.showCompactDefinitionSummary ||
+        previousCompactDefinitionSummaryCount !==
+          preferences.compactDefinitionSummaryCount ||
         previousAverageFrequency !== preferences.averageFrequency ||
         previousShowFrequencyDictionaryNames !==
           preferences.showFrequencyDictionaryNames ||
@@ -5997,6 +6031,8 @@
         const metadataPresentationChanged =
           previousShowCompactDefinitionSummary !==
             preferences.showCompactDefinitionSummary ||
+          previousCompactDefinitionSummaryCount !==
+            preferences.compactDefinitionSummaryCount ||
           previousAverageFrequency !== preferences.averageFrequency ||
           previousShowFrequencyDictionaryNames !==
             preferences.showFrequencyDictionaryNames ||
@@ -6189,6 +6225,8 @@
       averageFrequency: preferences.averageFrequency,
       showFrequencyDictionaryNames: preferences.showFrequencyDictionaryNames,
       showCompactDefinitionSummary: preferences.showCompactDefinitionSummary,
+      compactDefinitionSummaryCount:
+        preferences.compactDefinitionSummaryCount,
       hidePopupGrammarTags: preferences.hidePopupGrammarTags,
       compactDefinitionSummaryDictionary:
         preferences.compactDefinitionSummaryDictionary,
@@ -6252,6 +6290,7 @@
     DEFAULT_POPUP_WIDTH_PX,
     DEFAULT_HIDE_POPUP_GRAMMAR_TAGS,
     DEFAULT_SHOW_COMPACT_DEFINITION_SUMMARY,
+    DEFAULT_COMPACT_DEFINITION_SUMMARY_COUNT,
     DEFAULT_SHOW_PITCH_ACCENT_FURIGANA,
     DEFAULT_SHOW_PITCH_ACCENT_BADGE,
     DEFAULT_SOURCE_HIGHLIGHT_ENABLED,
@@ -6304,6 +6343,7 @@
     normalizeSortFrequencyDictionary,
     normalizeSortFrequencyDictionaryOrder,
     normalizeCompactDefinitionSummaryDictionary,
+    normalizeCompactDefinitionSummaryCount,
     buildPitchAccentMorae,
     prioritizeLookupResultsByReading,
     resolveGsmApiBaseUrl,
@@ -6315,3 +6355,4 @@
     splitPitchAccentMorae,
   };
 }));
+

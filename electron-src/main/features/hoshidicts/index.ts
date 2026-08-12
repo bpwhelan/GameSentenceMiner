@@ -16,6 +16,7 @@ import {
     configureHoshidictsPopupWidthProvider,
     configureHoshidictsShowLookupCountsProvider,
     configureHoshidictsShowCompactDefinitionSummaryProvider,
+    configureHoshidictsCompactDefinitionSummaryCountProvider,
     configureHoshidictsCompactDefinitionSummaryDictionaryProvider,
     configureHoshidictsPitchAccentFuriganaDictionaryProvider,
     configureHoshidictsShowPitchAccentBadgeProvider,
@@ -40,6 +41,7 @@ import {
     getOverlayHoshidictsCustomPopupCssApplied,
     getOverlayHoshidictsShowLookupCountsAtLaunch,
     getOverlayHoshidictsShowCompactDefinitionSummaryAtLaunch,
+    getOverlayHoshidictsCompactDefinitionSummaryCountAtLaunch,
     getOverlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch,
     getOverlayHoshidictsPitchAccentFuriganaDictionaryAtLaunch,
     getOverlayHoshidictsShowPitchAccentBadgeAtLaunch,
@@ -56,6 +58,7 @@ import {
     restartOverlay,
 } from '../../ui/front.js';
 import {
+    DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
     hoshidictsReaderPreferencesFromSnapshot,
     type HoshidictsAudioProfile,
     type HoshidictsCustomEntryRequest,
@@ -218,6 +221,8 @@ export function registerHoshidictsFeature(deps: {
             getOverlayHoshidictsShowLookupCountsAtLaunch,
         getOverlayShowCompactDefinitionSummaryAtLaunch:
             getOverlayHoshidictsShowCompactDefinitionSummaryAtLaunch,
+        getOverlayCompactDefinitionSummaryCountAtLaunch:
+            getOverlayHoshidictsCompactDefinitionSummaryCountAtLaunch,
         getOverlayCompactDefinitionSummaryDictionaryAtLaunch:
             getOverlayHoshidictsCompactDefinitionSummaryDictionaryAtLaunch,
         getOverlayShowPitchAccentFuriganaAtLaunch:
@@ -303,6 +308,11 @@ export async function startHoshidictsManager(): Promise<void> {
     configureHoshidictsShowCompactDefinitionSummaryProvider(
         async () =>
             (await manager.getSnapshot()).showCompactDefinitionSummary
+    );
+    configureHoshidictsCompactDefinitionSummaryCountProvider(
+        async () =>
+            (await manager.getSnapshot()).compactDefinitionSummaryCount ??
+            DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT
     );
     configureHoshidictsCompactDefinitionSummaryDictionaryProvider(
         async () =>
@@ -395,3 +405,4 @@ export {
     getHoshidictsSettingsWindow,
     openHoshidictsSettingsWindow,
 } from './window.js';
+

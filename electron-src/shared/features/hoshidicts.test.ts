@@ -213,6 +213,7 @@ describe('Hoshidicts reader preferences', () => {
             dictionaries: [],
             tabGroups: [],
             showCompactDefinitionSummary: true,
+            compactDefinitionSummaryCount: 4,
             compactDefinitionSummaryDictionary: 'Jitendex.org',
             showPitchAccentFurigana: false,
             pitchAccentFuriganaDictionary: 'Kanjium Pitch Accents',
@@ -225,6 +226,10 @@ describe('Hoshidicts reader preferences', () => {
             hoshidictsReaderPreferencesFromSnapshot(snapshot)
                 .showCompactDefinitionSummary
         ).toBe(true);
+        expect(
+            hoshidictsReaderPreferencesFromSnapshot(snapshot)
+                .compactDefinitionSummaryCount
+        ).toBe(4);
         expect(
             hoshidictsReaderPreferencesFromSnapshot(snapshot)
                 .compactDefinitionSummaryDictionary
@@ -247,3 +252,4 @@ describe('Hoshidicts reader preferences', () => {
         ).toBe(true);
     });
 });
+

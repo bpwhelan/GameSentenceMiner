@@ -5,6 +5,7 @@ import {
   createDefaultHoshidictsFieldOverwriteModes,
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
   DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
+  DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
   DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
   DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
   DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
@@ -30,6 +31,7 @@ import {
   DEFAULT_HOSHIDICTS_THEME,
   HOSHIDICTS_CHANNELS,
   MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
+  MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
   MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
   MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH,
   MAX_HOSHIDICTS_MAX_RESULTS,
@@ -40,6 +42,7 @@ import {
   MAX_HOSHIDICTS_POPUP_WIDTH_PX,
   MAX_HOSHIDICTS_SCAN_LENGTH,
   MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
+  MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
   MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
   MIN_HOSHIDICTS_MAX_RESULTS,
   MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
@@ -136,6 +139,8 @@ const defaultReaderPreferences = (): HoshidictsReaderPreferences => ({
     DEFAULT_HOSHIDICTS_SHOW_FREQUENCY_DICTIONARY_NAMES,
   showCompactDefinitionSummary:
     DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
+  compactDefinitionSummaryCount:
+    DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
   compactDefinitionSummaryDictionary:
     DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_DICTIONARY,
   showPitchAccentFurigana:
@@ -285,6 +290,8 @@ export function useHoshidictsSettingsController() {
       averageFrequency: normalized.averageFrequency,
       showFrequencyDictionaryNames: normalized.showFrequencyDictionaryNames,
       showCompactDefinitionSummary: normalized.showCompactDefinitionSummary,
+      compactDefinitionSummaryCount:
+        normalized.compactDefinitionSummaryCount,
       compactDefinitionSummaryDictionary:
         normalized.compactDefinitionSummaryDictionary,
       showPitchAccentFurigana: normalized.showPitchAccentFurigana,
@@ -850,6 +857,22 @@ export function useHoshidictsSettingsController() {
     [updateReaderPreferences]
   );
 
+  const setCompactDefinitionSummaryCount = useCallback(
+    (compactDefinitionSummaryCount: number) => {
+      if (!Number.isFinite(compactDefinitionSummaryCount)) return;
+      updateReaderPreferences({
+        compactDefinitionSummaryCount: Math.min(
+          MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
+          Math.max(
+            MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
+            Math.round(compactDefinitionSummaryCount)
+          )
+        )
+      });
+    },
+    [updateReaderPreferences]
+  );
+
   const setCompactDefinitionSummaryDictionary = useCallback(
     (compactDefinitionSummaryDictionary: string | null) => {
       updateReaderPreferences({ compactDefinitionSummaryDictionary });
@@ -1392,6 +1415,7 @@ export function useHoshidictsSettingsController() {
     setAverageFrequency,
     setShowFrequencyDictionaryNames,
     setShowCompactDefinitionSummary,
+    setCompactDefinitionSummaryCount,
     setCompactDefinitionSummaryDictionary,
     setShowPitchAccentFurigana,
     setPitchAccentFuriganaDictionary,
@@ -1437,3 +1461,4 @@ export function useHoshidictsSettingsController() {
     actions
   };
 }
+
