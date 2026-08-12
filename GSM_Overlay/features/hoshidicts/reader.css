@@ -43,11 +43,8 @@ html[data-hoshidicts-theme="default"] {
   --hoshidicts-palette-info: #6eaef9;
   --hoshidicts-palette-info-content: #08121c;
   --hoshidicts-palette-success: #4caf72;
-  --hoshidicts-palette-success-content: #07140c;
   --hoshidicts-palette-warning: #d6a02e;
-  --hoshidicts-palette-warning-content: #1a1305;
   --hoshidicts-palette-error: #d9645f;
-  --hoshidicts-palette-error-content: #1a0f0f;
 }
 
 html[data-hoshidicts-theme="catppuccin-mocha"] {
@@ -67,11 +64,8 @@ html[data-hoshidicts-theme="catppuccin-mocha"] {
   --hoshidicts-palette-info: #89dceb;
   --hoshidicts-palette-info-content: #11111b;
   --hoshidicts-palette-success: #a6e3a1;
-  --hoshidicts-palette-success-content: #11111b;
   --hoshidicts-palette-warning: #f9e2af;
-  --hoshidicts-palette-warning-content: #11111b;
   --hoshidicts-palette-error: #f38ba8;
-  --hoshidicts-palette-error-content: #11111b;
 }
 
 html[data-hoshidicts-theme="solarized-dark"] {
@@ -91,11 +85,8 @@ html[data-hoshidicts-theme="solarized-dark"] {
   --hoshidicts-palette-info: #268bd2;
   --hoshidicts-palette-info-content: #002b36;
   --hoshidicts-palette-success: #859900;
-  --hoshidicts-palette-success-content: #002b36;
   --hoshidicts-palette-warning: #b58900;
-  --hoshidicts-palette-warning-content: #002b36;
   --hoshidicts-palette-error: #dc322f;
-  --hoshidicts-palette-error-content: #fdf6e3;
 }
 
 html[data-hoshidicts-theme="solarized-light"] {
@@ -115,11 +106,8 @@ html[data-hoshidicts-theme="solarized-light"] {
   --hoshidicts-palette-info: #268bd2;
   --hoshidicts-palette-info-content: #fdf6e3;
   --hoshidicts-palette-success: #859900;
-  --hoshidicts-palette-success-content: #fdf6e3;
   --hoshidicts-palette-warning: #b58900;
-  --hoshidicts-palette-warning-content: #fdf6e3;
   --hoshidicts-palette-error: #dc322f;
-  --hoshidicts-palette-error-content: #fdf6e3;
 }
 
 html[data-hoshidicts-theme="high-contrast"] {
@@ -139,11 +127,8 @@ html[data-hoshidicts-theme="high-contrast"] {
   --hoshidicts-palette-info: #5bc8ff;
   --hoshidicts-palette-info-content: #000000;
   --hoshidicts-palette-success: #51ff8f;
-  --hoshidicts-palette-success-content: #000000;
   --hoshidicts-palette-warning: #ffd400;
-  --hoshidicts-palette-warning-content: #000000;
   --hoshidicts-palette-error: #ff5b5b;
-  --hoshidicts-palette-error-content: #000000;
 }
 
 html[data-hoshidicts-theme="dark"] {
@@ -163,11 +148,8 @@ html[data-hoshidicts-theme="dark"] {
   --hoshidicts-palette-info: oklch(74% 0.16 232.661);
   --hoshidicts-palette-info-content: oklch(29% 0.066 243.157);
   --hoshidicts-palette-success: oklch(76% 0.177 163.223);
-  --hoshidicts-palette-success-content: oklch(37% 0.077 168.94);
   --hoshidicts-palette-warning: oklch(82% 0.189 84.429);
-  --hoshidicts-palette-warning-content: oklch(41% 0.112 45.904);
   --hoshidicts-palette-error: oklch(71% 0.194 13.428);
-  --hoshidicts-palette-error-content: oklch(27% 0.105 12.094);
 }
 
 html[data-hoshidicts-theme="synthwave"] {
@@ -187,11 +169,8 @@ html[data-hoshidicts-theme="synthwave"] {
   --hoshidicts-palette-info: oklch(74% 0.16 232.661);
   --hoshidicts-palette-info-content: oklch(29% 0.066 243.157);
   --hoshidicts-palette-success: oklch(77% 0.152 181.912);
-  --hoshidicts-palette-success-content: oklch(27% 0.046 192.524);
   --hoshidicts-palette-warning: oklch(90% 0.182 98.111);
-  --hoshidicts-palette-warning-content: oklch(42% 0.095 57.708);
   --hoshidicts-palette-error: oklch(73.7% 0.121 32.639);
-  --hoshidicts-palette-error-content: oklch(23.501% 0.096 290.329);
 }
 
 html[data-hoshidicts-theme="halloween"] {
@@ -211,11 +190,8 @@ html[data-hoshidicts-theme="halloween"] {
   --hoshidicts-palette-info: oklch(54.615% 0.215 262.88);
   --hoshidicts-palette-info-content: oklch(90.923% 0.043 262.88);
   --hoshidicts-palette-success: oklch(62.705% 0.169 149.213);
-  --hoshidicts-palette-success-content: oklch(12.541% 0.033 149.213);
   --hoshidicts-palette-warning: oklch(66.584% 0.157 58.318);
-  --hoshidicts-palette-warning-content: oklch(13.316% 0.031 58.318);
   --hoshidicts-palette-error: oklch(65.72% 0.199 27.33);
-  --hoshidicts-palette-error-content: oklch(13.144% 0.039 27.33);
 }
 
 html[data-hoshidicts-theme="forest"] {
@@ -235,11 +211,8 @@ html[data-hoshidicts-theme="forest"] {
   --hoshidicts-palette-info: oklch(72.06% 0.191 231.6);
   --hoshidicts-palette-info-content: oklch(0% 0 0);
   --hoshidicts-palette-success: oklch(64.8% 0.15 160);
-  --hoshidicts-palette-success-content: oklch(0% 0 0);
   --hoshidicts-palette-warning: oklch(84.71% 0.199 83.87);
-  --hoshidicts-palette-warning-content: oklch(0% 0 0);
   --hoshidicts-palette-error: oklch(71.76% 0.221 22.18);
-  --hoshidicts-palette-error-content: oklch(0% 0 0);
 }
 
 html[data-hoshidicts-theme="aqua"] {
@@ -259,11 +232,8 @@ html[data-hoshidicts-theme="aqua"] {
   --hoshidicts-palette-info: oklch(54.615% 0.215 262.88);
   --hoshidicts-palette-info-content: oklch(90.923% 0.043 262.88);
   --hoshidicts-palette-success: oklch(62.705% 0.169 149.213);
-  --hoshidicts-palette-success-content: oklch(12.541% 0.033 149.213);
   --hoshidicts-palette-warning: oklch(66.584% 0.157 58.318);
-  --hoshidicts-palette-warning-content: oklch(27% 0.077 45.635);
   --hoshidicts-palette-error: oklch(73.95% 0.19 27.33);
-  --hoshidicts-palette-error-content: oklch(14.79% 0.038 27.33);
 }
 
 html[data-hoshidicts-theme="black"] {
@@ -283,11 +253,8 @@ html[data-hoshidicts-theme="black"] {
   --hoshidicts-palette-info: oklch(45.201% 0.313 264.052);
   --hoshidicts-palette-info-content: oklch(89.04% 0.062 264.052);
   --hoshidicts-palette-success: oklch(51.975% 0.176 142.495);
-  --hoshidicts-palette-success-content: oklch(90.395% 0.035 142.495);
   --hoshidicts-palette-warning: oklch(96.798% 0.211 109.769);
-  --hoshidicts-palette-warning-content: oklch(19.359% 0.042 109.769);
   --hoshidicts-palette-error: oklch(62.795% 0.257 29.233);
-  --hoshidicts-palette-error-content: oklch(12.559% 0.051 29.233);
 }
 
 html[data-hoshidicts-theme="luxury"] {
@@ -307,11 +274,8 @@ html[data-hoshidicts-theme="luxury"] {
   --hoshidicts-palette-info: oklch(79.061% 0.121 237.133);
   --hoshidicts-palette-info-content: oklch(15.812% 0.024 237.133);
   --hoshidicts-palette-success: oklch(78.119% 0.192 132.154);
-  --hoshidicts-palette-success-content: oklch(15.623% 0.038 132.154);
   --hoshidicts-palette-warning: oklch(86.127% 0.136 102.891);
-  --hoshidicts-palette-warning-content: oklch(17.225% 0.027 102.891);
   --hoshidicts-palette-error: oklch(71.753% 0.176 22.568);
-  --hoshidicts-palette-error-content: oklch(14.35% 0.035 22.568);
 }
 
 html[data-hoshidicts-theme="dracula"] {
@@ -331,11 +295,8 @@ html[data-hoshidicts-theme="dracula"] {
   --hoshidicts-palette-info: oklch(88.263% 0.093 212.846);
   --hoshidicts-palette-info-content: oklch(17.652% 0.018 212.846);
   --hoshidicts-palette-success: oklch(87.099% 0.219 148.024);
-  --hoshidicts-palette-success-content: oklch(17.419% 0.043 148.024);
   --hoshidicts-palette-warning: oklch(95.533% 0.134 112.757);
-  --hoshidicts-palette-warning-content: oklch(19.106% 0.026 112.757);
   --hoshidicts-palette-error: oklch(68.22% 0.206 24.43);
-  --hoshidicts-palette-error-content: oklch(13.644% 0.041 24.43);
 }
 
 html[data-hoshidicts-theme="business"] {
@@ -355,11 +316,8 @@ html[data-hoshidicts-theme="business"] {
   --hoshidicts-palette-info: oklch(62.616% 0.143 240.033);
   --hoshidicts-palette-info-content: oklch(12.523% 0.028 240.033);
   --hoshidicts-palette-success: oklch(70.226% 0.094 156.596);
-  --hoshidicts-palette-success-content: oklch(14.045% 0.018 156.596);
   --hoshidicts-palette-warning: oklch(77.482% 0.115 81.519);
-  --hoshidicts-palette-warning-content: oklch(15.496% 0.023 81.519);
   --hoshidicts-palette-error: oklch(51.61% 0.146 29.674);
-  --hoshidicts-palette-error-content: oklch(90.322% 0.029 29.674);
 }
 
 html[data-hoshidicts-theme="night"] {
@@ -379,11 +337,8 @@ html[data-hoshidicts-theme="night"] {
   --hoshidicts-palette-info: oklch(68.455% 0.148 237.251);
   --hoshidicts-palette-info-content: oklch(0% 0 0);
   --hoshidicts-palette-success: oklch(78.452% 0.132 181.911);
-  --hoshidicts-palette-success-content: oklch(15.69% 0.026 181.911);
   --hoshidicts-palette-warning: oklch(83.242% 0.139 82.95);
-  --hoshidicts-palette-warning-content: oklch(16.648% 0.027 82.95);
   --hoshidicts-palette-error: oklch(71.785% 0.17 13.118);
-  --hoshidicts-palette-error-content: oklch(14.357% 0.034 13.118);
 }
 
 html[data-hoshidicts-theme="coffee"] {
@@ -403,11 +358,8 @@ html[data-hoshidicts-theme="coffee"] {
   --hoshidicts-palette-info: oklch(79.49% 0.063 184.558);
   --hoshidicts-palette-info-content: oklch(15.898% 0.012 184.558);
   --hoshidicts-palette-success: oklch(74.722% 0.072 131.116);
-  --hoshidicts-palette-success-content: oklch(14.944% 0.014 131.116);
   --hoshidicts-palette-warning: oklch(88.15% 0.14 87.722);
-  --hoshidicts-palette-warning-content: oklch(17.63% 0.028 87.722);
   --hoshidicts-palette-error: oklch(77.318% 0.128 31.871);
-  --hoshidicts-palette-error-content: oklch(15.463% 0.025 31.871);
 }
 
 html[data-hoshidicts-theme="dim"] {
@@ -427,11 +379,8 @@ html[data-hoshidicts-theme="dim"] {
   --hoshidicts-palette-info: oklch(86.078% 0.142 206.182);
   --hoshidicts-palette-info-content: oklch(17.215% 0.028 206.182);
   --hoshidicts-palette-success: oklch(86.171% 0.142 166.534);
-  --hoshidicts-palette-success-content: oklch(17.234% 0.028 166.534);
   --hoshidicts-palette-warning: oklch(86.163% 0.142 94.818);
-  --hoshidicts-palette-warning-content: oklch(17.232% 0.028 94.818);
   --hoshidicts-palette-error: oklch(82.418% 0.099 33.756);
-  --hoshidicts-palette-error-content: oklch(16.483% 0.019 33.756);
 }
 
 html[data-hoshidicts-theme="sunset"] {
@@ -451,11 +400,8 @@ html[data-hoshidicts-theme="sunset"] {
   --hoshidicts-palette-info: oklch(85.559% 0.085 206.015);
   --hoshidicts-palette-info-content: oklch(17.111% 0.017 206.015);
   --hoshidicts-palette-success: oklch(85.56% 0.085 144.778);
-  --hoshidicts-palette-success-content: oklch(17.112% 0.017 144.778);
   --hoshidicts-palette-warning: oklch(85.569% 0.084 74.427);
-  --hoshidicts-palette-warning-content: oklch(17.113% 0.016 74.427);
   --hoshidicts-palette-error: oklch(85.511% 0.078 16.886);
-  --hoshidicts-palette-error-content: oklch(17.102% 0.015 16.886);
 }
 
 html[data-hoshidicts-theme="abyss"] {
@@ -475,11 +421,8 @@ html[data-hoshidicts-theme="abyss"] {
   --hoshidicts-palette-info: oklch(74% 0.16 232.661);
   --hoshidicts-palette-info-content: oklch(29% 0.066 243.157);
   --hoshidicts-palette-success: oklch(79% 0.209 151.711);
-  --hoshidicts-palette-success-content: oklch(26% 0.065 152.934);
   --hoshidicts-palette-warning: oklch(84.8% 0.1962 84.62);
-  --hoshidicts-palette-warning-content: oklch(44.8% 0.1962 84.62);
   --hoshidicts-palette-error: oklch(65% 0.1985 24.22);
-  --hoshidicts-palette-error-content: oklch(27% 0.1985 24.22);
 }
 
 html[data-hoshidicts-theme="light"] {
@@ -499,11 +442,8 @@ html[data-hoshidicts-theme="light"] {
   --hoshidicts-palette-info: oklch(74% 0.16 232.661);
   --hoshidicts-palette-info-content: oklch(29% 0.066 243.157);
   --hoshidicts-palette-success: oklch(76% 0.177 163.223);
-  --hoshidicts-palette-success-content: oklch(37% 0.077 168.94);
   --hoshidicts-palette-warning: oklch(82% 0.189 84.429);
-  --hoshidicts-palette-warning-content: oklch(41% 0.112 45.904);
   --hoshidicts-palette-error: oklch(71% 0.194 13.428);
-  --hoshidicts-palette-error-content: oklch(27% 0.105 12.094);
 }
 
 html[data-hoshidicts-theme="cupcake"] {
@@ -523,11 +463,8 @@ html[data-hoshidicts-theme="cupcake"] {
   --hoshidicts-palette-info: oklch(68% 0.169 237.323);
   --hoshidicts-palette-info-content: oklch(29% 0.066 243.157);
   --hoshidicts-palette-success: oklch(69% 0.17 162.48);
-  --hoshidicts-palette-success-content: oklch(26% 0.051 172.552);
   --hoshidicts-palette-warning: oklch(79% 0.184 86.047);
-  --hoshidicts-palette-warning-content: oklch(28% 0.066 53.813);
   --hoshidicts-palette-error: oklch(64% 0.246 16.439);
-  --hoshidicts-palette-error-content: oklch(27% 0.105 12.094);
 }
 
 html[data-hoshidicts-theme="bumblebee"] {
@@ -547,11 +484,8 @@ html[data-hoshidicts-theme="bumblebee"] {
   --hoshidicts-palette-info: oklch(74% 0.16 232.661);
   --hoshidicts-palette-info-content: oklch(39% 0.09 240.876);
   --hoshidicts-palette-success: oklch(76% 0.177 163.223);
-  --hoshidicts-palette-success-content: oklch(37% 0.077 168.94);
   --hoshidicts-palette-warning: oklch(82% 0.189 84.429);
-  --hoshidicts-palette-warning-content: oklch(41% 0.112 45.904);
   --hoshidicts-palette-error: oklch(70% 0.191 22.216);
-  --hoshidicts-palette-error-content: oklch(39% 0.141 25.723);
 }
 
 html[data-hoshidicts-theme="emerald"] {
@@ -571,11 +505,8 @@ html[data-hoshidicts-theme="emerald"] {
   --hoshidicts-palette-info: oklch(72.06% 0.191 231.6);
   --hoshidicts-palette-info-content: oklch(0% 0 0);
   --hoshidicts-palette-success: oklch(64.8% 0.15 160);
-  --hoshidicts-palette-success-content: oklch(0% 0 0);
   --hoshidicts-palette-warning: oklch(84.71% 0.199 83.87);
-  --hoshidicts-palette-warning-content: oklch(0% 0 0);
   --hoshidicts-palette-error: oklch(71.76% 0.221 22.18);
-  --hoshidicts-palette-error-content: oklch(0% 0 0);
 }
 
 html[data-hoshidicts-theme="corporate"] {
@@ -595,11 +526,8 @@ html[data-hoshidicts-theme="corporate"] {
   --hoshidicts-palette-info: oklch(60% 0.126 221.723);
   --hoshidicts-palette-info-content: oklch(100% 0 0);
   --hoshidicts-palette-success: oklch(62% 0.194 149.214);
-  --hoshidicts-palette-success-content: oklch(100% 0 0);
   --hoshidicts-palette-warning: oklch(85% 0.199 91.936);
-  --hoshidicts-palette-warning-content: oklch(0% 0 0);
   --hoshidicts-palette-error: oklch(70% 0.191 22.216);
-  --hoshidicts-palette-error-content: oklch(0% 0 0);
 }
 
 html[data-hoshidicts-theme="retro"] {
@@ -619,11 +547,8 @@ html[data-hoshidicts-theme="retro"] {
   --hoshidicts-palette-info: oklch(58% 0.158 241.966);
   --hoshidicts-palette-info-content: oklch(96% 0.059 95.617);
   --hoshidicts-palette-success: oklch(51% 0.096 186.391);
-  --hoshidicts-palette-success-content: oklch(96% 0.059 95.617);
   --hoshidicts-palette-warning: oklch(64% 0.222 41.116);
-  --hoshidicts-palette-warning-content: oklch(96% 0.059 95.617);
   --hoshidicts-palette-error: oklch(70% 0.191 22.216);
-  --hoshidicts-palette-error-content: oklch(40% 0.123 38.172);
 }
 
 html[data-hoshidicts-theme="cyberpunk"] {
@@ -643,11 +568,8 @@ html[data-hoshidicts-theme="cyberpunk"] {
   --hoshidicts-palette-info: oklch(72.06% 0.191 231.6);
   --hoshidicts-palette-info-content: oklch(0% 0 0);
   --hoshidicts-palette-success: oklch(64.8% 0.15 160);
-  --hoshidicts-palette-success-content: oklch(0% 0 0);
   --hoshidicts-palette-warning: oklch(84.71% 0.199 83.87);
-  --hoshidicts-palette-warning-content: oklch(0% 0 0);
   --hoshidicts-palette-error: oklch(71.76% 0.221 22.18);
-  --hoshidicts-palette-error-content: oklch(0% 0 0);
 }
 
 html[data-hoshidicts-theme="valentine"] {
@@ -667,11 +589,8 @@ html[data-hoshidicts-theme="valentine"] {
   --hoshidicts-palette-info: oklch(86% 0.127 207.078);
   --hoshidicts-palette-info-content: oklch(44% 0.11 240.79);
   --hoshidicts-palette-success: oklch(84% 0.143 164.978);
-  --hoshidicts-palette-success-content: oklch(43% 0.095 166.913);
   --hoshidicts-palette-warning: oklch(75% 0.183 55.934);
-  --hoshidicts-palette-warning-content: oklch(26% 0.079 36.259);
   --hoshidicts-palette-error: oklch(63% 0.237 25.331);
-  --hoshidicts-palette-error-content: oklch(97% 0.013 17.38);
 }
 
 html[data-hoshidicts-theme="garden"] {
@@ -691,11 +610,8 @@ html[data-hoshidicts-theme="garden"] {
   --hoshidicts-palette-info: oklch(72.06% 0.191 231.6);
   --hoshidicts-palette-info-content: oklch(0% 0 0);
   --hoshidicts-palette-success: oklch(64.8% 0.15 160);
-  --hoshidicts-palette-success-content: oklch(0% 0 0);
   --hoshidicts-palette-warning: oklch(84.71% 0.199 83.87);
-  --hoshidicts-palette-warning-content: oklch(0% 0 0);
   --hoshidicts-palette-error: oklch(71.76% 0.221 22.18);
-  --hoshidicts-palette-error-content: oklch(0% 0 0);
 }
 
 html[data-hoshidicts-theme="lofi"] {
@@ -715,11 +631,8 @@ html[data-hoshidicts-theme="lofi"] {
   --hoshidicts-palette-info: oklch(79.54% 0.103 205.9);
   --hoshidicts-palette-info-content: oklch(15.908% 0.02 205.9);
   --hoshidicts-palette-success: oklch(90.13% 0.153 164.14);
-  --hoshidicts-palette-success-content: oklch(18.026% 0.03 164.14);
   --hoshidicts-palette-warning: oklch(88.37% 0.135 79.94);
-  --hoshidicts-palette-warning-content: oklch(17.674% 0.027 79.94);
   --hoshidicts-palette-error: oklch(78.66% 0.15 28.47);
-  --hoshidicts-palette-error-content: oklch(15.732% 0.03 28.47);
 }
 
 html[data-hoshidicts-theme="pastel"] {
@@ -739,11 +652,8 @@ html[data-hoshidicts-theme="pastel"] {
   --hoshidicts-palette-info: oklch(86% 0.127 207.078);
   --hoshidicts-palette-info-content: oklch(52% 0.105 223.128);
   --hoshidicts-palette-success: oklch(87% 0.15 154.449);
-  --hoshidicts-palette-success-content: oklch(52% 0.154 150.069);
   --hoshidicts-palette-warning: oklch(83% 0.128 66.29);
-  --hoshidicts-palette-warning-content: oklch(55% 0.195 38.402);
   --hoshidicts-palette-error: oklch(80% 0.114 19.571);
-  --hoshidicts-palette-error-content: oklch(50% 0.213 27.518);
 }
 
 html[data-hoshidicts-theme="fantasy"] {
@@ -763,11 +673,8 @@ html[data-hoshidicts-theme="fantasy"] {
   --hoshidicts-palette-info: oklch(72.06% 0.191 231.6);
   --hoshidicts-palette-info-content: oklch(0% 0 0);
   --hoshidicts-palette-success: oklch(64.8% 0.15 160);
-  --hoshidicts-palette-success-content: oklch(0% 0 0);
   --hoshidicts-palette-warning: oklch(84.71% 0.199 83.87);
-  --hoshidicts-palette-warning-content: oklch(0% 0 0);
   --hoshidicts-palette-error: oklch(71.76% 0.221 22.18);
-  --hoshidicts-palette-error-content: oklch(0% 0 0);
 }
 
 html[data-hoshidicts-theme="wireframe"] {
@@ -787,11 +694,8 @@ html[data-hoshidicts-theme="wireframe"] {
   --hoshidicts-palette-info: oklch(44% 0.11 240.79);
   --hoshidicts-palette-info-content: oklch(90% 0.058 230.902);
   --hoshidicts-palette-success: oklch(43% 0.095 166.913);
-  --hoshidicts-palette-success-content: oklch(90% 0.093 164.15);
   --hoshidicts-palette-warning: oklch(47% 0.137 46.201);
-  --hoshidicts-palette-warning-content: oklch(92% 0.12 95.746);
   --hoshidicts-palette-error: oklch(44% 0.177 26.899);
-  --hoshidicts-palette-error-content: oklch(88% 0.062 18.334);
 }
 
 html[data-hoshidicts-theme="cmyk"] {
@@ -811,11 +715,8 @@ html[data-hoshidicts-theme="cmyk"] {
   --hoshidicts-palette-info: oklch(68.475% 0.094 217.284);
   --hoshidicts-palette-info-content: oklch(13.695% 0.018 217.284);
   --hoshidicts-palette-success: oklch(46.949% 0.162 321.406);
-  --hoshidicts-palette-success-content: oklch(89.389% 0.032 321.406);
   --hoshidicts-palette-warning: oklch(71.236% 0.159 52.023);
-  --hoshidicts-palette-warning-content: oklch(14.247% 0.031 52.023);
   --hoshidicts-palette-error: oklch(62.013% 0.208 28.717);
-  --hoshidicts-palette-error-content: oklch(12.402% 0.041 28.717);
 }
 
 html[data-hoshidicts-theme="autumn"] {
@@ -835,11 +736,8 @@ html[data-hoshidicts-theme="autumn"] {
   --hoshidicts-palette-info: oklch(69.224% 0.097 207.284);
   --hoshidicts-palette-info-content: oklch(13.844% 0.019 207.284);
   --hoshidicts-palette-success: oklch(60.995% 0.08 174.616);
-  --hoshidicts-palette-success-content: oklch(12.199% 0.016 174.616);
   --hoshidicts-palette-warning: oklch(70.081% 0.164 56.844);
-  --hoshidicts-palette-warning-content: oklch(14.016% 0.032 56.844);
   --hoshidicts-palette-error: oklch(53.07% 0.241 24.16);
-  --hoshidicts-palette-error-content: oklch(90.614% 0.048 24.16);
 }
 
 html[data-hoshidicts-theme="acid"] {
@@ -859,11 +757,8 @@ html[data-hoshidicts-theme="acid"] {
   --hoshidicts-palette-info: oklch(60.72% 0.227 252.05);
   --hoshidicts-palette-info-content: oklch(12.144% 0.045 252.05);
   --hoshidicts-palette-success: oklch(85.72% 0.266 158.53);
-  --hoshidicts-palette-success-content: oklch(17.144% 0.053 158.53);
   --hoshidicts-palette-warning: oklch(91.01% 0.212 100.5);
-  --hoshidicts-palette-warning-content: oklch(18.202% 0.042 100.5);
   --hoshidicts-palette-error: oklch(64.84% 0.293 29.349);
-  --hoshidicts-palette-error-content: oklch(12.968% 0.058 29.349);
 }
 
 html[data-hoshidicts-theme="lemonade"] {
@@ -883,11 +778,8 @@ html[data-hoshidicts-theme="lemonade"] {
   --hoshidicts-palette-info: oklch(86.19% 0.047 224.14);
   --hoshidicts-palette-info-content: oklch(17.238% 0.009 224.14);
   --hoshidicts-palette-success: oklch(86.19% 0.047 157.85);
-  --hoshidicts-palette-success-content: oklch(17.238% 0.009 157.85);
   --hoshidicts-palette-warning: oklch(86.19% 0.047 102.15);
-  --hoshidicts-palette-warning-content: oklch(17.238% 0.009 102.15);
   --hoshidicts-palette-error: oklch(86.19% 0.047 25.85);
-  --hoshidicts-palette-error-content: oklch(17.238% 0.009 25.85);
 }
 
 html[data-hoshidicts-theme="winter"] {
@@ -907,11 +799,8 @@ html[data-hoshidicts-theme="winter"] {
   --hoshidicts-palette-info: oklch(88.127% 0.085 214.515);
   --hoshidicts-palette-info-content: oklch(17.625% 0.017 214.515);
   --hoshidicts-palette-success: oklch(80.494% 0.077 197.823);
-  --hoshidicts-palette-success-content: oklch(16.098% 0.015 197.823);
   --hoshidicts-palette-warning: oklch(89.172% 0.045 71.47);
-  --hoshidicts-palette-warning-content: oklch(17.834% 0.009 71.47);
   --hoshidicts-palette-error: oklch(73.092% 0.11 20.076);
-  --hoshidicts-palette-error-content: oklch(14.618% 0.022 20.076);
 }
 
 html[data-hoshidicts-theme="nord"] {
@@ -931,11 +820,8 @@ html[data-hoshidicts-theme="nord"] {
   --hoshidicts-palette-info: oklch(69.207% 0.062 332.664);
   --hoshidicts-palette-info-content: oklch(13.841% 0.012 332.664);
   --hoshidicts-palette-success: oklch(76.827% 0.074 131.063);
-  --hoshidicts-palette-success-content: oklch(15.365% 0.014 131.063);
   --hoshidicts-palette-warning: oklch(85.486% 0.089 84.093);
-  --hoshidicts-palette-warning-content: oklch(17.097% 0.017 84.093);
   --hoshidicts-palette-error: oklch(60.61% 0.12 15.341);
-  --hoshidicts-palette-error-content: oklch(12.122% 0.024 15.341);
 }
 
 html[data-hoshidicts-theme="caramellatte"] {
@@ -955,11 +841,8 @@ html[data-hoshidicts-theme="caramellatte"] {
   --hoshidicts-palette-info: oklch(42% 0.199 265.638);
   --hoshidicts-palette-info-content: oklch(90% 0.076 70.697);
   --hoshidicts-palette-success: oklch(43% 0.095 166.913);
-  --hoshidicts-palette-success-content: oklch(90% 0.076 70.697);
   --hoshidicts-palette-warning: oklch(82% 0.189 84.429);
-  --hoshidicts-palette-warning-content: oklch(41% 0.112 45.904);
   --hoshidicts-palette-error: oklch(70% 0.191 22.216);
-  --hoshidicts-palette-error-content: oklch(39% 0.141 25.723);
 }
 
 html[data-hoshidicts-theme="silk"] {
@@ -979,11 +862,8 @@ html[data-hoshidicts-theme="silk"] {
   --hoshidicts-palette-info: oklch(80.39% 0.1148 241.68);
   --hoshidicts-palette-info-content: oklch(30.39% 0.1148 241.68);
   --hoshidicts-palette-success: oklch(83.92% 0.0901 136.87);
-  --hoshidicts-palette-success-content: oklch(23.92% 0.0901 136.87);
   --hoshidicts-palette-warning: oklch(83.92% 0.1085 80);
-  --hoshidicts-palette-warning-content: oklch(43.92% 0.1085 80);
   --hoshidicts-palette-error: oklch(75.1% 0.1814 22.37);
-  --hoshidicts-palette-error-content: oklch(35.1% 0.1814 22.37);
 }
 
 html[data-hoshidicts-theme="girlypop"] {
@@ -1003,11 +883,8 @@ html[data-hoshidicts-theme="girlypop"] {
   --hoshidicts-palette-info: #4d7fc4;
   --hoshidicts-palette-info-content: #f8fbff;
   --hoshidicts-palette-success: #3c8d70;
-  --hoshidicts-palette-success-content: #ffffff;
   --hoshidicts-palette-warning: #b36b10;
-  --hoshidicts-palette-warning-content: #fff8ed;
   --hoshidicts-palette-error: #c43f68;
-  --hoshidicts-palette-error-content: #ffffff;
 }
 
 ::highlight(gsm-hoshidicts-match) {

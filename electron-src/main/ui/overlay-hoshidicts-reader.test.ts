@@ -206,11 +206,8 @@ describe("Hoshidicts safe popup rendering", () => {
     ["--color-info", "--hoshidicts-palette-info"],
     ["--color-info-content", "--hoshidicts-palette-info-content"],
     ["--color-success", "--hoshidicts-palette-success"],
-    ["--color-success-content", "--hoshidicts-palette-success-content"],
     ["--color-warning", "--hoshidicts-palette-warning"],
-    ["--color-warning-content", "--hoshidicts-palette-warning-content"],
-    ["--color-error", "--hoshidicts-palette-error"],
-    ["--color-error-content", "--hoshidicts-palette-error-content"]
+    ["--color-error", "--hoshidicts-palette-error"]
   ] as const;
   const CORE_PALETTE_TOKENS = CORE_PALETTE_TOKEN_PAIRS.map(([, target]) => target);
   // Themes Hoshidicts copies from GSM's own renderer palettes instead of daisyUI.
