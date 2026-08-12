@@ -32,11 +32,8 @@
     throw new Error("Hoshidicts constants and preferences must load first.");
   }
 
-  const { BOUNDS, LIMITS, LOOKUP_MODES, READER_DEFAULTS, THEMES } = constants;
-  const {
-    normalizeActivationKey,
-    normalizeReaderPreferences,
-  } = preferencesApi;
+  const { READER_DEFAULTS } = constants;
+  const { normalizeReaderPreferences } = preferencesApi;
   const DEFAULT_GAMEPAD_SERVER_PORT = 7276;
 
   const state = {
@@ -48,142 +45,23 @@
     reader: null,
   };
 
-  /** Reads the launch environment into one complete preference object. */
+  /**
+   * Reads the launch environment into one complete preference object. GSM
+   * serialises the whole set as JSON, so this is the same normalizer the
+   * control channel uses; anything malformed falls back to the defaults.
+   */
   function readLaunchPreferences(env = {}) {
-    const raw = (key) => {
-      const value = env[`GSM_HOSHIDICTS_${key}`];
-      return typeof value === "string" ? value : "";
-    };
-    const flag = (key, fallback) => {
-      const value = raw(key);
-      return value === "1" || (value === "0" ? false : fallback);
-    };
-    const integer = (key, bound, fallback) => {
-      const text = raw(key).trim();
-      const value = text === "" ? Number.NaN : Number(text);
-      return Number.isInteger(value) && value >= bound.min && value <= bound.max
-        ? value
-        : fallback;
-    };
-    const choice = (key, allowed, fallback) => {
-      const value = raw(key);
-      return allowed.includes(value) ? value : fallback;
-    };
-    const title = (key) => {
-      const value = raw(key);
-      return value.trim() && value.length <= LIMITS.dictionaryTitleLength
-        ? value
-        : null;
-    };
-
-    return {
-      ...READER_DEFAULTS,
-      lookupMode: choice("LOOKUP_MODE", LOOKUP_MODES, READER_DEFAULTS.lookupMode),
-      scanLength: integer("SCAN_LENGTH", BOUNDS.scanLength, READER_DEFAULTS.scanLength),
-      maxResults: integer("MAX_RESULTS", BOUNDS.maxResults, READER_DEFAULTS.maxResults),
-      sortFrequencyDictionary: title("SORT_FREQUENCY_DICTIONARY"),
-      sortFrequencyDictionaryOrder: choice(
-        "SORT_FREQUENCY_DICTIONARY_ORDER",
-        constants.FREQUENCY_SORT_ORDERS,
-        READER_DEFAULTS.sortFrequencyDictionaryOrder
-      ),
-      averageFrequency: flag("AVERAGE_FREQUENCY", READER_DEFAULTS.averageFrequency),
-      showFrequencyDictionaryNames: flag(
-        "SHOW_FREQUENCY_DICTIONARY_NAMES",
-        READER_DEFAULTS.showFrequencyDictionaryNames
-      ),
-      activationKey: normalizeActivationKey(raw("ACTIVATION_KEY")),
-      sourceHighlightEnabled: flag(
-        "SOURCE_HIGHLIGHT_ENABLED",
-        READER_DEFAULTS.sourceHighlightEnabled
-      ),
-      onlyScanJapaneseText: flag(
-        "ONLY_SCAN_JAPANESE_TEXT",
-        READER_DEFAULTS.onlyScanJapaneseText
-      ),
-      popupHideDelayMs: integer(
-        "POPUP_HIDE_DELAY_MS",
-        BOUNDS.popupHideDelayMs,
-        READER_DEFAULTS.popupHideDelayMs
-      ),
-      showLookupCounts: flag("SHOW_LOOKUP_COUNTS", READER_DEFAULTS.showLookupCounts),
-      showCompactDefinitionSummary: flag(
-        "SHOW_COMPACT_DEFINITION_SUMMARY",
-        READER_DEFAULTS.showCompactDefinitionSummary
-      ),
-      compactDefinitionSummaryCount: integer(
-        "COMPACT_DEFINITION_SUMMARY_COUNT",
-        BOUNDS.compactDefinitionSummaryCount,
-        READER_DEFAULTS.compactDefinitionSummaryCount
-      ),
-      compactDefinitionSummaryDictionary: title(
-        "COMPACT_DEFINITION_SUMMARY_DICTIONARY"
-      ),
-      showPitchAccentFurigana: flag(
-        "SHOW_PITCH_ACCENT_FURIGANA",
-        READER_DEFAULTS.showPitchAccentFurigana
-      ),
-      pitchAccentFuriganaDictionary: title("PITCH_ACCENT_FURIGANA_DICTIONARY"),
-      showPitchAccentBadge: flag(
-        "SHOW_PITCH_ACCENT_BADGE",
-        READER_DEFAULTS.showPitchAccentBadge
-      ),
-      hidePopupGrammarTags: flag(
-        "HIDE_POPUP_GRAMMAR_TAGS",
-        READER_DEFAULTS.hidePopupGrammarTags
-      ),
-      definitionBlur: {
-        enabled: flag("DEFINITION_BLUR_ENABLED", false),
-        lookupThreshold: integer(
-          "DEFINITION_BLUR_LOOKUP_THRESHOLD",
-          BOUNDS.definitionBlurLookupThreshold,
-          READER_DEFAULTS.definitionBlur.lookupThreshold
-        ),
-        revealMode: choice(
-          "DEFINITION_BLUR_REVEAL_MODE",
-          constants.DEFINITION_BLUR_REVEAL_MODES,
-          READER_DEFAULTS.definitionBlur.revealMode
-        ),
-        revealDelayMs: integer(
-          "DEFINITION_BLUR_REVEAL_DELAY_MS",
-          BOUNDS.definitionBlurRevealDelayMs,
-          READER_DEFAULTS.definitionBlur.revealDelayMs
-        ),
-      },
-      popupNestingMaxDepth: integer(
-        "POPUP_NESTING_MAX_DEPTH",
-        BOUNDS.popupNestingMaxDepth,
-        READER_DEFAULTS.popupNestingMaxDepth
-      ),
-      popupWidthPx: integer("POPUP_WIDTH_PX", BOUNDS.popupWidthPx, READER_DEFAULTS.popupWidthPx),
-      popupHeightPx: integer(
-        "POPUP_HEIGHT_PX",
-        BOUNDS.popupHeightPx,
-        READER_DEFAULTS.popupHeightPx
-      ),
-      popupColumns: integer("POPUP_COLUMNS", BOUNDS.popupColumns, READER_DEFAULTS.popupColumns),
-      popupOpacityPercent: integer(
-        "POPUP_OPACITY_PERCENT",
-        BOUNDS.popupOpacityPercent,
-        READER_DEFAULTS.popupOpacityPercent
-      ),
-      popupBackdropBlurPx: integer(
-        "POPUP_BACKDROP_BLUR_PX",
-        BOUNDS.popupBackdropBlurPx,
-        READER_DEFAULTS.popupBackdropBlurPx
-      ),
-      popupToolbarPosition: choice(
-        "POPUP_TOOLBAR_POSITION",
-        constants.POPUP_TOOLBAR_POSITIONS,
-        READER_DEFAULTS.popupToolbarPosition
-      ),
-      theme: choice("THEME", THEMES, READER_DEFAULTS.theme),
-      customPopupCss: "",
-      dictionaryPresentation: [],
-      frequencyDictionaries: [],
-      dictionaryTabGroups: [],
-      popupButtons: { ...READER_DEFAULTS.popupButtons, customLinks: [] },
-    };
+    const encoded = env.GSM_HOSHIDICTS_READER_PREFERENCES;
+    if (typeof encoded !== "string" || encoded === "") {
+      return { ...READER_DEFAULTS };
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(encoded);
+    } catch {
+      return { ...READER_DEFAULTS };
+    }
+    return normalizeReaderPreferences(parsed) ?? { ...READER_DEFAULTS };
   }
 
   /** Mirrors the popup theme and translucency onto the overlay document. */
