@@ -2360,14 +2360,6 @@ mod tests {
         }
     }
 
-    /// The null view the C API hands back for an absent string.
-    fn hd_null_str() -> HdStr {
-        HdStr {
-            ptr: ptr::null(),
-            len: 0,
-        }
-    }
-
     fn test_avif(width: u32, height: u32) -> Vec<u8> {
         let mut data = Vec::new();
         data.extend_from_slice(&24u32.to_be_bytes());
