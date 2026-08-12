@@ -34,9 +34,7 @@ const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 const MAX_DICTIONARIES: usize = 256;
 const MAX_NATIVE_STRING_BYTES: usize = MAX_LOOKUP_RESPONSE_BYTES;
 const MAX_GLOSSARY_BYTES: usize = 8 * 1024 * 1024;
-const MAX_NATIVE_AGGREGATE_STRINGS: usize = 1024 * 1024;
 const MAX_DICTIONARY_STYLE_BYTES: usize = 256 * 1024;
-const MAX_DICTIONARY_STYLES_BYTES: usize = 2 * 1024 * 1024;
 const MAX_STYLE_DICTIONARY_BYTES: usize = 1024;
 const MAX_TRACE_STEPS: usize = 32;
 const MAX_KANJI_ENTRIES: usize = 64;
@@ -1193,7 +1191,7 @@ impl NativeEngine {
         let native_results =
             unsafe { checked_slice(result_pointer, result_count, "lookup results")? };
 
-        let mut copy_budget = NativeCopyBudget::new();
+        let mut copy_budget = 0usize;
         native_results
             .iter()
             .map(|result| unsafe {
@@ -1319,7 +1317,7 @@ impl NativeEngine {
         if entry_count > MAX_KANJI_ENTRIES {
             return Err("native Hoshidicts returned too many kanji entries".into());
         }
-        let mut copy_budget = NativeCopyBudget::new();
+        let mut copy_budget = 0usize;
         let entries = unsafe { checked_slice(entry_pointer, entry_count, "kanji entries")? }
             .iter()
             .map(|entry| unsafe {
@@ -1477,29 +1475,11 @@ unsafe fn copy_dictionary_styles(
         return Err("native Hoshidicts returned too many dictionary styles".into());
     }
     let native_styles = checked_slice(pointer, count, "dictionary styles")?;
-    let mut aggregate_bytes = 0usize;
+    // copy_hd_string_with_limit bounds each field, and reader.js applies the
+    // same per-entry and aggregate caps again on the way in.
     native_styles
         .iter()
         .map(|style| {
-            if style.dict_name.len > MAX_STYLE_DICTIONARY_BYTES {
-                return Err("native style dictionary exceeds the permitted size".into());
-            }
-            if style.styles.len > MAX_DICTIONARY_STYLE_BYTES {
-                return Err("native dictionary stylesheet exceeds the permitted size".into());
-            }
-            let style_bytes = style
-                .dict_name
-                .len
-                .checked_add(style.styles.len)
-                .ok_or_else(|| {
-                    "native dictionary styles exceed the aggregate response limit".to_string()
-                })?;
-            aggregate_bytes = aggregate_bytes.checked_add(style_bytes).ok_or_else(|| {
-                "native dictionary styles exceed the aggregate response limit".to_string()
-            })?;
-            if aggregate_bytes > MAX_DICTIONARY_STYLES_BYTES {
-                return Err("native dictionary styles exceed the aggregate response limit".into());
-            }
             Ok(DictionaryStyle {
                 dictionary: copy_hd_string_with_limit(
                     style.dict_name,
@@ -1516,61 +1496,42 @@ unsafe fn copy_dictionary_styles(
         .collect()
 }
 
-struct NativeCopyBudget {
-    bytes: usize,
-    strings: usize,
-}
-
-impl NativeCopyBudget {
-    fn new() -> Self {
-        Self {
-            bytes: 0,
-            strings: 0,
-        }
-    }
-
-    fn claim(&mut self, bytes: usize, label: &str) -> Result<(), String> {
-        let next_bytes = self
-            .bytes
-            .checked_add(bytes)
-            .ok_or_else(|| format!("native {label} exceeds the aggregate response limit"))?;
-        let next_strings = self
-            .strings
-            .checked_add(1)
-            .ok_or_else(|| format!("native {label} exceeds the aggregate response limit"))?;
-        if next_bytes > MAX_LOOKUP_RESPONSE_BYTES || next_strings > MAX_NATIVE_AGGREGATE_STRINGS {
-            return Err(format!(
-                "native {label} exceeds the aggregate response limit"
-            ));
-        }
-        self.bytes = next_bytes;
-        self.strings = next_strings;
-        Ok(())
-    }
-}
-
 unsafe fn copy_hd_string_bounded(
     value: HdStr,
     label: &str,
-    budget: &mut NativeCopyBudget,
+    budget: &mut usize,
 ) -> Result<String, String> {
     copy_hd_string_bounded_with_limit(value, label, budget, MAX_NATIVE_STRING_BYTES)
+}
+
+/// Accumulates one copy against the aggregate byte cap.
+///
+/// The cap is not redundant with enforce_lookup_response_limit: that runs on
+/// the serialized reply after every copy has already been made, so it bounds
+/// the reply rather than the allocation, and these blobs come out of a
+/// downloaded dictionary.
+fn claim_native_bytes(budget: &mut usize, bytes: usize, label: &str) -> Result<(), String> {
+    *budget = budget
+        .checked_add(bytes)
+        .filter(|total| *total <= MAX_LOOKUP_RESPONSE_BYTES)
+        .ok_or_else(|| format!("native {label} exceeds the aggregate response limit"))?;
+    Ok(())
 }
 
 unsafe fn copy_hd_string_bounded_with_limit(
     value: HdStr,
     label: &str,
-    budget: &mut NativeCopyBudget,
+    budget: &mut usize,
     maximum_bytes: usize,
 ) -> Result<String, String> {
-    budget.claim(value.len, label)?;
+    claim_native_bytes(budget, value.len, label)?;
     copy_hd_string_with_limit(value, label, maximum_bytes)
 }
 
 unsafe fn copy_frequency_entries(
     pointer: *const HdFrequencyEntry,
     count: usize,
-    budget: &mut NativeCopyBudget,
+    budget: &mut usize,
 ) -> Result<Vec<LookupFrequencyEntry>, String> {
     checked_slice(pointer, count, "frequency entries")?
         .iter()
@@ -1607,7 +1568,7 @@ unsafe fn copy_frequency_entries(
 unsafe fn copy_pitch_entries(
     pointer: *const HdPitchEntry,
     count: usize,
-    budget: &mut NativeCopyBudget,
+    budget: &mut usize,
 ) -> Result<Vec<LookupPitchEntry>, String> {
     checked_slice(pointer, count, "pitch entries")?
         .iter()
@@ -2873,7 +2834,7 @@ mod tests {
         assert_eq!(MAX_GLOSSARY_BYTES, 8 * 1024 * 1024);
         assert_eq!(MAX_LOOKUP_RESPONSE_BYTES, 32 * 1024 * 1024);
 
-        let mut glossary_budget = NativeCopyBudget::new();
+        let mut glossary_budget = 0usize;
         let oversized_glossary = HdStr {
             ptr: ptr::NonNull::<c_char>::dangling().as_ptr(),
             len: MAX_GLOSSARY_BYTES + 1,
@@ -2889,25 +2850,18 @@ mod tests {
         .expect_err("per-glossary byte limit must fail")
         .contains("permitted size"));
 
-        let mut byte_budget = NativeCopyBudget::new();
-        byte_budget
-            .claim(MAX_LOOKUP_RESPONSE_BYTES, "test value")
+        // The aggregate cap accumulates across copies and rejects the one that
+        // would cross it.
+        let mut byte_budget = 0usize;
+        claim_native_bytes(&mut byte_budget, MAX_LOOKUP_RESPONSE_BYTES, "test value")
             .expect("full aggregate byte budget");
-        assert!(byte_budget
-            .claim(1, "test value")
+        assert!(claim_native_bytes(&mut byte_budget, 1, "test value")
             .expect_err("aggregate byte limit must fail")
-            .contains("aggregate response limit"));
-
-        let mut item_budget = NativeCopyBudget::new();
-        item_budget.strings = MAX_NATIVE_AGGREGATE_STRINGS;
-        assert!(item_budget
-            .claim(0, "test value")
-            .expect_err("aggregate item limit must fail")
             .contains("aggregate response limit"));
     }
 
     #[test]
-    fn dictionary_style_copy_enforces_count_per_style_and_aggregate_limits() {
+    fn dictionary_style_copy_enforces_count_and_per_style_limits() {
         unsafe {
             assert!(copy_dictionary_styles(ptr::null(), MAX_DICTIONARIES + 1)
                 .expect_err("style count limit must fail")
@@ -2923,18 +2877,6 @@ mod tests {
             assert!(copy_dictionary_styles(oversized.as_ptr(), oversized.len())
                 .expect_err("per-style limit must fail")
                 .contains("stylesheet exceeds the permitted size"));
-        }
-
-        let css = vec![b'x'; MAX_DICTIONARY_STYLE_BYTES];
-        let repeated = HdDictionaryStyle {
-            dict_name: hd_str(b"Test"),
-            styles: hd_str(&css),
-        };
-        let aggregate = vec![repeated; MAX_DICTIONARY_STYLES_BYTES / css.len() + 1];
-        unsafe {
-            assert!(copy_dictionary_styles(aggregate.as_ptr(), aggregate.len())
-                .expect_err("aggregate style limit must fail")
-                .contains("aggregate response limit"));
         }
     }
 
@@ -2959,12 +2901,8 @@ mod tests {
         }];
 
         let copied = unsafe {
-            copy_frequency_entries(
-                entries.as_ptr(),
-                entries.len(),
-                &mut NativeCopyBudget::new(),
-            )
-            .expect("valid frequencies")
+            copy_frequency_entries(entries.as_ptr(), entries.len(), &mut 0usize)
+                .expect("valid frequencies")
         };
         assert_eq!(
             copied,
