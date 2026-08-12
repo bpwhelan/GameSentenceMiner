@@ -1426,23 +1426,15 @@ def test_dictionary_style_scoping_handles_comments_before_at_rules_and_selector_
     assert rendered.count("/* a,b */") == 1
 
 
-def test_dictionary_styles_enforce_count_and_utf8_byte_limits():
+def test_dictionary_styles_are_bounded_by_count_and_length():
     payload = make_payload(dictionaryStyles={"JMdict": "x" * note_module.MAX_DICTIONARY_STYLE_BYTES})
     assert len(_validated(payload)["dictionaryStyles"]["JMdict"]) == note_module.MAX_DICTIONARY_STYLE_BYTES
 
-    payload["dictionaryStyles"] = {"JMdict": "界" * ((note_module.MAX_DICTIONARY_STYLE_BYTES // 3) + 1)}
-    with pytest.raises(
-        hoshidicts_mining.HoshidictsMiningError,
-        match="dictionary styles are invalid",
-    ):
-        _validated(payload)
+    payload["dictionaryStyles"] = {"JMdict": "x" * (note_module.MAX_DICTIONARY_STYLE_BYTES + 100)}
+    assert len(_validated(payload)["dictionaryStyles"]["JMdict"]) == note_module.MAX_DICTIONARY_STYLE_BYTES
 
     payload["dictionaryStyles"] = {f"Dictionary {index}": "" for index in range(note_module.MAX_DICTIONARY_STYLES + 1)}
-    with pytest.raises(
-        hoshidicts_mining.HoshidictsMiningError,
-        match="dictionary styles are invalid",
-    ):
-        _validated(payload)
+    assert len(_validated(payload)["dictionaryStyles"]) == note_module.MAX_DICTIONARY_STYLES
 
 
 def test_duplicate_check_endpoint_preserves_dictionary_styles_in_rendered_note(monkeypatch):
@@ -2055,21 +2047,22 @@ def test_validation_normalizes_configured_frequency_dictionary_registry():
 
     assert _validated(payload)["frequencyDictionaries"] == ["Foo", "Foo!"]
 
+    # A blank name is dropped rather than failing the whole card.
     payload["frequencyDictionaries"] = [""]
-    with pytest.raises(
-        hoshidicts_mining.HoshidictsMiningError,
-        match="frequency dictionary name",
-    ):
-        _validated(payload)
+    assert _validated(payload)["frequencyDictionaries"] == []
 
 
 @pytest.mark.parametrize("value", [True, float("nan"), float("inf"), float("-inf")])
-def test_validation_rejects_non_finite_or_boolean_frequency_values(value):
+def test_validation_drops_non_finite_or_boolean_frequency_values(value):
     payload = make_payload()
-    payload["result"]["term"]["frequencies"][0]["frequencies"] = [{"value": value, "displayValue": None}]
+    payload["result"]["term"]["frequencies"][0]["frequencies"] = [
+        {"value": value, "displayValue": None},
+        {"value": 42, "displayValue": None},
+    ]
 
-    with pytest.raises(hoshidicts_mining.HoshidictsMiningError, match="frequency is invalid"):
-        _validated(payload)
+    # Anki cannot render NaN, but one bad entry must not lose the whole card.
+    frequencies = _validated(payload)["term"]["frequencies"][0]["frequencies"]
+    assert frequencies == [{"value": 42, "displayValue": None}]
 
 
 def test_duplicate_rejection_returns_a_conflict(monkeypatch):
