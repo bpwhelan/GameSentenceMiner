@@ -92,299 +92,124 @@ def require_list(value: Any, label: str, maximum: int) -> list[Any]:
     return value
 
 
-def _validate_glossary(value: Any) -> dict[str, str]:
-    if not isinstance(value, dict):
-        raise HoshidictsMiningError("Hoshidicts glossary is invalid.")
+# The mining payload is built by reader.js, which already applies these caps
+# (:447-546), and the route is behind local_hoshidicts_only. Coerce each field
+# to the shape the card builder indexes rather than re-deriving the caps.
+
+
+def _text(value: Any, maximum: int = MAX_TEXT_LENGTH) -> str:
+    return value.replace("\x00", "")[:maximum] if isinstance(value, str) else ""
+
+
+def _items(value: Any, maximum: int) -> list[Any]:
+    return value[:maximum] if isinstance(value, list) else []
+
+
+def _record(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _integers(value: Any) -> list[int]:
+    return [item for item in _items(value, MAX_METADATA_VALUES) if isinstance(item, int) and not isinstance(item, bool)]
+
+
+def _glossary(value: Any) -> dict[str, str]:
+    item = _record(value)
     return {
-        "dictionary": bounded_string(
-            value.get("dictionary", ""),
-            "Hoshidicts glossary dictionary",
-            MAX_TERM_LENGTH,
-            allow_empty=False,
-        ),
-        "glossary": bounded_string(
-            value.get("glossary", ""),
-            "Hoshidicts glossary",
-            MAX_TEXT_LENGTH,
-        ),
-        "definitionTags": bounded_string(
-            value.get("definitionTags", ""),
-            "Hoshidicts definition tags",
-            MAX_TERM_LENGTH,
-        ),
-        "termTags": bounded_string(
-            value.get("termTags", ""),
-            "Hoshidicts term tags",
-            MAX_TERM_LENGTH,
-        ),
+        "dictionary": _text(item.get("dictionary"), MAX_TERM_LENGTH),
+        "glossary": _text(item.get("glossary")),
+        "definitionTags": _text(item.get("definitionTags"), MAX_TERM_LENGTH),
+        "termTags": _text(item.get("termTags"), MAX_TERM_LENGTH),
     }
 
 
-def _validate_frequency_group(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise HoshidictsMiningError("Hoshidicts frequency group is invalid.")
-    frequency_mode = value.get("frequencyMode")
-    if frequency_mode not in {None, "rank-based", "occurrence-based"}:
-        raise HoshidictsMiningError("Hoshidicts frequency mode is invalid.")
+def _frequency_group(value: Any) -> dict[str, Any]:
+    group = _record(value)
+    mode = group.get("frequencyMode")
     frequencies = []
-    for item in require_list(
-        value.get("frequencies", []),
-        "Hoshidicts frequencies",
-        MAX_METADATA_VALUES,
-    ):
-        if not isinstance(item, dict):
-            raise HoshidictsMiningError("Hoshidicts frequency is invalid.")
-        frequency_value = item.get("value")
-        if (
-            isinstance(frequency_value, bool)
-            or not isinstance(frequency_value, (int, float))
-            or (isinstance(frequency_value, float) and not math.isfinite(frequency_value))
-        ):
-            raise HoshidictsMiningError("Hoshidicts frequency is invalid.")
-        display_value = item.get("displayValue")
-        if display_value is not None:
-            display_value = bounded_string(
-                display_value,
-                "Hoshidicts frequency display value",
-                MAX_TERM_LENGTH,
-            )
+    for raw in _items(group.get("frequencies"), MAX_METADATA_VALUES):
+        item = _record(raw)
+        number = item.get("value")
+        if isinstance(number, bool) or not isinstance(number, (int, float)) or not math.isfinite(number):
+            continue
+        display = item.get("displayValue")
         frequencies.append(
             {
-                "value": frequency_value,
-                "displayValue": display_value,
+                "value": number,
+                "displayValue": None if display is None else _text(display, MAX_TERM_LENGTH),
             }
         )
     return {
-        "dictionary": bounded_string(
-            value.get("dictionary", ""),
-            "Hoshidicts frequency dictionary",
-            MAX_TERM_LENGTH,
-            allow_empty=False,
-        ),
-        "frequencyMode": frequency_mode,
+        "dictionary": _text(group.get("dictionary"), MAX_TERM_LENGTH),
+        "frequencyMode": mode if mode in {"rank-based", "occurrence-based"} else None,
         "frequencies": frequencies,
     }
 
 
-def _validate_pitch_group(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise HoshidictsMiningError("Hoshidicts pitch group is invalid.")
+def _pitch_group(value: Any) -> dict[str, Any]:
+    group = _record(value)
     pitches = []
-    for item in require_list(
-        value.get("pitches", []),
-        "Hoshidicts pitches",
-        MAX_METADATA_VALUES,
-    ):
-        if (
-            not isinstance(item, dict)
-            or not isinstance(item.get("position"), int)
-            or isinstance(item.get("position"), bool)
-        ):
-            raise HoshidictsMiningError("Hoshidicts pitch value is invalid.")
+    for raw in _items(group.get("pitches"), MAX_METADATA_VALUES):
+        item = _record(raw)
+        position = item.get("position")
+        if not isinstance(position, int) or isinstance(position, bool):
+            continue
         pitches.append(
             {
-                "position": item["position"],
-                "pattern": bounded_string(
-                    item.get("pattern", ""),
-                    "Hoshidicts pitch pattern",
-                    MAX_TERM_LENGTH,
-                ),
-                "nasal": [
-                    marker
-                    for marker in require_list(
-                        item.get("nasal", []),
-                        "Hoshidicts nasal markers",
-                        MAX_METADATA_VALUES,
-                    )
-                    if isinstance(marker, int) and not isinstance(marker, bool)
-                ],
-                "devoice": [
-                    marker
-                    for marker in require_list(
-                        item.get("devoice", []),
-                        "Hoshidicts devoice markers",
-                        MAX_METADATA_VALUES,
-                    )
-                    if isinstance(marker, int) and not isinstance(marker, bool)
-                ],
+                "position": position,
+                "pattern": _text(item.get("pattern"), MAX_TERM_LENGTH),
+                "nasal": _integers(item.get("nasal")),
+                "devoice": _integers(item.get("devoice")),
             }
         )
-    transcriptions = [
-        bounded_string(
-            item,
-            "Hoshidicts pitch transcription",
-            MAX_TERM_LENGTH,
-        )
-        for item in require_list(
-            value.get("transcriptions", []),
-            "Hoshidicts pitch transcriptions",
-            MAX_METADATA_VALUES,
-        )
-    ]
     return {
-        "dictionary": bounded_string(
-            value.get("dictionary", ""),
-            "Hoshidicts pitch dictionary",
-            MAX_TERM_LENGTH,
-            allow_empty=False,
-        ),
+        "dictionary": _text(group.get("dictionary"), MAX_TERM_LENGTH),
         "pitches": pitches,
-        "transcriptions": transcriptions,
+        "transcriptions": [
+            _text(item, MAX_TERM_LENGTH) for item in _items(group.get("transcriptions"), MAX_METADATA_VALUES)
+        ],
     }
 
 
-def _validate_dictionary_styles(value: Any) -> dict[str, str]:
-    if value is None:
-        return {}
-    if isinstance(value, list):
-        if len(value) > MAX_DICTIONARY_STYLES:
-            raise HoshidictsMiningError("Hoshidicts dictionary styles are invalid.")
-        entries = []
-        for item in value:
-            if not isinstance(item, dict):
-                raise HoshidictsMiningError("Hoshidicts dictionary styles are invalid.")
-            entries.append(
-                (
-                    item.get("dictionary"),
-                    item.get("styles", item.get("css")),
-                )
-            )
-    elif isinstance(value, dict):
-        if len(value) > MAX_DICTIONARY_STYLES:
-            raise HoshidictsMiningError("Hoshidicts dictionary styles are invalid.")
-        entries = []
-        for dictionary, styles in value.items():
-            if isinstance(styles, dict):
-                styles = styles.get("styles", styles.get("css"))
-            entries.append((dictionary, styles))
+def _keyed_text(value: Any, maximum_entries: int, *keys: str) -> dict[str, str]:
+    """Reads the {dictionary: text} maps, which arrive as a list or an object."""
+    if isinstance(value, dict):
+        entries = list(value.items())[:maximum_entries]
     else:
-        raise HoshidictsMiningError("Hoshidicts dictionary styles are invalid.")
-
+        entries = [
+            (item.get("dictionary"), next((item[key] for key in keys if key in item), None))
+            for item in (_record(raw) for raw in _items(value, maximum_entries))
+        ]
     output = {}
-    for raw_dictionary, raw_styles in entries:
-        dictionary = bounded_string(
-            raw_dictionary,
-            "Hoshidicts dictionary style name",
-            MAX_TERM_LENGTH,
-            allow_empty=False,
-        )
-        styles = bounded_string(
-            raw_styles,
-            "Hoshidicts dictionary styles",
-            MAX_DICTIONARY_STYLE_BYTES,
-        )
-        if len(styles.encode("utf-8")) > MAX_DICTIONARY_STYLE_BYTES:
-            raise HoshidictsMiningError("Hoshidicts dictionary styles are invalid.")
-        output[dictionary] = styles
+    for raw_dictionary, raw_value in entries:
+        if isinstance(raw_value, dict):
+            raw_value = next((raw_value[key] for key in keys if key in raw_value), None)
+        dictionary = _text(raw_dictionary, MAX_TERM_LENGTH)
+        if dictionary:
+            output[dictionary] = _text(raw_value, MAX_DICTIONARY_STYLE_BYTES)
     return output
 
 
-def _validate_dictionary_aliases(value: Any) -> dict[str, str]:
-    if value is None:
-        return {}
-    if isinstance(value, list):
-        if len(value) > MAX_DICTIONARY_ALIASES:
-            raise HoshidictsMiningError("Hoshidicts dictionary aliases are invalid.")
-        entries = [
-            (item.get("dictionary"), item.get("alias", item.get("displayName")))
-            for item in value
-            if isinstance(item, dict)
-        ]
-        if len(entries) != len(value):
-            raise HoshidictsMiningError("Hoshidicts dictionary aliases are invalid.")
-    elif isinstance(value, dict):
-        if len(value) > MAX_DICTIONARY_ALIASES:
-            raise HoshidictsMiningError("Hoshidicts dictionary aliases are invalid.")
-        entries = list(value.items())
-    else:
-        raise HoshidictsMiningError("Hoshidicts dictionary aliases are invalid.")
-
-    aliases = {}
-    for raw_dictionary, raw_alias in entries:
-        dictionary = bounded_string(
-            raw_dictionary,
-            "Hoshidicts dictionary alias name",
-            MAX_TERM_LENGTH,
-            allow_empty=False,
-        )
-        alias = bounded_string(
-            raw_alias,
-            "Hoshidicts dictionary alias",
-            MAX_TERM_LENGTH,
-            allow_empty=False,
-        )
-        aliases[dictionary] = alias
-    return aliases
-
-
-def _validate_frequency_dictionaries(value: Any) -> list[str] | None:
-    if value is None:
-        return None
-    entries = require_list(
-        value,
-        "Hoshidicts frequency dictionaries",
-        MAX_FREQUENCY_DICTIONARIES,
-    )
-    dictionaries = []
-    seen = set()
-    for raw_dictionary in entries:
-        dictionary = bounded_string(
-            raw_dictionary,
-            "Hoshidicts frequency dictionary name",
-            MAX_TERM_LENGTH,
-            allow_empty=False,
-        )
-        if dictionary in seen:
-            continue
-        seen.add(dictionary)
-        dictionaries.append(dictionary)
-    return dictionaries
-
-
-def _validate_dictionary_media(value: Any) -> list[dict[str, str]]:
-    if value is None:
-        return []
-    entries = require_list(value, "Hoshidicts dictionary media", MAX_DICTIONARY_MEDIA)
+def _dictionary_media(value: Any) -> list[dict[str, str]]:
     output = []
     seen = set()
-    for item in entries:
-        if not isinstance(item, dict):
-            raise HoshidictsMiningError("Hoshidicts dictionary media is invalid.")
-        dictionary = bounded_string(
-            item.get("dictionary"),
-            "Hoshidicts dictionary media name",
-            MAX_TERM_LENGTH,
-            allow_empty=False,
-        )
-        path = bounded_string(
-            item.get("path"),
-            "Hoshidicts dictionary media path",
-            MAX_TERM_LENGTH,
-            allow_empty=False,
-        )
-        media_type = bounded_string(
-            item.get("mediaType"),
-            "Hoshidicts dictionary media type",
-            64,
-            allow_empty=False,
-        ).lower()
+    for raw in _items(value, MAX_DICTIONARY_MEDIA):
+        item = _record(raw)
+        dictionary = _text(item.get("dictionary"), MAX_TERM_LENGTH)
+        path = _text(item.get("path"), MAX_TERM_LENGTH)
+        media_type = _text(item.get("mediaType"), 64).lower()
+        encoded = _text(item.get("dataBase64"), ((MAX_DICTIONARY_MEDIA_BYTES + 2) // 3) * 4)
         extension = _DICTIONARY_MEDIA_EXTENSIONS.get(media_type)
-        encoded = bounded_string(
-            item.get("dataBase64"),
-            "Hoshidicts dictionary media data",
-            ((MAX_DICTIONARY_MEDIA_BYTES + 2) // 3) * 4,
-            allow_empty=False,
-        )
-        if extension is None:
-            raise HoshidictsMiningError("Hoshidicts dictionary media is invalid.")
+        key = (dictionary, path)
+        if not dictionary or not path or extension is None or key in seen:
+            continue
+        # Still decoded here: the filename is a digest of the bytes, and an
+        # undecodable payload would otherwise reach Anki as a broken attachment.
         try:
             data = base64.b64decode(encoded, validate=True)
-        except (binascii.Error, ValueError) as exc:
-            raise HoshidictsMiningError("Hoshidicts dictionary media is invalid.") from exc
+        except (binascii.Error, ValueError):
+            continue
         if not data or len(data) > MAX_DICTIONARY_MEDIA_BYTES:
-            raise HoshidictsMiningError("Hoshidicts dictionary media is invalid.")
-        key = (dictionary, path)
-        if key in seen:
             continue
         seen.add(key)
         output.append(
@@ -428,57 +253,43 @@ def highlight_sentence_match(request: dict[str, Any]) -> str:
 
 
 def validate_hoshidicts_mining_request(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise HoshidictsMiningError("Hoshidicts mining request must be an object.")
-    sentence = bounded_string(
-        value.get("sentence", ""),
-        "Hoshidicts sentence",
-        MAX_TEXT_LENGTH,
-        allow_empty=False,
-    )
-    match_offset = value.get("matchOffset")
-    if not isinstance(match_offset, int) or isinstance(match_offset, bool) or match_offset < 0:
+    """Coerces one overlay-built mining payload into the shape Anki card building
+    indexes. Only what the builder cannot recover from still raises."""
+    request = _record(value)
+    sentence = _text(request.get("sentence"))
+    if not sentence:
+        raise HoshidictsMiningError("Hoshidicts sentence is invalid.")
+
+    raw_offset = request.get("matchOffset")
+    if isinstance(raw_offset, bool) or not isinstance(raw_offset, (int, float)):
+        raise HoshidictsMiningError("Hoshidicts match offset is invalid.")
+    match_offset = int(raw_offset)
+    if match_offset < 0:
         raise HoshidictsMiningError("Hoshidicts match offset is invalid.")
 
-    result = value.get("result")
-    if not isinstance(result, dict) or not isinstance(result.get("term"), dict):
-        raise HoshidictsMiningError("Hoshidicts lookup result is invalid.")
-    term = result["term"]
-    glossaries = [
-        _validate_glossary(item)
-        for item in require_list(
-            term.get("glossaries", []),
-            "Hoshidicts glossaries",
-            MAX_GLOSSARIES,
-        )
-    ]
+    result = _record(request.get("result"))
+    term = _record(result.get("term"))
+    glossaries = [_glossary(item) for item in _items(term.get("glossaries"), MAX_GLOSSARIES)]
     if not glossaries:
         raise HoshidictsMiningError("Hoshidicts lookup result has no definitions.")
 
-    audio_selection = value.get("audioSelection")
+    audio_selection = request.get("audioSelection")
     if audio_selection is not None:
-        if not isinstance(audio_selection, dict) or set(audio_selection) != {
-            "sourceId",
-            "candidateIndex",
-            "candidateId",
-        }:
-            raise HoshidictsMiningError("Hoshidicts audio selection is invalid.")
-        source_id = bounded_string(
-            audio_selection.get("sourceId"),
-            "Hoshidicts audio source ID",
-            MAX_AUDIO_SOURCE_ID_LENGTH,
-            allow_empty=False,
-        )
-        candidate_index = audio_selection.get("candidateIndex")
-        candidate_id = audio_selection.get("candidateId")
+        selection = _record(audio_selection)
+        source_id = _text(selection.get("sourceId"), MAX_AUDIO_SOURCE_ID_LENGTH)
+        candidate_index = selection.get("candidateIndex")
+        candidate_id = selection.get("candidateId")
         if (
-            _AUDIO_SOURCE_ID_PATTERN.fullmatch(source_id) is None
+            not source_id
+            or _AUDIO_SOURCE_ID_PATTERN.fullmatch(source_id) is None
             or not isinstance(candidate_index, int)
             or isinstance(candidate_index, bool)
             or not 0 <= candidate_index < MAX_AUDIO_CANDIDATES
             or not isinstance(candidate_id, str)
             or _AUDIO_CANDIDATE_ID_PATTERN.fullmatch(candidate_id) is None
         ):
+            # The id is a digest the audio pipeline matches against its own
+            # candidate list, so a wrong one has to fail rather than default.
             raise HoshidictsMiningError("Hoshidicts audio selection is invalid.")
         audio_selection = {
             "sourceId": source_id,
@@ -486,97 +297,53 @@ def validate_hoshidicts_mining_request(value: Any) -> dict[str, Any]:
             "candidateId": candidate_id,
         }
 
+    matched = _text(result.get("matched"), MAX_TERM_LENGTH)
     normalized = {
-        "matched": bounded_string(
-            result.get("matched", ""),
-            "Hoshidicts matched text",
-            MAX_TERM_LENGTH,
-            allow_empty=False,
-        ),
-        "deinflected": bounded_string(
-            result.get("deinflected", ""),
-            "Hoshidicts deinflected text",
-            MAX_TERM_LENGTH,
-        ),
+        "matched": matched,
+        "deinflected": _text(result.get("deinflected"), MAX_TERM_LENGTH),
         "trace": [
             {
-                "name": bounded_string(
-                    item.get("name", "") if isinstance(item, dict) else None,
-                    "Hoshidicts trace name",
-                    1024,
-                    allow_empty=False,
-                ),
-                "description": bounded_string(
-                    item.get("description", "") if isinstance(item, dict) else None,
-                    "Hoshidicts trace description",
-                    MAX_TERM_LENGTH,
-                ),
+                "name": _text(_record(item).get("name"), 1024),
+                "description": _text(_record(item).get("description"), MAX_TERM_LENGTH),
             }
-            for item in require_list(
-                result.get("trace", []),
-                "Hoshidicts trace",
-                32,
-            )
+            for item in _items(result.get("trace"), 32)
         ],
         "term": {
-            "expression": bounded_string(
-                term.get("expression", ""),
-                "Hoshidicts expression",
-                MAX_TERM_LENGTH,
-                allow_empty=False,
-            ),
-            "reading": bounded_string(
-                term.get("reading", ""),
-                "Hoshidicts reading",
-                MAX_TERM_LENGTH,
-            ),
-            "rules": bounded_string(
-                term.get("rules", ""),
-                "Hoshidicts rules",
-                MAX_TERM_LENGTH,
-            ),
+            "expression": _text(term.get("expression"), MAX_TERM_LENGTH),
+            "reading": _text(term.get("reading"), MAX_TERM_LENGTH),
+            "rules": _text(term.get("rules"), MAX_TERM_LENGTH),
             "glossaries": glossaries,
-            "frequencies": [
-                _validate_frequency_group(item)
-                for item in require_list(
-                    term.get("frequencies", []),
-                    "Hoshidicts frequency groups",
-                    MAX_METADATA_GROUPS,
-                )
-            ],
-            "pitches": [
-                _validate_pitch_group(item)
-                for item in require_list(
-                    term.get("pitches", []),
-                    "Hoshidicts pitch groups",
-                    MAX_METADATA_GROUPS,
-                )
-            ],
+            "frequencies": [_frequency_group(item) for item in _items(term.get("frequencies"), MAX_METADATA_GROUPS)],
+            "pitches": [_pitch_group(item) for item in _items(term.get("pitches"), MAX_METADATA_GROUPS)],
         },
         "sentence": sentence,
         "matchOffset": match_offset,
         "audioSelection": audio_selection,
-        "dictionaryStyles": _validate_dictionary_styles(value.get("dictionaryStyles")),
-        "dictionaryAliases": _validate_dictionary_aliases(value.get("dictionaryAliases")),
-        "frequencyDictionaries": _validate_frequency_dictionaries(value.get("frequencyDictionaries")),
-        "dictionaryMedia": _validate_dictionary_media(value.get("dictionaryMedia")),
-        "popupSelectionText": bounded_string(
-            value.get("popupSelectionText", ""),
-            "Hoshidicts popup selection text",
-            MAX_TEXT_LENGTH,
+        "dictionaryStyles": _keyed_text(request.get("dictionaryStyles"), MAX_DICTIONARY_STYLES, "styles", "css"),
+        "dictionaryAliases": _keyed_text(
+            request.get("dictionaryAliases"), MAX_DICTIONARY_ALIASES, "alias", "displayName"
         ),
-        "documentTitle": bounded_string(
-            value.get("documentTitle", ""),
-            "Hoshidicts document title",
-            MAX_TERM_LENGTH,
+        "frequencyDictionaries": (
+            None
+            if request.get("frequencyDictionaries") is None
+            else list(
+                dict.fromkeys(
+                    dictionary
+                    for dictionary in (
+                        _text(item, MAX_TERM_LENGTH)
+                        for item in _items(request.get("frequencyDictionaries"), MAX_FREQUENCY_DICTIONARIES)
+                    )
+                    if dictionary
+                )
+            )
         ),
-        "searchQuery": bounded_string(
-            value.get("searchQuery", ""),
-            "Hoshidicts search query",
-            MAX_TEXT_LENGTH,
-        ),
+        "dictionaryMedia": _dictionary_media(request.get("dictionaryMedia")),
+        "popupSelectionText": _text(request.get("popupSelectionText")),
+        "documentTitle": _text(request.get("documentTitle"), MAX_TERM_LENGTH),
+        "searchQuery": _text(request.get("searchQuery")),
     }
-    if not _utf16_suffix(sentence, match_offset).startswith(normalized["matched"]):
+    # The card builder slices the sentence by this offset to highlight the match.
+    if not _utf16_suffix(sentence, match_offset).startswith(matched):
         raise HoshidictsMiningError("Hoshidicts match offset does not point at the matched text.")
     return normalized
 
