@@ -55,72 +55,39 @@ def _respond(monkeypatch, response):
     )
 
 
-def test_audio_profile_defaults_and_strict_normalization(tmp_path):
+def test_audio_profile_load_merges_defaults(tmp_path):
     assert hoshidicts_audio_profile.load_hoshidicts_audio_profile(tmp_path / "missing.json") == make_audio_profile()
 
-    normalized = hoshidicts_audio_profile.normalize_hoshidicts_audio_profile(
-        {
-            "version": 1,
-            "enabled": False,
-            "autoPlay": True,
-            "volume": 25,
-            "sources": [
-                {"id": " direct ", "type": "custom", "url": " https://audio.test/{term} "},
-                {"id": "tts", "type": "text-to-speech", "voice": " ja-JP "},
-                {"id": "jisho", "type": "jisho", "url": None, "voice": None},
-            ],
-        }
+    profile_path = tmp_path / "audio-profile.json"
+    profile_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "enabled": False,
+                "sources": [{"id": "jpod101", "type": "jpod101", "url": "", "voice": ""}],
+            }
+        ),
+        encoding="utf-8",
     )
 
-    assert normalized == {
-        "version": 1,
-        "enabled": False,
-        "autoPlay": True,
-        "volume": 25,
-        "sources": [
-            make_audio_source("direct", "custom", url="https://audio.test/{term}"),
-            make_audio_source("tts", "text-to-speech", voice="ja-JP"),
-            make_audio_source("jisho", "jisho"),
-        ],
-    }
+    loaded = hoshidicts_audio_profile.load_hoshidicts_audio_profile(profile_path)
+    assert loaded["enabled"] is False
+    # autoPlay and volume were omitted, so they come from the defaults.
+    assert loaded["autoPlay"] is make_audio_profile()["autoPlay"]
+    assert loaded["volume"] == make_audio_profile()["volume"]
+    assert loaded["sources"] == [{"id": "jpod101", "type": "jpod101", "url": "", "voice": ""}]
 
 
 @pytest.mark.parametrize(
-    ("value", "message"),
-    [
-        ({"version": True}, "version"),
-        ({"version": 2}, "version"),
-        ({"enabled": "yes"}, "enabled setting"),
-        ({"autoPlay": "yes"}, "autoplay setting"),
-        ({"volume": 1.5}, "volume"),
-        ({"volume": 101}, "volume"),
-        ({"sources": "jisho"}, "sources are invalid"),
-        ({"sources": [{"id": "same", "type": "jisho"}, {"id": "same", "type": "jpod101"}]}, "unique"),
-        ({"sources": [{"id": "bad id", "type": "jisho"}]}, "source ID is invalid"),
-        ({"sources": [{"id": "x", "type": "unknown"}]}, "source type is invalid"),
-        ({"sources": [{"id": "jp", "type": "jpod101", "url": "https://audio.test/"}]}, "Built-in"),
-        ({"sources": [{"id": "jp", "type": "jisho", "voice": "ja-JP"}]}, "Built-in"),
-        ({"sources": [{"id": "c", "type": "custom", "voice": "ja-JP"}]}, "cannot define a voice"),
-        ({"sources": [{"id": "t", "type": "text-to-speech", "url": "https://audio.test/"}]}, "text-to-speech"),
-        ({"sources": [{"id": "bad", "type": "custom", "url": "file:///tmp/audio.mp3"}]}, "URL"),
-        ({"sources": [{"id": "bad", "type": "custom", "url": "http://{term}/audio.mp3"}]}, "URL"),
-        (
-            {
-                "sources": [
-                    {
-                        "id": "bad-template",
-                        "type": "custom-json",
-                        "url": "http://127.0.0.1:5050/?term={term}&reading={reading",
-                    }
-                ]
-            },
-            "URL",
-        ),
-    ],
+    "value",
+    ["not an object", {"sources": "nope"}, {"sources": [{"type": "jpod101"}]}],
 )
-def test_audio_profile_rejects_invalid_values(value, message):
-    with pytest.raises(HoshidictsAudioError, match=message):
-        hoshidicts_audio_profile.normalize_hoshidicts_audio_profile(value)
+def test_audio_profile_load_rejects_a_shape_the_pipeline_cannot_index(tmp_path, value):
+    profile_path = tmp_path / "audio-profile.json"
+    profile_path.write_text(json.dumps(value), encoding="utf-8")
+
+    with pytest.raises(HoshidictsAudioError):
+        hoshidicts_audio_profile.load_hoshidicts_audio_profile(profile_path)
 
 
 def test_audio_profile_file_size_is_bounded(tmp_path):

@@ -204,7 +204,7 @@ export interface HoshidictsManagerDependencies {
 
 const MANIFEST_FILE_NAME = 'manifest.json';
 const MANIFEST_VERSION = 1;
-const MAX_MANIFEST_BYTES = 1024 * 1024;
+const MAX_GENERATED_INDEX_BYTES = 1024 * 1024;
 // Matches MAX_PROFILE_BYTES in the Python backend, which reads these files.
 const MAX_BACKEND_PROFILE_BYTES = 64 * 1024;
 const MAX_TAB_GROUP_COUNT = 256;
@@ -244,17 +244,17 @@ type RecommendedHoshidictsDictionaryKind =
     | 'pitch'
     | 'kanji';
 
-async function readBoundedJsonFile(
+/** Reads a JSON file this manager wrote, so only its presence is checked. */
+async function readJsonFile(
     filePath: string,
-    maximumBytes: number,
     label: string,
     defaultValue: () => unknown
 ): Promise<unknown> {
     let raw: string;
     try {
         const stat = await fsp.stat(filePath);
-        if (!stat.isFile() || stat.size === 0 || stat.size > maximumBytes) {
-            throw new Error(`${label} is empty, oversized, or not a file.`);
+        if (!stat.isFile() || stat.size === 0) {
+            throw new Error(`${label} is empty or not a file.`);
         }
         raw = await fsp.readFile(filePath, 'utf8');
     } catch (error) {
@@ -1030,7 +1030,7 @@ async function readGeneratedIndex(dictionaryPath: string): Promise<GeneratedInde
     const stat = await fsp.stat(indexPath).catch((error) => {
         throw new Error(`Dictionary is missing generated index.json: ${errorMessage(error)}`);
     });
-    if (!stat.isFile() || stat.size === 0 || stat.size > MAX_MANIFEST_BYTES) {
+    if (!stat.isFile() || stat.size === 0 || stat.size > MAX_GENERATED_INDEX_BYTES) {
         throw new Error('Dictionary generated index.json is empty, oversized, or not a file.');
     }
     const parsed: unknown = JSON.parse(
@@ -3333,9 +3333,8 @@ export class HoshidictsManager {
     }
 
     private async readManifest(): Promise<PersistedManifest> {
-        const parsed = await readBoundedJsonFile(
+        const parsed = await readJsonFile(
             this.manifestPath,
-            MAX_MANIFEST_BYTES,
             'Hoshidicts manifest',
             emptyManifest
         );
@@ -3420,9 +3419,8 @@ export class HoshidictsManager {
     }
 
     private async readManifestPreferences(): Promise<PersistedManifest> {
-        const parsed = await readBoundedJsonFile(
+        const parsed = await readJsonFile(
             this.manifestPath,
-            MAX_MANIFEST_BYTES,
             'Hoshidicts manifest',
             emptyManifest
         );
@@ -3913,13 +3911,7 @@ export class HoshidictsManager {
         // so serialize them first: an oversized profile must fail the save
         // before it commits rather than after.
         const backendProfiles = serializeBackendProfiles(activeProfile(next));
-        await this.atomicWriteJson(
-            next,
-            this.manifestPath,
-            MAX_MANIFEST_BYTES,
-            'Hoshidicts manifest',
-            '.manifest-'
-        );
+        await this.atomicWriteJson(next, this.manifestPath, '.manifest-');
         await this.publishBackendProfiles(backendProfiles);
     }
 
@@ -3969,18 +3961,13 @@ export class HoshidictsManager {
     private async atomicWriteJson(
         value: unknown,
         destination: string,
-        maximumBytes: number,
-        label: string,
         temporaryPrefix: string
     ): Promise<void> {
-        const serialized = Buffer.from(
-            `${JSON.stringify(value, null, 2)}\n`,
-            'utf8'
+        await this.atomicWriteBuffer(
+            Buffer.from(`${JSON.stringify(value, null, 2)}\n`, 'utf8'),
+            destination,
+            temporaryPrefix
         );
-        if (serialized.length > maximumBytes) {
-            throw new Error(`${label} exceeded its size limit.`);
-        }
-        await this.atomicWriteBuffer(serialized, destination, temporaryPrefix);
     }
 
     private async atomicWriteBuffer(

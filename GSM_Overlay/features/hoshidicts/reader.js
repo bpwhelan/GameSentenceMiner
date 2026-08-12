@@ -47,7 +47,6 @@
     createHoshidictsAudioClient,
     createHoshidictsAudioController,
     normalizeLocalHttpBaseUrl,
-    normalizeAudioProfile,
   } = audioApi;
 
   const LOOKUP_REQUEST_TIMEOUT_MS = 4 * 1000;
@@ -5586,7 +5585,6 @@
     createHoshidictsReader,
     expandPopupButtonUrl,
     normalizeActivationKey,
-    normalizeAudioProfile,
     normalizeTheme,
     normalizePopupButtons,
     normalizeLookupResults,
