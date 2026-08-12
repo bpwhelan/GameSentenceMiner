@@ -363,7 +363,8 @@ export type HoshidictsTheme =
 export interface HoshidictsThemeDefinition {
     id: HoshidictsTheme;
     category: GsmThemeCategory;
-    labelKey: string;
+    labelKey?: string;
+    label?: string;
 }
 
 const GSM_HOSHIDICTS_THEME_DEFINITIONS: readonly HoshidictsThemeDefinition[] =

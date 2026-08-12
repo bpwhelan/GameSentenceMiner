@@ -18,7 +18,9 @@ export type GsmThemeCategory = (typeof GSM_THEME_GROUP_DEFINITIONS)[number]['id'
 export interface GsmThemeDefinition {
     id: string;
     category: GsmThemeCategory;
-    labelKey: string;
+    /** Only GSM's own themes are translated; daisyUI ids carry a `label`. */
+    labelKey?: string;
+    label?: string;
 }
 
 /**
@@ -76,6 +78,19 @@ const GSM_THEME_IDS_BY_CATEGORY = {
 export type GsmThemeId =
     (typeof GSM_THEME_IDS_BY_CATEGORY)[GsmThemeCategory][number];
 
+/**
+ * GSM's own themes are named in the locale files; daisyUI's are its own product
+ * names, which read the same in every language, so they are title-cased from the
+ * id rather than carrying 35 identical keys per locale.
+ */
+const TRANSLATED_THEME_IDS = new Set([
+    'gsm-dark',
+    'catppuccin-mocha',
+    'solarized-dark',
+    'solarized-light',
+    'high-contrast',
+]);
+
 /** `solarized-dark` is labelled by `settings.themeCatalog.names.solarizedDark`. */
 function themeLabelKey(id: string): string {
     const name = id.replace(/-([a-z])/gu, (_, letter: string) =>
@@ -84,15 +99,22 @@ function themeLabelKey(id: string): string {
     return `settings.themeCatalog.names.${name}`;
 }
 
+/** `lo-fi` becomes `Lo Fi`. */
+function titleCase(id: string): string {
+    return id.replace(/(^|-)([a-z])/gu, (_, separator: string, letter: string) =>
+        `${separator ? ' ' : ''}${letter.toUpperCase()}`
+    );
+}
+
 /** `id` keeps its literal type so callers can narrow to a specific theme. */
 export const GSM_THEME_DEFINITIONS: readonly (Omit<GsmThemeDefinition, 'id'> & {
     id: GsmThemeId;
 })[] = GSM_THEME_GROUP_DEFINITIONS.flatMap(({ id: category }) =>
-    GSM_THEME_IDS_BY_CATEGORY[category].map((id) => ({
-        id,
-        category,
-        labelKey: themeLabelKey(id),
-    }))
+    GSM_THEME_IDS_BY_CATEGORY[category].map((id) =>
+        TRANSLATED_THEME_IDS.has(id)
+            ? { id, category, labelKey: themeLabelKey(id) }
+            : { id, category, label: titleCase(id) }
+    )
 );
 
 export const GSM_THEME_IDS: readonly GsmThemeId[] = GSM_THEME_DEFINITIONS.map(

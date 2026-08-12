@@ -421,7 +421,7 @@ export function HoshidictsDesignPanel({
                 <optgroup key={group.id} label={t(group.labelKey)}>
                   {group.themes.map((theme) => (
                     <option key={theme.id} value={theme.id}>
-                      {t(theme.labelKey)}
+                      {theme.labelKey ? t(theme.labelKey) : theme.label}
                     </option>
                   ))}
                 </optgroup>

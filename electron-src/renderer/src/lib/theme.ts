@@ -16,8 +16,7 @@ export type ThemeCategory = GsmThemeCategory;
 export interface ThemeOption {
   id: GsmThemeId;
   category: ThemeCategory;
-  labelKey: string;
-  /** Kept for compatibility with the picker; catalogue entries use labelKey. */
+  labelKey?: string;
   label?: string;
 }
 
