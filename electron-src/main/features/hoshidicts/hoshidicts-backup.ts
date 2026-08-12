@@ -10,8 +10,6 @@ import { pipeline } from 'node:stream/promises';
 
 import yauzl, { type Entry, type ZipFile } from 'yauzl';
 
-import { MAX_HOSHIDICTS_TAB_GROUPS_BYTES } from '../../../shared/features/hoshidicts.js';
-
 export const HOSHIDICTS_BACKUP_MANIFEST_FILE_NAME = 'hoshidicts-backup.json';
 export const HOSHIDICTS_BACKUP_VERSION = 1;
 
@@ -21,13 +19,11 @@ const MANAGER_MANIFEST_FILE_NAME = 'manifest.json';
 const MINING_PROFILE_FILE_NAME = 'mining-profile.json';
 const AUDIO_PROFILE_FILE_NAME = 'audio-profile.json';
 const CUSTOM_DICTIONARY_FILE_NAME = 'custom-dictionary.txt';
-const TAB_GROUPS_FILE_NAME = 'tab-groups.json';
 const STATE_FILE_NAMES = [
     MANAGER_MANIFEST_FILE_NAME,
     MINING_PROFILE_FILE_NAME,
     AUDIO_PROFILE_FILE_NAME,
     CUSTOM_DICTIONARY_FILE_NAME,
-    TAB_GROUPS_FILE_NAME,
 ] as const;
 const REQUIRED_DICTIONARY_FILES = ['hash.table', 'bloom.filter', 'blobs.bin'] as const;
 const REQUIRED_MEDIA_FILES = ['media.idx', 'media.bin'] as const;
@@ -63,8 +59,6 @@ export interface HoshidictsBackupStateReferences {
     miningProfile: typeof MINING_PROFILE_FILE_NAME | null;
     audioProfile: typeof AUDIO_PROFILE_FILE_NAME | null;
     customDictionary: typeof CUSTOM_DICTIONARY_FILE_NAME | null;
-    // Missing means a backup created before tab groups; null explicitly records no groups file.
-    tabGroups?: typeof TAB_GROUPS_FILE_NAME | null;
 }
 
 export interface HoshidictsBackupManifest {
@@ -259,7 +253,6 @@ async function validateOptionalJsonState(
     for (const [reference, label, maximumBytes] of [
         [state.miningProfile, 'Hoshidicts mining profile', MAX_PROFILE_BYTES],
         [state.audioProfile, 'Hoshidicts audio profile', MAX_PROFILE_BYTES],
-        [state.tabGroups, 'Hoshidicts tab groups', MAX_HOSHIDICTS_TAB_GROUPS_BYTES],
     ] as const) {
         if (reference !== null && reference !== undefined) {
             await readBoundedJsonFile(resolveInside(payloadRoot, reference), maximumBytes, label);
@@ -516,15 +509,6 @@ function parseBackupManifest(value: unknown): HoshidictsBackupManifest {
                           'Hoshidicts backup has an invalid custom dictionary reference.',
                       );
                   })(),
-        tabGroups:
-            value.state.tabGroups === undefined
-                ? undefined
-                : value.state.tabGroups === null ||
-                    value.state.tabGroups === TAB_GROUPS_FILE_NAME
-                  ? value.state.tabGroups
-                  : (() => {
-                        throw new Error('Hoshidicts backup has an invalid tab groups reference.');
-                    })(),
     };
     const dictionaries = value.dictionaries.map((dictionary, index) => {
         if (!isRecord(dictionary)) {
@@ -615,7 +599,6 @@ async function validateBackupContents(
         manifest.state.miningProfile,
         manifest.state.audioProfile,
         manifest.state.customDictionary,
-        manifest.state.tabGroups,
     ]) {
         if (reference !== null && reference !== undefined) {
             expectedStateFiles.add(reference);
@@ -740,8 +723,7 @@ export async function exportHoshidictsBackup(
     const miningProfile = await optionalSourceFile(rootDir, MINING_PROFILE_FILE_NAME);
     const audioProfile = await optionalSourceFile(rootDir, AUDIO_PROFILE_FILE_NAME);
     const customDictionary = await optionalSourceFile(rootDir, CUSTOM_DICTIONARY_FILE_NAME);
-    const tabGroups = await optionalSourceFile(rootDir, TAB_GROUPS_FILE_NAME);
-    for (const file of [miningProfile, audioProfile, customDictionary, tabGroups]) {
+    for (const file of [miningProfile, audioProfile, customDictionary]) {
         if (file) {
             files.push(file);
         }
@@ -770,7 +752,6 @@ export async function exportHoshidictsBackup(
         miningProfile: miningProfile ? MINING_PROFILE_FILE_NAME : null,
         audioProfile: audioProfile ? AUDIO_PROFILE_FILE_NAME : null,
         customDictionary: customDictionary ? CUSTOM_DICTIONARY_FILE_NAME : null,
-        tabGroups: tabGroups ? TAB_GROUPS_FILE_NAME : null,
     };
     const manifest: HoshidictsBackupManifest = {
         format: HOSHIDICTS_BACKUP_FORMAT,
@@ -1067,14 +1048,7 @@ async function installStateFiles(
         [MINING_PROFILE_FILE_NAME, state.miningProfile !== null],
         [AUDIO_PROFILE_FILE_NAME, state.audioProfile !== null],
         [CUSTOM_DICTIONARY_FILE_NAME, state.customDictionary !== null],
-        [
-            TAB_GROUPS_FILE_NAME,
-            state.tabGroups === undefined ? undefined : state.tabGroups !== null,
-        ],
     ] as const) {
-        if (included === undefined) {
-            continue;
-        }
         const targetPath = path.join(targetRootDir, fileName);
         if (included) {
             await atomicReplaceFromFile(path.join(pendingRoot, fileName), targetPath, token);
@@ -1212,7 +1186,6 @@ export async function commitPreparedHoshidictsBackupRestore(
             prepared.manifest.state.miningProfile,
             prepared.manifest.state.audioProfile,
             prepared.manifest.state.customDictionary,
-            prepared.manifest.state.tabGroups,
         ]) {
             if (reference !== null && reference !== undefined) {
                 await fsp.copyFile(

@@ -9,7 +9,7 @@ import Assembler from 'stream-json/assembler.js';
 import type { Token } from 'stream-json/parser.js';
 
 import {
-    DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
+    normalizeHoshidictsReaderPreferences,
     HOSHIDICTS_AUDIO_SOURCE_TYPES,
     HOSHIDICTS_DUPLICATE_BEHAVIORS,
     HOSHIDICTS_DUPLICATE_SCOPES,
@@ -895,49 +895,14 @@ function audioProfile(audio: JsonRecord, warnings: string[]): HoshidictsAudioPro
     });
 }
 
-function currentReaderPreferences(current: HoshidictsManagerSnapshot): HoshidictsReaderPreferences {
-    return {
-        lookupMode: current.lookupMode,
-        scanLength: current.scanLength,
-        maxResults: current.maxResults,
-        sortFrequencyDictionary: current.sortFrequencyDictionary,
-        sortFrequencyDictionaryOrder: current.sortFrequencyDictionaryOrder,
-        activationKey: current.activationKey,
-        sourceHighlightEnabled: current.sourceHighlightEnabled,
-        onlyScanJapaneseText: current.onlyScanJapaneseText,
-        popupHideDelayMs: current.popupHideDelayMs,
-        showLookupCounts: current.showLookupCounts,
-        averageFrequency: current.averageFrequency,
-        showFrequencyDictionaryNames: current.showFrequencyDictionaryNames,
-        showCompactDefinitionSummary: current.showCompactDefinitionSummary,
-        compactDefinitionSummaryCount:
-            current.compactDefinitionSummaryCount,
-        compactDefinitionSummaryDictionary:
-            current.compactDefinitionSummaryDictionary,
-        showPitchAccentFurigana: current.showPitchAccentFurigana,
-        pitchAccentFuriganaDictionary:
-            current.pitchAccentFuriganaDictionary,
-        showPitchAccentBadge: current.showPitchAccentBadge,
-        hidePopupGrammarTags: current.hidePopupGrammarTags,
-        popupNestingMaxDepth: current.popupNestingMaxDepth,
-        definitionBlur: { ...current.definitionBlur },
-        popupWidthPx: current.popupWidthPx,
-        popupHeightPx: current.popupHeightPx,
-        popupColumns: current.popupColumns,
-        theme: current.theme,
-        popupOpacityPercent: current.popupOpacityPercent,
-        popupBackdropBlurPx:
-            current.popupBackdropBlurPx ??
-            DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
-        popupToolbarPosition: current.popupToolbarPosition,
-        popupButtons: {
-            ...current.popupButtons,
-            customLinks: current.popupButtons.customLinks.map((link) => ({
-                ...link,
-            })),
-        },
-        customPopupCss: current.customPopupCss,
-    };
+/**
+ * The import starts from what Hoshidicts is using today and overlays only the
+ * Yomitan settings it recognises.
+ */
+function currentReaderPreferences(
+    current: HoshidictsManagerSnapshot
+): HoshidictsReaderPreferences {
+    return normalizeHoshidictsReaderPreferences(current);
 }
 
 function readerPreferences(

@@ -139,19 +139,6 @@ async function writeTestRoot(
                 JSON.stringify({ version: 1, sources: [{ type: 'jpod101' }] }),
             ),
             fsp.writeFile(path.join(rootDir, 'custom-dictionary.txt'), '# custom\n猫, ねこ, cat\n'),
-            fsp.writeFile(
-                path.join(rootDir, 'tab-groups.json'),
-                JSON.stringify({
-                    version: 1,
-                    groups: [
-                        {
-                            id: 'grammar',
-                            name: 'Grammar',
-                            dictionaryIds: [id],
-                        },
-                    ],
-                }),
-            ),
         ]);
     }
     return { dictionaryPath, manifest };
@@ -255,7 +242,6 @@ describe('Hoshidicts full backups', () => {
         expect(exported.manifest.version).toBe(1);
         expect(exported.manifest.createdAt).toBe('2026-08-08T12:00:00.000Z');
         expect(exported.manifest.dictionaries).toEqual([{ id: 'jitendex', path: dictionaryPath }]);
-        expect(exported.manifest.state.tabGroups).toBe('tab-groups.json');
         expect(
             exported.manifest.files.find((file) => file.path.endsWith('/blobs.bin'))?.sha256,
         ).toMatch(/^[a-f0-9]{64}$/u);
@@ -320,9 +306,6 @@ describe('Hoshidicts full backups', () => {
             await expect(
                 fsp.readFile(path.join(targetRoot, 'custom-dictionary.txt'), 'utf8'),
             ).resolves.toContain('猫, ねこ, cat');
-            await expect(
-                fsp.readFile(path.join(targetRoot, 'tab-groups.json'), 'utf8'),
-            ).resolves.toContain('"name":"Grammar"');
             await expect(
                 fsp.stat(path.join(targetRoot, 'generations', 'jitendex', 'target-old-generation')),
             ).resolves.toMatchObject({ isDirectory: expect.any(Function) });
@@ -491,7 +474,6 @@ describe('Hoshidicts full backups', () => {
                 miningProfile: null,
                 audioProfile: null,
                 customDictionary: null,
-                tabGroups: null,
             });
             await commitPreparedHoshidictsBackupRestore(prepared, {
                 targetRootDir: targetRoot,
@@ -501,7 +483,6 @@ describe('Hoshidicts full backups', () => {
                 'mining-profile.json',
                 'audio-profile.json',
                 'custom-dictionary.txt',
-                'tab-groups.json',
             ]) {
                 await expect(fsp.stat(path.join(targetRoot, fileName))).rejects.toMatchObject({
                     code: 'ENOENT',
@@ -525,7 +506,6 @@ describe('Hoshidicts full backups', () => {
         const originalMining = await fsp.readFile(path.join(targetRoot, 'mining-profile.json'));
         const originalAudio = await fsp.readFile(path.join(targetRoot, 'audio-profile.json'));
         const originalCustom = await fsp.readFile(path.join(targetRoot, 'custom-dictionary.txt'));
-        const originalTabGroups = await fsp.readFile(path.join(targetRoot, 'tab-groups.json'));
         const prepared = await prepareRoundTrip(workspace, sourceRoot);
         const activate = vi
             .fn<() => Promise<void>>()
@@ -553,9 +533,6 @@ describe('Hoshidicts full backups', () => {
                 fsp.readFile(path.join(targetRoot, 'custom-dictionary.txt')),
             ).resolves.toEqual(originalCustom);
             await expect(
-                fsp.readFile(path.join(targetRoot, 'tab-groups.json')),
-            ).resolves.toEqual(originalTabGroups);
-            await expect(
                 fsp.stat(path.join(targetRoot, 'generations', 'jitendex', 'failed-restore')),
             ).rejects.toMatchObject({ code: 'ENOENT' });
             await expect(
@@ -566,43 +543,4 @@ describe('Hoshidicts full backups', () => {
         }
     });
 
-    it('preserves live tab groups when restoring a backup created before tab groups existed', async () => {
-        const workspace = makeTempDirectory('gsm-hoshidicts-backup-legacy-tab-groups-');
-        const sourceRoot = path.join(workspace, 'source');
-        const targetRoot = path.join(workspace, 'target');
-        await writeTestRoot(sourceRoot, { includeOptionalState: false });
-        await writeTestRoot(targetRoot, { generation: 'target-with-tab-groups' });
-
-        const currentArchive = path.join(workspace, 'current.zip');
-        await exportHoshidictsBackup({ rootDir: sourceRoot, outputPath: currentArchive });
-        const extracted = path.join(workspace, 'legacy-extracted');
-        await fsp.mkdir(extracted);
-        await extract(currentArchive, { dir: extracted });
-        const backupManifestPath = path.join(extracted, HOSHIDICTS_BACKUP_MANIFEST_FILE_NAME);
-        const backupManifest = JSON.parse(await fsp.readFile(backupManifestPath, 'utf8')) as {
-            state: Record<string, unknown>;
-        };
-        delete backupManifest.state.tabGroups;
-        await fsp.writeFile(backupManifestPath, JSON.stringify(backupManifest));
-        const legacyArchive = path.join(workspace, 'legacy.zip');
-        await createZipFromDirectory(extracted, legacyArchive);
-
-        const expectedTabGroups = await fsp.readFile(path.join(targetRoot, 'tab-groups.json'));
-        const prepared = await prepareHoshidictsBackupRestore({
-            archivePath: legacyArchive,
-            stagingParent: workspace,
-        });
-        try {
-            expect(prepared.manifest.state.tabGroups).toBeUndefined();
-            await commitPreparedHoshidictsBackupRestore(prepared, {
-                targetRootDir: targetRoot,
-                freshGenerationId: () => 'legacy-restore',
-            });
-            await expect(fsp.readFile(path.join(targetRoot, 'tab-groups.json'))).resolves.toEqual(
-                expectedTabGroups,
-            );
-        } finally {
-            await disposePreparedHoshidictsBackupRestore(prepared);
-        }
-    });
 });

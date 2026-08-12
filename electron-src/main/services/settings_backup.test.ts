@@ -53,7 +53,7 @@ describe('settings backup path filters', () => {
         ['dictionaries/hoshidicts/audio-profile.json', true],
         ['dictionaries/hoshidicts/custom-dictionary.txt', true],
         ['dictionaries/hoshidicts/mining-profile.json', true],
-        ['dictionaries/hoshidicts/tab-groups.json', true],
+        ['dictionaries/hoshidicts/tab-groups.json', false],
         ['dictionaries/hoshidicts/manifest.json', false],
         ['dictionaries/hoshidicts/generations/dictionary/blobs.bin', false],
         ['dictionaries/hoshidicts/generations/custom/index.json', false],
@@ -75,54 +75,6 @@ describe('settings backup path filters', () => {
 });
 
 describe('settings backup archive', () => {
-    it('round-trips an explicit empty tab-group state without mutating the source', async () => {
-        const sourceBaseDir = makeTempDir('gsm-empty-groups-source-');
-        const sourceOverlayDir = makeTempDir('gsm-empty-groups-overlay-');
-        const sourceHomeConfig = path.join(
-            makeTempDir('gsm-empty-groups-home-'),
-            '.config',
-            'owocr_config_gsm.ini',
-        );
-        const archivePath = path.join(makeTempDir('gsm-empty-groups-archive-'), 'backup.zip');
-        const sourceTabGroupsPath = path.join(
-            sourceBaseDir,
-            'dictionaries',
-            'hoshidicts',
-            'tab-groups.json',
-        );
-
-        await createBackupArchive({
-            outputPath: archivePath,
-            baseDir: sourceBaseDir,
-            overlayDir: sourceOverlayDir,
-            homeConfigPath: sourceHomeConfig,
-        });
-        expect(fs.existsSync(sourceTabGroupsPath)).toBe(false);
-
-        const targetBaseDir = makeTempDir('gsm-empty-groups-target-');
-        writeFile(
-            path.join(targetBaseDir, 'dictionaries', 'hoshidicts', 'tab-groups.json'),
-            '{"version":1,"groups":[{"id":"later","name":"Later","dictionaryIds":[]}]}',
-        );
-        await restoreBackupArchive({
-            archivePath,
-            baseDir: targetBaseDir,
-            overlayDir: makeTempDir('gsm-empty-groups-target-overlay-'),
-            homeConfigPath: path.join(
-                makeTempDir('gsm-empty-groups-target-home-'),
-                '.config',
-                'owocr_config_gsm.ini',
-            ),
-        });
-
-        expect(JSON.parse(readText(
-            targetBaseDir,
-            'dictionaries',
-            'hoshidicts',
-            'tab-groups.json',
-        ))).toEqual({ version: 1, groups: [] });
-    });
-
     it('archives relevant settings and excludes temp/cache/runtime folders', async () => {
         const baseDir = makeTempDir('gsm-backup-base-');
         const overlayDir = makeTempDir('gsm-backup-overlay-');
@@ -146,10 +98,6 @@ describe('settings backup archive', () => {
         writeFile(
             path.join(baseDir, 'dictionaries', 'hoshidicts', 'mining-profile.json'),
             '{"version":1,"deck":"Mining"}',
-        );
-        writeFile(
-            path.join(baseDir, 'dictionaries', 'hoshidicts', 'tab-groups.json'),
-            '{"version":1,"groups":[{"id":"grammar","name":"Grammar","dictionaryIds":["dict"]}]}',
         );
         writeFile(
             path.join(baseDir, 'dictionaries', 'hoshidicts', 'manifest.json'),
@@ -222,15 +170,6 @@ describe('settings backup archive', () => {
                 'audio-profile.json',
             ),
         ).toContain('"enabled":true');
-        expect(
-            readText(
-                extractDir,
-                'GameSentenceMiner',
-                'dictionaries',
-                'hoshidicts',
-                'tab-groups.json',
-            ),
-        ).toContain('"name":"Grammar"');
         expect(
             exists(
                 extractDir,
@@ -396,9 +335,11 @@ describe('settings backup archive', () => {
         expect(
             readText(targetBaseDir, 'dictionaries', 'hoshidicts', 'mining-profile.json'),
         ).toBe('{"deck":"Restored"}');
+        // Tab groups live in the Hoshidicts manifest, so this file is excluded
+        // from GSM settings backups and must survive a restore untouched.
         expect(
             readText(targetBaseDir, 'dictionaries', 'hoshidicts', 'tab-groups.json'),
-        ).toContain('"name":"Grammar"');
+        ).toContain('"name":"Old"');
         expect(
             readText(targetBaseDir, 'dictionaries', 'hoshidicts', 'manifest.json'),
         ).toBe('{"keep":true}');
