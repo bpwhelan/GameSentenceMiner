@@ -685,6 +685,68 @@ describe("HoshidictsSettingsWindow", () => {
     );
   });
 
+  it("keeps Hoshidicts backup actions simple with local busy feedback", async () => {
+    const exportJob = deferred<HoshidictsActionResult>();
+    invokeMock.mockImplementation(
+      async (channel: string): Promise<unknown> => {
+        if (channel === HOSHIDICTS_CHANNELS.getState) return baseState;
+        if (channel === HOSHIDICTS_CHANNELS.exportBackup) {
+          return exportJob.promise;
+        }
+        if (channel === HOSHIDICTS_CHANNELS.restoreBackup) {
+          return {
+            success: true,
+            outcome: { code: "backupRestored" },
+            state: { ...baseState, revision: baseState.revision + 2 }
+          } satisfies HoshidictsActionResult;
+        }
+        throw new Error(`Unexpected IPC channel: ${channel}`);
+      }
+    );
+    await render();
+
+    const backups = container.querySelector<HTMLElement>(
+      ".hoshidicts-backups"
+    );
+    const backupButtons = () =>
+      Array.from(backups?.querySelectorAll<HTMLButtonElement>("button") ?? []);
+    const backupButton = (label: string) =>
+      backupButtons().find((button) => button.textContent?.trim() === label);
+
+    expect(
+      backupButtons().map((button) => button.textContent?.trim())
+    ).toEqual(["Export Backup", "Restore Backup"]);
+
+    await settle(() => backupButton("Export Backup")?.click(), 1);
+
+    expect(
+      backups?.querySelector<HTMLElement>(
+        '.hoshidicts-backups__status[role="status"]'
+      )?.textContent
+    ).toBe("Exporting backup...");
+    expect(backupButtons().every((button) => button.disabled)).toBe(true);
+
+    await act(async () => {
+      exportJob.resolve({
+        success: true,
+        outcome: { code: "backupExported" },
+        state: { ...baseState, revision: baseState.revision + 1 }
+      });
+      await exportJob.promise;
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Hoshidicts backup exported.");
+    await clickAndSettle(backupButton("Restore Backup"));
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.exportBackup
+    );
+    expect(invokeMock).toHaveBeenCalledWith(
+      HOSHIDICTS_CHANNELS.restoreBackup
+    );
+    expect(container.textContent).toContain("Hoshidicts backup restored.");
+  });
+
   it("collapses recommended dictionaries when dictionaries are installed", async () => {
     await render();
     const recommendedList = container.querySelector<HTMLElement>(

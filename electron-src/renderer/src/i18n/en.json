@@ -759,6 +759,14 @@
         "error": "Save failed"
       },
       "import": "Import Dictionaries...",
+      "backups": {
+        "title": "Hoshidicts Backup",
+        "subtitle": "Export or restore all Hoshidicts dictionaries and settings.",
+        "export": "Export Backup",
+        "restore": "Restore Backup",
+        "exporting": "Exporting backup...",
+        "restoring": "Restoring backup..."
+      },
       "checkNow": "Check for Updates Now",
       "schedule": "Global update schedule:",
       "schedules": {
@@ -1038,6 +1046,8 @@
         "profileRenamed": "Profile renamed.",
         "profileDeleted": "Profile deleted.",
         "dictionaryImported": "Dictionaries imported: {count}.",
+        "backupExported": "Hoshidicts backup exported.",
+        "backupRestored": "Hoshidicts backup restored.",
         "recommendedInstalled": "Installed {count} recommended dictionaries.",
         "updatesChecked": "Dictionary update check complete.",
         "dictionaryRemoved": "Removed {title}.",
@@ -1060,6 +1070,8 @@
         "operation": "Hoshidicts operation failed.",
         "profiles": "Failed to update the profile.",
         "import": "Dictionary import failed.",
+        "exportBackup": "Failed to export the Hoshidicts backup.",
+        "restoreBackup": "Failed to restore the Hoshidicts backup.",
         "tabGroups": "Failed to update tab groups.",
         "remove": "Dictionary removal failed.",
         "rename": "Failed to rename the dictionary.",

@@ -4,6 +4,7 @@ import {
     ipcMain,
     type IpcMainInvokeEvent,
     type OpenDialogOptions,
+    type SaveDialogOptions,
 } from 'electron';
 
 import type { OverlayRuntimeState } from '../../ui/front.js';
@@ -438,6 +439,14 @@ async function applyReaderAndAudioSnapshot(
     }
 }
 
+function backupDefaultFileName(now = new Date()): string {
+    const timestamp = now
+        .toISOString()
+        .replace(/\.\d{3}Z$/u, '')
+        .replace(/:/gu, '-');
+    return `hoshidicts-backup-${timestamp}.zip`;
+}
+
 function isRecommendedDictionaryId(
     value: unknown
 ): value is HoshidictsRecommendedDictionaryId {
@@ -625,6 +634,75 @@ export function registerHoshidictsIPC(
             },
             { code: 'dictionaryImported', count: result.filePaths.length }
         );
+    });
+
+    ipcMain.handle(HOSHIDICTS_CHANNELS.exportBackup, async (event) => {
+        const settingsWindow = assertSettingsSender(event, deps);
+        const options: SaveDialogOptions = {
+            title: 'Export Hoshidicts Backup',
+            defaultPath: backupDefaultFileName(),
+            filters: [{ name: 'Hoshidicts Backup', extensions: ['zip'] }],
+        };
+        const result = await dialog.showSaveDialog(settingsWindow, options);
+        if (result.canceled || !result.filePath) {
+            return await canceledResult(deps);
+        }
+
+        try {
+            const outputPath = result.filePath.toLowerCase().endsWith('.zip')
+                ? result.filePath
+                : `${result.filePath}.zip`;
+            await manager.exportBackup(outputPath);
+            return {
+                success: true,
+                outcome: { code: 'backupExported' },
+                state: await currentState(deps),
+            } satisfies HoshidictsActionResult;
+        } catch (error) {
+            return await failedResult(deps, errorMessage(error));
+        }
+    });
+
+    ipcMain.handle(HOSHIDICTS_CHANNELS.restoreBackup, async (event) => {
+        const settingsWindow = assertSettingsSender(event, deps);
+        const options: OpenDialogOptions = {
+            title: 'Restore Hoshidicts Backup',
+            properties: ['openFile'],
+            filters: [{ name: 'Hoshidicts Backup', extensions: ['zip'] }],
+        };
+        const result = await dialog.showOpenDialog(settingsWindow, options);
+        if (result.canceled || result.filePaths.length === 0) {
+            return await canceledResult(deps);
+        }
+
+        const confirmation = await dialog.showMessageBox(settingsWindow, {
+            type: 'warning',
+            title: 'Restore Hoshidicts Backup',
+            message: 'Replace all Hoshidicts data with this backup?',
+            detail: 'This replaces all installed dictionaries, tab groups, reader settings, mining and audio settings, and the custom dictionary. The restore cannot be undone unless you export the current Hoshidicts data first.',
+            buttons: ['Restore Backup', 'Cancel'],
+            defaultId: 1,
+            cancelId: 1,
+        });
+        if (confirmation.response !== 0) {
+            return await canceledResult(deps);
+        }
+
+        try {
+            const state = await manager.restoreBackup(result.filePaths[0]);
+            await applyReaderAndAudioSnapshot(
+                state,
+                deps,
+                'Backup was restored, but its settings could not be applied to the running overlay. Restart the overlay to use the restored settings.'
+            );
+            return {
+                success: true,
+                outcome: { code: 'backupRestored' },
+                state: withDesktopState(state, deps),
+            } satisfies HoshidictsActionResult;
+        } catch (error) {
+            return await failedResult(deps, errorMessage(error));
+        }
     });
 
     ipcMain.handle(

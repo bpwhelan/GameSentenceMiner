@@ -58,6 +58,13 @@ import {
     HOSHIDICTS_MINING_PROFILE_FILE_NAME,
     normalizeHoshidictsMiningProfile,
 } from './profile.js';
+import {
+    commitPreparedHoshidictsBackupRestore,
+    disposePreparedHoshidictsBackupRestore,
+    exportHoshidictsBackup,
+    prepareHoshidictsBackupRestore,
+} from './hoshidicts-backup.js';
+
 export {
     defaultHoshidictsAudioProfile,
     HOSHIDICTS_AUDIO_PROFILE_FILE_NAME,
@@ -2551,6 +2558,70 @@ export class HoshidictsManager {
         return await this.getSnapshot();
     }
 
+    async exportBackup(outputPath: string): Promise<void> {
+        if (typeof outputPath !== 'string' || outputPath.trim().length === 0) {
+            throw new Error('Hoshidicts backup destination is invalid.');
+        }
+        await this.enqueue(
+            'saving',
+            async () => {
+                // Persist normalized defaults so a new installation still
+                // produces a complete, restorable backup.
+                const manifest = await this.readManifest();
+                await this.atomicWriteManifest(manifest);
+                await exportHoshidictsBackup({
+                    rootDir: this.rootDir,
+                    outputPath,
+                    now: this.deps.now,
+                });
+            },
+            'preferences'
+        );
+    }
+
+    async restoreBackup(
+        archivePath: string
+    ): Promise<HoshidictsManagerSnapshot> {
+        if (typeof archivePath !== 'string' || archivePath.trim().length === 0) {
+            throw new Error('Hoshidicts backup archive is invalid.');
+        }
+        await this.enqueue('importing', async () => {
+            const prepared = await prepareHoshidictsBackupRestore({
+                archivePath,
+                stagingParent: path.join(this.rootDir, '.staging'),
+            });
+            try {
+                const committed = await commitPreparedHoshidictsBackupRestore(
+                    prepared,
+                    {
+                        targetRootDir: this.rootDir,
+                        freshGenerationId: (_dictionary, index) =>
+                            `restore-${this.deps
+                                .now()
+                                .getTime()
+                                .toString(36)}-${index}-${this.deps.randomId()}`,
+                        activate: async () => {
+                            this.setProgress({ phase: 'reloading' });
+                            // Keep schema and native validation inside the
+                            // transaction so failures roll back all state.
+                            await this.readManifest();
+                            await this.deps.reloadNative();
+                        },
+                    }
+                );
+                for (const previousPath of committed.previousDictionaryPaths) {
+                    await this.removeGenerationForDictionaryPath(previousPath);
+                }
+            } finally {
+                await disposePreparedHoshidictsBackupRestore(prepared);
+            }
+        });
+        // The restore writes the manifest transactionally outside the normal
+        // manifest writer, so publish the restored backend profiles afterward.
+        await this.syncBackendProfiles();
+        return await this.getSnapshot();
+    }
+
     async setLookupMode(
         lookupMode: HoshidictsLookupMode
     ): Promise<HoshidictsManagerSnapshot> {
@@ -3610,6 +3681,7 @@ export class HoshidictsManager {
             );
         });
     }
+
 
     private async readManifestRaw(): Promise<Buffer | null> {
         try {

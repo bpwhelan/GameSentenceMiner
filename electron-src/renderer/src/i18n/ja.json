@@ -752,6 +752,14 @@
         "error": "保存に失敗"
       },
       "import": "複数の辞書をインポート...",
+      "backups": {
+        "title": "Hoshidictsバックアップ",
+        "subtitle": "Hoshidictsの辞書と設定をすべてエクスポートまたは復元します。",
+        "export": "バックアップをエクスポート",
+        "restore": "バックアップを復元",
+        "exporting": "バックアップをエクスポート中...",
+        "restoring": "バックアップを復元中..."
+      },
       "checkNow": "今すぐアップデートを確認",
       "schedule": "共通アップデート間隔:",
       "schedules": {
@@ -1031,6 +1039,8 @@
         "profileRenamed": "プロファイル名を変更しました。",
         "profileDeleted": "プロファイルを削除しました。",
         "dictionaryImported": "辞書を{count}件インポートしました。",
+        "backupExported": "Hoshidictsバックアップをエクスポートしました。",
+        "backupRestored": "Hoshidictsバックアップを復元しました。",
         "recommendedInstalled": "おすすめの辞書を{count}件インストールしました。",
         "updatesChecked": "辞書のアップデート確認が完了しました。",
         "dictionaryRemoved": "{title}を削除しました。",
@@ -1053,6 +1063,8 @@
         "operation": "Hoshidictsの操作に失敗しました。",
         "profiles": "プロファイルの更新に失敗しました。",
         "import": "辞書のインポートに失敗しました。",
+        "exportBackup": "Hoshidictsバックアップのエクスポートに失敗しました。",
+        "restoreBackup": "Hoshidictsバックアップの復元に失敗しました。",
         "tabGroups": "タブグループを更新できませんでした。",
         "remove": "辞書の削除に失敗しました。",
         "rename": "辞書名を変更できませんでした。",

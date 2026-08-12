@@ -137,6 +137,8 @@ interface DraftSynchronizers {
   mining: SyncDraft<MiningProfileDraft>;
 }
 
+type HoshidictsBackupOperation = "exporting" | "restoring";
+
 export function useHoshidictsSettingsController() {
   const t = useTranslation();
   const [view, setView] = useState<HoshidictsView>("dictionaries");
@@ -168,6 +170,8 @@ export function useHoshidictsSettingsController() {
   const [notice, setNotice] = useState<string | null>(null);
   const [restarting, setRestarting] = useState(false);
   const [profileSwitching, setProfileSwitching] = useState(false);
+  const [backupOperation, setBackupOperation] =
+    useState<HoshidictsBackupOperation | null>(null);
   const draftSynchronizersRef = useRef<DraftSynchronizers | null>(null);
 
   useEffect(() => {
@@ -723,6 +727,31 @@ export function useHoshidictsSettingsController() {
           setProfileSwitching(false);
         }
       },
+      exportBackup: async () => {
+        setBackupOperation("exporting");
+        try {
+          if (!(await flushAutosaves())) return false;
+          return await runAction(
+            () => invokeIpc(HOSHIDICTS_CHANNELS.exportBackup),
+            "settings.hoshidicts.errors.exportBackup"
+          );
+        } finally {
+          setBackupOperation(null);
+        }
+      },
+      restoreBackup: async () => {
+        setBackupOperation("restoring");
+        try {
+          if (!(await flushAutosaves())) return false;
+          return await runAction(
+            () => invokeIpc(HOSHIDICTS_CHANNELS.restoreBackup),
+            "settings.hoshidicts.errors.restoreBackup",
+            true
+          );
+        } finally {
+          setBackupOperation(null);
+        }
+      },
       importDictionary: () =>
         ipcAction(
           HOSHIDICTS_CHANNELS.importDictionary,
@@ -858,25 +887,39 @@ export function useHoshidictsSettingsController() {
     [flushAutosaves, runAction, state?.activeProfileId]
   );
 
-  const dictionaryBusy = state ? isScopedBusy(state, "dictionary") : true;
+  const dictionaryBusy = state
+    ? backupOperation !== null || isScopedBusy(state, "dictionary")
+    : true;
   const preferencesBusy = state
     ? profileSwitching ||
+      backupOperation !== null ||
       isScopedBusy(state, "preferences") ||
       readerSaving
     : true;
   const miningBusy = state
     ? profileSwitching ||
+      backupOperation !== null ||
       isScopedBusy(state, "mining") ||
       miningSaving
     : true;
   const audioBusy = state
     ? profileSwitching ||
+      backupOperation !== null ||
       isScopedBusy(state, "audio") ||
       audioSaving
     : true;
   const customBusy = state
-    ? isScopedBusy(state, "custom") ||
+    ? backupOperation !== null ||
+      isScopedBusy(state, "custom") ||
       customLoading ||
+      customSaving
+    : true;
+  const backupBusy = state
+    ? backupOperation !== null ||
+      state.busy ||
+      readerSaving ||
+      miningSaving ||
+      audioSaving ||
       customSaving
     : true;
 
@@ -918,6 +961,8 @@ export function useHoshidictsSettingsController() {
     notice,
     restarting,
     profileSwitching,
+    backupOperation,
+    backupBusy,
     dictionaryBusy,
     preferencesBusy,
     audioBusy,

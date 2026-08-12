@@ -503,6 +503,11 @@
   color: var(--gsm-success-text);
 }
 
+.hoshidicts-backups__status {
+  justify-content: flex-start;
+  margin: 14px 0 0;
+}
+
 .hoshidicts-window__loading {
   min-height: 240px;
   display: grid;

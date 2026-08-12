@@ -10,6 +10,8 @@ export const HOSHIDICTS_CHANNELS = {
     getState: 'hoshidicts.getState',
     progress: 'hoshidicts.progress',
     importDictionary: 'hoshidicts.import',
+    exportBackup: 'hoshidicts.exportBackup',
+    restoreBackup: 'hoshidicts.restoreBackup',
     installAllRecommended: 'hoshidicts.installAllRecommended',
     installRecommended: 'hoshidicts.installRecommended',
     checkUpdates: 'hoshidicts.checkUpdates',
@@ -1401,6 +1403,8 @@ export interface HoshidictsActionResult {
             | 'profileRenamed'
             | 'profileDeleted'
             | 'dictionaryImported'
+            | 'backupExported'
+            | 'backupRestored'
             | 'recommendedInstalled'
             | 'updatesChecked'
             | 'dictionaryRemoved'

@@ -170,6 +170,7 @@ async function main() {
     'dist/main/features/hoshidicts/index.js',
     'dist/main/features/hoshidicts/ipc.js',
     'dist/main/features/hoshidicts/manager.js',
+    'dist/main/features/hoshidicts/hoshidicts-backup.js',
     'dist/main/features/hoshidicts/audio_profile.js',
     'dist/main/features/hoshidicts/profile.js',
     'dist/main/features/hoshidicts/window.js',

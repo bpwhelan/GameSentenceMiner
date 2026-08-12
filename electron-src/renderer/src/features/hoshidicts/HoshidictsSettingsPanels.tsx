@@ -1,7 +1,9 @@
 import {
+  ArchiveRestore,
   ArrowDown,
   ArrowUp,
   ChevronDown,
+  Download,
   EllipsisVertical,
   Eraser,
   FileArchive,
@@ -802,6 +804,8 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
     setReaderPreference,
     setBoundedReaderInteger,
     setPopupContentScanningEnabled,
+    backupOperation,
+    backupBusy,
     dictionaryBusy,
     preferencesBusy,
     actions
@@ -1929,6 +1933,44 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
         )}
       </section>
 
+      <section className="hoshidicts-section hoshidicts-backups">
+        <div className="hoshidicts-section__heading">
+          <div>
+            <h2>{t("settings.hoshidicts.backups.title")}</h2>
+            <p>{t("settings.hoshidicts.backups.subtitle")}</p>
+          </div>
+        </div>
+        <div className="hoshidicts-actions">
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => void actions.exportBackup()}
+            disabled={backupBusy}
+          >
+            <Download size={17} aria-hidden="true" />
+            {t("settings.hoshidicts.backups.export")}
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => void actions.restoreBackup()}
+            disabled={backupBusy}
+          >
+            <ArchiveRestore size={17} aria-hidden="true" />
+            {t("settings.hoshidicts.backups.restore")}
+          </button>
+        </div>
+        {backupOperation ? (
+          <div
+            className="hoshidicts-window__progress hoshidicts-backups__status"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            {t(`settings.hoshidicts.backups.${backupOperation}`)}
+          </div>
+        ) : null}
+      </section>
     </div>
   );
 }
