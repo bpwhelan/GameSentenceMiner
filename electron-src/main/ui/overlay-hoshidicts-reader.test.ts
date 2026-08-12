@@ -3492,8 +3492,6 @@ describe("Hoshidicts dictionary tabs", () => {
       path: "img/forms.jpeg",
       mediaType: "image/jpeg",
       byteLength: 5,
-      width: 67,
-      height: 100,
       dataBase64: "/9j/4AA=",
       featureDisabled: false,
       staleGeneration: false,
@@ -5408,8 +5406,6 @@ describe("Hoshidicts Shift-hover scanner", () => {
       path: "img/c35252.jpg",
       mediaType: "image/jpeg",
       byteLength: 5,
-      width: 67,
-      height: 100,
       dataBase64: "/9j/4AA=",
       featureDisabled: false,
       staleGeneration: false,
@@ -5489,9 +5485,9 @@ describe("Hoshidicts Shift-hover scanner", () => {
       0x6d, 0x69, 0x66, 0x31
     ]);
     const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"></svg>');
-    for (const [request, mediaType, bytes, width, height] of [
-      [requests[0], "image/avif", avif, 153, 250],
-      [requests[1], "image/svg+xml", svg, 1, 1]
+    for (const [request, mediaType, bytes] of [
+      [requests[0], "image/avif", avif],
+      [requests[1], "image/svg+xml", svg]
     ] as const) {
       socket.receive({
         type: "hoshidicts_media_result",
@@ -5502,8 +5498,6 @@ describe("Hoshidicts Shift-hover scanner", () => {
         path: request.path,
         mediaType,
         byteLength: bytes.byteLength,
-        width,
-        height,
         dataBase64: bytes.toString("base64"),
         featureDisabled: false,
         staleGeneration: false,
@@ -5560,8 +5554,6 @@ describe("Hoshidicts Shift-hover scanner", () => {
       path: requests[0].path,
       mediaType: null,
       byteLength: 0,
-      width: null,
-      height: null,
       dataBase64: null,
       featureDisabled: true,
       staleGeneration: false,
@@ -5609,8 +5601,6 @@ describe("Hoshidicts Shift-hover scanner", () => {
       path: "img/broken.jpg",
       mediaType: "image/jpeg",
       byteLength: 3,
-      width: 1,
-      height: 1,
       dataBase64: "AAAA",
       featureDisabled: false,
       staleGeneration: false,
@@ -6316,8 +6306,6 @@ describe("Hoshidicts Shift-hover scanner", () => {
       path: "img/parent.jpg",
       mediaType: "image/jpeg",
       byteLength: 5,
-      width: 64,
-      height: 64,
       dataBase64: "/9j/4AA=",
       featureDisabled: false,
       staleGeneration: false,
@@ -6332,8 +6320,6 @@ describe("Hoshidicts Shift-hover scanner", () => {
       path: "img/parent.jpg",
       mediaType: "image/jpeg",
       byteLength: 5,
-      width: 64,
-      height: 64,
       dataBase64: "/9j/4AA=",
       featureDisabled: false,
       staleGeneration: false,

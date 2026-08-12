@@ -114,8 +114,6 @@
   const MAX_DICTIONARY_STYLE_BYTES = 256 * 1024;
   const MAX_DICTIONARY_STYLES_BYTES = 2 * 1024 * 1024;
   const MAX_MEDIA_BYTES = 4 * 1024 * 1024;
-  const MAX_MEDIA_DIMENSION = 4096;
-  const MAX_MEDIA_PIXELS = 16 * 1024 * 1024;
   const MAX_MEDIA_CACHE_BYTES = 16 * 1024 * 1024;
   const MAX_MEDIA_CACHE_ENTRIES = 64;
   const MAX_MEDIA_CONCURRENT_REQUESTS = 4;
@@ -1517,54 +1515,22 @@
     return Number.isSafeInteger(value) && value >= 0 ? value : null;
   }
 
+  // Rust identifies the media type from these same prefixes; this rejects a
+  // payload whose bytes disagree with the type it claims. AVIF and SVG have no
+  // fixed leading prefix, so they are trusted on the declared type alone.
+  const MEDIA_TYPE_SIGNATURES = {
+    "image/jpeg": [0xff, 0xd8, 0xff],
+    "image/png": [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+    "image/gif": [0x47, 0x49, 0x46, 0x38],
+    "image/webp": [0x52, 0x49, 0x46, 0x46],
+  };
+
   function mediaTypeMatchesSignature(mediaType, bytes) {
-    if (!(bytes instanceof Uint8Array)) {
-      return false;
-    }
-    if (mediaType === "image/jpeg") {
-      return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
-    }
-    if (mediaType === "image/png") {
-      const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-      return bytes.length >= signature.length && signature.every(
-        (value, index) => bytes[index] === value
-      );
-    }
-    if (mediaType === "image/gif") {
-      if (bytes.length < 6) {
-        return false;
-      }
-      const header = String.fromCharCode(...bytes.slice(0, 6));
-      return header === "GIF87a" || header === "GIF89a";
-    }
-    if (mediaType === "image/avif") {
-      if (
-        bytes.length < 20 ||
-        String.fromCharCode(...bytes.slice(4, 8)) !== "ftyp"
-      ) {
-        return false;
-      }
-      for (let offset = 8; offset + 4 <= Math.min(bytes.length, 128); offset += 4) {
-        if (offset === 12) {
-          continue;
-        }
-        const brand = String.fromCharCode(...bytes.slice(offset, offset + 4));
-        if (brand === "avif" || brand === "avis") {
-          return true;
-        }
-      }
-      return false;
-    }
-    if (mediaType === "image/svg+xml") {
-      const prefix = String.fromCharCode(...bytes.slice(0, Math.min(bytes.length, 4096)))
-        .replace(/^\ufeff/u, "");
-      const svgOffset = prefix.search(/<svg(?:\s|>)/iu);
-      return svgOffset >= 0 && !/<(?:script|iframe|object|embed)(?:\s|>)/iu.test(prefix);
-    }
-    return mediaType === "image/webp" &&
-      bytes.length >= 12 &&
-      String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" &&
-      String.fromCharCode(...bytes.slice(8, 12)) === "WEBP";
+    const signature = MEDIA_TYPE_SIGNATURES[mediaType];
+    return !signature || (
+      bytes.length >= signature.length &&
+      signature.every((value, index) => bytes[index] === value)
+    );
   }
 
   function validateMediaPayloadMetadata(payload) {
@@ -1575,31 +1541,22 @@
       throw new Error("unsupported_media_type");
     }
     const byteLength = Number(payload.byteLength);
-    const width = Number(payload.width);
-    const height = Number(payload.height);
     const encoded = payload.dataBase64;
     if (
       !Number.isSafeInteger(byteLength) ||
       byteLength < 1 ||
       byteLength > MAX_MEDIA_BYTES ||
-      !Number.isSafeInteger(width) ||
-      width < 1 ||
-      width > MAX_MEDIA_DIMENSION ||
-      !Number.isSafeInteger(height) ||
-      height < 1 ||
-      height > MAX_MEDIA_DIMENSION ||
-      width * height > MAX_MEDIA_PIXELS ||
       typeof encoded !== "string" ||
       encoded.length > Math.ceil(MAX_MEDIA_BYTES / 3) * 4 + 4 ||
       !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(encoded)
     ) {
       throw new Error("invalid_media_payload");
     }
-    return { byteLength, encoded, height, mediaType, pixelCount: width * height, width };
+    return { byteLength, encoded, mediaType };
   }
 
   function decodeMediaPayload(windowRef, metadata) {
-    const { byteLength, encoded, height, mediaType, pixelCount, width } = metadata;
+    const { byteLength, encoded, mediaType } = metadata;
     let decoded;
     try {
       decoded = windowRef.atob(encoded);
@@ -1616,15 +1573,7 @@
     if (!mediaTypeMatchesSignature(mediaType, bytes)) {
       throw new Error("invalid_media_signature");
     }
-    return {
-      bytes,
-      byteLength,
-      dataBase64: encoded,
-      height,
-      mediaType,
-      pixelCount,
-      width,
-    };
+    return { bytes, byteLength, dataBase64: encoded, mediaType };
   }
 
   function calculatePopupPosition(anchorRect, popupSize, viewport, options = {}) {
@@ -3184,7 +3133,7 @@
       requestDictionaryStyles(generation);
     }
 
-    function cacheMedia(job, url, byteLength, pixelCount, metadata = {}) {
+    function cacheMedia(job, url, byteLength, metadata = {}) {
       const existing = mediaCache.get(job.cacheKey);
       if (existing) {
         mediaCacheBytes -= existing.byteLength;
@@ -3193,7 +3142,6 @@
       }
       const entry = {
         byteLength,
-        pixelCount,
         url,
         dataBase64: metadata.dataBase64,
         mediaType: metadata.mediaType,
@@ -3212,7 +3160,7 @@
       }
     }
 
-    function resolveMediaJob(job, url, byteLength, pixelCount, metadata = {}) {
+    function resolveMediaJob(job, url, byteLength, metadata = {}) {
       if (job.settled) {
         return;
       }
@@ -3225,7 +3173,7 @@
       mediaInFlight.delete(job.inFlightKey);
       activeMediaRequestCount = Math.max(0, activeMediaRequestCount - 1);
       if (mediaCache.get(job.cacheKey)?.url !== url) {
-        cacheMedia(job, url, byteLength, pixelCount, metadata);
+        cacheMedia(job, url, byteLength, metadata);
       }
       job.resolve(url);
     }
@@ -4795,12 +4743,7 @@
       if (cached) {
         mediaCache.delete(job.cacheKey);
         mediaCache.set(job.cacheKey, cached);
-        resolveMediaJob(
-          job,
-          cached.url,
-          cached.byteLength,
-          cached.pixelCount
-        );
+        resolveMediaJob(job, cached.url, cached.byteLength);
         pumpMediaQueue();
         return;
       }
@@ -4818,7 +4761,7 @@
         pumpMediaQueue();
         return;
       }
-      resolveMediaJob(job, url, media.byteLength, media.pixelCount, media);
+      resolveMediaJob(job, url, media.byteLength, media);
       pumpMediaQueue();
     }
 

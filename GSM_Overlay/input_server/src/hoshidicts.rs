@@ -29,8 +29,6 @@ const MAX_MEDIA_DICTIONARY_BYTES: usize = 1024;
 const MAX_MEDIA_PATH_BYTES: usize = 4 * 1024;
 const MAX_MEDIA_BYTES: usize = 4 * 1024 * 1024;
 const MAX_MEDIA_RESPONSE_BYTES: usize = 6 * 1024 * 1024;
-const MAX_MEDIA_DIMENSION: u32 = 4096;
-const MAX_MEDIA_PIXELS: u64 = 16 * 1024 * 1024;
 const MAX_STYLES_RESPONSE_BYTES: usize = 3 * 1024 * 1024;
 
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
@@ -465,8 +463,6 @@ struct LookupResult {
 struct MediaFile {
     media_type: &'static str,
     data: Vec<u8>,
-    width: u32,
-    height: u32,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -499,7 +495,6 @@ enum MediaError {
     NotFound,
     UnsupportedMediaType,
     MediaTooLarge,
-    InvalidDimensions,
     StaleGeneration,
     InternalError,
 }
@@ -513,7 +508,6 @@ impl MediaError {
             Self::NotFound => "not_found",
             Self::UnsupportedMediaType => "unsupported_media_type",
             Self::MediaTooLarge => "media_too_large",
-            Self::InvalidDimensions => "invalid_dimensions",
             Self::StaleGeneration => "stale_generation",
             Self::InternalError => "internal_error",
         }
@@ -1533,14 +1527,8 @@ impl NativeEngine {
         // The C API returns a view into query-owned mmap data. Copy it before
         // returning so no borrowed native pointer escapes the serialized call.
         let data = unsafe { slice::from_raw_parts(native.data, native.size) }.to_vec();
-        let (media_type, width, height) = raster_metadata(&data)?;
-        validate_media_dimensions(width, height)?;
-        Ok(MediaFile {
-            media_type,
-            data,
-            width,
-            height,
-        })
+        let media_type = media_type_for(&data)?;
+        Ok(MediaFile { media_type, data })
     }
 
     fn styles(&self) -> Result<Vec<DictionaryStyle>, String> {
@@ -1831,536 +1819,31 @@ fn validate_media_path(path: &str) -> Result<(), MediaError> {
     Ok(())
 }
 
-fn validate_media_dimensions(width: u32, height: u32) -> Result<(), MediaError> {
-    if width == 0
-        || height == 0
-        || width > MAX_MEDIA_DIMENSION
-        || height > MAX_MEDIA_DIMENSION
-        || u64::from(width) * u64::from(height) > MAX_MEDIA_PIXELS
-    {
-        return Err(MediaError::InvalidDimensions);
-    }
-    Ok(())
-}
-
-fn raster_metadata(data: &[u8]) -> Result<(&'static str, u32, u32), MediaError> {
-    if data.starts_with(b"\x89PNG\r\n\x1a\n") {
-        if data.len() < 33 || &data[8..12] != b"\0\0\0\r" || &data[12..16] != b"IHDR" {
-            return Err(MediaError::UnsupportedMediaType);
+/// Identifies the media type from its magic prefix. The overlay renders media
+/// through `<img>`/CSS only, so the browser decodes it; nothing here needs the
+/// pixel dimensions.
+fn media_type_for(data: &[u8]) -> Result<&'static str, MediaError> {
+    const PREFIXES: &[(&[u8], &str)] = &[
+        (b"\x89PNG\r\n\x1a\n", "image/png"),
+        (b"GIF87a", "image/gif"),
+        (b"GIF89a", "image/gif"),
+        (b"\xff\xd8", "image/jpeg"),
+    ];
+    for (prefix, media_type) in PREFIXES {
+        if data.starts_with(prefix) {
+            return Ok(media_type);
         }
-        return Ok((
-            "image/png",
-            u32::from_be_bytes(data[16..20].try_into().unwrap()),
-            u32::from_be_bytes(data[20..24].try_into().unwrap()),
-        ));
-    }
-    if data.starts_with(b"GIF87a") || data.starts_with(b"GIF89a") {
-        if data.len() < 10 {
-            return Err(MediaError::UnsupportedMediaType);
-        }
-        return Ok((
-            "image/gif",
-            u16::from_le_bytes(data[6..8].try_into().unwrap()).into(),
-            u16::from_le_bytes(data[8..10].try_into().unwrap()).into(),
-        ));
-    }
-    if data.starts_with(&[0xff, 0xd8]) {
-        let (width, height) = jpeg_dimensions(data)?;
-        return Ok(("image/jpeg", width, height));
     }
     if data.len() >= 12 && data.starts_with(b"RIFF") && &data[8..12] == b"WEBP" {
-        let riff_size = u32::from_le_bytes(data[4..8].try_into().unwrap()) as usize;
-        if riff_size.checked_add(8) != Some(data.len()) {
-            return Err(MediaError::UnsupportedMediaType);
-        }
-        let (width, height) = webp_dimensions(data)?;
-        return Ok(("image/webp", width, height));
+        return Ok("image/webp");
     }
     if data.len() >= 12 && &data[4..8] == b"ftyp" {
-        let (width, height) = avif_dimensions(data)?;
-        return Ok(("image/avif", width, height));
+        return Ok("image/avif");
     }
-    if looks_like_xml(data) {
-        let (width, height) = svg_dimensions(data)?;
-        return Ok(("image/svg+xml", width, height));
-    }
-    Err(MediaError::UnsupportedMediaType)
-}
-
-fn iso_box_at(data: &[u8], offset: usize) -> Result<([u8; 4], &[u8], usize), MediaError> {
-    let header = data
-        .get(offset..offset + 8)
-        .ok_or(MediaError::UnsupportedMediaType)?;
-    let size32 = u32::from_be_bytes(header[..4].try_into().unwrap());
-    let kind = header[4..8].try_into().unwrap();
-    let (header_size, size) = match size32 {
-        0 => (8usize, data.len() - offset),
-        1 => {
-            let extended = data
-                .get(offset + 8..offset + 16)
-                .ok_or(MediaError::UnsupportedMediaType)?;
-            let size = usize::try_from(u64::from_be_bytes(extended.try_into().unwrap()))
-                .map_err(|_| MediaError::UnsupportedMediaType)?;
-            (16, size)
-        }
-        size => (8, usize::try_from(size).unwrap()),
-    };
-    if size < header_size {
-        return Err(MediaError::UnsupportedMediaType);
-    }
-    let end = offset
-        .checked_add(size)
-        .filter(|end| *end <= data.len())
-        .ok_or(MediaError::UnsupportedMediaType)?;
-    Ok((kind, &data[offset + header_size..end], end))
-}
-
-fn avif_dimensions(data: &[u8]) -> Result<(u32, u32), MediaError> {
-    let (kind, file_type, mut offset) = iso_box_at(data, 0)?;
-    if kind != *b"ftyp"
-        || file_type.len() < 8
-        || (file_type.len() - 8) % 4 != 0
-        || !file_type[..4]
-            .chunks_exact(4)
-            .chain(file_type[8..].chunks_exact(4))
-            .any(|brand| brand == b"avif" || brand == b"avis")
-    {
-        return Err(MediaError::UnsupportedMediaType);
-    }
-
-    let mut dimensions = None;
-    while offset < data.len() {
-        let (kind, payload, next) = iso_box_at(data, offset)?;
-        if kind == *b"meta" {
-            let children = payload.get(4..).ok_or(MediaError::UnsupportedMediaType)?;
-            collect_avif_property_dimensions(children, &mut dimensions)?;
-        }
-        offset = next;
-    }
-    dimensions.ok_or(MediaError::UnsupportedMediaType)
-}
-
-fn collect_avif_property_dimensions(
-    meta_children: &[u8],
-    dimensions: &mut Option<(u32, u32)>,
-) -> Result<(), MediaError> {
-    let mut offset = 0usize;
-    while offset < meta_children.len() {
-        let (kind, payload, next) = iso_box_at(meta_children, offset)?;
-        if kind == *b"iprp" {
-            let mut property_offset = 0usize;
-            while property_offset < payload.len() {
-                let (kind, property_payload, property_next) = iso_box_at(payload, property_offset)?;
-                if kind == *b"ipco" {
-                    collect_avif_ispe_dimensions(property_payload, dimensions)?;
-                }
-                property_offset = property_next;
-            }
-        }
-        offset = next;
-    }
-    Ok(())
-}
-
-fn collect_avif_ispe_dimensions(
-    properties: &[u8],
-    dimensions: &mut Option<(u32, u32)>,
-) -> Result<(), MediaError> {
-    let mut offset = 0usize;
-    while offset < properties.len() {
-        let (kind, payload, next) = iso_box_at(properties, offset)?;
-        if kind == *b"ispe" {
-            if payload.len() < 12 || payload[..4] != [0, 0, 0, 0] {
-                return Err(MediaError::UnsupportedMediaType);
-            }
-            let candidate = (
-                u32::from_be_bytes(payload[4..8].try_into().unwrap()),
-                u32::from_be_bytes(payload[8..12].try_into().unwrap()),
-            );
-            match dimensions {
-                None => *dimensions = Some(candidate),
-                Some(current) => {
-                    let current_is_invalid =
-                        validate_media_dimensions(current.0, current.1).is_err();
-                    let candidate_is_invalid =
-                        validate_media_dimensions(candidate.0, candidate.1).is_err();
-                    if (!current_is_invalid && candidate_is_invalid)
-                        || (current_is_invalid == candidate_is_invalid
-                            && u64::from(candidate.0) * u64::from(candidate.1)
-                                > u64::from(current.0) * u64::from(current.1))
-                    {
-                        *current = candidate;
-                    }
-                }
-            }
-        }
-        offset = next;
-    }
-    Ok(())
-}
-
-fn looks_like_xml(data: &[u8]) -> bool {
-    let data = data.strip_prefix(b"\xef\xbb\xbf").unwrap_or(data);
-    data.iter()
-        .copied()
-        .find(|byte| !byte.is_ascii_whitespace())
-        == Some(b'<')
-}
-
-fn contains_ascii_case_insensitive(haystack: &[u8], needle: &[u8]) -> bool {
-    haystack
-        .windows(needle.len())
-        .any(|window| window.eq_ignore_ascii_case(needle))
-}
-
-#[derive(Default)]
-struct SvgRootAttributes<'a> {
-    width: Option<&'a str>,
-    height: Option<&'a str>,
-    view_box: Option<&'a str>,
-}
-
-fn svg_dimensions(data: &[u8]) -> Result<(u32, u32), MediaError> {
-    let source = std::str::from_utf8(data).map_err(|_| MediaError::UnsupportedMediaType)?;
-    if [
-        b"<!doctype".as_slice(),
-        b"<!entity",
-        b"<script",
-        b"<foreignobject",
-    ]
-    .iter()
-    .any(|needle| contains_ascii_case_insensitive(source.as_bytes(), needle))
-    {
-        return Err(MediaError::UnsupportedMediaType);
-    }
-
-    let (attributes, has_closing_tag) = svg_root_tag(source)?;
-    if !has_closing_tag {
-        return Err(MediaError::UnsupportedMediaType);
-    }
-    let attributes = parse_svg_root_attributes(attributes)?;
-    let view_box = attributes.view_box.map(parse_svg_view_box).transpose()?;
-    let width = attributes.width.map(parse_svg_length).transpose()?;
-    let height = attributes.height.map(parse_svg_length).transpose()?;
-
-    let resolved = match (width, height, view_box) {
-        (Some(Some(width)), Some(Some(height)), _) => (width, height),
-        (Some(Some(width)), _, Some((view_width, view_height))) => {
-            (width, width * view_height / view_width)
-        }
-        (_, Some(Some(height)), Some((view_width, view_height))) => {
-            (height * view_width / view_height, height)
-        }
-        (_, _, Some(dimensions)) => dimensions,
-        _ => return Err(MediaError::UnsupportedMediaType),
-    };
-    Ok((
-        svg_dimension_to_u32(resolved.0)?,
-        svg_dimension_to_u32(resolved.1)?,
-    ))
-}
-
-fn svg_root_tag(source: &str) -> Result<(&str, bool), MediaError> {
-    let mut source = source.strip_prefix('\u{feff}').unwrap_or(source);
-    loop {
-        source = source.trim_start();
-        if source.starts_with("<?xml") {
-            let end = source.find("?>").ok_or(MediaError::UnsupportedMediaType)?;
-            source = &source[end + 2..];
-        } else if source.starts_with("<!--") {
-            let end = source.find("-->").ok_or(MediaError::UnsupportedMediaType)?;
-            source = &source[end + 3..];
-        } else {
-            break;
-        }
-    }
-
-    let bytes = source.as_bytes();
-    if !bytes.starts_with(b"<svg")
-        || !matches!(bytes.get(4), Some(byte) if byte.is_ascii_whitespace() || *byte == b'>' || *byte == b'/')
-    {
-        return Err(MediaError::UnsupportedMediaType);
-    }
-    let mut quote = None;
-    let mut end = None;
-    for (index, byte) in bytes.iter().copied().enumerate().skip(4) {
-        match (quote, byte) {
-            (Some(expected), found) if expected == found => quote = None,
-            (None, b'\'' | b'"') => quote = Some(byte),
-            (None, b'>') => {
-                end = Some(index);
-                break;
-            }
-            _ => {}
-        }
-    }
-    let end = end.ok_or(MediaError::UnsupportedMediaType)?;
-    let attributes = &source[4..end];
-    let self_closing = attributes.trim_end().ends_with('/');
-    let has_closing_tag = self_closing || has_svg_closing_tag(&source[end + 1..]);
-    Ok((attributes, has_closing_tag))
-}
-
-fn has_svg_closing_tag(source: &str) -> bool {
-    let bytes = source.as_bytes();
-    bytes.windows(5).enumerate().any(|(offset, window)| {
-        window.eq_ignore_ascii_case(b"</svg")
-            && matches!(bytes.get(offset + 5), Some(byte) if byte.is_ascii_whitespace() || *byte == b'>')
-            && bytes[offset + 5..].contains(&b'>')
-    })
-}
-
-fn parse_svg_root_attributes(attributes: &str) -> Result<SvgRootAttributes<'_>, MediaError> {
-    let bytes = attributes.as_bytes();
-    let mut parsed = SvgRootAttributes::default();
-    let mut offset = 0usize;
-    while offset < bytes.len() {
-        while matches!(bytes.get(offset), Some(byte) if byte.is_ascii_whitespace()) {
-            offset += 1;
-        }
-        if offset == bytes.len() {
-            break;
-        }
-        if bytes[offset] == b'/' {
-            if attributes[offset + 1..].trim().is_empty() {
-                break;
-            }
-            return Err(MediaError::UnsupportedMediaType);
-        }
-        let name_start = offset;
-        while matches!(bytes.get(offset), Some(byte) if !byte.is_ascii_whitespace() && *byte != b'=' && *byte != b'/')
-        {
-            offset += 1;
-        }
-        if name_start == offset {
-            return Err(MediaError::UnsupportedMediaType);
-        }
-        let name = &attributes[name_start..offset];
-        if name
-            .as_bytes()
-            .get(..2)
-            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(b"on"))
-        {
-            return Err(MediaError::UnsupportedMediaType);
-        }
-        while matches!(bytes.get(offset), Some(byte) if byte.is_ascii_whitespace()) {
-            offset += 1;
-        }
-        if bytes.get(offset) != Some(&b'=') {
-            return Err(MediaError::UnsupportedMediaType);
-        }
-        offset += 1;
-        while matches!(bytes.get(offset), Some(byte) if byte.is_ascii_whitespace()) {
-            offset += 1;
-        }
-        let quote = *bytes
-            .get(offset)
-            .filter(|byte| **byte == b'\'' || **byte == b'"')
-            .ok_or(MediaError::UnsupportedMediaType)?;
-        offset += 1;
-        let value_start = offset;
-        while bytes.get(offset).is_some_and(|byte| *byte != quote) {
-            offset += 1;
-        }
-        let value = attributes
-            .get(value_start..offset)
-            .ok_or(MediaError::UnsupportedMediaType)?;
-        if bytes.get(offset) != Some(&quote) {
-            return Err(MediaError::UnsupportedMediaType);
-        }
-        offset += 1;
-
-        let target = if name.eq_ignore_ascii_case("width") {
-            &mut parsed.width
-        } else if name.eq_ignore_ascii_case("height") {
-            &mut parsed.height
-        } else if name.eq_ignore_ascii_case("viewbox") {
-            &mut parsed.view_box
-        } else {
-            continue;
-        };
-        if target.replace(value).is_some() {
-            return Err(MediaError::UnsupportedMediaType);
-        }
-    }
-    Ok(parsed)
-}
-
-fn parse_svg_number_prefix(value: &str) -> Result<(f64, &str), MediaError> {
-    let value = value.trim();
-    let bytes = value.as_bytes();
-    let mut offset = usize::from(matches!(bytes.first(), Some(b'+' | b'-')));
-    let integer_start = offset;
-    while bytes.get(offset).is_some_and(u8::is_ascii_digit) {
-        offset += 1;
-    }
-    let mut has_digits = offset > integer_start;
-    if bytes.get(offset) == Some(&b'.') {
-        offset += 1;
-        let fraction_start = offset;
-        while bytes.get(offset).is_some_and(u8::is_ascii_digit) {
-            offset += 1;
-        }
-        has_digits |= offset > fraction_start;
-    }
-    if !has_digits {
-        return Err(MediaError::UnsupportedMediaType);
-    }
-    if matches!(bytes.get(offset), Some(b'e' | b'E')) {
-        offset += 1;
-        if matches!(bytes.get(offset), Some(b'+' | b'-')) {
-            offset += 1;
-        }
-        let exponent_start = offset;
-        while bytes.get(offset).is_some_and(u8::is_ascii_digit) {
-            offset += 1;
-        }
-        if offset == exponent_start {
-            return Err(MediaError::UnsupportedMediaType);
-        }
-    }
-    let number = value[..offset]
-        .parse::<f64>()
-        .map_err(|_| MediaError::UnsupportedMediaType)?;
-    if !number.is_finite() {
-        return Err(MediaError::UnsupportedMediaType);
-    }
-    Ok((number, value[offset..].trim()))
-}
-
-fn parse_svg_length(value: &str) -> Result<Option<f64>, MediaError> {
-    let (number, unit) = parse_svg_number_prefix(value)?;
-    if number <= 0.0 {
-        return Err(MediaError::InvalidDimensions);
-    }
-    let multiplier = match unit {
-        "" | "px" => 1.0,
-        "in" => 96.0,
-        "cm" => 96.0 / 2.54,
-        "mm" => 96.0 / 25.4,
-        "q" => 96.0 / 101.6,
-        "pt" => 96.0 / 72.0,
-        "pc" => 16.0,
-        "%" | "em" | "ex" => return Ok(None),
-        _ => return Err(MediaError::UnsupportedMediaType),
-    };
-    Ok(Some(number * multiplier))
-}
-
-fn parse_svg_view_box(value: &str) -> Result<(f64, f64), MediaError> {
-    let values = value
-        .split(|character: char| character.is_ascii_whitespace() || character == ',')
-        .filter(|value| !value.is_empty())
-        .map(|value| {
-            let (number, suffix) = parse_svg_number_prefix(value)?;
-            if suffix.is_empty() {
-                Ok(number)
-            } else {
-                Err(MediaError::UnsupportedMediaType)
-            }
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    if values.len() != 4 || values[2] <= 0.0 || values[3] <= 0.0 {
-        return Err(MediaError::InvalidDimensions);
-    }
-    Ok((values[2], values[3]))
-}
-
-fn svg_dimension_to_u32(value: f64) -> Result<u32, MediaError> {
-    let value = value.ceil();
-    if !value.is_finite() || value <= 0.0 || value > f64::from(u32::MAX) {
-        return Err(MediaError::InvalidDimensions);
-    }
-    Ok(value as u32)
-}
-
-fn jpeg_dimensions(data: &[u8]) -> Result<(u32, u32), MediaError> {
-    let mut offset = 2usize;
-    while offset < data.len() {
-        while offset < data.len() && data[offset] != 0xff {
-            offset += 1;
-        }
-        while offset < data.len() && data[offset] == 0xff {
-            offset += 1;
-        }
-        let marker = *data.get(offset).ok_or(MediaError::UnsupportedMediaType)?;
-        offset += 1;
-        if marker == 0xd9 || marker == 0xda {
-            break;
-        }
-        if marker == 0x01 || (0xd0..=0xd8).contains(&marker) {
-            continue;
-        }
-        let length_bytes = data
-            .get(offset..offset + 2)
-            .ok_or(MediaError::UnsupportedMediaType)?;
-        let length = usize::from(u16::from_be_bytes(length_bytes.try_into().unwrap()));
-        if length < 2 || offset + length > data.len() {
-            return Err(MediaError::UnsupportedMediaType);
-        }
-        if matches!(
-            marker,
-            0xc0 | 0xc1
-                | 0xc2
-                | 0xc3
-                | 0xc5
-                | 0xc6
-                | 0xc7
-                | 0xc9
-                | 0xca
-                | 0xcb
-                | 0xcd
-                | 0xce
-                | 0xcf
-        ) {
-            if length < 8 {
-                return Err(MediaError::UnsupportedMediaType);
-            }
-            let height = u16::from_be_bytes(data[offset + 3..offset + 5].try_into().unwrap());
-            let width = u16::from_be_bytes(data[offset + 5..offset + 7].try_into().unwrap());
-            return Ok((width.into(), height.into()));
-        }
-        offset += length;
-    }
-    Err(MediaError::UnsupportedMediaType)
-}
-
-fn webp_dimensions(data: &[u8]) -> Result<(u32, u32), MediaError> {
-    let mut offset = 12usize;
-    while offset + 8 <= data.len() {
-        let chunk = &data[offset..offset + 4];
-        let length = u32::from_le_bytes(data[offset + 4..offset + 8].try_into().unwrap()) as usize;
-        let payload_start = offset + 8;
-        let payload_end = payload_start
-            .checked_add(length)
-            .ok_or(MediaError::UnsupportedMediaType)?;
-        let payload = data
-            .get(payload_start..payload_end)
-            .ok_or(MediaError::UnsupportedMediaType)?;
-        match chunk {
-            b"VP8 " if payload.len() >= 10 && payload[3..6] == [0x9d, 0x01, 0x2a] => {
-                let width = u16::from_le_bytes(payload[6..8].try_into().unwrap()) & 0x3fff;
-                let height = u16::from_le_bytes(payload[8..10].try_into().unwrap()) & 0x3fff;
-                return Ok((width.into(), height.into()));
-            }
-            b"VP8L" if payload.len() >= 5 && payload[0] == 0x2f => {
-                let bits = u32::from_le_bytes(payload[1..5].try_into().unwrap());
-                return Ok(((bits & 0x3fff) + 1, ((bits >> 14) & 0x3fff) + 1));
-            }
-            b"VP8X" if payload.len() >= 10 => {
-                let width = 1
-                    + u32::from(payload[4])
-                    + (u32::from(payload[5]) << 8)
-                    + (u32::from(payload[6]) << 16);
-                let height = 1
-                    + u32::from(payload[7])
-                    + (u32::from(payload[8]) << 8)
-                    + (u32::from(payload[9]) << 16);
-                return Ok((width, height));
-            }
-            _ => {}
-        }
-        offset = payload_end + (length & 1);
+    // SVG: the first non-whitespace byte of an XML document, past any BOM.
+    let xml = data.strip_prefix(b"\xef\xbb\xbf").unwrap_or(data);
+    if xml.iter().copied().find(|b| !b.is_ascii_whitespace()) == Some(b'<') {
+        return Ok("image/svg+xml");
     }
     Err(MediaError::UnsupportedMediaType)
 }
@@ -2913,15 +2396,13 @@ impl MediaEnvelope {
         error: Option<&str>,
         feature_disabled: bool,
     ) -> String {
-        let (media_type, data_base64, byte_length, width, height) = match media {
+        let (media_type, data_base64, byte_length) = match media {
             Some(media) => (
                 Some(media.media_type),
                 Some(BASE64_STANDARD.encode(&media.data)),
                 media.data.len(),
-                Some(media.width),
-                Some(media.height),
             ),
-            None => (None, None, 0, None, None),
+            None => (None, None, 0),
         };
         reply(
             MEDIA_RESULT,
@@ -2935,8 +2416,6 @@ impl MediaEnvelope {
                 "mediaType": media_type,
                 "byteLength": byte_length,
                 "dataBase64": data_base64,
-                "width": width,
-                "height": height,
                 "staleGeneration": error == Some(MediaError::StaleGeneration.code()),
             }),
         )
@@ -3694,7 +3173,7 @@ mod tests {
     }
 
     #[test]
-    fn media_paths_and_raster_metadata_are_strictly_validated() {
+    fn media_paths_and_media_types_are_strictly_validated() {
         assert!(validate_media_dictionary("Japanese Character Names").is_ok());
         assert_eq!(
             validate_media_dictionary("bad\0dictionary"),
@@ -3712,7 +3191,7 @@ mod tests {
             assert_eq!(validate_media_path(path), Err(MediaError::InvalidPath));
         }
 
-        // Every supported raster format reports 2x3 from its header alone.
+        // Every supported format is identified from its magic prefix alone.
         for (media_type, data) in [
             ("image/png", TEST_PNG),
             ("image/gif", b"GIF89a\x02\0\x03\0".as_slice()),
@@ -3726,62 +3205,23 @@ mod tests {
                 "image/webp",
                 b"RIFF\x16\0\0\0WEBPVP8X\x0a\0\0\0\0\0\0\0\x01\0\0\x02\0\0",
             ),
-        ] {
-            assert_eq!(
-                raster_metadata(data),
-                Ok((media_type, 2, 3)),
-                "{media_type}"
-            );
-        }
-        assert_eq!(
-            validate_media_dimensions(MAX_MEDIA_DIMENSION + 1, 1),
-            Err(MediaError::InvalidDimensions)
-        );
-    }
-
-    #[test]
-    fn avif_and_svg_media_metadata_are_detected_without_decoding_pixels() {
-        assert_eq!(
-            raster_metadata(&test_avif(580, 435)),
-            Ok(("image/avif", 580, 435))
-        );
-        assert_eq!(
-            raster_metadata(
-                br#"<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="100" height="200px" viewBox="0 0 100 200"><path d="M0 0"/></svg>"#,
+            ("image/avif", &test_avif(580, 435)),
+            (
+                "image/svg+xml",
+                br#"<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"/>"#,
             ),
-            Ok(("image/svg+xml", 100, 200))
-        );
-        assert_eq!(
-            raster_metadata(br#"<svg viewBox="-10.5 2 320 180"></svg>"#),
-            Ok(("image/svg+xml", 320, 180))
-        );
-    }
-
-    #[test]
-    fn avif_and_svg_media_metadata_reject_malformed_or_active_content() {
-        let mut truncated_avif = test_avif(2, 3);
-        truncated_avif.truncate(truncated_avif.len() - 1);
-        for data in [
-            truncated_avif.as_slice(),
-            // Missing a dimension, then scripted or malformed markup.
-            br#"<svg width="2"></svg>"#,
-            br#"<svg width="2" height="3"><script>alert(1)</script></svg>"#,
-            br#"<svg width="2" height="3" onload="alert(1)"></svg>"#,
-            br#"<svg width="2" height="3"></svgx>"#,
+            ("image/svg+xml", b"\xef\xbb\xbf  <svg/>"),
         ] {
+            assert_eq!(media_type_for(data), Ok(media_type), "{media_type}");
+        }
+        for data in [b"not an image".as_slice(), b"", b"\x89PN"] {
             assert_eq!(
-                raster_metadata(data),
+                media_type_for(data),
                 Err(MediaError::UnsupportedMediaType),
                 "{}",
                 String::from_utf8_lossy(data)
             );
         }
-        let oversized = raster_metadata(br#"<svg viewBox="0 0 4097 1"></svg>"#)
-            .expect("metadata remains independently parseable");
-        assert_eq!(
-            validate_media_dimensions(oversized.1, oversized.2),
-            Err(MediaError::InvalidDimensions)
-        );
     }
 
     #[test]
@@ -3807,13 +3247,11 @@ mod tests {
             .media(generation, "Modern Media", "graphics/test.avif")
             .expect("return AVIF media");
         assert_eq!(returned_avif.media_type, "image/avif");
-        assert_eq!((returned_avif.width, returned_avif.height), (580, 435));
         assert_eq!(returned_avif.data, avif);
         let returned_svg = service
             .media(generation, "Modern Media", "glyphs/test.svg")
             .expect("return SVG media");
         assert_eq!(returned_svg.media_type, "image/svg+xml");
-        assert_eq!((returned_svg.width, returned_svg.height), (100, 100));
         assert_eq!(returned_svg.data, svg);
     }
 
@@ -4183,7 +3621,6 @@ mod tests {
             .media(generation, "Test Dictionary", "img/test.png")
             .expect("copied media");
         assert_eq!(media.media_type, "image/png");
-        assert_eq!((media.width, media.height), (2, 3));
         assert_eq!(media.data, TEST_PNG);
         assert_eq!(
             service.media(generation, "Test Dictionary", "../test.png"),
@@ -4864,8 +4301,6 @@ mod tests {
         .success(MediaFile {
             media_type: "image/png",
             data: vec![0, 1, 2, 253],
-            width: 320,
-            height: 200,
         });
         let value: Value = serde_json::from_str(&payload).expect("valid media response");
         assert_eq!(value["type"], MEDIA_RESULT);
@@ -4877,8 +4312,6 @@ mod tests {
         assert_eq!(value["mediaType"], "image/png");
         assert_eq!(value["byteLength"], 4);
         assert_eq!(value["dataBase64"], "AAEC/Q==");
-        assert_eq!(value["width"], 320);
-        assert_eq!(value["height"], 200);
         assert_eq!(value["featureDisabled"], false);
         assert_eq!(value["staleGeneration"], false);
         assert_eq!(value["error"], Value::Null);
