@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
     assertHoshidictsReaderPreferences,
+    MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH,
     cloneHoshidictsReaderPreferences,
     createDefaultHoshidictsPopupButtons,
     createDefaultHoshidictsReaderPreferences,
@@ -520,4 +521,224 @@ describe('Hoshidicts reader preferences from a snapshot', () => {
             } as unknown as HoshidictsManagerSnapshot).popupBackdropBlurPx
         ).toBe(DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX);
     });
+
+    // Relocated from manager.test.ts: these bounds belong beside the validator
+    // that owns them, so a change to a MIN_/MAX_ constant fails here first.
+    it.each([
+        ['lookupMode', 'automatic', 'lookup mode is invalid'],
+        ['scanLength', 0, 'scan length is invalid'],
+        ['scanLength', 65, 'scan length is invalid'],
+        ['scanLength', 1.5, 'scan length is invalid'],
+        ['maxResults', 0, 'maximum result count is invalid'],
+        ['maxResults', 257, 'maximum result count is invalid'],
+        [
+            'sortFrequencyDictionary',
+            '',
+            'frequency sort dictionary is invalid',
+        ],
+        [
+            'sortFrequencyDictionary',
+            'x'.repeat(4097),
+            'frequency sort dictionary is invalid',
+        ],
+        ['sortFrequencyDictionary', 42, 'frequency sort dictionary is invalid'],
+        [
+            'sortFrequencyDictionaryOrder',
+            'random',
+            'frequency sort order is invalid',
+        ],
+        ['popupHideDelayMs', -1, 'popup hide delay is invalid'],
+        ['popupHideDelayMs', 5001, 'popup hide delay is invalid'],
+        ['activationKey', 'MediaPlayPause', 'activation key is invalid'],
+        [
+            'sourceHighlightEnabled',
+            'yes',
+            'source highlight preference is invalid',
+        ],
+        [
+            'onlyScanJapaneseText',
+            'yes',
+            'Japanese-only scan preference is invalid',
+        ],
+        ['popupToolbarPosition', 'side', 'toolbar position is invalid'],
+        [
+            'popupButtons',
+            {
+                addToAnki: true,
+                audio: true,
+                customDefinition: true,
+                viewInAnki: false,
+                customLinks: [{ label: 'Unsafe', url: 'file:///tmp/word' }],
+            },
+            'popup buttons are invalid',
+        ],
+        ['showLookupCounts', 'yes', 'lookup count preference is invalid'],
+        ['averageFrequency', 'yes', 'average frequency preference is invalid'],
+        [
+            'showFrequencyDictionaryNames',
+            'yes',
+            'frequency dictionary name preference is invalid',
+        ],
+        [
+            'showCompactDefinitionSummary',
+            'yes',
+            'compact definition summary preference is invalid',
+        ],
+        [
+            'compactDefinitionSummaryCount',
+            0,
+            'compact definition summary count is invalid',
+        ],
+        [
+            'compactDefinitionSummaryCount',
+            7,
+            'compact definition summary count is invalid',
+        ],
+        [
+            'compactDefinitionSummaryCount',
+            1.5,
+            'compact definition summary count is invalid',
+        ],
+        [
+            'compactDefinitionSummaryDictionary',
+            '',
+            'compact definition summary dictionary is invalid',
+        ],
+        [
+            'compactDefinitionSummaryDictionary',
+            '   ',
+            'compact definition summary dictionary is invalid',
+        ],
+        [
+            'compactDefinitionSummaryDictionary',
+            'x'.repeat(4097),
+            'compact definition summary dictionary is invalid',
+        ],
+        [
+            'showPitchAccentFurigana',
+            'yes',
+            'pitch accent furigana preference is invalid',
+        ],
+        [
+            'pitchAccentFuriganaDictionary',
+            '',
+            'pitch accent furigana dictionary is invalid',
+        ],
+        [
+            'pitchAccentFuriganaDictionary',
+            '   ',
+            'pitch accent furigana dictionary is invalid',
+        ],
+        [
+            'pitchAccentFuriganaDictionary',
+            'x'.repeat(4097),
+            'pitch accent furigana dictionary is invalid',
+        ],
+        [
+            'showPitchAccentBadge',
+            'yes',
+            'pitch accent badge preference is invalid',
+        ],
+        [
+            'hidePopupGrammarTags',
+            'yes',
+            'popup grammar tag preference is invalid',
+        ],
+        ['popupNestingMaxDepth', -1, 'popup nesting depth is invalid'],
+        ['popupNestingMaxDepth', 1.5, 'popup nesting depth is invalid'],
+        [
+            'popupNestingMaxDepth',
+            Number.MAX_SAFE_INTEGER + 1,
+            'popup nesting depth is invalid',
+        ],
+        [
+            'definitionBlur',
+            {
+                enabled: 'yes',
+                lookupThreshold: 5,
+                revealMode: 'timed',
+                revealDelayMs: 5000,
+            },
+            'definition blur enabled state is invalid',
+        ],
+        [
+            'definitionBlur',
+            {
+                enabled: true,
+                lookupThreshold: 0,
+                revealMode: 'timed',
+                revealDelayMs: 5000,
+            },
+            'lookup threshold is invalid',
+        ],
+        [
+            'definitionBlur',
+            {
+                enabled: true,
+                lookupThreshold: 1_000_001,
+                revealMode: 'timed',
+                revealDelayMs: 5000,
+            },
+            'lookup threshold is invalid',
+        ],
+        [
+            'definitionBlur',
+            {
+                enabled: true,
+                lookupThreshold: 5,
+                revealMode: 'click',
+                revealDelayMs: 5000,
+            },
+            'reveal mode is invalid',
+        ],
+        [
+            'definitionBlur',
+            {
+                enabled: true,
+                lookupThreshold: 5,
+                revealMode: 'timed',
+                revealDelayMs: 999,
+            },
+            'reveal delay is invalid',
+        ],
+        [
+            'definitionBlur',
+            {
+                enabled: true,
+                lookupThreshold: 5,
+                revealMode: 'timed',
+                revealDelayMs: 3_600_001,
+            },
+            'reveal delay is invalid',
+        ],
+        ['popupWidthPx', 279, 'popup width is invalid'],
+        ['popupWidthPx', 1201, 'popup width is invalid'],
+        ['popupHeightPx', 199, 'popup height is invalid'],
+        ['popupHeightPx', 901, 'popup height is invalid'],
+        ['popupColumns', 0, 'popup column count is invalid'],
+        ['popupColumns', 5, 'popup column count is invalid'],
+        ['theme', 'neon', 'theme is invalid'],
+        ['popupOpacityPercent', -1, 'popup opacity is invalid'],
+        ['popupOpacityPercent', 101, 'popup opacity is invalid'],
+        ['popupOpacityPercent', 70.5, 'popup opacity is invalid'],
+        ['popupBackdropBlurPx', -1, 'popup backdrop blur is invalid'],
+        ['popupBackdropBlurPx', 33, 'popup backdrop blur is invalid'],
+        ['customPopupCss', 42, 'custom popup CSS is invalid'],
+        [
+            'customPopupCss',
+            'x'.repeat(MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH + 1),
+            'custom popup CSS is invalid',
+        ],
+    ])(
+        'rejects %s = %j with "%s"',
+        (field, value, message) => {
+            expect(() =>
+                assertHoshidictsReaderPreferences({
+                    ...defaultPreferences,
+                    [field as string]: value,
+                })
+            ).toThrow(message as string);
+        }
+    );
+
 });

@@ -262,108 +262,28 @@ it("normalizes one complete live preference payload", () => {
     expect(normalizeHoshidictsReaderPreferences(payload)[field]).toEqual(expected);
   });
 
+  // One row per distinct rejection shape. Per-field bounds are not pinned here
+  // on purpose: each row would only assert the overlay's own copy of a bound,
+  // so none of them can detect the failure that matters — the overlay's
+  // constants drifting from GSM's shared ones.
   it.each([
-    ["a non-boolean source highlight flag", { sourceHighlightEnabled: "true" }],
-    ["a non-boolean japanese-only scan flag", { onlyScanJapaneseText: "yes" }],
-    ["a missing source highlight flag", { sourceHighlightEnabled: undefined }],
-    ["a negative popup nesting depth", { popupNestingMaxDepth: -1 }],
-    ["a non-string custom popup CSS", { customPopupCss: 1 }],
-    ["oversized custom popup CSS", { customPopupCss: "x".repeat(32 * 1024 + 1) }],
-    ["a popup width below the minimum", { popupWidthPx: 279 }],
-    ["an unknown theme", { theme: "neon" }],
-    ["an out-of-range opacity", { popupOpacityPercent: 101 }],
-    ["an out-of-range backdrop blur", { popupBackdropBlurPx: 33 }],
-    ["zero popup columns", { popupColumns: 0 }],
-    ["too many popup columns", { popupColumns: 5 }],
-    ["fractional popup columns", { popupColumns: 1.5 }],
-    ["a missing compact-summary flag", { showCompactDefinitionSummary: undefined }],
-    ["a non-boolean compact-summary flag", { showCompactDefinitionSummary: "yes" }],
-    ["a numeric compact-summary flag", { showCompactDefinitionSummary: 1 }],
-    ["a missing compact-summary dictionary", { compactDefinitionSummaryDictionary: undefined }],
-    ["an empty compact-summary dictionary", { compactDefinitionSummaryDictionary: "" }],
-    ["a blank compact-summary dictionary", { compactDefinitionSummaryDictionary: "   " }],
-    ["an over-long compact-summary dictionary", { compactDefinitionSummaryDictionary: "x".repeat(4097) }],
-    ["a numeric compact-summary dictionary", { compactDefinitionSummaryDictionary: 1 }],
-    ["a compact-summary count below one", { compactDefinitionSummaryCount: 0 }],
-    ["a compact-summary count above six", { compactDefinitionSummaryCount: 7 }],
-    ["a fractional compact-summary count", { compactDefinitionSummaryCount: 1.5 }],
-    ["a string compact-summary count", { compactDefinitionSummaryCount: "3" }],
-    ["a missing grammar-tag flag", { hidePopupGrammarTags: undefined }],
-    ["a non-boolean grammar-tag flag", { hidePopupGrammarTags: "yes" }],
-    ["a numeric grammar-tag flag", { hidePopupGrammarTags: 1 }],
-    ["a missing lookup-count flag", { showLookupCounts: undefined }],
-    ["a non-boolean lookup-count flag", { showLookupCounts: "false" }],
-    ["a missing definition blur profile", { definitionBlur: undefined }],
-    ["a blur threshold below one", {
-      definitionBlur: {
-        enabled: true,
-        lookupThreshold: 0,
-        revealMode: "timed",
-        revealDelayMs: 5000,
+    ["a wrong primitive type", { sourceHighlightEnabled: "true" }],
+    ["an out-of-range integer", { popupOpacityPercent: 101 }],
+    ["an unknown enum value", { theme: "neon" }],
+    ["an oversized string", { customPopupCss: "x".repeat(32 * 1024 + 1) }],
+    ["a duplicate collection entry", { frequencyDictionaries: ["Foo", "Foo"] }],
+    [
+      "an unsafe custom-link URL",
+      {
+        popupButtons: {
+          addToAnki: true,
+          audio: true,
+          customDefinition: true,
+          viewInAnki: false,
+          customLinks: [{ label: "Unsafe", url: "javascript:alert(1)" }],
+        },
       },
-    }],
-    ["an over-long blur reveal delay", {
-      definitionBlur: {
-        enabled: true,
-        lookupThreshold: 5,
-        revealMode: "timed",
-        revealDelayMs: 3_600_001,
-      },
-    }],
-    ["an unknown blur reveal mode", {
-      definitionBlur: {
-        enabled: true,
-        lookupThreshold: 5,
-        revealMode: "fade",
-        revealDelayMs: 5000,
-      },
-    }],
-    ["an unsafe popup link", {
-      popupButtons: {
-        addToAnki: true,
-        audio: true,
-        customDefinition: true,
-        viewInAnki: false,
-        customLinks: [{ label: "Unsafe", url: "javascript:alert(1)" }],
-      },
-    }],
-    ["a non-boolean dictionary favorite", {
-      dictionaryPresentation: [{ title: "Broken", favorite: "yes" }],
-    }],
-    ["repeated dictionary titles", {
-      dictionaryPresentation: [
-        { title: "Repeated", favorite: true },
-        { title: "Repeated", favorite: false },
-      ],
-    }],
-    ["a blank dictionary display name", {
-      dictionaryPresentation: [{ title: "Broken", favorite: true, displayName: "   " }],
-    }],
-    ["an over-long dictionary display name", {
-      dictionaryPresentation: [
-        { title: "Broken", favorite: true, displayName: "x".repeat(4097) },
-      ],
-    }],
-    ["an unknown frequency mode", {
-      dictionaryPresentation: [
-        { title: "Broken", favorite: true, frequencyMode: "most-popular" },
-      ],
-    }],
-    ["repeated frequency dictionaries", { frequencyDictionaries: ["Foo", "Foo"] }],
-    ["repeated tab-group names", {
-      dictionaryTabGroups: [
-        { id: "one", name: "Reference", dictionaries: ["Main"] },
-        { id: "two", name: "Reference", dictionaries: ["Backup"] },
-      ],
-    }],
-    ["an over-long tab-group name", {
-      dictionaryTabGroups: [{ id: "one", name: "g".repeat(129), dictionaries: ["Main"] }],
-    }],
-    ["repeated dictionaries inside a tab group", {
-      dictionaryTabGroups: [
-        { id: "one", name: "Reference", dictionaries: ["Main", "Main"] },
-      ],
-    }],
+    ],
   ])("rejects live preferences with %s", (_label, overrides) => {
     expect(() => normalizeHoshidictsReaderPreferences(validPreferences(overrides)))
       .toThrow("Hoshidicts reader preferences are invalid.");

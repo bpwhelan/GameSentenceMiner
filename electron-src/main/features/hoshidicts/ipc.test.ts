@@ -948,74 +948,25 @@ describe('Hoshidicts settings IPC', () => {
         expect(harness.manager.setAudioProfile).not.toHaveBeenCalled();
     });
 
-    // Every stored reader preference now counts towards the restart banner,
-    // including popup opacity, backdrop blur, and toolbar position.
-    it.each([
-        ['lookupMode', 'hover'],
-        ['scanLength', 10],
-        ['maxResults', 64],
-        ['sortFrequencyDictionary', 'Frequency'],
-        ['sortFrequencyDictionaryOrder', 'ascending'],
-        ['activationKey', 'F8'],
-        ['sourceHighlightEnabled', true],
-        ['onlyScanJapaneseText', false],
-        ['popupHideDelayMs', 900],
-        ['showLookupCounts', false],
-        ['averageFrequency', true],
-        ['showFrequencyDictionaryNames', false],
-        ['showCompactDefinitionSummary', true],
-        ['compactDefinitionSummaryCount', 4],
-        ['compactDefinitionSummaryDictionary', 'Jitendex'],
-        ['showPitchAccentFurigana', false],
-        ['pitchAccentFuriganaDictionary', 'Pitch'],
-        ['showPitchAccentBadge', true],
-        ['hidePopupGrammarTags', false],
-        ['popupNestingMaxDepth', 4],
-        [
-            'definitionBlur',
-            {
-                enabled: true,
-                lookupThreshold: 5,
-                revealMode: 'timed',
-                revealDelayMs: 5000,
-            },
-        ],
-        ['popupWidthPx', 600],
-        ['popupHeightPx', 500],
-        ['popupColumns', 2],
-        ['theme', 'girlypop'],
-        ['popupOpacityPercent', 70],
-        ['popupBackdropBlurPx', 24],
-        ['popupToolbarPosition', 'bottom'],
-        [
-            'popupButtons',
-            { ...defaultPreferences.popupButtons, viewInAnki: true },
-        ],
-        ['customPopupCss', ':scope { color: hotpink; }'],
-    ])(
-        'requires an overlay restart while the overlay runs a different %s',
-        async (field, launched) => {
-            harness.enabledAtLaunch = true;
-            const context = await registerHarness();
-            const getState = harness.handlers.get('hoshidicts.getState');
+    // hoshidictsReaderPreferencesEqual decides this, and the shared test pins
+    // that it compares every stored field. This covers the flip either way.
+    it('requires an overlay restart while the overlay runs different preferences', async () => {
+        harness.enabledAtLaunch = true;
+        const context = await registerHarness();
+        const getState = harness.handlers.get('hoshidicts.getState');
 
-            harness.appliedReaderPreferences = makeHoshidictsReaderPreferences({
-                [field]: launched,
-            });
-            await expect(
-                getState?.(context.settingsEvent)
-            ).resolves.toMatchObject({
-                overlay: { running: true, restartRequired: true },
-            });
+        harness.appliedReaderPreferences = makeHoshidictsReaderPreferences({
+            lookupMode: 'hover',
+        });
+        await expect(getState?.(context.settingsEvent)).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: true },
+        });
 
-            harness.appliedReaderPreferences = makeHoshidictsReaderPreferences();
-            await expect(
-                getState?.(context.settingsEvent)
-            ).resolves.toMatchObject({
-                overlay: { running: true, restartRequired: false },
-            });
-        }
-    );
+        harness.appliedReaderPreferences = makeHoshidictsReaderPreferences();
+        await expect(getState?.(context.settingsEvent)).resolves.toMatchObject({
+            overlay: { running: true, restartRequired: false },
+        });
+    });
 
     it('only compares preferences once the launch state is known', async () => {
         harness.enabledAtLaunch = true;
@@ -2130,15 +2081,20 @@ describe('Hoshidicts settings IPC', () => {
         });
     });
 
-    // The renderer must send a complete request; there is no per-field fallback
-    // to the stored value any more.
-    it.each(
-        Object.keys(defaultPreferences) as (keyof typeof defaultPreferences)[]
-    )('rejects a reader preferences request without %s', async (field) => {
+    // The shared assertHoshidictsReaderPreferences owns which requests are
+    // valid, and shared/features/hoshidicts.test.ts pins every bound. This
+    // covers what the handler adds: a rejection is reported to the renderer and
+    // neither the manager nor the running overlay is touched.
+    it.each([
+        ['an omitted field', (() => {
+            const request: Record<string, unknown> =
+                makeHoshidictsReaderPreferences();
+            delete request.scanLength;
+            return request;
+        })()],
+        ['an out-of-range field', makeHoshidictsReaderPreferences({ scanLength: 0 })],
+    ])('reports %s without touching the manager', async (_label, request) => {
         const context = await registerHarness();
-        const request: Record<string, unknown> =
-            makeHoshidictsReaderPreferences();
-        delete request[field];
 
         await expect(
             harness.handlers.get('hoshidicts.setReaderPreferences')?.(
@@ -2152,131 +2108,6 @@ describe('Hoshidicts settings IPC', () => {
         expect(harness.manager.setReaderPreferences).not.toHaveBeenCalled();
         expect(context.applyReaderPreferences).not.toHaveBeenCalled();
     });
-
-    it.each([
-        ['lookupMode', 'automatic'],
-        ['scanLength', 0],
-        ['scanLength', 65],
-        ['maxResults', 257],
-        ['sortFrequencyDictionary', ''],
-        ['sortFrequencyDictionaryOrder', 'random'],
-        ['activationKey', 'MediaPlayPause'],
-        ['sourceHighlightEnabled', 'yes'],
-        ['onlyScanJapaneseText', 'yes'],
-        ['popupHideDelayMs', 5001],
-        ['showLookupCounts', 'yes'],
-        ['averageFrequency', 'yes'],
-        ['showFrequencyDictionaryNames', 'yes'],
-        ['showCompactDefinitionSummary', 'yes'],
-        ['compactDefinitionSummaryCount', 0],
-        ['compactDefinitionSummaryCount', 7],
-        ['compactDefinitionSummaryCount', 1.5],
-        ['compactDefinitionSummaryCount', '3'],
-        ['compactDefinitionSummaryDictionary', ''],
-        ['compactDefinitionSummaryDictionary', '   '],
-        ['compactDefinitionSummaryDictionary', 'x'.repeat(4097)],
-        ['compactDefinitionSummaryDictionary', 42],
-        ['showPitchAccentFurigana', 'yes'],
-        ['pitchAccentFuriganaDictionary', '   '],
-        ['showPitchAccentBadge', 'yes'],
-        ['showPitchAccentBadge', 1],
-        ['hidePopupGrammarTags', 'yes'],
-        ['hidePopupGrammarTags', 1],
-        ['popupNestingMaxDepth', Number.MAX_SAFE_INTEGER + 1],
-        ['popupWidthPx', 279],
-        ['popupHeightPx', 901],
-        ['popupColumns', 5],
-        ['theme', 'neon'],
-        ['popupOpacityPercent', 101],
-        ['popupBackdropBlurPx', 33],
-        ['popupToolbarPosition', 'side'],
-        ['customPopupCss', 42],
-        [
-            'definitionBlur',
-            {
-                enabled: true,
-                lookupThreshold: 0,
-                revealMode: 'timed',
-                revealDelayMs: 5000,
-            },
-        ],
-        [
-            'definitionBlur',
-            {
-                enabled: true,
-                lookupThreshold: 1_000_001,
-                revealMode: 'timed',
-                revealDelayMs: 5000,
-            },
-        ],
-        [
-            'definitionBlur',
-            {
-                enabled: true,
-                lookupThreshold: 5,
-                revealMode: 'click',
-                revealDelayMs: 5000,
-            },
-        ],
-        [
-            'definitionBlur',
-            {
-                enabled: true,
-                lookupThreshold: 5,
-                revealMode: 'timed',
-                revealDelayMs: 999,
-            },
-        ],
-        [
-            'definitionBlur',
-            {
-                enabled: true,
-                lookupThreshold: 5,
-                revealMode: 'timed',
-                revealDelayMs: 3_600_001,
-            },
-        ],
-        [
-            'popupButtons',
-            { ...defaultPreferences.popupButtons, addToAnki: 'yes' },
-        ],
-        [
-            'popupButtons',
-            {
-                ...defaultPreferences.popupButtons,
-                customLinks: [{ label: '', url: 'https://example.com/%w' }],
-            },
-        ],
-        [
-            'popupButtons',
-            {
-                ...defaultPreferences.popupButtons,
-                customLinks: [
-                    {
-                        label: 'Unsafe',
-                        url: 'https://user:pass@example.com/%s',
-                    },
-                ],
-            },
-        ],
-    ])(
-        'rejects a reader preferences request with %s = %j',
-        async (field, value) => {
-            const context = await registerHarness();
-
-            await expect(
-                harness.handlers.get('hoshidicts.setReaderPreferences')?.(
-                    context.settingsEvent,
-                    makeHoshidictsReaderPreferences({ [field]: value })
-                )
-            ).resolves.toMatchObject({
-                success: false,
-                error: 'Hoshidicts reader preferences are invalid.',
-            });
-            expect(harness.manager.setReaderPreferences).not.toHaveBeenCalled();
-            expect(context.applyReaderPreferences).not.toHaveBeenCalled();
-        }
-    );
 
     it('accepts every curated recommendation id and rejects unknown ids', async () => {
         const context = await registerHarness();
