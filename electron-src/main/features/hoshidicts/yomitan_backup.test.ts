@@ -10,7 +10,6 @@ import extract from 'extract-zip';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
-    parseYomitanDictionaryBackup,
     parseYomitanDictionaryBackupStream,
     parseYomitanSettingsBackup,
     prepareYomitanDictionaryBackup,
@@ -615,8 +614,8 @@ describe('parseYomitanSettingsBackup', () => {
 });
 
 describe('parseYomitanDictionaryBackup', () => {
-    it('reconstructs Yomitan banks and media from Dexie rows', () => {
-        const parsed = parseYomitanDictionaryBackup({
+    it('reconstructs Yomitan banks and media from Dexie rows', async () => {
+        const backup = {
             formatName: 'dexie',
             formatVersion: 1,
             data: {
@@ -688,7 +687,10 @@ describe('parseYomitanDictionaryBackup', () => {
                     },
                 ],
             },
-        });
+        };
+        const parsed = await parseYomitanDictionaryBackupStream(() =>
+            Readable.from([JSON.stringify(backup)])
+        );
 
         expect(parsed).toHaveLength(1);
         expect(parsed[0].index).toMatchObject({
@@ -1152,9 +1154,21 @@ describe('parseYomitanDictionaryBackup', () => {
 
         const parsed = await parseYomitanDictionaryBackupStream(createSource);
 
-        expect(parsed).toEqual(
-            parseYomitanDictionaryBackup(JSON.parse(text) as unknown)
-        );
+        expect(parsed).toHaveLength(1);
+        expect(parsed[0].title).toBe(title);
+        expect(parsed[0].styles).toBe('.entry::after { content: "😺"; }');
+        expect(parsed[0].banks.term).toEqual([
+            [
+                '猫😺',
+                'ねこ',
+                '',
+                '',
+                1_250,
+                ['line\nbreak, quote ", slash \\, emoji 😺'],
+                7,
+                '',
+            ],
+        ]);
     });
 
     it('opens the source once and preserves rows before dictionary summaries', async () => {
