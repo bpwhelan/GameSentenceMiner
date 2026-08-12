@@ -67,9 +67,6 @@ MAX_PROFILE_BYTES = 64 * 1024
 MAX_BROWSE_REQUEST_BYTES = 64 * 1024
 MINING_STATUS_CACHE_SECONDS = 2.0
 
-DUPLICATE_SCOPES = ("collection", "deck", "deck-root")
-DUPLICATE_BEHAVIORS = ("prevent", "overwrite", "new")
-
 GENERIC_FIELD_ALIASES = {
     "expression": ("Expression", "Word", "Term", "Front"),
     "reading": ("Reading", "Word Reading", "WordReading", "Kana"),

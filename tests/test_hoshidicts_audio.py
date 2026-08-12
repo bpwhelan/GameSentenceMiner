@@ -146,6 +146,21 @@ def test_languagepod101_and_jisho_discover_only_matching_audio(monkeypatch):
     assert [item["url"] for item in jisho] == ["https://cdn.example.com/taberu.mp3"]
 
 
+def test_jisho_percent_encodes_the_search_term(monkeypatch):
+    requested = []
+
+    def request(method, url, **kwargs):
+        requested.append(url)
+        return FakeResponse(b"")
+
+    _respond(monkeypatch, request)
+
+    hoshidicts_audio._resolve_source_candidates(make_audio_source("jisho", "jisho"), "何?", "なに")
+
+    # Leaving the "?" raw would drop it into the query string and search "何".
+    assert requested == ["https://jisho.org/search/%E4%BD%95%3F"]
+
+
 def test_custom_url_substitution_encodes_values_and_custom_json_is_exact(monkeypatch):
     direct = make_audio_source(
         "direct",
