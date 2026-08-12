@@ -1365,32 +1365,6 @@ describe('parseYomitanDictionaryBackup', () => {
         ).rejects.toThrow('backup read failed');
     });
 
-    it('rejects a single oversized JSON value before V8 can retain it', async () => {
-        const createSource = (): Readable =>
-            Readable.from(
-                (function* (): Generator<string> {
-                    yield (
-                        '{"formatName":"dexie","formatVersion":1,"data":{' +
-                        '"databaseName":"dict","data":[' +
-                        '{"tableName":"dictionaries","inbound":true,"rows":[' +
-                        '{"title":"Large","revision":"1"}]},' +
-                        '{"tableName":"terms","inbound":true,"rows":[' +
-                        '{"dictionary":"Large","expression":"entry",' +
-                        '"reading":"","glossary":["'
-                    );
-                    const chunk = 'x'.repeat(8 * 1024);
-                    for (let index = 0; index <= 4_096; index += 1) {
-                        yield chunk;
-                    }
-                    yield '"]}]}]}}';
-                })()
-            );
-
-        await expect(
-            parseYomitanDictionaryBackupStream(createSource)
-        ).rejects.toThrow('exceeds the supported 32 MiB limit');
-    });
-
     it(
         'imports a Yomitan backup larger than its V8 heap without retaining all rows',
         async () => {

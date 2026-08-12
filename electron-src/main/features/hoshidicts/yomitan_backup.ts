@@ -32,7 +32,6 @@ import {
     type HoshidictsYomitanSettingsGroup,
 } from '../../../shared/features/hoshidicts.js';
 import { normalizeHoshidictsAudioProfile } from './audio_profile.js';
-import { createJsonScalarLimitTransform } from './json_scalar_limit.js';
 import { normalizeHoshidictsMiningProfile } from './profile.js';
 
 type JsonRecord = Record<string, unknown>;
@@ -48,7 +47,6 @@ const BANK_FILES: Array<[BankKey, string]> = [
 ];
 const MAX_BANK_ENTRIES = 1_000;
 const MAX_BANK_BYTES = 32 * 1024 * 1024;
-const MAX_JSON_VALUE_BYTES = 32 * 1024 * 1024;
 const MAX_OPEN_SPOOL_FILES = 16;
 const MAX_SPOOL_BUFFER_BYTES = 256 * 1024;
 const MAX_NATIVE_ZIP_BYTES = 0xffff_ffff;
@@ -568,7 +566,6 @@ async function streamDictionaryRows(
         row: unknown
     ) => void | Promise<void>
 ): Promise<DictionaryBackupSignature> {
-    const scalarLimit = createJsonScalarLimitTransform(MAX_JSON_VALUE_BYTES);
     const tokens = parserStream({
         streamKeys: false,
         packKeys: true,
@@ -612,10 +609,8 @@ async function streamDictionaryRows(
             }
             if (!failure) {
                 failure = { reason: error };
-                source.unpipe(scalarLimit);
-                scalarLimit.unpipe(tokens);
+                source.unpipe(tokens);
                 source.destroy();
-                scalarLimit.destroy();
                 tokens.destroy();
             }
             finish();
@@ -681,7 +676,6 @@ async function streamDictionaryRows(
         };
 
         source.once('error', fail);
-        scalarLimit.once('error', fail);
         tokens.once('error', fail);
         tokens.on('data', (token: unknown) => {
             if (settled || failure) {
@@ -719,7 +713,7 @@ async function streamDictionaryRows(
             tokensEnded = true;
             finish();
         });
-        source.pipe(scalarLimit).pipe(tokens);
+        source.pipe(tokens);
     });
     if (
         signature.formatName !== 'dexie' ||
