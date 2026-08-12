@@ -31,8 +31,6 @@ class TermLookupStatsTable:
             """,
             commit=True,
         )
-        # The stats query is infrequent, while maintaining this index slows every lookup write.
-        db.execute("DROP INDEX IF EXISTS idx_term_lookup_stats_count", commit=True)
 
     @classmethod
     def _get_db(cls) -> SQLiteDB:

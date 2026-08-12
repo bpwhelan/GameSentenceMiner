@@ -17,10 +17,11 @@ import {
 } from './yomitan_backup.js';
 import type { HoshidictsManagerSnapshot } from '../../../shared/features/hoshidicts.js';
 import {
-    createDefaultHoshidictsAudioProfile,
-    createDefaultHoshidictsFieldOverwriteModes,
+    makeHoshidictsMiningProfile,
+    makeHoshidictsSnapshot,
+} from './test_helpers.js';
+import {
     createDefaultHoshidictsPopupButtons,
-    DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
 } from '../../../shared/features/hoshidicts.js';
 
 const tempDirs: string[] = [];
@@ -31,52 +32,22 @@ afterEach(() => {
     }
 });
 
+/**
+ * The live snapshot a Yomitan import is merged into. The fifteen non-default
+ * reader values are explicit on purpose: the import must not clobber
+ * preferences Yomitan cannot express, and these are what pin that.
+ */
 function currentState(): HoshidictsManagerSnapshot {
-    return {
+    return makeHoshidictsSnapshot({
         revision: 1,
-        activeProfileId: 'default',
-        profiles: [{ id: 'default', name: 'Default' }],
         dictionaries: [],
-        tabGroups: [],
-        customDictionaryActive: false,
         recommendedDictionaries: [],
-        miningProfile: {
-            version: 3,
-            enabled: true,
+        miningProfile: makeHoshidictsMiningProfile({
             deck: 'Old',
             model: 'Old',
-            fields: {
-                expression: '',
-                reading: '',
-                definition: '',
-                sentence: '',
-                frequency: '',
-                pitch: '',
-                audio: '',
-            },
-            disabledFields: [],
             tags: [],
-            checkForDuplicates: true,
-            duplicateScope: 'collection',
-            duplicateScopeCheckAllModels: false,
-            duplicateBehavior: 'prevent',
-            fieldOverwriteModes:
-                createDefaultHoshidictsFieldOverwriteModes(),
-            fieldTemplates: null,
-        },
-        audioProfile: createDefaultHoshidictsAudioProfile(),
-        lookupMode: 'shift',
-        scanLength: 16,
-        maxResults: 32,
-        sortFrequencyDictionary: null,
-        sortFrequencyDictionaryOrder: 'descending',
-        activationKey: 'Shift',
-        sourceHighlightEnabled: false,
-        onlyScanJapaneseText: true,
+        }),
         popupHideDelayMs: 0,
-        showLookupCounts: true,
-        averageFrequency: false,
-        showFrequencyDictionaryNames: true,
         showCompactDefinitionSummary: true,
         compactDefinitionSummaryCount: 5,
         compactDefinitionSummaryDictionary: 'Jitendex.org',
@@ -85,29 +56,19 @@ function currentState(): HoshidictsManagerSnapshot {
         showPitchAccentBadge: true,
         hidePopupGrammarTags: false,
         popupNestingMaxDepth: 1,
-        definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
         popupWidthPx: 680,
         popupHeightPx: 480,
         popupColumns: 3,
         theme: 'autumn',
         popupOpacityPercent: 70,
-        popupToolbarPosition: 'top',
         popupButtons: {
             ...createDefaultHoshidictsPopupButtons(),
-            customLinks: [
-                {
-                    label: 'Jisho',
-                    url: 'https://jisho.org/search/%w',
-                },
-            ],
+            customLinks: [{ label: 'Jisho', url: 'https://jisho.org/search/%w' }],
         },
         schedule: 'off',
         lastCheck: null,
         nextCheck: null,
-        lastError: null,
-        busy: false,
-        progress: { phase: 'idle' },
-    };
+    });
 }
 
 describe('parseYomitanSettingsBackup', () => {
