@@ -93,47 +93,16 @@ vi.mock('./window.js', () => ({
     openHoshidictsSettingsWindow: harness.openWindow,
 }));
 
-/** The stored reader preferences the mocked manager persists. */
+/**
+ * The stored reader preferences the mocked manager persists. Every consumer
+ * round-trips this opaquely; no individual field is asserted, and the
+ * hoshidictsReaderPreferencesFromSnapshot projection is pinned over a full
+ * non-default set in ipc.test.ts.
+ */
 const readerPreferences = makeHoshidictsReaderPreferences({
     lookupMode: 'hover',
-    scanLength: 24,
-    maxResults: 48,
     sortFrequencyDictionary: 'Frequency only',
-    sortFrequencyDictionaryOrder: 'ascending',
-    activationKey: 'F8',
-    sourceHighlightEnabled: true,
-    onlyScanJapaneseText: true,
-    popupHideDelayMs: 850,
-    showLookupCounts: false,
-    showCompactDefinitionSummary: true,
-    compactDefinitionSummaryCount: 5,
-    compactDefinitionSummaryDictionary: 'Jitendex',
-    showPitchAccentFurigana: true,
-    pitchAccentFuriganaDictionary: 'Pitch',
-    showPitchAccentBadge: false,
-    hidePopupGrammarTags: true,
-    popupNestingMaxDepth: 4,
-    definitionBlur: {
-        enabled: true,
-        lookupThreshold: 9,
-        revealMode: 'hover',
-        revealDelayMs: 7500,
-    },
-    popupWidthPx: 680,
-    popupHeightPx: 500,
-    popupColumns: 3,
     theme: 'autumn',
-    popupOpacityPercent: 70,
-    popupBackdropBlurPx: 24,
-    popupToolbarPosition: 'bottom',
-    popupButtons: {
-        addToAnki: false,
-        audio: true,
-        customDefinition: true,
-        viewInAnki: true,
-        customLinks: [{ label: 'Jisho', url: 'https://jisho.org/search/%w' }],
-    },
-    customPopupCss: ':scope { color: hotpink; }',
 });
 
 /** The dictionary context the overlay is told about alongside the preferences. */

@@ -84,21 +84,9 @@ async function writeTestRoot(
 
     const manifest = {
         version: 1,
-        lookupMode: 'hover',
-        activationKey: 'Alt',
-        sourceHighlightEnabled: true,
-        popupHideDelayMs: 250,
-        showLookupCounts: true,
-        showCompactDefinitionSummary: true,
+        // hoshidicts-backup.ts never reads the reader preferences; it copies
+        // manifest.json as bytes. One field shows that round-trip.
         compactDefinitionSummaryDictionary: 'Jitendex.org',
-        hidePopupGrammarTags: false,
-        popupNestingMaxDepth: 3,
-        definitionBlur: {
-            enabled: true,
-            lookupThreshold: 2,
-            revealMode: 'delay',
-            revealDelayMs: 1500,
-        },
         schedule: 'weekly',
         lastCheck: '2026-08-08T00:00:00.000Z',
         nextCheck: '2026-08-15T00:00:00.000Z',
@@ -266,20 +254,16 @@ describe('Hoshidicts full backups', () => {
             const restoredManifest = JSON.parse(
                 await fsp.readFile(path.join(targetRoot, 'manifest.json'), 'utf8'),
             ) as {
-                showCompactDefinitionSummary: boolean;
                 compactDefinitionSummaryDictionary: string | null;
-                hidePopupGrammarTags: boolean;
                 dictionaries: Array<{
                     path: string;
                     updateScheduleOverride: string | null;
                     lastUpdateCheck: string | null;
                 }>;
             };
-            expect(restoredManifest.showCompactDefinitionSummary).toBe(true);
             expect(restoredManifest.compactDefinitionSummaryDictionary).toBe(
                 'Jitendex.org'
             );
-            expect(restoredManifest.hidePopupGrammarTags).toBe(false);
             expect(restoredManifest.dictionaries[0]?.path).toBe(
                 'generations/jitendex/restored-generation/Jitendex.org [test]',
             );

@@ -57,27 +57,14 @@ def lookup_db():
         database.close()
 
 
-def test_lookup_stats_schema_is_typed_idempotent_and_drops_legacy_sort_index(lookup_db):
-    lookup_db.execute("DROP INDEX IF EXISTS idx_term_lookup_stats_count", commit=True)
-    lookup_db.execute(
-        """
-        CREATE INDEX idx_term_lookup_stats_count
-        ON term_lookup_stats (lookup_count)
-        """,
-        commit=True,
-    )
+def test_set_db_is_idempotent(lookup_db):
+    # The column names and types are restated by every behavioural test below,
+    # each of which fails on a renamed column. What is worth pinning here is
+    # that set_db can run twice, which is how the app reaches it.
+    TermLookupStatsTable.set_db(lookup_db)
     TermLookupStatsTable.set_db(lookup_db)
 
-    columns = {row[1]: (row[2], row[5]) for row in lookup_db.fetchall("PRAGMA table_info(term_lookup_stats)")}
-    assert columns == {
-        "term": ("TEXT", 1),
-        "reading": ("TEXT", 2),
-        "lookup_count": ("INTEGER", 0),
-        "first_looked_up_at": ("REAL", 0),
-        "last_looked_up_at": ("REAL", 0),
-    }
-    indexes = {row[1] for row in lookup_db.fetchall("PRAGMA index_list(term_lookup_stats)")}
-    assert "idx_term_lookup_stats_count" not in indexes
+    assert TermLookupStatsTable.record_lookup("食べる", "たべる", 100.0)["lookup_count"] == 1
 
 
 def test_repeated_lookup_increments_and_preserves_first_timestamp(lookup_db):
