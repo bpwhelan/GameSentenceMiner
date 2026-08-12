@@ -328,11 +328,7 @@ function registerHoshidictsManagerActions(
                     (action.accepts as (value: unknown) => boolean)(request)
                 )
             ) {
-                return {
-                    success: false,
-                    error: action.invalid,
-                    state: await currentState(deps),
-                } satisfies HoshidictsActionResult;
+                return await failedResult(deps, action.invalid);
             }
             return await runAction(
                 deps,
@@ -481,14 +477,16 @@ function isRecommendedDictionaryId(
     );
 }
 
+/** Returns the settings window, which is by definition the verified sender. */
 function assertSettingsSender(
     event: IpcMainInvokeEvent,
     deps: HoshidictsIPCDependencies
-): void {
+): BrowserWindow {
     const senderWindow = BrowserWindow.fromWebContents(event.sender);
     if (!senderWindow || senderWindow !== deps.getSettingsWindow()) {
         throw new Error('Hoshidicts settings request came from an invalid window.');
     }
+    return senderWindow;
 }
 
 function assertMainSender(
@@ -539,6 +537,19 @@ async function currentState(
     );
 }
 
+async function failedResult(
+    deps: HoshidictsIPCDependencies,
+    error: string | undefined
+): Promise<HoshidictsActionResult> {
+    return { success: false, error, state: await currentState(deps) };
+}
+
+async function canceledResult(
+    deps: HoshidictsIPCDependencies
+): Promise<HoshidictsActionResult> {
+    return { success: false, canceled: true, state: await currentState(deps) };
+}
+
 async function runAction(
     deps: HoshidictsIPCDependencies,
     action: () => Promise<HoshidictsManagerSnapshot>,
@@ -551,11 +562,7 @@ async function runAction(
             state: withDesktopState(await action(), deps),
         };
     } catch (error) {
-        return {
-            success: false,
-            error: errorMessage(error),
-            state: await currentState(deps),
-        };
+        return await failedResult(deps, errorMessage(error));
     }
 }
 
@@ -610,11 +617,7 @@ export function registerHoshidictsIPC(
                 Buffer.byteLength(value.text, 'utf8') >
                     MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES
             ) {
-                return {
-                    success: false,
-                    error: 'Custom dictionary save request is invalid or too large.',
-                    state: await currentState(deps),
-                } satisfies HoshidictsActionResult;
+                return await failedResult(deps, 'Custom dictionary save request is invalid or too large.');
             }
             try {
                 const document = await manager.saveCustomDictionary(
@@ -628,32 +631,21 @@ export function registerHoshidictsIPC(
                     state: await currentState(deps),
                 } satisfies HoshidictsActionResult;
             } catch (error) {
-                return {
-                    success: false,
-                    error: errorMessage(error),
-                    state: await currentState(deps),
-                } satisfies HoshidictsActionResult;
+                return await failedResult(deps, errorMessage(error));
             }
         }
     );
 
     ipcMain.handle(HOSHIDICTS_CHANNELS.importDictionary, async (event) => {
-        assertSettingsSender(event, deps);
-        const settingsWindow = deps.getSettingsWindow();
+        const settingsWindow = assertSettingsSender(event, deps);
         const options: OpenDialogOptions = {
             title: 'Import Hoshidicts Dictionaries',
             properties: ['openFile', 'multiSelections'],
             filters: [{ name: 'Yomitan Dictionary', extensions: ['zip'] }],
         };
-        const result = settingsWindow
-            ? await dialog.showOpenDialog(settingsWindow, options)
-            : await dialog.showOpenDialog(options);
+        const result = await dialog.showOpenDialog(settingsWindow, options);
         if (result.canceled || result.filePaths.length === 0) {
-            return {
-                success: false,
-                canceled: true,
-                state: await currentState(deps),
-            } satisfies HoshidictsActionResult;
+            return await canceledResult(deps);
         }
         return await runAction(
             deps,
@@ -667,22 +659,15 @@ export function registerHoshidictsIPC(
     });
 
     ipcMain.handle(HOSHIDICTS_CHANNELS.importYomitanDictionaries, async (event) => {
-        assertSettingsSender(event, deps);
-        const settingsWindow = deps.getSettingsWindow();
+        const settingsWindow = assertSettingsSender(event, deps);
         const options: OpenDialogOptions = {
             title: 'Import Dictionaries from Yomitan',
             properties: ['openFile'],
             filters: [{ name: 'Yomitan Dictionary Backup', extensions: ['json'] }],
         };
-        const result = settingsWindow
-            ? await dialog.showOpenDialog(settingsWindow, options)
-            : await dialog.showOpenDialog(options);
+        const result = await dialog.showOpenDialog(settingsWindow, options);
         if (result.canceled || result.filePaths.length === 0) {
-            return {
-                success: false,
-                canceled: true,
-                state: await currentState(deps),
-            } satisfies HoshidictsActionResult;
+            return await canceledResult(deps);
         }
 
         let prepared: Awaited<
@@ -773,11 +758,7 @@ export function registerHoshidictsIPC(
                 state: withDesktopState(state, deps),
             } satisfies HoshidictsActionResult;
         } catch (error) {
-            return {
-                success: false,
-                error: errorMessage(error),
-                state: await currentState(deps),
-            } satisfies HoshidictsActionResult;
+            return await failedResult(deps, errorMessage(error));
         } finally {
             try {
                 await prepared?.cleanup();
@@ -788,22 +769,15 @@ export function registerHoshidictsIPC(
     });
 
     ipcMain.handle(HOSHIDICTS_CHANNELS.importYomitanSettings, async (event) => {
-        assertSettingsSender(event, deps);
-        const settingsWindow = deps.getSettingsWindow();
+        const settingsWindow = assertSettingsSender(event, deps);
         const options: OpenDialogOptions = {
             title: 'Import Settings from Yomitan',
             properties: ['openFile'],
             filters: [{ name: 'Yomitan Settings Backup', extensions: ['json'] }],
         };
-        const result = settingsWindow
-            ? await dialog.showOpenDialog(settingsWindow, options)
-            : await dialog.showOpenDialog(options);
+        const result = await dialog.showOpenDialog(settingsWindow, options);
         if (result.canceled || result.filePaths.length === 0) {
-            return {
-                success: false,
-                canceled: true,
-                state: await currentState(deps),
-            } satisfies HoshidictsActionResult;
+            return await canceledResult(deps);
         }
 
         let prepared: Awaited<ReturnType<typeof prepareYomitanSettingsBackup>> | null = null;
@@ -868,33 +842,22 @@ export function registerHoshidictsIPC(
                 state: withDesktopState(state, deps),
             } satisfies HoshidictsActionResult;
         } catch (error) {
-            return {
-                success: false,
-                error: errorMessage(error),
-                state: await currentState(deps),
-            } satisfies HoshidictsActionResult;
+            return await failedResult(deps, errorMessage(error));
         } finally {
             await prepared?.cleanup();
         }
     });
 
     ipcMain.handle(HOSHIDICTS_CHANNELS.exportBackup, async (event) => {
-        assertSettingsSender(event, deps);
-        const settingsWindow = deps.getSettingsWindow();
+        const settingsWindow = assertSettingsSender(event, deps);
         const options: SaveDialogOptions = {
             title: 'Export Hoshidicts Backup',
             defaultPath: backupDefaultFileName(),
             filters: [{ name: 'Hoshidicts Backup', extensions: ['zip'] }],
         };
-        const result = settingsWindow
-            ? await dialog.showSaveDialog(settingsWindow, options)
-            : await dialog.showSaveDialog(options);
+        const result = await dialog.showSaveDialog(settingsWindow, options);
         if (result.canceled || !result.filePath) {
-            return {
-                success: false,
-                canceled: true,
-                state: await currentState(deps),
-            } satisfies HoshidictsActionResult;
+            return await canceledResult(deps);
         }
 
         try {
@@ -908,31 +871,20 @@ export function registerHoshidictsIPC(
                 state: await currentState(deps),
             } satisfies HoshidictsActionResult;
         } catch (error) {
-            return {
-                success: false,
-                error: errorMessage(error),
-                state: await currentState(deps),
-            } satisfies HoshidictsActionResult;
+            return await failedResult(deps, errorMessage(error));
         }
     });
 
     ipcMain.handle(HOSHIDICTS_CHANNELS.restoreBackup, async (event) => {
-        assertSettingsSender(event, deps);
-        const settingsWindow = deps.getSettingsWindow();
+        const settingsWindow = assertSettingsSender(event, deps);
         const options: OpenDialogOptions = {
             title: 'Restore Hoshidicts Backup',
             properties: ['openFile'],
             filters: [{ name: 'Hoshidicts Backup', extensions: ['zip'] }],
         };
-        const result = settingsWindow
-            ? await dialog.showOpenDialog(settingsWindow, options)
-            : await dialog.showOpenDialog(options);
+        const result = await dialog.showOpenDialog(settingsWindow, options);
         if (result.canceled || result.filePaths.length === 0) {
-            return {
-                success: false,
-                canceled: true,
-                state: await currentState(deps),
-            } satisfies HoshidictsActionResult;
+            return await canceledResult(deps);
         }
 
         const confirmationOptions = {
@@ -951,11 +903,7 @@ export function registerHoshidictsIPC(
               )
             : await dialog.showMessageBox(confirmationOptions);
         if (confirmation.response !== 0) {
-            return {
-                success: false,
-                canceled: true,
-                state: await currentState(deps),
-            } satisfies HoshidictsActionResult;
+            return await canceledResult(deps);
         }
 
         try {
@@ -967,11 +915,7 @@ export function registerHoshidictsIPC(
                 state: withDesktopState(state, deps),
             } satisfies HoshidictsActionResult;
         } catch (error) {
-            return {
-                success: false,
-                error: errorMessage(error),
-                state: await currentState(deps),
-            } satisfies HoshidictsActionResult;
+            return await failedResult(deps, errorMessage(error));
         }
     });
 
@@ -1010,11 +954,7 @@ export function registerHoshidictsIPC(
                     ? (request as HoshidictsInstallRecommendedRequest).id
                     : null;
             if (!isRecommendedDictionaryId(id)) {
-                return {
-                    success: false,
-                    error: 'Recommended dictionary id is invalid.',
-                    state: await currentState(deps),
-                } satisfies HoshidictsActionResult;
+                return await failedResult(deps, 'Recommended dictionary id is invalid.');
             }
             return await runAction(
                 deps,
@@ -1047,13 +987,9 @@ export function registerHoshidictsIPC(
     ipcMain.handle(
         HOSHIDICTS_CHANNELS.removeDictionary,
         async (event, id: unknown) => {
-            assertSettingsSender(event, deps);
+            const settingsWindow = assertSettingsSender(event, deps);
             if (typeof id !== 'string') {
-                return {
-                    success: false,
-                    error: 'Dictionary id is invalid.',
-                    state: await currentState(deps),
-                } satisfies HoshidictsActionResult;
+                return await failedResult(deps, 'Dictionary id is invalid.');
             }
             const state = await manager.getSnapshot();
             const dictionary = state.dictionaries.find(
@@ -1066,7 +1002,6 @@ export function registerHoshidictsIPC(
                     state: withDesktopState(state, deps),
                 } satisfies HoshidictsActionResult;
             }
-            const settingsWindow = deps.getSettingsWindow();
             const options = {
                 type: 'warning' as const,
                 title: 'Remove Hoshidicts Dictionary',
@@ -1076,9 +1011,7 @@ export function registerHoshidictsIPC(
                 defaultId: 1,
                 cancelId: 1,
             };
-            const confirmation = settingsWindow
-                ? await dialog.showMessageBox(settingsWindow, options)
-                : await dialog.showMessageBox(options);
+            const confirmation = await dialog.showMessageBox(settingsWindow, options);
             if (confirmation.response !== 0) {
                 return {
                     success: false,
@@ -1106,11 +1039,7 @@ export function registerHoshidictsIPC(
             try {
                 requestPreferences = assertHoshidictsReaderPreferences(request);
             } catch {
-                return {
-                    success: false,
-                    error: 'Hoshidicts reader preferences are invalid.',
-                    state: await currentState(deps),
-                } satisfies HoshidictsActionResult;
+                return await failedResult(deps, 'Hoshidicts reader preferences are invalid.');
             }
             return await runAction(
                 deps,
@@ -1255,11 +1184,7 @@ export function registerHoshidictsIPC(
                         !/^[A-Za-z0-9._-]{1,128}$/u.test(id)
                 )
             ) {
-                return {
-                    success: false,
-                    error: 'Bulk dictionary action request is invalid.',
-                    state: await currentState(deps),
-                } satisfies HoshidictsActionResult;
+                return await failedResult(deps, 'Bulk dictionary action request is invalid.');
             }
             const ids = [...new Set(value.ids)];
             const action = value.action;
@@ -1322,11 +1247,7 @@ export function registerHoshidictsIPC(
                 state: await currentState(deps),
             } satisfies HoshidictsActionResult;
         } catch (error) {
-            return {
-                success: false,
-                error: errorMessage(error),
-                state: await currentState(deps),
-            } satisfies HoshidictsActionResult;
+            return await failedResult(deps, errorMessage(error));
         }
     });
 }

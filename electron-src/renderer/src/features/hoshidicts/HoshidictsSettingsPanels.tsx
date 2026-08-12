@@ -37,7 +37,10 @@ import {
   MIN_HOSHIDICTS_SCAN_LENGTH,
   type HoshidictsActivationKey,
   type HoshidictsBulkDictionaryAction,
+  type HoshidictsDuplicateBehavior,
+  type HoshidictsDuplicateScope,
   type HoshidictsFieldOverwriteMode,
+  type HoshidictsSortFrequencyDictionaryOrder,
   type HoshidictsSchedule
 } from "../../../../shared/features/hoshidicts";
 import { useTranslation } from "../../i18n";
@@ -1178,9 +1181,8 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                   onChange={(event) =>
                     setReaderPreference(
                       "sortFrequencyDictionaryOrder",
-                      event.currentTarget.value === "ascending"
-                        ? "ascending"
-                        : "descending"
+                      event.currentTarget
+                        .value as HoshidictsSortFrequencyDictionaryOrder
                     )
                   }
                 >
@@ -2302,10 +2304,7 @@ export function MiningPanel({ controller }: { controller: Controller }) {
               label: t(scope.labelKey)
             }))}
             onChange={(scope) =>
-              setMiningValue(
-                "duplicateScope",
-                scope === "deck" || scope === "deck-root" ? scope : "collection"
-              )
+              setMiningValue("duplicateScope", scope as HoshidictsDuplicateScope)
             }
           />
 
@@ -2321,9 +2320,7 @@ export function MiningPanel({ controller }: { controller: Controller }) {
             onChange={(behavior) =>
               setMiningValue(
                 "duplicateBehavior",
-                behavior === "overwrite" || behavior === "new"
-                  ? behavior
-                  : "prevent"
+                behavior as HoshidictsDuplicateBehavior
               )
             }
           />
@@ -2422,18 +2419,12 @@ export function MiningPanel({ controller }: { controller: Controller }) {
                       )}
                       value={template?.overwriteMode ?? "coalesce"}
                       disabled={miningBusy || miningOptionsLoading}
-                      onChange={(event) => {
-                        const overwriteMode = event.target
-                          .value as HoshidictsFieldOverwriteMode;
-                        if (
-                          !HOSHIDICTS_FIELD_OVERWRITE_MODES.includes(
-                            overwriteMode
-                          )
-                        ) {
-                          return;
-                        }
-                        setMiningField(field, { overwriteMode });
-                      }}
+                      onChange={(event) =>
+                        setMiningField(field, {
+                          overwriteMode: event.target
+                            .value as HoshidictsFieldOverwriteMode
+                        })
+                      }
                     >
                       {HOSHIDICTS_FIELD_OVERWRITE_MODES.map((mode) => (
                         <option value={mode} key={mode}>

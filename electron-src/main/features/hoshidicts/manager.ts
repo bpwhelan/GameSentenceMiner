@@ -3034,47 +3034,8 @@ export class HoshidictsManager {
                     (dictionary) =>
                         dictionary.id !== HOSHIDICTS_CUSTOM_DICTIONARY_ID
                 )
-                .map(
-                    ({
-                        id,
-                        title,
-                        displayName,
-                        enabled,
-                        favorite,
-                        revision,
-                        isUpdatable,
-                        indexUrl,
-                        downloadUrl,
-                        language,
-                        termCount,
-                        frequencyCount,
-                        pitchCount,
-                        kanjiCount,
-                        frequencyMode,
-                        installedAt,
-                        updateScheduleOverride,
-                        lastUpdateCheck,
-                    }) => ({
-                        id,
-                        title,
-                        displayName,
-                        enabled,
-                        favorite,
-                        revision,
-                        isUpdatable,
-                        indexUrl,
-                        downloadUrl,
-                        language,
-                        termCount,
-                        frequencyCount,
-                        pitchCount,
-                        kanjiCount,
-                        frequencyMode,
-                        installedAt,
-                        updateScheduleOverride,
-                        lastUpdateCheck,
-                    })
-                ),
+                // PersistedDictionary adds only these two to HoshidictsDictionaryState.
+                .map(({ path, recommendedId, ...dictionary }) => dictionary),
             tabGroups: profile.tabGroups.map(({ id, name, dictionaryIds }) => ({
                 id,
                 name,
