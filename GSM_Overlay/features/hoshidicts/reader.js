@@ -120,8 +120,6 @@
   const MAX_MEDIA_CACHE_ENTRIES = 64;
   const MAX_MEDIA_CONCURRENT_REQUESTS = 4;
   const MAX_MEDIA_PENDING_REQUESTS = 128;
-  const MAX_POPUP_MEDIA_IMAGES = 128;
-  const MAX_POPUP_MEDIA_PIXELS = 32 * 1024 * 1024;
   const MEDIA_REQUEST_TIMEOUT_MS = 4 * 1000;
   const MAX_MEDIA_DISPLAY_SIZE = 1024;
   const MAX_TRACE_STEPS = 32;
@@ -2679,11 +2677,9 @@
     let mediaRequestSequence = 0;
     let activeMediaRequestCount = 0;
     let mediaCacheBytes = 0;
-    let popupMediaPixels = 0;
     const mediaCache = new Map();
     const mediaInFlight = new Map();
     const mediaPendingByRequestId = new Map();
-    const popupMediaKeys = new Map();
     let mediaQueue = [];
     let popupVisible = false;
     let noteEditing = false;
@@ -3054,22 +3050,8 @@
       clearMediaCache();
     }
 
-    function releasePopupMediaFromDepth(minimumDepth) {
-      for (const [reservationKey, reservation] of popupMediaKeys) {
-        if (reservation.depth < minimumDepth) {
-          continue;
-        }
-        popupMediaKeys.delete(reservationKey);
-        popupMediaPixels = Math.max(
-          0,
-          popupMediaPixels - reservation.pixelCount
-        );
-      }
-    }
-
     function preparePopupContent(reason, targetDepth = 0) {
       cancelMediaRequests(reason, targetDepth);
-      releasePopupMediaFromDepth(targetDepth);
       pumpMediaQueue();
     }
 
@@ -3191,39 +3173,6 @@
       });
     }
 
-    function reservePopupMedia(depth, key, pixelCount) {
-      const reservationKey = mediaDepthKey(depth, key);
-      if (popupMediaKeys.has(reservationKey)) {
-        return true;
-      }
-      if (
-        popupMediaKeys.size >= MAX_POPUP_MEDIA_IMAGES ||
-        popupMediaPixels + pixelCount > MAX_POPUP_MEDIA_PIXELS
-      ) {
-        return false;
-      }
-      popupMediaKeys.set(reservationKey, { depth, pixelCount });
-      popupMediaPixels += pixelCount;
-      return true;
-    }
-
-    function isPopupMediaBudgetFull() {
-      return (
-        popupMediaKeys.size >= MAX_POPUP_MEDIA_IMAGES ||
-        popupMediaPixels >= MAX_POPUP_MEDIA_PIXELS
-      );
-    }
-
-    function releasePopupMedia(depth, key) {
-      const reservationKey = mediaDepthKey(depth, key);
-      const reservation = popupMediaKeys.get(reservationKey);
-      if (!reservation) {
-        return;
-      }
-      popupMediaKeys.delete(reservationKey);
-      popupMediaPixels = Math.max(0, popupMediaPixels - reservation.pixelCount);
-    }
-
     function updateDictionaryGeneration(generation) {
       if (activeDictionaryGeneration === generation) {
         requestDictionaryStyles(generation);
@@ -3339,19 +3288,9 @@
       const key = mediaCacheKey(normalizedGeneration, dictionary, normalizedPath);
       const cached = mediaCache.get(key);
       if (cached) {
-        if (!reservePopupMedia(depth, key, cached.pixelCount)) {
-          cancelMediaRequests("media_pixel_budget_exceeded");
-          return Promise.reject(new Error("media_pixel_budget_exceeded"));
-        }
         mediaCache.delete(key);
         mediaCache.set(key, cached);
-        if (isPopupMediaBudgetFull()) {
-          cancelMediaRequests("media_pixel_budget_exhausted");
-        }
         return Promise.resolve(cached.url);
-      }
-      if (isPopupMediaBudgetFull()) {
-        return Promise.reject(new Error("media_pixel_budget_exhausted"));
       }
       const inFlightKey = mediaDepthKey(depth, key);
       const inFlight = mediaInFlight.get(inFlightKey);
@@ -4853,14 +4792,6 @@
         return;
       }
       const cached = mediaCache.get(job.cacheKey);
-      const pixelCount = cached ? cached.pixelCount : metadata.pixelCount;
-      const reservationKey = mediaDepthKey(job.depth, job.cacheKey);
-      const alreadyReserved = popupMediaKeys.has(reservationKey);
-      if (!reservePopupMedia(job.depth, job.cacheKey, pixelCount)) {
-        rejectMediaJob(job, new Error("media_pixel_budget_exceeded"));
-        cancelMediaRequests("media_pixel_budget_exceeded");
-        return;
-      }
       if (cached) {
         mediaCache.delete(job.cacheKey);
         mediaCache.set(job.cacheKey, cached);
@@ -4870,11 +4801,7 @@
           cached.byteLength,
           cached.pixelCount
         );
-        if (isPopupMediaBudgetFull()) {
-          cancelMediaRequests("media_pixel_budget_exhausted");
-        } else {
-          pumpMediaQueue();
-        }
+        pumpMediaQueue();
         return;
       }
       let media;
@@ -4887,19 +4814,12 @@
           throw new Error("invalid_blob_url");
         }
       } catch (error) {
-        if (!alreadyReserved) {
-          releasePopupMedia(job.depth, job.cacheKey);
-        }
         rejectMediaJob(job, error);
         pumpMediaQueue();
         return;
       }
       resolveMediaJob(job, url, media.byteLength, media.pixelCount, media);
-      if (isPopupMediaBudgetFull()) {
-        cancelMediaRequests("media_pixel_budget_exhausted");
-      } else {
-        pumpMediaQueue();
-      }
+      pumpMediaQueue();
     }
 
     function expandCandidateAnchor(candidate, matchedText) {
