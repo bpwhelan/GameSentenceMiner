@@ -31,6 +31,7 @@ const harness = vi.hoisted(() => ({
     configurePopupColumnsProvider: vi.fn(),
     configureThemeProvider: vi.fn(),
     configurePopupOpacityPercentProvider: vi.fn(),
+    configurePopupBackdropBlurPxProvider: vi.fn(),
     configurePopupToolbarPositionProvider: vi.fn(),
     markPreferencesApplied: vi.fn(() => true),
     markAudioApplied: vi.fn(() => true),
@@ -92,6 +93,7 @@ const harness = vi.hoisted(() => ({
         popupColumns: 3,
         theme: 'autumn' as const,
         popupOpacityPercent: 70,
+        popupBackdropBlurPx: 24,
         popupToolbarPosition: 'bottom' as const,
         popupButtons: {
             addToAnki: false,
@@ -192,6 +194,8 @@ vi.mock('../../ui/front.js', () => ({
     configureHoshidictsThemeProvider: harness.configureThemeProvider,
     configureHoshidictsPopupOpacityPercentProvider:
         harness.configurePopupOpacityPercentProvider,
+    configureHoshidictsPopupBackdropBlurPxProvider:
+        harness.configurePopupBackdropBlurPxProvider,
     configureHoshidictsPopupToolbarPositionProvider:
         harness.configurePopupToolbarPositionProvider,
     getOverlayHoshidictsEnabledAtLaunch: () => false,
@@ -227,6 +231,7 @@ vi.mock('../../ui/front.js', () => ({
     getOverlayHoshidictsPopupColumnsAtLaunch: () => 1,
     getOverlayHoshidictsThemeAtLaunch: () => 'default',
     getOverlayHoshidictsPopupOpacityPercentAtLaunch: () => 85,
+    getOverlayHoshidictsPopupBackdropBlurPxAtLaunch: () => 16,
     getOverlayHoshidictsPopupToolbarPositionAtLaunch: () => 'top',
     getOverlayHoshidictsPopupButtonsApplied: () => null,
     getOverlayHoshidictsCustomPopupCssApplied: () => '',
@@ -289,6 +294,7 @@ describe('Hoshidicts feature registration', () => {
         harness.configurePopupColumnsProvider.mockReset();
         harness.configureThemeProvider.mockReset();
         harness.configurePopupOpacityPercentProvider.mockReset();
+        harness.configurePopupBackdropBlurPxProvider.mockReset();
         harness.startManager.mockClear();
         harness.stopManager.mockClear();
         harness.startControl.mockClear();
@@ -379,6 +385,7 @@ describe('Hoshidicts feature registration', () => {
                 popupColumns: 3,
                 theme: 'autumn',
                 popupOpacityPercent: 70,
+                popupBackdropBlurPx: 24,
                 popupToolbarPosition: 'bottom',
                 popupButtons: harness.managerSnapshot.popupButtons,
                 customPopupCss: harness.managerSnapshot.customPopupCss,
@@ -411,6 +418,7 @@ describe('Hoshidicts feature registration', () => {
                 popupColumns: 3,
                 theme: 'autumn',
                 popupOpacityPercent: 70,
+                popupBackdropBlurPx: 24,
                 popupToolbarPosition: 'bottom',
                 popupButtons: harness.managerSnapshot.popupButtons,
                 customPopupCss: harness.managerSnapshot.customPopupCss,
@@ -442,6 +450,7 @@ describe('Hoshidicts feature registration', () => {
             popupColumns: 3,
             theme: 'autumn',
             popupOpacityPercent: 70,
+            popupBackdropBlurPx: 24,
             popupToolbarPosition: 'bottom',
             popupButtons: harness.managerSnapshot.popupButtons,
             customPopupCss: harness.managerSnapshot.customPopupCss,
@@ -494,6 +503,7 @@ describe('Hoshidicts feature registration', () => {
                     popupColumns: 3,
                     theme: 'autumn',
                     popupOpacityPercent: 70,
+                    popupBackdropBlurPx: 24,
                     popupToolbarPosition: 'bottom',
                     popupButtons: harness.managerSnapshot.popupButtons,
                     customPopupCss: harness.managerSnapshot.customPopupCss,
@@ -672,6 +682,12 @@ describe('Hoshidicts feature registration', () => {
             harness.configurePopupOpacityPercentProvider.mock.calls[0][0]()
         ).resolves.toBe(70);
         expect(
+            harness.configurePopupBackdropBlurPxProvider
+        ).toHaveBeenCalledOnce();
+        await expect(
+            harness.configurePopupBackdropBlurPxProvider.mock.calls[0][0]()
+        ).resolves.toBe(24);
+        expect(
             harness.configurePopupToolbarPositionProvider
         ).toHaveBeenCalledOnce();
         await expect(
@@ -820,4 +836,3 @@ describe('Hoshidicts feature registration', () => {
         );
     });
 });
-

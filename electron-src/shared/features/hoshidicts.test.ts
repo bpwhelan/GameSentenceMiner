@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
     createDefaultHoshidictsPopupButtons,
+    DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
     DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
     HOSHIDICTS_MINING_FIELD_MARKERS,
     hoshidictsReaderPreferencesFromSnapshot,
@@ -219,6 +220,7 @@ describe('Hoshidicts reader preferences', () => {
             pitchAccentFuriganaDictionary: 'Kanjium Pitch Accents',
             showPitchAccentBadge: true,
             hidePopupGrammarTags: true,
+            popupBackdropBlurPx: 24,
             popupButtons: createDefaultHoshidictsPopupButtons(),
         } as unknown as HoshidictsManagerSnapshot;
 
@@ -250,6 +252,15 @@ describe('Hoshidicts reader preferences', () => {
             hoshidictsReaderPreferencesFromSnapshot(snapshot)
                 .hidePopupGrammarTags
         ).toBe(true);
+        expect(
+            hoshidictsReaderPreferencesFromSnapshot(snapshot)
+                .popupBackdropBlurPx
+        ).toBe(24);
+        expect(
+            hoshidictsReaderPreferencesFromSnapshot({
+                ...snapshot,
+                popupBackdropBlurPx: undefined,
+            }).popupBackdropBlurPx
+        ).toBe(DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX);
     });
 });
-

@@ -203,6 +203,7 @@ export const DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX = 560;
 export const DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX = 420;
 export const DEFAULT_HOSHIDICTS_POPUP_COLUMNS = 1;
 export const DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT = 85;
+export const DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX = 16;
 export const DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS = '';
 export const MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH = 32 * 1024;
 export const HOSHIDICTS_POPUP_TOOLBAR_POSITIONS = ['top', 'bottom'] as const;
@@ -352,6 +353,8 @@ export const MIN_HOSHIDICTS_POPUP_COLUMNS = 1;
 export const MAX_HOSHIDICTS_POPUP_COLUMNS = 4;
 export const MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT = 0;
 export const MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT = 100;
+export const MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX = 0;
+export const MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX = 32;
 export type HoshidictsTheme =
     | 'default'
     | 'girlypop'
@@ -714,6 +717,7 @@ export interface HoshidictsReaderPreferencesRequest {
     popupColumns: number;
     theme: HoshidictsTheme;
     popupOpacityPercent: number;
+    popupBackdropBlurPx?: number;
     popupToolbarPosition: HoshidictsPopupToolbarPosition;
     popupButtons: HoshidictsPopupButtons;
     customPopupCss?: string;
@@ -747,6 +751,7 @@ export interface HoshidictsReaderPreferences
     showFrequencyDictionaryNames: boolean;
     compactDefinitionSummaryCount: number;
     customPopupCss: string;
+    popupBackdropBlurPx: number;
     // Optional at the cross-process boundary for compatibility with an older
     // overlay. Current desktop deliveries always include a normalized array.
     dictionaryPresentation?: HoshidictsDictionaryPresentation[];
@@ -960,6 +965,7 @@ export interface HoshidictsManagerSnapshot {
     popupColumns: number;
     theme: HoshidictsTheme;
     popupOpacityPercent: number;
+    popupBackdropBlurPx?: number;
     popupToolbarPosition: HoshidictsPopupToolbarPosition;
     popupButtons: HoshidictsPopupButtons;
     customPopupCss: string;
@@ -1013,6 +1019,14 @@ export function hoshidictsReaderPreferencesFromSnapshot(
         popupColumns: snapshot.popupColumns,
         theme: snapshot.theme,
         popupOpacityPercent: snapshot.popupOpacityPercent,
+        popupBackdropBlurPx:
+            Number.isInteger(snapshot.popupBackdropBlurPx) &&
+            (snapshot.popupBackdropBlurPx as number) >=
+                MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX &&
+            (snapshot.popupBackdropBlurPx as number) <=
+                MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX
+                ? (snapshot.popupBackdropBlurPx as number)
+                : DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
         popupToolbarPosition: snapshot.popupToolbarPosition,
         popupButtons: normalizeHoshidictsPopupButtons(snapshot.popupButtons),
         customPopupCss: snapshot.customPopupCss,
@@ -1186,4 +1200,3 @@ export interface HoshidictsSaveCustomDictionaryRequest {
 }
 
 export type HoshidictsCustomEntryRequest = HoshidictsCustomDictionaryEntry;
-

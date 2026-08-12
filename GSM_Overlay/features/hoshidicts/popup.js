@@ -1068,8 +1068,7 @@
           browseButton.type = "button";
           browseButton.className =
             "gsm-hoshidicts-view-in-anki-button gsm-hoshidicts-text-action-button";
-          browseButton.textContent = "View in Anki";
-          browseButton.title = "View in Anki";
+          browseButton.title = "Open note in Anki";
           browseButton.setAttribute("aria-label", browseButton.title);
           browseButton.addEventListener("click", () => {
             onBrowseClick(browseButton, result, feedback);
@@ -2313,4 +2312,3 @@
     setMiningButtonState,
   };
 }));
-

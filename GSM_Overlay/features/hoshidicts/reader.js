@@ -66,6 +66,7 @@
   const MIN_POPUP_COLUMNS = 1;
   const MAX_POPUP_COLUMNS = 4;
   const DEFAULT_POPUP_OPACITY_PERCENT = 85;
+  const DEFAULT_POPUP_BACKDROP_BLUR_PX = 16;
   const DEFAULT_POPUP_TOOLBAR_POSITION = "top";
   const DEFAULT_POPUP_BUTTONS = Object.freeze({
     addToAnki: true,
@@ -80,6 +81,8 @@
   const MAX_CUSTOM_POPUP_CSS_LENGTH = 32 * 1024;
   const MIN_POPUP_OPACITY_PERCENT = 0;
   const MAX_POPUP_OPACITY_PERCENT = 100;
+  const MIN_POPUP_BACKDROP_BLUR_PX = 0;
+  const MAX_POPUP_BACKDROP_BLUR_PX = 32;
   const DEFAULT_THEME = "default";
   const THEMES = new Set([
     "default",
@@ -2509,6 +2512,17 @@
       : fallback;
   }
 
+  function normalizePopupBackdropBlurPx(
+    value,
+    fallback = DEFAULT_POPUP_BACKDROP_BLUR_PX
+  ) {
+    return Number.isInteger(value) &&
+      value >= MIN_POPUP_BACKDROP_BLUR_PX &&
+      value <= MAX_POPUP_BACKDROP_BLUR_PX
+      ? value
+      : fallback;
+  }
+
   function normalizePopupToolbarPosition(
     value,
     fallback = DEFAULT_POPUP_TOOLBAR_POSITION
@@ -2658,6 +2672,9 @@
       popupOpacityPercent: normalizePopupOpacityPercent(
         options.popupOpacityPercent
       ),
+      popupBackdropBlurPx: normalizePopupBackdropBlurPx(
+        options.popupBackdropBlurPx
+      ),
       popupToolbarPosition: normalizePopupToolbarPosition(
         options.popupToolbarPosition
       ),
@@ -2763,6 +2780,12 @@
       rootElement.style.setProperty(
         "--gsm-hoshidicts-popup-opacity",
         `${preferences.popupOpacityPercent}%`
+      );
+      rootElement.style.setProperty(
+        "--gsm-hoshidicts-popup-backdrop-filter",
+        preferences.popupBackdropBlurPx === 0
+          ? "none"
+          : `blur(${preferences.popupBackdropBlurPx}px) saturate(1.08)`
       );
       rootElement.style.setProperty(
         "--gsm-hoshidicts-popup-columns",
@@ -4554,10 +4577,8 @@
       if (!term) {
         return;
       }
-      const originalText = button.textContent;
       const level = popupLevels.find((entry) => entry.popup.contains(button));
       button.disabled = true;
-      button.textContent = "Opening\u2026";
       level?.view.setFeedback(
         feedback,
         "Opening Anki browser\u2026"
@@ -4579,7 +4600,6 @@
         );
       } finally {
         button.disabled = false;
-        button.textContent = originalText;
         if (button.isConnected) {
           positionAllPopups();
         }
@@ -5724,6 +5744,7 @@
       const previousPopupHeightPx = preferences.popupHeightPx;
       const previousPopupColumns = preferences.popupColumns;
       const previousPopupOpacityPercent = preferences.popupOpacityPercent;
+      const previousPopupBackdropBlurPx = preferences.popupBackdropBlurPx;
       const previousPopupToolbarPosition = preferences.popupToolbarPosition;
       const previousTheme = preferences.theme;
       const previousCustomPopupCss = preferences.customPopupCss;
@@ -5899,6 +5920,15 @@
               preferences.popupOpacityPercent
             )
           : preferences.popupOpacityPercent,
+        popupBackdropBlurPx: Object.prototype.hasOwnProperty.call(
+          nextPreferences,
+          "popupBackdropBlurPx"
+        )
+          ? normalizePopupBackdropBlurPx(
+              nextPreferences.popupBackdropBlurPx,
+              preferences.popupBackdropBlurPx
+            )
+          : preferences.popupBackdropBlurPx,
         popupToolbarPosition: Object.prototype.hasOwnProperty.call(
           nextPreferences,
           "popupToolbarPosition"
@@ -5995,6 +6025,7 @@
         previousPopupHeightPx !== preferences.popupHeightPx ||
         previousPopupColumns !== preferences.popupColumns ||
         previousPopupOpacityPercent !== preferences.popupOpacityPercent ||
+        previousPopupBackdropBlurPx !== preferences.popupBackdropBlurPx ||
         previousTheme !== preferences.theme
       ) {
         applyAppearancePreferences();
@@ -6108,7 +6139,7 @@
         }
       }
       diagnostic("info", "preferences.updated", preferences);
-      return {
+      const updatedPreferences = {
         ...preferences,
         definitionBlur: { ...preferences.definitionBlur },
         dictionaryPresentation: preferences.dictionaryPresentation.map(
@@ -6121,6 +6152,8 @@
         })),
         popupButtons: clonePopupButtons(preferences.popupButtons),
       };
+      delete updatedPreferences.popupBackdropBlurPx;
+      return updatedPreferences;
     }
 
     function updateAudioPreferences(nextPreferences = {}) {
@@ -6197,6 +6230,9 @@
         "--gsm-hoshidicts-popup-opacity"
       );
       documentRef.documentElement.style.removeProperty(
+        "--gsm-hoshidicts-popup-backdrop-filter"
+      );
+      documentRef.documentElement.style.removeProperty(
         "--gsm-hoshidicts-popup-columns"
       );
     }
@@ -6239,6 +6275,7 @@
       popupHeightPx: preferences.popupHeightPx,
       popupColumns: preferences.popupColumns,
       popupOpacityPercent: preferences.popupOpacityPercent,
+      popupBackdropBlurPx: preferences.popupBackdropBlurPx,
       popupToolbarPosition: preferences.popupToolbarPosition,
       theme: preferences.theme,
       scanLength: preferences.scanLength,
@@ -6256,19 +6293,25 @@
       getPopupElements: () => popupLevels
         .filter((level) => level.visible)
         .map((level) => level.popup),
-      getPreferences: () => ({
-        ...preferences,
-        definitionBlur: { ...preferences.definitionBlur },
-        dictionaryPresentation: preferences.dictionaryPresentation.map(
-          (entry) => ({ ...entry })
-        ),
-        frequencyDictionaries: [...preferences.frequencyDictionaries],
-        dictionaryTabGroups: preferences.dictionaryTabGroups.map((group) => ({
-          ...group,
-          dictionaries: [...group.dictionaries],
-        })),
-        popupButtons: clonePopupButtons(preferences.popupButtons),
-      }),
+      getPreferences: () => {
+        const {
+          popupBackdropBlurPx: _popupBackdropBlurPx,
+          ...publicPreferences
+        } = preferences;
+        return {
+          ...publicPreferences,
+          definitionBlur: { ...preferences.definitionBlur },
+          dictionaryPresentation: preferences.dictionaryPresentation.map(
+            (entry) => ({ ...entry })
+          ),
+          frequencyDictionaries: [...preferences.frequencyDictionaries],
+          dictionaryTabGroups: preferences.dictionaryTabGroups.map((group) => ({
+            ...group,
+            dictionaries: [...group.dictionaries],
+          })),
+          popupButtons: clonePopupButtons(preferences.popupButtons),
+        };
+      },
       getAudioPreferences: () => audioController.getPreferences(),
       positionPopup: positionAllPopups,
       setActivationKeyPressed,
@@ -6284,6 +6327,7 @@
     DEFAULT_POPUP_HEIGHT_PX,
     DEFAULT_POPUP_COLUMNS,
     DEFAULT_POPUP_OPACITY_PERCENT,
+    DEFAULT_POPUP_BACKDROP_BLUR_PX,
     DEFAULT_POPUP_BUTTONS,
     DEFAULT_POPUP_TOOLBAR_POSITION,
     DEFAULT_POPUP_NESTING_MAX_DEPTH,
@@ -6305,6 +6349,7 @@
     MAX_POPUP_HEIGHT_PX,
     MAX_POPUP_COLUMNS,
     MAX_POPUP_OPACITY_PERCENT,
+    MAX_POPUP_BACKDROP_BLUR_PX,
     MAX_POPUP_WIDTH_PX,
     MAX_DEFINITION_BLUR_LOOKUP_THRESHOLD,
     MAX_DEFINITION_BLUR_REVEAL_DELAY_MS,
@@ -6315,6 +6360,7 @@
     MIN_LOOKUP_MAX_RESULTS,
     MIN_LOOKUP_SCAN_LENGTH,
     MIN_POPUP_OPACITY_PERCENT,
+    MIN_POPUP_BACKDROP_BLUR_PX,
     MIN_POPUP_WIDTH_PX,
     appendExpressionRuby,
     appendTextOnlyGlossary,
@@ -6338,6 +6384,7 @@
     normalizePopupWidth,
     normalizeTheme,
     normalizePopupOpacityPercent,
+    normalizePopupBackdropBlurPx,
     normalizePopupButtons,
     normalizeLookupResults,
     normalizeSortFrequencyDictionary,
@@ -6355,4 +6402,3 @@
     splitPitchAccentMorae,
   };
 }));
-

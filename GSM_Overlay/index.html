@@ -215,6 +215,14 @@
       ? process.env.GSM_HOSHIDICTS_POPUP_OPACITY_PERCENT
       : ''
   );
+  const configuredHoshidictsPopupBackdropBlurPx = Number(
+    typeof process !== 'undefined' &&
+    process.env &&
+    typeof process.env.GSM_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX === 'string' &&
+    process.env.GSM_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX.trim() !== ''
+      ? process.env.GSM_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX
+      : Number.NaN
+  );
   const configuredHoshidictsPopupToolbarPosition = (
     typeof process !== 'undefined' && process.env
       ? process.env.GSM_HOSHIDICTS_POPUP_TOOLBAR_POSITION
@@ -286,12 +294,23 @@
     configuredHoshidictsPopupOpacityPercent >= 0 &&
     configuredHoshidictsPopupOpacityPercent <= 100
   ) ? configuredHoshidictsPopupOpacityPercent : 85;
+  window.gsmHoshidictsPopupBackdropBlurPx = (
+    Number.isInteger(configuredHoshidictsPopupBackdropBlurPx) &&
+    configuredHoshidictsPopupBackdropBlurPx >= 0 &&
+    configuredHoshidictsPopupBackdropBlurPx <= 32
+  ) ? configuredHoshidictsPopupBackdropBlurPx : 16;
   window.gsmHoshidictsPopupToolbarPosition = (
     configuredHoshidictsPopupToolbarPosition === 'bottom'
   ) ? 'bottom' : 'top';
   document.documentElement.style.setProperty(
     '--gsm-hoshidicts-popup-opacity',
     `${window.gsmHoshidictsPopupOpacityPercent}%`
+  );
+  document.documentElement.style.setProperty(
+    '--gsm-hoshidicts-popup-backdrop-filter',
+    window.gsmHoshidictsPopupBackdropBlurPx === 0
+      ? 'none'
+      : `blur(${window.gsmHoshidictsPopupBackdropBlurPx}px) saturate(1.08)`
   );
   window.gsmHoshidictsDictionaryPresentation = [];
   window.gsmHoshidictsFrequencyDictionaries = [];
@@ -5440,6 +5459,9 @@ background: rgba(202, 12, 12, 0.692);
     const popupColumns = preferences.popupColumns === undefined
       ? 1
       : preferences.popupColumns;
+    const popupBackdropBlurPx = preferences.popupBackdropBlurPx === undefined
+      ? 16
+      : preferences.popupBackdropBlurPx;
     if (
       !Number.isInteger(preferences.popupWidthPx) ||
       preferences.popupWidthPx < 280 ||
@@ -5453,6 +5475,9 @@ background: rgba(202, 12, 12, 0.692);
       !Number.isInteger(preferences.popupOpacityPercent) ||
       preferences.popupOpacityPercent < 0 ||
       preferences.popupOpacityPercent > 100 ||
+      !Number.isInteger(popupBackdropBlurPx) ||
+      popupBackdropBlurPx < 0 ||
+      popupBackdropBlurPx > 32 ||
       !['top', 'bottom'].includes(preferences.popupToolbarPosition) ||
       ![
         'default',
@@ -5507,6 +5532,7 @@ background: rgba(202, 12, 12, 0.692);
       popupHeightPx: preferences.popupHeightPx,
       popupColumns,
       popupOpacityPercent: preferences.popupOpacityPercent,
+      popupBackdropBlurPx,
       popupToolbarPosition: preferences.popupToolbarPosition,
       theme: preferences.theme,
     };
@@ -5574,6 +5600,7 @@ background: rgba(202, 12, 12, 0.692);
       popupHeightPx: window.gsmHoshidictsPopupHeightPx,
       popupColumns: window.gsmHoshidictsPopupColumns,
       popupOpacityPercent: window.gsmHoshidictsPopupOpacityPercent,
+      popupBackdropBlurPx: window.gsmHoshidictsPopupBackdropBlurPx ?? 16,
       popupToolbarPosition: window.gsmHoshidictsPopupToolbarPosition,
       theme: window.gsmHoshidictsTheme,
       customPopupCss: window.gsmHoshidictsCustomPopupCss,
@@ -5630,7 +5657,19 @@ background: rgba(202, 12, 12, 0.692);
     const dictionaryTabGroups = preferences.dictionaryTabGroups === undefined
       ? []
       : preferences.dictionaryTabGroups;
-    const appearance = validateHoshidictsAppearance(preferences);
+    const hasPopupBackdropBlurPx = Object.prototype.hasOwnProperty.call(
+      preferences,
+      'popupBackdropBlurPx'
+    );
+    const appearance = validateHoshidictsAppearance(
+      hasPopupBackdropBlurPx
+        ? preferences
+        : {
+            ...preferences,
+            popupBackdropBlurPx:
+              window.gsmHoshidictsPopupBackdropBlurPx ?? 16,
+          }
+    );
     const compactDefinitionSummaryDictionary =
       preferences.compactDefinitionSummaryDictionary;
     const compactDefinitionSummaryCount =
@@ -5739,6 +5778,8 @@ background: rgba(202, 12, 12, 0.692);
     window.gsmHoshidictsPopupColumns = appearance.popupColumns;
     window.gsmHoshidictsPopupOpacityPercent =
       appearance.popupOpacityPercent;
+    window.gsmHoshidictsPopupBackdropBlurPx =
+      appearance.popupBackdropBlurPx;
     window.gsmHoshidictsPopupToolbarPosition =
       appearance.popupToolbarPosition;
     window.gsmHoshidictsTheme = appearance.theme;
@@ -5746,6 +5787,12 @@ background: rgba(202, 12, 12, 0.692);
     document.documentElement.style.setProperty(
       '--gsm-hoshidicts-popup-opacity',
       `${appearance.popupOpacityPercent}%`
+    );
+    document.documentElement.style.setProperty(
+      '--gsm-hoshidicts-popup-backdrop-filter',
+      appearance.popupBackdropBlurPx === 0
+        ? 'none'
+        : `blur(${appearance.popupBackdropBlurPx}px) saturate(1.08)`
     );
     if (
       window.gsmHoshidictsReader &&
@@ -5785,6 +5832,12 @@ background: rgba(202, 12, 12, 0.692);
         popupHeightPx: window.gsmHoshidictsPopupHeightPx,
         popupColumns: window.gsmHoshidictsPopupColumns,
         popupOpacityPercent: window.gsmHoshidictsPopupOpacityPercent,
+        ...(hasPopupBackdropBlurPx
+          ? {
+              popupBackdropBlurPx:
+                window.gsmHoshidictsPopupBackdropBlurPx,
+            }
+          : {}),
         popupToolbarPosition: window.gsmHoshidictsPopupToolbarPosition,
         theme: window.gsmHoshidictsTheme,
         ...(hasCustomPopupCss
@@ -6492,4 +6545,3 @@ background: rgba(202, 12, 12, 0.692);
 </script>
 
 </html>
-

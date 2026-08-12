@@ -1157,6 +1157,14 @@ html[data-hoshidicts-theme="high-contrast"] .gsm-hoshidicts-source-match {
   background: var(--hoshidicts-popup-background);
   -webkit-backdrop-filter: blur(16px) saturate(1.08);
   backdrop-filter: blur(16px) saturate(1.08);
+  -webkit-backdrop-filter: var(
+    --gsm-hoshidicts-popup-backdrop-filter,
+    blur(16px) saturate(1.08)
+  );
+  backdrop-filter: var(
+    --gsm-hoshidicts-popup-backdrop-filter,
+    blur(16px) saturate(1.08)
+  );
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.07),
     0 18px 48px rgba(0, 0, 0, 0.6),
@@ -1843,6 +1851,22 @@ html[data-hoshidicts-theme="girlypop"] .gsm-hoshidicts-popup {
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
+}
+
+.gsm-hoshidicts-view-in-anki-button {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+}
+
+.gsm-hoshidicts-view-in-anki-button::before {
+  width: 16px;
+  height: 16px;
+  background: url("icons/view-note.svg") center / contain no-repeat;
+  content: "";
 }
 
 .gsm-hoshidicts-text-action-button:hover:not(:disabled),

@@ -183,6 +183,7 @@ describe('runOverlayWithSource', () => {
                 GSM_HOSHIDICTS_POPUP_COLUMNS: '1',
                 GSM_HOSHIDICTS_THEME: 'default',
                 GSM_HOSHIDICTS_POPUP_OPACITY_PERCENT: '85',
+                GSM_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX: '16',
                 GSM_HOSHIDICTS_POPUP_TOOLBAR_POSITION: 'top',
                 GSM_HOSHIDICTS_DEFINITION_BLUR_ENABLED: '0',
                 GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD: '5',
@@ -239,6 +240,7 @@ describe('runOverlayWithSource', () => {
         expect(process.env.GSM_HOSHIDICTS_POPUP_COLUMNS).toBe('1');
         expect(process.env.GSM_HOSHIDICTS_THEME).toBe('default');
         expect(process.env.GSM_HOSHIDICTS_POPUP_OPACITY_PERCENT).toBe('85');
+        expect(process.env.GSM_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX).toBe('16');
         expect(process.env.GSM_HOSHIDICTS_POPUP_TOOLBAR_POSITION).toBe('top');
         expect(process.env.GSM_HOSHIDICTS_DEFINITION_BLUR_ENABLED).toBe('0');
         expect(process.env.GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD).toBe('5');
@@ -317,6 +319,7 @@ describe('runOverlayWithSource', () => {
         front.configureHoshidictsPopupColumnsProvider(async () => 3);
         front.configureHoshidictsThemeProvider(async () => 'cyberpunk');
         front.configureHoshidictsPopupOpacityPercentProvider(async () => 70);
+        front.configureHoshidictsPopupBackdropBlurPxProvider(async () => 24);
         front.configureHoshidictsPopupToolbarPositionProvider(
             async () => 'bottom'
         );
@@ -350,6 +353,7 @@ describe('runOverlayWithSource', () => {
             GSM_HOSHIDICTS_POPUP_COLUMNS: '3',
             GSM_HOSHIDICTS_THEME: 'cyberpunk',
             GSM_HOSHIDICTS_POPUP_OPACITY_PERCENT: '70',
+            GSM_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX: '24',
             GSM_HOSHIDICTS_POPUP_TOOLBAR_POSITION: 'bottom',
             GSM_HOSHIDICTS_DEFINITION_BLUR_ENABLED: '1',
             GSM_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD: '8',
@@ -396,6 +400,7 @@ describe('runOverlayWithSource', () => {
         expect(front.getOverlayHoshidictsPopupColumnsAtLaunch()).toBe(3);
         expect(front.getOverlayHoshidictsThemeAtLaunch()).toBe('cyberpunk');
         expect(front.getOverlayHoshidictsPopupOpacityPercentAtLaunch()).toBe(70);
+        expect(front.getOverlayHoshidictsPopupBackdropBlurPxAtLaunch()).toBe(24);
         expect(front.getOverlayHoshidictsPopupToolbarPositionAtLaunch()).toBe(
             'bottom'
         );
@@ -463,6 +468,7 @@ describe('runOverlayWithSource', () => {
                 popupColumns: 2,
                 theme: 'autumn',
                 popupOpacityPercent: 65,
+                popupBackdropBlurPx: 6,
                 popupToolbarPosition: 'top',
                 popupButtons: {
                     addToAnki: false,
@@ -510,6 +516,7 @@ describe('runOverlayWithSource', () => {
         expect(front.getOverlayHoshidictsPopupColumnsAtLaunch()).toBe(2);
         expect(front.getOverlayHoshidictsThemeAtLaunch()).toBe('autumn');
         expect(front.getOverlayHoshidictsPopupOpacityPercentAtLaunch()).toBe(65);
+        expect(front.getOverlayHoshidictsPopupBackdropBlurPxAtLaunch()).toBe(6);
         expect(front.getOverlayHoshidictsPopupToolbarPositionAtLaunch()).toBe(
             'top'
         );
@@ -711,4 +718,3 @@ describe('runOverlayWithSource', () => {
         });
     });
 });
-

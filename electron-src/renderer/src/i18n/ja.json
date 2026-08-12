@@ -714,6 +714,7 @@
           "hint": "すべての辞書ポップアップを同じサイズで表示します。",
           "theme": "テーマ",
           "opacity": "背景の不透明度",
+          "backdropBlur": "背景のぼかし",
           "toolbarPosition": "ツールバーの位置",
           "toolbarPositionTop": "上",
           "toolbarPositionBottom": "下",
@@ -1848,4 +1849,3 @@
     }
   }
 }
-

@@ -19,6 +19,7 @@ import {
   DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
   DEFAULT_HOSHIDICTS_POPUP_COLUMNS,
   DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
+  DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
   DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
   DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
@@ -45,6 +46,7 @@ import {
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
   MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
   MAX_HOSHIDICTS_POPUP_COLUMNS,
+  MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
   MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   MAX_HOSHIDICTS_POPUP_WIDTH_PX,
   MAX_HOSHIDICTS_SCAN_LENGTH,
@@ -54,6 +56,7 @@ import {
   MIN_HOSHIDICTS_MAX_RESULTS,
   MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
   MIN_HOSHIDICTS_POPUP_COLUMNS,
+  MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
   MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   MIN_HOSHIDICTS_POPUP_WIDTH_PX,
   MIN_HOSHIDICTS_SCAN_LENGTH,
@@ -369,6 +372,7 @@ const DEFAULT_STATE: HoshidictsDesktopSnapshot = {
   popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
   popupColumns: DEFAULT_HOSHIDICTS_POPUP_COLUMNS,
   theme: DEFAULT_HOSHIDICTS_THEME,
+  popupBackdropBlurPx: DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
   popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
   popupButtons: createDefaultHoshidictsPopupButtons(),
@@ -749,6 +753,14 @@ export function normalizeHoshidictsDesktopState(
       MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT
       ? (candidate.popupOpacityPercent as number)
       : DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT;
+  const popupBackdropBlurPx =
+    Number.isInteger(candidate.popupBackdropBlurPx) &&
+    (candidate.popupBackdropBlurPx as number) >=
+      MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX &&
+    (candidate.popupBackdropBlurPx as number) <=
+      MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX
+      ? (candidate.popupBackdropBlurPx as number)
+      : DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX;
   const popupToolbarPosition = isHoshidictsPopupToolbarPosition(
     candidate.popupToolbarPosition
   )
@@ -917,6 +929,7 @@ export function normalizeHoshidictsDesktopState(
     theme: isHoshidictsTheme(candidate.theme)
       ? candidate.theme
       : DEFAULT_HOSHIDICTS_THEME,
+    popupBackdropBlurPx,
     popupOpacityPercent,
     popupToolbarPosition,
     popupButtons,
@@ -1131,4 +1144,3 @@ export function formatTimestamp(value: string | null): string | null {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date.toLocaleString();
 }
-

@@ -59,6 +59,7 @@ import {
     DEFAULT_HOSHIDICTS_POPUP_COLUMNS,
     DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
     DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+    DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
     DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
     DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
     DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
@@ -84,6 +85,7 @@ import {
     MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
     MAX_HOSHIDICTS_POPUP_COLUMNS,
     MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+    MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
     MAX_HOSHIDICTS_POPUP_WIDTH_PX,
     MAX_HOSHIDICTS_SCAN_LENGTH,
     MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH,
@@ -94,6 +96,7 @@ import {
     MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
     MIN_HOSHIDICTS_POPUP_COLUMNS,
     MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+    MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
     MIN_HOSHIDICTS_POPUP_WIDTH_PX,
     MIN_HOSHIDICTS_SCAN_LENGTH,
 } from '../../../shared/features/hoshidicts.js';
@@ -165,6 +168,7 @@ interface PersistedReaderPreferences
     showFrequencyDictionaryNames: boolean;
     compactDefinitionSummaryCount: number;
     customPopupCss: string;
+    popupBackdropBlurPx: number;
 }
 
 interface PersistedSettingsProfile {
@@ -207,6 +211,7 @@ interface PersistedManifest {
     popupColumns: number;
     theme: HoshidictsTheme;
     popupOpacityPercent: number;
+    popupBackdropBlurPx: number;
     popupToolbarPosition: HoshidictsPopupToolbarPosition;
     popupButtons: HoshidictsPopupButtons;
     customPopupCss: string;
@@ -480,6 +485,7 @@ function defaultReaderPreferences(): PersistedReaderPreferences {
         popupColumns: DEFAULT_HOSHIDICTS_POPUP_COLUMNS,
         theme: DEFAULT_HOSHIDICTS_THEME,
         popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+        popupBackdropBlurPx: DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
         popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
         popupButtons: createDefaultHoshidictsPopupButtons(),
         customPopupCss: DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
@@ -738,6 +744,14 @@ function normalizePopupOpacityPercent(value: unknown): number {
         : DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT;
 }
 
+function normalizePopupBackdropBlurPx(value: unknown): number {
+    return Number.isInteger(value) &&
+        (value as number) >= MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX &&
+        (value as number) <= MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX
+        ? (value as number)
+        : DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX;
+}
+
 function normalizePopupToolbarPosition(
     value: unknown
 ): HoshidictsPopupToolbarPosition {
@@ -891,6 +905,9 @@ function normalizeReaderPreferences(
         theme: normalizeTheme(value.theme),
         popupOpacityPercent: normalizePopupOpacityPercent(
             value.popupOpacityPercent
+        ),
+        popupBackdropBlurPx: normalizePopupBackdropBlurPx(
+            value.popupBackdropBlurPx
         ),
         popupToolbarPosition: normalizePopupToolbarPosition(
             value.popupToolbarPosition
@@ -3132,7 +3149,8 @@ export class HoshidictsManager {
         customPopupCss?: string,
         averageFrequency = DEFAULT_HOSHIDICTS_AVERAGE_FREQUENCY,
         showFrequencyDictionaryNames =
-            DEFAULT_HOSHIDICTS_SHOW_FREQUENCY_DICTIONARY_NAMES
+            DEFAULT_HOSHIDICTS_SHOW_FREQUENCY_DICTIONARY_NAMES,
+        popupBackdropBlurPx?: number
     ): Promise<HoshidictsManagerSnapshot> {
         if (lookupMode !== 'shift' && lookupMode !== 'hover') {
             throw new Error('Hoshidicts lookup mode is invalid.');
@@ -3321,6 +3339,16 @@ export class HoshidictsManager {
             throw new Error('Hoshidicts popup opacity is invalid.');
         }
         if (
+            popupBackdropBlurPx !== undefined &&
+            (!Number.isInteger(popupBackdropBlurPx) ||
+                popupBackdropBlurPx <
+                    MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX ||
+                popupBackdropBlurPx >
+                    MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX)
+        ) {
+            throw new Error('Hoshidicts popup backdrop blur is invalid.');
+        }
+        if (
             customPopupCss !== undefined &&
             (typeof customPopupCss !== 'string' ||
                 customPopupCss.length > MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH)
@@ -3383,6 +3411,8 @@ export class HoshidictsManager {
             const effectiveTheme = theme ?? manifest.theme;
             const effectivePopupOpacityPercent =
                 popupOpacityPercent ?? manifest.popupOpacityPercent;
+            const effectivePopupBackdropBlurPx =
+                popupBackdropBlurPx ?? manifest.popupBackdropBlurPx;
             const effectivePopupToolbarPosition =
                 popupToolbarPosition ?? manifest.popupToolbarPosition;
             const effectivePopupButtons =
@@ -3422,6 +3452,8 @@ export class HoshidictsManager {
                 manifest.popupColumns !== effectivePopupColumns ||
                 manifest.theme !== effectiveTheme ||
                 manifest.popupOpacityPercent !== effectivePopupOpacityPercent ||
+                manifest.popupBackdropBlurPx !==
+                    effectivePopupBackdropBlurPx ||
                 manifest.popupToolbarPosition !==
                     effectivePopupToolbarPosition ||
                 !popupButtonsEqual(
@@ -3464,6 +3496,7 @@ export class HoshidictsManager {
                     popupColumns: effectivePopupColumns,
                     theme: effectiveTheme,
                     popupOpacityPercent: effectivePopupOpacityPercent,
+                    popupBackdropBlurPx: effectivePopupBackdropBlurPx,
                     popupToolbarPosition: effectivePopupToolbarPosition,
                     popupButtons: effectivePopupButtons,
                     customPopupCss: effectiveCustomPopupCss,
@@ -3853,6 +3886,7 @@ export class HoshidictsManager {
             popupColumns: manifest.popupColumns,
             theme: manifest.theme,
             popupOpacityPercent: manifest.popupOpacityPercent,
+            popupBackdropBlurPx: manifest.popupBackdropBlurPx,
             popupToolbarPosition: manifest.popupToolbarPosition,
             popupButtons: normalizeHoshidictsPopupButtons(
                 manifest.popupButtons

@@ -14,6 +14,7 @@ import type {
 import {
     HOSHIDICTS_CHANNELS,
     DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
+    DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
     DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
     HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
     hoshidictsReaderPreferencesFromSnapshot,
@@ -32,6 +33,7 @@ import {
     MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
     MAX_HOSHIDICTS_POPUP_COLUMNS,
     MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+    MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
     MAX_HOSHIDICTS_POPUP_WIDTH_PX,
     MAX_HOSHIDICTS_PROFILE_NAME_LENGTH,
     MAX_HOSHIDICTS_SCAN_LENGTH,
@@ -42,6 +44,7 @@ import {
     MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
     MIN_HOSHIDICTS_POPUP_COLUMNS,
     MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+    MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
     MIN_HOSHIDICTS_POPUP_WIDTH_PX,
     normalizeHoshidictsPopupButtons,
     MIN_HOSHIDICTS_SCAN_LENGTH,
@@ -122,6 +125,7 @@ export interface HoshidictsIPCDependencies {
     getOverlayPopupColumnsAtLaunch: () => number | null;
     getOverlayThemeAtLaunch: () => HoshidictsTheme | null;
     getOverlayPopupOpacityPercentAtLaunch: () => number | null;
+    getOverlayPopupBackdropBlurPxAtLaunch: () => number | null;
     getOverlayPopupToolbarPositionAtLaunch: () =>
         | HoshidictsPopupToolbarPosition
         | null;
@@ -304,6 +308,8 @@ function readerPreferencesMatchOverlay(
         deps.getOverlayThemeAtLaunch() === preferences.theme &&
         deps.getOverlayPopupOpacityPercentAtLaunch() ===
             preferences.popupOpacityPercent &&
+        deps.getOverlayPopupBackdropBlurPxAtLaunch() ===
+            preferences.popupBackdropBlurPx &&
         deps.getOverlayPopupToolbarPositionAtLaunch() ===
             preferences.popupToolbarPosition &&
         popupButtonsApplied !== null &&
@@ -1033,7 +1039,8 @@ export function registerHoshidictsIPC(
                     reader.showPitchAccentBadge,
                     reader.customPopupCss,
                     reader.averageFrequency,
-                    reader.showFrequencyDictionaryNames
+                    reader.showFrequencyDictionaryNames,
+                    reader.popupBackdropBlurPx
                 );
             }
             await applyReaderSnapshot(state, deps);
@@ -1353,6 +1360,9 @@ export function registerHoshidictsIPC(
             const compactDefinitionSummaryCount =
                 value?.compactDefinitionSummaryCount ??
                 DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT;
+            const popupBackdropBlurPx =
+                value?.popupBackdropBlurPx ??
+                DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX;
             if (
                 !value ||
                 !isLookupMode(value.lookupMode) ||
@@ -1419,6 +1429,11 @@ export function registerHoshidictsIPC(
                     MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT ||
                 (value.popupOpacityPercent as number) >
                     MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT ||
+                !Number.isInteger(popupBackdropBlurPx) ||
+                popupBackdropBlurPx <
+                    MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX ||
+                popupBackdropBlurPx >
+                    MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX ||
                 !isHoshidictsPopupToolbarPosition(
                     value.popupToolbarPosition
                 ) ||
@@ -1484,6 +1499,7 @@ export function registerHoshidictsIPC(
                         theme: value.theme as HoshidictsTheme,
                         popupOpacityPercent:
                             value.popupOpacityPercent as number,
+                        popupBackdropBlurPx,
                         popupToolbarPosition:
                             value.popupToolbarPosition as HoshidictsPopupToolbarPosition,
                         popupButtons: normalizeHoshidictsPopupButtons(
@@ -1522,7 +1538,8 @@ export function registerHoshidictsIPC(
                         requestPreferences.showPitchAccentBadge,
                         requestPreferences.customPopupCss,
                         requestPreferences.averageFrequency,
-                        requestPreferences.showFrequencyDictionaryNames
+                        requestPreferences.showFrequencyDictionaryNames,
+                        requestPreferences.popupBackdropBlurPx
                     );
                     const preferences: HoshidictsReaderPreferences = {
                         ...hoshidictsReaderPreferencesFromSnapshot(state),
@@ -2067,4 +2084,3 @@ export function registerHoshidictsIPC(
         }
     });
 }
-

@@ -11,6 +11,7 @@ import {
   MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
   MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH,
   MAX_HOSHIDICTS_POPUP_COLUMNS,
+  MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
   MAX_HOSHIDICTS_POPUP_CUSTOM_LINK_LABEL_LENGTH,
   MAX_HOSHIDICTS_POPUP_CUSTOM_LINK_URL_LENGTH,
   MAX_HOSHIDICTS_POPUP_CUSTOM_LINKS,
@@ -21,6 +22,7 @@ import {
   MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
   MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
   MIN_HOSHIDICTS_POPUP_COLUMNS,
+  MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
   MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
   MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
   MIN_HOSHIDICTS_POPUP_WIDTH_PX,
@@ -307,6 +309,7 @@ export function HoshidictsDesignPanel({
     setHidePopupGrammarTags,
     setPitchAccentFuriganaDictionary,
     setPopupColumns,
+    setPopupBackdropBlurPx,
     setPopupHeightPx,
     setPopupOpacityPercent,
     setPopupToolbarPosition,
@@ -400,6 +403,26 @@ export function HoshidictsDesignPanel({
                   }
                 />
                 <span>{t("settings.hoshidicts.reader.appearance.percent")}</span>
+              </div>
+            </label>
+            <label>
+              <span>
+                {t("settings.hoshidicts.reader.appearance.backdropBlur")}
+              </span>
+              <div className="hoshidicts-reader-appearance__number">
+                <input
+                  id="hoshidicts-popup-backdrop-blur"
+                  type="number"
+                  min={MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX}
+                  max={MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX}
+                  step={1}
+                  value={readerDraft.popupBackdropBlurPx}
+                  disabled={preferencesBusy}
+                  onChange={(event) =>
+                    setPopupBackdropBlurPx(event.currentTarget.valueAsNumber)
+                  }
+                />
+                <span>{t("settings.hoshidicts.reader.appearance.pixels")}</span>
               </div>
             </label>
             <label>
@@ -973,4 +996,3 @@ export function HoshidictsDesignPanel({
     </div>
   );
 }
-

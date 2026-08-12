@@ -58,6 +58,7 @@ import {
     DEFAULT_HOSHIDICTS_POPUP_COLUMNS,
     DEFAULT_HOSHIDICTS_POPUP_NESTING_MAX_DEPTH,
     DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+    DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
     DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
     DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
     DEFAULT_HOSHIDICTS_ONLY_SCAN_JAPANESE_TEXT,
@@ -78,6 +79,7 @@ import {
     MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
     MAX_HOSHIDICTS_POPUP_COLUMNS,
     MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+    MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
     MAX_HOSHIDICTS_POPUP_WIDTH_PX,
     MAX_HOSHIDICTS_SCAN_LENGTH,
     MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
@@ -87,6 +89,7 @@ import {
     MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
     MIN_HOSHIDICTS_POPUP_COLUMNS,
     MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+    MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
     MIN_HOSHIDICTS_POPUP_WIDTH_PX,
     MIN_HOSHIDICTS_SCAN_LENGTH,
     type HoshidictsActivationKey,
@@ -130,6 +133,7 @@ let overlayHoshidictsPopupHeightAtLaunch: number | null = null;
 let overlayHoshidictsPopupColumnsAtLaunch: number | null = null;
 let overlayHoshidictsThemeAtLaunch: HoshidictsTheme | null = null;
 let overlayHoshidictsPopupOpacityPercentAtLaunch: number | null = null;
+let overlayHoshidictsPopupBackdropBlurPxAtLaunch: number | null = null;
 let overlayHoshidictsPopupToolbarPositionAtLaunch: HoshidictsPopupToolbarPosition | null =
     null;
 let overlayHoshidictsPopupButtonsApplied: HoshidictsPopupButtons | null = null;
@@ -178,6 +182,8 @@ let hoshidictsThemeProvider: () => Promise<HoshidictsTheme> =
     async () => DEFAULT_HOSHIDICTS_THEME;
 let hoshidictsPopupOpacityPercentProvider: () => Promise<number> =
     async () => DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT;
+let hoshidictsPopupBackdropBlurPxProvider: () => Promise<number> =
+    async () => DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX;
 let hoshidictsPopupToolbarPositionProvider: () => Promise<HoshidictsPopupToolbarPosition> =
     async () => DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION;
 let hoshidictsCustomDictionarySyncProvider: () => Promise<void> =
@@ -372,6 +378,12 @@ export function configureHoshidictsPopupOpacityPercentProvider(
     hoshidictsPopupOpacityPercentProvider = provider;
 }
 
+export function configureHoshidictsPopupBackdropBlurPxProvider(
+    provider: () => Promise<number>
+): void {
+    hoshidictsPopupBackdropBlurPxProvider = provider;
+}
+
 export function configureHoshidictsPopupToolbarPositionProvider(
     provider: () => Promise<HoshidictsPopupToolbarPosition>
 ): void {
@@ -551,6 +563,7 @@ export function getOverlayRuntimeState(): OverlayRuntimeState {
         overlayHoshidictsPopupColumnsAtLaunch = null;
         overlayHoshidictsThemeAtLaunch = null;
         overlayHoshidictsPopupOpacityPercentAtLaunch = null;
+        overlayHoshidictsPopupBackdropBlurPxAtLaunch = null;
         overlayHoshidictsPopupToolbarPositionAtLaunch = null;
         overlayHoshidictsPopupButtonsApplied = null;
         overlayHoshidictsCustomPopupCssApplied = null;
@@ -675,6 +688,11 @@ export function getOverlayHoshidictsPopupOpacityPercentAtLaunch(): number | null
     return overlayHoshidictsPopupOpacityPercentAtLaunch;
 }
 
+export function getOverlayHoshidictsPopupBackdropBlurPxAtLaunch(): number | null {
+    getOverlayRuntimeState();
+    return overlayHoshidictsPopupBackdropBlurPxAtLaunch;
+}
+
 export function getOverlayHoshidictsPopupToolbarPositionAtLaunch(): HoshidictsPopupToolbarPosition | null {
     getOverlayRuntimeState();
     return overlayHoshidictsPopupToolbarPositionAtLaunch;
@@ -749,6 +767,8 @@ export function markOverlayHoshidictsReaderPreferencesApplied(
     overlayHoshidictsThemeAtLaunch = preferences.theme;
     overlayHoshidictsPopupOpacityPercentAtLaunch =
         preferences.popupOpacityPercent;
+    overlayHoshidictsPopupBackdropBlurPxAtLaunch =
+        preferences.popupBackdropBlurPx;
     overlayHoshidictsPopupToolbarPositionAtLaunch =
         preferences.popupToolbarPosition;
     overlayHoshidictsPopupButtonsApplied = {
@@ -814,6 +834,7 @@ export function stopOverlay(options: StopOverlayOptions = {}): boolean {
             overlayHoshidictsPopupColumnsAtLaunch = null;
             overlayHoshidictsThemeAtLaunch = null;
             overlayHoshidictsPopupOpacityPercentAtLaunch = null;
+            overlayHoshidictsPopupBackdropBlurPxAtLaunch = null;
             overlayHoshidictsPopupToolbarPositionAtLaunch = null;
             overlayHoshidictsPopupButtonsApplied = null;
             overlayHoshidictsCustomPopupCssApplied = null;
@@ -847,6 +868,7 @@ export function stopOverlay(options: StopOverlayOptions = {}): boolean {
         overlayHoshidictsPopupColumnsAtLaunch = null;
         overlayHoshidictsThemeAtLaunch = null;
         overlayHoshidictsPopupOpacityPercentAtLaunch = null;
+        overlayHoshidictsPopupBackdropBlurPxAtLaunch = null;
         overlayHoshidictsPopupToolbarPositionAtLaunch = null;
         overlayHoshidictsPopupButtonsApplied = null;
         overlayHoshidictsCustomPopupCssApplied = null;
@@ -948,7 +970,8 @@ function registerOverlayProcess(
     hoshidictsHidePopupGrammarTags: boolean,
     hoshidictsShowPitchAccentFurigana: boolean,
     hoshidictsPitchAccentFuriganaDictionary: string | null,
-    hoshidictsShowPitchAccentBadge: boolean
+    hoshidictsShowPitchAccentBadge: boolean,
+    hoshidictsPopupBackdropBlurPx: number
 ): void {
     overlayProcess = processHandle;
     overlayLaunchSource = source;
@@ -990,6 +1013,8 @@ function registerOverlayProcess(
     overlayHoshidictsThemeAtLaunch = hoshidictsTheme;
     overlayHoshidictsPopupOpacityPercentAtLaunch =
         hoshidictsPopupOpacityPercent;
+    overlayHoshidictsPopupBackdropBlurPxAtLaunch =
+        hoshidictsPopupBackdropBlurPx;
     overlayHoshidictsPopupToolbarPositionAtLaunch =
         hoshidictsPopupToolbarPosition;
     overlayHoshidictsPopupButtonsApplied = createDefaultHoshidictsPopupButtons();
@@ -1021,6 +1046,7 @@ function registerOverlayProcess(
         overlayHoshidictsPopupColumnsAtLaunch = null;
         overlayHoshidictsThemeAtLaunch = null;
         overlayHoshidictsPopupOpacityPercentAtLaunch = null;
+        overlayHoshidictsPopupBackdropBlurPxAtLaunch = null;
         overlayHoshidictsPopupToolbarPositionAtLaunch = null;
         overlayHoshidictsPopupButtonsApplied = null;
         overlayHoshidictsCustomPopupCssApplied = null;
@@ -1052,6 +1078,7 @@ function registerOverlayProcess(
         overlayHoshidictsPopupColumnsAtLaunch = null;
         overlayHoshidictsThemeAtLaunch = null;
         overlayHoshidictsPopupOpacityPercentAtLaunch = null;
+        overlayHoshidictsPopupBackdropBlurPxAtLaunch = null;
         overlayHoshidictsPopupToolbarPositionAtLaunch = null;
         overlayHoshidictsPopupButtonsApplied = null;
         overlayHoshidictsCustomPopupCssApplied = null;
@@ -1089,7 +1116,8 @@ export function buildHoshidictsOverlayEnvironment(
         DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
     pitchAccentFuriganaDictionary: string | null =
         DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
-    showPitchAccentBadge = DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE
+    showPitchAccentBadge = DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE,
+    popupBackdropBlurPx = DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX
 ): Record<string, string> {
     const normalizedDefinitionBlur =
         normalizeHoshidictsDefinitionBlur(definitionBlur);
@@ -1181,6 +1209,14 @@ export function buildHoshidictsOverlayEnvironment(
                 MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
                 MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT,
                 DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT
+            )
+        ),
+        GSM_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX: String(
+            normalizeHoshidictsPopupDimension(
+                popupBackdropBlurPx,
+                MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
+                MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
+                DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX
             )
         ),
         GSM_HOSHIDICTS_POPUP_TOOLBAR_POSITION:
@@ -1326,6 +1362,8 @@ export async function runOverlayWithSource(
     let hoshidictsTheme: HoshidictsTheme = DEFAULT_HOSHIDICTS_THEME;
     let hoshidictsPopupOpacityPercent =
         DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT;
+    let hoshidictsPopupBackdropBlurPx =
+        DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX;
     let hoshidictsPopupToolbarPosition: HoshidictsPopupToolbarPosition =
         DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION;
     if (hoshidictsEnabled) {
@@ -1437,6 +1475,13 @@ export async function runOverlayWithSource(
                     MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT,
                     DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT
                 );
+            hoshidictsPopupBackdropBlurPx =
+                normalizeHoshidictsPopupDimension(
+                    await hoshidictsPopupBackdropBlurPxProvider(),
+                    MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
+                    MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
+                    DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX
+                );
             const configuredPopupToolbarPosition =
                 await hoshidictsPopupToolbarPositionProvider();
             hoshidictsPopupToolbarPosition =
@@ -1475,7 +1520,8 @@ export async function runOverlayWithSource(
         hoshidictsHidePopupGrammarTags,
         hoshidictsShowPitchAccentFurigana,
         hoshidictsPitchAccentFuriganaDictionary,
-        hoshidictsShowPitchAccentBadge
+        hoshidictsShowPitchAccentBadge,
+        hoshidictsPopupBackdropBlurPx
     );
     const hoshidictsControlEnvironment = buildHoshidictsControlEnvironment();
     const overlayProcessEnvironment = buildOverlayProcessEnvironment();
@@ -1557,6 +1603,9 @@ export async function runOverlayWithSource(
         overlayHoshidictsPopupOpacityPercentAtLaunch = started
             ? hoshidictsPopupOpacityPercent
             : null;
+        overlayHoshidictsPopupBackdropBlurPxAtLaunch = started
+            ? hoshidictsPopupBackdropBlurPx
+            : null;
         overlayHoshidictsPopupToolbarPositionAtLaunch = started
             ? hoshidictsPopupToolbarPosition
             : null;
@@ -1631,7 +1680,8 @@ export async function runOverlayWithSource(
             hoshidictsHidePopupGrammarTags,
             hoshidictsShowPitchAccentFurigana,
             hoshidictsPitchAccentFuriganaDictionary,
-            hoshidictsShowPitchAccentBadge
+            hoshidictsShowPitchAccentBadge,
+            hoshidictsPopupBackdropBlurPx
         );
         console.log('Overlay launched successfully from source.');
         return true;
@@ -1673,7 +1723,8 @@ export async function runOverlayWithSource(
             hoshidictsHidePopupGrammarTags,
             hoshidictsShowPitchAccentFurigana,
             hoshidictsPitchAccentFuriganaDictionary,
-            hoshidictsShowPitchAccentBadge
+            hoshidictsShowPitchAccentBadge,
+            hoshidictsPopupBackdropBlurPx
         );
             console.log('Overlay launched successfully with shared Electron runtime.');
             return true;
@@ -1722,7 +1773,8 @@ export async function runOverlayWithSource(
             hoshidictsHidePopupGrammarTags,
             hoshidictsShowPitchAccentFurigana,
             hoshidictsPitchAccentFuriganaDictionary,
-            hoshidictsShowPitchAccentBadge
+            hoshidictsShowPitchAccentBadge,
+            hoshidictsPopupBackdropBlurPx
         );
             console.log('Overlay launched successfully with legacy standalone runtime.');
             return true;
@@ -1776,4 +1828,3 @@ async function getAllOCRConfigs(): Promise<OCRGame[]> {
     //     return [];
     // }
 }
-

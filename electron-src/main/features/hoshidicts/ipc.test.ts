@@ -2360,7 +2360,8 @@ describe('Hoshidicts settings IPC', () => {
             false,
             ':scope { color: hotpink; }',
             false,
-            true
+            true,
+            16
         );
         expect(context.applyReaderPreferences).toHaveBeenCalledWith({
             lookupMode: 'hover',
@@ -2388,6 +2389,7 @@ describe('Hoshidicts settings IPC', () => {
             popupColumns: 3,
             theme: 'girlypop',
             popupOpacityPercent: 70,
+            popupBackdropBlurPx: 16,
             popupToolbarPosition: 'bottom',
             popupButtons: {
                 addToAnki: false,
@@ -2787,4 +2789,3 @@ describe('Hoshidicts settings IPC', () => {
         expect(context.applyReaderPreferences).not.toHaveBeenCalled();
     });
 });
-

@@ -68,6 +68,9 @@ const MIN_HOSHIDICTS_POPUP_COLUMNS = 1;
 const MAX_HOSHIDICTS_POPUP_COLUMNS = 4;
 const MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT = 0;
 const MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT = 100;
+const DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX = 16;
+const MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX = 0;
+const MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX = 32;
 const HOSHIDICTS_THEMES = new Set([
   "default",
   "catppuccin-mocha",
@@ -413,6 +416,9 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     ? 1
     : preferences.popupColumns;
   const popupOpacityPercent = preferences && preferences.popupOpacityPercent;
+  const popupBackdropBlurPx = preferences?.popupBackdropBlurPx === undefined
+    ? DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX
+    : preferences.popupBackdropBlurPx;
   const popupToolbarPosition = preferences && preferences.popupToolbarPosition;
   const theme = preferences && preferences.theme;
   const customPopupCss = preferences?.customPopupCss === undefined
@@ -502,6 +508,9 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     !Number.isInteger(popupOpacityPercent) ||
     popupOpacityPercent < MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT ||
     popupOpacityPercent > MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT ||
+    !Number.isInteger(popupBackdropBlurPx) ||
+    popupBackdropBlurPx < MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX ||
+    popupBackdropBlurPx > MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX ||
     (popupToolbarPosition !== "top" && popupToolbarPosition !== "bottom") ||
     !HOSHIDICTS_THEMES.has(theme) ||
     typeof customPopupCss !== "string" ||
@@ -533,6 +542,7 @@ function normalizeHoshidictsReaderPreferences(preferences) {
     popupHeightPx,
     popupColumns,
     popupOpacityPercent,
+    popupBackdropBlurPx,
     popupToolbarPosition,
     theme,
     customPopupCss,
@@ -987,4 +997,3 @@ module.exports = {
   requestHoshidictsSettingsOpen,
   resolveHoshidictsControlConfig,
 };
-

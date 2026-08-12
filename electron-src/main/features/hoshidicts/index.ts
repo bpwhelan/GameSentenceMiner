@@ -12,6 +12,7 @@ import {
     configureHoshidictsPopupColumnsProvider,
     configureHoshidictsPopupNestingMaxDepthProvider,
     configureHoshidictsPopupOpacityPercentProvider,
+    configureHoshidictsPopupBackdropBlurPxProvider,
     configureHoshidictsPopupToolbarPositionProvider,
     configureHoshidictsPopupWidthProvider,
     configureHoshidictsShowLookupCountsProvider,
@@ -36,6 +37,7 @@ import {
     getOverlayHoshidictsPopupColumnsAtLaunch,
     getOverlayHoshidictsPopupNestingMaxDepthAtLaunch,
     getOverlayHoshidictsPopupOpacityPercentAtLaunch,
+    getOverlayHoshidictsPopupBackdropBlurPxAtLaunch,
     getOverlayHoshidictsPopupToolbarPositionAtLaunch,
     getOverlayHoshidictsPopupButtonsApplied,
     getOverlayHoshidictsCustomPopupCssApplied,
@@ -59,6 +61,7 @@ import {
 } from '../../ui/front.js';
 import {
     DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
+    DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
     hoshidictsReaderPreferencesFromSnapshot,
     type HoshidictsAudioProfile,
     type HoshidictsCustomEntryRequest,
@@ -248,6 +251,8 @@ export function registerHoshidictsFeature(deps: {
         getOverlayThemeAtLaunch: getOverlayHoshidictsThemeAtLaunch,
         getOverlayPopupOpacityPercentAtLaunch:
             getOverlayHoshidictsPopupOpacityPercentAtLaunch,
+        getOverlayPopupBackdropBlurPxAtLaunch:
+            getOverlayHoshidictsPopupBackdropBlurPxAtLaunch,
         getOverlayPopupToolbarPositionAtLaunch:
             getOverlayHoshidictsPopupToolbarPositionAtLaunch,
         getOverlayPopupButtonsApplied:
@@ -353,6 +358,11 @@ export async function startHoshidictsManager(): Promise<void> {
     configureHoshidictsPopupOpacityPercentProvider(
         async () => (await manager.getSnapshot()).popupOpacityPercent
     );
+    configureHoshidictsPopupBackdropBlurPxProvider(
+        async () =>
+            (await manager.getSnapshot()).popupBackdropBlurPx ??
+            DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX
+    );
     configureHoshidictsPopupToolbarPositionProvider(
         async () => (await manager.getSnapshot()).popupToolbarPosition
     );
@@ -405,4 +415,3 @@ export {
     getHoshidictsSettingsWindow,
     openHoshidictsSettingsWindow,
 } from './window.js';
-

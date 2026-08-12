@@ -721,6 +721,7 @@
           "hint": "Use one consistent size for every dictionary popup.",
           "theme": "Theme",
           "opacity": "Background opacity",
+          "backdropBlur": "Backdrop blur",
           "toolbarPosition": "Toolbar position",
           "toolbarPositionTop": "Top",
           "toolbarPositionBottom": "Bottom",
@@ -1928,4 +1929,3 @@
     }
   }
 }
-
