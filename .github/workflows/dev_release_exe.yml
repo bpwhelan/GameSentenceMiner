@@ -107,6 +107,21 @@ jobs:
       - name: Stamp version into package.json
         run: npm version ${{ needs.compute-version.outputs.PACKAGE_VERSION }} --no-git-tag-version --allow-same-version
 
+      - name: Sync Python package version
+        run: node scripts/sync-version.mjs
+
+      - name: Install wheel builder
+        run: python -m pip install --upgrade cibuildwheel
+
+      - name: Build prerelease backend wheel
+        env:
+          CIBW_BUILD: cp310-*
+          CIBW_ARCHS_WINDOWS: AMD64
+        run: python -m cibuildwheel --output-dir electron-src/assets/python
+
+      - name: Smoke test prerelease backend wheel
+        run: node scripts/smoke-test-wheel.mjs
+
       - name: Fetch prebuilt overlay server (Windows)
         shell: pwsh
         env:
@@ -116,8 +131,7 @@ jobs:
           gh release download overlay-server --repo ${{ github.repository }} --pattern gsm_overlay_server-win32.exe --output GSM_Overlay/input_server/bin/win32/gsm_overlay_server.exe --clobber
 
       - name: Write prerelease metadata
-        run: |
-          node -e "const fs=require('fs');const path=require('path');const branch=(process.env.GITHUB_HEAD_REF||process.env.GITHUB_REF_NAME||'unknown').trim()||'unknown';const payload={branch,generatedAt:new Date().toISOString()};const out=path.join('electron-src','assets','prerelease.json');fs.writeFileSync(out, JSON.stringify(payload, null, 2)+'\n');console.log('Wrote prerelease metadata to', out, 'for branch', branch);"
+        run: node scripts/write-prerelease-metadata.mjs --version "${{ needs.compute-version.outputs.PACKAGE_VERSION }}"
 
       - name: Convert Handlebar files to LF
         run: |
@@ -301,7 +315,8 @@ jobs:
             "dist/GameSentenceMiner-*-win-unpacked.zip",
             "dist/latest.yml",
             "dist/*.blockmap",
-            "dist/changelog-v${{ needs.compute-version.outputs.PACKAGE_VERSION }}.json"
+            "dist/changelog-v${{ needs.compute-version.outputs.PACKAGE_VERSION }}.json",
+            "electron-src/assets/python/*.whl"
           )
           $files = @()
           foreach ($pattern in $requiredPatterns) {
@@ -359,6 +374,23 @@ jobs:
       - name: Stamp version into package.json
         run: npm version ${{ needs.compute-version.outputs.PACKAGE_VERSION }} --no-git-tag-version --allow-same-version
 
+      - name: Sync Python package version
+        run: node scripts/sync-version.mjs
+
+      - name: Install wheel builder
+        run: python -m pip install --upgrade cibuildwheel
+
+      - name: Build prerelease backend wheel
+        env:
+          CIBW_BUILD: cp310-*
+          CIBW_ARCHS_LINUX: x86_64
+          CIBW_BEFORE_BUILD_LINUX: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
+          CIBW_ENVIRONMENT_LINUX: 'PATH="$PATH:$HOME/.cargo/bin"'
+        run: python -m cibuildwheel --output-dir electron-src/assets/python
+
+      - name: Smoke test prerelease backend wheel
+        run: node scripts/smoke-test-wheel.mjs
+
       - name: Fetch prebuilt overlay server (Linux)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -368,8 +400,7 @@ jobs:
           chmod +x GSM_Overlay/input_server/bin/linux/gsm_overlay_server
 
       - name: Write prerelease metadata
-        run: |
-          node -e "const fs=require('fs');const path=require('path');const branch=(process.env.GITHUB_HEAD_REF||process.env.GITHUB_REF_NAME||'unknown').trim()||'unknown';const payload={branch,generatedAt:new Date().toISOString()};const out=path.join('electron-src','assets','prerelease.json');fs.writeFileSync(out, JSON.stringify(payload, null, 2)+'\n');console.log('Wrote prerelease metadata to', out, 'for branch', branch);"
+        run: node scripts/write-prerelease-metadata.mjs --version "${{ needs.compute-version.outputs.PACKAGE_VERSION }}"
 
       - name: Build Overlay
         working-directory: GSM_Overlay
@@ -393,7 +424,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
         run: |
-          gh release upload "$RELEASE_TAG" dist/*.AppImage dist/latest-linux.yml --clobber --repo ${{ github.repository }}
+          gh release upload "$RELEASE_TAG" dist/*.AppImage dist/latest-linux.yml electron-src/assets/python/*.whl --clobber --repo ${{ github.repository }}
 
   build-mac-arm64:
     runs-on: macos-15
@@ -436,6 +467,21 @@ jobs:
       - name: Stamp version into package.json
         run: npm version ${{ needs.compute-version.outputs.PACKAGE_VERSION }} --no-git-tag-version --allow-same-version
 
+      - name: Sync Python package version
+        run: node scripts/sync-version.mjs
+
+      - name: Install wheel builder
+        run: python -m pip install --upgrade cibuildwheel
+
+      - name: Build prerelease backend wheel
+        env:
+          CIBW_BUILD: cp310-*
+          CIBW_ARCHS_MACOS: arm64
+        run: python -m cibuildwheel --output-dir electron-src/assets/python
+
+      - name: Smoke test prerelease backend wheel
+        run: node scripts/smoke-test-wheel.mjs
+
       - name: Fetch prebuilt overlay server (macOS)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -445,8 +491,7 @@ jobs:
           chmod +x GSM_Overlay/input_server/bin/darwin/gsm_overlay_server
 
       - name: Write prerelease metadata
-        run: |
-          node -e "const fs=require('fs');const path=require('path');const branch=(process.env.GITHUB_HEAD_REF||process.env.GITHUB_REF_NAME||'unknown').trim()||'unknown';const payload={branch,generatedAt:new Date().toISOString()};const out=path.join('electron-src','assets','prerelease.json');fs.writeFileSync(out, JSON.stringify(payload, null, 2)+'\n');console.log('Wrote prerelease metadata to', out, 'for branch', branch);"
+        run: node scripts/write-prerelease-metadata.mjs --version "${{ needs.compute-version.outputs.PACKAGE_VERSION }}"
 
       - name: Build Overlay
         working-directory: GSM_Overlay
@@ -473,7 +518,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
         run: |
-          gh release upload "$RELEASE_TAG" dist/*-arm64.dmg dist/latest-mac.yml dist/latest-mac-arm64.yml dist/*-arm64.dmg.blockmap --clobber --repo ${{ github.repository }}
+          gh release upload "$RELEASE_TAG" dist/*-arm64.dmg dist/latest-mac.yml dist/latest-mac-arm64.yml dist/*-arm64.dmg.blockmap electron-src/assets/python/*.whl --clobber --repo ${{ github.repository }}
 
   trim-prereleases:
     runs-on: ubuntu-latest

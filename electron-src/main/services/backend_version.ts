@@ -9,15 +9,26 @@ export interface BackendUpdateDecision {
     latestVersion: string;
 }
 
+function normalizeComparableVersion(version: string): string {
+    return version
+        .trim()
+        .toLowerCase()
+        .replace(/-(?:alpha|a)\.(\d+)/, 'a$1')
+        .replace(/-(?:beta|b)\.(\d+)/, 'b$1')
+        .replace(/-rc\.(\d+)/, 'rc$1');
+}
+
 export function isBackendVersionCompatible(
     installedVersion: string,
     bundledVersion: string
 ): boolean {
-    const escapedBundledVersion = bundledVersion.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const normalizedInstalledVersion = normalizeComparableVersion(installedVersion);
+    const normalizedBundledVersion = normalizeComparableVersion(bundledVersion);
+    const escapedBundledVersion = normalizedBundledVersion.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     return new RegExp(
         `^${escapedBundledVersion}(?:\\.post\\d+)?(?:\\+[A-Za-z0-9.-]+)?$`,
         'i'
-    ).test(installedVersion);
+    ).test(normalizedInstalledVersion);
 }
 
 function getPostReleaseNumber(version: string, bundledVersion: string): number {

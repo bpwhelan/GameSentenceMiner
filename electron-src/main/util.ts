@@ -1,5 +1,6 @@
 import * as os from 'os';
 import * as fs from 'fs';
+import * as crypto from 'node:crypto';
 import path from "path";
 import {promisify} from "util";
 import {execFile, spawn, execSync} from "child_process";
@@ -14,7 +15,6 @@ export const isArmMac: boolean = isMac && !!cpuModel && /Apple M\d/i.test(cpuMod
 
 export const APP_NAME = 'GameSentenceMiner';
 export const PACKAGE_NAME = "GameSentenceMiner";
-export const BACKEND_GITHUB_REPO_URL = 'https://github.com/bpwhelan/GameSentenceMiner';
 export const OVERLAY_RESOURCES_ENV = 'GSM_OVERLAY_RESOURCES_PATH';
 export const execFileAsync = promisify(execFile);
 
@@ -101,12 +101,15 @@ export function getResourcesDir(): string {
         : path.join(process.resourcesPath); // Production (ASAR-safe)
 }
 
-/**
- * Resolve the git branch a pre-release (beta) build was cut from, by reading the
- * prerelease.json metadata bundled into the app at build time (written by
- * dev_release_exe.yml). Returns null for stable builds, which ship no metadata.
- */
-export function resolvePreReleaseBranch(): string | null {
+interface PreReleaseMetadata {
+    branch?: unknown;
+    backendWheel?: {
+        fileName?: unknown;
+        sha256?: unknown;
+    };
+}
+
+function readPreReleaseMetadata(): PreReleaseMetadata | null {
     const candidates = [
         path.join(getResourcesDir(), 'prerelease.json'),
         path.join(getAssetsDir(), 'prerelease.json'),
@@ -119,15 +122,53 @@ export function resolvePreReleaseBranch(): string | null {
         }
         seen.add(candidate);
         try {
-            const parsed = JSON.parse(fs.readFileSync(candidate, 'utf8')) as { branch?: unknown };
-            if (typeof parsed.branch === 'string' && parsed.branch.trim().length > 0) {
-                return parsed.branch.trim();
-            }
+            return JSON.parse(fs.readFileSync(candidate, 'utf8')) as PreReleaseMetadata;
         } catch (error) {
             console.warn(`Failed to parse prerelease metadata at ${candidate}:`, error);
         }
     }
     return null;
+}
+
+/** Return the source branch recorded in a packaged prerelease. */
+export function resolvePreReleaseBranch(): string | null {
+    const branch = readPreReleaseMetadata()?.branch;
+    return typeof branch === 'string' && branch.trim().length > 0 ? branch.trim() : null;
+}
+
+/**
+ * Resolve the platform wheel bundled into a prerelease app. A prerelease with
+ * missing or unsafe wheel metadata is a broken build and must fail explicitly;
+ * falling back to source would require an end-user Rust toolchain.
+ */
+export function resolvePreReleaseBackendWheelPath(): string | null {
+    const metadata = readPreReleaseMetadata();
+    if (!metadata) {
+        return null;
+    }
+
+    const fileName = metadata.backendWheel?.fileName;
+    const expectedSha256 = metadata.backendWheel?.sha256;
+    if (
+        typeof fileName !== 'string' ||
+        fileName.trim().length === 0 ||
+        path.basename(fileName) !== fileName ||
+        !fileName.toLowerCase().endsWith('.whl') ||
+        typeof expectedSha256 !== 'string' ||
+        !/^[a-f0-9]{64}$/i.test(expectedSha256)
+    ) {
+        throw new Error('Prerelease metadata does not contain a valid backend wheel artifact.');
+    }
+
+    const wheelPath = path.join(getAssetsDir(), 'python', fileName);
+    if (!fs.existsSync(wheelPath)) {
+        throw new Error(`Bundled prerelease backend wheel is missing: ${wheelPath}`);
+    }
+    const actualSha256 = crypto.createHash('sha256').update(fs.readFileSync(wheelPath)).digest('hex');
+    if (actualSha256.toLowerCase() !== expectedSha256.toLowerCase()) {
+        throw new Error(`Bundled prerelease backend wheel failed its integrity check: ${wheelPath}`);
+    }
+    return wheelPath;
 }
 
 export function getOverlayPath(): string {

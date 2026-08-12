@@ -1,12 +1,32 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockExecFileAsync = vi.fn();
+const mockResolvePreReleaseBackendWheelPath = vi.fn<() => string | null>();
 
 vi.mock('../util.js', () => ({
     execFileAsync: mockExecFileAsync,
     getResourcesDir: () => 'C:\\Users\\Tester\\GSM\\GameSentenceMiner',
     getSanitizedPythonEnv: () => ({}),
+    isDev: false,
+    resolvePreReleaseBackendWheelPath: mockResolvePreReleaseBackendWheelPath,
 }));
+
+describe('getBundledBackendSpecifier', () => {
+    beforeEach(() => {
+        vi.resetModules();
+        vi.clearAllMocks();
+    });
+
+    it('installs prerelease backends from the bundled platform wheel', async () => {
+        const wheelPath =
+            'C:\\Program Files\\GameSentenceMiner\\resources\\assets\\python\\gamesentenceminer-2026.8.13b1-cp310-abi3-win_amd64.whl';
+        mockResolvePreReleaseBackendWheelPath.mockReturnValue(wheelPath);
+
+        const { getBundledBackendSpecifier } = await import('./python_ops.js');
+
+        expect(getBundledBackendSpecifier()).toBe(wheelPath);
+    });
+});
 
 describe('parseUvProgressText', () => {
     it('recognizes major uv milestones and strips ANSI sequences', async () => {

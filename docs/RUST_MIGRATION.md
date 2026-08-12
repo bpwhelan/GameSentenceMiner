@@ -53,6 +53,11 @@ cargo test --manifest-path native/gsm-native/Cargo.toml
 PyO3 is configured for CPython's `abi3` stable ABI beginning with Python 3.10. A wheel is still required
 for each supported operating system and architecture.
 
+Development prerelease CI builds and smoke-tests one platform wheel per Electron target. The wheel and
+its SHA-256 digest are bundled with the app through `electron-src/assets/prerelease.json`; the managed
+Python environment installs that immutable local artifact rather than compiling a GitHub branch archive
+on the user's machine. The same wheels are attached to the matching GitHub prerelease for inspection.
+
 ## Rollout and rollback
 
 The default mode is `native`. Set either environment variable before starting GSM:

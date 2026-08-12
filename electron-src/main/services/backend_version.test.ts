@@ -60,3 +60,11 @@ describe('requiresBackendStartupPreparation', () => {
         ).toBe(false);
     });
 });
+
+describe('isBackendVersionCompatible', () => {
+    it('treats the PEP 440 wheel version as compatible with the Electron beta version', async () => {
+        const { isBackendVersionCompatible } = await import('./backend_version.js');
+
+        expect(isBackendVersionCompatible('2026.8.13b1', '2026.8.13-beta.1')).toBe(true);
+    });
+});
