@@ -750,6 +750,28 @@
       : [];
   }
 
+  function isCompactDefinitionList(value) {
+    const tag = String(value.tag || "").toLowerCase();
+    return tag === "ul" || tag === "ol";
+  }
+
+  /** Block nodes with no block descendants: the smallest sense-sized chunks. */
+  function findCompactDefinitionLeafBlocks(root) {
+    return findCompactDefinitionNodes(
+      root,
+      (value) => COMPACT_DEFINITION_BLOCK_TAGS.has(
+        String(value.tag || "").toLowerCase()
+      ) && findCompactDefinitionNodes(
+        value.content,
+        (child) => COMPACT_DEFINITION_BLOCK_TAGS.has(
+          String(child.tag || "").toLowerCase()
+        ),
+        { nodes: 0 }
+      ).length === 0,
+      { nodes: 0 }
+    );
+  }
+
   function compactDefinitionItemsFromNodes(nodes) {
     const items = [];
     let inspected = 0;
@@ -787,30 +809,13 @@
     }
     const nestedLists = findCompactDefinitionNodes(
       node.content,
-      (child) => {
-        const childTag = String(child.tag || "").toLowerCase();
-        return childTag === "ul" || childTag === "ol";
-      },
+      isCompactDefinitionList,
       { nodes: 0 }
     );
     if (nestedLists.length > 0) {
       return nestedLists.flatMap(compactDefinitionItemsFromList);
     }
-    const leafBlocks = findCompactDefinitionNodes(
-      node.content,
-      (child) => {
-        const childTag = String(child.tag || "").toLowerCase();
-        if (!COMPACT_DEFINITION_BLOCK_TAGS.has(childTag)) return false;
-        return findCompactDefinitionNodes(
-          child.content,
-          (descendant) => COMPACT_DEFINITION_BLOCK_TAGS.has(
-            String(descendant.tag || "").toLowerCase()
-          ),
-          { nodes: 0 }
-        ).length === 0;
-      },
-      { nodes: 0 }
-    );
+    const leafBlocks = findCompactDefinitionLeafBlocks(node.content);
     return leafBlocks.length > 0
       ? compactDefinitionItemsFromNodes(leafBlocks)
       : compactDefinitionItemsFromNodes([node]);
@@ -831,10 +836,7 @@
 
     const semanticLists = findCompactDefinitionNodes(
       parsed,
-      (value) => {
-        const tag = String(value.tag || "").toLowerCase();
-        return tag === "ul" || tag === "ol";
-      },
+      isCompactDefinitionList,
       { nodes: 0 }
     );
     for (const list of semanticLists) {
@@ -842,21 +844,7 @@
       if (items.length > 0) return items;
     }
 
-    const leafBlocks = findCompactDefinitionNodes(
-      parsed,
-      (value) => {
-        const tag = String(value.tag || "").toLowerCase();
-        if (!COMPACT_DEFINITION_BLOCK_TAGS.has(tag)) return false;
-        return findCompactDefinitionNodes(
-          value.content,
-          (child) => COMPACT_DEFINITION_BLOCK_TAGS.has(
-            String(child.tag || "").toLowerCase()
-          ),
-          { nodes: 0 }
-        ).length === 0;
-      },
-      { nodes: 0 }
-    );
+    const leafBlocks = findCompactDefinitionLeafBlocks(parsed);
     if (leafBlocks.length > 0) {
       return compactDefinitionItemsFromNodes(leafBlocks);
     }
@@ -1609,10 +1597,6 @@
       };
     }
 
-    function collectDictionaries(results) {
-      return collectGlossaryDictionaries(results);
-    }
-
     function projectResults(results, dictionaries) {
       if (dictionaries.size === 0) {
         return results;
@@ -2030,7 +2014,7 @@
     function renderResults(results, candidate, renderContext = {}) {
       clear();
       setDefinitionBlurState(renderContext.definitionBlurState);
-      const dictionaries = collectDictionaries(results);
+      const dictionaries = collectGlossaryDictionaries(results);
       const dictionaryPresentation = Array.isArray(
         renderContext.dictionaryPresentation
       ) ? renderContext.dictionaryPresentation : [];
