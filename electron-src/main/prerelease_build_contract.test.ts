@@ -15,6 +15,19 @@ describe('prerelease build contract', () => {
         expect(workflow.match(/electron-src\/assets\/python\/\*\.whl/g)).toHaveLength(3);
     });
 
+    it('builds one app-targeted wheel and skips whole-wheel native repair on Unix', () => {
+        const workflow = fs.readFileSync(
+            path.join(process.cwd(), '.github', 'workflows', 'dev_release_exe.yml'),
+            'utf8'
+        );
+
+        expect(workflow).toContain('CIBW_BUILD: cp310-manylinux_x86_64');
+        expect(workflow).toContain('CIBW_REPAIR_WHEEL_COMMAND_LINUX: ""');
+        expect(workflow).toContain('CIBW_BUILD: cp310-macosx_arm64');
+        expect(workflow).toContain('CIBW_REPAIR_WHEEL_COMMAND_MACOS: ""');
+        expect(workflow.match(/CIBW_BUILD: cp310-\*/g)).toHaveLength(1);
+    });
+
     it('does not install beta backends from mutable branch archives', () => {
         const pythonOps = fs.readFileSync(
             path.join(process.cwd(), 'electron-src', 'main', 'services', 'python_ops.ts'),
