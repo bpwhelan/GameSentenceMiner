@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import ipaddress
 import json
-import re
 import unicodedata
 from functools import wraps
 
@@ -62,9 +61,10 @@ def _parse_lookup_stats_pagination() -> tuple[int, int]:
         raw_value = request.args.get(name)
         if raw_value is None:
             return default
-        if re.fullmatch(r"(?:0|[1-9][0-9]*)", raw_value) is None:
-            raise ValueError(f"{name} must be a base-10 integer.")
-        return int(raw_value)
+        try:
+            return int(raw_value)
+        except ValueError as exc:
+            raise ValueError(f"{name} must be an integer.") from exc
 
     limit = parse_argument("limit", DEFAULT_LOOKUP_STATS_LIMIT)
     offset = parse_argument("offset", 0)
@@ -148,15 +148,8 @@ def register_hoshidicts_api_routes(app) -> None:
     @app.post("/api/hoshidicts/lookup-stats")
     @local_hoshidicts_only
     def api_record_hoshidicts_lookup():
-        # Read at most one byte beyond the accepted size so chunked requests
-        # without Content-Length can still be distinguished from an exact-limit body.
-        request.max_content_length = MAX_LOOKUP_STATS_REQUEST_BYTES + 1
-        if request.content_length is not None and request.content_length > MAX_LOOKUP_STATS_REQUEST_BYTES:
-            return _lookup_stats_error("Lookup statistics request is too large.", 413)
+        request.max_content_length = MAX_LOOKUP_STATS_REQUEST_BYTES
         try:
-            raw_body = request.get_data(cache=True)
-            if len(raw_body) > MAX_LOOKUP_STATS_REQUEST_BYTES:
-                return _lookup_stats_error("Lookup statistics request is too large.", 413)
             payload = request.get_json(silent=True)
         except RequestEntityTooLarge:
             return _lookup_stats_error("Lookup statistics request is too large.", 413)

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 from flask import Flask
 
-from GameSentenceMiner import hoshidicts_audio_profile, hoshidicts_markers, hoshidicts_mining
+from GameSentenceMiner import hoshidicts_anki, hoshidicts_audio_profile, hoshidicts_markers, hoshidicts_mining
 from GameSentenceMiner import hoshidicts_mining_note as note_module
 from GameSentenceMiner.web import hoshidicts_api
 from tests.test_hoshidicts_factories import (
@@ -465,7 +465,7 @@ def test_options_load_anki_choices_and_suggest_kiku_lapis_fields(monkeypatch):
     }
     assert {key: options[key] for key in expected} == expected
     assert fake_anki.kwargs_for("modelFieldNames") == {
-        "timeout": hoshidicts_mining.ANKI_CONNECT_TIMEOUT_SECONDS,
+        "timeout": hoshidicts_anki.ANKI_CONNECT_TIMEOUT_SECONDS,
         "modelName": "Kiku",
     }
 
@@ -2548,7 +2548,7 @@ def test_browse_hoshidicts_word_opens_broad_literal_anki_search(monkeypatch):
             "guiBrowse",
             {
                 "query": r'"word\" OR deck\:\*\_\\\:&lt;&amp;&gt;"',
-                "timeout": hoshidicts_mining.ANKI_CONNECT_TIMEOUT_SECONDS,
+                "timeout": hoshidicts_anki.ANKI_CONNECT_TIMEOUT_SECONDS,
             },
         )
     ]
