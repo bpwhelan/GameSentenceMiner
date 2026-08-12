@@ -17,8 +17,7 @@ import {
   PROGRESS_KEYS,
   RECOMMENDED_KEYS,
   type HoshidictsView,
-  getReadiness,
-  normalizeHoshidictsDesktopState
+  getReadiness
 } from "./hoshidictsSettingsModel";
 import { useHoshidictsSettingsController } from "./useHoshidictsSettingsController";
 import "./hoshidicts.css";
@@ -36,8 +35,6 @@ const HOSHIDICTS_TABS: Array<{
   { view: "audio", labelKey: "settings.hoshidicts.tabs.audio" },
   { view: "mining", labelKey: "settings.hoshidicts.tabs.mining" }
 ];
-
-export { normalizeHoshidictsDesktopState } from "./hoshidictsSettingsModel";
 
 function ReadinessBanner({
   controller

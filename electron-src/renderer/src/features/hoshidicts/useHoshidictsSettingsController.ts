@@ -73,8 +73,6 @@ import {
   copyAudioProfile,
   draftToProfile,
   isScopedBusy,
-  normalizeHoshidictsDesktopState,
-  normalizeMiningOptions,
   profileToDraft,
   setMiningFieldTemplate
 } from "./hoshidictsSettingsModel";
@@ -288,7 +286,8 @@ export function useHoshidictsSettingsController() {
   }, [view]);
 
   const applyState = useCallback((value: unknown, forceDrafts = false) => {
-    const normalized = normalizeHoshidictsDesktopState(value);
+    if (!value || typeof value !== "object") return null;
+    const normalized = value as HoshidictsDesktopSnapshot;
     if (normalized.revision < highestRevisionRef.current) return null;
     highestRevisionRef.current = normalized.revision;
     setState(normalized);
@@ -432,7 +431,7 @@ export function useHoshidictsSettingsController() {
           model
         );
         if (requestId !== miningOptionsRequestRef.current) return null;
-        const normalized = normalizeMiningOptions(value);
+        const normalized = value;
         setMiningOptions(normalized);
         return normalized;
       } catch (error) {
