@@ -11,7 +11,6 @@ import {
     HOSHIDICTS_MINING_FIELD_MARKERS,
     MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH,
     MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH,
-    MAX_HOSHIDICTS_TAB_GROUPS_BYTES,
 } from '../../../shared/features/hoshidicts.js';
 
 vi.mock('electron', () => ({
@@ -912,33 +911,6 @@ describe('Hoshidicts immutable generations', () => {
             'too many groups'
         );
         expect((await manager.getSnapshot()).tabGroups).toHaveLength(256);
-
-        const maximumId = 'd'.repeat(128);
-        const maximumState = {
-            version: 1,
-            groups: Array.from({ length: 256 }, (_, groupIndex) => ({
-                id: `group-${groupIndex}`,
-                name: `${'g'.repeat(
-                    MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH -
-                        String(groupIndex).length
-                )}${groupIndex}`,
-                dictionaryIds: Array.from(
-                    { length: 256 },
-                    (_, dictionaryIndex) =>
-                        `${maximumId.slice(
-                            0,
-                            128 - String(dictionaryIndex).length
-                        )}${dictionaryIndex}`
-                ),
-            })),
-        };
-        const maximumStateBytes = Buffer.byteLength(
-            JSON.stringify(maximumState),
-            'utf8'
-        );
-        expect(maximumStateBytes).toBeLessThanOrEqual(
-            MAX_HOSHIDICTS_TAB_GROUPS_BYTES
-        );
     });
 
     it('removes retained tab group membership after its dictionary is uninstalled', async () => {
@@ -1718,7 +1690,7 @@ describe('Hoshidicts mining profile', () => {
     it('normalizes Yomitan duplicate options and rejects unsupported values', () => {
         expect(
             normalizeHoshidictsMiningProfile({
-                version: 2,
+                version: 3,
                 checkForDuplicates: false,
                 duplicateScope: 'deck-root',
                 duplicateScopeCheckAllModels: true,
@@ -1820,19 +1792,9 @@ describe('Hoshidicts mining profile', () => {
                 fieldTemplates: {},
             }).fieldTemplates
         ).toEqual({});
-        expect(
-            normalizeHoshidictsMiningProfile({
-                version: 2,
-                fields: { reading: 'Kana' },
-                fieldTemplates: {
-                    Ignored: { value: 'x', overwriteMode: 'skip' },
-                },
-            })
-        ).toMatchObject({
-            version: 3,
-            fields: { reading: 'Kana' },
-            fieldTemplates: null,
-        });
+        expect(() =>
+            normalizeHoshidictsMiningProfile({ version: 2 })
+        ).toThrow('version is unsupported');
     });
 
     it('exports every canonical mining marker in menu order', () => {

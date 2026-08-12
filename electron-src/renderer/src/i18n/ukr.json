@@ -602,7 +602,6 @@
       "title": "Словники Hoshidicts",
       "enabled": "Увімкнено в експериментальних налаштуваннях GSM",
       "disabled": "Вимкнено в експериментальних налаштуваннях GSM",
-      "restartNote": "Ця зміна набуде чинності після перезапуску оверлею.",
       "restartNow": "Перезапустити оверлей",
       "restarting": "Перезапуск...",
       "loading": "Завантаження налаштувань Hoshidicts...",
@@ -786,12 +785,6 @@
         "saving": "Збереження...",
         "saved": "Збережено",
         "error": "Не вдалося зберегти"
-      },
-      "lookup": {
-        "title": "Активація пошуку",
-        "requireShift": "Утримувати Shift для пошуку",
-        "shiftHint": "Hoshidicts шукає текст лише під час утримування Shift.",
-        "hoverHint": "Hoshidicts автоматично шукає текст під вказівником, як Yomitan."
       },
       "import": "Імпортувати словники...",
       "backups": {
@@ -1021,14 +1014,11 @@
         "autoSaveHint": "Зміни зберігаються автоматично.",
         "deck": "Колода",
         "noteType": "Тип нотатки",
-        "selectNoteType": "Виберіть тип нотатки",
         "automatic": "Автоматично",
         "automaticNoteType": "Автоматично ({name})",
         "missingOption": "{name} (відсутнє в Anki)",
         "tags": "Додаткові теги",
         "duplicates": "Дублікати",
-        "preventDuplicates": "Запобігати дублікатам",
-        "allowDuplicates": "Дозволяти дублікати",
         "duplicateHandling": "Обробка дублікатів",
         "checkForDuplicates": "Перевіряти дублікати",
         "duplicateCheckHint": "Anki порівнює перше поле вибраного типу нотатки.",

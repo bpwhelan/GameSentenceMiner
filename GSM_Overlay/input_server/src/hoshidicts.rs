@@ -545,7 +545,7 @@ struct LookupKanji {
     entries: Vec<LookupKanjiEntry>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportReport {
     pub success: bool,
@@ -562,33 +562,14 @@ pub struct ImportReport {
 impl ImportReport {
     fn failure(error: impl Into<String>) -> Self {
         Self {
-            success: false,
-            title: String::new(),
-            term_count: 0,
-            meta_count: 0,
-            frequency_count: 0,
-            pitch_count: 0,
-            kanji_count: 0,
-            media_count: 0,
             error: error.into(),
+            ..Default::default()
         }
     }
 
     pub fn to_json_line(&self) -> String {
-        serde_json::to_string(self).unwrap_or_else(|error| {
-            serde_json::json!({
-                "success": false,
-                "title": "",
-                "termCount": 0,
-                "metaCount": 0,
-                "frequencyCount": 0,
-                "pitchCount": 0,
-                "kanjiCount": 0,
-                "mediaCount": 0,
-                "error": format!("failed to serialize import result: {error}"),
-            })
-            .to_string()
-        })
+        // Only bools, integers and Strings, so serialization cannot fail.
+        serde_json::to_string(self).unwrap_or_default()
     }
 }
 

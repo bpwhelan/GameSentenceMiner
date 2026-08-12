@@ -736,7 +736,6 @@ export interface HoshidictsDictionaryPresentation {
 }
 
 export const MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH = 128;
-export const MAX_HOSHIDICTS_TAB_GROUPS_BYTES = 16 * 1024 * 1024;
 
 export interface HoshidictsDictionaryTabGroup {
     id: string;

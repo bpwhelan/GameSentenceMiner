@@ -111,8 +111,6 @@
   const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
   const MAX_LOOKUP_TEXT_BYTES = 4 * 1024;
   const MAX_MEDIA_RESPONSE_BYTES = 6 * 1024 * 1024;
-  const MAX_STYLES_RESPONSE_BYTES = 3 * 1024 * 1024;
-  const MAX_DICTIONARY_STYLES = 256;
   const MAX_DICTIONARY_STYLE_BYTES = 256 * 1024;
   const MAX_DICTIONARY_STYLES_BYTES = 2 * 1024 * 1024;
   const MAX_MEDIA_BYTES = 4 * 1024 * 1024;
@@ -533,9 +531,6 @@
         matched: boundedString(result.matched, 4096),
         deinflected: boundedString(result.deinflected, 4096),
         trace,
-        preprocessorSteps: Number.isFinite(result.preprocessorSteps)
-          ? Math.trunc(result.preprocessorSteps)
-          : 0,
         term: {
           expression: canonicalTerm.expression,
           reading: canonicalTerm.reading,
@@ -3146,19 +3141,17 @@
       }));
     }
 
-    function handleDictionaryStylesResponse(payload, serializedLength) {
+    function handleDictionaryStylesResponse(payload) {
       const pending = pendingStylesRequest;
       if (!pending || payload.requestId !== pending.requestId) {
         return;
       }
       pendingStylesRequest = null;
       if (
-        serializedLength > MAX_STYLES_RESPONSE_BYTES ||
         payload.success !== true ||
         payload.generation !== pending.generation ||
         payload.generation !== activeDictionaryGeneration ||
-        !Array.isArray(payload.styles) ||
-        payload.styles.length > MAX_DICTIONARY_STYLES
+        !Array.isArray(payload.styles)
       ) {
         diagnostic("warn", "styles.rejected", {
           generation: payload.generation,
@@ -4830,15 +4823,6 @@
       if (!job) {
         return;
       }
-      const matchesRequest =
-        payload.generation === job.generation &&
-        payload.dictionary === job.dictionary &&
-        payload.path === job.path;
-      if (!matchesRequest) {
-        rejectMediaJob(job, new Error("invalid_media_response"));
-        pumpMediaQueue();
-        return;
-      }
       if (payload.success !== true) {
         const invalidateMediaState =
           payload.staleGeneration === true || payload.featureDisabled === true;
@@ -4966,14 +4950,7 @@
         return;
       }
       if (payload.type === "hoshidicts_styles_result") {
-        handleDictionaryStylesResponse(payload, serialized.length);
-        return;
-      }
-      if (serialized.length > MAX_RESPONSE_BYTES) {
-        diagnostic("warn", "lookup-response.too-large", {
-          bytes: serialized.length,
-          maxBytes: MAX_RESPONSE_BYTES,
-        });
+        handleDictionaryStylesResponse(payload);
         return;
       }
       if (payload.type !== "hoshidicts_lookup_result") {

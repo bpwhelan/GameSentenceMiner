@@ -609,7 +609,6 @@
       "title": "Hoshidicts Dictionaries",
       "enabled": "Enabled in GSM Experimental",
       "disabled": "Disabled in GSM Experimental",
-      "restartNote": "This change takes effect after the overlay restarts.",
       "restartNow": "Restart Overlay",
       "restarting": "Restarting...",
       "loading": "Loading Hoshidicts settings...",
@@ -793,12 +792,6 @@
         "saving": "Saving...",
         "saved": "Saved",
         "error": "Save failed"
-      },
-      "lookup": {
-        "title": "Lookup activation",
-        "requireShift": "Hold Shift to look up",
-        "shiftHint": "Hoshidicts looks up text only while Shift is held.",
-        "hoverHint": "Hoshidicts looks up text automatically when you hover, like Yomitan."
       },
       "import": "Import Dictionaries...",
       "backups": {
@@ -1028,14 +1021,11 @@
         "autoSaveHint": "Changes are saved automatically.",
         "deck": "Deck",
         "noteType": "Note type",
-        "selectNoteType": "Select a note type",
         "automatic": "Automatic",
         "automaticNoteType": "Automatic ({name})",
         "missingOption": "{name} (missing from Anki)",
         "tags": "Extra tags",
         "duplicates": "Duplicates",
-        "preventDuplicates": "Prevent duplicates",
-        "allowDuplicates": "Allow duplicates",
         "duplicateHandling": "Duplicate handling",
         "checkForDuplicates": "Check for duplicates",
         "duplicateCheckHint": "Anki compares the first field of the selected note type.",
