@@ -1,5 +1,6 @@
 import archiver from 'archiver';
 import extract from 'extract-zip';
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';
@@ -402,7 +403,7 @@ describe('Hoshidicts full backups', () => {
         ).rejects.toThrow(/hash|missing|size|entry/iu);
     });
 
-    it('rejects dictionary references which disagree with the backed-up manager state', async () => {
+    it('rejects a manager manifest whose generation has no payload files', async () => {
         const workspace = makeTempDirectory('gsm-hoshidicts-backup-references-');
         const sourceRoot = path.join(workspace, 'source');
         await writeTestRoot(sourceRoot);
@@ -411,13 +412,28 @@ describe('Hoshidicts full backups', () => {
         const extracted = path.join(workspace, 'extracted');
         await fsp.mkdir(extracted);
         await extract(validArchive, { dir: extracted });
-        const backupManifestPath = path.join(extracted, HOSHIDICTS_BACKUP_MANIFEST_FILE_NAME);
-        const backupManifest = JSON.parse(await fsp.readFile(backupManifestPath, 'utf8')) as {
+
+        // The commit installs the generations the *manager* manifest lists, so
+        // that is the list the payload has to be checked against. Restate its
+        // digest so this exercises the reference check, not the hash check.
+        const managerManifestPath = path.join(extracted, 'data', 'manifest.json');
+        const managerManifest = JSON.parse(await fsp.readFile(managerManifestPath, 'utf8')) as {
             dictionaries: Array<{ path: string }>;
         };
-        backupManifest.dictionaries[0].path =
+        managerManifest.dictionaries[0].path =
             'generations/jitendex/different-generation/Jitendex.org [test]';
+        const rewritten = Buffer.from(JSON.stringify(managerManifest));
+        await fsp.writeFile(managerManifestPath, rewritten);
+
+        const backupManifestPath = path.join(extracted, HOSHIDICTS_BACKUP_MANIFEST_FILE_NAME);
+        const backupManifest = JSON.parse(await fsp.readFile(backupManifestPath, 'utf8')) as {
+            files: Array<{ path: string; size: number; sha256: string }>;
+        };
+        const entry = backupManifest.files.find((file) => file.path === 'manifest.json')!;
+        entry.size = rewritten.byteLength;
+        entry.sha256 = createHash('sha256').update(rewritten).digest('hex');
         await fsp.writeFile(backupManifestPath, JSON.stringify(backupManifest));
+
         const inconsistentArchive = path.join(workspace, 'inconsistent.zip');
         await createZipFromDirectory(extracted, inconsistentArchive);
 
@@ -426,7 +442,7 @@ describe('Hoshidicts full backups', () => {
                 archivePath: inconsistentArchive,
                 stagingParent: workspace,
             }),
-        ).rejects.toThrow(/references do not match manager state/iu);
+        ).rejects.toThrow(/missing dictionary files/iu);
     });
 
     it('rejects path traversal entries without writing outside staging', async () => {

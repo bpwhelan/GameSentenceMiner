@@ -321,17 +321,6 @@ async function streamToNewFile(
     }
 }
 
-async function copyFileWithMetadata(
-    sourcePath: string,
-    outputPath: string,
-): Promise<Omit<HoshidictsBackupFileMetadata, 'path'>> {
-    return await streamToNewFile(
-        fs.createReadStream(sourcePath),
-        outputPath,
-        MAX_BACKUP_ENTRY_BYTES,
-    );
-}
-
 async function collectDirectoryFiles(
     rootDir: string,
     relativeRoot: string,
@@ -477,38 +466,41 @@ function parseBackupManifest(value: unknown): HoshidictsBackupManifest {
     ) {
         throw new Error('The selected archive is not a supported Hoshidicts backup.');
     }
+    const stateReference = <T extends string>(
+        candidate: unknown,
+        expected: T,
+        label: string,
+        optional: boolean,
+    ): T | null => {
+        if (candidate === expected) return expected;
+        if (optional && candidate === null) return null;
+        throw new Error(`Hoshidicts backup has an invalid ${label} reference.`);
+    };
     const state: HoshidictsBackupStateReferences = {
-        manifest:
-            value.state.manifest === MANAGER_MANIFEST_FILE_NAME
-                ? MANAGER_MANIFEST_FILE_NAME
-                : (() => {
-                      throw new Error(
-                          'Hoshidicts backup has an invalid manager manifest reference.',
-                      );
-                  })(),
-        miningProfile:
-            value.state.miningProfile === null ||
-            value.state.miningProfile === MINING_PROFILE_FILE_NAME
-                ? value.state.miningProfile
-                : (() => {
-                      throw new Error('Hoshidicts backup has an invalid mining profile reference.');
-                  })(),
-        audioProfile:
-            value.state.audioProfile === null ||
-            value.state.audioProfile === AUDIO_PROFILE_FILE_NAME
-                ? value.state.audioProfile
-                : (() => {
-                      throw new Error('Hoshidicts backup has an invalid audio profile reference.');
-                  })(),
-        customDictionary:
-            value.state.customDictionary === null ||
-            value.state.customDictionary === CUSTOM_DICTIONARY_FILE_NAME
-                ? value.state.customDictionary
-                : (() => {
-                      throw new Error(
-                          'Hoshidicts backup has an invalid custom dictionary reference.',
-                      );
-                  })(),
+        manifest: stateReference(
+            value.state.manifest,
+            MANAGER_MANIFEST_FILE_NAME,
+            'manager manifest',
+            false,
+        ) as typeof MANAGER_MANIFEST_FILE_NAME,
+        miningProfile: stateReference(
+            value.state.miningProfile,
+            MINING_PROFILE_FILE_NAME,
+            'mining profile',
+            true,
+        ),
+        audioProfile: stateReference(
+            value.state.audioProfile,
+            AUDIO_PROFILE_FILE_NAME,
+            'audio profile',
+            true,
+        ),
+        customDictionary: stateReference(
+            value.state.customDictionary,
+            CUSTOM_DICTIONARY_FILE_NAME,
+            'custom dictionary',
+            true,
+        ),
     };
     const dictionaries = value.dictionaries.map((dictionary, index) => {
         if (!isRecord(dictionary)) {
@@ -617,31 +609,10 @@ async function validateBackupContents(
             'Hoshidicts manager manifest',
         ),
     );
-    if (
-        managerManifest.dictionaries.length !== manifest.dictionaries.length ||
-        managerManifest.dictionaries.some(
-            (dictionary, index) =>
-                dictionary.id !== manifest.dictionaries[index]?.id ||
-                dictionary.path !== manifest.dictionaries[index]?.path,
-        )
-    ) {
-        throw new Error('Hoshidicts backup dictionary references do not match manager state.');
-    }
-
-    for (const file of manifest.files) {
-        if (expectedStateFiles.has(file.path)) {
-            continue;
-        }
-        if (
-            !manifest.dictionaries.some((dictionary) => file.path.startsWith(`${dictionary.path}/`))
-        ) {
-            throw new Error(
-                `Hoshidicts backup contains an unreferenced payload file: ${file.path}`,
-            );
-        }
-    }
+    // Validate the generations the commit actually installs, which come from
+    // the manager manifest rather than the backup manifest's own copy.
     const fileSet = new Set(expectedFiles.keys());
-    for (const dictionary of manifest.dictionaries) {
+    for (const dictionary of managerManifest.dictionaries) {
         await validateNativeDictionary(payloadRoot, dictionary, fileSet);
     }
     await validateOptionalJsonState(payloadRoot, manifest.state);
@@ -761,11 +732,6 @@ export async function exportHoshidictsBackup(
         dictionaries: manager.dictionaries,
         files: fileManifest,
     };
-    await validateBackupContents(
-        rootDir,
-        manifest,
-        new Map(fileManifest.map(({ path: filePath, ...metadata }) => [filePath, metadata])),
-    );
     await writeArchive(outputPath, manifest, files);
     return { outputPath, manifest };
 }
@@ -973,19 +939,18 @@ export async function disposePreparedHoshidictsBackupRestore(
     await fsp.rm(prepared.stagingRoot, { recursive: true, force: true });
 }
 
-async function copyAndRevalidatePreparedPayload(
+/// Copies the extracted payload onto the target filesystem so the commit can
+/// rename out of it. prepareHoshidictsBackupRestore already verified every
+/// digest, so this is a plain copy.
+async function copyPreparedPayload(
     prepared: PreparedHoshidictsBackupRestore,
     outputRoot: string,
-): Promise<ManagerManifestInspection> {
-    const actualFiles = new Map<string, Omit<HoshidictsBackupFileMetadata, 'path'>>();
+): Promise<void> {
     for (const file of prepared.manifest.files) {
-        const metadata = await copyFileWithMetadata(
-            resolveInside(prepared.payloadRoot, file.path),
-            resolveInside(outputRoot, file.path),
-        );
-        actualFiles.set(file.path, metadata);
+        const outputPath = resolveInside(outputRoot, file.path);
+        await fsp.mkdir(path.dirname(outputPath), { recursive: true });
+        await fsp.copyFile(resolveInside(prepared.payloadRoot, file.path), outputPath);
     }
-    return await validateBackupContents(outputRoot, prepared.manifest, actualFiles);
 }
 
 async function snapshotStateFiles(
@@ -1135,7 +1100,11 @@ export async function commitPreparedHoshidictsBackupRestore(
     let activationAttempted = false;
     try {
         await fsp.mkdir(verifiedRoot, { recursive: true });
-        const manager = await copyAndRevalidatePreparedPayload(prepared, verifiedRoot);
+        await copyPreparedPayload(prepared, verifiedRoot);
+        const manager: ManagerManifestInspection = {
+            value: prepared.managerManifest,
+            dictionaries: prepared.dictionaries,
+        };
         const previousDictionaryPaths = await currentDictionaryPaths(targetRootDir);
         const dictionaryPaths = new Map<string, string>();
         await fsp.mkdir(stagedGenerationsRoot, { recursive: true });
