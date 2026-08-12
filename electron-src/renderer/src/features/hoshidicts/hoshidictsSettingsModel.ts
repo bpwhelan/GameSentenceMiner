@@ -24,7 +24,6 @@ export type HoshidictsView =
   | "audio"
   | "mining";
 export type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
-export type MiningField = HoshidictsMiningFieldName;
 export type MiningProfileDraft = Omit<HoshidictsMiningProfile, "tags"> & {
   tags: string;
 };

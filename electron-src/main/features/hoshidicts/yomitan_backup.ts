@@ -51,6 +51,10 @@ const MAX_OPEN_SPOOL_FILES = 16;
 const MAX_SPOOL_BUFFER_BYTES = 256 * 1024;
 const MAX_NATIVE_ZIP_BYTES = 0xffff_ffff;
 const MAX_NATIVE_MEDIA_PATH_BYTES = 0xffff;
+// A settings backup holds profiles and Anki templates, not dictionary data, so a
+// real one is well under a megabyte. This only stops an unbounded read of a file
+// the user picked by mistake.
+const MAX_SETTINGS_BACKUP_BYTES = 16 * 1024 * 1024;
 const READ_PROGRESS_INTERVAL_MS = 250;
 const MIN_ETA_ELAPSED_MS = 1_000;
 
@@ -1531,7 +1535,20 @@ export async function prepareYomitanSettingsBackup(
     filePath: string,
     current: HoshidictsManagerSnapshot
 ): Promise<PreparedYomitanBackup> {
-    const value: unknown = JSON.parse(await fsp.readFile(filePath, 'utf8'));
+    const stat = await fsp.stat(filePath);
+    if (!stat.isFile() || stat.size === 0) {
+        throw new Error('The selected Yomitan settings backup is empty.');
+    }
+    if (stat.size > MAX_SETTINGS_BACKUP_BYTES) {
+        throw new Error('The selected file is too large to be a Yomitan settings backup.');
+    }
+    const raw = await fsp.readFile(filePath, 'utf8');
+    let value: unknown;
+    try {
+        value = JSON.parse(raw.replace(/^\uFEFF/, ''));
+    } catch {
+        throw new Error('The selected file is not a Yomitan settings backup.');
+    }
     return {
         dictionaries: [],
         settings: parseYomitanSettingsBackup(value, current),
