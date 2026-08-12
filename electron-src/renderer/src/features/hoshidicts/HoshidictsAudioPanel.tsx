@@ -19,6 +19,7 @@ import {
   type HoshidictsAudioSourceType
 } from "../../../../shared/features/hoshidicts";
 import { useTranslation } from "../../i18n";
+import { HoshidictsToggleSetting } from "./components/HoshidictsToggleSetting";
 import { HoshidictsSaveIndicator } from "./HoshidictsSaveIndicator";
 import { copyAudioProfile } from "./hoshidictsSettingsModel";
 import { useHoshidictsSettingsController } from "./useHoshidictsSettingsController";
@@ -39,6 +40,19 @@ interface ActiveAudioPlayback {
 const AUDIO_TEST_TERM = "聞く";
 const AUDIO_TEST_READING = "きく";
 const AUDIO_TEST_TIMEOUT_MS = 15_000;
+
+const AUDIO_TOGGLES = [
+  {
+    id: "hoshidicts-audio-enabled",
+    key: "enabled",
+    labelKey: "settings.hoshidicts.audio.enabled"
+  },
+  {
+    id: "hoshidicts-audio-autoplay",
+    key: "autoPlay",
+    labelKey: "settings.hoshidicts.audio.autoplay"
+  }
+] as const;
 
 const AUDIO_SOURCE_I18N_SUFFIXES: Record<HoshidictsAudioSourceType, string> = {
   jpod101: "jpod101",
@@ -416,45 +430,23 @@ export function HoshidictsAudioPanel({
         </div>
 
         <div className="hoshidicts-audio-controls">
-          <label className="hoshidicts-audio-toggle">
-            <input
-              id="hoshidicts-audio-enabled"
-              type="checkbox"
-              checked={audioDraft.enabled}
+          {AUDIO_TOGGLES.map((toggle) => (
+            <HoshidictsToggleSetting
+              key={toggle.id}
+              id={toggle.id}
+              className="hoshidicts-toggle--boxed"
+              label={t(toggle.labelKey)}
+              hint={t(`${toggle.labelKey}Hint`)}
+              checked={audioDraft[toggle.key]}
               disabled={audioControlsDisabled}
-              onChange={(event) =>
-                updateProfile((profile) => ({
-                  ...profile,
-                  enabled: event.target.checked
-                }))
+              onChange={(value) =>
+                updateProfile((profile) => ({ ...profile, [toggle.key]: value }))
               }
             />
-            <span>
-              <strong>{t("settings.hoshidicts.audio.enabled")}</strong>
-              <small>{t("settings.hoshidicts.audio.enabledHint")}</small>
-            </span>
-          </label>
-          <label className="hoshidicts-audio-toggle">
-            <input
-              id="hoshidicts-audio-autoplay"
-              type="checkbox"
-              checked={audioDraft.autoPlay}
-              disabled={audioControlsDisabled}
-              onChange={(event) =>
-                updateProfile((profile) => ({
-                  ...profile,
-                  autoPlay: event.target.checked
-                }))
-              }
-            />
-            <span>
-              <strong>{t("settings.hoshidicts.audio.autoplay")}</strong>
-              <small>{t("settings.hoshidicts.audio.autoplayHint")}</small>
-            </span>
-          </label>
+          ))}
         </div>
 
-        <label className="hoshidicts-audio-volume">
+        <label className="hoshidicts-setting hoshidicts-audio-volume">
           <span>
             <Volume2 size={17} aria-hidden="true" />
             {t("settings.hoshidicts.audio.volume", {
@@ -581,7 +573,7 @@ export function HoshidictsAudioPanel({
                   </div>
 
                   <div className="hoshidicts-audio-source__body">
-                    <label>
+                    <label className="hoshidicts-setting">
                       <span>{t("settings.hoshidicts.audio.sourceType")}</span>
                       <select
                         value={source.type}
@@ -604,7 +596,7 @@ export function HoshidictsAudioPanel({
                     </label>
 
                     {isCustomSource(source.type) ? (
-                      <label>
+                      <label className="hoshidicts-setting">
                         <span>{t("settings.hoshidicts.audio.sourceUrl")}</span>
                         <input
                           type="text"
@@ -624,7 +616,7 @@ export function HoshidictsAudioPanel({
                     ) : null}
 
                     {isTtsSource(source.type) ? (
-                      <label>
+                      <label className="hoshidicts-setting">
                         <span>{t("settings.hoshidicts.audio.voice")}</span>
                         <div className="hoshidicts-audio-source__voice">
                           <select

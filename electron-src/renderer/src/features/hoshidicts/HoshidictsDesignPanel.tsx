@@ -32,6 +32,10 @@ import {
   type HoshidictsTheme
 } from "../../../../shared/features/hoshidicts";
 import { useTranslation } from "../../i18n";
+import { HoshidictsDictionarySelect } from "./components/HoshidictsDictionarySelect";
+import { HoshidictsNumberSetting } from "./components/HoshidictsNumberSetting";
+import { HoshidictsSelectSetting } from "./components/HoshidictsSelectSetting";
+import { HoshidictsToggleSetting } from "./components/HoshidictsToggleSetting";
 import { HoshidictsPopupPreview } from "./HoshidictsPopupPreview";
 import { HoshidictsSaveIndicator } from "./HoshidictsSaveIndicator";
 import type { useHoshidictsSettingsController } from "./useHoshidictsSettingsController";
@@ -70,6 +74,83 @@ const POPUP_BUTTON_CHOICES = [
   }
 ] as const;
 
+const APPEARANCE_NUMBERS = [
+  {
+    id: "hoshidicts-popup-opacity",
+    key: "popupOpacityPercent",
+    labelKey: "settings.hoshidicts.reader.appearance.opacity",
+    unitKey: "settings.hoshidicts.reader.appearance.percent",
+    min: MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+    max: MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT,
+    step: 1
+  },
+  {
+    id: "hoshidicts-popup-backdrop-blur",
+    key: "popupBackdropBlurPx",
+    labelKey: "settings.hoshidicts.reader.appearance.backdropBlur",
+    unitKey: "settings.hoshidicts.reader.appearance.pixels",
+    min: MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
+    max: MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
+    step: 1
+  },
+  {
+    id: "hoshidicts-popup-width",
+    key: "popupWidthPx",
+    labelKey: "settings.hoshidicts.reader.appearance.width",
+    unitKey: "settings.hoshidicts.reader.appearance.pixels",
+    min: MIN_HOSHIDICTS_POPUP_WIDTH_PX,
+    max: MAX_HOSHIDICTS_POPUP_WIDTH_PX,
+    step: 10
+  },
+  {
+    id: "hoshidicts-popup-height",
+    key: "popupHeightPx",
+    labelKey: "settings.hoshidicts.reader.appearance.height",
+    unitKey: "settings.hoshidicts.reader.appearance.pixels",
+    min: MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
+    max: MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
+    step: 10
+  },
+  {
+    id: "hoshidicts-popup-columns",
+    key: "popupColumns",
+    labelKey: "settings.hoshidicts.reader.appearance.columns",
+    unitKey: null,
+    min: MIN_HOSHIDICTS_POPUP_COLUMNS,
+    max: MAX_HOSHIDICTS_POPUP_COLUMNS,
+    step: 1
+  }
+] as const;
+
+const CONTENT_TOGGLES = [
+  {
+    id: "hoshidicts-show-pitch-accent-badge",
+    key: "showPitchAccentBadge",
+    labelKey: "settings.hoshidicts.reader.appearance.pitchAccentBadge"
+  },
+  {
+    id: "hoshidicts-average-frequency",
+    key: "averageFrequency",
+    labelKey: "settings.hoshidicts.reader.appearance.averageFrequency"
+  },
+  {
+    id: "hoshidicts-show-frequency-dictionary-names",
+    key: "showFrequencyDictionaryNames",
+    labelKey:
+      "settings.hoshidicts.reader.appearance.showFrequencyDictionaryNames"
+  },
+  {
+    id: "hoshidicts-hide-popup-grammar-tags",
+    key: "hidePopupGrammarTags",
+    labelKey: "settings.hoshidicts.reader.appearance.hidePopupGrammarTags"
+  },
+  {
+    id: "hoshidicts-show-lookup-counts",
+    key: "showLookupCounts",
+    labelKey: "settings.hoshidicts.reader.showLookupCounts"
+  }
+] as const;
+
 function PopupButtonsControl({ controller }: { controller: Controller }) {
   const t = useTranslation();
   const {
@@ -103,18 +184,15 @@ function PopupButtonsControl({ controller }: { controller: Controller }) {
         aria-label={t("settings.hoshidicts.reader.popupButtons.title")}
       >
         {POPUP_BUTTON_CHOICES.map((button) => (
-          <label key={button.id}>
-            <input
-              id={button.inputId}
-              type="checkbox"
-              checked={readerDraft.popupButtons[button.id]}
-              disabled={preferencesBusy}
-              onChange={(event) =>
-                setPopupButtonEnabled(button.id, event.currentTarget.checked)
-              }
-            />
-            <span>{t(button.labelKey)}</span>
-          </label>
+          <HoshidictsToggleSetting
+            key={button.id}
+            id={button.inputId}
+            variant="inline"
+            label={t(button.labelKey)}
+            checked={readerDraft.popupButtons[button.id]}
+            disabled={preferencesBusy}
+            onChange={(enabled) => setPopupButtonEnabled(button.id, enabled)}
+          />
         ))}
       </div>
 
@@ -214,7 +292,7 @@ function PopupButtonsControl({ controller }: { controller: Controller }) {
             resetLinkForm();
           }}
         >
-          <label>
+          <label className="hoshidicts-setting">
             <span>{t("settings.hoshidicts.reader.popupButtons.name")}</span>
             <input
               id="hoshidicts-popup-link-label"
@@ -231,7 +309,7 @@ function PopupButtonsControl({ controller }: { controller: Controller }) {
               }}
             />
           </label>
-          <label>
+          <label className="hoshidicts-setting">
             <span>{t("settings.hoshidicts.reader.popupButtons.url")}</span>
             <input
               id="hoshidicts-popup-link-url"
@@ -298,50 +376,14 @@ export function HoshidictsDesignPanel({
     readerSaveStatus,
     preferencesBusy,
     resetPopupSize,
-    setCompactDefinitionSummaryDictionary,
+    setBoundedDefinitionBlurInteger,
+    setBoundedReaderInteger,
     setCustomPopupCss,
-    setDefinitionBlurEnabled,
-    setDefinitionBlurLookupThreshold,
-    setDefinitionBlurRevealDelayMs,
-    setDefinitionBlurRevealMode,
-    setAverageFrequency,
-    setShowFrequencyDictionaryNames,
-    setHidePopupGrammarTags,
-    setPitchAccentFuriganaDictionary,
-    setPopupColumns,
-    setPopupBackdropBlurPx,
-    setPopupHeightPx,
-    setPopupOpacityPercent,
-    setPopupToolbarPosition,
-    setPopupWidthPx,
-    setShowCompactDefinitionSummary,
-    setCompactDefinitionSummaryCount,
-    setShowLookupCounts,
-    setShowPitchAccentBadge,
-    setShowPitchAccentFurigana,
-    setSourceHighlightEnabled,
-    setTheme
+    setDefinitionBlurPreference,
+    setReaderPreference
   } = controller;
   if (!state) return null;
 
-  const compactDefinitionDictionaries = state.dictionaries.filter(
-    (dictionary) => dictionary.termCount > 0
-  );
-  const compactDefinitionDictionaryIsStale =
-    readerDraft.compactDefinitionSummaryDictionary !== null &&
-    !compactDefinitionDictionaries.some(
-      (dictionary) =>
-        dictionary.title === readerDraft.compactDefinitionSummaryDictionary
-    );
-  const pitchAccentDictionaries = state.dictionaries.filter(
-    (dictionary) => dictionary.pitchCount > 0
-  );
-  const pitchAccentDictionaryIsStale =
-    readerDraft.pitchAccentFuriganaDictionary !== null &&
-    !pitchAccentDictionaries.some(
-      (dictionary) =>
-        dictionary.title === readerDraft.pitchAccentFuriganaDictionary
-    );
   const previewPreferences = {
     ...hoshidictsReaderPreferencesFromSnapshot(state),
     ...readerDraft
@@ -366,140 +408,93 @@ export function HoshidictsDesignPanel({
             <small>{t("settings.hoshidicts.reader.appearance.hint")}</small>
           </div>
           <div className="hoshidicts-reader-appearance__controls">
-            <label>
-              <span>{t("settings.hoshidicts.reader.appearance.theme")}</span>
-              <select
-                id="hoshidicts-popup-theme"
-                value={readerDraft.theme}
+            <HoshidictsSelectSetting
+              id="hoshidicts-popup-theme"
+              label={t("settings.hoshidicts.reader.appearance.theme")}
+              value={readerDraft.theme}
+              disabled={preferencesBusy}
+              onChange={(theme) =>
+                setReaderPreference("theme", theme as HoshidictsTheme)
+              }
+            >
+              {HOSHIDICTS_THEME_GROUPS.map((group) => (
+                <optgroup key={group.id} label={t(group.labelKey)}>
+                  {group.themes.map((theme) => (
+                    <option key={theme.id} value={theme.id}>
+                      {t(theme.labelKey)}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </HoshidictsSelectSetting>
+            {APPEARANCE_NUMBERS.slice(0, 2).map((setting) => (
+              <HoshidictsNumberSetting
+                key={setting.id}
+                id={setting.id}
+                label={t(setting.labelKey)}
+                unit={setting.unitKey ? t(setting.unitKey) : undefined}
+                min={setting.min}
+                max={setting.max}
+                step={setting.step}
+                value={readerDraft[setting.key]}
                 disabled={preferencesBusy}
-                onChange={(event) =>
-                  setTheme(event.currentTarget.value as HoshidictsTheme)
-                }
-              >
-                {HOSHIDICTS_THEME_GROUPS.map((group) => (
-                  <optgroup key={group.id} label={t(group.labelKey)}>
-                    {group.themes.map((theme) => (
-                      <option key={theme.id} value={theme.id}>
-                        {t(theme.labelKey)}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>{t("settings.hoshidicts.reader.appearance.opacity")}</span>
-              <div className="hoshidicts-reader-appearance__number">
-                <input
-                  id="hoshidicts-popup-opacity"
-                  type="number"
-                  min={MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT}
-                  max={MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT}
-                  step={1}
-                  value={readerDraft.popupOpacityPercent}
-                  disabled={preferencesBusy}
-                  onChange={(event) =>
-                    setPopupOpacityPercent(event.currentTarget.valueAsNumber)
-                  }
-                />
-                <span>{t("settings.hoshidicts.reader.appearance.percent")}</span>
-              </div>
-            </label>
-            <label>
-              <span>
-                {t("settings.hoshidicts.reader.appearance.backdropBlur")}
-              </span>
-              <div className="hoshidicts-reader-appearance__number">
-                <input
-                  id="hoshidicts-popup-backdrop-blur"
-                  type="number"
-                  min={MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX}
-                  max={MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX}
-                  step={1}
-                  value={readerDraft.popupBackdropBlurPx}
-                  disabled={preferencesBusy}
-                  onChange={(event) =>
-                    setPopupBackdropBlurPx(event.currentTarget.valueAsNumber)
-                  }
-                />
-                <span>{t("settings.hoshidicts.reader.appearance.pixels")}</span>
-              </div>
-            </label>
-            <label>
-              <span>
-                {t("settings.hoshidicts.reader.appearance.toolbarPosition")}
-              </span>
-              <select
-                id="hoshidicts-popup-toolbar-position"
-                value={readerDraft.popupToolbarPosition}
-                disabled={preferencesBusy}
-                onChange={(event) =>
-                  setPopupToolbarPosition(
-                    event.currentTarget.value as HoshidictsPopupToolbarPosition
+                onChange={(value) =>
+                  setBoundedReaderInteger(
+                    setting.key,
+                    value,
+                    setting.min,
+                    setting.max
                   )
                 }
-              >
-                <option value="top">
-                  {t("settings.hoshidicts.reader.appearance.toolbarPositionTop")}
-                </option>
-                <option value="bottom">
-                  {t(
+              />
+            ))}
+            <HoshidictsSelectSetting
+              id="hoshidicts-popup-toolbar-position"
+              label={t("settings.hoshidicts.reader.appearance.toolbarPosition")}
+              value={readerDraft.popupToolbarPosition}
+              disabled={preferencesBusy}
+              options={[
+                {
+                  value: "top",
+                  label: t(
+                    "settings.hoshidicts.reader.appearance.toolbarPositionTop"
+                  )
+                },
+                {
+                  value: "bottom",
+                  label: t(
                     "settings.hoshidicts.reader.appearance.toolbarPositionBottom"
-                  )}
-                </option>
-              </select>
-            </label>
-            <label>
-              <span>{t("settings.hoshidicts.reader.appearance.width")}</span>
-              <div className="hoshidicts-reader-appearance__number">
-                <input
-                  id="hoshidicts-popup-width"
-                  type="number"
-                  min={MIN_HOSHIDICTS_POPUP_WIDTH_PX}
-                  max={MAX_HOSHIDICTS_POPUP_WIDTH_PX}
-                  step={10}
-                  value={readerDraft.popupWidthPx}
-                  disabled={preferencesBusy}
-                  onChange={(event) =>
-                    setPopupWidthPx(event.currentTarget.valueAsNumber)
-                  }
-                />
-                <span>{t("settings.hoshidicts.reader.appearance.pixels")}</span>
-              </div>
-            </label>
-            <label>
-              <span>{t("settings.hoshidicts.reader.appearance.height")}</span>
-              <div className="hoshidicts-reader-appearance__number">
-                <input
-                  id="hoshidicts-popup-height"
-                  type="number"
-                  min={MIN_HOSHIDICTS_POPUP_HEIGHT_PX}
-                  max={MAX_HOSHIDICTS_POPUP_HEIGHT_PX}
-                  step={10}
-                  value={readerDraft.popupHeightPx}
-                  disabled={preferencesBusy}
-                  onChange={(event) =>
-                    setPopupHeightPx(event.currentTarget.valueAsNumber)
-                  }
-                />
-                <span>{t("settings.hoshidicts.reader.appearance.pixels")}</span>
-              </div>
-            </label>
-            <label>
-              <span>{t("settings.hoshidicts.reader.appearance.columns")}</span>
-              <input
-                id="hoshidicts-popup-columns"
-                type="number"
-                min={MIN_HOSHIDICTS_POPUP_COLUMNS}
-                max={MAX_HOSHIDICTS_POPUP_COLUMNS}
-                step={1}
-                value={readerDraft.popupColumns}
+                  )
+                }
+              ]}
+              onChange={(position) =>
+                setReaderPreference(
+                  "popupToolbarPosition",
+                  position as HoshidictsPopupToolbarPosition
+                )
+              }
+            />
+            {APPEARANCE_NUMBERS.slice(2).map((setting) => (
+              <HoshidictsNumberSetting
+                key={setting.id}
+                id={setting.id}
+                label={t(setting.labelKey)}
+                unit={setting.unitKey ? t(setting.unitKey) : undefined}
+                min={setting.min}
+                max={setting.max}
+                step={setting.step}
+                value={readerDraft[setting.key]}
                 disabled={preferencesBusy}
-                onChange={(event) =>
-                  setPopupColumns(event.currentTarget.valueAsNumber)
+                onChange={(value) =>
+                  setBoundedReaderInteger(
+                    setting.key,
+                    value,
+                    setting.min,
+                    setting.max
+                  )
                 }
               />
-            </label>
+            ))}
             <button
               type="button"
               className="secondary hoshidicts-reader-appearance__reset"
@@ -521,278 +516,119 @@ export function HoshidictsDesignPanel({
           <div className="hoshidicts-design-section__heading">
             <strong>{t("settings.hoshidicts.design.sections.content")}</strong>
           </div>
-          <label className="hoshidicts-reader-compact-summary">
-            <input
-              id="hoshidicts-show-compact-definition-summary"
-              type="checkbox"
-              checked={readerDraft.showCompactDefinitionSummary}
+          <HoshidictsToggleSetting
+            id="hoshidicts-show-compact-definition-summary"
+            className="hoshidicts-toggle--divided"
+            label={t(
+              "settings.hoshidicts.reader.appearance.compactDefinitionSummary"
+            )}
+            hint={t(
+              "settings.hoshidicts.reader.appearance.compactDefinitionSummaryHint"
+            )}
+            checked={readerDraft.showCompactDefinitionSummary}
+            disabled={preferencesBusy}
+            onChange={(value) =>
+              setReaderPreference("showCompactDefinitionSummary", value)
+            }
+          />
+          <HoshidictsNumberSetting
+            id="hoshidicts-compact-definition-summary-count"
+            className="hoshidicts-setting--split"
+            label={t(
+              "settings.hoshidicts.reader.appearance.compactDefinitionSummaryCount"
+            )}
+            min={MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT}
+            max={MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT}
+            value={readerDraft.compactDefinitionSummaryCount}
+            disabled={
+              preferencesBusy || !readerDraft.showCompactDefinitionSummary
+            }
+            onChange={(value) =>
+              setBoundedReaderInteger(
+                "compactDefinitionSummaryCount",
+                value,
+                MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
+                MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT
+              )
+            }
+          />
+          <HoshidictsDictionarySelect
+            id="hoshidicts-compact-definition-summary-dictionary"
+            className="hoshidicts-setting--split"
+            label={t(
+              "settings.hoshidicts.reader.appearance.compactDefinitionSummaryDictionary"
+            )}
+            hint={t(
+              "settings.hoshidicts.reader.appearance.compactDefinitionSummaryDictionaryHint"
+            )}
+            automaticLabel={t(
+              "settings.hoshidicts.reader.appearance.compactDefinitionSummaryDictionaryAutomatic"
+            )}
+            unavailableLabel={t(
+              "settings.hoshidicts.reader.appearance.compactDefinitionSummaryDictionaryUnavailable",
+              { dictionary: readerDraft.compactDefinitionSummaryDictionary ?? "" }
+            )}
+            value={readerDraft.compactDefinitionSummaryDictionary}
+            dictionaries={state.dictionaries.filter(
+              (dictionary) => dictionary.termCount > 0
+            )}
+            disabled={
+              preferencesBusy || !readerDraft.showCompactDefinitionSummary
+            }
+            onChange={(value) =>
+              setReaderPreference("compactDefinitionSummaryDictionary", value)
+            }
+          />
+          <HoshidictsToggleSetting
+            id="hoshidicts-show-pitch-accent-furigana"
+            className="hoshidicts-toggle--divided"
+            label={t("settings.hoshidicts.reader.appearance.pitchAccentFurigana")}
+            hint={t(
+              "settings.hoshidicts.reader.appearance.pitchAccentFuriganaHint"
+            )}
+            checked={readerDraft.showPitchAccentFurigana}
+            disabled={preferencesBusy}
+            onChange={(value) =>
+              setReaderPreference("showPitchAccentFurigana", value)
+            }
+          />
+          <HoshidictsDictionarySelect
+            id="hoshidicts-pitch-accent-furigana-dictionary"
+            className="hoshidicts-setting--split"
+            label={t(
+              "settings.hoshidicts.reader.appearance.pitchAccentFuriganaDictionary"
+            )}
+            hint={t(
+              "settings.hoshidicts.reader.appearance.pitchAccentFuriganaDictionaryHint"
+            )}
+            automaticLabel={t(
+              "settings.hoshidicts.reader.appearance.pitchAccentFuriganaDictionaryAutomatic"
+            )}
+            unavailableLabel={t(
+              "settings.hoshidicts.reader.appearance.pitchAccentFuriganaDictionaryUnavailable",
+              { dictionary: readerDraft.pitchAccentFuriganaDictionary ?? "" }
+            )}
+            value={readerDraft.pitchAccentFuriganaDictionary}
+            dictionaries={state.dictionaries.filter(
+              (dictionary) => dictionary.pitchCount > 0
+            )}
+            disabled={preferencesBusy || !readerDraft.showPitchAccentFurigana}
+            onChange={(value) =>
+              setReaderPreference("pitchAccentFuriganaDictionary", value)
+            }
+          />
+          {CONTENT_TOGGLES.map((toggle) => (
+            <HoshidictsToggleSetting
+              key={toggle.id}
+              id={toggle.id}
+              className="hoshidicts-toggle--divided"
+              label={t(toggle.labelKey)}
+              hint={t(`${toggle.labelKey}Hint`)}
+              checked={readerDraft[toggle.key]}
               disabled={preferencesBusy}
-              onChange={(event) =>
-                setShowCompactDefinitionSummary(event.currentTarget.checked)
-              }
+              onChange={(value) => setReaderPreference(toggle.key, value)}
             />
-            <span>
-              <strong>
-                {t(
-                  "settings.hoshidicts.reader.appearance.compactDefinitionSummary"
-                )}
-              </strong>
-              <small>
-                {t(
-                  "settings.hoshidicts.reader.appearance.compactDefinitionSummaryHint"
-                )}
-              </small>
-            </span>
-          </label>
-          <label className="hoshidicts-reader-compact-summary-dictionary">
-            <span>
-              {t(
-                "settings.hoshidicts.reader.appearance.compactDefinitionSummaryCount"
-              )}
-            </span>
-            <input
-              id="hoshidicts-compact-definition-summary-count"
-              type="number"
-              min={MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT}
-              max={MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT}
-              step={1}
-              value={readerDraft.compactDefinitionSummaryCount}
-              disabled={
-                preferencesBusy || !readerDraft.showCompactDefinitionSummary
-              }
-              onChange={(event) =>
-                setCompactDefinitionSummaryCount(
-                  event.currentTarget.valueAsNumber
-                )
-              }
-            />
-          </label>
-          <label className="hoshidicts-reader-compact-summary-dictionary">
-            <span>
-              {t(
-                "settings.hoshidicts.reader.appearance.compactDefinitionSummaryDictionary"
-              )}
-            </span>
-            <select
-              id="hoshidicts-compact-definition-summary-dictionary"
-              value={readerDraft.compactDefinitionSummaryDictionary ?? ""}
-              disabled={
-                preferencesBusy || !readerDraft.showCompactDefinitionSummary
-              }
-              onChange={(event) =>
-                setCompactDefinitionSummaryDictionary(
-                  event.currentTarget.value || null
-                )
-              }
-            >
-              <option value="">
-                {t(
-                  "settings.hoshidicts.reader.appearance.compactDefinitionSummaryDictionaryAutomatic"
-                )}
-              </option>
-              {compactDefinitionDictionaryIsStale ? (
-                <option
-                  value={readerDraft.compactDefinitionSummaryDictionary ?? ""}
-                >
-                  {t(
-                    "settings.hoshidicts.reader.appearance.compactDefinitionSummaryDictionaryUnavailable",
-                    {
-                      dictionary:
-                        readerDraft.compactDefinitionSummaryDictionary ?? ""
-                    }
-                  )}
-                </option>
-              ) : null}
-              {compactDefinitionDictionaries.map((dictionary) => (
-                <option key={dictionary.id} value={dictionary.title}>
-                  {dictionary.title}
-                </option>
-              ))}
-            </select>
-            <small>
-              {t(
-                "settings.hoshidicts.reader.appearance.compactDefinitionSummaryDictionaryHint"
-              )}
-            </small>
-          </label>
-          <label className="hoshidicts-reader-pitch-accent">
-            <input
-              id="hoshidicts-show-pitch-accent-furigana"
-              type="checkbox"
-              checked={readerDraft.showPitchAccentFurigana}
-              disabled={preferencesBusy}
-              onChange={(event) =>
-                setShowPitchAccentFurigana(event.currentTarget.checked)
-              }
-            />
-            <span>
-              <strong>
-                {t(
-                  "settings.hoshidicts.reader.appearance.pitchAccentFurigana"
-                )}
-              </strong>
-              <small>
-                {t(
-                  "settings.hoshidicts.reader.appearance.pitchAccentFuriganaHint"
-                )}
-              </small>
-            </span>
-          </label>
-          <label className="hoshidicts-reader-pitch-accent-dictionary">
-            <span>
-              {t(
-                "settings.hoshidicts.reader.appearance.pitchAccentFuriganaDictionary"
-              )}
-            </span>
-            <select
-              id="hoshidicts-pitch-accent-furigana-dictionary"
-              value={readerDraft.pitchAccentFuriganaDictionary ?? ""}
-              disabled={
-                preferencesBusy || !readerDraft.showPitchAccentFurigana
-              }
-              onChange={(event) =>
-                setPitchAccentFuriganaDictionary(
-                  event.currentTarget.value || null
-                )
-              }
-            >
-              <option value="">
-                {t(
-                  "settings.hoshidicts.reader.appearance.pitchAccentFuriganaDictionaryAutomatic"
-                )}
-              </option>
-              {pitchAccentDictionaryIsStale ? (
-                <option value={readerDraft.pitchAccentFuriganaDictionary ?? ""}>
-                  {t(
-                    "settings.hoshidicts.reader.appearance.pitchAccentFuriganaDictionaryUnavailable",
-                    {
-                      dictionary:
-                        readerDraft.pitchAccentFuriganaDictionary ?? ""
-                    }
-                  )}
-                </option>
-              ) : null}
-              {pitchAccentDictionaries.map((dictionary) => (
-                <option key={dictionary.id} value={dictionary.title}>
-                  {dictionary.title}
-                </option>
-              ))}
-            </select>
-            <small>
-              {t(
-                "settings.hoshidicts.reader.appearance.pitchAccentFuriganaDictionaryHint"
-              )}
-            </small>
-          </label>
-          <label className="hoshidicts-reader-pitch-badge">
-            <input
-              id="hoshidicts-show-pitch-accent-badge"
-              type="checkbox"
-              checked={readerDraft.showPitchAccentBadge}
-              disabled={preferencesBusy}
-              onChange={(event) =>
-                setShowPitchAccentBadge(event.currentTarget.checked)
-              }
-            />
-            <span>
-              <strong>
-                {t(
-                  "settings.hoshidicts.reader.appearance.pitchAccentBadge"
-                )}
-              </strong>
-              <small>
-                {t(
-                  "settings.hoshidicts.reader.appearance.pitchAccentBadgeHint"
-                )}
-              </small>
-            </span>
-          </label>
-          <label className="hoshidicts-reader-popup-metadata">
-            <input
-              id="hoshidicts-average-frequency"
-              type="checkbox"
-              checked={readerDraft.averageFrequency}
-              disabled={preferencesBusy}
-              onChange={(event) =>
-                setAverageFrequency(event.currentTarget.checked)
-              }
-            />
-            <span>
-              <strong>
-                {t(
-                  "settings.hoshidicts.reader.appearance.averageFrequency"
-                )}
-              </strong>
-              <small>
-                {t(
-                  "settings.hoshidicts.reader.appearance.averageFrequencyHint"
-                )}
-              </small>
-            </span>
-          </label>
-          <label className="hoshidicts-reader-popup-metadata">
-            <input
-              id="hoshidicts-show-frequency-dictionary-names"
-              type="checkbox"
-              checked={readerDraft.showFrequencyDictionaryNames}
-              disabled={preferencesBusy}
-              onChange={(event) =>
-                setShowFrequencyDictionaryNames(event.currentTarget.checked)
-              }
-            />
-            <span>
-              <strong>
-                {t(
-                  "settings.hoshidicts.reader.appearance.showFrequencyDictionaryNames"
-                )}
-              </strong>
-              <small>
-                {t(
-                  "settings.hoshidicts.reader.appearance.showFrequencyDictionaryNamesHint"
-                )}
-              </small>
-            </span>
-          </label>
-          <label className="hoshidicts-reader-popup-metadata">
-            <input
-              id="hoshidicts-hide-popup-grammar-tags"
-              type="checkbox"
-              checked={readerDraft.hidePopupGrammarTags}
-              disabled={preferencesBusy}
-              onChange={(event) =>
-                setHidePopupGrammarTags(event.currentTarget.checked)
-              }
-            />
-            <span>
-              <strong>
-                {t(
-                  "settings.hoshidicts.reader.appearance.hidePopupGrammarTags"
-                )}
-              </strong>
-              <small>
-                {t(
-                  "settings.hoshidicts.reader.appearance.hidePopupGrammarTagsHint"
-                )}
-              </small>
-            </span>
-          </label>
-          <label className="hoshidicts-reader-counts">
-            <input
-              id="hoshidicts-show-lookup-counts"
-              type="checkbox"
-              checked={readerDraft.showLookupCounts}
-              disabled={preferencesBusy}
-              onChange={(event) =>
-                setShowLookupCounts(event.currentTarget.checked)
-              }
-            />
-            <span>
-              <strong>{t("settings.hoshidicts.reader.showLookupCounts")}</strong>
-              <small>
-                {t("settings.hoshidicts.reader.showLookupCountsHint")}
-              </small>
-            </span>
-          </label>
+          ))}
         </div>
 
         <div className="hoshidicts-design-section">
@@ -807,107 +643,76 @@ export function HoshidictsDesignPanel({
             <strong>{t("settings.hoshidicts.design.sections.definitions")}</strong>
           </div>
           <div className="hoshidicts-definition-blur">
-            <label className="hoshidicts-definition-blur__toggle">
-              <input
-                id="hoshidicts-definition-blur-enabled"
-                type="checkbox"
-                checked={readerDraft.definitionBlur.enabled}
-                disabled={preferencesBusy}
-                onChange={(event) =>
-                  setDefinitionBlurEnabled(event.currentTarget.checked)
-                }
-              />
-              <span>
-                <strong>
-                  {t("settings.hoshidicts.reader.definitionBlur.title")}
-                </strong>
-                <small>
-                  {t("settings.hoshidicts.reader.definitionBlur.hint")}
-                </small>
-              </span>
-            </label>
+            <HoshidictsToggleSetting
+              id="hoshidicts-definition-blur-enabled"
+              label={t("settings.hoshidicts.reader.definitionBlur.title")}
+              hint={t("settings.hoshidicts.reader.definitionBlur.hint")}
+              checked={readerDraft.definitionBlur.enabled}
+              disabled={preferencesBusy}
+              onChange={(value) => setDefinitionBlurPreference("enabled", value)}
+            />
 
             <div className="hoshidicts-definition-blur__controls">
-              <label>
-                <span>
-                  {t("settings.hoshidicts.reader.definitionBlur.threshold")}
-                </span>
-                <div className="hoshidicts-definition-blur__number">
-                  <input
-                    id="hoshidicts-definition-blur-threshold"
-                    type="number"
-                    min={MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD}
-                    max={MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD}
-                    step={1}
-                    value={readerDraft.definitionBlur.lookupThreshold}
-                    disabled={preferencesBusy}
-                    onChange={(event) =>
-                      setDefinitionBlurLookupThreshold(
-                        event.currentTarget.valueAsNumber
-                      )
-                    }
-                  />
-                  <span>
-                    {t("settings.hoshidicts.reader.definitionBlur.lookups")}
-                  </span>
-                </div>
-              </label>
+              <HoshidictsNumberSetting
+                id="hoshidicts-definition-blur-threshold"
+                label={t("settings.hoshidicts.reader.definitionBlur.threshold")}
+                unit={t("settings.hoshidicts.reader.definitionBlur.lookups")}
+                min={MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD}
+                max={MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD}
+                value={readerDraft.definitionBlur.lookupThreshold}
+                disabled={preferencesBusy}
+                onChange={(value) =>
+                  setBoundedDefinitionBlurInteger(
+                    "lookupThreshold",
+                    value,
+                    MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
+                    MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD
+                  )
+                }
+              />
 
-              <label>
-                <span>
-                  {t("settings.hoshidicts.reader.definitionBlur.reveal")}
-                </span>
-                <select
-                  id="hoshidicts-definition-blur-reveal-mode"
-                  value={readerDraft.definitionBlur.revealMode}
-                  disabled={preferencesBusy}
-                  onChange={(event) =>
-                    setDefinitionBlurRevealMode(
-                      event.currentTarget.value === "hover" ? "hover" : "timed"
-                    )
+              <HoshidictsSelectSetting
+                id="hoshidicts-definition-blur-reveal-mode"
+                label={t("settings.hoshidicts.reader.definitionBlur.reveal")}
+                value={readerDraft.definitionBlur.revealMode}
+                disabled={preferencesBusy}
+                options={[
+                  {
+                    value: "timed",
+                    label: t("settings.hoshidicts.reader.definitionBlur.timed")
+                  },
+                  {
+                    value: "hover",
+                    label: t("settings.hoshidicts.reader.definitionBlur.hover")
                   }
-                >
-                  <option value="timed">
-                    {t("settings.hoshidicts.reader.definitionBlur.timed")}
-                  </option>
-                  <option value="hover">
-                    {t("settings.hoshidicts.reader.definitionBlur.hover")}
-                  </option>
-                </select>
-              </label>
+                ]}
+                onChange={(mode) =>
+                  setDefinitionBlurPreference(
+                    "revealMode",
+                    mode === "hover" ? "hover" : "timed"
+                  )
+                }
+              />
 
               {readerDraft.definitionBlur.revealMode === "timed" ? (
-                <label>
-                  <span>
-                    {t("settings.hoshidicts.reader.definitionBlur.delay")}
-                  </span>
-                  <div className="hoshidicts-definition-blur__number">
-                    <input
-                      id="hoshidicts-definition-blur-reveal-delay"
-                      type="number"
-                      min={
-                        MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS / 1000
-                      }
-                      max={
-                        MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS / 1000
-                      }
-                      step={1}
-                      value={readerDraft.definitionBlur.revealDelayMs / 1000}
-                      disabled={preferencesBusy}
-                      onChange={(event) =>
-                        setDefinitionBlurRevealDelayMs(
-                          event.currentTarget.valueAsNumber * 1000
-                        )
-                      }
-                    />
-                    <span>
-                      {t("settings.hoshidicts.reader.definitionBlur.seconds")}
-                    </span>
-                  </div>
-                  <small>
-                    {t("settings.hoshidicts.reader.definitionBlur.delayHint")}
-                  </small>
-                </label>
+                <HoshidictsNumberSetting
+                  id="hoshidicts-definition-blur-reveal-delay"
+                  label={t("settings.hoshidicts.reader.definitionBlur.delay")}
+                  hint={t("settings.hoshidicts.reader.definitionBlur.delayHint")}
+                  unit={t("settings.hoshidicts.reader.definitionBlur.seconds")}
+                  min={MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS / 1000}
+                  max={MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS / 1000}
+                  value={readerDraft.definitionBlur.revealDelayMs / 1000}
+                  disabled={preferencesBusy}
+                  onChange={(value) =>
+                    setBoundedDefinitionBlurInteger(
+                      "revealDelayMs",
+                      value * 1000,
+                      MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
+                      MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS
+                    )
+                  }
+                />
               ) : null}
             </div>
           </div>
@@ -917,23 +722,17 @@ export function HoshidictsDesignPanel({
           <div className="hoshidicts-design-section__heading">
             <strong>{t("settings.hoshidicts.design.sections.gameText")}</strong>
           </div>
-          <label className="hoshidicts-reader-highlight">
-            <input
-              id="hoshidicts-source-highlight-enabled"
-              type="checkbox"
-              checked={readerDraft.sourceHighlightEnabled}
-              disabled={preferencesBusy}
-              onChange={(event) =>
-                setSourceHighlightEnabled(event.currentTarget.checked)
-              }
-            />
-            <span>
-              <strong>{t("settings.hoshidicts.reader.sourceHighlight")}</strong>
-              <small>
-                {t("settings.hoshidicts.reader.sourceHighlightHint")}
-              </small>
-            </span>
-          </label>
+          <HoshidictsToggleSetting
+            id="hoshidicts-source-highlight-enabled"
+            className="hoshidicts-toggle--boxed"
+            label={t("settings.hoshidicts.reader.sourceHighlight")}
+            hint={t("settings.hoshidicts.reader.sourceHighlightHint")}
+            checked={readerDraft.sourceHighlightEnabled}
+            disabled={preferencesBusy}
+            onChange={(value) =>
+              setReaderPreference("sourceHighlightEnabled", value)
+            }
+          />
         </div>
 
         <div className="hoshidicts-design-section hoshidicts-custom-css">

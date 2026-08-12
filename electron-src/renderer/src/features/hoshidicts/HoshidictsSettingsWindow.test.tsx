@@ -3,27 +3,18 @@
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import React, { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  createDefaultHoshidictsAudioProfile,
   createDefaultHoshidictsFieldOverwriteModes,
   createDefaultHoshidictsPopupButtons,
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
-  DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
-  DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
   DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
-  DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
-  DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
-  DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
   DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
   DEFAULT_HOSHIDICTS_MAX_RESULTS,
   DEFAULT_HOSHIDICTS_POPUP_COLUMNS,
   DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
-  DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
-  DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
   DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
   DEFAULT_HOSHIDICTS_SCAN_LENGTH,
   DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
@@ -33,21 +24,35 @@ import {
   HOSHIDICTS_THEMES,
   MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH,
   type HoshidictsActionResult,
-  type HoshidictsCustomDictionaryDocument,
   type HoshidictsDesktopSnapshot,
-  type HoshidictsMiningOptions,
-  type HoshidictsReaderPreferences
+  type HoshidictsMiningOptions
 } from "../../../../shared/features/hoshidicts";
-import { I18nProvider } from "../../i18n";
-import {
-  HoshidictsSettingsWindow,
-  normalizeHoshidictsDesktopState
-} from "./HoshidictsSettingsWindow";
+import { normalizeHoshidictsDesktopState } from "./HoshidictsSettingsWindow";
 import {
   activationKeyFromKeyboardCode,
   getReadiness,
   sortFrequencyDictionaryOrderForMode
 } from "./hoshidictsSettingsModel";
+import {
+  createHoshidictsIpcMock,
+  deferred,
+  installFakeAudio,
+  installFakeSpeechSynthesis,
+  installHoshidictsTestEnvironment,
+  makeHoshidictsCustomDocument,
+  makeHoshidictsDictionary,
+  makeHoshidictsFrequencyDictionary,
+  makeHoshidictsMiningOptions,
+  makeHoshidictsMiningProfile,
+  makeHoshidictsReaderPreferences,
+  makeHoshidictsSnapshot,
+  renderHoshidictsSettings,
+  setInputValue,
+  setSelectValue,
+  setTextareaValue,
+  type HoshidictsIpcMock,
+  type HoshidictsSettingsHarness
+} from "./test_helpers";
 
 const hoshidictsStyles = readFileSync(
   resolve(
@@ -58,461 +63,109 @@ const hoshidictsStyles = readFileSync(
 );
 
 const EXPECTED_HOSHIDICTS_THEME_GROUPS = [
-  [
-    "default",
-    "catppuccin-mocha",
-    "solarized-dark",
-    "dark",
-    "synthwave",
-    "halloween",
-    "forest",
-    "aqua",
-    "black",
-    "luxury",
-    "dracula",
-    "business",
-    "night",
-    "coffee",
-    "dim",
-    "sunset",
-    "abyss"
-  ],
-  [
-    "girlypop",
-    "solarized-light",
-    "light",
-    "cupcake",
-    "bumblebee",
-    "emerald",
-    "corporate",
-    "retro",
-    "cyberpunk",
-    "valentine",
-    "garden",
-    "lofi",
-    "pastel",
-    "fantasy",
-    "wireframe",
-    "cmyk",
-    "autumn",
-    "acid",
-    "lemonade",
-    "winter",
-    "nord",
-    "caramellatte",
-    "silk"
-  ],
+  ["default", "catppuccin-mocha", "solarized-dark", "dark", "synthwave",
+   "halloween", "forest", "aqua", "black", "luxury", "dracula", "business",
+   "night", "coffee", "dim", "sunset", "abyss"],
+  ["girlypop", "solarized-light", "light", "cupcake", "bumblebee", "emerald",
+   "corporate", "retro", "cyberpunk", "valentine", "garden", "lofi", "pastel",
+   "fantasy", "wireframe", "cmyk", "autumn", "acid", "lemonade", "winter",
+   "nord", "caramellatte", "silk"],
   ["high-contrast"]
 ] as const;
 
 const EXPECTED_HOSHIDICTS_THEMES = EXPECTED_HOSHIDICTS_THEME_GROUPS.flat();
 
-const invokeMock = vi.fn();
-const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
-const originalCreateObjectUrl = Object.getOwnPropertyDescriptor(
-  URL,
-  "createObjectURL"
-);
-const originalRevokeObjectUrl = Object.getOwnPropertyDescriptor(
-  URL,
-  "revokeObjectURL"
-);
-
-const baseState: HoshidictsDesktopSnapshot = {
-  revision: 10,
-  activeProfileId: "default",
-  profiles: [{ id: "default", name: "Default" }],
-  effectiveEnabled: true,
-  dictionaries: [
-    {
-      id: "jmdict-id",
-      title: "JMdict",
-      displayName: null,
-      enabled: true,
-      favorite: false,
-      revision: "2026-08-06",
-      isUpdatable: true,
-      indexUrl: "https://example.test/jmdict.json",
-      downloadUrl: "https://example.test/jmdict.zip",
-      language: "ja",
-      termCount: 123,
-      frequencyCount: 12,
-      pitchCount: 3,
-      kanjiCount: 4,
-      frequencyMode: null,
-      installedAt: "2026-08-06T10:00:00.000Z",
-      updateScheduleOverride: null,
-      lastUpdateCheck: "2026-08-06T10:00:00.000Z"
-    },
-    {
-      id: "custom-id",
-      title: "Custom",
-      displayName: null,
-      enabled: false,
-      favorite: false,
-      revision: "one",
-      isUpdatable: false,
-      indexUrl: null,
-      downloadUrl: null,
-      language: "ja",
-      termCount: 0,
-      frequencyCount: 456,
-      pitchCount: 0,
-      kanjiCount: 0,
-      frequencyMode: "rank-based",
-      installedAt: "2026-08-06T11:00:00.000Z",
-      updateScheduleOverride: null,
-      lastUpdateCheck: null
-    }
-  ],
-  tabGroups: [],
-  customDictionaryActive: false,
-  recommendedDictionaries: [
-    { id: "jmdict", installed: true },
-    { id: "jmnedict", installed: false }
-  ],
-  miningProfile: {
-    version: 3,
-    enabled: true,
-    deck: "Default",
-    model: "",
-    fields: {
-      expression: "",
-      reading: "",
-      definition: "",
-      sentence: "",
-      frequency: "",
-      pitch: "",
-      audio: ""
-    },
-    disabledFields: [],
-    tags: ["hoshidicts"],
-    checkForDuplicates: true,
-    duplicateScope: "collection",
-    duplicateScopeCheckAllModels: false,
-    duplicateBehavior: "prevent",
-    fieldOverwriteModes: createDefaultHoshidictsFieldOverwriteModes(),
-    fieldTemplates: null
-  },
-  audioProfile: createDefaultHoshidictsAudioProfile(),
-  lookupMode: "shift",
-  scanLength: DEFAULT_HOSHIDICTS_SCAN_LENGTH,
-  maxResults: DEFAULT_HOSHIDICTS_MAX_RESULTS,
-  sortFrequencyDictionary: DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
-  sortFrequencyDictionaryOrder:
-    DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
-  activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
-  sourceHighlightEnabled: false,
-  onlyScanJapaneseText: true,
-  popupHideDelayMs: 300,
-  showLookupCounts: true,
-  averageFrequency: false,
-  showFrequencyDictionaryNames: true,
-  showCompactDefinitionSummary:
-    DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY,
-  compactDefinitionSummaryCount:
-    DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
-  compactDefinitionSummaryDictionary: null,
-  showPitchAccentFurigana:
-    DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
-  pitchAccentFuriganaDictionary:
-    DEFAULT_HOSHIDICTS_PITCH_ACCENT_FURIGANA_DICTIONARY,
-  showPitchAccentBadge: false,
-  hidePopupGrammarTags: DEFAULT_HOSHIDICTS_HIDE_POPUP_GRAMMAR_TAGS,
-  definitionBlur: { ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR },
-  popupNestingMaxDepth: 10,
-  popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
-  popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
-  popupColumns: DEFAULT_HOSHIDICTS_POPUP_COLUMNS,
-  theme: DEFAULT_HOSHIDICTS_THEME,
-  popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
-  popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
-  popupButtons: createDefaultHoshidictsPopupButtons(),
-  customPopupCss: DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
-  schedule: "weekly",
-  lastCheck: "2026-08-06T10:00:00.000Z",
-  nextCheck: "2026-08-13T10:00:00.000Z",
-  lastError: null,
-  busy: false,
-  progress: { phase: "idle" },
-  overlay: { running: true, restartRequired: false }
-};
-
-const miningOptions: HoshidictsMiningOptions = {
-  connected: true,
-  gsmAnkiEnabled: true,
-  decks: ["Default", "Mining"],
-  noteTypes: ["Kiku", "Lapis"],
-  selectedNoteType: "Kiku",
-  fields: [
-    "Expression",
-    "ExpressionReading",
-    "Glossary",
-    "Sentence",
-    "Frequency",
-    "PitchPosition",
-    "WordAudio",
-    "Front"
-  ],
-  suggestedFields: {
-    expression: "Expression",
-    reading: "ExpressionReading",
-    definition: "Glossary",
-    sentence: "Sentence",
-    frequency: "Frequency",
-    pitch: "PitchPosition",
-    audio: "WordAudio"
-  },
-  resolvedFields: {
-    expression: "Expression",
-    reading: "ExpressionReading",
-    definition: "Glossary",
-    sentence: "Sentence",
-    frequency: "Frequency",
-    pitch: "PitchPosition",
-    audio: "WordAudio"
-  },
-  suggestedFieldTemplates: {
-    Expression: "{expression}",
-    ExpressionReading: "{reading}",
-    Glossary: "{definition}",
-    Sentence: "{sentence}",
-    Frequency: "{frequency}",
-    PitchPosition: "{pitch-position}",
-    WordAudio: "{audio}",
-    Front: ""
-  },
-  resolvedFieldTemplates: {
-    Expression: { value: "{expression}", overwriteMode: "coalesce" },
-    ExpressionReading: { value: "{reading}", overwriteMode: "coalesce" },
-    Glossary: { value: "{definition}", overwriteMode: "coalesce" },
-    Sentence: { value: "{sentence}", overwriteMode: "coalesce" },
-    Frequency: { value: "{frequency}", overwriteMode: "coalesce" },
-    PitchPosition: {
-      value: "{pitch-position}",
-      overwriteMode: "coalesce"
-    },
-    WordAudio: { value: "{audio}", overwriteMode: "coalesce" },
-    Front: { value: "", overwriteMode: "coalesce" }
-  },
-  warnings: [],
-  error: null
-};
-
-const customDocument: HoshidictsCustomDictionaryDocument = {
-  text: "螺旋丸, らせんがん, Rotating chakra sphere attack\n",
-  revision: "source-one",
-  exists: true,
-  filePath: "/data/dictionaries/hoshidicts/custom-dictionary.txt"
-};
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((complete) => {
-    resolve = complete;
-  });
-  return { promise, resolve };
-}
-
-function setInputValue(input: HTMLInputElement | null, value: string) {
-  const setter = Object.getOwnPropertyDescriptor(
-    HTMLInputElement.prototype,
-    "value"
-  )?.set;
-  setter?.call(input, value);
-  input?.dispatchEvent(new Event("input", { bubbles: true }));
-  input?.dispatchEvent(new Event("change", { bubbles: true }));
-}
-
-function setTextareaValue(input: HTMLTextAreaElement | null, value: string) {
-  const setter = Object.getOwnPropertyDescriptor(
-    HTMLTextAreaElement.prototype,
-    "value"
-  )?.set;
-  setter?.call(input, value);
-  input?.dispatchEvent(new Event("input", { bubbles: true }));
-  input?.dispatchEvent(new Event("change", { bubbles: true }));
-}
-
-function setSelectValue(input: HTMLSelectElement | null, value: string) {
-  const setter = Object.getOwnPropertyDescriptor(
-    HTMLSelectElement.prototype,
-    "value"
-  )?.set;
-  setter?.call(input, value);
-  input?.dispatchEvent(new Event("change", { bubbles: true }));
-}
+const baseState = makeHoshidictsSnapshot();
+const miningOptions = makeHoshidictsMiningOptions();
+const customDocument = makeHoshidictsCustomDocument();
 
 describe("HoshidictsSettingsWindow", () => {
-  let container: HTMLDivElement;
-  let root: Root;
-  let revision: number;
+  let ipc: HoshidictsIpcMock;
+  let invokeMock: HoshidictsIpcMock["invoke"];
+  let listeners: HoshidictsIpcMock["listeners"];
+  let harness: HoshidictsSettingsHarness | null;
+  let container: HTMLElement;
+  let restoreEnvironment: () => void;
 
   beforeEach(() => {
-    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
-      .IS_REACT_ACT_ENVIRONMENT = true;
-    listeners.clear();
-    revision = baseState.revision;
-    invokeMock.mockReset();
-    invokeMock.mockImplementation(
-      async (channel: string, ...args: unknown[]) => {
-        if (channel === HOSHIDICTS_CHANNELS.getState) return baseState;
-        if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
-          return miningOptions;
-        }
-        if (channel === HOSHIDICTS_CHANNELS.getCustomDictionary) {
-          return customDocument;
-        }
-        if (channel === HOSHIDICTS_CHANNELS.saveCustomDictionary) {
-          const request = args[0] as { text: string };
-          return {
-            success: true,
-            outcome: { code: "customDictionarySaved" },
-            document: {
-              ...customDocument,
-              text: request.text,
-              revision: "source-two"
-            },
-            state: {
-              ...baseState,
-              revision: ++revision,
-              customDictionaryActive: true
-            }
-          };
-        }
-        if (channel === HOSHIDICTS_CHANNELS.setReaderPreferences) {
-          const preferences = args[0] as HoshidictsReaderPreferences;
-          return {
-            success: true,
-            outcome: { code: "preferencesSaved" },
-            state: { ...baseState, ...preferences, revision: ++revision }
-          };
-        }
-        if (channel === HOSHIDICTS_CHANNELS.setMiningProfile) {
-          return {
-            success: true,
-            outcome: { code: "miningProfileSaved" },
-            state: {
-              ...baseState,
-              revision: ++revision,
-              miningProfile: args[0]
-            }
-          };
-        }
-        if (channel === HOSHIDICTS_CHANNELS.setAudioProfile) {
-          return {
-            success: true,
-            outcome: { code: "audioProfileSaved" },
-            state: {
-              ...baseState,
-              revision: ++revision,
-              audioProfile: args[0]
-            }
-          };
-        }
-        return {
-          success: true,
-          outcome: { code: "dictionaryChanged" },
-          state: { ...baseState, revision: ++revision }
-        };
-      }
-    );
-    Object.defineProperty(window, "ipcRenderer", {
-      configurable: true,
-      value: {
-        invoke: invokeMock,
-        send: vi.fn(),
-        on: (channel: string, callback: (...args: unknown[]) => void) => {
-          const callbacks = listeners.get(channel) ?? [];
-          callbacks.push(callback);
-          listeners.set(channel, callbacks);
-          return () => {
-            listeners.set(
-              channel,
-              (listeners.get(channel) ?? []).filter(
-                (entry) => entry !== callback
-              )
-            );
-          };
-        }
-      }
-    });
-    vi.stubGlobal(
-      "ResizeObserver",
-      class ResizeObserver {
-        observe() {}
-        disconnect() {}
-      }
-    );
-
-    container = document.createElement("div");
-    document.body.appendChild(container);
-    root = createRoot(container);
+    restoreEnvironment = installHoshidictsTestEnvironment();
+    ipc = createHoshidictsIpcMock();
+    invokeMock = ipc.invoke;
+    listeners = ipc.listeners;
+    harness = null;
   });
 
   afterEach(async () => {
     vi.useRealTimers();
-    await act(async () => root.unmount());
-    container.remove();
-    if (originalCreateObjectUrl) {
-      Object.defineProperty(URL, "createObjectURL", originalCreateObjectUrl);
-    } else {
-      Reflect.deleteProperty(URL, "createObjectURL");
-    }
-    if (originalRevokeObjectUrl) {
-      Object.defineProperty(URL, "revokeObjectURL", originalRevokeObjectUrl);
-    } else {
-      Reflect.deleteProperty(URL, "revokeObjectURL");
-    }
-    vi.unstubAllGlobals();
-    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
-      .IS_REACT_ACT_ENVIRONMENT = false;
+    await harness?.dispose();
+    restoreEnvironment();
   });
 
   async function render(locale = "en") {
+    harness = await renderHoshidictsSettings({ locale });
+    container = harness.container;
+  }
+
+  /** Runs an interaction, then lets its IPC round trip and effects settle. */
+  async function settle(interaction: () => void = () => {}, flushes = 2) {
     await act(async () => {
-      root.render(
-        <I18nProvider initialLocale={locale}>
-          <HoshidictsSettingsWindow />
-        </I18nProvider>
-      );
-      await Promise.resolve();
-      await Promise.resolve();
+      interaction();
+      for (let index = 0; index < flushes; index += 1) {
+        await Promise.resolve();
+      }
     });
   }
 
-  async function openView(label: string) {
-    const tab = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === label
-    );
-    await act(async () => {
-      tab?.click();
-      await Promise.resolve();
-      await Promise.resolve();
+  /** Runs an edit, then lets the autosave debounce fire and settle. */
+  const flushAfter = (interaction: () => void = () => {}) =>
+    act(async () => {
+      interaction();
+      await flushAutosave();
     });
+
+  const clickAndSettle = (element: Element | null | undefined) =>
+    settle(() => (element as HTMLElement | null)?.click());
+
+  const submitForm = (element: Element | null | undefined) =>
+    settle(() =>
+      element
+        ?.closest("form")
+        ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
+    );
+
+  const openView = (label: string) =>
+    clickAndSettle(
+      Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent === label
+      )
+    );
+
+  // Positional so localized runs do not depend on translated tab labels.
+  const openTab = (position: string) =>
+    clickAndSettle(
+      container.querySelector(`.hoshidicts-window__tabs button${position}`)
+    );
+  const openDesign = () => openTab(":nth-child(2)");
+  const openMining = () => openTab(":last-child");
+  const openCustom = () => openView("Custom");
+
+  async function flushAutosave() {
+    await vi.advanceTimersByTimeAsync(450);
+    await Promise.resolve();
+    await Promise.resolve();
   }
 
-  async function openDesign() {
-    const designTab = container.querySelector<HTMLButtonElement>(
-      ".hoshidicts-window__tabs button:nth-child(2)"
+  function callsFor(channel: string): unknown[][] {
+    return invokeMock.mock.calls.filter(
+      ([calledChannel]) => calledChannel === channel
     );
-    await act(async () => {
-      designTab?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
   }
 
-  async function openMining() {
-    const miningTab = container.querySelector<HTMLButtonElement>(
-      ".hoshidicts-window__tabs button:last-child"
-    );
-    await act(async () => {
-      miningTab?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-  }
+  /** ES2020 lib has no Array.prototype.at, so index from the length. */
+  const lastCallFor = (channel: string): unknown[] | undefined => {
+    const calls = callsFor(channel);
+    return calls[calls.length - 1];
+  };
 
   it("owns viewport scrolling even though the shared renderer body is fixed", () => {
     const rootRule =
@@ -532,24 +185,19 @@ describe("HoshidictsSettingsWindow", () => {
         { id: "persona", name: "Persona" }
       ]
     };
-    invokeMock.mockImplementation(async (channel: string, ...args: unknown[]) => {
-      if (channel === HOSHIDICTS_CHANNELS.getState) return profileState;
-      if (channel === HOSHIDICTS_CHANNELS.switchProfile) {
-        return {
+    ipc.configure({
+      state: profileState,
+      handlers: {
+        [HOSHIDICTS_CHANNELS.switchProfile]: (request) => ({
           success: true,
           outcome: { code: "profileSwitched" },
           state: {
             ...profileState,
-            revision: profileState.revision + 1,
-            activeProfileId: (args[0] as { id: string }).id
+            revision: ipc.nextRevision(),
+            activeProfileId: (request as { id: string }).id
           }
-        };
+        })
       }
-      return {
-        success: true,
-        outcome: { code: "profileCreated" },
-        state: profileState
-      };
     });
     vi.spyOn(window, "prompt").mockReturnValue("Visual Novels");
 
@@ -585,13 +233,9 @@ describe("HoshidictsSettingsWindow", () => {
       { id: "persona" }
     );
 
-    await act(async () => {
-      container
-        .querySelector<HTMLButtonElement>('button[aria-label="Create profile"]')
-        ?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await clickAndSettle(
+      container.querySelector<HTMLButtonElement>('button[aria-label="Create profile"]')
+    );
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.createProfile,
       { name: "Visual Novels" }
@@ -599,21 +243,11 @@ describe("HoshidictsSettingsWindow", () => {
   });
 
   it("shows dictionary import progress beside the dictionary import controls", async () => {
-    invokeMock.mockImplementation(async (channel: string) => {
-      if (channel === HOSHIDICTS_CHANNELS.getState) {
-        return {
-          ...baseState,
-          busy: true,
-          progress: { phase: "importing", completed: 1, total: 3 }
-        };
-      }
-      if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
-        return miningOptions;
-      }
-      return {
-        success: true,
-        state: { ...baseState, revision: ++revision }
-      };
+    ipc.configure({
+      state: makeHoshidictsSnapshot({
+        busy: true,
+        progress: { phase: "importing", completed: 1, total: 3 }
+      })
     });
 
     await render();
@@ -652,29 +286,6 @@ describe("HoshidictsSettingsWindow", () => {
     expect(sortFrequencyDictionaryOrderForMode(mode)).toBe(expected);
   });
 
-  async function flushAutosave() {
-    await vi.advanceTimersByTimeAsync(450);
-    await Promise.resolve();
-    await Promise.resolve();
-  }
-
-  function callsFor(channel: string): unknown[][] {
-    return invokeMock.mock.calls.filter(
-      ([calledChannel]) => calledChannel === channel
-    );
-  }
-
-  async function openCustom() {
-    const customTab = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Custom"
-    );
-    await act(async () => {
-      customTab?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-  }
-
   it("shows loading instead of flashing a false disabled state", async () => {
     const pendingState = deferred<HoshidictsDesktopSnapshot>();
     invokeMock.mockImplementation(async (channel: string) => {
@@ -689,11 +300,7 @@ describe("HoshidictsSettingsWindow", () => {
     expect(container.textContent).not.toContain("Feature off");
     expect(container.textContent).not.toContain("No enabled dictionaries");
 
-    await act(async () => {
-      pendingState.resolve(baseState);
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await settle(() => pendingState.resolve(baseState));
     expect(container.textContent).toContain("2 installed · 1 enabled");
     expect(container.textContent).toContain("Ready");
   });
@@ -795,11 +402,7 @@ describe("HoshidictsSettingsWindow", () => {
     expect(container.textContent).not.toContain("Always show");
     expect(container.textContent).not.toContain("Fallback");
 
-    await act(async () => {
-      favorite?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await clickAndSettle(favorite);
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.setDictionaryPresentation,
       {
@@ -810,69 +413,45 @@ describe("HoshidictsSettingsWindow", () => {
   });
 
   it("searches dictionary titles and aliases and bulk-selects only matching rows", async () => {
-    const state: HoshidictsDesktopSnapshot = {
-      ...baseState,
-      dictionaries: [
-        {
-          ...baseState.dictionaries[0],
-          displayName: "Primary Lexicon"
-        },
-        baseState.dictionaries[1]
-      ]
-    };
-    invokeMock.mockImplementation(async (channel: string) => {
-      if (channel === HOSHIDICTS_CHANNELS.getState) return state;
-      if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
-        return miningOptions;
-      }
-      return {
-        success: true,
-        outcome: { code: "dictionaryChanged" },
-        state: { ...state, revision: ++revision }
-      };
+    ipc.configure({
+      state: makeHoshidictsSnapshot({
+        dictionaries: [
+          makeHoshidictsDictionary({ displayName: "Primary Lexicon" }),
+          makeHoshidictsFrequencyDictionary()
+        ]
+      })
     });
     await render();
 
     const search = container.querySelector<HTMLInputElement>(
       '[aria-label="Search installed dictionaries"]'
     );
-    await act(async () => {
-      setInputValue(search, "jmdict");
-      await Promise.resolve();
-    });
+    await settle(() => setInputValue(search, "jmdict"), 1);
     expect(
       container.querySelectorAll(".hoshidicts-dictionary-row")
     ).toHaveLength(1);
     expect(container.textContent).toContain("Primary Lexicon");
 
-    await act(async () => {
-      setInputValue(search, "primary");
-      await Promise.resolve();
-    });
+    await settle(() => setInputValue(search, "primary"), 1);
     expect(
       container.querySelectorAll(".hoshidicts-dictionary-row")
     ).toHaveLength(1);
     expect(container.textContent).toContain("Primary Lexicon");
 
-    await act(async () => {
+    await settle(() => {
       Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
         .find((button) => button.textContent?.trim() === "Select all matches")
         ?.click();
-      await Promise.resolve();
-    });
+    }, 1);
     expect(
       container.querySelector<HTMLInputElement>(
         '[aria-label="Select Primary Lexicon"]'
       )?.checked
     ).toBe(true);
 
-    await act(async () => {
-      Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
-        .find((button) => button.textContent?.trim() === "Disable")
-        ?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await clickAndSettle(
+      Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.trim() === "Disable")
+    );
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.bulkDictionaryAction,
       { action: "disable", ids: ["jmdict-id"] }
@@ -882,12 +461,11 @@ describe("HoshidictsSettingsWindow", () => {
   it("offers every bulk dictionary action for selected matches", async () => {
     await render();
 
-    await act(async () => {
+    await settle(() => {
       Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
         .find((button) => button.textContent?.trim() === "Select all matches")
         ?.click();
-      await Promise.resolve();
-    });
+    }, 1);
 
     const labels = Array.from(
       container.querySelectorAll<HTMLButtonElement>(
@@ -904,23 +482,13 @@ describe("HoshidictsSettingsWindow", () => {
   });
 
   it("renders a favourited dictionary with a filled star", async () => {
-    const state = {
-      ...baseState,
-      dictionaries: [
-        {
-          ...baseState.dictionaries[0],
-          favorite: true
-        },
-        baseState.dictionaries[1]
-      ]
-    };
-    invokeMock.mockImplementation(async (channel: string) => {
-      if (channel === HOSHIDICTS_CHANNELS.getState) return state;
-      return {
-        success: true,
-        outcome: { code: "dictionaryChanged" },
-        state
-      };
+    ipc.configure({
+      state: makeHoshidictsSnapshot({
+        dictionaries: [
+          makeHoshidictsDictionary({ favorite: true }),
+          makeHoshidictsFrequencyDictionary()
+        ]
+      })
     });
 
     await render();
@@ -940,26 +508,14 @@ describe("HoshidictsSettingsWindow", () => {
       revision: baseState.revision + 1,
       dictionaries: [baseState.dictionaries[1], baseState.dictionaries[0]]
     };
-    invokeMock.mockImplementation(async (channel: string) => {
-      if (channel === HOSHIDICTS_CHANNELS.getState) return baseState;
-      if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
-        return miningOptions;
-      }
-      if (channel === HOSHIDICTS_CHANNELS.getCustomDictionary) {
-        return customDocument;
-      }
-      if (channel === HOSHIDICTS_CHANNELS.moveDictionary) {
-        return {
+    ipc.configure({
+      handlers: {
+        [HOSHIDICTS_CHANNELS.moveDictionary]: () => ({
           success: true,
           outcome: { code: "dictionaryChanged" },
           state: reorderedState
-        };
+        })
       }
-      return {
-        success: true,
-        outcome: { code: "dictionaryChanged" },
-        state: baseState
-      };
     });
 
     await render();
@@ -982,22 +538,17 @@ describe("HoshidictsSettingsWindow", () => {
       rows()[1].querySelector(".hoshidicts-dictionary-favorite-placeholder")
     );
 
-    await act(async () => {
+    await settle(() => {
       rows()[0]
         .querySelector<HTMLElement>(
           '[aria-label="Dictionary actions for JMdict"]'
         )
         ?.click();
-      await Promise.resolve();
-    });
+    }, 1);
     const moveDown = Array.from(
       rows()[0].querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
     ).find((button) => button.textContent?.trim() === "Move down");
-    await act(async () => {
-      moveDown?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await clickAndSettle(moveDown);
 
     expect(invokeMock).toHaveBeenCalledWith(HOSHIDICTS_CHANNELS.moveDictionary, {
       id: "jmdict-id",
@@ -1053,14 +604,7 @@ describe("HoshidictsSettingsWindow", () => {
   ])(
     "$name from the readiness action",
     async ({ dictionaries, label, invocation }) => {
-      const state: HoshidictsDesktopSnapshot = { ...baseState, dictionaries };
-      invokeMock.mockImplementation(async (channel: string) => {
-        if (channel === HOSHIDICTS_CHANNELS.getState) return state;
-        if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
-          return miningOptions;
-        }
-        return { success: true, state };
-      });
+      ipc.configure({ state: makeHoshidictsSnapshot({ dictionaries }) });
 
       await render();
       const action = Array.from(container.querySelectorAll("button")).find(
@@ -1068,10 +612,7 @@ describe("HoshidictsSettingsWindow", () => {
       );
       expect(action).toBeDefined();
 
-      await act(async () => {
-        action?.click();
-        await Promise.resolve();
-      });
+      await settle(() => action?.click(), 1);
 
       expect(invokeMock.mock.calls).toContainEqual(invocation);
     }
@@ -1080,15 +621,14 @@ describe("HoshidictsSettingsWindow", () => {
   it("ignores progress snapshots older than the displayed revision", async () => {
     await render();
     const progressListener = listeners.get(HOSHIDICTS_CHANNELS.progress)?.[0];
-    await act(async () => {
+    await settle(() => {
       progressListener?.({}, {
         ...baseState,
         revision: baseState.revision - 1,
         effectiveEnabled: false,
         dictionaries: []
       });
-      await Promise.resolve();
-    });
+    }, 1);
 
     expect(container.textContent).toContain("2 installed · 1 enabled");
     expect(container.textContent).not.toContain("Feature off");
@@ -1103,7 +643,7 @@ describe("HoshidictsSettingsWindow", () => {
       "#hoshidicts-update-schedule"
     );
 
-    await act(async () => {
+    await settle(() => {
       buttonContaining("Import Dictionaries")?.click();
       buttonContaining("Import dictionaries from Yomitan")?.click();
       buttonContaining("Import settings from Yomitan")?.click();
@@ -1114,12 +654,10 @@ describe("HoshidictsSettingsWindow", () => {
         ".hoshidicts-dictionary-row__toggle input"
       )[1]?.click();
       setSelectValue(schedule, "monthly");
-      await Promise.resolve();
-      await Promise.resolve();
     });
 
     const clickDictionaryMenuItem = async (label: string) => {
-      await act(async () => {
+      await settle(() => {
         container
           .querySelector<HTMLElement>(
             '[aria-label="Dictionary actions for JMdict"]'
@@ -1130,8 +668,6 @@ describe("HoshidictsSettingsWindow", () => {
         )
           .find((button) => button.textContent?.trim() === label)
           ?.click();
-        await Promise.resolve();
-        await Promise.resolve();
       });
     };
     await clickDictionaryMenuItem("Move down");
@@ -1174,7 +710,7 @@ describe("HoshidictsSettingsWindow", () => {
     const sections = Array.from(
       container.querySelectorAll<HTMLElement>(".hoshidicts-section")
     );
-    expect(sections.at(-1)?.textContent).toContain("Backups");
+    expect(sections[sections.length - 1]?.textContent).toContain("Backups");
   });
 
   it("keeps complete backup actions together with local busy feedback", async () => {
@@ -1200,15 +736,12 @@ describe("HoshidictsSettingsWindow", () => {
     const sections = Array.from(
       container.querySelectorAll<HTMLElement>(".hoshidicts-section")
     );
-    const backups = sections.at(-1);
+    const backups = sections[sections.length - 1];
     const backupButton = (label: string) =>
       Array.from(backups?.querySelectorAll<HTMLButtonElement>("button") ?? [])
         .find((button) => button.textContent?.trim() === label);
 
-    await act(async () => {
-      backupButton("Export Hoshidicts backup...")?.click();
-      await Promise.resolve();
-    });
+    await settle(() => backupButton("Export Hoshidicts backup...")?.click(), 1);
 
     expect(backups?.textContent).toContain("Exporting Hoshidicts backup...");
     expect(
@@ -1227,11 +760,7 @@ describe("HoshidictsSettingsWindow", () => {
     });
 
     expect(container.textContent).toContain("Hoshidicts backup exported.");
-    await act(async () => {
-      backupButton("Restore Hoshidicts backup...")?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await clickAndSettle(backupButton("Restore Hoshidicts backup..."));
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.exportBackup
     );
@@ -1269,11 +798,15 @@ describe("HoshidictsSettingsWindow", () => {
       backups?.querySelector<HTMLElement>(
         '.hoshidicts-backups__status[role="status"]'
       );
+    const emitImportProgress = (progress: Record<string, unknown>) =>
+      settle(
+        () => ipc.emit(HOSHIDICTS_CHANNELS.yomitanImportProgress, progress),
+        1
+      );
 
-    await act(async () => {
+    await settle(() => {
       backupButton("Import dictionaries from Yomitan...")?.click();
-      await Promise.resolve();
-    });
+    }, 1);
 
     expect(backupStatus()?.textContent).toBe(
       "Importing dictionaries from Yomitan…"
@@ -1288,14 +821,11 @@ describe("HoshidictsSettingsWindow", () => {
         .every((button) => button.disabled)
     ).toBe(true);
 
-    await act(async () => {
-      listeners.get(HOSHIDICTS_CHANNELS.yomitanImportProgress)?.[0]?.({}, {
-        phase: "reading",
-        completedBytes: 0,
-        totalBytes: 400,
-        estimatedSecondsRemaining: null
-      });
-      await Promise.resolve();
+    await emitImportProgress({
+      phase: "reading",
+      completedBytes: 0,
+      totalBytes: 400,
+      estimatedSecondsRemaining: null
     });
     expect(backupStatus()?.textContent).toContain("0%");
     expect(
@@ -1304,14 +834,11 @@ describe("HoshidictsSettingsWindow", () => {
       )?.value
     ).toBe(0);
 
-    await act(async () => {
-      listeners.get(HOSHIDICTS_CHANNELS.yomitanImportProgress)?.[0]?.({}, {
-        phase: "reading",
-        completedBytes: 100,
-        totalBytes: 400,
-        estimatedSecondsRemaining: 18
-      });
-      await Promise.resolve();
+    await emitImportProgress({
+      phase: "reading",
+      completedBytes: 100,
+      totalBytes: 400,
+      estimatedSecondsRemaining: 18
     });
     expect(backupStatus()?.textContent).toContain(
       "Reading Yomitan backup…"
@@ -1323,14 +850,11 @@ describe("HoshidictsSettingsWindow", () => {
     expect(readingMeter?.value).toBe(25);
     expect(readingMeter?.max).toBe(100);
 
-    await act(async () => {
-      listeners.get(HOSHIDICTS_CHANNELS.yomitanImportProgress)?.[0]?.({}, {
-        phase: "preparing",
-        current: 1,
-        total: 3,
-        title: "Jitendex"
-      });
-      await Promise.resolve();
+    await emitImportProgress({
+      phase: "preparing",
+      current: 1,
+      total: 3,
+      title: "Jitendex"
     });
     expect(backupStatus()?.textContent).toContain(
       "Preparing dictionary 1 of 3: Jitendex"
@@ -1339,14 +863,11 @@ describe("HoshidictsSettingsWindow", () => {
       backupStatus()?.querySelector(".hoshidicts-backups__reading-meter")
     ).toBeNull();
 
-    await act(async () => {
-      listeners.get(HOSHIDICTS_CHANNELS.yomitanImportProgress)?.[0]?.({}, {
-        phase: "importing",
-        current: 2,
-        total: 3,
-        title: "JMdict"
-      });
-      await Promise.resolve();
+    await emitImportProgress({
+      phase: "importing",
+      current: 2,
+      total: 3,
+      title: "JMdict"
     });
     expect(backupStatus()?.textContent).toContain(
       "Importing dictionaries from Yomitan…"
@@ -1376,10 +897,9 @@ describe("HoshidictsSettingsWindow", () => {
     });
     expect(backupStatus()).toBeNull();
 
-    await act(async () => {
+    await settle(() => {
       backupButton("Import settings from Yomitan...")?.click();
-      await Promise.resolve();
-    });
+    }, 1);
     expect(backupStatus()?.textContent).toBe(
       "Importing settings from Yomitan…"
     );
@@ -1423,32 +943,20 @@ describe("HoshidictsSettingsWindow", () => {
       )
     ).toBeTruthy();
 
-    await act(async () => {
-      expand?.click();
-      await Promise.resolve();
-    });
+    await settle(() => expand?.click(), 1);
     expect(recommendedList?.hidden).toBe(false);
 
-    await act(async () => {
-      listeners.get(HOSHIDICTS_CHANNELS.progress)?.[0]?.({}, {
+    await settle(() => {
+      ipc.emit(HOSHIDICTS_CHANNELS.progress, {
         ...baseState,
         revision: baseState.revision + 1
       });
-      await Promise.resolve();
-    });
+    }, 1);
     expect(recommendedList?.hidden).toBe(false);
   });
 
   it("expands recommended dictionaries when none are installed", async () => {
-    invokeMock.mockImplementation(async (channel: string) => {
-      if (channel === HOSHIDICTS_CHANNELS.getState) {
-        return { ...baseState, dictionaries: [] };
-      }
-      if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
-        return miningOptions;
-      }
-      return { success: true, state: { ...baseState, dictionaries: [] } };
-    });
+    ipc.configure({ state: makeHoshidictsSnapshot({ dictionaries: [] }) });
 
     await render();
     const recommendedList = container.querySelector<HTMLElement>(
@@ -1463,17 +971,11 @@ describe("HoshidictsSettingsWindow", () => {
   });
 
   it("collapses recommended dictionaries when the custom dictionary is active", async () => {
-    const state = {
-      ...baseState,
-      dictionaries: [],
-      customDictionaryActive: true
-    };
-    invokeMock.mockImplementation(async (channel: string) => {
-      if (channel === HOSHIDICTS_CHANNELS.getState) return state;
-      if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
-        return miningOptions;
-      }
-      return { success: true, state };
+    ipc.configure({
+      state: makeHoshidictsSnapshot({
+        dictionaries: [],
+        customDictionaryActive: true
+      })
     });
 
     await render();
@@ -1487,10 +989,7 @@ describe("HoshidictsSettingsWindow", () => {
     expect(recommendedList?.hidden).toBe(true);
     expect(expand?.getAttribute("aria-expanded")).toBe("false");
 
-    await act(async () => {
-      expand?.click();
-      await Promise.resolve();
-    });
+    await settle(() => expand?.click(), 1);
     expect(recommendedList?.hidden).toBe(false);
   });
 
@@ -1506,19 +1005,7 @@ describe("HoshidictsSettingsWindow", () => {
         { id: "games", name: "Games", dictionaryIds: [] }
       ]
     };
-    invokeMock.mockImplementation(
-      async (channel: string): Promise<unknown> => {
-        if (channel === HOSHIDICTS_CHANNELS.getState) return groupState;
-        if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
-          return miningOptions;
-        }
-        return {
-          success: true,
-          outcome: { code: "dictionaryChanged" },
-          state: { ...groupState, revision: ++revision }
-        };
-      }
-    );
+    ipc.configure({ state: groupState });
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
 
     await render();
@@ -1531,10 +1018,7 @@ describe("HoshidictsSettingsWindow", () => {
     expect(toggle?.getAttribute("aria-expanded")).toBe("false");
     expect(panel?.hidden).toBe(true);
 
-    await act(async () => {
-      toggle?.click();
-      await Promise.resolve();
-    });
+    await settle(() => toggle?.click(), 1);
     expect(panel?.hidden).toBe(false);
     expect(panel?.textContent).toContain("Grammar");
     expect(panel?.textContent).toContain("Dictionaries: 1");
@@ -1543,59 +1027,38 @@ describe("HoshidictsSettingsWindow", () => {
       'input[aria-label="Tab group name"]'
     );
     setInputValue(createName ?? null, "Study");
-    await act(async () => {
-      createName?.closest("form")?.dispatchEvent(
-        new Event("submit", { bubbles: true, cancelable: true })
-      );
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await submitForm(createName);
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.createTabGroup,
       { name: "Study" }
     );
 
-    await act(async () => {
-      container
-        .querySelector<HTMLButtonElement>('[aria-label="Move Grammar down"]')
-        ?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await clickAndSettle(
+      container.querySelector<HTMLButtonElement>('[aria-label="Move Grammar down"]')
+    );
     expect(invokeMock).toHaveBeenCalledWith(HOSHIDICTS_CHANNELS.moveTabGroup, {
       groupId: "grammar",
       direction: 1
     });
 
-    await act(async () => {
+    await settle(() => {
       container
         .querySelector<HTMLButtonElement>('[aria-label="Rename Grammar"]')
         ?.click();
-      await Promise.resolve();
-    });
+    }, 1);
     const renameName = container.querySelector<HTMLInputElement>(
       'input[aria-label="New name for Grammar"]'
     );
     setInputValue(renameName, "Language");
-    await act(async () => {
-      renameName?.closest("form")?.dispatchEvent(
-        new Event("submit", { bubbles: true, cancelable: true })
-      );
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await submitForm(renameName);
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.renameTabGroup,
       { groupId: "grammar", name: "Language" }
     );
 
-    await act(async () => {
-      container
-        .querySelector<HTMLButtonElement>('[aria-label="Delete Games"]')
-        ?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await clickAndSettle(
+      container.querySelector<HTMLButtonElement>('[aria-label="Delete Games"]')
+    );
     expect(confirm).toHaveBeenCalledWith(
       "Delete the Games tab group? Its dictionaries will not be deleted."
     );
@@ -1617,23 +1080,15 @@ describe("HoshidictsSettingsWindow", () => {
         }
       ]
     };
-    invokeMock.mockImplementation(async (channel: string) => {
-      if (channel === HOSHIDICTS_CHANNELS.getState) return groupState;
-      if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
-        return miningOptions;
-      }
-      if (channel === HOSHIDICTS_CHANNELS.renameTabGroup) {
-        return {
+    ipc.configure({
+      state: groupState,
+      handlers: {
+        [HOSHIDICTS_CHANNELS.renameTabGroup]: () => ({
           success: false,
           error: "That tab group name is already in use.",
           state: groupState
-        };
+        })
       }
-      return {
-        success: true,
-        outcome: { code: "dictionaryChanged" },
-        state: groupState
-      };
     });
 
     await render();
@@ -1653,13 +1108,7 @@ describe("HoshidictsSettingsWindow", () => {
       'input[aria-label="New name for Grammar"]'
     );
     setInputValue(renameName, "Games");
-    await act(async () => {
-      renameName?.closest("form")?.dispatchEvent(
-        new Event("submit", { bubbles: true, cancelable: true })
-      );
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await submitForm(renameName);
 
     expect(
       container.querySelector<HTMLInputElement>(
@@ -1683,50 +1132,28 @@ describe("HoshidictsSettingsWindow", () => {
         { id: "games", name: "Games", dictionaryIds: [] }
       ]
     };
-    invokeMock.mockImplementation(
-      async (channel: string): Promise<unknown> => {
-        if (channel === HOSHIDICTS_CHANNELS.getState) return groupState;
-        if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
-          return miningOptions;
-        }
-        return {
-          success: true,
-          outcome: { code: "dictionaryChanged" },
-          state: { ...groupState, revision: ++revision }
-        };
-      }
-    );
+    ipc.configure({ state: groupState });
 
     await render();
     const summary = container.querySelector<HTMLElement>(
       '[aria-label="Dictionary actions for JMdict"]'
     );
-    await act(async () => {
-      summary?.click();
-      await Promise.resolve();
-    });
+    await settle(() => summary?.click(), 1);
     const menu = summary?.closest<HTMLDetailsElement>("details");
     expect(menu?.open).toBe(true);
 
-    await act(async () => {
+    await settle(() => {
       container.dispatchEvent(
         new MouseEvent("pointerdown", { bubbles: true, cancelable: true })
       );
-      await Promise.resolve();
-    });
+    }, 1);
     expect(menu?.open).toBe(false);
 
-    await act(async () => {
-      summary?.click();
-      await Promise.resolve();
-    });
+    await settle(() => summary?.click(), 1);
     let addToGroup = Array.from(
       container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
     ).find((button) => button.textContent?.includes("Add to Tab Group"));
-    await act(async () => {
-      addToGroup?.click();
-      await Promise.resolve();
-    });
+    await settle(() => addToGroup?.click(), 1);
 
     const initialGrammar = container.querySelector<HTMLInputElement>(
       'input[aria-label="Remove JMdict from Grammar"]'
@@ -1744,28 +1171,21 @@ describe("HoshidictsSettingsWindow", () => {
         .some((button) => button.textContent?.trim() === "Back")
     ).toBe(false);
 
-    await act(async () => {
+    await settle(() => {
       container.dispatchEvent(
         new MouseEvent("pointerdown", { bubbles: true, cancelable: true })
       );
-      await Promise.resolve();
-    });
+    }, 1);
     expect(menu?.open).toBe(false);
     expect(
       container.querySelector(".hoshidicts-dictionary-tab-groups")
     ).toBeNull();
 
-    await act(async () => {
-      summary?.click();
-      await Promise.resolve();
-    });
+    await settle(() => summary?.click(), 1);
     addToGroup = Array.from(
       container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
     ).find((button) => button.textContent?.includes("Add to Tab Group"));
-    await act(async () => {
-      addToGroup?.click();
-      await Promise.resolve();
-    });
+    await settle(() => addToGroup?.click(), 1);
     const grammar = container.querySelector<HTMLInputElement>(
       'input[aria-label="Remove JMdict from Grammar"]'
     );
@@ -1775,15 +1195,14 @@ describe("HoshidictsSettingsWindow", () => {
     expect(grammar?.checked).toBe(true);
     expect(games?.checked).toBe(false);
 
-    await act(async () => {
-      listeners.get(HOSHIDICTS_CHANNELS.progress)?.[0]?.({}, {
+    await settle(() => {
+      ipc.emit(HOSHIDICTS_CHANNELS.progress, {
         ...groupState,
-        revision: ++revision,
+        revision: ipc.nextRevision(),
         busy: true,
         progress: { phase: "saving", scope: "dictionary" }
       });
-      await Promise.resolve();
-    });
+    }, 1);
     games = container.querySelector<HTMLInputElement>(
       'input[aria-label="Add JMdict to Games"]'
     );
@@ -1792,23 +1211,18 @@ describe("HoshidictsSettingsWindow", () => {
       true
     );
 
-    await act(async () => {
-      listeners.get(HOSHIDICTS_CHANNELS.progress)?.[0]?.({}, {
+    await settle(() => {
+      ipc.emit(HOSHIDICTS_CHANNELS.progress, {
         ...groupState,
-        revision: ++revision,
+        revision: ipc.nextRevision(),
         busy: false,
         progress: { phase: "idle", scope: "dictionary" }
       });
-      await Promise.resolve();
-    });
+    }, 1);
     games = container.querySelector<HTMLInputElement>(
       'input[aria-label="Add JMdict to Games"]'
     );
-    await act(async () => {
-      games?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await clickAndSettle(games);
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.setTabGroupMembership,
       { groupId: "games", dictionaryId: "jmdict-id", member: true }
@@ -1818,13 +1232,7 @@ describe("HoshidictsSettingsWindow", () => {
       'input[aria-label="New tab group name"]'
     );
     setInputValue(newGroupName, "Vocabulary");
-    await act(async () => {
-      newGroupName?.closest("form")?.dispatchEvent(
-        new Event("submit", { bubbles: true, cancelable: true })
-      );
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await submitForm(newGroupName);
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.createTabGroup,
       { name: "Vocabulary", dictionaryId: "jmdict-id" }
@@ -1847,10 +1255,9 @@ describe("HoshidictsSettingsWindow", () => {
     const frequencyRow = Array.from(
       container.querySelectorAll<HTMLElement>(".hoshidicts-dictionary-row")
     ).find((row) => row.textContent?.includes("Custom"));
-    await act(async () => {
+    await settle(() => {
       frequencyRow?.querySelector<HTMLElement>("summary")?.click();
-      await Promise.resolve();
-    });
+    }, 1);
     expect(
       frequencyRow?.querySelector(".hoshidicts-dictionary-menu__items")
         ?.textContent
@@ -1873,31 +1280,21 @@ describe("HoshidictsSettingsWindow", () => {
   ])(
     "localizes tab group controls in %s",
     async (locale, expandLabel, menuLabel, actionLabel) => {
-      invokeMock.mockImplementation(async (channel: string) => {
-        if (channel === HOSHIDICTS_CHANNELS.getState) {
-          return {
-            ...baseState,
-            tabGroups: [
-              { id: "grammar", name: "Grammar", dictionaryIds: [] }
-            ]
-          };
-        }
-        if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
-          return miningOptions;
-        }
-        return { success: true, state: { ...baseState, revision: ++revision } };
+      ipc.configure({
+        state: makeHoshidictsSnapshot({
+          tabGroups: [{ id: "grammar", name: "Grammar", dictionaryIds: [] }]
+        })
       });
 
       await render(locale);
       expect(
         container.querySelector(`[aria-label="${expandLabel}"]`)
       ).not.toBeNull();
-      await act(async () => {
+      await settle(() => {
         container
           .querySelector<HTMLElement>(`[aria-label="${menuLabel}"]`)
           ?.click();
-        await Promise.resolve();
-      });
+      }, 1);
       expect(
         Array.from(
           container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
@@ -1912,29 +1309,17 @@ describe("HoshidictsSettingsWindow", () => {
       '[aria-label="Dictionary actions for JMdict"]'
     );
 
-    await act(async () => {
-      menu?.click();
-      await Promise.resolve();
-    });
+    await settle(() => menu?.click(), 1);
     const moveToPosition = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Move dict to position")
     );
-    await act(async () => {
-      moveToPosition?.click();
-      await Promise.resolve();
-    });
+    await settle(() => moveToPosition?.click(), 1);
 
     const position = container.querySelector<HTMLInputElement>(
       '.hoshidicts-dictionary-position input[type="number"]'
     );
     setInputValue(position, "2");
-    await act(async () => {
-      position?.closest("form")?.dispatchEvent(
-        new Event("submit", { bubbles: true, cancelable: true })
-      );
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await submitForm(position);
 
     expect(invokeMock).toHaveBeenCalledWith(
       "hoshidicts.moveDictionaryToPosition",
@@ -1953,21 +1338,17 @@ describe("HoshidictsSettingsWindow", () => {
     ).toContain("Every hour");
 
     const openScheduleEditor = async () => {
-      await act(async () => {
+      await settle(() => {
         container
           .querySelector<HTMLElement>(
             '[aria-label="Dictionary actions for JMdict"]'
           )
           ?.click();
-        await Promise.resolve();
-      });
+      }, 1);
       const updateSchedule = Array.from(
         container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
       ).find((button) => button.textContent?.includes("Update schedule"));
-      await act(async () => {
-        updateSchedule?.click();
-        await Promise.resolve();
-      });
+      await settle(() => updateSchedule?.click(), 1);
       return container.querySelector<HTMLFormElement>(
         ".hoshidicts-dictionary-schedule"
       );
@@ -1987,13 +1368,7 @@ describe("HoshidictsSettingsWindow", () => {
         button.textContent?.trim()
       )
     ).toEqual(["Save", "Cancel"]);
-    await act(async () => {
-      form?.dispatchEvent(
-        new Event("submit", { bubbles: true, cancelable: true })
-      );
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await submitForm(form);
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.setDictionarySchedule,
       { id: "jmdict-id", schedule: null }
@@ -2002,13 +1377,7 @@ describe("HoshidictsSettingsWindow", () => {
     form = await openScheduleEditor();
     select = form?.querySelector<HTMLSelectElement>("select") ?? null;
     setSelectValue(select, "hourly");
-    await act(async () => {
-      form?.dispatchEvent(
-        new Event("submit", { bubbles: true, cancelable: true })
-      );
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await submitForm(form);
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.setDictionarySchedule,
       { id: "jmdict-id", schedule: "hourly" }
@@ -2023,10 +1392,7 @@ describe("HoshidictsSettingsWindow", () => {
     const cancel = Array.from(form?.querySelectorAll("button") ?? []).find(
       (button) => button.textContent?.trim() === "Cancel"
     );
-    await act(async () => {
-      cancel?.click();
-      await Promise.resolve();
-    });
+    await settle(() => cancel?.click(), 1);
     expect(
       container.querySelector(".hoshidicts-dictionary-schedule")
     ).toBeNull();
@@ -2035,10 +1401,9 @@ describe("HoshidictsSettingsWindow", () => {
     const manualRow = Array.from(
       container.querySelectorAll<HTMLElement>(".hoshidicts-dictionary-row")
     ).find((row) => row.textContent?.includes("Custom"));
-    await act(async () => {
+    await settle(() => {
       manualRow?.querySelector<HTMLElement>("summary")?.click();
-      await Promise.resolve();
-    });
+    }, 1);
     expect(manualRow?.textContent).not.toContain("Update schedule");
   });
 
@@ -2049,22 +1414,18 @@ describe("HoshidictsSettingsWindow", () => {
     "localizes dictionary schedules in %s",
     async (locale, actionLabel, hourlyLabel) => {
       await render(locale);
-      await act(async () => {
+      await settle(() => {
         container
           .querySelector<HTMLElement>(
             `[aria-label="${locale === "ja" ? "JMdictの辞書操作" : "Дії зі словником JMdict"}"]`
           )
           ?.click();
-        await Promise.resolve();
-      });
+      }, 1);
       const action = Array.from(
         container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
       ).find((button) => button.textContent?.includes(actionLabel));
       expect(action).toBeDefined();
-      await act(async () => {
-        action?.click();
-        await Promise.resolve();
-      });
+      await settle(() => action?.click(), 1);
       expect(
         Array.from(
           container.querySelectorAll<HTMLSelectElement>(
@@ -2077,8 +1438,8 @@ describe("HoshidictsSettingsWindow", () => {
 
   it("shows a dictionary alias and saves a renamed display name", async () => {
     await render();
-    await act(async () => {
-      listeners.get(HOSHIDICTS_CHANNELS.progress)?.[0]?.({}, {
+    await settle(() => {
+      ipc.emit(HOSHIDICTS_CHANNELS.progress, {
         ...baseState,
         revision: baseState.revision + 1,
         dictionaries: [
@@ -2089,8 +1450,7 @@ describe("HoshidictsSettingsWindow", () => {
           baseState.dictionaries[1]
         ]
       });
-      await Promise.resolve();
-    });
+    }, 1);
 
     expect(container.textContent).toContain("Core Japanese");
     expect(container.textContent).toContain("Original name: JMdict");
@@ -2102,17 +1462,11 @@ describe("HoshidictsSettingsWindow", () => {
     const menu = container.querySelector<HTMLElement>(
       '[aria-label="Dictionary actions for Core Japanese"]'
     );
-    await act(async () => {
-      menu?.click();
-      await Promise.resolve();
-    });
+    await settle(() => menu?.click(), 1);
     const rename = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Rename dictionary")
     );
-    await act(async () => {
-      rename?.click();
-      await Promise.resolve();
-    });
+    await settle(() => rename?.click(), 1);
 
     const input = container.querySelector<HTMLInputElement>(
       '.hoshidicts-dictionary-rename input[type="text"]'
@@ -2131,13 +1485,7 @@ describe("HoshidictsSettingsWindow", () => {
       )
     ).toEqual(["Save", "Cancel", "Reset original name"]);
     setInputValue(input, "Friendly Lexicon");
-    await act(async () => {
-      input?.closest("form")?.dispatchEvent(
-        new Event("submit", { bubbles: true, cancelable: true })
-      );
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await submitForm(input);
 
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.renameDictionary,
@@ -2147,8 +1495,8 @@ describe("HoshidictsSettingsWindow", () => {
 
   it("resets a dictionary alias to its original name", async () => {
     await render();
-    await act(async () => {
-      listeners.get(HOSHIDICTS_CHANNELS.progress)?.[0]?.({}, {
+    await settle(() => {
+      ipc.emit(HOSHIDICTS_CHANNELS.progress, {
         ...baseState,
         revision: baseState.revision + 1,
         dictionaries: [
@@ -2159,31 +1507,20 @@ describe("HoshidictsSettingsWindow", () => {
           baseState.dictionaries[1]
         ]
       });
-      await Promise.resolve();
-    });
+    }, 1);
 
     const menu = container.querySelector<HTMLElement>(
       '[aria-label="Dictionary actions for Core Japanese"]'
     );
-    await act(async () => {
-      menu?.click();
-      await Promise.resolve();
-    });
+    await settle(() => menu?.click(), 1);
     const rename = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Rename dictionary")
     );
-    await act(async () => {
-      rename?.click();
-      await Promise.resolve();
-    });
+    await settle(() => rename?.click(), 1);
     const reset = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Reset original name")
     );
-    await act(async () => {
-      reset?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await clickAndSettle(reset);
 
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.renameDictionary,
@@ -2212,13 +1549,12 @@ describe("HoshidictsSettingsWindow", () => {
       "Only scan words written entirely in Japanese"
     );
 
-    await act(async () => {
+    await settle(() => {
       hover?.click();
       setInputValue(delay, "850");
       setInputValue(maxDepth, "12");
       onlyScanJapaneseText?.click();
-      await Promise.resolve();
-    });
+    }, 1);
     await openDesign();
 
     const showLookupCounts = container.querySelector<HTMLInputElement>(
@@ -2299,7 +1635,7 @@ describe("HoshidictsSettingsWindow", () => {
       "Hide grammar tags in popup metadata"
     );
 
-    await act(async () => {
+    await flushAfter(() => {
       showLookupCounts?.click();
       showCompactDefinitionSummary?.click();
       setInputValue(compactDefinitionSummaryCount, "5");
@@ -2310,20 +1646,12 @@ describe("HoshidictsSettingsWindow", () => {
       averageFrequency?.click();
       showFrequencyDictionaryNames?.click();
       hidePopupGrammarTags?.click();
-      await flushAutosave();
     });
 
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.setReaderPreferences,
-      {
+      makeHoshidictsReaderPreferences({
         lookupMode: "hover",
-        scanLength: DEFAULT_HOSHIDICTS_SCAN_LENGTH,
-        maxResults: DEFAULT_HOSHIDICTS_MAX_RESULTS,
-        sortFrequencyDictionary: DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
-        sortFrequencyDictionaryOrder:
-          DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
-        activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
-        sourceHighlightEnabled: false,
         onlyScanJapaneseText: false,
         popupHideDelayMs: 850,
         showLookupCounts: false,
@@ -2336,17 +1664,8 @@ describe("HoshidictsSettingsWindow", () => {
         pitchAccentFuriganaDictionary: "JMdict",
         showPitchAccentBadge: true,
         hidePopupGrammarTags: false,
-        popupNestingMaxDepth: 12,
-        popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
-        popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
-        popupColumns: 1,
-        theme: DEFAULT_HOSHIDICTS_THEME,
-        popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
-        popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
-        popupButtons: createDefaultHoshidictsPopupButtons(),
-        customPopupCss: DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
-        definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
-      }
+        popupNestingMaxDepth: 12
+      })
     );
     expect(invokeMock).not.toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.setLookupMode,
@@ -2356,26 +1675,11 @@ describe("HoshidictsSettingsWindow", () => {
   });
 
   it("keeps an unavailable preferred definition dictionary visible", async () => {
-    invokeMock.mockImplementation(async (channel: string) => {
-      if (channel === HOSHIDICTS_CHANNELS.getState) {
-        return {
-          ...baseState,
-          showCompactDefinitionSummary: true,
-          compactDefinitionSummaryCount: 3,
-          compactDefinitionSummaryDictionary: "Removed Mono Dictionary"
-        };
-      }
-      if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
-        return miningOptions;
-      }
-      if (channel === HOSHIDICTS_CHANNELS.getCustomDictionary) {
-        return customDocument;
-      }
-      return {
-        success: true,
-        outcome: { code: "preferencesSaved" },
-        state: { ...baseState, revision: ++revision }
-      };
+    ipc.configure({
+      state: makeHoshidictsSnapshot({
+        showCompactDefinitionSummary: true,
+        compactDefinitionSummaryDictionary: "Removed Mono Dictionary"
+      })
     });
 
     await render();
@@ -2395,36 +1699,76 @@ describe("HoshidictsSettingsWindow", () => {
     ]);
   });
 
-  it("configures bounded lookup scan and result limits", async () => {
-    vi.useFakeTimers();
-    await render();
-    const scanLength = container.querySelector<HTMLInputElement>(
-      "#hoshidicts-scan-length"
-    );
-    const maxResults = container.querySelector<HTMLInputElement>(
-      "#hoshidicts-max-results"
-    );
+  it.each([
+    {
+      name: "the lookup scan length",
+      id: "hoshidicts-scan-length",
+      initial: "16",
+      bounds: ["1", "64"],
+      typed: "0",
+      clamped: "1",
+      saved: { scanLength: 1 }
+    },
+    {
+      name: "the lookup result limit",
+      id: "hoshidicts-max-results",
+      initial: "32",
+      bounds: ["1", "256"],
+      typed: "999",
+      clamped: "256",
+      saved: { maxResults: 256 }
+    },
+    {
+      name: "the definition blur threshold",
+      design: true,
+      id: "hoshidicts-definition-blur-threshold",
+      initial: "5",
+      bounds: ["1", "1000000"],
+      typed: "0",
+      clamped: "1",
+      saved: {
+        definitionBlur: {
+          ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
+          lookupThreshold: 1
+        }
+      }
+    },
+    {
+      name: "the definition blur reveal delay",
+      design: true,
+      id: "hoshidicts-definition-blur-reveal-delay",
+      initial: "5",
+      bounds: ["1", "3600"],
+      typed: "7200",
+      clamped: "3600",
+      saved: {
+        definitionBlur: {
+          ...DEFAULT_HOSHIDICTS_DEFINITION_BLUR,
+          revealDelayMs: 3_600_000
+        }
+      }
+    }
+  ])(
+    "clamps $name to its supported bounds",
+    async ({ design, id, initial, bounds, typed, clamped, saved }) => {
+      vi.useFakeTimers();
+      await render();
+      if (design) await openDesign();
+      const input = () =>
+        container.querySelector<HTMLInputElement>(`#${id}`);
 
-    expect(scanLength?.value).toBe("16");
-    expect(scanLength?.min).toBe("1");
-    expect(scanLength?.max).toBe("64");
-    expect(maxResults?.value).toBe("32");
-    expect(maxResults?.min).toBe("1");
-    expect(maxResults?.max).toBe("256");
+      expect(input()?.value).toBe(initial);
+      expect([input()?.min, input()?.max]).toEqual(bounds);
 
-    await act(async () => {
-      setInputValue(scanLength, "0");
-      setInputValue(maxResults, "999");
-      await flushAutosave();
-    });
+      await flushAfter(() => setInputValue(input(), typed));
 
-    expect(scanLength?.value).toBe("1");
-    expect(maxResults?.value).toBe("256");
-    expect(invokeMock).toHaveBeenLastCalledWith(
-      HOSHIDICTS_CHANNELS.setReaderPreferences,
-      expect.objectContaining({ scanLength: 1, maxResults: 256 })
-    );
-  });
+      expect(input()?.value).toBe(clamped);
+      expect(invokeMock).toHaveBeenLastCalledWith(
+        HOSHIDICTS_CHANNELS.setReaderPreferences,
+        expect.objectContaining(saved)
+      );
+    }
+  );
 
   it("matches Yomitan frequency sorting controls and automatic order", async () => {
     vi.useFakeTimers();
@@ -2449,18 +1793,13 @@ describe("HoshidictsSettingsWindow", () => {
       )
     ).toBeNull();
 
-    await act(async () => {
-      setSelectValue(dictionary, "JMdict");
-      await Promise.resolve();
-    });
+    await settle(() => setSelectValue(dictionary, "JMdict"), 1);
     let order = container.querySelector<HTMLSelectElement>(
       "#hoshidicts-sort-frequency-dictionary-order"
     );
     expect(order?.value).toBe("descending");
 
-    await act(async () => {
-      await flushAutosave();
-    });
+    await act(flushAutosave);
     expect(invokeMock).toHaveBeenLastCalledWith(
       HOSHIDICTS_CHANNELS.setReaderPreferences,
       expect.objectContaining({
@@ -2469,32 +1808,25 @@ describe("HoshidictsSettingsWindow", () => {
       })
     );
 
-    await act(async () => {
-      setSelectValue(order, "ascending");
-      await flushAutosave();
-    });
+    await flushAfter(() => setSelectValue(order, "ascending"));
     expect(invokeMock).toHaveBeenLastCalledWith(
       HOSHIDICTS_CHANNELS.setReaderPreferences,
       expect.objectContaining({ sortFrequencyDictionaryOrder: "ascending" })
     );
 
-    await act(async () => {
+    await flushAfter(() =>
       container
         .querySelector<HTMLButtonElement>(
           "#hoshidicts-sort-frequency-dictionary-order-auto"
         )
-        ?.click();
-      await flushAutosave();
-    });
+        ?.click()
+    );
     order = container.querySelector<HTMLSelectElement>(
       "#hoshidicts-sort-frequency-dictionary-order"
     );
     expect(order?.value).toBe("descending");
 
-    await act(async () => {
-      setSelectValue(dictionary, "");
-      await Promise.resolve();
-    });
+    await settle(() => setSelectValue(dictionary, ""), 1);
     expect(
       container.querySelector(
         "#hoshidicts-sort-frequency-dictionary-order-container"
@@ -2559,10 +1891,7 @@ describe("HoshidictsSettingsWindow", () => {
     expect(scaleToFit?.getAttribute("aria-pressed")).toBe("true");
     expect(actualSize?.getAttribute("aria-pressed")).toBe("false");
 
-    await act(async () => {
-      actualSize?.click();
-      await Promise.resolve();
-    });
+    await settle(() => actualSize?.click(), 1);
 
     expect(scaleToFit?.getAttribute("aria-pressed")).toBe("false");
     expect(actualSize?.getAttribute("aria-pressed")).toBe("true");
@@ -2603,10 +1932,7 @@ describe("HoshidictsSettingsWindow", () => {
     );
 
     postMessage.mockClear();
-    await act(async () => {
-      setTextareaValue(editor, customPopupCss);
-      await Promise.resolve();
-    });
+    await settle(() => setTextareaValue(editor, customPopupCss), 1);
 
     expect(postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2618,19 +1944,14 @@ describe("HoshidictsSettingsWindow", () => {
     );
     expect(reset?.disabled).toBe(false);
 
-    await act(async () => {
-      await flushAutosave();
-    });
+    await act(flushAutosave);
     expect(invokeMock).toHaveBeenLastCalledWith(
       HOSHIDICTS_CHANNELS.setReaderPreferences,
       expect.objectContaining({ customPopupCss })
     );
 
     postMessage.mockClear();
-    await act(async () => {
-      reset?.click();
-      await Promise.resolve();
-    });
+    await settle(() => reset?.click(), 1);
     expect(postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         channel: "gsm.hoshidicts.preview.v1",
@@ -2642,9 +1963,7 @@ describe("HoshidictsSettingsWindow", () => {
       expect.any(String)
     );
 
-    await act(async () => {
-      await flushAutosave();
-    });
+    await act(flushAutosave);
     expect(invokeMock).toHaveBeenLastCalledWith(
       HOSHIDICTS_CHANNELS.setReaderPreferences,
       expect.objectContaining({
@@ -2698,10 +2017,7 @@ describe("HoshidictsSettingsWindow", () => {
       { text: "Bottom", value: "bottom" }
     ]);
 
-    await act(async () => {
-      setSelectValue(toolbarPosition, "bottom");
-      await flushAutosave();
-    });
+    await flushAfter(() => setSelectValue(toolbarPosition, "bottom"));
 
     expect(invokeMock).toHaveBeenLastCalledWith(
       HOSHIDICTS_CHANNELS.setReaderPreferences,
@@ -2732,7 +2048,7 @@ describe("HoshidictsSettingsWindow", () => {
     expect(customDefinition?.checked).toBe(true);
     expect(viewInAnki?.checked).toBe(false);
 
-    await act(async () => {
+    await flushAfter(() => {
       audio?.click();
       viewInAnki?.click();
       setInputValue(
@@ -2746,7 +2062,6 @@ describe("HoshidictsSettingsWindow", () => {
       container
         .querySelector<HTMLButtonElement>("#hoshidicts-popup-link-submit")
         ?.click();
-      await flushAutosave();
     });
 
     expect(invokeMock).toHaveBeenLastCalledWith(
@@ -2768,20 +2083,19 @@ describe("HoshidictsSettingsWindow", () => {
     );
     expect(container.textContent).toContain("Jisho");
 
-    await act(async () => {
+    await settle(() => {
       container
         .querySelector<HTMLButtonElement>(
           '[aria-label="Edit custom popup link Jisho"]'
         )
         ?.click();
-      await Promise.resolve();
-    });
+    }, 1);
     expect(
       container.querySelector<HTMLInputElement>("#hoshidicts-popup-link-label")
         ?.value
     ).toBe("Jisho");
 
-    await act(async () => {
+    await flushAfter(() => {
       setInputValue(
         container.querySelector("#hoshidicts-popup-link-url"),
         "https://jisho.org/search/%s"
@@ -2789,7 +2103,6 @@ describe("HoshidictsSettingsWindow", () => {
       container
         .querySelector<HTMLButtonElement>("#hoshidicts-popup-link-submit")
         ?.click();
-      await flushAutosave();
     });
     expect(invokeMock).toHaveBeenLastCalledWith(
       HOSHIDICTS_CHANNELS.setReaderPreferences,
@@ -2802,7 +2115,7 @@ describe("HoshidictsSettingsWindow", () => {
       })
     );
 
-    await act(async () => {
+    await flushAfter(() => {
       setInputValue(
         container.querySelector("#hoshidicts-popup-link-label"),
         "Weblio"
@@ -2814,7 +2127,6 @@ describe("HoshidictsSettingsWindow", () => {
       container
         .querySelector<HTMLButtonElement>("#hoshidicts-popup-link-submit")
         ?.click();
-      await flushAutosave();
     });
     await act(async () => {
       container
@@ -2845,14 +2157,13 @@ describe("HoshidictsSettingsWindow", () => {
       })
     );
 
-    await act(async () => {
+    await flushAfter(() =>
       container
         .querySelector<HTMLButtonElement>(
           '[aria-label="Delete custom popup link Weblio"]'
         )
-        ?.click();
-      await flushAutosave();
-    });
+        ?.click()
+    );
     expect(invokeMock).toHaveBeenLastCalledWith(
       HOSHIDICTS_CHANNELS.setReaderPreferences,
       expect.objectContaining({
@@ -2916,13 +2227,12 @@ describe("HoshidictsSettingsWindow", () => {
     expect(columns?.value).toBe("1");
     expect(reset?.disabled).toBe(true);
 
-    await act(async () => {
+    await flushAfter(() => {
       setSelectValue(theme, "girlypop");
       setInputValue(opacity, "70");
       setInputValue(width, "720");
       setInputValue(height, "520");
       setInputValue(columns, "3");
-      await flushAutosave();
     });
     expect(invokeMock).toHaveBeenLastCalledWith(
       HOSHIDICTS_CHANNELS.setReaderPreferences,
@@ -2936,10 +2246,7 @@ describe("HoshidictsSettingsWindow", () => {
     );
     expect(reset?.disabled).toBe(false);
 
-    await act(async () => {
-      reset?.click();
-      await flushAutosave();
-    });
+    await flushAfter(() => reset?.click());
     expect(invokeMock).toHaveBeenLastCalledWith(
       HOSHIDICTS_CHANNELS.setReaderPreferences,
       expect.objectContaining({
@@ -2973,38 +2280,9 @@ describe("HoshidictsSettingsWindow", () => {
     expect(sourceHighlight?.checked).toBe(true);
     expect(invokeMock).toHaveBeenLastCalledWith(
       HOSHIDICTS_CHANNELS.setReaderPreferences,
-      {
-        lookupMode: "shift",
-        scanLength: DEFAULT_HOSHIDICTS_SCAN_LENGTH,
-        maxResults: DEFAULT_HOSHIDICTS_MAX_RESULTS,
-        sortFrequencyDictionary: DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
-        sortFrequencyDictionaryOrder:
-          DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
-        activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
-        sourceHighlightEnabled: true,
-        onlyScanJapaneseText: true,
-        popupHideDelayMs: 300,
-        showLookupCounts: true,
-        averageFrequency: false,
-        showFrequencyDictionaryNames: true,
-        showCompactDefinitionSummary: false,
-        compactDefinitionSummaryCount: 3,
-        compactDefinitionSummaryDictionary: null,
-        showPitchAccentFurigana: true,
-        pitchAccentFuriganaDictionary: null,
-        showPitchAccentBadge: false,
-        hidePopupGrammarTags: true,
-        popupNestingMaxDepth: 10,
-        popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
-        popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
-        popupColumns: 1,
-        theme: DEFAULT_HOSHIDICTS_THEME,
-        popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
-        popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
-        popupButtons: createDefaultHoshidictsPopupButtons(),
-        customPopupCss: DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
-        definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
-      }
+      makeHoshidictsReaderPreferences({
+        sourceHighlightEnabled: true
+      })
     );
   });
 
@@ -3029,11 +2307,10 @@ describe("HoshidictsSettingsWindow", () => {
       )?.value
     ).toBe("5");
 
-    await act(async () => {
+    await flushAfter(() => {
       enabled?.click();
       setInputValue(threshold, "12");
       setSelectValue(revealMode, "hover");
-      await flushAutosave();
     });
 
     expect(
@@ -3041,43 +2318,9 @@ describe("HoshidictsSettingsWindow", () => {
     ).toBeNull();
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.setReaderPreferences,
-      {
-        lookupMode: "shift",
-        scanLength: DEFAULT_HOSHIDICTS_SCAN_LENGTH,
-        maxResults: DEFAULT_HOSHIDICTS_MAX_RESULTS,
-        sortFrequencyDictionary: DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
-        sortFrequencyDictionaryOrder:
-          DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
-        activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
-        sourceHighlightEnabled: false,
-        onlyScanJapaneseText: true,
-        popupHideDelayMs: 300,
-        showLookupCounts: true,
-        averageFrequency: false,
-        showFrequencyDictionaryNames: true,
-        showCompactDefinitionSummary: false,
-        compactDefinitionSummaryCount: 3,
-        compactDefinitionSummaryDictionary: null,
-        showPitchAccentFurigana: true,
-        pitchAccentFuriganaDictionary: null,
-        showPitchAccentBadge: false,
-        hidePopupGrammarTags: true,
-        popupNestingMaxDepth: 10,
-        popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
-        popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
-        popupColumns: 1,
-        theme: DEFAULT_HOSHIDICTS_THEME,
-        popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
-        popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
-        popupButtons: createDefaultHoshidictsPopupButtons(),
-        customPopupCss: DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
-        definitionBlur: {
-          enabled: true,
-          lookupThreshold: 12,
-          revealMode: "hover",
-          revealDelayMs: 5000
-        }
-      }
+      makeHoshidictsReaderPreferences({
+        definitionBlur: { enabled: true, lookupThreshold: 12, revealMode: "hover", revealDelayMs: 5000 }
+      })
     );
   });
 
@@ -3098,24 +2341,20 @@ describe("HoshidictsSettingsWindow", () => {
     expect(
       container.querySelector("#hoshidicts-definition-blur-reveal-delay")
     ).toBeNull();
-    await act(async () => {
+    await settle(() => {
       setSelectValue(
         container.querySelector<HTMLSelectElement>(
           "#hoshidicts-definition-blur-reveal-mode"
         ),
         "timed"
       );
-      await Promise.resolve();
-    });
+    }, 1);
     const revealDelay = container.querySelector<HTMLInputElement>(
       "#hoshidicts-definition-blur-reveal-delay"
     );
     expect(revealDelay?.value).toBe("9");
 
-    await act(async () => {
-      setInputValue(revealDelay, "8");
-      await flushAutosave();
-    });
+    await flushAfter(() => setInputValue(revealDelay, "8"));
 
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.setReaderPreferences,
@@ -3125,40 +2364,6 @@ describe("HoshidictsSettingsWindow", () => {
           lookupThreshold: 7,
           revealMode: "timed",
           revealDelayMs: 8000
-        }
-      })
-    );
-  });
-
-  it("clamps definition blur inputs to the supported bounds", async () => {
-    vi.useFakeTimers();
-    await render();
-    await openDesign();
-
-    await act(async () => {
-      setInputValue(
-        container.querySelector<HTMLInputElement>(
-          "#hoshidicts-definition-blur-threshold"
-        ),
-        "0"
-      );
-      setInputValue(
-        container.querySelector<HTMLInputElement>(
-          "#hoshidicts-definition-blur-reveal-delay"
-        ),
-        "7200"
-      );
-      await flushAutosave();
-    });
-
-    expect(invokeMock).toHaveBeenCalledWith(
-      HOSHIDICTS_CHANNELS.setReaderPreferences,
-      expect.objectContaining({
-        definitionBlur: {
-          enabled: false,
-          lookupThreshold: 1,
-          revealMode: "timed",
-          revealDelayMs: 3_600_000
         }
       })
     );
@@ -3180,91 +2385,29 @@ describe("HoshidictsSettingsWindow", () => {
     expect(initialDepth?.step).toBe("1");
     expect(initialDepth?.hasAttribute("max")).toBe(false);
 
-    await act(async () => {
-      toggle?.click();
-      await flushAutosave();
-    });
+    await flushAfter(() => toggle?.click());
 
     expect(invokeMock).toHaveBeenLastCalledWith(
       HOSHIDICTS_CHANNELS.setReaderPreferences,
-      {
-        lookupMode: "shift",
-        scanLength: DEFAULT_HOSHIDICTS_SCAN_LENGTH,
-        maxResults: DEFAULT_HOSHIDICTS_MAX_RESULTS,
-        sortFrequencyDictionary: DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
-        sortFrequencyDictionaryOrder:
-          DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
-        activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
-        sourceHighlightEnabled: false,
-        onlyScanJapaneseText: true,
-        popupHideDelayMs: 300,
-        showLookupCounts: true,
-        averageFrequency: false,
-        showFrequencyDictionaryNames: true,
-        showCompactDefinitionSummary: false,
-        compactDefinitionSummaryCount: 3,
-        compactDefinitionSummaryDictionary: null,
-        showPitchAccentFurigana: true,
-        pitchAccentFuriganaDictionary: null,
-        showPitchAccentBadge: false,
-        hidePopupGrammarTags: true,
-        popupNestingMaxDepth: 0,
-        popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
-        popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
-        popupColumns: 1,
-        theme: DEFAULT_HOSHIDICTS_THEME,
-        popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
-        popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
-        popupButtons: createDefaultHoshidictsPopupButtons(),
-        customPopupCss: DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
-        definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
-      }
+      makeHoshidictsReaderPreferences({
+        popupNestingMaxDepth: 0
+      })
     );
     expect(
       container.querySelector("#hoshidicts-popup-nesting-max-depth")
     ).toBeNull();
 
-    await act(async () => {
+    await flushAfter(() =>
       container
         .querySelector<HTMLInputElement>("#hoshidicts-popup-content-scanning")
-        ?.click();
-      await flushAutosave();
-    });
+        ?.click()
+    );
 
     expect(invokeMock).toHaveBeenLastCalledWith(
       HOSHIDICTS_CHANNELS.setReaderPreferences,
-      {
-        lookupMode: "shift",
-        scanLength: DEFAULT_HOSHIDICTS_SCAN_LENGTH,
-        maxResults: DEFAULT_HOSHIDICTS_MAX_RESULTS,
-        sortFrequencyDictionary: DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
-        sortFrequencyDictionaryOrder:
-          DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
-        activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
-        sourceHighlightEnabled: false,
-        onlyScanJapaneseText: true,
-        popupHideDelayMs: 300,
-        showLookupCounts: true,
-        averageFrequency: false,
-        showFrequencyDictionaryNames: true,
-        showCompactDefinitionSummary: false,
-        compactDefinitionSummaryCount: 3,
-        compactDefinitionSummaryDictionary: null,
-        showPitchAccentFurigana: true,
-        pitchAccentFuriganaDictionary: null,
-        showPitchAccentBadge: false,
-        hidePopupGrammarTags: true,
-        popupNestingMaxDepth: 1,
-        popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
-        popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
-        popupColumns: 1,
-        theme: DEFAULT_HOSHIDICTS_THEME,
-        popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
-        popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
-        popupButtons: createDefaultHoshidictsPopupButtons(),
-        customPopupCss: DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
-        definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
-      }
+      makeHoshidictsReaderPreferences({
+        popupNestingMaxDepth: 1
+      })
     );
     expect(
       container.querySelector<HTMLInputElement>(
@@ -3280,11 +2423,8 @@ describe("HoshidictsSettingsWindow", () => {
       "#hoshidicts-activation-key-capture"
     );
 
-    await act(async () => {
-      capture?.click();
-      await Promise.resolve();
-    });
-    await act(async () => {
+    await settle(() => capture?.click(), 1);
+    await settle(() => {
       capture?.dispatchEvent(
         new KeyboardEvent("keydown", {
           bubbles: true,
@@ -3293,8 +2433,7 @@ describe("HoshidictsSettingsWindow", () => {
           key: "CapsLock"
         })
       );
-      await Promise.resolve();
-    });
+    }, 1);
     expect(container.textContent).toContain("That key cannot be used");
 
     const shiftedDigit = new KeyboardEvent("keydown", {
@@ -3304,10 +2443,7 @@ describe("HoshidictsSettingsWindow", () => {
       key: "!",
       shiftKey: true
     });
-    await act(async () => {
-      capture?.dispatchEvent(shiftedDigit);
-      await Promise.resolve();
-    });
+    await settle(() => capture?.dispatchEvent(shiftedDigit), 1);
     expect(shiftedDigit.defaultPrevented).toBe(true);
     expect(container.textContent).toContain("Hold 1");
 
@@ -3318,47 +2454,15 @@ describe("HoshidictsSettingsWindow", () => {
     });
     expect(invokeMock).toHaveBeenLastCalledWith(
       HOSHIDICTS_CHANNELS.setReaderPreferences,
-      {
-        lookupMode: "shift",
-        scanLength: DEFAULT_HOSHIDICTS_SCAN_LENGTH,
-        maxResults: DEFAULT_HOSHIDICTS_MAX_RESULTS,
-        sortFrequencyDictionary: DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
-        sortFrequencyDictionaryOrder:
-          DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
-        activationKey: "1",
-        sourceHighlightEnabled: false,
-        onlyScanJapaneseText: true,
-        popupHideDelayMs: 300,
-        showLookupCounts: true,
-        averageFrequency: false,
-        showFrequencyDictionaryNames: true,
-        showCompactDefinitionSummary: false,
-        compactDefinitionSummaryCount: 3,
-        compactDefinitionSummaryDictionary: null,
-        showPitchAccentFurigana: true,
-        pitchAccentFuriganaDictionary: null,
-        showPitchAccentBadge: false,
-        hidePopupGrammarTags: true,
-        popupNestingMaxDepth: 10,
-        popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
-        popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
-        popupColumns: 1,
-        theme: DEFAULT_HOSHIDICTS_THEME,
-        popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
-        popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
-        popupButtons: createDefaultHoshidictsPopupButtons(),
-        customPopupCss: DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
-        definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
-      }
+      makeHoshidictsReaderPreferences({
+        activationKey: "1"
+      })
     );
 
     const reset = container.querySelector<HTMLButtonElement>(
       "#hoshidicts-activation-key-reset"
     );
-    await act(async () => {
-      reset?.click();
-      await Promise.resolve();
-    });
+    await settle(() => reset?.click(), 1);
     expect(container.textContent).toContain("Hold Shift");
 
     await act(async () => {
@@ -3368,38 +2472,7 @@ describe("HoshidictsSettingsWindow", () => {
     });
     expect(invokeMock).toHaveBeenLastCalledWith(
       HOSHIDICTS_CHANNELS.setReaderPreferences,
-      {
-        lookupMode: "shift",
-        scanLength: DEFAULT_HOSHIDICTS_SCAN_LENGTH,
-        maxResults: DEFAULT_HOSHIDICTS_MAX_RESULTS,
-        sortFrequencyDictionary: DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY,
-        sortFrequencyDictionaryOrder:
-          DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
-        activationKey: DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
-        sourceHighlightEnabled: false,
-        onlyScanJapaneseText: true,
-        popupHideDelayMs: 300,
-        showLookupCounts: true,
-        averageFrequency: false,
-        showFrequencyDictionaryNames: true,
-        showCompactDefinitionSummary: false,
-        compactDefinitionSummaryCount: 3,
-        compactDefinitionSummaryDictionary: null,
-        showPitchAccentFurigana: true,
-        pitchAccentFuriganaDictionary: null,
-        showPitchAccentBadge: false,
-        hidePopupGrammarTags: true,
-        popupNestingMaxDepth: 10,
-        popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
-        popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX,
-        popupColumns: 1,
-        theme: DEFAULT_HOSHIDICTS_THEME,
-        popupOpacityPercent: DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
-        popupToolbarPosition: DEFAULT_HOSHIDICTS_POPUP_TOOLBAR_POSITION,
-        popupButtons: createDefaultHoshidictsPopupButtons(),
-        customPopupCss: DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS,
-        definitionBlur: DEFAULT_HOSHIDICTS_DEFINITION_BLUR
-      }
+      makeHoshidictsReaderPreferences()
     );
   });
 
@@ -3424,10 +2497,7 @@ describe("HoshidictsSettingsWindow", () => {
       "bad line",
       "千鳥, ちどり, Lightning thrust, with chakra"
     ].join("\n");
-    await act(async () => {
-      setTextareaValue(editor, draft);
-      await Promise.resolve();
-    });
+    await settle(() => setTextareaValue(editor, draft), 1);
     expect(container.textContent).toContain("2 valid entries");
     expect(container.textContent).toContain(
       "Malformed lines will be preserved but skipped (1 total; first lines: 2)."
@@ -3441,11 +2511,7 @@ describe("HoshidictsSettingsWindow", () => {
     const save = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Save Dictionary")
     );
-    await act(async () => {
-      save?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await clickAndSettle(save);
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.saveCustomDictionary,
       { text: draft, expectedRevision: customDocument.revision }
@@ -3472,7 +2538,7 @@ describe("HoshidictsSettingsWindow", () => {
           return {
             success: false,
             error: "The custom dictionary changed after it was opened.",
-            state: { ...baseState, revision: ++revision }
+            state: { ...baseState, revision: ipc.nextRevision() }
           };
         }
         return await originalImplementation?.(channel, ...args);
@@ -3484,14 +2550,11 @@ describe("HoshidictsSettingsWindow", () => {
       "#hoshidicts-custom-dictionary-editor"
     );
     const draft = `${customDocument.text}影分身の術, かげぶんしんのじゅつ, Creates solid shadow clones\n`;
-    await act(async () => {
+    await settle(() => {
       setTextareaValue(editor, draft);
-      await Promise.resolve();
       Array.from(container.querySelectorAll("button"))
         .find((button) => button.textContent?.includes("Save Dictionary"))
         ?.click();
-      await Promise.resolve();
-      await Promise.resolve();
     });
 
     expect(editor?.value).toBe(draft);
@@ -3501,13 +2564,9 @@ describe("HoshidictsSettingsWindow", () => {
     expect(container.textContent).toContain("Save failed");
 
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-    await act(async () => {
-      Array.from(container.querySelectorAll("button"))
-        .find((button) => button.textContent?.includes("Reload from File"))
-        ?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await clickAndSettle(
+      Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.includes("Reload from File"))
+    );
     expect(confirm).toHaveBeenCalledWith(
       "Reloading will discard your unsaved custom dictionary changes. Continue?"
     );
@@ -3573,20 +2632,16 @@ describe("HoshidictsSettingsWindow", () => {
         }
       }
     };
-    invokeMock.mockImplementation(async (channel: string) => {
-      if (channel === HOSHIDICTS_CHANNELS.getState) return offlineState;
-      if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
-        return {
-          ...miningOptions,
-          connected: false,
-          selectedNoteType: "Offline",
-          fields: [],
-          suggestedFieldTemplates: {},
-          resolvedFieldTemplates: {},
-          error: "Anki is offline."
-        } satisfies HoshidictsMiningOptions;
-      }
-      return { success: true, state: offlineState };
+    ipc.configure({
+      state: offlineState,
+      miningOptions: makeHoshidictsMiningOptions({
+        connected: false,
+        selectedNoteType: "Offline",
+        fields: [],
+        suggestedFieldTemplates: {},
+        resolvedFieldTemplates: {},
+        error: "Anki is offline."
+      })
     });
 
     await render();
@@ -3628,20 +2683,16 @@ describe("HoshidictsSettingsWindow", () => {
         fieldTemplates: null
       }
     };
-    invokeMock.mockImplementation(async (channel: string) => {
-      if (channel === HOSHIDICTS_CHANNELS.getState) return offlineState;
-      if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
-        return {
-          ...miningOptions,
-          connected: false,
-          selectedNoteType: "Offline legacy",
-          fields: [],
-          suggestedFieldTemplates: {},
-          resolvedFieldTemplates: {},
-          error: "Anki is offline."
-        } satisfies HoshidictsMiningOptions;
-      }
-      return { success: true, state: offlineState };
+    ipc.configure({
+      state: offlineState,
+      miningOptions: makeHoshidictsMiningOptions({
+        connected: false,
+        selectedNoteType: "Offline legacy",
+        fields: [],
+        suggestedFieldTemplates: {},
+        resolvedFieldTemplates: {},
+        error: "Anki is offline."
+      })
     });
 
     await render();
@@ -3677,35 +2728,18 @@ describe("HoshidictsSettingsWindow", () => {
         }
       }
     };
-    const caseChangedOptions: HoshidictsMiningOptions = {
-      ...miningOptions,
-      selectedNoteType: "Case changed",
-      fields: ["Front", "Back"],
-      suggestedFieldTemplates: { Front: "", Back: "" },
-      resolvedFieldTemplates: {
-        Front: { value: "x", overwriteMode: "append" },
-        Back: { value: "", overwriteMode: "coalesce" }
-      }
-    };
-    invokeMock.mockImplementation(
-      async (channel: string, ...args: unknown[]) => {
-        if (channel === HOSHIDICTS_CHANNELS.getState) return caseChangedState;
-        if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
-          return caseChangedOptions;
+    ipc.configure({
+      state: caseChangedState,
+      miningOptions: makeHoshidictsMiningOptions({
+        selectedNoteType: "Case changed",
+        fields: ["Front", "Back"],
+        suggestedFieldTemplates: { Front: "", Back: "" },
+        resolvedFieldTemplates: {
+          Front: { value: "x", overwriteMode: "append" },
+          Back: { value: "", overwriteMode: "coalesce" }
         }
-        if (channel === HOSHIDICTS_CHANNELS.setMiningProfile) {
-          return {
-            success: true,
-            state: {
-              ...caseChangedState,
-              revision: ++revision,
-              miningProfile: args[0]
-            }
-          };
-        }
-        return { success: true, state: caseChangedState };
-      }
-    );
+      })
+    });
 
     await render();
     await openMining();
@@ -3718,18 +2752,17 @@ describe("HoshidictsSettingsWindow", () => {
       container.querySelector(".hoshidicts-mining-fields__warning")
     ).toBeNull();
 
-    await act(async () => {
+    await flushAfter(() => {
       setInputValue(
         container.querySelector<HTMLInputElement>(
           '[data-anki-field="Back"][data-field-control="value"]'
         ),
         "y"
       );
-      await flushAutosave();
     });
 
     expect(
-      callsFor(HOSHIDICTS_CHANNELS.setMiningProfile).at(-1)?.[1]
+      lastCallFor(HOSHIDICTS_CHANNELS.setMiningProfile)?.[1]
     ).toMatchObject({
       fieldTemplates: {
         Front: { value: "x", overwriteMode: "append" },
@@ -3747,7 +2780,7 @@ describe("HoshidictsSettingsWindow", () => {
     expect(container.textContent).toContain("LanguagePod101");
     expect(container.textContent).toContain("Jisho");
 
-    await act(async () => {
+    await flushAfter(() => {
       container
         .querySelector<HTMLButtonElement>(
           '[aria-label="Move LanguagePod101 up"]'
@@ -3776,7 +2809,6 @@ describe("HoshidictsSettingsWindow", () => {
         "#hoshidicts-audio-volume"
       );
       setInputValue(volume, "65");
-      await flushAutosave();
     });
 
     expect(invokeMock).toHaveBeenCalledWith(
@@ -3801,41 +2833,15 @@ describe("HoshidictsSettingsWindow", () => {
   });
 
   it("tests every downloadable audio row with the current draft and plays the returned bytes", async () => {
-    const createObjectUrl = vi.fn((_blob: Blob) => "blob:hoshidicts-kiku");
-    const revokeObjectUrl = vi.fn();
-    Object.defineProperty(URL, "createObjectURL", {
-      configurable: true,
-      value: createObjectUrl
-    });
-    Object.defineProperty(URL, "revokeObjectURL", {
-      configurable: true,
-      value: revokeObjectUrl
-    });
-
-    class FakeAudio {
-      static instances: FakeAudio[] = [];
-      volume = 1;
-      onended: ((event: Event) => void) | null = null;
-      onerror: ((event: Event) => void) | null = null;
-      play = vi.fn(async () => undefined);
-      pause = vi.fn();
-
-      constructor(readonly src: string) {
-        FakeAudio.instances.push(this);
-      }
-    }
-    vi.stubGlobal("Audio", FakeAudio);
+    const { instances, createObjectUrl, revokeObjectUrl } =
+      installFakeAudio("blob:hoshidicts-kiku");
 
     const pendingTest = deferred<unknown>();
-    const defaultInvoke = invokeMock.getMockImplementation();
-    invokeMock.mockImplementation(
-      async (channel: string, ...args: unknown[]) => {
-        if (channel === HOSHIDICTS_CHANNELS.testAudioSource) {
-          return await pendingTest.promise;
-        }
-        return await defaultInvoke?.(channel, ...args);
+    ipc.configure({
+      handlers: {
+        [HOSHIDICTS_CHANNELS.testAudioSource]: () => pendingTest.promise
       }
-    );
+    });
 
     await render();
     await openView("Audio");
@@ -3860,20 +2866,16 @@ describe("HoshidictsSettingsWindow", () => {
     ).toBe(testButtons()[0]);
     expect(firstActions?.querySelector("button.danger")).not.toBeNull();
 
-    await act(async () => {
+    await settle(() => {
       setInputValue(
         container.querySelector<HTMLInputElement>("#hoshidicts-audio-volume"),
         "65"
       );
-      await Promise.resolve();
-    });
+    }, 1);
     const firstButton = container.querySelector<HTMLButtonElement>(
       '[data-audio-test-source="jpod101"]'
     );
-    await act(async () => {
-      firstButton?.click();
-      await Promise.resolve();
-    });
+    await settle(() => firstButton?.click(), 1);
 
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.testAudioSource,
@@ -3885,7 +2887,7 @@ describe("HoshidictsSettingsWindow", () => {
     expect(container.textContent).toContain("Testing 聞く（きく）");
     expect(testButtons().every((button) => button.disabled)).toBe(true);
 
-    await act(async () => {
+    await settle(() => {
       pendingTest.resolve({
         success: true,
         audio: {
@@ -3895,8 +2897,6 @@ describe("HoshidictsSettingsWindow", () => {
         },
         state: baseState
       });
-      await Promise.resolve();
-      await Promise.resolve();
     });
 
     expect(createObjectUrl).toHaveBeenCalledOnce();
@@ -3904,59 +2904,32 @@ describe("HoshidictsSettingsWindow", () => {
     expect(blob).toBeInstanceOf(Blob);
     expect(blob.type).toBe("audio/mpeg");
     expect(blob.size).toBe(3);
-    expect(FakeAudio.instances).toHaveLength(1);
-    expect(FakeAudio.instances[0]?.src).toBe("blob:hoshidicts-kiku");
-    expect(FakeAudio.instances[0]?.volume).toBe(0.65);
-    expect(FakeAudio.instances[0]?.play).toHaveBeenCalledOnce();
+    expect(instances).toHaveLength(1);
+    expect(instances[0]?.src).toBe("blob:hoshidicts-kiku");
+    expect(instances[0]?.volume).toBe(0.65);
+    expect(instances[0]?.play).toHaveBeenCalledOnce();
     expect(container.textContent).toContain("Playing Kiku recording");
 
-    await act(async () => {
-      FakeAudio.instances[0]?.onended?.(new Event("ended"));
-      await Promise.resolve();
-    });
+    await settle(() => {
+      instances[0]?.onended?.(new Event("ended"));
+    }, 1);
 
     expect(revokeObjectUrl).toHaveBeenCalledWith("blob:hoshidicts-kiku");
     expect(container.textContent).toContain("Played Kiku recording");
     expect(testButtons().every((button) => !button.disabled)).toBe(true);
 
-    await act(async () => {
-      container
-        .querySelector<HTMLButtonElement>(
-          '[data-audio-test-source="language-pod-101"]'
-        )
-        ?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect(FakeAudio.instances).toHaveLength(2);
+    await clickAndSettle(
+      container.querySelector<HTMLButtonElement>('[data-audio-test-source="language-pod-101"]')
+    );
+    expect(instances).toHaveLength(2);
 
-    await act(async () => root.unmount());
-    expect(FakeAudio.instances[1]?.pause).toHaveBeenCalledOnce();
+    await harness?.unmount();
+    expect(instances[1]?.pause).toHaveBeenCalledOnce();
     expect(revokeObjectUrl).toHaveBeenCalledTimes(2);
-    root = createRoot(container);
   });
 
   it("uses the same per-row test control to speak expression and reading TTS", async () => {
-    class FakeUtterance {
-      lang = "";
-      volume = 1;
-      voice: SpeechSynthesisVoice | null = null;
-      onstart: ((event: Event) => void) | null = null;
-      onend: ((event: Event) => void) | null = null;
-      onerror: ((event: Event) => void) | null = null;
-
-      constructor(readonly text: string) {}
-    }
-    const spoken: FakeUtterance[] = [];
-    const cancel = vi.fn();
-    vi.stubGlobal("SpeechSynthesisUtterance", FakeUtterance);
-    vi.stubGlobal("speechSynthesis", {
-      getVoices: () => [],
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      cancel,
-      speak: (utterance: FakeUtterance) => spoken.push(utterance)
-    });
+    const { spoken, cancel } = installFakeSpeechSynthesis();
 
     const ttsState: HoshidictsDesktopSnapshot = {
       ...baseState,
@@ -3979,25 +2952,18 @@ describe("HoshidictsSettingsWindow", () => {
         ]
       }
     };
-    const defaultInvoke = invokeMock.getMockImplementation();
-    invokeMock.mockImplementation(
-      async (channel: string, ...args: unknown[]) => {
-        if (channel === HOSHIDICTS_CHANNELS.getState) return ttsState;
-        return await defaultInvoke?.(channel, ...args);
-      }
-    );
+    ipc.configure({ state: ttsState });
 
     await render();
     await openView("Audio");
 
-    await act(async () => {
+    await settle(() => {
       container
         .querySelector<HTMLButtonElement>(
           '[data-audio-test-source="expression-tts"]'
         )
         ?.click();
-      await Promise.resolve();
-    });
+    }, 1);
     expect(spoken).toHaveLength(1);
     expect(spoken[0]).toMatchObject({
       text: "聞く",
@@ -4011,20 +2977,16 @@ describe("HoshidictsSettingsWindow", () => {
       )?.disabled
     ).toBe(true);
 
-    await act(async () => {
-      spoken[0]?.onend?.(new Event("end"));
-      await Promise.resolve();
-    });
+    await settle(() => spoken[0]?.onend?.(new Event("end")), 1);
     expect(container.textContent).toContain("Played 聞く");
 
-    await act(async () => {
+    await settle(() => {
       container
         .querySelector<HTMLButtonElement>(
           '[data-audio-test-source="reading-tts"]'
         )
         ?.click();
-      await Promise.resolve();
-    });
+    }, 1);
     expect(spoken).toHaveLength(2);
     expect(spoken[1]?.text).toBe("きく");
     expect(cancel).toHaveBeenCalled();
@@ -4034,31 +2996,21 @@ describe("HoshidictsSettingsWindow", () => {
   });
 
   it("shows a per-row error and re-enables source tests after a failed probe", async () => {
-    const defaultInvoke = invokeMock.getMockImplementation();
-    invokeMock.mockImplementation(
-      async (channel: string, ...args: unknown[]) => {
-        if (channel === HOSHIDICTS_CHANNELS.testAudioSource) {
-          return {
-            success: false,
-            error: "The recording service is unavailable.",
-            state: baseState
-          };
-        }
-        return await defaultInvoke?.(channel, ...args);
+    ipc.configure({
+      handlers: {
+        [HOSHIDICTS_CHANNELS.testAudioSource]: () => ({
+          success: false,
+          error: "The recording service is unavailable.",
+          state: baseState
+        })
       }
-    );
+    });
 
     await render();
     await openView("Audio");
-    await act(async () => {
-      container
-        .querySelector<HTMLButtonElement>(
-          '[data-audio-test-source="jisho"]'
-        )
-        ?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await clickAndSettle(
+      container.querySelector<HTMLButtonElement>('[data-audio-test-source="jisho"]')
+    );
 
     const error = container.querySelector<HTMLElement>(
       '.hoshidicts-audio-source__test-status[data-phase="error"]'
@@ -4078,49 +3030,8 @@ describe("HoshidictsSettingsWindow", () => {
 
   it("locks the full audio profile and times out stalled media and TTS tests", async () => {
     vi.useFakeTimers();
-    const createObjectUrl = vi.fn((_blob: Blob) => "blob:stalled-kiku");
-    const revokeObjectUrl = vi.fn();
-    Object.defineProperty(URL, "createObjectURL", {
-      configurable: true,
-      value: createObjectUrl
-    });
-    Object.defineProperty(URL, "revokeObjectURL", {
-      configurable: true,
-      value: revokeObjectUrl
-    });
-
-    class FakeAudio {
-      static instances: FakeAudio[] = [];
-      volume = 1;
-      onended: ((event: Event) => void) | null = null;
-      onerror: ((event: Event) => void) | null = null;
-      play = vi.fn(async () => undefined);
-      pause = vi.fn();
-
-      constructor(readonly src: string) {
-        FakeAudio.instances.push(this);
-      }
-    }
-    class FakeUtterance {
-      lang = "";
-      volume = 1;
-      voice: SpeechSynthesisVoice | null = null;
-      onend: ((event: Event) => void) | null = null;
-      onerror: ((event: Event) => void) | null = null;
-
-      constructor(readonly text: string) {}
-    }
-    const spoken: FakeUtterance[] = [];
-    const cancel = vi.fn();
-    vi.stubGlobal("Audio", FakeAudio);
-    vi.stubGlobal("SpeechSynthesisUtterance", FakeUtterance);
-    vi.stubGlobal("speechSynthesis", {
-      getVoices: () => [],
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      cancel,
-      speak: (utterance: FakeUtterance) => spoken.push(utterance)
-    });
+    const { instances, revokeObjectUrl } = installFakeAudio("blob:stalled-kiku");
+    const { spoken, cancel } = installFakeSpeechSynthesis();
 
     const timeoutState: HoshidictsDesktopSnapshot = {
       ...baseState,
@@ -4142,24 +3053,20 @@ describe("HoshidictsSettingsWindow", () => {
         ]
       }
     };
-    const defaultInvoke = invokeMock.getMockImplementation();
-    invokeMock.mockImplementation(
-      async (channel: string, ...args: unknown[]) => {
-        if (channel === HOSHIDICTS_CHANNELS.getState) return timeoutState;
-        if (channel === HOSHIDICTS_CHANNELS.testAudioSource) {
-          return {
-            success: true,
-            audio: {
-              bytes: Uint8Array.from([1, 2, 3]),
-              contentType: "audio/mpeg",
-              candidateName: "Stalled recording"
-            },
-            state: timeoutState
-          };
-        }
-        return await defaultInvoke?.(channel, ...args);
+    ipc.configure({
+      state: timeoutState,
+      handlers: {
+        [HOSHIDICTS_CHANNELS.testAudioSource]: () => ({
+          success: true,
+          audio: {
+            bytes: Uint8Array.from([1, 2, 3]),
+            contentType: "audio/mpeg",
+            candidateName: "Stalled recording"
+          },
+          state: timeoutState
+        })
       }
-    );
+    });
 
     await render();
     await openView("Audio");
@@ -4169,11 +3076,7 @@ describe("HoshidictsSettingsWindow", () => {
     const customRow = customTest?.closest<HTMLElement>(
       ".hoshidicts-audio-source"
     );
-    await act(async () => {
-      customTest?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await clickAndSettle(customTest);
 
     const profileControls = Array.from(
       container.querySelectorAll<
@@ -4192,7 +3095,7 @@ describe("HoshidictsSettingsWindow", () => {
       await vi.advanceTimersByTimeAsync(15_000);
     });
 
-    expect(FakeAudio.instances[0]?.pause).toHaveBeenCalledOnce();
+    expect(instances[0]?.pause).toHaveBeenCalledOnce();
     expect(revokeObjectUrl).toHaveBeenCalledWith("blob:stalled-kiku");
     expect(
       customRow?.querySelector<HTMLElement>(
@@ -4216,10 +3119,7 @@ describe("HoshidictsSettingsWindow", () => {
     const ttsTest = container.querySelector<HTMLButtonElement>(
       '[data-audio-test-source="expression-tts"]'
     );
-    await act(async () => {
-      ttsTest?.click();
-      await Promise.resolve();
-    });
+    await settle(() => ttsTest?.click(), 1);
     expect(spoken).toHaveLength(1);
     expect(
       container.querySelector<HTMLInputElement>("#hoshidicts-audio-volume")
@@ -4248,33 +3148,28 @@ describe("HoshidictsSettingsWindow", () => {
 
   it("blocks a failed audio version until the next edit", async () => {
     vi.useFakeTimers();
-    const defaultInvoke = invokeMock.getMockImplementation();
     let rejectNextAudioSave = true;
-    invokeMock.mockImplementation(
-      async (channel: string, ...args: unknown[]) => {
-        if (
-          channel === HOSHIDICTS_CHANNELS.setAudioProfile &&
-          rejectNextAudioSave
-        ) {
+    ipc.configure({
+      handlers: {
+        [HOSHIDICTS_CHANNELS.setAudioProfile]: () => {
+          if (!rejectNextAudioSave) return undefined;
           rejectNextAudioSave = false;
           return {
             success: false,
             error: "Audio profile was rejected.",
-            state: { ...baseState, revision: ++revision }
+            state: { ...baseState, revision: ipc.nextRevision() }
           };
         }
-        return await defaultInvoke?.(channel, ...args);
       }
-    );
+    });
     await render();
     await openView("Audio");
 
-    await act(async () => {
+    await flushAfter(() =>
       container
         .querySelector<HTMLInputElement>("#hoshidicts-audio-autoplay")
-        ?.click();
-      await flushAutosave();
-    });
+        ?.click()
+    );
     expect(callsFor(HOSHIDICTS_CHANNELS.setAudioProfile)).toHaveLength(1);
     expect(container.textContent).toContain("Save failed");
 
@@ -4283,12 +3178,11 @@ describe("HoshidictsSettingsWindow", () => {
     });
     expect(callsFor(HOSHIDICTS_CHANNELS.setAudioProfile)).toHaveLength(1);
 
-    await act(async () => {
+    await flushAfter(() =>
       container
         .querySelector<HTMLInputElement>("#hoshidicts-audio-enabled")
-        ?.click();
-      await flushAutosave();
-    });
+        ?.click()
+    );
     expect(callsFor(HOSHIDICTS_CHANNELS.setAudioProfile)).toHaveLength(2);
     expect(container.textContent).toContain("Saved");
   });
@@ -4296,35 +3190,30 @@ describe("HoshidictsSettingsWindow", () => {
   it("queues edits made while an audio save is in flight", async () => {
     vi.useFakeTimers();
     const pendingSave = deferred<HoshidictsActionResult>();
-    const defaultInvoke = invokeMock.getMockImplementation();
     let firstAudioSave = true;
-    invokeMock.mockImplementation(
-      async (channel: string, ...args: unknown[]) => {
-        if (
-          channel === HOSHIDICTS_CHANNELS.setAudioProfile &&
-          firstAudioSave
-        ) {
+    ipc.configure({
+      handlers: {
+        [HOSHIDICTS_CHANNELS.setAudioProfile]: () => {
+          if (!firstAudioSave) return undefined;
           firstAudioSave = false;
-          return await pendingSave.promise;
+          return pendingSave.promise;
         }
-        return await defaultInvoke?.(channel, ...args);
       }
-    );
+    });
     await render();
     await openView("Audio");
 
-    await act(async () => {
+    await flushAfter(() =>
       container
         .querySelector<HTMLInputElement>("#hoshidicts-audio-autoplay")
-        ?.click();
-      await flushAutosave();
-    });
+        ?.click()
+    );
     const firstRequest = callsFor(HOSHIDICTS_CHANNELS.setAudioProfile)[0]?.[1] as
       | typeof baseState.audioProfile
       | undefined;
     expect(firstRequest?.autoPlay).toBe(true);
 
-    await act(async () => {
+    await settle(() => {
       setInputValue(
         container.querySelector<HTMLInputElement>("#hoshidicts-audio-volume"),
         "65"
@@ -4333,16 +3222,12 @@ describe("HoshidictsSettingsWindow", () => {
         success: true,
         state: {
           ...baseState,
-          revision: ++revision,
+          revision: ipc.nextRevision(),
           audioProfile: firstRequest ?? baseState.audioProfile
         }
       });
-      await Promise.resolve();
-      await Promise.resolve();
     });
-    await act(async () => {
-      await flushAutosave();
-    });
+    await act(flushAutosave);
 
     expect(callsFor(HOSHIDICTS_CHANNELS.setAudioProfile)).toHaveLength(2);
     expect(callsFor(HOSHIDICTS_CHANNELS.setAudioProfile)[1]?.[1]).toMatchObject({
@@ -4359,20 +3244,17 @@ describe("HoshidictsSettingsWindow", () => {
       "#hoshidicts-audio-volume"
     );
 
-    await act(async () => {
+    await settle(() => {
       setInputValue(volume, "65");
-      listeners.get(HOSHIDICTS_CHANNELS.progress)?.[0]?.({}, {
+      ipc.emit(HOSHIDICTS_CHANNELS.progress, {
         ...baseState,
-        revision: ++revision,
+        revision: ipc.nextRevision(),
         audioProfile: { ...baseState.audioProfile, volume: 5 }
       });
-      await Promise.resolve();
-    });
+    }, 1);
     expect(volume?.value).toBe("65");
 
-    await act(async () => {
-      await flushAutosave();
-    });
+    await act(flushAutosave);
     expect(callsFor(HOSHIDICTS_CHANNELS.setAudioProfile)[0]?.[1]).toMatchObject({
       volume: 65
     });
@@ -4480,7 +3362,7 @@ describe("HoshidictsSettingsWindow", () => {
     const checkAllNoteTypes = container.querySelector<HTMLInputElement>(
       "#hoshidicts-mining-check-all-note-types"
     );
-    await act(async () => {
+    await settle(() => {
       setSelectValue(
         container.querySelector<HTMLSelectElement>(
           "#hoshidicts-mining-duplicate-scope"
@@ -4494,8 +3376,7 @@ describe("HoshidictsSettingsWindow", () => {
         "overwrite"
       );
       checkAllNoteTypes?.click();
-      await Promise.resolve();
-    });
+    }, 1);
 
     expect(
       Array.from(
@@ -4506,14 +3387,13 @@ describe("HoshidictsSettingsWindow", () => {
       container.querySelectorAll('[id^="hoshidicts-mining-overwrite-"]')
     ).toHaveLength(8);
 
-    await act(async () => {
+    await flushAfter(() => {
       setSelectValue(
         container.querySelector<HTMLSelectElement>(
           '[data-anki-field="Expression"][data-field-control="overwrite"]'
         ),
         "overwrite"
       );
-      await flushAutosave();
     });
 
     expect(invokeMock).toHaveBeenCalledWith(
@@ -4539,7 +3419,7 @@ describe("HoshidictsSettingsWindow", () => {
     await render();
     await openView("Anki Mining");
 
-    await act(async () => {
+    await flushAfter(() => {
       setInputValue(
         container.querySelector<HTMLInputElement>(
           '[data-anki-field="Front"][data-field-control="value"]'
@@ -4558,7 +3438,6 @@ describe("HoshidictsSettingsWindow", () => {
         ),
         ""
       );
-      await flushAutosave();
     });
 
     expect(invokeMock).toHaveBeenCalledWith(
@@ -4590,28 +3469,19 @@ describe("HoshidictsSettingsWindow", () => {
   it("resets mappings for a new note type and ignores stale discovery", async () => {
     const lapisRequest = deferred<HoshidictsMiningOptions>();
     const kikuRequest = deferred<HoshidictsMiningOptions>();
-    const originalImplementation = invokeMock.getMockImplementation();
-    invokeMock.mockImplementation(
-      async (channel: string, ...args: unknown[]) => {
-        if (
-          channel === HOSHIDICTS_CHANNELS.getMiningOptions &&
-          args[0] === "Lapis"
-        ) {
-          return await lapisRequest.promise;
+    ipc.configure({
+      handlers: {
+        [HOSHIDICTS_CHANNELS.getMiningOptions]: (model) => {
+          if (model === "Lapis") return lapisRequest.promise;
+          if (model === "Kiku") return kikuRequest.promise;
+          return undefined;
         }
-        if (
-          channel === HOSHIDICTS_CHANNELS.getMiningOptions &&
-          args[0] === "Kiku"
-        ) {
-          return await kikuRequest.promise;
-        }
-        return await originalImplementation?.(channel, ...args);
       }
-    );
+    });
 
     await render();
     await openView("Anki Mining");
-    await act(async () => {
+    await settle(() => {
       setInputValue(
         container.querySelector<HTMLInputElement>(
           '[data-anki-field="Front"][data-field-control="value"]'
@@ -4627,10 +3497,8 @@ describe("HoshidictsSettingsWindow", () => {
         "Kiku"
       );
       kikuRequest.resolve(miningOptions);
-      await Promise.resolve();
-      await Promise.resolve();
     });
-    await act(async () => {
+    await settle(() => {
       lapisRequest.resolve({
         ...miningOptions,
         selectedNoteType: "Lapis",
@@ -4655,8 +3523,6 @@ describe("HoshidictsSettingsWindow", () => {
           }
         }
       });
-      await Promise.resolve();
-      await Promise.resolve();
     });
 
     expect(
@@ -4677,7 +3543,7 @@ describe("HoshidictsSettingsWindow", () => {
     await render();
     await openMining();
 
-    await act(async () => {
+    await settle(() => {
       setInputValue(
         container.querySelector<HTMLInputElement>(
           '[data-anki-field="Front"][data-field-control="value"]'
@@ -4688,11 +3554,10 @@ describe("HoshidictsSettingsWindow", () => {
         container.querySelector<HTMLSelectElement>("#hoshidicts-mining-model"),
         "Lapis"
       );
-      await Promise.resolve();
-    });
+    }, 1);
     await act(flushAutosave);
 
-    const saved = callsFor(HOSHIDICTS_CHANNELS.setMiningProfile).at(-1)?.[1];
+    const saved = lastCallFor(HOSHIDICTS_CHANNELS.setMiningProfile)?.[1];
     expect(saved).toMatchObject({
       model: "Lapis",
       fieldTemplates: null,
@@ -4737,7 +3602,7 @@ describe("HoshidictsSettingsWindow", () => {
       "Kiku"
     );
     expect(
-      callsFor(HOSHIDICTS_CHANNELS.setMiningProfile).at(-1)?.[1]
+      lastCallFor(HOSHIDICTS_CHANNELS.setMiningProfile)?.[1]
     ).toMatchObject({
       model: "Kiku",
       fieldTemplates: {
@@ -4745,13 +3610,11 @@ describe("HoshidictsSettingsWindow", () => {
       }
     });
 
-    await act(async () => {
+    await settle(() => {
       setSelectValue(
         container.querySelector<HTMLSelectElement>("#hoshidicts-mining-model"),
         ""
       );
-      await Promise.resolve();
-      await Promise.resolve();
     });
     await act(flushAutosave);
 
@@ -4760,7 +3623,7 @@ describe("HoshidictsSettingsWindow", () => {
       ""
     );
     expect(
-      callsFor(HOSHIDICTS_CHANNELS.setMiningProfile).at(-1)?.[1]
+      lastCallFor(HOSHIDICTS_CHANNELS.setMiningProfile)?.[1]
     ).toMatchObject({
       model: "",
       fieldTemplates: {
@@ -4771,54 +3634,37 @@ describe("HoshidictsSettingsWindow", () => {
 
   it("resets mappings when Automatic resolves to a different note type", async () => {
     const automaticRequest = deferred<HoshidictsMiningOptions>();
-    const originalImplementation = invokeMock.getMockImplementation();
-    invokeMock.mockImplementation(
-      async (channel: string, ...args: unknown[]) => {
-        if (channel === HOSHIDICTS_CHANNELS.getState) {
-          return {
-            ...baseState,
-            miningProfile: { ...baseState.miningProfile, model: "Lapis" }
-          };
-        }
-        if (
-          channel === HOSHIDICTS_CHANNELS.getMiningOptions &&
-          args[0] === ""
-        ) {
-          return await automaticRequest.promise;
-        }
-        if (channel === HOSHIDICTS_CHANNELS.getMiningOptions) {
-          return {
-            ...miningOptions,
-            selectedNoteType: "Lapis"
-          };
-        }
-        return await originalImplementation?.(channel, ...args);
+    ipc.configure({
+      state: makeHoshidictsSnapshot({
+        miningProfile: makeHoshidictsMiningProfile({ model: "Lapis" })
+      }),
+      miningOptions: makeHoshidictsMiningOptions({ selectedNoteType: "Lapis" }),
+      handlers: {
+        [HOSHIDICTS_CHANNELS.getMiningOptions]: (model) =>
+          model === "" ? automaticRequest.promise : undefined
       }
-    );
+    });
     vi.useFakeTimers();
     await render();
     await openMining();
 
-    await act(async () => {
+    await flushAfter(() => {
       setInputValue(
         container.querySelector<HTMLInputElement>(
           '[data-anki-field="Front"][data-field-control="value"]'
         ),
         "x"
       );
-      await flushAutosave();
     });
     const savesBeforeSwitch = callsFor(
       HOSHIDICTS_CHANNELS.setMiningProfile
     ).length;
 
-    await act(async () => {
+    await settle(() => {
       setSelectValue(
         container.querySelector<HTMLSelectElement>("#hoshidicts-mining-model"),
         ""
       );
-      await Promise.resolve();
-      await Promise.resolve();
     });
 
     expect(
@@ -4833,11 +3679,7 @@ describe("HoshidictsSettingsWindow", () => {
       savesBeforeSwitch
     );
 
-    await act(async () => {
-      automaticRequest.resolve(miningOptions);
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await settle(() => automaticRequest.resolve(miningOptions));
     await act(flushAutosave);
 
     expect(invokeMock).toHaveBeenCalledWith(
@@ -4845,7 +3687,7 @@ describe("HoshidictsSettingsWindow", () => {
       ""
     );
     expect(
-      callsFor(HOSHIDICTS_CHANNELS.setMiningProfile).at(-1)?.[1]
+      lastCallFor(HOSHIDICTS_CHANNELS.setMiningProfile)?.[1]
     ).toMatchObject({ model: "", fieldTemplates: null });
   });
 

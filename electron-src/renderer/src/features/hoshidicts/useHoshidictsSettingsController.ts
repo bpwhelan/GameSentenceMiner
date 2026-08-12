@@ -31,46 +31,23 @@ import {
   DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
   DEFAULT_HOSHIDICTS_THEME,
   HOSHIDICTS_CHANNELS,
-  MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
-  MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
-  MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
   MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH,
-  MAX_HOSHIDICTS_MAX_RESULTS,
-  MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
-  MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
-  MAX_HOSHIDICTS_POPUP_COLUMNS,
-  MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
-  MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT,
-  MAX_HOSHIDICTS_POPUP_WIDTH_PX,
-  MAX_HOSHIDICTS_SCAN_LENGTH,
-  MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
-  MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
-  MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
-  MIN_HOSHIDICTS_MAX_RESULTS,
-  MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
-  MIN_HOSHIDICTS_POPUP_COLUMNS,
-  MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
-  MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
-  MIN_HOSHIDICTS_POPUP_WIDTH_PX,
-  MIN_HOSHIDICTS_SCAN_LENGTH,
   type HoshidictsActionResult,
-  type HoshidictsActivationKey,
   type HoshidictsAudioProfile,
   type HoshidictsBulkDictionaryAction,
   type HoshidictsBulkDictionaryActionRequest,
   type HoshidictsCreateTabGroupRequest,
   type HoshidictsCreateProfileRequest,
   type HoshidictsCustomDictionaryDocument,
+  type HoshidictsDefinitionBlurPreferences,
   type HoshidictsDeleteTabGroupRequest,
   type HoshidictsDesktopSnapshot,
   type HoshidictsFieldOverwriteMode,
   type HoshidictsDictionaryPresentationRequest,
   type HoshidictsDictionaryScheduleRequest,
-  type HoshidictsLookupMode,
   type HoshidictsMiningOptions,
   type HoshidictsMiningProfile,
   type HoshidictsPopupButtons,
-  type HoshidictsPopupToolbarPosition,
   type HoshidictsMoveDirection,
   type HoshidictsMoveDictionaryToPositionRequest,
   type HoshidictsMoveTabGroupRequest,
@@ -83,8 +60,6 @@ import {
   type HoshidictsSaveCustomDictionaryRequest,
   type HoshidictsSchedule,
   type HoshidictsSetTabGroupMembershipRequest,
-  type HoshidictsSortFrequencyDictionaryOrder,
-  type HoshidictsTheme,
   type HoshidictsYomitanImportProgress
 } from "../../../../shared/features/hoshidicts";
 import { useTranslation } from "../../i18n";
@@ -180,19 +155,43 @@ function copyReaderPreferences(
   };
 }
 
-function readerPreferencesRequest(
-  preferences: HoshidictsReaderPreferences
+const READER_PREFERENCE_KEYS = Object.keys(
+  defaultReaderPreferences()
+) as Array<keyof HoshidictsReaderPreferences>;
+
+/** Reads the reader draft out of a normalized snapshot, key by key. */
+function readerDraftFromSnapshot(
+  snapshot: HoshidictsDesktopSnapshot
 ): HoshidictsReaderPreferences {
-  const request = copyReaderPreferences(preferences);
-  if (
-    request.popupBackdropBlurPx ===
-    DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX
-  ) {
-    delete (request as Partial<HoshidictsReaderPreferences>)
-      .popupBackdropBlurPx;
+  const draft = defaultReaderPreferences();
+  const values = draft as unknown as Record<string, unknown>;
+  for (const key of READER_PREFERENCE_KEYS) {
+    const value = (snapshot as Partial<HoshidictsReaderPreferences>)[key];
+    if (value !== undefined) values[key] = value;
   }
-  return request;
+  return copyReaderPreferences(draft);
 }
+
+function clampInteger(
+  value: number,
+  minimum: number,
+  maximum: number
+): number | null {
+  if (!Number.isFinite(value)) return null;
+  return Math.min(maximum, Math.max(minimum, Math.round(value)));
+}
+
+type NumericReaderPreference = {
+  [K in keyof HoshidictsReaderPreferences]-?: HoshidictsReaderPreferences[K] extends number
+    ? K
+    : never;
+}[keyof HoshidictsReaderPreferences];
+
+type NumericDefinitionBlurPreference = {
+  [K in keyof HoshidictsDefinitionBlurPreferences]-?: HoshidictsDefinitionBlurPreferences[K] extends number
+    ? K
+    : never;
+}[keyof HoshidictsDefinitionBlurPreferences];
 
 function copyMiningDraft(draft: MiningProfileDraft): MiningProfileDraft {
   return {
@@ -216,15 +215,13 @@ function defaultMiningDraft(): MiningProfileDraft {
   return profileToDraft(DEFAULT_MINING_PROFILE);
 }
 
+// Hoisted so it keeps one identity: the autosave debounce depends on saveNow,
+// which depends on savedDraft, so an inline arrow would restart the timer on
+// every unrelated re-render.
 const savedReaderDraft = (
   _result: HoshidictsActionResult,
   request: HoshidictsReaderPreferences
-): HoshidictsReaderPreferences => ({
-  ...request,
-  popupBackdropBlurPx:
-    request.popupBackdropBlurPx ??
-    DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX
-});
+): HoshidictsReaderPreferences => request;
 
 const savedAudioDraft = (
   result: HoshidictsActionResult
@@ -299,48 +296,7 @@ export function useHoshidictsSettingsController() {
     const synchronizers = draftSynchronizersRef.current;
     if (!synchronizers) return normalized;
 
-    const reader = {
-      lookupMode: normalized.lookupMode,
-      scanLength: normalized.scanLength,
-      maxResults: normalized.maxResults,
-      sortFrequencyDictionary: normalized.sortFrequencyDictionary,
-      sortFrequencyDictionaryOrder: normalized.sortFrequencyDictionaryOrder,
-      activationKey: normalized.activationKey,
-      sourceHighlightEnabled: normalized.sourceHighlightEnabled,
-      onlyScanJapaneseText: normalized.onlyScanJapaneseText,
-      popupHideDelayMs: normalized.popupHideDelayMs,
-      showLookupCounts: normalized.showLookupCounts,
-      averageFrequency: normalized.averageFrequency,
-      showFrequencyDictionaryNames: normalized.showFrequencyDictionaryNames,
-      showCompactDefinitionSummary: normalized.showCompactDefinitionSummary,
-      compactDefinitionSummaryCount:
-        normalized.compactDefinitionSummaryCount,
-      compactDefinitionSummaryDictionary:
-        normalized.compactDefinitionSummaryDictionary,
-      showPitchAccentFurigana: normalized.showPitchAccentFurigana,
-      pitchAccentFuriganaDictionary:
-        normalized.pitchAccentFuriganaDictionary,
-      showPitchAccentBadge: normalized.showPitchAccentBadge,
-      hidePopupGrammarTags: normalized.hidePopupGrammarTags,
-      popupNestingMaxDepth: normalized.popupNestingMaxDepth,
-      definitionBlur: { ...normalized.definitionBlur },
-      popupWidthPx: normalized.popupWidthPx,
-      popupHeightPx: normalized.popupHeightPx,
-      popupColumns: normalized.popupColumns,
-      theme: normalized.theme,
-      popupBackdropBlurPx:
-        normalized.popupBackdropBlurPx ??
-        DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
-      popupOpacityPercent: normalized.popupOpacityPercent,
-      popupToolbarPosition: normalized.popupToolbarPosition,
-      popupButtons: {
-        ...normalized.popupButtons,
-        customLinks: normalized.popupButtons.customLinks.map((link) => ({
-          ...link
-        }))
-      },
-      customPopupCss: normalized.customPopupCss
-    };
+    const reader = readerDraftFromSnapshot(normalized);
     const mining = profileToDraft(normalized.miningProfile);
     const audio = copyAudioProfile(normalized.audioProfile);
     if (!initializedRef.current) {
@@ -398,7 +354,7 @@ export function useHoshidictsSettingsController() {
   const readerAutosave = useHoshidictsAutosave({
     initialDraft: defaultReaderPreferences,
     cloneDraft: copyReaderPreferences,
-    toRequest: readerPreferencesRequest,
+    toRequest: copyReaderPreferences,
     savedDraft: savedReaderDraft,
     channel: HOSHIDICTS_CHANNELS.setReaderPreferences,
     errorFallback: t("settings.hoshidicts.errors.readerPreferences"),
@@ -645,204 +601,47 @@ export function useHoshidictsSettingsController() {
     }
   }, [applyResult, customDirty, customDocument, customDraft, customSaving, t]);
 
-  const updateReaderPreferences = useCallback(
-    (update: Partial<HoshidictsReaderPreferences>) => {
-      updateReaderDraft((current) => ({ ...current, ...update }));
+  const setReaderPreference = useCallback(
+    <K extends keyof HoshidictsReaderPreferences>(
+      key: K,
+      value: HoshidictsReaderPreferences[K]
+    ) => {
+      updateReaderDraft((current) => ({ ...current, [key]: value }));
     },
     [updateReaderDraft]
   );
 
-  const setLookupMode = useCallback(
-    (lookupMode: HoshidictsLookupMode) => {
-      updateReaderPreferences({ lookupMode });
+  const setBoundedReaderInteger = useCallback(
+    (
+      key: NumericReaderPreference,
+      value: number,
+      minimum: number,
+      maximum: number
+    ) => {
+      const bounded = clampInteger(value, minimum, maximum);
+      if (bounded !== null) setReaderPreference(key, bounded);
     },
-    [updateReaderPreferences]
-  );
-
-  const setScanLength = useCallback(
-    (scanLength: number) => {
-      if (!Number.isFinite(scanLength)) return;
-      updateReaderPreferences({
-        scanLength: Math.min(
-          MAX_HOSHIDICTS_SCAN_LENGTH,
-          Math.max(MIN_HOSHIDICTS_SCAN_LENGTH, Math.round(scanLength))
-        )
-      });
-    },
-    [updateReaderPreferences]
-  );
-
-  const setMaxResults = useCallback(
-    (maxResults: number) => {
-      if (!Number.isFinite(maxResults)) return;
-      updateReaderPreferences({
-        maxResults: Math.min(
-          MAX_HOSHIDICTS_MAX_RESULTS,
-          Math.max(MIN_HOSHIDICTS_MAX_RESULTS, Math.round(maxResults))
-        )
-      });
-    },
-    [updateReaderPreferences]
-  );
-
-  const setSortFrequencyDictionary = useCallback(
-    (sortFrequencyDictionary: string | null) => {
-      updateReaderPreferences({
-        sortFrequencyDictionary:
-          sortFrequencyDictionary && sortFrequencyDictionary.length > 0
-            ? sortFrequencyDictionary
-            : null
-      });
-    },
-    [updateReaderPreferences]
-  );
-
-  const setSortFrequencyDictionaryOrder = useCallback(
-    (sortFrequencyDictionaryOrder: HoshidictsSortFrequencyDictionaryOrder) => {
-      updateReaderPreferences({ sortFrequencyDictionaryOrder });
-    },
-    [updateReaderPreferences]
-  );
-
-  const setActivationKey = useCallback(
-    (activationKey: HoshidictsActivationKey) => {
-      updateReaderPreferences({ activationKey });
-    },
-    [updateReaderPreferences]
-  );
-
-  const setSourceHighlightEnabled = useCallback(
-    (sourceHighlightEnabled: boolean) => {
-      updateReaderPreferences({ sourceHighlightEnabled });
-    },
-    [updateReaderPreferences]
-  );
-
-  const setOnlyScanJapaneseText = useCallback(
-    (onlyScanJapaneseText: boolean) => {
-      updateReaderPreferences({ onlyScanJapaneseText });
-    },
-    [updateReaderPreferences]
-  );
-
-  const setPopupHideDelayMs = useCallback(
-    (popupHideDelayMs: number) => {
-      if (!Number.isFinite(popupHideDelayMs)) return;
-      updateReaderPreferences({
-        popupHideDelayMs: Math.min(
-          MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
-          Math.max(0, Math.round(popupHideDelayMs))
-        )
-      });
-    },
-    [updateReaderPreferences]
-  );
-
-  const setPopupWidthPx = useCallback(
-    (popupWidthPx: number) => {
-      if (!Number.isFinite(popupWidthPx)) return;
-      updateReaderPreferences({
-        popupWidthPx: Math.min(
-          MAX_HOSHIDICTS_POPUP_WIDTH_PX,
-          Math.max(MIN_HOSHIDICTS_POPUP_WIDTH_PX, Math.round(popupWidthPx))
-        )
-      });
-    },
-    [updateReaderPreferences]
-  );
-
-  const setPopupHeightPx = useCallback(
-    (popupHeightPx: number) => {
-      if (!Number.isFinite(popupHeightPx)) return;
-      updateReaderPreferences({
-        popupHeightPx: Math.min(
-          MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
-          Math.max(MIN_HOSHIDICTS_POPUP_HEIGHT_PX, Math.round(popupHeightPx))
-        )
-      });
-    },
-    [updateReaderPreferences]
-  );
-
-  const setPopupColumns = useCallback(
-    (popupColumns: number) => {
-      if (!Number.isFinite(popupColumns)) return;
-      updateReaderPreferences({
-        popupColumns: Math.min(
-          MAX_HOSHIDICTS_POPUP_COLUMNS,
-          Math.max(MIN_HOSHIDICTS_POPUP_COLUMNS, Math.round(popupColumns))
-        )
-      });
-    },
-    [updateReaderPreferences]
-  );
-
-  const setTheme = useCallback(
-    (theme: HoshidictsTheme) => updateReaderPreferences({ theme }),
-    [updateReaderPreferences]
-  );
-
-  const setPopupOpacityPercent = useCallback(
-    (popupOpacityPercent: number) => {
-      if (!Number.isFinite(popupOpacityPercent)) return;
-      updateReaderPreferences({
-        popupOpacityPercent: Math.min(
-          MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT,
-          Math.max(
-            MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
-            Math.round(popupOpacityPercent)
-          )
-        )
-      });
-    },
-    [updateReaderPreferences]
-  );
-
-  const setPopupBackdropBlurPx = useCallback(
-    (popupBackdropBlurPx: number) => {
-      if (!Number.isFinite(popupBackdropBlurPx)) return;
-      updateReaderPreferences({
-        popupBackdropBlurPx: Math.min(
-          MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
-          Math.max(
-            MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
-            Math.round(popupBackdropBlurPx)
-          )
-        )
-      });
-    },
-    [updateReaderPreferences]
-  );
-
-  const setPopupToolbarPosition = useCallback(
-    (popupToolbarPosition: HoshidictsPopupToolbarPosition) => {
-      updateReaderPreferences({ popupToolbarPosition });
-    },
-    [updateReaderPreferences]
+    [setReaderPreference]
   );
 
   const setCustomPopupCss = useCallback(
     (customPopupCss: string) => {
-      updateReaderPreferences({
-        customPopupCss: customPopupCss.slice(
-          0,
-          MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH
-        )
-      });
+      setReaderPreference(
+        "customPopupCss",
+        customPopupCss.slice(0, MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH)
+      );
     },
-    [updateReaderPreferences]
+    [setReaderPreference]
   );
 
   const updatePopupButtons = useCallback(
     (update: Partial<HoshidictsPopupButtons>) => {
-      updateReaderPreferences({
-        popupButtons: {
-          ...readerDraftRef.current.popupButtons,
-          ...update
-        }
+      setReaderPreference("popupButtons", {
+        ...readerDraftRef.current.popupButtons,
+        ...update
       });
     },
-    [updateReaderPreferences]
+    [readerDraftRef, setReaderPreference]
   );
 
   const setPopupButtonEnabled = useCallback(
@@ -865,170 +664,50 @@ export function useHoshidictsSettingsController() {
   );
 
   const resetPopupSize = useCallback(() => {
-    updateReaderPreferences({
+    updateReaderDraft((current) => ({
+      ...current,
       popupWidthPx: DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX,
       popupHeightPx: DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX
-    });
-  }, [updateReaderPreferences]);
+    }));
+  }, [updateReaderDraft]);
 
-  const setShowLookupCounts = useCallback(
-    (showLookupCounts: boolean) => {
-      updateReaderPreferences({ showLookupCounts });
-    },
-    [updateReaderPreferences]
-  );
-
-  const setAverageFrequency = useCallback(
-    (averageFrequency: boolean) => {
-      updateReaderPreferences({ averageFrequency });
-    },
-    [updateReaderPreferences]
-  );
-
-  const setShowFrequencyDictionaryNames = useCallback(
-    (showFrequencyDictionaryNames: boolean) => {
-      updateReaderPreferences({ showFrequencyDictionaryNames });
-    },
-    [updateReaderPreferences]
-  );
-
-  const setShowCompactDefinitionSummary = useCallback(
-    (showCompactDefinitionSummary: boolean) => {
-      updateReaderPreferences({ showCompactDefinitionSummary });
-    },
-    [updateReaderPreferences]
-  );
-
-  const setCompactDefinitionSummaryCount = useCallback(
-    (compactDefinitionSummaryCount: number) => {
-      if (!Number.isFinite(compactDefinitionSummaryCount)) return;
-      updateReaderPreferences({
-        compactDefinitionSummaryCount: Math.min(
-          MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
-          Math.max(
-            MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
-            Math.round(compactDefinitionSummaryCount)
-          )
-        )
-      });
-    },
-    [updateReaderPreferences]
-  );
-
-  const setCompactDefinitionSummaryDictionary = useCallback(
-    (compactDefinitionSummaryDictionary: string | null) => {
-      updateReaderPreferences({ compactDefinitionSummaryDictionary });
-    },
-    [updateReaderPreferences]
-  );
-
-  const setShowPitchAccentFurigana = useCallback(
-    (showPitchAccentFurigana: boolean) => {
-      updateReaderPreferences({ showPitchAccentFurigana });
-    },
-    [updateReaderPreferences]
-  );
-
-  const setPitchAccentFuriganaDictionary = useCallback(
-    (pitchAccentFuriganaDictionary: string | null) => {
-      updateReaderPreferences({ pitchAccentFuriganaDictionary });
-    },
-    [updateReaderPreferences]
-  );
-
-  const setShowPitchAccentBadge = useCallback(
-    (showPitchAccentBadge: boolean) => {
-      updateReaderPreferences({ showPitchAccentBadge });
-    },
-    [updateReaderPreferences]
-  );
-
-  const setHidePopupGrammarTags = useCallback(
-    (hidePopupGrammarTags: boolean) => {
-      updateReaderPreferences({ hidePopupGrammarTags });
-    },
-    [updateReaderPreferences]
-  );
-
-  const updateDefinitionBlur = useCallback(
-    (
-      update: Partial<HoshidictsReaderPreferences["definitionBlur"]>
+  const setDefinitionBlurPreference = useCallback(
+    <K extends keyof HoshidictsDefinitionBlurPreferences>(
+      key: K,
+      value: HoshidictsDefinitionBlurPreferences[K]
     ) => {
-      updateReaderPreferences({
-        definitionBlur: {
-          ...readerDraftRef.current.definitionBlur,
-          ...update
-        }
+      setReaderPreference("definitionBlur", {
+        ...readerDraftRef.current.definitionBlur,
+        [key]: value
       });
     },
-    [updateReaderPreferences]
+    [readerDraftRef, setReaderPreference]
   );
 
-  const setDefinitionBlurEnabled = useCallback(
-    (enabled: boolean) => updateDefinitionBlur({ enabled }),
-    [updateDefinitionBlur]
-  );
-
-  const setDefinitionBlurLookupThreshold = useCallback(
-    (lookupThreshold: number) => {
-      if (!Number.isFinite(lookupThreshold)) return;
-      updateDefinitionBlur({
-        lookupThreshold: Math.min(
-          MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
-          Math.max(
-            MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
-            Math.round(lookupThreshold)
-          )
-        )
-      });
+  const setBoundedDefinitionBlurInteger = useCallback(
+    (
+      key: NumericDefinitionBlurPreference,
+      value: number,
+      minimum: number,
+      maximum: number
+    ) => {
+      const bounded = clampInteger(value, minimum, maximum);
+      if (bounded !== null) setDefinitionBlurPreference(key, bounded);
     },
-    [updateDefinitionBlur]
+    [setDefinitionBlurPreference]
   );
 
-  const setDefinitionBlurRevealMode = useCallback(
-    (revealMode: HoshidictsReaderPreferences["definitionBlur"]["revealMode"]) =>
-      updateDefinitionBlur({ revealMode }),
-    [updateDefinitionBlur]
-  );
-
-  const setDefinitionBlurRevealDelayMs = useCallback(
-    (revealDelayMs: number) => {
-      if (!Number.isFinite(revealDelayMs)) return;
-      updateDefinitionBlur({
-        revealDelayMs: Math.min(
-          MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
-          Math.max(
-            MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
-            Math.round(revealDelayMs)
-          )
-        )
-      });
-    },
-    [updateDefinitionBlur]
-  );
-
+  // Zero disables nested popups, so enabling restores one child level.
   const setPopupContentScanningEnabled = useCallback(
     (enabled: boolean) => {
-      const currentDepth = readerDraftRef.current.popupNestingMaxDepth;
-      updateReaderPreferences({
-        popupNestingMaxDepth: enabled ? Math.max(1, currentDepth) : 0
-      });
+      setReaderPreference(
+        "popupNestingMaxDepth",
+        enabled ? Math.max(1, readerDraftRef.current.popupNestingMaxDepth) : 0
+      );
     },
-    [updateReaderPreferences]
+    [readerDraftRef, setReaderPreference]
   );
 
-  const setPopupNestingMaxDepth = useCallback(
-    (popupNestingMaxDepth: number) => {
-      if (!Number.isFinite(popupNestingMaxDepth)) return;
-      updateReaderPreferences({
-        popupNestingMaxDepth: Math.min(
-          Number.MAX_SAFE_INTEGER,
-          Math.max(1, Math.round(popupNestingMaxDepth))
-        )
-      });
-    },
-    [updateReaderPreferences]
-  );
   const setMiningModel = useCallback(
     (model: string) => {
       const previousEffectiveModel = miningOptions.selectedNoteType;
@@ -1434,42 +1113,15 @@ export function useHoshidictsSettingsController() {
     state,
     readerDraft,
     readerSaveStatus,
-    setLookupMode,
-    setScanLength,
-    setMaxResults,
-    setSortFrequencyDictionary,
-    setSortFrequencyDictionaryOrder,
-    setActivationKey,
-    setSourceHighlightEnabled,
-    setOnlyScanJapaneseText,
-    setPopupHideDelayMs,
-    setPopupWidthPx,
-    setPopupHeightPx,
-    setPopupColumns,
-    setTheme,
-    setPopupBackdropBlurPx,
-    setPopupOpacityPercent,
-    setPopupToolbarPosition,
+    setReaderPreference,
+    setBoundedReaderInteger,
     setCustomPopupCss,
     setPopupButtonEnabled,
     setPopupCustomLinks,
     resetPopupSize,
-    setShowLookupCounts,
-    setAverageFrequency,
-    setShowFrequencyDictionaryNames,
-    setShowCompactDefinitionSummary,
-    setCompactDefinitionSummaryCount,
-    setCompactDefinitionSummaryDictionary,
-    setShowPitchAccentFurigana,
-    setPitchAccentFuriganaDictionary,
-    setShowPitchAccentBadge,
-    setHidePopupGrammarTags,
-    setDefinitionBlurEnabled,
-    setDefinitionBlurLookupThreshold,
-    setDefinitionBlurRevealMode,
-    setDefinitionBlurRevealDelayMs,
+    setDefinitionBlurPreference,
+    setBoundedDefinitionBlurInteger,
     setPopupContentScanningEnabled,
-    setPopupNestingMaxDepth,
     audioDraft,
     audioSaveStatus,
     updateAudioDraft,

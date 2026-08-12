@@ -21,7 +21,8 @@ import {
   useEffect,
   useMemo,
   useState,
-  type KeyboardEvent as ReactKeyboardEvent
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode
 } from "react";
 
 import {
@@ -40,6 +41,9 @@ import {
   type HoshidictsSchedule
 } from "../../../../shared/features/hoshidicts";
 import { useTranslation } from "../../i18n";
+import { HoshidictsNumberSetting } from "./components/HoshidictsNumberSetting";
+import { HoshidictsSelectSetting } from "./components/HoshidictsSelectSetting";
+import { HoshidictsToggleSetting } from "./components/HoshidictsToggleSetting";
 import {
   MINING_FIELD_TEMPLATE_SUGGESTIONS,
   RECOMMENDED_KEYS,
@@ -49,7 +53,8 @@ import {
   resolvedMiningFieldTemplate,
   sortFrequencyDictionaryOrderForMode,
   summarizeCustomDictionaryText,
-  visibleMiningFields
+  visibleMiningFields,
+  type MiningProfileDraft
 } from "./hoshidictsSettingsModel";
 import { HoshidictsSaveIndicator } from "./HoshidictsSaveIndicator";
 import type { useHoshidictsSettingsController } from "./useHoshidictsSettingsController";
@@ -73,6 +78,87 @@ const SCHEDULE_KEYS: Record<HoshidictsSchedule, string> = {
   monthly: "settings.hoshidicts.schedules.monthly"
 };
 
+const SCHEDULE_ENTRIES = Object.entries(SCHEDULE_KEYS) as Array<
+  [HoshidictsSchedule, string]
+>;
+
+const LOOKUP_LIMITS = [
+  {
+    id: "hoshidicts-scan-length",
+    key: "scanLength",
+    labelKey: "settings.hoshidicts.reader.lookup.scanLength",
+    min: MIN_HOSHIDICTS_SCAN_LENGTH,
+    max: MAX_HOSHIDICTS_SCAN_LENGTH
+  },
+  {
+    id: "hoshidicts-max-results",
+    key: "maxResults",
+    labelKey: "settings.hoshidicts.reader.lookup.maxResults",
+    min: MIN_HOSHIDICTS_MAX_RESULTS,
+    max: MAX_HOSHIDICTS_MAX_RESULTS
+  }
+] as const;
+
+const DUPLICATE_SCOPES = [
+  { value: "collection", labelKey: "settings.hoshidicts.mining.scopeCollection" },
+  { value: "deck", labelKey: "settings.hoshidicts.mining.scopeDeck" },
+  { value: "deck-root", labelKey: "settings.hoshidicts.mining.scopeDeckRoot" }
+] as const;
+
+const DUPLICATE_BEHAVIORS = [
+  { value: "prevent", labelKey: "settings.hoshidicts.mining.preventAdding" },
+  {
+    value: "overwrite",
+    labelKey: "settings.hoshidicts.mining.allowOverwriting"
+  },
+  { value: "new", labelKey: "settings.hoshidicts.mining.allowAdding" }
+] as const;
+
+const BULK_DICTIONARY_ACTIONS: ReadonlyArray<{
+  action: HoshidictsBulkDictionaryAction;
+  labelKey: string;
+  scope: "all" | "terms" | "updatable";
+  secondary?: boolean;
+  refreshIcon?: boolean;
+}> = [
+  {
+    action: "enable",
+    labelKey: "settings.hoshidicts.dictionaryBulk.enable",
+    scope: "all"
+  },
+  {
+    action: "disable",
+    labelKey: "settings.hoshidicts.dictionaryBulk.disable",
+    scope: "all"
+  },
+  {
+    action: "favorite",
+    labelKey: "settings.hoshidicts.dictionaryBulk.favorite",
+    scope: "terms",
+    secondary: true
+  },
+  {
+    action: "unfavorite",
+    labelKey: "settings.hoshidicts.dictionaryBulk.unfavorite",
+    scope: "terms",
+    secondary: true
+  },
+  {
+    action: "update",
+    labelKey: "settings.hoshidicts.dictionaryBulk.updateNow",
+    scope: "updatable",
+    secondary: true,
+    refreshIcon: true
+  }
+];
+
+const DICTIONARY_ENTRY_COUNTS = [
+  { field: "termCount", labelKey: "settings.hoshidicts.terms" },
+  { field: "frequencyCount", labelKey: "settings.hoshidicts.frequencies" },
+  { field: "pitchCount", labelKey: "settings.hoshidicts.pitches" },
+  { field: "kanjiCount", labelKey: "settings.hoshidicts.kanjiEntries" }
+] as const;
+
 type DictionaryScheduleChoice = "global" | HoshidictsSchedule;
 
 function dictionaryDisplayName(dictionary: {
@@ -80,6 +166,71 @@ function dictionaryDisplayName(dictionary: {
   displayName: string | null;
 }): string {
   return dictionary.displayName ?? dictionary.title;
+}
+
+function isDictionaryPosition(value: string, total: number): boolean {
+  const position = Number(value);
+  return Number.isInteger(position) && position >= 1 && position <= total;
+}
+
+/**
+ * One editor inside a dictionary action menu: a labelled control, a hint and
+ * save/cancel buttons that close the menu once the edit is accepted.
+ */
+function DictionaryMenuForm({
+  className,
+  ariaLabel,
+  label,
+  hint,
+  hintId,
+  submitLabel,
+  submitDisabled,
+  extraAction,
+  children,
+  onSubmit,
+  onCancel
+}: {
+  className: string;
+  ariaLabel?: string;
+  label: string;
+  hint: string;
+  hintId?: string;
+  submitLabel: string;
+  submitDisabled: boolean;
+  extraAction?: ReactNode;
+  children: ReactNode;
+  /** Returns false to keep the menu open, for example on invalid input. */
+  onSubmit: () => boolean;
+  onCancel: () => void;
+}) {
+  const t = useTranslation();
+
+  return (
+    <form
+      className={className}
+      aria-label={ariaLabel}
+      onSubmit={(event) => {
+        event.preventDefault();
+        const menu = event.currentTarget.closest("details");
+        if (onSubmit()) menu?.removeAttribute("open");
+      }}
+    >
+      <label className="hoshidicts-setting">
+        <span>{label}</span>
+        {children}
+      </label>
+      <small id={hintId}>{hint}</small>
+      <div>
+        <button type="submit" disabled={submitDisabled}>
+          {submitLabel}
+        </button>
+        <button type="button" className="secondary" onClick={onCancel}>
+          {t("settings.hoshidicts.dictionaryActions.cancel")}
+        </button>
+        {extraAction}
+      </div>
+    </form>
+  );
 }
 
 function CreateTabGroupForm({
@@ -191,7 +342,10 @@ function TabGroupsSection({ controller }: { controller: Controller }) {
         ) : (
           <div className="hoshidicts-tab-groups__list">
             {state.tabGroups.map((group, index) => (
-              <div className="hoshidicts-tab-group-row" key={group.id}>
+              <div
+                className="hoshidicts-list-row hoshidicts-tab-group-row"
+                key={group.id}
+              >
                 {groupRename?.id === group.id ? (
                   <form
                     className="hoshidicts-tab-group-row__rename"
@@ -441,7 +595,7 @@ function ActivationKeyControl({
   };
 
   return (
-    <div className="hoshidicts-activation-key">
+    <div className="hoshidicts-setting hoshidicts-activation-key">
       <span>{t("settings.hoshidicts.reader.activationKey")}</span>
       <div className="hoshidicts-activation-key__controls">
         <output
@@ -544,7 +698,7 @@ export function CustomDictionaryPanel({
             <code>{customDocument.filePath}</code>
           </div>
 
-          <label className="hoshidicts-custom__editor">
+          <label className="hoshidicts-setting hoshidicts-custom__editor">
             <span>{t("settings.hoshidicts.custom.editorLabel")}</span>
             <textarea
               id="hoshidicts-custom-dictionary-editor"
@@ -645,16 +799,9 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
     state,
     readerDraft,
     readerSaveStatus,
-    setLookupMode,
-    setActivationKey,
-    setScanLength,
-    setMaxResults,
-    setSortFrequencyDictionary,
-    setSortFrequencyDictionaryOrder,
-    setOnlyScanJapaneseText,
-    setPopupHideDelayMs,
+    setReaderPreference,
+    setBoundedReaderInteger,
     setPopupContentScanningEnabled,
-    setPopupNestingMaxDepth,
     backupOperation,
     yomitanImportProgress,
     backupBusy,
@@ -774,19 +921,12 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
   const selectedUpdatableDictionaryIds = selectedDictionaries
     .filter((dictionary) => dictionary.isUpdatable)
     .map((dictionary) => dictionary.id);
-  const runBulkDictionaryAction = (
-    action: HoshidictsBulkDictionaryAction
-  ) => {
-    const ids =
-      action === "favorite" || action === "unfavorite"
-        ? selectedTermDictionaryIds
-        : action === "update"
-          ? selectedUpdatableDictionaryIds
-          : selectedDictionaries.map((dictionary) => dictionary.id);
-    if (ids.length > 0) {
-      void actions.bulkDictionaryAction(action, ids);
-    }
-  };
+  const bulkActionIds = (scope: "all" | "terms" | "updatable") =>
+    scope === "terms"
+      ? selectedTermDictionaryIds
+      : scope === "updatable"
+        ? selectedUpdatableDictionaryIds
+        : selectedDictionaries.map((dictionary) => dictionary.id);
 
   const recommendedExpanded =
     recommendedExpandedOverride ??
@@ -889,7 +1029,7 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
               value="shift"
               checked={readerDraft.lookupMode === "shift"}
               disabled={preferencesBusy}
-              onChange={() => setLookupMode("shift")}
+              onChange={() => setReaderPreference("lookupMode", "shift")}
             />
             <span>
               <strong>
@@ -912,7 +1052,7 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
               value="hover"
               checked={readerDraft.lookupMode === "hover"}
               disabled={preferencesBusy}
-              onChange={() => setLookupMode("hover")}
+              onChange={() => setReaderPreference("lookupMode", "hover")}
             />
             <span>
               <strong>{t("settings.hoshidicts.reader.automaticHover")}</strong>
@@ -924,28 +1064,22 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
         <ActivationKeyControl
           activationKey={readerDraft.activationKey}
           disabled={preferencesBusy}
-          onChange={setActivationKey}
+          onChange={(activationKey) =>
+            setReaderPreference("activationKey", activationKey)
+          }
         />
 
-        <label className="hoshidicts-reader-japanese-only">
-          <input
-            id="hoshidicts-only-scan-japanese-text"
-            type="checkbox"
-            checked={readerDraft.onlyScanJapaneseText}
-            disabled={preferencesBusy}
-            onChange={(event) =>
-              setOnlyScanJapaneseText(event.currentTarget.checked)
-            }
-          />
-          <span>
-            <strong>
-              {t("settings.hoshidicts.reader.onlyScanJapaneseText")}
-            </strong>
-            <small>
-              {t("settings.hoshidicts.reader.onlyScanJapaneseTextHint")}
-            </small>
-          </span>
-        </label>
+        <HoshidictsToggleSetting
+          id="hoshidicts-only-scan-japanese-text"
+          className="hoshidicts-toggle--boxed"
+          label={t("settings.hoshidicts.reader.onlyScanJapaneseText")}
+          hint={t("settings.hoshidicts.reader.onlyScanJapaneseTextHint")}
+          checked={readerDraft.onlyScanJapaneseText}
+          disabled={preferencesBusy}
+          onChange={(value) =>
+            setReaderPreference("onlyScanJapaneseText", value)
+          }
+        />
 
         <div className="hoshidicts-reader-lookup-options">
           <div className="hoshidicts-reader-lookup-options__heading">
@@ -953,83 +1087,59 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
             <small>{t("settings.hoshidicts.reader.lookup.hint")}</small>
           </div>
           <div className="hoshidicts-reader-lookup-options__controls">
-            <label>
-              <span>{t("settings.hoshidicts.reader.lookup.scanLength")}</span>
-              <input
-                id="hoshidicts-scan-length"
-                type="number"
-                min={MIN_HOSHIDICTS_SCAN_LENGTH}
-                max={MAX_HOSHIDICTS_SCAN_LENGTH}
-                step={1}
-                value={readerDraft.scanLength}
+            {LOOKUP_LIMITS.map((limit) => (
+              <HoshidictsNumberSetting
+                key={limit.id}
+                id={limit.id}
+                label={t(limit.labelKey)}
+                hint={t(`${limit.labelKey}Hint`)}
+                min={limit.min}
+                max={limit.max}
+                value={readerDraft[limit.key]}
                 disabled={preferencesBusy}
-                onChange={(event) =>
-                  setScanLength(event.currentTarget.valueAsNumber)
+                onChange={(value) =>
+                  setBoundedReaderInteger(limit.key, value, limit.min, limit.max)
                 }
               />
-              <small>
-                {t("settings.hoshidicts.reader.lookup.scanLengthHint")}
-              </small>
-            </label>
-            <label>
-              <span>{t("settings.hoshidicts.reader.lookup.maxResults")}</span>
-              <input
-                id="hoshidicts-max-results"
-                type="number"
-                min={MIN_HOSHIDICTS_MAX_RESULTS}
-                max={MAX_HOSHIDICTS_MAX_RESULTS}
-                step={1}
-                value={readerDraft.maxResults}
-                disabled={preferencesBusy}
-                onChange={(event) =>
-                  setMaxResults(event.currentTarget.valueAsNumber)
+            ))}
+            <HoshidictsSelectSetting
+              id="hoshidicts-sort-frequency-dictionary"
+              label={t("settings.hoshidicts.reader.lookup.frequencyDictionary")}
+              hint={t(
+                "settings.hoshidicts.reader.lookup.frequencyDictionaryHint"
+              )}
+              value={readerDraft.sortFrequencyDictionary ?? ""}
+              disabled={preferencesBusy}
+              onChange={(selected) => {
+                const title = selected || null;
+                setReaderPreference("sortFrequencyDictionary", title);
+                if (title !== null) {
+                  const dictionary = state.dictionaries.find(
+                    (candidate) => candidate.title === title
+                  );
+                  setReaderPreference(
+                    "sortFrequencyDictionaryOrder",
+                    sortFrequencyDictionaryOrderForMode(
+                      dictionary?.frequencyMode ?? null
+                    )
+                  );
                 }
-              />
-              <small>
-                {t("settings.hoshidicts.reader.lookup.maxResultsHint")}
-              </small>
-            </label>
-            <label>
-              <span>
-                {t("settings.hoshidicts.reader.lookup.frequencyDictionary")}
-              </span>
-              <select
-                id="hoshidicts-sort-frequency-dictionary"
-                value={readerDraft.sortFrequencyDictionary ?? ""}
-                disabled={preferencesBusy}
-                onChange={(event) => {
-                  const title = event.currentTarget.value || null;
-                  setSortFrequencyDictionary(title);
-                  if (title !== null) {
-                    const dictionary = state.dictionaries.find(
-                      (candidate) => candidate.title === title
-                    );
-                    setSortFrequencyDictionaryOrder(
-                      sortFrequencyDictionaryOrderForMode(
-                        dictionary?.frequencyMode ?? null
-                      )
-                    );
-                  }
-                }}
-              >
-                <option value="">
-                  {t("settings.hoshidicts.reader.lookup.frequencyOff")}
-                </option>
-                {state.dictionaries
-                  .filter(
-                    (dictionary) =>
-                      dictionary.enabled && dictionary.frequencyCount > 0
-                  )
-                  .map((dictionary) => (
-                    <option key={dictionary.id} value={dictionary.title}>
-                      {dictionaryDisplayName(dictionary)}
-                    </option>
-                  ))}
-              </select>
-              <small>
-                {t("settings.hoshidicts.reader.lookup.frequencyDictionaryHint")}
-              </small>
-            </label>
+              }}
+            >
+              <option value="">
+                {t("settings.hoshidicts.reader.lookup.frequencyOff")}
+              </option>
+              {state.dictionaries
+                .filter(
+                  (dictionary) =>
+                    dictionary.enabled && dictionary.frequencyCount > 0
+                )
+                .map((dictionary) => (
+                  <option key={dictionary.id} value={dictionary.title}>
+                    {dictionaryDisplayName(dictionary)}
+                  </option>
+                ))}
+            </HoshidictsSelectSetting>
           </div>
 
           {readerDraft.sortFrequencyDictionary !== null ? (
@@ -1049,10 +1159,10 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                   onClick={() => {
                     const dictionary = state.dictionaries.find(
                       (candidate) =>
-                        candidate.title ===
-                        readerDraft.sortFrequencyDictionary
+                        candidate.title === readerDraft.sortFrequencyDictionary
                     );
-                    setSortFrequencyDictionaryOrder(
+                    setReaderPreference(
+                      "sortFrequencyDictionaryOrder",
                       sortFrequencyDictionaryOrderForMode(
                         dictionary?.frequencyMode ?? null
                       )
@@ -1066,7 +1176,8 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                   value={readerDraft.sortFrequencyDictionaryOrder}
                   disabled={preferencesBusy}
                   onChange={(event) =>
-                    setSortFrequencyDictionaryOrder(
+                    setReaderPreference(
+                      "sortFrequencyDictionaryOrder",
                       event.currentTarget.value === "ascending"
                         ? "ascending"
                         : "descending"
@@ -1079,9 +1190,7 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                     )}
                   </option>
                   <option value="ascending">
-                    {t(
-                      "settings.hoshidicts.reader.lookup.frequencyRankBased"
-                    )}
+                    {t("settings.hoshidicts.reader.lookup.frequencyRankBased")}
                   </option>
                 </select>
               </div>
@@ -1089,66 +1198,55 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
           ) : null}
         </div>
 
-
-        <label className="hoshidicts-reader-delay">
-          <span>{t("settings.hoshidicts.reader.hideDelay")}</span>
-          <div>
-            <input
-              id="hoshidicts-popup-hide-delay"
-              type="number"
-              min={0}
-              max={MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS}
-              step={50}
-              value={readerDraft.popupHideDelayMs}
-              disabled={preferencesBusy}
-              onChange={(event) =>
-                setPopupHideDelayMs(event.currentTarget.valueAsNumber)
-              }
-            />
-            <span>{t("settings.hoshidicts.reader.milliseconds")}</span>
-          </div>
-          <small>{t("settings.hoshidicts.reader.hideDelayHint")}</small>
-        </label>
+        <HoshidictsNumberSetting
+          id="hoshidicts-popup-hide-delay"
+          className="hoshidicts-reader-delay"
+          label={t("settings.hoshidicts.reader.hideDelay")}
+          hint={t("settings.hoshidicts.reader.hideDelayHint")}
+          unit={t("settings.hoshidicts.reader.milliseconds")}
+          min={0}
+          max={MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS}
+          step={50}
+          value={readerDraft.popupHideDelayMs}
+          disabled={preferencesBusy}
+          onChange={(value) =>
+            setBoundedReaderInteger(
+              "popupHideDelayMs",
+              value,
+              0,
+              MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS
+            )
+          }
+        />
 
         <div className="hoshidicts-reader-popup-scanning">
-          <label className="hoshidicts-reader-popup-scanning__toggle">
-            <input
-              id="hoshidicts-popup-content-scanning"
-              type="checkbox"
-              checked={readerDraft.popupNestingMaxDepth > 0}
-              disabled={preferencesBusy}
-              onChange={(event) =>
-                setPopupContentScanningEnabled(event.currentTarget.checked)
-              }
-            />
-            <span>
-              <strong>
-                {t("settings.hoshidicts.reader.allowPopupContentScanning")}
-              </strong>
-              <small>
-                {t("settings.hoshidicts.reader.allowPopupContentScanningHint")}
-              </small>
-            </span>
-          </label>
+          <HoshidictsToggleSetting
+            id="hoshidicts-popup-content-scanning"
+            label={t("settings.hoshidicts.reader.allowPopupContentScanning")}
+            hint={t("settings.hoshidicts.reader.allowPopupContentScanningHint")}
+            checked={readerDraft.popupNestingMaxDepth > 0}
+            disabled={preferencesBusy}
+            onChange={setPopupContentScanningEnabled}
+          />
 
           {readerDraft.popupNestingMaxDepth > 0 ? (
-            <label className="hoshidicts-reader-depth">
-              <span>{t("settings.hoshidicts.reader.maxChildPopups")}</span>
-              <input
-                id="hoshidicts-popup-nesting-max-depth"
-                type="number"
-                min={1}
-                step={1}
-                value={readerDraft.popupNestingMaxDepth}
-                disabled={preferencesBusy}
-                onChange={(event) =>
-                  setPopupNestingMaxDepth(event.currentTarget.valueAsNumber)
-                }
-              />
-              <small>
-                {t("settings.hoshidicts.reader.maxChildPopupsHint")}
-              </small>
-            </label>
+            <HoshidictsNumberSetting
+              id="hoshidicts-popup-nesting-max-depth"
+              className="hoshidicts-reader-depth"
+              label={t("settings.hoshidicts.reader.maxChildPopups")}
+              hint={t("settings.hoshidicts.reader.maxChildPopupsHint")}
+              min={1}
+              value={readerDraft.popupNestingMaxDepth}
+              disabled={preferencesBusy}
+              onChange={(value) =>
+                setBoundedReaderInteger(
+                  "popupNestingMaxDepth",
+                  value,
+                  1,
+                  Number.MAX_SAFE_INTEGER
+                )
+              }
+            />
           ) : null}
         </div>
       </section>
@@ -1195,31 +1293,19 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
           ) : null}
         </div>
 
-        <label className="hoshidicts-schedule">
-          <span>{t("settings.hoshidicts.schedule")}</span>
-          <select
-            id="hoshidicts-update-schedule"
-            value={state.schedule}
-            disabled={dictionaryBusy}
-            onChange={(event) =>
-              void actions.setSchedule(event.target.value as HoshidictsSchedule)
-            }
-          >
-            <option value="off">{t("settings.hoshidicts.schedules.off")}</option>
-            <option value="hourly">
-              {t("settings.hoshidicts.schedules.hourly")}
-            </option>
-            <option value="daily">
-              {t("settings.hoshidicts.schedules.daily")}
-            </option>
-            <option value="weekly">
-              {t("settings.hoshidicts.schedules.weekly")}
-            </option>
-            <option value="monthly">
-              {t("settings.hoshidicts.schedules.monthly")}
-            </option>
-          </select>
-        </label>
+        <HoshidictsSelectSetting
+          id="hoshidicts-update-schedule"
+          label={t("settings.hoshidicts.schedule")}
+          value={state.schedule}
+          disabled={dictionaryBusy}
+          options={SCHEDULE_ENTRIES.map(([schedule, labelKey]) => ({
+            value: schedule,
+            label: t(labelKey)
+          }))}
+          onChange={(schedule) =>
+            void actions.setSchedule(schedule as HoshidictsSchedule)
+          }
+        />
 
         <div className="hoshidicts-check-times">
           <span>
@@ -1288,7 +1374,10 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
           hidden={!recommendedExpanded}
         >
           {state.recommendedDictionaries.map((dictionary) => (
-            <div className="hoshidicts-recommended-row" key={dictionary.id}>
+            <div
+              className="hoshidicts-list-row hoshidicts-recommended-row"
+              key={dictionary.id}
+            >
               <div>
                 <strong>{t(RECOMMENDED_KEYS[dictionary.id])}</strong>
                 <span>
@@ -1376,51 +1465,25 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
               </span>
             </div>
             <div className="hoshidicts-dictionary-bulk-actions">
-              <button
-                type="button"
-                disabled={dictionaryBusy || selectedDictionaries.length === 0}
-                onClick={() => runBulkDictionaryAction("enable")}
-              >
-                {t("settings.hoshidicts.dictionaryBulk.enable")}
-              </button>
-              <button
-                type="button"
-                disabled={dictionaryBusy || selectedDictionaries.length === 0}
-                onClick={() => runBulkDictionaryAction("disable")}
-              >
-                {t("settings.hoshidicts.dictionaryBulk.disable")}
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                disabled={
-                  dictionaryBusy || selectedTermDictionaryIds.length === 0
-                }
-                onClick={() => runBulkDictionaryAction("favorite")}
-              >
-                {t("settings.hoshidicts.dictionaryBulk.favorite")}
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                disabled={
-                  dictionaryBusy || selectedTermDictionaryIds.length === 0
-                }
-                onClick={() => runBulkDictionaryAction("unfavorite")}
-              >
-                {t("settings.hoshidicts.dictionaryBulk.unfavorite")}
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                disabled={
-                  dictionaryBusy || selectedUpdatableDictionaryIds.length === 0
-                }
-                onClick={() => runBulkDictionaryAction("update")}
-              >
-                <RefreshCw size={16} aria-hidden="true" />
-                {t("settings.hoshidicts.dictionaryBulk.updateNow")}
-              </button>
+              {BULK_DICTIONARY_ACTIONS.map((bulk) => {
+                const ids = bulkActionIds(bulk.scope);
+                return (
+                  <button
+                    key={bulk.action}
+                    type="button"
+                    className={bulk.secondary ? "secondary" : undefined}
+                    disabled={dictionaryBusy || ids.length === 0}
+                    onClick={() =>
+                      void actions.bulkDictionaryAction(bulk.action, ids)
+                    }
+                  >
+                    {bulk.refreshIcon ? (
+                      <RefreshCw size={16} aria-hidden="true" />
+                    ) : null}
+                    {t(bulk.labelKey)}
+                  </button>
+                );
+              })}
             </div>
           </div>
         ) : null}
@@ -1437,7 +1500,7 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
           <div className="hoshidicts-dictionary-list">
             {matchingDictionaries.map(({ dictionary, index }) => (
               <div
-                className={`hoshidicts-dictionary-row ${
+                className={`hoshidicts-list-row hoshidicts-dictionary-row ${
                   dictionary.enabled ? "" : "is-disabled"
                 }`}
                 key={dictionary.id}
@@ -1573,34 +1636,13 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                           t("settings.hoshidicts.legacyJapanese")
                       })}
                     </span>
-                    {dictionary.termCount > 0 ? (
-                      <span>
-                        {t("settings.hoshidicts.terms", {
-                          count: dictionary.termCount
-                        })}
+                    {DICTIONARY_ENTRY_COUNTS.filter(
+                      ({ field }) => dictionary[field] > 0
+                    ).map(({ field, labelKey }) => (
+                      <span key={field}>
+                        {t(labelKey, { count: dictionary[field] })}
                       </span>
-                    ) : null}
-                    {dictionary.frequencyCount > 0 ? (
-                      <span>
-                        {t("settings.hoshidicts.frequencies", {
-                          count: dictionary.frequencyCount
-                        })}
-                      </span>
-                    ) : null}
-                    {dictionary.pitchCount > 0 ? (
-                      <span>
-                        {t("settings.hoshidicts.pitches", {
-                          count: dictionary.pitchCount
-                        })}
-                      </span>
-                    ) : null}
-                    {dictionary.kanjiCount > 0 ? (
-                      <span>
-                        {t("settings.hoshidicts.kanjiEntries", {
-                          count: dictionary.kanjiCount
-                        })}
-                      </span>
-                    ) : null}
+                    ))}
                     {dictionary.frequencyCount > 0 ? (
                       <span>
                         {t("settings.hoshidicts.frequencyMode", {
@@ -1658,75 +1700,39 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                           dictionary={dictionary}
                         />
                       ) : dictionaryRename?.id === dictionary.id ? (
-                        <form
+                        <DictionaryMenuForm
                           className="hoshidicts-dictionary-rename"
-                          aria-label={t(
+                          ariaLabel={t(
                             "settings.hoshidicts.dictionaryActions.renameForm",
                             { title: dictionaryDisplayName(dictionary) }
                           )}
-                          onSubmit={(event) => {
-                            event.preventDefault();
+                          label={t(
+                            "settings.hoshidicts.dictionaryActions.displayName"
+                          )}
+                          hintId={`hoshidicts-dictionary-rename-original-${dictionary.id}`}
+                          hint={t(
+                            "settings.hoshidicts.dictionaryActions.originalName",
+                            { title: dictionary.title }
+                          )}
+                          submitLabel={t(
+                            "settings.hoshidicts.dictionaryActions.saveName"
+                          )}
+                          submitDisabled={
+                            dictionaryBusy ||
+                            dictionaryRename.value.trim().length === 0
+                          }
+                          onSubmit={() => {
                             const displayName = dictionaryRename.value.trim();
-                            if (!displayName) return;
+                            if (!displayName) return false;
                             setDictionaryRename(null);
-                            event.currentTarget
-                              .closest("details")
-                              ?.removeAttribute("open");
                             void actions.renameDictionary(
                               dictionary.id,
                               displayName
                             );
+                            return true;
                           }}
-                        >
-                          <label>
-                            <span>
-                              {t(
-                                "settings.hoshidicts.dictionaryActions.displayName"
-                              )}
-                            </span>
-                            <input
-                              type="text"
-                              autoFocus
-                              required
-                              aria-describedby={`hoshidicts-dictionary-rename-original-${dictionary.id}`}
-                              value={dictionaryRename.value}
-                              onChange={(event) =>
-                                setDictionaryRename({
-                                  id: dictionary.id,
-                                  value: event.currentTarget.value
-                                })
-                              }
-                            />
-                          </label>
-                          <small
-                            id={`hoshidicts-dictionary-rename-original-${dictionary.id}`}
-                          >
-                            {t(
-                              "settings.hoshidicts.dictionaryActions.originalName",
-                              { title: dictionary.title }
-                            )}
-                          </small>
-                          <div>
-                            <button
-                              type="submit"
-                              disabled={
-                                dictionaryBusy ||
-                                dictionaryRename.value.trim().length === 0
-                              }
-                            >
-                              {t(
-                                "settings.hoshidicts.dictionaryActions.saveName"
-                              )}
-                            </button>
-                            <button
-                              type="button"
-                              className="secondary"
-                              onClick={() => setDictionaryRename(null)}
-                            >
-                              {t(
-                                "settings.hoshidicts.dictionaryActions.cancel"
-                              )}
-                            </button>
+                          onCancel={() => setDictionaryRename(null)}
+                          extraAction={
                             <button
                               type="button"
                               className="secondary hoshidicts-dictionary-rename__reset"
@@ -1748,168 +1754,129 @@ export function DictionariesPanel({ controller }: { controller: Controller }) {
                                 "settings.hoshidicts.dictionaryActions.resetName"
                               )}
                             </button>
-                          </div>
-                        </form>
+                          }
+                        >
+                          <input
+                            type="text"
+                            autoFocus
+                            required
+                            aria-describedby={`hoshidicts-dictionary-rename-original-${dictionary.id}`}
+                            value={dictionaryRename.value}
+                            onChange={(event) =>
+                              setDictionaryRename({
+                                id: dictionary.id,
+                                value: event.currentTarget.value
+                              })
+                            }
+                          />
+                        </DictionaryMenuForm>
                       ) : positionMove?.id === dictionary.id ? (
-                        <form
+                        <DictionaryMenuForm
                           className="hoshidicts-dictionary-position"
-                          onSubmit={(event) => {
-                            event.preventDefault();
-                            const position = Number(positionMove.value);
+                          label={t(
+                            "settings.hoshidicts.dictionaryActions.position"
+                          )}
+                          hint={t(
+                            "settings.hoshidicts.dictionaryActions.positionHint"
+                          )}
+                          submitLabel={t(
+                            "settings.hoshidicts.dictionaryActions.move"
+                          )}
+                          submitDisabled={
+                            dictionaryBusy ||
+                            !isDictionaryPosition(
+                              positionMove.value,
+                              state.dictionaries.length
+                            )
+                          }
+                          onSubmit={() => {
                             if (
-                              !Number.isInteger(position) ||
-                              position < 1 ||
-                              position > state.dictionaries.length
+                              !isDictionaryPosition(
+                                positionMove.value,
+                                state.dictionaries.length
+                              )
                             ) {
-                              return;
+                              return false;
                             }
                             setPositionMove(null);
-                            event.currentTarget
-                              .closest("details")
-                              ?.removeAttribute("open");
                             void actions.moveDictionaryToPosition(
                               dictionary.id,
-                              position
+                              Number(positionMove.value)
                             );
+                            return true;
                           }}
+                          onCancel={() => setPositionMove(null)}
                         >
-                          <label>
-                            <span>
-                              {t(
-                                "settings.hoshidicts.dictionaryActions.position"
-                              )}
-                            </span>
-                            <input
-                              type="number"
-                              min={1}
-                              max={state.dictionaries.length}
-                              step={1}
-                              autoFocus
-                              value={positionMove.value}
-                              onChange={(event) =>
-                                setPositionMove({
-                                  id: dictionary.id,
-                                  value: event.currentTarget.value
-                                })
-                              }
-                            />
-                          </label>
-                          <small>
-                            {t(
-                              "settings.hoshidicts.dictionaryActions.positionHint"
-                            )}
-                          </small>
-                          <div>
-                            <button
-                              type="submit"
-                              disabled={
-                                dictionaryBusy ||
-                                !Number.isInteger(Number(positionMove.value)) ||
-                                Number(positionMove.value) < 1 ||
-                                Number(positionMove.value) >
-                                  state.dictionaries.length
-                              }
-                            >
-                              {t(
-                                "settings.hoshidicts.dictionaryActions.move"
-                              )}
-                            </button>
-                            <button
-                              type="button"
-                              className="secondary"
-                              onClick={() => setPositionMove(null)}
-                            >
-                              {t(
-                                "settings.hoshidicts.dictionaryActions.cancel"
-                              )}
-                            </button>
-                          </div>
-                        </form>
+                          <input
+                            type="number"
+                            min={1}
+                            max={state.dictionaries.length}
+                            step={1}
+                            autoFocus
+                            value={positionMove.value}
+                            onChange={(event) =>
+                              setPositionMove({
+                                id: dictionary.id,
+                                value: event.currentTarget.value
+                              })
+                            }
+                          />
+                        </DictionaryMenuForm>
                       ) : dictionarySchedule?.id === dictionary.id ? (
-                        <form
+                        <DictionaryMenuForm
                           className="hoshidicts-dictionary-schedule"
-                          aria-label={t(
+                          ariaLabel={t(
                             "settings.hoshidicts.dictionaryActions.scheduleForm",
                             { title: dictionaryDisplayName(dictionary) }
                           )}
-                          onSubmit={(event) => {
-                            event.preventDefault();
+                          label={t(
+                            "settings.hoshidicts.dictionaryActions.schedule"
+                          )}
+                          hint={t(
+                            "settings.hoshidicts.dictionaryActions.scheduleHint"
+                          )}
+                          submitLabel={t(
+                            "settings.hoshidicts.dictionaryActions.saveSchedule"
+                          )}
+                          submitDisabled={dictionaryBusy}
+                          onSubmit={() => {
                             const schedule =
                               dictionarySchedule.value === "global"
                                 ? null
                                 : dictionarySchedule.value;
                             setDictionarySchedule(null);
-                            event.currentTarget
-                              .closest("details")
-                              ?.removeAttribute("open");
                             void actions.setDictionarySchedule(
                               dictionary.id,
                               schedule
                             );
+                            return true;
                           }}
+                          onCancel={() => setDictionarySchedule(null)}
                         >
-                          <label>
-                            <span>
+                          <select
+                            autoFocus
+                            value={dictionarySchedule.value}
+                            onChange={(event) =>
+                              setDictionarySchedule({
+                                id: dictionary.id,
+                                value: event.currentTarget
+                                  .value as DictionaryScheduleChoice
+                              })
+                            }
+                          >
+                            <option value="global">
                               {t(
-                                "settings.hoshidicts.dictionaryActions.schedule"
+                                "settings.hoshidicts.dictionaryActions.useGlobalSchedule",
+                                { schedule: t(SCHEDULE_KEYS[state.schedule]) }
                               )}
-                            </span>
-                            <select
-                              autoFocus
-                              value={dictionarySchedule.value}
-                              onChange={(event) =>
-                                setDictionarySchedule({
-                                  id: dictionary.id,
-                                  value: event.currentTarget
-                                    .value as DictionaryScheduleChoice
-                                })
-                              }
-                            >
-                              <option value="global">
-                                {t(
-                                  "settings.hoshidicts.dictionaryActions.useGlobalSchedule",
-                                  { schedule: t(SCHEDULE_KEYS[state.schedule]) }
-                                )}
+                            </option>
+                            {SCHEDULE_ENTRIES.map(([schedule, labelKey]) => (
+                              <option value={schedule} key={schedule}>
+                                {t(labelKey)}
                               </option>
-                              <option value="off">
-                                {t(SCHEDULE_KEYS.off)}
-                              </option>
-                              <option value="hourly">
-                                {t(SCHEDULE_KEYS.hourly)}
-                              </option>
-                              <option value="daily">
-                                {t(SCHEDULE_KEYS.daily)}
-                              </option>
-                              <option value="weekly">
-                                {t(SCHEDULE_KEYS.weekly)}
-                              </option>
-                              <option value="monthly">
-                                {t(SCHEDULE_KEYS.monthly)}
-                              </option>
-                            </select>
-                          </label>
-                          <small>
-                            {t(
-                              "settings.hoshidicts.dictionaryActions.scheduleHint"
-                            )}
-                          </small>
-                          <div>
-                            <button type="submit" disabled={dictionaryBusy}>
-                              {t(
-                                "settings.hoshidicts.dictionaryActions.saveSchedule"
-                              )}
-                            </button>
-                            <button
-                              type="button"
-                              className="secondary"
-                              onClick={() => setDictionarySchedule(null)}
-                            >
-                              {t(
-                                "settings.hoshidicts.dictionaryActions.cancel"
-                              )}
-                            </button>
-                          </div>
-                        </form>
+                            ))}
+                          </select>
+                        </DictionaryMenuForm>
                       ) : (
                         <div role="menu" className="hoshidicts-dictionary-menu__items">
                           <button
@@ -2162,6 +2129,10 @@ export function MiningPanel({ controller }: { controller: Controller }) {
   const showOverwriteModes =
     miningDraft.checkForDuplicates &&
     miningDraft.duplicateBehavior === "overwrite";
+  const setMiningValue = <K extends keyof MiningProfileDraft>(
+    key: K,
+    value: MiningProfileDraft[K]
+  ) => updateMiningDraft((current) => ({ ...current, [key]: value }));
 
   return (
     <section className="hoshidicts-section hoshidicts-mining">
@@ -2172,21 +2143,14 @@ export function MiningPanel({ controller }: { controller: Controller }) {
         </div>
         <div className="hoshidicts-section__status-actions">
           <HoshidictsSaveIndicator status={miningSaveStatus} />
-          <label className="hoshidicts-mining__toggle">
-            <input
-              id="hoshidicts-mining-enabled"
-              type="checkbox"
-              checked={miningDraft.enabled}
-              disabled={miningBusy}
-              onChange={(event) =>
-                updateMiningDraft((current) => ({
-                  ...current,
-                  enabled: event.target.checked
-                }))
-              }
-            />
-            <span>{t("settings.hoshidicts.mining.enabled")}</span>
-          </label>
+          <HoshidictsToggleSetting
+            id="hoshidicts-mining-enabled"
+            variant="inline"
+            label={t("settings.hoshidicts.mining.enabled")}
+            checked={miningDraft.enabled}
+            disabled={miningBusy}
+            onChange={(value) => setMiningValue("enabled", value)}
+          />
         </div>
       </div>
 
@@ -2228,19 +2192,14 @@ export function MiningPanel({ controller }: { controller: Controller }) {
       ) : null}
 
       <div className="hoshidicts-mining-grid">
-        <label>
+        <label className="hoshidicts-setting">
           <span>{t("settings.hoshidicts.mining.deck")}</span>
           {miningOptions.connected ? (
             <select
               id="hoshidicts-mining-deck"
               value={miningDraft.deck}
               disabled={miningBusy}
-              onChange={(event) =>
-                updateMiningDraft((current) => ({
-                  ...current,
-                  deck: event.target.value
-                }))
-              }
+              onChange={(event) => setMiningValue("deck", event.target.value)}
             >
               {miningDraft.deck &&
               !miningOptions.decks.includes(miningDraft.deck) ? (
@@ -2262,17 +2221,12 @@ export function MiningPanel({ controller }: { controller: Controller }) {
               type="text"
               value={miningDraft.deck}
               disabled={miningBusy}
-              onChange={(event) =>
-                updateMiningDraft((current) => ({
-                  ...current,
-                  deck: event.target.value
-                }))
-              }
+              onChange={(event) => setMiningValue("deck", event.target.value)}
             />
           )}
         </label>
 
-        <label>
+        <label className="hoshidicts-setting">
           <span>{t("settings.hoshidicts.mining.noteType")}</span>
           {miningOptions.connected ? (
             <select
@@ -2313,118 +2267,78 @@ export function MiningPanel({ controller }: { controller: Controller }) {
           )}
         </label>
 
-        <label>
+        <label className="hoshidicts-setting">
           <span>{t("settings.hoshidicts.mining.tags")}</span>
           <input
             id="hoshidicts-mining-tags"
             type="text"
             value={miningDraft.tags}
             disabled={miningBusy}
-            onChange={(event) =>
-              updateMiningDraft((current) => ({
-                ...current,
-                tags: event.target.value
-              }))
-            }
+            onChange={(event) => setMiningValue("tags", event.target.value)}
           />
         </label>
-
       </div>
 
       <fieldset className="hoshidicts-mining-duplicates">
         <legend>{t("settings.hoshidicts.mining.duplicateHandling")}</legend>
-        <label className="hoshidicts-mining-duplicates__toggle">
-          <input
-            id="hoshidicts-mining-check-duplicates"
-            type="checkbox"
-            checked={miningDraft.checkForDuplicates}
-            disabled={miningBusy}
-            onChange={(event) =>
-              updateMiningDraft((current) => ({
-                ...current,
-                checkForDuplicates: event.target.checked
-              }))
-            }
-          />
-          <span>{t("settings.hoshidicts.mining.checkForDuplicates")}</span>
-        </label>
+        <HoshidictsToggleSetting
+          id="hoshidicts-mining-check-duplicates"
+          variant="inline"
+          label={t("settings.hoshidicts.mining.checkForDuplicates")}
+          checked={miningDraft.checkForDuplicates}
+          disabled={miningBusy}
+          onChange={(value) => setMiningValue("checkForDuplicates", value)}
+        />
         <p>{t("settings.hoshidicts.mining.duplicateCheckHint")}</p>
 
         <div className="hoshidicts-mining-duplicates__options">
-          <label>
-            <span>{t("settings.hoshidicts.mining.duplicateScope")}</span>
-            <select
-              id="hoshidicts-mining-duplicate-scope"
-              value={miningDraft.duplicateScope}
-              disabled={miningBusy || !miningDraft.checkForDuplicates}
-              onChange={(event) =>
-                updateMiningDraft((current) => ({
-                  ...current,
-                  duplicateScope:
-                    event.target.value === "deck" ||
-                    event.target.value === "deck-root"
-                      ? event.target.value
-                      : "collection"
-                }))
-              }
-            >
-              <option value="collection">
-                {t("settings.hoshidicts.mining.scopeCollection")}
-              </option>
-              <option value="deck">
-                {t("settings.hoshidicts.mining.scopeDeck")}
-              </option>
-              <option value="deck-root">
-                {t("settings.hoshidicts.mining.scopeDeckRoot")}
-              </option>
-            </select>
-          </label>
-
-          <label>
-            <span>{t("settings.hoshidicts.mining.whenDuplicateDetected")}</span>
-            <select
-              id="hoshidicts-mining-duplicate-behavior"
-              value={miningDraft.duplicateBehavior}
-              disabled={miningBusy || !miningDraft.checkForDuplicates}
-              onChange={(event) =>
-                updateMiningDraft((current) => ({
-                  ...current,
-                  duplicateBehavior:
-                    event.target.value === "overwrite" ||
-                    event.target.value === "new"
-                      ? event.target.value
-                      : "prevent"
-                }))
-              }
-            >
-              <option value="prevent">
-                {t("settings.hoshidicts.mining.preventAdding")}
-              </option>
-              <option value="overwrite">
-                {t("settings.hoshidicts.mining.allowOverwriting")}
-              </option>
-              <option value="new">
-                {t("settings.hoshidicts.mining.allowAdding")}
-              </option>
-            </select>
-          </label>
-        </div>
-
-        <label className="hoshidicts-mining-duplicates__toggle">
-          <input
-            id="hoshidicts-mining-check-all-note-types"
-            type="checkbox"
-            checked={miningDraft.duplicateScopeCheckAllModels}
+          <HoshidictsSelectSetting
+            id="hoshidicts-mining-duplicate-scope"
+            label={t("settings.hoshidicts.mining.duplicateScope")}
+            value={miningDraft.duplicateScope}
             disabled={miningBusy || !miningDraft.checkForDuplicates}
-            onChange={(event) =>
-              updateMiningDraft((current) => ({
-                ...current,
-                duplicateScopeCheckAllModels: event.target.checked
-              }))
+            options={DUPLICATE_SCOPES.map((scope) => ({
+              value: scope.value,
+              label: t(scope.labelKey)
+            }))}
+            onChange={(scope) =>
+              setMiningValue(
+                "duplicateScope",
+                scope === "deck" || scope === "deck-root" ? scope : "collection"
+              )
             }
           />
-          <span>{t("settings.hoshidicts.mining.checkAllNoteTypes")}</span>
-        </label>
+
+          <HoshidictsSelectSetting
+            id="hoshidicts-mining-duplicate-behavior"
+            label={t("settings.hoshidicts.mining.whenDuplicateDetected")}
+            value={miningDraft.duplicateBehavior}
+            disabled={miningBusy || !miningDraft.checkForDuplicates}
+            options={DUPLICATE_BEHAVIORS.map((behavior) => ({
+              value: behavior.value,
+              label: t(behavior.labelKey)
+            }))}
+            onChange={(behavior) =>
+              setMiningValue(
+                "duplicateBehavior",
+                behavior === "overwrite" || behavior === "new"
+                  ? behavior
+                  : "prevent"
+              )
+            }
+          />
+        </div>
+
+        <HoshidictsToggleSetting
+          id="hoshidicts-mining-check-all-note-types"
+          variant="inline"
+          label={t("settings.hoshidicts.mining.checkAllNoteTypes")}
+          checked={miningDraft.duplicateScopeCheckAllModels}
+          disabled={miningBusy || !miningDraft.checkForDuplicates}
+          onChange={(value) =>
+            setMiningValue("duplicateScopeCheckAllModels", value)
+          }
+        />
         <p>{t("settings.hoshidicts.mining.checkAllNoteTypesHint")}</p>
         {showOverwriteModes ? (
           <p className="hoshidicts-mining-duplicates__warning" role="note">
