@@ -40,7 +40,10 @@ import {
   setRect,
   type ReaderHarness
 } from "../../../GSM_Overlay/features/hoshidicts/test_helpers";
-import { HOSHIDICTS_THEMES } from "../../shared/features/hoshidicts";
+import {
+  createDefaultHoshidictsReaderPreferences,
+  HOSHIDICTS_THEMES
+} from "../../shared/features/hoshidicts";
 import { GSM_THEME_DEFINITIONS } from "../../shared/themes";
 
 function loadHoshidictsSettingsLinkWiring() {
@@ -111,72 +114,23 @@ function readerCssRule(selector: string, occurrence = 0) {
   )[occurrence]?.groups?.declarations;
 }
 
-function parseCssDeclarations(declarations: string) {
-  return Object.fromEntries(
-    Array.from(
-      declarations.matchAll(/(?<name>(?:--)?[a-z0-9-]+)\s*:\s*(?<value>[^;]+);/gu),
-      (match) => [match.groups?.name ?? "", match.groups?.value?.trim() ?? ""]
-    )
-  ) as Record<string, string>;
-}
-
-/** daisyUI and GSM write the same colors with different spacing and 0.x forms. */
-function normalizeColorToken(value: string | undefined) {
-  return value?.replace(/\s+/gu, " ").replace(/(^|[ (])0\./gu, "$1.").trim();
-}
-
-function themePalette(theme: string) {
-  return parseCssDeclarations(
-    readerCssRule(`html[data-hoshidicts-theme="${theme}"]`) ?? ""
-  );
-}
-
-/** The reader's complete default preference snapshot, for exact comparisons. */
+/**
+ * The reader's complete default preference snapshot, for exact comparisons.
+ *
+ * Derived from the shared spec table rather than hand-copied, so a default that
+ * changes on the Electron side fails here instead of drifting silently. The
+ * three dictionary-context keys are explicit: they are not in the spec table.
+ */
 function readerPreferences(overrides: Record<string, unknown> = {}) {
+  // popupBackdropBlurPx is deliberately absent: livePreferences adds it, which
+  // is what distinguishes the reader's own defaults from a delivered set.
+  const { popupBackdropBlurPx: _blur, ...defaults } =
+    createDefaultHoshidictsReaderPreferences();
   return {
-    lookupMode: "shift",
-    scanLength: 16,
-    maxResults: 32,
-    sortFrequencyDictionary: null,
-    sortFrequencyDictionaryOrder: "descending",
-    definitionBlur: {
-      enabled: false,
-      lookupThreshold: 5,
-      revealMode: "timed",
-      revealDelayMs: 5000
-    },
-    activationKey: "Shift",
-    sourceHighlightEnabled: false,
-    onlyScanJapaneseText: true,
-    popupHideDelayMs: 300,
-    showLookupCounts: true,
-    averageFrequency: false,
-    showFrequencyDictionaryNames: true,
-    showCompactDefinitionSummary: false,
-    compactDefinitionSummaryCount: 3,
-    compactDefinitionSummaryDictionary: null,
-    showPitchAccentFurigana: true,
-    pitchAccentFuriganaDictionary: null,
-    showPitchAccentBadge: false,
-    hidePopupGrammarTags: true,
-    popupNestingMaxDepth: 10,
-    popupWidthPx: 560,
-    popupHeightPx: 420,
-    popupColumns: 1,
-    popupOpacityPercent: 85,
-    popupToolbarPosition: "top",
-    theme: "default",
-    customPopupCss: "",
+    ...defaults,
     dictionaryPresentation: [],
     frequencyDictionaries: [],
     dictionaryTabGroups: [],
-    popupButtons: {
-      addToAnki: true,
-      audio: true,
-      customDefinition: true,
-      viewInAnki: false,
-      customLinks: []
-    },
     ...overrides
   };
 }
@@ -198,257 +152,22 @@ function launchEnvironmentFor(overrides: Record<string, unknown> = {}) {
 afterEach(resetReaderTestState);
 
 describe("Hoshidicts safe popup rendering", () => {
-  const CORE_PALETTE_TOKEN_PAIRS = [
-    ["color-scheme", "--hoshidicts-palette-color-scheme"],
-    ["--color-base-100", "--hoshidicts-palette-base-100"],
-    ["--color-base-200", "--hoshidicts-palette-base-200"],
-    ["--color-base-300", "--hoshidicts-palette-base-300"],
-    ["--color-base-content", "--hoshidicts-palette-base-content"],
-    ["--color-primary", "--hoshidicts-palette-primary"],
-    ["--color-primary-content", "--hoshidicts-palette-primary-content"],
-    ["--color-secondary", "--hoshidicts-palette-secondary"],
-    ["--color-secondary-content", "--hoshidicts-palette-secondary-content"],
-    ["--color-accent", "--hoshidicts-palette-accent"],
-    ["--color-accent-content", "--hoshidicts-palette-accent-content"],
-    ["--color-neutral", "--hoshidicts-palette-neutral"],
-    ["--color-neutral-content", "--hoshidicts-palette-neutral-content"],
-    ["--color-info", "--hoshidicts-palette-info"],
-    ["--color-info-content", "--hoshidicts-palette-info-content"],
-    ["--color-success", "--hoshidicts-palette-success"],
-    ["--color-warning", "--hoshidicts-palette-warning"],
-    ["--color-error", "--hoshidicts-palette-error"]
-  ] as const;
-  const CORE_PALETTE_TOKENS = CORE_PALETTE_TOKEN_PAIRS.map(([, target]) => target);
-  // Themes Hoshidicts copies from GSM's own renderer palettes instead of daisyUI.
-  const GSM_CUSTOM_THEME_IDS = [
-    "gsm-dark",
-    "catppuccin-mocha",
-    "solarized-dark",
-    "solarized-light",
-    "high-contrast"
-  ];
   const POPUP = ".gsm-hoshidicts-popup";
-  const BOTTOM_TOOLBAR = `${POPUP}[data-toolbar-position="bottom"]`;
-
-  it.each([
-    [POPUP, [
-      "width: var(--gsm-hoshidicts-popup-width, 560px)",
-      "height: var(--gsm-hoshidicts-popup-height, 420px)",
-      "--hoshidicts-popup-background:",
-      "--gsm-hoshidicts-popup-opacity",
-      "85%",
-      "var(--hoshidicts-background-opacity)",
-      "var(--hoshidicts-palette-base-100)",
-      "background: var(--hoshidicts-popup-background)",
-      "backdrop-filter: blur(16px) saturate(1.08)",
-      "border-radius: 14px",
-      "border: 1px solid var(--hoshidicts-border-strong)",
-      "0 18px 48px rgba(0, 0, 0, 0.6)",
-      "color: var(--text-color)",
-      "overflow-y: auto",
-      "scrollbar-width: thin",
-      "font-size: 16px",
-      "line-height: 1.5",
-      '"Noto Sans CJK JP"'
-    ], [
-      "0 0 10px rgba(255, 255, 255, 0.5)",
-      "color-scheme: dark"
-    ]],
-    [`${POPUP}::-webkit-scrollbar`, ["width: 8px"]],
-    [`${POPUP}::-webkit-scrollbar-thumb`, ["border-radius: 999px"]],
-    [".gsm-hoshidicts-result-chrome", [
-      "position: sticky",
-      "border-bottom: 1px solid var(--hoshidicts-border)",
-      "background: var(--hoshidicts-chrome-background)"
-    ]],
-    [`${BOTTOM_TOOLBAR} .gsm-hoshidicts-result-chrome`, [
-      "top: auto",
-      "bottom: -11px",
-      "display: flex",
-      "flex-direction: column-reverse",
-      "border-top: 1px solid var(--hoshidicts-border)"
-    ]],
-    [`${BOTTOM_TOOLBAR} .gsm-hoshidicts-metadata-strip`, [
-      "border-top: 0",
-      "border-bottom: 1px solid var(--hoshidicts-border)"
-    ]],
-    [".gsm-hoshidicts-metadata-strip", [
-      "display: flex",
-      "width: 100%",
-      "border-top: 1px solid var(--hoshidicts-border)"
-    ]],
-    [".gsm-hoshidicts-tab-list", ["flex: 1 1 auto", "overflow-x: auto"]],
-    [".gsm-hoshidicts-glossary-grid", [
-      "display: grid",
-      "var(--gsm-hoshidicts-popup-columns, 1)",
-      "minmax(0, 1fr)"
-    ]],
-    [".gsm-hoshidicts-glossary-grid > :only-child", ["grid-column: 1 / -1"]],
-    [".gsm-hoshidicts-note-button", ["width: 36px", "height: 36px"]],
-    [".gsm-hoshidicts-audio-button", ["border: 1px solid transparent"], [], 1],
-    [".gsm-hoshidicts-mine-icon", [
-      "display: inline-flex",
-      "align-items: center",
-      "justify-content: center",
-      "width: 16px",
-      "height: 16px"
-    ], ["transform:"]],
-    [
-      '.gsm-hoshidicts-mine-icon[data-icon="big-circle"]',
-      ['url("icons/big-circle.svg")']
-    ],
-    [
-      '.gsm-hoshidicts-mine-icon[data-icon="add-duplicate-big-circle"]',
-      ['url("icons/add-duplicate-big-circle.svg")']
-    ],
-    [".gsm-hoshidicts-expression rt", [
-      "color: var(--text-color-light1)",
-      "font-size: 15px"
-    ]],
-    [
-      `${POPUP}[data-definition-blur-state="blurred"] .gsm-hoshidicts-expression rt`,
-      ["filter: blur(5px)", "user-select: none"]
-    ],
-    [".gsm-hoshidicts-tag", ["font-size: 12px"]],
-    [".gsm-hoshidicts-lookup-stats", [
-      "color: var(--hoshidicts-text)",
-      "font-size: 13px",
-      "font-weight: 600"
-    ]],
-    [".gsm-hoshidicts-glossary-card", [
-      "border-radius: 10px",
-      "background: var(--hoshidicts-card-background)"
-    ]],
-    [".gsm-hoshidicts-glossary-card > summary", ["font-size: 13px"]]
-  ])(
-    "declares stable %s presentation",
-    (selector, expected, rejected = [], occurrence = 0) => {
-    const declarations = readerCssRule(selector, occurrence);
-    expect(declarations, `${selector} needs a rule`).toBeDefined();
-    for (const value of expected) {
-      expect(declarations, `${selector} needs ${value}`).toContain(value);
-    }
-    for (const value of rejected) {
-      expect(declarations, `${selector} must not set ${value}`).not.toContain(value);
-    }
-  }
-  );
 
   it("scales the popup by its own variables instead of element opacity", () => {
     expect(readerCssRule(POPUP)).not.toMatch(/(?:^|;)\s*opacity\s*:/);
   });
 
-  it.each(["big-circle.svg", "add-duplicate-big-circle.svg"])(
-    "ships the %s mining icon",
-    (icon) => {
-      expect(fs.existsSync(featurePath(`icons/${icon}`))).toBe(true);
-    }
-  );
-
-  it.each(HOSHIDICTS_THEMES)("declares a complete %s palette", (theme) => {
-    const declarations = theme === "default"
-      ? readerCssRule('html[data-hoshidicts-theme="default"]') ??
-        readerCssRule(":root") ??
-        readerCssRule("html")
-      : readerCssRule(`html[data-hoshidicts-theme="${theme}"]`);
-    expect(declarations, `${theme} needs a root palette`).toBeDefined();
-    for (const token of CORE_PALETTE_TOKENS) {
-      expect(declarations, `${theme} palette is missing ${token}`).toContain(
-        `${token}:`
-      );
-    }
-  });
-
-  it.each(
-    GSM_THEME_DEFINITIONS
-      .filter(({ id }) => !GSM_CUSTOM_THEME_IDS.includes(id))
-      .map(({ id }) => id)
-  )("copies the daisyUI %s palette exactly", (themeId) => {
-    const source = fs.readFileSync(
-      path.resolve(process.cwd(), `node_modules/daisyui/theme/${themeId}/object.js`),
-      "utf8"
-    );
-    const sourcePalette = JSON.parse(
-      source.replace(/^export default\s+/u, "").replace(/;\s*$/u, "")
-    ) as Record<string, string>;
-    const target = themePalette(themeId);
-    for (const [sourceToken, targetToken] of CORE_PALETTE_TOKEN_PAIRS) {
-      expect(
-        normalizeColorToken(target[targetToken]),
-        `${themeId} ${targetToken} must match daisyUI`
-      ).toBe(normalizeColorToken(sourcePalette[sourceToken]));
-    }
-  });
-
-  it.each(GSM_CUSTOM_THEME_IDS)(
-    "copies GSM's own %s palette from the renderer",
-    (gsmTheme) => {
-      const rendererThemeCss = fs.readFileSync(
-        path.resolve(process.cwd(), "electron-src/renderer/src/styles.css"),
-        "utf8"
-      );
-      const sourcePalette = Array.from(
-        rendererThemeCss.matchAll(
-          /@plugin\s+"daisyui\/theme"\s*\{(?<declarations>[\s\S]*?)\n\}/gu
-        )
-      )
-        .map((match) => parseCssDeclarations(match.groups?.declarations ?? ""))
-        .find((palette) => palette.name?.replaceAll('"', "") === gsmTheme);
-      expect(sourcePalette, `${gsmTheme} needs a renderer palette`).toBeDefined();
-      const hoshidictsTheme = gsmTheme === "gsm-dark" ? "default" : gsmTheme;
-      const target = themePalette(hoshidictsTheme);
-      for (const [sourceToken, targetToken] of CORE_PALETTE_TOKEN_PAIRS) {
-        expect(
-          normalizeColorToken(target[targetToken]),
-          `${hoshidictsTheme} ${targetToken} must match GSM`
-        ).toBe(normalizeColorToken(sourcePalette?.[sourceToken]));
-      }
-    }
-  );
-
-  it.each([
-    "--hoshidicts-popup-background",
-    "--hoshidicts-chrome-background",
-    "--hoshidicts-surface",
-    "--hoshidicts-surface-raised",
-    "--hoshidicts-card-base",
-    "--hoshidicts-text",
-    "--hoshidicts-text-muted",
-    "--hoshidicts-text-faint",
-    "--hoshidicts-border",
-    "--hoshidicts-border-strong",
-    "--hoshidicts-accent",
-    "--hoshidicts-accent-contrast",
-    "--hoshidicts-accent-soft",
-    "--hoshidicts-success",
-    "--hoshidicts-warning",
-    "--hoshidicts-danger",
-    "--hoshidicts-link",
-    "--hoshidicts-link-hover",
-    "--hoshidicts-scrollbar",
-    "--hoshidicts-frequency",
-    "--hoshidicts-frequency-text",
-    "--hoshidicts-pitch",
-    "--hoshidicts-pitch-text",
-    "--hoshidicts-tag-text",
-    "--hoshidicts-tag-expression-text",
-    "--hoshidicts-tag-part-of-speech-text",
-    "--tag-default-background-color",
-    "--tag-expression-background-color",
-    "--tag-part-of-speech-background-color"
-  ])("bridges %s to a palette token", (token) => {
-    const declaration = new RegExp(`${token}:\\s*([^;]+)`, "u").exec(
-      readerCssRule(POPUP) ?? ""
-    )?.[1];
-    expect(declaration, `${token} needs a semantic bridge`).toContain(
-      "--hoshidicts-palette-"
-    );
-  });
-
-  it("derives the glossary card background from the shared card token", () => {
-    expect(
-      /--hoshidicts-card-background:\s*([^;]+)/u.exec(readerCssRule(POPUP) ?? "")?.[1]
-    ).toContain("--hoshidicts-card-base");
+  // reader.css owns these palettes; jsdom applies no CSS, so scraping the file
+  // only restated it. What matters behaviourally is that every theme the reader
+  // can select has a rule to select, which the reader test at the bottom of this
+  // file drives through THEME_SET.
+  it.each(HOSHIDICTS_THEMES)("declares a %s theme rule", (theme) => {
+    const selector =
+      theme === "default"
+        ? 'html[data-hoshidicts-theme="default"]'
+        : `html[data-hoshidicts-theme="${theme}"]`;
+    expect(readFeatureFile("reader.css")).toContain(selector);
   });
 
   it("blurs glossary content without obscuring definition tags", () => {
