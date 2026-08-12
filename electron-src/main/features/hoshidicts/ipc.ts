@@ -7,54 +7,22 @@ import {
     type SaveDialogOptions,
 } from 'electron';
 
-import type {
-    HoshidictsLookupControls,
-    OverlayRuntimeState,
-} from '../../ui/front.js';
+import type { OverlayRuntimeState } from '../../ui/front.js';
 import {
     HOSHIDICTS_CHANNELS,
-    DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
-    DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
+    assertHoshidictsReaderPreferences,
+    hoshidictsReaderPreferencesEqual,
+    normalizeHoshidictsReaderPreferences,
     DEFAULT_HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
     HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
     hoshidictsReaderPreferencesFromSnapshot,
-    isHoshidictsActivationKey,
-    isHoshidictsPopupButtons,
-    isHoshidictsPopupToolbarPosition,
-    isHoshidictsSortFrequencyDictionaryOrder,
-    isHoshidictsTheme,
     MAX_HOSHIDICTS_CUSTOM_DICTIONARY_BYTES,
-    MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH,
-    MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
-    MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
-    MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
-    MAX_HOSHIDICTS_MAX_RESULTS,
-    MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,
-    MAX_HOSHIDICTS_POPUP_HEIGHT_PX,
-    MAX_HOSHIDICTS_POPUP_COLUMNS,
-    MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT,
-    MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
-    MAX_HOSHIDICTS_POPUP_WIDTH_PX,
     MAX_HOSHIDICTS_PROFILE_NAME_LENGTH,
-    MAX_HOSHIDICTS_SCAN_LENGTH,
-    MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD,
-    MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
-    MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS,
-    MIN_HOSHIDICTS_MAX_RESULTS,
-    MIN_HOSHIDICTS_POPUP_HEIGHT_PX,
-    MIN_HOSHIDICTS_POPUP_COLUMNS,
-    MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
-    MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
-    MIN_HOSHIDICTS_POPUP_WIDTH_PX,
-    normalizeHoshidictsPopupButtons,
-    MIN_HOSHIDICTS_SCAN_LENGTH,
     type HoshidictsActionResult,
-    type HoshidictsActivationKey,
     type HoshidictsAudioProfile,
     type HoshidictsAudioSourceTestRequest,
     type HoshidictsAudioSourceTestResult,
     type HoshidictsBulkDictionaryActionRequest,
-    type HoshidictsDefinitionBlurPreferences,
     type HoshidictsSaveCustomDictionaryRequest,
     type HoshidictsDesktopSnapshot,
     type HoshidictsDictionaryEnabledRequest,
@@ -70,9 +38,8 @@ import {
     type HoshidictsManagerSnapshot,
     type HoshidictsLookupMode,
     type HoshidictsMiningOptions,
-    type HoshidictsPopupButtons,
-    type HoshidictsPopupToolbarPosition,
     type HoshidictsMoveDictionaryRequest,
+    type HoshidictsMoveDirection,
     type HoshidictsMoveDictionaryToPositionRequest,
     type HoshidictsReaderPreferences,
     type HoshidictsReaderPreferencesRequest,
@@ -81,12 +48,10 @@ import {
     type HoshidictsRenameDictionaryRequest,
     type HoshidictsRecommendedDictionaryId,
     type HoshidictsSchedule,
-    type HoshidictsSortFrequencyDictionaryOrder,
-    type HoshidictsTheme,
     type HoshidictsYomitanImportProgress,
     type HoshidictsYomitanImportReport,
 } from '../../../shared/features/hoshidicts.js';
-import { getHoshidictsManager } from './manager.js';
+import { getHoshidictsManager, type HoshidictsManager } from './manager.js';
 import { fetchHoshidictsAudioSourceTest } from './audio_source_test.js';
 import {
     prepareYomitanDictionaryBackup,
@@ -101,42 +66,293 @@ export interface HoshidictsIPCDependencies {
     getOverlayRuntimeState: () => OverlayRuntimeState;
     getConfiguredFeatureEnabled: () => boolean;
     getOverlayFeatureEnabledAtLaunch: () => boolean | null;
-    getOverlayLookupModeAtLaunch: () => HoshidictsLookupMode | null;
-    getOverlayLookupControlsAtLaunch: () => HoshidictsLookupControls | null;
-    getOverlayActivationKeyAtLaunch: () => HoshidictsActivationKey | null;
-    getOverlaySourceHighlightEnabledAtLaunch: () => boolean | null;
-    getOverlayOnlyScanJapaneseTextAtLaunch: () => boolean | null;
-    getOverlayPopupHideDelayAtLaunch: () => number | null;
-    getOverlayShowLookupCountsAtLaunch: () => boolean | null;
-    getOverlayShowCompactDefinitionSummaryAtLaunch: () => boolean | null;
-    getOverlayCompactDefinitionSummaryCountAtLaunch: () => number | null;
-    getOverlayCompactDefinitionSummaryDictionaryAtLaunch: () => string | null;
-    getOverlayShowPitchAccentFuriganaAtLaunch: () => boolean | null;
-    getOverlayPitchAccentFuriganaDictionaryAtLaunch: () => string | null;
-    getOverlayShowPitchAccentBadgeAtLaunch: () => boolean | null;
-    getOverlayHidePopupGrammarTagsAtLaunch: () => boolean | null;
+    /** The preferences the running overlay is currently using, if any. */
+    getAppliedReaderPreferences: () => HoshidictsReaderPreferencesRequest | null;
     getOverlayAudioProfileRestartRequired: () => boolean;
-    getOverlayPopupNestingMaxDepthAtLaunch: () => number | null;
-    getOverlayDefinitionBlurAtLaunch: () =>
-        | HoshidictsDefinitionBlurPreferences
-        | null;
-    getOverlayPopupWidthAtLaunch: () => number | null;
-    getOverlayPopupHeightAtLaunch: () => number | null;
-    getOverlayPopupColumnsAtLaunch: () => number | null;
-    getOverlayThemeAtLaunch: () => HoshidictsTheme | null;
-    getOverlayPopupOpacityPercentAtLaunch: () => number | null;
-    getOverlayPopupBackdropBlurPxAtLaunch: () => number | null;
-    getOverlayPopupToolbarPositionAtLaunch: () =>
-        | HoshidictsPopupToolbarPosition
-        | null;
-    getOverlayPopupButtonsApplied: () => HoshidictsPopupButtons | null;
-    getOverlayCustomPopupCssApplied: () => string | null;
     applyReaderPreferences: (
         preferences: HoshidictsReaderPreferences
     ) => Promise<boolean>;
     applyAudioProfile: (profile: HoshidictsAudioProfile) => Promise<boolean>;
     getMiningOptions: (model?: string) => Promise<HoshidictsMiningOptions>;
     restartOverlay: () => Promise<boolean>;
+}
+
+/**
+ * The ordinary manager operations all share one shape: validate the request,
+ * call the manager, optionally push the result to a running reader, and report
+ * one outcome. Describing them in a table keeps that boilerplate out of the
+ * eighteen handlers that used to repeat it. Handlers with their own
+ * requirements — file selection, streamed import, backup export and
+ * restoration, progress reporting, audio source tests — stay handwritten below.
+ */
+interface HoshidictsManagerAction {
+    /** Message returned when the request is malformed; omit if it cannot be. */
+    invalid?: string;
+    accepts?: (request: never) => boolean;
+    run: (
+        request: never,
+        deps: HoshidictsIPCDependencies
+    ) => Promise<HoshidictsManagerSnapshot>;
+    /** Deliver the resulting dictionary context to a running reader. */
+    refreshesReader?: boolean;
+    outcome: NonNullable<HoshidictsActionResult['outcome']>;
+}
+
+function isRequestRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isNonEmptyProfileName(value: unknown): boolean {
+    return (
+        typeof value === 'string' &&
+        value.trim().length > 0 &&
+        value.length <= MAX_HOSHIDICTS_PROFILE_NAME_LENGTH
+    );
+}
+
+function isMoveDirection(value: unknown): value is HoshidictsMoveDirection {
+    return value === -1 || value === 1;
+}
+
+function hoshidictsManagerActions(
+    manager: HoshidictsManager
+): Record<string, HoshidictsManagerAction> {
+    return {
+        [HOSHIDICTS_CHANNELS.createProfile]: {
+            invalid: 'Profile name is invalid.',
+            accepts: (request: Partial<HoshidictsCreateProfileRequest>) =>
+                isNonEmptyProfileName(request.name),
+            run: (request: HoshidictsCreateProfileRequest) =>
+                manager.createProfile(request.name),
+            outcome: { code: 'profileCreated' },
+        },
+        [HOSHIDICTS_CHANNELS.switchProfile]: {
+            invalid: 'Profile switch request is invalid.',
+            accepts: (request: Partial<HoshidictsProfileIdRequest>) =>
+                typeof request.id === 'string',
+            run: async (request: HoshidictsProfileIdRequest, deps) => {
+                const state = await manager.switchProfile(request.id);
+                await applyRestoredSnapshot(
+                    state,
+                    deps,
+                    'The profile was switched, but its settings could not be applied to the running overlay. Restart the overlay to use the selected profile.'
+                );
+                return state;
+            },
+            outcome: { code: 'profileSwitched' },
+        },
+        [HOSHIDICTS_CHANNELS.renameProfile]: {
+            invalid: 'Profile rename request is invalid.',
+            accepts: (request: Partial<HoshidictsRenameProfileRequest>) =>
+                typeof request.id === 'string' &&
+                isNonEmptyProfileName(request.name),
+            run: (request: HoshidictsRenameProfileRequest) =>
+                manager.renameProfile(request.id, request.name),
+            outcome: { code: 'profileRenamed' },
+        },
+        [HOSHIDICTS_CHANNELS.deleteProfile]: {
+            invalid: 'Profile delete request is invalid.',
+            accepts: (request: Partial<HoshidictsProfileIdRequest>) =>
+                typeof request.id === 'string',
+            run: async (request: HoshidictsProfileIdRequest, deps) => {
+                const before = await manager.getSnapshot();
+                const state = await manager.deleteProfile(request.id);
+                if (before.activeProfileId === request.id) {
+                    await applyRestoredSnapshot(
+                        state,
+                        deps,
+                        'The profile was deleted, but the replacement profile could not be applied to the running overlay. Restart the overlay to use it.'
+                    );
+                }
+                return state;
+            },
+            outcome: { code: 'profileDeleted' },
+        },
+        [HOSHIDICTS_CHANNELS.setSchedule]: {
+            invalid: 'Dictionary update schedule is invalid.',
+            accepts: isSchedule,
+            run: (schedule: HoshidictsSchedule) =>
+                manager.setSchedule(schedule),
+            outcome: { code: 'preferencesSaved' },
+        },
+        [HOSHIDICTS_CHANNELS.setDictionarySchedule]: {
+            invalid: 'Dictionary update schedule request is invalid.',
+            accepts: (request: Partial<HoshidictsDictionaryScheduleRequest>) =>
+                typeof request.id === 'string' &&
+                (request.schedule === null || isSchedule(request.schedule)),
+            run: (request: HoshidictsDictionaryScheduleRequest) =>
+                manager.setDictionarySchedule(request.id, request.schedule),
+            outcome: { code: 'dictionaryChanged' },
+        },
+        [HOSHIDICTS_CHANNELS.setLookupMode]: {
+            invalid: 'Hoshidicts lookup mode is invalid.',
+            accepts: isLookupMode,
+            run: (lookupMode: HoshidictsLookupMode) =>
+                manager.setLookupMode(lookupMode),
+            outcome: { code: 'preferencesSaved' },
+        },
+        [HOSHIDICTS_CHANNELS.setMiningProfile]: {
+            // The manager validates the profile and reports its own message.
+            run: (profile: unknown) => manager.setMiningProfile(profile),
+            outcome: { code: 'miningProfileSaved' },
+        },
+        [HOSHIDICTS_CHANNELS.setDictionaryEnabled]: {
+            invalid: 'Dictionary enable request is invalid.',
+            accepts: (request: Partial<HoshidictsDictionaryEnabledRequest>) =>
+                typeof request.id === 'string' &&
+                typeof request.enabled === 'boolean',
+            run: (request: HoshidictsDictionaryEnabledRequest) =>
+                manager.setDictionaryEnabled(request.id, request.enabled),
+            outcome: { code: 'dictionaryChanged' },
+        },
+        [HOSHIDICTS_CHANNELS.setDictionaryPresentation]: {
+            invalid: 'Dictionary presentation request is invalid.',
+            accepts: (
+                request: Partial<HoshidictsDictionaryPresentationRequest>
+            ) =>
+                typeof request.id === 'string' &&
+                typeof request.favorite === 'boolean',
+            run: (request: HoshidictsDictionaryPresentationRequest) =>
+                manager.setDictionaryPresentation(request.id, request.favorite),
+            refreshesReader: true,
+            outcome: { code: 'dictionaryChanged' },
+        },
+        [HOSHIDICTS_CHANNELS.createTabGroup]: {
+            invalid: 'Tab group create request is invalid.',
+            accepts: (request: Partial<HoshidictsCreateTabGroupRequest>) =>
+                typeof request.name === 'string' &&
+                (request.dictionaryId === undefined ||
+                    typeof request.dictionaryId === 'string'),
+            run: (request: HoshidictsCreateTabGroupRequest) =>
+                manager.createTabGroup(request.name, request.dictionaryId),
+            refreshesReader: true,
+            outcome: { code: 'dictionaryChanged' },
+        },
+        [HOSHIDICTS_CHANNELS.setTabGroupMembership]: {
+            invalid: 'Tab group membership request is invalid.',
+            accepts: (
+                request: Partial<HoshidictsSetTabGroupMembershipRequest>
+            ) =>
+                typeof request.groupId === 'string' &&
+                typeof request.dictionaryId === 'string' &&
+                typeof request.member === 'boolean',
+            run: (request: HoshidictsSetTabGroupMembershipRequest) =>
+                manager.setTabGroupMembership(
+                    request.groupId,
+                    request.dictionaryId,
+                    request.member
+                ),
+            refreshesReader: true,
+            outcome: { code: 'dictionaryChanged' },
+        },
+        [HOSHIDICTS_CHANNELS.renameTabGroup]: {
+            invalid: 'Tab group rename request is invalid.',
+            accepts: (request: Partial<HoshidictsRenameTabGroupRequest>) =>
+                typeof request.groupId === 'string' &&
+                typeof request.name === 'string',
+            run: (request: HoshidictsRenameTabGroupRequest) =>
+                manager.renameTabGroup(request.groupId, request.name),
+            refreshesReader: true,
+            outcome: { code: 'dictionaryChanged' },
+        },
+        [HOSHIDICTS_CHANNELS.deleteTabGroup]: {
+            invalid: 'Tab group delete request is invalid.',
+            accepts: (request: Partial<HoshidictsDeleteTabGroupRequest>) =>
+                typeof request.groupId === 'string',
+            run: (request: HoshidictsDeleteTabGroupRequest) =>
+                manager.deleteTabGroup(request.groupId),
+            refreshesReader: true,
+            outcome: { code: 'dictionaryChanged' },
+        },
+        [HOSHIDICTS_CHANNELS.moveTabGroup]: {
+            invalid: 'Tab group move request is invalid.',
+            accepts: (request: Partial<HoshidictsMoveTabGroupRequest>) =>
+                typeof request.groupId === 'string' &&
+                isMoveDirection(request.direction),
+            run: (request: HoshidictsMoveTabGroupRequest) =>
+                manager.moveTabGroup(request.groupId, request.direction),
+            refreshesReader: true,
+            outcome: { code: 'dictionaryChanged' },
+        },
+        [HOSHIDICTS_CHANNELS.renameDictionary]: {
+            invalid: 'Dictionary rename request is invalid.',
+            accepts: (request: Partial<HoshidictsRenameDictionaryRequest>) =>
+                typeof request.id === 'string' &&
+                (request.displayName === null ||
+                    typeof request.displayName === 'string'),
+            run: (request: HoshidictsRenameDictionaryRequest) =>
+                manager.renameDictionary(request.id, request.displayName),
+            refreshesReader: true,
+            outcome: { code: 'dictionaryChanged' },
+        },
+        [HOSHIDICTS_CHANNELS.moveDictionary]: {
+            invalid: 'Dictionary move request is invalid.',
+            accepts: (request: Partial<HoshidictsMoveDictionaryRequest>) =>
+                typeof request.id === 'string' &&
+                isMoveDirection(request.direction),
+            run: (request: HoshidictsMoveDictionaryRequest) =>
+                manager.moveDictionary(request.id, request.direction),
+            refreshesReader: true,
+            outcome: { code: 'dictionaryChanged' },
+        },
+        [HOSHIDICTS_CHANNELS.moveDictionaryToPosition]: {
+            invalid: 'Dictionary position request is invalid.',
+            accepts: (
+                request: Partial<HoshidictsMoveDictionaryToPositionRequest>
+            ) =>
+                typeof request.id === 'string' &&
+                Number.isInteger(request.position) &&
+                (request.position as number) >= 1,
+            run: (request: HoshidictsMoveDictionaryToPositionRequest) =>
+                manager.moveDictionaryToPosition(request.id, request.position),
+            refreshesReader: true,
+            outcome: { code: 'dictionaryChanged' },
+        },
+    };
+}
+
+function registerHoshidictsManagerActions(
+    manager: HoshidictsManager,
+    deps: HoshidictsIPCDependencies
+): void {
+    for (const [channel, action] of Object.entries(
+        hoshidictsManagerActions(manager)
+    )) {
+        ipcMain.handle(channel, async (event, request: unknown) => {
+            assertSettingsSender(event, deps);
+            if (
+                action.accepts &&
+                !(
+                    (isRequestRecord(request) ||
+                        typeof request === 'string') &&
+                    (action.accepts as (value: unknown) => boolean)(request)
+                )
+            ) {
+                return {
+                    success: false,
+                    error: action.invalid,
+                    state: await currentState(deps),
+                } satisfies HoshidictsActionResult;
+            }
+            return await runAction(
+                deps,
+                async () => {
+                    const state = await (
+                        action.run as (
+                            value: unknown,
+                            dependencies: HoshidictsIPCDependencies
+                        ) => Promise<HoshidictsManagerSnapshot>
+                    )(request, deps);
+                    if (action.refreshesReader) {
+                        await applyReaderSnapshot(state, deps);
+                    }
+                    return state;
+                },
+                // Copied so one invocation can never alter the table's entry.
+                { ...action.outcome }
+            );
+        });
+    }
 }
 
 let ipcRegistered = false;
@@ -172,154 +388,14 @@ function isLookupMode(value: unknown): value is HoshidictsLookupMode {
     return value === 'shift' || value === 'hover';
 }
 
-function isNullableDictionaryTitle(value: unknown): value is string | null {
-    return (
-        value === null ||
-        (typeof value === 'string' &&
-            value.trim().length > 0 &&
-            value.length <= 4096)
-    );
-}
-
-function isDefinitionBlurPreferences(
-    value: unknown
-): value is HoshidictsDefinitionBlurPreferences {
-    if (!value || typeof value !== 'object') {
-        return false;
-    }
-    const preferences = value as Partial<HoshidictsDefinitionBlurPreferences>;
-    return (
-        typeof preferences.enabled === 'boolean' &&
-        Number.isInteger(preferences.lookupThreshold) &&
-        (preferences.lookupThreshold as number) >=
-            MIN_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD &&
-        (preferences.lookupThreshold as number) <=
-            MAX_HOSHIDICTS_DEFINITION_BLUR_LOOKUP_THRESHOLD &&
-        (preferences.revealMode === 'timed' ||
-            preferences.revealMode === 'hover') &&
-        Number.isInteger(preferences.revealDelayMs) &&
-        (preferences.revealDelayMs as number) >=
-            MIN_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS &&
-        (preferences.revealDelayMs as number) <=
-            MAX_HOSHIDICTS_DEFINITION_BLUR_REVEAL_DELAY_MS
-    );
-}
-
-function definitionBlurPreferencesEqual(
-    left: HoshidictsDefinitionBlurPreferences,
-    right: HoshidictsDefinitionBlurPreferences
-): boolean {
-    return (
-        left.enabled === right.enabled &&
-        left.lookupThreshold === right.lookupThreshold &&
-        left.revealMode === right.revealMode &&
-        left.revealDelayMs === right.revealDelayMs
-    );
-}
-
-function popupButtonsEqual(
-    left: HoshidictsPopupButtons,
-    right: HoshidictsPopupButtons
-): boolean {
-    return (
-        left.addToAnki === right.addToAnki &&
-        left.audio === right.audio &&
-        left.customDefinition === right.customDefinition &&
-        left.viewInAnki === right.viewInAnki &&
-        left.customLinks.length === right.customLinks.length &&
-        left.customLinks.every(
-            (link, index) =>
-                link.label === right.customLinks[index]?.label &&
-                link.url === right.customLinks[index]?.url
-        )
-    );
-}
-
-function lookupControlsEqual(
-    left: HoshidictsLookupControls,
-    right: HoshidictsLookupControls
-): boolean {
-    return (
-        left.scanLength === right.scanLength &&
-        left.maxResults === right.maxResults &&
-        left.sortFrequencyDictionary === right.sortFrequencyDictionary &&
-        left.sortFrequencyDictionaryOrder === right.sortFrequencyDictionaryOrder &&
-        left.averageFrequency === right.averageFrequency &&
-        left.showFrequencyDictionaryNames === right.showFrequencyDictionaryNames
-    );
-}
-
-function lookupControlsFromPreferences(
-    preferences: HoshidictsReaderPreferences
-): HoshidictsLookupControls {
-    return {
-        scanLength: preferences.scanLength,
-        maxResults: preferences.maxResults,
-        sortFrequencyDictionary: preferences.sortFrequencyDictionary,
-        sortFrequencyDictionaryOrder: preferences.sortFrequencyDictionaryOrder,
-        averageFrequency: preferences.averageFrequency,
-        showFrequencyDictionaryNames: preferences.showFrequencyDictionaryNames,
-    };
-}
-
+/** A running overlay only needs a restart when it is using something else. */
 function readerPreferencesMatchOverlay(
-    preferences: HoshidictsReaderPreferences,
+    preferences: HoshidictsReaderPreferencesRequest,
     deps: HoshidictsIPCDependencies
 ): boolean {
-    const definitionBlurAtLaunch = deps.getOverlayDefinitionBlurAtLaunch();
-    const popupButtonsApplied = deps.getOverlayPopupButtonsApplied();
-    const customPopupCssApplied = deps.getOverlayCustomPopupCssApplied();
-    const lookupControlsAtLaunch = deps.getOverlayLookupControlsAtLaunch();
-    return (
-        deps.getOverlayLookupModeAtLaunch() === preferences.lookupMode &&
-        lookupControlsAtLaunch !== null &&
-        lookupControlsEqual(
-            lookupControlsAtLaunch,
-            lookupControlsFromPreferences(preferences)
-        ) &&
-        deps.getOverlayActivationKeyAtLaunch() === preferences.activationKey &&
-        deps.getOverlaySourceHighlightEnabledAtLaunch() ===
-            preferences.sourceHighlightEnabled &&
-        deps.getOverlayOnlyScanJapaneseTextAtLaunch() ===
-            preferences.onlyScanJapaneseText &&
-        deps.getOverlayPopupHideDelayAtLaunch() ===
-            preferences.popupHideDelayMs &&
-        deps.getOverlayShowLookupCountsAtLaunch() ===
-            preferences.showLookupCounts &&
-        deps.getOverlayShowCompactDefinitionSummaryAtLaunch() ===
-            preferences.showCompactDefinitionSummary &&
-        deps.getOverlayCompactDefinitionSummaryCountAtLaunch() ===
-            preferences.compactDefinitionSummaryCount &&
-        deps.getOverlayCompactDefinitionSummaryDictionaryAtLaunch() ===
-            preferences.compactDefinitionSummaryDictionary &&
-        deps.getOverlayShowPitchAccentFuriganaAtLaunch() ===
-            preferences.showPitchAccentFurigana &&
-        deps.getOverlayPitchAccentFuriganaDictionaryAtLaunch() ===
-            preferences.pitchAccentFuriganaDictionary &&
-        deps.getOverlayShowPitchAccentBadgeAtLaunch() ===
-            preferences.showPitchAccentBadge &&
-        deps.getOverlayHidePopupGrammarTagsAtLaunch() ===
-            preferences.hidePopupGrammarTags &&
-        deps.getOverlayPopupNestingMaxDepthAtLaunch() ===
-            preferences.popupNestingMaxDepth &&
-        deps.getOverlayPopupWidthAtLaunch() === preferences.popupWidthPx &&
-        deps.getOverlayPopupHeightAtLaunch() === preferences.popupHeightPx &&
-        deps.getOverlayPopupColumnsAtLaunch() === preferences.popupColumns &&
-        deps.getOverlayThemeAtLaunch() === preferences.theme &&
-        deps.getOverlayPopupOpacityPercentAtLaunch() ===
-            preferences.popupOpacityPercent &&
-        deps.getOverlayPopupBackdropBlurPxAtLaunch() ===
-            preferences.popupBackdropBlurPx &&
-        deps.getOverlayPopupToolbarPositionAtLaunch() ===
-            preferences.popupToolbarPosition &&
-        popupButtonsApplied !== null &&
-        popupButtonsEqual(popupButtonsApplied, preferences.popupButtons) &&
-        customPopupCssApplied === preferences.customPopupCss &&
-        definitionBlurAtLaunch !== null &&
-        definitionBlurPreferencesEqual(
-            definitionBlurAtLaunch,
-            preferences.definitionBlur
-        )
+    return hoshidictsReaderPreferencesEqual(
+        preferences,
+        deps.getAppliedReaderPreferences()
     );
 }
 
@@ -431,45 +507,10 @@ function withDesktopState(
 ): HoshidictsDesktopSnapshot {
     const overlay = deps.getOverlayRuntimeState();
     const enabledAtLaunch = deps.getOverlayFeatureEnabledAtLaunch();
-    const lookupModeAtLaunch = deps.getOverlayLookupModeAtLaunch();
-    const lookupControlsAtLaunch = deps.getOverlayLookupControlsAtLaunch();
-    const activationKeyAtLaunch = deps.getOverlayActivationKeyAtLaunch();
-    const sourceHighlightEnabledAtLaunch =
-        deps.getOverlaySourceHighlightEnabledAtLaunch();
-    const onlyScanJapaneseTextAtLaunch =
-        deps.getOverlayOnlyScanJapaneseTextAtLaunch();
-    const popupHideDelayAtLaunch = deps.getOverlayPopupHideDelayAtLaunch();
-    const showLookupCountsAtLaunch =
-        deps.getOverlayShowLookupCountsAtLaunch();
-    const showCompactDefinitionSummaryAtLaunch =
-        deps.getOverlayShowCompactDefinitionSummaryAtLaunch();
-    const compactDefinitionSummaryCountAtLaunch =
-        deps.getOverlayCompactDefinitionSummaryCountAtLaunch();
-    const compactDefinitionSummaryDictionaryAtLaunch =
-        deps.getOverlayCompactDefinitionSummaryDictionaryAtLaunch();
-    const showPitchAccentFuriganaAtLaunch =
-        deps.getOverlayShowPitchAccentFuriganaAtLaunch();
-    const pitchAccentFuriganaDictionaryAtLaunch =
-        deps.getOverlayPitchAccentFuriganaDictionaryAtLaunch();
-    const showPitchAccentBadgeAtLaunch =
-        deps.getOverlayShowPitchAccentBadgeAtLaunch();
-    const hidePopupGrammarTagsAtLaunch =
-        deps.getOverlayHidePopupGrammarTagsAtLaunch();
-    const popupNestingMaxDepthAtLaunch =
-        deps.getOverlayPopupNestingMaxDepthAtLaunch();
-    const definitionBlurAtLaunch = deps.getOverlayDefinitionBlurAtLaunch();
-    const popupWidthAtLaunch = deps.getOverlayPopupWidthAtLaunch();
-    const popupHeightAtLaunch = deps.getOverlayPopupHeightAtLaunch();
-    const popupColumnsAtLaunch = deps.getOverlayPopupColumnsAtLaunch();
-    const themeAtLaunch = deps.getOverlayThemeAtLaunch();
-    const popupButtonsApplied = deps.getOverlayPopupButtonsApplied();
-    const customPopupCssApplied = deps.getOverlayCustomPopupCssApplied();
+    const appliedPreferences = deps.getAppliedReaderPreferences();
     const effectiveEnabled = deps.getConfiguredFeatureEnabled();
     return {
         ...snapshot,
-        compactDefinitionSummaryCount:
-            snapshot.compactDefinitionSummaryCount ??
-            DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
         effectiveEnabled,
         overlay: {
             running: overlay.isRunning,
@@ -478,98 +519,11 @@ function withDesktopState(
                 ((enabledAtLaunch !== null &&
                     enabledAtLaunch !== effectiveEnabled) ||
                     (effectiveEnabled &&
-                        lookupModeAtLaunch !== null &&
-                        lookupModeAtLaunch !== snapshot.lookupMode) ||
-                    (effectiveEnabled &&
-                        lookupControlsAtLaunch !== null &&
-                        !lookupControlsEqual(lookupControlsAtLaunch, {
-                            scanLength: snapshot.scanLength,
-                            maxResults: snapshot.maxResults,
-                            sortFrequencyDictionary:
-                                snapshot.sortFrequencyDictionary,
-                            sortFrequencyDictionaryOrder:
-                                snapshot.sortFrequencyDictionaryOrder,
-                            averageFrequency: snapshot.averageFrequency,
-                            showFrequencyDictionaryNames:
-                                snapshot.showFrequencyDictionaryNames,
-                        })) ||
-                    (effectiveEnabled &&
-                        activationKeyAtLaunch !== null &&
-                        activationKeyAtLaunch !== snapshot.activationKey) ||
-                    (effectiveEnabled &&
-                        sourceHighlightEnabledAtLaunch !== null &&
-                        sourceHighlightEnabledAtLaunch !==
-                            snapshot.sourceHighlightEnabled) ||
-                    (effectiveEnabled &&
-                        onlyScanJapaneseTextAtLaunch !== null &&
-                        onlyScanJapaneseTextAtLaunch !==
-                            snapshot.onlyScanJapaneseText) ||
-                    (effectiveEnabled &&
-                        popupHideDelayAtLaunch !== null &&
-                        popupHideDelayAtLaunch !== snapshot.popupHideDelayMs) ||
-                    (effectiveEnabled &&
-                        showLookupCountsAtLaunch !== null &&
-                        showLookupCountsAtLaunch !== snapshot.showLookupCounts) ||
-                    (effectiveEnabled &&
-                        showCompactDefinitionSummaryAtLaunch !== null &&
-                        showCompactDefinitionSummaryAtLaunch !==
-                            snapshot.showCompactDefinitionSummary) ||
-                    (effectiveEnabled &&
-                        compactDefinitionSummaryCountAtLaunch !== null &&
-                        compactDefinitionSummaryCountAtLaunch !==
-                            (snapshot.compactDefinitionSummaryCount ??
-                                DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT)) ||
-                    (effectiveEnabled &&
-                        showCompactDefinitionSummaryAtLaunch !== null &&
-                        compactDefinitionSummaryDictionaryAtLaunch !==
-                            snapshot.compactDefinitionSummaryDictionary) ||
-                    (effectiveEnabled &&
-                        showPitchAccentFuriganaAtLaunch !== null &&
-                        showPitchAccentFuriganaAtLaunch !==
-                            snapshot.showPitchAccentFurigana) ||
-                    (effectiveEnabled &&
-                        showPitchAccentFuriganaAtLaunch !== null &&
-                        pitchAccentFuriganaDictionaryAtLaunch !==
-                            snapshot.pitchAccentFuriganaDictionary) ||
-                    (effectiveEnabled &&
-                        showPitchAccentBadgeAtLaunch !== null &&
-                        showPitchAccentBadgeAtLaunch !==
-                            snapshot.showPitchAccentBadge) ||
-                    (effectiveEnabled &&
-                        hidePopupGrammarTagsAtLaunch !== null &&
-                        hidePopupGrammarTagsAtLaunch !==
-                            snapshot.hidePopupGrammarTags) ||
-                    (effectiveEnabled &&
-                        popupNestingMaxDepthAtLaunch !== null &&
-                        popupNestingMaxDepthAtLaunch !==
-                            snapshot.popupNestingMaxDepth) ||
-                    (effectiveEnabled &&
-                        definitionBlurAtLaunch !== null &&
-                        !definitionBlurPreferencesEqual(
-                            definitionBlurAtLaunch,
-                            snapshot.definitionBlur
+                        appliedPreferences !== null &&
+                        !hoshidictsReaderPreferencesEqual(
+                            normalizeHoshidictsReaderPreferences(snapshot),
+                            appliedPreferences
                         )) ||
-                    (effectiveEnabled &&
-                        popupWidthAtLaunch !== null &&
-                        popupWidthAtLaunch !== snapshot.popupWidthPx) ||
-                    (effectiveEnabled &&
-                        popupHeightAtLaunch !== null &&
-                        popupHeightAtLaunch !== snapshot.popupHeightPx) ||
-                    (effectiveEnabled &&
-                        popupColumnsAtLaunch !== null &&
-                        popupColumnsAtLaunch !== snapshot.popupColumns) ||
-                    (effectiveEnabled &&
-                        themeAtLaunch !== null &&
-                        themeAtLaunch !== snapshot.theme) ||
-                    (effectiveEnabled &&
-                        popupButtonsApplied !== null &&
-                        !popupButtonsEqual(
-                            popupButtonsApplied,
-                            snapshot.popupButtons
-                        )) ||
-                    (effectiveEnabled &&
-                        customPopupCssApplied !== null &&
-                        customPopupCssApplied !== snapshot.customPopupCss) ||
                     (effectiveEnabled &&
                         deps.getOverlayAudioProfileRestartRequired())),
         },
@@ -624,6 +578,8 @@ export function registerHoshidictsIPC(
         }
     });
 
+    registerHoshidictsManagerActions(manager, deps);
+
     ipcMain.handle(HOSHIDICTS_CHANNELS.openSettings, async (event) => {
         assertMainSender(event, deps);
         await deps.openSettingsWindow();
@@ -634,120 +590,6 @@ export function registerHoshidictsIPC(
         assertSettingsSender(event, deps);
         return await currentState(deps);
     });
-
-    ipcMain.handle(
-        HOSHIDICTS_CHANNELS.createProfile,
-        async (event, request: unknown) => {
-            assertSettingsSender(event, deps);
-            const value = request as Partial<HoshidictsCreateProfileRequest> | null;
-            if (
-                !value ||
-                typeof value.name !== 'string' ||
-                value.name.trim().length === 0 ||
-                value.name.length > MAX_HOSHIDICTS_PROFILE_NAME_LENGTH
-            ) {
-                return {
-                    success: false,
-                    error: 'Profile name is invalid.',
-                    state: await currentState(deps),
-                } satisfies HoshidictsActionResult;
-            }
-            return await runAction(
-                deps,
-                async () => await manager.createProfile(value.name as string),
-                { code: 'profileCreated' }
-            );
-        }
-    );
-
-    ipcMain.handle(
-        HOSHIDICTS_CHANNELS.switchProfile,
-        async (event, request: unknown) => {
-            assertSettingsSender(event, deps);
-            const value = request as Partial<HoshidictsProfileIdRequest> | null;
-            if (!value || typeof value.id !== 'string') {
-                return {
-                    success: false,
-                    error: 'Profile switch request is invalid.',
-                    state: await currentState(deps),
-                } satisfies HoshidictsActionResult;
-            }
-            return await runAction(
-                deps,
-                async () => {
-                    const state = await manager.switchProfile(value.id as string);
-                    await applyRestoredSnapshot(
-                        state,
-                        deps,
-                        'The profile was switched, but its settings could not be applied to the running overlay. Restart the overlay to use the selected profile.'
-                    );
-                    return state;
-                },
-                { code: 'profileSwitched' }
-            );
-        }
-    );
-
-    ipcMain.handle(
-        HOSHIDICTS_CHANNELS.renameProfile,
-        async (event, request: unknown) => {
-            assertSettingsSender(event, deps);
-            const value = request as Partial<HoshidictsRenameProfileRequest> | null;
-            if (
-                !value ||
-                typeof value.id !== 'string' ||
-                typeof value.name !== 'string' ||
-                value.name.trim().length === 0 ||
-                value.name.length > MAX_HOSHIDICTS_PROFILE_NAME_LENGTH
-            ) {
-                return {
-                    success: false,
-                    error: 'Profile rename request is invalid.',
-                    state: await currentState(deps),
-                } satisfies HoshidictsActionResult;
-            }
-            return await runAction(
-                deps,
-                async () =>
-                    await manager.renameProfile(
-                        value.id as string,
-                        value.name as string
-                    ),
-                { code: 'profileRenamed' }
-            );
-        }
-    );
-
-    ipcMain.handle(
-        HOSHIDICTS_CHANNELS.deleteProfile,
-        async (event, request: unknown) => {
-            assertSettingsSender(event, deps);
-            const value = request as Partial<HoshidictsProfileIdRequest> | null;
-            if (!value || typeof value.id !== 'string') {
-                return {
-                    success: false,
-                    error: 'Profile delete request is invalid.',
-                    state: await currentState(deps),
-                } satisfies HoshidictsActionResult;
-            }
-            return await runAction(
-                deps,
-                async () => {
-                    const before = await manager.getSnapshot();
-                    const state = await manager.deleteProfile(value.id as string);
-                    if (before.activeProfileId === value.id) {
-                        await applyRestoredSnapshot(
-                            state,
-                            deps,
-                            'The profile was deleted, but the replacement profile could not be applied to the running overlay. Restart the overlay to use it.'
-                        );
-                    }
-                    return state;
-                },
-                { code: 'profileDeleted' }
-            );
-        }
-    );
 
     ipcMain.handle(HOSHIDICTS_CHANNELS.getCustomDictionary, async (event) => {
         assertSettingsSender(event, deps);
@@ -1010,38 +852,10 @@ export function registerHoshidictsIPC(
                         `Turned off unavailable frequency sorting dictionary: ${reader.sortFrequencyDictionary}.`
                     );
                 }
-                state = await manager.setReaderPreferences(
-                    reader.lookupMode,
-                    reader.popupHideDelayMs,
-                    reader.activationKey,
-                    reader.sourceHighlightEnabled,
-                    reader.popupNestingMaxDepth,
-                    reader.definitionBlur,
-                    reader.showLookupCounts,
-                    reader.popupWidthPx,
-                    reader.popupHeightPx,
-                    reader.theme,
-                    reader.popupOpacityPercent,
-                    reader.onlyScanJapaneseText,
-                    reader.popupToolbarPosition,
-                    reader.scanLength,
-                    reader.maxResults,
+                state = await manager.setReaderPreferences({
+                    ...reader,
                     sortFrequencyDictionary,
-                    reader.sortFrequencyDictionaryOrder,
-                    reader.popupButtons,
-                    reader.popupColumns,
-                    reader.showCompactDefinitionSummary,
-                    reader.compactDefinitionSummaryCount,
-                    reader.compactDefinitionSummaryDictionary,
-                    reader.hidePopupGrammarTags,
-                    reader.showPitchAccentFurigana,
-                    reader.pitchAccentFuriganaDictionary,
-                    reader.showPitchAccentBadge,
-                    reader.customPopupCss,
-                    reader.averageFrequency,
-                    reader.showFrequencyDictionaryNames,
-                    reader.popupBackdropBlurPx
-                );
+                });
             }
             await applyReaderSnapshot(state, deps);
             return {
@@ -1285,165 +1099,13 @@ export function registerHoshidictsIPC(
     );
 
     ipcMain.handle(
-        HOSHIDICTS_CHANNELS.setSchedule,
-        async (event, schedule: unknown) => {
-            assertSettingsSender(event, deps);
-            if (!isSchedule(schedule)) {
-                return {
-                    success: false,
-                    error: 'Dictionary update schedule is invalid.',
-                    state: await currentState(deps),
-                } satisfies HoshidictsActionResult;
-            }
-            return await runAction(
-                deps,
-                async () => await manager.setSchedule(schedule),
-                { code: 'preferencesSaved' }
-            );
-        }
-    );
-
-    ipcMain.handle(
-        HOSHIDICTS_CHANNELS.setDictionarySchedule,
-        async (event, request: unknown) => {
-            assertSettingsSender(event, deps);
-            const value = request as
-                | Partial<HoshidictsDictionaryScheduleRequest>
-                | null;
-            if (
-                !value ||
-                typeof value.id !== 'string' ||
-                (value.schedule !== null && !isSchedule(value.schedule))
-            ) {
-                return {
-                    success: false,
-                    error: 'Dictionary update schedule request is invalid.',
-                    state: await currentState(deps),
-                } satisfies HoshidictsActionResult;
-            }
-            return await runAction(
-                deps,
-                async () =>
-                    await manager.setDictionarySchedule(
-                        value.id as string,
-                        value.schedule as HoshidictsSchedule | null
-                    ),
-                { code: 'dictionaryChanged' }
-            );
-        }
-    );
-
-    ipcMain.handle(
-        HOSHIDICTS_CHANNELS.setLookupMode,
-        async (event, lookupMode: unknown) => {
-            assertSettingsSender(event, deps);
-            if (!isLookupMode(lookupMode)) {
-                return {
-                    success: false,
-                    error: 'Hoshidicts lookup mode is invalid.',
-                    state: await currentState(deps),
-                } satisfies HoshidictsActionResult;
-            }
-            return await runAction(
-                deps,
-                async () => await manager.setLookupMode(lookupMode),
-                { code: 'preferencesSaved' }
-            );
-        }
-    );
-
-    ipcMain.handle(
         HOSHIDICTS_CHANNELS.setReaderPreferences,
         async (event, request: unknown) => {
             assertSettingsSender(event, deps);
-            const value = request as Partial<HoshidictsReaderPreferencesRequest> | null;
-            const compactDefinitionSummaryCount =
-                value?.compactDefinitionSummaryCount ??
-                DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT;
-            const popupBackdropBlurPx =
-                value?.popupBackdropBlurPx ??
-                DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX;
-            if (
-                !value ||
-                !isLookupMode(value.lookupMode) ||
-                !Number.isInteger(value.scanLength) ||
-                (value.scanLength as number) < MIN_HOSHIDICTS_SCAN_LENGTH ||
-                (value.scanLength as number) > MAX_HOSHIDICTS_SCAN_LENGTH ||
-                !Number.isInteger(value.maxResults) ||
-                (value.maxResults as number) < MIN_HOSHIDICTS_MAX_RESULTS ||
-                (value.maxResults as number) > MAX_HOSHIDICTS_MAX_RESULTS ||
-                (value.sortFrequencyDictionary !== null &&
-                    (typeof value.sortFrequencyDictionary !== 'string' ||
-                        value.sortFrequencyDictionary.length === 0 ||
-                        value.sortFrequencyDictionary.length > 4096)) ||
-                !isHoshidictsSortFrequencyDictionaryOrder(
-                    value.sortFrequencyDictionaryOrder
-                ) ||
-                !isHoshidictsActivationKey(value.activationKey) ||
-                typeof value.sourceHighlightEnabled !== 'boolean' ||
-                typeof value.onlyScanJapaneseText !== 'boolean' ||
-                typeof value.showLookupCounts !== 'boolean' ||
-                (value.averageFrequency !== undefined &&
-                    typeof value.averageFrequency !== 'boolean') ||
-                (value.showFrequencyDictionaryNames !== undefined &&
-                    typeof value.showFrequencyDictionaryNames !== 'boolean') ||
-                typeof value.showCompactDefinitionSummary !== 'boolean' ||
-                !Number.isInteger(compactDefinitionSummaryCount) ||
-                compactDefinitionSummaryCount <
-                    MIN_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT ||
-                compactDefinitionSummaryCount >
-                    MAX_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT ||
-                !isNullableDictionaryTitle(
-                    value.compactDefinitionSummaryDictionary
-                ) ||
-                typeof value.showPitchAccentFurigana !== 'boolean' ||
-                !isNullableDictionaryTitle(
-                    value.pitchAccentFuriganaDictionary
-                ) ||
-                typeof value.showPitchAccentBadge !== 'boolean' ||
-                typeof value.hidePopupGrammarTags !== 'boolean' ||
-                !Number.isInteger(value.popupHideDelayMs) ||
-                (value.popupHideDelayMs as number) < 0 ||
-                (value.popupHideDelayMs as number) >
-                    MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS ||
-                !Number.isSafeInteger(value.popupNestingMaxDepth) ||
-                (value.popupNestingMaxDepth as number) < 0 ||
-                !Number.isInteger(value.popupWidthPx) ||
-                (value.popupWidthPx as number) <
-                    MIN_HOSHIDICTS_POPUP_WIDTH_PX ||
-                (value.popupWidthPx as number) >
-                    MAX_HOSHIDICTS_POPUP_WIDTH_PX ||
-                !Number.isInteger(value.popupHeightPx) ||
-                (value.popupHeightPx as number) <
-                    MIN_HOSHIDICTS_POPUP_HEIGHT_PX ||
-                (value.popupHeightPx as number) >
-                    MAX_HOSHIDICTS_POPUP_HEIGHT_PX ||
-                !Number.isInteger(value.popupColumns) ||
-                (value.popupColumns as number) <
-                    MIN_HOSHIDICTS_POPUP_COLUMNS ||
-                (value.popupColumns as number) >
-                    MAX_HOSHIDICTS_POPUP_COLUMNS ||
-                !isHoshidictsTheme(value.theme) ||
-                !Number.isInteger(value.popupOpacityPercent) ||
-                (value.popupOpacityPercent as number) <
-                    MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT ||
-                (value.popupOpacityPercent as number) >
-                    MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT ||
-                !Number.isInteger(popupBackdropBlurPx) ||
-                popupBackdropBlurPx <
-                    MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX ||
-                popupBackdropBlurPx >
-                    MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX ||
-                !isHoshidictsPopupToolbarPosition(
-                    value.popupToolbarPosition
-                ) ||
-                !isHoshidictsPopupButtons(value.popupButtons) ||
-                (value.customPopupCss !== undefined &&
-                    (typeof value.customPopupCss !== 'string' ||
-                        value.customPopupCss.length >
-                            MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH)) ||
-                !isDefinitionBlurPreferences(value.definitionBlur)
-            ) {
+            let requestPreferences: HoshidictsReaderPreferencesRequest;
+            try {
+                requestPreferences = assertHoshidictsReaderPreferences(request);
+            } catch {
                 return {
                     success: false,
                     error: 'Hoshidicts reader preferences are invalid.',
@@ -1453,98 +1115,13 @@ export function registerHoshidictsIPC(
             return await runAction(
                 deps,
                 async () => {
-                    const requestPreferences: HoshidictsReaderPreferencesRequest = {
-                        lookupMode: value.lookupMode as HoshidictsLookupMode,
-                        scanLength: value.scanLength as number,
-                        maxResults: value.maxResults as number,
-                        sortFrequencyDictionary:
-                            value.sortFrequencyDictionary as string | null,
-                        sortFrequencyDictionaryOrder:
-                            value.sortFrequencyDictionaryOrder as HoshidictsSortFrequencyDictionaryOrder,
-                        activationKey: value.activationKey as HoshidictsActivationKey,
-                        sourceHighlightEnabled:
-                            value.sourceHighlightEnabled as boolean,
-                        onlyScanJapaneseText:
-                            value.onlyScanJapaneseText as boolean,
-                        popupHideDelayMs: value.popupHideDelayMs as number,
-                        showLookupCounts: value.showLookupCounts as boolean,
-                        averageFrequency: value.averageFrequency === true,
-                        showFrequencyDictionaryNames:
-                            value.showFrequencyDictionaryNames !== false,
-                        showCompactDefinitionSummary:
-                            value.showCompactDefinitionSummary as boolean,
-                        compactDefinitionSummaryCount,
-                        compactDefinitionSummaryDictionary:
-                            value.compactDefinitionSummaryDictionary as
-                                | string
-                                | null,
-                        showPitchAccentFurigana:
-                            value.showPitchAccentFurigana as boolean,
-                        pitchAccentFuriganaDictionary:
-                            value.pitchAccentFuriganaDictionary as
-                                | string
-                                | null,
-                        showPitchAccentBadge:
-                            value.showPitchAccentBadge as boolean,
-                        hidePopupGrammarTags:
-                            value.hidePopupGrammarTags as boolean,
-                        popupNestingMaxDepth:
-                            value.popupNestingMaxDepth as number,
-                        definitionBlur: {
-                            ...value.definitionBlur,
-                        } as HoshidictsDefinitionBlurPreferences,
-                        popupWidthPx: value.popupWidthPx as number,
-                        popupHeightPx: value.popupHeightPx as number,
-                        popupColumns: value.popupColumns as number,
-                        theme: value.theme as HoshidictsTheme,
-                        popupOpacityPercent:
-                            value.popupOpacityPercent as number,
-                        popupBackdropBlurPx,
-                        popupToolbarPosition:
-                            value.popupToolbarPosition as HoshidictsPopupToolbarPosition,
-                        popupButtons: normalizeHoshidictsPopupButtons(
-                            value.popupButtons
-                        ),
-                        ...(typeof value.customPopupCss === 'string'
-                            ? { customPopupCss: value.customPopupCss }
-                            : {}),
-                    };
-                    const state = await manager.setReaderPreferences(
-                        requestPreferences.lookupMode,
-                        requestPreferences.popupHideDelayMs,
-                        requestPreferences.activationKey,
-                        requestPreferences.sourceHighlightEnabled,
-                        requestPreferences.popupNestingMaxDepth,
-                        requestPreferences.definitionBlur,
-                        requestPreferences.showLookupCounts,
-                        requestPreferences.popupWidthPx,
-                        requestPreferences.popupHeightPx,
-                        requestPreferences.theme,
-                        requestPreferences.popupOpacityPercent,
-                        requestPreferences.onlyScanJapaneseText,
-                        requestPreferences.popupToolbarPosition,
-                        requestPreferences.scanLength,
-                        requestPreferences.maxResults,
-                        requestPreferences.sortFrequencyDictionary,
-                        requestPreferences.sortFrequencyDictionaryOrder,
-                        requestPreferences.popupButtons,
-                        requestPreferences.popupColumns,
-                        requestPreferences.showCompactDefinitionSummary,
-                        requestPreferences.compactDefinitionSummaryCount,
-                        requestPreferences.compactDefinitionSummaryDictionary,
-                        requestPreferences.hidePopupGrammarTags,
-                        requestPreferences.showPitchAccentFurigana,
-                        requestPreferences.pitchAccentFuriganaDictionary,
-                        requestPreferences.showPitchAccentBadge,
-                        requestPreferences.customPopupCss,
-                        requestPreferences.averageFrequency,
-                        requestPreferences.showFrequencyDictionaryNames,
-                        requestPreferences.popupBackdropBlurPx
-                    );
-                    const preferences: HoshidictsReaderPreferences = {
-                        ...hoshidictsReaderPreferencesFromSnapshot(state),
-                        ...requestPreferences,
-                    };
+                    const state =
+                        await manager.setReaderPreferences(requestPreferences);
+                    // Deliver what was actually saved. Overlaying the request
+                    // back on top would push a value the manager had coerced,
+                    // leaving the restart banner permanently disagreeing with it.
+                    const preferences =
+                        hoshidictsReaderPreferencesFromSnapshot(state);
                     const applied = await deps.applyReaderPreferences(
                         preferences
                     );
@@ -1558,18 +1135,6 @@ export function registerHoshidictsIPC(
                     return state;
                 },
                 { code: 'preferencesSaved' }
-            );
-        }
-    );
-
-    ipcMain.handle(
-        HOSHIDICTS_CHANNELS.setMiningProfile,
-        async (event, profile: unknown) => {
-            assertSettingsSender(event, deps);
-            return await runAction(
-                deps,
-                async () => await manager.setMiningProfile(profile),
-                { code: 'miningProfileSaved' }
             );
         }
     );
@@ -1668,69 +1233,6 @@ export function registerHoshidictsIPC(
     );
 
     ipcMain.handle(
-        HOSHIDICTS_CHANNELS.setDictionaryEnabled,
-        async (event, request: unknown) => {
-            assertSettingsSender(event, deps);
-            const value = request as
-                | Partial<HoshidictsDictionaryEnabledRequest>
-                | null;
-            if (
-                !value ||
-                typeof value.id !== 'string' ||
-                typeof value.enabled !== 'boolean'
-            ) {
-                return {
-                    success: false,
-                    error: 'Dictionary enable request is invalid.',
-                    state: await currentState(deps),
-                } satisfies HoshidictsActionResult;
-            }
-            return await runAction(
-                deps,
-                async () =>
-                    await manager.setDictionaryEnabled(
-                        value.id as string,
-                        value.enabled as boolean
-                    ),
-                { code: 'dictionaryChanged' }
-            );
-        }
-    );
-
-    ipcMain.handle(
-        HOSHIDICTS_CHANNELS.setDictionaryPresentation,
-        async (event, request: unknown) => {
-            assertSettingsSender(event, deps);
-            const value = request as
-                | Partial<HoshidictsDictionaryPresentationRequest>
-                | null;
-            if (
-                !value ||
-                typeof value.id !== 'string' ||
-                typeof value.favorite !== 'boolean'
-            ) {
-                return {
-                    success: false,
-                    error: 'Dictionary presentation request is invalid.',
-                    state: await currentState(deps),
-                } satisfies HoshidictsActionResult;
-            }
-            return await runAction(
-                deps,
-                async () => {
-                    const state = await manager.setDictionaryPresentation(
-                        value.id as string,
-                        value.favorite as boolean
-                    );
-                    await applyReaderSnapshot(state, deps);
-                    return state;
-                },
-                { code: 'dictionaryChanged' }
-            );
-        }
-    );
-
-    ipcMain.handle(
         HOSHIDICTS_CHANNELS.bulkDictionaryAction,
         async (event, request: unknown) => {
             assertSettingsSender(event, deps);
@@ -1805,262 +1307,6 @@ export function registerHoshidictsIPC(
                             : 'dictionaryChanged',
                     count: ids.length,
                 }
-            );
-        }
-    );
-
-    ipcMain.handle(
-        HOSHIDICTS_CHANNELS.createTabGroup,
-        async (event, request: unknown) => {
-            assertSettingsSender(event, deps);
-            const value = request as Partial<HoshidictsCreateTabGroupRequest> | null;
-            if (
-                !value ||
-                typeof value.name !== 'string' ||
-                (value.dictionaryId !== undefined &&
-                    typeof value.dictionaryId !== 'string')
-            ) {
-                return {
-                    success: false,
-                    error: 'Tab group create request is invalid.',
-                    state: await currentState(deps),
-                } satisfies HoshidictsActionResult;
-            }
-            return await runAction(
-                deps,
-                async () => {
-                    const state = await manager.createTabGroup(
-                        value.name as string,
-                        value.dictionaryId as string | undefined
-                    );
-                    await applyReaderSnapshot(state, deps);
-                    return state;
-                },
-                { code: 'dictionaryChanged' }
-            );
-        }
-    );
-
-    ipcMain.handle(
-        HOSHIDICTS_CHANNELS.setTabGroupMembership,
-        async (event, request: unknown) => {
-            assertSettingsSender(event, deps);
-            const value = request as
-                | Partial<HoshidictsSetTabGroupMembershipRequest>
-                | null;
-            if (
-                !value ||
-                typeof value.groupId !== 'string' ||
-                typeof value.dictionaryId !== 'string' ||
-                typeof value.member !== 'boolean'
-            ) {
-                return {
-                    success: false,
-                    error: 'Tab group membership request is invalid.',
-                    state: await currentState(deps),
-                } satisfies HoshidictsActionResult;
-            }
-            return await runAction(
-                deps,
-                async () => {
-                    const state = await manager.setTabGroupMembership(
-                        value.groupId as string,
-                        value.dictionaryId as string,
-                        value.member as boolean
-                    );
-                    await applyReaderSnapshot(state, deps);
-                    return state;
-                },
-                { code: 'dictionaryChanged' }
-            );
-        }
-    );
-
-    ipcMain.handle(
-        HOSHIDICTS_CHANNELS.renameTabGroup,
-        async (event, request: unknown) => {
-            assertSettingsSender(event, deps);
-            const value = request as Partial<HoshidictsRenameTabGroupRequest> | null;
-            if (
-                !value ||
-                typeof value.groupId !== 'string' ||
-                typeof value.name !== 'string'
-            ) {
-                return {
-                    success: false,
-                    error: 'Tab group rename request is invalid.',
-                    state: await currentState(deps),
-                } satisfies HoshidictsActionResult;
-            }
-            return await runAction(
-                deps,
-                async () => {
-                    const state = await manager.renameTabGroup(
-                        value.groupId as string,
-                        value.name as string
-                    );
-                    await applyReaderSnapshot(state, deps);
-                    return state;
-                },
-                { code: 'dictionaryChanged' }
-            );
-        }
-    );
-
-    ipcMain.handle(
-        HOSHIDICTS_CHANNELS.deleteTabGroup,
-        async (event, request: unknown) => {
-            assertSettingsSender(event, deps);
-            const value = request as Partial<HoshidictsDeleteTabGroupRequest> | null;
-            if (!value || typeof value.groupId !== 'string') {
-                return {
-                    success: false,
-                    error: 'Tab group delete request is invalid.',
-                    state: await currentState(deps),
-                } satisfies HoshidictsActionResult;
-            }
-            return await runAction(
-                deps,
-                async () => {
-                    const state = await manager.deleteTabGroup(
-                        value.groupId as string
-                    );
-                    await applyReaderSnapshot(state, deps);
-                    return state;
-                },
-                { code: 'dictionaryChanged' }
-            );
-        }
-    );
-
-    ipcMain.handle(
-        HOSHIDICTS_CHANNELS.moveTabGroup,
-        async (event, request: unknown) => {
-            assertSettingsSender(event, deps);
-            const value = request as Partial<HoshidictsMoveTabGroupRequest> | null;
-            if (
-                !value ||
-                typeof value.groupId !== 'string' ||
-                (value.direction !== -1 && value.direction !== 1)
-            ) {
-                return {
-                    success: false,
-                    error: 'Tab group move request is invalid.',
-                    state: await currentState(deps),
-                } satisfies HoshidictsActionResult;
-            }
-            return await runAction(
-                deps,
-                async () => {
-                    const state = await manager.moveTabGroup(
-                        value.groupId as string,
-                        value.direction as -1 | 1
-                    );
-                    await applyReaderSnapshot(state, deps);
-                    return state;
-                },
-                { code: 'dictionaryChanged' }
-            );
-        }
-    );
-
-    ipcMain.handle(
-        HOSHIDICTS_CHANNELS.renameDictionary,
-        async (event, request: unknown) => {
-            assertSettingsSender(event, deps);
-            const value = request as
-                | Partial<HoshidictsRenameDictionaryRequest>
-                | null;
-            if (
-                !value ||
-                typeof value.id !== 'string' ||
-                (value.displayName !== null &&
-                    typeof value.displayName !== 'string')
-            ) {
-                return {
-                    success: false,
-                    error: 'Dictionary rename request is invalid.',
-                    state: await currentState(deps),
-                } satisfies HoshidictsActionResult;
-            }
-            return await runAction(
-                deps,
-                async () => {
-                    const state = await manager.renameDictionary(
-                        value.id as string,
-                        value.displayName as string | null
-                    );
-                    await applyReaderSnapshot(state, deps);
-                    return state;
-                },
-                { code: 'dictionaryChanged' }
-            );
-        }
-    );
-
-    ipcMain.handle(
-        HOSHIDICTS_CHANNELS.moveDictionary,
-        async (event, request: unknown) => {
-            assertSettingsSender(event, deps);
-            const value = request as
-                | Partial<HoshidictsMoveDictionaryRequest>
-                | null;
-            if (
-                !value ||
-                typeof value.id !== 'string' ||
-                (value.direction !== -1 && value.direction !== 1)
-            ) {
-                return {
-                    success: false,
-                    error: 'Dictionary move request is invalid.',
-                    state: await currentState(deps),
-                } satisfies HoshidictsActionResult;
-            }
-            return await runAction(
-                deps,
-                async () => {
-                    const state = await manager.moveDictionary(
-                        value.id as string,
-                        value.direction as -1 | 1
-                    );
-                    await applyReaderSnapshot(state, deps);
-                    return state;
-                },
-                { code: 'dictionaryChanged' }
-            );
-        }
-    );
-
-    ipcMain.handle(
-        HOSHIDICTS_CHANNELS.moveDictionaryToPosition,
-        async (event, request: unknown) => {
-            assertSettingsSender(event, deps);
-            const value = request as
-                | Partial<HoshidictsMoveDictionaryToPositionRequest>
-                | null;
-            if (
-                !value ||
-                typeof value.id !== 'string' ||
-                !Number.isInteger(value.position) ||
-                (value.position as number) < 1
-            ) {
-                return {
-                    success: false,
-                    error: 'Dictionary position request is invalid.',
-                    state: await currentState(deps),
-                } satisfies HoshidictsActionResult;
-            }
-            return await runAction(
-                deps,
-                async () => {
-                    const state = await manager.moveDictionaryToPosition(
-                        value.id as string,
-                        value.position as number
-                    );
-                    await applyReaderSnapshot(state, deps);
-                    return state;
-                },
-                { code: 'dictionaryChanged' }
             );
         }
     );

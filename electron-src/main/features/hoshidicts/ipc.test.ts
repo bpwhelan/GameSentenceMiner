@@ -1,12 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-    createDefaultHoshidictsAudioProfile,
-    createDefaultHoshidictsFieldOverwriteModes,
-    createDefaultHoshidictsPopupButtons,
     HOSHIDICTS_CHANNELS,
-    type HoshidictsTheme,
+    type HoshidictsReaderPreferencesRequest,
 } from '../../../shared/features/hoshidicts.js';
+import {
+    createHoshidictsIpcDependencies,
+    makeHoshidictsDictionary,
+    makeHoshidictsMiningOptions,
+    makeHoshidictsReaderPreferences,
+    makeHoshidictsSnapshot,
+} from './test_helpers.js';
 
 const harness = vi.hoisted(() => ({
     handlers: new Map<string, (...args: any[]) => any>(),
@@ -19,60 +23,11 @@ const harness = vi.hoisted(() => ({
     testAudioSource: vi.fn(),
     subscriber: null as ((snapshot: any) => void) | null,
     configuredEnabled: true,
+    overlayRunning: true,
     enabledAtLaunch: false as boolean | null,
-    lookupModeAtLaunch: 'shift' as 'shift' | 'hover' | null,
-    lookupControlsAtLaunch: {
-        scanLength: 16,
-        maxResults: 32,
-        sortFrequencyDictionary: null as string | null,
-        sortFrequencyDictionaryOrder: 'descending' as
-            | 'ascending'
-            | 'descending',
-    } as {
-        scanLength: number;
-        maxResults: number;
-        sortFrequencyDictionary: string | null;
-        sortFrequencyDictionaryOrder: 'ascending' | 'descending';
-    } | null,
-    activationKeyAtLaunch: 'Shift' as string | null,
-    sourceHighlightEnabledAtLaunch: false as boolean | null,
-    onlyScanJapaneseTextAtLaunch: true as boolean | null,
-    popupHideDelayAtLaunch: 300 as number | null,
-    showLookupCountsAtLaunch: true as boolean | null,
-    showCompactDefinitionSummaryAtLaunch: false as boolean | null,
-    compactDefinitionSummaryCountAtLaunch: 3 as number | null,
-    compactDefinitionSummaryDictionaryAtLaunch: null as string | null,
-    showPitchAccentFuriganaAtLaunch: true as boolean | null,
-    pitchAccentFuriganaDictionaryAtLaunch: null as string | null,
-    showPitchAccentBadgeAtLaunch: false as boolean | null,
-    hidePopupGrammarTagsAtLaunch: true as boolean | null,
+    /** The preferences the running overlay is using, or null when unknown. */
+    appliedReaderPreferences: null as HoshidictsReaderPreferencesRequest | null,
     audioProfileRestartRequired: false,
-    popupNestingMaxDepthAtLaunch: 10 as number | null,
-    popupWidthAtLaunch: 560 as number | null,
-    popupHeightAtLaunch: 420 as number | null,
-    popupColumnsAtLaunch: 1 as number | null,
-    themeAtLaunch: 'default' as HoshidictsTheme | null,
-    popupOpacityPercentAtLaunch: 85 as number | null,
-    popupToolbarPositionAtLaunch: 'top' as 'top' | 'bottom' | null,
-    popupButtonsApplied: {
-        addToAnki: true,
-        audio: true,
-        customDefinition: true,
-        viewInAnki: false,
-        customLinks: [] as Array<{ label: string; url: string }>,
-    },
-    customPopupCssApplied: '',
-    definitionBlurAtLaunch: {
-        enabled: false,
-        lookupThreshold: 5,
-        revealMode: 'timed' as 'timed' | 'hover',
-        revealDelayMs: 5000,
-    } as {
-        enabled: boolean;
-        lookupThreshold: number;
-        revealMode: 'timed' | 'hover';
-        revealDelayMs: number;
-    } | null,
     manager: {
         subscribe: vi.fn(),
         getSnapshot: vi.fn(),
@@ -145,110 +100,8 @@ vi.mock('./audio_source_test.js', () => ({
     fetchHoshidictsAudioSourceTest: harness.testAudioSource,
 }));
 
-const snapshot = {
-    revision: 1,
-    activeProfileId: 'default',
-    profiles: [{ id: 'default', name: 'Default' }],
-    dictionaries: [],
-    tabGroups: [],
-    customDictionaryActive: false,
-    recommendedDictionaries: [
-        { id: 'jitendex', installed: false },
-        { id: 'jmdict', installed: false },
-        { id: 'jmnedict', installed: false },
-        { id: 'bccwj', installed: false },
-        { id: 'jpdbv2-kana', installed: false },
-        { id: 'jiten', installed: false },
-        { id: 'kanjium-pitch', installed: false },
-        { id: 'kanjidic', installed: false },
-    ],
-    miningProfile: {
-        version: 3,
-        enabled: true,
-        deck: 'Default',
-        model: '',
-        fields: {
-            expression: '',
-            reading: '',
-            definition: '',
-            sentence: '',
-            frequency: '',
-            pitch: '',
-            audio: '',
-        },
-        disabledFields: [],
-        tags: ['hoshidicts'],
-        checkForDuplicates: true,
-        duplicateScope: 'collection',
-        duplicateScopeCheckAllModels: false,
-        duplicateBehavior: 'prevent',
-        fieldOverwriteModes: createDefaultHoshidictsFieldOverwriteModes(),
-        fieldTemplates: null,
-    },
-    audioProfile: createDefaultHoshidictsAudioProfile(),
-    lookupMode: 'shift',
-    scanLength: 16,
-    maxResults: 32,
-    sortFrequencyDictionary: null,
-    sortFrequencyDictionaryOrder: 'descending',
-    activationKey: 'Shift',
-    sourceHighlightEnabled: false,
-    onlyScanJapaneseText: true,
-    popupHideDelayMs: 300,
-    showLookupCounts: true,
-    showCompactDefinitionSummary: false,
-    compactDefinitionSummaryCount: 3,
-    compactDefinitionSummaryDictionary: null,
-    showPitchAccentFurigana: true,
-    pitchAccentFuriganaDictionary: null,
-    showPitchAccentBadge: false,
-    hidePopupGrammarTags: true,
-    popupNestingMaxDepth: 10,
-    popupWidthPx: 560,
-    popupHeightPx: 420,
-    popupColumns: 1,
-    theme: 'default',
-    popupOpacityPercent: 85,
-    popupToolbarPosition: 'top',
-    popupButtons: createDefaultHoshidictsPopupButtons(),
-    customPopupCss: '',
-    definitionBlur: {
-        enabled: false,
-        lookupThreshold: 5,
-        revealMode: 'timed',
-        revealDelayMs: 5000,
-    },
-    schedule: 'off',
-    lastCheck: null,
-    nextCheck: null,
-    lastError: null,
-    busy: false,
-    progress: { phase: 'idle' },
-} as const;
-
-function definitionDictionary(
-    id: string,
-    title: string,
-    favorite: boolean
-) {
-    return {
-        id,
-        title,
-        enabled: true,
-        favorite,
-        revision: 'one',
-        isUpdatable: false,
-        indexUrl: null,
-        downloadUrl: null,
-        language: 'ja',
-        termCount: 1,
-        frequencyCount: 0,
-        pitchCount: 0,
-        kanjiCount: 0,
-        frequencyMode: null,
-        installedAt: '2026-08-08T00:00:00.000Z',
-    } as const;
-}
+const snapshot = makeHoshidictsSnapshot();
+const defaultPreferences = makeHoshidictsReaderPreferences();
 
 async function registerHarness() {
     vi.resetModules();
@@ -330,103 +183,29 @@ async function registerHarness() {
     const restartOverlay = vi.fn(async () => true);
     const applyReaderPreferences = vi.fn(async () => true);
     const applyAudioProfile = vi.fn(async () => true);
-    const getMiningOptions = vi.fn(async () => ({
-        connected: true,
-        gsmAnkiEnabled: true,
-        decks: ['Mining'],
-        noteTypes: ['Kiku'],
-        selectedNoteType: 'Kiku',
-        fields: ['Expression'],
-        suggestedFields: {
-            expression: 'Expression',
-            reading: '',
-            definition: '',
-            sentence: '',
-            frequency: '',
-            pitch: '',
-            audio: '',
-        },
-        resolvedFields: {
-            expression: 'Expression',
-            reading: '',
-            definition: '',
-            sentence: '',
-            frequency: '',
-            pitch: '',
-            audio: '',
-        },
-        suggestedFieldTemplates: { Expression: '{expression}' },
-        resolvedFieldTemplates: {
-            Expression: {
-                value: '{expression}',
-                overwriteMode: 'coalesce' as const,
-            },
-        },
-        warnings: [],
-        error: null,
-    }));
+    const getMiningOptions = vi.fn(async () => makeHoshidictsMiningOptions());
     const { registerHoshidictsIPC } = await import('./ipc.js');
-    registerHoshidictsIPC({
-        getMainWindow: () => mainWindow as any,
-        getSettingsWindow: () => settingsWindow as any,
-        openSettingsWindow: openSettingsWindow as any,
-        getOverlayRuntimeState: () => ({
-            isRunning: true,
-            source: 'manual',
-        }),
-        getConfiguredFeatureEnabled: () => harness.configuredEnabled,
-        getOverlayFeatureEnabledAtLaunch: () => harness.enabledAtLaunch,
-        getOverlayLookupModeAtLaunch: () => harness.lookupModeAtLaunch,
-        getOverlayLookupControlsAtLaunch: () =>
-            harness.lookupControlsAtLaunch,
-        getOverlayActivationKeyAtLaunch: () =>
-            harness.activationKeyAtLaunch,
-        getOverlaySourceHighlightEnabledAtLaunch: () =>
-            harness.sourceHighlightEnabledAtLaunch,
-        getOverlayOnlyScanJapaneseTextAtLaunch: () =>
-            harness.onlyScanJapaneseTextAtLaunch,
-        getOverlayPopupHideDelayAtLaunch: () =>
-            harness.popupHideDelayAtLaunch,
-        getOverlayShowLookupCountsAtLaunch: () =>
-            harness.showLookupCountsAtLaunch,
-        getOverlayShowCompactDefinitionSummaryAtLaunch: () =>
-            harness.showCompactDefinitionSummaryAtLaunch,
-        getOverlayCompactDefinitionSummaryCountAtLaunch: () =>
-            harness.compactDefinitionSummaryCountAtLaunch,
-        getOverlayCompactDefinitionSummaryDictionaryAtLaunch: () =>
-            harness.compactDefinitionSummaryDictionaryAtLaunch,
-        getOverlayShowPitchAccentFuriganaAtLaunch: () =>
-            harness.showPitchAccentFuriganaAtLaunch,
-        getOverlayPitchAccentFuriganaDictionaryAtLaunch: () =>
-            harness.pitchAccentFuriganaDictionaryAtLaunch,
-        getOverlayShowPitchAccentBadgeAtLaunch: () =>
-            harness.showPitchAccentBadgeAtLaunch,
-        getOverlayHidePopupGrammarTagsAtLaunch: () =>
-            harness.hidePopupGrammarTagsAtLaunch,
-        getOverlayAudioProfileRestartRequired: () =>
-            harness.audioProfileRestartRequired,
-        getOverlayPopupNestingMaxDepthAtLaunch: () =>
-            harness.popupNestingMaxDepthAtLaunch,
-        getOverlayDefinitionBlurAtLaunch: () =>
-            harness.definitionBlurAtLaunch,
-        getOverlayPopupWidthAtLaunch: () => harness.popupWidthAtLaunch,
-        getOverlayPopupHeightAtLaunch: () => harness.popupHeightAtLaunch,
-        getOverlayPopupColumnsAtLaunch: () =>
-            harness.popupColumnsAtLaunch,
-        getOverlayThemeAtLaunch: () => harness.themeAtLaunch,
-        getOverlayPopupOpacityPercentAtLaunch: () =>
-            harness.popupOpacityPercentAtLaunch,
-        getOverlayPopupToolbarPositionAtLaunch: () =>
-            harness.popupToolbarPositionAtLaunch,
-        getOverlayPopupButtonsApplied: () =>
-            harness.popupButtonsApplied,
-        getOverlayCustomPopupCssApplied: () =>
-            harness.customPopupCssApplied,
-        applyReaderPreferences,
-        applyAudioProfile,
-        getMiningOptions,
-        restartOverlay,
-    });
+    registerHoshidictsIPC(
+        createHoshidictsIpcDependencies({
+            getMainWindow: () => mainWindow as any,
+            getSettingsWindow: () => settingsWindow as any,
+            openSettingsWindow: openSettingsWindow as any,
+            getOverlayRuntimeState: () => ({
+                isRunning: harness.overlayRunning,
+                source: 'manual',
+            }),
+            getConfiguredFeatureEnabled: () => harness.configuredEnabled,
+            getOverlayFeatureEnabledAtLaunch: () => harness.enabledAtLaunch,
+            getAppliedReaderPreferences: () =>
+                harness.appliedReaderPreferences,
+            getOverlayAudioProfileRestartRequired: () =>
+                harness.audioProfileRestartRequired,
+            applyReaderPreferences,
+            applyAudioProfile,
+            getMiningOptions,
+            restartOverlay,
+        })
+    );
 
     return {
         foreignContents,
@@ -435,6 +214,7 @@ async function registerHarness() {
         restartOverlay,
         settingsContents,
         settingsWindow,
+        settingsEvent: { sender: settingsContents },
         getMiningOptions,
         applyReaderPreferences,
         applyAudioProfile,
@@ -445,42 +225,10 @@ describe('Hoshidicts settings IPC', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         harness.configuredEnabled = true;
+        harness.overlayRunning = true;
         harness.enabledAtLaunch = false;
-        harness.lookupModeAtLaunch = 'shift';
-        harness.lookupControlsAtLaunch = {
-            scanLength: 16,
-            maxResults: 32,
-            sortFrequencyDictionary: null,
-            sortFrequencyDictionaryOrder: 'descending',
-        };
-        harness.activationKeyAtLaunch = 'Shift';
-        harness.sourceHighlightEnabledAtLaunch = false;
-        harness.onlyScanJapaneseTextAtLaunch = true;
-        harness.popupHideDelayAtLaunch = 300;
-        harness.showLookupCountsAtLaunch = true;
-        harness.showCompactDefinitionSummaryAtLaunch = false;
-        harness.compactDefinitionSummaryCountAtLaunch = 3;
-        harness.compactDefinitionSummaryDictionaryAtLaunch = null;
-        harness.showPitchAccentFuriganaAtLaunch = true;
-        harness.pitchAccentFuriganaDictionaryAtLaunch = null;
-        harness.showPitchAccentBadgeAtLaunch = false;
-        harness.hidePopupGrammarTagsAtLaunch = true;
+        harness.appliedReaderPreferences = null;
         harness.audioProfileRestartRequired = false;
-        harness.popupNestingMaxDepthAtLaunch = 10;
-        harness.popupWidthAtLaunch = 560;
-        harness.popupHeightAtLaunch = 420;
-        harness.popupColumnsAtLaunch = 1;
-        harness.themeAtLaunch = 'default';
-        harness.popupOpacityPercentAtLaunch = 85;
-        harness.popupToolbarPositionAtLaunch = 'top';
-        harness.popupButtonsApplied = createDefaultHoshidictsPopupButtons();
-        harness.customPopupCssApplied = '';
-        harness.definitionBlurAtLaunch = {
-            enabled: false,
-            lookupThreshold: 5,
-            revealMode: 'timed',
-            revealDelayMs: 5000,
-        };
     });
 
     it('validates profile requests and applies switched profiles live', async () => {
@@ -504,7 +252,7 @@ describe('Hoshidicts settings IPC', () => {
 
         await expect(
             harness.handlers.get(HOSHIDICTS_CHANNELS.createProfile)?.(
-                { sender: context.settingsContents },
+                context.settingsEvent,
                 { name: 'Persona' },
             ),
         ).resolves.toMatchObject({
@@ -515,7 +263,7 @@ describe('Hoshidicts settings IPC', () => {
 
         await expect(
             harness.handlers.get(HOSHIDICTS_CHANNELS.switchProfile)?.(
-                { sender: context.settingsContents },
+                context.settingsEvent,
                 { id: 'persona' },
             ),
         ).resolves.toMatchObject({
@@ -531,7 +279,7 @@ describe('Hoshidicts settings IPC', () => {
 
         await expect(
             harness.handlers.get(HOSHIDICTS_CHANNELS.createProfile)?.(
-                { sender: context.settingsContents },
+                context.settingsEvent,
                 { name: '   ' },
             ),
         ).resolves.toMatchObject({
@@ -539,6 +287,87 @@ describe('Hoshidicts settings IPC', () => {
             error: 'Profile name is invalid.',
         });
         expect(harness.manager.createProfile).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+        [
+            HOSHIDICTS_CHANNELS.createProfile,
+            'createProfile',
+            [null, {}, { name: '  ' }, { name: 42 }, { name: 'x'.repeat(129) }],
+            'Profile name is invalid.',
+        ],
+        [
+            HOSHIDICTS_CHANNELS.switchProfile,
+            'switchProfile',
+            [null, {}, { id: 42 }],
+            'Profile switch request is invalid.',
+        ],
+        [
+            HOSHIDICTS_CHANNELS.renameProfile,
+            'renameProfile',
+            [null, { id: 'persona' }, { id: 42, name: 'Persona' }, { id: 'persona', name: '  ' }],
+            'Profile rename request is invalid.',
+        ],
+        [
+            HOSHIDICTS_CHANNELS.deleteProfile,
+            'deleteProfile',
+            [null, {}, { id: 42 }],
+            'Profile delete request is invalid.',
+        ],
+    ])(
+        '%s rejects malformed requests',
+        async (channel, method, requests, error) => {
+            const context = await registerHarness();
+
+            for (const request of requests) {
+                await expect(
+                    harness.handlers.get(channel)?.(
+                        context.settingsEvent,
+                        request
+                    )
+                ).resolves.toMatchObject({ success: false, error });
+            }
+            expect(
+                harness.manager[method as 'createProfile']
+            ).not.toHaveBeenCalled();
+        }
+    );
+
+    it('renames and deletes profiles, applying a replacement profile live', async () => {
+        const context = await registerHarness();
+        const replacement = { ...snapshot, activeProfileId: 'default' };
+        harness.manager.getSnapshot.mockResolvedValueOnce({
+            ...snapshot,
+            activeProfileId: 'persona',
+        });
+        harness.manager.deleteProfile.mockResolvedValueOnce(replacement);
+
+        await expect(
+            harness.handlers.get(HOSHIDICTS_CHANNELS.renameProfile)?.(
+                context.settingsEvent,
+                { id: 'persona', name: 'Renamed' }
+            )
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'profileRenamed' },
+        });
+        expect(harness.manager.renameProfile).toHaveBeenCalledWith(
+            'persona',
+            'Renamed'
+        );
+
+        await expect(
+            harness.handlers.get(HOSHIDICTS_CHANNELS.deleteProfile)?.(
+                context.settingsEvent,
+                { id: 'persona' }
+            )
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'profileDeleted' },
+        });
+        expect(harness.manager.deleteProfile).toHaveBeenCalledWith('persona');
+        expect(context.applyReaderPreferences).toHaveBeenCalledOnce();
+        expect(context.applyAudioProfile).toHaveBeenCalledOnce();
     });
 
     it('selects and imports multiple Yomitan ZIP dictionaries as one batch', async () => {
@@ -554,9 +383,7 @@ describe('Hoshidicts settings IPC', () => {
         const context = await registerHarness();
 
         await expect(
-            harness.handlers.get('hoshidicts.import')?.({
-                sender: context.settingsContents,
-            })
+            harness.handlers.get('hoshidicts.import')?.(context.settingsEvent)
         ).resolves.toMatchObject({
             success: true,
             outcome: { code: 'dictionaryImported', count: 3 },
@@ -610,9 +437,9 @@ describe('Hoshidicts settings IPC', () => {
         const context = await registerHarness();
 
         await expect(
-            harness.handlers.get('hoshidicts.importYomitanDictionaries')?.({
-                sender: context.settingsContents,
-            })
+            harness.handlers.get('hoshidicts.importYomitanDictionaries')?.(
+                context.settingsEvent
+            )
         ).resolves.toMatchObject({
             success: true,
             outcome: { code: 'yomitanDictionariesImported', count: 1 },
@@ -685,9 +512,9 @@ describe('Hoshidicts settings IPC', () => {
         const context = await registerHarness();
 
         await expect(
-            harness.handlers.get('hoshidicts.importYomitanDictionaries')?.({
-                sender: context.settingsContents,
-            })
+            harness.handlers.get('hoshidicts.importYomitanDictionaries')?.(
+                context.settingsEvent
+            )
         ).resolves.toMatchObject({
             success: true,
             yomitanReport: { imported: 1, replaced: 0, failed: 1 },
@@ -757,9 +584,9 @@ describe('Hoshidicts settings IPC', () => {
         const context = await registerHarness();
 
         await expect(
-            harness.handlers.get('hoshidicts.importYomitanSettings')?.({
-                sender: context.settingsContents,
-            })
+            harness.handlers.get('hoshidicts.importYomitanSettings')?.(
+                context.settingsEvent
+            )
         ).resolves.toMatchObject({
             success: true,
             outcome: { code: 'yomitanSettingsImported', count: 2 },
@@ -778,6 +605,50 @@ describe('Hoshidicts settings IPC', () => {
         expect(cleanup).toHaveBeenCalledOnce();
     });
 
+    it('saves imported Yomitan reader preferences and drops unavailable frequency sorting', async () => {
+        const cleanup = vi.fn(async () => undefined);
+        const readerPreferences = makeHoshidictsReaderPreferences({
+            lookupMode: 'hover',
+            sortFrequencyDictionary: 'Missing frequency',
+        });
+        harness.prepareYomitanSettingsBackup.mockResolvedValueOnce({
+            dictionaries: [],
+            settings: {
+                profileName: 'Mining',
+                dictionaries: [],
+                readerPreferences,
+                miningProfile: null,
+                audioProfile: null,
+                groups: ['reader'],
+                warnings: [],
+            },
+            cleanup,
+        });
+        harness.showOpenDialog.mockResolvedValueOnce({
+            canceled: false,
+            filePaths: ['/tmp/yomitan-settings.json'],
+        });
+        const context = await registerHarness();
+
+        await expect(
+            harness.handlers.get('hoshidicts.importYomitanSettings')?.(
+                context.settingsEvent
+            )
+        ).resolves.toMatchObject({
+            success: true,
+            yomitanReport: {
+                settings: ['reader'],
+                warnings: [
+                    'Turned off unavailable frequency sorting dictionary: Missing frequency.',
+                ],
+            },
+        });
+        expect(harness.manager.setReaderPreferences).toHaveBeenCalledWith({
+            ...readerPreferences,
+            sortFrequencyDictionary: null,
+        });
+    });
+
     it('exports a complete Hoshidicts backup with a ZIP save dialog', async () => {
         harness.showSaveDialog.mockResolvedValueOnce({
             canceled: false,
@@ -786,9 +657,9 @@ describe('Hoshidicts settings IPC', () => {
         const context = await registerHarness();
 
         await expect(
-            harness.handlers.get('hoshidicts.exportBackup')?.({
-                sender: context.settingsContents,
-            })
+            harness.handlers.get('hoshidicts.exportBackup')?.(
+                context.settingsEvent
+            )
         ).resolves.toMatchObject({
             success: true,
             outcome: { code: 'backupExported' },
@@ -824,13 +695,16 @@ describe('Hoshidicts settings IPC', () => {
         });
         harness.showMessageBox.mockResolvedValueOnce({ response: 1 });
         const context = await registerHarness();
-        const settingsEvent = { sender: context.settingsContents };
 
         await expect(
-            harness.handlers.get('hoshidicts.exportBackup')?.(settingsEvent)
+            harness.handlers.get('hoshidicts.exportBackup')?.(
+                context.settingsEvent
+            )
         ).resolves.toMatchObject({ success: false, canceled: true });
         await expect(
-            harness.handlers.get('hoshidicts.restoreBackup')?.(settingsEvent)
+            harness.handlers.get('hoshidicts.restoreBackup')?.(
+                context.settingsEvent
+            )
         ).resolves.toMatchObject({ success: false, canceled: true });
         expect(harness.manager.exportBackup).not.toHaveBeenCalled();
         expect(harness.manager.restoreBackup).not.toHaveBeenCalled();
@@ -867,9 +741,9 @@ describe('Hoshidicts settings IPC', () => {
         harness.manager.restoreBackup.mockResolvedValueOnce(restored);
 
         await expect(
-            harness.handlers.get('hoshidicts.restoreBackup')?.({
-                sender: context.settingsContents,
-            })
+            harness.handlers.get('hoshidicts.restoreBackup')?.(
+                context.settingsEvent
+            )
         ).resolves.toMatchObject({
             success: true,
             outcome: { code: 'backupRestored' },
@@ -916,9 +790,9 @@ describe('Hoshidicts settings IPC', () => {
         context.restartOverlay.mockResolvedValueOnce(false);
 
         await expect(
-            harness.handlers.get('hoshidicts.restoreBackup')?.({
-                sender: context.settingsContents,
-            })
+            harness.handlers.get('hoshidicts.restoreBackup')?.(
+                context.settingsEvent
+            )
         ).resolves.toMatchObject({
             success: false,
             error: expect.stringContaining(
@@ -941,10 +815,7 @@ describe('Hoshidicts settings IPC', () => {
         const getState = harness.handlers.get('hoshidicts.getState');
 
         await expect(
-            setAudioProfile?.(
-                { sender: context.settingsContents },
-                snapshot.audioProfile
-            )
+            setAudioProfile?.(context.settingsEvent, snapshot.audioProfile)
         ).resolves.toMatchObject({
             success: true,
             outcome: { code: 'audioProfileSaved' },
@@ -958,7 +829,7 @@ describe('Hoshidicts settings IPC', () => {
 
         harness.audioProfileRestartRequired = true;
         await expect(
-            getState?.({ sender: context.settingsContents })
+            getState?.(context.settingsEvent)
         ).resolves.toMatchObject({
             overlay: { running: true, restartRequired: true },
         });
@@ -982,7 +853,7 @@ describe('Hoshidicts settings IPC', () => {
 
         await expect(
             harness.handlers.get('hoshidicts.testAudioSource')?.(
-                { sender: context.settingsContents },
+                context.settingsEvent,
                 { profile, sourceId: 'edited-custom' }
             )
         ).resolves.toMatchObject({
@@ -1011,7 +882,7 @@ describe('Hoshidicts settings IPC', () => {
 
         await expect(
             harness.handlers.get('hoshidicts.testAudioSource')?.(
-                { sender: context.settingsContents },
+                context.settingsEvent,
                 { profile, sourceId: 'jisho' }
             )
         ).resolves.toMatchObject({
@@ -1043,7 +914,7 @@ describe('Hoshidicts settings IPC', () => {
 
         await expect(
             harness.handlers.get('hoshidicts.testAudioSource')?.(
-                { sender: context.settingsContents },
+                context.settingsEvent,
                 { profile, sourceId: 'local-tts' }
             )
         ).resolves.toMatchObject({
@@ -1056,200 +927,98 @@ describe('Hoshidicts settings IPC', () => {
         expect(harness.testAudioSource).not.toHaveBeenCalled();
     });
 
-    it('requires an overlay restart when the persisted lookup mode changed', async () => {
-        harness.enabledAtLaunch = true;
-        harness.lookupModeAtLaunch = 'hover';
+    it.each([
+        [null],
+        [{ sourceId: 'jisho' }],
+        [{ profile: 'nope', sourceId: 'jisho' }],
+        [{ profile: {}, sourceId: 42 }],
+        [{ profile: {}, sourceId: 'not valid' }],
+    ])('rejects a malformed audio source test request (%j)', async (request) => {
         const context = await registerHarness();
-        const getState = harness.handlers.get('hoshidicts.getState');
 
         await expect(
-            getState?.({ sender: context.settingsContents })
-        ).resolves.toMatchObject({
-            overlay: { running: true, restartRequired: true },
-        });
-
-        harness.lookupModeAtLaunch = 'shift';
-        await expect(
-            getState?.({ sender: context.settingsContents })
-        ).resolves.toMatchObject({
-            overlay: { running: true, restartRequired: false },
-        });
-
-        harness.lookupControlsAtLaunch = {
-            scanLength: 10,
-            maxResults: 32,
-            sortFrequencyDictionary: null,
-            sortFrequencyDictionaryOrder: 'descending',
-        };
-        await expect(
-            getState?.({ sender: context.settingsContents })
-        ).resolves.toMatchObject({
-            overlay: { running: true, restartRequired: true },
-        });
-        harness.lookupControlsAtLaunch.scanLength = 16;
-
-        harness.activationKeyAtLaunch = 'F8';
-        await expect(
-            getState?.({ sender: context.settingsContents })
-        ).resolves.toMatchObject({
-            overlay: { running: true, restartRequired: true },
-        });
-
-        harness.activationKeyAtLaunch = 'Shift';
-        harness.sourceHighlightEnabledAtLaunch = true;
-        await expect(
-            getState?.({ sender: context.settingsContents })
-        ).resolves.toMatchObject({
-            overlay: { running: true, restartRequired: true },
-        });
-
-        harness.sourceHighlightEnabledAtLaunch = false;
-        harness.showLookupCountsAtLaunch = false;
-        await expect(
-            getState?.({ sender: context.settingsContents })
-        ).resolves.toMatchObject({
-            overlay: { running: true, restartRequired: true },
-        });
-
-        harness.showLookupCountsAtLaunch = true;
-        await expect(
-            getState?.({ sender: context.settingsContents })
-        ).resolves.toMatchObject({
-            overlay: { running: true, restartRequired: false },
-        });
-
-        harness.showCompactDefinitionSummaryAtLaunch = true;
-        await expect(
-            getState?.({ sender: context.settingsContents })
-        ).resolves.toMatchObject({
-            overlay: { running: true, restartRequired: true },
-        });
-
-        harness.showCompactDefinitionSummaryAtLaunch = false;
-        await expect(
-            getState?.({ sender: context.settingsContents })
-        ).resolves.toMatchObject({
-            overlay: { running: true, restartRequired: false },
-        });
-
-        harness.compactDefinitionSummaryCountAtLaunch = 4;
-        await expect(
-            getState?.({ sender: context.settingsContents })
-        ).resolves.toMatchObject({
-            overlay: { running: true, restartRequired: true },
-        });
-
-        harness.compactDefinitionSummaryCountAtLaunch = 3;
-
-        harness.compactDefinitionSummaryDictionaryAtLaunch = 'Jitendex';
-        await expect(
-            getState?.({ sender: context.settingsContents })
-        ).resolves.toMatchObject({
-            overlay: { running: true, restartRequired: true },
-        });
-
-        harness.compactDefinitionSummaryDictionaryAtLaunch = null;
-        await expect(
-            getState?.({ sender: context.settingsContents })
-        ).resolves.toMatchObject({
-            overlay: { running: true, restartRequired: false },
-        });
-
-        harness.hidePopupGrammarTagsAtLaunch = false;
-        await expect(
-            getState?.({ sender: context.settingsContents })
-        ).resolves.toMatchObject({
-            overlay: { running: true, restartRequired: true },
-        });
-
-        harness.hidePopupGrammarTagsAtLaunch = null;
-        await expect(
-            getState?.({ sender: context.settingsContents })
-        ).resolves.toMatchObject({
-            overlay: { running: true, restartRequired: false },
-        });
-
-        harness.hidePopupGrammarTagsAtLaunch = true;
-        await expect(
-            getState?.({ sender: context.settingsContents })
-        ).resolves.toMatchObject({
-            overlay: { running: true, restartRequired: false },
-        });
-    });
-
-    it('restarts a running overlay when disabling Shift cannot apply live', async () => {
-        harness.enabledAtLaunch = true;
-        const context = await registerHarness();
-        const setReaderPreferences = harness.handlers.get(
-            'hoshidicts.setReaderPreferences'
-        );
-        context.applyReaderPreferences.mockResolvedValueOnce(false);
-
-        await expect(
-            setReaderPreferences?.(
-                { sender: context.settingsContents },
-                {
-                    lookupMode: 'hover',
-                    scanLength: 16,
-                    maxResults: 32,
-                    sortFrequencyDictionary: null,
-                    sortFrequencyDictionaryOrder: 'descending',
-                    activationKey: 'Shift',
-                    sourceHighlightEnabled: false,
-                    onlyScanJapaneseText: true,
-                    popupHideDelayMs: 300,
-                    showLookupCounts: true,
-                    showCompactDefinitionSummary: false,
-                    compactDefinitionSummaryCount: 3,
-                    compactDefinitionSummaryDictionary: null,
-                    showPitchAccentFurigana: true,
-                    pitchAccentFuriganaDictionary: null,
-                    showPitchAccentBadge: false,
-                    hidePopupGrammarTags: true,
-                    popupNestingMaxDepth: 10,
-                    popupWidthPx: 560,
-                    popupHeightPx: 420,
-                    popupColumns: 1,
-                    theme: 'girlypop',
-                    popupOpacityPercent: 70,
-                    popupToolbarPosition: 'bottom',
-                    popupButtons: snapshot.popupButtons,
-                    definitionBlur: snapshot.definitionBlur,
-                }
+            harness.handlers.get('hoshidicts.testAudioSource')?.(
+                context.settingsEvent,
+                request
             )
         ).resolves.toMatchObject({
-            success: true,
-            outcome: { code: 'preferencesSaved' },
+            success: false,
+            error: 'Hoshidicts audio source test request is invalid.',
         });
-        expect(context.restartOverlay).toHaveBeenCalledOnce();
+        expect(harness.manager.setAudioProfile).not.toHaveBeenCalled();
     });
 
-    it('restarts when hiding popup grammar tags cannot apply live', async () => {
-        harness.enabledAtLaunch = true;
-        const context = await registerHarness();
-        const setReaderPreferences = harness.handlers.get(
-            'hoshidicts.setReaderPreferences'
-        );
-        context.applyReaderPreferences.mockResolvedValueOnce(false);
+    // Every stored reader preference now counts towards the restart banner,
+    // including popup opacity, backdrop blur, and toolbar position.
+    it.each([
+        ['lookupMode', 'hover'],
+        ['scanLength', 10],
+        ['maxResults', 64],
+        ['sortFrequencyDictionary', 'Frequency'],
+        ['sortFrequencyDictionaryOrder', 'ascending'],
+        ['activationKey', 'F8'],
+        ['sourceHighlightEnabled', true],
+        ['onlyScanJapaneseText', false],
+        ['popupHideDelayMs', 900],
+        ['showLookupCounts', false],
+        ['averageFrequency', true],
+        ['showFrequencyDictionaryNames', false],
+        ['showCompactDefinitionSummary', true],
+        ['compactDefinitionSummaryCount', 4],
+        ['compactDefinitionSummaryDictionary', 'Jitendex'],
+        ['showPitchAccentFurigana', false],
+        ['pitchAccentFuriganaDictionary', 'Pitch'],
+        ['showPitchAccentBadge', true],
+        ['hidePopupGrammarTags', false],
+        ['popupNestingMaxDepth', 4],
+        [
+            'definitionBlur',
+            {
+                enabled: true,
+                lookupThreshold: 5,
+                revealMode: 'timed',
+                revealDelayMs: 5000,
+            },
+        ],
+        ['popupWidthPx', 600],
+        ['popupHeightPx', 500],
+        ['popupColumns', 2],
+        ['theme', 'girlypop'],
+        ['popupOpacityPercent', 70],
+        ['popupBackdropBlurPx', 24],
+        ['popupToolbarPosition', 'bottom'],
+        [
+            'popupButtons',
+            { ...defaultPreferences.popupButtons, viewInAnki: true },
+        ],
+        ['customPopupCss', ':scope { color: hotpink; }'],
+    ])(
+        'requires an overlay restart while the overlay runs a different %s',
+        async (field, launched) => {
+            harness.enabledAtLaunch = true;
+            const context = await registerHarness();
+            const getState = harness.handlers.get('hoshidicts.getState');
 
-        await expect(
-            setReaderPreferences?.(
-                { sender: context.settingsContents },
-                {
-                    ...snapshot,
-                    hidePopupGrammarTags: false,
-                }
-            )
-        ).resolves.toMatchObject({
-            success: true,
-            outcome: { code: 'preferencesSaved' },
-        });
-        expect(context.restartOverlay).toHaveBeenCalledOnce();
-    });
+            harness.appliedReaderPreferences = makeHoshidictsReaderPreferences({
+                [field]: launched,
+            });
+            await expect(
+                getState?.(context.settingsEvent)
+            ).resolves.toMatchObject({
+                overlay: { running: true, restartRequired: true },
+            });
 
-    it('only compares the compact definition dictionary after launch state is known', async () => {
+            harness.appliedReaderPreferences = makeHoshidictsReaderPreferences();
+            await expect(
+                getState?.(context.settingsEvent)
+            ).resolves.toMatchObject({
+                overlay: { running: true, restartRequired: false },
+            });
+        }
+    );
+
+    it('only compares preferences once the launch state is known', async () => {
         harness.enabledAtLaunch = true;
-        harness.showCompactDefinitionSummaryAtLaunch = null;
         const context = await registerHarness();
         harness.manager.getSnapshot.mockResolvedValue({
             ...snapshot,
@@ -1258,110 +1027,138 @@ describe('Hoshidicts settings IPC', () => {
         const getState = harness.handlers.get('hoshidicts.getState');
 
         await expect(
-            getState?.({ sender: context.settingsContents })
+            getState?.(context.settingsEvent)
         ).resolves.toMatchObject({
             overlay: { running: true, restartRequired: false },
         });
 
-        harness.showCompactDefinitionSummaryAtLaunch = false;
+        harness.appliedReaderPreferences = makeHoshidictsReaderPreferences();
         await expect(
-            getState?.({ sender: context.settingsContents })
+            getState?.(context.settingsEvent)
         ).resolves.toMatchObject({
             overlay: { running: true, restartRequired: true },
         });
     });
 
-    it('restarts when a lookup-control change cannot apply live', async () => {
+    it.each([
+        [
+            'the feature was turned on since launch',
+            () => {
+                harness.enabledAtLaunch = false;
+                harness.configuredEnabled = true;
+            },
+            true,
+        ],
+        [
+            'the feature was turned off since launch',
+            () => {
+                harness.enabledAtLaunch = true;
+                harness.configuredEnabled = false;
+            },
+            true,
+        ],
+        [
+            'a live audio profile update failed',
+            () => {
+                harness.enabledAtLaunch = true;
+                harness.audioProfileRestartRequired = true;
+            },
+            true,
+        ],
+        [
+            'the feature is off, so preference drift is irrelevant',
+            () => {
+                harness.enabledAtLaunch = false;
+                harness.configuredEnabled = false;
+                harness.appliedReaderPreferences =
+                    makeHoshidictsReaderPreferences({ lookupMode: 'hover' });
+            },
+            false,
+        ],
+        [
+            'the overlay is not running',
+            () => {
+                harness.overlayRunning = false;
+                harness.enabledAtLaunch = true;
+                harness.configuredEnabled = false;
+            },
+            false,
+        ],
+    ])(
+        'reports restartRequired=%s when %s',
+        async (_reason, arrange, restartRequired) => {
+            arrange();
+            const context = await registerHarness();
+
+            await expect(
+                harness.handlers.get('hoshidicts.getState')?.(
+                    context.settingsEvent
+                )
+            ).resolves.toMatchObject({
+                overlay: {
+                    running: harness.overlayRunning,
+                    restartRequired,
+                },
+            });
+        }
+    );
+
+    it.each([
+        ['lookupMode', 'hover'],
+        ['hidePopupGrammarTags', false],
+        ['scanLength', 24],
+        ['theme', 'girlypop'],
+        ['popupOpacityPercent', 70],
+    ])(
+        'restarts a running overlay when a changed %s cannot apply live',
+        async (field, value) => {
+            harness.enabledAtLaunch = true;
+            const context = await registerHarness();
+            context.applyReaderPreferences.mockResolvedValueOnce(false);
+
+            await expect(
+                harness.handlers.get('hoshidicts.setReaderPreferences')?.(
+                    context.settingsEvent,
+                    makeHoshidictsReaderPreferences({ [field]: value })
+                )
+            ).resolves.toMatchObject({
+                success: true,
+                outcome: { code: 'preferencesSaved' },
+            });
+            expect(context.restartOverlay).toHaveBeenCalledOnce();
+        }
+    );
+
+    it('does not restart when the running overlay already uses the saved preferences', async () => {
         harness.enabledAtLaunch = true;
+        harness.appliedReaderPreferences = makeHoshidictsReaderPreferences();
         const context = await registerHarness();
-        const setReaderPreferences = harness.handlers.get(
-            'hoshidicts.setReaderPreferences'
-        );
         context.applyReaderPreferences.mockResolvedValueOnce(false);
 
         await expect(
-            setReaderPreferences?.(
-                { sender: context.settingsContents },
-                {
-                    lookupMode: 'shift',
-                    scanLength: 24,
-                    maxResults: 32,
-                    sortFrequencyDictionary: null,
-                    sortFrequencyDictionaryOrder: 'descending',
-                    activationKey: 'Shift',
-                    sourceHighlightEnabled: false,
-                    onlyScanJapaneseText: true,
-                    popupHideDelayMs: 300,
-                    showLookupCounts: true,
-                    showCompactDefinitionSummary: false,
-                    compactDefinitionSummaryCount: 3,
-                    compactDefinitionSummaryDictionary: null,
-                    showPitchAccentFurigana: true,
-                    pitchAccentFuriganaDictionary: null,
-                    showPitchAccentBadge: false,
-                    hidePopupGrammarTags: true,
-                    popupNestingMaxDepth: 10,
-                    popupWidthPx: 560,
-                    popupHeightPx: 420,
-                    popupColumns: 1,
-                    theme: 'default',
-                    popupOpacityPercent: 85,
-                    popupToolbarPosition: 'top',
-                    popupButtons: snapshot.popupButtons,
-                    definitionBlur: snapshot.definitionBlur,
-                }
+            harness.handlers.get('hoshidicts.setReaderPreferences')?.(
+                context.settingsEvent,
+                makeHoshidictsReaderPreferences()
             )
-        ).resolves.toMatchObject({
-            success: true,
-            outcome: { code: 'preferencesSaved' },
-        });
-        expect(context.restartOverlay).toHaveBeenCalledOnce();
+        ).resolves.toMatchObject({ success: true });
+        expect(context.restartOverlay).not.toHaveBeenCalled();
     });
 
     it('keeps preferences saved when an automatic overlay restart fails', async () => {
         harness.enabledAtLaunch = true;
         const context = await registerHarness();
-        const setReaderPreferences = harness.handlers.get(
-            'hoshidicts.setReaderPreferences'
-        );
         context.applyReaderPreferences.mockResolvedValueOnce(false);
         context.restartOverlay.mockResolvedValueOnce(false);
         harness.manager.setReaderPreferences.mockResolvedValueOnce({
             ...snapshot,
             lookupMode: 'hover',
         });
+        harness.appliedReaderPreferences = makeHoshidictsReaderPreferences();
 
         await expect(
-            setReaderPreferences?.(
-                { sender: context.settingsContents },
-                {
-                    lookupMode: 'hover',
-                    scanLength: 16,
-                    maxResults: 32,
-                    sortFrequencyDictionary: null,
-                    sortFrequencyDictionaryOrder: 'descending',
-                    activationKey: 'Shift',
-                    sourceHighlightEnabled: false,
-                    onlyScanJapaneseText: true,
-                    popupHideDelayMs: 300,
-                    showLookupCounts: true,
-                    showCompactDefinitionSummary: false,
-                    compactDefinitionSummaryCount: 3,
-                    compactDefinitionSummaryDictionary: null,
-                    showPitchAccentFurigana: true,
-                    pitchAccentFuriganaDictionary: null,
-                    showPitchAccentBadge: false,
-                    hidePopupGrammarTags: true,
-                    popupNestingMaxDepth: 10,
-                    popupWidthPx: 560,
-                    popupHeightPx: 420,
-                    popupColumns: 1,
-                    theme: 'default',
-                    popupOpacityPercent: 85,
-                    popupToolbarPosition: 'top',
-                    popupButtons: snapshot.popupButtons,
-                    definitionBlur: snapshot.definitionBlur,
-                }
+            harness.handlers.get('hoshidicts.setReaderPreferences')?.(
+                context.settingsEvent,
+                makeHoshidictsReaderPreferences({ lookupMode: 'hover' })
             )
         ).resolves.toMatchObject({
             success: true,
@@ -1372,115 +1169,6 @@ describe('Hoshidicts settings IPC', () => {
             },
         });
         expect(context.restartOverlay).toHaveBeenCalledOnce();
-    });
-
-    it('requires an overlay restart when the persisted nesting depth changed', async () => {
-        harness.enabledAtLaunch = true;
-        harness.popupNestingMaxDepthAtLaunch = 4;
-        const context = await registerHarness();
-        const getState = harness.handlers.get('hoshidicts.getState');
-
-        await expect(
-            getState?.({ sender: context.settingsContents })
-        ).resolves.toMatchObject({
-            overlay: { running: true, restartRequired: true },
-        });
-
-        harness.popupNestingMaxDepthAtLaunch = 10;
-        await expect(
-            getState?.({ sender: context.settingsContents })
-        ).resolves.toMatchObject({
-            overlay: { running: true, restartRequired: false },
-        });
-
-        harness.popupColumnsAtLaunch = 2;
-        await expect(
-            getState?.({ sender: context.settingsContents })
-        ).resolves.toMatchObject({
-            overlay: { running: true, restartRequired: true },
-        });
-
-        harness.popupColumnsAtLaunch = 1;
-        await expect(
-            getState?.({ sender: context.settingsContents })
-        ).resolves.toMatchObject({
-            overlay: { running: true, restartRequired: false },
-        });
-    });
-
-    it('requires an overlay restart when definition blur was not applied live', async () => {
-        harness.enabledAtLaunch = true;
-        harness.definitionBlurAtLaunch = {
-            enabled: true,
-            lookupThreshold: 5,
-            revealMode: 'timed',
-            revealDelayMs: 5000,
-        };
-        const context = await registerHarness();
-        const getState = harness.handlers.get('hoshidicts.getState');
-
-        await expect(
-            getState?.({ sender: context.settingsContents })
-        ).resolves.toMatchObject({
-            overlay: { running: true, restartRequired: true },
-        });
-
-        harness.definitionBlurAtLaunch = { ...snapshot.definitionBlur };
-        await expect(
-            getState?.({ sender: context.settingsContents })
-        ).resolves.toMatchObject({
-            overlay: { running: true, restartRequired: false },
-        });
-    });
-
-    it('tracks popup buttons from control delivery without an environment setting', async () => {
-        harness.enabledAtLaunch = true;
-        const changedPopupButtons = {
-            ...snapshot.popupButtons,
-            viewInAnki: true,
-        };
-        const context = await registerHarness();
-        harness.manager.getSnapshot.mockResolvedValue({
-            ...snapshot,
-            popupButtons: changedPopupButtons,
-        });
-        const getState = harness.handlers.get('hoshidicts.getState');
-
-        await expect(
-            getState?.({ sender: context.settingsContents })
-        ).resolves.toMatchObject({
-            overlay: { running: true, restartRequired: true },
-        });
-
-        harness.popupButtonsApplied = changedPopupButtons;
-        await expect(
-            getState?.({ sender: context.settingsContents })
-        ).resolves.toMatchObject({
-            overlay: { running: true, restartRequired: false },
-        });
-    });
-
-    it('requires a restart when custom popup CSS was not applied live', async () => {
-        harness.enabledAtLaunch = true;
-        const context = await registerHarness();
-        harness.manager.getSnapshot.mockResolvedValue({
-            ...snapshot,
-            customPopupCss: ':scope { color: hotpink; }',
-        });
-        const getState = harness.handlers.get('hoshidicts.getState');
-
-        await expect(
-            getState?.({ sender: context.settingsContents })
-        ).resolves.toMatchObject({
-            overlay: { running: true, restartRequired: true },
-        });
-
-        harness.customPopupCssApplied = ':scope { color: hotpink; }';
-        await expect(
-            getState?.({ sender: context.settingsContents })
-        ).resolves.toMatchObject({
-            overlay: { running: true, restartRequired: false },
-        });
     });
 
     it('rejects requests from unrelated renderer windows', async () => {
@@ -1510,7 +1198,7 @@ describe('Hoshidicts settings IPC', () => {
             )
         ).rejects.toThrow('invalid window');
         await expect(
-            openSettings?.({ sender: context.settingsContents })
+            openSettings?.(context.settingsEvent)
         ).rejects.toThrow('invalid window');
         expect(harness.manager.setSchedule).not.toHaveBeenCalled();
         expect(
@@ -1519,75 +1207,88 @@ describe('Hoshidicts settings IPC', () => {
         expect(context.openSettingsWindow).not.toHaveBeenCalled();
     });
 
-    it('accepts hourly global schedules and per-dictionary cadence overrides', async () => {
-        const context = await registerHarness();
-        const setSchedule = harness.handlers.get('hoshidicts.setSchedule');
-        const setDictionarySchedule = harness.handlers.get(
-            'hoshidicts.setDictionarySchedule'
-        );
+    it.each(['off', 'hourly', 'daily', 'weekly', 'monthly'])(
+        'accepts the %s global update schedule',
+        async (schedule) => {
+            const context = await registerHarness();
 
-        await expect(
-            setSchedule?.({ sender: context.settingsContents }, 'hourly')
-        ).resolves.toMatchObject({
-            success: true,
-            outcome: { code: 'preferencesSaved' },
-        });
-        expect(harness.manager.setSchedule).toHaveBeenCalledWith('hourly');
-
-        await expect(
-            setDictionarySchedule?.(
-                { sender: context.settingsContents },
-                { id: 'alpha', schedule: 'hourly' }
-            )
-        ).resolves.toMatchObject({
-            success: true,
-            outcome: { code: 'dictionaryChanged' },
-        });
-        expect(harness.manager.setDictionarySchedule).toHaveBeenCalledWith(
-            'alpha',
-            'hourly'
-        );
-    });
-
-    it('uses null for inherited dictionary schedules and rejects malformed requests', async () => {
-        const context = await registerHarness();
-        const setDictionarySchedule = harness.handlers.get(
-            'hoshidicts.setDictionarySchedule'
-        );
-
-        await expect(
-            setDictionarySchedule?.(
-                { sender: context.settingsContents },
-                { id: 'alpha', schedule: null }
-            )
-        ).resolves.toMatchObject({
-            success: true,
-            outcome: { code: 'dictionaryChanged' },
-        });
-        expect(harness.manager.setDictionarySchedule).toHaveBeenCalledWith(
-            'alpha',
-            null
-        );
-
-        for (const request of [
-            null,
-            { id: 42, schedule: 'daily' },
-            { id: 'alpha' },
-            { id: 'alpha', schedule: 'inherit' },
-            { id: 'alpha', schedule: 'fortnightly' },
-        ]) {
             await expect(
-                setDictionarySchedule?.(
-                    { sender: context.settingsContents },
+                harness.handlers.get('hoshidicts.setSchedule')?.(
+                    context.settingsEvent,
+                    schedule
+                )
+            ).resolves.toMatchObject({
+                success: true,
+                outcome: { code: 'preferencesSaved' },
+            });
+            expect(harness.manager.setSchedule).toHaveBeenCalledWith(schedule);
+        }
+    );
+
+    it.each([undefined, null, 'fortnightly', 42])(
+        'rejects the invalid global update schedule %j',
+        async (schedule) => {
+            const context = await registerHarness();
+
+            await expect(
+                harness.handlers.get('hoshidicts.setSchedule')?.(
+                    context.settingsEvent,
+                    schedule
+                )
+            ).resolves.toMatchObject({
+                success: false,
+                error: 'Dictionary update schedule is invalid.',
+            });
+            expect(harness.manager.setSchedule).not.toHaveBeenCalled();
+        }
+    );
+
+    it.each(['hourly', 'daily', 'weekly', 'monthly', 'off', null])(
+        'accepts the %j per-dictionary cadence override',
+        async (schedule) => {
+            const context = await registerHarness();
+
+            await expect(
+                harness.handlers.get('hoshidicts.setDictionarySchedule')?.(
+                    context.settingsEvent,
+                    { id: 'alpha', schedule }
+                )
+            ).resolves.toMatchObject({
+                success: true,
+                outcome: { code: 'dictionaryChanged' },
+            });
+            expect(harness.manager.setDictionarySchedule).toHaveBeenCalledWith(
+                'alpha',
+                schedule
+            );
+        }
+    );
+
+    it.each([
+        null,
+        { id: 42, schedule: 'daily' },
+        { id: 'alpha' },
+        { id: 'alpha', schedule: 'inherit' },
+        { id: 'alpha', schedule: 'fortnightly' },
+    ])(
+        'rejects the malformed per-dictionary schedule request %j',
+        async (request) => {
+            const context = await registerHarness();
+
+            await expect(
+                harness.handlers.get('hoshidicts.setDictionarySchedule')?.(
+                    context.settingsEvent,
                     request
                 )
             ).resolves.toMatchObject({
                 success: false,
                 error: 'Dictionary update schedule request is invalid.',
             });
+            expect(
+                harness.manager.setDictionarySchedule
+            ).not.toHaveBeenCalled();
         }
-        expect(harness.manager.setDictionarySchedule).toHaveBeenCalledOnce();
-    });
+    );
 
     it('serves the standalone window and validates typed actions', async () => {
         const context = await registerHarness();
@@ -1603,7 +1304,7 @@ describe('Hoshidicts settings IPC', () => {
         );
 
         await expect(
-            getState?.({ sender: context.settingsContents })
+            getState?.(context.settingsEvent)
         ).resolves.toMatchObject({
             effectiveEnabled: true,
             overlay: {
@@ -1613,10 +1314,10 @@ describe('Hoshidicts settings IPC', () => {
         });
 
         await expect(
-            setDictionaryEnabled?.(
-                { sender: context.settingsContents },
-                { id: 42, enabled: true }
-            )
+            setDictionaryEnabled?.(context.settingsEvent, {
+                id: 42,
+                enabled: true,
+            })
         ).resolves.toMatchObject({
             success: false,
             error: 'Dictionary enable request is invalid.',
@@ -1628,7 +1329,7 @@ describe('Hoshidicts settings IPC', () => {
         expect(harness.handlers.has('hoshidicts.setFeatureEnabled')).toBe(false);
 
         await expect(
-            restartOverlay?.({ sender: context.settingsContents })
+            restartOverlay?.(context.settingsEvent)
         ).resolves.toMatchObject({ success: true });
         expect(context.restartOverlay).toHaveBeenCalledOnce();
 
@@ -1646,97 +1347,107 @@ describe('Hoshidicts settings IPC', () => {
         );
     });
 
-    it('validates and dispatches bulk dictionary actions as one manager call', async () => {
+    it('reports a failed manual overlay restart', async () => {
         const context = await registerHarness();
-        const bulkAction = harness.handlers.get(
-            'hoshidicts.bulkDictionaryAction'
-        );
+        context.restartOverlay.mockResolvedValueOnce(false);
 
         await expect(
-            bulkAction?.(
-                { sender: context.settingsContents },
-                { action: 'disable', ids: ['alpha', 'beta', 'alpha'] }
+            harness.handlers.get('hoshidicts.restartOverlay')?.(
+                context.settingsEvent
             )
-        ).resolves.toMatchObject({ success: true });
-        expect(harness.manager.setDictionariesEnabled).toHaveBeenCalledOnce();
-        expect(harness.manager.setDictionariesEnabled).toHaveBeenCalledWith(
-            ['alpha', 'beta'],
-            false
-        );
+        ).resolves.toMatchObject({
+            success: false,
+            error: 'The overlay could not be restarted.',
+        });
+    });
 
-        await bulkAction?.(
-            { sender: context.settingsContents },
-            { action: 'favorite', ids: ['alpha', 'beta'] }
-        );
-        expect(
-            harness.manager.setDictionariesPresentation
-        ).toHaveBeenCalledWith(['alpha', 'beta'], true);
+    it.each([
+        ['enable', 'setDictionariesEnabled', ['alpha', 'beta'], true],
+        ['disable', 'setDictionariesEnabled', ['alpha', 'beta'], false],
+        ['favorite', 'setDictionariesPresentation', ['alpha', 'beta'], true],
+        ['unfavorite', 'setDictionariesPresentation', ['alpha', 'beta'], false],
+    ])(
+        'dispatches the %s bulk dictionary action as one manager call',
+        async (action, method, ids, flag) => {
+            const context = await registerHarness();
 
-        await bulkAction?.(
-            { sender: context.settingsContents },
-            { action: 'update', ids: ['beta'] }
-        );
+            await expect(
+                harness.handlers.get('hoshidicts.bulkDictionaryAction')?.(
+                    context.settingsEvent,
+                    { action, ids: [...ids, ids[0]] }
+                )
+            ).resolves.toMatchObject({
+                success: true,
+                outcome: { code: 'dictionaryChanged', count: ids.length },
+            });
+            expect(
+                harness.manager[method as 'setDictionariesEnabled']
+            ).toHaveBeenCalledOnce();
+            expect(
+                harness.manager[method as 'setDictionariesEnabled']
+            ).toHaveBeenCalledWith(ids, flag);
+        }
+    );
+
+    it('dispatches the update bulk dictionary action as an update check', async () => {
+        const context = await registerHarness();
+
+        await expect(
+            harness.handlers.get('hoshidicts.bulkDictionaryAction')?.(
+                context.settingsEvent,
+                { action: 'update', ids: ['beta'] }
+            )
+        ).resolves.toMatchObject({
+            success: true,
+            outcome: { code: 'updatesChecked', count: 1 },
+        });
         expect(harness.manager.checkForUpdates).toHaveBeenCalledWith(true, [
             'beta',
         ]);
+    });
 
-        for (const request of [
-            null,
-            { action: 'delete', ids: ['alpha'] },
-            { action: 'enable', ids: [] },
-            { action: 'enable', ids: ['not valid'] },
-        ]) {
-            await expect(
-                bulkAction?.({ sender: context.settingsContents }, request)
-            ).resolves.toMatchObject({
-                success: false,
-                error: 'Bulk dictionary action request is invalid.',
-            });
-        }
-        expect(harness.manager.setDictionariesEnabled).toHaveBeenCalledOnce();
+    it.each([
+        null,
+        { action: 'delete', ids: ['alpha'] },
+        { action: 'enable', ids: [] },
+        { action: 'enable', ids: ['not valid'] },
+        { action: 'enable', ids: [42] },
+    ])('rejects the malformed bulk dictionary request %j', async (request) => {
+        const context = await registerHarness();
+
+        await expect(
+            harness.handlers.get('hoshidicts.bulkDictionaryAction')?.(
+                context.settingsEvent,
+                request
+            )
+        ).resolves.toMatchObject({
+            success: false,
+            error: 'Bulk dictionary action request is invalid.',
+        });
+        expect(harness.manager.setDictionariesEnabled).not.toHaveBeenCalled();
+        expect(harness.manager.checkForUpdates).not.toHaveBeenCalled();
     });
 
     it('validates, persists, and applies ordered dictionary presentation live', async () => {
         const presentationState = {
             ...snapshot,
             dictionaries: [
-                {
+                makeHoshidictsDictionary({
                     id: 'alpha',
                     title: 'Alpha',
-                    enabled: true,
                     favorite: true,
-                    revision: 'one',
-                    isUpdatable: false,
-                    indexUrl: null,
-                    downloadUrl: null,
-                    language: 'ja',
-                    termCount: 1,
-                    frequencyCount: 0,
-                    pitchCount: 0,
-                    kanjiCount: 0,
-                    frequencyMode: null,
-                    installedAt: '2026-08-08T00:00:00.000Z',
-                },
-                {
+                }),
+                makeHoshidictsDictionary({
                     id: 'frequency',
                     title: 'Frequency only',
                     displayName: 'Frequency ranks',
-                    enabled: true,
                     favorite: true,
-                    revision: 'one',
-                    isUpdatable: false,
-                    indexUrl: null,
-                    downloadUrl: null,
-                    language: 'ja',
                     termCount: 0,
                     frequencyCount: 1,
-                    pitchCount: 0,
-                    kanjiCount: 0,
                     frequencyMode: 'rank-based',
-                    installedAt: '2026-08-08T00:00:00.000Z',
-                },
+                }),
             ],
-        } as const;
+        };
         harness.manager.setDictionaryPresentation.mockResolvedValueOnce(
             presentationState
         );
@@ -1749,10 +1460,10 @@ describe('Hoshidicts settings IPC', () => {
         );
 
         await expect(
-            setPresentation?.(
-                { sender: context.settingsContents },
-                { id: 'alpha', favorite: true }
-            )
+            setPresentation?.(context.settingsEvent, {
+                id: 'alpha',
+                favorite: true,
+            })
         ).resolves.toMatchObject({
             success: true,
             outcome: { code: 'dictionaryChanged' },
@@ -1775,14 +1486,15 @@ describe('Hoshidicts settings IPC', () => {
                         frequencyMode: 'rank-based',
                     },
                 ],
+                frequencyDictionaries: ['Frequency only'],
             })
         );
 
         await expect(
-            setPresentation?.(
-                { sender: context.settingsContents },
-                { id: 'alpha', favorite: 'yes' }
-            )
+            setPresentation?.(context.settingsEvent, {
+                id: 'alpha',
+                favorite: 'yes',
+            })
         ).resolves.toMatchObject({
             success: false,
             error: 'Dictionary presentation request is invalid.',
@@ -1792,10 +1504,10 @@ describe('Hoshidicts settings IPC', () => {
         harness.manager.moveDictionary.mockResolvedValueOnce(presentationState);
         context.applyReaderPreferences.mockResolvedValueOnce(false);
         await expect(
-            moveDictionary?.(
-                { sender: context.settingsContents },
-                { id: 'alpha', direction: 1 }
-            )
+            moveDictionary?.(context.settingsEvent, {
+                id: 'alpha',
+                direction: 1,
+            })
         ).resolves.toMatchObject({
             success: true,
             outcome: { code: 'dictionaryChanged' },
@@ -1815,10 +1527,10 @@ describe('Hoshidicts settings IPC', () => {
             presentationState
         );
         await expect(
-            moveDictionaryToPosition?.(
-                { sender: context.settingsContents },
-                { id: 'alpha', position: 3 }
-            )
+            moveDictionaryToPosition?.(context.settingsEvent, {
+                id: 'alpha',
+                position: 3,
+            })
         ).resolves.toMatchObject({
             success: true,
             outcome: { code: 'dictionaryChanged' },
@@ -1828,10 +1540,10 @@ describe('Hoshidicts settings IPC', () => {
         ).toHaveBeenCalledWith('alpha', 3);
 
         await expect(
-            moveDictionaryToPosition?.(
-                { sender: context.settingsContents },
-                { id: 'alpha', position: 0 }
-            )
+            moveDictionaryToPosition?.(context.settingsEvent, {
+                id: 'alpha',
+                position: 0,
+            })
         ).resolves.toMatchObject({
             success: false,
             error: 'Dictionary position request is invalid.',
@@ -1841,12 +1553,70 @@ describe('Hoshidicts settings IPC', () => {
         ).toHaveBeenCalledOnce();
     });
 
+    it.each([
+        [
+            'hoshidicts.moveDictionary',
+            'moveDictionary',
+            [null, { id: 'alpha' }, { id: 'alpha', direction: 0 }, { id: 42, direction: 1 }],
+            'Dictionary move request is invalid.',
+        ],
+        [
+            'hoshidicts.moveTabGroup',
+            'moveTabGroup',
+            [null, { groupId: 'g' }, { groupId: 'g', direction: 2 }],
+            'Tab group move request is invalid.',
+        ],
+        [
+            'hoshidicts.setTabGroupMembership',
+            'setTabGroupMembership',
+            [
+                null,
+                { groupId: 'g', dictionaryId: 'alpha' },
+                { groupId: 'g', dictionaryId: 42, member: true },
+            ],
+            'Tab group membership request is invalid.',
+        ],
+        [
+            'hoshidicts.renameTabGroup',
+            'renameTabGroup',
+            [null, { groupId: 'g' }, { groupId: 42, name: 'Grammar' }],
+            'Tab group rename request is invalid.',
+        ],
+        [
+            'hoshidicts.deleteTabGroup',
+            'deleteTabGroup',
+            [null, {}, { groupId: 42 }],
+            'Tab group delete request is invalid.',
+        ],
+        [
+            'hoshidicts.createTabGroup',
+            'createTabGroup',
+            [null, { name: 42 }, { name: 'Grammar', dictionaryId: 42 }],
+            'Tab group create request is invalid.',
+        ],
+    ])('%s rejects malformed requests', async (channel, method, requests, error) => {
+        const context = await registerHarness();
+
+        for (const request of requests) {
+            await expect(
+                harness.handlers.get(channel)?.(context.settingsEvent, request)
+            ).resolves.toMatchObject({ success: false, error });
+        }
+        expect(
+            harness.manager[method as 'moveDictionary']
+        ).not.toHaveBeenCalled();
+    });
+
     it('manages tab groups and applies them to the reader live', async () => {
         const groupedState = {
             ...snapshot,
             dictionaries: [
-                definitionDictionary('alpha', 'Alpha', true),
-                definitionDictionary('beta', 'Beta', false),
+                makeHoshidictsDictionary({
+                    id: 'alpha',
+                    title: 'Alpha',
+                    favorite: true,
+                }),
+                makeHoshidictsDictionary({ id: 'beta', title: 'Beta' }),
             ],
             tabGroups: [
                 {
@@ -1855,14 +1625,14 @@ describe('Hoshidicts settings IPC', () => {
                     dictionaryIds: ['alpha', 'beta'],
                 },
             ],
-        } as const;
+        };
         const context = await registerHarness();
         harness.manager.createTabGroup.mockResolvedValue(groupedState);
         harness.manager.setTabGroupMembership.mockResolvedValue(groupedState);
         harness.manager.renameTabGroup.mockResolvedValue(groupedState);
         harness.manager.moveTabGroup.mockResolvedValue(groupedState);
         harness.manager.deleteTabGroup.mockResolvedValue(groupedState);
-        const sender = { sender: context.settingsContents };
+        const sender = context.settingsEvent;
 
         await harness.handlers.get('hoshidicts.createTabGroup')?.(sender, {
             name: 'Grammar',
@@ -1915,27 +1685,20 @@ describe('Hoshidicts settings IPC', () => {
                 ],
             })
         );
-
-        await expect(
-            harness.handlers.get('hoshidicts.createTabGroup')?.(sender, {
-                name: 42,
-            })
-        ).resolves.toMatchObject({
-            success: false,
-            error: 'Tab group create request is invalid.',
-        });
     });
 
     it('renames a dictionary for presentation without changing its canonical title', async () => {
         const renamedState = {
             ...snapshot,
             dictionaries: [
-                {
-                    ...definitionDictionary('alpha', 'Alpha Dictionary', true),
+                makeHoshidictsDictionary({
+                    id: 'alpha',
+                    title: 'Alpha Dictionary',
+                    favorite: true,
                     displayName: 'Friendly Alpha',
-                },
+                }),
             ],
-        } as const;
+        };
         const context = await registerHarness();
         harness.manager.renameDictionary.mockResolvedValueOnce(renamedState);
         const renameDictionary = harness.handlers.get(
@@ -1943,10 +1706,10 @@ describe('Hoshidicts settings IPC', () => {
         );
 
         await expect(
-            renameDictionary?.(
-                { sender: context.settingsContents },
-                { id: 'alpha', displayName: 'Friendly Alpha' }
-            )
+            renameDictionary?.(context.settingsEvent, {
+                id: 'alpha',
+                displayName: 'Friendly Alpha',
+            })
         ).resolves.toMatchObject({
             success: true,
             outcome: { code: 'dictionaryChanged' },
@@ -1977,10 +1740,10 @@ describe('Hoshidicts settings IPC', () => {
         );
 
         await expect(
-            renameDictionary?.(
-                { sender: context.settingsContents },
-                { id: 'alpha', displayName: null }
-            )
+            renameDictionary?.(context.settingsEvent, {
+                id: 'alpha',
+                displayName: null,
+            })
         ).resolves.toMatchObject({
             success: true,
             outcome: { code: 'dictionaryChanged' },
@@ -1991,10 +1754,10 @@ describe('Hoshidicts settings IPC', () => {
         );
 
         await expect(
-            renameDictionary?.(
-                { sender: context.settingsContents },
-                { id: 'alpha', displayName: 42 }
-            )
+            renameDictionary?.(context.settingsEvent, {
+                id: 'alpha',
+                displayName: 42,
+            })
         ).resolves.toMatchObject({
             success: false,
             error: 'Dictionary rename request is invalid.',
@@ -2003,23 +1766,27 @@ describe('Hoshidicts settings IPC', () => {
     });
 
     it('refreshes live presentation after every dictionary collection mutation', async () => {
-        const primary = definitionDictionary('primary', 'Primary', true);
-        const backup = definitionDictionary('backup', 'Backup', false);
+        const primary = makeHoshidictsDictionary({
+            id: 'primary',
+            title: 'Primary',
+            favorite: true,
+        });
+        const backup = makeHoshidictsDictionary({
+            id: 'backup',
+            title: 'Backup',
+        });
         const initialState = {
             ...snapshot,
             dictionaries: [primary, backup],
-        } as const;
+        };
         const renamedState = {
             ...snapshot,
-            dictionaries: [
-                { ...primary, title: 'Primary 2026' },
-                backup,
-            ],
-        } as const;
+            dictionaries: [{ ...primary, title: 'Primary 2026' }, backup],
+        };
         const removedAnchorState = {
             ...snapshot,
             dictionaries: [backup],
-        } as const;
+        };
         const context = await registerHarness();
         harness.manager.getSnapshot.mockResolvedValue(initialState);
         harness.manager.importDictionaries.mockResolvedValueOnce(initialState);
@@ -2039,7 +1806,7 @@ describe('Hoshidicts settings IPC', () => {
         });
         harness.showMessageBox.mockResolvedValueOnce({ response: 0 });
 
-        const settingsEvent = { sender: context.settingsContents };
+        const settingsEvent = context.settingsEvent;
         await expect(
             harness.handlers.get('hoshidicts.import')?.(settingsEvent)
         ).resolves.toMatchObject({
@@ -2110,17 +1877,65 @@ describe('Hoshidicts settings IPC', () => {
         );
     });
 
+    it.each([
+        ['a canceled removal confirmation', 1, { canceled: true }],
+        ['a confirmed removal', 0, { success: true }],
+    ])(
+        'honours %s',
+        async (_label, response, expected) => {
+            const primary = makeHoshidictsDictionary({
+                id: 'primary',
+                title: 'Primary',
+            });
+            harness.showMessageBox.mockResolvedValueOnce({ response });
+            const context = await registerHarness();
+            harness.manager.getSnapshot.mockResolvedValue({
+                ...snapshot,
+                dictionaries: [primary],
+            });
+
+            await expect(
+                harness.handlers.get('hoshidicts.remove')?.(
+                    context.settingsEvent,
+                    primary.id
+                )
+            ).resolves.toMatchObject(expected);
+        }
+    );
+
+    it.each([
+        [42, 'Dictionary id is invalid.'],
+        ['missing', 'Dictionary is not installed.'],
+    ])('rejects removing %j', async (id, error) => {
+        const context = await registerHarness();
+
+        await expect(
+            harness.handlers.get('hoshidicts.remove')?.(
+                context.settingsEvent,
+                id
+            )
+        ).resolves.toMatchObject({ success: false, error });
+        expect(harness.manager.removeDictionary).not.toHaveBeenCalled();
+    });
+
     it('reports when a saved dictionary mutation cannot refresh the running overlay', async () => {
-        const primary = definitionDictionary('primary', 'Primary', true);
-        const backup = definitionDictionary('backup', 'Backup', false);
+        const primary = makeHoshidictsDictionary({
+            id: 'primary',
+            title: 'Primary',
+            favorite: true,
+        });
+        const backup = makeHoshidictsDictionary({
+            id: 'backup',
+            title: 'Backup',
+        });
         const initialState = {
             ...snapshot,
             dictionaries: [primary, backup],
-        } as const;
+        };
         const removedAnchorState = {
             ...snapshot,
             dictionaries: [backup],
-        } as const;
+        };
         const context = await registerHarness();
         harness.manager.getSnapshot
             .mockResolvedValueOnce(initialState)
@@ -2134,7 +1949,7 @@ describe('Hoshidicts settings IPC', () => {
 
         await expect(
             harness.handlers.get('hoshidicts.remove')?.(
-                { sender: context.settingsContents },
+                context.settingsEvent,
                 primary.id
             )
         ).resolves.toMatchObject({
@@ -2150,21 +1965,26 @@ describe('Hoshidicts settings IPC', () => {
     });
 
     it('publishes partially successful update changes before reporting a later failure', async () => {
-        const updated = definitionDictionary('primary', 'Primary 2026', true);
         const partialUpdateState = {
             ...snapshot,
-            dictionaries: [updated],
+            dictionaries: [
+                makeHoshidictsDictionary({
+                    id: 'primary',
+                    title: 'Primary 2026',
+                    favorite: true,
+                }),
+            ],
             lastError: 'Backup dictionary update failed.',
-        } as const;
+        };
         const context = await registerHarness();
         harness.manager.checkForUpdates.mockResolvedValueOnce(
             partialUpdateState
         );
 
         await expect(
-            harness.handlers.get('hoshidicts.checkUpdates')?.({
-                sender: context.settingsContents,
-            })
+            harness.handlers.get('hoshidicts.checkUpdates')?.(
+                context.settingsEvent
+            )
         ).resolves.toMatchObject({
             success: false,
             error: 'Backup dictionary update failed.',
@@ -2181,29 +2001,21 @@ describe('Hoshidicts settings IPC', () => {
         );
     });
 
-    it('installs all recommendations, validates lookup mode, and discovers Anki options', async () => {
+    it('installs all recommendations and validates the lookup mode shortcut', async () => {
         const context = await registerHarness();
-        const installAll = harness.handlers.get(
-            'hoshidicts.installAllRecommended'
-        );
-        const setLookupMode = harness.handlers.get('hoshidicts.setLookupMode');
-        const setReaderPreferences = harness.handlers.get(
-            'hoshidicts.setReaderPreferences'
-        );
-        const getMiningOptions = harness.handlers.get(
-            'hoshidicts.getMiningOptions'
-        );
 
         await expect(
-            installAll?.({ sender: context.settingsContents })
+            harness.handlers.get('hoshidicts.installAllRecommended')?.(
+                context.settingsEvent
+            )
         ).resolves.toMatchObject({ success: true });
         expect(
             harness.manager.installRecommendedDictionaries
         ).toHaveBeenCalledOnce();
 
         await expect(
-            setLookupMode?.(
-                { sender: context.settingsContents },
+            harness.handlers.get('hoshidicts.setLookupMode')?.(
+                context.settingsEvent,
                 'automatic'
             )
         ).resolves.toMatchObject({
@@ -2213,47 +2025,63 @@ describe('Hoshidicts settings IPC', () => {
         expect(harness.manager.setLookupMode).not.toHaveBeenCalled();
 
         await expect(
-            setLookupMode?.({ sender: context.settingsContents }, 'hover')
+            harness.handlers.get('hoshidicts.setLookupMode')?.(
+                context.settingsEvent,
+                'hover'
+            )
         ).resolves.toMatchObject({ success: true });
         expect(harness.manager.setLookupMode).toHaveBeenCalledWith('hover');
+    });
 
-        await expect(
-            setReaderPreferences?.(
-                { sender: context.settingsContents },
-                {
-                    lookupMode: 'hover',
-                    scanLength: 24,
-                    maxResults: 48,
-                    sortFrequencyDictionary: null,
-                    sortFrequencyDictionaryOrder: 'ascending',
-                    activationKey: 'F8',
-                    sourceHighlightEnabled: true,
-                    onlyScanJapaneseText: true,
-                    popupHideDelayMs: 850,
-                    showLookupCounts: 'yes',
-                    showCompactDefinitionSummary: false,
-                    compactDefinitionSummaryCount: 3,
-                    compactDefinitionSummaryDictionary: null,
-                    hidePopupGrammarTags: true,
-                    popupNestingMaxDepth: 4,
-                    popupWidthPx: 560,
-                    popupHeightPx: 420,
-                    popupColumns: 1,
-                    theme: 'default',
-                    popupOpacityPercent: 85,
-                    popupToolbarPosition: 'top',
-                    definitionBlur: snapshot.definitionBlur,
-                }
-            )
-        ).resolves.toMatchObject({
-            success: false,
-            error: 'Hoshidicts reader preferences are invalid.',
+    it('saves a complete reader preferences request and applies it with dictionary context', async () => {
+        const context = await registerHarness();
+        const request = makeHoshidictsReaderPreferences({
+            lookupMode: 'hover',
+            scanLength: 24,
+            maxResults: 48,
+            sortFrequencyDictionaryOrder: 'ascending',
+            activationKey: 'F8',
+            sourceHighlightEnabled: true,
+            popupHideDelayMs: 850,
+            showLookupCounts: false,
+            showCompactDefinitionSummary: true,
+            compactDefinitionSummaryDictionary: 'Jitendex',
+            pitchAccentFuriganaDictionary: 'Pitch',
+            hidePopupGrammarTags: false,
+            popupNestingMaxDepth: 4,
+            popupColumns: 3,
+            theme: 'girlypop',
+            popupOpacityPercent: 70,
+            popupToolbarPosition: 'bottom',
+            customPopupCss: ':scope { color: hotpink; }',
+            definitionBlur: {
+                enabled: true,
+                lookupThreshold: 7,
+                revealMode: 'hover',
+                revealDelayMs: 6000,
+            },
+            popupButtons: {
+                addToAnki: false,
+                audio: true,
+                customDefinition: false,
+                viewInAnki: true,
+                customLinks: [
+                    { label: 'Jisho', url: 'https://jisho.org/search/%w' },
+                ],
+            },
         });
-        expect(harness.manager.setReaderPreferences).not.toHaveBeenCalled();
-
+        // What reaches the overlay is the saved snapshot, not the raw request,
+        // so the manager mock has to answer with the preferences it stored.
         harness.manager.setReaderPreferences.mockResolvedValueOnce({
             ...snapshot,
-            dictionaries: [definitionDictionary('alpha', 'Alpha', true)],
+            ...request,
+            dictionaries: [
+                makeHoshidictsDictionary({
+                    id: 'alpha',
+                    title: 'Alpha',
+                    favorite: true,
+                }),
+            ],
             tabGroups: [
                 {
                     id: 'group-grammar',
@@ -2262,39 +2090,15 @@ describe('Hoshidicts settings IPC', () => {
                 },
             ],
         });
+
         await expect(
-            setReaderPreferences?.(
-                { sender: context.settingsContents },
+            harness.handlers.get('hoshidicts.setReaderPreferences')?.(
+                context.settingsEvent,
                 {
-                    lookupMode: 'hover',
-                    scanLength: 24,
-                    maxResults: 48,
-                    sortFrequencyDictionary: null,
-                    sortFrequencyDictionaryOrder: 'ascending',
-                    activationKey: 'F8',
-                    sourceHighlightEnabled: true,
-                    onlyScanJapaneseText: true,
-                    popupHideDelayMs: 850,
-                    showLookupCounts: false,
-                    showCompactDefinitionSummary: true,
-                    compactDefinitionSummaryCount: 3,
-                    compactDefinitionSummaryDictionary: 'Jitendex',
-                    showPitchAccentFurigana: true,
-                    pitchAccentFuriganaDictionary: 'Pitch',
-                    showPitchAccentBadge: false,
-                    hidePopupGrammarTags: false,
-                    popupNestingMaxDepth: 4,
-                    popupWidthPx: 560,
-                    popupHeightPx: 420,
-                    popupColumns: 3,
-                    theme: 'girlypop',
-                    popupOpacityPercent: 70,
-                    popupToolbarPosition: 'bottom',
+                    ...request,
+                    // Custom link fields are canonicalized before storage.
                     popupButtons: {
-                        addToAnki: false,
-                        audio: true,
-                        customDefinition: false,
-                        viewInAnki: true,
+                        ...request.popupButtons,
                         customLinks: [
                             {
                                 label: '  Jisho  ',
@@ -2302,120 +2106,19 @@ describe('Hoshidicts settings IPC', () => {
                             },
                         ],
                     },
-                    customPopupCss: ':scope { color: hotpink; }',
-                    definitionBlur: {
-                        enabled: true,
-                        lookupThreshold: 7,
-                        revealMode: 'hover',
-                        revealDelayMs: 6000,
-                    },
                 }
             )
         ).resolves.toMatchObject({
             success: true,
             outcome: { code: 'preferencesSaved' },
         });
+        // One object argument replaces the former positional parameter list.
         expect(harness.manager.setReaderPreferences).toHaveBeenCalledWith(
-            'hover',
-            850,
-            'F8',
-            true,
-            4,
-            {
-                enabled: true,
-                lookupThreshold: 7,
-                revealMode: 'hover',
-                revealDelayMs: 6000,
-            },
-            false,
-            560,
-            420,
-            'girlypop',
-            70,
-            true,
-            'bottom',
-            24,
-            48,
-            null,
-            'ascending',
-            {
-                addToAnki: false,
-                audio: true,
-                customDefinition: false,
-                viewInAnki: true,
-                customLinks: [
-                    {
-                        label: 'Jisho',
-                        url: 'https://jisho.org/search/%w',
-                    },
-                ],
-            },
-            3,
-            true,
-            3,
-            'Jitendex',
-            false,
-            true,
-            'Pitch',
-            false,
-            ':scope { color: hotpink; }',
-            false,
-            true,
-            16
+            request
         );
         expect(context.applyReaderPreferences).toHaveBeenCalledWith({
-            lookupMode: 'hover',
-            scanLength: 24,
-            maxResults: 48,
-            sortFrequencyDictionary: null,
-            sortFrequencyDictionaryOrder: 'ascending',
-            activationKey: 'F8',
-            sourceHighlightEnabled: true,
-            onlyScanJapaneseText: true,
-            popupHideDelayMs: 850,
-            showLookupCounts: false,
-            averageFrequency: false,
-            showFrequencyDictionaryNames: true,
-            showCompactDefinitionSummary: true,
-            compactDefinitionSummaryCount: 3,
-            compactDefinitionSummaryDictionary: 'Jitendex',
-            showPitchAccentFurigana: true,
-            pitchAccentFuriganaDictionary: 'Pitch',
-            showPitchAccentBadge: false,
-            hidePopupGrammarTags: false,
-            popupNestingMaxDepth: 4,
-            popupWidthPx: 560,
-            popupHeightPx: 420,
-            popupColumns: 3,
-            theme: 'girlypop',
-            popupOpacityPercent: 70,
-            popupBackdropBlurPx: 16,
-            popupToolbarPosition: 'bottom',
-            popupButtons: {
-                addToAnki: false,
-                audio: true,
-                customDefinition: false,
-                viewInAnki: true,
-                customLinks: [
-                    {
-                        label: 'Jisho',
-                        url: 'https://jisho.org/search/%w',
-                    },
-                ],
-            },
-            customPopupCss: ':scope { color: hotpink; }',
-            definitionBlur: {
-                enabled: true,
-                lookupThreshold: 7,
-                revealMode: 'hover',
-                revealDelayMs: 6000,
-            },
-            dictionaryPresentation: [
-                {
-                    title: 'Alpha',
-                    favorite: true,
-                },
-            ],
+            ...request,
+            dictionaryPresentation: [{ title: 'Alpha', favorite: true }],
             frequencyDictionaries: [],
             dictionaryTabGroups: [
                 {
@@ -2425,68 +2128,155 @@ describe('Hoshidicts settings IPC', () => {
                 },
             ],
         });
-
-        await expect(
-            setReaderPreferences?.(
-                { sender: context.settingsContents },
-                {
-                    lookupMode: 'hover',
-                    popupHideDelayMs: 850,
-                    popupNestingMaxDepth: Number.MAX_SAFE_INTEGER + 1,
-                    popupWidthPx: 560,
-                    popupHeightPx: 420,
-                    popupColumns: 1,
-                    theme: 'default',
-                }
-            )
-        ).resolves.toMatchObject({
-            success: false,
-            error: 'Hoshidicts reader preferences are invalid.',
-        });
-
-        await expect(
-            setReaderPreferences?.(
-                { sender: context.settingsContents },
-                {
-                    lookupMode: 'shift',
-                    activationKey: 'MediaPlayPause',
-                    sourceHighlightEnabled: false,
-                    popupHideDelayMs: 300,
-                }
-            )
-        ).resolves.toMatchObject({
-            success: false,
-            error: 'Hoshidicts reader preferences are invalid.',
-        });
-
-        await expect(
-            setReaderPreferences?.(
-                { sender: context.settingsContents },
-                {
-                    lookupMode: 'shift',
-                    activationKey: 'Shift',
-                    sourceHighlightEnabled: 'yes',
-                    popupHideDelayMs: 300,
-                }
-            )
-        ).resolves.toMatchObject({
-            success: false,
-            error: 'Hoshidicts reader preferences are invalid.',
-        });
-
-        await expect(
-            getMiningOptions?.(
-                { sender: context.settingsContents },
-                'Kiku'
-            )
-        ).resolves.toMatchObject({ connected: true, noteTypes: ['Kiku'] });
-        expect(context.getMiningOptions).toHaveBeenCalledWith('Kiku');
-
-        await expect(
-            getMiningOptions?.({ sender: context.settingsContents }, '')
-        ).resolves.toMatchObject({ connected: true, noteTypes: ['Kiku'] });
-        expect(context.getMiningOptions).toHaveBeenCalledWith('');
     });
+
+    // The renderer must send a complete request; there is no per-field fallback
+    // to the stored value any more.
+    it.each(
+        Object.keys(defaultPreferences) as (keyof typeof defaultPreferences)[]
+    )('rejects a reader preferences request without %s', async (field) => {
+        const context = await registerHarness();
+        const request: Record<string, unknown> =
+            makeHoshidictsReaderPreferences();
+        delete request[field];
+
+        await expect(
+            harness.handlers.get('hoshidicts.setReaderPreferences')?.(
+                context.settingsEvent,
+                request
+            )
+        ).resolves.toMatchObject({
+            success: false,
+            error: 'Hoshidicts reader preferences are invalid.',
+        });
+        expect(harness.manager.setReaderPreferences).not.toHaveBeenCalled();
+        expect(context.applyReaderPreferences).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['lookupMode', 'automatic'],
+        ['scanLength', 0],
+        ['scanLength', 65],
+        ['maxResults', 257],
+        ['sortFrequencyDictionary', ''],
+        ['sortFrequencyDictionaryOrder', 'random'],
+        ['activationKey', 'MediaPlayPause'],
+        ['sourceHighlightEnabled', 'yes'],
+        ['onlyScanJapaneseText', 'yes'],
+        ['popupHideDelayMs', 5001],
+        ['showLookupCounts', 'yes'],
+        ['averageFrequency', 'yes'],
+        ['showFrequencyDictionaryNames', 'yes'],
+        ['showCompactDefinitionSummary', 'yes'],
+        ['compactDefinitionSummaryCount', 0],
+        ['compactDefinitionSummaryCount', 7],
+        ['compactDefinitionSummaryCount', 1.5],
+        ['compactDefinitionSummaryCount', '3'],
+        ['compactDefinitionSummaryDictionary', ''],
+        ['compactDefinitionSummaryDictionary', '   '],
+        ['compactDefinitionSummaryDictionary', 'x'.repeat(4097)],
+        ['compactDefinitionSummaryDictionary', 42],
+        ['showPitchAccentFurigana', 'yes'],
+        ['pitchAccentFuriganaDictionary', '   '],
+        ['showPitchAccentBadge', 'yes'],
+        ['showPitchAccentBadge', 1],
+        ['hidePopupGrammarTags', 'yes'],
+        ['hidePopupGrammarTags', 1],
+        ['popupNestingMaxDepth', Number.MAX_SAFE_INTEGER + 1],
+        ['popupWidthPx', 279],
+        ['popupHeightPx', 901],
+        ['popupColumns', 5],
+        ['theme', 'neon'],
+        ['popupOpacityPercent', 101],
+        ['popupBackdropBlurPx', 33],
+        ['popupToolbarPosition', 'side'],
+        ['customPopupCss', 42],
+        [
+            'definitionBlur',
+            {
+                enabled: true,
+                lookupThreshold: 0,
+                revealMode: 'timed',
+                revealDelayMs: 5000,
+            },
+        ],
+        [
+            'definitionBlur',
+            {
+                enabled: true,
+                lookupThreshold: 1_000_001,
+                revealMode: 'timed',
+                revealDelayMs: 5000,
+            },
+        ],
+        [
+            'definitionBlur',
+            {
+                enabled: true,
+                lookupThreshold: 5,
+                revealMode: 'click',
+                revealDelayMs: 5000,
+            },
+        ],
+        [
+            'definitionBlur',
+            {
+                enabled: true,
+                lookupThreshold: 5,
+                revealMode: 'timed',
+                revealDelayMs: 999,
+            },
+        ],
+        [
+            'definitionBlur',
+            {
+                enabled: true,
+                lookupThreshold: 5,
+                revealMode: 'timed',
+                revealDelayMs: 3_600_001,
+            },
+        ],
+        [
+            'popupButtons',
+            { ...defaultPreferences.popupButtons, addToAnki: 'yes' },
+        ],
+        [
+            'popupButtons',
+            {
+                ...defaultPreferences.popupButtons,
+                customLinks: [{ label: '', url: 'https://example.com/%w' }],
+            },
+        ],
+        [
+            'popupButtons',
+            {
+                ...defaultPreferences.popupButtons,
+                customLinks: [
+                    {
+                        label: 'Unsafe',
+                        url: 'https://user:pass@example.com/%s',
+                    },
+                ],
+            },
+        ],
+    ])(
+        'rejects a reader preferences request with %s = %j',
+        async (field, value) => {
+            const context = await registerHarness();
+
+            await expect(
+                harness.handlers.get('hoshidicts.setReaderPreferences')?.(
+                    context.settingsEvent,
+                    makeHoshidictsReaderPreferences({ [field]: value })
+                )
+            ).resolves.toMatchObject({
+                success: false,
+                error: 'Hoshidicts reader preferences are invalid.',
+            });
+            expect(harness.manager.setReaderPreferences).not.toHaveBeenCalled();
+            expect(context.applyReaderPreferences).not.toHaveBeenCalled();
+        }
+    );
 
     it('accepts every curated recommendation id and rejects unknown ids', async () => {
         const context = await registerHarness();
@@ -2506,10 +2296,7 @@ describe('Hoshidicts settings IPC', () => {
 
         for (const id of ids) {
             await expect(
-                installRecommended?.(
-                    { sender: context.settingsContents },
-                    { id }
-                )
+                installRecommended?.(context.settingsEvent, { id })
             ).resolves.toMatchObject({ success: true });
         }
         expect(
@@ -2518,15 +2305,14 @@ describe('Hoshidicts settings IPC', () => {
             )
         ).toEqual(ids);
 
-        await expect(
-            installRecommended?.(
-                { sender: context.settingsContents },
-                { id: 'unknown' }
-            )
-        ).resolves.toMatchObject({
-            success: false,
-            error: 'Recommended dictionary id is invalid.',
-        });
+        for (const request of [null, {}, { id: 'unknown' }, { id: 42 }]) {
+            await expect(
+                installRecommended?.(context.settingsEvent, request)
+            ).resolves.toMatchObject({
+                success: false,
+                error: 'Recommended dictionary id is invalid.',
+            });
+        }
     });
 
     it('loads and explicitly saves the managed custom dictionary document', async () => {
@@ -2539,7 +2325,7 @@ describe('Hoshidicts settings IPC', () => {
         );
 
         await expect(
-            getCustom?.({ sender: context.settingsContents })
+            getCustom?.(context.settingsEvent)
         ).resolves.toMatchObject({
             revision: 'empty-revision',
             exists: false,
@@ -2549,13 +2335,10 @@ describe('Hoshidicts settings IPC', () => {
         ).rejects.toThrow('invalid window');
 
         await expect(
-            saveCustom?.(
-                { sender: context.settingsContents },
-                {
-                    text: '猫, ねこ, cat\n',
-                    expectedRevision: 'empty-revision',
-                }
-            )
+            saveCustom?.(context.settingsEvent, {
+                text: '猫, ねこ, cat\n',
+                expectedRevision: 'empty-revision',
+            })
         ).resolves.toMatchObject({
             success: true,
             outcome: { code: 'customDictionarySaved' },
@@ -2566,226 +2349,50 @@ describe('Hoshidicts settings IPC', () => {
             'empty-revision'
         );
 
+        for (const request of [
+            null,
+            { text: '猫, ねこ, cat', expectedRevision: 42 },
+            { text: 42, expectedRevision: 'empty-revision' },
+            {
+                text: 'x'.repeat(16 * 1024 * 1024 + 1),
+                expectedRevision: 'empty-revision',
+            },
+        ]) {
+            await expect(
+                saveCustom?.(context.settingsEvent, request)
+            ).resolves.toMatchObject({
+                success: false,
+                error: 'Custom dictionary save request is invalid or too large.',
+            });
+        }
+        expect(harness.manager.saveCustomDictionary).toHaveBeenCalledOnce();
+    });
+
+    it('validates the mining options note type before discovering Anki state', async () => {
+        const context = await registerHarness();
+        const getMiningOptions = harness.handlers.get(
+            'hoshidicts.getMiningOptions'
+        );
+
         await expect(
-            saveCustom?.(
-                { sender: context.settingsContents },
-                { text: '猫, ねこ, cat', expectedRevision: 42 }
-            )
-        ).resolves.toMatchObject({
-            success: false,
-            error: expect.stringContaining('invalid'),
-        });
-    });
+            getMiningOptions?.(context.settingsEvent, 'Kiku')
+        ).resolves.toMatchObject({ connected: true, noteTypes: ['Kiku'] });
+        expect(context.getMiningOptions).toHaveBeenCalledWith('Kiku');
 
-    it('rejects malformed compact definition dictionary preferences', async () => {
-        const context = await registerHarness();
-        const setReaderPreferences = harness.handlers.get(
-            'hoshidicts.setReaderPreferences'
-        );
-        const valid = {
-            lookupMode: 'hover',
-            scanLength: 16,
-            maxResults: 32,
-            sortFrequencyDictionary: null,
-            sortFrequencyDictionaryOrder: 'descending',
-            activationKey: 'F8',
-            sourceHighlightEnabled: true,
-            onlyScanJapaneseText: true,
-            popupHideDelayMs: 850,
-            showLookupCounts: true,
-            showCompactDefinitionSummary: true,
-            compactDefinitionSummaryCount: 3,
-            compactDefinitionSummaryDictionary: null,
-            showPitchAccentFurigana: true,
-            pitchAccentFuriganaDictionary: null,
-            showPitchAccentBadge: false,
-            hidePopupGrammarTags: true,
-            popupNestingMaxDepth: 4,
-            popupWidthPx: 560,
-            popupHeightPx: 420,
-            popupColumns: 1,
-            theme: 'default',
-            popupOpacityPercent: 85,
-            popupToolbarPosition: 'top',
-            popupButtons: snapshot.popupButtons,
-            definitionBlur: snapshot.definitionBlur,
-        };
+        await expect(
+            getMiningOptions?.(context.settingsEvent, '')
+        ).resolves.toMatchObject({ connected: true, noteTypes: ['Kiku'] });
+        expect(context.getMiningOptions).toHaveBeenCalledWith('');
 
-        for (const compactDefinitionSummaryDictionary of [
-            undefined,
-            '',
-            '   ',
-            'x'.repeat(4097),
-            42,
-        ]) {
-            await expect(
-                setReaderPreferences?.(
-                    { sender: context.settingsContents },
-                    { ...valid, compactDefinitionSummaryDictionary }
-                )
-            ).resolves.toMatchObject({
-                success: false,
-                error: 'Hoshidicts reader preferences are invalid.',
-            });
-        }
-        for (const compactDefinitionSummaryCount of [0, 7, 1.5, '3']) {
-            await expect(
-                setReaderPreferences?.(
-                    { sender: context.settingsContents },
-                    { ...valid, compactDefinitionSummaryCount }
-                )
-            ).resolves.toMatchObject({
-                success: false,
-                error: 'Hoshidicts reader preferences are invalid.',
-            });
-        }
-        for (const hidePopupGrammarTags of [undefined, 'yes', 1]) {
-            await expect(
-                setReaderPreferences?.(
-                    { sender: context.settingsContents },
-                    { ...valid, hidePopupGrammarTags }
-                )
-            ).resolves.toMatchObject({
-                success: false,
-                error: 'Hoshidicts reader preferences are invalid.',
-            });
-        }
-        for (const showPitchAccentBadge of [undefined, 'yes', 1]) {
-            await expect(
-                setReaderPreferences?.(
-                    { sender: context.settingsContents },
-                    { ...valid, showPitchAccentBadge }
-                )
-            ).resolves.toMatchObject({
-                success: false,
-                error: 'Hoshidicts reader preferences are invalid.',
-            });
-        }
-        expect(harness.manager.setReaderPreferences).not.toHaveBeenCalled();
-        expect(context.applyReaderPreferences).not.toHaveBeenCalled();
-    });
+        await expect(
+            getMiningOptions?.(context.settingsEvent, undefined)
+        ).resolves.toMatchObject({ connected: true });
+        expect(context.getMiningOptions).toHaveBeenCalledWith(undefined);
 
-    it('rejects malformed definition blur reader preferences', async () => {
-        const context = await registerHarness();
-        const setReaderPreferences = harness.handlers.get(
-            'hoshidicts.setReaderPreferences'
-        );
-        const valid = {
-            lookupMode: 'hover',
-            scanLength: 16,
-            maxResults: 32,
-            sortFrequencyDictionary: null,
-            sortFrequencyDictionaryOrder: 'descending',
-            activationKey: 'F8',
-            sourceHighlightEnabled: true,
-            onlyScanJapaneseText: true,
-            popupHideDelayMs: 850,
-            showLookupCounts: true,
-            showCompactDefinitionSummary: false,
-            compactDefinitionSummaryCount: 3,
-            compactDefinitionSummaryDictionary: null,
-            showPitchAccentFurigana: true,
-            pitchAccentFuriganaDictionary: null,
-            showPitchAccentBadge: false,
-            hidePopupGrammarTags: true,
-            popupNestingMaxDepth: 4,
-            popupWidthPx: 560,
-            popupHeightPx: 420,
-            popupColumns: 1,
-            theme: 'default',
-            popupOpacityPercent: 85,
-            popupToolbarPosition: 'top',
-            popupButtons: snapshot.popupButtons,
-            definitionBlur: {
-                enabled: true,
-                lookupThreshold: 5,
-                revealMode: 'timed',
-                revealDelayMs: 5000,
-            },
-        };
-
-        for (const definitionBlur of [
-            { ...valid.definitionBlur, lookupThreshold: 0 },
-            { ...valid.definitionBlur, lookupThreshold: 1_000_001 },
-            { ...valid.definitionBlur, revealMode: 'click' },
-            { ...valid.definitionBlur, revealDelayMs: 999 },
-            { ...valid.definitionBlur, revealDelayMs: 3_600_001 },
-        ]) {
+        for (const model of [42, 'x'.repeat(256), 'Kiku\0']) {
             await expect(
-                setReaderPreferences?.(
-                    { sender: context.settingsContents },
-                    { ...valid, definitionBlur }
-                )
-            ).resolves.toMatchObject({
-                success: false,
-                error: 'Hoshidicts reader preferences are invalid.',
-            });
+                getMiningOptions?.(context.settingsEvent, model)
+            ).rejects.toThrow('Hoshidicts note type is invalid.');
         }
-        expect(harness.manager.setReaderPreferences).not.toHaveBeenCalled();
-        expect(context.applyReaderPreferences).not.toHaveBeenCalled();
-    });
-
-    it('rejects malformed popup button preferences', async () => {
-        const context = await registerHarness();
-        const setReaderPreferences = harness.handlers.get(
-            'hoshidicts.setReaderPreferences'
-        );
-        const valid = {
-            lookupMode: 'hover',
-            scanLength: 16,
-            maxResults: 32,
-            sortFrequencyDictionary: null,
-            sortFrequencyDictionaryOrder: 'descending',
-            activationKey: 'F8',
-            sourceHighlightEnabled: true,
-            onlyScanJapaneseText: true,
-            popupHideDelayMs: 850,
-            showLookupCounts: true,
-            showCompactDefinitionSummary: false,
-            compactDefinitionSummaryCount: 3,
-            compactDefinitionSummaryDictionary: null,
-            showPitchAccentFurigana: true,
-            pitchAccentFuriganaDictionary: null,
-            showPitchAccentBadge: false,
-            hidePopupGrammarTags: true,
-            popupNestingMaxDepth: 4,
-            popupWidthPx: 560,
-            popupHeightPx: 420,
-            popupColumns: 1,
-            theme: 'default',
-            popupOpacityPercent: 85,
-            popupToolbarPosition: 'top',
-            definitionBlur: snapshot.definitionBlur,
-            popupButtons: snapshot.popupButtons,
-        };
-
-        for (const popupButtons of [
-            {
-                ...snapshot.popupButtons,
-                addToAnki: 'yes',
-            },
-            {
-                ...snapshot.popupButtons,
-                customLinks: [{ label: '', url: 'https://example.com/%w' }],
-            },
-            {
-                ...snapshot.popupButtons,
-                customLinks: [
-                    { label: 'Unsafe', url: 'https://user:pass@example.com/%s' },
-                ],
-            },
-        ]) {
-            await expect(
-                setReaderPreferences?.(
-                    { sender: context.settingsContents },
-                    { ...valid, popupButtons }
-                )
-            ).resolves.toMatchObject({
-                success: false,
-                error: 'Hoshidicts reader preferences are invalid.',
-            });
-        }
-        expect(harness.manager.setReaderPreferences).not.toHaveBeenCalled();
-        expect(context.applyReaderPreferences).not.toHaveBeenCalled();
     });
 });
