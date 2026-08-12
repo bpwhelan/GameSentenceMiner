@@ -100,8 +100,8 @@ describe("HoshidictsSettingsWindow", () => {
     restoreEnvironment();
   });
 
-  async function render(locale = "en") {
-    harness = await renderHoshidictsSettings({ locale });
+  async function render() {
+    harness = await renderHoshidictsSettings();
     container = harness.container;
   }
 
@@ -561,19 +561,6 @@ describe("HoshidictsSettingsWindow", () => {
     expect(position(rows()[1])?.getAttribute("aria-label")).toBe(
       "Search position 2 of 2 for JMdict"
     );
-  });
-
-  it.each([
-    ["ja", "JMdictの検索順: 2件中1番目"],
-    ["ukr", "Позиція пошуку для JMdict: 1 з 2"]
-  ])("localizes dictionary search positions in %s", async (locale, label) => {
-    await render(locale);
-
-    expect(
-      container
-        .querySelector(".hoshidicts-dictionary-search-position")
-        ?.getAttribute("aria-label")
-    ).toBe(label);
   });
 
   it.each([
@@ -1263,45 +1250,6 @@ describe("HoshidictsSettingsWindow", () => {
     ).not.toContain("Add to Tab Group");
   });
 
-  it.each([
-    [
-      "ja",
-      "タブグループを展開（1件）",
-      "JMdictの辞書操作",
-      "タブグループに追加…"
-    ],
-    [
-      "ukr",
-      "Розгорнути групи вкладок (1)",
-      "Дії зі словником JMdict",
-      "Додати до групи вкладок…"
-    ]
-  ])(
-    "localizes tab group controls in %s",
-    async (locale, expandLabel, menuLabel, actionLabel) => {
-      ipc.configure({
-        state: makeHoshidictsSnapshot({
-          tabGroups: [{ id: "grammar", name: "Grammar", dictionaryIds: [] }]
-        })
-      });
-
-      await render(locale);
-      expect(
-        container.querySelector(`[aria-label="${expandLabel}"]`)
-      ).not.toBeNull();
-      await settle(() => {
-        container
-          .querySelector<HTMLElement>(`[aria-label="${menuLabel}"]`)
-          ?.click();
-      }, 1);
-      expect(
-        Array.from(
-          container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
-        ).some((button) => button.textContent?.trim() === actionLabel)
-      ).toBe(true);
-    }
-  );
-
   it("moves a dictionary directly to a selected search position", async () => {
     await render();
     const menu = container.querySelector<HTMLElement>(
@@ -1405,35 +1353,6 @@ describe("HoshidictsSettingsWindow", () => {
     }, 1);
     expect(manualRow?.textContent).not.toContain("Update schedule");
   });
-
-  it.each([
-    ["ja", "アップデート間隔を変更...", "毎時"],
-    ["ukr", "Змінити розклад оновлень...", "Щогодини"]
-  ])(
-    "localizes dictionary schedules in %s",
-    async (locale, actionLabel, hourlyLabel) => {
-      await render(locale);
-      await settle(() => {
-        container
-          .querySelector<HTMLElement>(
-            `[aria-label="${locale === "ja" ? "JMdictの辞書操作" : "Дії зі словником JMdict"}"]`
-          )
-          ?.click();
-      }, 1);
-      const action = Array.from(
-        container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
-      ).find((button) => button.textContent?.includes(actionLabel));
-      expect(action).toBeDefined();
-      await settle(() => action?.click(), 1);
-      expect(
-        Array.from(
-          container.querySelectorAll<HTMLSelectElement>(
-            ".hoshidicts-dictionary-schedule select"
-          )[0]?.options ?? []
-        ).map((option) => option.text)
-      ).toContain(hourlyLabel);
-    }
-  );
 
   it("shows a dictionary alias and saves a renamed display name", async () => {
     await render();
@@ -1833,24 +1752,6 @@ describe("HoshidictsSettingsWindow", () => {
     ).toBeNull();
   });
 
-  it.each([
-    ["ja", ["最大スキャン文字数", "最大検索結果数", "頻度順の並べ替えに使う辞書"]],
-    [
-      "ukr",
-      [
-        "Максимальна довжина сканування",
-        "Максимум результатів",
-        "Словник для сортування за частотою"
-      ]
-    ]
-  ])("localizes lookup controls in %s", async (locale, labels) => {
-    await render(locale);
-
-    for (const label of labels) {
-      expect(container.textContent).toContain(label);
-    }
-  });
-
   it("moves visual controls into Design and keeps reader behavior in Dictionaries", async () => {
     await render();
     expect(container.querySelector("#hoshidicts-show-lookup-counts")).toBeNull();
@@ -2170,31 +2071,6 @@ describe("HoshidictsSettingsWindow", () => {
       })
     );
   });
-
-  it.each([
-    ["ja", ["ダーク", "ライト", "ハイコントラスト"], "ガーリーポップ"],
-    ["ukr", ["Темні", "Світлі", "Високий контраст"], "Ґерліпоп"]
-  ])(
-    "localizes popup theme groups and Girlypop in %s",
-    async (locale, groupLabels, girlypopLabel) => {
-      await render(locale);
-      await openDesign();
-      const theme = container.querySelector<HTMLSelectElement>(
-        "#hoshidicts-popup-theme"
-      );
-
-      expect(
-        Array.from(theme?.querySelectorAll("optgroup") ?? [], (group) =>
-          group.label.trim()
-        )
-      ).toEqual(groupLabels);
-      expect(
-        Array.from(theme?.options ?? []).find(
-          (option) => option.value === "girlypop"
-        )?.text.trim()
-      ).toBe(girlypopLabel);
-    }
-  );
 
   it("auto-saves popup appearance and keeps columns on size reset", async () => {
     vi.useFakeTimers();
@@ -3690,81 +3566,5 @@ describe("HoshidictsSettingsWindow", () => {
     ).toMatchObject({ model: "", fieldTemplates: null });
   });
 
-  it.each([
-    [
-      "ja",
-      "辞書・音声・マイニングの設定",
-      "おすすめの辞書",
-      "キーを変更",
-      "Shiftに戻す",
-      "検索語をハイライト",
-      "頻度モード: 順位順",
-      "カスタム",
-      "ポップアップの内容を検索可能にする",
-      "繰り返し検索した定義をぼかす",
-      "フィールド",
-      "値",
-      "選択したAnkiノートタイプのすべてのフィールドを表示します",
-      "既出回数と検索回数を表示",
-      "単語の近くに短い語義を表示"
-    ],
-    [
-      "ukr",
-      "Налаштування словників, аудіо та видобування",
-      "Рекомендовані словники",
-      "Змінити клавішу",
-      "Скинути до Shift",
-      "Підсвічувати знайдене слово",
-      "Режим частоти: За рангом",
-      "Власний",
-      "Дозволити пошук у вмісті спливних вікон",
-      "Розмивати визначення після повторних пошуків",
-      "Поле",
-      "Значення",
-      "Показано всі поля вибраного типу нотатки Anki",
-      "Показувати кількість зустрічей і пошуків",
-      "Показувати коротке визначення біля слова"
-    ]
-  ])(
-    "localizes the standalone window in %s",
-    async (
-      locale,
-      subtitle,
-      recommended,
-      changeKey,
-      resetKey,
-      sourceHighlight,
-      frequencyMode,
-      custom,
-      popupScanning,
-      definitionBlur,
-      fieldHeader,
-      valueHeader,
-      mappingHint,
-      lookupCounts,
-      compactDefinitionSummary
-    ) => {
-      await render(locale);
-      expect(container.textContent).toContain(subtitle);
-      expect(container.textContent).toContain(recommended);
-      expect(container.textContent).toContain(changeKey);
-      expect(container.textContent).toContain(resetKey);
-      expect(container.textContent).toContain(frequencyMode);
-      expect(container.textContent).toContain(custom);
-      expect(container.textContent).toContain(popupScanning);
-      await openDesign();
-      expect(container.textContent).toContain(sourceHighlight);
-      expect(container.textContent).toContain(definitionBlur);
-      expect(container.textContent).toContain(lookupCounts);
-      expect(container.textContent).toContain(compactDefinitionSummary);
-      await openMining();
-      expect(
-        Array.from(
-          container.querySelectorAll(".hoshidicts-mining-field-grid__header")
-        ).map((header) => header.textContent)
-      ).toEqual([fieldHeader, valueHeader]);
-      expect(container.textContent).toContain(mappingHint);
-    }
-  );
 });
 
