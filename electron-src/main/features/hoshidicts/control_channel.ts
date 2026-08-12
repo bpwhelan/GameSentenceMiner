@@ -41,16 +41,6 @@ export interface HoshidictsControlChannelHandlers {
     onReaderReady?: () => void;
 }
 
-export function isHoshidictsLoopbackAddress(
-    address: string | undefined
-): boolean {
-    return (
-        address === HOSHIDICTS_CONTROL_HOST ||
-        address === '::1' ||
-        address === `::ffff:${HOSHIDICTS_CONTROL_HOST}`
-    );
-}
-
 function parseControlFrame(raw: RawData): ControlFrame | null {
     let parsed: unknown;
     try {
@@ -120,10 +110,6 @@ export class HoshidictsControlChannel {
         });
         this.server = server;
         server.on('connection', (socket, request) => {
-            if (!isHoshidictsLoopbackAddress(request.socket.remoteAddress)) {
-                socket.terminate();
-                return;
-            }
             if (request.headers.origin) {
                 socket.close(
                     1008,
@@ -243,14 +229,7 @@ export class HoshidictsControlChannel {
     }
 
     private handleConnection(socket: WebSocket): void {
-        socket.on('message', (raw, isBinary) => {
-            if (isBinary) {
-                socket.close(
-                    1003,
-                    'Binary Hoshidicts control frames are unsupported'
-                );
-                return;
-            }
+        socket.on('message', (raw) => {
             const frame = parseControlFrame(raw);
             if (!frame) {
                 socket.close(1003, 'Invalid Hoshidicts control frame');

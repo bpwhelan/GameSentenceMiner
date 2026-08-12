@@ -16,7 +16,6 @@ import {
 
 export const HOSHIDICTS_MINING_PROFILE_FILE_NAME = 'mining-profile.json';
 const MINING_PROFILE_VERSION = 3;
-const LEGACY_MINING_PROFILE_VERSIONS = [1, 2] as const;
 
 const MINING_FIELD_NAMES: readonly HoshidictsMiningFieldName[] = [
     'expression',
@@ -51,10 +50,9 @@ function normalizeProfileString(
 }
 
 function normalizeFieldTemplates(
-    value: unknown,
-    sourceVersion: number
+    value: unknown
 ): HoshidictsMiningFieldTemplates | null {
-    if (sourceVersion !== MINING_PROFILE_VERSION || value == null) {
+    if (value == null) {
         return null;
     }
     if (!isRecord(value)) {
@@ -129,13 +127,7 @@ export function normalizeHoshidictsMiningProfile(
     if (!isRecord(value)) {
         throw new Error('Hoshidicts mining profile must be an object.');
     }
-    const sourceVersion = value.version ?? 1;
-    if (
-        sourceVersion !== MINING_PROFILE_VERSION &&
-        !LEGACY_MINING_PROFILE_VERSIONS.includes(
-            sourceVersion as (typeof LEGACY_MINING_PROFILE_VERSIONS)[number]
-        )
-    ) {
+    if ((value.version ?? MINING_PROFILE_VERSION) !== MINING_PROFILE_VERSION) {
         throw new Error('Hoshidicts mining profile version is unsupported.');
     }
     const rawFields = value.fields ?? {};
@@ -287,9 +279,6 @@ export function normalizeHoshidictsMiningProfile(
                 | undefined) ??
             (value.duplicatePolicy === 'allow' ? 'new' : 'prevent'),
         fieldOverwriteModes: fieldOverwriteModes as HoshidictsFieldOverwriteModes,
-        fieldTemplates: normalizeFieldTemplates(
-            value.fieldTemplates,
-            sourceVersion as number
-        ),
+        fieldTemplates: normalizeFieldTemplates(value.fieldTemplates),
     };
 }

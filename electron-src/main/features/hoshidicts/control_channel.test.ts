@@ -6,7 +6,6 @@ import {
     getHoshidictsControlPort,
     HOSHIDICTS_CONTROL_METHODS,
     HoshidictsControlChannel,
-    isHoshidictsLoopbackAddress,
     startHoshidictsControlChannel,
     stopHoshidictsControlChannel,
 } from './control_channel.js';
@@ -100,9 +99,6 @@ describe('Hoshidicts loopback control channel', () => {
         expect(firstPort).toBeGreaterThan(0);
         expect(secondPort).toBe(firstPort);
         expect(channel.port).toBe(firstPort);
-        expect(isHoshidictsLoopbackAddress('127.0.0.1')).toBe(true);
-        expect(isHoshidictsLoopbackAddress('::ffff:127.0.0.1')).toBe(true);
-        expect(isHoshidictsLoopbackAddress('192.168.1.10')).toBe(false);
         await expect(openSocket(firstPort)).resolves.toBeInstanceOf(WebSocket);
     });
 
@@ -236,7 +232,7 @@ describe('Hoshidicts loopback control channel', () => {
         await expect(request).resolves.toEqual({ applied: true });
     });
 
-    it('rejects malformed and binary frames and stops with idle sockets open', async () => {
+    it('rejects malformed and oversized frames and stops with idle sockets open', async () => {
         const channel = createChannel();
         const port = await channel.start();
 
@@ -244,14 +240,6 @@ describe('Hoshidicts loopback control channel', () => {
         const malformedClose = nextClose(malformed);
         malformed.send('{');
         await expect(malformedClose).resolves.toBe(1003);
-
-        const binary = await openSocket(port);
-        const binaryClose = nextClose(binary);
-        binary.send(Buffer.from(JSON.stringify({
-            version: 1,
-            kind: 'reader-ready',
-        })));
-        await expect(binaryClose).resolves.toBe(1003);
 
         const oversized = await openSocket(port);
         const oversizedClose = nextClose(oversized);
