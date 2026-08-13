@@ -84,7 +84,12 @@ describe("Hoshidicts audio client", () => {
           ok: true,
           status: 200,
           json: async () => ({
-            candidates: [{ index: 3, name: "Female", candidateId: CANDIDATE_ID }]
+            candidates: [{
+              index: 3,
+              name: "Female",
+              candidateId: CANDIDATE_ID,
+              playbackUrl: "http://127.0.0.1:5050/audio.mp3"
+            }]
           })
         };
       }
@@ -106,7 +111,8 @@ describe("Hoshidicts audio client", () => {
     })).resolves.toEqual([{
       index: 3,
       name: "Female",
-      candidateId: CANDIDATE_ID
+      candidateId: CANDIDATE_ID,
+      playbackUrl: "http://127.0.0.1:5050/audio.mp3"
     }]);
     await expect(client.getMedia({
       term: "食べる",
@@ -150,13 +156,73 @@ describe("Hoshidicts audio client", () => {
     );
   });
 
+  it("streams loopback candidates without buffering them through GSM", async () => {
+    const play = vi.fn(async () => undefined);
+    const playback = audioElement({ play });
+    const client = {
+      getCandidates: vi.fn(async () => [{
+        index: 0,
+        name: "Local",
+        candidateId: CANDIDATE_ID,
+        playbackUrl: "http://127.0.0.1:5050/audio.mp3"
+      }]),
+      getMedia: vi.fn()
+    };
+    const { button, controller } = createControllerHarness({
+      client,
+      createAudioElement: () => playback,
+      createObjectURL: vi.fn(),
+      revokeObjectURL: vi.fn()
+    });
+
+    button.click();
+    await flushPromises();
+
+    expect(playback.src).toBe("http://127.0.0.1:5050/audio.mp3");
+    expect(client.getMedia).not.toHaveBeenCalled();
+    expect(play).toHaveBeenCalledTimes(1);
+    controller.destroy();
+  });
+
 });
 
 describe("Hoshidicts audio controller", () => {
-  it("starts autoplay before the default popup hide delay", () => {
-    const dom = createDom();
-    const api = loadAudioModule(dom.window as unknown as Window);
-    expect(api.AUDIO_AUTOPLAY_DELAY_MS).toBeLessThan(300);
+  it("starts autoplay on the next task and does not restart it during rerenders", async () => {
+    vi.useFakeTimers();
+    const play = vi.fn(async () => undefined);
+    const client = {
+      getCandidates: vi.fn(async () => [{
+        index: 0,
+        name: "Default",
+        candidateId: CANDIDATE_ID
+      }]),
+      getMedia: vi.fn(async () => new Blob(["audio"], { type: "audio/mpeg" }))
+    };
+    const { button, controller, term } = createControllerHarness({
+      client,
+      render: false,
+      profile: { autoPlay: true },
+      createAudioElement: () => audioElement({ play }),
+      createObjectURL: () => "blob:auto",
+      revokeObjectURL: vi.fn()
+    });
+    const items = [{ button, result: term }];
+
+    controller.setRenderedResults(items);
+    controller.setRenderedResults(items, { autoPlay: false });
+    await vi.advanceTimersByTimeAsync(0);
+    await flushPromises();
+
+    expect(client.getCandidates).toHaveBeenCalledTimes(1);
+    expect(play).toHaveBeenCalledTimes(1);
+
+    controller.setRenderedResults(items);
+    await vi.advanceTimersByTimeAsync(500);
+    await flushPromises();
+
+    expect(client.getCandidates).toHaveBeenCalledTimes(1);
+    expect(play).toHaveBeenCalledTimes(1);
+    controller.destroy();
   });
 
   it("falls through ordered URL sources and remembers the playable candidate", async () => {
