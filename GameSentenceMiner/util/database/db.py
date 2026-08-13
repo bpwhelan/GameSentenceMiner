@@ -1651,6 +1651,7 @@ from GameSentenceMiner.util.database.game_daily_rollup_table import GameDailyRol
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable  # noqa: E402
 from GameSentenceMiner.util.database.stats_export_state_table import StatsExportStateTable  # noqa: E402
 from GameSentenceMiner.util.database.third_party_stats_table import ThirdPartyStatsTable  # noqa: E402
+from GameSentenceMiner.util.database.term_lookup_stats_table import TermLookupStatsTable  # noqa: E402
 
 _DATABASE_TABLE_CLASSES = [
     AIModelsTable,
@@ -1662,11 +1663,24 @@ _DATABASE_TABLE_CLASSES = [
     StatsRollupTable,
     StatsExportStateTable,
     ThirdPartyStatsTable,
+    TermLookupStatsTable,
 ]
+
+
+def _bind_database_table(table_class, *, ensure_schema: bool) -> None:
+    if table_class is TermLookupStatsTable:
+        if ensure_schema:
+            table_class.set_db(gsm_db)
+        else:
+            table_class._db = gsm_db
+        return
+    table_class.set_db(gsm_db, ensure_schema=ensure_schema)
+
+
 for cls in _DATABASE_TABLE_CLASSES:
     # Binding is read-only from an import-lifecycle perspective. Application
     # startup explicitly creates/updates schemas in start_database_runtime().
-    cls.set_db(gsm_db, ensure_schema=False)
+    _bind_database_table(cls, ensure_schema=False)
     # Uncomment to start fresh every time
     # cls.drop()
     # cls.set_db(gsm_db)  # --- IGNORE ---
@@ -1708,7 +1722,7 @@ def bind_database_worker_tables() -> None:
         CardKanjiLinksTable,
     ]
     for table_class in [*_DATABASE_TABLE_CLASSES, *feature_table_classes]:
-        table_class.set_db(gsm_db, ensure_schema=False)
+        _bind_database_table(table_class, ensure_schema=False)
 
 
 # GameLinesTable.drop_column('timestamp')
@@ -2217,7 +2231,7 @@ def start_database_runtime() -> None:
         logger.info("Skipping database migrations in read-only mode")
         return
     for table_class in _DATABASE_TABLE_CLASSES:
-        table_class.set_db(gsm_db, ensure_schema=True)
+        _bind_database_table(table_class, ensure_schema=True)
     # This is intentionally a one-time database initialization. Successful Tadoku
     # exports replace this value; subsequent launches leave it untouched.
     from GameSentenceMiner.util.tadoku_sync import initialize_tadoku_cursor

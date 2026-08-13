@@ -28,6 +28,18 @@ jobs:
         with:
           node-version: 22.12.0
 
+      - name: Install Electron test dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      - name: Test Hoshidicts feature
+        run: >-
+          npx vitest run
+          electron-src/main/features/hoshidicts/*.test.ts
+          electron-src/renderer/src/features/hoshidicts/*.test.tsx
+          electron-src/main/ui/overlay-hoshidicts-reader.test.ts
+          GSM_Overlay/features/hoshidicts/*.test.ts
+          --config vitest.config.ts
+
       - name: Compute next pre-release version
         id: version
         run: |
@@ -76,7 +88,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: recursive
           fetch-depth: 1
 
       - uses: actions/setup-python@v5
@@ -93,6 +105,15 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             GSM_Overlay/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            GSM_Overlay/input_server -> GSM_Overlay/input_server/target
 
       - name: Cache Electron binaries
         uses: actions/cache@v4
@@ -122,13 +143,12 @@ jobs:
       - name: Smoke test prerelease backend wheel
         run: node scripts/smoke-test-wheel.mjs
 
-      - name: Fetch prebuilt overlay server (Windows)
+      - name: Build overlay server (Windows)
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
           New-Item -ItemType Directory -Force -Path GSM_Overlay/input_server/bin/win32 | Out-Null
-          gh release download overlay-server --repo ${{ github.repository }} --pattern gsm_overlay_server-win32.exe --output GSM_Overlay/input_server/bin/win32/gsm_overlay_server.exe --clobber
+          Copy-Item GSM_Overlay/input_server/target/release/gsm_overlay_server.exe GSM_Overlay/input_server/bin/win32/gsm_overlay_server.exe -Force
 
       - name: Write prerelease metadata
         run: node scripts/write-prerelease-metadata.mjs --version "${{ needs.compute-version.outputs.PACKAGE_VERSION }}"
@@ -344,6 +364,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          submodules: recursive
           fetch-depth: 1
 
       - uses: actions/setup-python@v5
@@ -360,6 +381,15 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             GSM_Overlay/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            GSM_Overlay/input_server -> GSM_Overlay/input_server/target
 
       - name: Cache Electron binaries
         uses: actions/cache@v4
@@ -394,13 +424,27 @@ jobs:
       - name: Smoke test prerelease backend wheel
         run: node scripts/smoke-test-wheel.mjs
 
-      - name: Fetch prebuilt overlay server (Linux)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install Linux native build deps
         run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-14 \
+            g++-14 \
+            pkg-config \
+            libudev-dev \
+            libx11-dev \
+            libxtst-dev
+
+      - name: Build overlay server (Linux)
+        run: |
+          cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
           mkdir -p GSM_Overlay/input_server/bin/linux
-          gh release download overlay-server --repo ${{ github.repository }} --pattern gsm_overlay_server-linux --output GSM_Overlay/input_server/bin/linux/gsm_overlay_server --clobber
+          cp GSM_Overlay/input_server/target/release/gsm_overlay_server GSM_Overlay/input_server/bin/linux/gsm_overlay_server
           chmod +x GSM_Overlay/input_server/bin/linux/gsm_overlay_server
+        env:
+          CC: gcc-14
+          CXX: g++-14
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: g++-14
 
       - name: Write prerelease metadata
         run: node scripts/write-prerelease-metadata.mjs --version "${{ needs.compute-version.outputs.PACKAGE_VERSION }}"
@@ -440,6 +484,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          submodules: recursive
           fetch-depth: 1
 
       - uses: actions/setup-python@v5
@@ -456,6 +501,15 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             GSM_Overlay/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            GSM_Overlay/input_server -> GSM_Overlay/input_server/target
 
       - name: Cache Electron binaries
         uses: actions/cache@v4
@@ -488,12 +542,11 @@ jobs:
       - name: Smoke test prerelease backend wheel
         run: node scripts/smoke-test-wheel.mjs
 
-      - name: Fetch prebuilt overlay server (macOS)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build overlay server (macOS)
         run: |
+          cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
           mkdir -p GSM_Overlay/input_server/bin/darwin
-          gh release download overlay-server --repo ${{ github.repository }} --pattern gsm_overlay_server-darwin --output GSM_Overlay/input_server/bin/darwin/gsm_overlay_server --clobber
+          cp GSM_Overlay/input_server/target/release/gsm_overlay_server GSM_Overlay/input_server/bin/darwin/gsm_overlay_server
           chmod +x GSM_Overlay/input_server/bin/darwin/gsm_overlay_server
 
       - name: Write prerelease metadata

@@ -4,7 +4,9 @@ import * as path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
     DEFAULT_GSM_SINGLE_PORT,
+    getConfiguredHoshidictsEnabled,
     getConfiguredSinglePort,
+    resolveHoshidictsEnabledFromConfigData,
     resolveSinglePortFromConfigData,
 } from './gsm_config.js';
 
@@ -60,5 +62,50 @@ describe('GSM config port helpers', () => {
             },
         });
         expect(getConfiguredSinglePort(configPath)).toBe(DEFAULT_GSM_SINGLE_PORT);
+    });
+});
+
+describe('Hoshidicts experimental gate', () => {
+    it('requires both the master and Hoshidicts toggles', () => {
+        expect(
+            resolveHoshidictsEnabledFromConfigData({
+                experimental: {
+                    enable_experimental_features: true,
+                    enable_hoshidicts: true,
+                },
+            })
+        ).toBe(true);
+        expect(
+            resolveHoshidictsEnabledFromConfigData({
+                experimental: {
+                    enable_experimental_features: false,
+                    enable_hoshidicts: true,
+                },
+            })
+        ).toBe(false);
+        expect(
+            resolveHoshidictsEnabledFromConfigData({
+                experimental: {
+                    enable_experimental_features: true,
+                    enable_hoshidicts: false,
+                },
+            })
+        ).toBe(false);
+    });
+
+    it('fails closed for missing or malformed config files', () => {
+        expect(
+            getConfiguredHoshidictsEnabled(
+                path.join(os.tmpdir(), 'missing-gsm-hoshidicts-config.json')
+            )
+        ).toBe(false);
+
+        const configPath = writeTempConfig({
+            experimental: {
+                enable_experimental_features: true,
+                enable_hoshidicts: true,
+            },
+        });
+        expect(getConfiguredHoshidictsEnabled(configPath)).toBe(true);
     });
 });

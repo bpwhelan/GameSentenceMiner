@@ -26,7 +26,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: recursive
           fetch-depth: 1
 
       - name: Set up Rust
@@ -91,7 +91,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: recursive
           fetch-depth: 1
 
       - name: Set up Rust
@@ -107,6 +107,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            gcc-14 \
+            g++-14 \
             pkg-config \
             libudev-dev \
             libx11-dev \
@@ -114,6 +116,10 @@ jobs:
 
       - name: Build gamepad server (Linux)
         run: cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
+        env:
+          CC: gcc-14
+          CXX: g++-14
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: g++-14
 
       - name: Stage binary for release
         run: |
@@ -135,7 +141,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: recursive
           fetch-depth: 1
 
       - name: Set up Rust

@@ -72,6 +72,19 @@ export function resolveSinglePortFromConfigData(configData: unknown): number {
     return normalizePort(profileData.general.texthooker_port);
 }
 
+export function resolveHoshidictsEnabledFromConfigData(
+    configData: unknown
+): boolean {
+    if (!isJsonObject(configData) || !isJsonObject(configData.experimental)) {
+        return false;
+    }
+
+    return (
+        configData.experimental.enable_experimental_features === true &&
+        configData.experimental.enable_hoshidicts === true
+    );
+}
+
 export interface GsmProfileList {
     profiles: string[];
     currentProfile: string;
@@ -129,5 +142,20 @@ export function getConfiguredSinglePort(
         return resolveSinglePortFromConfigData(JSON.parse(raw));
     } catch {
         return DEFAULT_GSM_SINGLE_PORT;
+    }
+}
+
+export function getConfiguredHoshidictsEnabled(
+    configPath = path.join(DEFAULT_GSM_BASE_DIR, 'config.json')
+): boolean {
+    try {
+        if (!fs.existsSync(configPath)) {
+            return false;
+        }
+
+        const raw = fs.readFileSync(configPath, 'utf8').replace(/^\uFEFF/, '');
+        return resolveHoshidictsEnabledFromConfigData(JSON.parse(raw));
+    } catch {
+        return false;
     }
 }

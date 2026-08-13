@@ -13,10 +13,17 @@ pub enum ServiceFeature {
     Keyboard,
     Mecab,
     Sudachi,
+    Hoshidicts,
 }
 
 impl ServiceFeature {
-    pub const ALL: [Self; 4] = [Self::Gamepad, Self::Keyboard, Self::Mecab, Self::Sudachi];
+    pub const ALL: [Self; 5] = [
+        Self::Gamepad,
+        Self::Keyboard,
+        Self::Mecab,
+        Self::Sudachi,
+        Self::Hoshidicts,
+    ];
 
     pub fn parse(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
@@ -24,6 +31,7 @@ impl ServiceFeature {
             "keyboard" => Some(Self::Keyboard),
             "mecab" => Some(Self::Mecab),
             "sudachi" => Some(Self::Sudachi),
+            "hoshidicts" => Some(Self::Hoshidicts),
             _ => None,
         }
     }
@@ -34,6 +42,7 @@ impl ServiceFeature {
             Self::Keyboard => "keyboard",
             Self::Mecab => "mecab",
             Self::Sudachi => "sudachi",
+            Self::Hoshidicts => "hoshidicts",
         }
     }
 }
@@ -173,14 +182,23 @@ mod tests {
         assert!(registry.is_enabled(ServiceFeature::Gamepad));
         assert!(!registry.is_enabled(ServiceFeature::Keyboard));
 
-        registry.set_client_features(first, [ServiceFeature::Keyboard, ServiceFeature::Sudachi]);
+        registry.set_client_features(
+            first,
+            [
+                ServiceFeature::Keyboard,
+                ServiceFeature::Sudachi,
+                ServiceFeature::Hoshidicts,
+            ],
+        );
         registry.set_client_features(second, [ServiceFeature::Keyboard]);
         assert!(registry.is_enabled(ServiceFeature::Keyboard));
         assert!(registry.is_enabled(ServiceFeature::Sudachi));
+        assert!(registry.is_enabled(ServiceFeature::Hoshidicts));
 
         registry.release_client(first);
         assert!(registry.is_enabled(ServiceFeature::Keyboard));
         assert!(!registry.is_enabled(ServiceFeature::Sudachi));
+        assert!(!registry.is_enabled(ServiceFeature::Hoshidicts));
 
         registry.release_client(second);
         assert!(!registry.is_enabled(ServiceFeature::Keyboard));
@@ -192,6 +210,10 @@ mod tests {
         assert_eq!(
             ServiceFeature::parse("sudachi"),
             Some(ServiceFeature::Sudachi)
+        );
+        assert_eq!(
+            ServiceFeature::parse("hoshidicts"),
+            Some(ServiceFeature::Hoshidicts)
         );
         assert_eq!(ServiceFeature::parse("unknown"), None);
     }

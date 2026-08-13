@@ -1,5 +1,5 @@
 const electron = require('electron');
-const { app, dialog, Tray, Menu, nativeImage, protocol, Notification } = electron;
+const { app, dialog, Tray, Menu, nativeImage, protocol, Notification, shell } = electron;
 const NativeBrowserWindow = electron.BrowserWindow;
 const nativeIpcMain = electron.ipcMain;
 const nativeGlobalShortcut = electron.globalShortcut;
@@ -31,6 +31,22 @@ const {
   registerHotkeyWithFallback,
   shouldSuppressGamepadToggleDuringFocusTransition,
 } = require('./hotkey_settings');
+const {
+  attachHoshidictsRendererDiagnostics,
+} = require('./features/hoshidicts/diagnostics');
+const {
+  createHoshidictsActivationHotkeyController,
+  createHoshidictsWindowBridge,
+  DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
+  dispatchAppHotkeyInputServerMessage,
+  normalizeHoshidictsActivationKey,
+  normalizeHoshidictsExternalUrl,
+  requestHoshidictsSettingsOpen,
+} = require('./features/hoshidicts/desktop_bridge');
+const {
+  selectDictionaryReaderEngine,
+  startSelectedDictionaryReader,
+} = require('./features/reader_engine_selection');
 const { shouldRevealAutomaticOverlay, shouldShowOverlayOnReady } = require('./automatic_visibility');
 const { URL } = require('url');
 
@@ -48,7 +64,6 @@ const nativeSetTimeout = global.setTimeout;
 const nativeClearTimeout = global.clearTimeout;
 const nativeSetInterval = global.setInterval;
 const nativeClearInterval = global.clearInterval;
-
 function setTimeout(callback, delay, ...args) {
   let timer = null;
   timer = nativeSetTimeout((...callbackArgs) => {
@@ -258,6 +273,11 @@ const DEFAULT_GSM_APPDATA = process.env.APPDATA
   : path.join(os.homedir(), '.config', "GameSentenceMiner"); // macOS/Linux
 const GSM_APPDATA = process.env.GSM_DATA_DIR || DEFAULT_GSM_APPDATA;
 const gsmSettingsPath = path.join(GSM_APPDATA, 'config.json');
+const hoshidictsDiagnosticLogPath = path.join(
+  GSM_APPDATA,
+  'logs',
+  'hoshidicts-reader.log'
+);
 const sharedRuntimeResourcesPath = process.env.GSM_OVERLAY_RESOURCES_PATH || "";
 const FIND_IN_PAGE_PRELOAD_PATH = path.join(__dirname, 'find-in-page-preload.js');
 const TEXTHOOKER_HOTKEY_FALLBACKS = [
@@ -630,6 +650,7 @@ let activityTimer = null;
 let isDev = false;
 let yomitanExt;
 let jitenReaderExt;
+let dictionaryReaderSelection = selectDictionaryReaderEngine(process.env);
 
 // Jiten parse cache (initialized on app ready). See jiten_cache.js.
 // Only used for the overlay's own IPC calls — the extension talks to the
@@ -1827,6 +1848,7 @@ let resizeMode = false;
 let yomitanShown = false;
 let gamepadNavigationActive = false; // True while renderer gamepad navigation keeps overlay focused
 let mainWindow = null;
+let hoshidictsWindowBridge = null;
 let startupNotificationWindow = null;
 let startupNotificationCloseTimer = null;
 let afkHidden = false; // true when AFK timer hid the overlay
@@ -1865,13 +1887,20 @@ let manualHotkeyElectronFailureHotkey = null;
 // evaluates every overlay hotkey server-side (see configure_app_hotkeys in the
 // Rust server). Separate socket from the manual-hotkey connection so its
 // lifecycle is independent of manual mode. `registry` maps a stable action id ->
-// { accelerator, handler }.
+// { accelerator, handler } or { accelerator, onStateChange }.
 let appHotkeyInputServerConnection = {
   socket: null,
   url: null,
   reconnectTimer: null,
   registry: new Map(),
 };
+const hoshidictsActivationHotkeyController =
+  createHoshidictsActivationHotkeyController({
+    registry: appHotkeyInputServerConnection.registry,
+    onStateChange(pressed) {
+      sendHoshidictsActivationKeyState(pressed);
+    },
+  });
 
 const manualHotkeyController = createManualHotkeyController({
   holdReleaseTimeoutMs: MANUAL_HOTKEY_ELECTRON_RELEASE_TIMEOUT_MS,
@@ -2327,6 +2356,10 @@ function resolveGamepadServerExecutable() {
 }
 
 function shouldRunInputServer(settings = userSettings) {
+  if (process.env.GSM_HOSHIDICTS_ENABLED === '1') {
+    return true;
+  }
+
   if (settings.gamepadEnabled) {
     return true;
   }
@@ -2792,6 +2825,39 @@ function isRouteAllHotkeysEnabled() {
   return userSettings.routeAllHotkeysThroughInputServer === true;
 }
 
+function sendHoshidictsActivationKeyState(pressed) {
+  if (
+    process.env.GSM_HOSHIDICTS_ENABLED !== '1' ||
+    !mainWindow ||
+    mainWindow.isDestroyed()
+  ) {
+    return;
+  }
+  mainWindow.webContents.send('hoshidicts-activation-key-state', pressed === true);
+}
+
+function configureHoshidictsActivationHotkey(preferences = {}, options = {}) {
+  const result = hoshidictsActivationHotkeyController.configure({
+    enabled: process.env.GSM_HOSHIDICTS_ENABLED === '1',
+    lookupMode: preferences.lookupMode === 'hover' ? 'hover' : 'shift',
+    activationKey: normalizeHoshidictsActivationKey(
+      preferences.activationKey,
+      DEFAULT_HOSHIDICTS_ACTIVATION_KEY
+    ),
+  });
+  if (result.changed && options.sync !== false) {
+    syncAppHotkeyInputServerConnection(options.reason || 'hoshidicts-preferences');
+  }
+  return result;
+}
+
+function isAppHotkeyInputServerNeeded() {
+  return (
+    isRouteAllHotkeysEnabled() ||
+    hoshidictsActivationHotkeyController.isEnabled()
+  );
+}
+
 function buildAppHotkeyConfigPayload() {
   const hotkeys = [];
   for (const [id, entry] of appHotkeyInputServerConnection.registry) {
@@ -2807,10 +2873,14 @@ function sendAppHotkeyConfig() {
   if (!state.socket || state.socket.readyState !== WebSocket.OPEN) {
     return;
   }
+  // Replacing the server-side registry clears its active-edge bookkeeping. Drop
+  // our local held state too, otherwise a reconfiguration while the key is down
+  // could leave the reader stuck active with no matching release event.
+  hoshidictsActivationHotkeyController.release();
   try {
     state.socket.send(JSON.stringify({
       type: "configure_features",
-      features: isRouteAllHotkeysEnabled() ? ["keyboard"] : [],
+      features: isAppHotkeyInputServerNeeded() ? ["keyboard"] : [],
     }));
     state.socket.send(JSON.stringify({
       type: "configure_app_hotkeys",
@@ -2823,6 +2893,7 @@ function sendAppHotkeyConfig() {
 
 function closeAppHotkeyInputServerConnection({ clearUrl = true, clearReconnect = true } = {}) {
   const state = appHotkeyInputServerConnection;
+  hoshidictsActivationHotkeyController.release();
   if (clearReconnect && state.reconnectTimer) {
     clearTimeout(state.reconnectTimer);
     state.reconnectTimer = null;
@@ -2843,7 +2914,7 @@ function closeAppHotkeyInputServerConnection({ clearUrl = true, clearReconnect =
 
 function scheduleAppHotkeyInputServerReconnect(reason = "unknown") {
   const state = appHotkeyInputServerConnection;
-  if (state.reconnectTimer) {
+  if (state.reconnectTimer || !isAppHotkeyInputServerNeeded()) {
     return;
   }
   state.reconnectTimer = setTimeout(() => {
@@ -2860,23 +2931,20 @@ function handleAppHotkeyInputServerMessage(rawMessage) {
     console.warn("[AppHotkey] Failed to parse input server message:", rawMessage);
     return;
   }
-  // Fire on the press edge only — mirrors globalShortcut, which triggers on key-down.
-  if (message.type === "app_hotkey_event" && message.state === "pressed") {
-    const entry = appHotkeyInputServerConnection.registry.get(message.id);
-    if (entry && typeof entry.handler === "function") {
-      try {
-        entry.handler();
-      } catch (err) {
-        console.warn(`[AppHotkey] Handler for ${message.id} threw:`, err.message);
-      }
-    }
+  try {
+    dispatchAppHotkeyInputServerMessage(
+      message,
+      appHotkeyInputServerConnection.registry
+    );
+  } catch (err) {
+    console.warn(`[AppHotkey] Handler for ${message.id} threw:`, err.message);
   }
 }
 
 function syncAppHotkeyInputServerConnection(reason = "unknown") {
   const state = appHotkeyInputServerConnection;
 
-  if (!isRouteAllHotkeysEnabled()) {
+  if (!isAppHotkeyInputServerNeeded()) {
     if (state.socket && state.socket.readyState === WebSocket.OPEN) {
       try {
         state.socket.send(JSON.stringify({ type: "configure_app_hotkeys", hotkeys: [] }));
@@ -2919,7 +2987,8 @@ function syncAppHotkeyInputServerConnection(reason = "unknown") {
   socket.on("close", () => {
     if (appHotkeyInputServerConnection.socket !== socket) return;
     appHotkeyInputServerConnection.socket = null;
-    if (isRouteAllHotkeysEnabled()) {
+    hoshidictsActivationHotkeyController.release();
+    if (isAppHotkeyInputServerNeeded()) {
       scheduleAppHotkeyInputServerReconnect(reason);
     }
   });
@@ -5644,6 +5713,10 @@ function openSettings() {
 }
 
 function openYomitanSettings() {
+  if (!dictionaryReaderSelection.yomitanEnabled || !yomitanExt) {
+    console.warn('[DictionaryReader] Yomitan settings are unavailable while Hoshidicts is selected.');
+    return;
+  }
   if (yomitanSettingsWindow && !yomitanSettingsWindow.isDestroyed()) {
     yomitanSettingsWindow.show();
     yomitanSettingsWindow.focus();
@@ -6027,6 +6100,7 @@ function updateTrayMenu() {
     },
     {
       label: 'Yomitan Settings',
+      visible: dictionaryReaderSelection.yomitanEnabled,
       click: () => openYomitanSettings()
     },
     {
@@ -6163,6 +6237,8 @@ function updateTrayMenu() {
 
 
 async function startOverlayAppImpl() {
+  dictionaryReaderSelection = selectDictionaryReaderEngine(process.env);
+
   if (!IN_PROCESS_OVERLAY && isMac() && app.dock) {
     app.dock.setIcon(getOverlayAppIconPath());
   }
@@ -6202,7 +6278,7 @@ async function startOverlayAppImpl() {
   const skipMigrationConfirmationInLinux = true;
 
   // DO LINUX FIRST, and then windows later if we need it...
-  if (isLinux()) {
+  if (dictionaryReaderSelection.yomitanEnabled && isLinux()) {
     if (skipMigrationConfirmationInLinux) {
       try {
         if (!fs.existsSync(staticManifestPath)) {
@@ -6329,53 +6405,60 @@ async function startOverlayAppImpl() {
   // Start background manager and register periodic tasks
   bg.start();
 
-  // Detect if yomitan extension files changed since last overlay launch (e.g. GSM app update).
-  // If so, clear Chromium's cached service workers to prevent stale compiled background scripts.
-  {
-    const yomitanExtDir = isDev ? path.join(__dirname, 'yomitan') : path.join(getPackagedResourcesPath(), 'yomitan');
-    const yomitanManifestPath = path.join(yomitanExtDir, 'manifest.json');
-    const yomitanMtimePath = path.join(dataPath, 'yomitan_last_mtime.json');
-    let currentMtime = 0;
-    try { currentMtime = fs.statSync(yomitanManifestPath).mtimeMs; } catch {}
-    let storedMtime = 0;
-    try {
-      const stored = JSON.parse(fs.readFileSync(yomitanMtimePath, 'utf-8'));
-      storedMtime = stored && typeof stored.mtime === 'number' ? stored.mtime : 0;
-    } catch {}
-
-    if (currentMtime > 0 && currentMtime !== storedMtime) {
-      console.log(`[YomitanStartup] Extension files changed (stored=${storedMtime}, current=${currentMtime}). Clearing service worker cache...`);
+  const dictionaryReaderStartup = await startSelectedDictionaryReader({
+    environment: process.env,
+    async startYomitan() {
+      // Detect if Yomitan extension files changed since last overlay launch
+      // (e.g. GSM app update). If so, clear Chromium's cached service workers
+      // to prevent stale compiled background scripts.
+      const yomitanExtDir = isDev ? path.join(__dirname, 'yomitan') : path.join(getPackagedResourcesPath(), 'yomitan');
+      const yomitanManifestPath = path.join(yomitanExtDir, 'manifest.json');
+      const yomitanMtimePath = path.join(dataPath, 'yomitan_last_mtime.json');
+      let currentMtime = 0;
+      try { currentMtime = fs.statSync(yomitanManifestPath).mtimeMs; } catch {}
+      let storedMtime = 0;
       try {
-        await getOverlaySession().clearStorageData({ storages: ['serviceworkers'] });
-        console.log('[YomitanStartup] Service worker cache cleared.');
-      } catch (e) {
-        console.warn('[YomitanStartup] Failed to clear service worker cache:', e);
+        const stored = JSON.parse(fs.readFileSync(yomitanMtimePath, 'utf-8'));
+        storedMtime = stored && typeof stored.mtime === 'number' ? stored.mtime : 0;
+      } catch {}
+
+      if (currentMtime > 0 && currentMtime !== storedMtime) {
+        console.log(`[YomitanStartup] Extension files changed (stored=${storedMtime}, current=${currentMtime}). Clearing service worker cache...`);
+        try {
+          await getOverlaySession().clearStorageData({ storages: ['serviceworkers'] });
+          console.log('[YomitanStartup] Service worker cache cleared.');
+        } catch (e) {
+          console.warn('[YomitanStartup] Failed to clear service worker cache:', e);
+        }
       }
-    }
 
-    yomitanExt = await loadExtension('yomitan');
+      const extension = await loadExtension('yomitan');
 
-    // Persist the mtime after successful load
-    try {
-      fs.writeFileSync(yomitanMtimePath, JSON.stringify({ mtime: currentMtime }));
-    } catch {}
-  }
+      // Persist the mtime after successful load
+      try {
+        fs.writeFileSync(yomitanMtimePath, JSON.stringify({ mtime: currentMtime }));
+      } catch {}
+      return extension;
+    },
+  });
+  yomitanExt = dictionaryReaderStartup.yomitanExtension;
+  console.log(`[DictionaryReader] Selected ${dictionaryReaderStartup.engine}.`);
 
   if (userSettings.enableJitenReader) {
     jitenReaderExt = await loadExtension('jiten.reader');
   }
 
   // If migration marker exists, update it with the actual ID for debugging
-  if (fs.existsSync(markerPath)) {
+  if (yomitanExt && fs.existsSync(markerPath)) {
     const markerData = JSON.parse(fs.readFileSync(markerPath, 'utf-8'));
-    if (!markerData.id && yomitanExt) {
+    if (!markerData.id) {
       markerData.id = yomitanExt.id;
       fs.writeFileSync(markerPath, JSON.stringify(markerData));
     }
   }
 
   // Watch yomitan extension directory for rebuilds and hot-reload on change (dev workflow)
-  {
+  if (dictionaryReaderSelection.yomitanEnabled) {
     const yomitanExtDir = isDev ? path.join(__dirname, 'yomitan') : path.join(getPackagedResourcesPath(), 'yomitan');
     const yomitanManifestPath = path.join(yomitanExtDir, 'manifest.json');
     const yomitanMtimePath = path.join(dataPath, 'yomitan_last_mtime.json');
@@ -6474,6 +6557,10 @@ async function startOverlayAppImpl() {
 
   // Register yomitan settings hotkey
   function registerYomitanSettingsHotkey(_oldHotkey) {
+    if (!dictionaryReaderSelection.yomitanEnabled) {
+      clearAppHotkey("yomitanSettings");
+      return;
+    }
     setAppHotkey("yomitanSettings", userSettings.yomitanSettingsHotkey || "Alt+Shift+Y", () => {
       openYomitanSettings();
     }, { settingKey: "yomitanSettingsHotkey" });
@@ -6696,6 +6783,11 @@ async function startOverlayAppImpl() {
     requestGSMProfileState("periodic");
   }, GSM_PROFILE_STATE_REFRESH_INTERVAL_MS);
 
+  configureHoshidictsActivationHotkey({
+    lookupMode: process.env.GSM_HOSHIDICTS_LOOKUP_MODE,
+    activationKey: process.env.GSM_HOSHIDICTS_ACTIVATION_KEY,
+  }, { sync: false });
+
   // Start the shared Rust input server if any current feature requires it.
   syncGamepadServerState("app-whenReady");
 
@@ -6706,9 +6798,12 @@ async function startOverlayAppImpl() {
   registerOverlayEmitterListener(app, 'will-quit', () => {
     releaseAllOverlayPauseRequests();
     globalShortcut.unregisterAll();
+    hoshidictsActivationHotkeyController.clear();
     closeAppHotkeyInputServerConnection();
     stopOverlayWebSockets();
     void stopGamepadServer("app-will-quit");
+    hoshidictsWindowBridge?.destroy();
+    hoshidictsWindowBridge = null;
     if (pendingDisplaySyncTimer) {
       clearTimeout(pendingDisplaySyncTimer);
       pendingDisplaySyncTimer = null;
@@ -6759,6 +6854,34 @@ async function startOverlayAppImpl() {
     // Reveal explicitly from ready-to-show so a target-state "minimized" event
     // received during page load cannot be undone by Electron's initial show.
     show: false,
+  });
+  if (process.env.GSM_HOSHIDICTS_ENABLED === '1') {
+    hoshidictsWindowBridge = createHoshidictsWindowBridge({
+      getWebContents: () => (
+        mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null
+      ),
+      onReaderPreferences(preferences) {
+        configureHoshidictsActivationHotkey(preferences, {
+          reason: 'hoshidicts-live-preferences',
+        });
+      },
+    });
+  }
+  mainWindow.webContents.on('did-start-loading', () => {
+    hoshidictsWindowBridge?.markNotReady();
+  });
+  mainWindow.webContents.on('did-finish-load', () => {
+    hoshidictsWindowBridge?.markReady();
+    sendHoshidictsActivationKeyState(
+      hoshidictsActivationHotkeyController.isPressed()
+    );
+  });
+  attachHoshidictsRendererDiagnostics({
+    logPath: process.env.GSM_HOSHIDICTS_ENABLED === '1'
+      ? hoshidictsDiagnosticLogPath
+      : '',
+    registerListener: registerOverlayEmitterListener,
+    webContents: mainWindow.webContents,
   });
   lastDisplaySyncSignature = getOverlayDisplaySyncSignature();
 
@@ -7052,6 +7175,57 @@ async function startOverlayAppImpl() {
 
   ipcMain.on("open-yomitan-settings", () => {
     openYomitanSettings();
+  });
+
+  ipcMain.handle("hoshidicts-add-custom-entry", async (event, payload) => {
+    if (
+      !mainWindow ||
+      mainWindow.isDestroyed() ||
+      event.sender !== mainWindow.webContents
+    ) {
+      throw new Error("Custom dictionary request came from an invalid window.");
+    }
+    if (!hoshidictsWindowBridge) {
+      throw new Error("Hoshidicts desktop control channel is unavailable.");
+    }
+    return await hoshidictsWindowBridge.requestAddCustomEntry(payload);
+  });
+
+  ipcMain.handle("hoshidicts-open-external", async (event, payload) => {
+    if (
+      !mainWindow ||
+      mainWindow.isDestroyed() ||
+      event.sender !== mainWindow.webContents
+    ) {
+      throw new Error("External link request came from an invalid window.");
+    }
+    const url = normalizeHoshidictsExternalUrl(payload && payload.url);
+    await shell.openExternal(url);
+    return { opened: true };
+  });
+
+  ipcMain.handle("open-hoshidicts-settings", async (event) => {
+    if (
+      !settingsWindow ||
+      settingsWindow.isDestroyed() ||
+      event.sender !== settingsWindow.webContents
+    ) {
+      throw new Error("Hoshidicts settings request came from an invalid window.");
+    }
+    try {
+      return await requestHoshidictsSettingsOpen();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String(error);
+      await dialog.showMessageBox(settingsWindow, {
+        type: "error",
+        title: "Hoshidicts Settings",
+        message: "Could not open Hoshidicts settings.",
+        detail: message,
+        buttons: ["OK"],
+      });
+      throw error;
+    }
   });
 
   ipcMain.on("open-jiten-reader-settings", () => {
@@ -8015,11 +8189,19 @@ async function stopOverlayApp() {
           yomitanManifestWatcher = null;
         }
       });
+      runOverlayCleanupStep('Hoshidicts reader preferences bridge', () => {
+        hoshidictsWindowBridge?.destroy();
+        hoshidictsWindowBridge = null;
+      });
 
       runOverlayCleanupStep('pause requests', () => releaseAllOverlayPauseRequests());
       runOverlayCleanupStep('manual hotkey state', () => manualHotkeyController.reset('overlay-unload'));
       runOverlayCleanupStep('overlay websockets', () => stopOverlayWebSockets());
       runOverlayCleanupStep('manual hotkey socket', () => closeManualHotkeyInputServerConnection());
+      runOverlayCleanupStep(
+        'Hoshidicts activation hotkey',
+        () => hoshidictsActivationHotkeyController.clear()
+      );
       runOverlayCleanupStep('app hotkey socket', () => closeAppHotkeyInputServerConnection());
       const gamepadStop = runOverlayCleanupStep(
         'gamepad server',
@@ -8108,3 +8290,4 @@ if (!IN_PROCESS_OVERLAY) {
     app.quit();
   });
 }
+
