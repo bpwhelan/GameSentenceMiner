@@ -78,7 +78,9 @@ export async function writeCustomDictionaryArchive(
     try {
         await new Promise<void>((resolve, reject) => {
             const output = fs.createWriteStream(outputPath, { flags: 'wx' });
-            const archive = archiver('zip', { zlib: { level: 9 } });
+            // Level 1, not 9: this archive is staged, handed straight to the
+            // importer, and deleted in the caller's finally. Nothing ships it.
+            const archive = archiver('zip', { zlib: { level: 1 } });
             output.once('close', resolve);
             output.once('error', reject);
             archive.once('error', reject);
