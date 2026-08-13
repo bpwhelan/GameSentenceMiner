@@ -73,6 +73,30 @@ describe('text hook flush delay helpers', () => {
         expect(__test.eraseTextHookNoise('before%D$vl456;after')).toBe('beforeafter');
     });
 
+    it('truncates oversized hook text and blocks backlog-like quote payloads', async () => {
+        const { __test } = await import('./texthook.js');
+
+        expect(__test.sanitizeTextHookText('abcdef', 3)).toEqual({
+            text: 'abc',
+            truncated: true,
+        });
+        expect(__test.sanitizeTextHookText('「text」'.repeat(10), 3000)).toEqual({
+            text: '「text」'.repeat(10),
+            truncated: false,
+        });
+        expect(__test.sanitizeTextHookText('「text」'.repeat(11), 3000)).toBeNull();
+    });
+
+    it('completely rejects hook text over the hard 10,000-character limit', async () => {
+        const { __test } = await import('./texthook.js');
+
+        expect(__test.sanitizeTextHookText('a'.repeat(10_000), 100_000)).toEqual({
+            text: 'a'.repeat(10_000),
+            truncated: false,
+        });
+        expect(__test.sanitizeTextHookText('a'.repeat(10_001), 100_000)).toBeNull();
+    });
+
     it('distinguishes Luna hooks that share a name by their ctx address', async () => {
         const { __test } = await import('./texthook.js');
 

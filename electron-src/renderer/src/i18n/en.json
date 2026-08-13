@@ -1213,6 +1213,10 @@
       "save": "Save Hook",
       "delete": "Delete Profile"
     },
+    "global": {
+      "maxBufferSize": "Maximum incoming text length:",
+      "maxBufferSizeHint": "Applies to every text hook. Longer text is truncated before GSM processes or displays it."
+    },
     "hooks": {
       "title": "Detected Hooks",
       "count": "{count} hooks",
@@ -1243,6 +1247,12 @@
       "searchHooks": "Search for hooks",
       "stop": "Stop"
     },
+    "dev": {
+      "sendLargePayload": "Send random Japanese payload ({size} characters)",
+      "largePayloadSent": "Sent {size} characters through the texthook bus.",
+      "largePayloadTruncated": "Sent {size} characters after truncating a {originalSize}-character test payload.",
+      "largePayloadFailed": "Failed to send the developer payload."
+    },
     "notices": {
       "started": "Attached to {exe} (PID {pid}).",
       "selected": "Selected hook #{id}. Output is now being forwarded to GSM.",
@@ -1254,8 +1264,10 @@
       "startFailed": "Failed to start the hook engine.",
       "manualFailed": "Failed to attach manual hook.",
       "profileSaveFailed": "Failed to save hook profile.",
+      "maxBufferSizeSaveFailed": "Failed to save the maximum text length.",
       "agentUiFailed": "Failed to open Agent script UI.",
-      "noExe": "No executable detected for the active capture."
+      "noExe": "No executable detected for the active capture.",
+      "textExceededLimit": "Texthook exceeded {limit} characters; text was ignored."
     }
   },
   "sceneSwitcher": {

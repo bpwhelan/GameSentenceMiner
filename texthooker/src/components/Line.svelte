@@ -267,6 +267,26 @@
 		dispatch('videoTrim', { lineId: line.id, text: line.text });
 	}
 
+	async function handleDeleteFromStats() {
+		if (!getActionsWindow().confirm('Delete this line from stats?')) {
+			return;
+		}
+
+		closeActionsMenu();
+		try {
+			const response = await fetch(getGSMEndpoint('/api/delete-sentence-lines'), {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ line_ids: [line.id] }),
+			});
+			if (!response.ok) {
+				throw new Error(`HTTP error! Status: ${response.status}`);
+			}
+		} catch (error) {
+			console.error(`Error deleting line ${line.id} from stats:`, error);
+		}
+	}
+
 	function handleAction(id: string, action: string, blurTranslate: boolean = false) {
 		closeActionsMenu();
 		const endpoints: Record<string, string> = {
@@ -488,6 +508,10 @@
 								<button on:click={() => handleAction(line.id, 'TL')}>
 									<span aria-hidden="true">🌐</span>
 									<span>Translate</span>
+								</button>
+								<button on:click={handleDeleteFromStats}>
+									<span aria-hidden="true">🗑️</span>
+									<span>Delete from stats</span>
 								</button>
 							</div>
 						{/if}

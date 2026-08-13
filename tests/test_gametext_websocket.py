@@ -285,6 +285,30 @@ def test_v2_ingress_does_not_run_background_integrations_before_admission(monkey
     assert integration_calls == []
 
 
+def test_text_input_guard_truncates_to_the_texthook_limit(monkeypatch):
+    monkeypatch.setattr(
+        gametext,
+        "get_config",
+        lambda: SimpleNamespace(general=SimpleNamespace(texthook_max_buffer_size=3)),
+    )
+
+    guarded = gametext.guard_text_input("abcdef")
+
+    assert guarded == ("abc", "truncated")
+
+
+def test_text_input_guard_blocks_excessive_japanese_quote_pairs(monkeypatch):
+    monkeypatch.setattr(
+        gametext,
+        "get_config",
+        lambda: SimpleNamespace(general=SimpleNamespace(texthook_max_buffer_size=3000)),
+    )
+
+    guarded = gametext.guard_text_input("「text」" * 11)
+
+    assert guarded == (None, "too many Japanese quote pairs")
+
+
 def test_repeated_ocr_hook_echoes_warn_once(monkeypatch):
     """Coordinator-classified auto-OCR hook echoes trigger one warning."""
     monkeypatch.setenv("GSM_ELECTRON", "1")

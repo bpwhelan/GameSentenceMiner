@@ -604,6 +604,7 @@ class General:
     open_config_on_startup: bool = False
     open_multimine_on_startup: bool = True
     texthook_replacement_regex: str = ""
+    texthook_max_buffer_size: int = 3000
     # Primary public port used for both web and websocket endpoints.
     single_port: int = 7275
     # Legacy texthooker port kept for compatibility routing.
@@ -657,6 +658,13 @@ class General:
             self.texthooker_port = 55000
         if self.texthooker_port < 0:
             self.texthooker_port = 55000
+        try:
+            self.texthook_max_buffer_size = int(self.texthook_max_buffer_size or 3000)
+        except (TypeError, ValueError):
+            self.texthook_max_buffer_size = 3000
+        if self.texthook_max_buffer_size < 1:
+            self.texthook_max_buffer_size = 3000
+        self.texthook_max_buffer_size = min(self.texthook_max_buffer_size, 100_000)
 
 
 @dataclass_json
@@ -2286,6 +2294,7 @@ class Config:
             self.sync_shared_field(config.general, profile.general, "websocket_uri")
             self.sync_shared_field(config.general, profile.general, "single_port")
             self.sync_shared_field(config.general, profile.general, "texthooker_port")
+            self.sync_shared_field(config.general, profile.general, "texthook_max_buffer_size")
             self.sync_shared_field(config.general, profile.general, "target_language")
             self.sync_shared_field(config.vad, profile.vad, "preload_vad_model")
             self.sync_shared_field(config.audio, profile.audio, "external_tool")

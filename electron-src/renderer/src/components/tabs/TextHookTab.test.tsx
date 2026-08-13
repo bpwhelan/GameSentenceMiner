@@ -18,11 +18,13 @@ async function flushAsyncWork() {
 describe("TextHookTab", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let ipcListeners: Map<string, (...args: any[]) => void>;
 
   beforeEach(() => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     vi.useFakeTimers();
     invokeMock.mockReset();
+    ipcListeners = new Map();
 
     invokeMock.mockImplementation(async (channel: string) => {
       if (channel === "texthook.getStatus") {
@@ -72,7 +74,10 @@ describe("TextHookTab", () => {
       value: {
         invoke: invokeMock,
         send: vi.fn(),
-        on: () => () => {},
+        on: (channel: string, listener: (...args: any[]) => void) => {
+          ipcListeners.set(channel, listener);
+          return () => ipcListeners.delete(channel);
+        },
       },
     });
 
@@ -261,5 +266,61 @@ describe("TextHookTab", () => {
         flushDelayMs: 100,
       })
     );
+  });
+
+  it("caps displayed hook text and blocks excessive Japanese quote pairs", async () => {
+    await act(async () => {
+      root.render(<TextHookTab active />);
+      await flushAsyncWork();
+    });
+
+    await act(async () => {
+      ipcListeners.get("texthook.text")?.({}, { hookId: "9", text: "x".repeat(5000) });
+    });
+
+    expect(container.querySelector(".texthook-output-pre")?.textContent).toHaveLength(3000);
+
+    await act(async () => {
+      ipcListeners.get("texthook.text")?.({}, { hookId: "9", text: "「text」".repeat(11) });
+    });
+
+    expect(container.querySelectorAll(".texthook-output-pre")).toHaveLength(1);
+  });
+
+  it("sends the large-payload test through the truncation path", async () => {
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "texthook.getStatus") {
+        return { running: false };
+      }
+      if (channel === "texthook.listHooks") {
+        return { selectedHookId: null, hooks: [] };
+      }
+      if (channel === "texthook.getActiveCapture") {
+        return { sceneName: "Scene", sceneId: "scene-1", exeName: "game.exe" };
+      }
+      if (channel === "texthook.getProfile") return null;
+      if (channel === "texthook.devSendLargePayload") {
+        return { success: true, length: 3000, originalLength: 120000, truncated: true };
+      }
+      return null;
+    });
+
+    await act(async () => {
+      root.render(<TextHookTab active />);
+      await flushAsyncWork();
+    });
+
+    const testButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("120000 characters")
+    );
+
+    await act(async () => {
+      testButton?.click();
+      await flushAsyncWork();
+    });
+
+    const payloadCall = invokeMock.mock.calls.find(([channel]) => channel === "texthook.devSendLargePayload");
+    expect(payloadCall?.[1]).toHaveLength(120000);
+    expect(container.textContent).toContain("Sent 3000 characters after truncating a 120000-character test payload.");
   });
 });

@@ -22,6 +22,7 @@ from unittest.mock import patch
 import flask
 import pytest
 
+from GameSentenceMiner.web.database_api import SEARCH_RESULT_TEXT_MAX_LENGTH
 from GameSentenceMiner.util.database.db import SQLiteDB, GameLinesTable
 from GameSentenceMiner.util.database.games_table import GamesTable
 
@@ -205,6 +206,33 @@ class TestSearchSentences:
         assert r["game_name"] == "MetaGame"
         assert "id" in r
         assert "timestamp" in r
+
+    def test_long_sentence_is_truncated_but_remains_deletable(self, client):
+        text = "needle " + ("非常に長い文章 " * SEARCH_RESULT_TEXT_MAX_LENGTH)
+        line = _create_line(text=text)
+
+        resp = client.get("/api/search-sentences?q=needle")
+
+        assert resp.status_code == 200
+        result = resp.get_json()["results"][0]
+        assert result["id"] == line.id
+        assert result["sentence"] == text[:SEARCH_RESULT_TEXT_MAX_LENGTH]
+        assert len(result["sentence"]) == SEARCH_RESULT_TEXT_MAX_LENGTH
+        assert result["sentence_length"] == len(text)
+        assert result["sentence_truncated"] is True
+
+        delete_resp = client.post("/api/delete-sentence-lines", json={"line_ids": [result["id"]]})
+        assert delete_resp.status_code == 200
+        assert delete_resp.get_json()["deleted_count"] == 1
+
+    def test_match_all_search_uses_sql_pagination(self, client):
+        _create_line(text="新しい行")
+
+        with patch.object(GameLinesTable, "all", side_effect=AssertionError("should not load all lines")):
+            resp = client.get("/api/search-sentences?q=.*&use_regex=true&page_size=1")
+
+        assert resp.status_code == 200
+        assert resp.get_json()["total"] == 1
 
 
 # ===================================================================

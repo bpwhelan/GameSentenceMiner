@@ -17,6 +17,27 @@ from GameSentenceMiner.util.database.db import gsm_db, get_db_directory
 from GameSentenceMiner.web.game_profiles import invalidate_game_profiles_cache
 
 
+SEARCH_RESULT_TEXT_MAX_LENGTH = 4000
+
+
+def _serialize_search_result(line):
+    """Serialize a search result without sending unbounded line text to the UI."""
+    sentence = line.line_text if isinstance(line.line_text, str) else str(line.line_text or "")
+    sentence_truncated = len(sentence) > SEARCH_RESULT_TEXT_MAX_LENGTH
+
+    return {
+        "id": line.id,
+        "sentence": sentence[:SEARCH_RESULT_TEXT_MAX_LENGTH],
+        "sentence_length": len(sentence),
+        "sentence_truncated": sentence_truncated,
+        "game_name": line.game_name or "Unknown Game",
+        "timestamp": float(line.timestamp) if line.timestamp else 0,
+        "translation": line.translation or None,
+        "has_audio": bool(getattr(line, "audio_path", None)),
+        "has_screenshot": bool(getattr(line, "screenshot_path", None)),
+    }
+
+
 def _chunked(values, size):
     for start in range(0, len(values), size):
         yield values[start : start + size]
@@ -645,17 +666,7 @@ def register_database_api_routes(app):
                     for row in rows:
                         game_line = GameLinesTable.from_row(row)
                         if game_line:
-                            results.append(
-                                {
-                                    "id": game_line.id,
-                                    "sentence": game_line.line_text or "",
-                                    "game_name": game_line.game_name or "Unknown Game",
-                                    "timestamp": float(game_line.timestamp) if game_line.timestamp else 0,
-                                    "translation": game_line.translation or None,
-                                    "has_audio": bool(game_line.audio_path),
-                                    "has_screenshot": bool(game_line.screenshot_path),
-                                }
-                            )
+                            results.append(_serialize_search_result(game_line))
 
                     return jsonify(
                         {
@@ -670,6 +681,13 @@ def register_database_api_routes(app):
                 except sqlite3.OperationalError:
                     logger.warning("Tokenized search failed (tables may not exist), falling back to LIKE search")
                     # Fall through to LIKE search below
+
+            # The empty search field is represented by ``.*`` in the web UI.
+            # It matches every non-empty line, so let SQLite paginate it instead
+            # of materializing the entire database through the regex path.
+            if use_regex and query in {".*", "^.*$"}:
+                use_regex = False
+                query = ""
 
             if use_regex:
                 # Regex search: fetch all candidate rows, filter in Python
@@ -722,20 +740,20 @@ def register_database_api_routes(app):
 
                     # Sorting (default: timestamp DESC, or as specified)
                     if sort_by == "date_asc":
-                        filtered_lines.sort(key=lambda l: float(l.timestamp) if l.timestamp else 0)
+                        filtered_lines.sort(key=lambda line: float(line.timestamp) if line.timestamp else 0)
                     elif sort_by == "game_name":
                         filtered_lines.sort(
-                            key=lambda l: (
-                                l.game_name or "",
-                                -(float(l.timestamp) if l.timestamp else 0),
+                            key=lambda line: (
+                                line.game_name or "",
+                                -(float(line.timestamp) if line.timestamp else 0),
                             )
                         )
                     elif sort_by == "length_desc":
-                        filtered_lines.sort(key=lambda l: -(len(l.line_text) if l.line_text else 0))
+                        filtered_lines.sort(key=lambda line: -(len(line.line_text) if line.line_text else 0))
                     elif sort_by == "length_asc":
-                        filtered_lines.sort(key=lambda l: len(l.line_text) if l.line_text else 0)
+                        filtered_lines.sort(key=lambda line: len(line.line_text) if line.line_text else 0)
                     else:  # date_desc or relevance
-                        filtered_lines.sort(key=lambda l: -(float(l.timestamp) if l.timestamp else 0))
+                        filtered_lines.sort(key=lambda line: -(float(line.timestamp) if line.timestamp else 0))
 
                     total_results = len(filtered_lines)
                     # Pagination
@@ -744,17 +762,7 @@ def register_database_api_routes(app):
                     paged_lines = filtered_lines[start:end]
                     results = []
                     for line in paged_lines:
-                        results.append(
-                            {
-                                "id": line.id,
-                                "sentence": line.line_text or "",
-                                "game_name": line.game_name or "Unknown Game",
-                                "timestamp": float(line.timestamp) if line.timestamp else 0,
-                                "translation": line.translation or None,
-                                "has_audio": bool(getattr(line, "audio_path", None)),
-                                "has_screenshot": bool(getattr(line, "screenshot_path", None)),
-                            }
-                        )
+                        results.append(_serialize_search_result(line))
                     return jsonify(
                         {
                             "results": results,
@@ -769,8 +777,15 @@ def register_database_api_routes(app):
                     return jsonify({"error": f"Search failed: {str(e)}"}), 500
             else:
                 # Build the SQL query
-                base_query = f"SELECT * FROM {GameLinesTable._table} WHERE line_text LIKE ?"
-                params = [f"%{query}%"]
+                if query:
+                    search_clause = "line_text LIKE ?"
+                    search_params = [f"%{query}%"]
+                else:
+                    search_clause = "line_text IS NOT NULL AND line_text != ''"
+                    search_params = []
+
+                base_query = f"SELECT * FROM {GameLinesTable._table} WHERE {search_clause}"
+                params = list(search_params)
 
                 # Add game filter if specified
                 if game_filter:
@@ -800,8 +815,8 @@ def register_database_api_routes(app):
                     base_query += " ORDER BY timestamp DESC"
 
                 # Get total count for pagination
-                count_query = f"SELECT COUNT(*) FROM {GameLinesTable._table} WHERE line_text LIKE ?"
-                count_params = [f"%{query}%"]
+                count_query = f"SELECT COUNT(*) FROM {GameLinesTable._table} WHERE {search_clause}"
+                count_params = list(search_params)
                 if game_filter:
                     count_query += " AND game_name = ?"
                     count_params.append(game_filter)
@@ -827,17 +842,7 @@ def register_database_api_routes(app):
                 for row in rows:
                     game_line = GameLinesTable.from_row(row)
                     if game_line:
-                        results.append(
-                            {
-                                "id": game_line.id,
-                                "sentence": game_line.line_text or "",
-                                "game_name": game_line.game_name or "Unknown Game",
-                                "timestamp": float(game_line.timestamp) if game_line.timestamp else 0,
-                                "translation": game_line.translation or None,
-                                "has_audio": bool(game_line.audio_path),
-                                "has_screenshot": bool(game_line.screenshot_path),
-                            }
-                        )
+                        results.append(_serialize_search_result(game_line))
 
                 return jsonify(
                     {
@@ -2469,17 +2474,7 @@ def register_database_api_routes(app):
             # Format results to match search results format
             results = []
             for line in duplicate_lines:
-                results.append(
-                    {
-                        "id": line.id,
-                        "sentence": line.line_text or "",
-                        "game_name": line.game_name or "Unknown Game",
-                        "timestamp": float(line.timestamp) if line.timestamp else 0,
-                        "translation": line.translation or None,
-                        "has_audio": bool(getattr(line, "audio_path", None)),
-                        "has_screenshot": bool(getattr(line, "screenshot_path", None)),
-                    }
-                )
+                results.append(_serialize_search_result(line))
 
             return jsonify(
                 {

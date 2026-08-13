@@ -6,7 +6,12 @@ import * as path from 'node:path';
 import { exec } from 'node:child_process';
 import { BASE_DIR, isWindows } from '../util.js';
 import { mainWindow, sendTextHookLine } from '../main.js';
-import type { StartHookResult, TextHookArchitecture, TextHookStartSource } from './texthook.js';
+import {
+    sanitizeTextHookText,
+    type StartHookResult,
+    type TextHookArchitecture,
+    type TextHookStartSource,
+} from './texthook.js';
 
 interface AgentHookEntry {
     id: string;
@@ -462,8 +467,10 @@ function flushAgentText(): void {
 
 function queueAgentText(text: string): void {
     if (!agentSession || !text.trim()) return;
+    const sanitizedText = sanitizeTextHookText(text);
+    if (!sanitizedText) return;
     const payload: AgentTextPayload = {
-        text,
+        text: sanitizedText.text,
         hookId: agentSession.hook.id,
         hookFunction: agentSession.hook.function,
         engine: 'agent',
@@ -473,7 +480,7 @@ function queueAgentText(text: string): void {
         revisionWindowMs: Math.max(0, Math.round(agentSession.flushDelayMs)),
         mergeFragments: true,
     };
-    updateAgentHookPreview(text);
+    updateAgentHookPreview(sanitizedText.text);
     sendAgentText(payload);
 }
 

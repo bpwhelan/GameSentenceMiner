@@ -40,6 +40,7 @@ from GameSentenceMiner.util.text_log import (
     to_local_naive_datetime,
 )
 from GameSentenceMiner.text_pipeline.models import (
+    IngressAck,
     IngressStatus,
     SourceKind,
     TextDomainEvent,
@@ -98,6 +99,10 @@ _text_runtime: AuthoritativeTextRuntime | None = None
 _text_runtime_lock = threading.RLock()
 _projected_lines: dict[str, GameLine] = {}
 _overlay_dispatcher = None
+
+DEFAULT_TEXTHOOK_MAX_BUFFER_SIZE = 3000
+MAX_TEXTHOOK_MAX_BUFFER_SIZE = 100_000
+MAX_JAPANESE_QUOTE_PAIRS = 10
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +173,37 @@ def _log_info(message: str, *, colors: bool = False) -> None:
         except Exception:
             pass
     logger.info(message)
+
+
+def get_texthook_max_buffer_size() -> int:
+    """Return the shared text-hook limit, with a safe fallback for old configs."""
+    try:
+        configured = getattr(getattr(get_config(), "general", None), "texthook_max_buffer_size", None)
+        value = int(configured)
+    except (AttributeError, TypeError, ValueError):
+        return DEFAULT_TEXTHOOK_MAX_BUFFER_SIZE
+    if value < 1:
+        return DEFAULT_TEXTHOOK_MAX_BUFFER_SIZE
+    return min(value, MAX_TEXTHOOK_MAX_BUFFER_SIZE)
+
+
+def guard_text_input(line) -> tuple[str | None, str | None]:
+    """Block quote-heavy backlogs and cap text before the processing pipeline."""
+    text = line if isinstance(line, str) else str(line)
+    opening_quotes = 0
+    closing_quotes = 0
+    for character in text:
+        if character == "「":
+            opening_quotes += 1
+        elif character == "」":
+            closing_quotes += 1
+        if opening_quotes > MAX_JAPANESE_QUOTE_PAIRS and closing_quotes > MAX_JAPANESE_QUOTE_PAIRS:
+            return None, "too many Japanese quote pairs"
+
+    max_buffer_size = get_texthook_max_buffer_size()
+    if len(text) > max_buffer_size:
+        return text[:max_buffer_size], "truncated"
+    return text, None
 
 
 def _send_text_received_preview_event(
@@ -676,14 +712,18 @@ async def handle_new_text_event(
 ):
     """Single entry point for every text source (clipboard, websocket, IPC)."""
     global current_line
-    current_line = current_clipboard
+    guarded_line, guard_reason = guard_text_input(current_clipboard)
+    if guarded_line is None:
+        logger.warning(f"Blocked text input: {guard_reason}.")
+        return
+    current_line = guarded_line
 
     if should_drop_text_input_completely():
         logger.debug("Text intake is paused; dropping incoming text without further processing.")
         return
 
     await add_line_to_text_log(
-        current_clipboard,
+        guarded_line,
         line_time,
         dict_from_ocr=dict_from_ocr,
         source=source,
@@ -753,7 +793,18 @@ def _ingest_line_sync(
     metadata_extra=None,
 ):
     global current_line_time
-    current_line_after_regex = apply_text_processing(line, get_config().text_processing)
+    guarded_line, guard_reason = guard_text_input(line)
+    observation_id = str(observation_id or uuid.uuid4())
+    if guarded_line is None:
+        logger.warning(f"Blocked text input from [{source_display_name or source or 'Unknown'}]: {guard_reason}.")
+        return IngressAck(IngressStatus.REJECTED, observation_id, reason=guard_reason or "text blocked")
+    if guard_reason == "truncated":
+        logger.warning(
+            f"Truncated text input from [{source_display_name or source or 'Unknown'}] "
+            f"to {len(guarded_line)} characters."
+        )
+
+    current_line_after_regex = apply_text_processing(guarded_line, get_config().text_processing)
     current_line_time = line_time if line_time else datetime.now()
     now_utc = normalize_utc(datetime.now())
     captured_at = normalize_utc(current_line_time)
@@ -770,10 +821,10 @@ def _ingest_line_sync(
     if isinstance(metadata_extra, dict):
         metadata.update(metadata_extra)
     observation = TextObservation(
-        observation_id=str(observation_id or uuid.uuid4()),
+        observation_id=observation_id,
         source_kind=source_kind,
         source_instance=str(source_key),
-        raw_text=str(line),
+        raw_text=guarded_line,
         processed_text=current_line_after_regex,
         captured_at_utc=captured_at,
         emitted_at_utc=emitted,

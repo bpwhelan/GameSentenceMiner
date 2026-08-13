@@ -88,6 +88,19 @@ const MAX_LOG_LINES = 200;
 const MAX_TEXT_LINES = 300;
 const DEFAULT_FLUSH_DELAY_MS = 100;
 const MAX_FLUSH_DELAY_MS = 5000;
+const DEFAULT_TEXT_HOOK_MAX_BUFFER_SIZE = 3000;
+const MAX_TEXT_HOOK_MAX_BUFFER_SIZE = 100_000;
+const MAX_JAPANESE_QUOTE_PAIRS = 10;
+// Set to true when the large-payload test button is needed during development.
+const SHOW_DEV_LARGE_PAYLOAD_TEST = true;
+const DEV_LARGE_PAYLOAD_LENGTH = 120_000;
+const DEV_JAPANESE_PAYLOAD_FRAGMENTS = [
+  "これはテキストフックの負荷試験用ランダム文字列です。",
+  "静かな夜の街を歩きながら、遠くの灯りを眺めていた。",
+  "同じ文章が何度も現れても、これは開発中の確認データです。",
+  "風がページをめくり、時計の音だけが部屋に響いている。",
+  "ゲームから受け取った長い文章を安全に処理できるか確認します。",
+];
 const AGENT_RELEASES_URL = "https://github.com/0xDC00/agent/releases/latest";
 const LUNA_TRANSLATOR_RELEASES_URL = "https://github.com/HIllya51/LunaTranslator/releases";
 const TEXTRACTOR_RELEASES_URL = "https://github.com/Chenx221/Textractor/releases";
@@ -101,6 +114,37 @@ function normalizeFlushDelayMs(value: unknown): number {
   const parsed = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(parsed)) return DEFAULT_FLUSH_DELAY_MS;
   return Math.min(MAX_FLUSH_DELAY_MS, Math.max(0, Math.round(parsed)));
+}
+
+function normalizeTextHookMaxBufferSize(value: unknown): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed) || parsed < 1) return DEFAULT_TEXT_HOOK_MAX_BUFFER_SIZE;
+  return Math.min(MAX_TEXT_HOOK_MAX_BUFFER_SIZE, Math.round(parsed));
+}
+
+function sanitizeTextHookText(text: string, maxBufferSize: number): string | null {
+  let openingQuotes = 0;
+  let closingQuotes = 0;
+  for (const character of text) {
+    if (character === "「") openingQuotes += 1;
+    if (character === "」") closingQuotes += 1;
+    if (openingQuotes > MAX_JAPANESE_QUOTE_PAIRS && closingQuotes > MAX_JAPANESE_QUOTE_PAIRS) {
+      return null;
+    }
+  }
+  return text.slice(0, normalizeTextHookMaxBufferSize(maxBufferSize));
+}
+
+function createDevJapanesePayload(length: number): string {
+  let payload = "";
+  while (payload.length < length) {
+    const fragment =
+      DEV_JAPANESE_PAYLOAD_FRAGMENTS[
+        Math.floor(Math.random() * DEV_JAPANESE_PAYLOAD_FRAGMENTS.length)
+      ];
+    payload += fragment;
+  }
+  return payload.slice(0, length);
 }
 
 interface TextHookTabProps {
@@ -117,6 +161,10 @@ export function TextHookTab({ active }: TextHookTabProps) {
   const [autoHook, setAutoHook] = useState(true);
   const [flushDelayMs, setFlushDelayMs] = useState(DEFAULT_FLUSH_DELAY_MS);
   const [flushDelayInput, setFlushDelayInput] = useState(String(DEFAULT_FLUSH_DELAY_MS));
+  const [maxBufferSize, setMaxBufferSize] = useState(DEFAULT_TEXT_HOOK_MAX_BUFFER_SIZE);
+  const [maxBufferSizeInput, setMaxBufferSizeInput] = useState(
+    String(DEFAULT_TEXT_HOOK_MAX_BUFFER_SIZE)
+  );
   const [manualHookCode, setManualHookCode] = useState("");
   const [agentScriptPath, setAgentScriptPath] = useState("");
   const [agentScriptDialog, setAgentScriptDialog] = useState<{
@@ -140,6 +188,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
   const logScrollRef = useRef<HTMLDivElement | null>(null);
   const statusRunningRef = useRef(false);
   const flushDelayInputFocusedRef = useRef(false);
+  const maxBufferSizeInputFocusedRef = useRef(false);
   const lastAppliedProfileKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -154,6 +203,20 @@ export function TextHookTab({ active }: TextHookTabProps) {
     }
     return next;
   }, []);
+
+  const syncMaxBufferSizeState = useCallback((value: unknown, forceInput = false) => {
+    const next = normalizeTextHookMaxBufferSize(value);
+    setMaxBufferSize(next);
+    if (forceInput || !maxBufferSizeInputFocusedRef.current) {
+      setMaxBufferSizeInput(String(next));
+    }
+    return next;
+  }, []);
+
+  const refreshTextHookSettings = useCallback(async () => {
+    const settings = await invokeIpc<{ maxBufferSize?: number }>("texthook.getSettings");
+    syncMaxBufferSizeState(settings?.maxBufferSize);
+  }, [syncMaxBufferSizeState]);
 
   const showNotice = useCallback((message: string, type: NoticeState["type"] = "info") => {
     setNotice({ type, message });
@@ -232,7 +295,8 @@ export function TextHookTab({ active }: TextHookTabProps) {
     void refreshStatus();
     void refreshHooks();
     void refreshActiveCapture();
-  }, [active, refreshStatus, refreshHooks, refreshActiveCapture]);
+    void refreshTextHookSettings();
+  }, [active, refreshStatus, refreshHooks, refreshActiveCapture, refreshTextHookSettings]);
 
   // IPC subscriptions.
   useEffect(() => {
@@ -249,12 +313,14 @@ export function TextHookTab({ active }: TextHookTabProps) {
     });
     const offText = onIpc("texthook.text", (_e, payload: any) => {
       if (!payload || typeof payload.text !== "string") return;
+      const text = sanitizeTextHookText(payload.text, maxBufferSize);
+      if (text === null) return;
       setTextLines((current) => {
         const next: TextLine[] = [
           ...current,
           {
             ts: typeof payload.ts === "number" ? payload.ts : Date.now(),
-            text: payload.text,
+            text,
             hookId: String(payload.hookId ?? ""),
           },
         ];
@@ -309,7 +375,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
       offDownloadProgress();
       offDownloadComplete();
     };
-  }, [refreshStatus]);
+  }, [maxBufferSize, refreshStatus]);
 
   // Periodic capture refresh while tab is active.
   useEffect(() => {
@@ -412,6 +478,25 @@ export function TextHookTab({ active }: TextHookTabProps) {
     }
   }, [flushDelayInput, status.running, syncFlushDelayState]);
 
+  const updateMaxBufferSize = useCallback((value: string) => {
+    setMaxBufferSizeInput(value);
+  }, []);
+
+  const commitMaxBufferSizeInput = useCallback(async () => {
+    maxBufferSizeInputFocusedRef.current = false;
+    const next = syncMaxBufferSizeState(maxBufferSizeInput, true);
+    const result = await invokeIpc<{ success: boolean; maxBufferSize?: number; error?: string }>(
+      "texthook.setMaxBufferSize",
+      next
+    );
+    if (result?.success) {
+      syncMaxBufferSizeState(result.maxBufferSize ?? next, true);
+    } else {
+      showNotice(result?.error ?? t("texthook.errors.maxBufferSizeSaveFailed"), "error");
+      void refreshTextHookSettings();
+    }
+  }, [maxBufferSizeInput, refreshTextHookSettings, showNotice, syncMaxBufferSizeState, t]);
+
   const toggleCopyToClipboard = useCallback(
     (checked: boolean) => {
       setCopyToClipboard(checked);
@@ -512,6 +597,40 @@ export function TextHookTab({ active }: TextHookTabProps) {
     const result = await invokeIpc<{ success: boolean; error?: string }>("texthook.showAgentUi");
     if (!result?.success) {
       showNotice(result?.error ?? t("texthook.errors.agentUiFailed"), "error");
+    }
+  }, [showNotice, t]);
+
+  const sendDevLargePayload = useCallback(async () => {
+    const payload = createDevJapanesePayload(DEV_LARGE_PAYLOAD_LENGTH);
+    const result = await invokeIpc<{
+      success: boolean;
+      length?: number;
+      originalLength?: number;
+      truncated?: boolean;
+      blockedByHardLimit?: boolean;
+      limit?: number;
+    }>("texthook.devSendLargePayload", payload);
+    if (result?.success) {
+      showNotice(
+        result.truncated
+          ? t("texthook.dev.largePayloadTruncated", {
+              size: String(result.length ?? payload.length),
+              originalSize: String(result.originalLength ?? payload.length),
+            })
+          : t("texthook.dev.largePayloadSent", {
+              size: String(result.length ?? payload.length),
+            }),
+        "success"
+      );
+    } else {
+      showNotice(
+        result?.blockedByHardLimit
+          ? t("texthook.errors.textExceededLimit", {
+              limit: String(result.limit ?? 10_000),
+            })
+          : t("texthook.dev.largePayloadFailed"),
+        "error"
+      );
     }
   }, [showNotice, t]);
 
@@ -641,6 +760,17 @@ export function TextHookTab({ active }: TextHookTabProps) {
                         >
                           {t("texthook.capture.refresh")}
                         </button>
+                        {SHOW_DEV_LARGE_PAYLOAD_TEST ? (
+                          <button
+                            type="button"
+                            className="secondary"
+                            onClick={() => void sendDevLargePayload()}
+                          >
+                            {t("texthook.dev.sendLargePayload", {
+                              size: String(DEV_LARGE_PAYLOAD_LENGTH),
+                            })}
+                          </button>
+                        ) : null}
                       </div>
                     </div>
                   </section>
@@ -851,6 +981,27 @@ export function TextHookTab({ active }: TextHookTabProps) {
                             flushDelayInputFocusedRef.current = true;
                           }}
                           onBlur={commitFlushDelayInput}
+                        />
+                      </div>
+                      <div className="input-group">
+                        <label
+                          htmlFor="texthook-max-buffer-size-input"
+                          title={t("texthook.global.maxBufferSizeHint")}
+                        >
+                          {t("texthook.global.maxBufferSize")}
+                        </label>
+                        <input
+                          id="texthook-max-buffer-size-input"
+                          type="number"
+                          min="1"
+                          max={String(MAX_TEXT_HOOK_MAX_BUFFER_SIZE)}
+                          step="100"
+                          value={maxBufferSizeInput}
+                          onChange={(e) => updateMaxBufferSize(e.target.value)}
+                          onFocus={() => {
+                            maxBufferSizeInputFocusedRef.current = true;
+                          }}
+                          onBlur={() => void commitMaxBufferSizeInput()}
                         />
                       </div>
                       <div className="link-row">
