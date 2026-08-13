@@ -2310,6 +2310,58 @@ describe("Hoshidicts dictionary tabs", () => {
     ).toBe(true);
   });
 
+  it("packs uneven dictionary cards into the shortest popup column", async () => {
+    const harness = createReaderHarness({
+      lookupMode: "hover",
+      popupColumns: 2,
+      dictionaryPresentation: undefined
+    });
+    await renderFirstLookup(harness, {
+      shiftKey: false,
+      transform(response) {
+        const glossary = response.results[0].term.glossaries[0];
+        response.results[0].term.glossaries = [
+          { ...glossary, dictionary: "Tall", glossary: "tall" },
+          { ...glossary, dictionary: "Short", glossary: "short" },
+          { ...glossary, dictionary: "Next", glossary: "next" }
+        ];
+      }
+    });
+
+    const popup = harness.reader.getPopupElement();
+    const glossaryGrid = popup.querySelector<HTMLElement>(
+      ".gsm-hoshidicts-glossary-grid"
+    )!;
+    const cards = Array.from(
+      glossaryGrid.children
+    ) as HTMLElement[];
+    Object.defineProperty(glossaryGrid, "clientWidth", {
+      configurable: true,
+      value: 408
+    });
+    [200, 80, 60].forEach((height, index) => {
+      Object.defineProperty(cards[index], "offsetHeight", {
+        configurable: true,
+        value: height
+      });
+    });
+
+    harness.dom.window.dispatchEvent(new harness.dom.window.Event("resize"));
+    await vi.advanceTimersByTimeAsync(20);
+
+    expect(cards.map((card) => card.style.width)).toEqual([
+      "200px",
+      "200px",
+      "200px"
+    ]);
+    expect(cards.map((card) => card.style.transform)).toEqual([
+      "translate(0px, 0px)",
+      "translate(208px, 0px)",
+      "translate(208px, 88px)"
+    ]);
+    expect(glossaryGrid.style.height).toBe("200px");
+  });
+
   it("renders one large lookup response without dropping dictionaries or glossary text", async () => {
     const harness = createReaderHarness({
       lookupMode: "hover",
