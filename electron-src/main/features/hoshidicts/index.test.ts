@@ -248,6 +248,45 @@ describe('Hoshidicts feature registration', () => {
         });
     });
 
+    it('acknowledges a custom entry without waiting for the recompile', async () => {
+        const { startHoshidictsManager } = await import('./index.js');
+        await startHoshidictsManager();
+
+        // addCustomEntry rebuilds every entry and reloads the native engine, so
+        // the reader must not sit through it.
+        let releaseRecompile = (): void => {};
+        harness.addCustomEntry.mockImplementationOnce(
+            async () =>
+                await new Promise((resolve) => {
+                    releaseRecompile = () => resolve({});
+                })
+        );
+
+        await expect(
+            harness.controlHandlers?.addCustomEntry({
+                term: '猫',
+                reading: 'ねこ',
+                definition: 'cat',
+            })
+        ).resolves.toEqual({ saved: true });
+        expect(harness.addCustomEntry).toHaveBeenCalledOnce();
+        releaseRecompile();
+    });
+
+    it('still rejects a malformed custom entry before queueing work', async () => {
+        const { startHoshidictsManager } = await import('./index.js');
+        await startHoshidictsManager();
+
+        await expect(
+            harness.controlHandlers?.addCustomEntry({
+                term: '  ',
+                reading: 'ねこ',
+                definition: 'cat',
+            })
+        ).rejects.toThrow(/required/u);
+        expect(harness.addCustomEntry).not.toHaveBeenCalled();
+    });
+
     it('wires the persisted preferences into overlay launches after startup', async () => {
         const { startHoshidictsManager } = await import('./index.js');
 

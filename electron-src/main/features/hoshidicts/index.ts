@@ -25,6 +25,7 @@ import {
     startHoshidictsControlChannel,
     stopHoshidictsControlChannel,
 } from './control_channel.js';
+import { serializeCustomDictionaryEntry } from './custom_dictionary.js';
 import { registerHoshidictsIPC } from './ipc.js';
 import { fetchHoshidictsMiningOptions } from './mining_options.js';
 import {
@@ -171,7 +172,19 @@ export async function startHoshidictsManager(): Promise<void> {
         async addCustomEntry(value) {
             // serializeCustomDictionaryEntry validates every field, and
             // handleClientRequest turns any throw into { ok: false, error }.
-            await manager.addCustomEntry(value as HoshidictsCustomEntryRequest);
+            // Validate synchronously so a malformed entry still fails the request,
+            // then let the recompile finish off the reader's critical path: it
+            // rebuilds every entry and reloads the native engine, which is seconds
+            // the popup should not sit through. addCustomEntry re-reads the source
+            // inside the operation queue, so queued saves still append in order.
+            const request = value as HoshidictsCustomEntryRequest;
+            serializeCustomDictionaryEntry(request);
+            void manager.addCustomEntry(request).catch((error) => {
+                console.warn(
+                    '[Hoshidicts] Could not add the custom dictionary entry.',
+                    error
+                );
+            });
             return { saved: true };
         },
         onReaderReady() {
