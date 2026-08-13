@@ -2039,6 +2039,18 @@ html[data-hoshidicts-theme="high-contrast"] .gsm-hoshidicts-audio-menu {
   grid-column: 1 / -1;
 }
 
+.gsm-hoshidicts-glossary-grid-masonry {
+  display: block;
+  position: relative;
+}
+
+.gsm-hoshidicts-glossary-grid-masonry > .gsm-hoshidicts-glossary-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  visibility: hidden;
+}
+
 .gsm-hoshidicts-glossary-card {
   min-width: 0;
   margin: 0;

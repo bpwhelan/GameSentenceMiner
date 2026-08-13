@@ -2326,6 +2326,7 @@
       for (const level of popupLevels) {
         level.popup.style.width = `${preferences.popupWidthPx}px`;
         level.popup.style.height = `${preferences.popupHeightPx}px`;
+        level.view?.scheduleMasonry();
       }
       if (reposition) {
         positionAllPopups();
@@ -3081,6 +3082,7 @@
           popup.removeEventListener("pointerenter", pointerEnter);
           popup.removeEventListener("pointerleave", pointerLeave);
           popup.removeEventListener("pointerover", definitionPointerOver);
+          level.view?.destroy();
         },
       };
       level.view = createPopupView({
@@ -3097,6 +3099,7 @@
         sourceHighlightEnabled: preferences.sourceHighlightEnabled,
         toolbarPosition: preferences.popupToolbarPosition,
         popupButtons: preferences.popupButtons,
+        getPopupColumns: () => preferences.popupColumns,
         positionPopup: () => positionPopupAndDescendants(depth),
         onMineClick(button, result, candidate, feedback) {
           void mineResult(button, result, candidate, feedback);

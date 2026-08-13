@@ -21,6 +21,7 @@
   const DEFAULT_INITIAL_RESULT_COUNT = 1;
   const DEFAULT_MAX_METADATA_TAGS = 12;
   const DEFAULT_HIGHLIGHT_NAME = "gsm-hoshidicts-match";
+  const MASONRY_GAP_PX = 8;
   const DEFINITION_BLUR_STATES = new Set(["pending", "blurred"]);
   const DEFAULT_COMPACT_DEFINITION_SUMMARY_COUNT = 3;
   const MIN_COMPACT_DEFINITION_SUMMARY_COUNT = 1;
@@ -921,6 +922,9 @@
     const appendTextOnlyGlossary = options.appendTextOnlyGlossary;
     const parseTagList = options.parseTagList;
     const positionPopup = options.positionPopup;
+    const getPopupColumns = typeof options.getPopupColumns === "function"
+      ? options.getPopupColumns
+      : () => 1;
     const onMineClick = options.onMineClick;
     const onBrowseClick = typeof options.onBrowseClick === "function"
       ? options.onBrowseClick
@@ -969,7 +973,61 @@
     let currentToolbar = null;
     let currentNoteForm = null;
     let actionContexts = new Set();
+    let masonryFrame = null;
+    const masonryObserver = typeof windowRef.ResizeObserver === "function"
+      ? new windowRef.ResizeObserver(() => scheduleMasonry())
+      : null;
     popup.dataset.toolbarPosition = toolbarPosition;
+
+    function resetMasonry(grid) {
+      grid.classList.remove("gsm-hoshidicts-glossary-grid-masonry");
+      grid.style.height = "";
+      for (const card of grid.children) {
+        card.style.width = "";
+        card.style.transform = "";
+        card.style.visibility = "";
+      }
+    }
+
+    function layoutMasonry() {
+      const requestedColumns = Math.max(1, Math.trunc(getPopupColumns()));
+      for (const grid of popup.querySelectorAll(".gsm-hoshidicts-glossary-grid")) {
+        const cards = Array.from(grid.children);
+        const columns = Math.min(requestedColumns, cards.length);
+        if (columns <= 1 || grid.clientWidth <= 0) {
+          resetMasonry(grid);
+          continue;
+        }
+        grid.classList.add("gsm-hoshidicts-glossary-grid-masonry");
+        const columnWidth =
+          (grid.clientWidth - MASONRY_GAP_PX * (columns - 1)) / columns;
+        const columnHeights = Array.from({ length: columns }, () => 0);
+        for (const card of cards) {
+          const column = columnHeights.indexOf(Math.min(...columnHeights));
+          const x = column * (columnWidth + MASONRY_GAP_PX);
+          const y = columnHeights[column];
+          card.style.width = `${columnWidth}px`;
+          card.style.transform = `translate(${x}px, ${y}px)`;
+          card.style.visibility = "visible";
+          columnHeights[column] += card.offsetHeight + MASONRY_GAP_PX;
+        }
+        grid.style.height = `${Math.max(...columnHeights) - MASONRY_GAP_PX}px`;
+      }
+    }
+
+    function scheduleMasonry() {
+      if (masonryFrame !== null) {
+        return;
+      }
+      masonryFrame = windowRef.requestAnimationFrame(() => {
+        masonryFrame = null;
+        layoutMasonry();
+        positionPopup();
+      });
+    }
+
+    const onWindowResize = () => scheduleMasonry();
+    windowRef.addEventListener("resize", onWindowResize);
 
     function applyToolbarLayout() {
       if (!currentToolbar || !currentNoteForm) {
@@ -1032,6 +1090,7 @@
       currentToolbar = null;
       currentNoteForm = null;
       actionContexts.clear();
+      masonryObserver?.disconnect();
       popup.replaceChildren();
       popup.scrollTop = 0;
       setDefinitionBlurState("revealed");
@@ -1754,7 +1813,7 @@
           const details = documentRef.createElement("details");
           details.className = "gsm-hoshidicts-glossary-card";
           details.open = true;
-          details.addEventListener("toggle", positionPopup);
+          details.addEventListener("toggle", scheduleMasonry);
           const summary = documentRef.createElement("summary");
           summary.textContent = dictionaryDisplayNames?.get(dictionary) || dictionary;
           summary.title = dictionary;
@@ -1808,6 +1867,10 @@
           glossaryGrid.appendChild(details);
         }
         entry.appendChild(glossaryGrid);
+        for (const card of glossaryGrid.children) {
+          masonryObserver?.observe(card);
+        }
+        scheduleMasonry();
         panel.appendChild(entry);
       }
 
@@ -2287,6 +2350,15 @@
       setPopupButtons,
       setSourceHighlightEnabled,
       setToolbarPosition,
+      scheduleMasonry,
+      destroy() {
+        if (masonryFrame !== null) {
+          windowRef.cancelAnimationFrame(masonryFrame);
+          masonryFrame = null;
+        }
+        masonryObserver?.disconnect();
+        windowRef.removeEventListener("resize", onWindowResize);
+      },
     };
   }
 
