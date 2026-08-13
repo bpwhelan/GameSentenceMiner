@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::ffi::{c_char, c_int, CStr, CString};
 use std::fs;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::{Component, Path, PathBuf};
 use std::ptr;
 use std::slice;
@@ -792,6 +792,50 @@ fn read_bounded_json<T: serde::de::DeserializeOwned>(
 }
 
 const MEDIA_FRAMING_ERROR: &str = "dictionary media.bin has a malformed record";
+const MEDIA_VALIDATION_BUFFER_BYTES: usize = 64 * 1024;
+
+/// Buffered reader over `media.bin` for framing validation.
+///
+/// The importer writes records sorted and contiguous, so validation walks the
+/// file forward and every header lands in an already-buffered page. Tracking the
+/// position here rather than asking the OS keeps a well-formed dictionary at one
+/// syscall per buffer instead of two seeks plus two reads per record. Arbitrary
+/// offsets stay correct — a backward or long jump just drops the buffer.
+struct MediaValidationReader {
+    file: BufReader<fs::File>,
+    position: u64,
+}
+
+impl MediaValidationReader {
+    fn new(file: fs::File) -> Self {
+        Self {
+            file: BufReader::with_capacity(MEDIA_VALIDATION_BUFFER_BYTES, file),
+            position: 0,
+        }
+    }
+
+    fn read_exact_at(&mut self, offset: u64, buffer: &mut [u8]) -> Result<(), String> {
+        let framing = || MEDIA_FRAMING_ERROR.to_string();
+        if offset != self.position {
+            match offset
+                .checked_sub(self.position)
+                .and_then(|delta| i64::try_from(delta).ok())
+            {
+                // Forward hop: keeps the buffer when the target is still inside it.
+                Some(delta) => self.file.seek_relative(delta).map_err(|_| framing())?,
+                None => {
+                    self.file
+                        .seek(SeekFrom::Start(offset))
+                        .map_err(|_| framing())?;
+                }
+            }
+            self.position = offset;
+        }
+        self.file.read_exact(buffer).map_err(|_| framing())?;
+        self.position += buffer.len() as u64;
+        Ok(())
+    }
+}
 
 /// Bounds one record's framing and returns where it ends.
 ///
@@ -800,16 +844,13 @@ const MEDIA_FRAMING_ERROR: &str = "dictionary media.bin has a malformed record";
 /// its own, and both the path length and the blob length come out of a
 /// user-downloaded Yomitan ZIP.
 fn media_record_end(
-    media_file: &mut fs::File,
+    media_file: &mut MediaValidationReader,
     media_size: u64,
     offset: u64,
 ) -> Result<u64, String> {
     let framing = || MEDIA_FRAMING_ERROR.to_string();
     let mut path_header = [0u8; 2];
-    media_file
-        .seek(SeekFrom::Start(offset))
-        .and_then(|_| media_file.read_exact(&mut path_header))
-        .map_err(|_| framing())?;
+    media_file.read_exact_at(offset, &mut path_header)?;
     let path_length = u64::from(u16::from_le_bytes(path_header));
     if path_length == 0 || path_length > MAX_MEDIA_PATH_BYTES as u64 {
         return Err(framing());
@@ -820,10 +861,7 @@ fn media_record_end(
         .and_then(|value| value.checked_add(path_length))
         .ok_or_else(framing)?;
     let mut blob_header = [0u8; 4];
-    media_file
-        .seek(SeekFrom::Start(blob_header_offset))
-        .and_then(|_| media_file.read_exact(&mut blob_header))
-        .map_err(|_| framing())?;
+    media_file.read_exact_at(blob_header_offset, &mut blob_header)?;
     let blob_length = u64::from(u32::from_le_bytes(blob_header));
     if blob_length == 0 || blob_length > MAX_MEDIA_BYTES as u64 {
         return Err(framing());
@@ -904,12 +942,17 @@ fn validate_native_media_files(dictionary_path: &Path, declared_count: u64) -> R
     }
     let media_size = media_metadata.len();
 
-    let mut index_file = fs::File::open(&index_path).map_err(|error| {
-        format!(
-            "failed to open dictionary media index {}: {error}",
-            index_path.display()
-        )
-    })?;
+    // Buffered: the count and every offset are read strictly in order, so this is
+    // one syscall per buffer rather than one per record.
+    let mut index_file = BufReader::with_capacity(
+        MEDIA_VALIDATION_BUFFER_BYTES,
+        fs::File::open(&index_path).map_err(|error| {
+            format!(
+                "failed to open dictionary media index {}: {error}",
+                index_path.display()
+            )
+        })?,
+    );
     let mut count_bytes = [0u8; 4];
     index_file.read_exact(&mut count_bytes).map_err(|error| {
         format!(
@@ -926,12 +969,14 @@ fn validate_native_media_files(dictionary_path: &Path, declared_count: u64) -> R
 
     let count = usize::try_from(declared_count)
         .map_err(|_| "dictionary media count cannot fit in memory".to_string())?;
-    let mut media_file = fs::File::open(&media_path).map_err(|error| {
-        format!(
-            "failed to open dictionary media data {}: {error}",
-            media_path.display()
-        )
-    })?;
+    let mut media_file = MediaValidationReader::new(fs::File::open(&media_path).map_err(
+        |error| {
+            format!(
+                "failed to open dictionary media data {}: {error}",
+                media_path.display()
+            )
+        },
+    )?);
     // The importer sorts these and writes them contiguously; re-deriving that
     // only re-checks our own writer. What matters is that every offset frames a
     // record inside media.bin, which is what query.cpp assumes.
