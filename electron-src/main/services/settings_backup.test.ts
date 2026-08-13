@@ -102,6 +102,48 @@ describe('settings backup archive', () => {
         expect(fs.existsSync(path.join(extractDir, 'gsm_overlay'))).toBe(false);
     });
 
+    it('includes durable Hoshidicts profiles with desktop settings', async () => {
+        const baseDir = makeTempDir('gsm-backup-hoshidicts-base-');
+        const outputPath = path.join(makeTempDir('gsm-backup-hoshidicts-out-'), 'backup.zip');
+        const extractDir = makeTempDir('gsm-backup-hoshidicts-extract-');
+
+        writeFile(path.join(baseDir, 'electron', 'config.json'), '{"desktop":true}');
+        writeFile(
+            path.join(baseDir, 'dictionaries', 'hoshidicts', 'audio-profile.json'),
+            '{"volume":25}',
+        );
+        writeFile(
+            path.join(baseDir, 'dictionaries', 'hoshidicts', 'manifest.json'),
+            '{"generated":true}',
+        );
+
+        await createBackupArchive({
+            outputPath,
+            baseDir,
+            categories: ['desktop-settings'],
+        });
+        await extract(outputPath, { dir: extractDir });
+
+        expect(
+            readText(
+                extractDir,
+                'GameSentenceMiner',
+                'dictionaries',
+                'hoshidicts',
+                'audio-profile.json',
+            ),
+        ).toBe('{"volume":25}');
+        expect(
+            exists(
+                extractDir,
+                'GameSentenceMiner',
+                'dictionaries',
+                'hoshidicts',
+                'manifest.json',
+            ),
+        ).toBe(false);
+    });
+
     it('uses one verified snapshot instead of a live SQLite/WAL file set', async () => {
         const baseDir = makeTempDir('gsm-backup-live-db-base-');
         const outputPath = path.join(makeTempDir('gsm-backup-live-db-out-'), 'backup.zip');

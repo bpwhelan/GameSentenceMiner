@@ -799,7 +799,15 @@
           }
         },
         "experimental": {
-          "title": "Experimental"
+          "title": "Experimental",
+          "enable_hoshidicts": {
+            "label": "Habilitar el lector Hoshidicts:",
+            "tooltip": "Usa Hoshidicts para búsquedas al pasar el cursor con Mayús en la superposición. El interruptor principal de funciones experimentales también debe estar habilitado y se debe reiniciar la superposición."
+          },
+          "open_hoshidicts_settings": {
+            "label": "Abrir la configuración de Hoshidicts",
+            "tooltip": "Administra los diccionarios, las actualizaciones y la configuración de minado de Hoshidicts en su ventana dedicada."
+          }
         },
         "game_pausing": {
           "enabled": {

@@ -25,6 +25,7 @@ from GameSentenceMiner.util.config.configuration import (
 )
 from GameSentenceMiner.util.gsm_utils import TEXT_REPLACEMENTS_FILE
 from GameSentenceMiner.util.text_log import get_line_by_id, get_all_lines
+from GameSentenceMiner.web.hoshidicts_api import MAX_LOOKUP_STATS_REQUEST_BYTES
 
 # Import from new modules
 from GameSentenceMiner.web.events import EventManager, event_manager
@@ -55,6 +56,7 @@ _HOSHIDICTS_GATEWAY_BODY_LIMITS = {
     "/api/hoshidicts/mine": 64 * 1024 * 1024,
     "/api/hoshidicts/mining/check": 64 * 1024 * 1024,
     "/api/hoshidicts/mining/browse": 64 * 1024,
+    "/api/hoshidicts/lookup-stats": MAX_LOOKUP_STATS_REQUEST_BYTES,
 }
 
 app = flask.Flask(__name__, static_folder="static", static_url_path="/static")

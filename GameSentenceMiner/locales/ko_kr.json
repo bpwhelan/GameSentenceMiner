@@ -801,7 +801,15 @@
           }
         },
         "experimental": {
-          "title": "실험적"
+          "title": "실험적",
+          "enable_hoshidicts": {
+            "label": "Hoshidicts 리더 활성화:",
+            "tooltip": "오버레이에서 Shift 키를 누른 채 마우스를 올려 Hoshidicts 조회를 사용합니다. 기본 실험 기능 토글도 활성화해야 하며 오버레이를 다시 시작해야 합니다."
+          },
+          "open_hoshidicts_settings": {
+            "label": "Hoshidicts 설정 열기",
+            "tooltip": "전용 창에서 Hoshidicts 사전, 업데이트 및 마이닝 설정을 관리합니다."
+          }
         },
         "game_pausing": {
           "enabled": {

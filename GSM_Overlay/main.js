@@ -73,7 +73,6 @@ function setTimeout(callback, delay, ...args) {
   overlayTimeouts.add(timer);
   return timer;
 }
-
 function clearTimeout(timer) {
   overlayTimeouts.delete(timer);
   return nativeClearTimeout(timer);
@@ -8290,4 +8289,3 @@ if (!IN_PROCESS_OVERLAY) {
     app.quit();
   });
 }
-

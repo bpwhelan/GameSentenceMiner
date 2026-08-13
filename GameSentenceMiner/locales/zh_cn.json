@@ -756,7 +756,15 @@
           }
         },
         "experimental": {
-          "title": "Experimental"
+          "title": "实验功能",
+          "enable_hoshidicts": {
+            "label": "启用 Hoshidicts 阅读器:",
+            "tooltip": "在覆盖层中按住 Shift 并悬停时使用 Hoshidicts 查询。还必须启用实验功能总开关并重启覆盖层。"
+          },
+          "open_hoshidicts_settings": {
+            "label": "打开 Hoshidicts 设置",
+            "tooltip": "在专用窗口中管理 Hoshidicts 词典、更新和挖掘设置。"
+          }
         },
         "game_pausing": {
           "enabled": {

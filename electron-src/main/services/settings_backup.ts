@@ -204,6 +204,9 @@ function getGsmBackupCategory(relativePath: string): SettingsBackupCategoryId | 
     if (first === 'electron' && second === 'overlay_settings.json') {
         return 'overlay-settings';
     }
+    if (first === 'dictionaries' && second === 'hoshidicts') {
+        return 'desktop-settings';
+    }
     if (first === 'scene_config.json') {
         return 'scene-config';
     }
@@ -855,6 +858,16 @@ async function prepareGsmRestoreTarget(
             if (category && selectedCategories.has(category)) {
                 await removeIfExists(path.join(baseDir, 'electron', fileName));
             }
+        }
+    }
+    if (
+        selectedCategories.has('desktop-settings') &&
+        await pathExists(path.join(sourceDir, 'dictionaries', 'hoshidicts'))
+    ) {
+        const hoshidictsSettingsDir = path.join(baseDir, 'dictionaries', 'hoshidicts');
+        await fsp.mkdir(hoshidictsSettingsDir, { recursive: true });
+        for (const fileName of HOSHIDICTS_SETTINGS_FILES) {
+            await removeIfExists(path.join(hoshidictsSettingsDir, fileName));
         }
     }
     if (

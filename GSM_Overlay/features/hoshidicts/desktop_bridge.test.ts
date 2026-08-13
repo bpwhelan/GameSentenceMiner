@@ -308,7 +308,7 @@ it("normalizes one complete live preference payload", () => {
     });
   });
 
-  
+
   it("adds a stateful activation binding without replacing route-all hotkeys", () => {
     const routeHandler = vi.fn();
     const registry = new Map<string, Record<string, unknown>>([
