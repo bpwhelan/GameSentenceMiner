@@ -1,9 +1,9 @@
 /*
  * Hoshidicts pronunciation audio for the GSM overlay.
  *
- * Audio provider discovery and downloads stay behind GSM's local API. The
- * overlay only submits persisted source identifiers and bounded term
- * data, so custom provider URLs never become an open renderer-side fetch path.
+ * Audio provider discovery and remote downloads stay behind GSM's local API.
+ * Loopback candidates stream directly so local audio does not make an extra
+ * buffered round trip through GSM before playback.
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
@@ -25,13 +25,14 @@
     throw new Error("Hoshidicts constants must load before audio support.");
   }
 
-  const AUDIO_AUTOPLAY_DELAY_MS = 200;
+  const AUDIO_AUTOPLAY_DELAY_MS = 0;
   const AUDIO_REQUEST_TIMEOUT_MS = 8 * 1000;
   const AUDIO_FALLBACK_TOTAL_TIMEOUT_MS = 12 * 1000;
   const AUDIO_DISCOVERY_CONCURRENCY = 3;
   const MAX_AUDIO_FALLBACK_ATTEMPTS = 12;
   const MAX_AUDIO_SOURCES = constants.LIMITS.audioSources;
   const MAX_AUDIO_CANDIDATES = constants.LIMITS.audioCandidates;
+  const MAX_AUDIO_URL_LENGTH = constants.LIMITS.audioUrlLength;
   const MAX_TEXT_LENGTH = constants.LIMITS.audioTextLength;
   const TTS_SOURCE_TYPES = constants.TTS_AUDIO_SOURCE_TYPES;
   const SOURCE_LABELS = constants.AUDIO_SOURCE_LABELS;
@@ -113,6 +114,26 @@
         return null;
       }
       return url.origin;
+    } catch {
+      return null;
+    }
+  }
+
+  function normalizeLoopbackAudioUrl(value) {
+    if (typeof value !== "string" || value.length > MAX_AUDIO_URL_LENGTH) {
+      return null;
+    }
+    try {
+      const url = new URL(value);
+      if (
+        !["http:", "https:"].includes(url.protocol) ||
+        !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) ||
+        url.username ||
+        url.password
+      ) {
+        return null;
+      }
+      return url.href;
     } catch {
       return null;
     }
@@ -244,11 +265,18 @@
             continue;
           }
           seen.add(index);
-          candidates.push({
+          const candidate = {
             index,
             name: boundedString(rawCandidate.name, 1024).trim(),
             candidateId,
-          });
+          };
+          const playbackUrl = normalizeLoopbackAudioUrl(
+            rawCandidate.playbackUrl
+          );
+          if (playbackUrl) {
+            candidate.playbackUrl = playbackUrl;
+          }
+          candidates.push(candidate);
         }
         return candidates;
       },
@@ -332,6 +360,7 @@
     let currentButton = null;
     let fallbackDeadlineTimer = null;
     let autoplayTimer = null;
+    let autoplayStarted = false;
     let renderedItems = [];
     let activeMenu = null;
     let selections = new WeakMap();
@@ -353,6 +382,11 @@
         clearTimeoutFn(autoplayTimer);
         autoplayTimer = null;
       }
+    }
+
+    function resetAutoplay() {
+      clearAutoplay();
+      autoplayStarted = false;
     }
 
     function clearFallbackDeadline(expectedTimer) {
@@ -493,24 +527,29 @@
           : null;
     }
 
-    async function playDownloaded(result, source, candidate, button, sequence, signal) {
-      if (!client || typeof client.getMedia !== "function") {
-        throw new Error("GSM pronunciation audio is unavailable.");
+    async function playCandidate(result, source, candidate, button, sequence, signal) {
+      const playbackUrl = normalizeLoopbackAudioUrl(candidate.playbackUrl);
+      let media = null;
+      let objectUrl = null;
+      if (!playbackUrl) {
+        if (!client || typeof client.getMedia !== "function") {
+          throw new Error("GSM pronunciation audio is unavailable.");
+        }
+        media = await client.getMedia({
+          ...termRequest(result, source),
+          candidateIndex: candidate.index,
+          candidateId: candidate.candidateId,
+        }, { signal });
       }
-      const media = await client.getMedia({
-        ...termRequest(result, source),
-        candidateIndex: candidate.index,
-        candidateId: candidate.candidateId,
-      }, { signal });
       if (destroyed || sequence !== operationSequence) {
         return false;
       }
-      const objectUrl = createObjectURL(media);
+      objectUrl = media ? createObjectURL(media) : null;
       const audio = createAudioElement();
       currentObjectUrl = objectUrl;
       currentAudio = audio;
       audio.volume = preferences.volume / 100;
-      audio.src = objectUrl;
+      audio.src = playbackUrl || objectUrl;
       if (typeof audio.addEventListener === "function") {
         audio.addEventListener("ended", () => {
           if (currentAudio !== audio) return;
@@ -631,7 +670,7 @@
       try {
         const played = TTS_SOURCE_TYPES.has(source.type)
           ? await playTts(result, source, button, sequence)
-          : await playDownloaded(
+          : await playCandidate(
               result,
               source,
               candidate,
@@ -744,7 +783,7 @@
               }
               const candidate = candidates[candidateIndex];
               try {
-                if (await withinDeadline(playDownloaded(
+                if (await withinDeadline(playCandidate(
                   result,
                   source,
                   candidate,
@@ -933,8 +972,7 @@
       buttonListeners.set(button, { click, contextmenu });
     }
 
-    function setRenderedResults(items) {
-      clearAutoplay();
+    function setRenderedResults(items, options = {}) {
       removeMenu();
       renderedItems = Array.isArray(items)
         ? items.filter((item) =>
@@ -945,20 +983,26 @@
         attachButton(button, result);
       }
       updateButtons();
+      if (renderedItems.length === 0) {
+        resetAutoplay();
+        return;
+      }
       if (
+        options.autoPlay !== false &&
         preferences.enabled &&
         preferences.autoPlay &&
         preferences.sources.length > 0 &&
-        renderedItems.length > 0
+        !autoplayStarted
       ) {
-        const first = renderedItems[0];
+        autoplayStarted = true;
         autoplayTimer = setTimeoutFn(() => {
           autoplayTimer = null;
+          const first = renderedItems[0];
           if (
             !destroyed &&
             preferences.enabled &&
             preferences.autoPlay &&
-            renderedItems[0] === first
+            first
           ) {
             void playOrdered(first.result, first.button);
           }
@@ -967,14 +1011,14 @@
     }
 
     function beginLookup() {
-      clearAutoplay();
+      resetAutoplay();
       removeMenu();
       stopActive();
       renderedItems = [];
     }
 
     function dismissPopup() {
-      clearAutoplay();
+      resetAutoplay();
       removeMenu();
     }
 
@@ -992,7 +1036,7 @@
         previousSourceSignature !== JSON.stringify(nextProfile.sources);
       preferences = nextProfile;
       if (!preferences.enabled || sourcesChanged) {
-        clearAutoplay();
+        resetAutoplay();
         removeMenu();
         stopActive();
         selections = new WeakMap();
@@ -1009,7 +1053,7 @@
     function destroy() {
       if (destroyed) return;
       destroyed = true;
-      clearAutoplay();
+      resetAutoplay();
       removeMenu();
       stopActive();
       renderedItems = [];

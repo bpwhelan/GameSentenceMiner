@@ -10,7 +10,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Any
-from urllib.parse import quote, urljoin, urlencode
+from urllib.parse import quote, urljoin, urlencode, urlsplit
 
 import requests
 
@@ -469,7 +469,18 @@ def get_audio_candidates(
         source_id,
         deadline=_deadline,
     )
-    return [{"index": item["index"], "name": item["name"], "candidateId": item["candidateId"]} for item in candidates]
+    output = []
+    for item in candidates:
+        candidate = {
+            "index": item["index"],
+            "name": item["name"],
+            "candidateId": item["candidateId"],
+        }
+        # Let the popup stream local recordings instead of buffering them back through GSM.
+        if urlsplit(item["url"]).hostname in {"127.0.0.1", "localhost", "::1"}:
+            candidate["playbackUrl"] = item["url"]
+        output.append(candidate)
+    return output
 
 
 def _has_mp3_frame(data: bytes) -> bool:

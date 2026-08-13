@@ -100,6 +100,7 @@ def test_jpod101_candidate_matches_yomitan_kana_behavior():
     assert candidates[0]["index"] == 0
     assert candidates[0]["name"] == ""
     assert len(candidates[0]["candidateId"]) == 64
+    assert "playbackUrl" not in candidates[0]
     assert hoshidicts_audio._resolve_source_candidates(profile["sources"][0], "食べる", "たべる")[0]["url"] == (
         "https://assets.languagepod101.com/dictionary/japanese/"
         "audiomp3.php?kanji=%E9%A3%9F%E3%81%B9%E3%82%8B&kana=%E3%81%9F%E3%81%B9%E3%82%8B"
@@ -258,7 +259,14 @@ def test_local_audio_yomichan_contract_discovers_and_downloads_opus(monkeypatch)
         profile=profile,
     )
 
-    assert candidates == [{"index": 0, "name": "NHK16", "candidateId": candidates[0]["candidateId"]}]
+    assert candidates == [
+        {
+            "index": 0,
+            "name": "NHK16",
+            "candidateId": candidates[0]["candidateId"],
+            "playbackUrl": media_url,
+        }
+    ]
     expected_media = hoshidicts_audio.AudioMedia(data=audio, content_type="audio/ogg", extension="ogg")
     assert mined_media == expected_media
     assert media == expected_media
