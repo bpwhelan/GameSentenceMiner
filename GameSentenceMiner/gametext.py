@@ -895,10 +895,19 @@ def ingest_text_v2_payload(payload: dict) -> dict[str, object]:
         payload.get("emitted_at") or payload.get("emittedAt"),
         fallback=datetime.now(),
     )
+    dict_from_ocr = payload.get("dict_from_ocr")
+    if payload.get("engine") == "mages":
+        if isinstance(dict_from_ocr, dict) and dict_from_ocr.get("schema") == "gsm_overlay_coords_v1":
+            logger.info(
+                "MAGES text-position payload received: {} line box(es); forwarding directly to overlay.",
+                len(dict_from_ocr.get("lines", [])),
+            )
+        else:
+            logger.warning("MAGES text arrived without position data; overlay will fall back to OCR.")
     ack = _ingest_line_sync(
         text,
         line_time=captured_at,
-        dict_from_ocr=payload.get("dict_from_ocr"),
+        dict_from_ocr=dict_from_ocr,
         source=source,
         source_display_name=display_name or None,
         copy_to_clipboard=bool(payload.get("copyToClipboard", payload.get("copy_to_clipboard", False))),
@@ -957,7 +966,6 @@ def _project_text_domain_event(event: TextDomainEvent) -> None:
     from GameSentenceMiner.web.texthooking_page import project_text_domain_event
 
     project_text_domain_event(event, line)
-
     if event.kind in (TextEventKind.APPENDED, TextEventKind.UPDATED):
         if event.kind is TextEventKind.APPENDED:
             log_message = f"<cyan>Line Received from [{source_label}]: {record.text}</cyan>"

@@ -768,6 +768,19 @@ def set_text_intake_paused():
     return jsonify({"paused": gametext.set_text_intake_paused(paused)}), 200
 
 
+@app.route("/set_stats_gathering_enabled", methods=["POST"])
+def set_stats_gathering_enabled():
+    from GameSentenceMiner.util.config.configuration import get_config
+
+    data = request.get_json(silent=True)
+    enabled = data.get("enabled") if isinstance(data, dict) else None
+    if not isinstance(enabled, bool):
+        return jsonify({"error": "'enabled' must be a boolean"}), 400
+
+    get_config().advanced.dont_collect_stats = not enabled
+    return jsonify({"enabled": enabled}), 200
+
+
 @app.route("/clear_history", methods=["POST"])
 def clear_history():
     temp_em = EventManager()

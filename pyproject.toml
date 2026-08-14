@@ -74,7 +74,7 @@ dependencies = [
   "pip~=25.3",
   "ollama~=0.6.1",
   "aiohttp~=3.13.3",
-  "fpng~=0.1.0",
+  "fpng-py-fix~=0.0.3",
   "onnxruntime~=1.23.2",
   "google-genai~=1.70.0",
   "windows-capture>=2.0.0 ; sys_platform == 'win32'",

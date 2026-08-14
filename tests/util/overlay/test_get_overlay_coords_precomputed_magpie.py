@@ -42,6 +42,29 @@ def test_magpie_disables_absolute_screen_precomputed_overlay_payload():
     assert processor._should_use_precomputed_overlay_payload(_precomputed_payload("source_content")) is True
 
 
+def test_engine_hook_payload_can_explicitly_bypass_overlay_ocr():
+    payload = _precomputed_payload("source_content")
+    payload.update(
+        {
+            "bypass_ocr": True,
+            "producer": {
+                "kind": "engine-hook",
+                "version": 1,
+                "integrationId": "mages-steins-gate-steam",
+            },
+        }
+    )
+
+    assert get_overlay_coords.OverlayProcessor._is_forced_ocr_bypass_payload(payload) is True
+
+
+def test_untrusted_precomputed_payload_cannot_force_ocr_bypass():
+    payload = _precomputed_payload("source_content")
+    payload.update({"bypass_ocr": True, "producer": {"kind": "mages-agent", "version": 1}})
+
+    assert get_overlay_coords.OverlayProcessor._is_forced_ocr_bypass_payload(payload) is False
+
+
 def test_magpie_area_select_falls_back_to_overlay_ocr(monkeypatch):
     processor = _processor_with_magpie()
     ensure_engine_calls = []

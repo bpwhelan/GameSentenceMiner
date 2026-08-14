@@ -139,6 +139,9 @@ SAVE_OCR_DEBUG_IMAGES = os.environ.get("GSM_SAVE_OCR_DEBUG_IMAGES", "").lower() 
 USE_TWO_PASS_OCR_V2 = True
 TWO_PASS_OCR_V2_STABLE_FRAME_COUNT = 2
 TWO_PASS_OCR_V2_DETECTION_PADDING = 10
+# A tightly optimized crop can make dialogue punctuation resemble mathematical
+# delimiters and cause Lens to route the image through its formula recognizer.
+GOOGLE_LENS_OCR2_CONTEXT_PADDING = 5
 # Max seconds a first-pass line may keep "evolving" before we stop waiting and
 # flush the most complete frame we have. Safety net so leaning-evolving (and
 # OCR hallucinations that keep perturbing the text) can't stall OCR2 forever.
@@ -3299,6 +3302,31 @@ def save_result_image(img, pre_crop_image=None):
         logger.debug(f"Error saving debug result image: {e}")
 
 
+def _save_ocr2_optimization_debug_images(pre_crop_image, cropped_image) -> dict[str, str]:
+    """Save the images on either side of the OCR2 optimization crop.
+
+    These files intentionally use stable names so the latest failed OCR2
+    attempt is easy to inspect.  Advanced OCR debugging enables this capture;
+    ``GSM_SAVE_OCR_DEBUG_IMAGES`` remains an explicit opt-in for callers that
+    do not have the UI debug setting available.
+    """
+    if not (SAVE_OCR_DEBUG_IMAGES or get_ocr_advanced_debug_logging()):
+        return {}
+
+    temp_dir = Path(get_temporary_directory())
+    paths = {
+        "before": temp_dir / "last_ocr2_optimization_precrop.png",
+        "after": temp_dir / "last_ocr2_optimization_crop.png",
+    }
+    try:
+        pre_crop_image.save(paths["before"])
+        cropped_image.save(paths["after"])
+    except Exception as e:
+        logger.debug(f"Error saving OCR2 optimization debug images: {e}")
+        return {}
+    return {name: str(path) for name, path in paths.items()}
+
+
 async def send_result(text, time, response_dict=None, source=TextSource.OCR):
     if text:
         # Skip expensive overlay coordinate math when no overlay client is
@@ -3818,7 +3846,11 @@ def get_ocr2_image(crop_coords, og_image: Image.Image, ocr2_engine=None, extra_p
 
     # Apply cropping with padding
     x1, y1, x2, y2 = crop_coords
-    pad = int(extra_padding or 0)
+    requested_pad = int(extra_padding or 0)
+    pad = requested_pad
+    engine_key = str(ocr2_engine or "").strip().lower().replace(" ", "").replace("_", "").replace("-", "")
+    if engine_key in {"glens", "googlelens", "lens"}:
+        pad = max(pad, GOOGLE_LENS_OCR2_CONTEXT_PADDING)
 
     x1 = x1 - pad
     y1 = y1 - pad
@@ -3840,16 +3872,19 @@ def get_ocr2_image(crop_coords, og_image: Image.Image, ocr2_engine=None, extra_p
         y1 = max(0, y2 - 1)
 
     cropped = img.crop((x1, y1, x2, y2))
+    debug_images = _save_ocr2_optimization_debug_images(img, cropped)
     emit_ocr_debug(
         get_ocr_advanced_debug_logging(),
         "ocr2.crop",
         outcome="cropped",
         requested_coords=crop_coords,
         padding=pad,
+        requested_padding=requested_pad,
         clamped_coords=(x1, y1, x2, y2),
         source_image_size=getattr(img, "size", None),
         output_image_size=getattr(cropped, "size", None),
         engine=ocr2_engine,
+        debug_images=debug_images or None,
     )
     return cropped
 

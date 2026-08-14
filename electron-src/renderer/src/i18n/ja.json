@@ -1199,7 +1199,23 @@
       "label": "フックエンジン:",
       "luna": "Luna Hook",
       "textractor": "Textractor",
-      "agent": "Agent"
+      "agent": "Agent",
+      "mages": "内蔵ゲームフック（実験的）"
+    },
+    "mages": {
+      "title": "内蔵ゲームフック",
+      "experimentalBadge": "実験的",
+      "availability": "この実験的なフックは現在、以下に記載されたWindows版Steamの『STEINS;GATE』の対応ビルドでのみ動作します。他のゲーム、エディション、ストア版、実行ファイルのビルドにはまだ対応していません。",
+      "support": {
+        "title": "現在対応しているゲーム",
+        "steinsGate": {
+          "name": "STEINS;GATE",
+          "details": "Windows版Steam — 対応する32ビット（x86）実行ファイル"
+        }
+      },
+      "description": "この対応リリースでは、GSMがゲームに直接アタッチし、外部のAgentスクリプトやOCRを使わずにテキストと文字位置を取得します。",
+      "advance": "テキストを進める",
+      "advanceFailed": "ゲームのテキストを進められませんでした。"
     },
     "agent": {
       "title": "Agentスクリプト",

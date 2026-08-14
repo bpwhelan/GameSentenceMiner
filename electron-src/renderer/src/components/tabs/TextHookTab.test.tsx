@@ -268,6 +268,40 @@ describe("TextHookTab", () => {
     );
   });
 
+  it("labels the built-in game hook experimental and lists its only supported game", async () => {
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "texthook.getStatus") return { running: false };
+      if (channel === "texthook.listHooks") return { selectedHookId: null, hooks: [] };
+      if (channel === "texthook.getActiveCapture") {
+        return { sceneName: "Scene", sceneId: "scene-1", exeName: "Game.exe" };
+      }
+      if (channel === "texthook.getProfile") return null;
+      return null;
+    });
+
+    await act(async () => {
+      root.render(<TextHookTab active />);
+      await flushAsyncWork();
+    });
+
+    const engineSelect = container.querySelector("#texthook-engine-select") as HTMLSelectElement;
+    await act(async () => {
+      engineSelect.value = "mages";
+      engineSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(engineSelect.selectedOptions[0]?.textContent).toBe(
+      "Built-in Game Hook (Experimental)"
+    );
+    expect(container.textContent).toContain(
+      "currently works only with the exact STEINS;GATE Steam for Windows build"
+    );
+    const supportedGames = container.querySelectorAll(".texthook-supported-games li");
+    expect(supportedGames).toHaveLength(1);
+    expect(supportedGames[0]?.textContent).toContain("STEINS;GATE");
+    expect(supportedGames[0]?.textContent).toContain("32-bit (x86)");
+  });
+
   it("caps displayed hook text and blocks excessive Japanese quote pairs", async () => {
     await act(async () => {
       root.render(<TextHookTab active />);

@@ -75,6 +75,10 @@ import { launchSteamGameID } from './ui/steam.js';
 import { bus, getBusConnectInfo, startBus, stopBus } from './runtime/bus_client.js';
 import { submitTextObservation } from './runtime/text_ingress.js';
 import {
+    textGeometryToOverlayPayload,
+    type TextGeometryV1,
+} from './ui/text_geometry.js';
+import {
     closeOBSFromElectron,
     ensureObsInstalledAndLaunch,
     getCurrentOBSSceneCollectionName,
@@ -3061,18 +3065,24 @@ export interface TextHookLinePayload {
     text: string;
     hookId?: string;
     hookFunction?: string;
-    engine?: 'textractor' | 'luna' | 'agent';
+    engine?: 'textractor' | 'luna' | 'agent' | 'mages';
     exeName?: string;
     copyToClipboard?: boolean;
     capturedAt?: number;
+    sourceSequence?: number;
     revisionWindowMs?: number;
     mergeFragments?: boolean;
+    textGeometry?: TextGeometryV1;
 }
 
 export function sendTextHookLine(payload: TextHookLinePayload): void {
     const displayParts = [payload.engine, payload.exeName, payload.hookId ? `#${payload.hookId}` : ''].filter(Boolean);
+    const precomputedOverlayPayload = payload.textGeometry
+        ? textGeometryToOverlayPayload(payload.text, payload.textGeometry)
+        : null;
     submitTextObservation({
         ...payload,
+        ...(precomputedOverlayPayload ? { dict_from_ocr: precomputedOverlayPayload } : {}),
         source: 'texthook',
         sourceInstance: payload.hookId || `${payload.engine ?? 'hook'}:${payload.exeName ?? ''}`,
         sourceDisplayName: displayParts.join(' · '),

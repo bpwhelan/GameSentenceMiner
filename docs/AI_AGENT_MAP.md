@@ -130,6 +130,9 @@ Python backend (GameSentenceMiner.gsm)
   OCR process lifecycle and renderer IPC bindings.
 - `electron-src/main/ui/front.ts`  
   Home/game launcher IPC and overlay launcher hook.
+- `electron-src/main/ui/texthook.ts` + `electron-src/main/engine_hooks/*`
+  Text-hook ingress plus the standalone, catalog-driven Frida engine-hook service. See
+  `docs/ENGINE_HOOKS.md` and `docs/STEINS_GATE_ENGINE_HOOK.md`.
 - `electron-src/main/services/python_ops.ts`  
   Strict uv lock/environment sync logic.
 - `electron-src/renderer/src/App.tsx`  

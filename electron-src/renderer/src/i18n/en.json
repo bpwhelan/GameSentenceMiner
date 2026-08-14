@@ -1184,7 +1184,23 @@
       "label": "Hooking engine:",
       "luna": "Luna Hook",
       "textractor": "Textractor",
-      "agent": "Agent"
+      "agent": "Agent",
+      "mages": "Built-in Game Hook (Experimental)"
+    },
+    "mages": {
+      "title": "Built-in Game Hook",
+      "experimentalBadge": "Experimental",
+      "availability": "This experimental hook currently works only with the exact STEINS;GATE Steam for Windows build listed below. Other games, editions, storefronts, and executable builds are not supported yet.",
+      "support": {
+        "title": "Currently supported",
+        "steinsGate": {
+          "name": "STEINS;GATE",
+          "details": "Steam for Windows — supported 32-bit (x86) executable build"
+        }
+      },
+      "description": "For this supported release, GSM attaches directly to the game and captures text and glyph positions without OCR or an external Agent script.",
+      "advance": "Advance text",
+      "advanceFailed": "Could not advance the game text."
     },
     "agent": {
       "title": "Agent Script",

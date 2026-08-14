@@ -43,7 +43,7 @@ import {
     stopHookSession,
 } from './ui/texthook.js';
 
-type IntegratedTextHookEngine = "textractor" | "luna" | "agent";
+type IntegratedTextHookEngine = "textractor" | "luna" | "agent" | "mages";
 
 export class AutoLauncher {
     private intervalId: NodeJS.Timeout | null = null;
@@ -901,6 +901,10 @@ export class AutoLauncher {
 
         if (profile.engine === "agent") {
             return profile.agentScriptPath?.trim() ? "agent" : null;
+        }
+
+        if (profile.engine === "mages") {
+            return "mages";
         }
 
         if (!profile.hookId && !profile.hookFunction && !profile.manualHookCode) {

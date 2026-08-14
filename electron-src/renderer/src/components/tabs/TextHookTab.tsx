@@ -8,7 +8,7 @@ import {
   type AgentScriptCandidate,
 } from "../../../../shared/agent_scripts";
 
-type TextHookEngine = "luna" | "textractor" | "agent";
+type TextHookEngine = "luna" | "textractor" | "agent" | "mages";
 
 interface ListAgentScriptsResponse {
   status?: string;
@@ -104,6 +104,12 @@ const DEV_JAPANESE_PAYLOAD_FRAGMENTS = [
 const AGENT_RELEASES_URL = "https://github.com/0xDC00/agent/releases/latest";
 const LUNA_TRANSLATOR_RELEASES_URL = "https://github.com/HIllya51/LunaTranslator/releases";
 const TEXTRACTOR_RELEASES_URL = "https://github.com/Chenx221/Textractor/releases";
+const BUILT_IN_HOOK_SUPPORTED_GAMES = [
+  {
+    nameKey: "texthook.mages.support.steinsGate.name",
+    detailsKey: "texthook.mages.support.steinsGate.details",
+  },
+] as const;
 
 function hasHookText(hook: HookEntry): boolean {
   if (hook.preview.trim().length > 0) return true;
@@ -430,6 +436,18 @@ export function TextHookTab({ active }: TextHookTabProps) {
     }
   }, [refreshHooks, refreshStatus]);
 
+  const advanceText = useCallback(async () => {
+    setBusy(true);
+    try {
+      const result = await invokeIpc<{ success: boolean; error?: string }>("texthook.advance");
+      if (!result?.success) {
+        showNotice(result?.error ?? t("texthook.mages.advanceFailed"), "error");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [showNotice, t]);
+
   const selectHook = useCallback(
     async (hookId: string) => {
       const ok = await invokeIpc<{ success: boolean }>("texthook.selectHook", hookId);
@@ -525,8 +543,9 @@ export function TextHookTab({ active }: TextHookTabProps) {
         copyToClipboard,
         hookId: selectedHookId,
         hookFunction: targetHook?.function ?? null,
-        manualHookCode: manualHookCode.trim() || null,
-        agentScriptPath: agentScriptPath.trim() || null,
+        manualHookCode:
+          engine === "luna" || engine === "textractor" ? manualHookCode.trim() || null : null,
+        agentScriptPath: engine === "agent" ? agentScriptPath.trim() || null : null,
       }
     );
     if (result?.success && result.profile) {
@@ -641,7 +660,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
 
   const visibleHooks = useMemo(
     () =>
-      engine === "agent"
+      engine === "agent" || engine === "mages"
         ? hooks
         : hooks.filter((hook) => hook.id === selectedHookId || hasHookText(hook)),
     [engine, hooks, selectedHookId]
@@ -669,7 +688,9 @@ export function TextHookTab({ active }: TextHookTabProps) {
       ? t("texthook.engine.luna")
       : engine === "textractor"
         ? t("texthook.engine.textractor")
-        : t("texthook.engine.agent");
+        : engine === "agent"
+          ? t("texthook.engine.agent")
+          : t("texthook.engine.mages");
 
   return (
     <div className={`tab-panel ${active ? "active" : ""}`}>
@@ -817,6 +838,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
                           <option value="luna">{t("texthook.engine.luna")}</option>
                           <option value="textractor">{t("texthook.engine.textractor")}</option>
                           <option value="agent">{t("texthook.engine.agent")}</option>
+                          <option value="mages">{t("texthook.engine.mages")}</option>
                         </select>
                       </div>
 
@@ -871,8 +893,47 @@ export function TextHookTab({ active }: TextHookTabProps) {
                         </div>
                       ) : null}
 
+                      {engine === "mages" ? (
+                        <div
+                          className="texthook-subsection texthook-mages-notice"
+                          role="note"
+                          aria-labelledby="texthook-mages-title"
+                        >
+                          <div className="texthook-mages-heading">
+                            <div
+                              id="texthook-mages-title"
+                              className="texthook-subsection-label"
+                            >
+                              {t("texthook.mages.title")}
+                            </div>
+                            <span className="texthook-mages-badge">
+                              {t("texthook.mages.experimentalBadge")}
+                            </span>
+                          </div>
+                          <p className="texthook-mages-availability">
+                            {t("texthook.mages.availability")}
+                          </p>
+                          <div className="texthook-supported-games">
+                            <div className="texthook-supported-games__label">
+                              {t("texthook.mages.support.title")}
+                            </div>
+                            <ul>
+                              {BUILT_IN_HOOK_SUPPORTED_GAMES.map((game) => (
+                                <li key={game.nameKey}>
+                                  <strong>{t(game.nameKey)}</strong>
+                                  <span>{t(game.detailsKey)}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                          <p className="texthook-card-hint">
+                            {t("texthook.mages.description")}
+                          </p>
+                        </div>
+                      ) : null}
+
                       {/* Manual hook code (Luna / Textractor only) */}
-                      {engine !== "agent" ? (
+                      {engine === "luna" || engine === "textractor" ? (
                         <>
                           <div className="link-row texthook-hook-search-row">
                             <button
@@ -1169,14 +1230,25 @@ export function TextHookTab({ active }: TextHookTabProps) {
           ) : null}
           <div className="ocr-sticky-footer-actions">
             {status.running ? (
-              <button
-                type="button"
-                className="danger"
-                disabled={busy}
-                onClick={() => void stopSession()}
-              >
-                {t("texthook.actions.stop")}
-              </button>
+              <>
+                {status.engine === "mages" ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void advanceText()}
+                  >
+                    {t("texthook.mages.advance")}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="danger"
+                  disabled={busy}
+                  onClick={() => void stopSession()}
+                >
+                  {t("texthook.actions.stop")}
+                </button>
+              </>
             ) : (
               <button
                 type="button"

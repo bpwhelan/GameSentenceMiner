@@ -803,6 +803,20 @@ class OverlayProcessor:
         coordinate_space = dict_from_ocr.get("coordinate_space")
         return isinstance(coordinate_space, dict) and coordinate_space.get("mode") == "absolute_screen"
 
+    @staticmethod
+    def _is_forced_ocr_bypass_payload(dict_from_ocr: Any) -> bool:
+        if not OverlayProcessor._is_precomputed_overlay_payload(dict_from_ocr):
+            return False
+        producer = dict_from_ocr.get("producer")
+        return (
+            dict_from_ocr.get("bypass_ocr") is True
+            and isinstance(producer, dict)
+            and producer.get("kind") == "engine-hook"
+            and producer.get("version") == 1
+            and isinstance(producer.get("integrationId"), str)
+            and bool(producer["integrationId"])
+        )
+
     def _is_magpie_scaling_active(self) -> bool:
         return bool(self.window_monitor and getattr(self.window_monitor, "magpie_info", None))
 
@@ -828,7 +842,7 @@ class OverlayProcessor:
     def _should_use_precomputed_overlay_payload(self, dict_from_ocr: Any) -> bool:
         if not self._is_precomputed_overlay_payload(dict_from_ocr):
             return False
-        if not self._is_use_ocr_result_enabled():
+        if not self._is_use_ocr_result_enabled() and not self._is_forced_ocr_bypass_payload(dict_from_ocr):
             return False
         if self._should_skip_precomputed_payload_for_magpie(dict_from_ocr):
             return False
@@ -1069,9 +1083,10 @@ class OverlayProcessor:
             )
         eligible_precomputed_payload = None if skip_precomputed_for_magpie else dict_from_ocr
         has_precomputed_payload = self._should_use_precomputed_overlay_payload(eligible_precomputed_payload)
+        force_ocr_bypass = self._is_forced_ocr_bypass_payload(eligible_precomputed_payload)
 
         # In supplement mode, we need engines loaded even when precomputed payload exists
-        if not has_precomputed_payload or self._is_supplement_mode_enabled():
+        if not has_precomputed_payload or (self._is_supplement_mode_enabled() and not force_ocr_bypass):
             self._ensure_correct_engine_loaded()
             effective_engine = self._get_effective_engine()
 
@@ -2008,10 +2023,16 @@ class OverlayProcessor:
         # single send is authoritative — flag it final so highlight consumers parse it.
         payload = self._build_overlay_word_coordinates_payload(final_data, line_id=line_id, is_final=True)
         await send_word_coordinates_to_overlay(payload)
-        logger.info(
-            "Overlay OCR bypass: used precomputed OCR coordinates ({} text boxes).",
-            len(final_data),
-        )
+        if self._is_forced_ocr_bypass_payload(dict_from_ocr):
+            logger.info(
+                "Overlay OCR bypass: used MAGES text-hook coordinates ({} text boxes).",
+                len(final_data),
+            )
+        else:
+            logger.info(
+                "Overlay OCR bypass: used precomputed OCR coordinates ({} text boxes).",
+                len(final_data),
+            )
         return True
 
     def get_image_to_ocr(self):
@@ -2217,13 +2238,14 @@ class OverlayProcessor:
         normalized_sentence_to_check = normalize_text_for_comparison(line.text) if line else None
         self._log_timing(op_start, "Sentence preprocessing and recycling check")
 
-        is_supplement_mode = self._is_supplement_mode_enabled()
+        force_ocr_bypass = self._is_forced_ocr_bypass_payload(dict_from_ocr)
+        is_supplement_mode = self._is_supplement_mode_enabled() and not force_ocr_bypass
         precomputed_sent = False
         precomputed_percentage_data = None
 
         if (
-            self._is_use_ocr_result_enabled()
-            and dict_from_ocr
+            dict_from_ocr
+            and self._should_use_precomputed_overlay_payload(dict_from_ocr)
             and not self._should_skip_precomputed_payload_for_magpie(dict_from_ocr)
         ):
             op_start = time.time()
