@@ -57,8 +57,90 @@ def test_google_lens_ocr2_crop_keeps_minimum_context(monkeypatch):
 
     cropped = gsm_ocr.get_ocr2_image((6, 6, 10, 10), image, ocr2_engine="glens")
 
-    assert cropped.size == (12, 12)
-    assert cropped.getpixel((4, 4)) == (255, 0, 0)
+    padding = gsm_ocr.GOOGLE_LENS_OCR2_CONTEXT_PADDING
+    assert cropped.size == (4 + 2 * padding, 4 + 2 * padding)
+    assert cropped.getpixel((padding, padding)) == (255, 0, 0)
+
+
+def test_google_lens_formula_only_response_requires_every_word_to_be_formula():
+    def response(*word_types):
+        return {
+            "objects_response": {
+                "text": {
+                    "text_layout": {
+                        "paragraphs": [
+                            {
+                                "lines": [
+                                    {
+                                        "words": [
+                                            {"plain_text": text, **({"type": word_type} if word_type else {})}
+                                            for text, word_type in word_types
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+
+    assert ocr_module.google_lens_response_is_formula_only(response(("lceil z rfloor", "FORMULA")))
+    assert not ocr_module.google_lens_response_is_formula_only(response(("普通の文字", None), ("x", "FORMULA")))
+    assert not ocr_module.google_lens_response_is_formula_only(response())
+
+
+def test_ocr_runtime_marks_formula_only_google_lens_payload(monkeypatch):
+    raw_response = {
+        "objects_response": {
+            "text": {
+                "text_layout": {
+                    "paragraphs": [
+                        {
+                            "lines": [
+                                {
+                                    "words": [
+                                        {
+                                            "plain_text": "lceil z -? rfloor",
+                                            "type": "FORMULA",
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+        }
+    }
+
+    class FakeGoogleLens:
+        name = "glens"
+        readable_name = "Google Lens"
+
+        def __call__(self, *_args, **_kwargs):
+            return True, "lceil z -? rfloor", [], [], None, raw_response
+
+    class FakeLogger:
+        def opt(self, **_kwargs):
+            return self
+
+        def info(self, *_args, **_kwargs):
+            return None
+
+    monkeypatch.setattr(ocr_runtime, "engine_instances", [FakeGoogleLens()], raising=False)
+    monkeypatch.setattr(ocr_runtime, "auto_pause_handler", None, raising=False)
+    monkeypatch.setattr(ocr_runtime, "config", SimpleNamespace(get_general=lambda _key: "cyan"))
+    monkeypatch.setattr(ocr_runtime, "logger", FakeLogger())
+    monkeypatch.setattr(ocr_runtime, "get_ocr_language", lambda: "en")
+
+    _chunks, _text, payload = ocr_runtime.process_and_write_results(
+        Image.new("RGB", (20, 10), color="white"),
+        engine="glens",
+        return_payload=True,
+    )
+
+    assert payload["pipeline"]["ocr"]["google_lens_formula_only"] is True
 
 
 def test_google_lens_uses_upstream_request_configuration(monkeypatch):

@@ -690,6 +690,53 @@ class TestTwoPassDifferentEngines:
         ctrl.handle_ocr_result("", [], _make_time(1), _dummy_img())
         assert second_ocr_calls[0]["source"] == TextSource.SECONDARY
 
+    def test_formula_only_google_lens_result_falls_back_to_ocr1_text_and_geometry(self, sent_texts):
+        ocr1_text = "「えーー？」"
+        ocr1_payload = {
+            "schema": "gsm_ocr_geometry_v1",
+            "pipeline": {"engine": "oneocr", "ocr": {}},
+        }
+
+        def run_formula_ocr2(*_args, **_kwargs):
+            return SecondPassResult(
+                text="lceil z -? rfloor",
+                orig_text=["lceil z -? rfloor"],
+                response_dict={
+                    "schema": "gsm_ocr_geometry_v1",
+                    "pipeline": {
+                        "engine": "glens",
+                        "ocr": {"google_lens_formula_only": True},
+                    },
+                },
+            )
+
+        ctrl = TwoPassOCRController(
+            config=self.CFG,
+            filtering=_passthrough_filter,
+            send_result=_make_send(sent_texts),
+            run_second_ocr=run_formula_ocr2,
+            save_image=lambda *_args, **_kwargs: None,
+            get_ocr2_image=lambda _coords, img: img,
+        )
+
+        ctrl.handle_ocr_result(
+            ocr1_text,
+            [ocr1_text],
+            _make_time(),
+            _dummy_img(),
+            response_dict=ocr1_payload,
+        )
+        ctrl.handle_ocr_result("", [], _make_time(1), _dummy_img())
+
+        assert sent_texts == [
+            {
+                "text": ocr1_text,
+                "time": _make_time(),
+                "response_dict": ocr1_payload,
+                "source": TextSource.OCR,
+            }
+        ]
+
     # -- Second pass returns empty → fallback to first-pass text --
 
     def test_complete_change_triggers_second_pass(

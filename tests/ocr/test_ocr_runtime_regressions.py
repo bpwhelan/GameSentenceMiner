@@ -653,6 +653,62 @@ def test_second_ocr_prefers_google_lens_overlay_payload(monkeypatch):
     assert sent[0]["response_dict"]["line_coords"] == lens_payload["line_coords"]
 
 
+def test_second_ocr_formula_only_google_lens_payload_uses_ocr1_result(monkeypatch):
+    sent = []
+    ctrl = SimpleNamespace(
+        last_sent_result="",
+        last_ocr2_result=[],
+        config=gsm_ocr.TwoPassConfig(),
+    )
+    first_pass_payload = {
+        "schema": "gsm_ocr_geometry_v1",
+        "line_coords": [{"text": "「えーー？」", "words": []}],
+        "pipeline": {"engine": "oneocr", "ocr": {}},
+    }
+    formula_payload = {
+        "schema": "gsm_ocr_geometry_v1",
+        "line_coords": [{"text": "lceil z -? rfloor", "words": []}],
+        "pipeline": {
+            "engine": "glens",
+            "ocr": {"google_lens_formula_only": True},
+        },
+    }
+
+    monkeypatch.setattr(gsm_ocr, "TextFiltering", lambda lang: object())
+    monkeypatch.setattr(gsm_ocr, "get_ocr_language", lambda: "ja")
+    monkeypatch.setattr(gsm_ocr, "get_controller", lambda: ctrl)
+    monkeypatch.setattr(gsm_ocr, "get_ocr_ocr2", lambda: "glens")
+    monkeypatch.setattr(gsm_ocr, "capture_ocr_metrics_sample", lambda *args, **kwargs: None)
+    monkeypatch.setattr(gsm_ocr, "save_result_image", lambda *args, **kwargs: None)
+
+    async def _send_result(text, time, *, response_dict=None, source=None):
+        sent.append({"text": text, "response_dict": response_dict, "source": source})
+
+    monkeypatch.setattr(gsm_ocr, "send_result", _send_result)
+    monkeypatch.setattr(
+        gsm_ocr.ocr_runtime,
+        "process_and_write_results",
+        lambda *args, **kwargs: (["lceil z -? rfloor"], "lceil z -? rfloor", formula_payload),
+    )
+
+    processor = gsm_ocr.OCRProcessor()
+    processor.do_second_ocr(
+        "「えーー？」",
+        datetime(2026, 2, 22, 12, 0, 0),
+        Image.new("RGB", (2, 2), color=255),
+        filtering=None,
+        response_dict=first_pass_payload,
+    )
+
+    assert sent == [
+        {
+            "text": "「えーー？」",
+            "response_dict": first_pass_payload,
+            "source": gsm_ocr.TextSource.OCR,
+        }
+    ]
+
+
 def test_second_ocr_rebases_cropped_google_lens_overlay_payload():
     first_pass_payload = {
         "schema": "gsm_ocr_geometry_v1",

@@ -1523,6 +1523,20 @@ class GoogleVision:
         return pil_image_to_bytes(img)
 
 
+def google_lens_response_is_formula_only(response_dict):
+    """Return True only when Lens classified every recognized word as a formula."""
+    if not isinstance(response_dict, dict):
+        return False
+
+    text_layout = response_dict.get("objects_response", {}).get("text", {}).get("text_layout", {})
+    words = []
+    for paragraph in text_layout.get("paragraphs", []):
+        for line in paragraph.get("lines", []):
+            words.extend(word for word in line.get("words", []) if isinstance(word, dict))
+
+    return bool(words) and all(str(word.get("type", "")).upper() == "FORMULA" for word in words)
+
+
 class GoogleLens:
     name = "glens"
     readable_name = "Google Lens"
@@ -1666,6 +1680,8 @@ class GoogleLens:
             response_proto = self._lens_proto_deps["LensOverlayServerResponsePb2"]()
             response_proto.ParseFromString(res.content)
             response_dict = self._message_to_dict(response_proto, preserving_proto_field_name=True)
+
+            logger.info(json.dumps(response_dict))
 
             text = response_dict.get("objects_response", {}).get("text", {})
             skipped = []

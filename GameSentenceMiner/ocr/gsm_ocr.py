@@ -141,7 +141,7 @@ TWO_PASS_OCR_V2_STABLE_FRAME_COUNT = 2
 TWO_PASS_OCR_V2_DETECTION_PADDING = 10
 # A tightly optimized crop can make dialogue punctuation resemble mathematical
 # delimiters and cause Lens to route the image through its formula recognizer.
-GOOGLE_LENS_OCR2_CONTEXT_PADDING = 5
+GOOGLE_LENS_OCR2_CONTEXT_PADDING = 0
 # Max seconds a first-pass line may keep "evolving" before we stop waiting and
 # flush the most complete frame we have. Safety net so leaning-evolving (and
 # OCR hallucinations that keep perturbing the text) can't stall OCR2 forever.
@@ -723,7 +723,7 @@ class TwoPassOCRController:
         crop_coords: Any,
         og_image: Any,
         *,
-        extra_padding: int = 0,
+        extra_padding: int = 5,
     ) -> Any:
         try:
             return self._get_ocr2_image(crop_coords, og_image, extra_padding)
@@ -803,6 +803,14 @@ class TwoPassOCRController:
             self.config.ocr2_engine,
             source=source,
         )
+        ocr2_result = result
+        result = _fallback_formula_only_google_lens_result_to_ocr1(ocr1_text, response_dict, result)
+        if result is not ocr2_result:
+            self._debug(
+                "ocr2.formula_fallback",
+                engine=self.config.ocr2_engine,
+                ocr1_text=text_preview(ocr1_text),
+            )
 
         final_payload = _select_second_pass_payload(response_dict, result.response_dict)
         self._debug(
@@ -2932,6 +2940,35 @@ def _select_second_pass_payload(first_pass_payload: Any, second_pass_payload: An
     return first_pass_payload if first_pass_payload else second_pass_payload
 
 
+def _google_lens_payload_is_formula_only(payload: Any) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    pipeline = payload.get("pipeline")
+    if not isinstance(pipeline, dict):
+        return False
+    engine_key = str(pipeline.get("engine") or "").strip().lower().replace(" ", "").replace("_", "").replace("-", "")
+    if engine_key not in {"glens", "googlelens", "lens"}:
+        return False
+    ocr_meta = pipeline.get("ocr")
+    return isinstance(ocr_meta, dict) and ocr_meta.get("google_lens_formula_only") is True
+
+
+def _fallback_formula_only_google_lens_result_to_ocr1(
+    ocr1_text: str,
+    ocr1_payload: Any,
+    ocr2_result: SecondPassResult,
+) -> SecondPassResult:
+    if not str(ocr1_text or "").strip() or not _google_lens_payload_is_formula_only(ocr2_result.response_dict):
+        return ocr2_result
+
+    logger.warning("Google Lens OCR2 classified the entire result as FORMULA; using the OCR1 result instead.")
+    return SecondPassResult(
+        text=ocr1_text,
+        orig_text=[ocr1_text],
+        response_dict=ocr1_payload,
+    )
+
+
 def get_screen_crop_image_metadata(image: Any) -> dict[str, Any] | None:
     if image is None:
         return None
@@ -3188,6 +3225,26 @@ class OCRProcessor:
                 # further restricts scene-coordinate filtering to OCR1.
                 apply_area_filters=(source == TextSource.OCR),
             )
+            ocr2_result = SecondPassResult(
+                text=text or "",
+                orig_text=orig_text or [],
+                response_dict=generated_payload,
+            )
+            final_result = _fallback_formula_only_google_lens_result_to_ocr1(
+                ocr1_text,
+                response_dict,
+                ocr2_result,
+            )
+            if final_result is not ocr2_result:
+                emit_ocr_debug(
+                    debug_enabled,
+                    "ocr2.formula_fallback",
+                    engine=get_ocr_ocr2(),
+                    ocr1_text=text_preview(ocr1_text),
+                )
+            orig_text = final_result.orig_text
+            text = final_result.text
+            generated_payload = final_result.response_dict
             emit_ocr_debug(
                 debug_enabled,
                 "ocr2.execution_runtime",
@@ -3851,6 +3908,8 @@ def get_ocr2_image(crop_coords, og_image: Image.Image, ocr2_engine=None, extra_p
     engine_key = str(ocr2_engine or "").strip().lower().replace(" ", "").replace("_", "").replace("-", "")
     if engine_key in {"glens", "googlelens", "lens"}:
         pad = max(pad, GOOGLE_LENS_OCR2_CONTEXT_PADDING)
+
+    pad = 0
 
     x1 = x1 - pad
     y1 = y1 - pad
