@@ -141,7 +141,7 @@ TWO_PASS_OCR_V2_STABLE_FRAME_COUNT = 2
 TWO_PASS_OCR_V2_DETECTION_PADDING = 10
 # A tightly optimized crop can make dialogue punctuation resemble mathematical
 # delimiters and cause Lens to route the image through its formula recognizer.
-GOOGLE_LENS_OCR2_CONTEXT_PADDING = 0
+GOOGLE_LENS_OCR2_CONTEXT_PADDING = 10
 # Max seconds a first-pass line may keep "evolving" before we stop waiting and
 # flush the most complete frame we have. Safety net so leaning-evolving (and
 # OCR hallucinations that keep perturbing the text) can't stall OCR2 forever.
@@ -3908,8 +3908,6 @@ def get_ocr2_image(crop_coords, og_image: Image.Image, ocr2_engine=None, extra_p
     engine_key = str(ocr2_engine or "").strip().lower().replace(" ", "").replace("_", "").replace("-", "")
     if engine_key in {"glens", "googlelens", "lens"}:
         pad = max(pad, GOOGLE_LENS_OCR2_CONTEXT_PADDING)
-
-    pad = 0
 
     x1 = x1 - pad
     y1 = y1 - pad
