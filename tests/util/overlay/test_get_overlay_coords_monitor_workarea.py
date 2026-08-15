@@ -3,9 +3,10 @@ from __future__ import annotations
 from copy import deepcopy
 from types import SimpleNamespace
 
+import pytest
 from PIL import Image
 
-from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, Monitor, Rectangle, WindowGeometry
+from GameSentenceMiner.ocr.gsm_ocr_config import Monitor, OCRConfig, Rectangle, WindowGeometry
 from GameSentenceMiner.util.overlay import get_overlay_coords
 
 
@@ -527,3 +528,48 @@ def test_get_scaled_monitor_overlay_area_config_maps_into_window_capture(monkeyp
 
     assert scaled is not None
     assert scaled.rectangles[0].coordinates == [164, 129, 192, 161]
+
+
+def test_precomputed_exclusion_regions_map_window_percentages_to_monitor(monkeypatch):
+    processor = get_overlay_coords.OverlayProcessor()
+    area_config = OCRConfig(
+        scene="scene",
+        coordinate_system="percentage",
+        rectangles=[
+            Rectangle(
+                monitor=Monitor(index=0),
+                coordinates=[0.1, 0.2, 0.2, 0.1],
+                is_excluded=True,
+            ),
+            Rectangle(
+                monitor=Monitor(index=0),
+                coordinates=[0.5, 0.5, 0.2, 0.2],
+                is_excluded=False,
+            ),
+        ],
+        window_geometry=WindowGeometry(left=0, top=0, width=800, height=600),
+    )
+    area_config.overlay_coordinate_space = "window"
+    monkeypatch.setattr(processor, "_get_effective_overlay_area_source_config", lambda: area_config)
+
+    result = processor._get_precomputed_exclusion_regions(
+        window_offset_x=100,
+        window_offset_y=50,
+        window_width=800,
+        window_height=600,
+        monitor_width=1000,
+        monitor_height=800,
+    )
+
+    assert result == [
+        {
+            "x1": pytest.approx(0.18),
+            "y1": pytest.approx(0.2125),
+            "x2": pytest.approx(0.34),
+            "y2": pytest.approx(0.2125),
+            "x3": pytest.approx(0.34),
+            "y3": pytest.approx(0.2875),
+            "x4": pytest.approx(0.18),
+            "y4": pytest.approx(0.2875),
+        }
+    ]
