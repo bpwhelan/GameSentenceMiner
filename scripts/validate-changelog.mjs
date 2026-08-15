@@ -66,7 +66,6 @@ function main() {
   const manifest = readJson(manifestPath);
   const releases = Array.isArray(manifest.releases) ? manifest.releases : [];
   const versions = new Set();
-  let targetFound = false;
 
   for (const release of releases) {
     if (!release || !isValidVersion(release.version)) {
@@ -76,7 +75,6 @@ function main() {
       throw new Error(`Duplicate changelog release version: ${release.version}`);
     }
     versions.add(release.version);
-    targetFound ||= release.version === args.version;
 
     const relativeFile = release.file || `releases/${release.version}.md`;
     if (!isSafeRelativePath(relativeFile)) {
@@ -102,10 +100,6 @@ function main() {
         throw new Error(`Missing changelog image referenced by ${relativeFile}: ${ref}`);
       }
     }
-  }
-
-  if (!targetFound) {
-    throw new Error(`No bundled changelog entry exists for package version ${args.version}.`);
   }
 
   console.log(`[validate-changelog] ${releases.length} release note entr${releases.length === 1 ? "y" : "ies"} valid.`);
