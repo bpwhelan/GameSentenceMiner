@@ -13,6 +13,7 @@ const hoshidictsRuntimeDir = path.resolve(
   "GSM_Overlay/features/hoshidicts"
 );
 const hoshidictsRuntimeFiles = [
+  "constants.js",
   "audio.js",
   "popup.js",
   "reader.js",
