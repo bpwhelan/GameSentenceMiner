@@ -560,6 +560,7 @@ def _apply_field_grouping_merge(
     )
     if not merged_note["fields"]:
         raise ValueError("No configured context fields contained data to merge.")
+    _normalize_anki_sentence_line_breaks(merged_note, anki_cfg=config.anki)
     invoke("updateNoteFields", note=merged_note)
 
     merged_tags = _field_grouping_tags(source_note, generated_tags)
@@ -803,6 +804,27 @@ def _apply_field_policy(
 
     note["fields"][field_cfg.name] = value
     return True
+
+
+def _normalize_anki_sentence_line_breaks(note: Dict, anki_cfg=None) -> Dict:
+    """Convert sentence text newlines to HTML breaks immediately before an Anki update."""
+    if not isinstance(note, dict):
+        return note
+
+    fields = note.get("fields")
+    if not isinstance(fields, dict):
+        return note
+
+    anki_cfg = anki_cfg or getattr(get_config(), "anki", None)
+    sentence_field = str(getattr(anki_cfg, "sentence_field", "") or "").strip()
+    if not sentence_field:
+        return note
+
+    sentence = fields.get(sentence_field)
+    if isinstance(sentence, str):
+        fields[sentence_field] = sentence.replace("\r\n", "<br>").replace("\r", "<br>").replace("\n", "<br>")
+
+    return note
 
 
 def _determine_update_conditions(last_note: "AnkiCard") -> (bool, bool):
@@ -2232,6 +2254,7 @@ def _update_anki_note(
         if note["fields"][field_name] is None:
             note["fields"][field_name] = ""
 
+    _normalize_anki_sentence_line_breaks(note, anki_cfg=config.anki)
     invoke_with_optional_timing("updateNoteFields", note=note)
 
     if not assets.audio_in_anki and config.anki.tag_unvoiced_cards:

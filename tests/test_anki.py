@@ -484,7 +484,8 @@ def test_apply_field_grouping_merge_updates_original_then_deletes_duplicate(monk
                     "id": 100,
                     "fields": {
                         "Sentence": (
-                            '<span data-group-id="200">confirmed new</span>\n<span data-group-id="100">original</span>'
+                            '<span data-group-id="200">confirmed new</span><br>'
+                            '<span data-group-id="100">original</span>'
                         )
                     },
                 }
@@ -1499,6 +1500,34 @@ def test_update_anki_note_removes_overlay_tag_when_enabled(monkeypatch):
         ("addTags", {"tags": "GSM", "notes": [42]}),
         ("removeTags", {"tags": "overlay", "notes": [42]}),
     ]
+
+
+def test_update_anki_note_converts_sentence_newlines_to_html_breaks(monkeypatch):
+    config = _base_config()
+    calls = []
+    assets = SimpleNamespace(
+        audio_in_anki="voice.mp3",
+        screenshot_in_anki="",
+        prev_screenshot_in_anki="",
+        video_in_anki="",
+        animated=False,
+    )
+
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "invoke", lambda action, **kwargs: calls.append((action, kwargs)) or [])
+    monkeypatch.setattr(anki.notification, "open_browser_window", lambda *_args, **_kwargs: None, raising=False)
+
+    anki._update_anki_note(
+        SimpleNamespace(noteId=42),
+        {"fields": {"Sentence": "first line\r\nsecond line", "Other": "keep\nraw"}},
+        [],
+        assets,
+    )
+
+    assert calls[1] == (
+        "updateNoteFields",
+        {"note": {"fields": {"Sentence": "first line<br>second line", "Other": "keep\nraw"}}},
+    )
 
 
 def test_update_anki_note_does_not_remove_overlay_tag_when_disabled(monkeypatch):
