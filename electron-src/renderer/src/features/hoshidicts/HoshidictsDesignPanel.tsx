@@ -566,6 +566,29 @@ export function HoshidictsDesignPanel({
               setReaderPreference("compactDefinitionSummaryDictionary", value)
             }
           />
+          <HoshidictsDictionarySelect
+            id="hoshidicts-kanji-click-dictionary"
+            className="hoshidicts-setting--split"
+            label={t(
+              "settings.hoshidicts.reader.appearance.kanjiClickDictionary"
+            )}
+            hint={t(
+              "settings.hoshidicts.reader.appearance.kanjiClickDictionaryHint"
+            )}
+            automaticLabel={t(
+              "settings.hoshidicts.reader.appearance.kanjiClickDictionaryAutomatic"
+            )}
+            unavailableLabel={t(
+              "settings.hoshidicts.reader.appearance.kanjiClickDictionaryUnavailable",
+              { dictionary: readerDraft.kanjiClickDictionary ?? "" }
+            )}
+            value={readerDraft.kanjiClickDictionary}
+            dictionaries={state.dictionaries}
+            disabled={preferencesBusy}
+            onChange={(value) =>
+              setReaderPreference("kanjiClickDictionary", value)
+            }
+          />
           <HoshidictsToggleSetting
             id="hoshidicts-show-pitch-accent-furigana"
             className="hoshidicts-toggle--divided"

@@ -276,6 +276,7 @@ describe('Hoshidicts manager full backups', () => {
             showCompactDefinitionSummary: true,
             compactDefinitionSummaryDictionary: 'Jitendex.org',
             showPitchAccentFurigana: false,
+            kanjiClickDictionary: 'Beta',
             pitchAccentFuriganaDictionary: 'Kanjium Pitch Accents',
             showPitchAccentBadge: true,
             hidePopupGrammarTags: false,

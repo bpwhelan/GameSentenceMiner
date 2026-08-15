@@ -143,6 +143,7 @@ export function makeHoshidictsReaderPreferences(
     compactDefinitionSummaryCount:
       DEFAULT_HOSHIDICTS_COMPACT_DEFINITION_SUMMARY_COUNT,
     compactDefinitionSummaryDictionary: null,
+    kanjiClickDictionary: null,
     showPitchAccentFurigana: DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_FURIGANA,
     pitchAccentFuriganaDictionary: null,
     showPitchAccentBadge: DEFAULT_HOSHIDICTS_SHOW_PITCH_ACCENT_BADGE,

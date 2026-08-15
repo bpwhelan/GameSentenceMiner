@@ -58,6 +58,7 @@
     showCompactDefinitionSummary: false,
     compactDefinitionSummaryCount: 3,
     compactDefinitionSummaryDictionary: null,
+    kanjiClickDictionary: null,
     showPitchAccentFurigana: true,
     pitchAccentFuriganaDictionary: null,
     showPitchAccentBadge: false,

@@ -50,6 +50,7 @@ const otherPreferences: Record<
     showCompactDefinitionSummary: true,
     compactDefinitionSummaryCount: 4,
     compactDefinitionSummaryDictionary: 'Jitendex',
+    kanjiClickDictionary: 'JMdict',
     showPitchAccentFurigana: false,
     pitchAccentFuriganaDictionary: 'Kanjium Pitch Accents',
     showPitchAccentBadge: true,
@@ -280,6 +281,7 @@ describe('Hoshidicts reader preference helpers', () => {
             showCompactDefinitionSummary: false,
             compactDefinitionSummaryCount: 3,
             compactDefinitionSummaryDictionary: null,
+            kanjiClickDictionary: null,
             showPitchAccentFurigana: true,
             pitchAccentFuriganaDictionary: null,
             showPitchAccentBadge: false,
@@ -307,6 +309,7 @@ describe('Hoshidicts reader preference helpers', () => {
         const accepted = assertHoshidictsReaderPreferences({
             ...defaultPreferences,
             compactDefinitionSummaryDictionary: '  Jitendex  ',
+            kanjiClickDictionary: '  JMdict  ',
             pitchAccentFuriganaDictionary: '  Pitch  ',
             popupButtons: {
                 ...createDefaultHoshidictsPopupButtons(),
@@ -320,6 +323,7 @@ describe('Hoshidicts reader preference helpers', () => {
         expect(accepted).toEqual({
             ...defaultPreferences,
             compactDefinitionSummaryDictionary: 'Jitendex',
+            kanjiClickDictionary: 'JMdict',
             pitchAccentFuriganaDictionary: 'Pitch',
             popupButtons: {
                 ...createDefaultHoshidictsPopupButtons(),

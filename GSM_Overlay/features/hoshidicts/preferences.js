@@ -93,6 +93,9 @@
     compactDefinitionSummaryDictionary: {
       check: (value) => value === null || boundedTitle(value)
     },
+    kanjiClickDictionary: {
+      check: (value) => value === null || boundedTitle(value)
+    },
     showPitchAccentFurigana: { check: isBoolean },
     pitchAccentFuriganaDictionary: {
       check: (value) => value === null || boundedTitle(value)
