@@ -1681,8 +1681,6 @@ class GoogleLens:
             response_proto.ParseFromString(res.content)
             response_dict = self._message_to_dict(response_proto, preserving_proto_field_name=True)
 
-            logger.info(json.dumps(response_dict))
-
             text = response_dict.get("objects_response", {}).get("text", {})
             skipped = []
             line_entries = []

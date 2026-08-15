@@ -28,6 +28,18 @@ describe('prerelease build contract', () => {
         expect(workflow.match(/CIBW_BUILD: cp310-\*/g)).toHaveLength(1);
     });
 
+    it('repairs stable PyPI wheels without following legacy MeCab dependencies', () => {
+        const workflow = fs.readFileSync(
+            path.join(process.cwd(), '.github', 'workflows', 'pypi_release.yml'),
+            'utf8'
+        );
+
+        expect(workflow).toContain(
+            'CIBW_REPAIR_WHEEL_COMMAND_LINUX: "auditwheel repair --exclude libmecab.so.1 -w {dest_dir} {wheel}"'
+        );
+        expect(workflow).toContain('CIBW_REPAIR_WHEEL_COMMAND_MACOS: ""');
+    });
+
     it('does not install beta backends from mutable branch archives', () => {
         const pythonOps = fs.readFileSync(
             path.join(process.cwd(), 'electron-src', 'main', 'services', 'python_ops.ts'),

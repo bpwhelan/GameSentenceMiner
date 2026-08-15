@@ -141,6 +141,12 @@ jobs:
           CIBW_ARCHS_WINDOWS: AMD64
           CIBW_ARCHS_LINUX: x86_64
           CIBW_ARCHS_MACOS: arm64
+          # Keep auditwheel's manylinux relabeling for PyPI, but do not follow
+          # the legacy MeCab dependency which is already bundled in the wheel.
+          CIBW_REPAIR_WHEEL_COMMAND_LINUX: "auditwheel repair --exclude libmecab.so.1 -w {dest_dir} {wheel}"
+          # delocate likewise follows obsolete dependencies embedded in the
+          # legacy MeCab binaries carried for other platforms.
+          CIBW_REPAIR_WHEEL_COMMAND_MACOS: ""
           CIBW_BEFORE_BUILD_LINUX: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
           CIBW_ENVIRONMENT_LINUX: 'PATH="$PATH:$HOME/.cargo/bin"'
           CIBW_TEST_COMMAND: 'python -c "from GameSentenceMiner import _native; assert _native.api_version() == 1"'

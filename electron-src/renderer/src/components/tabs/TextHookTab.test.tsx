@@ -321,24 +321,7 @@ describe("TextHookTab", () => {
     expect(container.querySelectorAll(".texthook-output-pre")).toHaveLength(1);
   });
 
-  it("sends the large-payload test through the truncation path", async () => {
-    invokeMock.mockImplementation(async (channel: string) => {
-      if (channel === "texthook.getStatus") {
-        return { running: false };
-      }
-      if (channel === "texthook.listHooks") {
-        return { selectedHookId: null, hooks: [] };
-      }
-      if (channel === "texthook.getActiveCapture") {
-        return { sceneName: "Scene", sceneId: "scene-1", exeName: "game.exe" };
-      }
-      if (channel === "texthook.getProfile") return null;
-      if (channel === "texthook.devSendLargePayload") {
-        return { success: true, length: 3000, originalLength: 120000, truncated: true };
-      }
-      return null;
-    });
-
+  it("hides the large-payload stress control outside development", async () => {
     await act(async () => {
       root.render(<TextHookTab active />);
       await flushAsyncWork();
@@ -348,13 +331,10 @@ describe("TextHookTab", () => {
       button.textContent?.includes("120000 characters")
     );
 
-    await act(async () => {
-      testButton?.click();
-      await flushAsyncWork();
-    });
-
-    const payloadCall = invokeMock.mock.calls.find(([channel]) => channel === "texthook.devSendLargePayload");
-    expect(payloadCall?.[1]).toHaveLength(120000);
-    expect(container.textContent).toContain("Sent 3000 characters after truncating a 120000-character test payload.");
+    expect(testButton).toBeUndefined();
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      "texthook.devSendLargePayload",
+      expect.anything()
+    );
   });
 });

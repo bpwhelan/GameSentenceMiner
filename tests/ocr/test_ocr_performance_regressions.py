@@ -48,6 +48,21 @@ def test_ocr2_optimization_debug_images_capture_before_and_after_crop(monkeypatc
 
 
 def test_google_lens_ocr2_crop_keeps_minimum_context(monkeypatch):
+    image = Image.new("RGB", (40, 40), color="black")
+    image.putpixel((16, 16), (255, 0, 0))
+
+    monkeypatch.setattr(gsm_ocr, "SAVE_OCR_DEBUG_IMAGES", False, raising=False)
+    monkeypatch.setattr(gsm_ocr, "get_ocr_advanced_debug_logging", lambda: False)
+    monkeypatch.setattr(gsm_ocr, "get_ocr_optimize_second_scan", lambda: True)
+
+    cropped = gsm_ocr.get_ocr2_image((16, 16, 20, 20), image, ocr2_engine="glens")
+
+    padding = gsm_ocr.GOOGLE_LENS_OCR2_CONTEXT_PADDING
+    assert cropped.size == (4 + 2 * padding, 4 + 2 * padding)
+    assert cropped.getpixel((padding, padding)) == (255, 0, 0)
+
+
+def test_google_lens_ocr2_context_clamps_to_source_bounds(monkeypatch):
     image = Image.new("RGB", (20, 20), color="black")
     image.putpixel((6, 6), (255, 0, 0))
 
@@ -57,9 +72,8 @@ def test_google_lens_ocr2_crop_keeps_minimum_context(monkeypatch):
 
     cropped = gsm_ocr.get_ocr2_image((6, 6, 10, 10), image, ocr2_engine="glens")
 
-    padding = gsm_ocr.GOOGLE_LENS_OCR2_CONTEXT_PADDING
-    assert cropped.size == (4 + 2 * padding, 4 + 2 * padding)
-    assert cropped.getpixel((padding, padding)) == (255, 0, 0)
+    assert cropped.size == image.size
+    assert cropped.getpixel((6, 6)) == (255, 0, 0)
 
 
 def test_google_lens_formula_only_response_requires_every_word_to_be_formula():
