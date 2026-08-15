@@ -353,8 +353,8 @@ def validate_hoshidicts_mining_request(value: Any) -> dict[str, Any]:
     return normalized
 
 
-def _append_structured_text(value: Any, output: list[str], state: list[int]) -> None:
-    if state[0] >= MAX_STRUCTURED_CONTENT_NODES:
+def _append_structured_text(value: Any, output: list[str], state: list[int], depth: int = 0) -> None:
+    if state[0] >= MAX_STRUCTURED_CONTENT_NODES or depth > MAX_STRUCTURED_CONTENT_DEPTH:
         return
     if isinstance(value, str):
         output.append(value)
@@ -366,7 +366,7 @@ def _append_structured_text(value: Any, output: list[str], state: list[int]) -> 
         return
     if isinstance(value, list):
         for child in value:
-            _append_structured_text(child, output, state)
+            _append_structured_text(child, output, state, depth + 1)
         return
     if not isinstance(value, dict):
         return
@@ -377,7 +377,7 @@ def _append_structured_text(value: Any, output: list[str], state: list[int]) -> 
         output.append(value["text"])
         state[0] += 1
     elif "content" in value:
-        _append_structured_text(value["content"], output, state)
+        _append_structured_text(value["content"], output, state, depth + 1)
     if tag in BLOCK_STRUCTURED_TAGS:
         output.append("\n")
 
