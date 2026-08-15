@@ -148,12 +148,19 @@ import {
     getBundledBackendSpecifier,
     getBundledBackendVersion,
     getInstalledPackageVersion,
+    getProjectPath,
+    getVenvDirFromPythonPath,
     installPackageNoDeps,
     isBackendVersionCompatible,
     isPackageInstalled,
     resolveRequestedExtras,
     syncLockedEnvironment,
 } from './services/python_ops.js';
+import {
+    getDevPyprojectSyncState,
+    markDevPyprojectSynced,
+    type DevPyprojectSyncState,
+} from './services/dev_environment_sync.js';
 import type {
     InstallProgressKind,
     InstallSessionOrigin,
@@ -2108,7 +2115,22 @@ async function ensureAndRunGSM(
         );
     }
 
-    if (requiresStartupPreparation) {
+    let devPyprojectSyncState: DevPyprojectSyncState | null = null;
+    if (isDev) {
+        try {
+            devPyprojectSyncState = getDevPyprojectSyncState(
+                getProjectPath(),
+                getVenvDirFromPythonPath(runtimePythonPath)
+            );
+        } catch (error) {
+            console.warn('Could not determine whether pyproject.toml changed:', error);
+        }
+    }
+    const shouldSyncChangedDevPyproject = devPyprojectSyncState?.changed === true;
+    const requiresEnvironmentPreparation =
+        requiresStartupPreparation || shouldSyncChangedDevPyproject;
+
+    if (requiresEnvironmentPreparation) {
         try {
             updateInstallStage(
                 'verify_runtime',
@@ -2158,29 +2180,9 @@ async function ensureAndRunGSM(
             );
         }
 
-        // Sync only when an install is actually required. App-version and
-        // backend updates already perform a full lockfile sync before launch.
-        try {
-            devFaultInjector.maybeFail('startup.sync_lock_check');
-            updateInstallStage(
-                'lock_sync',
-                'running',
-                'estimated',
-                0.1,
-                'Checking whether the Python environment matches the lockfile...'
-            );
-            await syncLockedEnvironment(runtimePythonPath, selectedExtras, true);
-            console.log('Python environment already matches lockfile.');
-            updateInstallStage(
-                'lock_sync',
-                'skipped',
-                'estimated',
-                1,
-                'Python environment already matches the lockfile.'
-            );
-        } catch {
+        if (shouldSyncChangedDevPyproject && devPyprojectSyncState) {
             console.log(
-                `Syncing Python environment with lockfile, extras: ${selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
+                `pyproject.toml changed; syncing the development Python environment, extras: ${selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
                 }`
             );
             devFaultInjector.maybeFail('startup.sync_lock_apply');
@@ -2189,7 +2191,7 @@ async function ensureAndRunGSM(
                 'running',
                 'estimated',
                 0.15,
-                'Syncing Python environment with the bundled lockfile...'
+                'pyproject.toml changed; syncing the development Python environment...'
             );
             await syncLockedEnvironment(runtimePythonPath, selectedExtras, false, (event) => {
                 updateInstallStage(
@@ -2200,13 +2202,75 @@ async function ensureAndRunGSM(
                     event.message
                 );
             });
+            markDevPyprojectSynced(
+                getVenvDirFromPythonPath(runtimePythonPath),
+                devPyprojectSyncState.fingerprint
+            );
             updateInstallStage(
                 'lock_sync',
                 'completed',
                 'estimated',
                 1,
-                'Python environment synced to the lockfile.'
+                'Development Python environment synced after pyproject.toml changed.'
             );
+        } else {
+            // App-version and backend updates still verify the environment and
+            // perform a full lockfile sync only when the check finds drift.
+            try {
+                devFaultInjector.maybeFail('startup.sync_lock_check');
+                updateInstallStage(
+                    'lock_sync',
+                    'running',
+                    'estimated',
+                    0.1,
+                    'Checking whether the Python environment matches the lockfile...'
+                );
+                await syncLockedEnvironment(runtimePythonPath, selectedExtras, true);
+                console.log('Python environment already matches lockfile.');
+                updateInstallStage(
+                    'lock_sync',
+                    'skipped',
+                    'estimated',
+                    1,
+                    'Python environment already matches the lockfile.'
+                );
+            } catch {
+                console.log(
+                    `Syncing Python environment with lockfile, extras: ${selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
+                    }`
+                );
+                devFaultInjector.maybeFail('startup.sync_lock_apply');
+                updateInstallStage(
+                    'lock_sync',
+                    'running',
+                    'estimated',
+                    0.15,
+                    'Syncing Python environment with the bundled lockfile...'
+                );
+                await syncLockedEnvironment(runtimePythonPath, selectedExtras, false, (event) => {
+                    updateInstallStage(
+                        'lock_sync',
+                        'running',
+                        'estimated',
+                        event.progress,
+                        event.message
+                    );
+                });
+                updateInstallStage(
+                    'lock_sync',
+                    'completed',
+                    'estimated',
+                    1,
+                    'Python environment synced to the lockfile.'
+                );
+            }
+
+            if (isDev && devPyprojectSyncState) {
+                markDevPyprojectSynced(
+                    getVenvDirFromPythonPath(runtimePythonPath),
+                    devPyprojectSyncState.fingerprint
+                );
+            }
         }
     } else {
         console.log(
