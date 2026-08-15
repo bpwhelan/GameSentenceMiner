@@ -143,20 +143,34 @@ def test_preview_does_not_resend_old_line_after_metadata_modification():
     assert preview["total_characters"] == 0
 
 
-def test_deduplicated_preview_excludes_new_lines_without_deleting_them():
+def test_deduplicated_preview_only_compares_lines_within_current_batch():
     StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
-    _line("duplicate", "game-1", "Scene B", "same text", 110.0)
-    _line("unique", "game-1", "Scene B", "new", 120.0)
-    _line("old", "game-1", "Scene A", "Same Text", 90.0)
+    _line("old", "game-1", "Scene A", "same", 90.0)
+    _line("duplicate", "game-1", "Scene B", "same", 110.0)
+    _line("duplicate-later", "game-1", "Scene B", "SAME", 120.0)
+    _line("unique", "game-1", "Scene B", "new", 130.0)
 
     plain = build_tadoku_preview(deduplicate=False, upper_bound=150.0)
     cleaned = build_tadoku_preview(deduplicate=True, upper_bound=150.0)
 
-    assert plain["total_characters"] == len("sametextnew")
-    assert cleaned["total_characters"] == len("new")
+    assert plain["total_characters"] == len("samesamenew")
+    assert cleaned["total_characters"] == len("samenew")
     assert cleaned["duplicates_excluded"] == 1
-    assert GameLinesTable.get("duplicate") is not None
     assert GameLinesTable.get("old") is not None
+    assert GameLinesTable.get("duplicate") is not None
+    assert GameLinesTable.get("duplicate-later") is not None
+
+
+def test_deduplicated_preview_keeps_identical_text_in_separate_game_groups():
+    StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
+    _line("game-one", "game-1", "Game One", "same", 110.0)
+    _line("game-two", "game-2", "Game Two", "same", 120.0)
+
+    preview = build_tadoku_preview(deduplicate=True, upper_bound=150.0)
+
+    assert preview["total_characters"] == len("same") * 2
+    assert preview["duplicates_excluded"] == 0
+    assert [entry["game_key"] for entry in preview["entries"]] == ["game-1", "game-2"]
 
 
 @pytest.mark.parametrize(
@@ -373,17 +387,21 @@ def test_empty_whitelist_does_not_restrict_automatic_sync(monkeypatch):
     assert StatsExportStateTable.get_last_successful_export_at(tadoku_game_cursor_key("game-main")) == 150.0
 
 
-def test_sync_excludes_duplicate_increment_without_deleting_local_lines(monkeypatch):
+def test_sync_excludes_duplicate_current_batch_without_deleting_local_lines(monkeypatch):
     StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
     _line("old", "game-1", "Scene A", "same", 90.0)
-    _line("new-duplicate", "game-1", "Scene B", "SAME", 110.0)
+    _line("new", "game-1", "Scene B", "same", 110.0)
+    _line("new-duplicate", "game-1", "Scene B", "SAME", 120.0)
     monkeypatch.setattr("GameSentenceMiner.util.tadoku_sync.time.time", lambda: 150.0)
 
-    result = run_tadoku_sync(config=_config(), client=_FakeClient(), deduplicate=True)
+    client = _FakeClient()
+    result = run_tadoku_sync(config=_config(), client=client, deduplicate=True)
 
-    assert result["entries_sent"] == 0
+    assert result["entries_sent"] == 1
+    assert result["characters_sent"] == len("same")
     assert result["duplicates_excluded"] == 1
     assert GameLinesTable.get("old") is not None
+    assert GameLinesTable.get("new") is not None
     assert GameLinesTable.get("new-duplicate") is not None
     assert StatsExportStateTable.get_last_successful_export_at(TADOKU_CURSOR_KEY) == 150.0
 
