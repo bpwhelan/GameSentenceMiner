@@ -92,7 +92,7 @@ const DEFAULT_TEXT_HOOK_MAX_BUFFER_SIZE = 3000;
 const MAX_TEXT_HOOK_MAX_BUFFER_SIZE = 100_000;
 const MAX_JAPANESE_QUOTE_PAIRS = 10;
 // Set to true when the large-payload test button is needed during development.
-const SHOW_DEV_LARGE_PAYLOAD_TEST = true;
+const SHOW_DEV_LARGE_PAYLOAD_TEST = false;
 const DEV_LARGE_PAYLOAD_LENGTH = 120_000;
 const DEV_JAPANESE_PAYLOAD_FRAGMENTS = [
   "これはテキストフックの負荷試験用ランダム文字列です。",
