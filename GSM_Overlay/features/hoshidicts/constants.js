@@ -21,7 +21,7 @@
   "use strict";
 
   const LOOKUP_MODES = Object.freeze(["shift", "hover"]);
-  const POPUP_TOOLBAR_POSITIONS = Object.freeze(["top", "bottom"]);
+  const POPUP_TOOLBAR_POSITIONS = Object.freeze(["auto", "top", "bottom"]);
   const FREQUENCY_SORT_ORDERS = Object.freeze(["descending", "ascending"]);
   const DEFINITION_BLUR_REVEAL_MODES = Object.freeze(["timed", "hover"]);
   const FREQUENCY_MODES = Object.freeze(["rank-based", "occurrence-based"]);
@@ -69,7 +69,7 @@
     popupColumns: 1,
     popupOpacityPercent: 85,
     popupBackdropBlurPx: 16,
-    popupToolbarPosition: "top",
+    popupToolbarPosition: "auto",
     theme: "default",
     customPopupCss: "",
     dictionaryPresentation: Object.freeze([]),

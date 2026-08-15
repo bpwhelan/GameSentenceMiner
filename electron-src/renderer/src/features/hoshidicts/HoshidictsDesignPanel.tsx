@@ -456,6 +456,12 @@ export function HoshidictsDesignPanel({
               disabled={preferencesBusy}
               options={[
                 {
+                  value: "auto",
+                  label: t(
+                    "settings.hoshidicts.reader.appearance.toolbarPositionAuto"
+                  )
+                },
+                {
                   value: "top",
                   label: t(
                     "settings.hoshidicts.reader.appearance.toolbarPositionTop"

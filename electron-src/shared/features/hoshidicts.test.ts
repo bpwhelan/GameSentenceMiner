@@ -297,7 +297,7 @@ describe('Hoshidicts reader preference helpers', () => {
             theme: 'default',
             popupOpacityPercent: 85,
             popupBackdropBlurPx: 16,
-            popupToolbarPosition: 'top',
+            popupToolbarPosition: 'auto',
             popupButtons: createDefaultHoshidictsPopupButtons(),
             customPopupCss: '',
         });
