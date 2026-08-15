@@ -1097,6 +1097,28 @@ def test_structured_content_drops_links_yomitan_would_reject(href):
     assert "external-link" not in rendered
 
 
+def test_structured_img_extreme_dimensions_clamped():
+    # A positive-but-subnormal width (e.g. 1e-320) survives the `width > 0`
+    # guard yet makes height/width overflow to inf, so the padding-top CSS used
+    # to render as "inf%". The ratio must stay finite and bounded.
+    rendered = note_module._structured_content_html(
+        {
+            "type": "image",
+            "path": "img/x.png",
+            "preferredWidth": 1e-320,
+            "preferredHeight": 100,
+        },
+        dictionary="Dict",
+        dictionary_media={("Dict", "img/x.png"): "gsm_img.png"},
+    )
+
+    assert "inf" not in rendered
+    padding = re.search(r"padding-top:\s*([0-9.eE+-]+)%", rendered)
+    assert padding is not None
+    ratio = float(padding.group(1))
+    assert 0 < ratio < 1_000_000  # finite, bounded percentage
+
+
 def test_frequency_html_renders_integral_floats_without_a_decimal_point():
     request = note_module.validate_hoshidicts_mining_request(
         make_term_payload(frequencies=[{"dictionary": "BCCWJ", "frequencies": [{"value": 1000.0}]}])

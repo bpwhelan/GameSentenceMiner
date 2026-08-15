@@ -463,6 +463,9 @@ STRUCTURED_CONTENT_EM_PROPERTIES = {
 }
 MAX_STRUCTURED_CONTENT_NODES = 1_048_576
 MAX_STRUCTURED_CONTENT_DEPTH = 64
+# Upper bound for a glossary image's height/width aspect-ratio percentage, so a
+# subnormal/absurd width can't emit "padding-top: inf%" (or a runaway value).
+MAX_IMAGE_ASPECT_PERCENT = 100_000
 _STRUCTURED_HREF_PATTERN = re.compile(r"^(?:https?:|\?)", re.IGNORECASE)
 
 
@@ -613,6 +616,13 @@ def _structured_content_html(
         height = value.get("preferredHeight", value.get("height", 100))
         width = width if isinstance(width, (int, float)) and not isinstance(width, bool) and width > 0 else 100
         height = height if isinstance(height, (int, float)) and not isinstance(height, bool) and height > 0 else 100
+        # A subnormal width (e.g. 1e-320) passes the ``> 0`` guard yet overflows
+        # height/width to inf, emitting an invalid "padding-top: inf%". Clamp the
+        # aspect-ratio percentage to a finite, bounded value.
+        aspect_percent = height / width * 100
+        if not math.isfinite(aspect_percent):
+            aspect_percent = MAX_IMAGE_ASPECT_PERCENT
+        aspect_percent = min(aspect_percent, MAX_IMAGE_ASPECT_PERCENT)
         appearance = value.get("appearance", "auto")
         image_rendering = value.get("imageRendering", "pixelated" if value.get("pixelated") is True else "auto")
         return (
@@ -627,7 +637,7 @@ def _structured_content_html(
             f'data-collapsed="{str(value.get("collapsed", False)).lower()}" '
             f'data-collapsible="{str(value.get("collapsible", True)).lower()}">'
             f'<span class="gloss-image-container" style="width: {width}em">'
-            f'<span class="gloss-image-sizer" style="padding-top: {height / width * 100}%"></span>'
+            f'<span class="gloss-image-sizer" style="padding-top: {aspect_percent}%"></span>'
             f'<span class="gloss-image-background" style="--image: url(&quot;{html.escape(filename, quote=True)}&quot;)"></span>'
             '<span class="gloss-image-container-overlay"></span>'
             f'<img class="gloss-image" src="{html.escape(filename, quote=True)}" '
