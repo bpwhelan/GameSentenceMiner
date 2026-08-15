@@ -1285,8 +1285,8 @@ def _enrich_hoshidicts_note_audio(
     except Exception as exc:
         return warning("failed", f"Could not download pronunciation audio: {exc}")
 
-    digest = hashlib.sha256(media.data).hexdigest()[:32]
     try:
+        digest = hashlib.sha256(media.data).hexdigest()[:32]
         stored_filename = store_media(
             f"gsm_hoshidicts_{digest}.{media.extension}",
             base64.b64encode(media.data).decode("ascii"),

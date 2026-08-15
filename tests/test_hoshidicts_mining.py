@@ -5,7 +5,13 @@ from types import SimpleNamespace
 import pytest
 from flask import Flask
 
-from GameSentenceMiner import hoshidicts_anki, hoshidicts_audio_profile, hoshidicts_markers, hoshidicts_mining
+from GameSentenceMiner import (
+    hoshidicts_anki,
+    hoshidicts_audio,
+    hoshidicts_audio_profile,
+    hoshidicts_markers,
+    hoshidicts_mining,
+)
 from GameSentenceMiner import hoshidicts_mining_note as note_module
 from GameSentenceMiner.web import hoshidicts_api
 from tests.test_hoshidicts_factories import (
@@ -1945,6 +1951,30 @@ def test_mining_audio_store_failure_is_nonfatal(monkeypatch):
     assert result["audio"]["status"] == "failed"
     assert "media collection is locked" in result["audio"]["warning"]
     assert fake_anki.events[-1]["note_id"] == 42
+
+
+def test_enrich_audio_malformed_media_data_returns_warning(monkeypatch):
+    # media.data must be bytes for hashlib.sha256(); a downloader returning a
+    # non-bytes payload (e.g. a str) used to raise an uncaught TypeError because
+    # the digest was computed OUTSIDE the audio-store try/except. It must
+    # instead degrade to a non-fatal "failed" warning like every other
+    # audio-storage failure.
+    fake_anki = FakeAnki(fields=[*DEFAULT_MODEL_FIELDS, "Pronunciation"])
+    malformed_media = hoshidicts_audio.AudioMedia(
+        data="not-bytes",
+        content_type="audio/mpeg",
+        extension="mp3",
+    )
+    wire_audio(monkeypatch, fake_anki, media=malformed_media)
+
+    result = hoshidicts_mining.mine_hoshidicts_note(make_payload())
+
+    assert result["success"] is True
+    assert result["audio"]["status"] == "failed"
+    assert "pronunciation audio could not be stored" in result["audio"]["warning"]
+    assert fake_anki.events[-1]["note_id"] == 42
+    # The malformed digest must not have produced a stored media file.
+    assert "storeMediaFile" not in set(fake_anki.actions())
 
 
 def test_mining_audio_disabled_is_skipped_without_resolution(monkeypatch):
