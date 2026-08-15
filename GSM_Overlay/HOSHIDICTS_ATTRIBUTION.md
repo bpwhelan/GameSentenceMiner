@@ -3,29 +3,25 @@
 The Hoshidicts overlay integration contains or adapts GPL-licensed work from
 the following projects:
 
-- [Hoshidicts](https://github.com/Manhhao/hoshidicts), pinned at
-  [0d38bb9](https://github.com/bee-san/hoshidicts/tree/0d38bb95f5093628e64acc99a9e44a338315a9a0)
-  (tagged `gsm-pin-2026-08-12`) as the recursive
-  `GSM_Overlay/input_server/hoshidicts` submodule and statically linked into
-  `gsm_overlay_server`. Hoshidicts is licensed under GPL-3.0; its complete
-  license is included at `GSM_Overlay/input_server/hoshidicts/LICENSE`.
+- [Hoshidicts-rs](https://github.com/Manhhao/hoshidicts-rs), the safe Rust
+  bindings for the Hoshidicts Yomitan-dictionary engine, consumed by
+  `gsm_overlay_server` as a Git dependency pinned at the immutable commit
+  [0c5d3ad](https://github.com/Manhhao/hoshidicts-rs/tree/0c5d3ad70fe7f080a236ba23f540be7868955204).
+  That commit's own recursive `hoshidicts` engine submodule points at
+  [Manhhao/hoshidicts](https://github.com/Manhhao/hoshidicts) upstream at
+  [86c6e2f](https://github.com/Manhhao/hoshidicts/tree/86c6e2fc70c5d8526632c9b68fab43be926c1a10),
+  which the crate builds and statically links, so GSM no longer vendors the
+  engine or hand-writes the FFI glue. Both projects are licensed under
+  GPL-3.0-or-later; the engine's complete license travels with the crate's
+  bundled submodule.
 
-  The pin is a fork of upstream because it carries two things upstream does
-  not: `hd_lookup_run_with_options`, which applies the caller's frequency and
-  reading preferences before the result cap, and Yomitan's redirect lookup
-  semantics. Against upstream's `include/hoshidicts_c.h` the fork's delta is
-  purely additive — one enum, one options struct and one function.
-
-  The separable fixes it also carries have been submitted upstream as
-  [#18](https://github.com/Manhhao/hoshidicts/pull/18) (UTF-8 filesystem
-  paths), [#21](https://github.com/Manhhao/hoshidicts/pull/21) (missing
-  `<cstdint>`), [#22](https://github.com/Manhhao/hoshidicts/pull/22) (bounded
-  kanji query materialization),
-  [#23](https://github.com/Manhhao/hoshidicts/pull/23) (kana width
-  normalization order), [#24](https://github.com/Manhhao/hoshidicts/pull/24)
-  (MSVC source charset), and
-  [#25](https://github.com/Manhhao/hoshidicts/pull/25) (bounded dictionary
-  bank writes).
+  The pinned crate exposes the typed lookup-options API GSM consumes —
+  `run_with_options` over `LookupOptions { frequency_dictionary,
+  frequency_order, primary_reading }` and `LookupFrequencyOrder`, wrapping the
+  engine's `hd_lookup_run_with_options`, which applies the caller's frequency
+  and reading preferences before the result cap. GSM enforces its own
+  consumer-side result and materialization caps on top of the upstream engine
+  and does not depend on any fork-only engine guard.
 - [Hoshi Reader](https://github.com/Manhhao/Hoshi-Reader/tree/c31c9d0ce376ff83bf6a91d908bf9f8e0fb4947b/Features/Popup),
   whose popup structure and furigana presentation informed
   `features/hoshidicts/reader.js`, `features/hoshidicts/popup.js`, and
