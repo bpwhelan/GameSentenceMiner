@@ -92,10 +92,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - windows-latest
-          - ubuntu-latest
-          - macos-15
+        include:
+          - os: windows-latest
+            cibw_build: cp310-win_amd64
+          - os: ubuntu-latest
+            cibw_build: cp310-manylinux_x86_64
+          - os: macos-15
+            cibw_build: cp310-macosx_arm64
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
@@ -142,7 +145,7 @@ jobs:
 
       - name: Build stable-ABI wheel
         env:
-          CIBW_BUILD: cp310-*
+          CIBW_BUILD: ${{ matrix.cibw_build }}
           CIBW_ARCHS_WINDOWS: AMD64
           CIBW_ARCHS_LINUX: x86_64
           CIBW_ARCHS_MACOS: arm64
