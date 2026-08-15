@@ -1,6 +1,3 @@
 [submodule "scripts/OneShotOCR"]
 	path = scripts/OneShotOCR
 	url = https://github.com/bpwhelan/OneShotOCR
-[submodule "GSM_Overlay/input_server/hoshidicts"]
-	path = GSM_Overlay/input_server/hoshidicts
-	url = https://github.com/bee-san/hoshidicts.git

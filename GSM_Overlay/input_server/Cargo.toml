@@ -2,7 +2,6 @@
 name = "gsm_overlay_server"
 version = "0.1.0"
 edition = "2021"
-build = "build.rs"
 
 [dependencies]
 tokio = { version = "1.36", features = ["rt-multi-thread", "macros", "net", "time", "sync", "process", "io-util"] }
@@ -24,5 +23,17 @@ sudachi = { git = "https://github.com/WorksApplications/sudachi.rs.git", tag = "
 zip = { version = "2.2", default-features = false, features = ["deflate"] }
 rdev = "0.5.3"
 
-[build-dependencies]
-cmake = "0.1"
+# Safe Rust bindings for the hoshidicts Yomitan-dictionary engine. Pinned to an
+# immutable fork commit (bee-san/hoshidicts-rs, branch feat/gsm-lookup-options)
+# rather than a mutable branch/tag; the crate carries and builds its own
+# hoshidicts C++ engine submodule, so GSM no longer vendors the engine or hand-
+# writes the FFI/CMake glue. GPL-3.0-or-later, matching this workspace.
+#
+# Pinned at fdf9ad3 (the GSM-unified-engine bump on top of 4b90f91). 4b90f91's
+# build.rs emits a rustc-link-search for the libstdc++ dir of the exact compiler
+# CMake selected (matching the C++ runtime to the objects) which earlier commit
+# 71b196d lacked; fdf9ad3 additionally points the crate's nested engine submodule
+# at bee-san/hoshidicts@6cbebe4, the fork that carries BOTH the typed lookup
+# options C API and the .hoshidicts_4 marker (read+write) plus the
+# MAX_KANJI_RESULT_ENTRIES kanji-query guard that GSM depends on.
+hoshidicts = { git = "https://github.com/bee-san/hoshidicts-rs.git", rev = "fdf9ad377342a4471f7bfc975b2a377fc4f90c3c" }
