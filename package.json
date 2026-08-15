@@ -78,7 +78,7 @@
     },
     "nsis": {
       "menuCategory": "GameSentenceMiner",
-      "oneClick": false,
+      "oneClick": true,
       "allowToChangeInstallationDirectory": true,
       "runAfterFinish": true
     },
