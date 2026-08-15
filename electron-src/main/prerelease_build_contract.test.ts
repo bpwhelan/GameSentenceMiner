@@ -38,6 +38,8 @@ describe('prerelease build contract', () => {
             'CIBW_REPAIR_WHEEL_COMMAND_LINUX: "auditwheel repair --exclude libmecab.so.1 -w {dest_dir} {wheel}"'
         );
         expect(workflow).toContain('CIBW_REPAIR_WHEEL_COMMAND_MACOS: ""');
+        expect(workflow).not.toContain('CIBW_TEST_COMMAND:');
+        expect(workflow).toContain('node scripts/smoke-test-wheel.mjs wheelhouse');
     });
 
     it('does not install beta backends from mutable branch archives', () => {
