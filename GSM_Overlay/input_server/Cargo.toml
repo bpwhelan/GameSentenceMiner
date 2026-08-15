@@ -24,16 +24,17 @@ zip = { version = "2.2", default-features = false, features = ["deflate"] }
 rdev = "0.5.3"
 
 # Safe Rust bindings for the hoshidicts Yomitan-dictionary engine. Pinned to an
-# immutable fork commit (bee-san/hoshidicts-rs, branch feat/gsm-lookup-options)
-# rather than a mutable branch/tag; the crate carries and builds its own
-# hoshidicts C++ engine submodule, so GSM no longer vendors the engine or hand-
-# writes the FFI/CMake glue. GPL-3.0-or-later, matching this workspace.
+# immutable commit rather than a mutable branch/tag; the crate carries and builds
+# its own hoshidicts C++ engine submodule, so GSM no longer vendors the engine or
+# hand-writes the FFI/CMake glue. GPL-3.0-or-later, matching this workspace.
 #
-# Pinned at fdf9ad3 (the GSM-unified-engine bump on top of 4b90f91). 4b90f91's
-# build.rs emits a rustc-link-search for the libstdc++ dir of the exact compiler
-# CMake selected (matching the C++ runtime to the objects) which earlier commit
-# 71b196d lacked; fdf9ad3 additionally points the crate's nested engine submodule
-# at bee-san/hoshidicts@6cbebe4, the fork that carries BOTH the typed lookup
-# options C API and the .hoshidicts_4 marker (read+write) plus the
-# MAX_KANJI_RESULT_ENTRIES kanji-query guard that GSM depends on.
-hoshidicts = { git = "https://github.com/bee-san/hoshidicts-rs.git", rev = "fdf9ad377342a4471f7bfc975b2a377fc4f90c3c" }
+# Pinned at 9c69654: the smallest verified rev that points the crate's nested
+# engine submodule back at Manhhao/hoshidicts@86c6e2f (UPSTREAM), carrying only
+# GSM's typed lookup-options C API on top of the upstream engine. This trusts
+# Manhhao's upstream ownership: GSM no longer depends on the fork's
+# MAX_KANJI_RESULT_ENTRIES engine guard (the kanji-result cap is enforced on
+# GSM's own consumer side) and no longer relies on the fork-only .hoshidicts_4
+# marker. The upstream engine reads/writes the .hoshidicts_3 marker, so freshly
+# imported dictionaries use .hoshidicts_3 and GSM's validator no longer accepts
+# a stale .hoshidicts_4-only directory the engine could not read.
+hoshidicts = { git = "https://github.com/bee-san/hoshidicts-rs.git", rev = "9c69654a8f4ab583f33825c2cb8e55d1f2a3345e" }

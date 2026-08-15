@@ -630,7 +630,7 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 [[package]]
 name = "hoshidicts"
 version = "0.1.0"
-source = "git+https://github.com/bee-san/hoshidicts-rs.git?rev=fdf9ad377342a4471f7bfc975b2a377fc4f90c3c#fdf9ad377342a4471f7bfc975b2a377fc4f90c3c"
+source = "git+https://github.com/bee-san/hoshidicts-rs.git?rev=9c69654a8f4ab583f33825c2cb8e55d1f2a3345e#9c69654a8f4ab583f33825c2cb8e55d1f2a3345e"
 
 [[package]]
 name = "http"
