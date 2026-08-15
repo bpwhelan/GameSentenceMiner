@@ -122,6 +122,7 @@
 
   const THEMES = Object.freeze([
     "default",
+    "miku",
     "catppuccin-mocha",
     "solarized-dark",
     "solarized-light",
