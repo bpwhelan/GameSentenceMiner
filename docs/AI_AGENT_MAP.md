@@ -132,7 +132,8 @@ Python backend (GameSentenceMiner.gsm)
   Home/game launcher IPC and overlay launcher hook.
 - `electron-src/main/ui/texthook.ts` + `electron-src/main/engine_hooks/*`
   Text-hook ingress plus the standalone, catalog-driven Frida engine-hook service. See
-  `docs/ENGINE_HOOKS.md` and `docs/STEINS_GATE_ENGINE_HOOK.md`.
+  `docs/hooks/ENGINE_HOOKS.md`, `docs/STEINS_GATE_ENGINE_HOOK.md`,
+  `docs/ZERO_ESCAPE_VIRTUES_LAST_REWARD_ENGINE_HOOK.md`, and `docs/BGI_ENGINE_HOOK.md`.
 - `electron-src/main/services/python_ops.ts`  
   Strict uv lock/environment sync logic.
 - `electron-src/renderer/src/App.tsx`  

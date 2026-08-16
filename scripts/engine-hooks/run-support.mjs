@@ -7,13 +7,9 @@ import { fileURLToPath } from 'node:url';
 
 import frida, { ScriptRuntime } from 'frida';
 
-import {
-    decodeMagesLayout,
-    parseMagesCompoundMap,
-} from '../../dist/main/engine_hooks/mages_decoder.js';
-import { selectBgiLayout } from '../../dist/main/engine_hooks/bgi_decoder.js';
-import { decodeVlrLayout } from '../../dist/main/engine_hooks/vlr_decoder.js';
+import { getEngineHookDecoder } from '../../dist/main/engine_hooks/decoders/index.js';
 import { deriveEngineLogicalCoordinateSpace } from '../../dist/main/engine_hooks/protocol.js';
+import { parseEngineHookManifest } from '../../dist/main/engine_hooks/support.js';
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(scriptDirectory, '..', '..');
@@ -70,21 +66,17 @@ async function main() {
         throw new Error('Support ids may contain lower-case letters, digits, and hyphens only.');
     }
     const supportDirectory = path.join(supportCatalogDirectory, supportId);
-    const manifest = JSON.parse(fs.readFileSync(path.join(supportDirectory, 'manifest.json'), 'utf8'));
+    const manifest = parseEngineHookManifest(
+        JSON.parse(fs.readFileSync(path.join(supportDirectory, 'manifest.json'), 'utf8')),
+    );
     const payload = fs.readFileSync(path.join(supportDirectory, manifest.payload), 'utf8');
-    let charset;
-    let compounds;
-    if (manifest.decoder === 'mages-v1') {
-        charset = fs.readFileSync(path.join(supportDirectory, manifest.resources.charset), 'utf8');
-        compounds = parseMagesCompoundMap(
-            fs.readFileSync(
-                path.join(supportDirectory, manifest.resources.compoundCharacters),
-                'utf8',
-            ),
-        );
-    } else if (manifest.decoder !== 'vlr-v1' && manifest.decoder !== 'bgi-v1') {
-        throw new Error(`The validation runner does not yet implement decoder ${manifest.decoder}.`);
-    }
+    const decoder = getEngineHookDecoder(manifest.decoder);
+    const support = {
+        directory: supportDirectory,
+        manifest,
+        payloadSource: payload,
+        resources: decoder.loadResources?.(supportDirectory, manifest),
+    };
     const pid = await resolvePid(manifest.target.executableNames?.[0] ?? null);
     const timeoutMs = Number.parseInt(option('timeout') ?? '15000', 10);
     const wanted = Number.parseInt(option('lines') ?? '1', 10);
@@ -139,17 +131,7 @@ async function main() {
         }
         if (payloadMessage?.type !== 'text-layout') return;
         try {
-            const decoded =
-                manifest.decoder === 'mages-v1'
-                    ? decodeMagesLayout(payloadMessage.positionedCodes, charset, compounds)
-                    : manifest.decoder === 'bgi-v1'
-                      ? selectBgiLayout(payloadMessage.candidates ?? [], payloadMessage.positionedCodes)
-                      : decodeVlrLayout(
-                          payloadMessage.positionedCodes.map((positionedCode) => ({
-                              ...positionedCode,
-                              type: 1,
-                          })),
-                      );
+            const decoded = decoder.decodeLayout(payloadMessage, support);
             if (!decoded) {
                 process.stderr.write(`unpaired: ${JSON.stringify(payloadMessage.candidates ?? [])}
 `);

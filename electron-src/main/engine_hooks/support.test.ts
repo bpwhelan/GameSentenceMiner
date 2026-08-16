@@ -1,15 +1,18 @@
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 
+import { listEngineHookDecoderIds } from './decoders/index.js';
+import type { EngineHookMagesManifest, MagesResources } from './decoders/mages.js';
 import {
     executableContainsVersionMarkers,
+    loadEngineHookCatalog,
     loadEngineHookSupport,
     parseEngineHookManifest,
     resolveEngineHookSupport,
     type EngineHookSupport,
-    type MagesEngineHookManifest,
 } from './support.js';
 import { decodeMagesLayout, type MagesPositionedCode } from './mages_decoder.js';
 
@@ -24,17 +27,73 @@ const vlrAssetDirectory = path.resolve(
     currentDirectory,
     '../../assets/engine_hooks/vlr-zero-escape-vlr-steam',
 );
-const supportedHash = 'cbbc5dab18edc344d05c01d4d08819fbc0a68a78741956831752986009b69e16';
 const BGI_MARKER = 'Ethornell - BURIKO General Interpreter';
+const FIXTURE_HASH = 'a'.repeat(64);
 
-function magesManifest(support: EngineHookSupport): MagesEngineHookManifest {
+function magesManifest(support: EngineHookSupport): EngineHookMagesManifest {
     if (support.manifest.decoder !== 'mages-v1') throw new Error('Expected a MAGES support package.');
-    return support.manifest;
+    return support.manifest as EngineHookMagesManifest;
+}
+
+function magesResources(support: EngineHookSupport): MagesResources {
+    return support.resources as MagesResources;
 }
 
 function executableContaining(marker: string): Buffer {
     return Buffer.concat([Buffer.alloc(64, 0), Buffer.from(marker, 'utf16le'), Buffer.alloc(64, 0)]);
 }
+
+const temporaryCatalogs: string[] = [];
+
+/**
+ * Writes a throwaway catalog so ambiguity assertions describe the fixture rather
+ * than however many packages the shipped catalog happens to contain.
+ */
+function fixtureCatalog(
+    packages: { id: string; knownExecutableSha256?: string[] }[],
+): string {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gsm-engine-hooks-'));
+    temporaryCatalogs.push(directory);
+    for (const entry of packages) {
+        const packageDirectory = path.join(directory, entry.id);
+        fs.mkdirSync(packageDirectory);
+        fs.writeFileSync(path.join(packageDirectory, 'payload.js'), '// gsm_engine_hook_message_v1\n');
+        fs.writeFileSync(
+            path.join(packageDirectory, 'manifest.json'),
+            JSON.stringify({
+                schema: 'gsm_engine_hook_manifest_v1',
+                id: entry.id,
+                name: entry.id,
+                engine: 'fixture',
+                decoder: 'bgi-v1',
+                target: {
+                    platform: 'windows',
+                    architecture: 'ia32',
+                    executableNames: [`${entry.id}.exe`],
+                    ...(entry.knownExecutableSha256
+                        ? { knownExecutableSha256: entry.knownExecutableSha256 }
+                        : {}),
+                },
+                coordinateSpace: { provider: 'payload-client-pixels' },
+                payload: 'payload.js',
+                signatures: {
+                    glyphDraw: '90',
+                    textCapture: '90',
+                    copyDispatcher: '90',
+                    surfaceLock: '90',
+                },
+                advance: { method: 'foreground-key', virtualKey: 13, scanCode: 28 },
+            }),
+        );
+    }
+    return directory;
+}
+
+afterAll(() => {
+    for (const directory of temporaryCatalogs) {
+        fs.rmSync(directory, { recursive: true, force: true });
+    }
+});
 
 describe('engine-hook support package', () => {
     it('parses the declarative VLR text-layout memory description', () => {
@@ -109,8 +168,8 @@ describe('engine-hook support package', () => {
         });
         expect(magesManifest(support).capture.acceptedModes).toEqual([0]);
         expect(magesManifest(support).resources.charsetOverrides).toBe('charset_overrides.json');
-        expect(support.charset.length).toBeGreaterThan(2000);
-        expect(support.compoundCharacters.get('\ue01f')).toBe('キタ');
+        expect(magesResources(support).charset.length).toBeGreaterThan(2000);
+        expect(magesResources(support).compoundCharacters.get('\ue01f')).toBe('キタ');
         expect(support.payloadSource).toContain('gsm_engine_hook_message_v1');
     });
 
@@ -146,7 +205,7 @@ describe('engine-hook support package', () => {
             codeOffset: '0x14',
             visibleType: 1,
         });
-        expect(support.charset).toBeUndefined();
+        expect(support.resources).toBeUndefined();
         expect(support.payloadSource).not.toMatch(/require\(['"]agent/u);
         expect(support.payloadSource).not.toContain('attachGlyphGeometry');
         expect(support.payloadSource).toContain('snapshotGlyphs(this._gsmObject)');
@@ -169,32 +228,29 @@ describe('engine-hook support package', () => {
         expect(
             decodeMagesLayout(
                 positionedCodes,
-                support.charset,
-                support.compoundCharacters,
+                magesResources(support).charset,
+                magesResources(support).compoundCharacters,
             ).text,
         ).toBe('日曰褄棲凪風');
     });
 
     it('prefers an exact build and rejects unknown ambiguous architecture matches', () => {
-        expect(
-            resolveEngineHookSupport(catalogDirectory, {
-                exeName: 'game.EXE',
-                arch: 'x86',
-                executableSha256: supportedHash,
-            }).manifest.id,
-        ).toBe('mages-steins-gate-steam');
+        const directory = fixtureCatalog([
+            { id: 'fixture-exact', knownExecutableSha256: [FIXTURE_HASH] },
+            { id: 'fixture-open-a' },
+            { id: 'fixture-open-b' },
+        ]);
 
         expect(
-            resolveEngineHookSupport(catalogDirectory, {
-                exeName: 'ze2.exe',
+            resolveEngineHookSupport(directory, {
+                exeName: 'anything.exe',
                 arch: 'x86',
-                executableSha256:
-                    'b5250963fee0b6a24cd0b34ff61917ffec31343e1aff48f9218c38d4f3599c2a',
+                executableSha256: FIXTURE_HASH.toUpperCase(),
             }).manifest.id,
-        ).toBe('vlr-zero-escape-vlr-steam');
+        ).toBe('fixture-exact');
 
         expect(() =>
-            resolveEngineHookSupport(catalogDirectory, {
+            resolveEngineHookSupport(directory, {
                 exeName: '45520.exe',
                 arch: 'x86',
                 executableSha256: '0'.repeat(64),
@@ -202,11 +258,15 @@ describe('engine-hook support package', () => {
         ).toThrow(/found 2 matching support packages/u);
 
         expect(() =>
-            resolveEngineHookSupport(catalogDirectory, {
+            resolveEngineHookSupport(directory, {
                 exeName: '45520.exe',
                 arch: 'x86',
             }),
         ).toThrow(/found 2 matching support packages/u);
+
+        expect(() =>
+            resolveEngineHookSupport(directory, { exeName: '45520.exe', arch: 'x64' }),
+        ).toThrow(/no matching support packages were found/u);
     });
 
     it('loads the checked-in BGI package, which carries no charset resources', () => {
@@ -216,8 +276,7 @@ describe('engine-hook support package', () => {
         expect(support.manifest.coordinateSpace).toEqual({ provider: 'payload-client-pixels' });
         expect(support.manifest.target.versionMarkers).toEqual([BGI_MARKER]);
         expect(support.manifest.target.executableNames).toBeUndefined();
-        expect(support.charset).toBeUndefined();
-        expect(support.compoundCharacters).toBeUndefined();
+        expect(support.resources).toBeUndefined();
         expect(support.payloadSource).toContain('gsm_engine_hook_message_v1');
     });
 
@@ -294,5 +353,37 @@ describe('engine-hook support package', () => {
         expect(() => parseEngineHookManifest(manifest)).toThrow(
             /coordinateSpace\.scaleYRva must be a non-empty string/u,
         );
+    });
+
+    it('rejects a manifest whose decoder is not registered', () => {
+        const manifest = JSON.parse(
+            fs.readFileSync(path.join(bgiDirectory, 'manifest.json'), 'utf8'),
+        ) as Record<string, unknown>;
+        manifest.decoder = 'not-an-engine-v1';
+
+        expect(() => parseEngineHookManifest(manifest)).toThrow(/Unsupported engine-hook decoder/u);
+    });
+});
+
+describe('shipped engine-hook catalog', () => {
+    const catalog = loadEngineHookCatalog(catalogDirectory);
+
+    it('ships at least one package', () => {
+        expect(catalog.length).toBeGreaterThan(0);
+    });
+
+    it.each(catalog.map((support) => [support.manifest.id, support] as const))(
+        '%s is loadable, decodable, and describes itself to the renderer',
+        (_id, support) => {
+            expect(listEngineHookDecoderIds()).toContain(support.manifest.decoder);
+            expect(support.payloadSource).toContain('gsm_engine_hook_message_v1');
+            expect(support.manifest.display?.details.en).toBeTruthy();
+        },
+    );
+
+    it('gives every package a unique id', () => {
+        const ids = catalog.map((support) => support.manifest.id);
+
+        expect(new Set(ids).size).toBe(ids.length);
     });
 });

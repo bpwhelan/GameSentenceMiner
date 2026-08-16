@@ -276,6 +276,16 @@ describe("TextHookTab", () => {
         return { sceneName: "Scene", sceneId: "scene-1", exeName: "Game.exe" };
       }
       if (channel === "texthook.getProfile") return null;
+      if (channel === "texthook.builtInHookTargets") {
+        return [
+          {
+            id: "fixture-one",
+            name: "Fixture Game One",
+            details: { en: "Fixture details one", ja: "テスト説明" },
+          },
+          { id: "fixture-two", name: "Fixture Engine Two", details: { en: "Fixture details two" } },
+        ];
+      }
       return null;
     });
 
@@ -288,6 +298,7 @@ describe("TextHookTab", () => {
     await act(async () => {
       engineSelect.value = "mages";
       engineSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      await flushAsyncWork();
     });
 
     expect(engineSelect.selectedOptions[0]?.textContent).toBe(
@@ -296,15 +307,13 @@ describe("TextHookTab", () => {
     expect(container.textContent).toContain(
       "works only with the games and engines listed below"
     );
-    const supportedTargets = container.querySelectorAll(".texthook-supported-games li");
-    expect(supportedTargets).toHaveLength(3);
-    // Two entries are single game builds; the third is a whole engine, because that
-    // is what each support package can identify its target by.
-    expect(supportedTargets[0]?.textContent).toContain("STEINS;GATE");
-    expect(supportedTargets[0]?.textContent).toContain("32-bit (x86)");
-    expect(supportedTargets[1]?.textContent).toContain("Zero Escape: Virtue's Last Reward");
-    expect(supportedTargets[2]?.textContent).toContain("BGI / Ethornell");
-    expect(supportedTargets[2]?.textContent).toContain("version information");
+    const supportedTargets = Array.from(
+      container.querySelectorAll(".texthook-supported-games li")
+    ).map((entry) => entry.textContent ?? "");
+    expect(supportedTargets).toEqual([
+      "Fixture Game OneFixture details one",
+      "Fixture Engine TwoFixture details two",
+    ]);
   });
 
   it("caps displayed hook text and blocks excessive Japanese quote pairs", async () => {

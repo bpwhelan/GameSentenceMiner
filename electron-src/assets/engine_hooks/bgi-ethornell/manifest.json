@@ -23,5 +23,12 @@
     "method": "foreground-key",
     "virtualKey": 13,
     "scanCode": 28
+  },
+  "display": {
+    "details": {
+      "en": "Any 32-bit (x86) game on this engine, recognised by its version information",
+      "ja": "このエンジンを使用する32ビット（x86）ゲーム全般 — バージョン情報で判別します",
+      "ukr": "Будь-яка 32-бітна (x86) гра на цьому рушії — розпізнається за відомостями про версію"
+    }
   }
 }

@@ -44,5 +44,12 @@
     "method": "foreground-click",
     "clientXRatio": 0.5,
     "clientYRatio": 0.8
+  },
+  "display": {
+    "details": {
+      "en": "Steam for Windows — supported 32-bit (x86) executable build",
+      "ja": "Windows版Steam — 対応する32ビット（x86）実行ファイル",
+      "ukr": "Steam для Windows — підтримувана 32-бітна (x86) збірка"
+    }
   }
 }

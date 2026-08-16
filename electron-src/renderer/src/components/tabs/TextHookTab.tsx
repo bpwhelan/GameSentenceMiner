@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invokeIpc, onIpc } from "../../lib/ipc";
-import { useTranslation } from "../../i18n";
+import { useLocale, useTranslation } from "../../i18n";
 import { AgentScriptSearchDialog } from "../AgentScriptSearchDialog";
 import {
   buildAgentScriptCandidateList,
@@ -22,6 +22,17 @@ interface HookEntry {
   function: string;
   preview: string;
   samples: string[];
+}
+
+/**
+ * A support package from the built-in engine-hook catalog. An entry is a single
+ * game build or a whole engine, depending on what the package identifies its
+ * target by; `details` is the package's own locale map.
+ */
+interface BuiltInHookTarget {
+  id: string;
+  name: string;
+  details: Record<string, string>;
 }
 
 interface RuntimeStatusRunning {
@@ -104,22 +115,6 @@ const DEV_JAPANESE_PAYLOAD_FRAGMENTS = [
 const AGENT_RELEASES_URL = "https://github.com/0xDC00/agent/releases/latest";
 const LUNA_TRANSLATOR_RELEASES_URL = "https://github.com/HIllya51/LunaTranslator/releases";
 const TEXTRACTOR_RELEASES_URL = "https://github.com/Chenx221/Textractor/releases";
-// Entries are a single game build or a whole engine, depending on what the
-// support package can identify the target by.
-const BUILT_IN_HOOK_SUPPORTED_TARGETS = [
-  {
-    nameKey: "texthook.mages.support.steinsGate.name",
-    detailsKey: "texthook.mages.support.steinsGate.details",
-  },
-  {
-    nameKey: "texthook.mages.support.virtueLastReward.name",
-    detailsKey: "texthook.mages.support.virtueLastReward.details",
-  },
-  {
-    nameKey: "texthook.mages.support.bgi.name",
-    detailsKey: "texthook.mages.support.bgi.details",
-  },
-] as const;
 
 function hasHookText(hook: HookEntry): boolean {
   if (hook.preview.trim().length > 0) return true;
@@ -169,11 +164,13 @@ interface TextHookTabProps {
 
 export function TextHookTab({ active }: TextHookTabProps) {
   const t = useTranslation();
+  const [locale] = useLocale();
   const [status, setStatus] = useState<RuntimeStatus>({ running: false });
   const [capture, setCapture] = useState<ActiveCapture | null>(null);
   const [hooks, setHooks] = useState<HookEntry[]>([]);
   const [selectedHookId, setSelectedHookId] = useState<string | null>(null);
   const [engine, setEngine] = useState<TextHookEngine>("luna");
+  const [builtInHookTargets, setBuiltInHookTargets] = useState<BuiltInHookTarget[]>([]);
   const [autoHook, setAutoHook] = useState(true);
   const [flushDelayMs, setFlushDelayMs] = useState(DEFAULT_FLUSH_DELAY_MS);
   const [flushDelayInput, setFlushDelayInput] = useState(String(DEFAULT_FLUSH_DELAY_MS));
@@ -313,6 +310,24 @@ export function TextHookTab({ active }: TextHookTabProps) {
     void refreshActiveCapture();
     void refreshTextHookSettings();
   }, [active, refreshStatus, refreshHooks, refreshActiveCapture, refreshTextHookSettings]);
+
+  // The supported-target list is the on-disk support catalog, so it is read from
+  // the main process rather than duplicated in the renderer.
+  useEffect(() => {
+    if (!active || engine !== "mages") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const targets = await invokeIpc<BuiltInHookTarget[]>("texthook.builtInHookTargets");
+        if (!cancelled && Array.isArray(targets)) setBuiltInHookTargets(targets);
+      } catch {
+        if (!cancelled) setBuiltInHookTargets([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [active, engine]);
 
   // IPC subscriptions.
   useEffect(() => {
@@ -928,10 +943,12 @@ export function TextHookTab({ active }: TextHookTabProps) {
                               {t("texthook.mages.support.title")}
                             </div>
                             <ul>
-                              {BUILT_IN_HOOK_SUPPORTED_TARGETS.map((target) => (
-                                <li key={target.nameKey}>
-                                  <strong>{t(target.nameKey)}</strong>
-                                  <span>{t(target.detailsKey)}</span>
+                              {builtInHookTargets.map((target) => (
+                                <li key={target.id}>
+                                  <strong>{target.name}</strong>
+                                  <span>
+                                    {target.details[locale] ?? target.details.en ?? ""}
+                                  </span>
                                 </li>
                               ))}
                             </ul>
