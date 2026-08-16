@@ -1462,23 +1462,15 @@ def test_dictionary_style_grouping_nesting_is_bounded_without_unscoped_fallback(
     assert '<li data-dictionary="JMdict">' in rendered
 
 
-def test_glossary_text_deep_nesting_no_recursion_error():
-    # _append_structured_text (used by _glossary_text) recurses through nested
-    # lists/content with only a node-count cap, no depth cap — unlike
-    # _structured_content_html which guards MAX_STRUCTURED_CONTENT_DEPTH. A
-    # deeply-nested-but-small structure (few nodes, huge depth) must be bounded
-    # gracefully rather than blow Python's recursion limit.
-    # Depth far beyond both the intended cap and Python's default recursion
-    # limit, so the *unfixed* code (no depth cap) blows the stack and the fix
-    # (depth cap) drops the over-deep leaf gracefully.
+def test_append_structured_text_deep_nesting_no_recursion_error():
     depth = max(note_module.MAX_STRUCTURED_CONTENT_DEPTH * 4, 5000)
     nested: object = "deep-leaf"
     for _ in range(depth):
         nested = [nested]
 
-    # Must not raise RecursionError; the leaf is beyond the depth cap so it is
-    # dropped, yielding an empty rendering.
-    assert note_module._glossary_text(json.dumps(nested)) == ""
+    output: list[str] = []
+    note_module._append_structured_text(nested, output, [0])
+    assert output == []
 
 
 def test_dictionary_style_scoping_handles_comments_before_at_rules_and_selector_commas():
