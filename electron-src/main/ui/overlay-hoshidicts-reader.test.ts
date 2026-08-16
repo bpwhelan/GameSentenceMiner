@@ -523,6 +523,22 @@ describe("Hoshidicts safe popup rendering", () => {
     );
   });
 
+  it("passes the settings locale to the reader at creation", () => {
+    const configured = configureBootstrapReader({
+      settings: { gamepadServerPort: 7276, locale: "ja" }
+    });
+    expect(configured.readerOptions.locale).toBe("ja");
+  });
+
+  it("relays a later settings locale to the existing reader", () => {
+    const configured = configureBootstrapReader({
+      settings: { gamepadServerPort: 7276, locale: "en" }
+    });
+    configured.api.initialize({ gamepadServerPort: 7276, locale: "ukr" });
+    expect(configured.reader.updateLocale).toHaveBeenLastCalledWith("ukr");
+    expect(configured.createHoshidictsReader).toHaveBeenCalledTimes(1);
+  });
+
   it("hands the reader one normalised object for live preferences", () => {
     const configured = configureBootstrapReader();
     const live = livePreferences({
@@ -8513,5 +8529,288 @@ describe("Hoshidicts popup image source gating", () => {
     );
     expect(loaded).toHaveLength(1);
     expect(loaded[0].src).toBe("blob:img-1");
+  });
+});
+
+describe("Hoshidicts deinflection disclosure", () => {
+  const COMPOUND_TRACE = [
+    { name: "-た", description: "" },
+    { name: "potential or passive", description: "" },
+    { name: "causative", description: "" }
+  ];
+
+  function makeCompound(response: ReturnType<typeof lookupResult>) {
+    response.results[0].matched = "食べさせられた";
+    response.results[0].deinflected = "食べる";
+    response.results[0].trace = COMPOUND_TRACE.map((step) => ({ ...step }));
+    response.results[0].term.expression = "食べる";
+    response.results[0].term.reading = "たべる";
+  }
+
+  function disclosure(popup: Element, occurrence = 0) {
+    return Array.from(
+      popup.querySelectorAll<HTMLDetailsElement>(".gsm-hoshidicts-deinflection")
+    )[occurrence] ?? null;
+  }
+
+  it("attaches one collapsed disclosure to the headword showing the endpoint path", async () => {
+    const harness = createReaderHarness({ lookupMode: "hover" });
+    await renderFirstLookup(harness, { shiftKey: false, transform: makeCompound });
+
+    const popup = harness.reader.getPopupElement();
+    const details = disclosure(popup)!;
+    expect(details).not.toBeNull();
+    expect(details.tagName).toBe("DETAILS");
+    expect(details.open).toBe(false);
+    const summary = details.querySelector("summary")!;
+    expect(summary.textContent).toContain("食べさせられた");
+    expect(summary.textContent).toContain("食べる");
+    expect(summary.getAttribute("aria-label")).toBe(
+      "Why this matched: 食べさせられた became 食べる"
+    );
+    expect(
+      harness.reader
+        .getPopupElement()
+        .querySelectorAll(".gsm-hoshidicts-deinflection")
+    ).toHaveLength(1);
+  });
+
+  it("lists the backend steps in exact order using text nodes", async () => {
+    const harness = createReaderHarness({ lookupMode: "hover" });
+    await renderFirstLookup(harness, { shiftKey: false, transform: makeCompound });
+
+    const details = disclosure(harness.reader.getPopupElement())!;
+    const items = Array.from(
+      details.querySelectorAll<HTMLLIElement>("ol > li")
+    );
+    expect(items.map((item) => item.textContent)).toEqual([
+      "-た",
+      "potential or passive",
+      "causative"
+    ]);
+  });
+
+  it("shows a non-empty step description when the backend provides one", async () => {
+    const harness = createReaderHarness({ lookupMode: "hover" });
+    await renderFirstLookup(harness, {
+      shiftKey: false,
+      transform(response) {
+        makeCompound(response);
+        response.results[0].trace = [
+          { name: "-た", description: "Past tense" }
+        ];
+      }
+    });
+
+    const item = disclosure(harness.reader.getPopupElement())!.querySelector(
+      "ol > li"
+    )!;
+    expect(item.textContent).toContain("-た");
+    expect(item.textContent).toContain("Past tense");
+  });
+
+  it("resets the disclosure to collapsed when a new lookup replaces it", async () => {
+    const harness = createReaderHarness({ lookupMode: "hover" });
+    setRect(harness.second, { left: 30, top: 10, right: 90, bottom: 30 });
+    await renderFirstLookup(harness, { shiftKey: false, transform: makeCompound });
+    const first = disclosure(harness.reader.getPopupElement())!;
+    first.open = true;
+
+    await hover(harness.dom, harness.second, { clientX: 31, shiftKey: false });
+    const request = lastRequest(harness.socket);
+    const response = lookupResult(request.requestId, "見る");
+    response.results[0].matched = "見られた";
+    response.results[0].deinflected = "見る";
+    response.results[0].trace = [
+      { name: "-た", description: "" },
+      { name: "potential or passive", description: "" }
+    ];
+    await respond(harness.socket, response);
+
+    const next = disclosure(harness.reader.getPopupElement())!;
+    expect(next.open).toBe(false);
+    expect(next.querySelector("summary")!.textContent).toContain("見られた");
+    expect(next.querySelector("summary")!.textContent).not.toContain(
+      "食べさせられた"
+    );
+  });
+
+  it("gives each result its own disclosure in result order", async () => {
+    const harness = createReaderHarness({ lookupMode: "hover" });
+    await renderFirstLookup(harness, {
+      shiftKey: false,
+      transform(response) {
+        makeCompound(response);
+        const second = JSON.parse(JSON.stringify(response.results[0]));
+        second.matched = "書かれた";
+        second.deinflected = "書く";
+        second.trace = [{ name: "-た", description: "" }];
+        second.term.expression = "書く";
+        second.term.reading = "かく";
+        response.results.push(second);
+      }
+    });
+
+    const popup = harness.reader.getPopupElement();
+    const showMore = popup.querySelector<HTMLButtonElement>(
+      ".gsm-hoshidicts-show-more"
+    );
+    showMore?.click();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const disclosures = Array.from(
+      popup.querySelectorAll<HTMLDetailsElement>(".gsm-hoshidicts-deinflection")
+    );
+    expect(disclosures).toHaveLength(2);
+    expect(disclosures[0].querySelector("summary")!.textContent).toContain(
+      "食べさせられた"
+    );
+    expect(
+      Array.from(disclosures[0].querySelectorAll("ol > li"), (li) => li.textContent)
+    ).toEqual(["-た", "potential or passive", "causative"]);
+    expect(disclosures[1].querySelector("summary")!.textContent).toContain(
+      "書かれた"
+    );
+    expect(
+      Array.from(disclosures[1].querySelectorAll("ol > li"), (li) => li.textContent)
+    ).toEqual(["-た"]);
+  });
+
+  it("suppresses the disclosure for a direct match with equal endpoints", async () => {
+    const harness = createReaderHarness({ lookupMode: "hover" });
+    await renderFirstLookup(harness, { shiftKey: false });
+    expect(disclosure(harness.reader.getPopupElement())).toBeNull();
+  });
+
+  it.each([
+    [
+      "an empty trace",
+      (response: ReturnType<typeof lookupResult>) => {
+        makeCompound(response);
+        response.results[0].trace = [];
+      }
+    ],
+    [
+      "a missing trace",
+      (response: ReturnType<typeof lookupResult>) => {
+        makeCompound(response);
+        delete (response.results[0] as Record<string, unknown>).trace;
+      }
+    ],
+    [
+      "a malformed trace",
+      (response: ReturnType<typeof lookupResult>) => {
+        makeCompound(response);
+        (response.results[0] as Record<string, unknown>).trace = [
+          { name: "", description: "" },
+          { description: "no name" },
+          "not an object"
+        ];
+      }
+    ],
+    [
+      "a missing deinflected endpoint",
+      (response: ReturnType<typeof lookupResult>) => {
+        makeCompound(response);
+        response.results[0].deinflected = "";
+      }
+    ],
+    [
+      "equal endpoints with a trace",
+      (response: ReturnType<typeof lookupResult>) => {
+        makeCompound(response);
+        response.results[0].deinflected = response.results[0].matched;
+      }
+    ]
+  ])("suppresses the disclosure for %s", async (_name, transform) => {
+    const harness = createReaderHarness({ lookupMode: "hover" });
+    await renderFirstLookup(harness, { shiftKey: false, transform });
+    expect(disclosure(harness.reader.getPopupElement())).toBeNull();
+  });
+
+  it.each([
+    [
+      "ja",
+      "一致した理由",
+      "一致した理由: 食べさせられた から 食べる に戻しました"
+    ],
+    [
+      "ukr",
+      "Чому це збіглося",
+      "Чому це збіглося: 食べさせられた перетворено на 食べる"
+    ]
+  ])(
+    "localizes only its own copy for %s and keeps backend step names verbatim",
+    async (locale, summaryLabel, ariaLabel) => {
+      const harness = createReaderHarness({ lookupMode: "hover", locale });
+      await renderFirstLookup(harness, {
+        shiftKey: false,
+        transform: makeCompound
+      });
+
+      const details = disclosure(harness.reader.getPopupElement())!;
+      const summary = details.querySelector("summary")!;
+      expect(summary.textContent).toContain(summaryLabel);
+      expect(summary.getAttribute("aria-label")).toBe(ariaLabel);
+      expect(
+        Array.from(details.querySelectorAll("ol > li"), (li) => li.textContent)
+      ).toEqual(["-た", "potential or passive", "causative"]);
+    }
+  );
+
+  it("applies a locale pushed after the reader already exists on the next lookup", async () => {
+    const harness = createReaderHarness({ lookupMode: "hover" });
+    harness.reader.updateLocale("ja");
+    await renderFirstLookup(harness, { shiftKey: false, transform: makeCompound });
+
+    const summary = disclosure(harness.reader.getPopupElement())!.querySelector(
+      "summary"
+    )!;
+    expect(summary.textContent).toContain("一致した理由");
+  });
+
+  it("passes the unmodified backend trace to the mining payload with no disclosure state", async () => {
+    const mine = vi.fn(async () => ({ success: true, noteId: 1 }));
+    const harness = createReaderHarness({
+      lookupMode: "hover",
+      getMiningStatus: async () => ({ available: true }),
+      onMine: mine
+    });
+    await renderFirstLookup(harness, { shiftKey: false, transform: makeCompound });
+    await flushPromises();
+
+    harness.reader
+      .getPopupElement()
+      .querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")!
+      .click();
+    await flushPromises();
+    await flushPromises();
+
+    const payload = mine.mock.calls[0][0];
+    expect(payload.result.trace).toEqual(COMPOUND_TRACE);
+    expect(payload.result.matched).toBe("食べさせられた");
+    expect(payload.result.deinflected).toBe("食べる");
+    expect(payload).not.toHaveProperty("disclosureOpen");
+    expect(payload.result).not.toHaveProperty("disclosureOpen");
+  });
+
+  it("styles the disclosure to wrap without clipping long paths or descriptions", () => {
+    const rule = readerCssRule(".gsm-hoshidicts-deinflection") ?? "";
+    expect(rule).not.toBe("");
+    const endpoint =
+      readerCssRule(".gsm-hoshidicts-deinflection-endpoint") ??
+      readerCssRule(".gsm-hoshidicts-deinflection-path") ??
+      "";
+    expect(endpoint).toMatch(/overflow-wrap\s*:\s*anywhere/);
+    const steps = readerCssRule(".gsm-hoshidicts-deinflection-steps") ?? "";
+    const combined = `${rule};${endpoint};${steps}`;
+    expect(combined).not.toMatch(/text-overflow\s*:\s*ellipsis/);
+    expect(combined).not.toMatch(/white-space\s*:\s*nowrap/);
+  });
+
+  it("makes the disclosure summary focus visible for keyboard users", () => {
+    const focus = readerCssRule(".gsm-hoshidicts-deinflection summary:focus-visible");
+    expect(focus).toBeTruthy();
+    expect(focus).toMatch(/outline/);
   });
 });

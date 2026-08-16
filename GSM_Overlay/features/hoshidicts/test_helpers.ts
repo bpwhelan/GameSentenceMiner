@@ -129,6 +129,7 @@ export function configureBootstrapReader(
     destroy: vi.fn(),
     setActivationKeyPressed: vi.fn(),
     updateAudioPreferences: vi.fn(),
+    updateLocale: vi.fn(),
     updatePreferences: vi.fn()
   };
   const mining = {

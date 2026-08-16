@@ -74,6 +74,112 @@
   const DICTIONARY_LABELED_REVISION_PATTERN =
     /^(?:version|ver(?:sion)?|v|revision|rev|release)\s*[:#.-]?\s*v?\d+(?:\.\d+)*(?:[-+][0-9a-z.-]+)?$/iu;
 
+  const DEINFLECTION_STRINGS = {
+    en: {
+      summary: "Why this matched",
+      steps: "Deinflection steps",
+      aria: "Why this matched: {matched} became {deinflected}",
+    },
+    ja: {
+      summary: "一致した理由",
+      steps: "活用解除の手順",
+      aria: "一致した理由: {matched} から {deinflected} に戻しました",
+    },
+    ukr: {
+      summary: "Чому це збіглося",
+      steps: "Кроки відновлення словникової форми",
+      aria: "Чому це збіглося: {matched} перетворено на {deinflected}",
+    },
+  };
+
+  const DEINFLECTION_LOCALE_ALIASES = new Map([
+    ["en", "en"],
+    ["en_us", "en"],
+    ["ja", "ja"],
+    ["ja_jp", "ja"],
+    ["ukr", "ukr"],
+    ["ukr_ua", "ukr"],
+  ]);
+
+  function normalizeDeinflectionLocale(value) {
+    const canonical = String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/-/gu, "_");
+    return DEINFLECTION_LOCALE_ALIASES.get(canonical) || "en";
+  }
+
+  function deinflectionStrings(locale) {
+    return DEINFLECTION_STRINGS[normalizeDeinflectionLocale(locale)];
+  }
+
+  function buildDeinflectionDisclosure(documentRef, result, locale) {
+    const matched = String(result.matched || "").trim();
+    const deinflected = String(result.deinflected || "").trim();
+    const steps = Array.isArray(result.trace)
+      ? result.trace
+          .map((step) => (step && typeof step === "object" ? step : {}))
+          .map((step) => ({
+            name: String(step.name || "").trim(),
+            description: String(step.description || "").trim(),
+          }))
+          .filter((step) => step.name.length > 0)
+      : [];
+    if (!matched || !deinflected || matched === deinflected || steps.length === 0) {
+      return null;
+    }
+
+    const strings = deinflectionStrings(locale);
+    const details = documentRef.createElement("details");
+    details.className = "gsm-hoshidicts-deinflection";
+
+    const summary = documentRef.createElement("summary");
+    const label = documentRef.createElement("span");
+    label.className = "gsm-hoshidicts-deinflection-label";
+    label.textContent = strings.summary;
+    const path = documentRef.createElement("span");
+    path.className = "gsm-hoshidicts-deinflection-path";
+    const from = documentRef.createElement("span");
+    from.className = "gsm-hoshidicts-deinflection-endpoint";
+    from.textContent = matched;
+    const arrow = documentRef.createElement("span");
+    arrow.className = "gsm-hoshidicts-deinflection-arrow";
+    arrow.setAttribute("aria-hidden", "true");
+    arrow.textContent = " → ";
+    const to = documentRef.createElement("span");
+    to.className = "gsm-hoshidicts-deinflection-endpoint";
+    to.textContent = deinflected;
+    path.append(from, arrow, to);
+    summary.append(label, path);
+    summary.setAttribute(
+      "aria-label",
+      strings.aria
+        .replace("{matched}", matched)
+        .replace("{deinflected}", deinflected)
+    );
+    details.appendChild(summary);
+
+    const stepList = documentRef.createElement("ol");
+    stepList.className = "gsm-hoshidicts-deinflection-steps";
+    stepList.setAttribute("aria-label", strings.steps);
+    for (const step of steps) {
+      const item = documentRef.createElement("li");
+      const name = documentRef.createElement("span");
+      name.className = "gsm-hoshidicts-deinflection-step-name";
+      name.textContent = step.name;
+      item.appendChild(name);
+      if (step.description) {
+        const description = documentRef.createElement("span");
+        description.className = "gsm-hoshidicts-deinflection-step-description";
+        description.textContent = step.description;
+        item.appendChild(description);
+      }
+      stepList.appendChild(item);
+    }
+    details.appendChild(stepList);
+    return details;
+  }
+
   function isDictionaryDecoration(value) {
     const decoration = String(value || "").trim();
     return DICTIONARY_DATE_DECORATION_PATTERN.test(decoration) ||
@@ -1609,6 +1715,7 @@
         showPitchAccentFurigana = true,
         pitchAccentFuriganaDictionary = null,
         onBack = null,
+        deinflectionLocale = "en",
       } = {}
     ) {
       const header = element || documentRef.createElement("header");
@@ -1696,6 +1803,17 @@
           summary.appendChild(items);
           headword.appendChild(summary);
         }
+      }
+      const deinflection = buildDeinflectionDisclosure(
+        documentRef,
+        result,
+        deinflectionLocale
+      );
+      if (deinflection) {
+        if (typeof onLayoutChange === "function") {
+          deinflection.addEventListener("toggle", () => onLayoutChange());
+        }
+        headword.appendChild(deinflection);
       }
       header.appendChild(headword);
 
@@ -1827,6 +1945,7 @@
             resultIndex === 0 && typeof renderContext.onBack === "function"
               ? renderContext.onBack
               : null,
+          deinflectionLocale: renderContext.deinflectionLocale,
         });
         audioItems.push(...renderedHeader.audioItems);
         miningItems.push(...renderedHeader.miningItems);
@@ -2483,6 +2602,7 @@
   return {
     createSourceHighlighter,
     createPopupView,
+    normalizeDeinflectionLocale,
     setMiningButtonState,
   };
 }));

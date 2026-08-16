@@ -40,6 +40,7 @@
   const {
     createPopupView,
     createSourceHighlighter,
+    normalizeDeinflectionLocale,
     setMiningButtonState,
   } = popupApi;
   const {
@@ -2268,6 +2269,8 @@
       }
     }
 
+    let locale = normalizeDeinflectionLocale(options.locale);
+
     let socket = null;
     let reconnectTimer = null;
     let reconnectAttempt = 0;
@@ -3603,6 +3606,7 @@
       return {
         definitionBlurState: getDefinitionBlurState(definitionBlurContext),
         generation: dictionaryGeneration,
+        deinflectionLocale: locale,
         showLookupCounts: preferences.showLookupCounts && Boolean(onLookup),
         averageFrequency: preferences.averageFrequency,
         showFrequencyDictionaryNames: preferences.showFrequencyDictionaryNames,
@@ -5426,6 +5430,10 @@
       };
     }
 
+    function updateLocale(nextLocale) {
+      locale = normalizeDeinflectionLocale(nextLocale);
+    }
+
     function updatePreferences(nextPreferences = {}) {
       const hadHideTimer = hideTimer !== null;
       // desktop_bridge.js throws and bootstrap.js drops anything that is not a
@@ -5746,6 +5754,7 @@
       positionPopup: positionAllPopups,
       setActivationKeyPressed,
       updateAudioPreferences,
+      updateLocale,
       updatePreferences,
     };
   }

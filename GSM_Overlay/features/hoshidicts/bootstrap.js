@@ -145,8 +145,17 @@
    */
   function initialize(settings = {}) {
     const readerApi = globalWindow && globalWindow.GSMHoshidictsReader;
-    if (!state.enabled || state.reader || !readerApi) {
+    if (!state.enabled || !readerApi) {
       return null;
+    }
+    const localeSetting = settings && typeof settings.locale === "string"
+      ? settings.locale
+      : null;
+    if (state.reader) {
+      if (localeSetting !== null) {
+        state.reader.updateLocale?.(localeSetting);
+      }
+      return state.reader;
     }
     const port = Number.parseInt(settings && settings.gamepadServerPort, 10);
     const serverPort = Number.isFinite(port) && port > 0 && port <= 65535
@@ -165,6 +174,7 @@
       ...state.preferences,
       serverUrl: `ws://127.0.0.1:${serverPort}`,
       activationKeyPressed: state.activationKeyPressed === true,
+      locale: localeSetting,
       audioClient,
       audioPreferences: state.audioProfile,
       onPopupStateChange: state.attached?.onPopupStateChange,
