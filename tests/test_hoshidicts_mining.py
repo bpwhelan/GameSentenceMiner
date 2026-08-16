@@ -1462,15 +1462,27 @@ def test_dictionary_style_grouping_nesting_is_bounded_without_unscoped_fallback(
     assert '<li data-dictionary="JMdict">' in rendered
 
 
-def test_append_structured_text_deep_nesting_no_recursion_error():
-    depth = max(note_module.MAX_STRUCTURED_CONTENT_DEPTH * 4, 5000)
-    nested: object = "deep-leaf"
-    for _ in range(depth):
-        nested = [nested]
+def test_glossary_text_deep_nesting_is_bounded_by_depth_cap():
+    # Drive the public _glossary_text seam (json.loads -> _append_structured_text)
+    # rather than the private helper, so the guard is exercised through the real
+    # entry point. A leaf nested just past MAX_STRUCTURED_CONTENT_DEPTH is dropped
+    # without a RecursionError; a leaf nested exactly at the cap survives. Both
+    # depths stay tiny (portable: no json.dumps/loads stack risk from a 5000-deep
+    # structure), so removing the depth cap keeps the over-deep leaf and turns
+    # this assertion red.
+    max_depth = note_module.MAX_STRUCTURED_CONTENT_DEPTH
 
-    output: list[str] = []
-    note_module._append_structured_text(nested, output, [0])
-    assert output == []
+    def nest(leaf: object, times: int) -> object:
+        value = leaf
+        for _ in range(times):
+            value = [value]
+        return value
+
+    over_cap = json.dumps(nest("deep-leaf", max_depth + 1))
+    assert note_module._glossary_text(over_cap) == ""
+
+    at_cap = json.dumps(nest("edge-leaf", max_depth))
+    assert note_module._glossary_text(at_cap) == "edge-leaf"
 
 
 def test_dictionary_style_scoping_handles_comments_before_at_rules_and_selector_commas():
