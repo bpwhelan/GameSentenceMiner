@@ -114,14 +114,14 @@
   }
 
   function buildDeinflectionDisclosure(documentRef, result, locale) {
-    const matched = String(result.matched || "").trim();
-    const deinflected = String(result.deinflected || "").trim();
+    const matched = typeof result.matched === "string" ? result.matched.slice(0, 4096) : "";
+    const deinflected = typeof result.deinflected === "string" ? result.deinflected.slice(0, 4096) : "";
     const steps = Array.isArray(result.trace)
       ? result.trace
           .map((step) => (step && typeof step === "object" ? step : {}))
           .map((step) => ({
-            name: String(step.name || "").trim(),
-            description: String(step.description || "").trim(),
+            name: typeof step.name === "string" ? step.name.slice(0, 1024) : "",
+            description: typeof step.description === "string" ? step.description.slice(0, 4096) : "",
           }))
           .filter((step) => step.name.length > 0)
       : [];

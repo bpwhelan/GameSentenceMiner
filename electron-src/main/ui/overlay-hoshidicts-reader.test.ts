@@ -8842,6 +8842,93 @@ describe("Hoshidicts deinflection disclosure", () => {
     expect(payload.result).not.toHaveProperty("disclosureOpen");
   });
 
+  it("renders endpoint and step text exactly as the backend sent it, matching the mining payload", async () => {
+    const mine = vi.fn(async () => ({ success: true, noteId: 1 }));
+    const harness = createReaderHarness({
+      lookupMode: "hover",
+      getMiningStatus: async () => ({ available: true }),
+      onMine: mine
+    });
+    await renderFirstLookup(harness, {
+      shiftKey: false,
+      transform(response: ReturnType<typeof lookupResult>) {
+        response.results[0].matched = " 食べさせられた ";
+        response.results[0].deinflected = " 食べる ";
+        response.results[0].trace = [
+          { name: " -た ", description: " Past tense " },
+          { name: "potential or passive", description: "" }
+        ];
+        response.results[0].term.expression = "食べる";
+        response.results[0].term.reading = "たべる";
+      }
+    });
+    await flushPromises();
+
+    const popup = harness.reader.getPopupElement();
+    const details = disclosure(popup)!;
+    const endpoints = Array.from(
+      details.querySelectorAll(".gsm-hoshidicts-deinflection-endpoint"),
+      (node) => node.textContent
+    );
+    expect(endpoints).toEqual([" 食べさせられた ", " 食べる "]);
+    expect(
+      Array.from(details.querySelectorAll("ol > li > .gsm-hoshidicts-deinflection-step-name"), (node) => node.textContent)
+    ).toEqual([" -た ", "potential or passive"]);
+    expect(
+      details.querySelector(".gsm-hoshidicts-deinflection-step-description")!.textContent
+    ).toBe(" Past tense ");
+
+    popup
+      .querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")!
+      .click();
+    await flushPromises();
+    await flushPromises();
+
+    const payload = mine.mock.calls[0][0];
+    expect(endpoints).toEqual([payload.result.matched, payload.result.deinflected]);
+    expect(
+      Array.from(details.querySelectorAll("ol > li > .gsm-hoshidicts-deinflection-step-name"), (node) => node.textContent)
+    ).toEqual(payload.result.trace.map((step: { name: string }) => step.name));
+  });
+
+  it("keeps a whitespace-only step name so the rule path stays consistent with mining", async () => {
+    const mine = vi.fn(async () => ({ success: true, noteId: 1 }));
+    const harness = createReaderHarness({
+      lookupMode: "hover",
+      getMiningStatus: async () => ({ available: true }),
+      onMine: mine
+    });
+    await renderFirstLookup(harness, {
+      shiftKey: false,
+      transform(response) {
+        makeCompound(response);
+        response.results[0].trace = [
+          { name: "-た", description: "" },
+          { name: "  ", description: "" },
+          { name: "causative", description: "" }
+        ];
+      }
+    });
+    await flushPromises();
+
+    const popup = harness.reader.getPopupElement();
+    const details = disclosure(popup)!;
+    const steps = Array.from(
+      details.querySelectorAll("ol > li > .gsm-hoshidicts-deinflection-step-name"),
+      (node) => node.textContent
+    );
+    expect(steps).toEqual(["-た", "  ", "causative"]);
+
+    popup
+      .querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")!
+      .click();
+    await flushPromises();
+    await flushPromises();
+
+    const payload = mine.mock.calls[0][0];
+    expect(steps).toEqual(payload.result.trace.map((step: { name: string }) => step.name));
+  });
+
   it("styles the disclosure to wrap without clipping long paths or descriptions", () => {
     const rule = readerCssRule(".gsm-hoshidicts-deinflection") ?? "";
     expect(rule).not.toBe("");
