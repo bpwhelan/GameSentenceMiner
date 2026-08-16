@@ -2471,7 +2471,19 @@ html[data-hoshidicts-theme="high-contrast"] .gsm-hoshidicts-audio-menu {
   .gsm-hoshidicts-glossary-content
     .gloss-image-link:focus-visible
     .gloss-image-container {
-    z-index: 3;
+    /*
+     * The container clips with overflow: hidden, but the real clip that cut the
+     * enlarged image off was the ancestor popup scrollport: .gsm-hoshidicts-popup
+     * sets overflow-x: hidden and overflow-y: auto. Lifting only this container to
+     * overflow: visible cannot escape that scrollport, so a scale(1.6) enlargement
+     * near the popup edge was still cut off. Taking the container out of the
+     * scrollport's flow (position: fixed, anchored to the viewport at its in-place
+     * position) lets the enlarged pixels paint over the popup edge and stay fully
+     * visible. It only applies while hovered/focused, so the base layout,
+     * scrolling, and clicks/links are unchanged.
+     */
+    position: fixed;
+    z-index: 2147483647;
     overflow: visible;
   }
 }

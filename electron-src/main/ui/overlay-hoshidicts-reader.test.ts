@@ -280,6 +280,56 @@ describe("Hoshidicts safe popup rendering", () => {
       );
     });
 
+    it("escapes the popup scrollport, not just the container clip", () => {
+      // Root cause of the earlier clip: `.gsm-hoshidicts-popup` is a scrollport
+      // (overflow-x: hidden; overflow-y: auto). A descendant that is only lifted
+      // to `overflow: visible` STILL cannot paint outside that ancestor scrollport,
+      // so a scale(1.6) enlargement near the popup edge was cut off by the popup.
+      // Strip CSS comments first so prose (which mentions these properties by name)
+      // can never satisfy the assertions — only real declarations count.
+      const cssNoComments = css.replace(/\/\*[\s\S]*?\*\//gu, "");
+
+      // Confirm the popup really is a clipping scrollport (the ancestor to escape).
+      const popupRule =
+        /\.gsm-hoshidicts-popup\s*\{(?<declarations>(?:[^{}]|\{[^{}]*\})*)\}/u.exec(
+          cssNoComments
+        );
+      expect(popupRule?.groups?.declarations).toMatch(/overflow-y\s*:\s*auto/u);
+      expect(popupRule?.groups?.declarations).toMatch(/overflow-x\s*:\s*hidden/u);
+
+      // The hover/focus enlargement must therefore take the image's container
+      // OUT of the scrollport's flow (position: fixed | absolute) so the popup's
+      // overflow no longer clips the enlarged pixels. `overflow: visible` alone
+      // on the container does not achieve this and is what let the bug through.
+      const opener = cssNoComments.indexOf("@media (hover: hover)");
+      let depth = 0;
+      let start = -1;
+      let block = "";
+      for (let index = cssNoComments.indexOf("{", opener); index < cssNoComments.length; index += 1) {
+        const character = cssNoComments[index];
+        if (character === "{") {
+          if (depth === 0) start = index;
+          depth += 1;
+        } else if (character === "}") {
+          depth -= 1;
+          if (depth === 0) {
+            block = cssNoComments.slice(start + 1, index);
+            break;
+          }
+        }
+      }
+      const containerRule =
+        /\.gsm-hoshidicts-glossary-content\s+[^{}]*:(?:hover|focus[^{}]*)\s+\.gloss-image-container[^{}]*\{(?<declarations>[^{}]*)\}/u.exec(
+          block
+        );
+      expect(containerRule).not.toBeNull();
+      expect(containerRule?.groups?.declarations).toMatch(
+        /position\s*:\s*(?:fixed|absolute)/u
+      );
+      // And the enlargement transform itself is still present and > 1.
+      expect(block).toMatch(/transform\s*:\s*scale\(\s*(?:1\.\d+|[2-9])/u);
+    });
+
     it("keeps a modest zoom transition but drops it under reduced motion", () => {
       const block = hoverMediaBlock() ?? "";
       // A transition on the glossary image gives the enlargement a smooth feel.
