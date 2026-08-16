@@ -146,6 +146,23 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(attachedChromeRule).toMatch(/margin-top\s*:\s*0/);
   });
 
+  // The Back control sits in a flex sibling row beside the headword and the
+  // action buttons. That wrapper declares min-width: 0, so with default
+  // flex-shrink it is allowed to shrink below the Back button's intrinsic
+  // width once the row is under pressure (a wide headword, e.g. a compact
+  // definition summary on a clicked-kanji generic-dictionary result). The
+  // button then overflows its shrunken wrapper and a later-painted sibling can
+  // cover it, hiding Back behind the kanji result. Pinning the wrapper's
+  // shrink to 0 keeps it at least as wide as the Back button so the control
+  // stays in the navigation layer at every popup width. This is a local flex
+  // sizing fix, not a global z-index escalation.
+  it("does not let the Back navigation wrapper shrink below the Back button", () => {
+    const navigationRule = readerCssRule(".gsm-hoshidicts-kanji-navigation") ?? "";
+    expect(navigationRule).toMatch(
+      /(?:^|;)\s*flex-shrink\s*:\s*0\b|(?:^|;)\s*flex\s*:\s*0\s+0\b/
+    );
+  });
+
   // reader.css owns these palettes; jsdom applies no CSS, so scraping the file
   // only restated it. What matters behaviourally is that every theme the reader
   // can select has a rule to select, which the reader test at the bottom of this

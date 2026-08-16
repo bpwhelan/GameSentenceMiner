@@ -2441,6 +2441,7 @@ html[data-hoshidicts-theme="high-contrast"] .gsm-hoshidicts-audio-menu {
   align-items: center;
   gap: 12px;
   min-width: 0;
+  flex-shrink: 0;
   margin: 0;
 }
 
