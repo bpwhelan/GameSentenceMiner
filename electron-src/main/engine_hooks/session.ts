@@ -6,10 +6,8 @@ import * as path from 'node:path';
 
 import { getAssetsDir } from '../util.js';
 import type { TextGeometryV1 } from '../ui/text_geometry.js';
-import { selectBgiLayout } from './bgi_decoder.js';
-import { decodeMagesLayout } from './mages_decoder.js';
+import { getEngineHookDecoder } from './decoders/index.js';
 import { sanitizeEngineHookMessage } from './protocol.js';
-import { decodeVlrLayout } from './vlr_decoder.js';
 import {
     createInjectedPayloadSource,
     resolveEngineHookSupport,
@@ -131,21 +129,10 @@ function handleTextLayout(
         return;
     }
     try {
-        const decoded =
-            current.support.manifest.decoder === 'mages-v1'
-                ? decodeMagesLayout(
-                      message.positionedCodes,
-                      current.support.charset ?? '',
-                      current.support.compoundCharacters ?? new Map(),
-                  )
-                : current.support.manifest.decoder === 'bgi-v1'
-                  ? selectBgiLayout(message.candidates ?? [], message.positionedCodes)
-                  : decodeVlrLayout(
-                        message.positionedCodes.map((positionedCode) => ({
-                            ...positionedCode,
-                            type: 1,
-                        })),
-                    );
+        const decoded = getEngineHookDecoder(current.support.manifest.decoder).decodeLayout(
+            message,
+            current.support,
+        );
         // A null decode is not a fault: engines that report candidates emit strings
         // belonging to no displayed line, and refusing to pair them is intended.
         if (!decoded) return;

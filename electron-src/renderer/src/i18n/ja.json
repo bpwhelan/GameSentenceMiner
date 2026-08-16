@@ -1207,19 +1207,7 @@
       "experimentalBadge": "実験的",
       "availability": "この実験的なフックは、以下に記載されたゲームとエンジンでのみ動作します。他のゲーム、エディション、ストア版、実行ファイルのビルドにはまだ対応していません。",
       "support": {
-        "title": "現在対応しているゲーム・エンジン",
-        "steinsGate": {
-          "name": "STEINS;GATE",
-          "details": "Windows版Steam — 対応する32ビット（x86）実行ファイル"
-        },
-        "virtueLastReward": {
-          "name": "Zero Escape: Virtue's Last Reward",
-          "details": "Windows版Steam — 対応する32ビット（x86）実行ファイル"
-        },
-        "bgi": {
-          "name": "BGI / Ethornell",
-          "details": "このエンジンを使用する32ビット（x86）ゲーム全般 — バージョン情報で判別します"
-        }
+        "title": "現在対応しているゲーム・エンジン"
       },
       "description": "対応するゲームでは、GSMがゲームに直接アタッチし、外部のAgentスクリプトやOCRを使わずにテキストと文字位置を取得します。",
       "advance": "テキストを進める",

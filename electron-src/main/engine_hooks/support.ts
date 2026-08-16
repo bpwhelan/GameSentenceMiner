@@ -1,188 +1,36 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { applyMagesCharsetOverrides, parseMagesCompoundMap } from './mages_decoder.js';
+import { getEngineHookDecoder } from './decoders/index.js';
+import {
+    nonEmptyString,
+    object,
+    parseEngineHookDisplay,
+    positiveInteger,
+    relativeAssetPath,
+    rva,
+    unitRatio,
+    type EngineHookAdvance,
+    type EngineHookCoordinateSpace,
+    type EngineHookManifest,
+    type EngineHookManifestBase,
+    type EngineHookSupport,
+} from './manifest.js';
 
-interface EngineHookManifestBase {
-    schema: 'gsm_engine_hook_manifest_v1';
-    id: string;
-    name: string;
-    engine: string;
-    target: {
-        platform: 'windows';
-        architecture: 'ia32' | 'x64';
-        /** Absent when the module is the executable itself, whatever it is named. */
-        moduleName?: string;
-        executableNames?: string[];
-        knownExecutableSha256?: string[];
-        /**
-         * UTF-16 strings that must all appear in the executable. Engines whose games
-         * each rename the executable are identified by their version resource
-         * instead of by file name.
-         */
-        versionMarkers?: string[];
-    };
-    coordinateSpace: EngineHookCoordinateSpace;
-    payload: string;
-    advance: EngineHookAdvance;
-}
-
-type EngineHookCoordinateSpace =
-    | {
-          provider: 'window-client-over-memory-scale';
-          scaleXRva: string;
-          scaleYRva: string;
-      }
-    | {
-          provider: 'window-client-over-design-space';
-          designWidth: number;
-          designHeight: number;
-      }
-    | {
-          /** The payload resolves glyphs to client pixels itself and reports them. */
-          provider: 'payload-client-pixels';
-      };
-
-type EngineHookAdvance =
-    | {
-          method: 'foreground-key';
-          virtualKey: number;
-          scanCode: number;
-      }
-    | {
-          method: 'foreground-click';
-          clientXRatio: number;
-          clientYRatio: number;
-      };
-
-export interface EngineHookMagesManifest extends EngineHookManifestBase {
-    decoder: 'mages-v1';
-    resources: {
-        charset: string;
-        charsetOverrides?: string;
-        compoundCharacters: string;
-    };
-    signatures: {
-        textBuilder: string;
-        lineLayout: string;
-    };
-    memory: {
-        codeCountRva: string;
-        codesRva: string;
-        metricsRva: string;
-        positionsRva: string;
-        metricStride: number;
-        positionStride: number;
-        maximumCodes: number;
-    };
-    capture: {
-        acceptedModes: number[];
-    };
-}
-
-export interface EngineHookVlrManifest extends EngineHookManifestBase {
-    decoder: 'vlr-v1';
-    signatures: {
-        textBuilder: string;
-        alternativeTextBuilder?: string;
-        lineLayout: string;
-        alternativeLineLayout?: string;
-    };
-    memory: {
-        kind: 'vlr-text-layout-v1';
-        textObject: {
-            entriesOffset: string;
-            countOffset: string;
-            glyphHeightOffset: string;
-            maximumXOffset: string;
-            maximumYOffset: string;
-            originXOffset: string;
-            originYOffset: string;
-        };
-        entry: {
-            stride: number;
-            typeOffset: string;
-            xOffset: string;
-            yOffset: string;
-            widthOffset: string;
-            codeOffset: string;
-            visibleType: number;
-        };
-        maximumEntries: number;
-    };
-    capture: {
-        acceptedModes: number[];
-        requiredTerminator: 'K-or-P';
-    };
-}
-
-export interface EngineHookBgiManifest extends EngineHookManifestBase {
-    decoder: 'bgi-v1';
-    signatures: {
-        glyphDraw: string;
-        textCapture: string;
-        copyDispatcher: string;
-        surfaceLock: string;
-    };
-}
-
-export type EngineHookManifest =
-    | EngineHookMagesManifest
-    | EngineHookVlrManifest
-    | EngineHookBgiManifest;
-
-export interface EngineHookSupport {
-    directory: string;
-    manifest: EngineHookManifest;
-    payloadSource: string;
-    charset?: string;
-    compoundCharacters?: Map<string, string>;
-}
-
-function object(value: unknown, label: string): Record<string, unknown> {
-    if (typeof value !== 'object' || value === null) throw new Error(`${label} must be an object.`);
-    return value as Record<string, unknown>;
-}
-
-function nonEmptyString(value: unknown, label: string): string {
-    if (typeof value !== 'string' || !value.trim()) throw new Error(`${label} must be a non-empty string.`);
-    return value;
-}
-
-function positiveInteger(value: unknown, label: string, maximum = Number.MAX_SAFE_INTEGER): number {
-    if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0 || value > maximum) {
-        throw new Error(`${label} must be a positive integer.`);
-    }
-    return value;
-}
-
-function unitRatio(value: unknown, label: string): number {
-    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0 || value >= 1) {
-        throw new Error(`${label} must be a number between zero and one.`);
-    }
-    return value;
-}
-
-function relativeAssetPath(value: unknown, label: string): string {
-    const candidate = nonEmptyString(value, label);
-    if (path.isAbsolute(candidate) || candidate.split(/[\\/]/u).includes('..')) {
-        throw new Error(`${label} must stay inside the support package.`);
-    }
-    return candidate;
-}
-
-function rva(value: unknown, label: string): string {
-    const candidate = nonEmptyString(value, label);
-    if (!/^0x[0-9a-f]+$/iu.test(candidate)) throw new Error(`${label} must be a hexadecimal RVA.`);
-    return candidate;
-}
+export type {
+    EngineHookAdvance,
+    EngineHookCoordinateSpace,
+    EngineHookDisplay,
+    EngineHookManifest,
+    EngineHookManifestBase,
+    EngineHookSupport,
+} from './manifest.js';
 
 export function parseEngineHookManifest(value: unknown): EngineHookManifest {
     const root = object(value, 'manifest');
     if (root.schema !== 'gsm_engine_hook_manifest_v1') throw new Error('Unsupported engine-hook manifest schema.');
     const target = object(root.target, 'target');
     const coordinateSpace = object(root.coordinateSpace, 'coordinateSpace');
-    const signatures = object(root.signatures, 'signatures');
     const advance = object(root.advance, 'advance');
     if (
         target.platform !== 'windows' ||
@@ -264,7 +112,9 @@ export function parseEngineHookManifest(value: unknown): EngineHookManifest {
                 }
               : { provider: 'payload-client-pixels' };
 
-    const common = {
+    const display = parseEngineHookDisplay(root.display);
+
+    const common: EngineHookManifestBase = {
         schema: 'gsm_engine_hook_manifest_v1',
         id: nonEmptyString(root.id, 'id'),
         name: nonEmptyString(root.name, 'name'),
@@ -284,7 +134,8 @@ export function parseEngineHookManifest(value: unknown): EngineHookManifest {
         coordinateSpace: coordinateSpaceConfig,
         payload: relativeAssetPath(root.payload, 'payload'),
         advance: advanceConfig,
-    } as const;
+        ...(display ? { display } : {}),
+    };
 
     // Only the memory-reading decoders declare memory layouts and capture modes, so
     // those blocks are validated per decoder rather than for every manifest.
@@ -309,161 +160,18 @@ export function parseEngineHookManifest(value: unknown): EngineHookManifest {
         return common.target.moduleName;
     }
 
-    if (root.decoder === 'bgi-v1') {
-        if (coordinateSpaceConfig.provider !== 'payload-client-pixels') {
-            throw new Error('bgi-v1 coordinateSpace.provider must be payload-client-pixels.');
-        }
-        return {
-            ...common,
-            decoder: 'bgi-v1',
-            signatures: {
-                glyphDraw: nonEmptyString(signatures.glyphDraw, 'signatures.glyphDraw'),
-                textCapture: nonEmptyString(signatures.textCapture, 'signatures.textCapture'),
-                copyDispatcher: nonEmptyString(signatures.copyDispatcher, 'signatures.copyDispatcher'),
-                surfaceLock: nonEmptyString(signatures.surfaceLock, 'signatures.surfaceLock'),
-            },
-        };
-    }
-
-    if (root.decoder === 'mages-v1') {
-        const resources = object(root.resources, 'resources');
-        const memory = object(root.memory, 'memory');
-        const acceptedModes = requireCaptureModes();
-        requireModuleName();
-        return {
-            ...common,
-            decoder: 'mages-v1',
-            resources: {
-                charset: relativeAssetPath(resources.charset, 'resources.charset'),
-                ...(resources.charsetOverrides === undefined
-                    ? {}
-                    : {
-                          charsetOverrides: relativeAssetPath(
-                              resources.charsetOverrides,
-                              'resources.charsetOverrides',
-                          ),
-                      }),
-                compoundCharacters: relativeAssetPath(
-                    resources.compoundCharacters,
-                    'resources.compoundCharacters',
-                ),
-            },
-            signatures: {
-                textBuilder: nonEmptyString(signatures.textBuilder, 'signatures.textBuilder'),
-                lineLayout: nonEmptyString(signatures.lineLayout, 'signatures.lineLayout'),
-            },
-            memory: {
-                codeCountRva: rva(memory.codeCountRva, 'memory.codeCountRva'),
-                codesRva: rva(memory.codesRva, 'memory.codesRva'),
-                metricsRva: rva(memory.metricsRva, 'memory.metricsRva'),
-                positionsRva: rva(memory.positionsRva, 'memory.positionsRva'),
-                metricStride: positiveInteger(memory.metricStride, 'memory.metricStride', 256),
-                positionStride: positiveInteger(memory.positionStride, 'memory.positionStride', 256),
-                maximumCodes: positiveInteger(memory.maximumCodes, 'memory.maximumCodes', 2000),
-            },
-            capture: { acceptedModes },
-        };
-    }
-
-    if (root.decoder === 'vlr-v1') {
-        const memory = object(root.memory, 'memory');
-        const capture = object(root.capture, 'capture');
-        const acceptedModes = requireCaptureModes();
-        requireModuleName();
-        const textObject = object(memory.textObject, 'memory.textObject');
-        const entry = object(memory.entry, 'memory.entry');
-        if (memory.kind !== 'vlr-text-layout-v1') {
-            throw new Error('memory.kind must be vlr-text-layout-v1.');
-        }
-        if (capture.requiredTerminator !== 'K-or-P') {
-            throw new Error('capture.requiredTerminator must be K-or-P.');
-        }
-        const visibleType = positiveInteger(entry.visibleType, 'memory.entry.visibleType', 255);
-        const requiredTerminator = 'K-or-P' as const;
-        return {
-            ...common,
-            decoder: 'vlr-v1',
-            signatures: {
-                textBuilder: nonEmptyString(signatures.textBuilder, 'signatures.textBuilder'),
-                ...(signatures.alternativeTextBuilder === undefined
-                    ? {}
-                    : {
-                          alternativeTextBuilder: nonEmptyString(
-                              signatures.alternativeTextBuilder,
-                              'signatures.alternativeTextBuilder',
-                          ),
-                      }),
-                ...(signatures.alternativeLineLayout === undefined
-                    ? {}
-                    : {
-                          alternativeLineLayout: nonEmptyString(
-                              signatures.alternativeLineLayout,
-                              'signatures.alternativeLineLayout',
-                          ),
-                      }),
-                lineLayout: nonEmptyString(signatures.lineLayout, 'signatures.lineLayout'),
-            },
-            memory: {
-                kind: 'vlr-text-layout-v1',
-                textObject: {
-                    entriesOffset: rva(textObject.entriesOffset, 'memory.textObject.entriesOffset'),
-                    countOffset: rva(textObject.countOffset, 'memory.textObject.countOffset'),
-                    glyphHeightOffset: rva(
-                        textObject.glyphHeightOffset,
-                        'memory.textObject.glyphHeightOffset',
-                    ),
-                    maximumXOffset: rva(textObject.maximumXOffset, 'memory.textObject.maximumXOffset'),
-                    maximumYOffset: rva(textObject.maximumYOffset, 'memory.textObject.maximumYOffset'),
-                    originXOffset: rva(textObject.originXOffset, 'memory.textObject.originXOffset'),
-                    originYOffset: rva(textObject.originYOffset, 'memory.textObject.originYOffset'),
-                },
-                entry: {
-                    stride: positiveInteger(entry.stride, 'memory.entry.stride', 256),
-                    typeOffset: rva(entry.typeOffset, 'memory.entry.typeOffset'),
-                    xOffset: rva(entry.xOffset, 'memory.entry.xOffset'),
-                    yOffset: rva(entry.yOffset, 'memory.entry.yOffset'),
-                    widthOffset: rva(entry.widthOffset, 'memory.entry.widthOffset'),
-                    codeOffset: rva(entry.codeOffset, 'memory.entry.codeOffset'),
-                    visibleType,
-                },
-                maximumEntries: positiveInteger(memory.maximumEntries, 'memory.maximumEntries', 512),
-            },
-            capture: { acceptedModes, requiredTerminator },
-        };
-    }
-
-    throw new Error('Unsupported engine-hook decoder.');
+    return getEngineHookDecoder(root.decoder).validateManifest(root, common, {
+        requireCaptureModes,
+        requireModuleName,
+    });
 }
 
 export function loadEngineHookSupport(directory: string): EngineHookSupport {
     const manifestPath = path.join(directory, 'manifest.json');
     const manifest = parseEngineHookManifest(JSON.parse(fs.readFileSync(manifestPath, 'utf8')));
     const payloadSource = fs.readFileSync(path.join(directory, manifest.payload), 'utf8');
-    // Only MAGES needs character resources; the others carry Unicode already.
-    if (manifest.decoder !== 'mages-v1') return { directory, manifest, payloadSource };
-    const rawCharset = fs.readFileSync(path.join(directory, manifest.resources.charset), 'utf8');
-    const charset = manifest.resources.charsetOverrides
-        ? applyMagesCharsetOverrides(
-              rawCharset,
-              JSON.parse(
-                  fs.readFileSync(
-                      path.join(directory, manifest.resources.charsetOverrides),
-                      'utf8',
-                  ),
-              ),
-          )
-        : rawCharset;
-    const compoundMapContents = fs.readFileSync(
-        path.join(directory, manifest.resources.compoundCharacters),
-        'utf8',
-    );
-    return {
-        directory,
-        manifest,
-        payloadSource,
-        charset,
-        compoundCharacters: parseMagesCompoundMap(compoundMapContents),
-    };
+    const resources = getEngineHookDecoder(manifest.decoder).loadResources?.(directory, manifest);
+    return { directory, manifest, payloadSource, ...(resources === undefined ? {} : { resources }) };
 }
 
 export function createInjectedPayloadSource(support: EngineHookSupport): string {

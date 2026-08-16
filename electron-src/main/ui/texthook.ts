@@ -63,6 +63,7 @@ import {
     startEngineHookSession,
     stopEngineHookSession,
 } from '../engine_hooks/session.js';
+import { loadEngineHookCatalog } from '../engine_hooks/support.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -1937,6 +1938,21 @@ export function registerTextHookIPC(): void {
             hooks: Array.from(session.hooks.values()),
             selectedHookId: session.selectedHookId,
         };
+    });
+
+    ipcMain.handle('texthook.builtInHookTargets', async () => {
+        try {
+            return loadEngineHookCatalog(path.join(getAssetsDir(), 'engine_hooks')).map(
+                (support) => ({
+                    id: support.manifest.id,
+                    name: support.manifest.name,
+                    details: support.manifest.display?.details ?? {},
+                }),
+            );
+        } catch (error) {
+            console.error('[texthook] Could not read the engine-hook catalog:', error);
+            return [];
+        }
     });
 
     ipcMain.handle('texthook.advance', async () => advanceEngineHookSession());
