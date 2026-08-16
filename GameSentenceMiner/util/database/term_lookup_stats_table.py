@@ -14,9 +14,9 @@ class TermLookupStatsTable:
     _db: SQLiteDB | None = None
 
     @classmethod
-    def set_db(cls, db: SQLiteDB) -> None:
+    def set_db(cls, db: SQLiteDB, *, ensure_schema: bool = True) -> None:
         cls._db = db
-        if db.read_only:
+        if db.read_only or not ensure_schema:
             return
         db.execute(
             f"""
