@@ -6,7 +6,6 @@ import {
     cloneHoshidictsReaderPreferences,
     createDefaultHoshidictsPopupButtons,
     createDefaultHoshidictsReaderPreferences,
-    DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
     HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
     HOSHIDICTS_MINING_FIELD_MARKERS,
     hoshidictsDefinitionBlurEqual,
@@ -70,7 +69,6 @@ const otherPreferences: Record<
     popupColumns: 3,
     theme: 'girlypop',
     popupOpacityPercent: 70,
-    popupBackdropBlurPx: 24,
     popupToolbarPosition: 'bottom',
     popupButtons: {
         ...createDefaultHoshidictsPopupButtons(),
@@ -303,7 +301,6 @@ describe('Hoshidicts reader preference helpers', () => {
             popupColumns: 1,
             theme: 'default',
             popupOpacityPercent: 85,
-            popupBackdropBlurPx: 16,
             popupToolbarPosition: 'auto',
             popupButtons: createDefaultHoshidictsPopupButtons(),
             customPopupCss: '',
@@ -677,7 +674,6 @@ describe('Hoshidicts reader preferences from a snapshot', () => {
             pitchAccentFuriganaDictionary: 'Kanjium Pitch Accents',
             showPitchAccentBadge: true,
             hidePopupGrammarTags: true,
-            popupBackdropBlurPx: 24,
             popupButtons: createDefaultHoshidictsPopupButtons(),
         } as unknown as HoshidictsManagerSnapshot;
 
@@ -689,14 +685,7 @@ describe('Hoshidicts reader preferences from a snapshot', () => {
             pitchAccentFuriganaDictionary: 'Kanjium Pitch Accents',
             showPitchAccentBadge: true,
             hidePopupGrammarTags: true,
-            popupBackdropBlurPx: 24,
         });
-        expect(
-            hoshidictsReaderPreferencesFromSnapshot({
-                ...snapshot,
-                popupBackdropBlurPx: undefined,
-            } as unknown as HoshidictsManagerSnapshot).popupBackdropBlurPx
-        ).toBe(DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX);
     });
 
     // Relocated from manager.test.ts: these bounds belong beside the validator
@@ -898,8 +887,6 @@ describe('Hoshidicts reader preferences from a snapshot', () => {
         ['popupOpacityPercent', -1, 'popup opacity is invalid'],
         ['popupOpacityPercent', 101, 'popup opacity is invalid'],
         ['popupOpacityPercent', 70.5, 'popup opacity is invalid'],
-        ['popupBackdropBlurPx', -1, 'popup backdrop blur is invalid'],
-        ['popupBackdropBlurPx', 33, 'popup backdrop blur is invalid'],
         ['customPopupCss', 42, 'custom popup CSS is invalid'],
         [
             'customPopupCss',

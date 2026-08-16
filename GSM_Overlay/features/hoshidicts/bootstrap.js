@@ -75,12 +75,6 @@
       "--gsm-hoshidicts-popup-opacity",
       `${preferences.popupOpacityPercent}%`
     );
-    element.style.setProperty(
-      "--gsm-hoshidicts-popup-backdrop-filter",
-      preferences.popupBackdropBlurPx === 0
-        ? "none"
-        : `blur(${preferences.popupBackdropBlurPx}px) saturate(1.08)`
-    );
   }
 
   /**

@@ -2189,6 +2189,10 @@ describe("HoshidictsSettingsWindow", () => {
     const opacity = container.querySelector<HTMLInputElement>(
       "#hoshidicts-popup-opacity"
     );
+    expect(
+      container.querySelector("#hoshidicts-popup-backdrop-blur")
+    ).toBeNull();
+    expect(container.textContent).not.toContain("Backdrop blur");
     const width = container.querySelector<HTMLInputElement>(
       "#hoshidicts-popup-width"
     );

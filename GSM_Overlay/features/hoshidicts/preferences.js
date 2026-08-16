@@ -144,10 +144,6 @@
     popupOpacityPercent: {
       check: (value) => boundedInteger(value, BOUNDS.popupOpacityPercent)
     },
-    popupBackdropBlurPx: {
-      optional: true,
-      check: (value) => boundedInteger(value, BOUNDS.popupBackdropBlurPx)
-    },
     popupToolbarPosition: {
       check: (value) => POPUP_TOOLBAR_POSITIONS.includes(value)
     },

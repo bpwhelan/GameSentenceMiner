@@ -679,7 +679,6 @@
           "hint": "Використовуйте однаковий розмір для кожного словникового вікна.",
           "theme": "Тема",
           "opacity": "Непрозорість тла",
-          "backdropBlur": "Розмиття тла",
           "toolbarPosition": "Розташування панелі",
           "toolbarPositionAuto": "Автоматично",
           "toolbarPositionTop": "Вгорі",

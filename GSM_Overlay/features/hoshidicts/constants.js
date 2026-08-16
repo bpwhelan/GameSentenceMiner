@@ -70,7 +70,6 @@
     popupHeightPx: 420,
     popupColumns: 1,
     popupOpacityPercent: 85,
-    popupBackdropBlurPx: 16,
     popupToolbarPosition: "auto",
     theme: "default",
     customPopupCss: "",
@@ -90,7 +89,6 @@
     popupHeightPx: Object.freeze({ min: 200, max: 900 }),
     popupColumns: Object.freeze({ min: 1, max: 4 }),
     popupOpacityPercent: Object.freeze({ min: 0, max: 100 }),
-    popupBackdropBlurPx: Object.freeze({ min: 0, max: 32 }),
     popupNestingMaxDepth: Object.freeze({ min: 0, max: Number.MAX_SAFE_INTEGER }),
     definitionBlurLookupThreshold: Object.freeze({ min: 1, max: 1_000_000 }),
     definitionBlurRevealDelayMs: Object.freeze({

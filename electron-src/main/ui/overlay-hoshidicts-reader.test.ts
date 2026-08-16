@@ -72,12 +72,8 @@ function readerCssRule(selector: string, occurrence = 0) {
  * three dictionary-context keys are explicit: they are not in the spec table.
  */
 function readerPreferences(overrides: Record<string, unknown> = {}) {
-  // popupBackdropBlurPx is deliberately absent: livePreferences adds it, which
-  // is what distinguishes the reader's own defaults from a delivered set.
-  const { popupBackdropBlurPx: _blur, ...defaults } =
-    createDefaultHoshidictsReaderPreferences();
   return {
-    ...defaults,
+    ...createDefaultHoshidictsReaderPreferences(),
     dictionaryPresentation: [],
     frequencyDictionaries: [],
     dictionaryTabGroups: [],
@@ -87,7 +83,7 @@ function readerPreferences(overrides: Record<string, unknown> = {}) {
 
 /** The complete normalised object the bootstrap forwards to the reader. */
 function livePreferences(overrides: Record<string, unknown> = {}) {
-  return readerPreferences({ popupBackdropBlurPx: 16, ...overrides });
+  return readerPreferences(overrides);
 }
 
 /**
@@ -330,7 +326,6 @@ describe("Hoshidicts safe popup rendering", () => {
         popupColumns: 3,
         theme: "cyberpunk",
         popupOpacityPercent: 70,
-        popupBackdropBlurPx: 0,
         popupToolbarPosition: "bottom"
       },
       {
@@ -339,7 +334,6 @@ describe("Hoshidicts safe popup rendering", () => {
         popupColumns: 3,
         theme: "cyberpunk",
         popupOpacityPercent: 70,
-        popupBackdropBlurPx: 0,
         popupToolbarPosition: "bottom"
       }
     ],
@@ -425,9 +419,9 @@ describe("Hoshidicts safe popup rendering", () => {
       "--gsm-hoshidicts-popup-opacity",
       "70%"
     );
-    expect(setProperty).toHaveBeenCalledWith(
+    expect(setProperty).not.toHaveBeenCalledWith(
       "--gsm-hoshidicts-popup-backdrop-filter",
-      "blur(16px) saturate(1.08)"
+      expect.anything()
     );
 
     const disabled = loadBootstrapModule({ GSM_HOSHIDICTS_ENABLED: "0" });

@@ -274,7 +274,6 @@ describe('runOverlayWithSource', () => {
             popupColumns: 3,
             theme: 'cyberpunk',
             popupOpacityPercent: 70,
-            popupBackdropBlurPx: 24,
             popupToolbarPosition: 'bottom',
         });
         runtime.configureHoshidictsRuntime({

@@ -194,7 +194,6 @@ export const DEFAULT_HOSHIDICTS_POPUP_WIDTH_PX = 560;
 export const DEFAULT_HOSHIDICTS_POPUP_HEIGHT_PX = 420;
 export const DEFAULT_HOSHIDICTS_POPUP_COLUMNS = 1;
 export const DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT = 85;
-export const DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX = 16;
 export const DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS = '';
 export const MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH = 32 * 1024;
 export const HOSHIDICTS_POPUP_TOOLBAR_POSITIONS = [
@@ -348,8 +347,6 @@ export const MIN_HOSHIDICTS_POPUP_COLUMNS = 1;
 export const MAX_HOSHIDICTS_POPUP_COLUMNS = 4;
 export const MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT = 0;
 export const MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT = 100;
-export const MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX = 0;
-export const MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX = 32;
 export type HoshidictsTheme =
     | 'default'
     | 'miku'
@@ -714,7 +711,6 @@ export interface HoshidictsReaderPreferencesRequest {
     popupColumns: number;
     theme: HoshidictsTheme;
     popupOpacityPercent: number;
-    popupBackdropBlurPx: number;
     popupToolbarPosition: HoshidictsPopupToolbarPosition;
     popupButtons: HoshidictsPopupButtons;
     customPopupCss: string;
@@ -1127,13 +1123,6 @@ const HOSHIDICTS_READER_PREFERENCE_SPECS: readonly HoshidictsReaderPreferenceSpe
             DEFAULT_HOSHIDICTS_POPUP_OPACITY_PERCENT,
             MIN_HOSHIDICTS_POPUP_OPACITY_PERCENT,
             MAX_HOSHIDICTS_POPUP_OPACITY_PERCENT
-        ),
-        integerPreference(
-            'popupBackdropBlurPx',
-            'Hoshidicts popup backdrop blur is invalid.',
-            DEFAULT_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
-            MIN_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX,
-            MAX_HOSHIDICTS_POPUP_BACKDROP_BLUR_PX
         ),
         {
             key: 'customPopupCss',

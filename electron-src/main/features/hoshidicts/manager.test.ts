@@ -1980,7 +1980,6 @@ describe('Hoshidicts reader preferences', () => {
             popupColumns: 3,
             theme: 'girlypop',
             popupOpacityPercent: 70,
-            popupBackdropBlurPx: 24,
             popupToolbarPosition: 'bottom',
             scanLength: 24,
             maxResults: 48,

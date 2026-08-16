@@ -127,7 +127,6 @@ describe("Hoshidicts desktop bridge", () => {
       popupWidthPx: 680,
       popupHeightPx: 500,
       popupColumns: 3,
-      popupBackdropBlurPx: 24,
       popupOpacityPercent: 70,
       popupToolbarPosition: "bottom",
       theme: "autumn",
@@ -250,7 +249,6 @@ it("normalizes one complete live preference payload", () => {
     ["showFrequencyDictionaryNames", true],
     ["onlyScanJapaneseText", true],
     ["compactDefinitionSummaryCount", 3],
-    ["popupBackdropBlurPx", 16],
     ["popupButtons", {
       addToAnki: true,
       audio: true,

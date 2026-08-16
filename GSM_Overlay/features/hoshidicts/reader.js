@@ -2361,12 +2361,6 @@
         `${preferences.popupOpacityPercent}%`
       );
       rootElement.style.setProperty(
-        "--gsm-hoshidicts-popup-backdrop-filter",
-        preferences.popupBackdropBlurPx === 0
-          ? "none"
-          : `blur(${preferences.popupBackdropBlurPx}px) saturate(1.08)`
-      );
-      rootElement.style.setProperty(
         "--gsm-hoshidicts-popup-columns",
         String(preferences.popupColumns)
       );
@@ -5416,18 +5410,9 @@
       return true;
     }
 
-    /**
-     * The preference set published back to the desktop bridge: deep-copied so a
-     * caller cannot mutate reader state, and without popupBackdropBlurPx, which
-     * preferences.js therefore treats as optional.
-     */
     function publicPreferences() {
-      const {
-        popupBackdropBlurPx: _popupBackdropBlurPx,
-        ...published
-      } = preferences;
       return {
-        ...published,
+        ...preferences,
         definitionBlur: { ...preferences.definitionBlur },
         dictionaryPresentation: preferences.dictionaryPresentation.map(
           (entry) => ({ ...entry })
@@ -5503,7 +5488,6 @@
         previous.popupHeightPx !== preferences.popupHeightPx ||
         previous.popupColumns !== preferences.popupColumns ||
         previous.popupOpacityPercent !== preferences.popupOpacityPercent ||
-        previous.popupBackdropBlurPx !== preferences.popupBackdropBlurPx ||
         previous.theme !== preferences.theme
       ) {
         applyAppearancePreferences();
@@ -5698,9 +5682,6 @@
         "--gsm-hoshidicts-popup-opacity"
       );
       documentRef.documentElement.style.removeProperty(
-        "--gsm-hoshidicts-popup-backdrop-filter"
-      );
-      documentRef.documentElement.style.removeProperty(
         "--gsm-hoshidicts-popup-columns"
       );
     }
@@ -5743,7 +5724,6 @@
       popupHeightPx: preferences.popupHeightPx,
       popupColumns: preferences.popupColumns,
       popupOpacityPercent: preferences.popupOpacityPercent,
-      popupBackdropBlurPx: preferences.popupBackdropBlurPx,
       popupToolbarPosition: preferences.popupToolbarPosition,
       theme: preferences.theme,
       scanLength: preferences.scanLength,
