@@ -1657,11 +1657,6 @@ html[data-hoshidicts-theme="miku"] .gsm-hoshidicts-popup {
   outline-offset: 1px;
 }
 
-.gsm-hoshidicts-deinflection-label {
-  font-weight: 600;
-  opacity: 0.85;
-}
-
 .gsm-hoshidicts-deinflection-path {
   min-width: 0;
   overflow-wrap: anywhere;

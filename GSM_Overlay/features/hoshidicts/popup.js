@@ -76,17 +76,14 @@
 
   const DEINFLECTION_STRINGS = {
     en: {
-      summary: "Why this matched",
       steps: "Deinflection steps",
       aria: "Why this matched: {matched} became {deinflected}",
     },
     ja: {
-      summary: "一致した理由",
       steps: "活用解除の手順",
       aria: "一致した理由: {matched} から {deinflected} に戻しました",
     },
     ukr: {
-      summary: "Чому це збіглося",
       steps: "Кроки відновлення словникової форми",
       aria: "Чому це збіглося: {matched} перетворено на {deinflected}",
     },
@@ -134,9 +131,6 @@
     details.className = "gsm-hoshidicts-deinflection";
 
     const summary = documentRef.createElement("summary");
-    const label = documentRef.createElement("span");
-    label.className = "gsm-hoshidicts-deinflection-label";
-    label.textContent = strings.summary;
     const path = documentRef.createElement("span");
     path.className = "gsm-hoshidicts-deinflection-path";
     const from = documentRef.createElement("span");
@@ -150,7 +144,7 @@
     to.className = "gsm-hoshidicts-deinflection-endpoint";
     to.textContent = deinflected;
     path.append(from, arrow, to);
-    summary.append(label, path);
+    summary.append(path);
     summary.setAttribute(
       "aria-label",
       strings.aria

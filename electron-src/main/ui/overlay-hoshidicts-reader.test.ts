@@ -8827,8 +8827,15 @@ describe("Hoshidicts deinflection disclosure", () => {
     expect(details.tagName).toBe("DETAILS");
     expect(details.open).toBe(false);
     const summary = details.querySelector("summary")!;
-    expect(summary.textContent).toContain("食べさせられた");
-    expect(summary.textContent).toContain("食べる");
+    expect(summary.textContent?.trim()).toBe("食べさせられた → 食べる");
+    expect(summary.textContent).not.toContain("Why this matched");
+    expect(
+      summary.querySelector(".gsm-hoshidicts-deinflection-label")
+    ).toBeNull();
+    const path = summary.querySelector(".gsm-hoshidicts-deinflection-path")!;
+    expect(path).not.toBeNull();
+    expect(path.textContent).toContain("食べさせられた");
+    expect(path.textContent).toContain("食べる");
     expect(summary.getAttribute("aria-label")).toBe(
       "Why this matched: 食べさせられた became 食べる"
     );
@@ -9014,7 +9021,8 @@ describe("Hoshidicts deinflection disclosure", () => {
 
       const details = disclosure(harness.reader.getPopupElement())!;
       const summary = details.querySelector("summary")!;
-      expect(summary.textContent).toContain(summaryLabel);
+      expect(summary.textContent?.trim()).toBe("食べさせられた → 食べる");
+      expect(summary.textContent).not.toContain(summaryLabel);
       expect(summary.getAttribute("aria-label")).toBe(ariaLabel);
       expect(
         Array.from(details.querySelectorAll("ol > li"), (li) => li.textContent)
@@ -9030,7 +9038,10 @@ describe("Hoshidicts deinflection disclosure", () => {
     const summary = disclosure(harness.reader.getPopupElement())!.querySelector(
       "summary"
     )!;
-    expect(summary.textContent).toContain("一致した理由");
+    expect(summary.textContent).not.toContain("一致した理由");
+    expect(summary.getAttribute("aria-label")).toBe(
+      "一致した理由: 食べさせられた から 食べる に戻しました"
+    );
   });
 
   it("passes the unmodified backend trace to the mining payload with no disclosure state", async () => {
