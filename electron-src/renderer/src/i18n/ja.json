@@ -1205,11 +1205,15 @@
     "mages": {
       "title": "内蔵ゲームフック",
       "experimentalBadge": "実験的",
-      "availability": "この実験的なフックは現在、以下に記載されたWindows版Steamの『STEINS;GATE』の対応ビルドでのみ動作します。他のゲーム、エディション、ストア版、実行ファイルのビルドにはまだ対応していません。",
+      "availability": "この実験的なフックは現在、以下に記載されたWindows版Steamの対応ビルドでのみ動作します。他のゲーム、エディション、ストア版、実行ファイルのビルドにはまだ対応していません。",
       "support": {
         "title": "現在対応しているゲーム",
         "steinsGate": {
           "name": "STEINS;GATE",
+          "details": "Windows版Steam — 対応する32ビット（x86）実行ファイル"
+        },
+        "virtueLastReward": {
+          "name": "Zero Escape: Virtue's Last Reward",
           "details": "Windows版Steam — 対応する32ビット（x86）実行ファイル"
         }
       },

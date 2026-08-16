@@ -35,6 +35,25 @@ describe('engine-hook protocol', () => {
         expect(message?.type).toBe('text-layout');
     });
 
+    it('accepts supplementary-plane Unicode code points used by engine glyph records', () => {
+        const message = sanitizeEngineHookMessage({
+            schema: 'gsm_engine_hook_message_v1',
+            type: 'text-layout',
+            integrationId: 'vlr-zero-escape-vlr-steam',
+            sequence: 1,
+            capturedAt: 1,
+            callerOffset: null,
+            mode: 0,
+            style: 0,
+            coordinateSpace: coordinateSpace(2560, 1440, 2, 2),
+            positionedCodes: [
+                { engineIndex: 0, code: 0x1f600, x: 0, y: 0, width: 24, height: 30 },
+            ],
+        });
+
+        expect(message?.positionedCodes[0]?.code).toBe(0x1f600);
+    });
+
     it('derives logical dimensions from each live window and engine-scale measurement', () => {
         expect(deriveEngineLogicalCoordinateSpace(coordinateSpace(1280, 720, 1, 1))).toEqual({
             kind: 'engine-logical',
@@ -50,6 +69,11 @@ describe('engine-hook protocol', () => {
             kind: 'engine-logical',
             width: 1280,
             height: 720,
+        });
+        expect(deriveEngineLogicalCoordinateSpace(coordinateSpace(2560, 1440, 8 / 3, 8 / 3))).toEqual({
+            kind: 'engine-logical',
+            width: 960,
+            height: 540,
         });
         expect(
             deriveEngineLogicalCoordinateSpace({ kind: 'window-client', width: 1920, height: 1080 }),

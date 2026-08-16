@@ -109,6 +109,10 @@ const BUILT_IN_HOOK_SUPPORTED_GAMES = [
     nameKey: "texthook.mages.support.steinsGate.name",
     detailsKey: "texthook.mages.support.steinsGate.details",
   },
+  {
+    nameKey: "texthook.mages.support.virtueLastReward.name",
+    detailsKey: "texthook.mages.support.virtueLastReward.details",
+  },
 ] as const;
 
 function hasHookText(hook: HookEntry): boolean {

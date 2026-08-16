@@ -37,7 +37,7 @@ Before starting hook discovery or validation, disable GSM stats gathering with `
    - a standalone `payload.js` using only Frida APIs and the injected manifest;
    - the minimum decoder resources required;
    - `NOTICE.md` with source and license attribution for every copied resource.
-9. Use ASLR-safe live signatures and require unique matches. Never ship an absolute address or PID. Hash-pin any build-specific data RVAs. Fail closed with a useful diagnostic on an unknown hash, missing signature, ambiguous match, invalid count, or corrupt coordinate.
+9. Use ASLR-safe live signatures and require unique matches. Never ship an absolute address or PID. Record known hashes for package preference and disambiguation, and document any build-specific data RVAs. Allow a unique package to be tried on an unknown hash, but fail closed with a useful diagnostic on a missing signature, ambiguous match, invalid count, or corrupt coordinate.
 10. Extend the generic protocol/catalog only when the new engine truly requires it. Keep target-specific decoding isolated behind a named, tested decoder. Bound and sanitize all injected messages again in the Electron host.
 11. Route exact `gsm_text_geometry_v1` glyph data through the existing precomputed overlay payload. Only trusted `producer.kind = "engine-hook"`, versioned integration payloads may force OCR bypass.
 12. Add or update renderer UI only if users need a new choice or control. Every renderer string must use `t("key")`, with English, Japanese, and Ukrainian locale entries.

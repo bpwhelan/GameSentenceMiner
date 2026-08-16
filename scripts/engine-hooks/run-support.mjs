@@ -11,6 +11,7 @@ import {
     decodeMagesLayout,
     parseMagesCompoundMap,
 } from '../../dist/main/engine_hooks/mages_decoder.js';
+import { decodeVlrLayout } from '../../dist/main/engine_hooks/vlr_decoder.js';
 import { deriveEngineLogicalCoordinateSpace } from '../../dist/main/engine_hooks/protocol.js';
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -45,6 +46,20 @@ async function resolvePid(executableName) {
     return matches[0].pid;
 }
 
+async function bestEffortCleanup(operation, timeoutMs = 1500) {
+    let timer;
+    const operationPromise = Promise.resolve()
+        .then(operation)
+        .catch(() => undefined);
+    await Promise.race([
+        operationPromise,
+        new Promise((resolve) => {
+            timer = setTimeout(resolve, timeoutMs);
+        }),
+    ]);
+    if (timer) clearTimeout(timer);
+}
+
 async function main() {
     const supportId = option('support') ?? 'mages-steins-gate-steam';
     if (!/^[a-z0-9][a-z0-9-]*$/u.test(supportId)) {
@@ -52,14 +67,20 @@ async function main() {
     }
     const supportDirectory = path.join(supportCatalogDirectory, supportId);
     const manifest = JSON.parse(fs.readFileSync(path.join(supportDirectory, 'manifest.json'), 'utf8'));
-    if (manifest.decoder !== 'mages-v1') {
+    const payload = fs.readFileSync(path.join(supportDirectory, manifest.payload), 'utf8');
+    let charset;
+    let compounds;
+    if (manifest.decoder === 'mages-v1') {
+        charset = fs.readFileSync(path.join(supportDirectory, manifest.resources.charset), 'utf8');
+        compounds = parseMagesCompoundMap(
+            fs.readFileSync(
+                path.join(supportDirectory, manifest.resources.compoundCharacters),
+                'utf8',
+            ),
+        );
+    } else if (manifest.decoder !== 'vlr-v1') {
         throw new Error(`The validation runner does not yet implement decoder ${manifest.decoder}.`);
     }
-    const payload = fs.readFileSync(path.join(supportDirectory, manifest.payload), 'utf8');
-    const charset = fs.readFileSync(path.join(supportDirectory, manifest.resources.charset), 'utf8');
-    const compounds = parseMagesCompoundMap(
-        fs.readFileSync(path.join(supportDirectory, manifest.resources.compoundCharacters), 'utf8'),
-    );
     const pid = await resolvePid(manifest.target.executableNames[0]);
     const timeoutMs = Number.parseInt(option('timeout') ?? '15000', 10);
     const shouldAdvance = process.argv.includes('--advance');
@@ -70,6 +91,16 @@ async function main() {
         name: `${manifest.id}-validation`,
         runtime: ScriptRuntime.QJS,
     });
+
+    process.stdout.write(
+        `${JSON.stringify({
+            type: 'package',
+            supportId: manifest.id,
+            name: manifest.name,
+            decoder: manifest.decoder,
+            target: manifest.target,
+        })}\n`,
+    );
 
     let finish;
     const completed = new Promise((resolve, reject) => {
@@ -102,7 +133,15 @@ async function main() {
         }
         if (payloadMessage?.type !== 'text-layout') return;
         try {
-            const decoded = decodeMagesLayout(payloadMessage.positionedCodes, charset, compounds);
+            const decoded =
+                manifest.decoder === 'mages-v1'
+                    ? decodeMagesLayout(payloadMessage.positionedCodes, charset, compounds)
+                    : decodeVlrLayout(
+                          payloadMessage.positionedCodes.map((positionedCode) => ({
+                              ...positionedCode,
+                              type: 1,
+                          })),
+                      );
             const coordinateSpace = deriveEngineLogicalCoordinateSpace(payloadMessage.coordinateSpace);
             if (!coordinateSpace) {
                 throw new Error(
@@ -140,11 +179,12 @@ async function main() {
         await completed;
     } finally {
         clearTimeout(timer);
-        try {
+        await bestEffortCleanup(async () => {
             if (!script.isDestroyed) await script.unload();
-        } finally {
+        });
+        await bestEffortCleanup(async () => {
             if (!targetSession.isDetached()) await targetSession.detach();
-        }
+        });
     }
 }
 

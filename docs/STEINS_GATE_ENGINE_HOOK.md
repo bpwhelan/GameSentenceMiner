@@ -4,7 +4,7 @@ Status: implemented and live-validated on 2026-08-13.
 
 This integration supports the x86 Steam release of `STEINS;GATE` through GSM's standalone engine-hook service. It captures dialogue text, exact per-glyph layout, and can advance dialogue. It does not load or communicate with Agent.
 
-## Supported build
+## Validated build
 
 | Property | Value |
 | --- | --- |
@@ -24,7 +24,7 @@ The live module is scanned for two unique signatures:
 - Text builder: `55 8b ec 81 ec 94 01 00 00 a1 ?? ?? ?? ?? 33 c5 89 45 fc 8b 45 18 8b 55 0c 53 56 8b 75 08`
 - Line layout: `55 8b ec 81 ec f0 01 00 00 a1 ?? ?? ?? ?? 33 c5 89 45 fc 8b 45 08 8b 4d 20 53 8d 1c 40 c1 e3 04`
 
-On the validated process they resolved to module offsets `0x496a0` and `0x48ae0`. The package also describes the layout arrays by RVA for the hash-pinned build. The payload refuses to start if either code signature is missing or ambiguous.
+On the validated process they resolved to module offsets `0x496a0` and `0x48ae0`. The package also describes the layout arrays by RVA for this build. The payload refuses to start if either code signature is missing or ambiguous.
 
 MAGES performs a measurement pass at mode `1`, commonly producing `(0, 0)` working coordinates, before the displayed dialogue pass at mode `0`. The manifest accepts mode `0` only. This prevents off-screen measurement text from reaching GSM.
 
@@ -32,7 +32,7 @@ MAGES performs a measurement pass at mode `1`, commonly producing `(0, 0)` worki
 
 The decoder handles the game's custom MAGES character table, compound characters, speaker markers, spaces, and ruby controls. Ruby base text is retained and ruby readings are suppressed from the primary dialogue text.
 
-MAGES glyph positions are not window-client pixels. They are authored in an internal logical canvas and scaled during rendering. The package reads the current client dimensions with `GetClientRect` and reads the engine's live X/Y render-scale floats from the hash-pinned data RVAs `0x121dc28` and `0x121dc2c`. The host then derives the source space for each event:
+MAGES glyph positions are not window-client pixels. They are authored in an internal logical canvas and scaled during rendering. The package reads the current client dimensions with `GetClientRect` and reads the engine's live X/Y render-scale floats from the build-specific data RVAs `0x121dc28` and `0x121dc2c`. The host then derives the source space for each event:
 
 ```text
 logical width  = round(client width  / engine scale X)
@@ -61,6 +61,6 @@ The RPC activates the target window and performs a held left click at `(0.5, 0.8
 
 ## Known limits
 
-- Only the hash listed above is declared supported.
-- Other MAGES games may share concepts but must receive their own package, signatures, build hashes, capture filters, and live validation.
+- The hash listed above identifies the live-validated build; other builds may be tried, but their data RVAs and capture behavior are not guaranteed.
+- Other MAGES games may share concepts, but should receive their own package, signatures, capture filters, and live validation when their layout differs.
 - Alternate dialogue windows, backlog screens, and unusual ruby/layout modes need explicit live testing before being declared supported.

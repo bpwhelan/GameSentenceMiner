@@ -1,4 +1,11 @@
-import type { MagesPositionedCode } from './mages_decoder.js';
+export interface EngineHookPositionedCode {
+    engineIndex: number;
+    code: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
 
 export interface EngineHookReadyMessage {
     schema: 'gsm_engine_hook_message_v1';
@@ -28,7 +35,7 @@ export interface EngineHookTextLayoutMessage {
         width: number;
         height: number;
     };
-    positionedCodes: MagesPositionedCode[];
+    positionedCodes: EngineHookPositionedCode[];
 }
 
 export type EngineHookMessage =
@@ -127,11 +134,11 @@ export function sanitizeEngineHookMessage(value: unknown): EngineHookMessage | n
         return null;
     }
 
-    const positionedCodes: MagesPositionedCode[] = [];
+    const positionedCodes: EngineHookPositionedCode[] = [];
     for (const candidate of value.positionedCodes) {
         if (!isObject(candidate)) return null;
         const engineIndex = integer(candidate.engineIndex, 0, MAX_CODES - 1);
-        const code = integer(candidate.code, 0, 0xffff);
+        const code = integer(candidate.code, 0, 0x10ffff);
         const x = integer(candidate.x, -MAX_ABSOLUTE_COORDINATE, MAX_ABSOLUTE_COORDINATE);
         const y = integer(candidate.y, -MAX_ABSOLUTE_COORDINATE, MAX_ABSOLUTE_COORDINATE);
         const width = integer(candidate.width, 0, MAX_GLYPH_DIMENSION);

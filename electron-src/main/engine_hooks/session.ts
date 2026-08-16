@@ -8,6 +8,7 @@ import { getAssetsDir } from '../util.js';
 import type { TextGeometryV1 } from '../ui/text_geometry.js';
 import { decodeMagesLayout } from './mages_decoder.js';
 import { sanitizeEngineHookMessage } from './protocol.js';
+import { decodeVlrLayout } from './vlr_decoder.js';
 import {
     createInjectedPayloadSource,
     resolveEngineHookSupport,
@@ -124,11 +125,19 @@ function handleTextLayout(
         return;
     }
     try {
-        const decoded = decodeMagesLayout(
-            message.positionedCodes,
-            current.support.charset,
-            current.support.compoundCharacters,
-        );
+        const decoded =
+            current.support.manifest.decoder === 'mages-v1'
+                ? decodeMagesLayout(
+                      message.positionedCodes,
+                      current.support.charset ?? '',
+                      current.support.compoundCharacters ?? new Map(),
+                  )
+                : decodeVlrLayout(
+                      message.positionedCodes.map((positionedCode) => ({
+                          ...positionedCode,
+                          type: 1,
+                      })),
+                  );
         if (!decoded.text.trim() || decoded.lines.length === 0 || decoded.glyphs.length === 0) return;
 
         const lines = decoded.lines.map((line) => ({ ...line, bounds: { ...line.bounds } }));
@@ -161,7 +170,10 @@ function handleTextLayout(
         });
         current.options.onStateChanged();
     } catch (error) {
-        current.options.onLog(`Could not decode MAGES text layout: ${(error as Error).message}`, 'error');
+        current.options.onLog(
+            `Could not decode ${current.support.manifest.decoder} text layout: ${(error as Error).message}`,
+            'error',
+        );
     }
 }
 

@@ -1190,11 +1190,15 @@
     "mages": {
       "title": "Built-in Game Hook",
       "experimentalBadge": "Experimental",
-      "availability": "This experimental hook currently works only with the exact STEINS;GATE Steam for Windows build listed below. Other games, editions, storefronts, and executable builds are not supported yet.",
+      "availability": "This experimental hook currently works only with the exact Steam for Windows builds listed below. Other games, editions, storefronts, and executable builds are not supported yet.",
       "support": {
         "title": "Currently supported",
         "steinsGate": {
           "name": "STEINS;GATE",
+          "details": "Steam for Windows — supported 32-bit (x86) executable build"
+        },
+        "virtueLastReward": {
+          "name": "Zero Escape: Virtue's Last Reward",
           "details": "Steam for Windows — supported 32-bit (x86) executable build"
         }
       },
