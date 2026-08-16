@@ -62,6 +62,27 @@
   }
 
   /**
+   * Accepts the discriminated popup image source: `null` (Automatic), an
+   * individual `{ kind: "dictionary", title }`, or a `{ kind: "tabGroup", id }`.
+   * Extra keys are tolerated because the reader only reads the two it needs.
+   */
+  function isPopupImageSource(value) {
+    if (value === null) {
+      return true;
+    }
+    if (!isPlainObject(value)) {
+      return false;
+    }
+    if (value.kind === "dictionary") {
+      return boundedTitle(value.title);
+    }
+    if (value.kind === "tabGroup") {
+      return boundedTitle(value.id);
+    }
+    return false;
+  }
+
+  /**
    * Field validators keyed by preference name. `optional` fields fall back to
    * the shared default when the sender omits them; everything else must be
    * present and valid.
@@ -99,6 +120,10 @@
     },
     kanjiClickDictionary: {
       check: (value) => value === null || boundedTitle(value)
+    },
+    popupImageSource: {
+      optional: true,
+      check: isPopupImageSource
     },
     showPitchAccentFurigana: { check: isBoolean },
     pitchAccentFuriganaDictionary: {
@@ -218,7 +243,9 @@
         (entry.termCount !== undefined &&
           !isNonNegativeInteger(entry.termCount)) ||
         (entry.kanjiCount !== undefined &&
-          !isNonNegativeInteger(entry.kanjiCount))
+          !isNonNegativeInteger(entry.kanjiCount)) ||
+        (entry.mediaCount !== undefined &&
+          !isNonNegativeInteger(entry.mediaCount))
       ) {
         return null;
       }
@@ -235,6 +262,9 @@
       }
       if (entry.kanjiCount !== undefined) {
         normalizedEntry.kanjiCount = entry.kanjiCount;
+      }
+      if (entry.mediaCount !== undefined) {
+        normalizedEntry.mediaCount = entry.mediaCount;
       }
       normalized.push(normalizedEntry);
     }

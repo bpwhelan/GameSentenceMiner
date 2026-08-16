@@ -21,6 +21,7 @@ import {
     normalizeHoshidictsPopupButtons,
     normalizeHoshidictsReaderPreferences,
     projectHoshidictsResultsToSelectedDictionary,
+    resolveHoshidictsPopupImageSourceDictionaries,
     type HoshidictsDictionaryState,
     type HoshidictsManagerSnapshot,
     type HoshidictsReaderPreferencesRequest,
@@ -52,6 +53,7 @@ const otherPreferences: Record<
     compactDefinitionSummaryCount: 4,
     compactDefinitionSummaryDictionary: 'Jitendex',
     kanjiClickDictionary: 'JMdict',
+    popupImageSource: { kind: 'dictionary', title: 'Jitendex' },
     showPitchAccentFurigana: false,
     pitchAccentFuriganaDictionary: 'Kanjium Pitch Accents',
     showPitchAccentBadge: true,
@@ -96,6 +98,7 @@ function dictionary(
         frequencyCount: 0,
         pitchCount: 0,
         kanjiCount: 0,
+        mediaCount: 0,
         frequencyMode: null,
         installedAt: '2026-08-09T00:00:00.000Z',
         updateScheduleOverride: null,
@@ -283,6 +286,7 @@ describe('Hoshidicts reader preference helpers', () => {
             compactDefinitionSummaryCount: 3,
             compactDefinitionSummaryDictionary: null,
             kanjiClickDictionary: null,
+            popupImageSource: null,
             showPitchAccentFurigana: true,
             pitchAccentFuriganaDictionary: null,
             showPitchAccentBadge: false,
@@ -428,6 +432,137 @@ describe('Hoshidicts reader preference helpers', () => {
     });
 });
 
+describe('Hoshidicts popup image source preference', () => {
+    it('defaults to Automatic (null)', () => {
+        expect(defaultPreferences.popupImageSource).toBeNull();
+    });
+
+    it('accepts and canonicalizes an individual dictionary source, trimming its title', () => {
+        const accepted = assertHoshidictsReaderPreferences({
+            ...defaultPreferences,
+            popupImageSource: { kind: 'dictionary', title: '  Jitendex  ' },
+        });
+        expect(accepted.popupImageSource).toEqual({
+            kind: 'dictionary',
+            title: 'Jitendex',
+        });
+    });
+
+    it('accepts a tab-group source by id and drops extra keys', () => {
+        const accepted = assertHoshidictsReaderPreferences({
+            ...defaultPreferences,
+            popupImageSource: {
+                kind: 'tabGroup',
+                id: 'group-grammar',
+                title: 'ignored',
+            },
+        });
+        expect(accepted.popupImageSource).toEqual({
+            kind: 'tabGroup',
+            id: 'group-grammar',
+        });
+    });
+
+    it.each([
+        ['unknown kind', { kind: 'nope', title: 'x' }],
+        ['dictionary without title', { kind: 'dictionary' }],
+        ['dictionary with blank title', { kind: 'dictionary', title: '   ' }],
+        ['dictionary with non-string title', { kind: 'dictionary', title: 42 }],
+        ['tab group without id', { kind: 'tabGroup' }],
+        ['tab group with blank id', { kind: 'tabGroup', id: '   ' }],
+        ['a bare string', 'Jitendex'],
+        ['an array', []],
+    ])('rejects %s', (_label, value) => {
+        expect(() =>
+            assertHoshidictsReaderPreferences({
+                ...defaultPreferences,
+                popupImageSource: value,
+            })
+        ).toThrow('popup image source is invalid');
+    });
+
+    it('normalizes an unusable source back to Automatic', () => {
+        expect(
+            normalizeHoshidictsReaderPreferences({
+                ...defaultPreferences,
+                popupImageSource: { kind: 'tabGroup' },
+            }).popupImageSource
+        ).toBeNull();
+    });
+
+    it('compares two sources for equality by kind and identity', () => {
+        expect(
+            hoshidictsReaderPreferencesEqual(defaultPreferences, {
+                ...defaultPreferences,
+                popupImageSource: { kind: 'dictionary', title: 'A' },
+            } as HoshidictsReaderPreferencesRequest)
+        ).toBe(false);
+        expect(
+            hoshidictsReaderPreferencesEqual(
+                {
+                    ...defaultPreferences,
+                    popupImageSource: { kind: 'dictionary', title: 'A' },
+                } as HoshidictsReaderPreferencesRequest,
+                {
+                    ...defaultPreferences,
+                    popupImageSource: { kind: 'dictionary', title: 'A' },
+                } as HoshidictsReaderPreferencesRequest
+            )
+        ).toBe(true);
+        expect(
+            hoshidictsReaderPreferencesEqual(
+                {
+                    ...defaultPreferences,
+                    popupImageSource: { kind: 'dictionary', title: 'A' },
+                } as HoshidictsReaderPreferencesRequest,
+                {
+                    ...defaultPreferences,
+                    popupImageSource: { kind: 'tabGroup', id: 'A' },
+                } as HoshidictsReaderPreferencesRequest
+            )
+        ).toBe(false);
+    });
+});
+
+describe('resolveHoshidictsPopupImageSourceDictionaries', () => {
+    const tabGroups = [
+        { id: 'g1', name: 'Group 1', dictionaries: ['Alpha', 'Beta', 'Gamma'] },
+    ];
+
+    it('returns null (all dictionaries permitted) for Automatic', () => {
+        expect(
+            resolveHoshidictsPopupImageSourceDictionaries(null, tabGroups)
+        ).toBeNull();
+    });
+
+    it('returns the single title for an individual dictionary source', () => {
+        expect(
+            resolveHoshidictsPopupImageSourceDictionaries(
+                { kind: 'dictionary', title: 'Beta' },
+                tabGroups
+            )
+        ).toEqual(['Beta']);
+    });
+
+    it('returns the group members in their established order for a tab-group source', () => {
+        expect(
+            resolveHoshidictsPopupImageSourceDictionaries(
+                { kind: 'tabGroup', id: 'g1' },
+                tabGroups
+            )
+        ).toEqual(['Alpha', 'Beta', 'Gamma']);
+    });
+
+    it('resolves a missing or deleted tab group to an empty allowlist (no images)', () => {
+        expect(
+            resolveHoshidictsPopupImageSourceDictionaries(
+                { kind: 'tabGroup', id: 'gone' },
+                tabGroups
+            )
+        ).toEqual([]);
+    });
+});
+
 describe('Hoshidicts reader preferences from a snapshot', () => {
     it('preserves snapshot order while excluding disabled and non-frequency dictionaries', () => {
         const snapshot = {
@@ -497,11 +632,13 @@ describe('Hoshidicts reader preferences from a snapshot', () => {
                     id: 'jpdb-kanji-terms',
                     termCount: 20409,
                     kanjiCount: 0,
+                    mediaCount: 512,
                 }),
                 dictionary('KANJIDIC (English)', {
                     id: 'kanjidic',
                     termCount: 0,
                     kanjiCount: 13108,
+                    mediaCount: 0,
                 }),
             ],
             tabGroups: [],
@@ -517,12 +654,14 @@ describe('Hoshidicts reader preferences from a snapshot', () => {
                 favorite: false,
                 termCount: 20409,
                 kanjiCount: 0,
+                mediaCount: 512,
             },
             {
                 title: 'KANJIDIC (English)',
                 favorite: false,
                 termCount: 0,
                 kanjiCount: 13108,
+                mediaCount: 0,
             },
         ]);
     });
@@ -766,6 +905,17 @@ describe('Hoshidicts reader preferences from a snapshot', () => {
             'customPopupCss',
             'x'.repeat(MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH + 1),
             'custom popup CSS is invalid',
+        ],
+        ['popupImageSource', 'Jitendex', 'popup image source is invalid'],
+        [
+            'popupImageSource',
+            { kind: 'dictionary' },
+            'popup image source is invalid',
+        ],
+        [
+            'popupImageSource',
+            { kind: 'tabGroup', id: '  ' },
+            'popup image source is invalid',
         ],
     ])(
         'rejects %s = %j with "%s"',

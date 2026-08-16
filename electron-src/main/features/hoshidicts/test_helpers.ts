@@ -52,6 +52,7 @@ export function makeHoshidictsDictionary(
         frequencyCount: 0,
         pitchCount: 0,
         kanjiCount: 0,
+        mediaCount: 0,
         frequencyMode: null,
         installedAt: '2026-08-08T00:00:00.000Z',
         updateScheduleOverride: null,
