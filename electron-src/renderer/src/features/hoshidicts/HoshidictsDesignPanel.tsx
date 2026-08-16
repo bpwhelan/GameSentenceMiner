@@ -34,6 +34,7 @@ import {
 import { useTranslation } from "../../i18n";
 import { HoshidictsDictionarySelect } from "./components/HoshidictsDictionarySelect";
 import { HoshidictsNumberSetting } from "./components/HoshidictsNumberSetting";
+import { HoshidictsPopupImageSourceSelect } from "./components/HoshidictsPopupImageSourceSelect";
 import { HoshidictsSelectSetting } from "./components/HoshidictsSelectSetting";
 import { HoshidictsToggleSetting } from "./components/HoshidictsToggleSetting";
 import { HoshidictsPopupPreview } from "./HoshidictsPopupPreview";
@@ -389,6 +390,18 @@ export function HoshidictsDesignPanel({
     ...readerDraft
   };
 
+  // Only dictionaries that already ship images can drive the popup image
+  // source, and only tab groups that contain at least one such dictionary.
+  const imageDictionaries = state.dictionaries.filter(
+    (dictionary) => dictionary.enabled && dictionary.mediaCount > 0
+  );
+  const imageDictionaryIds = new Set(
+    imageDictionaries.map((dictionary) => dictionary.id)
+  );
+  const imageTabGroups = state.tabGroups.filter((group) =>
+    group.dictionaryIds.some((id) => imageDictionaryIds.has(id))
+  );
+
   // The appearance numbers are rendered in two runs, either side of the
   // toolbar-position select.
   const renderAppearanceNumber = (
@@ -588,6 +601,36 @@ export function HoshidictsDesignPanel({
             onChange={(value) =>
               setReaderPreference("kanjiClickDictionary", value)
             }
+          />
+          <HoshidictsPopupImageSourceSelect
+            id="hoshidicts-popup-image-source"
+            className="hoshidicts-setting--split"
+            label={t(
+              "settings.hoshidicts.reader.appearance.popupImageSource"
+            )}
+            hint={t(
+              "settings.hoshidicts.reader.appearance.popupImageSourceHint"
+            )}
+            automaticLabel={t(
+              "settings.hoshidicts.reader.appearance.popupImageSourceAutomatic"
+            )}
+            missingDictionaryLabel={t(
+              "settings.hoshidicts.reader.appearance.popupImageSourceDictionaryUnavailable",
+              {
+                dictionary:
+                  readerDraft.popupImageSource?.kind === "dictionary"
+                    ? readerDraft.popupImageSource.title
+                    : ""
+              }
+            )}
+            missingTabGroupLabel={t(
+              "settings.hoshidicts.reader.appearance.popupImageSourceTabGroupUnavailable"
+            )}
+            value={readerDraft.popupImageSource}
+            dictionaries={imageDictionaries}
+            tabGroups={imageTabGroups}
+            disabled={preferencesBusy}
+            onChange={(value) => setReaderPreference("popupImageSource", value)}
           />
           <HoshidictsToggleSetting
             id="hoshidicts-show-pitch-accent-furigana"
