@@ -2299,6 +2299,13 @@ describe("Hoshidicts dictionary tabs", () => {
     );
   });
 
+  it("keeps custom link actions at least as large as icon actions", () => {
+    const declarations = readerCssRule(".gsm-hoshidicts-text-action-button");
+
+    expect(declarations).toMatch(/min-width:\s*36px/u);
+    expect(declarations).toMatch(/min-height:\s*36px/u);
+  });
+
   it("keeps popup actions in fixed order and rerenders them live", async () => {
     const onBrowse = vi.fn(async () => ({ success: true }));
     const onOpenExternalLink = vi.fn(async () => ({ opened: true }));

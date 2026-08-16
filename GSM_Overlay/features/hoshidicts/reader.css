@@ -1802,7 +1802,8 @@ html[data-hoshidicts-theme="miku"] .gsm-hoshidicts-popup {
   align-items: center;
   justify-content: center;
   max-width: 160px;
-  min-height: 30px;
+  min-width: 36px;
+  min-height: 36px;
   overflow: hidden;
   padding: 4px 8px;
   border: 1px solid var(--hoshidicts-border-strong);
