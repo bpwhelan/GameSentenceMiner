@@ -1503,6 +1503,30 @@ describe("Hoshidicts compact definition summaries", () => {
       .toBe("Male •  16 years • 175cm • 65kg • Birthday: February 6");
   });
 
+  it("handles very large bullet-separated compact definition text without overflowing the stack", async () => {
+    const harness = createReaderHarness({
+      lookupMode: "hover",
+      showCompactDefinitionSummary: true,
+      compactDefinitionSummaryCount: 2
+    });
+    const hugeGlossary = Array.from(
+      { length: 130_000 },
+      (_, index) => `item ${index}`
+    ).join(" • ");
+    await renderFirstLookup(harness, {
+      shiftKey: false,
+      transform(response) {
+        response.results[0].term.glossaries[0].glossary = hugeGlossary;
+      }
+    });
+
+    const summary = harness.reader.getPopupElement().querySelector<HTMLElement>(
+      ".gsm-hoshidicts-compact-definition-summary"
+    )!;
+    expect(Array.from(summary.querySelectorAll("li"), (item) => item.textContent))
+      .toEqual(["item 0", "item 1"]);
+  });
+
   it("drops empty items from bullet-separated compact definition text", async () => {
     const harness = createReaderHarness({
       lookupMode: "hover",
