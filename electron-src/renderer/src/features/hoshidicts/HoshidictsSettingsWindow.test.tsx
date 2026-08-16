@@ -99,8 +99,8 @@ describe("HoshidictsSettingsWindow", () => {
     restoreEnvironment();
   });
 
-  async function render() {
-    harness = await renderHoshidictsSettings();
+  async function render(options: { locale?: string } = {}) {
+    harness = await renderHoshidictsSettings(options);
     container = harness.container;
   }
 
@@ -1901,6 +1901,32 @@ describe("HoshidictsSettingsWindow", () => {
       expect.objectContaining({
         customPopupCss: DEFAULT_HOSHIDICTS_CUSTOM_POPUP_CSS
       })
+    );
+  });
+
+  it("carries the active locale in the live Design preview message", async () => {
+    vi.useFakeTimers();
+    await render({ locale: "ja" });
+    await openDesign();
+
+    const frame = container.querySelector<HTMLIFrameElement>(
+      'iframe[src="./hoshidicts-preview/index.html"]'
+    );
+    const postMessage = vi.spyOn(frame!.contentWindow!, "postMessage");
+    postMessage.mockClear();
+
+    const editor = container.querySelector<HTMLTextAreaElement>(
+      "#hoshidicts-custom-popup-css"
+    );
+    await settle(() => setTextareaValue(editor, ":scope { color: red; }"), 1);
+
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "gsm.hoshidicts.preview.v1",
+        type: "preferences",
+        locale: "ja"
+      }),
+      expect.any(String)
     );
   });
 

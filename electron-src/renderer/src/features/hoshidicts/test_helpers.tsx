@@ -387,14 +387,16 @@ export interface HoshidictsSettingsHarness {
 }
 
 /** Mounts the standalone settings window into a fresh detached container. */
-export async function renderHoshidictsSettings(): Promise<HoshidictsSettingsHarness> {
+export async function renderHoshidictsSettings(
+  { locale = "en" }: { locale?: string } = {}
+): Promise<HoshidictsSettingsHarness> {
   const container = document.createElement("div");
   document.body.appendChild(container);
   let root: Root | null = createRoot(container);
 
   await act(async () => {
     root?.render(
-      <I18nProvider initialLocale="en">
+      <I18nProvider initialLocale={locale}>
         <HoshidictsSettingsWindow />
       </I18nProvider>
     );

@@ -151,7 +151,7 @@
     }
   }
 
-  function createReader(preferences) {
+  function createReader(preferences, locale) {
     const api = window.GSMHoshidictsReader;
     if (!api || typeof api.createHoshidictsReader !== "function") {
       setStatus("error");
@@ -159,6 +159,7 @@
     }
     return api.createHoshidictsReader({
       ...preferences,
+      locale,
       serverUrl: SERVER_URL,
       activationKeyPressed: true,
       audioController: createPreviewAudioController(),
@@ -199,15 +200,18 @@
     });
   }
 
-  function applyPreferences(preferences) {
+  function applyPreferences(preferences, locale) {
     const refresh = needsFreshLookup(currentPreferences, preferences);
     currentPreferences = preferences;
     if (!reader) {
-      reader = createReader(preferences);
+      reader = createReader(preferences, locale);
       if (reader) requestLookup();
       return;
     }
     reader.updatePreferences(preferences);
+    if (typeof locale === "string" && typeof reader.updateLocale === "function") {
+      reader.updateLocale(locale);
+    }
     if (refresh) requestLookup();
   }
 
@@ -220,7 +224,10 @@
       return;
     }
     if (message.type === "preferences" && isRecord(message.preferences)) {
-      applyPreferences(message.preferences);
+      applyPreferences(
+        message.preferences,
+        typeof message.locale === "string" ? message.locale : undefined
+      );
     }
   });
 

@@ -9,7 +9,7 @@ import {
 } from "react";
 
 import type { HoshidictsReaderPreferences } from "../../../../shared/features/hoshidicts";
-import { useTranslation } from "../../i18n";
+import { useTranslation, useLocale } from "../../i18n";
 import "./HoshidictsPopupPreview.css";
 
 const PREVIEW_CHANNEL = "gsm.hoshidicts.preview.v1";
@@ -37,6 +37,7 @@ interface PreviewPreferencesMessage {
   channel: typeof PREVIEW_CHANNEL;
   type: "preferences";
   preferences: HoshidictsReaderPreferences;
+  locale: string;
 }
 
 interface PreviewRefreshMessage {
@@ -66,6 +67,7 @@ export function HoshidictsPopupPreview({
   preferences
 }: HoshidictsPopupPreviewProps) {
   const t = useTranslation();
+  const [locale] = useLocale();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<PreviewStatus>("loading");
@@ -83,9 +85,10 @@ export function HoshidictsPopupPreview({
     postToPreview({
       channel: PREVIEW_CHANNEL,
       type: "preferences",
-      preferences
+      preferences,
+      locale
     });
-  }, [postToPreview, preferences]);
+  }, [postToPreview, preferences, locale]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
