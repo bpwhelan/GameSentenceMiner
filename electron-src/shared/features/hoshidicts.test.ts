@@ -20,6 +20,7 @@ import {
     MAX_HOSHIDICTS_POPUP_CUSTOM_LINK_URL_LENGTH,
     normalizeHoshidictsPopupButtons,
     normalizeHoshidictsReaderPreferences,
+    projectHoshidictsResultsToSelectedDictionary,
     type HoshidictsDictionaryState,
     type HoshidictsManagerSnapshot,
     type HoshidictsReaderPreferencesRequest,
@@ -489,6 +490,43 @@ describe('Hoshidicts reader preferences from a snapshot', () => {
         });
     });
 
+    it('carries per-dictionary term and kanji counts into the presentation context', () => {
+        const snapshot = {
+            dictionaries: [
+                dictionary('ゴブリンじゃない人のJPDB漢字辞典', {
+                    id: 'jpdb-kanji-terms',
+                    termCount: 20409,
+                    kanjiCount: 0,
+                }),
+                dictionary('KANJIDIC (English)', {
+                    id: 'kanjidic',
+                    termCount: 0,
+                    kanjiCount: 13108,
+                }),
+            ],
+            tabGroups: [],
+            popupButtons: createDefaultHoshidictsPopupButtons(),
+        } as unknown as HoshidictsManagerSnapshot;
+
+        expect(
+            hoshidictsReaderPreferencesFromSnapshot(snapshot)
+                .dictionaryPresentation
+        ).toEqual([
+            {
+                title: 'ゴブリンじゃない人のJPDB漢字辞典',
+                favorite: false,
+                termCount: 20409,
+                kanjiCount: 0,
+            },
+            {
+                title: 'KANJIDIC (English)',
+                favorite: false,
+                termCount: 0,
+                kanjiCount: 13108,
+            },
+        ]);
+    });
+
     it('projects compact definition, pitch, and metadata preferences into the overlay', () => {
         const snapshot = {
             dictionaries: [],
@@ -741,4 +779,77 @@ describe('Hoshidicts reader preferences from a snapshot', () => {
         }
     );
 
+});
+
+describe('projectHoshidictsResultsToSelectedDictionary', () => {
+    const glossary = (dictionary: string, text: string) => ({
+        dictionary,
+        glossary: text,
+        definitionTags: '',
+        termTags: '',
+    });
+    const result = (
+        expression: string,
+        glossaries: ReturnType<typeof glossary>[]
+    ) => ({
+        matched: expression,
+        deinflected: expression,
+        trace: [],
+        term: {
+            expression,
+            reading: expression,
+            rules: '',
+            score: 0,
+            glossaries,
+            frequencies: [],
+            pitches: [],
+        },
+    });
+
+    it('keeps only glossaries from the selected dictionary and drops empty results', () => {
+        const results = [
+            result('一', [
+                glossary('ゴブリンじゃない人のJPDB漢字辞典', 'one; single'),
+                glossary('JMdict', 'ignored'),
+            ]),
+            result('二', [glossary('JMdict', 'two')]),
+        ];
+
+        expect(
+            projectHoshidictsResultsToSelectedDictionary(
+                results,
+                'ゴブリンじゃない人のJPDB漢字辞典'
+            )
+        ).toEqual([
+            result('一', [
+                glossary('ゴブリンじゃない人のJPDB漢字辞典', 'one; single'),
+            ]),
+        ]);
+    });
+
+    it('does not mutate the source results or their glossary arrays', () => {
+        const original = result('一', [
+            glossary('ゴブリンじゃない人のJPDB漢字辞典', 'one'),
+            glossary('JMdict', 'ignored'),
+        ]);
+        const results = [original];
+        const originalGlossaries = original.term.glossaries;
+
+        projectHoshidictsResultsToSelectedDictionary(
+            results,
+            'ゴブリンじゃない人のJPDB漢字辞典'
+        );
+
+        expect(results).toHaveLength(1);
+        expect(original.term.glossaries).toBe(originalGlossaries);
+        expect(original.term.glossaries).toHaveLength(2);
+    });
+
+    it('returns an empty array when no glossary matches the selection', () => {
+        const results = [result('一', [glossary('JMdict', 'one')])];
+
+        expect(
+            projectHoshidictsResultsToSelectedDictionary(results, 'Missing')
+        ).toEqual([]);
+    });
 });

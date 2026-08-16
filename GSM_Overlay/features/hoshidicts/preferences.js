@@ -57,6 +57,10 @@
     return Number.isInteger(value) && value >= bound.min && value <= bound.max;
   }
 
+  function isNonNegativeInteger(value) {
+    return Number.isInteger(value) && value >= 0;
+  }
+
   /**
    * Field validators keyed by preference name. `optional` fields fall back to
    * the shared default when the sender omits them; everything else must be
@@ -210,7 +214,11 @@
         typeof entry.favorite !== "boolean" ||
         (entry.displayName !== undefined && !boundedTitle(entry.displayName)) ||
         (entry.frequencyMode !== undefined &&
-          !FREQUENCY_MODES.includes(entry.frequencyMode))
+          !FREQUENCY_MODES.includes(entry.frequencyMode)) ||
+        (entry.termCount !== undefined &&
+          !isNonNegativeInteger(entry.termCount)) ||
+        (entry.kanjiCount !== undefined &&
+          !isNonNegativeInteger(entry.kanjiCount))
       ) {
         return null;
       }
@@ -221,6 +229,12 @@
       }
       if (entry.frequencyMode !== undefined) {
         normalizedEntry.frequencyMode = entry.frequencyMode;
+      }
+      if (entry.termCount !== undefined) {
+        normalizedEntry.termCount = entry.termCount;
+      }
+      if (entry.kanjiCount !== undefined) {
+        normalizedEntry.kanjiCount = entry.kanjiCount;
       }
       normalized.push(normalizedEntry);
     }
