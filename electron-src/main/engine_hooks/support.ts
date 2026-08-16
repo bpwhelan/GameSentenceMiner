@@ -3,25 +3,50 @@ import * as path from 'node:path';
 
 import { applyMagesCharsetOverrides, parseMagesCompoundMap } from './mages_decoder.js';
 
-export interface EngineHookManifest {
+export interface EngineHookTarget {
+    platform: 'windows';
+    architecture: 'ia32' | 'x64';
+    /** Absent when the module is the executable itself, whatever it is named. */
+    moduleName?: string;
+    executableNames?: string[];
+    knownExecutableSha256?: string[];
+    /**
+     * UTF-16 strings that must all appear in the executable. Engines whose games
+     * each rename the executable are identified by their version resource instead
+     * of by file name.
+     */
+    versionMarkers?: string[];
+}
+
+export type EngineHookAdvance =
+    | {
+          method: 'foreground-key';
+          virtualKey: number;
+          scanCode: number;
+      }
+    | {
+          method: 'foreground-click';
+          clientXRatio: number;
+          clientYRatio: number;
+      };
+
+interface EngineHookManifestBase {
     schema: 'gsm_engine_hook_manifest_v1';
     id: string;
     name: string;
     engine: string;
+    target: EngineHookTarget;
+    payload: string;
+    advance: EngineHookAdvance;
+}
+
+export interface MagesEngineHookManifest extends EngineHookManifestBase {
     decoder: 'mages-v1';
-    target: {
-        platform: 'windows';
-        architecture: 'ia32' | 'x64';
-        moduleName: string;
-        executableNames: string[];
-        knownExecutableSha256?: string[];
-    };
     coordinateSpace: {
         provider: 'window-client-over-memory-scale';
         scaleXRva: string;
         scaleYRva: string;
     };
-    payload: string;
     resources: {
         charset: string;
         charsetOverrides?: string;
@@ -43,23 +68,32 @@ export interface EngineHookManifest {
     capture: {
         acceptedModes: number[];
     };
-    advance:
-        | {
-              method: 'foreground-key';
-              virtualKey: number;
-              scanCode: number;
-          }
-        | {
-              method: 'foreground-click';
-              clientXRatio: number;
-              clientYRatio: number;
-          };
 }
+
+export interface BgiEngineHookManifest extends EngineHookManifestBase {
+    decoder: 'bgi-v1';
+    /**
+     * The payload resolves glyphs to client pixels itself, by following the engine's
+     * own surface copies, so nothing about the coordinate space is configured.
+     */
+    coordinateSpace: {
+        provider: 'payload-client-pixels';
+    };
+    signatures: {
+        glyphDraw: string;
+        textCapture: string;
+        copyDispatcher: string;
+        surfaceLock: string;
+    };
+}
+
+export type EngineHookManifest = MagesEngineHookManifest | BgiEngineHookManifest;
 
 export interface EngineHookSupport {
     directory: string;
     manifest: EngineHookManifest;
     payloadSource: string;
+    /** MAGES only; BGI text arrives as Unicode and needs no charset. */
     charset: string;
     compoundCharacters: Map<string, string>;
 }
@@ -102,27 +136,118 @@ function rva(value: unknown, label: string): string {
     return candidate;
 }
 
-export function parseEngineHookManifest(value: unknown): EngineHookManifest {
-    const root = object(value, 'manifest');
-    if (root.schema !== 'gsm_engine_hook_manifest_v1') throw new Error('Unsupported engine-hook manifest schema.');
-    const target = object(root.target, 'target');
-    const coordinateSpace = object(root.coordinateSpace, 'coordinateSpace');
-    const resources = object(root.resources, 'resources');
-    const signatures = object(root.signatures, 'signatures');
-    const memory = object(root.memory, 'memory');
-    const capture = object(root.capture, 'capture');
-    const advance = object(root.advance, 'advance');
+function parseTarget(value: unknown): EngineHookTarget {
+    const target = object(value, 'target');
     if (
         target.platform !== 'windows' ||
         (target.architecture !== 'ia32' && target.architecture !== 'x64')
     ) {
         throw new Error('Engine-hook targets must use Windows ia32 or x64.');
     }
+    const hasNames = Array.isArray(target.executableNames) && target.executableNames.length > 0;
+    const hasMarkers = Array.isArray(target.versionMarkers) && target.versionMarkers.length > 0;
+    if (!hasNames && !hasMarkers) {
+        throw new Error('target must match on executableNames or versionMarkers.');
+    }
+    const knownExecutableSha256 = target.knownExecutableSha256;
+    if (
+        knownExecutableSha256 !== undefined &&
+        (!Array.isArray(knownExecutableSha256) ||
+            knownExecutableSha256.some((entry) => typeof entry !== 'string' || !/^[0-9a-f]{64}$/iu.test(entry)))
+    ) {
+        throw new Error('target.knownExecutableSha256 must contain SHA-256 hashes.');
+    }
+    return {
+        platform: 'windows',
+        architecture: target.architecture,
+        ...(target.moduleName === undefined
+            ? {}
+            : { moduleName: nonEmptyString(target.moduleName, 'target.moduleName') }),
+        ...(hasNames
+            ? {
+                  executableNames: (target.executableNames as unknown[]).map((entry, index) =>
+                      nonEmptyString(entry, `target.executableNames[${index}]`),
+                  ),
+              }
+            : {}),
+        ...(hasMarkers
+            ? {
+                  versionMarkers: (target.versionMarkers as unknown[]).map((entry, index) =>
+                      nonEmptyString(entry, `target.versionMarkers[${index}]`),
+                  ),
+              }
+            : {}),
+        ...(knownExecutableSha256
+            ? { knownExecutableSha256: knownExecutableSha256.map((hash) => hash.toLowerCase()) }
+            : {}),
+    };
+}
+
+function parseAdvance(value: unknown): EngineHookAdvance {
+    const advance = object(value, 'advance');
+    if (advance.method === 'foreground-key') {
+        return {
+            method: 'foreground-key',
+            virtualKey: positiveInteger(advance.virtualKey, 'advance.virtualKey', 255),
+            scanCode: positiveInteger(advance.scanCode, 'advance.scanCode', 255),
+        };
+    }
+    if (advance.method === 'foreground-click') {
+        return {
+            method: 'foreground-click',
+            clientXRatio: unitRatio(advance.clientXRatio, 'advance.clientXRatio'),
+            clientYRatio: unitRatio(advance.clientYRatio, 'advance.clientYRatio'),
+        };
+    }
+    throw new Error('advance.method must be foreground-key or foreground-click.');
+}
+
+function parseSignatures<K extends string>(value: unknown, keys: readonly K[]): Record<K, string> {
+    const signatures = object(value, 'signatures');
+    const result = {} as Record<K, string>;
+    for (const key of keys) result[key] = nonEmptyString(signatures[key], `signatures.${key}`);
+    return result;
+}
+
+export function parseEngineHookManifest(value: unknown): EngineHookManifest {
+    const root = object(value, 'manifest');
+    if (root.schema !== 'gsm_engine_hook_manifest_v1') throw new Error('Unsupported engine-hook manifest schema.');
+    const base = {
+        schema: 'gsm_engine_hook_manifest_v1',
+        id: nonEmptyString(root.id, 'id'),
+        name: nonEmptyString(root.name, 'name'),
+        engine: nonEmptyString(root.engine, 'engine'),
+        target: parseTarget(root.target),
+        payload: relativeAssetPath(root.payload, 'payload'),
+        advance: parseAdvance(root.advance),
+    } as const;
+
+    if (root.decoder === 'bgi-v1') {
+        const coordinateSpace = object(root.coordinateSpace, 'coordinateSpace');
+        if (coordinateSpace.provider !== 'payload-client-pixels') {
+            throw new Error('bgi-v1 coordinateSpace.provider must be payload-client-pixels.');
+        }
+        return {
+            ...base,
+            decoder: 'bgi-v1',
+            coordinateSpace: { provider: 'payload-client-pixels' },
+            signatures: parseSignatures(root.signatures, [
+                'glyphDraw',
+                'textCapture',
+                'copyDispatcher',
+                'surfaceLock',
+            ]),
+        };
+    }
+
+    if (root.decoder !== 'mages-v1') throw new Error('Unsupported engine-hook decoder.');
+
+    const coordinateSpace = object(root.coordinateSpace, 'coordinateSpace');
+    const resources = object(root.resources, 'resources');
+    const memory = object(root.memory, 'memory');
+    const capture = object(root.capture, 'capture');
     if (coordinateSpace.provider !== 'window-client-over-memory-scale') {
         throw new Error('coordinateSpace.provider must be window-client-over-memory-scale.');
-    }
-    if (!Array.isArray(target.executableNames) || target.executableNames.length === 0) {
-        throw new Error('target.executableNames must not be empty.');
     }
     if (
         !Array.isArray(capture.acceptedModes) ||
@@ -133,44 +258,18 @@ export function parseEngineHookManifest(value: unknown): EngineHookManifest {
     ) {
         throw new Error('capture.acceptedModes must contain byte-sized integers.');
     }
-    const executableNames = target.executableNames.map((entry, index) =>
-        nonEmptyString(entry, `target.executableNames[${index}]`),
-    );
-    const knownExecutableSha256 = target.knownExecutableSha256;
-    if (
-        knownExecutableSha256 !== undefined &&
-        (!Array.isArray(knownExecutableSha256) ||
-            knownExecutableSha256.some((entry) => typeof entry !== 'string' || !/^[0-9a-f]{64}$/iu.test(entry)))
-    ) {
-        throw new Error('target.knownExecutableSha256 must contain SHA-256 hashes.');
+    if (base.target.moduleName === undefined) {
+        throw new Error('target.moduleName must be a non-empty string.');
     }
 
     return {
-        schema: 'gsm_engine_hook_manifest_v1',
-        id: nonEmptyString(root.id, 'id'),
-        name: nonEmptyString(root.name, 'name'),
-        engine: nonEmptyString(root.engine, 'engine'),
-        decoder:
-            root.decoder === 'mages-v1'
-                ? 'mages-v1'
-                : (() => {
-                      throw new Error('Unsupported engine-hook decoder.');
-                  })(),
-        target: {
-            platform: 'windows',
-            architecture: target.architecture,
-            moduleName: nonEmptyString(target.moduleName, 'target.moduleName'),
-            executableNames,
-            ...(knownExecutableSha256
-                ? { knownExecutableSha256: knownExecutableSha256.map((hash) => hash.toLowerCase()) }
-                : {}),
-        },
+        ...base,
+        decoder: 'mages-v1',
         coordinateSpace: {
             provider: 'window-client-over-memory-scale',
             scaleXRva: rva(coordinateSpace.scaleXRva, 'coordinateSpace.scaleXRva'),
             scaleYRva: rva(coordinateSpace.scaleYRva, 'coordinateSpace.scaleYRva'),
         },
-        payload: relativeAssetPath(root.payload, 'payload'),
         resources: {
             charset: relativeAssetPath(resources.charset, 'resources.charset'),
             ...(resources.charsetOverrides === undefined
@@ -186,10 +285,7 @@ export function parseEngineHookManifest(value: unknown): EngineHookManifest {
                 'resources.compoundCharacters',
             ),
         },
-        signatures: {
-            textBuilder: nonEmptyString(signatures.textBuilder, 'signatures.textBuilder'),
-            lineLayout: nonEmptyString(signatures.lineLayout, 'signatures.lineLayout'),
-        },
+        signatures: parseSignatures(root.signatures, ['textBuilder', 'lineLayout']),
         memory: {
             codeCountRva: rva(memory.codeCountRva, 'memory.codeCountRva'),
             codesRva: rva(memory.codesRva, 'memory.codesRva'),
@@ -202,22 +298,6 @@ export function parseEngineHookManifest(value: unknown): EngineHookManifest {
         capture: {
             acceptedModes: [...capture.acceptedModes],
         },
-        advance:
-            advance.method === 'foreground-key'
-                ? {
-                      method: 'foreground-key',
-                      virtualKey: positiveInteger(advance.virtualKey, 'advance.virtualKey', 255),
-                      scanCode: positiveInteger(advance.scanCode, 'advance.scanCode', 255),
-                  }
-                : advance.method === 'foreground-click'
-                  ? {
-                        method: 'foreground-click',
-                        clientXRatio: unitRatio(advance.clientXRatio, 'advance.clientXRatio'),
-                        clientYRatio: unitRatio(advance.clientYRatio, 'advance.clientYRatio'),
-                    }
-                  : (() => {
-                        throw new Error('advance.method must be foreground-key or foreground-click.');
-                    })(),
     };
 }
 
@@ -225,6 +305,9 @@ export function loadEngineHookSupport(directory: string): EngineHookSupport {
     const manifestPath = path.join(directory, 'manifest.json');
     const manifest = parseEngineHookManifest(JSON.parse(fs.readFileSync(manifestPath, 'utf8')));
     const payloadSource = fs.readFileSync(path.join(directory, manifest.payload), 'utf8');
+    if (manifest.decoder !== 'mages-v1') {
+        return { directory, manifest, payloadSource, charset: '', compoundCharacters: new Map() };
+    }
     const rawCharset = fs.readFileSync(path.join(directory, manifest.resources.charset), 'utf8');
     const charset = manifest.resources.charsetOverrides
         ? applyMagesCharsetOverrides(
@@ -265,17 +348,44 @@ export function loadEngineHookCatalog(directory: string): EngineHookSupport[] {
         .map(loadEngineHookSupport);
 }
 
+/**
+ * Reports whether an executable's bytes contain every marker as a UTF-16 string.
+ *
+ * This is a substring probe over the file, not a parsed version resource: the
+ * markers used are engine identity strings such as the BURIKO interpreter banner,
+ * which appear nowhere else, and every game on such an engine renames its
+ * executable so the file name cannot identify it.
+ */
+export function executableContainsVersionMarkers(
+    contents: Buffer,
+    markers: readonly string[],
+): boolean {
+    return markers.every((marker) => contents.includes(Buffer.from(marker, 'utf16le')));
+}
+
+export interface EngineHookTargetDescription {
+    exeName: string;
+    arch: 'x86' | 'x64';
+    executableSha256?: string;
+    executableContents?: Buffer;
+}
+
+function targetMatches(manifest: EngineHookManifest, target: EngineHookTargetDescription): boolean {
+    const names = manifest.target.executableNames;
+    if (names?.some((name) => name.toLowerCase() === target.exeName.toLowerCase())) return true;
+    const markers = manifest.target.versionMarkers;
+    if (!markers || !target.executableContents) return false;
+    return executableContainsVersionMarkers(target.executableContents, markers);
+}
+
 export function resolveEngineHookSupport(
     directory: string,
-    target: { exeName: string; arch: 'x86' | 'x64'; executableSha256?: string },
+    target: EngineHookTargetDescription,
 ): EngineHookSupport {
     const architecture = target.arch === 'x86' ? 'ia32' : 'x64';
     const candidates = loadEngineHookCatalog(directory).filter(
         (support) =>
-            support.manifest.target.architecture === architecture &&
-            support.manifest.target.executableNames.some(
-                (name) => name.toLowerCase() === target.exeName.toLowerCase(),
-            ),
+            support.manifest.target.architecture === architecture && targetMatches(support.manifest, target),
     );
     const matchingBuilds = target.executableSha256
         ? candidates.filter((support) => {

@@ -104,10 +104,16 @@ const DEV_JAPANESE_PAYLOAD_FRAGMENTS = [
 const AGENT_RELEASES_URL = "https://github.com/0xDC00/agent/releases/latest";
 const LUNA_TRANSLATOR_RELEASES_URL = "https://github.com/HIllya51/LunaTranslator/releases";
 const TEXTRACTOR_RELEASES_URL = "https://github.com/Chenx221/Textractor/releases";
-const BUILT_IN_HOOK_SUPPORTED_GAMES = [
+// Entries are a single game build or a whole engine, depending on what the
+// support package can identify the target by.
+const BUILT_IN_HOOK_SUPPORTED_TARGETS = [
   {
     nameKey: "texthook.mages.support.steinsGate.name",
     detailsKey: "texthook.mages.support.steinsGate.details",
+  },
+  {
+    nameKey: "texthook.mages.support.bgi.name",
+    detailsKey: "texthook.mages.support.bgi.details",
   },
 ] as const;
 
@@ -918,10 +924,10 @@ export function TextHookTab({ active }: TextHookTabProps) {
                               {t("texthook.mages.support.title")}
                             </div>
                             <ul>
-                              {BUILT_IN_HOOK_SUPPORTED_GAMES.map((game) => (
-                                <li key={game.nameKey}>
-                                  <strong>{t(game.nameKey)}</strong>
-                                  <span>{t(game.detailsKey)}</span>
+                              {BUILT_IN_HOOK_SUPPORTED_TARGETS.map((target) => (
+                                <li key={target.nameKey}>
+                                  <strong>{t(target.nameKey)}</strong>
+                                  <span>{t(target.detailsKey)}</span>
                                 </li>
                               ))}
                             </ul>

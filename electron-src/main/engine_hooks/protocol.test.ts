@@ -33,6 +33,55 @@ describe('engine-hook protocol', () => {
         });
 
         expect(message?.type).toBe('text-layout');
+        expect(message?.type === 'text-layout' && message.layout).toEqual({
+            kind: 'mages-v1',
+            positionedCodes: [{ engineIndex: 0, code: 1, x: 100, y: 200, width: 20, height: 30 }],
+        });
+    });
+
+    it('accepts a glyph layout with the candidate strings it has to be paired against', () => {
+        const message = sanitizeEngineHookMessage({
+            schema: 'gsm_engine_hook_message_v1',
+            type: 'text-layout',
+            integrationId: 'bgi-ethornell',
+            sequence: 4,
+            capturedAt: 123,
+            callerOffset: '0x3b9aa',
+            mode: 0,
+            style: 0,
+            coordinateSpace: { kind: 'window-client', clientWidth: 1280, clientHeight: 720 },
+            candidates: ['「ソーマ」', 'ソーマ'],
+            glyphs: [{ engineIndex: 0, x: 120, y: 594, width: 28, height: 42 }],
+        });
+
+        expect(message?.type === 'text-layout' && message.coordinateSpace).toEqual({
+            kind: 'engine-logical',
+            width: 1280,
+            height: 720,
+        });
+        expect(message?.type === 'text-layout' && message.layout).toEqual({
+            kind: 'bgi-v1',
+            candidates: ['「ソーマ」', 'ソーマ'],
+            glyphs: [{ engineIndex: 0, x: 120, y: 594, width: 28, height: 42 }],
+        });
+    });
+
+    it('rejects a glyph layout that carries no candidate to pair with', () => {
+        expect(
+            sanitizeEngineHookMessage({
+                schema: 'gsm_engine_hook_message_v1',
+                type: 'text-layout',
+                integrationId: 'bgi-ethornell',
+                sequence: 4,
+                capturedAt: 123,
+                callerOffset: null,
+                mode: 0,
+                style: 0,
+                coordinateSpace: { kind: 'window-client', clientWidth: 1280, clientHeight: 720 },
+                candidates: [],
+                glyphs: [{ engineIndex: 0, x: 120, y: 594, width: 28, height: 42 }],
+            }),
+        ).toBeNull();
     });
 
     it('derives logical dimensions from each live window and engine-scale measurement', () => {
@@ -51,6 +100,15 @@ describe('engine-hook protocol', () => {
             width: 1280,
             height: 720,
         });
+        // A payload that resolved its own client pixels reports the measured client
+        // area; a claim without that measurement is still rejected.
+        expect(
+            deriveEngineLogicalCoordinateSpace({
+                kind: 'window-client',
+                clientWidth: 1920,
+                clientHeight: 1080,
+            }),
+        ).toEqual({ kind: 'engine-logical', width: 1920, height: 1080 });
         expect(
             deriveEngineLogicalCoordinateSpace({ kind: 'window-client', width: 1920, height: 1080 }),
         ).toBeNull();

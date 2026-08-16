@@ -6,6 +6,7 @@ import * as path from 'node:path';
 
 import { getAssetsDir } from '../util.js';
 import type { TextGeometryV1 } from '../ui/text_geometry.js';
+import { selectBgiLayout } from './bgi_decoder.js';
 import { decodeMagesLayout } from './mages_decoder.js';
 import { sanitizeEngineHookMessage } from './protocol.js';
 import {
@@ -83,10 +84,15 @@ function catalogDirectory(): string {
     return path.join(getAssetsDir(), 'engine_hooks');
 }
 
-async function executableSha256(executablePath: string | null | undefined): Promise<string | undefined> {
-    if (!executablePath || !fs.existsSync(executablePath)) return undefined;
+async function readExecutable(
+    executablePath: string | null | undefined,
+): Promise<{ executableSha256?: string; executableContents?: Buffer }> {
+    if (!executablePath || !fs.existsSync(executablePath)) return {};
     const contents = await fs.promises.readFile(executablePath);
-    return createHash('sha256').update(contents).digest('hex');
+    return {
+        executableSha256: createHash('sha256').update(contents).digest('hex'),
+        executableContents: contents,
+    };
 }
 
 function geometryBounds(lines: TextGeometryV1['lines']): TextGeometryV1['bounds'] {
@@ -124,11 +130,19 @@ function handleTextLayout(
         return;
     }
     try {
-        const decoded = decodeMagesLayout(
-            message.positionedCodes,
-            current.support.charset,
-            current.support.compoundCharacters,
-        );
+        const decoded =
+            message.layout.kind === 'bgi-v1'
+                ? selectBgiLayout(message.layout.candidates, message.layout.glyphs)
+                : decodeMagesLayout(
+                      message.layout.positionedCodes,
+                      current.support.charset,
+                      current.support.compoundCharacters,
+                  );
+        if (!decoded) {
+            // Nothing to say: the engine emits strings that belong to no displayed
+            // line, and refusing to pair them is the decoder working as intended.
+            return;
+        }
         if (!decoded.text.trim() || decoded.lines.length === 0 || decoded.glyphs.length === 0) return;
 
         const lines = decoded.lines.map((line) => ({ ...line, bounds: { ...line.bounds } }));
@@ -161,7 +175,10 @@ function handleTextLayout(
         });
         current.options.onStateChanged();
     } catch (error) {
-        current.options.onLog(`Could not decode MAGES text layout: ${(error as Error).message}`, 'error');
+        current.options.onLog(
+            `Could not decode ${current.support.manifest.engine} text layout: ${(error as Error).message}`,
+            'error',
+        );
     }
 }
 
@@ -182,7 +199,7 @@ export async function startEngineHookSession(
         const support = resolveEngineHookSupport(catalogDirectory(), {
             exeName: options.exeName,
             arch: options.arch,
-            executableSha256: await executableSha256(options.executablePath),
+            ...(await readExecutable(options.executablePath)),
         });
 
         fridaSession = await frida.attach(options.pid);

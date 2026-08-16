@@ -7,11 +7,12 @@ import { fileURLToPath } from 'node:url';
 
 import frida, { ScriptRuntime } from 'frida';
 
+import { selectBgiLayout } from '../../dist/main/engine_hooks/bgi_decoder.js';
 import {
     decodeMagesLayout,
     parseMagesCompoundMap,
 } from '../../dist/main/engine_hooks/mages_decoder.js';
-import { deriveEngineLogicalCoordinateSpace } from '../../dist/main/engine_hooks/protocol.js';
+import { sanitizeEngineHookMessage } from '../../dist/main/engine_hooks/protocol.js';
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(scriptDirectory, '..', '..');
@@ -31,6 +32,9 @@ function option(name) {
 async function resolvePid(executableName) {
     const explicitPid = Number.parseInt(option('pid') ?? '', 10);
     if (Number.isInteger(explicitPid) && explicitPid > 0) return explicitPid;
+    if (!executableName) {
+        throw new Error('This support package matches on its version resource; pass --pid=<number>.');
+    }
     const device = await frida.getLocalDevice();
     const processes = await device.enumerateProcesses();
     const matches = processes.filter(
@@ -52,17 +56,24 @@ async function main() {
     }
     const supportDirectory = path.join(supportCatalogDirectory, supportId);
     const manifest = JSON.parse(fs.readFileSync(path.join(supportDirectory, 'manifest.json'), 'utf8'));
-    if (manifest.decoder !== 'mages-v1') {
+    if (manifest.decoder !== 'mages-v1' && manifest.decoder !== 'bgi-v1') {
         throw new Error(`The validation runner does not yet implement decoder ${manifest.decoder}.`);
     }
     const payload = fs.readFileSync(path.join(supportDirectory, manifest.payload), 'utf8');
-    const charset = fs.readFileSync(path.join(supportDirectory, manifest.resources.charset), 'utf8');
-    const compounds = parseMagesCompoundMap(
-        fs.readFileSync(path.join(supportDirectory, manifest.resources.compoundCharacters), 'utf8'),
-    );
-    const pid = await resolvePid(manifest.target.executableNames[0]);
+    const isMages = manifest.decoder === 'mages-v1';
+    const charset = isMages
+        ? fs.readFileSync(path.join(supportDirectory, manifest.resources.charset), 'utf8')
+        : '';
+    const compounds = isMages
+        ? parseMagesCompoundMap(
+              fs.readFileSync(path.join(supportDirectory, manifest.resources.compoundCharacters), 'utf8'),
+          )
+        : new Map();
+    const pid = await resolvePid(manifest.target.executableNames?.[0] ?? null);
     const timeoutMs = Number.parseInt(option('timeout') ?? '15000', 10);
+    const wanted = Number.parseInt(option('lines') ?? '1', 10);
     const shouldAdvance = process.argv.includes('--advance');
+    let seen = 0;
 
     const targetSession = await frida.attach(pid);
     const injectedSource = `globalThis.__GSM_ENGINE_HOOK_CONFIG__ = ${JSON.stringify(manifest)};\n${payload}`;
@@ -102,34 +113,44 @@ async function main() {
         }
         if (payloadMessage?.type !== 'text-layout') return;
         try {
-            const decoded = decodeMagesLayout(payloadMessage.positionedCodes, charset, compounds);
-            const coordinateSpace = deriveEngineLogicalCoordinateSpace(payloadMessage.coordinateSpace);
-            if (!coordinateSpace) {
-                throw new Error(
-                    `Invalid coordinate measurement: ${JSON.stringify(payloadMessage.coordinateSpace)}`,
+            // The runner validates the same path the app takes, sanitizer included.
+            const sanitized = sanitizeEngineHookMessage(payloadMessage);
+            if (!sanitized || sanitized.type !== 'text-layout') {
+                throw new Error(`The payload sent a message the protocol rejects: ${JSON.stringify(payloadMessage)}`);
+            }
+            const decoded =
+                sanitized.layout.kind === 'bgi-v1'
+                    ? selectBgiLayout(sanitized.layout.candidates, sanitized.layout.glyphs)
+                    : decodeMagesLayout(sanitized.layout.positionedCodes, charset, compounds);
+            if (!decoded) {
+                process.stderr.write(
+                    `unpaired: ${JSON.stringify(
+                        sanitized.layout.kind === 'bgi-v1' ? sanitized.layout.candidates : [],
+                    )}\n`,
                 );
+                return;
             }
             process.stdout.write(
                 `${JSON.stringify(
                     {
-                        integrationId: payloadMessage.integrationId,
-                        sequence: payloadMessage.sequence,
-                        callerOffset: payloadMessage.callerOffset,
-                        mode: payloadMessage.mode,
-                        style: payloadMessage.style,
+                        integrationId: sanitized.integrationId,
+                        sequence: sanitized.sequence,
+                        callerOffset: sanitized.callerOffset,
                         coordinateMeasurement: payloadMessage.coordinateSpace,
-                        coordinateSpace,
+                        coordinateSpace: sanitized.coordinateSpace,
                         text: decoded.text,
                         lines: decoded.lines,
                         glyphCount: decoded.glyphs.length,
                         firstGlyph: decoded.glyphs[0] ?? null,
                         lastGlyph: decoded.glyphs.at(-1) ?? null,
+                        ...('ruby' in decoded && decoded.ruby.length > 0 ? { ruby: decoded.ruby } : {}),
                     },
                     null,
                     2,
                 )}\n`,
             );
-            finish.resolve();
+            seen += 1;
+            if (seen >= wanted) finish.resolve();
         } catch (error) {
             finish.reject(error);
         }

@@ -268,7 +268,7 @@ describe("TextHookTab", () => {
     );
   });
 
-  it("labels the built-in game hook experimental and lists its only supported game", async () => {
+  it("labels the built-in game hook experimental and lists every supported target", async () => {
     invokeMock.mockImplementation(async (channel: string) => {
       if (channel === "texthook.getStatus") return { running: false };
       if (channel === "texthook.listHooks") return { selectedHookId: null, hooks: [] };
@@ -294,12 +294,16 @@ describe("TextHookTab", () => {
       "Built-in Game Hook (Experimental)"
     );
     expect(container.textContent).toContain(
-      "currently works only with the exact STEINS;GATE Steam for Windows build"
+      "works only with the games and engines listed below"
     );
-    const supportedGames = container.querySelectorAll(".texthook-supported-games li");
-    expect(supportedGames).toHaveLength(1);
-    expect(supportedGames[0]?.textContent).toContain("STEINS;GATE");
-    expect(supportedGames[0]?.textContent).toContain("32-bit (x86)");
+    const supportedTargets = container.querySelectorAll(".texthook-supported-games li");
+    expect(supportedTargets).toHaveLength(2);
+    // One entry is a single game build, the other a whole engine, because that is
+    // what each support package can identify its target by.
+    expect(supportedTargets[0]?.textContent).toContain("STEINS;GATE");
+    expect(supportedTargets[0]?.textContent).toContain("32-bit (x86)");
+    expect(supportedTargets[1]?.textContent).toContain("BGI / Ethornell");
+    expect(supportedTargets[1]?.textContent).toContain("version information");
   });
 
   it("caps displayed hook text and blocks excessive Japanese quote pairs", async () => {
