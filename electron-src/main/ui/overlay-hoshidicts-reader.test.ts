@@ -8264,26 +8264,29 @@ describe("Hoshidicts popup image source gating", () => {
     expect(new Set(dictionaries)).toEqual(new Set(["Jitendex", "Daijirin"]));
   });
 
-  it("an individual dictionary source requests media only from that dictionary", async () => {
-    const { dictionaries } = await mediaRequestsFor({
-      popupImageSource: { kind: "dictionary", title: "Jitendex" },
-    });
-    expect(dictionaries).toEqual(["Jitendex"]);
-  });
-
-  it("an individual dictionary source with no image in the result shows no image", async () => {
-    const { dictionaries } = await mediaRequestsFor({
-      popupImageSource: { kind: "dictionary", title: "JMdict" },
-    });
-    expect(dictionaries).toEqual([]);
-  });
-
-  it("a stale/deleted individual dictionary source shows no image", async () => {
-    const { dictionaries } = await mediaRequestsFor({
-      popupImageSource: { kind: "dictionary", title: "Removed Dictionary" },
-    });
-    expect(dictionaries).toEqual([]);
-  });
+  it.each([
+    [
+      "requests media only from that dictionary",
+      { kind: "dictionary", title: "Jitendex" },
+      ["Jitendex"]
+    ],
+    [
+      "with no image in the result shows no image",
+      { kind: "dictionary", title: "JMdict" },
+      []
+    ],
+    [
+      "that is stale/deleted shows no image",
+      { kind: "dictionary", title: "Removed Dictionary" },
+      []
+    ]
+  ])(
+    "an individual dictionary source %s",
+    async (_label, popupImageSource, expected) => {
+      const { dictionaries } = await mediaRequestsFor({ popupImageSource });
+      expect(dictionaries).toEqual(expected);
+    }
+  );
 
   it("does not leak a compact-summary image from a dictionary outside the source", async () => {
     // Compact TEXT comes from JMdict; its image must be suppressed because the

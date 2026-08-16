@@ -1545,71 +1545,54 @@ describe("HoshidictsSettingsWindow", () => {
     );
   });
 
-  it("keeps an unavailable popup image source selectable", async () => {
-    ipc.configure({
-      state: makeHoshidictsSnapshot({
-        dictionaries: [
-          makeHoshidictsDictionary({
-            id: "images-id",
-            title: "Pixel Terms",
-            termCount: 50,
-            mediaCount: 12
-          })
-        ],
-        tabGroups: [],
-        popupImageSource: { kind: "dictionary", title: "Removed Images" }
-      })
-    });
+  it.each([
+    [
+      "dictionary",
+      { kind: "dictionary", title: "Removed Images" } as const,
+      "dictionary:Removed Images",
+      "Removed Images (not installed)"
+    ],
+    [
+      "tab group",
+      { kind: "tabGroup", id: "gone" } as const,
+      "tabGroup:gone",
+      "Removed tab group"
+    ]
+  ])(
+    "keeps an unavailable popup image %s selectable",
+    async (_label, popupImageSource, expectedValue, unavailableLabel) => {
+      ipc.configure({
+        state: makeHoshidictsSnapshot({
+          dictionaries: [
+            makeHoshidictsDictionary({
+              id: "images-id",
+              title: "Pixel Terms",
+              termCount: 50,
+              mediaCount: 12
+            })
+          ],
+          tabGroups: [],
+          popupImageSource
+        })
+      });
 
-    await render();
-    await openDesign();
+      await render();
+      await openDesign();
 
-    const source = container.querySelector<HTMLSelectElement>(
-      "#hoshidicts-popup-image-source"
-    );
-    expect(source?.value).toBe("dictionary:Removed Images");
-    expect(source?.disabled).toBe(false);
-    expect(
-      Array.from(source?.options ?? [], (option) => option.textContent)
-    ).toEqual([
-      "Automatic (every dictionary)",
-      "Removed Images (not installed)",
-      "Pixel Terms"
-    ]);
-  });
-
-  it("keeps an unavailable popup image tab group selectable", async () => {
-    ipc.configure({
-      state: makeHoshidictsSnapshot({
-        dictionaries: [
-          makeHoshidictsDictionary({
-            id: "images-id",
-            title: "Pixel Terms",
-            termCount: 50,
-            mediaCount: 12
-          })
-        ],
-        tabGroups: [],
-        popupImageSource: { kind: "tabGroup", id: "gone" }
-      })
-    });
-
-    await render();
-    await openDesign();
-
-    const source = container.querySelector<HTMLSelectElement>(
-      "#hoshidicts-popup-image-source"
-    );
-    expect(source?.value).toBe("tabGroup:gone");
-    expect(source?.disabled).toBe(false);
-    expect(
-      Array.from(source?.options ?? [], (option) => option.textContent)
-    ).toEqual([
-      "Automatic (every dictionary)",
-      "Removed tab group",
-      "Pixel Terms"
-    ]);
-  });
+      const source = container.querySelector<HTMLSelectElement>(
+        "#hoshidicts-popup-image-source"
+      );
+      expect(source?.value).toBe(expectedValue);
+      expect(source?.disabled).toBe(false);
+      expect(
+        Array.from(source?.options ?? [], (option) => option.textContent)
+      ).toEqual([
+        "Automatic (every dictionary)",
+        unavailableLabel,
+        "Pixel Terms"
+      ]);
+    }
+  );
 
   it("disables the popup image source when no dictionary has images", async () => {
     ipc.configure({
