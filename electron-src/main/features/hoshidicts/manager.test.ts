@@ -29,6 +29,7 @@ import {
     type ArchiveInspection,
     type HoshidictsImportReport,
     type HoshidictsManagerDependencies,
+    type HoshidictsManagerSnapshot,
     type HoshidictsRemoteIndex,
 } from './manager.js';
 import { makeHoshidictsReaderPreferences } from './test_helpers.js';
@@ -1631,27 +1632,50 @@ describe('Hoshidicts mining profile', () => {
         ).toEqual(['audio-profile.json', 'manifest.json', 'mining-profile.json']);
     });
 
-    it('ignores the removed standalone mining profile storage', async () => {
-        const baseDir = makeTempDir();
-        const { manager } = createHarness(baseDir);
-        await manager.setMiningProfile(defaultHoshidictsMiningProfile());
-        fs.writeFileSync(
-            path.join(
-                baseDir,
-                'dictionaries',
-                'hoshidicts',
-                'mining-profile.json'
-            ),
-            '{broken',
-            'utf8'
-        );
+    // Both legacy standalone profile stores share one tolerant-read contract:
+    // a corrupt store file is ignored, the snapshot falls back to defaults with
+    // no error, and no dictionaries are surfaced. Table-driven across the two
+    // stores so each store stays individually asserted.
+    it.each([
+        {
+            store: 'mining',
+            file: 'mining-profile.json',
+            seed: (manager: HoshidictsManager) =>
+                manager.setMiningProfile(defaultHoshidictsMiningProfile()),
+            expectDefault: (snapshot: HoshidictsManagerSnapshot) =>
+                expect(snapshot.miningProfile).toEqual(
+                    defaultHoshidictsMiningProfile()
+                ),
+        },
+        {
+            store: 'audio',
+            file: 'audio-profile.json',
+            seed: (manager: HoshidictsManager) =>
+                manager.setAudioProfile(defaultHoshidictsAudioProfile()),
+            expectDefault: (snapshot: HoshidictsManagerSnapshot) =>
+                expect(snapshot.audioProfile).toEqual(
+                    defaultHoshidictsAudioProfile()
+                ),
+        },
+    ])(
+        'ignores the removed standalone $store profile storage',
+        async ({ file, seed, expectDefault }) => {
+            const baseDir = makeTempDir();
+            const { manager } = createHarness(baseDir);
+            await seed(manager);
+            fs.writeFileSync(
+                path.join(baseDir, 'dictionaries', 'hoshidicts', file),
+                '{broken',
+                'utf8'
+            );
 
-        const snapshot = await manager.getSnapshot();
+            const snapshot = await manager.getSnapshot();
 
-        expect(snapshot.miningProfile).toEqual(defaultHoshidictsMiningProfile());
-        expect(snapshot.lastError).toBeNull();
-        expect(snapshot.dictionaries).toEqual([]);
-    });
+            expectDefault(snapshot);
+            expect(snapshot.lastError).toBeNull();
+            expect(snapshot.dictionaries).toEqual([]);
+        }
+    );
 
     it('normalizes Yomitan duplicate options and rejects unsupported values', () => {
         expect(
@@ -1855,25 +1879,6 @@ describe('Hoshidicts audio profile', () => {
         expect(
             fs.readdirSync(path.join(baseDir, 'dictionaries', 'hoshidicts')).sort()
         ).toEqual(['audio-profile.json', 'manifest.json', 'mining-profile.json']);
-    });
-
-    it('ignores the removed standalone audio profile storage', async () => {
-        const baseDir = makeTempDir();
-        const { manager } = createHarness(baseDir);
-        await manager.setAudioProfile(defaultHoshidictsAudioProfile());
-        const legacyPath = path.join(
-            baseDir,
-            'dictionaries',
-            'hoshidicts',
-            'audio-profile.json'
-        );
-        fs.writeFileSync(legacyPath, '{broken', 'utf8');
-
-        const snapshot = await manager.getSnapshot();
-
-        expect(snapshot.audioProfile).toEqual(defaultHoshidictsAudioProfile());
-        expect(snapshot.lastError).toBeNull();
-        expect(snapshot.dictionaries).toEqual([]);
     });
 
     it('rejects unsupported source configuration before writing a profile', async () => {
