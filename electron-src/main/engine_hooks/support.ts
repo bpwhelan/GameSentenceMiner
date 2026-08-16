@@ -3,22 +3,47 @@ import * as path from 'node:path';
 
 import { applyMagesCharsetOverrides, parseMagesCompoundMap } from './mages_decoder.js';
 
-export interface EngineHookTarget {
-    platform: 'windows';
-    architecture: 'ia32' | 'x64';
-    /** Absent when the module is the executable itself, whatever it is named. */
-    moduleName?: string;
-    executableNames?: string[];
-    knownExecutableSha256?: string[];
-    /**
-     * UTF-16 strings that must all appear in the executable. Engines whose games
-     * each rename the executable are identified by their version resource instead
-     * of by file name.
-     */
-    versionMarkers?: string[];
+interface EngineHookManifestBase {
+    schema: 'gsm_engine_hook_manifest_v1';
+    id: string;
+    name: string;
+    engine: string;
+    target: {
+        platform: 'windows';
+        architecture: 'ia32' | 'x64';
+        /** Absent when the module is the executable itself, whatever it is named. */
+        moduleName?: string;
+        executableNames?: string[];
+        knownExecutableSha256?: string[];
+        /**
+         * UTF-16 strings that must all appear in the executable. Engines whose games
+         * each rename the executable are identified by their version resource
+         * instead of by file name.
+         */
+        versionMarkers?: string[];
+    };
+    coordinateSpace: EngineHookCoordinateSpace;
+    payload: string;
+    advance: EngineHookAdvance;
 }
 
-export type EngineHookAdvance =
+type EngineHookCoordinateSpace =
+    | {
+          provider: 'window-client-over-memory-scale';
+          scaleXRva: string;
+          scaleYRva: string;
+      }
+    | {
+          provider: 'window-client-over-design-space';
+          designWidth: number;
+          designHeight: number;
+      }
+    | {
+          /** The payload resolves glyphs to client pixels itself and reports them. */
+          provider: 'payload-client-pixels';
+      };
+
+type EngineHookAdvance =
     | {
           method: 'foreground-key';
           virtualKey: number;
@@ -30,23 +55,8 @@ export type EngineHookAdvance =
           clientYRatio: number;
       };
 
-interface EngineHookManifestBase {
-    schema: 'gsm_engine_hook_manifest_v1';
-    id: string;
-    name: string;
-    engine: string;
-    target: EngineHookTarget;
-    payload: string;
-    advance: EngineHookAdvance;
-}
-
-export interface MagesEngineHookManifest extends EngineHookManifestBase {
+export interface EngineHookMagesManifest extends EngineHookManifestBase {
     decoder: 'mages-v1';
-    coordinateSpace: {
-        provider: 'window-client-over-memory-scale';
-        scaleXRva: string;
-        scaleYRva: string;
-    };
     resources: {
         charset: string;
         charsetOverrides?: string;
@@ -70,15 +80,44 @@ export interface MagesEngineHookManifest extends EngineHookManifestBase {
     };
 }
 
-export interface BgiEngineHookManifest extends EngineHookManifestBase {
-    decoder: 'bgi-v1';
-    /**
-     * The payload resolves glyphs to client pixels itself, by following the engine's
-     * own surface copies, so nothing about the coordinate space is configured.
-     */
-    coordinateSpace: {
-        provider: 'payload-client-pixels';
+export interface EngineHookVlrManifest extends EngineHookManifestBase {
+    decoder: 'vlr-v1';
+    signatures: {
+        textBuilder: string;
+        alternativeTextBuilder?: string;
+        lineLayout: string;
+        alternativeLineLayout?: string;
     };
+    memory: {
+        kind: 'vlr-text-layout-v1';
+        textObject: {
+            entriesOffset: string;
+            countOffset: string;
+            glyphHeightOffset: string;
+            maximumXOffset: string;
+            maximumYOffset: string;
+            originXOffset: string;
+            originYOffset: string;
+        };
+        entry: {
+            stride: number;
+            typeOffset: string;
+            xOffset: string;
+            yOffset: string;
+            widthOffset: string;
+            codeOffset: string;
+            visibleType: number;
+        };
+        maximumEntries: number;
+    };
+    capture: {
+        acceptedModes: number[];
+        requiredTerminator: 'K-or-P';
+    };
+}
+
+export interface EngineHookBgiManifest extends EngineHookManifestBase {
+    decoder: 'bgi-v1';
     signatures: {
         glyphDraw: string;
         textCapture: string;
@@ -87,15 +126,17 @@ export interface BgiEngineHookManifest extends EngineHookManifestBase {
     };
 }
 
-export type EngineHookManifest = MagesEngineHookManifest | BgiEngineHookManifest;
+export type EngineHookManifest =
+    | EngineHookMagesManifest
+    | EngineHookVlrManifest
+    | EngineHookBgiManifest;
 
 export interface EngineHookSupport {
     directory: string;
     manifest: EngineHookManifest;
     payloadSource: string;
-    /** MAGES only; BGI text arrives as Unicode and needs no charset. */
-    charset: string;
-    compoundCharacters: Map<string, string>;
+    charset?: string;
+    compoundCharacters?: Map<string, string>;
 }
 
 function object(value: unknown, label: string): Record<string, unknown> {
@@ -136,19 +177,44 @@ function rva(value: unknown, label: string): string {
     return candidate;
 }
 
-function parseTarget(value: unknown): EngineHookTarget {
-    const target = object(value, 'target');
+export function parseEngineHookManifest(value: unknown): EngineHookManifest {
+    const root = object(value, 'manifest');
+    if (root.schema !== 'gsm_engine_hook_manifest_v1') throw new Error('Unsupported engine-hook manifest schema.');
+    const target = object(root.target, 'target');
+    const coordinateSpace = object(root.coordinateSpace, 'coordinateSpace');
+    const signatures = object(root.signatures, 'signatures');
+    const advance = object(root.advance, 'advance');
     if (
         target.platform !== 'windows' ||
         (target.architecture !== 'ia32' && target.architecture !== 'x64')
     ) {
         throw new Error('Engine-hook targets must use Windows ia32 or x64.');
     }
-    const hasNames = Array.isArray(target.executableNames) && target.executableNames.length > 0;
-    const hasMarkers = Array.isArray(target.versionMarkers) && target.versionMarkers.length > 0;
-    if (!hasNames && !hasMarkers) {
-        throw new Error('target must match on executableNames or versionMarkers.');
+    if (
+        coordinateSpace.provider !== 'window-client-over-memory-scale' &&
+        coordinateSpace.provider !== 'window-client-over-design-space' &&
+        coordinateSpace.provider !== 'payload-client-pixels'
+    ) {
+        throw new Error(
+            'coordinateSpace.provider must be window-client-over-memory-scale, ' +
+                'window-client-over-design-space, or payload-client-pixels.',
+        );
     }
+    const hasExecutableNames = Array.isArray(target.executableNames) && target.executableNames.length > 0;
+    const hasVersionMarkers = Array.isArray(target.versionMarkers) && target.versionMarkers.length > 0;
+    if (!hasExecutableNames && !hasVersionMarkers) {
+        throw new Error('target must declare executableNames or versionMarkers.');
+    }
+    const executableNames = hasExecutableNames
+        ? (target.executableNames as unknown[]).map((entry, index) =>
+              nonEmptyString(entry, `target.executableNames[${index}]`),
+          )
+        : undefined;
+    const versionMarkers = hasVersionMarkers
+        ? (target.versionMarkers as unknown[]).map((entry, index) =>
+              nonEmptyString(entry, `target.versionMarkers[${index}]`),
+          )
+        : undefined;
     const knownExecutableSha256 = target.knownExecutableSha256;
     if (
         knownExecutableSha256 !== undefined &&
@@ -157,157 +223,224 @@ function parseTarget(value: unknown): EngineHookTarget {
     ) {
         throw new Error('target.knownExecutableSha256 must contain SHA-256 hashes.');
     }
-    return {
-        platform: 'windows',
-        architecture: target.architecture,
-        ...(target.moduleName === undefined
-            ? {}
-            : { moduleName: nonEmptyString(target.moduleName, 'target.moduleName') }),
-        ...(hasNames
+
+    const advanceConfig: EngineHookAdvance =
+        advance.method === 'foreground-key'
             ? {
-                  executableNames: (target.executableNames as unknown[]).map((entry, index) =>
-                      nonEmptyString(entry, `target.executableNames[${index}]`),
-                  ),
+                  method: 'foreground-key',
+                  virtualKey: positiveInteger(advance.virtualKey, 'advance.virtualKey', 255),
+                  scanCode: positiveInteger(advance.scanCode, 'advance.scanCode', 255),
               }
-            : {}),
-        ...(hasMarkers
+            : advance.method === 'foreground-click'
+              ? {
+                    method: 'foreground-click',
+                    clientXRatio: unitRatio(advance.clientXRatio, 'advance.clientXRatio'),
+                    clientYRatio: unitRatio(advance.clientYRatio, 'advance.clientYRatio'),
+                }
+              : (() => {
+                    throw new Error('advance.method must be foreground-key or foreground-click.');
+                })();
+
+    const coordinateSpaceConfig: EngineHookCoordinateSpace =
+        coordinateSpace.provider === 'window-client-over-memory-scale'
             ? {
-                  versionMarkers: (target.versionMarkers as unknown[]).map((entry, index) =>
-                      nonEmptyString(entry, `target.versionMarkers[${index}]`),
-                  ),
+                  provider: 'window-client-over-memory-scale',
+                  scaleXRva: rva(coordinateSpace.scaleXRva, 'coordinateSpace.scaleXRva'),
+                  scaleYRva: rva(coordinateSpace.scaleYRva, 'coordinateSpace.scaleYRva'),
               }
-            : {}),
-        ...(knownExecutableSha256
-            ? { knownExecutableSha256: knownExecutableSha256.map((hash) => hash.toLowerCase()) }
-            : {}),
-    };
-}
+            : coordinateSpace.provider === 'window-client-over-design-space'
+              ? {
+                    provider: 'window-client-over-design-space',
+                    designWidth: positiveInteger(
+                        coordinateSpace.designWidth,
+                        'coordinateSpace.designWidth',
+                        16384,
+                    ),
+                    designHeight: positiveInteger(
+                        coordinateSpace.designHeight,
+                        'coordinateSpace.designHeight',
+                        16384,
+                    ),
+                }
+              : { provider: 'payload-client-pixels' };
 
-function parseAdvance(value: unknown): EngineHookAdvance {
-    const advance = object(value, 'advance');
-    if (advance.method === 'foreground-key') {
-        return {
-            method: 'foreground-key',
-            virtualKey: positiveInteger(advance.virtualKey, 'advance.virtualKey', 255),
-            scanCode: positiveInteger(advance.scanCode, 'advance.scanCode', 255),
-        };
-    }
-    if (advance.method === 'foreground-click') {
-        return {
-            method: 'foreground-click',
-            clientXRatio: unitRatio(advance.clientXRatio, 'advance.clientXRatio'),
-            clientYRatio: unitRatio(advance.clientYRatio, 'advance.clientYRatio'),
-        };
-    }
-    throw new Error('advance.method must be foreground-key or foreground-click.');
-}
-
-function parseSignatures<K extends string>(value: unknown, keys: readonly K[]): Record<K, string> {
-    const signatures = object(value, 'signatures');
-    const result = {} as Record<K, string>;
-    for (const key of keys) result[key] = nonEmptyString(signatures[key], `signatures.${key}`);
-    return result;
-}
-
-export function parseEngineHookManifest(value: unknown): EngineHookManifest {
-    const root = object(value, 'manifest');
-    if (root.schema !== 'gsm_engine_hook_manifest_v1') throw new Error('Unsupported engine-hook manifest schema.');
-    const base = {
+    const common = {
         schema: 'gsm_engine_hook_manifest_v1',
         id: nonEmptyString(root.id, 'id'),
         name: nonEmptyString(root.name, 'name'),
         engine: nonEmptyString(root.engine, 'engine'),
-        target: parseTarget(root.target),
+        target: {
+            platform: 'windows',
+            architecture: target.architecture,
+            ...(target.moduleName === undefined
+                ? {}
+                : { moduleName: nonEmptyString(target.moduleName, 'target.moduleName') }),
+            ...(executableNames ? { executableNames } : {}),
+            ...(versionMarkers ? { versionMarkers } : {}),
+            ...(knownExecutableSha256
+                ? { knownExecutableSha256: knownExecutableSha256.map((hash) => hash.toLowerCase()) }
+                : {}),
+        },
+        coordinateSpace: coordinateSpaceConfig,
         payload: relativeAssetPath(root.payload, 'payload'),
-        advance: parseAdvance(root.advance),
+        advance: advanceConfig,
     } as const;
 
+    // Only the memory-reading decoders declare memory layouts and capture modes, so
+    // those blocks are validated per decoder rather than for every manifest.
+    function requireCaptureModes(): number[] {
+        const capture = object(root.capture, 'capture');
+        if (
+            !Array.isArray(capture.acceptedModes) ||
+            capture.acceptedModes.length === 0 ||
+            capture.acceptedModes.some(
+                (entry) => typeof entry !== 'number' || !Number.isInteger(entry) || entry < 0 || entry > 255,
+            )
+        ) {
+            throw new Error('capture.acceptedModes must contain byte-sized integers.');
+        }
+        return [...(capture.acceptedModes as number[])];
+    }
+
+    function requireModuleName(): string {
+        if (common.target.moduleName === undefined) {
+            throw new Error('target.moduleName must be a non-empty string.');
+        }
+        return common.target.moduleName;
+    }
+
     if (root.decoder === 'bgi-v1') {
-        const coordinateSpace = object(root.coordinateSpace, 'coordinateSpace');
-        if (coordinateSpace.provider !== 'payload-client-pixels') {
+        if (coordinateSpaceConfig.provider !== 'payload-client-pixels') {
             throw new Error('bgi-v1 coordinateSpace.provider must be payload-client-pixels.');
         }
         return {
-            ...base,
+            ...common,
             decoder: 'bgi-v1',
-            coordinateSpace: { provider: 'payload-client-pixels' },
-            signatures: parseSignatures(root.signatures, [
-                'glyphDraw',
-                'textCapture',
-                'copyDispatcher',
-                'surfaceLock',
-            ]),
+            signatures: {
+                glyphDraw: nonEmptyString(signatures.glyphDraw, 'signatures.glyphDraw'),
+                textCapture: nonEmptyString(signatures.textCapture, 'signatures.textCapture'),
+                copyDispatcher: nonEmptyString(signatures.copyDispatcher, 'signatures.copyDispatcher'),
+                surfaceLock: nonEmptyString(signatures.surfaceLock, 'signatures.surfaceLock'),
+            },
         };
     }
 
-    if (root.decoder !== 'mages-v1') throw new Error('Unsupported engine-hook decoder.');
+    if (root.decoder === 'mages-v1') {
+        const resources = object(root.resources, 'resources');
+        const memory = object(root.memory, 'memory');
+        const acceptedModes = requireCaptureModes();
+        requireModuleName();
+        return {
+            ...common,
+            decoder: 'mages-v1',
+            resources: {
+                charset: relativeAssetPath(resources.charset, 'resources.charset'),
+                ...(resources.charsetOverrides === undefined
+                    ? {}
+                    : {
+                          charsetOverrides: relativeAssetPath(
+                              resources.charsetOverrides,
+                              'resources.charsetOverrides',
+                          ),
+                      }),
+                compoundCharacters: relativeAssetPath(
+                    resources.compoundCharacters,
+                    'resources.compoundCharacters',
+                ),
+            },
+            signatures: {
+                textBuilder: nonEmptyString(signatures.textBuilder, 'signatures.textBuilder'),
+                lineLayout: nonEmptyString(signatures.lineLayout, 'signatures.lineLayout'),
+            },
+            memory: {
+                codeCountRva: rva(memory.codeCountRva, 'memory.codeCountRva'),
+                codesRva: rva(memory.codesRva, 'memory.codesRva'),
+                metricsRva: rva(memory.metricsRva, 'memory.metricsRva'),
+                positionsRva: rva(memory.positionsRva, 'memory.positionsRva'),
+                metricStride: positiveInteger(memory.metricStride, 'memory.metricStride', 256),
+                positionStride: positiveInteger(memory.positionStride, 'memory.positionStride', 256),
+                maximumCodes: positiveInteger(memory.maximumCodes, 'memory.maximumCodes', 2000),
+            },
+            capture: { acceptedModes },
+        };
+    }
 
-    const coordinateSpace = object(root.coordinateSpace, 'coordinateSpace');
-    const resources = object(root.resources, 'resources');
-    const memory = object(root.memory, 'memory');
-    const capture = object(root.capture, 'capture');
-    if (coordinateSpace.provider !== 'window-client-over-memory-scale') {
-        throw new Error('coordinateSpace.provider must be window-client-over-memory-scale.');
-    }
-    if (
-        !Array.isArray(capture.acceptedModes) ||
-        capture.acceptedModes.length === 0 ||
-        capture.acceptedModes.some(
-            (entry) => typeof entry !== 'number' || !Number.isInteger(entry) || entry < 0 || entry > 255,
-        )
-    ) {
-        throw new Error('capture.acceptedModes must contain byte-sized integers.');
-    }
-    if (base.target.moduleName === undefined) {
-        throw new Error('target.moduleName must be a non-empty string.');
+    if (root.decoder === 'vlr-v1') {
+        const memory = object(root.memory, 'memory');
+        const capture = object(root.capture, 'capture');
+        const acceptedModes = requireCaptureModes();
+        requireModuleName();
+        const textObject = object(memory.textObject, 'memory.textObject');
+        const entry = object(memory.entry, 'memory.entry');
+        if (memory.kind !== 'vlr-text-layout-v1') {
+            throw new Error('memory.kind must be vlr-text-layout-v1.');
+        }
+        if (capture.requiredTerminator !== 'K-or-P') {
+            throw new Error('capture.requiredTerminator must be K-or-P.');
+        }
+        const visibleType = positiveInteger(entry.visibleType, 'memory.entry.visibleType', 255);
+        const requiredTerminator = 'K-or-P' as const;
+        return {
+            ...common,
+            decoder: 'vlr-v1',
+            signatures: {
+                textBuilder: nonEmptyString(signatures.textBuilder, 'signatures.textBuilder'),
+                ...(signatures.alternativeTextBuilder === undefined
+                    ? {}
+                    : {
+                          alternativeTextBuilder: nonEmptyString(
+                              signatures.alternativeTextBuilder,
+                              'signatures.alternativeTextBuilder',
+                          ),
+                      }),
+                ...(signatures.alternativeLineLayout === undefined
+                    ? {}
+                    : {
+                          alternativeLineLayout: nonEmptyString(
+                              signatures.alternativeLineLayout,
+                              'signatures.alternativeLineLayout',
+                          ),
+                      }),
+                lineLayout: nonEmptyString(signatures.lineLayout, 'signatures.lineLayout'),
+            },
+            memory: {
+                kind: 'vlr-text-layout-v1',
+                textObject: {
+                    entriesOffset: rva(textObject.entriesOffset, 'memory.textObject.entriesOffset'),
+                    countOffset: rva(textObject.countOffset, 'memory.textObject.countOffset'),
+                    glyphHeightOffset: rva(
+                        textObject.glyphHeightOffset,
+                        'memory.textObject.glyphHeightOffset',
+                    ),
+                    maximumXOffset: rva(textObject.maximumXOffset, 'memory.textObject.maximumXOffset'),
+                    maximumYOffset: rva(textObject.maximumYOffset, 'memory.textObject.maximumYOffset'),
+                    originXOffset: rva(textObject.originXOffset, 'memory.textObject.originXOffset'),
+                    originYOffset: rva(textObject.originYOffset, 'memory.textObject.originYOffset'),
+                },
+                entry: {
+                    stride: positiveInteger(entry.stride, 'memory.entry.stride', 256),
+                    typeOffset: rva(entry.typeOffset, 'memory.entry.typeOffset'),
+                    xOffset: rva(entry.xOffset, 'memory.entry.xOffset'),
+                    yOffset: rva(entry.yOffset, 'memory.entry.yOffset'),
+                    widthOffset: rva(entry.widthOffset, 'memory.entry.widthOffset'),
+                    codeOffset: rva(entry.codeOffset, 'memory.entry.codeOffset'),
+                    visibleType,
+                },
+                maximumEntries: positiveInteger(memory.maximumEntries, 'memory.maximumEntries', 512),
+            },
+            capture: { acceptedModes, requiredTerminator },
+        };
     }
 
-    return {
-        ...base,
-        decoder: 'mages-v1',
-        coordinateSpace: {
-            provider: 'window-client-over-memory-scale',
-            scaleXRva: rva(coordinateSpace.scaleXRva, 'coordinateSpace.scaleXRva'),
-            scaleYRva: rva(coordinateSpace.scaleYRva, 'coordinateSpace.scaleYRva'),
-        },
-        resources: {
-            charset: relativeAssetPath(resources.charset, 'resources.charset'),
-            ...(resources.charsetOverrides === undefined
-                ? {}
-                : {
-                      charsetOverrides: relativeAssetPath(
-                          resources.charsetOverrides,
-                          'resources.charsetOverrides',
-                      ),
-                  }),
-            compoundCharacters: relativeAssetPath(
-                resources.compoundCharacters,
-                'resources.compoundCharacters',
-            ),
-        },
-        signatures: parseSignatures(root.signatures, ['textBuilder', 'lineLayout']),
-        memory: {
-            codeCountRva: rva(memory.codeCountRva, 'memory.codeCountRva'),
-            codesRva: rva(memory.codesRva, 'memory.codesRva'),
-            metricsRva: rva(memory.metricsRva, 'memory.metricsRva'),
-            positionsRva: rva(memory.positionsRva, 'memory.positionsRva'),
-            metricStride: positiveInteger(memory.metricStride, 'memory.metricStride', 256),
-            positionStride: positiveInteger(memory.positionStride, 'memory.positionStride', 256),
-            maximumCodes: positiveInteger(memory.maximumCodes, 'memory.maximumCodes', 2000),
-        },
-        capture: {
-            acceptedModes: [...capture.acceptedModes],
-        },
-    };
+    throw new Error('Unsupported engine-hook decoder.');
 }
 
 export function loadEngineHookSupport(directory: string): EngineHookSupport {
     const manifestPath = path.join(directory, 'manifest.json');
     const manifest = parseEngineHookManifest(JSON.parse(fs.readFileSync(manifestPath, 'utf8')));
     const payloadSource = fs.readFileSync(path.join(directory, manifest.payload), 'utf8');
-    if (manifest.decoder !== 'mages-v1') {
-        return { directory, manifest, payloadSource, charset: '', compoundCharacters: new Map() };
-    }
+    // Only MAGES needs character resources; the others carry Unicode already.
+    if (manifest.decoder !== 'mages-v1') return { directory, manifest, payloadSource };
     const rawCharset = fs.readFileSync(path.join(directory, manifest.resources.charset), 'utf8');
     const charset = manifest.resources.charsetOverrides
         ? applyMagesCharsetOverrides(
@@ -352,9 +485,8 @@ export function loadEngineHookCatalog(directory: string): EngineHookSupport[] {
  * Reports whether an executable's bytes contain every marker as a UTF-16 string.
  *
  * This is a substring probe over the file, not a parsed version resource: the
- * markers used are engine identity strings such as the BURIKO interpreter banner,
- * which appear nowhere else, and every game on such an engine renames its
- * executable so the file name cannot identify it.
+ * markers used are engine identity strings, such as the BURIKO interpreter banner,
+ * that appear nowhere else.
  */
 export function executableContainsVersionMarkers(
     contents: Buffer,
@@ -363,42 +495,56 @@ export function executableContainsVersionMarkers(
     return markers.every((marker) => contents.includes(Buffer.from(marker, 'utf16le')));
 }
 
-export interface EngineHookTargetDescription {
-    exeName: string;
-    arch: 'x86' | 'x64';
-    executableSha256?: string;
-    executableContents?: Buffer;
-}
-
-function targetMatches(manifest: EngineHookManifest, target: EngineHookTargetDescription): boolean {
-    const names = manifest.target.executableNames;
-    if (names?.some((name) => name.toLowerCase() === target.exeName.toLowerCase())) return true;
-    const markers = manifest.target.versionMarkers;
-    if (!markers || !target.executableContents) return false;
-    return executableContainsVersionMarkers(target.executableContents, markers);
-}
-
 export function resolveEngineHookSupport(
     directory: string,
-    target: EngineHookTargetDescription,
+    target: {
+        exeName: string;
+        arch: 'x86' | 'x64';
+        executableSha256?: string;
+        executableContents?: Buffer;
+    },
 ): EngineHookSupport {
     const architecture = target.arch === 'x86' ? 'ia32' : 'x64';
-    const candidates = loadEngineHookCatalog(directory).filter(
-        (support) =>
-            support.manifest.target.architecture === architecture && targetMatches(support.manifest, target),
+    // Engine hooks are intentionally opt-in experiments. The target process
+    // name is useful for logging, but it is not a compatibility boundary:
+    // different games can use the same engine under different executable names.
+    //
+    // A package covering a whole engine says so with version markers, and is
+    // considered only for executables carrying them. Without that, an
+    // engine-wide package would be the fallback for every unrecognised game,
+    // because it is the one package with no build hash to disqualify it.
+    const candidates = loadEngineHookCatalog(directory).filter((support) => {
+        if (support.manifest.target.architecture !== architecture) return false;
+        const markers = support.manifest.target.versionMarkers;
+        if (!markers) return true;
+        return (
+            target.executableContents !== undefined &&
+            executableContainsVersionMarkers(target.executableContents, markers)
+        );
+    });
+    // A hash is useful for selecting between packages, but it should not prevent
+    // users from trying a unique engine package against another build of the
+    // same engine. Runtime signature checks remain the compatibility gate.
+    const hashMatches = target.executableSha256
+        ? candidates.filter((support) =>
+              support.manifest.target.knownExecutableSha256?.includes(
+                  target.executableSha256!.toLowerCase(),
+              ),
+          )
+        : [];
+    const hashIndependentCandidates = candidates.filter(
+        (support) => !support.manifest.target.knownExecutableSha256,
     );
-    const matchingBuilds = target.executableSha256
-        ? candidates.filter((support) => {
-              const knownHashes = support.manifest.target.knownExecutableSha256;
-              return !knownHashes || knownHashes.includes(target.executableSha256!.toLowerCase());
-          })
-        : candidates.filter((support) => !support.manifest.target.knownExecutableSha256);
+    const matchingBuilds =
+        hashMatches.length > 0
+            ? hashMatches
+            : hashIndependentCandidates.length > 0
+              ? hashIndependentCandidates
+              : candidates;
     if (matchingBuilds.length !== 1) {
         const reason =
-            !target.executableSha256 && candidates.some((support) => support.manifest.target.knownExecutableSha256)
-                ? 'the executable hash could not be verified'
-                : candidates.length > 0 && matchingBuilds.length === 0
-                ? 'the executable hash is not supported'
+            matchingBuilds.length === 0
+                ? 'no matching support packages were found'
                 : `found ${matchingBuilds.length} matching support packages`;
         throw new Error(`No unambiguous engine-hook support for ${target.exeName} (${target.arch}): ${reason}.`);
     }

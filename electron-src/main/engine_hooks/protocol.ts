@@ -1,5 +1,15 @@
-import type { BgiPositionedGlyph } from './bgi_decoder.js';
-import type { MagesPositionedCode } from './mages_decoder.js';
+export interface EngineHookPositionedCode {
+    engineIndex: number;
+    /**
+     * The character drawn, where the engine exposes one. Engines that position
+     * glyphs without naming them report `0` and supply `candidates` instead.
+     */
+    code: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
 
 export interface EngineHookReadyMessage {
     schema: 'gsm_engine_hook_message_v1';
@@ -15,20 +25,6 @@ export interface EngineHookDiagnosticMessage {
     message: string;
 }
 
-/**
- * What a payload reports for one displayed line. Which variant arrives is decided
- * by the shape the payload sends, so a payload never has to be changed when another
- * engine is added.
- */
-export type EngineHookLayout =
-    | { kind: 'mages-v1'; positionedCodes: MagesPositionedCode[] }
-    /**
-     * BGI hands over the candidate strings it saw alongside the glyphs, because the
-     * engine emits several strings per line and only glyph arithmetic identifies
-     * which one was displayed.
-     */
-    | { kind: 'bgi-v1'; candidates: string[]; glyphs: BgiPositionedGlyph[] };
-
 export interface EngineHookTextLayoutMessage {
     schema: 'gsm_engine_hook_message_v1';
     type: 'text-layout';
@@ -43,7 +39,13 @@ export interface EngineHookTextLayoutMessage {
         width: number;
         height: number;
     };
-    layout: EngineHookLayout;
+    positionedCodes: EngineHookPositionedCode[];
+    /**
+     * Strings the engine emitted for this line, newest last. Present only for
+     * engines whose glyph positions carry no character, where the displayed text
+     * has to be identified by reconciling one of these against the glyphs.
+     */
+    candidates?: string[];
 }
 
 export type EngineHookMessage =
@@ -82,17 +84,7 @@ export function deriveEngineLogicalCoordinateSpace(value: unknown): {
     width: number;
     height: number;
 } | null {
-    if (!isObject(value)) return null;
-    // A payload that already resolved its glyphs to client pixels reports the client
-    // area directly; one that reports engine-space coordinates reports the scale it
-    // rendered at, and the logical space is derived from it.
-    if (value.kind === 'window-client') {
-        const width = integer(value.clientWidth, 1, MAX_COORDINATE_SPACE);
-        const height = integer(value.clientHeight, 1, MAX_COORDINATE_SPACE);
-        if (width === null || height === null) return null;
-        return { kind: 'engine-logical', width, height };
-    }
-    if (value.kind !== 'scaled-window-client') return null;
+    if (!isObject(value) || value.kind !== 'scaled-window-client') return null;
     const clientWidth = integer(value.clientWidth, 1, MAX_COORDINATE_SPACE);
     const clientHeight = integer(value.clientHeight, 1, MAX_COORDINATE_SPACE);
     const scaleX = finiteNumber(value.scaleX, Number.EPSILON, MAX_RENDER_SCALE);
@@ -146,13 +138,45 @@ export function sanitizeEngineHookMessage(value: unknown): EngineHookMessage | n
         mode === null ||
         style === null ||
         coordinateSpace === null ||
-        (value.callerOffset !== null && callerOffset === null)
+        (value.callerOffset !== null && callerOffset === null) ||
+        !Array.isArray(value.positionedCodes) ||
+        value.positionedCodes.length === 0 ||
+        value.positionedCodes.length > MAX_CODES
     ) {
         return null;
     }
 
-    const layout = sanitizeLayout(value);
-    if (!layout) return null;
+    const positionedCodes: EngineHookPositionedCode[] = [];
+    for (const candidate of value.positionedCodes) {
+        if (!isObject(candidate)) return null;
+        const engineIndex = integer(candidate.engineIndex, 0, MAX_CODES - 1);
+        const code = integer(candidate.code, 0, 0x10ffff);
+        const x = integer(candidate.x, -MAX_ABSOLUTE_COORDINATE, MAX_ABSOLUTE_COORDINATE);
+        const y = integer(candidate.y, -MAX_ABSOLUTE_COORDINATE, MAX_ABSOLUTE_COORDINATE);
+        const width = integer(candidate.width, 0, MAX_GLYPH_DIMENSION);
+        const height = integer(candidate.height, 0, MAX_GLYPH_DIMENSION);
+        if (
+            engineIndex === null ||
+            code === null ||
+            x === null ||
+            y === null ||
+            width === null ||
+            height === null
+        ) {
+            return null;
+        }
+        positionedCodes.push({ engineIndex, code, x, y, width, height });
+    }
+
+    const candidates: string[] = [];
+    if (value.candidates !== undefined) {
+        if (!Array.isArray(value.candidates) || value.candidates.length > MAX_CANDIDATES) return null;
+        for (const candidate of value.candidates) {
+            const text = string(candidate, MAX_CANDIDATE_LENGTH);
+            if (text === null) return null;
+            candidates.push(text);
+        }
+    }
 
     return {
         schema: 'gsm_engine_hook_message_v1',
@@ -164,62 +188,7 @@ export function sanitizeEngineHookMessage(value: unknown): EngineHookMessage | n
         mode,
         style,
         coordinateSpace,
-        layout,
+        positionedCodes,
+        ...(candidates.length > 0 ? { candidates } : {}),
     };
-}
-
-function sanitizeBox(
-    candidate: Record<string, unknown>,
-): { engineIndex: number; x: number; y: number; width: number; height: number } | null {
-    const engineIndex = integer(candidate.engineIndex, 0, MAX_CODES - 1);
-    const x = integer(candidate.x, -MAX_ABSOLUTE_COORDINATE, MAX_ABSOLUTE_COORDINATE);
-    const y = integer(candidate.y, -MAX_ABSOLUTE_COORDINATE, MAX_ABSOLUTE_COORDINATE);
-    const width = integer(candidate.width, 0, MAX_GLYPH_DIMENSION);
-    const height = integer(candidate.height, 0, MAX_GLYPH_DIMENSION);
-    if (engineIndex === null || x === null || y === null || width === null || height === null) {
-        return null;
-    }
-    return { engineIndex, x, y, width, height };
-}
-
-function sanitizeLayout(value: Record<string, unknown>): EngineHookLayout | null {
-    if (Array.isArray(value.positionedCodes)) {
-        if (value.positionedCodes.length === 0 || value.positionedCodes.length > MAX_CODES) return null;
-        const positionedCodes: MagesPositionedCode[] = [];
-        for (const candidate of value.positionedCodes) {
-            if (!isObject(candidate)) return null;
-            const box = sanitizeBox(candidate);
-            const code = integer(candidate.code, 0, 0xffff);
-            if (!box || code === null) return null;
-            positionedCodes.push({ ...box, code });
-        }
-        return { kind: 'mages-v1', positionedCodes };
-    }
-
-    if (Array.isArray(value.glyphs)) {
-        if (value.glyphs.length === 0 || value.glyphs.length > MAX_CODES) return null;
-        if (
-            !Array.isArray(value.candidates) ||
-            value.candidates.length === 0 ||
-            value.candidates.length > MAX_CANDIDATES
-        ) {
-            return null;
-        }
-        const candidates: string[] = [];
-        for (const candidate of value.candidates) {
-            const text = string(candidate, MAX_CANDIDATE_LENGTH);
-            if (text === null) return null;
-            candidates.push(text);
-        }
-        const glyphs: BgiPositionedGlyph[] = [];
-        for (const candidate of value.glyphs) {
-            if (!isObject(candidate)) return null;
-            const box = sanitizeBox(candidate);
-            if (!box) return null;
-            glyphs.push(box);
-        }
-        return { kind: 'bgi-v1', candidates, glyphs };
-    }
-
-    return null;
 }

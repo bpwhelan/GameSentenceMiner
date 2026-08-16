@@ -212,7 +212,10 @@ function readClientArea() {
     const width = clientRect.add(8).readS32();
     const height = clientRect.add(12).readS32();
     if (width <= 0 || height <= 0) throw new Error(`Invalid target client area ${width}x${height}.`);
-    return { kind: 'window-client', clientWidth: width, clientHeight: height };
+    // Glyphs were already followed through the engine's own surface copies into the
+    // frame, so they arrive as client pixels and the logical space is the client
+    // area itself.
+    return { kind: 'scaled-window-client', clientWidth: width, clientHeight: height, scaleX: 1, scaleY: 1 };
 }
 
 function advance() {
@@ -389,6 +392,9 @@ function emitIfSettled() {
         }
         glyphs.push({
             engineIndex: glyphs.length,
+            // The glyph draw positions a cached cell and never names the character,
+            // so the text comes from `candidates` instead of from per-glyph codes.
+            code: 0,
             x: located.x,
             y: located.y,
             width: glyph.width,
@@ -425,7 +431,7 @@ function emitIfSettled() {
         style: 0,
         coordinateSpace,
         candidates: candidates.slice(),
-        glyphs,
+        positionedCodes: glyphs,
     });
 }
 

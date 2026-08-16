@@ -297,13 +297,14 @@ describe("TextHookTab", () => {
       "works only with the games and engines listed below"
     );
     const supportedTargets = container.querySelectorAll(".texthook-supported-games li");
-    expect(supportedTargets).toHaveLength(2);
-    // One entry is a single game build, the other a whole engine, because that is
-    // what each support package can identify its target by.
+    expect(supportedTargets).toHaveLength(3);
+    // Two entries are single game builds; the third is a whole engine, because that
+    // is what each support package can identify its target by.
     expect(supportedTargets[0]?.textContent).toContain("STEINS;GATE");
     expect(supportedTargets[0]?.textContent).toContain("32-bit (x86)");
-    expect(supportedTargets[1]?.textContent).toContain("BGI / Ethornell");
-    expect(supportedTargets[1]?.textContent).toContain("version information");
+    expect(supportedTargets[1]?.textContent).toContain("Zero Escape: Virtue's Last Reward");
+    expect(supportedTargets[2]?.textContent).toContain("BGI / Ethornell");
+    expect(supportedTargets[2]?.textContent).toContain("version information");
   });
 
   it("caps displayed hook text and blocks excessive Japanese quote pairs", async () => {

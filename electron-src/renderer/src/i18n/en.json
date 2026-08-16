@@ -1197,6 +1197,10 @@
           "name": "STEINS;GATE",
           "details": "Steam for Windows — supported 32-bit (x86) executable build"
         },
+        "virtueLastReward": {
+          "name": "Zero Escape: Virtue's Last Reward",
+          "details": "Steam for Windows — supported 32-bit (x86) executable build"
+        },
         "bgi": {
           "name": "BGI / Ethornell",
           "details": "Any 32-bit (x86) game on this engine, recognised by its version information"

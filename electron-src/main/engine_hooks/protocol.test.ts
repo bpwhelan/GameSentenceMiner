@@ -33,13 +33,9 @@ describe('engine-hook protocol', () => {
         });
 
         expect(message?.type).toBe('text-layout');
-        expect(message?.type === 'text-layout' && message.layout).toEqual({
-            kind: 'mages-v1',
-            positionedCodes: [{ engineIndex: 0, code: 1, x: 100, y: 200, width: 20, height: 30 }],
-        });
     });
 
-    it('accepts a glyph layout with the candidate strings it has to be paired against', () => {
+    it('carries the candidate strings engines without per-glyph codes rely on', () => {
         const message = sanitizeEngineHookMessage({
             schema: 'gsm_engine_hook_message_v1',
             type: 'text-layout',
@@ -49,39 +45,67 @@ describe('engine-hook protocol', () => {
             callerOffset: '0x3b9aa',
             mode: 0,
             style: 0,
-            coordinateSpace: { kind: 'window-client', clientWidth: 1280, clientHeight: 720 },
+            coordinateSpace: coordinateSpace(),
             candidates: ['「ソーマ」', 'ソーマ'],
-            glyphs: [{ engineIndex: 0, x: 120, y: 594, width: 28, height: 42 }],
+            positionedCodes: [{ engineIndex: 0, code: 0, x: 120, y: 594, width: 28, height: 42 }],
         });
 
-        expect(message?.type === 'text-layout' && message.coordinateSpace).toEqual({
-            kind: 'engine-logical',
-            width: 1280,
-            height: 720,
-        });
-        expect(message?.type === 'text-layout' && message.layout).toEqual({
-            kind: 'bgi-v1',
-            candidates: ['「ソーマ」', 'ソーマ'],
-            glyphs: [{ engineIndex: 0, x: 120, y: 594, width: 28, height: 42 }],
-        });
+        expect(message?.type === 'text-layout' && message.candidates).toEqual(['「ソーマ」', 'ソーマ']);
     });
 
-    it('rejects a glyph layout that carries no candidate to pair with', () => {
-        expect(
-            sanitizeEngineHookMessage({
-                schema: 'gsm_engine_hook_message_v1',
-                type: 'text-layout',
-                integrationId: 'bgi-ethornell',
-                sequence: 4,
-                capturedAt: 123,
-                callerOffset: null,
-                mode: 0,
-                style: 0,
-                coordinateSpace: { kind: 'window-client', clientWidth: 1280, clientHeight: 720 },
-                candidates: [],
-                glyphs: [{ engineIndex: 0, x: 120, y: 594, width: 28, height: 42 }],
-            }),
-        ).toBeNull();
+    it('omits candidates entirely for engines that name their glyphs', () => {
+        const message = sanitizeEngineHookMessage({
+            schema: 'gsm_engine_hook_message_v1',
+            type: 'text-layout',
+            integrationId: 'mages-steins-gate-steam',
+            sequence: 4,
+            capturedAt: 123,
+            callerOffset: null,
+            mode: 0,
+            style: 8,
+            coordinateSpace: coordinateSpace(),
+            positionedCodes: [{ engineIndex: 0, code: 1, x: 100, y: 200, width: 20, height: 30 }],
+        });
+
+        expect(message?.type === 'text-layout' && 'candidates' in message).toBe(false);
+    });
+
+    it('rejects candidates that are not bounded strings', () => {
+        const message = (candidates: unknown) => ({
+            schema: 'gsm_engine_hook_message_v1',
+            type: 'text-layout',
+            integrationId: 'bgi-ethornell',
+            sequence: 4,
+            capturedAt: 123,
+            callerOffset: null,
+            mode: 0,
+            style: 0,
+            coordinateSpace: coordinateSpace(),
+            candidates,
+            positionedCodes: [{ engineIndex: 0, code: 0, x: 120, y: 594, width: 28, height: 42 }],
+        });
+
+        expect(sanitizeEngineHookMessage(message([123]))).toBeNull();
+        expect(sanitizeEngineHookMessage(message(Array.from({ length: 33 }, () => 'x')))).toBeNull();
+    });
+
+    it('accepts supplementary-plane Unicode code points used by engine glyph records', () => {
+        const message = sanitizeEngineHookMessage({
+            schema: 'gsm_engine_hook_message_v1',
+            type: 'text-layout',
+            integrationId: 'vlr-zero-escape-vlr-steam',
+            sequence: 1,
+            capturedAt: 1,
+            callerOffset: null,
+            mode: 0,
+            style: 0,
+            coordinateSpace: coordinateSpace(2560, 1440, 2, 2),
+            positionedCodes: [
+                { engineIndex: 0, code: 0x1f600, x: 0, y: 0, width: 24, height: 30 },
+            ],
+        });
+
+        expect(message?.positionedCodes[0]?.code).toBe(0x1f600);
     });
 
     it('derives logical dimensions from each live window and engine-scale measurement', () => {
@@ -100,15 +124,11 @@ describe('engine-hook protocol', () => {
             width: 1280,
             height: 720,
         });
-        // A payload that resolved its own client pixels reports the measured client
-        // area; a claim without that measurement is still rejected.
-        expect(
-            deriveEngineLogicalCoordinateSpace({
-                kind: 'window-client',
-                clientWidth: 1920,
-                clientHeight: 1080,
-            }),
-        ).toEqual({ kind: 'engine-logical', width: 1920, height: 1080 });
+        expect(deriveEngineLogicalCoordinateSpace(coordinateSpace(2560, 1440, 8 / 3, 8 / 3))).toEqual({
+            kind: 'engine-logical',
+            width: 960,
+            height: 540,
+        });
         expect(
             deriveEngineLogicalCoordinateSpace({ kind: 'window-client', width: 1920, height: 1080 }),
         ).toBeNull();

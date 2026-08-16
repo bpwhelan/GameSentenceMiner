@@ -112,6 +112,10 @@ const BUILT_IN_HOOK_SUPPORTED_TARGETS = [
     detailsKey: "texthook.mages.support.steinsGate.details",
   },
   {
+    nameKey: "texthook.mages.support.virtueLastReward.name",
+    detailsKey: "texthook.mages.support.virtueLastReward.details",
+  },
+  {
     nameKey: "texthook.mages.support.bgi.name",
     detailsKey: "texthook.mages.support.bgi.details",
   },

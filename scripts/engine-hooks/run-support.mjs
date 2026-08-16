@@ -7,12 +7,13 @@ import { fileURLToPath } from 'node:url';
 
 import frida, { ScriptRuntime } from 'frida';
 
-import { selectBgiLayout } from '../../dist/main/engine_hooks/bgi_decoder.js';
 import {
     decodeMagesLayout,
     parseMagesCompoundMap,
 } from '../../dist/main/engine_hooks/mages_decoder.js';
-import { sanitizeEngineHookMessage } from '../../dist/main/engine_hooks/protocol.js';
+import { selectBgiLayout } from '../../dist/main/engine_hooks/bgi_decoder.js';
+import { decodeVlrLayout } from '../../dist/main/engine_hooks/vlr_decoder.js';
+import { deriveEngineLogicalCoordinateSpace } from '../../dist/main/engine_hooks/protocol.js';
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(scriptDirectory, '..', '..');
@@ -33,7 +34,7 @@ async function resolvePid(executableName) {
     const explicitPid = Number.parseInt(option('pid') ?? '', 10);
     if (Number.isInteger(explicitPid) && explicitPid > 0) return explicitPid;
     if (!executableName) {
-        throw new Error('This support package matches on its version resource; pass --pid=<number>.');
+        throw new Error('This package matches on its version resource; pass --pid=<number>.');
     }
     const device = await frida.getLocalDevice();
     const processes = await device.enumerateProcesses();
@@ -49,6 +50,20 @@ async function resolvePid(executableName) {
     return matches[0].pid;
 }
 
+async function bestEffortCleanup(operation, timeoutMs = 1500) {
+    let timer;
+    const operationPromise = Promise.resolve()
+        .then(operation)
+        .catch(() => undefined);
+    await Promise.race([
+        operationPromise,
+        new Promise((resolve) => {
+            timer = setTimeout(resolve, timeoutMs);
+        }),
+    ]);
+    if (timer) clearTimeout(timer);
+}
+
 async function main() {
     const supportId = option('support') ?? 'mages-steins-gate-steam';
     if (!/^[a-z0-9][a-z0-9-]*$/u.test(supportId)) {
@@ -56,19 +71,20 @@ async function main() {
     }
     const supportDirectory = path.join(supportCatalogDirectory, supportId);
     const manifest = JSON.parse(fs.readFileSync(path.join(supportDirectory, 'manifest.json'), 'utf8'));
-    if (manifest.decoder !== 'mages-v1' && manifest.decoder !== 'bgi-v1') {
+    const payload = fs.readFileSync(path.join(supportDirectory, manifest.payload), 'utf8');
+    let charset;
+    let compounds;
+    if (manifest.decoder === 'mages-v1') {
+        charset = fs.readFileSync(path.join(supportDirectory, manifest.resources.charset), 'utf8');
+        compounds = parseMagesCompoundMap(
+            fs.readFileSync(
+                path.join(supportDirectory, manifest.resources.compoundCharacters),
+                'utf8',
+            ),
+        );
+    } else if (manifest.decoder !== 'vlr-v1' && manifest.decoder !== 'bgi-v1') {
         throw new Error(`The validation runner does not yet implement decoder ${manifest.decoder}.`);
     }
-    const payload = fs.readFileSync(path.join(supportDirectory, manifest.payload), 'utf8');
-    const isMages = manifest.decoder === 'mages-v1';
-    const charset = isMages
-        ? fs.readFileSync(path.join(supportDirectory, manifest.resources.charset), 'utf8')
-        : '';
-    const compounds = isMages
-        ? parseMagesCompoundMap(
-              fs.readFileSync(path.join(supportDirectory, manifest.resources.compoundCharacters), 'utf8'),
-          )
-        : new Map();
     const pid = await resolvePid(manifest.target.executableNames?.[0] ?? null);
     const timeoutMs = Number.parseInt(option('timeout') ?? '15000', 10);
     const wanted = Number.parseInt(option('lines') ?? '1', 10);
@@ -81,6 +97,16 @@ async function main() {
         name: `${manifest.id}-validation`,
         runtime: ScriptRuntime.QJS,
     });
+
+    process.stdout.write(
+        `${JSON.stringify({
+            type: 'package',
+            supportId: manifest.id,
+            name: manifest.name,
+            decoder: manifest.decoder,
+            target: manifest.target,
+        })}\n`,
+    );
 
     let finish;
     const completed = new Promise((resolve, reject) => {
@@ -113,37 +139,43 @@ async function main() {
         }
         if (payloadMessage?.type !== 'text-layout') return;
         try {
-            // The runner validates the same path the app takes, sanitizer included.
-            const sanitized = sanitizeEngineHookMessage(payloadMessage);
-            if (!sanitized || sanitized.type !== 'text-layout') {
-                throw new Error(`The payload sent a message the protocol rejects: ${JSON.stringify(payloadMessage)}`);
-            }
             const decoded =
-                sanitized.layout.kind === 'bgi-v1'
-                    ? selectBgiLayout(sanitized.layout.candidates, sanitized.layout.glyphs)
-                    : decodeMagesLayout(sanitized.layout.positionedCodes, charset, compounds);
+                manifest.decoder === 'mages-v1'
+                    ? decodeMagesLayout(payloadMessage.positionedCodes, charset, compounds)
+                    : manifest.decoder === 'bgi-v1'
+                      ? selectBgiLayout(payloadMessage.candidates ?? [], payloadMessage.positionedCodes)
+                      : decodeVlrLayout(
+                          payloadMessage.positionedCodes.map((positionedCode) => ({
+                              ...positionedCode,
+                              type: 1,
+                          })),
+                      );
             if (!decoded) {
-                process.stderr.write(
-                    `unpaired: ${JSON.stringify(
-                        sanitized.layout.kind === 'bgi-v1' ? sanitized.layout.candidates : [],
-                    )}\n`,
-                );
+                process.stderr.write(`unpaired: ${JSON.stringify(payloadMessage.candidates ?? [])}
+`);
                 return;
+            }
+            const coordinateSpace = deriveEngineLogicalCoordinateSpace(payloadMessage.coordinateSpace);
+            if (!coordinateSpace) {
+                throw new Error(
+                    `Invalid coordinate measurement: ${JSON.stringify(payloadMessage.coordinateSpace)}`,
+                );
             }
             process.stdout.write(
                 `${JSON.stringify(
                     {
-                        integrationId: sanitized.integrationId,
-                        sequence: sanitized.sequence,
-                        callerOffset: sanitized.callerOffset,
+                        integrationId: payloadMessage.integrationId,
+                        sequence: payloadMessage.sequence,
+                        callerOffset: payloadMessage.callerOffset,
+                        mode: payloadMessage.mode,
+                        style: payloadMessage.style,
                         coordinateMeasurement: payloadMessage.coordinateSpace,
-                        coordinateSpace: sanitized.coordinateSpace,
+                        coordinateSpace,
                         text: decoded.text,
                         lines: decoded.lines,
                         glyphCount: decoded.glyphs.length,
                         firstGlyph: decoded.glyphs[0] ?? null,
                         lastGlyph: decoded.glyphs.at(-1) ?? null,
-                        ...('ruby' in decoded && decoded.ruby.length > 0 ? { ruby: decoded.ruby } : {}),
                     },
                     null,
                     2,
@@ -161,11 +193,12 @@ async function main() {
         await completed;
     } finally {
         clearTimeout(timer);
-        try {
+        await bestEffortCleanup(async () => {
             if (!script.isDestroyed) await script.unload();
-        } finally {
+        });
+        await bestEffortCleanup(async () => {
             if (!targetSession.isDetached()) await targetSession.detach();
-        }
+        });
     }
 }
 

@@ -1212,6 +1212,10 @@
           "name": "STEINS;GATE",
           "details": "Windows版Steam — 対応する32ビット（x86）実行ファイル"
         },
+        "virtueLastReward": {
+          "name": "Zero Escape: Virtue's Last Reward",
+          "details": "Windows版Steam — 対応する32ビット（x86）実行ファイル"
+        },
         "bgi": {
           "name": "BGI / Ethornell",
           "details": "このエンジンを使用する32ビット（x86）ゲーム全般 — バージョン情報で判別します"

@@ -20,6 +20,10 @@ const assetDirectory = path.resolve(
 );
 const bgiDirectory = path.resolve(currentDirectory, '../../assets/engine_hooks/bgi-ethornell');
 const catalogDirectory = path.dirname(assetDirectory);
+const vlrAssetDirectory = path.resolve(
+    currentDirectory,
+    '../../assets/engine_hooks/vlr-zero-escape-vlr-steam',
+);
 const supportedHash = 'cbbc5dab18edc344d05c01d4d08819fbc0a68a78741956831752986009b69e16';
 const BGI_MARKER = 'Ethornell - BURIKO General Interpreter';
 
@@ -33,6 +37,60 @@ function executableContaining(marker: string): Buffer {
 }
 
 describe('engine-hook support package', () => {
+    it('parses the declarative VLR text-layout memory description', () => {
+        const manifest = {
+            schema: 'gsm_engine_hook_manifest_v1',
+            id: 'vlr-zero-escape-vlr-steam',
+            name: "Zero Escape: Virtue's Last Reward",
+            engine: 'vlr',
+            decoder: 'vlr-v1',
+            target: {
+                platform: 'windows',
+                architecture: 'ia32',
+                moduleName: 'ze2.exe',
+                executableNames: ['ze2.exe'],
+                knownExecutableSha256: ['b5250963fee0b6a24cd0b34ff61917ffec31343e1aff48f9218c38d4f3599c2a'],
+            },
+            coordinateSpace: {
+                provider: 'window-client-over-design-space',
+                designWidth: 960,
+                designHeight: 540,
+            },
+            payload: 'payload.js',
+            signatures: {
+                textBuilder: '80 ?? ?? 74 ?? 8D ?? ?? 46 80 ?? ?? 75 ?? 8B ?? ?? 03',
+                lineLayout: '55 8B EC 6A FF',
+                alternativeLineLayout: '55 8B EC 6A FF 68 ?? ?? ?? ??',
+            },
+            memory: {
+                kind: 'vlr-text-layout-v1',
+                textObject: {
+                    entriesOffset: '0x17c',
+                    countOffset: '0x184',
+                    glyphHeightOffset: '0x1dc',
+                    maximumXOffset: '0x270',
+                    maximumYOffset: '0x274',
+                    originXOffset: '0x7c',
+                    originYOffset: '0x80',
+                },
+                entry: {
+                    stride: 32,
+                    typeOffset: '0x0',
+                    xOffset: '0x8',
+                    yOffset: '0xc',
+                    widthOffset: '0x10',
+                    codeOffset: '0x14',
+                    visibleType: 1,
+                },
+                maximumEntries: 512,
+            },
+            capture: { acceptedModes: [0], requiredTerminator: 'K-or-P' },
+            advance: { method: 'foreground-click', clientXRatio: 0.5, clientYRatio: 0.8 },
+        };
+
+        expect(parseEngineHookManifest(manifest).decoder).toBe('vlr-v1');
+    });
+
     it('loads and validates the checked-in STEINS;GATE package', () => {
         const support = loadEngineHookSupport(assetDirectory);
 
@@ -54,6 +112,45 @@ describe('engine-hook support package', () => {
         expect(support.charset.length).toBeGreaterThan(2000);
         expect(support.compoundCharacters.get('\ue01f')).toBe('キタ');
         expect(support.payloadSource).toContain('gsm_engine_hook_message_v1');
+    });
+
+    it('loads the standalone VLR package with post-layout snapshots', () => {
+        const support = loadEngineHookSupport(vlrAssetDirectory);
+
+        expect(support.manifest).toMatchObject({
+            id: 'vlr-zero-escape-vlr-steam',
+            decoder: 'vlr-v1',
+            target: {
+                moduleName: 'ze2.exe',
+                architecture: 'ia32',
+            },
+            coordinateSpace: {
+                provider: 'window-client-over-design-space',
+                designWidth: 960,
+                designHeight: 540,
+            },
+        });
+        if (support.manifest.decoder !== 'vlr-v1') throw new Error('Expected VLR manifest.');
+        expect(support.manifest.signatures).not.toHaveProperty('glyphGeometry');
+        expect(support.manifest.signatures).not.toHaveProperty('alternativeGlyphGeometry');
+        expect(support.manifest.memory.textObject).toMatchObject({
+            originXOffset: '0x7c',
+            originYOffset: '0x80',
+        });
+        expect(support.manifest.memory.entry).toMatchObject({
+            stride: 32,
+            typeOffset: '0x0',
+            xOffset: '0x8',
+            yOffset: '0xc',
+            widthOffset: '0x10',
+            codeOffset: '0x14',
+            visibleType: 1,
+        });
+        expect(support.charset).toBeUndefined();
+        expect(support.payloadSource).not.toMatch(/require\(['"]agent/u);
+        expect(support.payloadSource).not.toContain('attachGlyphGeometry');
+        expect(support.payloadSource).toContain('snapshotGlyphs(this._gsmObject)');
+        expect(support.payloadSource).toContain('readLayoutOrigin');
     });
 
     it('uses the STEINS;GATE script character variants without changing legitimate kanji', () => {
@@ -78,7 +175,7 @@ describe('engine-hook support package', () => {
         ).toBe('日曰褄棲凪風');
     });
 
-    it('resolves a support package by executable, architecture, and build hash', () => {
+    it('prefers an exact build and rejects unknown ambiguous architecture matches', () => {
         expect(
             resolveEngineHookSupport(catalogDirectory, {
                 exeName: 'game.EXE',
@@ -87,20 +184,29 @@ describe('engine-hook support package', () => {
             }).manifest.id,
         ).toBe('mages-steins-gate-steam');
 
-        expect(() =>
+        expect(
             resolveEngineHookSupport(catalogDirectory, {
-                exeName: 'Game.exe',
+                exeName: 'ze2.exe',
                 arch: 'x86',
-                executableSha256: '0'.repeat(64),
-            }),
-        ).toThrow(/hash is not supported/u);
+                executableSha256:
+                    'b5250963fee0b6a24cd0b34ff61917ffec31343e1aff48f9218c38d4f3599c2a',
+            }).manifest.id,
+        ).toBe('vlr-zero-escape-vlr-steam');
 
         expect(() =>
             resolveEngineHookSupport(catalogDirectory, {
-                exeName: 'Game.exe',
+                exeName: '45520.exe',
+                arch: 'x86',
+                executableSha256: '0'.repeat(64),
+            }),
+        ).toThrow(/found 2 matching support packages/u);
+
+        expect(() =>
+            resolveEngineHookSupport(catalogDirectory, {
+                exeName: '45520.exe',
                 arch: 'x86',
             }),
-        ).toThrow(/could not be verified/u);
+        ).toThrow(/found 2 matching support packages/u);
     });
 
     it('loads the checked-in BGI package, which carries no charset resources', () => {
@@ -110,8 +216,8 @@ describe('engine-hook support package', () => {
         expect(support.manifest.coordinateSpace).toEqual({ provider: 'payload-client-pixels' });
         expect(support.manifest.target.versionMarkers).toEqual([BGI_MARKER]);
         expect(support.manifest.target.executableNames).toBeUndefined();
-        expect(support.charset).toBe('');
-        expect(support.compoundCharacters.size).toBe(0);
+        expect(support.charset).toBeUndefined();
+        expect(support.compoundCharacters).toBeUndefined();
         expect(support.payloadSource).toContain('gsm_engine_hook_message_v1');
     });
 
@@ -124,15 +230,17 @@ describe('engine-hook support package', () => {
             }).manifest.id,
         ).toBe('bgi-ethornell');
 
-        // Without the marker there is nothing to match on: the file name says nothing
-        // about the engine.
+        // An executable without the marker must not fall through to the engine-wide
+        // package just because it is the one package with no build hash to
+        // disqualify it. It is excluded, leaving the remaining packages to be
+        // resolved on their own terms.
         expect(() =>
             resolveEngineHookSupport(catalogDirectory, {
                 exeName: 'jeweha.exe',
                 arch: 'x86',
                 executableContents: executableContaining('Some Other Engine'),
             }),
-        ).toThrow(/found 0 matching support packages/u);
+        ).toThrow(/No unambiguous engine-hook support/u);
     });
 
     it('matches version markers as UTF-16, the encoding a version resource stores', () => {
@@ -162,7 +270,7 @@ describe('engine-hook support package', () => {
         delete manifest.target.versionMarkers;
 
         expect(() => parseEngineHookManifest(manifest)).toThrow(
-            /must match on executableNames or versionMarkers/u,
+            /target must declare executableNames or versionMarkers/u,
         );
     });
 

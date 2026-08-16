@@ -9,6 +9,7 @@ import type { TextGeometryV1 } from '../ui/text_geometry.js';
 import { selectBgiLayout } from './bgi_decoder.js';
 import { decodeMagesLayout } from './mages_decoder.js';
 import { sanitizeEngineHookMessage } from './protocol.js';
+import { decodeVlrLayout } from './vlr_decoder.js';
 import {
     createInjectedPayloadSource,
     resolveEngineHookSupport,
@@ -131,18 +132,23 @@ function handleTextLayout(
     }
     try {
         const decoded =
-            message.layout.kind === 'bgi-v1'
-                ? selectBgiLayout(message.layout.candidates, message.layout.glyphs)
-                : decodeMagesLayout(
-                      message.layout.positionedCodes,
-                      current.support.charset,
-                      current.support.compoundCharacters,
-                  );
-        if (!decoded) {
-            // Nothing to say: the engine emits strings that belong to no displayed
-            // line, and refusing to pair them is the decoder working as intended.
-            return;
-        }
+            current.support.manifest.decoder === 'mages-v1'
+                ? decodeMagesLayout(
+                      message.positionedCodes,
+                      current.support.charset ?? '',
+                      current.support.compoundCharacters ?? new Map(),
+                  )
+                : current.support.manifest.decoder === 'bgi-v1'
+                  ? selectBgiLayout(message.candidates ?? [], message.positionedCodes)
+                  : decodeVlrLayout(
+                        message.positionedCodes.map((positionedCode) => ({
+                            ...positionedCode,
+                            type: 1,
+                        })),
+                    );
+        // A null decode is not a fault: engines that report candidates emit strings
+        // belonging to no displayed line, and refusing to pair them is intended.
+        if (!decoded) return;
         if (!decoded.text.trim() || decoded.lines.length === 0 || decoded.glyphs.length === 0) return;
 
         const lines = decoded.lines.map((line) => ({ ...line, bounds: { ...line.bounds } }));
@@ -176,7 +182,7 @@ function handleTextLayout(
         current.options.onStateChanged();
     } catch (error) {
         current.options.onLog(
-            `Could not decode ${current.support.manifest.engine} text layout: ${(error as Error).message}`,
+            `Could not decode ${current.support.manifest.decoder} text layout: ${(error as Error).message}`,
             'error',
         );
     }

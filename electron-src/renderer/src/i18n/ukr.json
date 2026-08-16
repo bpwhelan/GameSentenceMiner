@@ -1212,6 +1212,10 @@
           "name": "STEINS;GATE",
           "details": "Steam для Windows — підтримувана 32-бітна (x86) збірка"
         },
+        "virtueLastReward": {
+          "name": "Zero Escape: Virtue's Last Reward",
+          "details": "Steam для Windows — підтримувана 32-бітна (x86) збірка"
+        },
         "bgi": {
           "name": "BGI / Ethornell",
           "details": "Будь-яка 32-бітна (x86) гра на цьому рушії — розпізнається за відомостями про версію"

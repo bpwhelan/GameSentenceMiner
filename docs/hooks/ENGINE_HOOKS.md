@@ -17,7 +17,7 @@ bounded gsm_engine_hook_message_v1 messages
 engine decoder -> gsm_text_geometry_v1 -> overlay coordinates
 ```
 
-The catalog lives under `electron-src/assets/engine_hooks/`. Each directory is one versioned support package. At startup, `resolveEngineHookSupport` matches the executable name, process architecture, and—when available—the SHA-256 executable hash. Runtime signatures then fail closed unless each required function has exactly one match.
+The catalog lives under `electron-src/assets/engine_hooks/`. Each directory is one versioned support package. At startup, `resolveEngineHookSupport` selects packages by process architecture; executable names are retained as manifest metadata but do not gate injection. When available, the SHA-256 executable hash is used to prefer a matching package or disambiguate multiple packages; an unknown or unavailable hash does not block a unique package from being tried.
 
 Host-side responsibilities are split deliberately:
 
@@ -41,13 +41,13 @@ Payloads send `gsm_engine_hook_message_v1` messages. `text-layout` events includ
 ## Safety and compatibility rules
 
 - Scan only relevant executable ranges in the target module. Never use a blocking full-heap scan in a live game.
-- Use ASLR-safe runtime signatures and require unique matches. RVAs may describe data operands for one hash-pinned build, but absolute addresses and PIDs are never production constants.
+- Use ASLR-safe runtime signatures and require unique matches. RVAs may describe data operands for one validated build, but absolute addresses and PIDs are never production constants.
 - Clamp all target-controlled counts before reading memory. The host validates every message again.
 - Separate measurement/layout passes from displayed dialogue with manifest capture filters verified against live evidence.
 - Every text event must carry a freshly measured coordinate transform. Do not assume that raw engine glyphs use window-client pixels: many engines author UI in a logical canvas and scale it at render time.
-- The current manifest schema accepts `window-client-over-memory-scale`. It reads live X/Y engine scale values from hash-pinned data RVAs and derives `logical width/height = client width/height / scale`. It deliberately has no fixed-resolution mode and no manifest width/height fields.
+- The current manifest schema accepts `window-client-over-memory-scale`. It reads live X/Y engine scale values from build-specific data RVAs and derives `logical width/height = client width/height / scale`. It deliberately has no fixed-resolution mode and no manifest width/height fields.
 - Treat advance input as a held input across multiple frames; an immediate down/up pair can be missed by polling-based engines.
-- A different executable hash or ambiguous package match must produce a clear error instead of attaching approximately.
+- An ambiguous package match must produce a clear error. A unique package may be tried on a different executable build; runtime readiness and signature checks determine whether that build is compatible.
 
 ## Developer validation
 
