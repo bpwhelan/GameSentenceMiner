@@ -35,6 +35,60 @@ describe('engine-hook protocol', () => {
         expect(message?.type).toBe('text-layout');
     });
 
+    it('carries the candidate strings engines without per-glyph codes rely on', () => {
+        const message = sanitizeEngineHookMessage({
+            schema: 'gsm_engine_hook_message_v1',
+            type: 'text-layout',
+            integrationId: 'bgi-ethornell',
+            sequence: 4,
+            capturedAt: 123,
+            callerOffset: '0x3b9aa',
+            mode: 0,
+            style: 0,
+            coordinateSpace: coordinateSpace(),
+            candidates: ['「ソーマ」', 'ソーマ'],
+            positionedCodes: [{ engineIndex: 0, code: 0, x: 120, y: 594, width: 28, height: 42 }],
+        });
+
+        expect(message?.type === 'text-layout' && message.candidates).toEqual(['「ソーマ」', 'ソーマ']);
+    });
+
+    it('omits candidates entirely for engines that name their glyphs', () => {
+        const message = sanitizeEngineHookMessage({
+            schema: 'gsm_engine_hook_message_v1',
+            type: 'text-layout',
+            integrationId: 'mages-steins-gate-steam',
+            sequence: 4,
+            capturedAt: 123,
+            callerOffset: null,
+            mode: 0,
+            style: 8,
+            coordinateSpace: coordinateSpace(),
+            positionedCodes: [{ engineIndex: 0, code: 1, x: 100, y: 200, width: 20, height: 30 }],
+        });
+
+        expect(message?.type === 'text-layout' && 'candidates' in message).toBe(false);
+    });
+
+    it('rejects candidates that are not bounded strings', () => {
+        const message = (candidates: unknown) => ({
+            schema: 'gsm_engine_hook_message_v1',
+            type: 'text-layout',
+            integrationId: 'bgi-ethornell',
+            sequence: 4,
+            capturedAt: 123,
+            callerOffset: null,
+            mode: 0,
+            style: 0,
+            coordinateSpace: coordinateSpace(),
+            candidates,
+            positionedCodes: [{ engineIndex: 0, code: 0, x: 120, y: 594, width: 28, height: 42 }],
+        });
+
+        expect(sanitizeEngineHookMessage(message([123]))).toBeNull();
+        expect(sanitizeEngineHookMessage(message(Array.from({ length: 33 }, () => 'x')))).toBeNull();
+    });
+
     it('accepts supplementary-plane Unicode code points used by engine glyph records', () => {
         const message = sanitizeEngineHookMessage({
             schema: 'gsm_engine_hook_message_v1',

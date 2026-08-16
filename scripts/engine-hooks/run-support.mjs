@@ -11,6 +11,7 @@ import {
     decodeMagesLayout,
     parseMagesCompoundMap,
 } from '../../dist/main/engine_hooks/mages_decoder.js';
+import { selectBgiLayout } from '../../dist/main/engine_hooks/bgi_decoder.js';
 import { decodeVlrLayout } from '../../dist/main/engine_hooks/vlr_decoder.js';
 import { deriveEngineLogicalCoordinateSpace } from '../../dist/main/engine_hooks/protocol.js';
 
@@ -32,6 +33,9 @@ function option(name) {
 async function resolvePid(executableName) {
     const explicitPid = Number.parseInt(option('pid') ?? '', 10);
     if (Number.isInteger(explicitPid) && explicitPid > 0) return explicitPid;
+    if (!executableName) {
+        throw new Error('This package matches on its version resource; pass --pid=<number>.');
+    }
     const device = await frida.getLocalDevice();
     const processes = await device.enumerateProcesses();
     const matches = processes.filter(
@@ -78,12 +82,14 @@ async function main() {
                 'utf8',
             ),
         );
-    } else if (manifest.decoder !== 'vlr-v1') {
+    } else if (manifest.decoder !== 'vlr-v1' && manifest.decoder !== 'bgi-v1') {
         throw new Error(`The validation runner does not yet implement decoder ${manifest.decoder}.`);
     }
-    const pid = await resolvePid(manifest.target.executableNames[0]);
+    const pid = await resolvePid(manifest.target.executableNames?.[0] ?? null);
     const timeoutMs = Number.parseInt(option('timeout') ?? '15000', 10);
+    const wanted = Number.parseInt(option('lines') ?? '1', 10);
     const shouldAdvance = process.argv.includes('--advance');
+    let seen = 0;
 
     const targetSession = await frida.attach(pid);
     const injectedSource = `globalThis.__GSM_ENGINE_HOOK_CONFIG__ = ${JSON.stringify(manifest)};\n${payload}`;
@@ -136,12 +142,19 @@ async function main() {
             const decoded =
                 manifest.decoder === 'mages-v1'
                     ? decodeMagesLayout(payloadMessage.positionedCodes, charset, compounds)
-                    : decodeVlrLayout(
+                    : manifest.decoder === 'bgi-v1'
+                      ? selectBgiLayout(payloadMessage.candidates ?? [], payloadMessage.positionedCodes)
+                      : decodeVlrLayout(
                           payloadMessage.positionedCodes.map((positionedCode) => ({
                               ...positionedCode,
                               type: 1,
                           })),
                       );
+            if (!decoded) {
+                process.stderr.write(`unpaired: ${JSON.stringify(payloadMessage.candidates ?? [])}
+`);
+                return;
+            }
             const coordinateSpace = deriveEngineLogicalCoordinateSpace(payloadMessage.coordinateSpace);
             if (!coordinateSpace) {
                 throw new Error(
@@ -168,7 +181,8 @@ async function main() {
                     2,
                 )}\n`,
             );
-            finish.resolve();
+            seen += 1;
+            if (seen >= wanted) finish.resolve();
         } catch (error) {
             finish.reject(error);
         }

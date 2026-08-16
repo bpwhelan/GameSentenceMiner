@@ -6,6 +6,7 @@ import * as path from 'node:path';
 
 import { getAssetsDir } from '../util.js';
 import type { TextGeometryV1 } from '../ui/text_geometry.js';
+import { selectBgiLayout } from './bgi_decoder.js';
 import { decodeMagesLayout } from './mages_decoder.js';
 import { sanitizeEngineHookMessage } from './protocol.js';
 import { decodeVlrLayout } from './vlr_decoder.js';
@@ -84,10 +85,15 @@ function catalogDirectory(): string {
     return path.join(getAssetsDir(), 'engine_hooks');
 }
 
-async function executableSha256(executablePath: string | null | undefined): Promise<string | undefined> {
-    if (!executablePath || !fs.existsSync(executablePath)) return undefined;
+async function readExecutable(
+    executablePath: string | null | undefined,
+): Promise<{ executableSha256?: string; executableContents?: Buffer }> {
+    if (!executablePath || !fs.existsSync(executablePath)) return {};
     const contents = await fs.promises.readFile(executablePath);
-    return createHash('sha256').update(contents).digest('hex');
+    return {
+        executableSha256: createHash('sha256').update(contents).digest('hex'),
+        executableContents: contents,
+    };
 }
 
 function geometryBounds(lines: TextGeometryV1['lines']): TextGeometryV1['bounds'] {
@@ -132,12 +138,17 @@ function handleTextLayout(
                       current.support.charset ?? '',
                       current.support.compoundCharacters ?? new Map(),
                   )
-                : decodeVlrLayout(
-                      message.positionedCodes.map((positionedCode) => ({
-                          ...positionedCode,
-                          type: 1,
-                      })),
-                  );
+                : current.support.manifest.decoder === 'bgi-v1'
+                  ? selectBgiLayout(message.candidates ?? [], message.positionedCodes)
+                  : decodeVlrLayout(
+                        message.positionedCodes.map((positionedCode) => ({
+                            ...positionedCode,
+                            type: 1,
+                        })),
+                    );
+        // A null decode is not a fault: engines that report candidates emit strings
+        // belonging to no displayed line, and refusing to pair them is intended.
+        if (!decoded) return;
         if (!decoded.text.trim() || decoded.lines.length === 0 || decoded.glyphs.length === 0) return;
 
         const lines = decoded.lines.map((line) => ({ ...line, bounds: { ...line.bounds } }));
@@ -194,7 +205,7 @@ export async function startEngineHookSession(
         const support = resolveEngineHookSupport(catalogDirectory(), {
             exeName: options.exeName,
             arch: options.arch,
-            executableSha256: await executableSha256(options.executablePath),
+            ...(await readExecutable(options.executablePath)),
         });
 
         fridaSession = await frida.attach(options.pid);

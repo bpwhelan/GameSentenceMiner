@@ -1,5 +1,9 @@
 export interface EngineHookPositionedCode {
     engineIndex: number;
+    /**
+     * The character drawn, where the engine exposes one. Engines that position
+     * glyphs without naming them report `0` and supply `candidates` instead.
+     */
     code: number;
     x: number;
     y: number;
@@ -36,6 +40,12 @@ export interface EngineHookTextLayoutMessage {
         height: number;
     };
     positionedCodes: EngineHookPositionedCode[];
+    /**
+     * Strings the engine emitted for this line, newest last. Present only for
+     * engines whose glyph positions carry no character, where the displayed text
+     * has to be identified by reconciling one of these against the glyphs.
+     */
+    candidates?: string[];
 }
 
 export type EngineHookMessage =
@@ -44,6 +54,8 @@ export type EngineHookMessage =
     | EngineHookTextLayoutMessage;
 
 const MAX_CODES = 2000;
+const MAX_CANDIDATES = 32;
+const MAX_CANDIDATE_LENGTH = 2000;
 const MAX_COORDINATE_SPACE = 16_384;
 const MAX_ABSOLUTE_COORDINATE = 32_768;
 const MAX_GLYPH_DIMENSION = 4096;
@@ -156,6 +168,16 @@ export function sanitizeEngineHookMessage(value: unknown): EngineHookMessage | n
         positionedCodes.push({ engineIndex, code, x, y, width, height });
     }
 
+    const candidates: string[] = [];
+    if (value.candidates !== undefined) {
+        if (!Array.isArray(value.candidates) || value.candidates.length > MAX_CANDIDATES) return null;
+        for (const candidate of value.candidates) {
+            const text = string(candidate, MAX_CANDIDATE_LENGTH);
+            if (text === null) return null;
+            candidates.push(text);
+        }
+    }
+
     return {
         schema: 'gsm_engine_hook_message_v1',
         type: 'text-layout',
@@ -167,5 +189,6 @@ export function sanitizeEngineHookMessage(value: unknown): EngineHookMessage | n
         style,
         coordinateSpace,
         positionedCodes,
+        ...(candidates.length > 0 ? { candidates } : {}),
     };
 }
