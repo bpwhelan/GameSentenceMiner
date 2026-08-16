@@ -1079,6 +1079,68 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(onLayoutChange).toHaveBeenCalledTimes(3);
   });
 
+  it("lifts a hovered glossary image into a viewport-sized preview outside the popup", async () => {
+    const dom = createDom();
+    const api = loadReaderModule(dom.window as unknown as Window);
+    const parent = dom.window.document.createElement("div");
+    dom.window.document.body.appendChild(parent);
+
+    api.appendTextOnlyGlossary(
+      dom.window.document,
+      parent,
+      JSON.stringify({
+        type: "structured-content",
+        content: {
+          type: "image",
+          path: "img/portrait.jpg",
+          width: 120,
+          height: 180,
+          data: { alt: "Portrait" }
+        }
+      }),
+      { resolveMedia: async () => "blob:portrait" }
+    );
+    await flushPromises();
+
+    const link = parent.querySelector<HTMLElement>(".gloss-image-link")!;
+    link.dispatchEvent(new dom.window.MouseEvent("pointerenter"));
+
+    const preview = dom.window.document.querySelector<HTMLElement>(
+      "body > .gsm-hoshidicts-image-hover-preview"
+    );
+    expect(preview).not.toBeNull();
+    expect(preview?.closest(".gsm-hoshidicts-popup")).toBeNull();
+    expect(preview?.querySelector<HTMLImageElement>("img")?.src).toBe("blob:portrait");
+    expect(preview?.querySelector<HTMLImageElement>("img")?.alt).toBe("Portrait");
+
+    link.dispatchEvent(new dom.window.MouseEvent("pointerleave"));
+    expect(
+      dom.window.document.querySelector(".gsm-hoshidicts-image-hover-preview")
+    ).toBeNull();
+
+    link.dispatchEvent(new dom.window.MouseEvent("pointerenter"));
+    parent.remove();
+    await Promise.resolve();
+    expect(
+      dom.window.document.querySelector(".gsm-hoshidicts-image-hover-preview")
+    ).toBeNull();
+  });
+
+  it("sizes the lifted image preview beyond the popup while respecting the viewport", () => {
+    const declarations = readerCssRule(".gsm-hoshidicts-image-hover-preview") ?? "";
+    expect(declarations).toMatch(/position\s*:\s*fixed/u);
+    expect(declarations).toMatch(/z-index\s*:\s*2147483647/u);
+    expect(declarations).toMatch(/pointer-events\s*:\s*none/u);
+
+    const imageDeclarations =
+      readerCssRule(".gsm-hoshidicts-image-hover-preview img") ?? "";
+    expect(imageDeclarations).toMatch(
+      /width\s*:\s*min\(9\dvw,\s*calc\(var\(--gsm-hoshidicts-popup-width,[^)]+\)\s*\+\s*\d+px\)\)/u
+    );
+    expect(imageDeclarations).toMatch(/height\s*:\s*min\(9\dvh/u);
+    expect(imageDeclarations).toMatch(/object-fit\s*:\s*contain/u);
+  });
+
   it("requests and scopes each dictionary stylesheet once per generation", async () => {
     const { api, dom, first, reader } = createReaderHarness({
       openSocket: false,

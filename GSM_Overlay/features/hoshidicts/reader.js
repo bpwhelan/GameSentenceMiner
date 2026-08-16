@@ -1013,6 +1013,47 @@
       : value;
   }
 
+  function hideStructuredImageHoverPreview(documentRef, owner = null) {
+    const preview = documentRef.querySelector(
+      ".gsm-hoshidicts-image-hover-preview"
+    );
+    if (!preview || (owner && preview.__gsmHoshidictsOwner !== owner)) {
+      return;
+    }
+    preview.__gsmHoshidictsObserver?.disconnect();
+    preview.remove();
+  }
+
+  function showStructuredImageHoverPreview(documentRef, link, image) {
+    hideStructuredImageHoverPreview(documentRef);
+    if (image.hidden || !image.src) {
+      return;
+    }
+    const preview = documentRef.createElement("div");
+    preview.className = "gsm-hoshidicts-image-hover-preview";
+    preview.setAttribute("aria-hidden", "true");
+    preview.dataset.appearance = link.dataset.appearance || "auto";
+    preview.dataset.imageRendering = link.dataset.imageRendering || "auto";
+    preview.__gsmHoshidictsOwner = link;
+    const previewImage = documentRef.createElement("img");
+    previewImage.src = image.currentSrc || image.src;
+    previewImage.alt = image.alt;
+    previewImage.decoding = "async";
+    previewImage.draggable = false;
+    preview.appendChild(previewImage);
+    documentRef.body.appendChild(preview);
+    const MutationObserverImpl = documentRef.defaultView?.MutationObserver;
+    if (typeof MutationObserverImpl === "function") {
+      const observer = new MutationObserverImpl(() => {
+        if (!link.isConnected) {
+          hideStructuredImageHoverPreview(documentRef, link);
+        }
+      });
+      observer.observe(documentRef.body, { childList: true, subtree: true });
+      preview.__gsmHoshidictsObserver = observer;
+    }
+  }
+
   function appendStructuredImage(documentRef, parent, value, state) {
     const path = normalizeMediaPath(value.path);
     if (!path || typeof state.resolveMedia !== "function") {
@@ -1116,10 +1157,23 @@
       onLayoutChange();
     });
     image.addEventListener("error", () => {
+      hideStructuredImageHoverPreview(documentRef, link);
       image.hidden = true;
       link.removeAttribute("href");
       link.dataset.imageLoadState = "load-error";
       onLayoutChange();
+    });
+    link.addEventListener("pointerenter", () => {
+      showStructuredImageHoverPreview(documentRef, link, image);
+    });
+    link.addEventListener("pointerleave", () => {
+      hideStructuredImageHoverPreview(documentRef, link);
+    });
+    link.addEventListener("focus", () => {
+      showStructuredImageHoverPreview(documentRef, link, image);
+    });
+    link.addEventListener("blur", () => {
+      hideStructuredImageHoverPreview(documentRef, link);
     });
     parent.appendChild(link);
     let mediaPromise;
