@@ -1129,6 +1129,7 @@
         "textHookSettings": "Text Hook Settings",
         "windowLayouts": "Window and Mining Layouts",
         "yomitan": "Yomitan Data",
+        "dictionaries": "Dictionary Settings",
         "customizations": "Scripts and Customizations",
         "plugins": "Python Plugins",
         "agentScripts": "Agent Scripts",

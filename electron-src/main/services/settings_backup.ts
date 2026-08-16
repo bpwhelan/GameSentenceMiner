@@ -216,6 +216,9 @@ function getGsmBackupCategory(relativePath: string): SettingsBackupCategoryId | 
     if (first === 'texthook') {
         return 'text-hook-settings';
     }
+    if (first === 'dictionaries' && second === 'hoshidicts') {
+        return 'dictionaries';
+    }
     if (first === 'multi-mine-window-config.json' || first === 'window_layout.json') {
         return 'window-layouts';
     }
