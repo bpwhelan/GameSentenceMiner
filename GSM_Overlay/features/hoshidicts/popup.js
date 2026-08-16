@@ -888,7 +888,7 @@
       const text = normalizeCompactDefinitionText(
         collectCompactDefinitionText(node, { nodes: 0 })
       );
-      if (text) items.push(text);
+      items.push(...text.split(/\s*\u2022\s*/u).filter(Boolean));
     }
     return items;
   }

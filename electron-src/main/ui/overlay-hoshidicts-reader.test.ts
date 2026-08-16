@@ -1479,6 +1479,51 @@ describe("Hoshidicts compact definition summaries", () => {
       .toContain("definition 8");
   });
 
+  it("counts bullet-separated text as separate compact definition items", async () => {
+    const harness = createReaderHarness({
+      lookupMode: "hover",
+      showCompactDefinitionSummary: true,
+      compactDefinitionSummaryCount: 2
+    });
+    await renderFirstLookup(harness, {
+      shiftKey: false,
+      transform(response) {
+        response.results[0].term.glossaries[0].glossary =
+          "Male •  16 years • 175cm • 65kg • Birthday: February 6";
+      }
+    });
+
+    const popup = harness.reader.getPopupElement();
+    const summary = popup.querySelector<HTMLElement>(
+      ".gsm-hoshidicts-compact-definition-summary"
+    )!;
+    expect(Array.from(summary.querySelectorAll("li"), (item) => item.textContent))
+      .toEqual(["Male", "16 years"]);
+    expect(popup.querySelector(".gsm-hoshidicts-glossary-content")?.textContent)
+      .toBe("Male •  16 years • 175cm • 65kg • Birthday: February 6");
+  });
+
+  it("drops empty items from bullet-separated compact definition text", async () => {
+    const harness = createReaderHarness({
+      lookupMode: "hover",
+      showCompactDefinitionSummary: true,
+      compactDefinitionSummaryCount: 3
+    });
+    await renderFirstLookup(harness, {
+      shiftKey: false,
+      transform(response) {
+        response.results[0].term.glossaries[0].glossary =
+          "• Male •• 16 years •";
+      }
+    });
+
+    const summary = harness.reader.getPopupElement().querySelector<HTMLElement>(
+      ".gsm-hoshidicts-compact-definition-summary"
+    )!;
+    expect(Array.from(summary.querySelectorAll("li"), (item) => item.textContent))
+      .toEqual(["Male", "16 years"]);
+  });
+
   it("truncates the compact text budget without truncating the full definition", async () => {
     const harness = createReaderHarness({
       lookupMode: "hover",
