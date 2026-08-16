@@ -2446,6 +2446,42 @@ html[data-hoshidicts-theme="high-contrast"] .gsm-hoshidicts-audio-menu {
 .gloss-image-link[data-vertical-align="top"] { vertical-align: top; }
 .gloss-image-link[data-vertical-align="bottom"] { vertical-align: bottom; }
 
+/*
+ * Hover-only zoom for real dictionary glossary illustrations. Scoped under the
+ * popup glossary content and the gloss-image structure, so game frames, toolbar
+ * icons, dictionary logos, README assets, and other Electron UI never match. It
+ * is gated behind `@media (hover: hover)` so touch/tap devices keep the exact
+ * same behaviour (no enlargement, no layout shift). The container clips with
+ * overflow: hidden; on hover it is lifted and raised so the enlarged pixels are
+ * fully visible instead of cut off. Clicks/links, collapsed-image reveal,
+ * scrolling, narrow layouts, and keyboard focus are all untouched.
+ */
+@media (hover: hover) {
+  .gsm-hoshidicts-glossary-content .gloss-image-link .gloss-image {
+    transform-origin: center center;
+    transition: transform 150ms ease-out;
+  }
+
+  .gsm-hoshidicts-glossary-content .gloss-image-link:hover .gloss-image,
+  .gsm-hoshidicts-glossary-content .gloss-image-link:focus-visible .gloss-image {
+    transform: scale(1.6);
+  }
+
+  .gsm-hoshidicts-glossary-content .gloss-image-link:hover .gloss-image-container,
+  .gsm-hoshidicts-glossary-content
+    .gloss-image-link:focus-visible
+    .gloss-image-container {
+    z-index: 3;
+    overflow: visible;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gsm-hoshidicts-glossary-content .gloss-image-link .gloss-image {
+    transition: none;
+  }
+}
+
 .gsm-hoshidicts-glossary-content table {
   max-width: 100%;
   border-collapse: collapse;

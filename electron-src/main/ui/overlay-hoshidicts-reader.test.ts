@@ -210,6 +210,103 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(blurRule?.[0]).not.toContain("definition-tags");
   });
 
+  // A hover-only enlargement helps read small dictionary glossary illustrations
+  // without adding any JavaScript, controls, or modal. It must be scoped to the
+  // real glossary image inside the popup glossary content so game frames,
+  // toolbar icons, dictionary logos, README assets, and other Electron UI can
+  // never match; gated behind `@media (hover: hover)` so touch/tap devices are
+  // unchanged; and it must not clip the enlarged pixels behind the container's
+  // overflow. Only the zoom transition is dropped under reduced motion — the
+  // enlargement itself still works.
+  describe("glossary image hover zoom", () => {
+    const css = readFeatureFile("reader.css");
+
+    // The whole `@media (hover: hover) { ... }` block, captured so we can prove
+    // the zoom lives inside it (touch devices never match) and inspect it.
+    function hoverMediaBlock() {
+      let depth = 0;
+      let start = -1;
+      const opener = css.indexOf("@media (hover: hover)");
+      if (opener < 0) return null;
+      for (let index = css.indexOf("{", opener); index < css.length; index += 1) {
+        const character = css[index];
+        if (character === "{") {
+          if (depth === 0) start = index;
+          depth += 1;
+        } else if (character === "}") {
+          depth -= 1;
+          if (depth === 0) return css.slice(start + 1, index);
+        }
+      }
+      return null;
+    }
+
+    it("enlarges the real popup glossary image only on hover-capable devices", () => {
+      const block = hoverMediaBlock();
+      expect(block).not.toBeNull();
+      // The zoom targets the actual dictionary glossary image, scoped under the
+      // popup glossary content, on hover or keyboard focus.
+      const rule =
+        /\.gsm-hoshidicts-glossary-content\s+[^{}]*\.gloss-image[^{}]*:(?:hover|focus[^{}]*)[^{}]*\{(?<declarations>[^{}]*)\}/u.exec(
+          block ?? ""
+        );
+      expect(rule?.groups?.declarations).toMatch(
+        /transform\s*:\s*scale\(\s*(?:1\.\d+|[2-9])/u
+      );
+    });
+
+    it("scopes the zoom under Hoshidicts glossary content, never bare images", () => {
+      const block = hoverMediaBlock() ?? "";
+      // Every zoom selector that scales must be anchored to the popup glossary
+      // content, so no toolbar icon, logo, game frame, or README image matches.
+      const zoomRules = [
+        ...block.matchAll(/(?<selectors>[^{}]+)\{(?<declarations>[^{}]*)\}/gu)
+      ].filter((match) => /transform\s*:\s*scale\(/u.test(match.groups?.declarations ?? ""));
+      expect(zoomRules.length).toBeGreaterThan(0);
+      for (const zoomRule of zoomRules) {
+        for (const selector of (zoomRule.groups?.selectors ?? "").split(",")) {
+          expect(selector).toContain(".gsm-hoshidicts-glossary-content");
+        }
+      }
+    });
+
+    it("lets the enlarged image escape the container clip so it stays visible", () => {
+      const block = hoverMediaBlock() ?? "";
+      // The gloss image container clips with overflow: hidden. The zoom must lift
+      // that clip (and raise the image) while hovering so the enlarged pixels are
+      // not cut off, without touching the base non-hover layout.
+      expect(block).toMatch(
+        /\.gsm-hoshidicts-glossary-content\s+[^{}]*:hover\s+\.gloss-image-container[^{}]*\{(?<declarations>[^{}]*overflow\s*:\s*visible[^{}]*)\}/u
+      );
+    });
+
+    it("keeps a modest zoom transition but drops it under reduced motion", () => {
+      const block = hoverMediaBlock() ?? "";
+      // A transition on the glossary image gives the enlargement a smooth feel.
+      const baseRule =
+        /\.gsm-hoshidicts-glossary-content\s+[^{}]*\.gloss-image[^{}]*\{(?<declarations>[^{}]*transition\s*:\s*transform[^{}]*)\}/u.exec(
+          block
+        );
+      expect(baseRule).not.toBeNull();
+
+      // Under prefers-reduced-motion the transition is removed, but the zoom
+      // transform itself is NOT — reduced motion drops animation, not the size.
+      const reducedMotion =
+        /@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{(?<body>(?:[^{}]|\{[^{}]*\})*)\}/gu;
+      let disablesTransition = false;
+      for (const media of css.matchAll(reducedMotion)) {
+        const body = media.groups?.body ?? "";
+        if (
+          /\.gloss-image[^{}]*\{[^{}]*transition\s*:\s*none/u.test(body) &&
+          !/transform\s*:\s*(?:none|scale\(\s*1\s*\))/u.test(body)
+        ) {
+          disablesTransition = true;
+        }
+      }
+      expect(disablesTransition).toBe(true);
+    });
+  });
+
 
   it("uses Yomitan card icons for new and duplicate mining states", () => {
     const dom = createDom();
