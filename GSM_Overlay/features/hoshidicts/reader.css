@@ -1563,7 +1563,7 @@ html[data-hoshidicts-theme="miku"] .gsm-hoshidicts-popup {
   overflow: hidden;
   display: flex;
   flex: 1 1 180px;
-  align-self: center;
+  align-self: flex-end;
   align-items: center;
   gap: 6px;
   color: var(--text-color-light1);

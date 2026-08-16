@@ -1602,6 +1602,9 @@ describe("Hoshidicts compact definition summaries", () => {
     expect(
       readerCssRule(".gsm-hoshidicts-compact-definition-image .gloss-image-container")
     ).toContain("height: 36px");
+    expect(
+      readerCssRule(".gsm-hoshidicts-compact-definition-summary")
+    ).toContain("align-self: flex-end");
   });
 
   it("supports plain JMdict JSON strings and arrays", async () => {
