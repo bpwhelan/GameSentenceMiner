@@ -253,7 +253,10 @@
       }
       try {
         const parsed = new URL(
-          url.replaceAll("%w", "word").replaceAll("%s", "sentence")
+          url
+            .replaceAll("%blob", "payload")
+            .replaceAll("%w", "word")
+            .replaceAll("%s", "sentence")
         );
         if (
           !["http:", "https:"].includes(parsed.protocol) ||
@@ -292,7 +295,9 @@
   function expandPopupButtonUrl(template, values = {}) {
     const word = encodeURIComponent(String(values.word || ""));
     const sentence = encodeURIComponent(String(values.sentence || ""));
+    const blob = encodeURIComponent(JSON.stringify(values.blob || {}));
     return String(template || "")
+      .replaceAll("%blob", blob)
       .replaceAll("%w", word)
       .replaceAll("%s", sentence);
   }
@@ -4060,6 +4065,39 @@
         : { payload: { ...payload, [key]: included }, bytesAdded };
     }
 
+    function createCompleteMiningPayload(result, candidate, level) {
+      const audioSelection = audioController.getSelection(result);
+      const basePayload = createMiningBasePayload(
+        { result, candidate },
+        audioSelection ? { audioSelection } : {}
+      );
+      const generation = level.termView?.dictionaryGeneration ?? null;
+      const finish = (dictionaryMedia) => {
+        const mediaAttachment = attachWithinBudget(
+          basePayload,
+          "dictionaryMedia",
+          dictionaryMedia,
+          MAX_MINING_REQUEST_BYTES - utf8Length(JSON.stringify(basePayload))
+        );
+        return attachWithinBudget(
+          mediaAttachment.payload,
+          "dictionaryStyles",
+          getMiningDictionaryStyles(result, generation),
+          MAX_MINING_REQUEST_BYTES -
+            utf8Length(JSON.stringify(mediaAttachment.payload))
+        ).payload;
+      };
+      const mediaReferences = getStructuredMediaReferences(result);
+      return mediaReferences.length === 0
+        ? finish([])
+        : getMiningDictionaryMedia(
+            result,
+            generation,
+            level.depth,
+            mediaReferences
+          ).then(finish);
+    }
+
     function createDuplicateCheckPayload(level, miningItems) {
       const notes = miningItems.map((item) => createMiningBasePayload(item));
       let remainingBytes = MAX_DUPLICATE_CHECK_REQUEST_BYTES - utf8Length(
@@ -4305,11 +4343,19 @@
       if (!onOpenExternalLink) {
         return;
       }
-      const url = expandPopupButtonUrl(link.url, {
-        word: boundedString(result?.term?.expression, 1024).trim(),
-        sentence: boundedString(candidate?.sentence),
-      });
       try {
+        const values = {
+          word: boundedString(result?.term?.expression, 1024).trim(),
+          sentence: boundedString(candidate?.sentence),
+        };
+        if (link.url.includes("%blob")) {
+          const level = popupLevels.find((entry) => entry.popup.contains(feedback));
+          if (!level) {
+            return;
+          }
+          values.blob = await createCompleteMiningPayload(result, candidate, level);
+        }
+        const url = expandPopupButtonUrl(link.url, values);
         await onOpenExternalLink(url);
       } catch (error) {
         const level = popupLevels.find((entry) => entry.popup.contains(feedback));
@@ -4357,37 +4403,14 @@
       let added = false;
       let duplicateRejected = false;
       try {
-        const audioSelection = audioController.getSelection(result);
-        const basePayload = createMiningBasePayload(
-          { result, candidate },
-          audioSelection ? { audioSelection } : {}
+        let miningPayload = createCompleteMiningPayload(
+          result,
+          candidate,
+          level
         );
-        const generation = level.termView?.dictionaryGeneration ?? null;
-        const mediaReferences = getStructuredMediaReferences(result);
-        const dictionaryMedia = mediaReferences.length === 0
-          ? []
-          : await getMiningDictionaryMedia(
-              result,
-              generation,
-              level.depth,
-              mediaReferences
-            );
-        const mediaAttachment = attachWithinBudget(
-          basePayload,
-          "dictionaryMedia",
-          dictionaryMedia,
-          MAX_MINING_REQUEST_BYTES - utf8Length(JSON.stringify(basePayload))
-        );
-        const { payload: miningPayload } = attachWithinBudget(
-          mediaAttachment.payload,
-          "dictionaryStyles",
-          getMiningDictionaryStyles(
-            result,
-            generation
-          ),
-          MAX_MINING_REQUEST_BYTES -
-            utf8Length(JSON.stringify(mediaAttachment.payload))
-        );
+        if (miningPayload instanceof Promise) {
+          miningPayload = await miningPayload;
+        }
         const response = await onMine(miningPayload);
         if (!response || response.success !== true) {
           throw createMiningRequestError(

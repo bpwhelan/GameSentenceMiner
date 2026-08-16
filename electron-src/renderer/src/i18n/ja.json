@@ -728,7 +728,7 @@
           "customDefinition": "カスタム定義を編集",
           "viewInAnki": "Ankiで表示",
           "customLinks": "カスタムリンク",
-          "customLinksHint": "単語には%w、元の文全体には%sを使用します。",
+          "customLinksHint": "単語には%w、元の文全体には%s、Ankiに送る完全なマイニングJSONには%blobを使用します。",
           "noCustomLinks": "カスタムリンクはまだありません。",
           "name": "名前",
           "namePlaceholder": "Jisho",
@@ -740,7 +740,7 @@
           "editLink": "カスタムポップアップリンク「{name}」を編集",
           "deleteLink": "カスタムポップアップリンク「{name}」を削除",
           "labelRequired": "リンクの名前を入力してください。",
-          "invalidUrl": "http:// または https:// のURLを入力してください。%wと%sを使用できます。"
+          "invalidUrl": "http:// または https:// のURLを入力してください。%w、%s、%blobを使用できます。"
         },
         "definitionBlur": {
           "title": "繰り返し検索した定義をぼかす",

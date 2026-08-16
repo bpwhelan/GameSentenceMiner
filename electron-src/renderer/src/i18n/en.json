@@ -735,7 +735,7 @@
           "customDefinition": "Edit custom definition",
           "viewInAnki": "View in Anki",
           "customLinks": "Custom links",
-          "customLinksHint": "Use %w for the word and %s for the full source sentence.",
+          "customLinksHint": "Use %w for the word, %s for the full source sentence, and %blob for the complete Anki mining payload as JSON.",
           "noCustomLinks": "No custom links yet.",
           "name": "Name",
           "namePlaceholder": "Jisho",
@@ -747,7 +747,7 @@
           "editLink": "Edit custom popup link {name}",
           "deleteLink": "Delete custom popup link {name}",
           "labelRequired": "Enter a name for the link.",
-          "invalidUrl": "Enter an http:// or https:// URL. %w and %s are supported."
+          "invalidUrl": "Enter an http:// or https:// URL. %w, %s, and %blob are supported."
         },
         "definitionBlur": {
           "title": "Blur definitions after repeated lookups",

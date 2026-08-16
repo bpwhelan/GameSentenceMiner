@@ -2315,18 +2315,66 @@ describe("Hoshidicts dictionary tabs", () => {
       .toEqual({ autoPlay: false });
   });
 
-  it("expands repeated word and sentence placeholders independently", () => {
+  it("expands repeated word, sentence, and mining blob placeholders independently", () => {
     const dom = createDom();
     const api = loadReaderModule(dom.window as unknown as Window);
+    const blob = {
+      result: { term: { expression: "食べる" } },
+      sentence: "私は 食べる。",
+      matchOffset: 3
+    };
     expect(api.expandPopupButtonUrl(
-      "https://example.test/?w=%w&w2=%w&s=%s&s2=%s",
-      { word: "食べる/食う", sentence: "私は 食べる。" }
+      "https://example.test/?w=%w&w2=%w&s=%s&s2=%s&blob=%blob&blob2=%blob",
+      { word: "食べる/食う", sentence: "私は 食べる。", blob }
     )).toBe(
       "https://example.test/?w=%E9%A3%9F%E3%81%B9%E3%82%8B%2F%E9%A3%9F%E3%81%86" +
       "&w2=%E9%A3%9F%E3%81%B9%E3%82%8B%2F%E9%A3%9F%E3%81%86" +
       "&s=%E7%A7%81%E3%81%AF%20%E9%A3%9F%E3%81%B9%E3%82%8B%E3%80%82" +
-      "&s2=%E7%A7%81%E3%81%AF%20%E9%A3%9F%E3%81%B9%E3%82%8B%E3%80%82"
+      "&s2=%E7%A7%81%E3%81%AF%20%E9%A3%9F%E3%81%B9%E3%82%8B%E3%80%82" +
+      `&blob=${encodeURIComponent(JSON.stringify(blob))}` +
+      `&blob2=${encodeURIComponent(JSON.stringify(blob))}`
     );
+  });
+
+  it("sends the complete Anki mining payload through the blob placeholder", async () => {
+    const onOpenExternalLink = vi.fn(async (_url: string) => ({ opened: true }));
+    const mine = vi.fn(async (_payload: Record<string, unknown>) => ({
+      success: true,
+      noteId: 123
+    }));
+    const { lookup } = createLookupHarness({
+      popupButtons: {
+        addToAnki: true,
+        audio: false,
+        customDefinition: false,
+        viewInAnki: false,
+        customLinks: [{
+          label: "Bridge",
+          url: "https://bridge.example/import?payload=%blob"
+        }]
+      },
+      getMiningStatus: async () => ({ available: true }),
+      onMine: mine,
+      onOpenExternalLink
+    });
+    const { popup } = await lookup((requestId) =>
+      lookupResult(requestId, "食べる")
+    );
+    await flushPromises();
+
+    popup.querySelector<HTMLButtonElement>(
+      ".gsm-hoshidicts-external-link-button"
+    )!.click();
+    await flushPromises();
+    popup.querySelector<HTMLButtonElement>(
+      ".gsm-hoshidicts-mine-button"
+    )!.click();
+    await flushPromises();
+    await flushPromises();
+
+    const openedUrl = new URL(onOpenExternalLink.mock.calls[0][0]);
+    expect(JSON.parse(openedUrl.searchParams.get("payload")!))
+      .toEqual(mine.mock.calls[0][0]);
   });
 
   it("keeps custom link actions at least as large as icon actions", () => {

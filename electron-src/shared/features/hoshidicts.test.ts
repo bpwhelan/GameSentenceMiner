@@ -196,6 +196,7 @@ describe('Hoshidicts popup buttons', () => {
 
     it.each([
         ['https://example.com/?word=%w&sentence=%s', true],
+        ['https://example.com/import?payload=%blob', true],
         ['http://localhost/%w', true],
         ['/search/%w', false],
         ['javascript:alert(1)', false],

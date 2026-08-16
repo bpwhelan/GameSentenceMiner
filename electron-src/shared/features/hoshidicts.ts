@@ -266,7 +266,10 @@ export function isHoshidictsPopupCustomLinkTemplate(
     }
     try {
         const parsed = new URL(
-            template.replaceAll('%w', 'word').replaceAll('%s', 'sentence')
+            template
+                .replaceAll('%blob', 'payload')
+                .replaceAll('%w', 'word')
+                .replaceAll('%s', 'sentence')
         );
         return (
             (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
