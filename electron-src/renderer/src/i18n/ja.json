@@ -1122,6 +1122,7 @@
         "textHookSettings": "テキストフック設定",
         "windowLayouts": "ウィンドウとマイニングのレイアウト",
         "yomitan": "Yomitanデータ",
+        "dictionaries": "辞書設定",
         "customizations": "スクリプトとカスタマイズ",
         "plugins": "Pythonプラグイン",
         "agentScripts": "Agentスクリプト",
