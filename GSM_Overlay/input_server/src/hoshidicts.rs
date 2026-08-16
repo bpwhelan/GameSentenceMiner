@@ -44,12 +44,12 @@ const MAX_KANJI_STATS_PER_ENTRY: usize = 128;
 const MAX_ARCHIVE_INDEX_BYTES: u64 = 1024 * 1024;
 const MAX_MEDIA_RECORDS: u64 = 1_000_000;
 const REQUIRED_DICTIONARY_FILES: [&str; 3] = ["hash.table", "bloom.filter", "blobs.bin"];
-// The upstream hoshidicts engine reads and writes the `.hoshidicts_3` marker.
-// The fork-only `.hoshidicts_4` marker is intentionally absent: the upstream
-// engine cannot read a `.hoshidicts_4` directory, so accepting it here would
-// silently load a dictionary the engine skips. GSM refuses it instead, forcing
-// a clear "missing format marker" diagnostic and a manual re-import.
-const HOSHIDICTS_MARKERS: [&str; 3] = [".hoshidicts_3", ".hoshidicts_2", ".hoshidicts_1"];
+const HOSHIDICTS_MARKERS: [&str; 4] = [
+    ".hoshidicts_4",
+    ".hoshidicts_3",
+    ".hoshidicts_2",
+    ".hoshidicts_1",
+];
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(untagged)]
@@ -2684,9 +2684,12 @@ mod tests {
 
         fs::write(dictionary.join(".hoshidicts_4"), []).expect("write v4 marker");
         fs::remove_file(dictionary.join(".hoshidicts_3")).expect("remove v3 marker");
-        assert!(load_dictionary_specs(&root.0)
-            .expect_err("a .hoshidicts_4-only directory the upstream engine cannot read must fail")
-            .contains("format marker"));
+        assert_eq!(
+            load_dictionary_specs(&root.0)
+                .expect("valid v4 marker")
+                .len(),
+            1
+        );
 
         fs::remove_file(dictionary.join(".hoshidicts_4")).expect("remove v4 marker");
         assert!(load_dictionary_specs(&root.0)

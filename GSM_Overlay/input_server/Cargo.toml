@@ -23,4 +23,4 @@ sudachi = { git = "https://github.com/WorksApplications/sudachi.rs.git", tag = "
 zip = { version = "2.2", default-features = false, features = ["deflate"] }
 rdev = "0.5.3"
 
-hoshidicts = { git = "https://github.com/Manhhao/hoshidicts-rs.git", rev = "0c5d3ad70fe7f080a236ba23f540be7868955204" }
+hoshidicts = { git = "https://github.com/Manhhao/hoshidicts-rs.git", rev = "57a0e434922a3192bc999f4971a9ca33c677c078" }

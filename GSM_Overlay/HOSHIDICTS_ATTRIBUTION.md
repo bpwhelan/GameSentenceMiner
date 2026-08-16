@@ -6,10 +6,10 @@ the following projects:
 - [Hoshidicts-rs](https://github.com/Manhhao/hoshidicts-rs), the safe Rust
   bindings for the Hoshidicts Yomitan-dictionary engine, consumed by
   `gsm_overlay_server` as a Git dependency pinned at the immutable commit
-  [0c5d3ad](https://github.com/Manhhao/hoshidicts-rs/tree/0c5d3ad70fe7f080a236ba23f540be7868955204).
+  [57a0e43](https://github.com/Manhhao/hoshidicts-rs/tree/57a0e434922a3192bc999f4971a9ca33c677c078).
   That commit's own recursive `hoshidicts` engine submodule points at
   [Manhhao/hoshidicts](https://github.com/Manhhao/hoshidicts) upstream at
-  [86c6e2f](https://github.com/Manhhao/hoshidicts/tree/86c6e2fc70c5d8526632c9b68fab43be926c1a10),
+  [8993838](https://github.com/Manhhao/hoshidicts/tree/899383893332a481d615ded3cab417a92ea4144f),
   which the crate builds and statically links, so GSM no longer vendors the
   engine or hand-writes the FFI glue. Both projects are licensed under
   GPL-3.0-or-later; the engine's complete license travels with the crate's
