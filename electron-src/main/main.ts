@@ -157,6 +157,7 @@ import {
     getProjectPath,
     getVenvDirFromPythonPath,
     installPackageNoDeps,
+    isBackendVersionCompatible,
     isPackageInstalled,
     resolveRequestedExtras,
     syncLockedEnvironment,
