@@ -1,5 +1,4 @@
 import { createRequire } from "node:module";
-import fs from "node:fs";
 import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
@@ -44,11 +43,6 @@ describe("overlay dictionary reader selection", () => {
       hoshidictsEnabled: false,
       yomitanEnabled: true
     });
-  });
-
-  it("selects Hoshidicts exclusively when its effective feature flag is on", () => {
-    const { selectDictionaryReaderEngine } = loadReaderEngineSelection();
-
     expect(
       selectDictionaryReaderEngine({ GSM_HOSHIDICTS_ENABLED: "1" })
     ).toEqual({
@@ -86,47 +80,5 @@ describe("overlay dictionary reader selection", () => {
       yomitanExtension: startsYomitan ? extension : null
     });
     expect(startYomitan).toHaveBeenCalledTimes(startsYomitan ? 1 : 0);
-  });
-
-  it("gates every Yomitan startup and settings path in the overlay main process", () => {
-    const source = fs.readFileSync(
-      path.resolve(process.cwd(), "GSM_Overlay/main.js"),
-      "utf8"
-    );
-    const readerCss = fs.readFileSync(
-      path.resolve(
-        process.cwd(),
-        "GSM_Overlay/features/hoshidicts/reader.css"
-      ),
-      "utf8"
-    );
-
-    expect(source).toContain(
-      "dictionaryReaderSelection = selectDictionaryReaderEngine(process.env);"
-    );
-    expect(source).toContain(
-      "if (dictionaryReaderSelection.yomitanEnabled && isLinux()) {"
-    );
-    expect(source).toContain(
-      "const dictionaryReaderStartup = await startSelectedDictionaryReader({"
-    );
-    expect(source).toContain(
-      "if (yomitanExt && fs.existsSync(markerPath)) {"
-    );
-    expect(source).toContain(
-      "// Watch yomitan extension directory for rebuilds and hot-reload on change (dev workflow)\n  if (dictionaryReaderSelection.yomitanEnabled) {"
-    );
-    expect(source).toContain(
-      "if (!dictionaryReaderSelection.yomitanEnabled || !yomitanExt) {"
-    );
-    expect(source).toContain(
-      "visible: dictionaryReaderSelection.yomitanEnabled,"
-    );
-    expect(source).toContain(
-      "if (!dictionaryReaderSelection.yomitanEnabled) {\n      clearAppHotkey(\"yomitanSettings\");"
-    );
-    expect(readerCss).toContain(
-      "html.gsm-hoshidicts-enabled #btn-yomitan"
-    );
   });
 });

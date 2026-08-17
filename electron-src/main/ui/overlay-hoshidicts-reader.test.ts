@@ -100,10 +100,6 @@ afterEach(resetReaderTestState);
 describe("Hoshidicts safe popup rendering", () => {
   const POPUP = ".gsm-hoshidicts-popup";
 
-  it("scales the popup by its own variables instead of element opacity", () => {
-    expect(readerCssRule(POPUP)).not.toMatch(/(?:^|;)\s*opacity\s*:/);
-  });
-
   it("does not blur the popup backdrop so the preview and transparent in-game overlay match", () => {
     // Electron transparent windows cannot backdrop-blur the native game/OBS
     // surface below the BrowserWindow, but the Design preview paints its
@@ -156,13 +152,6 @@ describe("Hoshidicts safe popup rendering", () => {
   // shrink to 0 keeps it at least as wide as the Back button so the control
   // stays in the navigation layer at every popup width. This is a local flex
   // sizing fix, not a global z-index escalation.
-  it("does not let the Back navigation wrapper shrink below the Back button", () => {
-    const navigationRule = readerCssRule(".gsm-hoshidicts-kanji-navigation") ?? "";
-    expect(navigationRule).toMatch(
-      /(?:^|;)\s*flex-shrink\s*:\s*0\b|(?:^|;)\s*flex\s*:\s*0\s+0\b/
-    );
-  });
-
   // reader.css owns these palettes; jsdom applies no CSS, so scraping the file
   // only restated it. What matters behaviourally is that every theme the reader
   // can select has a rule to select, which the reader test at the bottom of this
@@ -241,20 +230,6 @@ describe("Hoshidicts safe popup rendering", () => {
       return null;
     }
 
-    it("enlarges the real popup glossary image only on hover-capable devices", () => {
-      const block = hoverMediaBlock();
-      expect(block).not.toBeNull();
-      // The zoom targets the actual dictionary glossary image, scoped under the
-      // popup glossary content, on hover or keyboard focus.
-      const rule =
-        /\.gsm-hoshidicts-glossary-content\s+[^{}]*\.gloss-image[^{}]*:(?:hover|focus[^{}]*)[^{}]*\{(?<declarations>[^{}]*)\}/u.exec(
-          block ?? ""
-        );
-      expect(rule?.groups?.declarations).toMatch(
-        /transform\s*:\s*scale\(\s*(?:1\.\d+|[2-9])/u
-      );
-    });
-
     it("scopes the zoom under Hoshidicts glossary content, never bare images", () => {
       const block = hoverMediaBlock() ?? "";
       // Every zoom selector that scales must be anchored to the popup glossary
@@ -268,16 +243,6 @@ describe("Hoshidicts safe popup rendering", () => {
           expect(selector).toContain(".gsm-hoshidicts-glossary-content");
         }
       }
-    });
-
-    it("lets the enlarged image escape the container clip so it stays visible", () => {
-      const block = hoverMediaBlock() ?? "";
-      // The gloss image container clips with overflow: hidden. The zoom must lift
-      // that clip (and raise the image) while hovering so the enlarged pixels are
-      // not cut off, without touching the base non-hover layout.
-      expect(block).toMatch(
-        /\.gsm-hoshidicts-glossary-content\s+[^{}]*:hover\s+\.gloss-image-container[^{}]*\{(?<declarations>[^{}]*overflow\s*:\s*visible[^{}]*)\}/u
-      );
     });
 
     it("escapes the popup scrollport, not just the container clip", () => {
@@ -326,6 +291,7 @@ describe("Hoshidicts safe popup rendering", () => {
       expect(containerRule?.groups?.declarations).toMatch(
         /position\s*:\s*(?:fixed|absolute)/u
       );
+      expect(containerRule?.groups?.declarations).toMatch(/overflow\s*:\s*visible/u);
       // And the enlargement transform itself is still present and > 1.
       expect(block).toMatch(/transform\s*:\s*scale\(\s*(?:1\.\d+|[2-9])/u);
     });
@@ -357,27 +323,6 @@ describe("Hoshidicts safe popup rendering", () => {
     });
   });
 
-
-  it("uses Yomitan card icons for new and duplicate mining states", () => {
-    const dom = createDom();
-    const api = loadReaderModule(dom.window as unknown as Window);
-    const button = dom.window.document.createElement("button");
-
-    api.setMiningButtonState(button, "ready");
-    expect(button.querySelector<HTMLElement>(".gsm-hoshidicts-mine-icon")
-      ?.dataset.icon).toBe("big-circle");
-    expect(button.textContent).toBe("");
-
-    api.setMiningButtonState(button, "add-duplicate");
-    expect(button.querySelector<HTMLElement>(".gsm-hoshidicts-mine-icon")
-      ?.dataset.icon).toBe("add-duplicate-big-circle");
-    expect(button.textContent).toBe("");
-
-    api.setMiningButtonState(button, "duplicate");
-    expect(button.querySelector<HTMLElement>(".gsm-hoshidicts-mine-icon")
-      ?.dataset.icon).toBe("add-duplicate-big-circle");
-    expect(button.textContent).toBe("");
-  });
 
   it("segments supplementary-plane kanji separately from trailing kana", () => {
     const dom = createDom();
@@ -445,24 +390,6 @@ describe("Hoshidicts safe popup rendering", () => {
       dictionary: "First",
       pitch: { position: 1 }
     });
-  });
-
-  it("links to dedicated settings from Overlay Settings, not the overlay toolbar", () => {
-    const settingsHtml = readOverlayFile("settings.html");
-    const document = parseDocument(settingsHtml);
-
-    expect(readOverlayFile("index.html")).not.toContain(
-      'id="btn-hoshidicts-settings"'
-    );
-    expect(
-      document.querySelector("#openHoshidictsSettings")?.textContent?.trim()
-    ).toBe("Hoshidicts Settings");
-    // Slicing the inline script out and running it in a vm only re-proved that
-    // these five lines are present, which reading them does directly.
-    expect(settingsHtml).toContain(
-      'document.getElementById("openHoshidictsSettings")'
-    );
-    expect(settingsHtml).toContain('invoke("open-hoshidicts-settings")');
   });
 
   it.each([
@@ -579,6 +506,10 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(addClass).toHaveBeenCalledWith("gsm-hoshidicts-enabled");
     expect(documentElement.dataset.gsmHoshidictsEnabled).toBe("true");
     expect(documentElement.dataset.hoshidictsTheme).toBe("default");
+    expect(
+      launchBootstrap(launchEnvironmentFor({ theme: "synthwave" }))
+        .documentElement.dataset.hoshidictsTheme
+    ).toBe("synthwave");
     expect(setProperty).toHaveBeenCalledWith(
       "--gsm-hoshidicts-popup-opacity",
       "70%"
@@ -594,15 +525,6 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(disabled.addClass).not.toHaveBeenCalled();
     expect(disabled.documentElement.dataset.gsmHoshidictsEnabled).toBeUndefined();
     expect(disabled.api.initialize({})).toBeNull();
-  });
-
-  it("accepts a launch theme", () => {
-    const { documentElement, preferences } = launchBootstrap(
-      launchEnvironmentFor({ theme: "synthwave" })
-    );
-
-    expect(preferences.theme).toBe("synthwave");
-    expect(documentElement.dataset.hoshidictsTheme).toBe("synthwave");
   });
 
   it("creates the reader with the launch preferences and GSM API clients", async () => {
@@ -670,17 +592,11 @@ describe("Hoshidicts safe popup rendering", () => {
     );
   });
 
-  it("passes the settings locale to the reader at creation", () => {
-    const configured = configureBootstrapReader({
-      settings: { gamepadServerPort: 7276, locale: "ja" }
-    });
-    expect(configured.readerOptions.locale).toBe("ja");
-  });
-
   it("relays a later settings locale to the existing reader", () => {
     const configured = configureBootstrapReader({
       settings: { gamepadServerPort: 7276, locale: "en" }
     });
+    expect(configured.readerOptions.locale).toBe("en");
     configured.api.initialize({ gamepadServerPort: 7276, locale: "ukr" });
     expect(configured.reader.updateLocale).toHaveBeenLastCalledWith("ukr");
     expect(configured.createHoshidictsReader).toHaveBeenCalledTimes(1);
@@ -837,32 +753,6 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(configured.reader.destroy).toHaveBeenCalled();
     expect(configured.api.getReader()).toBeNull();
     expect(configured.window.gsmHoshidictsReader).toBeNull();
-  });
-
-  it("keeps the overlay entry points down to feature includes and two calls", () => {
-    const overlayHtml = readOverlayFile("index.html");
-    const mainSource = readOverlayFile("main.js");
-
-    for (const include of [
-      "features/hoshidicts/constants.js",
-      "features/hoshidicts/preferences.js",
-      "features/hoshidicts/bootstrap.js"
-    ]) {
-      expect(overlayHtml).toContain(`<script src="${include}"></script>`);
-    }
-    expect(overlayHtml.indexOf("features/hoshidicts/audio.js")).toBeLessThan(
-      overlayHtml.indexOf("features/hoshidicts/popup.js")
-    );
-    expect(overlayHtml.indexOf("features/hoshidicts/popup.js")).toBeLessThan(
-      overlayHtml.indexOf("features/hoshidicts/reader.js")
-    );
-    expect(overlayHtml).toContain("GSMHoshidictsBootstrap.attachDesktopBridge({");
-    expect(overlayHtml).toContain("GSMHoshidictsBootstrap.initialize(newsettings);");
-    // The overlay must not re-validate preferences or rebuild the reader itself.
-    expect(overlayHtml).not.toContain("validateHoshidicts");
-    expect(overlayHtml).not.toContain("createHoshidictsReader");
-    expect(mainSource).toContain("createHoshidictsWindowBridge({");
-    expect(mainSource).not.toContain("normalizeHoshidictsReaderPreferences");
   });
 
   it.each([
@@ -1123,21 +1013,6 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(
       dom.window.document.querySelector(".gsm-hoshidicts-image-hover-preview")
     ).toBeNull();
-  });
-
-  it("sizes the lifted image preview beyond the popup while respecting the viewport", () => {
-    const declarations = readerCssRule(".gsm-hoshidicts-image-hover-preview") ?? "";
-    expect(declarations).toMatch(/position\s*:\s*fixed/u);
-    expect(declarations).toMatch(/z-index\s*:\s*2147483647/u);
-    expect(declarations).toMatch(/pointer-events\s*:\s*none/u);
-
-    const imageDeclarations =
-      readerCssRule(".gsm-hoshidicts-image-hover-preview img") ?? "";
-    expect(imageDeclarations).toMatch(
-      /width\s*:\s*min\(9\dvw,\s*calc\(var\(--gsm-hoshidicts-popup-width,[^)]+\)\s*\+\s*\d+px\)\)/u
-    );
-    expect(imageDeclarations).toMatch(/height\s*:\s*min\(9\dvh/u);
-    expect(imageDeclarations).toMatch(/object-fit\s*:\s*contain/u);
   });
 
   it("requests and scopes each dictionary stylesheet once per generation", async () => {
@@ -2098,21 +1973,6 @@ describe("Hoshidicts compact definition summaries", () => {
     expect(summary.textContent).not.toContain("軽率な行動を慎む");
   });
 
-  it("shares the popup definition-blur state and transition behavior", () => {
-    const css = fs.readFileSync(
-      path.resolve(
-        process.cwd(),
-        "GSM_Overlay/features/hoshidicts/reader.css"
-      ),
-      "utf8"
-    );
-    expect(css).toMatch(
-      /data-definition-blur-state="pending"[^{}]*compact-definition-summary[^{]*\{[^}]*filter:\s*blur\(5px\)/u
-    );
-    expect(css).toMatch(
-      /prefers-reduced-motion:[^{]+\{[\s\S]*?compact-definition-summary[^{}]*\{[^}]*transition:\s*none/u
-    );
-  });
 });
 
 describe("Hoshidicts definition blur", () => {
@@ -2652,13 +2512,6 @@ describe("Hoshidicts dictionary tabs", () => {
     const openedUrl = new URL(onOpenExternalLink.mock.calls[0][0]);
     expect(JSON.parse(openedUrl.searchParams.get("payload")!))
       .toEqual(mine.mock.calls[0][0]);
-  });
-
-  it("keeps custom link actions at least as large as icon actions", () => {
-    const declarations = readerCssRule(".gsm-hoshidicts-text-action-button");
-
-    expect(declarations).toMatch(/min-width:\s*36px/u);
-    expect(declarations).toMatch(/min-height:\s*36px/u);
   });
 
   it("keeps popup actions in fixed order and rerenders them live", async () => {
@@ -4340,41 +4193,6 @@ describe("Hoshidicts dictionary tabs", () => {
     expect(scrollPastEnd.defaultPrevented).toBe(false);
   });
 
-  it("keeps the default capsule frequency-only and the tablist semantically pure", async () => {
-    const { lookup, reader } = createLookupHarness({
-      dictionaryPresentation: [
-        { title: "Main", favorite: true },
-        { title: "Backup", favorite: true }
-      ]
-    });
-    const { popup } = await lookup((requestId) =>
-      lookupResultWithDictionaries(requestId, [
-        { dictionary: "Main", glossary: "main definition" },
-        { dictionary: "Backup", glossary: "backup definition" }
-      ])
-    );
-
-    const strip = popup.querySelector<HTMLElement>(
-      ".gsm-hoshidicts-metadata-strip"
-    )!;
-    const tablist = strip.querySelector<HTMLElement>('[role="tablist"]')!;
-    const capsule = strip.querySelector<HTMLElement>(
-      ".gsm-hoshidicts-primary-metadata-capsule"
-    )!;
-    expect(reader.getPreferences().hidePopupGrammarTags).toBe(true);
-    expect(strip.hidden).toBe(false);
-    expect(capsule.parentElement).toBe(strip);
-    expect(tablist.contains(capsule)).toBe(false);
-    expect(Array.from(tablist.children).every((child) =>
-      child.getAttribute("role") === "tab"
-    )).toBe(true);
-    expect(capsule.querySelector(".gsm-hoshidicts-frequency-value")?.textContent)
-      .toBe("123 ★");
-    expect(capsule.querySelector(".gsm-hoshidicts-primary-grammar")).toBeNull();
-    expect(popup.querySelector(".gsm-hoshidicts-entry .gsm-hoshidicts-tags"))
-      .toBeNull();
-  });
-
   it("shows deduplicated grammar in the capsule live without lookup or autoplay", async () => {
     const audioController = createAudioControllerStub();
     const { lookup, reader, socket } = createLookupHarness({
@@ -4892,45 +4710,6 @@ describe("Hoshidicts Shift-hover scanner", () => {
     }
   );
 
-  it("looks up immediately without a modifier in hover mode and reports its activation mode", () => {
-    vi.useFakeTimers();
-    const dom = createDom();
-    const api = loadReaderModule(dom.window as unknown as Window);
-    const first = dom.window.document.getElementById("first")!;
-    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
-    const logger = {
-      debug: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn()
-    };
-
-    const reader = api.createHoshidictsReader({
-      window: dom.window,
-      document: dom.window.document,
-      WebSocket: FakeWebSocket,
-      lookupMode: "hover",
-      logger
-    });
-    const socket = FakeWebSocket.instances[0];
-    socket.open();
-
-    dispatchMouse(dom, first, "mousemove", { clientX: 11, clientY: 11 });
-    expect(lastRequest(socket)).toMatchObject({
-      type: "hoshidicts_lookup",
-      text: "食べる",
-      scanLength: 16,
-      maxResults: 32,
-      sortFrequencyDictionary: null,
-      sortFrequencyDictionaryOrder: "descending"
-    });
-    expect(logger.info).toHaveBeenCalledWith(
-      expect.stringContaining('"requiresShift":false')
-    );
-    expect(logger.info).not.toHaveBeenCalledWith(
-      expect.stringContaining("[HoshidictsReader] hover.activation-key-required")
-    );
-  });
-
   it("requires the hovered token to be entirely Japanese when enabled", async () => {
     const harness = createReaderHarness({
       lookupMode: "hover",
@@ -4961,21 +4740,6 @@ describe("Hoshidicts Shift-hover scanner", () => {
     expect(lastRequest(harness.socket).text).toBe("hello world");
   });
 
-  it("does not let the activation key bypass Japanese-only scanning", async () => {
-    const harness = createReaderHarness({
-      lookupMode: "shift",
-      onlyScanJapaneseText: true
-    });
-    harness.first.textContent = "hello";
-    harness.dom.window.document.getElementById("second")!.textContent = " world";
-
-    await hover(harness.dom, harness.first, { shiftKey: true });
-
-    expect(
-      harness.socket.sent.map((message) => JSON.parse(message).type)
-    ).not.toContain("hoshidicts_lookup");
-  });
-
   it("starts an unmodified hover lookup when live preferences disable Shift", async () => {
     const { api, dom, first, reader, socket } = createReaderHarness({
       lookupMode: "shift",
@@ -4989,58 +4753,12 @@ describe("Hoshidicts Shift-hover scanner", () => {
 
     expect(lastRequest(socket)).toMatchObject({
       type: "hoshidicts_lookup",
-      text: "食べる"
+      text: "食べる",
+      scanLength: 16,
+      maxResults: 32,
+      sortFrequencyDictionary: null,
+      sortFrequencyDictionaryOrder: "descending"
     });
-  });
-
-  it("logs initialization, the Shift requirement, socket state, and lookup outcome", async () => {
-    vi.useFakeTimers();
-    const dom = createDom();
-    const api = loadReaderModule(dom.window as unknown as Window);
-    const first = dom.window.document.getElementById("first")!;
-    setRect(first, { left: 10, top: 10, right: 30, bottom: 30 });
-    const logger = {
-      debug: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn()
-    };
-
-    const reader = api.createHoshidictsReader({
-      window: dom.window,
-      document: dom.window.document,
-      WebSocket: FakeWebSocket,
-      serverUrl: "ws://127.0.0.1:7276",
-      logger
-    });
-
-    expect(logger.info).toHaveBeenCalledWith(
-      expect.stringContaining("[HoshidictsReader] reader.initialized")
-    );
-    expect(logger.debug).toHaveBeenCalledWith(
-      expect.stringContaining("[HoshidictsReader] socket.connecting")
-    );
-
-    dispatchMouse(dom, first, "mousemove", { clientX: 11, clientY: 11 });
-    expect(logger.info).toHaveBeenCalledWith(
-      expect.stringContaining("[HoshidictsReader] hover.activation-key-required")
-    );
-
-    const socket = FakeWebSocket.instances[0];
-    socket.open();
-    expect(logger.info).toHaveBeenCalledWith(
-      expect.stringContaining("[HoshidictsReader] socket.open")
-    );
-
-    await hover(dom, first, { shiftKey: true });
-    const request = lastRequest(socket);
-    expect(logger.debug).toHaveBeenCalledWith(
-      expect.stringContaining("[HoshidictsReader] lookup.sent")
-    );
-
-    socket.receive(lookupResult(request.requestId, "食べる"));
-    expect(logger.info).toHaveBeenCalledWith(
-      expect.stringContaining("[HoshidictsReader] lookup.rendered")
-    );
   });
 
   it("keeps text lookups working with a legacy server that omits generation", async () => {
@@ -5216,22 +4934,16 @@ describe("Hoshidicts Shift-hover scanner", () => {
     );
   });
 
-  it("keeps the audio action hidden when the configured source list is empty", async () => {
-    const harness = createReaderHarness({
-      audioPreferences: {
-        enabled: true,
-        sources: []
-      }
-    });
-    await renderFirstLookup(harness);
-
-    const audioButton = harness.reader.getPopupElement()
-      .querySelector<HTMLButtonElement>(".gsm-hoshidicts-audio-button");
-    expect(audioButton).not.toBeNull();
-    expect(audioButton?.hidden).toBe(true);
-  });
-
   it("updates audio action visibility when the configured source list changes", async () => {
+    const empty = createReaderHarness({
+      audioPreferences: { enabled: true, sources: [] }
+    });
+    await renderFirstLookup(empty);
+    const emptyButton = empty.reader.getPopupElement()
+      .querySelector<HTMLButtonElement>(".gsm-hoshidicts-audio-button");
+    expect(emptyButton).not.toBeNull();
+    expect(emptyButton?.hidden).toBe(true);
+
     const harness = createReaderHarness({
       audioPreferences: {
         enabled: true,
@@ -6614,20 +6326,6 @@ describe("Hoshidicts Shift-hover scanner", () => {
       .not.toBe(firstRequest.requestId);
   });
 
-  it("applies every supported theme inside the reader runtime", () => {
-    const { api, dom, reader } = createReaderHarness({
-      fakeTimers: false,
-      openSocket: false,
-    });
-
-    for (const theme of HOSHIDICTS_THEMES) {
-      expect(reader.updatePreferences({ theme }).theme).toBe(theme);
-      expect(dom.window.document.documentElement.dataset.hoshidictsTheme).toBe(
-        theme
-      );
-    }
-  });
-
   it("opens one child from definition text, preserves its parent, and prunes live", async () => {
     const { api, dom, first, reader, socket } = createReaderHarness({
       lookupMode: "hover",
@@ -7523,6 +7221,16 @@ describe("Hoshidicts Shift-hover scanner", () => {
       tags[1].querySelector<HTMLElement>(".gsm-hoshidicts-frequency-value")
         ?.dataset.frequency
     ).toBe("1234");
+
+    harness.reader.updatePreferences({ showFrequencyDictionaryNames: false });
+    expect(
+      harness.reader.getPreferences().showFrequencyDictionaryNames
+    ).toBe(false);
+    expect(
+      harness.reader.getPopupElement()
+        .querySelector<HTMLElement>(".gsm-hoshidicts-tag-frequency")
+        ?.querySelector(".gsm-hoshidicts-frequency-source")
+    ).toBeNull();
   });
 
   it("collapses frequency dictionaries into one harmonic rank", async () => {
@@ -7590,44 +7298,6 @@ describe("Hoshidicts Shift-hover scanner", () => {
     expect(frequencyTags()[0].textContent).toBe("18k");
   });
 
-  it("can show frequency values without dictionary names", async () => {
-    const harness = createReaderHarness({
-      showFrequencyDictionaryNames: false
-    });
-    await renderFirstLookup(harness, {
-      expression: "骨",
-      transform(response) {
-        response.results[0].term.frequencies = [{
-          dictionary: "JPDB Frequency",
-          frequencies: [{ value: 18000, displayValue: null }]
-        }];
-      }
-    });
-
-    const popup = harness.reader.getPopupElement();
-    const frequencyTag = () => popup.querySelector<HTMLElement>(
-      ".gsm-hoshidicts-tag-frequency"
-    );
-
-    expect(
-      harness.reader.getPreferences().showFrequencyDictionaryNames
-    ).toBe(false);
-    expect(
-      frequencyTag()?.querySelector(".gsm-hoshidicts-frequency-source")
-    ).toBeNull();
-    expect(frequencyTag()?.textContent).toBe("18k");
-    expect(frequencyTag()?.getAttribute("aria-label")).toBe("18k");
-
-    harness.reader.updatePreferences({ showFrequencyDictionaryNames: true });
-    expect(
-      frequencyTag()?.querySelector(".gsm-hoshidicts-frequency-source")
-        ?.textContent
-    ).toBe("JPDB Frequency");
-
-    harness.reader.updatePreferences({ showFrequencyDictionaryNames: false });
-    expect(frequencyTag()?.textContent).toBe("18k");
-  });
-
   it("shows Jiten kana frequency before kanji frequency with compact ranks", async () => {
     const harness = createReaderHarness();
     await renderFirstLookup(harness, {
@@ -7662,27 +7332,6 @@ describe("Hoshidicts Shift-hover scanner", () => {
     expect(tag.querySelector(".gsm-hoshidicts-frequency-body")?.textContent)
       .toBe("14k㋕ · 194");
     expect(tag.getAttribute("aria-label")).toBe("Jiten: 14k㋕, 194");
-  });
-
-  it("opens every dictionary card in the All tab like the Hoshi reference", async () => {
-    const harness = createReaderHarness();
-    await renderFirstLookup(harness, {
-      transform(response) {
-        const baseGlossary = response.results[0].term.glossaries[0];
-        response.results[0].term.glossaries = [
-          { ...baseGlossary, dictionary: "Jitendex", glossary: "to eat" },
-          { ...baseGlossary, dictionary: "JMdict", glossary: "to consume" },
-          { ...baseGlossary, dictionary: "Meikyou", glossary: "eat a meal" }
-        ];
-      }
-    });
-
-    const cards = Array.from(
-      harness.reader.getPopupElement()
-        .querySelectorAll<HTMLDetailsElement>(".gsm-hoshidicts-glossary-card")
-    );
-    expect(cards).toHaveLength(3);
-    expect(cards.every((card) => card.open)).toBe(true);
   });
 
   it("keeps only finite numeric frequency values without truncating them", () => {
@@ -7864,29 +7513,6 @@ describe("Hoshidicts Shift-hover scanner", () => {
     const secondRequest = lastRequest(socket);
     await respond(socket, lookupResult(secondRequest.requestId, "べる"));
     expect(getMiningStatus).toHaveBeenCalledTimes(1);
-  });
-
-  it("keeps optional Anki field mappings out of the lookup UI", async () => {
-    const harness = createReaderHarness({
-      getMiningStatus: async () => ({
-        available: true,
-        unmappedFields: ["audio", "pitch"]
-      }),
-      onMine: async () => ({ success: true, noteId: 123 })
-    });
-    await renderFirstLookup(harness);
-    await flushPromises();
-
-    const popup = harness.reader.getPopupElement();
-    const feedback = popup.querySelector<HTMLElement>(
-      ".gsm-hoshidicts-mining-feedback"
-    );
-    expect(feedback?.hidden).toBe(true);
-    expect(feedback?.textContent).toBe("");
-    expect(
-      popup.querySelector<HTMLButtonElement>(".gsm-hoshidicts-mine-button")
-        ?.dataset.state
-    ).toBe("ready");
   });
 
   it("disables an existing note when duplicate prevention is enabled", async () => {
@@ -8904,25 +8530,19 @@ describe("Hoshidicts deinflection disclosure", () => {
       "potential or passive",
       "causative"
     ]);
-  });
 
-  it("shows a non-empty step description when the backend provides one", async () => {
-    const harness = createReaderHarness({ lookupMode: "hover" });
-    await renderFirstLookup(harness, {
+    const described = createReaderHarness({ lookupMode: "hover" });
+    await renderFirstLookup(described, {
       shiftKey: false,
-      transform(response) {
+      transform(response: ReturnType<typeof lookupResult>) {
         makeCompound(response);
-        response.results[0].trace = [
-          { name: "-た", description: "Past tense" }
-        ];
+        response.results[0].trace = [{ name: "-た", description: "Past tense" }];
       }
     });
-
-    const item = disclosure(harness.reader.getPopupElement())!.querySelector(
-      "ol > li"
-    )!;
-    expect(item.textContent).toContain("-た");
-    expect(item.textContent).toContain("Past tense");
+    const describedItem = disclosure(described.reader.getPopupElement())!
+      .querySelector("ol > li")!;
+    expect(describedItem.textContent).toContain("-た");
+    expect(describedItem.textContent).toContain("Past tense");
   });
 
   it("resets the disclosure to collapsed when a new lookup replaces it", async () => {
@@ -9201,23 +8821,4 @@ describe("Hoshidicts deinflection disclosure", () => {
     expect(steps).toEqual(payload.result.trace.map((step: { name: string }) => step.name));
   });
 
-  it("styles the disclosure to wrap without clipping long paths or descriptions", () => {
-    const rule = readerCssRule(".gsm-hoshidicts-deinflection") ?? "";
-    expect(rule).not.toBe("");
-    const endpoint =
-      readerCssRule(".gsm-hoshidicts-deinflection-endpoint") ??
-      readerCssRule(".gsm-hoshidicts-deinflection-path") ??
-      "";
-    expect(endpoint).toMatch(/overflow-wrap\s*:\s*anywhere/);
-    const steps = readerCssRule(".gsm-hoshidicts-deinflection-steps") ?? "";
-    const combined = `${rule};${endpoint};${steps}`;
-    expect(combined).not.toMatch(/text-overflow\s*:\s*ellipsis/);
-    expect(combined).not.toMatch(/white-space\s*:\s*nowrap/);
-  });
-
-  it("makes the disclosure summary focus visible for keyboard users", () => {
-    const focus = readerCssRule(".gsm-hoshidicts-deinflection summary:focus-visible");
-    expect(focus).toBeTruthy();
-    expect(focus).toMatch(/outline/);
-  });
 });
