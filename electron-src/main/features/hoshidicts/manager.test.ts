@@ -1573,6 +1573,49 @@ describe('Hoshidicts managed custom dictionary', () => {
     });
 });
 
+describe('Hoshidicts legacy profile storage', () => {
+    it.each([
+        {
+            store: 'mining',
+            file: 'mining-profile.json',
+            seed: (manager: HoshidictsManager) =>
+                manager.setMiningProfile(defaultHoshidictsMiningProfile()),
+            expectDefault: (snapshot: HoshidictsManagerSnapshot) =>
+                expect(snapshot.miningProfile).toEqual(
+                    defaultHoshidictsMiningProfile()
+                ),
+        },
+        {
+            store: 'audio',
+            file: 'audio-profile.json',
+            seed: (manager: HoshidictsManager) =>
+                manager.setAudioProfile(defaultHoshidictsAudioProfile()),
+            expectDefault: (snapshot: HoshidictsManagerSnapshot) =>
+                expect(snapshot.audioProfile).toEqual(
+                    defaultHoshidictsAudioProfile()
+                ),
+        },
+    ])(
+        'ignores the removed standalone $store profile storage',
+        async ({ file, seed, expectDefault }) => {
+            const baseDir = makeTempDir();
+            const { manager } = createHarness(baseDir);
+            await seed(manager);
+            fs.writeFileSync(
+                path.join(baseDir, 'dictionaries', 'hoshidicts', file),
+                '{broken',
+                'utf8'
+            );
+
+            const snapshot = await manager.getSnapshot();
+
+            expectDefault(snapshot);
+            expect(snapshot.lastError).toBeNull();
+            expect(snapshot.dictionaries).toEqual([]);
+        }
+    );
+});
+
 describe('Hoshidicts mining profile', () => {
     it('uses defaults until an override profile is saved atomically', async () => {
         const baseDir = makeTempDir();
@@ -1631,51 +1674,6 @@ describe('Hoshidicts mining profile', () => {
             fs.readdirSync(path.join(baseDir, 'dictionaries', 'hoshidicts')).sort()
         ).toEqual(['audio-profile.json', 'manifest.json', 'mining-profile.json']);
     });
-
-    // Both legacy standalone profile stores share one tolerant-read contract:
-    // a corrupt store file is ignored, the snapshot falls back to defaults with
-    // no error, and no dictionaries are surfaced. Table-driven across the two
-    // stores so each store stays individually asserted.
-    it.each([
-        {
-            store: 'mining',
-            file: 'mining-profile.json',
-            seed: (manager: HoshidictsManager) =>
-                manager.setMiningProfile(defaultHoshidictsMiningProfile()),
-            expectDefault: (snapshot: HoshidictsManagerSnapshot) =>
-                expect(snapshot.miningProfile).toEqual(
-                    defaultHoshidictsMiningProfile()
-                ),
-        },
-        {
-            store: 'audio',
-            file: 'audio-profile.json',
-            seed: (manager: HoshidictsManager) =>
-                manager.setAudioProfile(defaultHoshidictsAudioProfile()),
-            expectDefault: (snapshot: HoshidictsManagerSnapshot) =>
-                expect(snapshot.audioProfile).toEqual(
-                    defaultHoshidictsAudioProfile()
-                ),
-        },
-    ])(
-        'ignores the removed standalone $store profile storage',
-        async ({ file, seed, expectDefault }) => {
-            const baseDir = makeTempDir();
-            const { manager } = createHarness(baseDir);
-            await seed(manager);
-            fs.writeFileSync(
-                path.join(baseDir, 'dictionaries', 'hoshidicts', file),
-                '{broken',
-                'utf8'
-            );
-
-            const snapshot = await manager.getSnapshot();
-
-            expectDefault(snapshot);
-            expect(snapshot.lastError).toBeNull();
-            expect(snapshot.dictionaries).toEqual([]);
-        }
-    );
 
     it('normalizes Yomitan duplicate options and rejects unsupported values', () => {
         expect(
