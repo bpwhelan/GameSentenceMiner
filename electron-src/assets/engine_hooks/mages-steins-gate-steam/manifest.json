@@ -38,7 +38,8 @@
     "maximumCodes": 2000
   },
   "capture": {
-    "acceptedModes": [0]
+    "acceptedModes": [0],
+    "coordinateSuppressedStyles": [7]
   },
   "advance": {
     "method": "foreground-click",

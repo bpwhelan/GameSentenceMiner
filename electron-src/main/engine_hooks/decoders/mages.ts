@@ -38,6 +38,7 @@ export interface EngineHookMagesManifest extends EngineHookManifestBase {
     };
     capture: {
         acceptedModes: number[];
+        coordinateSuppressedStyles?: number[];
     };
 }
 
@@ -53,8 +54,19 @@ export const magesDecoderDescriptor: EngineHookDecoderDescriptor = {
         const signatures = object(root.signatures, 'signatures');
         const resources = object(root.resources, 'resources');
         const memory = object(root.memory, 'memory');
+        const capture = object(root.capture, 'capture');
         const acceptedModes = context.requireCaptureModes();
         context.requireModuleName();
+        const coordinateSuppressedStyles = capture.coordinateSuppressedStyles;
+        if (
+            coordinateSuppressedStyles !== undefined &&
+            (!Array.isArray(coordinateSuppressedStyles) ||
+                coordinateSuppressedStyles.some(
+                    (entry) => typeof entry !== 'number' || !Number.isInteger(entry) || entry < 0 || entry > 255,
+                ))
+        ) {
+            throw new Error('capture.coordinateSuppressedStyles must contain byte-sized integers.');
+        }
         return {
             ...common,
             decoder: 'mages-v1',
@@ -86,7 +98,12 @@ export const magesDecoderDescriptor: EngineHookDecoderDescriptor = {
                 positionStride: positiveInteger(memory.positionStride, 'memory.positionStride', 256),
                 maximumCodes: positiveInteger(memory.maximumCodes, 'memory.maximumCodes', 2000),
             },
-            capture: { acceptedModes },
+            capture: {
+                acceptedModes,
+                ...(coordinateSuppressedStyles === undefined
+                    ? {}
+                    : { coordinateSuppressedStyles: [...(coordinateSuppressedStyles as number[])] }),
+            },
         };
     },
 

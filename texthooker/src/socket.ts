@@ -220,13 +220,18 @@ export class SocketConnection {
 		line = payload?.sentence || event.data;
 		const isGSMLine = payload?.event === 'text_received' && typeof payload?.data?.id === 'string';
 		const id = isGSMLine && payload ? payload.data.id : '';
+		const streamSequence = isGSMLine ? Number(payload?.data?.stream_sequence ?? Number.NaN) : Number.NaN;
+		const revision = isGSMLine ? Number(payload?.data?.revision ?? Number.NaN) : Number.NaN;
 		const lineMeta =
 			payload?.data && typeof payload.data === 'object'
 				? {
 						excludedFromStats: Boolean(payload.data.excluded_from_stats),
 						gsmSessionId: typeof payload.data.session_id === 'string' ? payload.data.session_id : undefined,
 						gsmStatus: isGSMLine ? ('active' as const) : ('external' as const),
-					}
+						...(Number.isFinite(streamSequence) ? { streamSequence } : {}),
+						...(Number.isFinite(revision) ? { revision } : {}),
+						...(typeof payload.data.state === 'string' ? { recordState: payload.data.state } : {}),
+				  }
 				: { gsmStatus: 'external' as const };
 
 		newLine$.next([line, LineType.SOCKET, id, lineMeta]);

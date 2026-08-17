@@ -1,6 +1,8 @@
 import asyncio
 from types import SimpleNamespace
 
+import pytest
+
 import GameSentenceMiner.gametext as gametext
 
 
@@ -153,6 +155,48 @@ def test_add_line_to_text_log_uses_display_source_name_for_logging(monkeypatch):
     )
 
     assert logged_messages == ["<cyan>Line Received from [Clipboard]: test line</cyan>"]
+
+
+def test_monitor_clipboard_uses_native_change_notification(monkeypatch):
+    clipboard_values = iter(["old", "old", "new"])
+    received_lines = []
+    listener_state = {"started": False, "stopped": False}
+
+    class FakePyperclip:
+        @staticmethod
+        def paste():
+            return next(clipboard_values)
+
+    class FakeNativeListener:
+        def __init__(self, on_change):
+            self.on_change = on_change
+
+        def start(self):
+            listener_state["started"] = True
+            self.on_change()
+            return True
+
+        def stop(self):
+            listener_state["stopped"] = True
+
+    async def fake_handle_new_text_event(line, **_kwargs):
+        received_lines.append(line)
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(gametext, "pyperclip", FakePyperclip())
+    monkeypatch.setattr(gametext, "WindowsClipboardListener", FakeNativeListener)
+    monkeypatch.setattr(gametext, "get_config", lambda: SimpleNamespace(general=SimpleNamespace(use_clipboard=True)))
+    monkeypatch.setattr(gametext, "should_pause_clipboard_for_other_source", lambda: False)
+    monkeypatch.setattr(gametext, "is_message_rate_limited", lambda _source: False)
+    monkeypatch.setattr(gametext, "handle_new_text_event", fake_handle_new_text_event)
+    monkeypatch.setattr(gametext, "gsm_status", SimpleNamespace(clipboard_enabled=False))
+    monkeypatch.setattr(gametext, "last_clipboard", "")
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(gametext.monitor_clipboard())
+
+    assert received_lines == ["new"]
+    assert listener_state == {"started": True, "stopped": True}
 
 
 def test_resolve_websocket_source_name_prefers_configured_name(monkeypatch):

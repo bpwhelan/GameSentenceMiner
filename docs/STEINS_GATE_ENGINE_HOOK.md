@@ -61,6 +61,10 @@ The RPC activates the target window and performs a held left click at `(0.5, 0.8
 
 ## Known limits
 
+- The tips/lore page emits its text with style `7`, but its glyph coordinates are
+  panel-local rather than game-canvas coordinates. GSM keeps capturing that text
+  while suppressing its precomputed glyph-position payload so the overlay can use
+  its normal fallback positioning.
 - The hash listed above identifies the live-validated build; other builds may be tried, but their data RVAs and capture behavior are not guaranteed.
 - Other MAGES games may share concepts, but should receive their own package, signatures, capture filters, and live validation when their layout differs.
 - Alternate dialogue windows, backlog screens, and unusual ruby/layout modes need explicit live testing before being declared supported.

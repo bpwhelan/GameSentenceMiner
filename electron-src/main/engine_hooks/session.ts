@@ -11,6 +11,7 @@ import { sanitizeEngineHookMessage } from './protocol.js';
 import {
     createInjectedPayloadSource,
     resolveEngineHookSupport,
+    shouldSuppressEngineHookCoordinates,
     type EngineHookSupport,
 } from './support.js';
 
@@ -28,7 +29,7 @@ export interface EngineHookTextPayload {
     sourceSequence: number;
     revisionWindowMs: number;
     mergeFragments: false;
-    textGeometry: TextGeometryV1;
+    textGeometry?: TextGeometryV1;
 }
 
 export interface StartEngineHookOptions {
@@ -138,19 +139,35 @@ function handleTextLayout(
         if (!decoded) return;
         if (!decoded.text.trim() || decoded.lines.length === 0 || decoded.glyphs.length === 0) return;
 
-        const lines = decoded.lines.map((line) => ({ ...line, bounds: { ...line.bounds } }));
-        const textGeometry: TextGeometryV1 = {
-            schema: 'gsm_text_geometry_v1',
-            coordinateSpace: { ...message.coordinateSpace },
-            bounds: geometryBounds(lines),
-            lines,
-            glyphs: decoded.glyphs.map((glyph) => ({ ...glyph })),
-            producer: {
-                kind: 'engine-hook',
-                version: 1,
-                integrationId: current.support.manifest.id,
-            },
-        };
+        const textGeometry = shouldSuppressEngineHookCoordinates(current.support.manifest, message.style)
+            ? undefined
+            : (() => {
+                  const lines = decoded.lines.map((line) => ({ ...line, bounds: { ...line.bounds } }));
+                  const bounds = geometryBounds(lines);
+                  // An origin of (0,0) means the engine never wrote real coordinates for
+                  // this layout; sending it would place the overlay in the corner instead
+                  // of over the text, so drop the geometry and keep only the mined text.
+                  if (bounds.x === 0 && bounds.y === 0) {
+                      current.options.onLog(
+                          `Suppressed ${current.support.manifest.decoder} text geometry with origin ` +
+                              `(0,0) for "${decoded.text.slice(0, 80)}".`,
+                          'warn',
+                      );
+                      return undefined;
+                  }
+                  return {
+                      schema: 'gsm_text_geometry_v1' as const,
+                      coordinateSpace: { ...message.coordinateSpace },
+                      bounds,
+                      lines,
+                      glyphs: decoded.glyphs.map((glyph) => ({ ...glyph })),
+                      producer: {
+                          kind: 'engine-hook' as const,
+                          version: 1 as const,
+                          integrationId: current.support.manifest.id,
+                      },
+                  } satisfies TextGeometryV1;
+              })();
 
         current.preview = decoded.text;
         current.options.onText({

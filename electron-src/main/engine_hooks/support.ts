@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { getEngineHookDecoder } from './decoders/index.js';
+import type { EngineHookMagesManifest } from './decoders/mages.js';
 import {
     nonEmptyString,
     object,
@@ -164,6 +165,16 @@ export function parseEngineHookManifest(value: unknown): EngineHookManifest {
         requireCaptureModes,
         requireModuleName,
     });
+}
+
+export function shouldSuppressEngineHookCoordinates(
+    manifest: EngineHookManifest,
+    style: number,
+): boolean {
+    return (
+        manifest.decoder === 'mages-v1' &&
+        (manifest as EngineHookMagesManifest).capture.coordinateSuppressedStyles?.includes(style) === true
+    );
 }
 
 export function loadEngineHookSupport(directory: string): EngineHookSupport {

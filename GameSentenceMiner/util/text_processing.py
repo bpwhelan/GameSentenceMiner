@@ -17,6 +17,7 @@ from GameSentenceMiner.util.config.configuration import (
 
 HTML_TAG_WILDCARD_PATTERNS = {"<.*>", "<.+>"}
 DOLLAR_CAPTURE_GROUP_PATTERN = re.compile(r"(?<!\\)\$(\d+)")
+BRACKETED_TEXT_PATTERN = re.compile(r"[^\r\n「」]{0,8}「(?P<text>.*)」", re.DOTALL)
 
 
 def apply_text_processing(text: str, config: TextProcessing | None) -> str:
@@ -288,11 +289,10 @@ def remove_angle_brackets(text: str) -> str:
 
 
 def extract_bracketed_text(text: str) -> str:
-    if "「" in text and "」" in text:
-        start = text.index("「")
-        end = text.rindex("」")
-        if start < end:
-            return text[start + 1 : end]
+    """Extract dialogue only from lines with a short prefix ending in 「」."""
+    match = BRACKETED_TEXT_PATTERN.fullmatch(text)
+    if match:
+        return match.group("text")
     return text
 
 

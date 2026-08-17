@@ -835,10 +835,10 @@ def project_text_domain_event(event, line):
         event_manager.remove_lines_by_ids([line.id], timed_out=True)
         return
 
-    # Existing structured and plaintext consumers do not understand revisions.
-    # Give them exactly one final value while the bundled v2 client sees provisional
-    # append/update events immediately.
-    if event.kind is TextEventKind.FROZEN:
+    # Compatibility consumers must see the line as soon as it enters the pipeline.
+    # Revisions keep the same line id, so clients that understand the structured
+    # fields can replace provisional text in place when a better observation arrives.
+    if event.kind in (TextEventKind.APPENDED, TextEventKind.UPDATED, TextEventKind.FROZEN):
         item = event_manager.get(line.id)
         if item is not None:
             websocket_manager.send_textfeed_legacy_nowait(

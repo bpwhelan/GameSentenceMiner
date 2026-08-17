@@ -12,6 +12,7 @@ import {
     loadEngineHookSupport,
     parseEngineHookManifest,
     resolveEngineHookSupport,
+    shouldSuppressEngineHookCoordinates,
     type EngineHookSupport,
 } from './support.js';
 import { decodeMagesLayout, type MagesPositionedCode } from './mages_decoder.js';
@@ -167,10 +168,18 @@ describe('engine-hook support package', () => {
             clientYRatio: 0.8,
         });
         expect(magesManifest(support).capture.acceptedModes).toEqual([0]);
+        expect(magesManifest(support).capture.coordinateSuppressedStyles).toEqual([7]);
         expect(magesManifest(support).resources.charsetOverrides).toBe('charset_overrides.json');
         expect(magesResources(support).charset.length).toBeGreaterThan(2000);
         expect(magesResources(support).compoundCharacters.get('\ue01f')).toBe('キタ');
         expect(support.payloadSource).toContain('gsm_engine_hook_message_v1');
+    });
+
+    it('suppresses only configured MAGES styles from precomputed coordinates', () => {
+        const support = loadEngineHookSupport(assetDirectory);
+
+        expect(shouldSuppressEngineHookCoordinates(support.manifest, 7)).toBe(true);
+        expect(shouldSuppressEngineHookCoordinates(support.manifest, 0)).toBe(false);
     });
 
     it('loads the standalone VLR package with post-layout snapshots', () => {
