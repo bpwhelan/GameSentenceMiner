@@ -865,24 +865,23 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(mainSource).not.toContain("normalizeHoshidictsReaderPreferences");
   });
 
-  it("sender-validates overlay custom-entry IPC before using the desktop bridge", () => {
+  it.each([
+    [
+      "custom-entry IPC before using the desktop bridge",
+      'ipcMain.handle("hoshidicts-add-custom-entry", async (event, payload)',
+      "hoshidictsWindowBridge.requestAddCustomEntry"
+    ],
+    [
+      "custom website IPC and only opens external URLs",
+      'ipcMain.handle("hoshidicts-open-external", async (event, payload)',
+      "shell.openExternal"
+    ]
+  ])("sender-validates overlay %s", (_label, handleSignature, effect) => {
     const mainSource = readOverlayFile("main.js");
 
-    expect(mainSource).toContain(
-      'ipcMain.handle("hoshidicts-add-custom-entry", async (event, payload)'
-    );
+    expect(mainSource).toContain(handleSignature);
     expect(mainSource).toContain("event.sender !== mainWindow.webContents");
-    expect(mainSource).toContain("hoshidictsWindowBridge.requestAddCustomEntry");
-  });
-
-  it("sender-validates custom website IPC and only opens external URLs", () => {
-    const mainSource = readOverlayFile("main.js");
-
-    expect(mainSource).toContain(
-      'ipcMain.handle("hoshidicts-open-external", async (event, payload)'
-    );
-    expect(mainSource).toContain("event.sender !== mainWindow.webContents");
-    expect(mainSource).toContain("shell.openExternal");
+    expect(mainSource).toContain(effect);
   });
 
 
@@ -5529,32 +5528,26 @@ describe("Hoshidicts Shift-hover scanner", () => {
     expect(popup.querySelector(".gsm-hoshidicts-entry")).not.toBeNull();
   });
 
-  it("keeps the Kanji lookup mode for an explicit kanji-bank dictionary", async () => {
-    const { dom, first, reader, socket } = createReaderHarness({
-      kanjiClickDictionary: "KANJIDIC (English)",
-      dictionaryPresentation: [
-        {
-          title: "KANJIDIC (English)",
-          favorite: false,
-          termCount: 0,
-          kanjiCount: 13108
-        }
-      ]
-    });
-
-    await hover(dom, first, { shiftKey: true });
-    const termRequest = lastRequest(socket);
-    await respond(socket, lookupResult(termRequest.requestId, "食べる"));
-
-    reader
-      .getPopupElement()
-      .querySelector<HTMLButtonElement>(".gsm-hoshidicts-kanji-link")
-      ?.click();
-    expect(lastRequest(socket)).toMatchObject({ text: "食", mode: "kanji" });
-  });
-
-  it("keeps the Kanji lookup mode when no clicked-kanji dictionary is selected", async () => {
-    const { dom, first, reader, socket } = createReaderHarness();
+  it.each([
+    [
+      "for an explicit kanji-bank dictionary",
+      {
+        kanjiClickDictionary: "KANJIDIC (English)",
+        dictionaryPresentation: [
+          {
+            title: "KANJIDIC (English)",
+            favorite: false,
+            termCount: 0,
+            kanjiCount: 13108
+          }
+        ]
+      }
+    ],
+    ["when no clicked-kanji dictionary is selected", {}]
+  ])("keeps the Kanji lookup mode %s", async (_label, readerOptions) => {
+    const { dom, first, reader, socket } = createReaderHarness(
+      readerOptions as Parameters<typeof createReaderHarness>[0]
+    );
 
     await hover(dom, first, { shiftKey: true });
     const termRequest = lastRequest(socket);
@@ -8033,101 +8026,83 @@ describe("Hoshidicts Shift-hover scanner", () => {
       .toBe(true);
   });
 
-  it("continues after one note-specific duplicate-check result is invalid", async () => {
-    const checkMiningNotes = vi.fn(async (payload) => ({
-      success: true,
-      duplicateBehavior: "prevent",
-      results: payload.notes.map((note) =>
-        note.result.term.expression === "食べる"
-          ? {
-              state: "invalid",
-              canAdd: false,
-              duplicate: false,
-              error: "The first Anki field is empty."
+  it.each([
+    [
+      "result is invalid",
+      "The first Anki field is empty.",
+      () =>
+        vi.fn(async (payload: any) => ({
+          success: true,
+          duplicateBehavior: "prevent",
+          results: payload.notes.map((note: any) =>
+            note.result.term.expression === "食べる"
+              ? {
+                  state: "invalid",
+                  canAdd: false,
+                  duplicate: false,
+                  error: "The first Anki field is empty."
+                }
+              : { state: "addable", canAdd: true, duplicate: false }
+          )
+        }))
+    ],
+    [
+      "request is rejected",
+      'The first Anki field "Reading" is empty.',
+      () => {
+        const noteError = Object.assign(
+          new Error('The first Anki field "Reading" is empty.'),
+          { status: 422 }
+        );
+        const mock = vi.fn(async () => {
+          if (mock.mock.calls.length === 1) {
+            throw noteError;
+          }
+          return {
+            success: true,
+            duplicateBehavior: "prevent",
+            results: [{ state: "addable", canAdd: true, duplicate: false }]
+          };
+        });
+        return mock;
+      }
+    ]
+  ])(
+    "continues after one note-specific duplicate-check %s",
+    async (_label, expectedTitle, makeCheckMiningNotes) => {
+      const checkMiningNotes = makeCheckMiningNotes();
+      const harness = createReaderHarness({
+        checkMiningNotes,
+        getMiningStatus: async () => ({ available: true }),
+        onMine: vi.fn()
+      });
+      await renderFirstLookup(harness, {
+        transform(response) {
+          response.results.push({
+            ...response.results[0],
+            matched: "食う",
+            term: {
+              ...response.results[0].term,
+              expression: "食う",
+              reading: "くう"
             }
-          : { state: "addable", canAdd: true, duplicate: false }
-      )
-    }));
-    const harness = createReaderHarness({
-      checkMiningNotes,
-      getMiningStatus: async () => ({ available: true }),
-      onMine: vi.fn()
-    });
-    await renderFirstLookup(harness, {
-      transform(response) {
-        response.results.push({
-          ...response.results[0],
-          matched: "食う",
-          term: {
-            ...response.results[0].term,
-            expression: "食う",
-            reading: "くう"
-          }
-        });
-      }
-    });
-    (harness.reader.getPopupElement().querySelector(
-      ".gsm-hoshidicts-show-more"
-    ) as HTMLButtonElement | null)?.click();
-    await flushPromises();
+          });
+        }
+      });
+      (harness.reader.getPopupElement().querySelector(
+        ".gsm-hoshidicts-show-more"
+      ) as HTMLButtonElement | null)?.click();
+      await flushPromises();
 
-    const buttons = miningButtonsInResultOrder(
-      harness.reader.getPopupElement()
-    );
-    expect(checkMiningNotes).toHaveBeenCalledTimes(2);
-    expect(buttons[0]!.dataset.state).toBe("error");
-    expect(buttons[0]!.title).toBe("The first Anki field is empty.");
-    expect(buttons[1]!.dataset.state).toBe("ready");
-  });
-
-  it("continues after one note-specific duplicate-check request is rejected", async () => {
-    const noteError = Object.assign(
-      new Error('The first Anki field "Reading" is empty.'),
-      { status: 422 }
-    );
-    const checkMiningNotes = vi.fn(async () => {
-      if (checkMiningNotes.mock.calls.length === 1) {
-        throw noteError;
-      }
-      return {
-        success: true,
-        duplicateBehavior: "prevent",
-        results: [{ state: "addable", canAdd: true, duplicate: false }]
-      };
-    });
-    const harness = createReaderHarness({
-      checkMiningNotes,
-      getMiningStatus: async () => ({ available: true }),
-      onMine: vi.fn()
-    });
-    await renderFirstLookup(harness, {
-      transform(response) {
-        response.results.push({
-          ...response.results[0],
-          matched: "食う",
-          term: {
-            ...response.results[0].term,
-            expression: "食う",
-            reading: "くう"
-          }
-        });
-      }
-    });
-    (harness.reader.getPopupElement().querySelector(
-      ".gsm-hoshidicts-show-more"
-    ) as HTMLButtonElement | null)?.click();
-    await flushPromises();
-
-    const buttons = miningButtonsInResultOrder(
-      harness.reader.getPopupElement()
-    );
-    expect(checkMiningNotes).toHaveBeenCalledTimes(2);
-    expect(buttons[0]!.dataset.state).toBe("error");
-    expect(buttons[0]!.title).toBe(
-      'The first Anki field "Reading" is empty.'
-    );
-    expect(buttons[1]!.dataset.state).toBe("ready");
-  });
+      const buttons = miningButtonsInResultOrder(
+        harness.reader.getPopupElement()
+      );
+      expect(checkMiningNotes).toHaveBeenCalledTimes(2);
+      expect(buttons[0]!.dataset.state).toBe("error");
+      expect(buttons[0]!.title).toBe(expectedTitle);
+      expect(buttons[1]!.dataset.state).toBe("ready");
+    }
+  );
 
   it("stops the remaining duplicate-check queue after an Anki configuration failure", async () => {
     const configurationError = Object.assign(
@@ -8682,20 +8657,36 @@ describe("Hoshidicts popup image source gating", () => {
     ).toBe(false);
   });
 
-  it("a tab-group source shows images only from the first group dictionary that has one", async () => {
-    const { dictionaries } = await mediaRequestsFor({
-      popupImageSource: { kind: "tabGroup", id: "grp" },
-      dictionaryTabGroups: [
+  it.each([
+    [
+      "shows images only from the first group dictionary that has one",
+      // JMdict has no image, so Jitendex (next in group order) is the sole winner.
+      { kind: "tabGroup", id: "grp" },
+      [
         {
           id: "grp",
           name: "Group",
           dictionaries: ["JMdict", "Jitendex", "Daijirin"],
         },
       ],
-    });
-    // JMdict has no image, so Jitendex (next in group order) is the sole winner.
-    expect(dictionaries).toEqual(["Jitendex"]);
-  });
+      ["Jitendex"],
+    ],
+    [
+      "that is missing/deleted shows no image",
+      { kind: "tabGroup", id: "gone" },
+      [{ id: "grp", name: "Group", dictionaries: ["Jitendex"] }],
+      [],
+    ],
+  ])(
+    "a tab-group source %s",
+    async (_label, popupImageSource, dictionaryTabGroups, expected) => {
+      const { dictionaries } = await mediaRequestsFor({
+        popupImageSource,
+        dictionaryTabGroups,
+      });
+      expect(dictionaries).toEqual(expected);
+    }
+  );
 
   it("a tab-group source with no images in any member shows no image", async () => {
     const { dom, first, socket } = createReaderHarness((dom) => ({
@@ -8711,14 +8702,6 @@ describe("Hoshidicts popup image source gating", () => {
     socket.receive(twoDictionaryLookup(lookup.requestId));
     await flushPromises();
     expect(requestsOfType(socket, "hoshidicts_media")).toHaveLength(0);
-  });
-
-  it("a missing/deleted tab-group source shows no image", async () => {
-    const { dictionaries } = await mediaRequestsFor({
-      popupImageSource: { kind: "tabGroup", id: "gone" },
-      dictionaryTabGroups: [{ id: "grp", name: "Group", dictionaries: ["Jitendex"] }],
-    });
-    expect(dictionaries).toEqual([]);
   });
 
   it("rerenders a visible popup image when the source changes without a new lookup", async () => {

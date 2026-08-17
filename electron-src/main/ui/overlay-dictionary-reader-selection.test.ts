@@ -58,37 +58,34 @@ describe("overlay dictionary reader selection", () => {
     });
   });
 
-  it("does not start the Yomitan extension when Hoshidicts is selected", async () => {
-    const { startSelectedDictionaryReader } = loadReaderEngineSelection();
-    const startYomitan = vi.fn(async () => ({ id: "yomitan-id" }));
-
-    await expect(
-      startSelectedDictionaryReader({
-        environment: { GSM_HOSHIDICTS_ENABLED: "1" },
-        startYomitan
-      })
-    ).resolves.toEqual({
-      engine: "hoshidicts",
-      yomitanExtension: null
-    });
-    expect(startYomitan).not.toHaveBeenCalled();
-  });
-
-  it("starts Yomitan when Hoshidicts is not selected", async () => {
+  it.each([
+    [
+      "does not start the Yomitan extension when Hoshidicts is selected",
+      "1",
+      "hoshidicts",
+      false
+    ],
+    [
+      "starts Yomitan when Hoshidicts is not selected",
+      "0",
+      "yomitan",
+      true
+    ]
+  ])("%s", async (_label, enabledFlag, engine, startsYomitan) => {
     const { startSelectedDictionaryReader } = loadReaderEngineSelection();
     const extension = { id: "yomitan-id" };
     const startYomitan = vi.fn(async () => extension);
 
     await expect(
       startSelectedDictionaryReader({
-        environment: { GSM_HOSHIDICTS_ENABLED: "0" },
+        environment: { GSM_HOSHIDICTS_ENABLED: enabledFlag },
         startYomitan
       })
     ).resolves.toEqual({
-      engine: "yomitan",
-      yomitanExtension: extension
+      engine,
+      yomitanExtension: startsYomitan ? extension : null
     });
-    expect(startYomitan).toHaveBeenCalledOnce();
+    expect(startYomitan).toHaveBeenCalledTimes(startsYomitan ? 1 : 0);
   });
 
   it("gates every Yomitan startup and settings path in the overlay main process", () => {
