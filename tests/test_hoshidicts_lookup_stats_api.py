@@ -192,6 +192,12 @@ def test_get_lookup_stats_returns_paginated_camel_case_results(client, monkeypat
         ],
     }
 
+    calls.clear()
+    default_response = client.get("/api/hoshidicts/lookup-stats")
+
+    assert default_response.status_code == 200
+    assert calls == [(100, 0)]
+
 
 @pytest.mark.parametrize(
     "query",
@@ -209,21 +215,6 @@ def test_get_lookup_stats_rejects_invalid_pagination(client, query):
 
     assert response.status_code == 400
     assert response.get_json()["success"] is False
-
-
-def test_get_lookup_stats_uses_default_pagination(client, monkeypatch):
-    calls = []
-    monkeypatch.setattr(
-        hoshidicts_api.TermLookupStatsTable,
-        "get_stats",
-        lambda limit, offset: calls.append((limit, offset)) or {"total_lookups": 0, "unique_terms": 0, "items": []},
-    )
-
-    response = client.get("/api/hoshidicts/lookup-stats")
-
-    assert response.status_code == 200
-    assert calls == [(100, 0)]
-    assert response.get_json()["items"] == []
 
 
 def test_get_lookup_stats_returns_generic_unavailable_error(client, monkeypatch):

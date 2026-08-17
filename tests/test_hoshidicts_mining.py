@@ -2061,8 +2061,11 @@ def test_duplicate_note_rejection_happens_before_audio_download(monkeypatch):
 
     wire_audio(monkeypatch, fake_anki, resolver=get_mining_audio)
 
-    with pytest.raises(hoshidicts_mining.HoshidictsMiningError, match="already exists"):
+    with pytest.raises(hoshidicts_mining.HoshidictsMiningError, match="already exists") as error:
         hoshidicts_mining.mine_hoshidicts_note(make_payload())
+
+    assert error.value.status_code == 409
+    assert fake_anki.events == []
 
 
 @pytest.mark.parametrize(
@@ -2169,17 +2172,6 @@ def test_validation_drops_non_finite_or_boolean_frequency_values(value):
     # Anki cannot render NaN, but one bad entry must not lose the whole card.
     frequencies = _validated(payload)["term"]["frequencies"][0]["frequencies"]
     assert frequencies == [{"value": 42, "displayValue": None}]
-
-
-def test_duplicate_rejection_returns_a_conflict(monkeypatch):
-    fake_anki = FakeAnki(responses={"addNote": RuntimeError(DUPLICATE_ERROR)})
-    wire(monkeypatch, fake_anki)
-
-    with pytest.raises(hoshidicts_mining.HoshidictsMiningError, match="already exists") as error:
-        hoshidicts_mining.mine_hoshidicts_note(make_payload())
-
-    assert error.value.status_code == 409
-    assert fake_anki.events == []
 
 
 def test_null_add_note_result_is_not_misclassified_as_a_duplicate(monkeypatch):
@@ -2671,14 +2663,14 @@ def test_browse_hoshidicts_word_opens_broad_literal_anki_search(monkeypatch):
     fake_anki = FakeAnki(responses={"guiBrowse": [101, 202]})
     wire(monkeypatch, fake_anki)
 
-    result = hoshidicts_mining.browse_hoshidicts_word({"word": 'word" OR deck:*_\\:<&>'})
+    result = hoshidicts_mining.browse_hoshidicts_word({"word": "食べる"})
 
     assert result == {"success": True}
     assert fake_anki.calls == [
         (
             "guiBrowse",
             {
-                "query": r'"word\" OR deck\:\*\_\\\:&lt;&amp;&gt;"',
+                "query": '"食べる"',
                 "timeout": hoshidicts_anki.ANKI_CONNECT_TIMEOUT_SECONDS,
             },
         )

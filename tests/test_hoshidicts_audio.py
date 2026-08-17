@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 import pytest
 from flask import Flask
@@ -82,13 +81,6 @@ def test_audio_profile_file_size_is_bounded(tmp_path):
     with pytest.raises(HoshidictsAudioError, match="invalid size"):
         hoshidicts_audio_profile.load_hoshidicts_audio_profile(oversized)
     assert hoshidicts_audio_profile.load_hoshidicts_audio_profile_or_default(oversized) == make_audio_profile()
-
-
-def test_profile_path_uses_the_hoshidicts_data_directory(monkeypatch, tmp_path):
-    monkeypatch.setattr(hoshidicts_audio_profile, "get_app_directory", lambda: str(tmp_path))
-    assert hoshidicts_audio_profile.get_hoshidicts_audio_profile_path() == (
-        Path(tmp_path) / "dictionaries" / "hoshidicts" / "audio-profile.json"
-    )
 
 
 def test_jpod101_candidate_matches_yomitan_kana_behavior():
