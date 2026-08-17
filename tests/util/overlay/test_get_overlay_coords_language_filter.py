@@ -193,3 +193,86 @@ def test_filter_precomputed_results_by_minimum_character_size_removes_small_word
         "x4": 0.0,
         "y4": 18.0,
     }
+
+
+def test_filter_precomputed_results_by_exclusion_regions_removes_overlapped_characters():
+    processor = get_overlay_coords.OverlayProcessor()
+    source = [
+        {
+            "text": "日時会話",
+            "bounding_rect": {
+                "x1": 0.1,
+                "y1": 0.1,
+                "x2": 0.5,
+                "y2": 0.1,
+                "x3": 0.5,
+                "y3": 0.2,
+                "x4": 0.1,
+                "y4": 0.2,
+            },
+            "words": [
+                {
+                    "text": character,
+                    "bounding_rect": {
+                        "x1": left,
+                        "y1": 0.1,
+                        "x2": left + 0.1,
+                        "y2": 0.1,
+                        "x3": left + 0.1,
+                        "y3": 0.2,
+                        "x4": left,
+                        "y4": 0.2,
+                    },
+                }
+                for character, left in zip("日時会話", (0.1, 0.2, 0.3, 0.4))
+            ],
+        }
+    ]
+    exclusion_regions = [
+        {
+            "x1": 0.09,
+            "y1": 0.09,
+            "x2": 0.31,
+            "y2": 0.09,
+            "x3": 0.31,
+            "y3": 0.21,
+            "x4": 0.09,
+            "y4": 0.21,
+        }
+    ]
+
+    result = processor._filter_precomputed_results_by_exclusion_regions(source, exclusion_regions)
+
+    assert result[0]["text"] == "会話"
+    assert [word["text"] for word in result[0]["words"]] == ["会", "話"]
+    assert result[0]["bounding_rect"] == {
+        "x1": 0.3,
+        "y1": 0.1,
+        "x2": 0.5,
+        "y2": 0.1,
+        "x3": 0.5,
+        "y3": 0.2,
+        "x4": 0.3,
+        "y4": 0.2,
+    }
+
+
+def test_filter_precomputed_results_by_exclusion_regions_drops_fully_excluded_line():
+    processor = get_overlay_coords.OverlayProcessor()
+    bounding_rect = {
+        "x1": 0.1,
+        "y1": 0.1,
+        "x2": 0.2,
+        "y2": 0.1,
+        "x3": 0.2,
+        "y3": 0.2,
+        "x4": 0.1,
+        "y4": 0.2,
+    }
+
+    result = processor._filter_precomputed_results_by_exclusion_regions(
+        [{"text": "日", "bounding_rect": bounding_rect, "words": [{"text": "日", "bounding_rect": bounding_rect}]}],
+        [bounding_rect],
+    )
+
+    assert result == []

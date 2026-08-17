@@ -268,6 +268,54 @@ describe("TextHookTab", () => {
     );
   });
 
+  it("labels the built-in game hook experimental and lists every supported target", async () => {
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "texthook.getStatus") return { running: false };
+      if (channel === "texthook.listHooks") return { selectedHookId: null, hooks: [] };
+      if (channel === "texthook.getActiveCapture") {
+        return { sceneName: "Scene", sceneId: "scene-1", exeName: "Game.exe" };
+      }
+      if (channel === "texthook.getProfile") return null;
+      if (channel === "texthook.builtInHookTargets") {
+        return [
+          {
+            id: "fixture-one",
+            name: "Fixture Game One",
+            details: { en: "Fixture details one", ja: "テスト説明" },
+          },
+          { id: "fixture-two", name: "Fixture Engine Two", details: { en: "Fixture details two" } },
+        ];
+      }
+      return null;
+    });
+
+    await act(async () => {
+      root.render(<TextHookTab active />);
+      await flushAsyncWork();
+    });
+
+    const engineSelect = container.querySelector("#texthook-engine-select") as HTMLSelectElement;
+    await act(async () => {
+      engineSelect.value = "mages";
+      engineSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      await flushAsyncWork();
+    });
+
+    expect(engineSelect.selectedOptions[0]?.textContent).toBe(
+      "Built-in Game Hook (Experimental)"
+    );
+    expect(container.textContent).toContain(
+      "works only with the games and engines listed below"
+    );
+    const supportedTargets = Array.from(
+      container.querySelectorAll(".texthook-supported-games li")
+    ).map((entry) => entry.textContent ?? "");
+    expect(supportedTargets).toEqual([
+      "Fixture Game OneFixture details one",
+      "Fixture Engine TwoFixture details two",
+    ]);
+  });
+
   it("caps displayed hook text and blocks excessive Japanese quote pairs", async () => {
     await act(async () => {
       root.render(<TextHookTab active />);
@@ -287,24 +335,7 @@ describe("TextHookTab", () => {
     expect(container.querySelectorAll(".texthook-output-pre")).toHaveLength(1);
   });
 
-  it("sends the large-payload test through the truncation path", async () => {
-    invokeMock.mockImplementation(async (channel: string) => {
-      if (channel === "texthook.getStatus") {
-        return { running: false };
-      }
-      if (channel === "texthook.listHooks") {
-        return { selectedHookId: null, hooks: [] };
-      }
-      if (channel === "texthook.getActiveCapture") {
-        return { sceneName: "Scene", sceneId: "scene-1", exeName: "game.exe" };
-      }
-      if (channel === "texthook.getProfile") return null;
-      if (channel === "texthook.devSendLargePayload") {
-        return { success: true, length: 3000, originalLength: 120000, truncated: true };
-      }
-      return null;
-    });
-
+  it("hides the large-payload stress control outside development", async () => {
     await act(async () => {
       root.render(<TextHookTab active />);
       await flushAsyncWork();
@@ -314,13 +345,10 @@ describe("TextHookTab", () => {
       button.textContent?.includes("120000 characters")
     );
 
-    await act(async () => {
-      testButton?.click();
-      await flushAsyncWork();
-    });
-
-    const payloadCall = invokeMock.mock.calls.find(([channel]) => channel === "texthook.devSendLargePayload");
-    expect(payloadCall?.[1]).toHaveLength(120000);
-    expect(container.textContent).toContain("Sent 3000 characters after truncating a 120000-character test payload.");
+    expect(testButton).toBeUndefined();
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      "texthook.devSendLargePayload",
+      expect.anything()
+    );
   });
 });

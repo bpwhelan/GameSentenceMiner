@@ -86,11 +86,15 @@ def _initialize_database_runtime_for_tests():
 
     start_database_runtime()
     yield
+    from GameSentenceMiner.util.communication.electron_ipc import stop_ipc_listener
     from GameSentenceMiner.util.concurrency.scheduler import shutdown_runtime_scheduler
+    from GameSentenceMiner.util.concurrency.work_pool import shutdown_background_work
     from GameSentenceMiner.util.cron.tokenize_lines import stop_realtime_tokenization
 
+    stop_ipc_listener(close_bus=False)
     stop_realtime_tokenization()
     shutdown_runtime_scheduler()
+    shutdown_background_work(wait=True)
     gsm_db.close()
 
 

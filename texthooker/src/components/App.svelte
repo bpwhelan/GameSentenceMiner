@@ -81,6 +81,9 @@
 	} from '../types';
 	import {
 		buildTextFeedSessionSyncPlan,
+		deduplicateLineData,
+		DEFAULT_TEXTFEED_SESSION_SYNC_LINE_LIMIT,
+		reconcileTextFeedSessionSyncBatch,
 		TEXTFEED_SESSION_SYNC_BATCH_SIZE,
 	} from '../session-sync';
 	import {
@@ -132,6 +135,10 @@
 	let gsmTextIntakePaused: boolean | undefined;
 	let gsmTextIntakeStateRequestPending = false;
 	let timerPauseClarificationShown = false;
+	const REMOVED_GSM_LINES_STORAGE_KEY = 'bannou-texthooker-removedGSMLineIds';
+	const storedRemovedGSMLines = loadRemovedGSMLines();
+	let removedGSMSessionId = storedRemovedGSMLines.sessionId;
+	let removedGSMLineIds = new Set(storedRemovedGSMLines.ids);
 	let audioCurrentTime = 0;
 	let audioDuration = 0;
 	let lastBrowserAudioStartAt = 0;
@@ -139,6 +146,11 @@
 	const TIMER_PAUSE_CLARIFICATION_KEY = 'gsm-texthooker-timer-pause-clarification-shown';
 
 	const cjkCharacters = /[\p{scx=Hira}\p{scx=Kana}\p{scx=Han}]/imu;
+	const initialLineData = lineData$.getValue();
+	const deduplicatedInitialLineData = deduplicateLineData(initialLineData);
+	if (deduplicatedInitialLineData !== initialLineData) {
+		lineData$.next(deduplicatedInitialLineData);
+	}
 
 	const uniqueLines$ = preventGlobalDuplicate$.pipe(
 		map((preventGlobalDuplicate) =>
@@ -197,6 +209,9 @@
 			const type = requestedType || LineType.SOCKET;
 			const id = requestedId || generateRandomUUID();
 			const lineMeta: Partial<LineItem> = { gsmStatus: 'external', ...(requestedLineMeta ?? {}) };
+			if (lineMeta.gsmSessionId && isRemovedGSMLine(id, lineMeta.gsmSessionId)) {
+				return;
+			}
 			const isAuthoritativeV2 = Number.isFinite(Number(lineMeta.streamSequence));
 			const text = transformLine(lineContent, type !== LineType.TL, !isAuthoritativeV2);
 			if (!text) {
@@ -693,6 +708,7 @@
 
 		const syncVersion = ++textFeedSessionSyncVersion;
 		currentGSMSessionId = sync.sessionId;
+		activateRemovedGSMSession(sync.sessionId);
 		await yieldToBrowser();
 		if (syncVersion !== textFeedSessionSyncVersion) {
 			return;
@@ -702,12 +718,14 @@
 			sync,
 			$lineData$,
 			normalizeLineContent,
+			removedGSMLineIds,
 		);
 		$lineIDs$ = sync.activeIds;
 		$timedOutIDs$ = sync.timedOutIds;
 
 		if (!syncedLines.length) {
 			$lineData$ = retainedLines;
+			$lineData$ = applyMaxLinesAndGetRemainingLineData();
 			updateGSMLineStatuses(sync.activeIds, sync.timedOutIds, sync.sessionId);
 			return;
 		}
@@ -716,30 +734,35 @@
 		let firstRenderedId = '';
 		while (batchEnd > 0) {
 			const batchStart = Math.max(0, batchEnd - TEXTFEED_SESSION_SYNC_BATCH_SIZE);
-			const batch = syncedLines.slice(batchStart, batchEnd);
+			const snapshotBatch = syncedLines.slice(batchStart, batchEnd);
+			const { batchLines, remainingLines } = reconcileTextFeedSessionSyncBatch(
+				snapshotBatch,
+				firstRenderedId ? $lineData$ : retainedLines,
+			);
 
 			if (!firstRenderedId) {
+				const boundedInsertionIndex = Math.min(insertionIndex, remainingLines.length);
 				$lineData$ = [
-					...retainedLines.slice(0, insertionIndex),
-					...batch,
-					...retainedLines.slice(insertionIndex),
+					...remainingLines.slice(0, boundedInsertionIndex),
+					...batchLines,
+					...remainingLines.slice(boundedInsertionIndex),
 				];
 			} else {
-				const renderedBlockIndex = $lineData$.findIndex((line) => line.id === firstRenderedId);
+				const renderedBlockIndex = remainingLines.findIndex((line) => line.id === firstRenderedId);
 				if (renderedBlockIndex < 0) {
 					return;
 				}
 				$lineData$ = [
-					...$lineData$.slice(0, renderedBlockIndex),
-					...batch,
-					...$lineData$.slice(renderedBlockIndex),
+					...remainingLines.slice(0, renderedBlockIndex),
+					...batchLines,
+					...remainingLines.slice(renderedBlockIndex),
 				];
 			}
 
-			for (const line of batch) {
+			for (const line of batchLines) {
 				$uniqueLines$.add(line.text);
 			}
-			firstRenderedId = batch[0].id;
+			firstRenderedId = batchLines[0].id;
 			batchEnd = batchStart;
 
 			if (batchEnd > 0) {
@@ -749,11 +772,100 @@
 				}
 			}
 		}
+		$lineData$ = applyMaxLinesAndGetRemainingLineData();
 		updateGSMLineStatuses(sync.activeIds, sync.timedOutIds, sync.sessionId);
 	}
 
 	function yieldToBrowser() {
 		return new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+	}
+
+	function loadRemovedGSMLines(): { sessionId: string; ids: string[] } {
+		try {
+			const storedValue = window.localStorage.getItem(REMOVED_GSM_LINES_STORAGE_KEY);
+			if (!storedValue) {
+				return { sessionId: '', ids: [] };
+			}
+
+			const storedState = JSON.parse(storedValue) as { sessionId?: unknown; ids?: unknown };
+			const sessionId = typeof storedState.sessionId === 'string' ? storedState.sessionId : '';
+			const ids = Array.isArray(storedState.ids)
+				? storedState.ids.filter((id): id is string => typeof id === 'string' && Boolean(id))
+				: [];
+			return {
+				sessionId,
+				ids: [...new Set(ids)].slice(-DEFAULT_TEXTFEED_SESSION_SYNC_LINE_LIMIT),
+			};
+		} catch (error) {
+			console.warn('Could not restore removed GSM TextFeed lines:', error);
+			return { sessionId: '', ids: [] };
+		}
+	}
+
+	function persistRemovedGSMLines() {
+		try {
+			if (!removedGSMSessionId || !removedGSMLineIds.size) {
+				window.localStorage.removeItem(REMOVED_GSM_LINES_STORAGE_KEY);
+				return;
+			}
+
+			window.localStorage.setItem(
+				REMOVED_GSM_LINES_STORAGE_KEY,
+				JSON.stringify({ sessionId: removedGSMSessionId, ids: [...removedGSMLineIds] }),
+			);
+		} catch (error) {
+			console.warn('Could not save removed GSM TextFeed lines:', error);
+		}
+	}
+
+	function activateRemovedGSMSession(sessionId: string) {
+		if (removedGSMSessionId === sessionId) {
+			return;
+		}
+
+		removedGSMSessionId = sessionId;
+		removedGSMLineIds = new Set();
+		persistRemovedGSMLines();
+	}
+
+	function isRemovedGSMLine(id: string, sessionId: string) {
+		return sessionId === removedGSMSessionId && removedGSMLineIds.has(id);
+	}
+
+	function rememberRemovedGSMLines(lines: LineItem[]) {
+		if (!currentGSMSessionId) {
+			return;
+		}
+
+		let changed = false;
+		for (const line of lines) {
+			if (line.gsmSessionId === currentGSMSessionId && !removedGSMLineIds.has(line.id)) {
+				removedGSMLineIds.add(line.id);
+				changed = true;
+			}
+		}
+
+		while (removedGSMLineIds.size > DEFAULT_TEXTFEED_SESSION_SYNC_LINE_LIMIT) {
+			const oldestId = removedGSMLineIds.values().next().value;
+			if (!oldestId) {
+				break;
+			}
+			removedGSMLineIds.delete(oldestId);
+		}
+
+		if (changed) {
+			// Do not let a yielded snapshot batch repopulate the display after a
+			// deletion or a clear-lines action performed while it was rendering.
+			textFeedSessionSyncVersion += 1;
+			persistRemovedGSMLines();
+		}
+	}
+
+	function forgetRemovedGSMLines(lines: LineItem[]) {
+		const changed = lines.reduce((didChange, line) => removedGSMLineIds.delete(line.id) || didChange, false);
+		if (changed) {
+			persistRemovedGSMLines();
+		}
 	}
 
 	function updateGSMLineStatuses(ids: string[], timedOutIds: string[], sessionId: string | undefined) {
@@ -814,6 +926,7 @@
 			return;
 		}
 
+		const restoredLines: LineItem[] = [];
 		let lineToRevert = linesToRevert.pop();
 
 		while (lineToRevert) {
@@ -822,11 +935,13 @@
 			if (text) {
 				const { id } = lineToRevert;
 				const index = lineToRevert.index ?? $lineData$.length;
+				const existingIndex = $lineData$.findIndex((line) => line.id === id);
+				restoredLines.push(lineToRevert);
 
-				if (index > $lineData$.length - 1) {
+				if (existingIndex >= 0) {
+					$lineData$[existingIndex] = { ...lineToRevert, id, text };
+				} else if (index > $lineData$.length - 1) {
 					$lineData$.push({ ...lineToRevert, id, text });
-				} else if ($lineData$[index].id === id) {
-					$lineData$[index] = { ...lineToRevert, id, text };
 				} else {
 					$lineData$.splice(index, 0, { ...lineToRevert, id, text });
 				}
@@ -835,6 +950,7 @@
 			lineToRevert = linesToRevert.pop();
 		}
 
+		forgetRemovedGSMLines(restoredLines);
 		await tick();
 
 		$lineData$ = applyEqualLineStartMerge(applyMaxLinesAndGetRemainingLineData());
@@ -848,6 +964,7 @@
 
 		const [removedLine] = $lineData$.splice($lineData$.length - 1, 1);
 
+		rememberRemovedGSMLines([removedLine]);
 		selectedLineIds = selectedLineIds.filter((selectedLineId) => selectedLineId !== removedLine.id);
 		$lineData$ = $lineData$;
 		$actionHistory$ = [...$actionHistory$, [{ ...removedLine, index: $lineData$.length }]];
@@ -875,6 +992,7 @@
 		selectedLineIds = linesToDelete.size ? [...linesToDelete] : [];
 
 		if (newActionHistory.length) {
+			rememberRemovedGSMLines(newActionHistory);
 			$actionHistory$ = [...$actionHistory$, newActionHistory];
 		}
 	}
@@ -1074,31 +1192,19 @@
 	}
 
 	function applyMaxLinesAndGetRemainingLineData(diffMod = 0) {
-		const oldLinesToRemove = new Set<string>();
-		let remainingToRemove = $maxLines$ ? $lineData$.length - $maxLines$ + diffMod : 0;
-		const remainingLineData =
-			remainingToRemove > 0
-				? $lineData$.filter((oldLine) => {
-						if (
-							remainingToRemove > 0 &&
-							(!currentGSMSessionId || oldLine.gsmSessionId !== currentGSMSessionId)
-						) {
-							remainingToRemove -= 1;
-							oldLinesToRemove.add(oldLine.id);
-
-							$uniqueLines$.delete(oldLine.text);
-							return false;
-						}
-
-						return true;
-					})
-				: $lineData$;
-
-		if (oldLinesToRemove.size) {
-			selectedLineIds = selectedLineIds.filter((selectedLineId) => !oldLinesToRemove.has(selectedLineId));
+		const linesToRemove = $maxLines$ ? Math.min($lineData$.length, $lineData$.length - $maxLines$ + diffMod) : 0;
+		if (linesToRemove <= 0) {
+			return $lineData$;
 		}
 
-		return remainingLineData;
+		const oldLinesToRemove = new Set($lineData$.slice(0, linesToRemove).map((line) => line.id));
+		for (let index = 0; index < linesToRemove; index += 1) {
+			$uniqueLines$.delete($lineData$[index].text);
+		}
+
+		selectedLineIds = selectedLineIds.filter((selectedLineId) => !oldLinesToRemove.has(selectedLineId));
+
+		return $lineData$.slice(linesToRemove);
 	}
 
 	function updateLineData(executeUpdate: boolean) {
@@ -1350,6 +1456,7 @@
 		bind:this={settingsComponent}
 		on:applyReplacements={() => updateLineData(!!$enabledReplacements$.length)}
 		on:layoutChange={executeUpdateScroll}
+		on:linesRemoved={({ detail }) => rememberRemovedGSMLines(detail)}
 		on:maxLinesChange={() => ($lineData$ = applyMaxLinesAndGetRemainingLineData())}
 	/>
 	<Presets isQuickSwitch={true} on:layoutChange={executeUpdateScroll} />

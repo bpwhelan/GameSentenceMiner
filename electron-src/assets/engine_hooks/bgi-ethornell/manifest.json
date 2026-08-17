@@ -1,0 +1,34 @@
+{
+  "schema": "gsm_engine_hook_manifest_v1",
+  "id": "bgi-ethornell",
+  "name": "BGI / Ethornell",
+  "engine": "BGI",
+  "decoder": "bgi-v1",
+  "target": {
+    "platform": "windows",
+    "architecture": "ia32",
+    "versionMarkers": ["Ethornell - BURIKO General Interpreter"]
+  },
+  "coordinateSpace": {
+    "provider": "payload-client-pixels"
+  },
+  "payload": "payload.js",
+  "signatures": {
+    "glyphDraw": "55 8b ec 83 e4 f0 83 ec 38 56 57 8b f9 8d 44 24 10 50 0f 10 87 94 01 00 00",
+    "textCapture": "55 8b ec 53 56 57 33 ff e8 ?? ?? ?? ?? 8b f0",
+    "copyDispatcher": "51 8b 42 10 83 e8 00 74 ?? 83 e8 01 74 ?? 83 e8 01 75",
+    "surfaceLock": "55 8b ec 83 ec 0c 56 8b f1 8b 4e 48 85 c9 74 ?? 83 7e 4c 00 75 ?? 8b 01 8d 55 f8 68 00 80 00 00 6a 00 52 6a 00 51 ff 50 4c"
+  },
+  "advance": {
+    "method": "foreground-key",
+    "virtualKey": 13,
+    "scanCode": 28
+  },
+  "display": {
+    "details": {
+      "en": "Any 32-bit (x86) game on this engine, recognised by its version information",
+      "ja": "このエンジンを使用する32ビット（x86）ゲーム全般 — バージョン情報で判別します",
+      "ukr": "Будь-яка 32-бітна (x86) гра на цьому рушії — розпізнається за відомостями про версію"
+    }
+  }
+}

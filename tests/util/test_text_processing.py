@@ -78,12 +78,44 @@ def test_preview_text_processing_request_uses_text_processing_config_dict():
 
 
 def test_extract_bracketed_text_returns_text_between_japanese_quotes():
-    text = "前「おやおや～？　寂しいのかな～？\n泊まって欲しいのかな～？\nも～、にぃにったらシスコン～」後"
+    text = "前「おやおや～？　寂しいのかな～？\n泊まって欲しいのかな～？\nも～、にぃにったらシスコン～」"
 
     assert (
         extract_bracketed_text(text)
         == "おやおや～？　寂しいのかな～？\n泊まって欲しいのかな～？\nも～、にぃにったらシスコン～"
     )
+
+
+def test_extract_bracketed_text_ignores_embedded_quotes_in_long_narration():
+    text = (
+        "すべての出来事は、その前出の出来事のみによって決定しているという考え方。"
+        "因果的に考えるならば、未来は現在によって“既に”決定しており、現在は過去によって“既に”決定している。"
+        "すなわち人がその瞬間ごとにおいて自らの意志で行動を選んでいるように思えても、"
+        "実はあらかじめ決定されている行動をなぞっているに過ぎないのである。"
+        "この主張を語る上では、『ラプラスの悪魔』という思考実験が例としてよく登場する。"
+        "すなわち「過去から現在までの、この宇宙に存在するすべての粒子の運動と位置を把握している者は、"
+        "未来を完全に予測できる」というものである。"
+    )
+
+    assert extract_bracketed_text(text) == text
+
+
+def test_extract_bracketed_text_allows_long_dialogue_after_short_prefix():
+    text = "12345678「これは八文字を超える長い発話でも抽出する」"
+
+    assert extract_bracketed_text(text) == "これは八文字を超える長い発話でも抽出する"
+
+
+def test_extract_bracketed_text_rejects_prefix_longer_than_eight_characters():
+    text = "123456789「発話」"
+
+    assert extract_bracketed_text(text) == text
+
+
+def test_extract_bracketed_text_requires_the_line_to_end_with_a_closing_quote():
+    text = "話者「発話」後"
+
+    assert extract_bracketed_text(text) == text
 
 
 def test_apply_string_replacements_passthrough_when_disabled():

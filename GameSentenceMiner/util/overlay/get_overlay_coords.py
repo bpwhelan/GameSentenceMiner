@@ -513,6 +513,22 @@ class OverlayProcessor:
 
         return None
 
+    def _get_effective_overlay_area_source_config(self):
+        """Return the enabled, unscaled area config for coordinate-only results."""
+        overlay_settings = get_overlay_config()
+
+        if bool(getattr(overlay_settings, "use_overlay_area_config", False)):
+            overlay_area_config = get_overlay_area_config()
+            if overlay_area_config and overlay_area_config.rectangles:
+                return overlay_area_config
+
+        if bool(getattr(overlay_settings, "use_ocr_area_config_v2", False)):
+            overlay_config = self._build_overlay_area_config(get_ocr_config())
+            if overlay_config and overlay_config.rectangles:
+                return overlay_config
+
+        return None
+
     def init(self):
         """Initializes the OCR engines and configuration."""
         try:
@@ -803,6 +819,20 @@ class OverlayProcessor:
         coordinate_space = dict_from_ocr.get("coordinate_space")
         return isinstance(coordinate_space, dict) and coordinate_space.get("mode") == "absolute_screen"
 
+    @staticmethod
+    def _is_forced_ocr_bypass_payload(dict_from_ocr: Any) -> bool:
+        if not OverlayProcessor._is_precomputed_overlay_payload(dict_from_ocr):
+            return False
+        producer = dict_from_ocr.get("producer")
+        return (
+            dict_from_ocr.get("bypass_ocr") is True
+            and isinstance(producer, dict)
+            and producer.get("kind") == "engine-hook"
+            and producer.get("version") == 1
+            and isinstance(producer.get("integrationId"), str)
+            and bool(producer["integrationId"])
+        )
+
     def _is_magpie_scaling_active(self) -> bool:
         return bool(self.window_monitor and getattr(self.window_monitor, "magpie_info", None))
 
@@ -828,7 +858,7 @@ class OverlayProcessor:
     def _should_use_precomputed_overlay_payload(self, dict_from_ocr: Any) -> bool:
         if not self._is_precomputed_overlay_payload(dict_from_ocr):
             return False
-        if not self._is_use_ocr_result_enabled():
+        if not self._is_use_ocr_result_enabled() and not self._is_forced_ocr_bypass_payload(dict_from_ocr):
             return False
         if self._should_skip_precomputed_payload_for_magpie(dict_from_ocr):
             return False
@@ -945,6 +975,57 @@ class OverlayProcessor:
                 line_copy.get("bounding_rect", {}),
                 minimum_character_size,
             ):
+                filtered_results.append(line_copy)
+
+        return filtered_results
+
+    def _filter_precomputed_results_by_exclusion_regions(
+        self,
+        ocr_results: list[dict[str, Any]],
+        exclusion_regions: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Remove precomputed words covered by enabled overlay exclusion zones."""
+        if not exclusion_regions or not ocr_results:
+            return copy.deepcopy(ocr_results)
+
+        filtered_results: list[dict[str, Any]] = []
+        for line in ocr_results:
+            if not isinstance(line, dict):
+                continue
+
+            line_copy = copy.deepcopy(line)
+            words = line_copy.get("words", [])
+            if isinstance(words, list) and words:
+                kept_words = []
+                for word in words:
+                    if not isinstance(word, dict):
+                        continue
+                    word_box = word.get("bounding_rect", {})
+                    is_excluded = bool(word_box) and any(
+                        self._boxes_overlap_significantly(word_box, exclusion_box)
+                        for exclusion_box in exclusion_regions
+                    )
+                    if not is_excluded:
+                        kept_words.append(word)
+
+                if not kept_words:
+                    continue
+
+                line_copy["words"] = kept_words
+                if len(kept_words) != len(words):
+                    line_copy["text"] = "".join(str(word.get("text", "")) for word in kept_words)
+                    merged_bbox = self._merge_bounding_rects([word.get("bounding_rect", {}) for word in kept_words])
+                    if merged_bbox is not None:
+                        line_copy["bounding_rect"] = merged_bbox
+
+                filtered_results.append(line_copy)
+                continue
+
+            line_box = line_copy.get("bounding_rect", {})
+            is_excluded = bool(line_box) and any(
+                self._boxes_overlap_significantly(line_box, exclusion_box) for exclusion_box in exclusion_regions
+            )
+            if not is_excluded:
                 filtered_results.append(line_copy)
 
         return filtered_results
@@ -1069,9 +1150,10 @@ class OverlayProcessor:
             )
         eligible_precomputed_payload = None if skip_precomputed_for_magpie else dict_from_ocr
         has_precomputed_payload = self._should_use_precomputed_overlay_payload(eligible_precomputed_payload)
+        force_ocr_bypass = self._is_forced_ocr_bypass_payload(eligible_precomputed_payload)
 
         # In supplement mode, we need engines loaded even when precomputed payload exists
-        if not has_precomputed_payload or self._is_supplement_mode_enabled():
+        if not has_precomputed_payload or (self._is_supplement_mode_enabled() and not force_ocr_bypass):
             self._ensure_correct_engine_loaded()
             effective_engine = self._get_effective_engine()
 
@@ -1911,6 +1993,82 @@ class OverlayProcessor:
 
         return converted
 
+    def _get_precomputed_exclusion_regions(
+        self,
+        *,
+        window_offset_x: int,
+        window_offset_y: int,
+        window_width: int,
+        window_height: int,
+        monitor_width: int,
+        monitor_height: int,
+    ) -> list[dict[str, float]]:
+        """Convert enabled exclusion rectangles to monitor-relative boxes."""
+        area_config = self._get_effective_overlay_area_source_config()
+        if not area_config:
+            return []
+
+        rectangles = getattr(area_config, "pre_scale_rectangles", None) or getattr(area_config, "rectangles", [])
+        coordinate_system = getattr(area_config, "coordinate_system", None)
+        coordinate_space = getattr(
+            area_config,
+            "overlay_coordinate_space",
+            "window" if getattr(area_config, "window_geometry", None) else "monitor",
+        )
+        monitor_w = float(max(1, monitor_width))
+        monitor_h = float(max(1, monitor_height))
+        window_w = float(max(1, window_width))
+        window_h = float(max(1, window_height))
+        saved_window_geometry = getattr(area_config, "window_geometry", None)
+        saved_window_w = float(max(1, getattr(saved_window_geometry, "width", window_width) or window_width))
+        saved_window_h = float(max(1, getattr(saved_window_geometry, "height", window_height) or window_height))
+
+        exclusion_regions: list[dict[str, float]] = []
+        for rectangle in rectangles:
+            if not getattr(rectangle, "is_excluded", False):
+                continue
+            coordinates = list(getattr(rectangle, "coordinates", []) or [])
+            if len(coordinates) < 4:
+                continue
+            try:
+                x, y, width, height = map(float, coordinates[:4])
+            except (TypeError, ValueError):
+                continue
+
+            if coordinate_space == "window":
+                if coordinate_system == "percentage":
+                    left = (float(window_offset_x) + (x * window_w)) / monitor_w
+                    top = (float(window_offset_y) + (y * window_h)) / monitor_h
+                    right = (float(window_offset_x) + ((x + width) * window_w)) / monitor_w
+                    bottom = (float(window_offset_y) + ((y + height) * window_h)) / monitor_h
+                else:
+                    scale_x = window_w / saved_window_w
+                    scale_y = window_h / saved_window_h
+                    left = (float(window_offset_x) + (x * scale_x)) / monitor_w
+                    top = (float(window_offset_y) + (y * scale_y)) / monitor_h
+                    right = (float(window_offset_x) + ((x + width) * scale_x)) / monitor_w
+                    bottom = (float(window_offset_y) + ((y + height) * scale_y)) / monitor_h
+            elif coordinate_system == "percentage":
+                left, top, right, bottom = x, y, x + width, y + height
+            else:
+                left, top = x / monitor_w, y / monitor_h
+                right, bottom = (x + width) / monitor_w, (y + height) / monitor_h
+
+            exclusion_regions.append(
+                {
+                    "x1": left,
+                    "y1": top,
+                    "x2": right,
+                    "y2": top,
+                    "x3": right,
+                    "y3": bottom,
+                    "x4": left,
+                    "y4": bottom,
+                }
+            )
+
+        return exclusion_regions
+
     async def _try_send_precomputed_overlay_payload(
         self,
         dict_from_ocr,
@@ -1990,6 +2148,34 @@ class OverlayProcessor:
         if not final_data:
             return False
 
+        if mode == "absolute_screen":
+            area_off_x, area_off_y, area_content_w, area_content_h, _, _ = self._resolve_overlay_geometry(
+                source_w,
+                source_h,
+            )
+        else:
+            area_off_x, area_off_y = off_x, off_y
+            area_content_w, area_content_h = content_w, content_h
+
+        exclusion_regions = self._get_precomputed_exclusion_regions(
+            window_offset_x=area_off_x,
+            window_offset_y=area_off_y,
+            window_width=area_content_w,
+            window_height=area_content_h,
+            monitor_width=monitor_w,
+            monitor_height=monitor_h,
+        )
+        if exclusion_regions:
+            unfiltered_box_count = sum(len(line.get("words", []) or []) or 1 for line in final_data)
+            final_data = self._filter_precomputed_results_by_exclusion_regions(final_data, exclusion_regions)
+            filtered_box_count = sum(len(line.get("words", []) or []) or 1 for line in final_data)
+            removed_box_count = unfiltered_box_count - filtered_box_count
+            if removed_box_count:
+                logger.info(
+                    "Overlay area exclusions removed {} precomputed text box(es).",
+                    removed_box_count,
+                )
+
         self.last_raw_results = {
             "lines": copy.deepcopy(corrected_source_lines),
             "coordinate_space": {
@@ -2008,10 +2194,16 @@ class OverlayProcessor:
         # single send is authoritative — flag it final so highlight consumers parse it.
         payload = self._build_overlay_word_coordinates_payload(final_data, line_id=line_id, is_final=True)
         await send_word_coordinates_to_overlay(payload)
-        logger.info(
-            "Overlay OCR bypass: used precomputed OCR coordinates ({} text boxes).",
-            len(final_data),
-        )
+        if self._is_forced_ocr_bypass_payload(dict_from_ocr):
+            logger.info(
+                "Overlay OCR bypass: used MAGES text-hook coordinates ({} text boxes).",
+                len(final_data),
+            )
+        else:
+            logger.info(
+                "Overlay OCR bypass: used precomputed OCR coordinates ({} text boxes).",
+                len(final_data),
+            )
         return True
 
     def get_image_to_ocr(self):
@@ -2217,13 +2409,14 @@ class OverlayProcessor:
         normalized_sentence_to_check = normalize_text_for_comparison(line.text) if line else None
         self._log_timing(op_start, "Sentence preprocessing and recycling check")
 
-        is_supplement_mode = self._is_supplement_mode_enabled()
+        force_ocr_bypass = self._is_forced_ocr_bypass_payload(dict_from_ocr)
+        is_supplement_mode = self._is_supplement_mode_enabled() and not force_ocr_bypass
         precomputed_sent = False
         precomputed_percentage_data = None
 
         if (
-            self._is_use_ocr_result_enabled()
-            and dict_from_ocr
+            dict_from_ocr
+            and self._should_use_precomputed_overlay_payload(dict_from_ocr)
             and not self._should_skip_precomputed_payload_for_magpie(dict_from_ocr)
         ):
             op_start = time.time()
@@ -2745,6 +2938,19 @@ class OverlayProcessor:
                     offset_x=off_x,
                     offset_y=off_y,
                 )
+
+            exclusion_regions = self._get_precomputed_exclusion_regions(
+                window_offset_x=off_x,
+                window_offset_y=off_y,
+                window_width=current_content_w,
+                window_height=current_content_h,
+                monitor_width=monitor_w,
+                monitor_height=monitor_h,
+            )
+            final_data = self._filter_precomputed_results_by_exclusion_regions(
+                final_data,
+                exclusion_regions,
+            )
 
         if final_data:
             data = self._build_overlay_word_coordinates_payload(final_data, line_id=self.last_overlay_line_id)

@@ -125,7 +125,7 @@ def copy(text: str) -> bool:
 
     Prefers Qt6 clipboard when available, falls back to pyperclipfix.
     """
-    if not USE_PYPERCLIP_ONLY and _qt_clipboard_available():
+    if not USE_PYPERCLIP_ONLY and _qt_clipboard_available() and not TRY_PYPERCLIP_FIRST:
         logger.background("Attempting to copy to clipboard via Qt.")
         if _qt_copy(text):
             return True
@@ -147,7 +147,7 @@ def paste() -> str | None:
 
     Prefers Qt6 clipboard when available, falls back to pyperclipfix.
     """
-    if not USE_PYPERCLIP_ONLY and _qt_clipboard_available():
+    if not USE_PYPERCLIP_ONLY and _qt_clipboard_available() and not TRY_PYPERCLIP_FIRST:
         result = _qt_paste()
         if result is not None:
             return result

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invokeIpc, onIpc } from "../../lib/ipc";
-import { useTranslation } from "../../i18n";
+import { useLocale, useTranslation } from "../../i18n";
 import { AgentScriptSearchDialog } from "../AgentScriptSearchDialog";
 import {
   buildAgentScriptCandidateList,
@@ -8,7 +8,7 @@ import {
   type AgentScriptCandidate,
 } from "../../../../shared/agent_scripts";
 
-type TextHookEngine = "luna" | "textractor" | "agent";
+type TextHookEngine = "luna" | "textractor" | "agent" | "mages";
 
 interface ListAgentScriptsResponse {
   status?: string;
@@ -22,6 +22,17 @@ interface HookEntry {
   function: string;
   preview: string;
   samples: string[];
+}
+
+/**
+ * A support package from the built-in engine-hook catalog. An entry is a single
+ * game build or a whole engine, depending on what the package identifies its
+ * target by; `details` is the package's own locale map.
+ */
+interface BuiltInHookTarget {
+  id: string;
+  name: string;
+  details: Record<string, string>;
 }
 
 interface RuntimeStatusRunning {
@@ -92,7 +103,7 @@ const DEFAULT_TEXT_HOOK_MAX_BUFFER_SIZE = 3000;
 const MAX_TEXT_HOOK_MAX_BUFFER_SIZE = 100_000;
 const MAX_JAPANESE_QUOTE_PAIRS = 10;
 // Set to true when the large-payload test button is needed during development.
-const SHOW_DEV_LARGE_PAYLOAD_TEST = true;
+const SHOW_DEV_LARGE_PAYLOAD_TEST = false;
 const DEV_LARGE_PAYLOAD_LENGTH = 120_000;
 const DEV_JAPANESE_PAYLOAD_FRAGMENTS = [
   "これはテキストフックの負荷試験用ランダム文字列です。",
@@ -153,11 +164,13 @@ interface TextHookTabProps {
 
 export function TextHookTab({ active }: TextHookTabProps) {
   const t = useTranslation();
+  const [locale] = useLocale();
   const [status, setStatus] = useState<RuntimeStatus>({ running: false });
   const [capture, setCapture] = useState<ActiveCapture | null>(null);
   const [hooks, setHooks] = useState<HookEntry[]>([]);
   const [selectedHookId, setSelectedHookId] = useState<string | null>(null);
   const [engine, setEngine] = useState<TextHookEngine>("luna");
+  const [builtInHookTargets, setBuiltInHookTargets] = useState<BuiltInHookTarget[]>([]);
   const [autoHook, setAutoHook] = useState(true);
   const [flushDelayMs, setFlushDelayMs] = useState(DEFAULT_FLUSH_DELAY_MS);
   const [flushDelayInput, setFlushDelayInput] = useState(String(DEFAULT_FLUSH_DELAY_MS));
@@ -298,6 +311,24 @@ export function TextHookTab({ active }: TextHookTabProps) {
     void refreshTextHookSettings();
   }, [active, refreshStatus, refreshHooks, refreshActiveCapture, refreshTextHookSettings]);
 
+  // The supported-target list is the on-disk support catalog, so it is read from
+  // the main process rather than duplicated in the renderer.
+  useEffect(() => {
+    if (!active || engine !== "mages") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const targets = await invokeIpc<BuiltInHookTarget[]>("texthook.builtInHookTargets");
+        if (!cancelled && Array.isArray(targets)) setBuiltInHookTargets(targets);
+      } catch {
+        if (!cancelled) setBuiltInHookTargets([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [active, engine]);
+
   // IPC subscriptions.
   useEffect(() => {
     const offStatus = onIpc("texthook.status", () => {
@@ -430,6 +461,18 @@ export function TextHookTab({ active }: TextHookTabProps) {
     }
   }, [refreshHooks, refreshStatus]);
 
+  const advanceText = useCallback(async () => {
+    setBusy(true);
+    try {
+      const result = await invokeIpc<{ success: boolean; error?: string }>("texthook.advance");
+      if (!result?.success) {
+        showNotice(result?.error ?? t("texthook.mages.advanceFailed"), "error");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [showNotice, t]);
+
   const selectHook = useCallback(
     async (hookId: string) => {
       const ok = await invokeIpc<{ success: boolean }>("texthook.selectHook", hookId);
@@ -525,8 +568,9 @@ export function TextHookTab({ active }: TextHookTabProps) {
         copyToClipboard,
         hookId: selectedHookId,
         hookFunction: targetHook?.function ?? null,
-        manualHookCode: manualHookCode.trim() || null,
-        agentScriptPath: agentScriptPath.trim() || null,
+        manualHookCode:
+          engine === "luna" || engine === "textractor" ? manualHookCode.trim() || null : null,
+        agentScriptPath: engine === "agent" ? agentScriptPath.trim() || null : null,
       }
     );
     if (result?.success && result.profile) {
@@ -641,7 +685,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
 
   const visibleHooks = useMemo(
     () =>
-      engine === "agent"
+      engine === "agent" || engine === "mages"
         ? hooks
         : hooks.filter((hook) => hook.id === selectedHookId || hasHookText(hook)),
     [engine, hooks, selectedHookId]
@@ -669,7 +713,9 @@ export function TextHookTab({ active }: TextHookTabProps) {
       ? t("texthook.engine.luna")
       : engine === "textractor"
         ? t("texthook.engine.textractor")
-        : t("texthook.engine.agent");
+        : engine === "agent"
+          ? t("texthook.engine.agent")
+          : t("texthook.engine.mages");
 
   return (
     <div className={`tab-panel ${active ? "active" : ""}`}>
@@ -817,6 +863,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
                           <option value="luna">{t("texthook.engine.luna")}</option>
                           <option value="textractor">{t("texthook.engine.textractor")}</option>
                           <option value="agent">{t("texthook.engine.agent")}</option>
+                          <option value="mages">{t("texthook.engine.mages")}</option>
                         </select>
                       </div>
 
@@ -871,8 +918,49 @@ export function TextHookTab({ active }: TextHookTabProps) {
                         </div>
                       ) : null}
 
+                      {engine === "mages" ? (
+                        <div
+                          className="texthook-subsection texthook-mages-notice"
+                          role="note"
+                          aria-labelledby="texthook-mages-title"
+                        >
+                          <div className="texthook-mages-heading">
+                            <div
+                              id="texthook-mages-title"
+                              className="texthook-subsection-label"
+                            >
+                              {t("texthook.mages.title")}
+                            </div>
+                            <span className="texthook-mages-badge">
+                              {t("texthook.mages.experimentalBadge")}
+                            </span>
+                          </div>
+                          <p className="texthook-mages-availability">
+                            {t("texthook.mages.availability")}
+                          </p>
+                          <div className="texthook-supported-games">
+                            <div className="texthook-supported-games__label">
+                              {t("texthook.mages.support.title")}
+                            </div>
+                            <ul>
+                              {builtInHookTargets.map((target) => (
+                                <li key={target.id}>
+                                  <strong>{target.name}</strong>
+                                  <span>
+                                    {target.details[locale] ?? target.details.en ?? ""}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                          <p className="texthook-card-hint">
+                            {t("texthook.mages.description")}
+                          </p>
+                        </div>
+                      ) : null}
+
                       {/* Manual hook code (Luna / Textractor only) */}
-                      {engine !== "agent" ? (
+                      {engine === "luna" || engine === "textractor" ? (
                         <>
                           <div className="link-row texthook-hook-search-row">
                             <button
@@ -1169,14 +1257,25 @@ export function TextHookTab({ active }: TextHookTabProps) {
           ) : null}
           <div className="ocr-sticky-footer-actions">
             {status.running ? (
-              <button
-                type="button"
-                className="danger"
-                disabled={busy}
-                onClick={() => void stopSession()}
-              >
-                {t("texthook.actions.stop")}
-              </button>
+              <>
+                {status.engine === "mages" ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void advanceText()}
+                  >
+                    {t("texthook.mages.advance")}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="danger"
+                  disabled={busy}
+                  onClick={() => void stopSession()}
+                >
+                  {t("texthook.actions.stop")}
+                </button>
+              </>
             ) : (
               <button
                 type="button"

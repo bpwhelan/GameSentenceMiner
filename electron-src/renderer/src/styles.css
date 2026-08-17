@@ -6089,6 +6089,73 @@ button.danger:hover:not(:disabled) {
   line-height: 1.35;
 }
 
+.texthook-mages-notice {
+  padding: 10px;
+  border: 1px solid rgba(227, 183, 101, 0.42);
+  border-radius: var(--gsm-radius-sm);
+  background: var(--gsm-warning-soft);
+}
+
+.texthook-mages-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.texthook-mages-badge {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border: 1px solid rgba(227, 183, 101, 0.5);
+  border-radius: var(--gsm-radius-pill);
+  color: var(--gsm-warning);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.texthook-mages-availability {
+  margin: 7px 0 0;
+  color: var(--gsm-text-primary);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.texthook-supported-games {
+  margin-top: 9px;
+}
+
+.texthook-supported-games__label {
+  color: var(--gsm-text-secondary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.texthook-supported-games ul {
+  margin: 5px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.texthook-supported-games li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--gsm-border-subtle);
+  border-radius: var(--gsm-radius-sm);
+  background: var(--gsm-surface-1);
+  font-size: 0.78rem;
+}
+
+.texthook-supported-games li span {
+  color: var(--gsm-text-secondary);
+}
+
 .texthook-hook-summary {
   display: flex;
   justify-content: flex-end;

@@ -32,6 +32,7 @@ from GameSentenceMiner.util.platform.notification import (
     send_text_intake_paused_notification,
     send_text_intake_resumed_notification,
 )
+from GameSentenceMiner.util.platform.windows_clipboard import WindowsClipboardListener
 from GameSentenceMiner.util.stats.live_stats import live_stats_tracker
 from GameSentenceMiner.util.text_log import (
     GameLine,
@@ -77,7 +78,7 @@ _config_monitor_task = None  # Long-lived task watching config for URI changes
 text_monitor_initialized = False
 
 # In-house text sources (OCR, texthook). Like a connected websocket, an active
-# in-house source pauses clipboard polling so the same line isn't ingested twice.
+# in-house source pauses clipboard intake so the same line isn't ingested twice.
 inhouse_sources_active = {}
 
 # Rate-based spam detection: keep the last 60 message timestamps per source.
@@ -356,7 +357,7 @@ def set_inhouse_source_active(source: str, active: bool) -> None:
     """Mark an in-house text source (e.g. "ocr", "texthook") active or inactive.
 
     Mirrors websocket connect/disconnect: while any in-house source is active,
-    clipboard polling pauses (unless use_both_clipboard_and_websocket is set), so
+    clipboard intake pauses (unless use_both_clipboard_and_websocket is set), so
     the same line isn't ingested from both the bus and the clipboard.
     """
     key = (source or "").strip().lower()
@@ -409,7 +410,7 @@ async def monitor_clipboard():
         logger.warning("Clipboard monitoring is disabled because pyperclip is not available.")
         return
     try:
-        current_line = pyperclip.paste()
+        current_line = await asyncio.to_thread(pyperclip.paste)
     except Exception as e:
         logger.error(f"Error accessing clipboard: {e}")
         return
@@ -417,36 +418,73 @@ async def monitor_clipboard():
     # ingest stale content on launch.
     last_clipboard = current_line
     send_message_on_resume = False
-    while True:
-        if not get_config().general.use_clipboard:
-            gsm_status.clipboard_enabled = False
-            await asyncio.sleep(5)
-            continue
-        if should_pause_clipboard_for_other_source():
-            gsm_status.clipboard_enabled = False
-            await asyncio.sleep(5)
-            send_message_on_resume = True
-            continue
-        elif send_message_on_resume:
-            logger.info("No other text source active; Clipboard Monitoring resumed.")
-            send_message_on_resume = False
-        gsm_status.clipboard_enabled = True
-        time_received = datetime.now()
-        current_clipboard = pyperclip.paste()
+    loop = asyncio.get_running_loop()
+    clipboard_changed = asyncio.Event()
+    native_listener = WindowsClipboardListener(
+        lambda: loop.call_soon_threadsafe(clipboard_changed.set),
+    )
+    native_listener_active = native_listener.start()
+    intake_was_active = False
 
-        # Only act when the clipboard actually changes; cross-source de-dup is
-        # handled centrally in handle_new_text_event.
-        if current_clipboard and current_clipboard != last_clipboard:
-            if is_message_rate_limited("clipboard"):
-                await asyncio.sleep(0.2)
+    async def wait_for_clipboard_change(timeout: float) -> None:
+        if not native_listener_active:
+            await asyncio.sleep(timeout)
+            return
+        try:
+            await asyncio.wait_for(clipboard_changed.wait(), timeout=timeout)
+        except TimeoutError:
+            pass
+
+    try:
+        while True:
+            if not get_config().general.use_clipboard:
+                gsm_status.clipboard_enabled = False
+                intake_was_active = False
+                clipboard_changed.clear()
+                await wait_for_clipboard_change(5)
                 continue
-            last_clipboard = current_clipboard
-            await handle_new_text_event(
-                current_clipboard,
-                line_time=time_received,
-                source_display_name="Clipboard",
-            )
-        await asyncio.sleep(0.2)
+            if should_pause_clipboard_for_other_source():
+                gsm_status.clipboard_enabled = False
+                intake_was_active = False
+                clipboard_changed.clear()
+                await wait_for_clipboard_change(5)
+                send_message_on_resume = True
+                continue
+            elif send_message_on_resume:
+                logger.info("No other text source active; Clipboard Monitoring resumed.")
+                send_message_on_resume = False
+            gsm_status.clipboard_enabled = True
+
+            # Check once immediately after startup/resume. Afterwards native
+            # Windows notifications wake us; the sleep is only the fallback.
+            if not intake_was_active:
+                intake_was_active = True
+            else:
+                await wait_for_clipboard_change(0.2)
+                if native_listener_active:
+                    clipboard_changed.clear()
+
+            try:
+                current_clipboard = await asyncio.to_thread(pyperclip.paste)
+            except Exception as error:
+                logger.debug(f"Error reading clipboard: {error}")
+                continue
+
+            # Only act when the clipboard actually changes; cross-source de-dup is
+            # handled centrally in handle_new_text_event.
+            if current_clipboard and current_clipboard != last_clipboard:
+                if is_message_rate_limited("clipboard"):
+                    await asyncio.sleep(0.2)
+                    clipboard_changed.set()
+                    continue
+                last_clipboard = current_clipboard
+                await handle_new_text_event(
+                    current_clipboard,
+                    line_time=datetime.now(),
+                    source_display_name="Clipboard",
+                )
+    finally:
+        native_listener.stop()
 
 
 # ---------------------------------------------------------------------------
@@ -895,10 +933,19 @@ def ingest_text_v2_payload(payload: dict) -> dict[str, object]:
         payload.get("emitted_at") or payload.get("emittedAt"),
         fallback=datetime.now(),
     )
+    dict_from_ocr = payload.get("dict_from_ocr")
+    if payload.get("engine") == "mages":
+        if isinstance(dict_from_ocr, dict) and dict_from_ocr.get("schema") == "gsm_overlay_coords_v1":
+            logger.info(
+                "MAGES text-position payload received: {} line box(es); forwarding directly to overlay.",
+                len(dict_from_ocr.get("lines", [])),
+            )
+        else:
+            logger.warning("MAGES text arrived without position data; overlay will fall back to OCR.")
     ack = _ingest_line_sync(
         text,
         line_time=captured_at,
-        dict_from_ocr=payload.get("dict_from_ocr"),
+        dict_from_ocr=dict_from_ocr,
         source=source,
         source_display_name=display_name or None,
         copy_to_clipboard=bool(payload.get("copyToClipboard", payload.get("copy_to_clipboard", False))),
@@ -957,7 +1004,6 @@ def _project_text_domain_event(event: TextDomainEvent) -> None:
     from GameSentenceMiner.web.texthooking_page import project_text_domain_event
 
     project_text_domain_event(event, line)
-
     if event.kind in (TextEventKind.APPENDED, TextEventKind.UPDATED):
         if event.kind is TextEventKind.APPENDED:
             log_message = f"<cyan>Line Received from [{source_label}]: {record.text}</cyan>"

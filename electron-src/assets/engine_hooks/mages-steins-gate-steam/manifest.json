@@ -1,0 +1,56 @@
+{
+  "schema": "gsm_engine_hook_manifest_v1",
+  "id": "mages-steins-gate-steam",
+  "name": "STEINS;GATE (Steam)",
+  "engine": "MAGES",
+  "decoder": "mages-v1",
+  "target": {
+    "platform": "windows",
+    "architecture": "ia32",
+    "moduleName": "Game.exe",
+    "executableNames": ["Game.exe"],
+    "knownExecutableSha256": [
+      "cbbc5dab18edc344d05c01d4d08819fbc0a68a78741956831752986009b69e16"
+    ]
+  },
+  "coordinateSpace": {
+    "provider": "window-client-over-memory-scale",
+    "scaleXRva": "0x121dc28",
+    "scaleYRva": "0x121dc2c"
+  },
+  "payload": "payload.js",
+  "resources": {
+    "charset": "charset.utf8",
+    "charsetOverrides": "charset_overrides.json",
+    "compoundCharacters": "compound_chars.map"
+  },
+  "signatures": {
+    "textBuilder": "55 8b ec 81 ec 94 01 00 00 a1 ?? ?? ?? ?? 33 c5 89 45 fc 8b 45 18 8b 55 0c 53 56 8b 75 08",
+    "lineLayout": "55 8b ec 81 ec f0 01 00 00 a1 ?? ?? ?? ?? 33 c5 89 45 fc 8b 45 08 8b 4d 20 53 8d 1c 40 c1 e3 04"
+  },
+  "memory": {
+    "codeCountRva": "0x12f51b4",
+    "codesRva": "0x12f51b8",
+    "metricsRva": "0x12f8098",
+    "positionsRva": "0x12ffd98",
+    "metricStride": 16,
+    "positionStride": 8,
+    "maximumCodes": 2000
+  },
+  "capture": {
+    "acceptedModes": [0],
+    "coordinateSuppressedStyles": [7]
+  },
+  "advance": {
+    "method": "foreground-click",
+    "clientXRatio": 0.5,
+    "clientYRatio": 0.8
+  },
+  "display": {
+    "details": {
+      "en": "Steam for Windows — supported 32-bit (x86) executable build",
+      "ja": "Windows版Steam — 対応する32ビット（x86）実行ファイル",
+      "ukr": "Steam для Windows — підтримувана 32-бітна (x86) збірка"
+    }
+  }
+}

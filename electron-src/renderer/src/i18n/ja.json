@@ -1746,7 +1746,19 @@
       "label": "フックエンジン:",
       "luna": "Luna Hook",
       "textractor": "Textractor",
-      "agent": "Agent"
+      "agent": "Agent",
+      "mages": "内蔵ゲームフック（実験的）"
+    },
+    "mages": {
+      "title": "内蔵ゲームフック",
+      "experimentalBadge": "実験的",
+      "availability": "この実験的なフックは、以下に記載されたゲームとエンジンでのみ動作します。他のゲーム、エディション、ストア版、実行ファイルのビルドにはまだ対応していません。",
+      "support": {
+        "title": "現在対応しているゲーム・エンジン"
+      },
+      "description": "対応するゲームでは、GSMがゲームに直接アタッチし、外部のAgentスクリプトやOCRを使わずにテキストと文字位置を取得します。",
+      "advance": "テキストを進める",
+      "advanceFailed": "ゲームのテキストを進められませんでした。"
     },
     "agent": {
       "title": "Agentスクリプト",

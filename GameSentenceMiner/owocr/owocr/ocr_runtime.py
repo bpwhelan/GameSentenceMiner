@@ -48,6 +48,7 @@ from GameSentenceMiner.owocr.owocr.ocr import (
     Line as StructuredLine,
     OcrResult as StructuredOcrResult,
     Paragraph as StructuredParagraph,
+    google_lens_response_is_formula_only,
 )
 
 import signal
@@ -4416,6 +4417,9 @@ def process_and_write_results(
             "crop_coords_list": [list(c[:5]) for c in (crop_coords_list or [])],
             "line_count": len(coords) if isinstance(coords, list) else 0,
         }
+        engine_key = str(getattr(engine_instance, "name", engine) or "").strip().lower()
+        if engine_key == "glens" and google_lens_response_is_formula_only(raw_response_dict):
+            pipeline_metadata["ocr"]["google_lens_formula_only"] = True
 
         if apply_area_filters and not is_second_ocr:
             if check_text_is_all_menu(crop_coords, crop_coords_list, crop_offset=current_crop_offset):

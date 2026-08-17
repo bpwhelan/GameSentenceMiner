@@ -1720,7 +1720,19 @@
       "label": "Hooking engine:",
       "luna": "Luna Hook",
       "textractor": "Textractor",
-      "agent": "Agent"
+      "agent": "Agent",
+      "mages": "Built-in Game Hook (Experimental)"
+    },
+    "mages": {
+      "title": "Built-in Game Hook",
+      "experimentalBadge": "Experimental",
+      "availability": "This experimental hook works only with the games and engines listed below. Other games, editions, storefronts, and executable builds are not supported yet.",
+      "support": {
+        "title": "Currently supported"
+      },
+      "description": "For a supported target, GSM attaches directly to the game and captures text and glyph positions without OCR or an external Agent script.",
+      "advance": "Advance text",
+      "advanceFailed": "Could not advance the game text."
     },
     "agent": {
       "title": "Agent Script",

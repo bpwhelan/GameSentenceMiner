@@ -685,7 +685,7 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
             await client.close(code=1013, reason="TextFeed client output queue exceeded")
 
     async def _send_legacy_text_coroutine(self, message: str) -> None:
-        """Deliver a frozen legacy line only to clients that did not negotiate v2."""
+        """Deliver compatibility events only to clients that did not negotiate v2."""
         clients = self._get_clients(ID_HOOKER)
         slow_clients = []
         for client in [candidate for candidate in list(clients) if candidate not in self._v2_clients]:
@@ -999,7 +999,7 @@ class WebsocketManager:
         return [] if future is None else [future]
 
     def send_textfeed_legacy_nowait(self, message: Any):
-        """Send a frozen compatibility event without duplicating it for v2 clients."""
+        """Send a compatibility event without duplicating it for v2 clients."""
         server = self._servers.get(ID_HOOKER)
         if not isinstance(server, MultiplexWebsocketServerThread):
             return []

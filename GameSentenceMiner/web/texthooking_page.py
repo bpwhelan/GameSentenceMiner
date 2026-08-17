@@ -11,33 +11,37 @@ import threading
 import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from flask import render_template, request, jsonify, send_file, send_from_directory
+
+import flask
+from flask import jsonify, render_template, request, send_file, send_from_directory
 from waitress import create_server
 
 from GameSentenceMiner import obs
 from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result
 from GameSentenceMiner.obs import get_current_game
 from GameSentenceMiner.util.config.configuration import (
-    logger,
     get_config,
     gsm_state,
     gsm_status,
+    logger,
 )
 from GameSentenceMiner.util.gsm_utils import TEXT_REPLACEMENTS_FILE
 from GameSentenceMiner.util.text_log import get_line_by_id, get_all_lines
 from GameSentenceMiner.web.hoshidicts_api import MAX_LOOKUP_STATS_REQUEST_BYTES
+from GameSentenceMiner.util.text_log import get_all_lines, get_line_by_id
 
 # Import from new modules
 from GameSentenceMiner.web.events import EventManager, event_manager
 from GameSentenceMiner.web.gsm_websocket import (
-    websocket_manager,
-    EndpointSpec,
-    ID_OVERLAY,
     ID_HOOKER,
+    ID_OVERLAY,
     ID_PLAINTEXT,
+    EndpointSpec,
     _overlay_message_handler,
     start_default_websocket_server,
+    websocket_manager,
 )
+from GameSentenceMiner.web.websocket_proxy import build_upstream_websocket_headers
 
 server_start_time = datetime.datetime.now().timestamp()
 _legacy_notice_server = None
@@ -399,10 +403,11 @@ def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
         await outgoing_ws.prepare(incoming_request)
 
         ws_target = f"ws://{upstream_host}:{ingress_ws_port}{incoming_request.rel_url}"
-        forward_headers = {
-            key: value for key, value in incoming_request.headers.items() if key.lower() not in hop_by_hop_headers
-        }
-        forward_headers["Host"] = f"{upstream_host}:{ingress_ws_port}"
+        forward_headers = build_upstream_websocket_headers(
+            incoming_request.headers,
+            upstream_host=upstream_host,
+            upstream_port=ingress_ws_port,
+        )
 
         try:
             async with client.ws_connect(
@@ -410,6 +415,7 @@ def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
                 headers=forward_headers,
                 heartbeat=20,
                 autoping=True,
+                compress=0,
                 max_msg_size=0,
             ) as upstream_ws:
                 relay_tasks = {
@@ -808,6 +814,19 @@ def set_text_intake_paused():
     return jsonify({"paused": gametext.set_text_intake_paused(paused)}), 200
 
 
+@app.route("/set_stats_gathering_enabled", methods=["POST"])
+def set_stats_gathering_enabled():
+    from GameSentenceMiner.util.config.configuration import get_config
+
+    data = request.get_json(silent=True)
+    enabled = data.get("enabled") if isinstance(data, dict) else None
+    if not isinstance(enabled, bool):
+        return jsonify({"error": "'enabled' must be a boolean"}), 400
+
+    get_config().advanced.dont_collect_stats = not enabled
+    return jsonify({"enabled": enabled}), 200
+
+
 @app.route("/clear_history", methods=["POST"])
 def clear_history():
     temp_em = EventManager()
@@ -858,10 +877,10 @@ def project_text_domain_event(event, line):
         event_manager.remove_lines_by_ids([line.id], timed_out=True)
         return
 
-    # Existing structured and plaintext consumers do not understand revisions.
-    # Give them exactly one final value while the bundled v2 client sees provisional
-    # append/update events immediately.
-    if event.kind is TextEventKind.FROZEN:
+    # Compatibility consumers must see the line as soon as it enters the pipeline.
+    # Revisions keep the same line id, so clients that understand the structured
+    # fields can replace provisional text in place when a better observation arrives.
+    if event.kind in (TextEventKind.APPENDED, TextEventKind.UPDATED, TextEventKind.FROZEN):
         item = event_manager.get(line.id)
         if item is not None:
             websocket_manager.send_textfeed_legacy_nowait(

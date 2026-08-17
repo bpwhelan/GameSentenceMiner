@@ -91,7 +91,11 @@ def _game_metadata(lines: list) -> tuple[dict[str, str], dict[str, str]]:
 
 
 def _deduplication_ids(lines: list, game_keys: set[str] | None = None) -> set[str]:
-    """Return newer duplicate line IDs, keeping the oldest text per linked game."""
+    """Return newer duplicate IDs, keeping the oldest text within each game group.
+
+    Identical text in different game groups is intentionally retained because
+    each group is exported as its own Tadoku log.
+    """
     grouped: dict[str, list] = {}
     for line in lines:
         key = _game_key(line)
@@ -130,7 +134,6 @@ def build_tadoku_preview(
     cursor = initialize_tadoku_cursor()
     cutoff = float(upper_bound if upper_bound is not None else time.time())
     lines = _load_lines(cutoff)
-    duplicates = _deduplication_ids(lines) if deduplicate else set()
     names, media_tags = _game_metadata(lines)
     game_character_totals: dict[str, int] = {}
     for line in lines:
@@ -147,6 +150,11 @@ def build_tadoku_preview(
             # never been handled by the per-game automatic sync.
             game_cursors[game_key] = max(cursor, saved_cursor) if saved_cursor is not None else cursor
         return game_cursors[game_key]
+
+    # Only compare lines in the current pending batch. Historical lines from a
+    # previous successful sync must not suppress newly queued text.
+    pending_lines = [line for line in lines if float(line.created_at or 0) > game_cursor(_game_key(line))]
+    duplicates = _deduplication_ids(pending_lines) if deduplicate else set()
 
     grouped: dict[str, dict[str, Any]] = {}
     for line in lines:

@@ -96,6 +96,7 @@
 		type LineItem,
 		type SettingPreset,
 	} from '../types';
+	import { deduplicateLineData } from '../session-sync';
 	import { clickOutside } from '../use-click-outside';
 	import { applyCustomCSS, dummyFn, timeStringToSeconds } from '../util';
 	import Icon from './Icon.svelte';
@@ -124,16 +125,30 @@
 			}
 		}
 
+		const removedLines = $lineData$;
 		$lineData$ = [];
 		selectedLineIds = [];
 		window.localStorage.removeItem('bannou-texthooker-lineData');
+		dispatch('linesRemoved', removedLines);
 
 		if (!linesOnly) {
 			$timeValue$ = 0;
 		}
 	}
 
-	const dispatch = createEventDispatcher<{ layoutChange: void; maxLinesChange: void }>();
+	async function handleResetAllData() {
+		const removedLines = $lineData$;
+		await resetAllData();
+		if (removedLines.length && !$lineData$.length) {
+			dispatch('linesRemoved', removedLines);
+		}
+	}
+
+	const dispatch = createEventDispatcher<{
+		layoutChange: void;
+		linesRemoved: LineItem[];
+		maxLinesChange: void;
+	}>();
 	const onlineFonts = [
 		OnlineFont.OFF,
 		OnlineFont.NOTO,
@@ -360,7 +375,7 @@
 						$userNotes$ = value;
 						break;
 					case 'bannou-texthooker-lineData':
-						$lineData$ = value;
+						$lineData$ = deduplicateLineData(value);
 						break;
 					case 'bannou-texthooker-actionHistory':
 						$actionHistory$ = value;
@@ -773,7 +788,7 @@
 				<div
 					role="button"
 					class="flex flex-col items-center hover:text-primary"
-					on:click={resetAllData}
+					on:click={handleResetAllData}
 					on:keyup={dummyFn}
 				>
 					<Icon path={mdiDelete} />

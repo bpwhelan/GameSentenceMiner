@@ -20,7 +20,7 @@ import type { InstallProgressKind, InstallStageId } from '../../shared/install_s
 // --- Constants ---
 
 const PYTHON_VERSION = '3.13.2';
-const UV_VERSION = '0.9.22';
+const UV_VERSION = '0.12.4';
 const VENV_DIR = path.join(BASE_DIR, 'python_venv');
 const UV_DIR = path.join(BASE_DIR, 'uv');
 

@@ -253,6 +253,54 @@ def test_textfeed_legacy_line_is_not_delivered_to_negotiated_v2_client():
     asyncio.run(scenario())
 
 
+def test_textfeed_legacy_projection_publishes_append_immediately(monkeypatch):
+    from datetime import datetime
+
+    from GameSentenceMiner.text_pipeline.models import TextEventKind
+    from GameSentenceMiner.web import gsm_websocket, texthooking_page
+
+    calls = []
+
+    class FakeEventManager:
+        def __init__(self):
+            self.item = None
+
+        def upsert_gameline(self, line):
+            self.item = SimpleNamespace(
+                text=line.text,
+                to_serializable=lambda: {"id": line.id, "text": line.text, "state": "provisional"},
+            )
+
+        def get(self, _line_id):
+            return self.item
+
+    class FakeWebsocketManager:
+        def send_textfeed_v2_nowait(self, message):
+            calls.append(("v2", message))
+
+        def send_textfeed_legacy_nowait(self, message):
+            calls.append(("legacy", message))
+
+        def send_nowait(self, server_id, message):
+            calls.append((server_id, message))
+
+    event_manager = FakeEventManager()
+    websocket_manager = FakeWebsocketManager()
+    monkeypatch.setattr(texthooking_page, "event_manager", event_manager)
+    monkeypatch.setattr(gsm_websocket, "websocket_manager", websocket_manager)
+
+    line = SimpleNamespace(id="line-1", text="clipboard text", time=datetime(2026, 8, 16, 12, 0, 0))
+    event = SimpleNamespace(
+        kind=TextEventKind.APPENDED,
+        record=line,
+        to_wire=lambda: {"event": "text_v2_append", "data": {"id": "line-1"}},
+    )
+
+    texthooking_page.project_text_domain_event(event, line)
+
+    assert [name for name, _message in calls] == ["v2", "legacy", gsm_websocket.ID_PLAINTEXT]
+
+
 def test_slow_textfeed_client_is_disconnected_when_output_mailbox_fills():
     server = MultiplexWebsocketServerThread(
         name="test",

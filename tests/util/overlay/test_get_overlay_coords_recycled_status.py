@@ -17,7 +17,7 @@ def test_do_work_sends_recycled_status_at_start_of_overlay_work(monkeypatch):
     monkeypatch.setattr(text_log.game_log, "previous_lines", {"HelloWorld"})
     monkeypatch.setattr(get_overlay_coords, "is_recycled_line_detection_enabled", lambda: True)
     monkeypatch.setattr(processor, "_get_effective_engine", lambda: "oneocr")
-    monkeypatch.setattr(processor, "_is_use_ocr_result_enabled", lambda: True)
+    monkeypatch.setattr(processor, "_should_use_precomputed_overlay_payload", lambda _payload: True)
     monkeypatch.setattr(processor, "_try_send_precomputed_overlay_payload", fake_try_send_precomputed_overlay_payload)
     monkeypatch.setattr(
         get_overlay_coords,
