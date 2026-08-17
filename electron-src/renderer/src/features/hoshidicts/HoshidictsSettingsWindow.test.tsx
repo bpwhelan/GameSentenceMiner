@@ -3426,23 +3426,22 @@ describe("HoshidictsSettingsWindow", () => {
     );
   });
 
-  it("offers every duplicate scope while a mining deck is configured", async () => {
-    await render();
-    await openMining();
-
-    const scope = container.querySelector<HTMLSelectElement>(
-      "#hoshidicts-mining-duplicate-scope"
-    );
-    expect(
-      Array.from(scope?.options ?? []).map((option) => option.value)
-    ).toEqual(["collection", "deck", "deck-root"]);
-  });
-
-  it("offers only collection scope when no mining deck is configured", async () => {
+  it.each([
+    {
+      name: "every duplicate scope while a mining deck is configured",
+      deck: "Default",
+      expected: ["collection", "deck", "deck-root"]
+    },
+    {
+      name: "only collection scope when no mining deck is configured",
+      deck: "",
+      expected: ["collection"]
+    }
+  ])("offers $name", async ({ deck, expected }) => {
     ipc.configure({
       state: {
         ...baseState,
-        miningProfile: makeHoshidictsMiningProfile({ deck: "" })
+        miningProfile: makeHoshidictsMiningProfile({ deck })
       }
     });
 
@@ -3454,7 +3453,7 @@ describe("HoshidictsSettingsWindow", () => {
     );
     expect(
       Array.from(scope?.options ?? []).map((option) => option.value)
-    ).toEqual(["collection"]);
+    ).toEqual(expected);
   });
 
   it("coerces duplicate scope to collection when the deck is cleared", async () => {
