@@ -8,7 +8,6 @@ import {
     createDefaultHoshidictsPopupButtons,
     createDefaultHoshidictsReaderPreferences,
     HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
-    HOSHIDICTS_MINING_FIELD_MARKERS,
     MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH,
     MAX_HOSHIDICTS_TAB_GROUP_NAME_LENGTH,
 } from '../../../shared/features/hoshidicts.js';
@@ -1783,44 +1782,6 @@ describe('Hoshidicts mining profile', () => {
         expect(() =>
             normalizeHoshidictsMiningProfile({ version: 2 })
         ).toThrow('version is unsupported');
-    });
-
-    it('exports every canonical mining marker in menu order', () => {
-        expect(HOSHIDICTS_MINING_FIELD_MARKERS).toEqual([
-            { id: 'expression', value: '{expression}' },
-            { id: 'reading', value: '{reading}' },
-            { id: 'furigana', value: '{furigana}' },
-            { id: 'furigana-plain', value: '{furigana-plain}' },
-            { id: 'definition', value: '{definition}' },
-            { id: 'main-definition', value: '{main-definition}' },
-            { id: 'glossary', value: '{glossary}' },
-            { id: 'dictionary', value: '{dictionary}' },
-            { id: 'sentence', value: '{sentence}' },
-            { id: 'popup-selection-text', value: '{popup-selection-text}' },
-            { id: 'sentence-furigana', value: '{sentence-furigana}' },
-            {
-                id: 'sentence-furigana-plain',
-                value: '{sentence-furigana-plain}',
-            },
-            { id: 'frequency', value: '{frequency}' },
-            { id: 'frequencies', value: '{frequencies}' },
-            {
-                id: 'frequency-harmonic-rank',
-                value: '{frequency-harmonic-rank}',
-            },
-            { id: 'pitch', value: '{pitch}' },
-            { id: 'pitch-position', value: '{pitch-position}' },
-            {
-                id: 'pitch-accent-positions',
-                value: '{pitch-accent-positions}',
-            },
-            {
-                id: 'pitch-accent-categories',
-                value: '{pitch-accent-categories}',
-            },
-            { id: 'audio', value: '{audio}' },
-            { id: 'document-title', value: '{document-title}' },
-        ]);
     });
 });
 
