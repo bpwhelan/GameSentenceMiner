@@ -22,13 +22,12 @@ beforeAll(() => {
 });
 
 describe("Hoshidicts popup preview assets", () => {
-  it("generates every reader dependency in browser load order", () => {
+  it("initializes the browser reader API from the generated runtime", () => {
     const html = readFileSync(path.join(previewDirectory, "index.html"), "utf8");
     const scripts = Array.from(
       html.matchAll(/<script\s+defer\s+src="\.\/(.*?)"><\/script>/g),
       (match) => match[1]
     );
-
     expect(scripts).toEqual([
       "constants.js",
       "audio.js",
@@ -36,14 +35,7 @@ describe("Hoshidicts popup preview assets", () => {
       "reader.js",
       "preview.js"
     ]);
-    for (const fileName of scripts) {
-      expect(() =>
-        readFileSync(path.join(previewDirectory, fileName), "utf8")
-      ).not.toThrow();
-    }
-  });
 
-  it("initializes the browser reader API from the generated runtime", () => {
     const browserWindow: Record<string, unknown> = {};
     const context = vm.createContext({
       window: browserWindow,

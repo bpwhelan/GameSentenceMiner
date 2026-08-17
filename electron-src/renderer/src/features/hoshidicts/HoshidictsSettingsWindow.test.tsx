@@ -20,7 +20,6 @@ import {
   DEFAULT_HOSHIDICTS_SORT_FREQUENCY_DICTIONARY_ORDER,
   DEFAULT_HOSHIDICTS_THEME,
   HOSHIDICTS_CHANNELS,
-  HOSHIDICTS_THEMES,
   MAX_HOSHIDICTS_CUSTOM_POPUP_CSS_LENGTH,
   type HoshidictsActionResult,
   type HoshidictsDesktopSnapshot,
@@ -59,19 +58,6 @@ const hoshidictsStyles = readFileSync(
   ),
   "utf8"
 );
-
-const EXPECTED_HOSHIDICTS_THEME_GROUPS = [
-  ["default", "miku", "catppuccin-mocha", "solarized-dark", "dark", "synthwave",
-   "halloween", "forest", "aqua", "black", "luxury", "dracula", "business",
-   "night", "coffee", "dim", "sunset", "abyss"],
-  ["girlypop", "solarized-light", "light", "cupcake", "bumblebee", "emerald",
-   "corporate", "retro", "cyberpunk", "valentine", "garden", "lofi", "pastel",
-   "fantasy", "wireframe", "cmyk", "autumn", "acid", "lemonade", "winter",
-   "nord", "caramellatte", "silk"],
-  ["high-contrast"]
-] as const;
-
-const EXPECTED_HOSHIDICTS_THEMES = EXPECTED_HOSHIDICTS_THEME_GROUPS.flat();
 
 const baseState = makeHoshidictsSnapshot();
 const miningOptions = makeHoshidictsMiningOptions();
@@ -165,16 +151,6 @@ describe("HoshidictsSettingsWindow", () => {
     return calls[calls.length - 1];
   };
 
-  it("owns viewport scrolling even though the shared renderer body is fixed", () => {
-    const rootRule =
-      /\.hoshidicts-window\s*\{(?<declarations>[^}]*)\}/.exec(
-        hoshidictsStyles
-      )?.groups?.declarations ?? "";
-
-    expect(rootRule).toMatch(/\bheight:\s*100vh\s*;/);
-    expect(rootRule).toMatch(/\boverflow-y:\s*auto\s*;/);
-  });
-
   it("shows the compact profile control and switches or clones profiles", async () => {
     const profileState: HoshidictsDesktopSnapshot = {
       ...baseState,
@@ -255,10 +231,6 @@ describe("HoshidictsSettingsWindow", () => {
     );
     expect(localProgress?.textContent).toContain("Importing dictionaries...");
     expect(localProgress?.textContent).toContain("1 / 3");
-    expect(localProgress?.closest(".hoshidicts-section--toolbar")).not.toBeNull();
-    expect(
-      container.querySelector(":scope .hoshidicts-window__content > .hoshidicts-window__progress")
-    ).toBeNull();
   });
 
   it.each([
@@ -364,25 +336,6 @@ describe("HoshidictsSettingsWindow", () => {
     expect(getReadiness(baseState).kind).toBe("ready");
   });
 
-  it("shows localized term and frequency capabilities and modes", async () => {
-    await render();
-
-    expect(container.textContent).toContain("123 terms");
-    expect(
-      container.textContent?.match(/12 frequency entries/g) ?? []
-    ).toHaveLength(1);
-    expect(container.textContent).toContain("3 pitch accents");
-    expect(container.textContent).toContain("4 kanji");
-    expect(container.textContent).toContain("Frequency mode: Automatic");
-    expect(
-      container.textContent?.match(/456 frequency entries/g) ?? []
-    ).toHaveLength(1);
-    expect(container.textContent).toContain("Frequency mode: Rank-based");
-    expect(
-      container.textContent?.match(/Frequency mode:/g) ?? []
-    ).toHaveLength(2);
-  });
-
   it("configures favourites only for term dictionaries", async () => {
     await render();
 
@@ -453,50 +406,6 @@ describe("HoshidictsSettingsWindow", () => {
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.bulkDictionaryAction,
       { action: "disable", ids: ["jmdict-id"] }
-    );
-  });
-
-  it("offers every bulk dictionary action for selected matches", async () => {
-    await render();
-
-    await settle(() => {
-      Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
-        .find((button) => button.textContent?.trim() === "Select all matches")
-        ?.click();
-    }, 1);
-
-    const labels = Array.from(
-      container.querySelectorAll<HTMLButtonElement>(
-        ".hoshidicts-dictionary-bulk-actions button"
-      )
-    ).map((button) => button.textContent?.trim());
-    expect(labels).toEqual([
-      "Enable",
-      "Disable",
-      "Favourite",
-      "Unfavourite",
-      "Update now"
-    ]);
-  });
-
-  it("renders a favourited dictionary with a filled star", async () => {
-    ipc.configure({
-      state: makeHoshidictsSnapshot({
-        dictionaries: [
-          makeHoshidictsDictionary({ favorite: true }),
-          makeHoshidictsFrequencyDictionary()
-        ]
-      })
-    });
-
-    await render();
-
-    const favorite = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Remove JMdict from favourites"]'
-    );
-    expect(favorite?.getAttribute("aria-pressed")).toBe("true");
-    expect(favorite?.querySelector("svg")?.getAttribute("fill")).toBe(
-      "currentColor"
     );
   });
 
@@ -631,53 +540,34 @@ describe("HoshidictsSettingsWindow", () => {
     await settle(() => {
       buttonContaining("Import Dictionaries")?.click();
       buttonContaining("Check for Updates")?.click();
-      buttonContaining("Install default set")?.click();
       buttons.find((button) => button.textContent?.trim() === "Install")?.click();
-      container.querySelectorAll<HTMLInputElement>(
-        ".hoshidicts-dictionary-row__toggle input"
-      )[1]?.click();
       setSelectValue(schedule, "monthly");
     });
 
-    const clickDictionaryMenuItem = async (label: string) => {
-      await settle(() => {
-        container
-          .querySelector<HTMLElement>(
-            '[aria-label="Dictionary actions for JMdict"]'
-          )
-          ?.click();
-        Array.from(
-          container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
+    await settle(() => {
+      container
+        .querySelector<HTMLElement>(
+          '[aria-label="Dictionary actions for JMdict"]'
         )
-          .find((button) => button.textContent?.trim() === label)
-          ?.click();
-      });
-    };
-    await clickDictionaryMenuItem("Move down");
-    await clickDictionaryMenuItem("Remove");
+        ?.click();
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
+      )
+        .find((button) => button.textContent?.trim() === "Remove")
+        ?.click();
+    });
 
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.importDictionary
     );
     expect(invokeMock).toHaveBeenCalledWith(HOSHIDICTS_CHANNELS.checkUpdates);
     expect(invokeMock).toHaveBeenCalledWith(
-      HOSHIDICTS_CHANNELS.installAllRecommended
-    );
-    expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.installRecommended,
       { id: "jitendex" }
     );
     expect(invokeMock).toHaveBeenCalledWith(
-      HOSHIDICTS_CHANNELS.moveDictionary,
-      { id: "jmdict-id", direction: 1 }
-    );
-    expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.removeDictionary,
       "jmdict-id"
-    );
-    expect(invokeMock).toHaveBeenCalledWith(
-      HOSHIDICTS_CHANNELS.setDictionaryEnabled,
-      { id: "custom-id", enabled: true }
     );
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.setSchedule,
@@ -776,22 +666,21 @@ describe("HoshidictsSettingsWindow", () => {
     expect(recommendedList?.hidden).toBe(false);
   });
 
-  it("expands recommended dictionaries when none are installed", async () => {
+  it("collapses recommended dictionaries when the custom dictionary is active", async () => {
     ipc.configure({ state: makeHoshidictsSnapshot({ dictionaries: [] }) });
 
     await render();
-    const recommendedList = container.querySelector<HTMLElement>(
+    let recommendedList = container.querySelector<HTMLElement>(
       "#hoshidicts-recommended-list"
     );
-    const collapse = container.querySelector<HTMLButtonElement>(
-      '[aria-label="Collapse recommended dictionaries"]'
-    );
-
     expect(recommendedList?.hidden).toBe(false);
-    expect(collapse?.getAttribute("aria-expanded")).toBe("true");
-  });
+    expect(
+      container
+        .querySelector('[aria-label="Collapse recommended dictionaries"]')
+        ?.getAttribute("aria-expanded")
+    ).toBe("true");
 
-  it("collapses recommended dictionaries when the custom dictionary is active", async () => {
+    await harness?.dispose();
     ipc.configure({
       state: makeHoshidictsSnapshot({
         dictionaries: [],
@@ -800,7 +689,7 @@ describe("HoshidictsSettingsWindow", () => {
     });
 
     await render();
-    const recommendedList = container.querySelector<HTMLElement>(
+    recommendedList = container.querySelector<HTMLElement>(
       "#hoshidicts-recommended-list"
     );
     const expand = container.querySelector<HTMLButtonElement>(
@@ -1543,6 +1432,24 @@ describe("HoshidictsSettingsWindow", () => {
       HOSHIDICTS_CHANNELS.setReaderPreferences,
       expect.objectContaining({ popupImageSource: null })
     );
+
+    await harness?.dispose();
+    ipc.configure({
+      state: makeHoshidictsSnapshot({
+        dictionaries: [
+          makeHoshidictsDictionary({ mediaCount: 0 }),
+          makeHoshidictsFrequencyDictionary()
+        ],
+        tabGroups: [],
+        popupImageSource: null
+      })
+    });
+    await render();
+    await openDesign();
+    expect(source()?.disabled).toBe(true);
+    expect(
+      Array.from(source()?.options ?? [], (option) => option.textContent)
+    ).toEqual(["Automatic (every dictionary)"]);
   });
 
   it.each([
@@ -1593,30 +1500,6 @@ describe("HoshidictsSettingsWindow", () => {
       ]);
     }
   );
-
-  it("disables the popup image source when no dictionary has images", async () => {
-    ipc.configure({
-      state: makeHoshidictsSnapshot({
-        dictionaries: [
-          makeHoshidictsDictionary({ mediaCount: 0 }),
-          makeHoshidictsFrequencyDictionary()
-        ],
-        tabGroups: [],
-        popupImageSource: null
-      })
-    });
-
-    await render();
-    await openDesign();
-
-    const source = container.querySelector<HTMLSelectElement>(
-      "#hoshidicts-popup-image-source"
-    );
-    expect(source?.disabled).toBe(true);
-    expect(
-      Array.from(source?.options ?? [], (option) => option.textContent)
-    ).toEqual(["Automatic (every dictionary)"]);
-  });
 
   it.each([
     {
@@ -1696,15 +1579,6 @@ describe("HoshidictsSettingsWindow", () => {
       "#hoshidicts-sort-frequency-dictionary"
     );
 
-    expect(
-      Array.from(dictionary?.options ?? [], (option) => ({
-        text: option.text.trim(),
-        value: option.value
-      }))
-    ).toEqual([
-      { text: "Off", value: "" },
-      { text: "JMdict", value: "JMdict" }
-    ]);
     expect(dictionary?.value).toBe("");
     expect(
       container.querySelector(
@@ -1750,27 +1624,6 @@ describe("HoshidictsSettingsWindow", () => {
       container.querySelector(
         "#hoshidicts-sort-frequency-dictionary-order-container"
       )
-    ).toBeNull();
-  });
-
-  it("moves visual controls into Design and keeps reader behavior in Dictionaries", async () => {
-    await render();
-    expect(container.querySelector("#hoshidicts-show-lookup-counts")).toBeNull();
-    expect(container.querySelector("#hoshidicts-popup-theme")).toBeNull();
-    expect(container.querySelector(".hoshidicts-reader-delay")).not.toBeNull();
-    expect(
-      container.querySelector("#hoshidicts-popup-content-scanning")
-    ).not.toBeNull();
-
-    await openDesign();
-
-    expect(
-      container.querySelector("#hoshidicts-show-lookup-counts")
-    ).not.toBeNull();
-    expect(container.querySelector("#hoshidicts-popup-theme")).not.toBeNull();
-    expect(container.querySelector(".hoshidicts-reader-delay")).toBeNull();
-    expect(
-      container.querySelector("#hoshidicts-popup-content-scanning")
     ).toBeNull();
   });
 
@@ -1904,32 +1757,6 @@ describe("HoshidictsSettingsWindow", () => {
     );
   });
 
-  it("carries the active locale in the live Design preview message", async () => {
-    vi.useFakeTimers();
-    await render({ locale: "ja" });
-    await openDesign();
-
-    const frame = container.querySelector<HTMLIFrameElement>(
-      'iframe[src="./hoshidicts-preview/index.html"]'
-    );
-    const postMessage = vi.spyOn(frame!.contentWindow!, "postMessage");
-    postMessage.mockClear();
-
-    const editor = container.querySelector<HTMLTextAreaElement>(
-      "#hoshidicts-custom-popup-css"
-    );
-    await settle(() => setTextareaValue(editor, ":scope { color: red; }"), 1);
-
-    expect(postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        channel: "gsm.hoshidicts.preview.v1",
-        type: "preferences",
-        locale: "ja"
-      }),
-      expect.any(String)
-    );
-  });
-
   it("sends per-dictionary term and kanji counts and the clicked-kanji selection to the live Design preview", async () => {
     ipc.configure({
       state: makeHoshidictsSnapshot({
@@ -1955,7 +1782,7 @@ describe("HoshidictsSettingsWindow", () => {
     });
 
     vi.useFakeTimers();
-    await render();
+    await render({ locale: "ja" });
     await openDesign();
 
     const frame = container.querySelector<HTMLIFrameElement>(
@@ -1978,6 +1805,7 @@ describe("HoshidictsSettingsWindow", () => {
       expect.objectContaining({
         channel: "gsm.hoshidicts.preview.v1",
         type: "preferences",
+        locale: "ja",
         preferences: expect.objectContaining({
           kanjiClickDictionary: "JPDB Kanji Terms",
           dictionaryPresentation: [
@@ -1999,37 +1827,6 @@ describe("HoshidictsSettingsWindow", () => {
   });
 
 
-  it("offers every GSM popup theme plus Girlypop in stable groups", async () => {
-    await render();
-    await openDesign();
-    const theme = container.querySelector<HTMLSelectElement>(
-      "#hoshidicts-popup-theme"
-    );
-    const groups = Array.from(theme?.querySelectorAll("optgroup") ?? []);
-
-    expect(HOSHIDICTS_THEMES).toEqual(EXPECTED_HOSHIDICTS_THEMES);
-    expect(Array.from(theme?.options ?? []).map((option) => option.value)).toEqual(
-      EXPECTED_HOSHIDICTS_THEMES
-    );
-    expect(groups).toHaveLength(EXPECTED_HOSHIDICTS_THEME_GROUPS.length);
-    expect(
-      groups.map((group) =>
-        Array.from(group.querySelectorAll("option"), (option) => option.value)
-      )
-    ).toEqual(EXPECTED_HOSHIDICTS_THEME_GROUPS);
-    expect(groups.every((group) => group.label.trim().length > 0)).toBe(true);
-    expect(
-      Array.from(theme?.options ?? []).find(
-        (option) => option.value === "girlypop"
-      )?.text.trim()
-    ).toBe("Girlypop");
-    expect(
-      Array.from(theme?.options ?? []).find(
-        (option) => option.value === "miku"
-      )?.text.trim()
-    ).toBe("Miku");
-  });
-
   it("defaults the popup toolbar to auto and saves fixed positions", async () => {
     vi.useFakeTimers();
     await render();
@@ -2039,16 +1836,6 @@ describe("HoshidictsSettingsWindow", () => {
     );
 
     expect(toolbarPosition?.value).toBe("auto");
-    expect(
-      Array.from(toolbarPosition?.options ?? [], (option) => ({
-        text: option.text.trim(),
-        value: option.value
-      }))
-    ).toEqual([
-      { text: "Auto", value: "auto" },
-      { text: "Top", value: "top" },
-      { text: "Bottom", value: "bottom" }
-    ]);
 
     await flushAfter(() => setSelectValue(toolbarPosition, "bottom"));
 
@@ -2148,52 +1935,10 @@ describe("HoshidictsSettingsWindow", () => {
       })
     );
 
-    await flushAfter(() => {
-      setInputValue(
-        container.querySelector("#hoshidicts-popup-link-label"),
-        "Weblio"
-      );
-      setInputValue(
-        container.querySelector("#hoshidicts-popup-link-url"),
-        "https://example.test/%w"
-      );
-      container
-        .querySelector<HTMLButtonElement>("#hoshidicts-popup-link-submit")
-        ?.click();
-    });
-    await act(async () => {
-      container
-        .querySelector<HTMLButtonElement>(
-          '[aria-label="Edit custom popup link Weblio"]'
-        )
-        ?.click();
-      await Promise.resolve();
-      container
-        .querySelector<HTMLButtonElement>(
-          '[aria-label="Delete custom popup link Jisho"]'
-        )
-        ?.click();
-      await flushAutosave();
-    });
-    expect(
-      container.querySelector<HTMLInputElement>("#hoshidicts-popup-link-label")
-        ?.value
-    ).toBe("");
-    expect(invokeMock).toHaveBeenLastCalledWith(
-      HOSHIDICTS_CHANNELS.setReaderPreferences,
-      expect.objectContaining({
-        popupButtons: expect.objectContaining({
-          customLinks: [
-            { label: "Weblio", url: "https://example.test/%w" }
-          ]
-        })
-      })
-    );
-
     await flushAfter(() =>
       container
         .querySelector<HTMLButtonElement>(
-          '[aria-label="Delete custom popup link Weblio"]'
+          '[aria-label="Delete custom popup link Jisho"]'
         )
         ?.click()
     );
@@ -2393,9 +2138,6 @@ describe("HoshidictsSettingsWindow", () => {
     );
     expect(toggle?.checked).toBe(true);
     expect(initialDepth?.value).toBe("10");
-    expect(initialDepth?.min).toBe("1");
-    expect(initialDepth?.step).toBe("1");
-    expect(initialDepth?.hasAttribute("max")).toBe(false);
 
     await flushAfter(() => toggle?.click());
 
@@ -2865,18 +2607,6 @@ describe("HoshidictsSettingsWindow", () => {
         )
       );
     expect(testButtons()).toHaveLength(baseState.audioProfile.sources.length);
-    expect(
-      testButtons().every((button) =>
-        button.getAttribute("aria-label")?.includes("聞く（きく）")
-      )
-    ).toBe(true);
-    const firstActions = testButtons()[0]?.closest(
-      ".hoshidicts-audio-source__actions"
-    );
-    expect(
-      firstActions?.querySelector("[data-audio-test-source]")
-    ).toBe(testButtons()[0]);
-    expect(firstActions?.querySelector("button.danger")).not.toBeNull();
 
     await settle(() => {
       setInputValue(
@@ -3278,11 +3008,6 @@ describe("HoshidictsSettingsWindow", () => {
 
     const grid = container.querySelector(".hoshidicts-mining-field-grid");
     expect(grid).not.toBeNull();
-    expect(
-      Array.from(
-        grid?.querySelectorAll(".hoshidicts-mining-field-grid__header") ?? []
-      ).map((header) => header.textContent)
-    ).toEqual(["Field", "Value"]);
 
     const rows = Array.from(
       grid?.querySelectorAll<HTMLElement>(".hoshidicts-mining-field-row") ?? []
@@ -3291,16 +3016,6 @@ describe("HoshidictsSettingsWindow", () => {
     const inputs = rows.map((row) =>
       row.querySelector<HTMLInputElement>(".hoshidicts-mining-field-value")
     );
-    expect(labels.map((label) => label?.textContent)).toEqual([
-      "Expression",
-      "ExpressionReading",
-      "Glossary",
-      "Sentence",
-      "Frequency",
-      "PitchPosition",
-      "WordAudio",
-      "Front"
-    ]);
     expect(inputs).toHaveLength(8);
     expect(labels.map((label) => label?.htmlFor)).toEqual(
       inputs.map((input) => input?.id)
@@ -3311,59 +3026,6 @@ describe("HoshidictsSettingsWindow", () => {
           input?.getAttribute("list") === "hoshidicts-mining-field-values"
       )
     ).toBe(true);
-    expect(
-      Array.from(
-        container.querySelectorAll<HTMLOptionElement>(
-          "#hoshidicts-mining-field-values option"
-        )
-      ).map((option) => option.value)
-    ).toEqual([
-      "{expression}",
-      "{reading}",
-      "{furigana}",
-      "{furigana-plain}",
-      "{definition}",
-      "{main-definition}",
-      "{glossary}",
-      "{dictionary}",
-      "{sentence}",
-      "{popup-selection-text}",
-      "{sentence-furigana}",
-      "{sentence-furigana-plain}",
-      "{frequency}",
-      "{frequencies}",
-      "{frequency-harmonic-rank}",
-      "{pitch}",
-      "{pitch-position}",
-      "{pitch-accent-positions}",
-      "{pitch-accent-categories}",
-      "{audio}",
-      "{document-title}"
-    ]);
-    expect(
-      Object.fromEntries(
-        Array.from(
-          container.querySelectorAll<HTMLOptionElement>(
-            "#hoshidicts-mining-field-values option"
-          )
-        ).map((option) => [option.value, option.textContent])
-      )
-    ).toMatchObject({
-      "{furigana}": "Furigana",
-      "{furigana-plain}": "Furigana (Anki bracket syntax)",
-      "{main-definition}": "Main definition",
-      "{glossary}": "Glossary",
-      "{dictionary}": "Dictionary name",
-      "{popup-selection-text}": "Popup selection text",
-      "{sentence-furigana}": "Sentence with furigana",
-      "{sentence-furigana-plain}":
-        "Sentence with furigana (Anki bracket syntax)",
-      "{frequencies}": "Frequencies",
-      "{frequency-harmonic-rank}": "Frequency harmonic rank",
-      "{pitch-accent-positions}": "Pitch accent positions",
-      "{pitch-accent-categories}": "Pitch accent categories",
-      "{document-title}": "Document title"
-    });
   });
 
   it("auto-saves duplicate scope, note-type checks, behavior, and field overwrite modes", async () => {

@@ -40,14 +40,12 @@ const hoshidicts = (locale: Tree) =>
 const english = hoshidicts(en as unknown as Tree);
 
 describe("Hoshidicts locale parity", () => {
-  it("defines a non-trivial number of keys", () => {
-    expect(english.size).toBeGreaterThan(400);
-  });
-
   it.each([
     ["ja", ja],
     ["ukr", ukr]
   ])("covers every en key in %s with matching placeholders", (_locale, file) => {
+    expect(english.size).toBeGreaterThan(400);
+
     const translated = hoshidicts(file as unknown as Tree);
 
     expect([...translated.keys()].sort()).toEqual([...english.keys()].sort());

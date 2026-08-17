@@ -45,7 +45,13 @@ const constants = require("./constants.js") as {
  * else compares them.
  */
 describe("overlay constants parity with the shared reader spec", () => {
-  it("uses the same inclusive bounds", () => {
+  it("uses the same inclusive bounds, themes, and audio source types", () => {
+    expect([...constants.THEMES].sort()).toStrictEqual(
+      [...HOSHIDICTS_THEMES].sort()
+    );
+    expect([...constants.AUDIO_SOURCE_TYPES].sort()).toStrictEqual(
+      [...HOSHIDICTS_AUDIO_SOURCE_TYPES].sort()
+    );
     expect(constants.BOUNDS).toMatchObject({
       scanLength: {
         min: MIN_HOSHIDICTS_SCAN_LENGTH,
@@ -97,27 +103,15 @@ describe("overlay constants parity with the shared reader spec", () => {
     );
 
     expect(overlayDefaults).toStrictEqual(shared);
-  });
 
-  it("only adds the derived dictionary context to those defaults", () => {
     const extraKeys = Object.keys(constants.READER_DEFAULTS).filter(
-      (key) => !(key in createDefaultHoshidictsReaderPreferences())
+      (key) => !(key in shared)
     );
-
     expect(extraKeys.sort()).toStrictEqual([
       "dictionaryPresentation",
       "dictionaryTabGroups",
       "frequencyDictionaries",
     ]);
-  });
-
-  it("offers the same themes and audio source types", () => {
-    expect([...constants.THEMES].sort()).toStrictEqual(
-      [...HOSHIDICTS_THEMES].sort()
-    );
-    expect([...constants.AUDIO_SOURCE_TYPES].sort()).toStrictEqual(
-      [...HOSHIDICTS_AUDIO_SOURCE_TYPES].sort()
-    );
   });
 
   it("accepts the same activation keys", () => {
