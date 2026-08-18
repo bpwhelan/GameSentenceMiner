@@ -1001,6 +1001,18 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(preview?.closest(".gsm-hoshidicts-popup")).toBeNull();
     expect(preview?.querySelector<HTMLImageElement>("img")?.src).toBe("blob:portrait");
     expect(preview?.querySelector<HTMLImageElement>("img")?.alt).toBe("Portrait");
+    const declarations = readerCssRule(".gsm-hoshidicts-image-hover-preview") ?? "";
+    expect(declarations).toMatch(/position\s*:\s*fixed/u);
+    expect(declarations).toMatch(/pointer-events\s*:\s*none/u);
+    const imageDeclarations =
+      readerCssRule(".gsm-hoshidicts-image-hover-preview img") ?? "";
+    expect(imageDeclarations).toContain(
+      "width: min(92vw, calc(var(--gsm-hoshidicts-popup-width, 560px) + 360px));"
+    );
+    expect(imageDeclarations).toContain(
+      "height: min(92vh, calc(var(--gsm-hoshidicts-popup-height, 420px) + 360px));"
+    );
+    expect(imageDeclarations).toMatch(/object-fit\s*:\s*contain/u);
 
     link.dispatchEvent(new dom.window.MouseEvent("pointerleave"));
     expect(

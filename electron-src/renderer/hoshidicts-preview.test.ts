@@ -35,6 +35,9 @@ describe("Hoshidicts popup preview assets", () => {
       "reader.js",
       "preview.js"
     ]);
+    for (const fileName of scripts) {
+      expect(readFileSync(path.join(previewDirectory, fileName), "utf8")).not.toBe("");
+    }
 
     const browserWindow: Record<string, unknown> = {};
     const context = vm.createContext({
