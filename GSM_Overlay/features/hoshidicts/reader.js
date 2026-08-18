@@ -922,6 +922,26 @@
     previewImage.draggable = false;
     preview.appendChild(previewImage);
     documentRef.body.appendChild(preview);
+    const windowRef = documentRef.defaultView;
+    if (windowRef) {
+      const position = calculatePopupPosition(
+        image.getBoundingClientRect(),
+        preview.getBoundingClientRect(),
+        {
+          width: Math.max(
+            1,
+            windowRef.innerWidth || documentRef.documentElement.clientWidth || 1
+          ),
+          height: Math.max(
+            1,
+            windowRef.innerHeight || documentRef.documentElement.clientHeight || 1
+          ),
+        },
+        { gap: 8, padding: 8, vertical: true }
+      );
+      preview.style.left = `${position.left}px`;
+      preview.style.top = `${position.top}px`;
+    }
     const MutationObserverImpl = documentRef.defaultView?.MutationObserver;
     if (typeof MutationObserverImpl === "function") {
       const observer = new MutationObserverImpl(() => {

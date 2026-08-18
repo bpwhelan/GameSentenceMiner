@@ -2443,16 +2443,19 @@ html[data-hoshidicts-theme="high-contrast"] .gsm-hoshidicts-audio-menu {
 
 .gsm-hoshidicts-image-hover-preview {
   position: fixed;
-  inset: 0;
   z-index: 2147483647;
-  display: grid;
-  place-items: center;
+  display: inline-block;
+  line-height: 0;
   pointer-events: none;
 }
 
 .gsm-hoshidicts-image-hover-preview img {
+  display: block;
   width: min(92vw, calc(var(--gsm-hoshidicts-popup-width, 560px) + 360px));
   height: min(92vh, calc(var(--gsm-hoshidicts-popup-height, 420px) + 360px));
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  box-sizing: border-box;
   border: 1px solid color-mix(
     in srgb,
     var(--hoshidicts-palette-base-content) 30%,
@@ -2491,52 +2494,8 @@ html[data-hoshidicts-theme="high-contrast"] .gsm-hoshidicts-audio-menu {
   }
 }
 
-/*
- * Hover-only zoom for real dictionary glossary illustrations. Scoped under the
- * popup glossary content and the gloss-image structure, so game frames, toolbar
- * icons, dictionary logos, README assets, and other Electron UI never match. It
- * is gated behind `@media (hover: hover)` so touch/tap devices keep the exact
- * same behaviour (no enlargement, no layout shift). The container clips with
- * overflow: hidden; on hover it is lifted and raised so the enlarged pixels are
- * fully visible instead of cut off. Clicks/links, collapsed-image reveal,
- * scrolling, narrow layouts, and keyboard focus are all untouched.
- */
-@media (hover: hover) {
-  .gsm-hoshidicts-glossary-content .gloss-image-link .gloss-image {
-    transform-origin: center center;
-    transition: transform 150ms ease-out;
-  }
-
-  .gsm-hoshidicts-glossary-content .gloss-image-link:hover .gloss-image,
-  .gsm-hoshidicts-glossary-content .gloss-image-link:focus-visible .gloss-image {
-    transform: scale(1.6);
-  }
-
-  .gsm-hoshidicts-glossary-content .gloss-image-link:hover .gloss-image-container,
-  .gsm-hoshidicts-glossary-content
-    .gloss-image-link:focus-visible
-    .gloss-image-container {
-    /*
-     * The container clips with overflow: hidden, but the real clip that cut the
-     * enlarged image off was the ancestor popup scrollport: .gsm-hoshidicts-popup
-     * sets overflow-x: hidden and overflow-y: auto. Lifting only this container to
-     * overflow: visible cannot escape that scrollport, so a scale(1.6) enlargement
-     * near the popup edge was still cut off. Taking the container out of the
-     * scrollport's flow (position: fixed, anchored to the viewport at its in-place
-     * position) lets the enlarged pixels paint over the popup edge and stay fully
-     * visible. It only applies while hovered/focused, so the base layout,
-     * scrolling, and clicks/links are unchanged.
-     */
-    position: fixed;
-    z-index: 2147483647;
-    overflow: visible;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .gsm-hoshidicts-glossary-content .gloss-image-link .gloss-image,
   .gsm-hoshidicts-image-hover-preview img {
-    transition: none;
     animation: none;
   }
 }

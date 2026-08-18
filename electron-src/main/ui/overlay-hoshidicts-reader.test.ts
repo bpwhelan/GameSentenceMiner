@@ -199,128 +199,29 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(blurRule?.[0]).not.toContain("definition-tags");
   });
 
-  // A hover-only enlargement helps read small dictionary glossary illustrations
-  // without adding any JavaScript, controls, or modal. It must be scoped to the
-  // real glossary image inside the popup glossary content so game frames,
-  // toolbar icons, dictionary logos, README assets, and other Electron UI can
-  // never match; gated behind `@media (hover: hover)` so touch/tap devices are
-  // unchanged; and it must not clip the enlarged pixels behind the container's
-  // overflow. Only the zoom transition is dropped under reduced motion — the
-  // enlargement itself still works.
-  describe("glossary image hover zoom", () => {
-    const css = readFeatureFile("reader.css");
-
-    // The whole `@media (hover: hover) { ... }` block, captured so we can prove
-    // the zoom lives inside it (touch devices never match) and inspect it.
-    function hoverMediaBlock() {
-      let depth = 0;
-      let start = -1;
-      const opener = css.indexOf("@media (hover: hover)");
-      if (opener < 0) return null;
-      for (let index = css.indexOf("{", opener); index < css.length; index += 1) {
-        const character = css[index];
-        if (character === "{") {
-          if (depth === 0) start = index;
-          depth += 1;
-        } else if (character === "}") {
-          depth -= 1;
-          if (depth === 0) return css.slice(start + 1, index);
-        }
-      }
-      return null;
+  it("does not transform or reposition inline glossary thumbnails on hover or focus", () => {
+    const sourceImageRules = READER_CSS_RULES.filter((rule) =>
+      rule.groups?.selectors
+        .split(",")
+        .some((selector) => /\.gloss-image(?:[\s,.:#\[]|$)/u.test(selector))
+    );
+    expect(sourceImageRules.length).toBeGreaterThan(0);
+    for (const rule of sourceImageRules) {
+      expect(rule.groups?.declarations ?? "").not.toMatch(
+        /(?:^|;)\s*transform(?:-origin)?\s*:/u
+      );
     }
 
-    it("scopes the zoom under Hoshidicts glossary content, never bare images", () => {
-      const block = hoverMediaBlock() ?? "";
-      // Every zoom selector that scales must be anchored to the popup glossary
-      // content, so no toolbar icon, logo, game frame, or README image matches.
-      const zoomRules = [
-        ...block.matchAll(/(?<selectors>[^{}]+)\{(?<declarations>[^{}]*)\}/gu)
-      ].filter((match) => /transform\s*:\s*scale\(/u.test(match.groups?.declarations ?? ""));
-      expect(zoomRules.length).toBeGreaterThan(0);
-      for (const zoomRule of zoomRules) {
-        for (const selector of (zoomRule.groups?.selectors ?? "").split(",")) {
-          expect(selector).toContain(".gsm-hoshidicts-glossary-content");
-        }
-      }
+    const interactiveSourceRules = READER_CSS_RULES.filter((rule) => {
+      const selectors = rule.groups?.selectors ?? "";
+      return /:(?:hover|focus)/u.test(selectors) &&
+        /\.gloss-image(?:[\s,.:#\[]|-container\b)/u.test(selectors);
     });
-
-    it("escapes the popup scrollport, not just the container clip", () => {
-      // Root cause of the earlier clip: `.gsm-hoshidicts-popup` is a scrollport
-      // (overflow-x: hidden; overflow-y: auto). A descendant that is only lifted
-      // to `overflow: visible` STILL cannot paint outside that ancestor scrollport,
-      // so a scale(1.6) enlargement near the popup edge was cut off by the popup.
-      // Strip CSS comments first so prose (which mentions these properties by name)
-      // can never satisfy the assertions — only real declarations count.
-      const cssNoComments = css.replace(/\/\*[\s\S]*?\*\//gu, "");
-
-      // Confirm the popup really is a clipping scrollport (the ancestor to escape).
-      const popupRule =
-        /\.gsm-hoshidicts-popup\s*\{(?<declarations>(?:[^{}]|\{[^{}]*\})*)\}/u.exec(
-          cssNoComments
-        );
-      expect(popupRule?.groups?.declarations).toMatch(/overflow-y\s*:\s*auto/u);
-      expect(popupRule?.groups?.declarations).toMatch(/overflow-x\s*:\s*hidden/u);
-
-      // The hover/focus enlargement must therefore take the image's container
-      // OUT of the scrollport's flow (position: fixed | absolute) so the popup's
-      // overflow no longer clips the enlarged pixels. `overflow: visible` alone
-      // on the container does not achieve this and is what let the bug through.
-      const opener = cssNoComments.indexOf("@media (hover: hover)");
-      let depth = 0;
-      let start = -1;
-      let block = "";
-      for (let index = cssNoComments.indexOf("{", opener); index < cssNoComments.length; index += 1) {
-        const character = cssNoComments[index];
-        if (character === "{") {
-          if (depth === 0) start = index;
-          depth += 1;
-        } else if (character === "}") {
-          depth -= 1;
-          if (depth === 0) {
-            block = cssNoComments.slice(start + 1, index);
-            break;
-          }
-        }
-      }
-      const containerRule =
-        /\.gsm-hoshidicts-glossary-content\s+[^{}]*:(?:hover|focus[^{}]*)\s+\.gloss-image-container[^{}]*\{(?<declarations>[^{}]*)\}/u.exec(
-          block
-        );
-      expect(containerRule).not.toBeNull();
-      expect(containerRule?.groups?.declarations).toMatch(
-        /position\s*:\s*(?:fixed|absolute)/u
+    for (const rule of interactiveSourceRules) {
+      expect(rule.groups?.declarations ?? "").not.toMatch(
+        /(?:^|;)\s*(?:transform|position|inset|top|right|bottom|left|width|height)\s*:/u
       );
-      expect(containerRule?.groups?.declarations).toMatch(/overflow\s*:\s*visible/u);
-      // And the enlargement transform itself is still present and > 1.
-      expect(block).toMatch(/transform\s*:\s*scale\(\s*(?:1\.\d+|[2-9])/u);
-    });
-
-    it("keeps a modest zoom transition but drops it under reduced motion", () => {
-      const block = hoverMediaBlock() ?? "";
-      // A transition on the glossary image gives the enlargement a smooth feel.
-      const baseRule =
-        /\.gsm-hoshidicts-glossary-content\s+[^{}]*\.gloss-image[^{}]*\{(?<declarations>[^{}]*transition\s*:\s*transform[^{}]*)\}/u.exec(
-          block
-        );
-      expect(baseRule).not.toBeNull();
-
-      // Under prefers-reduced-motion the transition is removed, but the zoom
-      // transform itself is NOT — reduced motion drops animation, not the size.
-      const reducedMotion =
-        /@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{(?<body>(?:[^{}]|\{[^{}]*\})*)\}/gu;
-      let disablesTransition = false;
-      for (const media of css.matchAll(reducedMotion)) {
-        const body = media.groups?.body ?? "";
-        if (
-          /\.gloss-image[^{}]*\{[^{}]*transition\s*:\s*none/u.test(body) &&
-          !/transform\s*:\s*(?:none|scale\(\s*1\s*\))/u.test(body)
-        ) {
-          disablesTransition = true;
-        }
-      }
-      expect(disablesTransition).toBe(true);
-    });
+    }
   });
 
 
@@ -968,11 +869,15 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(onLayoutChange).toHaveBeenCalledTimes(3);
   });
 
-  it("lifts a hovered glossary image into a viewport-sized preview outside the popup", async () => {
+  it("positions a separate image preview beside its unchanged source and clamps it onscreen", async () => {
     const dom = createDom();
     const api = loadReaderModule(dom.window as unknown as Window);
     const parent = dom.window.document.createElement("div");
     dom.window.document.body.appendChild(parent);
+    Object.defineProperties(dom.window, {
+      innerWidth: { configurable: true, value: 800 },
+      innerHeight: { configurable: true, value: 600 }
+    });
 
     api.appendTextOnlyGlossary(
       dom.window.document,
@@ -992,18 +897,77 @@ describe("Hoshidicts safe popup rendering", () => {
     await flushPromises();
 
     const link = parent.querySelector<HTMLElement>(".gloss-image-link")!;
+    const image = link.querySelector<HTMLImageElement>(".gloss-image")!;
+    const container = link.querySelector<HTMLElement>(".gloss-image-container")!;
+    const sourceStyle = image.getAttribute("style");
+    const containerStyle = container.getAttribute("style");
+    let sourceRect = {
+      x: 700,
+      y: 550,
+      left: 700,
+      top: 550,
+      right: 760,
+      bottom: 590,
+      width: 60,
+      height: 40,
+      toJSON: () => ({})
+    } as DOMRect;
+    const sourceRectSpy = vi.fn(() => sourceRect);
+    Object.defineProperty(image, "getBoundingClientRect", {
+      configurable: true,
+      value: sourceRectSpy
+    });
+    vi.spyOn(
+      dom.window.HTMLElement.prototype,
+      "getBoundingClientRect"
+    ).mockImplementation(function () {
+      if (this.classList.contains("gsm-hoshidicts-image-hover-preview")) {
+        return {
+          x: 0,
+          y: 0,
+          left: 0,
+          top: 0,
+          right: 320,
+          bottom: 240,
+          width: 320,
+          height: 240,
+          toJSON: () => ({})
+        } as DOMRect;
+      }
+      return {
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+        width: 0,
+        height: 0,
+        toJSON: () => ({})
+      } as DOMRect;
+    });
+
     link.dispatchEvent(new dom.window.MouseEvent("pointerenter"));
 
-    const preview = dom.window.document.querySelector<HTMLElement>(
+    let preview = dom.window.document.querySelector<HTMLElement>(
       "body > .gsm-hoshidicts-image-hover-preview"
-    );
+    )!;
     expect(preview).not.toBeNull();
-    expect(preview?.closest(".gsm-hoshidicts-popup")).toBeNull();
-    expect(preview?.querySelector<HTMLImageElement>("img")?.src).toBe("blob:portrait");
-    expect(preview?.querySelector<HTMLImageElement>("img")?.alt).toBe("Portrait");
+    expect(preview.closest(".gsm-hoshidicts-popup")).toBeNull();
+    expect(preview.querySelector<HTMLImageElement>("img")?.src).toBe("blob:portrait");
+    expect(preview.querySelector<HTMLImageElement>("img")?.alt).toBe("Portrait");
+    expect(sourceRectSpy).toHaveBeenCalledTimes(1);
+    expect(preview.style.left).toBe("372px");
+    expect(preview.style.top).toBe("352px");
+    expect(372 + 320).toBeLessThanOrEqual(800 - 8);
+    expect(352 + 240).toBeLessThanOrEqual(600 - 8);
+    expect(image.getAttribute("style")).toBe(sourceStyle);
+    expect(container.getAttribute("style")).toBe(containerStyle);
+
     const declarations = readerCssRule(".gsm-hoshidicts-image-hover-preview") ?? "";
     expect(declarations).toMatch(/position\s*:\s*fixed/u);
     expect(declarations).toMatch(/pointer-events\s*:\s*none/u);
+    expect(declarations).not.toMatch(/(?:^|;)\s*inset\s*:/u);
     const imageDeclarations =
       readerCssRule(".gsm-hoshidicts-image-hover-preview img") ?? "";
     expect(imageDeclarations).toContain(
@@ -1012,9 +976,31 @@ describe("Hoshidicts safe popup rendering", () => {
     expect(imageDeclarations).toContain(
       "height: min(92vh, calc(var(--gsm-hoshidicts-popup-height, 420px) + 360px));"
     );
+    expect(imageDeclarations).toContain("max-width: calc(100vw - 16px);");
+    expect(imageDeclarations).toContain("max-height: calc(100vh - 16px);");
     expect(imageDeclarations).toMatch(/object-fit\s*:\s*contain/u);
 
     link.dispatchEvent(new dom.window.MouseEvent("pointerleave"));
+    expect(
+      dom.window.document.querySelector(".gsm-hoshidicts-image-hover-preview")
+    ).toBeNull();
+
+    sourceRect = {
+      ...sourceRect,
+      x: 20,
+      y: 20,
+      left: 20,
+      top: 20,
+      right: 80,
+      bottom: 60
+    };
+    link.dispatchEvent(new dom.window.Event("focus"));
+    preview = dom.window.document.querySelector<HTMLElement>(
+      "body > .gsm-hoshidicts-image-hover-preview"
+    )!;
+    expect(preview.style.left).toBe("88px");
+    expect(preview.style.top).toBe("20px");
+    link.dispatchEvent(new dom.window.Event("blur"));
     expect(
       dom.window.document.querySelector(".gsm-hoshidicts-image-hover-preview")
     ).toBeNull();
