@@ -51,7 +51,7 @@
   } = audioApi;
 
   const LOOKUP_REQUEST_TIMEOUT_MS = 4 * 1000;
-  const { BOUNDS, LIMITS, READER_DEFAULTS, THEME_SET: THEMES } = constants;
+  const { BOUNDS, LIMITS, READER_DEFAULTS } = constants;
   const LOOKUP_SCAN_LENGTH = READER_DEFAULTS.scanLength;
   const MIN_LOOKUP_SCAN_LENGTH = BOUNDS.scanLength.min;
   const MAX_LOOKUP_SCAN_LENGTH = BOUNDS.scanLength.max;
@@ -60,11 +60,6 @@
   const MAX_LOOKUP_MAX_RESULTS = BOUNDS.maxResults.max;
   const INITIAL_VISIBLE_RESULTS = 1;
   const POPUP_TRANSFER_GRACE_MS = 80;
-  const DEFAULT_POPUP_BUTTONS = constants.DEFAULT_POPUP_BUTTONS;
-  const MAX_POPUP_CUSTOM_LINKS = LIMITS.popupCustomLinks;
-  const MAX_POPUP_CUSTOM_LINK_LABEL_LENGTH = LIMITS.popupCustomLinkLabelLength;
-  const MAX_POPUP_CUSTOM_LINK_URL_LENGTH = LIMITS.popupCustomLinkUrlLength;
-  const DEFAULT_THEME = READER_DEFAULTS.theme;
   const DEFAULT_ACTIVATION_KEY = constants.DEFAULT_ACTIVATION_KEY;
   const NAMED_ACTIVATION_KEYS = constants.NAMED_ACTIVATION_KEYS;
   const PUNCTUATION_ACTIVATION_KEYS = constants.PUNCTUATION_ACTIVATION_KEYS;
@@ -219,66 +214,6 @@
     };
   }
 
-  function normalizePopupButtons(value, fallback = DEFAULT_POPUP_BUTTONS) {
-    const normalizedFallback = isRecord(fallback)
-      ? fallback
-      : DEFAULT_POPUP_BUTTONS;
-    if (
-      !isRecord(value) ||
-      typeof value.addToAnki !== "boolean" ||
-      typeof value.audio !== "boolean" ||
-      typeof value.customDefinition !== "boolean" ||
-      typeof value.viewInAnki !== "boolean" ||
-      !Array.isArray(value.customLinks) ||
-      value.customLinks.length > MAX_POPUP_CUSTOM_LINKS
-    ) {
-      return clonePopupButtons(normalizedFallback);
-    }
-    const customLinks = [];
-    for (const rawLink of value.customLinks) {
-      if (!isRecord(rawLink)) {
-        return clonePopupButtons(normalizedFallback);
-      }
-      const label = typeof rawLink.label === "string" ? rawLink.label.trim() : "";
-      const url = typeof rawLink.url === "string" ? rawLink.url.trim() : "";
-      if (
-        !label ||
-        label.length > MAX_POPUP_CUSTOM_LINK_LABEL_LENGTH ||
-        /[\u0000-\u001f\u007f]/u.test(label) ||
-        !url ||
-        url.length > MAX_POPUP_CUSTOM_LINK_URL_LENGTH ||
-        /[\u0000-\u001f\u007f]/u.test(url)
-      ) {
-        return clonePopupButtons(normalizedFallback);
-      }
-      try {
-        const parsed = new URL(
-          url
-            .replaceAll("%blob", "payload")
-            .replaceAll("%w", "word")
-            .replaceAll("%s", "sentence")
-        );
-        if (
-          !["http:", "https:"].includes(parsed.protocol) ||
-          !parsed.hostname ||
-          parsed.username ||
-          parsed.password
-        ) {
-          return clonePopupButtons(normalizedFallback);
-        }
-      } catch {
-        return clonePopupButtons(normalizedFallback);
-      }
-      customLinks.push({ label, url });
-    }
-    return {
-      addToAnki: value.addToAnki,
-      audio: value.audio,
-      customDefinition: value.customDefinition,
-      viewInAnki: value.viewInAnki,
-      customLinks,
-    };
-  }
 
   function popupButtonsEqual(left, right) {
     return left.addToAnki === right.addToAnki &&
@@ -2236,9 +2171,6 @@
       : left.id === right.id;
   }
 
-  function normalizeTheme(value, fallback = DEFAULT_THEME) {
-    return THEMES.has(value) ? value : fallback;
-  }
 
   function createHoshidictsReader(options = {}) {
     const windowRef = options.window || window;
@@ -5837,10 +5769,6 @@
   }
 
   return {
-    DEFAULT_ACTIVATION_KEY,
-    DEFAULT_POPUP_BUTTONS,
-    DEFAULT_COMPACT_DEFINITION_SUMMARY_COUNT,
-    DEFAULT_THEME,
     appendExpressionRuby,
     appendTextOnlyGlossary,
     calculatePopupPosition,
@@ -5850,8 +5778,6 @@
     createHoshidictsReader,
     expandPopupButtonUrl,
     normalizeActivationKey,
-    normalizeTheme,
-    normalizePopupButtons,
     normalizeLookupResults,
     normalizeCompactDefinitionSummaryDictionary,
     normalizeCompactDefinitionSummaryCount,
@@ -5860,7 +5786,6 @@
     resolveGsmApiBaseUrl,
     segmentFurigana,
     selectPitchAccent,
-    setMiningButtonState,
     splitPitchAccentMorae,
   };
 }));

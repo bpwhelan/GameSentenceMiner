@@ -116,10 +116,7 @@ function attachHoshidictsRendererDiagnostics(options = {}) {
 }
 
 module.exports = {
-  DEFAULT_MAX_LOG_BYTES,
-  HOSHIDICTS_LOG_PREFIX,
   appendHoshidictsDiagnostic,
   attachHoshidictsRendererDiagnostics,
-  formatHoshidictsDiagnosticLine,
   normalizeConsoleMessageArguments,
 };

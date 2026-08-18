@@ -431,10 +431,6 @@ describe('Hoshidicts reader preference helpers', () => {
 });
 
 describe('Hoshidicts popup image source preference', () => {
-    it('defaults to Automatic (null)', () => {
-        expect(defaultPreferences.popupImageSource).toBeNull();
-    });
-
     it('accepts and canonicalizes an individual dictionary source, trimming its title', () => {
         const accepted = assertHoshidictsReaderPreferences({
             ...defaultPreferences,

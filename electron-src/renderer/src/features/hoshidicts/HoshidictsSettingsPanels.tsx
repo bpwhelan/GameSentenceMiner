@@ -16,7 +16,6 @@ import {
   Trash2
 } from "lucide-react";
 import {
-  Fragment,
   useEffect,
   useMemo,
   useState,
@@ -26,7 +25,6 @@ import {
 
 import {
   DEFAULT_HOSHIDICTS_ACTIVATION_KEY,
-  HOSHIDICTS_RECOMMENDED_DICTIONARY_IDS,
   HOSHIDICTS_FIELD_OVERWRITE_MODES,
   MAX_HOSHIDICTS_MAX_RESULTS,
   MAX_HOSHIDICTS_POPUP_HIDE_DELAY_MS,

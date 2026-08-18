@@ -584,8 +584,6 @@ function requestHoshidictsSettingsOpen(options = {}) {
 }
 
 module.exports = {
-  ADD_CUSTOM_ENTRY_METHOD,
-  AUDIO_PROFILE_METHOD,
   createHoshidictsActivationHotkeyController,
   createHoshidictsReaderPreferencesDelivery,
   createHoshidictsReaderPreferencesBridge,
@@ -594,12 +592,8 @@ module.exports = {
   dispatchAppHotkeyInputServerMessage,
   HOSHIDICTS_ACTIVATION_HOTKEY_ID,
   normalizeHoshidictsActivationKey,
-  normalizeHoshidictsAudioProfile,
-  normalizeHoshidictsCustomEntry,
   normalizeHoshidictsExternalUrl,
   normalizeHoshidictsReaderPreferences,
-  OPEN_SETTINGS_METHOD,
-  READER_PREFERENCES_METHOD,
   requestHoshidictsSettingsOpen,
   resolveHoshidictsControlConfig,
 };
