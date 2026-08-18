@@ -600,14 +600,6 @@ def _mining_status_cache_key(profile: dict[str, Any], config: Any) -> str:
     )
 
 
-def _clear_mining_status_cache() -> None:
-    global _status_cache_expires_at, _status_cache_key, _status_cache_value
-    with _status_cache_lock:
-        _status_cache_key = None
-        _status_cache_value = None
-        _status_cache_expires_at = 0.0
-
-
 def _compute_mining_status(
     profile: dict[str, Any],
     config: Any,

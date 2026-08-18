@@ -17,11 +17,22 @@ from tests.test_hoshidicts_factories import (
 HoshidictsAudioError = hoshidicts_audio_profile.HoshidictsAudioError
 
 
+def _reset_audio_caches(monkeypatch):
+    monkeypatch.setattr(
+        hoshidicts_audio,
+        "_candidate_cache",
+        hoshidicts_audio._BoundedTTLCache(max_entries=256, max_bytes=2 * 1024 * 1024),
+    )
+    monkeypatch.setattr(
+        hoshidicts_audio,
+        "_media_cache",
+        hoshidicts_audio._BoundedTTLCache(max_entries=64, max_bytes=64 * 1024 * 1024),
+    )
+
+
 @pytest.fixture(autouse=True)
-def _clear_audio_caches():
-    hoshidicts_audio.clear_audio_cache()
-    yield
-    hoshidicts_audio.clear_audio_cache()
+def _isolate_audio_caches(monkeypatch):
+    _reset_audio_caches(monkeypatch)
 
 
 @pytest.fixture
@@ -211,7 +222,7 @@ def test_custom_url_substitution_encodes_values_and_custom_json_is_exact(monkeyp
             content_type="application/json",
         ),
     )
-    hoshidicts_audio.clear_audio_cache()
+    _reset_audio_caches(monkeypatch)
     with pytest.raises(HoshidictsAudioError, match="custom JSON"):
         hoshidicts_audio._resolve_source_candidates(json_source, "食べる", "たべる")
 
@@ -363,7 +374,7 @@ def test_streamed_provider_responses_are_bounded(monkeypatch):
 
     monkeypatch.setattr(hoshidicts_audio, "MAX_AUDIO_BYTES", 8)
     _respond(monkeypatch, FakeResponse(mp3_bytes(), content_type="audio/mpeg"))
-    hoshidicts_audio.clear_audio_cache()
+    _reset_audio_caches(monkeypatch)
     with pytest.raises(HoshidictsAudioError, match="too large"):
         hoshidicts_audio.get_audio_media("食べる", "たべる", "direct", 0, profile=profile)
 
@@ -407,7 +418,7 @@ def test_candidate_id_rejects_a_reordered_dynamic_list(monkeypatch):
     _respond(monkeypatch, lambda *_args, **_kwargs: responses.pop(0))
     profile = make_audio_profile(make_audio_source("json", "custom-json", url="https://api.test/audio"))
     candidate = hoshidicts_audio.get_audio_candidates("食べる", "たべる", "json", profile=profile)[0]
-    hoshidicts_audio.clear_audio_cache()
+    _reset_audio_caches(monkeypatch)
 
     with pytest.raises(HoshidictsAudioError, match="changed") as error:
         hoshidicts_audio.get_audio_media(

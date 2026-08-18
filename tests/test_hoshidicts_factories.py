@@ -209,7 +209,9 @@ class FakeAnki:
 
 
 def wire(monkeypatch, fake_anki, profile=None, config=None):
-    hoshidicts_mining._clear_mining_status_cache()
+    monkeypatch.setattr(hoshidicts_mining, "_status_cache_key", None)
+    monkeypatch.setattr(hoshidicts_mining, "_status_cache_value", None)
+    monkeypatch.setattr(hoshidicts_mining, "_status_cache_expires_at", 0.0)
     monkeypatch.setattr(hoshidicts_mining, "get_config", lambda: config or make_config())
     monkeypatch.setattr(
         hoshidicts_mining,

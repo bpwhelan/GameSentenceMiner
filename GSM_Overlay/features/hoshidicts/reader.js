@@ -51,7 +51,7 @@
   } = audioApi;
 
   const LOOKUP_REQUEST_TIMEOUT_MS = 4 * 1000;
-  const { BOUNDS, LIMITS, READER_DEFAULTS } = constants;
+  const { BOUNDS, READER_DEFAULTS } = constants;
   const LOOKUP_SCAN_LENGTH = READER_DEFAULTS.scanLength;
   const MIN_LOOKUP_SCAN_LENGTH = BOUNDS.scanLength.min;
   const MAX_LOOKUP_SCAN_LENGTH = BOUNDS.scanLength.max;
@@ -61,14 +61,6 @@
   const INITIAL_VISIBLE_RESULTS = 1;
   const POPUP_TRANSFER_GRACE_MS = 80;
   const DEFAULT_ACTIVATION_KEY = constants.DEFAULT_ACTIVATION_KEY;
-  const NAMED_ACTIVATION_KEYS = constants.NAMED_ACTIVATION_KEYS;
-  const PUNCTUATION_ACTIVATION_KEYS = constants.PUNCTUATION_ACTIVATION_KEYS;
-  const DEFAULT_COMPACT_DEFINITION_SUMMARY_COUNT =
-    READER_DEFAULTS.compactDefinitionSummaryCount;
-  const MIN_COMPACT_DEFINITION_SUMMARY_COUNT =
-    BOUNDS.compactDefinitionSummaryCount.min;
-  const MAX_COMPACT_DEFINITION_SUMMARY_COUNT =
-    BOUNDS.compactDefinitionSummaryCount.max;
   const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
   const MAX_LOOKUP_TEXT_BYTES = 4 * 1024;
   const MAX_MEDIA_RESPONSE_BYTES = 6 * 1024 * 1024;
@@ -94,7 +86,6 @@
   const RECONNECT_MAX_DELAY_MS = 12 * 1000;
   const MINING_STATUS_CACHE_MS = 5 * 1000;
   const MAX_VISIBLE_METADATA_TAGS = 12;
-  const MAX_DICTIONARY_PRESENTATION_TITLE_LENGTH = LIMITS.dictionaryTitleLength;
   const SOURCE_HIGHLIGHT_NAME = "gsm-hoshidicts-match";
   const JAPANESE_ONLY_TOKEN_PATTERN =
     /^[\u3005-\u3007\u303b\u3040-\u30ff\u31f0-\u31ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff66-\uff9f\u{20000}-\u{2fa1f}]+$/u;
@@ -242,27 +233,6 @@
     return token.length > 0 && JAPANESE_ONLY_TOKEN_PATTERN.test(token);
   }
 
-  function normalizeActivationKey(value, fallback = DEFAULT_ACTIVATION_KEY) {
-    if (typeof value !== "string") {
-      return fallback;
-    }
-    const normalizedKey = value.trim();
-    if (PUNCTUATION_ACTIVATION_KEYS.has(normalizedKey)) {
-      return normalizedKey;
-    }
-    if (/^[a-z]$/iu.test(normalizedKey)) {
-      return normalizedKey.toUpperCase();
-    }
-    if (/^[0-9]$/u.test(normalizedKey)) {
-      return normalizedKey;
-    }
-    const functionKeyMatch = /^f([1-9]|1[0-9]|2[0-4])$/iu.exec(normalizedKey);
-    if (functionKeyMatch) {
-      return `F${functionKeyMatch[1]}`;
-    }
-    return NAMED_ACTIVATION_KEYS.get(normalizedKey.toLowerCase()) ?? fallback;
-  }
-
   function normalizeLookupScanLength(value, fallback = LOOKUP_SCAN_LENGTH) {
     return Number.isInteger(value) &&
       value >= MIN_LOOKUP_SCAN_LENGTH &&
@@ -275,31 +245,6 @@
     return Number.isInteger(value) &&
       value >= MIN_LOOKUP_MAX_RESULTS &&
       value <= MAX_LOOKUP_MAX_RESULTS
-      ? value
-      : fallback;
-  }
-
-  function normalizeCompactDefinitionSummaryDictionary(value, fallback = null) {
-    if (value === null) {
-      return null;
-    }
-    if (typeof value !== "string") {
-      return fallback;
-    }
-    const normalized = value.trim();
-    return normalized.length > 0 &&
-      normalized.length <= MAX_DICTIONARY_PRESENTATION_TITLE_LENGTH
-      ? normalized
-      : fallback;
-  }
-
-  function normalizeCompactDefinitionSummaryCount(
-    value,
-    fallback = DEFAULT_COMPACT_DEFINITION_SUMMARY_COUNT
-  ) {
-    return Number.isInteger(value) &&
-      value >= MIN_COMPACT_DEFINITION_SUMMARY_COUNT &&
-      value <= MAX_COMPACT_DEFINITION_SUMMARY_COUNT
       ? value
       : fallback;
   }
@@ -5777,10 +5722,7 @@
     createHoshidictsAudioClient,
     createHoshidictsReader,
     expandPopupButtonUrl,
-    normalizeActivationKey,
     normalizeLookupResults,
-    normalizeCompactDefinitionSummaryDictionary,
-    normalizeCompactDefinitionSummaryCount,
     buildPitchAccentMorae,
     prioritizeLookupResultsByReading,
     resolveGsmApiBaseUrl,

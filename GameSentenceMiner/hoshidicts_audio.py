@@ -67,11 +67,6 @@ class _BoundedTTLCache:
         self._bytes = 0
         self._lock = threading.Lock()
 
-    def clear(self) -> None:
-        with self._lock:
-            self._items.clear()
-            self._bytes = 0
-
     def get(self, key: Any) -> Any | None:
         now = time.monotonic()
         with self._lock:
@@ -101,11 +96,6 @@ class _BoundedTTLCache:
 
 _candidate_cache = _BoundedTTLCache(max_entries=256, max_bytes=2 * 1024 * 1024)
 _media_cache = _BoundedTTLCache(max_entries=64, max_bytes=64 * 1024 * 1024)
-
-
-def clear_audio_cache() -> None:
-    _candidate_cache.clear()
-    _media_cache.clear()
 
 
 def _read_limited_response(response: requests.Response, maximum: int, deadline: float) -> bytes:

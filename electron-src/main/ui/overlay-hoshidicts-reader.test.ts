@@ -1497,23 +1497,6 @@ describe("Hoshidicts safe popup rendering", () => {
 });
 
 describe("Hoshidicts compact definition summaries", () => {
-  it("normalizes the preferred dictionary as null or a bounded non-empty title", () => {
-    const dom = createDom();
-    const api = loadReaderModule(dom.window as unknown as Window);
-
-    expect(api.normalizeCompactDefinitionSummaryDictionary(null)).toBeNull();
-    expect(api.normalizeCompactDefinitionSummaryDictionary("  Jitendex  "))
-      .toBe("Jitendex");
-    expect(api.normalizeCompactDefinitionSummaryDictionary("   ")).toBeNull();
-    expect(api.normalizeCompactDefinitionSummaryDictionary(true)).toBeNull();
-    expect(api.normalizeCompactDefinitionSummaryDictionary("x".repeat(4097)))
-      .toBeNull();
-    expect(api.normalizeCompactDefinitionSummaryCount(undefined)).toBe(3);
-    expect(api.normalizeCompactDefinitionSummaryCount(5)).toBe(5);
-    expect(api.normalizeCompactDefinitionSummaryCount(0)).toBe(3);
-    expect(api.normalizeCompactDefinitionSummaryCount(7)).toBe(3);
-  });
-
   it("keeps compact summaries strictly opt-in", async () => {
     const harness = createReaderHarness({ lookupMode: "hover" });
     await renderFirstLookup(harness, {
