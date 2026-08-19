@@ -35,7 +35,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
     // Interactive hit-test regions use DIP coordinates, which match renderer
     // CSS pixels at the default page zoom.
-    const PADDING_PX = 10;
+    const PADDING_PX = Number(process.env.GSM_OVERLAY_SHAPE_PADDING || 24);
     const SHAPE_DEBOUNCE_MS = 50;
     let shapeUpdateFrame = null;
     let shapeUpdateTimer = null;

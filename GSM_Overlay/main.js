@@ -1,3 +1,8 @@
+// Linux/XWayland click-through strategy: window shape (default) vs cursor polling.
+const linuxWindowShapeMode = String(process.env.GSM_OVERLAY_WINDOW_SHAPE || '1').trim() !== '0';
+let applyLinuxWindowShapeRef = null;
+let linuxInteractiveRegionsRef = () => [];
+function linuxInteractiveRegionsSnapshot() { try { return linuxInteractiveRegionsRef(); } catch (_e) { return []; } }
 const electron = require('electron');
 const { spawn } = require('node:child_process');
 const { app, dialog, Tray, Menu, nativeImage, protocol, Notification } = electron;
@@ -5455,6 +5460,11 @@ function cancelManualBackgroundShowWait() {
 }
 
 function hideOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY) {
+  // Collapsing the shape on hide restores the mouse-leave the renderer needs to
+  // dismiss a Yomitan popup; without it the popup survives the hide/show cycle.
+  if (linuxWindowShapeMode && applyLinuxWindowShapeRef) {
+    try { applyLinuxWindowShapeRef([]); } catch (_e) {}
+  }
   if (!mainWindow || mainWindow.isDestroyed()) return false;
 
   console.log(`[OverlayActivation] Attempting HIDE (${triggerSource})... Current State: ${isOverlayVisible ? "Visible" : "Hidden"}`);
@@ -7520,6 +7530,9 @@ async function startOverlayAppImpl() {
   }
 
   function applyLinuxX11MouseIgnore(ignore) {
+    // Linux X11 input routing is owned by the window shape; the cursor-poll
+    // path would fight it, so it is inert while shape mode is on.
+    if (linuxWindowShapeMode) return;
     if (!useLinuxX11HitTesting || !mainWindow || mainWindow.isDestroyed()) return;
     const guardedIgnore = !!ignore || !isLinuxOverlayInteractionAllowed();
     if (linuxLastIgnoreMouseEvents === guardedIgnore) return;
@@ -7587,9 +7600,43 @@ async function startOverlayAppImpl() {
 
   applyLinuxX11MouseIgnore(true);
 
+  // Region-based click-through via the X11 window shape. The X server routes
+  // pointer events by region, so nothing has to know the global cursor
+  // position -- which XQueryPointer cannot supply under XWayland once the
+  // window is click-through.
+  applyLinuxWindowShapeRef = (regions) => applyLinuxWindowShape(regions);
+  linuxInteractiveRegionsRef = () => linuxInteractiveRegions;
+  function applyLinuxWindowShape(regions) {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    try {
+      if (yomitanShown) {
+        // A card is open: no clipping, no shape gaps, no dismissal from a
+        // stale region set. Click-through resumes when the card closes.
+        const bounds = mainWindow.getContentBounds();
+        mainWindow.setShape([{ x: 0, y: 0, width: bounds.width, height: bounds.height }]);
+        mainWindow.setIgnoreMouseEvents(false);
+        return;
+      }
+      if (!regions || regions.length === 0) {
+        const bounds = mainWindow.getContentBounds();
+        mainWindow.setShape([{ x: 0, y: 0, width: bounds.width, height: bounds.height }]);
+        mainWindow.setIgnoreMouseEvents(true);
+      } else {
+        mainWindow.setShape(regions);
+        mainWindow.setIgnoreMouseEvents(false);
+      }
+    } catch (error) {
+      console.warn('[Overlay] Failed to apply Linux X11 window shape:', error.message);
+    }
+  }
+
   ipcMain.on('update-window-shape', (event, shape) => {
     if (!useLinuxX11HitTesting) return;
     linuxInteractiveRegions = Array.isArray(shape) ? shape : (shape ? [shape] : []);
+    if (linuxWindowShapeMode) {
+      applyLinuxWindowShape(linuxInteractiveRegions);
+      return;
+    }
     syncLinuxX11MousePoller();
   });
 
@@ -7684,6 +7731,9 @@ async function startOverlayAppImpl() {
     lastYomitanEventAt = Date.now();
     yomitanShown = state;
     syncLinuxX11MousePoller();
+    if (linuxWindowShapeMode && applyLinuxWindowShapeRef) {
+      try { applyLinuxWindowShapeRef(linuxInteractiveRegionsSnapshot()); } catch (_e) {}
+    }
     if (state) {
       clearMagpieYomitanCloseVisibilityGuard();
       if (userSettings.focusOverlayOnYomitanLookup) {
