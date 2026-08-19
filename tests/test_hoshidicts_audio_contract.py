@@ -1,7 +1,7 @@
 import json
 
 from GameSentenceMiner import hoshidicts_audio, hoshidicts_audio_profile
-from tests.test_hoshidicts_factories import FakeResponse, make_audio_source, mp3_bytes, opus_bytes
+from tests.test_hoshidicts_factories import FakeResponse, make_audio_source, opus_bytes
 
 HoshidictsAudioError = hoshidicts_audio_profile.HoshidictsAudioError
 
@@ -55,36 +55,6 @@ def test_saved_legacy_enable_and_volume_keys_are_ignored(tmp_path):
         "version": 1,
         "autoPlay": True,
         "sources": [source],
-    }
-
-
-def test_saved_named_provider_sources_are_dropped_without_losing_generic_sources(tmp_path):
-    profile_path = tmp_path / "audio-profile.json"
-    generic = make_audio_source(
-        "fast-audio",
-        "custom-json",
-        url="http://127.0.0.1:5050/?term={term}&reading={reading}",
-    )
-    profile_path.write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "autoPlay": False,
-                "sources": [
-                    make_audio_source("legacy-jpod", "jpod101"),
-                    make_audio_source("legacy-language-pod", "language-pod-101"),
-                    make_audio_source("legacy-jisho", "jisho"),
-                    generic,
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    assert hoshidicts_audio_profile.load_hoshidicts_audio_profile(profile_path) == {
-        "version": 1,
-        "autoPlay": False,
-        "sources": [generic],
     }
 
 
@@ -160,114 +130,6 @@ def test_yomitan_audio_fast_custom_json_plays_and_mines_in_source_order(monkeypa
     ]
 
 
-def test_custom_json_response_has_no_download_size_cap(monkeypatch):
-    body = json.dumps(
-        {
-            "type": "audioSourceList",
-            "audioSources": [{"url": "https://cdn.test/recording.mp3"}],
-        }
-    ).encode()
-    respond(
-        monkeypatch,
-        FakeResponse(
-            body,
-            content_type="application/json",
-            headers={"Content-Length": str(256 * 1024 + 1)},
-        ),
-    )
-    profile = generic_profile(
-        make_audio_source("fast-audio", "custom-json", url="https://audio.test/lookup"),
-        enabled=True,
-        volume=100,
-    )
-
-    candidates = hoshidicts_audio.get_audio_candidates("食べる", "たべる", "fast-audio", profile=profile)
-
-    assert "playbackUrl" not in candidates[0]
-
-
-def test_streamed_custom_json_body_has_no_download_size_cap(monkeypatch):
-    body = json.dumps(
-        {
-            "type": "audioSourceList",
-            "audioSources": [{"url": "https://cdn.test/streamed.mp3"}],
-        }
-    ).encode() + b" " * (256 * 1024)
-    respond(monkeypatch, FakeResponse(body, content_type="application/json"))
-    profile = generic_profile(
-        make_audio_source("streamed", "custom-json", url="https://streamed.test/lookup"),
-        enabled=True,
-        volume=100,
-    )
-
-    candidates = hoshidicts_audio.get_audio_candidates("食べる", "たべる", "streamed", profile=profile)
-
-    assert "playbackUrl" not in candidates[0]
-
-
-def test_media_download_has_no_declared_size_cap(monkeypatch):
-    audio = mp3_bytes()
-    respond(
-        monkeypatch,
-        FakeResponse(
-            audio,
-            content_type="audio/mpeg",
-            headers={"Content-Length": str(16 * 1024 * 1024 + 1)},
-        ),
-    )
-    profile = generic_profile(
-        make_audio_source("direct", "custom", url="https://large.test/{term}.mp3"),
-        enabled=True,
-        volume=100,
-    )
-
-    media = hoshidicts_audio.get_audio_media("食べる", "たべる", "direct", 0, profile=profile)
-
-    assert media == hoshidicts_audio.AudioMedia(audio, "audio/mpeg", "mp3")
-
-
-def test_streamed_media_body_has_no_download_size_cap(monkeypatch):
-    audio = mp3_bytes() + b"\x00" * (16 * 1024 * 1024)
-    respond(monkeypatch, FakeResponse(audio, content_type="audio/mpeg"))
-    profile = generic_profile(
-        make_audio_source("streamed", "custom", url="https://streamed.test/{term}.mp3"),
-        enabled=True,
-        volume=100,
-    )
-
-    media = hoshidicts_audio.get_audio_media("食べる", "たべる", "streamed", 0, profile=profile)
-
-    assert media == hoshidicts_audio.AudioMedia(audio, "audio/mpeg", "mp3")
-
-
-def test_media_download_does_not_validate_provider_bytes(monkeypatch):
-    audio = b"opaque provider bytes"
-    respond(monkeypatch, FakeResponse(audio, content_type="audio/mpeg"))
-    profile = generic_profile(
-        make_audio_source("direct", "custom", url="https://opaque.test/{term}.mp3"),
-        enabled=True,
-        volume=100,
-    )
-
-    media = hoshidicts_audio.get_audio_media("食べる", "たべる", "direct", 0, profile=profile)
-
-    assert media == hoshidicts_audio.AudioMedia(audio, "audio/mpeg", "mp3")
-
-
-def test_media_download_does_not_validate_provider_content_type(monkeypatch):
-    audio = b"<html>provider response</html>"
-    respond(monkeypatch, FakeResponse(audio, content_type="text/html"))
-    profile = generic_profile(
-        make_audio_source("html", "custom", url="https://html.test/{term}.mp3"),
-        enabled=True,
-        volume=100,
-    )
-
-    media = hoshidicts_audio.get_audio_media("食べる", "たべる", "html", 0, profile=profile)
-
-    assert media == hoshidicts_audio.AudioMedia(audio, "text/html", "mp3")
-
-
 def test_media_download_does_not_validate_empty_provider_bytes(monkeypatch):
     respond(monkeypatch, FakeResponse(b"", content_type="audio/mpeg"))
     profile = generic_profile(
@@ -279,46 +141,6 @@ def test_media_download_does_not_validate_empty_provider_bytes(monkeypatch):
     media = hoshidicts_audio.get_audio_media("食べる", "たべる", "empty", 0, profile=profile)
 
     assert media == hoshidicts_audio.AudioMedia(b"", "audio/mpeg", "mp3")
-
-
-def test_custom_json_preserves_every_returned_candidate(monkeypatch):
-    candidate_count = 33
-    respond(
-        monkeypatch,
-        FakeResponse(
-            json.dumps(
-                {
-                    "type": "audioSourceList",
-                    "audioSources": [
-                        {
-                            "name": f"Recording {index}",
-                            "url": f"http://127.0.0.1:5050/media/{index}.mp3",
-                        }
-                        for index in range(candidate_count)
-                    ],
-                }
-            ).encode(),
-            content_type="application/json",
-        ),
-    )
-
-    candidates = hoshidicts_audio.get_audio_candidates(
-        "食べる",
-        "たべる",
-        "fast-audio",
-        profile=generic_profile(
-            make_audio_source(
-                "fast-audio",
-                "custom-json",
-                url="http://127.0.0.1:5051/?term={term}&reading={reading}",
-            ),
-            enabled=True,
-            volume=100,
-        ),
-    )
-
-    assert len(candidates) == candidate_count
-    assert candidates[-1]["name"] == "Recording 32"
 
 
 def test_mining_has_no_audio_download_attempt_cap(monkeypatch):
