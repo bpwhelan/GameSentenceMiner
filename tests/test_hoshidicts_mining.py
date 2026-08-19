@@ -1886,8 +1886,15 @@ def test_migrated_shared_target_omits_separators_for_empty_values(monkeypatch):
 
 def test_mining_stores_selected_pronunciation_after_note_creation(monkeypatch):
     fake_anki = FakeAnki(fields=[*DEFAULT_MODEL_FIELDS, "WordAudio"])
-    audio_profile = make_audio_profile()
-    selection = {"sourceId": "jisho", "candidateIndex": 1, "candidateId": "a" * 64}
+    audio_profile = make_audio_profile(
+        {
+            "id": "source",
+            "type": "custom",
+            "url": "https://audio.test/{term}.mp3",
+            "voice": "",
+        }
+    )
+    selection = {"sourceId": "source", "candidateIndex": 1, "candidateId": "a" * 64}
 
     def get_mining_audio(term, reading, requested_selection, *, profile):
         assert (term, reading) == ("食べる", "たべる")
@@ -2022,16 +2029,16 @@ def test_enrich_audio_malformed_media_data_returns_warning(monkeypatch):
     assert "storeMediaFile" not in set(fake_anki.actions())
 
 
-def test_mining_audio_disabled_is_skipped_without_resolution(monkeypatch):
+def test_mining_audio_without_sources_is_skipped_without_resolution(monkeypatch):
     fake_anki = FakeAnki(fields=[*DEFAULT_MODEL_FIELDS, "WordAudio"])
 
     def unexpected_resolution(*_args, **_kwargs):
-        raise AssertionError("disabled audio must not resolve")
+        raise AssertionError("audio without sources must not resolve")
 
     wire_audio(
         monkeypatch,
         fake_anki,
-        audio_profile=make_audio_profile(enabled=False),
+        audio_profile=make_audio_profile(),
         resolver=unexpected_resolution,
     )
 
@@ -2072,12 +2079,12 @@ def test_duplicate_note_rejection_happens_before_audio_download(monkeypatch):
     "audio_selection",
     [
         {
-            "sourceId": "jisho",
+            "sourceId": "source",
             "candidateIndex": 0,
             "url": "https://attacker.test/audio.mp3",
         },
-        {"sourceId": "jisho", "candidateIndex": True},
-        {"sourceId": "jisho", "candidateIndex": 0, "candidateId": "short"},
+        {"sourceId": "source", "candidateIndex": True},
+        {"sourceId": "source", "candidateIndex": 0, "candidateId": "short"},
         {"sourceId": "bad id", "candidateIndex": 0, "candidateId": "a" * 64},
     ],
 )
@@ -2594,7 +2601,7 @@ def test_duplicate_overwrite_applies_the_audio_overwrite_mode(
 @pytest.mark.parametrize(
     ("audio_state", "overwrite_mode", "expected_status"),
     [
-        ("disabled", "overwrite", "skipped"),
+        ("no-sources", "overwrite", "skipped"),
         ("unavailable", "append", "unavailable"),
         ("stored", "append", "stored"),
     ],
@@ -2631,7 +2638,18 @@ def test_duplicate_overwrite_keeps_compound_content_when_audio_cannot_be_added(
         monkeypatch,
         fake_anki,
         mining_profile=profile,
-        audio_profile=make_audio_profile(enabled=audio_state != "disabled"),
+        audio_profile=(
+            make_audio_profile()
+            if audio_state == "no-sources"
+            else make_audio_profile(
+                {
+                    "id": "source",
+                    "type": "custom",
+                    "url": "https://audio.test/{term}.mp3",
+                    "voice": "",
+                }
+            )
+        ),
         error=(
             hoshidicts_audio_profile.HoshidictsAudioError("No pronunciation audio is available.", 404)
             if audio_state == "unavailable"

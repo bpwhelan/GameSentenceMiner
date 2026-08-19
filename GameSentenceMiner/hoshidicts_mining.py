@@ -1250,7 +1250,7 @@ def _enrich_hoshidicts_note_audio(
         profile = _audio_profile.load_hoshidicts_audio_profile_or_default()
     except Exception as exc:
         return warning("failed", f"Could not load pronunciation audio settings: {exc}")
-    if not profile["enabled"]:
+    if not profile["sources"]:
         return {"status": "skipped"}
 
     pending_templates = {}

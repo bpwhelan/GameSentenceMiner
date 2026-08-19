@@ -95,7 +95,6 @@
       min: 1000,
       max: 60 * 60 * 1000,
     }),
-    audioVolume: Object.freeze({ min: 0, max: 100 }),
   });
 
   /** Bounded text, collection and URL sizes shared by the overlay modules. */
@@ -110,7 +109,6 @@
     customPopupCssLength: 32 * 1024,
     expandedExternalUrlLength: 2 * 1024 * 1024,
     audioSources: 32,
-    audioCandidates: 32,
     audioSourceIdLength: 128,
     audioUrlLength: 4096,
     audioVoiceLength: 255,
@@ -194,9 +192,6 @@
   ]);
 
   const AUDIO_SOURCE_TYPES = Object.freeze([
-    "jpod101",
-    "language-pod-101",
-    "jisho",
     "custom",
     "custom-json",
     "text-to-speech",
@@ -208,9 +203,6 @@
     "text-to-speech-reading",
   ]);
   const AUDIO_SOURCE_LABELS = Object.freeze({
-    jpod101: "JapanesePod101",
-    "language-pod-101": "LanguagePod101",
-    jisho: "Jisho",
     custom: "Custom URL",
     "custom-json": "Custom JSON",
     "text-to-speech": "Text-to-speech (term)",

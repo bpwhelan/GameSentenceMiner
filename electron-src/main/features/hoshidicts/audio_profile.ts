@@ -68,13 +68,6 @@ function normalizeSourceId(value: unknown): string {
     return id;
 }
 
-function normalizeSourceType(value: unknown): HoshidictsAudioSourceType {
-    if (!isHoshidictsAudioSourceType(value)) {
-        throw new Error('Hoshidicts audio source type is invalid.');
-    }
-    return value;
-}
-
 function normalizeCustomSourceUrl(value: unknown): string {
     const url = normalizeString(
         value,
@@ -104,11 +97,14 @@ function normalizeCustomSourceUrl(value: unknown): string {
     return url;
 }
 
-function normalizeAudioSource(value: unknown): HoshidictsAudioSource {
+function normalizeAudioSource(value: unknown): HoshidictsAudioSource | null {
     if (!isRecord(value)) {
         throw new Error('Hoshidicts audio source must be an object.');
     }
-    const type = normalizeSourceType(value.type);
+    if (!isHoshidictsAudioSourceType(value.type)) {
+        return null;
+    }
+    const type = value.type;
     const id = normalizeSourceId(value.id);
     const rawUrl = normalizeString(
         value.url,
@@ -133,10 +129,7 @@ function normalizeAudioSource(value: unknown): HoshidictsAudioSource {
         }
         return { id, type, url: '', voice: rawVoice };
     }
-    if (rawUrl || rawVoice) {
-        throw new Error('Built-in Hoshidicts audio sources cannot specify a URL or voice.');
-    }
-    return { id, type, url: '', voice: '' };
+    throw new Error('Hoshidicts audio source type is invalid.');
 }
 
 export function defaultHoshidictsAudioProfile(): HoshidictsAudioProfile {
@@ -155,10 +148,6 @@ export function normalizeHoshidictsAudioProfile(
     ) {
         throw new Error('Hoshidicts audio profile version is unsupported.');
     }
-    const volume = value.volume ?? 100;
-    if (!Number.isInteger(volume) || (volume as number) < 0 || (volume as number) > 100) {
-        throw new Error('Hoshidicts audio volume is invalid.');
-    }
     const rawSources = value.sources ?? defaultHoshidictsAudioProfile().sources;
     if (
         !Array.isArray(rawSources) ||
@@ -167,28 +156,26 @@ export function normalizeHoshidictsAudioProfile(
         throw new Error('Hoshidicts audio sources are invalid.');
     }
     const sourceIds = new Set<string>();
-    const sources = rawSources.map((source) => {
+    const sources: HoshidictsAudioSource[] = [];
+    for (const source of rawSources) {
         const normalized = normalizeAudioSource(source);
+        if (normalized === null) {
+            continue;
+        }
         if (sourceIds.has(normalized.id)) {
             throw new Error('Hoshidicts audio source ids must be unique.');
         }
         sourceIds.add(normalized.id);
-        return normalized;
-    });
+        sources.push(normalized);
+    }
 
     return {
         version: AUDIO_PROFILE_VERSION,
-        enabled: normalizeBoolean(
-            value.enabled,
-            true,
-            'Hoshidicts audio enabled setting'
-        ),
         autoPlay: normalizeBoolean(
             value.autoPlay,
             false,
             'Hoshidicts audio autoplay setting'
         ),
-        volume: volume as number,
         sources,
     };
 }

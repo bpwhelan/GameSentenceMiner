@@ -10,26 +10,15 @@ function profileWithSource(source: Record<string, unknown>): unknown {
 }
 
 describe('Hoshidicts audio profile', () => {
-    it('uses the Japanese Yomitan-style defaults', () => {
+    it('uses an empty generic default profile', () => {
         expect(defaultHoshidictsAudioProfile()).toEqual({
             version: 1,
-            enabled: true,
             autoPlay: false,
-            volume: 100,
-            sources: [
-                { id: 'jpod101', type: 'jpod101', url: '', voice: '' },
-                {
-                    id: 'language-pod-101',
-                    type: 'language-pod-101',
-                    url: '',
-                    voice: '',
-                },
-                { id: 'jisho', type: 'jisho', url: '', voice: '' },
-            ],
+            sources: [],
         });
     });
 
-    it('normalizes ordered custom and TTS sources without losing placeholders', () => {
+    it('normalizes ordered custom and TTS sources while dropping retired fields', () => {
         expect(
             normalizeHoshidictsAudioProfile({
                 enabled: false,
@@ -50,9 +39,7 @@ describe('Hoshidicts audio profile', () => {
             })
         ).toEqual({
             version: 1,
-            enabled: false,
             autoPlay: true,
-            volume: 35,
             sources: [
                 {
                     id: 'local-json',
@@ -70,27 +57,54 @@ describe('Hoshidicts audio profile', () => {
         });
     });
 
+    it('drops unsupported source types without losing generic sources', () => {
+        expect(
+            normalizeHoshidictsAudioProfile({
+                sources: [
+                    { id: 'unsupported', type: 'wiktionary' },
+                    {
+                        id: 'direct',
+                        type: 'custom',
+                        url: 'https://audio.test/{term}.mp3',
+                    },
+                ],
+            }).sources
+        ).toEqual([
+            {
+                id: 'direct',
+                type: 'custom',
+                url: 'https://audio.test/{term}.mp3',
+                voice: '',
+            },
+        ]);
+    });
+
     it.each<[string, unknown, string]>([
-        ['out-of-range volume', { volume: 101 }, 'volume is invalid'],
-        ['non-boolean enabled flag', { enabled: 'yes' }, 'enabled setting is invalid'],
-        [
-            'unsupported source type',
-            profileWithSource({ id: 'unknown', type: 'wiktionary' }),
-            'source type is invalid',
-        ],
         [
             'duplicate source id',
             {
                 sources: [
-                    { id: 'same', type: 'jisho' },
-                    { id: 'same', type: 'jpod101' },
+                    {
+                        id: 'same',
+                        type: 'custom',
+                        url: 'https://one.test/{term}.mp3',
+                    },
+                    {
+                        id: 'same',
+                        type: 'custom-json',
+                        url: 'https://two.test/{term}',
+                    },
                 ],
             },
             'must be unique',
         ],
         [
             'unsafe source id',
-            profileWithSource({ id: '../escape', type: 'jisho' }),
+            profileWithSource({
+                id: '../escape',
+                type: 'custom',
+                url: 'https://audio.test/{term}.mp3',
+            }),
             'source id is invalid',
         ],
         [

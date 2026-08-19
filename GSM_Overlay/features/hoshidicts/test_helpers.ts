@@ -412,9 +412,7 @@ export function createAudioControllerStub(
     dismissPopup: vi.fn(),
     getPreferences: vi.fn(() => ({
       version: 1,
-      enabled: true,
       autoPlay: false,
-      volume: 100,
       sources: []
     })),
     getSelection: vi.fn(() => selection),

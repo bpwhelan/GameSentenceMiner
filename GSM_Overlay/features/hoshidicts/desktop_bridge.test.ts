@@ -519,13 +519,11 @@ it("normalizes one complete live preference payload", () => {
     ]);
     const audioProfile = {
       version: 1,
-      enabled: true,
       autoPlay: false,
-      volume: 70,
       sources: [{
-        id: "jisho",
-        type: "jisho",
-        url: "",
+        id: "direct-audio",
+        type: "custom",
+        url: "https://audio.test/{term}.mp3",
         voice: "",
       }],
     };

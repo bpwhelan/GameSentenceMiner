@@ -900,11 +900,9 @@
       "audio": {
         "title": "Word pronunciation",
         "subtitle": "Play Japanese word audio in Hoshidicts results and optionally add it to mined notes.",
-        "enabled": "Enable pronunciation audio",
-        "enabledHint": "Shows speaker controls and permits pronunciation audio during mining.",
+        "setupGuidance": "If you want non-TTS audio, you can try setting up yomitan-fast-audio",
         "autoplay": "Autoplay the first result",
         "autoplayHint": "Plays the first entry after the latest successful lookup.",
-        "volume": "Volume: {volume}%",
         "sources": "Audio sources",
         "sourcesHint": "Sources are tried from top to bottom until one plays.",
         "restoreDefaults": "Restore Defaults",
@@ -931,18 +929,12 @@
         "removeSource": "Remove {name}",
         "privacy": "External audio sources receive the looked-up expression and reading. Only add providers you trust.",
         "sourceTypes": {
-          "jpod101": "JapanesePod101",
-          "languagePod101": "LanguagePod101",
-          "jisho": "Jisho",
           "custom": "Custom URL",
           "customJson": "Custom JSON",
           "termTts": "Text-to-speech (expression)",
           "readingTts": "Text-to-speech (reading)"
         },
         "sourceHelp": {
-          "jpod101": "Looks up JapanesePod101 dictionary recordings.",
-          "languagePod101": "Uses the LanguagePod101 Japanese pronunciation service.",
-          "jisho": "Finds pronunciation recordings exposed by Jisho.",
           "custom": "Substitutes {term}, {reading}, and {language} literally in the URL.",
           "customJson": "Requests a Yomitan-compatible audioSourceList JSON response.",
           "termTts": "Playback only: speaks the dictionary expression with a local system voice and cannot be attached to mined notes.",

@@ -151,10 +151,15 @@ const managerSnapshot = makeHoshidictsSnapshot({
     ],
     audioProfile: {
         version: 1,
-        enabled: true,
         autoPlay: false,
-        volume: 100,
-        sources: [{ id: 'jpod101', type: 'jpod101', url: '', voice: '' }],
+        sources: [
+            {
+                id: 'remote-audio',
+                type: 'custom',
+                url: 'https://audio.test/{term}.mp3',
+                voice: '',
+            },
+        ],
     },
 });
 harness.managerSnapshot = managerSnapshot;
@@ -418,7 +423,7 @@ describe('Hoshidicts feature registration', () => {
 
         const liveProfile = {
             ...managerSnapshot.audioProfile,
-            volume: 42,
+            autoPlay: true,
         };
         await expect(
             ipcDependencies().applyAudioProfile(liveProfile)

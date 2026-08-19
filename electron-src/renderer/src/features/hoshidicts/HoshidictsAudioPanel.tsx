@@ -41,23 +41,7 @@ const AUDIO_TEST_TERM = "聞く";
 const AUDIO_TEST_READING = "きく";
 const AUDIO_TEST_TIMEOUT_MS = 15_000;
 
-const AUDIO_TOGGLES = [
-  {
-    id: "hoshidicts-audio-enabled",
-    key: "enabled",
-    labelKey: "settings.hoshidicts.audio.enabled"
-  },
-  {
-    id: "hoshidicts-audio-autoplay",
-    key: "autoPlay",
-    labelKey: "settings.hoshidicts.audio.autoplay"
-  }
-] as const;
-
 const AUDIO_SOURCE_I18N_SUFFIXES: Record<HoshidictsAudioSourceType, string> = {
-  jpod101: "jpod101",
-  "language-pod-101": "languagePod101",
-  jisho: "jisho",
   custom: "custom",
   "custom-json": "customJson",
   "text-to-speech": "termTts",
@@ -268,7 +252,6 @@ export function HoshidictsAudioPanel({
     try {
       const utterance = new SpeechSynthesisUtterance(spokenText);
       utterance.lang = "ja-JP";
-      utterance.volume = audioDraft.volume / 100;
       const selectedVoice = voices.find(
         (voice) => voice.voiceURI === source.voice || voice.name === source.voice
       );
@@ -362,7 +345,6 @@ export function HoshidictsAudioPanel({
       const audio = new Audio(objectUrl);
       const playback = { audio, objectUrl };
       audioPlaybackRef.current = playback;
-      audio.volume = Math.min(1, Math.max(0, audioDraft.volume / 100));
       const candidateName = result.audio.candidateName.trim() || sourceName;
       audio.onended = () => {
         releaseAudioPlayback(playback);
@@ -429,46 +411,29 @@ export function HoshidictsAudioPanel({
           <HoshidictsSaveIndicator status={audioSaveStatus} />
         </div>
 
-        <div className="hoshidicts-audio-controls">
-          {AUDIO_TOGGLES.map((toggle) => (
-            <HoshidictsToggleSetting
-              key={toggle.id}
-              id={toggle.id}
-              className="hoshidicts-toggle--boxed"
-              label={t(toggle.labelKey)}
-              hint={t(`${toggle.labelKey}Hint`)}
-              checked={audioDraft[toggle.key]}
-              disabled={audioControlsDisabled}
-              onChange={(value) =>
-                updateProfile((profile) => ({ ...profile, [toggle.key]: value }))
-              }
-            />
-          ))}
-        </div>
+        <p>
+          <a
+            href="https://github.com/bee-san/yomitan-audio-fast"
+            target="_blank"
+            rel="noreferrer"
+          >
+            {t("settings.hoshidicts.audio.setupGuidance")}
+          </a>
+        </p>
 
-        <label className="hoshidicts-setting hoshidicts-audio-volume">
-          <span>
-            <Volume2 size={17} aria-hidden="true" />
-            {t("settings.hoshidicts.audio.volume", {
-              volume: audioDraft.volume
-            })}
-          </span>
-          <input
-            id="hoshidicts-audio-volume"
-            type="range"
-            min={0}
-            max={100}
-            step={1}
-            value={audioDraft.volume}
+        <div className="hoshidicts-audio-controls">
+          <HoshidictsToggleSetting
+            id="hoshidicts-audio-autoplay"
+            className="hoshidicts-toggle--boxed"
+            label={t("settings.hoshidicts.audio.autoplay")}
+            hint={t("settings.hoshidicts.audio.autoplayHint")}
+            checked={audioDraft.autoPlay}
             disabled={audioControlsDisabled}
-            onChange={(event) =>
-              updateProfile((profile) => ({
-                ...profile,
-                volume: event.currentTarget.valueAsNumber
-              }))
+            onChange={(autoPlay) =>
+              updateProfile((profile) => ({ ...profile, autoPlay }))
             }
           />
-        </label>
+        </div>
       </section>
 
       <section className="hoshidicts-section">

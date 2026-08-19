@@ -23,7 +23,6 @@ MAX_FREQUENCY_DICTIONARIES = 256
 MAX_DICTIONARY_MEDIA = 256
 MAX_DICTIONARY_MEDIA_BYTES = 4 * 1024 * 1024
 MAX_AUDIO_SOURCE_ID_LENGTH = 128
-MAX_AUDIO_CANDIDATES = 32
 _AUDIO_SOURCE_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 _AUDIO_CANDIDATE_ID_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 _DICTIONARY_MEDIA_EXTENSIONS = {
@@ -289,7 +288,7 @@ def validate_hoshidicts_mining_request(value: Any) -> dict[str, Any]:
             or _AUDIO_SOURCE_ID_PATTERN.fullmatch(source_id) is None
             or not isinstance(candidate_index, int)
             or isinstance(candidate_index, bool)
-            or not 0 <= candidate_index < MAX_AUDIO_CANDIDATES
+            or candidate_index < 0
             or not isinstance(candidate_id, str)
             or _AUDIO_CANDIDATE_ID_PATTERN.fullmatch(candidate_id) is None
         ):

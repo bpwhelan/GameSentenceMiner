@@ -1,7 +1,7 @@
 /*
  * Hoshidicts pronunciation audio for the GSM overlay.
  *
- * Audio provider discovery and remote downloads stay behind GSM's local API.
+ * Audio source discovery and remote downloads stay behind GSM's local API.
  * Loopback candidates stream directly so local audio does not make an extra
  * buffered round trip through GSM before playback.
  *
@@ -29,28 +29,14 @@
   const AUDIO_REQUEST_TIMEOUT_MS = 8 * 1000;
   const AUDIO_FALLBACK_TOTAL_TIMEOUT_MS = 12 * 1000;
   const AUDIO_DISCOVERY_CONCURRENCY = 3;
-  const MAX_AUDIO_FALLBACK_ATTEMPTS = 12;
-  const MAX_AUDIO_SOURCES = constants.LIMITS.audioSources;
-  const MAX_AUDIO_CANDIDATES = constants.LIMITS.audioCandidates;
   const MAX_AUDIO_URL_LENGTH = constants.LIMITS.audioUrlLength;
   const MAX_TEXT_LENGTH = constants.LIMITS.audioTextLength;
   const TTS_SOURCE_TYPES = constants.TTS_AUDIO_SOURCE_TYPES;
   const SOURCE_LABELS = constants.AUDIO_SOURCE_LABELS;
   const DEFAULT_AUDIO_PROFILE = Object.freeze({
     version: 1,
-    enabled: true,
     autoPlay: false,
-    volume: 100,
-    sources: Object.freeze([
-      Object.freeze({ id: "jpod101", type: "jpod101", url: "", voice: "" }),
-      Object.freeze({
-        id: "language-pod-101",
-        type: "language-pod-101",
-        url: "",
-        voice: "",
-      }),
-      Object.freeze({ id: "jisho", type: "jisho", url: "", voice: "" }),
-    ]),
+    sources: Object.freeze([]),
   });
 
   function isRecord(value) {
@@ -72,9 +58,7 @@
   function cloneAudioProfile(profile = DEFAULT_AUDIO_PROFILE) {
     return {
       version: profile.version,
-      enabled: profile.enabled,
       autoPlay: profile.autoPlay,
-      volume: profile.volume,
       sources: profile.sources.map((source) => ({ ...source })),
     };
   }
@@ -86,8 +70,10 @@
   function mergeAudioProfile(value) {
     const profile = isRecord(value) ? value : {};
     return {
-      ...DEFAULT_AUDIO_PROFILE,
-      ...profile,
+      version: profile.version === 1 ? 1 : DEFAULT_AUDIO_PROFILE.version,
+      autoPlay: typeof profile.autoPlay === "boolean"
+        ? profile.autoPlay
+        : DEFAULT_AUDIO_PROFILE.autoPlay,
       sources: Array.isArray(profile.sources)
         ? profile.sources.map((source) => ({ ...source }))
         : DEFAULT_AUDIO_PROFILE.sources.map((source) => ({ ...source })),
@@ -255,7 +241,7 @@
         }
         const seen = new Set();
         const candidates = [];
-        for (const rawCandidate of payload.candidates.slice(0, MAX_AUDIO_CANDIDATES)) {
+        for (const rawCandidate of payload.candidates) {
           if (!isRecord(rawCandidate) || !Number.isInteger(rawCandidate.index)) {
             continue;
           }
@@ -291,11 +277,7 @@
         if (!response.ok) {
           throw new Error(await responseError(response, "Audio download failed"));
         }
-        const media = await response.blob();
-        if (!media || media.size <= 0) {
-          throw new Error("GSM returned an empty pronunciation recording.");
-        }
-        return media;
+        return await response.blob();
       },
     };
   }
@@ -311,7 +293,7 @@
       loading: "Loading pronunciation",
       playing: "Playing pronunciation",
       error: "Could not play pronunciation",
-      unavailable: "Pronunciation audio is disabled",
+      unavailable: "Pronunciation audio is unavailable",
     }[state] || "Play pronunciation";
     button.setAttribute("aria-label", button.title);
     button.textContent = "";
@@ -332,13 +314,7 @@
       options.fallbackTimeoutMs > 0
       ? Math.trunc(options.fallbackTimeoutMs)
       : AUDIO_FALLBACK_TOTAL_TIMEOUT_MS;
-    const maxFallbackAttempts = Number.isInteger(options.maxFallbackAttempts) &&
-      options.maxFallbackAttempts > 0
-      ? Math.min(
-          options.maxFallbackAttempts,
-          MAX_AUDIO_SOURCES * MAX_AUDIO_CANDIDATES
-        )
-      : MAX_AUDIO_FALLBACK_ATTEMPTS;
+
     const createAudioElement = typeof options.createAudioElement === "function"
       ? options.createAudioElement
       : () => new windowRef.Audio();
@@ -493,10 +469,11 @@
 
     function updateButtons() {
       renderedItems = renderedItems.filter(({ button }) => button);
+      const available = preferences.sources.length > 0;
       for (const { button } of renderedItems) {
-        button.hidden = !preferences.enabled || preferences.sources.length === 0;
+        button.hidden = !available;
         if (
-          preferences.enabled &&
+          available &&
           button === currentButton &&
           ["loading", "playing"].includes(button.dataset.state)
         ) {
@@ -504,7 +481,7 @@
         }
         setAudioButtonState(
           button,
-          preferences.enabled ? "ready" : "unavailable"
+          available ? "ready" : "unavailable"
         );
       }
     }
@@ -548,7 +525,6 @@
       const audio = createAudioElement();
       currentObjectUrl = objectUrl;
       currentAudio = audio;
-      audio.volume = preferences.volume / 100;
       audio.src = playbackUrl || objectUrl;
       if (typeof audio.addEventListener === "function") {
         audio.addEventListener("ended", () => {
@@ -612,7 +588,6 @@
       }
       const utterance = new Utterance(text);
       utterance.lang = "ja-JP";
-      utterance.volume = preferences.volume / 100;
       if (source.voice && typeof synthesis.getVoices === "function") {
         const voice = synthesis.getVoices().find((candidate) =>
           candidate &&
@@ -658,7 +633,7 @@
     }
 
     async function playExact(result, button, source, candidate) {
-      if (destroyed || !preferences.enabled) {
+      if (destroyed || preferences.sources.length === 0) {
         return false;
       }
       clearAutoplay();
@@ -699,7 +674,7 @@
     }
 
     async function playOrdered(result, button) {
-      if (destroyed || !preferences.enabled) {
+      if (destroyed || preferences.sources.length === 0) {
         return false;
       }
       clearAutoplay();
@@ -746,19 +721,11 @@
         deadline,
       ]);
       let lastError = null;
-      let attempts = 0;
-      let fallbackLimitReached = false;
       try {
-        sourceLoop:
         for (const source of preferences.sources) {
           if (destroyed || sequence !== operationSequence) {
             return false;
           }
-          if (attempts >= maxFallbackAttempts) {
-            fallbackLimitReached = true;
-            break;
-          }
-          attempts += 1;
           try {
             if (TTS_SOURCE_TYPES.has(source.type)) {
               const played = await withinDeadline(
@@ -773,15 +740,7 @@
             const candidates = await withinDeadline(
               candidatesFor(result, source, signal)
             );
-            for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
-              if (candidateIndex > 0) {
-                if (attempts >= maxFallbackAttempts) {
-                  fallbackLimitReached = true;
-                  break sourceLoop;
-                }
-                attempts += 1;
-              }
-              const candidate = candidates[candidateIndex];
+            for (const candidate of candidates) {
               try {
                 if (await withinDeadline(playCandidate(
                   result,
@@ -811,11 +770,9 @@
         }
         if (sequence === operationSequence) {
           currentAbortController = null;
-          const message = fallbackLimitReached
-            ? "Pronunciation audio fallback limit reached."
-            : lastError
-              ? lastError instanceof Error ? lastError.message : String(lastError)
-              : "No pronunciation recording was found.";
+          const message = lastError
+            ? lastError instanceof Error ? lastError.message : String(lastError)
+            : "No pronunciation recording was found.";
           setAudioButtonState(button, "error", message);
           currentButton = null;
           diagnostic("warn", "playback.unavailable", lastError);
@@ -857,7 +814,7 @@
     }
 
     async function showMenu(result, button) {
-      if (destroyed || !preferences.enabled || preferences.sources.length === 0) {
+      if (destroyed || preferences.sources.length === 0) {
         return;
       }
       clearAutoplay();
@@ -989,7 +946,6 @@
       }
       if (
         options.autoPlay !== false &&
-        preferences.enabled &&
         preferences.autoPlay &&
         preferences.sources.length > 0 &&
         !autoplayStarted
@@ -1000,7 +956,6 @@
           const first = renderedItems[0];
           if (
             !destroyed &&
-            preferences.enabled &&
             preferences.autoPlay &&
             first
           ) {
@@ -1023,7 +978,6 @@
     }
 
     function updatePreferences(nextPreferences = {}) {
-      const previousEnabled = preferences.enabled;
       const previousSourceSignature = JSON.stringify(preferences.sources);
       const nextProfile = mergeAudioProfile({
         ...preferences,
@@ -1035,16 +989,11 @@
       const sourcesChanged =
         previousSourceSignature !== JSON.stringify(nextProfile.sources);
       preferences = nextProfile;
-      if (!preferences.enabled || sourcesChanged) {
+      if (sourcesChanged) {
         resetAutoplay();
         removeMenu();
         stopActive();
         selections = new WeakMap();
-      } else if (currentAudio) {
-        currentAudio.volume = preferences.volume / 100;
-      }
-      if (!previousEnabled && preferences.enabled) {
-        diagnostic("info", "audio.enabled");
       }
       updateButtons();
       return cloneAudioProfile(preferences);
@@ -1081,7 +1030,6 @@
     AUDIO_FALLBACK_TOTAL_TIMEOUT_MS,
     AUDIO_REQUEST_TIMEOUT_MS,
     DEFAULT_AUDIO_PROFILE,
-    MAX_AUDIO_FALLBACK_ATTEMPTS,
     canonicalizeAudioTerm,
     createHoshidictsAudioClient,
     createHoshidictsAudioController,

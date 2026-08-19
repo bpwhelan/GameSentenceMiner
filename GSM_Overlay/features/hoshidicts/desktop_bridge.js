@@ -51,11 +51,7 @@ function normalizeHoshidictsAudioProfile(profile) {
   if (
     !source ||
     source.version !== 1 ||
-    typeof source.enabled !== "boolean" ||
     typeof source.autoPlay !== "boolean" ||
-    !Number.isInteger(source.volume) ||
-    source.volume < BOUNDS.audioVolume.min ||
-    source.volume > BOUNDS.audioVolume.max ||
     !Array.isArray(source.sources) ||
     source.sources.length > LIMITS.audioSources ||
     !source.sources.every((entry) =>
@@ -72,7 +68,16 @@ function normalizeHoshidictsAudioProfile(profile) {
   ) {
     throw new Error("Hoshidicts audio preferences are invalid.");
   }
-  return source;
+  return {
+    version: 1,
+    autoPlay: source.autoPlay,
+    sources: source.sources.map((entry) => ({
+      id: entry.id,
+      type: entry.type,
+      url: entry.url,
+      voice: entry.voice,
+    })),
+  };
 }
 
 function isWithinUtf8JsonLimit(value, maxBytes) {

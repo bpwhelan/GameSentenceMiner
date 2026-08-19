@@ -100,7 +100,7 @@ describe('Hoshidicts audio source test proxy', () => {
         ]);
     });
 
-    it('continues to the next candidate after a media transport failure', async () => {
+    it('continues to the next candidate after a timed-out media request', async () => {
         const fetchMock = vi
             .fn<typeof fetch>()
             .mockResolvedValueOnce(
@@ -126,6 +126,9 @@ describe('Hoshidicts audio source test proxy', () => {
                 })
             );
         vi.stubGlobal('fetch', fetchMock);
+        vi.stubGlobal('AbortSignal', {
+            timeout: () => ({ aborted: true }),
+        });
 
         await expect(
             fetchHoshidictsAudioSourceTest('custom-source')
@@ -144,7 +147,7 @@ describe('Hoshidicts audio source test proxy', () => {
         );
 
         await expect(
-            fetchHoshidictsAudioSourceTest('jisho')
+            fetchHoshidictsAudioSourceTest('custom-source')
         ).rejects.toThrow('invalid audio candidate response');
     });
 
@@ -220,7 +223,7 @@ describe('Hoshidicts audio source test proxy', () => {
         );
 
         await expect(
-            fetchHoshidictsAudioSourceTest('jisho')
+            fetchHoshidictsAudioSourceTest('custom-source')
         ).rejects.toThrow('聞く（きく）');
     });
 });

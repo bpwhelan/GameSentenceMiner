@@ -617,7 +617,21 @@ describe('Hoshidicts settings IPC', () => {
 
     it('returns saved state and a provider error when an audio source test fails', async () => {
         const context = await registerHarness();
-        const profile = snapshot.audioProfile;
+        const profile = {
+            ...snapshot.audioProfile,
+            sources: [
+                {
+                    id: 'remote-audio',
+                    type: 'custom' as const,
+                    url: 'https://audio.test/{term}.mp3',
+                    voice: '',
+                },
+            ],
+        };
+        harness.manager.setAudioProfile.mockResolvedValueOnce({
+            ...snapshot,
+            audioProfile: profile,
+        });
         harness.testAudioSource.mockRejectedValueOnce(
             new Error('No pronunciation audio was found.')
         );
@@ -625,7 +639,7 @@ describe('Hoshidicts settings IPC', () => {
         await expect(
             harness.handlers.get('hoshidicts.testAudioSource')?.(
                 context.settingsEvent,
-                { profile, sourceId: 'jisho' }
+                { profile, sourceId: 'remote-audio' }
             )
         ).resolves.toMatchObject({
             success: false,

@@ -2526,7 +2526,7 @@ describe("HoshidictsSettingsWindow", () => {
     const guidance = Array.from(audioPanel?.querySelectorAll("a") ?? []).find(
       (link) =>
         link.textContent ===
-        "You can install yomitan-fast-audio to set up instant high quality Japanese audio."
+        "If you want non-TTS audio, you can try setting up yomitan-fast-audio"
     );
 
     expect(guidance).toBeDefined();
@@ -2573,17 +2573,35 @@ describe("HoshidictsSettingsWindow", () => {
 
   it("edits and auto-saves ordered pronunciation audio sources", async () => {
     vi.useFakeTimers();
+    ipc.configure({
+      state: makeHoshidictsSnapshot({
+        audioProfile: {
+          version: 1,
+          autoPlay: false,
+          sources: [
+            {
+              id: "direct-audio",
+              type: "custom",
+              url: "https://first.test/{term}.mp3",
+              voice: ""
+            },
+            {
+              id: "audio-list",
+              type: "custom-json",
+              url: "https://second.test/list?term={term}",
+              voice: ""
+            }
+          ]
+        }
+      })
+    });
     await render();
     await openView("Audio");
-
-    expect(container.textContent).toContain("JapanesePod101");
-    expect(container.textContent).toContain("LanguagePod101");
-    expect(container.textContent).toContain("Jisho");
 
     await flushAfter(() => {
       container
         .querySelector<HTMLButtonElement>(
-          '[aria-label="Move LanguagePod101 up"]'
+          '[aria-label="Move Custom JSON up"]'
         )
         ?.click();
       container
@@ -2605,18 +2623,12 @@ describe("HoshidictsSettingsWindow", () => {
         "#hoshidicts-audio-autoplay"
       );
       autoplay?.click();
-      const volume = container.querySelector<HTMLInputElement>(
-        "#hoshidicts-audio-volume"
-      );
-      setInputValue(volume, "65");
     });
 
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.setAudioProfile,
       expect.objectContaining({
-        enabled: true,
         autoPlay: true,
-        volume: 65,
         sources: expect.arrayContaining([
           expect.objectContaining({
             type: "custom-json",
@@ -2628,16 +2640,38 @@ describe("HoshidictsSettingsWindow", () => {
     const savedProfile = invokeMock.mock.calls.find(
       ([channel]) => channel === HOSHIDICTS_CHANNELS.setAudioProfile
     )?.[1] as typeof baseState.audioProfile;
-    expect(savedProfile.sources[0].type).toBe("language-pod-101");
+    expect(savedProfile.sources[0].id).toBe("audio-list");
     expect(container.textContent).toContain("Saved");
   });
 
   it("tests every downloadable audio row with the current draft and plays the returned bytes", async () => {
     const { instances, createObjectUrl, revokeObjectUrl } =
       installFakeAudio("blob:hoshidicts-kiku");
+    const audioState: HoshidictsDesktopSnapshot = {
+      ...baseState,
+      audioProfile: {
+        version: 1,
+        autoPlay: false,
+        sources: [
+          {
+            id: "direct-audio",
+            type: "custom",
+            url: "https://audio.test/{term}.mp3",
+            voice: ""
+          },
+          {
+            id: "audio-list",
+            type: "custom-json",
+            url: "https://audio.test/list?term={term}",
+            voice: ""
+          }
+        ]
+      }
+    };
 
     const pendingTest = deferred<unknown>();
     ipc.configure({
+      state: audioState,
       handlers: {
         [HOSHIDICTS_CHANNELS.testAudioSource]: () => pendingTest.promise
       }
@@ -2652,24 +2686,18 @@ describe("HoshidictsSettingsWindow", () => {
           "[data-audio-test-source]"
         )
       );
-    expect(testButtons()).toHaveLength(baseState.audioProfile.sources.length);
+    expect(testButtons()).toHaveLength(audioState.audioProfile.sources.length);
 
-    await settle(() => {
-      setInputValue(
-        container.querySelector<HTMLInputElement>("#hoshidicts-audio-volume"),
-        "65"
-      );
-    }, 1);
     const firstButton = container.querySelector<HTMLButtonElement>(
-      '[data-audio-test-source="jpod101"]'
+      '[data-audio-test-source="direct-audio"]'
     );
     await settle(() => firstButton?.click(), 1);
 
     expect(invokeMock).toHaveBeenCalledWith(
       HOSHIDICTS_CHANNELS.testAudioSource,
       {
-        profile: expect.objectContaining({ volume: 65 }),
-        sourceId: "jpod101"
+        profile: audioState.audioProfile,
+        sourceId: "direct-audio"
       }
     );
     expect(container.textContent).toContain("Testing 聞く（きく）");
@@ -2683,7 +2711,7 @@ describe("HoshidictsSettingsWindow", () => {
           contentType: "audio/mpeg",
           candidateName: "Kiku recording"
         },
-        state: baseState
+        state: audioState
       });
     });
 
@@ -2694,7 +2722,7 @@ describe("HoshidictsSettingsWindow", () => {
     expect(blob.size).toBe(3);
     expect(instances).toHaveLength(1);
     expect(instances[0]?.src).toBe("blob:hoshidicts-kiku");
-    expect(instances[0]?.volume).toBe(0.65);
+    expect(instances[0]?.volume).toBe(1);
     expect(instances[0]?.play).toHaveBeenCalledOnce();
     expect(container.textContent).toContain("Playing Kiku recording");
 
@@ -2707,7 +2735,7 @@ describe("HoshidictsSettingsWindow", () => {
     expect(testButtons().every((button) => !button.disabled)).toBe(true);
 
     await clickAndSettle(
-      container.querySelector<HTMLButtonElement>('[data-audio-test-source="language-pod-101"]')
+      container.querySelector<HTMLButtonElement>('[data-audio-test-source="audio-list"]')
     );
     expect(instances).toHaveLength(2);
 
@@ -2723,7 +2751,6 @@ describe("HoshidictsSettingsWindow", () => {
       ...baseState,
       audioProfile: {
         ...baseState.audioProfile,
-        volume: 40,
         sources: [
           {
             id: "expression-tts",
@@ -2755,8 +2782,7 @@ describe("HoshidictsSettingsWindow", () => {
     expect(spoken).toHaveLength(1);
     expect(spoken[0]).toMatchObject({
       text: "聞く",
-      lang: "ja-JP",
-      volume: 0.4
+      lang: "ja-JP"
     });
     expect(container.textContent).toContain("Playing 聞く");
     expect(
@@ -2784,12 +2810,28 @@ describe("HoshidictsSettingsWindow", () => {
   });
 
   it("shows a per-row error and re-enables source tests after a failed probe", async () => {
+    const audioState: HoshidictsDesktopSnapshot = {
+      ...baseState,
+      audioProfile: {
+        version: 1,
+        autoPlay: false,
+        sources: [
+          {
+            id: "direct-audio",
+            type: "custom",
+            url: "https://audio.test/{term}.mp3",
+            voice: ""
+          }
+        ]
+      }
+    };
     ipc.configure({
+      state: audioState,
       handlers: {
         [HOSHIDICTS_CHANNELS.testAudioSource]: () => ({
           success: false,
           error: "The recording service is unavailable.",
-          state: baseState
+          state: audioState
         })
       }
     });
@@ -2797,7 +2839,7 @@ describe("HoshidictsSettingsWindow", () => {
     await render();
     await openView("Audio");
     await clickAndSettle(
-      container.querySelector<HTMLButtonElement>('[data-audio-test-source="jisho"]')
+      container.querySelector<HTMLButtonElement>('[data-audio-test-source="direct-audio"]')
     );
 
     const error = container.querySelector<HTMLElement>(
@@ -2891,7 +2933,7 @@ describe("HoshidictsSettingsWindow", () => {
       )?.textContent
     ).toBe("Test failed: Audio source test timed out.");
     expect(
-      container.querySelector<HTMLInputElement>("#hoshidicts-audio-enabled")
+      container.querySelector<HTMLInputElement>("#hoshidicts-audio-autoplay")
         ?.disabled
     ).toBe(false);
     expect(
@@ -2910,7 +2952,7 @@ describe("HoshidictsSettingsWindow", () => {
     await settle(() => ttsTest?.click(), 1);
     expect(spoken).toHaveLength(1);
     expect(
-      container.querySelector<HTMLInputElement>("#hoshidicts-audio-volume")
+      container.querySelector<HTMLInputElement>("#hoshidicts-audio-autoplay")
         ?.disabled
     ).toBe(true);
     const cancelsBeforeTimeout = cancel.mock.calls.length;
@@ -2929,7 +2971,7 @@ describe("HoshidictsSettingsWindow", () => {
     ).toBe("Test failed: Audio source test timed out.");
     expect(ttsTest?.disabled).toBe(false);
     expect(
-      container.querySelector<HTMLInputElement>("#hoshidicts-audio-volume")
+      container.querySelector<HTMLInputElement>("#hoshidicts-audio-autoplay")
         ?.disabled
     ).toBe(false);
   });
@@ -2968,7 +3010,7 @@ describe("HoshidictsSettingsWindow", () => {
 
     await flushAfter(() =>
       container
-        .querySelector<HTMLInputElement>("#hoshidicts-audio-enabled")
+        .querySelector<HTMLButtonElement>("#hoshidicts-audio-add-source")
         ?.click()
     );
     expect(callsFor(HOSHIDICTS_CHANNELS.setAudioProfile)).toHaveLength(2);
@@ -2979,6 +3021,22 @@ describe("HoshidictsSettingsWindow", () => {
     vi.useFakeTimers();
     const pendingSave = deferred<HoshidictsActionResult>();
     let firstAudioSave = true;
+    ipc.configure({
+      state: makeHoshidictsSnapshot({
+        audioProfile: {
+          version: 1,
+          autoPlay: false,
+          sources: [
+            {
+              id: "direct-audio",
+              type: "custom",
+              url: "https://audio.test/{term}.mp3",
+              voice: ""
+            }
+          ]
+        }
+      })
+    });
     ipc.configure({
       handlers: {
         [HOSHIDICTS_CHANNELS.setAudioProfile]: () => {
@@ -3003,9 +3061,13 @@ describe("HoshidictsSettingsWindow", () => {
 
     await settle(() => {
       setInputValue(
-        container.querySelector<HTMLInputElement>("#hoshidicts-audio-volume"),
-        "65"
+        container.querySelector<HTMLInputElement>(
+          '.hoshidicts-audio-source input[type="text"]'
+        ),
+        "https://queued.test/{term}.mp3"
       );
+    }, 1);
+    await settle(() => {
       pendingSave.resolve({
         success: true,
         state: {
@@ -3014,13 +3076,18 @@ describe("HoshidictsSettingsWindow", () => {
           audioProfile: firstRequest ?? baseState.audioProfile
         }
       });
-    });
+    }, 1);
     await act(flushAutosave);
 
     expect(callsFor(HOSHIDICTS_CHANNELS.setAudioProfile)).toHaveLength(2);
     expect(callsFor(HOSHIDICTS_CHANNELS.setAudioProfile)[1]?.[1]).toMatchObject({
       autoPlay: true,
-      volume: 65
+      sources: [
+        expect.objectContaining({
+          type: "custom",
+          url: "https://queued.test/{term}.mp3"
+        })
+      ]
     });
   });
 
@@ -3028,23 +3095,22 @@ describe("HoshidictsSettingsWindow", () => {
     vi.useFakeTimers();
     await render();
     await openView("Audio");
-    const volume = container.querySelector<HTMLInputElement>(
-      "#hoshidicts-audio-volume"
-    );
 
     await settle(() => {
-      setInputValue(volume, "65");
+      container
+        .querySelector<HTMLButtonElement>("#hoshidicts-audio-add-source")
+        ?.click();
       ipc.emit(HOSHIDICTS_CHANNELS.progress, {
         ...baseState,
         revision: ipc.nextRevision(),
-        audioProfile: { ...baseState.audioProfile, volume: 5 }
+        audioProfile: baseState.audioProfile
       });
     }, 1);
-    expect(volume?.value).toBe("65");
+    expect(container.querySelectorAll(".hoshidicts-audio-source")).toHaveLength(1);
 
     await act(flushAutosave);
     expect(callsFor(HOSHIDICTS_CHANNELS.setAudioProfile)[0]?.[1]).toMatchObject({
-      volume: 65
+      sources: [expect.objectContaining({ type: "custom" })]
     });
   });
 

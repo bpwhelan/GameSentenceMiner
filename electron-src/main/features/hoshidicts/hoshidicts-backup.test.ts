@@ -125,7 +125,18 @@ async function writeTestRoot(
             ),
             fsp.writeFile(
                 path.join(rootDir, 'audio-profile.json'),
-                JSON.stringify({ version: 1, sources: [{ type: 'jpod101' }] }),
+                JSON.stringify({
+                    version: 1,
+                    autoPlay: false,
+                    sources: [
+                        {
+                            id: 'remote-audio',
+                            type: 'custom',
+                            url: 'https://audio.test/{term}.mp3',
+                            voice: '',
+                        },
+                    ],
+                }),
             ),
             fsp.writeFile(path.join(rootDir, 'custom-dictionary.txt'), '# custom\n猫, ねこ, cat\n'),
         ]);
@@ -287,7 +298,7 @@ describe('Hoshidicts full backups', () => {
             ).resolves.toContain('Mining');
             await expect(
                 fsp.readFile(path.join(targetRoot, 'audio-profile.json'), 'utf8'),
-            ).resolves.toContain('jpod101');
+            ).resolves.toContain('remote-audio');
             await expect(
                 fsp.readFile(path.join(targetRoot, 'custom-dictionary.txt'), 'utf8'),
             ).resolves.toContain('猫, ねこ, cat');

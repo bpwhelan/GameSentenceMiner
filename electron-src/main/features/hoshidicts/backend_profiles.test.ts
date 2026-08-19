@@ -164,13 +164,12 @@ describe('Hoshidicts backend profile files', () => {
         await manager.setAudioProfile({
             ...defaultHoshidictsAudioProfile(),
             autoPlay: true,
-            volume: 40,
         });
 
-        expect(await readJson(manager.audioProfilePath)).toMatchObject({
+        expect(await readJson(manager.audioProfilePath)).toEqual({
             version: 1,
             autoPlay: true,
-            volume: 40,
+            sources: [],
         });
     });
 

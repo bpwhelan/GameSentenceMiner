@@ -543,9 +543,6 @@ export function parseHoshidictsCustomDictionary(
 }
 export type HoshidictsMoveDirection = -1 | 1;
 export const HOSHIDICTS_AUDIO_SOURCE_TYPES = [
-    'jpod101',
-    'language-pod-101',
-    'jisho',
     'custom',
     'custom-json',
     'text-to-speech',
@@ -1359,9 +1356,7 @@ export interface HoshidictsAudioSource {
 
 export interface HoshidictsAudioProfile {
     version: 1;
-    enabled: boolean;
     autoPlay: boolean;
-    volume: number;
     sources: HoshidictsAudioSource[];
 }
 
@@ -1379,19 +1374,8 @@ export interface HoshidictsAudioSourceTestMedia {
 export function createDefaultHoshidictsAudioProfile(): HoshidictsAudioProfile {
     return {
         version: 1,
-        enabled: true,
         autoPlay: false,
-        volume: 100,
-        sources: [
-            { id: 'jpod101', type: 'jpod101', url: '', voice: '' },
-            {
-                id: 'language-pod-101',
-                type: 'language-pod-101',
-                url: '',
-                voice: '',
-            },
-            { id: 'jisho', type: 'jisho', url: '', voice: '' },
-        ],
+        sources: [],
     };
 }
 

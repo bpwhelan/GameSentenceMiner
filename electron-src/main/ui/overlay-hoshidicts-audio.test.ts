@@ -22,9 +22,7 @@ function audioProfile(
 ) {
   return {
     version: 1,
-    enabled: true,
     autoPlay: false,
-    volume: 100,
     ...overrides,
     sources
   };
@@ -49,7 +47,12 @@ function createControllerHarness(options: Record<string, any> = {}) {
     dom = createDom(),
     profile = {},
     render = true,
-    sources = [{ id: "jisho", type: "jisho", url: "", voice: "" }],
+    sources = [{
+      id: "direct-audio",
+      type: "custom",
+      url: "https://audio.test/{term}.mp3",
+      voice: ""
+    }],
     term = result(),
     ...controllerOptions
   } = options;
@@ -107,7 +110,7 @@ describe("Hoshidicts audio client", () => {
     await expect(client.getCandidates({
       term: "食べる",
       reading: "たべる",
-      sourceId: "jpod101"
+      sourceId: "fast-audio"
     })).resolves.toEqual([{
       index: 3,
       name: "Female",
@@ -117,7 +120,7 @@ describe("Hoshidicts audio client", () => {
     await expect(client.getMedia({
       term: "食べる",
       reading: "たべる",
-      sourceId: "jpod101",
+      sourceId: "fast-audio",
       candidateIndex: 3,
       candidateId: CANDIDATE_ID
     })).resolves.toBe(audioBlob);
@@ -133,7 +136,7 @@ describe("Hoshidicts audio client", () => {
         body: JSON.stringify({
           term: "食べる",
           reading: "たべる",
-          sourceId: "jpod101"
+          sourceId: "fast-audio"
         })
       })
     );
@@ -148,7 +151,7 @@ describe("Hoshidicts audio client", () => {
         body: JSON.stringify({
           term: "食べる",
           reading: "たべる",
-          sourceId: "jpod101",
+          sourceId: "fast-audio",
           candidateIndex: 3,
           candidateId: CANDIDATE_ID
         })
@@ -335,8 +338,8 @@ describe("Hoshidicts audio controller", () => {
     const { button, controller } = createControllerHarness({
       client: { getCandidates, getMedia: vi.fn() },
       sources: [
-        { id: "first", type: "jpod101", url: "", voice: "" },
-        { id: "second", type: "jisho", url: "", voice: "" }
+        { id: "first", type: "custom", url: "https://first.test/{term}", voice: "" },
+        { id: "second", type: "custom-json", url: "https://second.test/{term}", voice: "" }
       ],
       fallbackTimeoutMs: 50,
       setTimeout,
@@ -414,7 +417,7 @@ describe("Hoshidicts audio controller", () => {
     expect(getCandidates).toHaveBeenCalledWith({
       term: "食べる",
       reading: "たべる",
-      sourceId: "jisho"
+      sourceId: "direct-audio"
     }, expect.anything());
     expect(getMedia).toHaveBeenCalledWith(expect.objectContaining({
       term: "食べる",
@@ -456,7 +459,6 @@ describe("Hoshidicts audio controller", () => {
         url: "",
         voice: "haruka"
       }],
-      profile: { volume: 25 },
       term: result("食べた", "たべた")
     });
 
@@ -498,7 +500,7 @@ describe("Hoshidicts audio controller", () => {
     await flushPromises();
     await vi.waitFor(() => {
       expect(controller.getSelection(term)).toEqual({
-        sourceId: "jisho",
+        sourceId: "direct-audio",
         candidateIndex: 0,
         candidateId: CANDIDATE_ID
       });
@@ -573,12 +575,16 @@ describe("Hoshidicts audio controller", () => {
       appendButton: true,
       client,
       profile: { autoPlay: true },
-      sources: [{ id: "jpod", type: "jpod101", url: "", voice: "" }],
+      sources: [{
+        id: "remote-audio",
+        type: "custom-json",
+        url: "https://audio.test/list?term={term}",
+        voice: ""
+      }],
       createAudioElement: () => audioElement({ play }),
       createObjectURL: () => "blob:menu",
       revokeObjectURL: vi.fn(),
-      fallbackTimeoutMs: 1,
-      maxFallbackAttempts: 1
+      fallbackTimeoutMs: 1
     });
 
     button.dispatchEvent(new dom.window.MouseEvent("click", {
@@ -604,14 +610,14 @@ describe("Hoshidicts audio controller", () => {
 
     expect(client.getMedia).toHaveBeenCalledWith(
       expect.objectContaining({
-        sourceId: "jpod",
+        sourceId: "remote-audio",
         candidateIndex: 2,
         candidateId: SECOND_CANDIDATE_ID
       }),
       expect.objectContaining({ signal: expect.anything() })
     );
     expect(controller.getSelection(term)).toEqual({
-      sourceId: "jpod",
+      sourceId: "remote-audio",
       candidateIndex: 2,
       candidateId: SECOND_CANDIDATE_ID
     });

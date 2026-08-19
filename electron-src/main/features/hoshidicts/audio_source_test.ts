@@ -3,9 +3,7 @@ import type { HoshidictsAudioSourceTestMedia } from '../../../shared/features/ho
 
 const TEST_TERM = '聞く';
 const TEST_READING = 'きく';
-const TEST_BUDGET_MS = 12_000;
-const MAX_CANDIDATES = 32;
-const MAX_AUDIO_BYTES = 16 * 1024 * 1024;
+const TEST_REQUEST_TIMEOUT_MS = 12_000;
 interface AudioCandidate {
     index: number;
     name: string;
@@ -54,12 +52,11 @@ async function post(
 export async function fetchHoshidictsAudioSourceTest(
     sourceId: string
 ): Promise<HoshidictsAudioSourceTestMedia> {
-    const signal = AbortSignal.timeout(TEST_BUDGET_MS);
     const request = { term: TEST_TERM, reading: TEST_READING, sourceId };
     const discovery = await post(
         '/api/hoshidicts/audio/candidates',
         request,
-        signal
+        AbortSignal.timeout(TEST_REQUEST_TIMEOUT_MS)
     );
     if (!discovery.ok) {
         throw new Error(await providerError(discovery, 'Audio discovery failed'));
@@ -75,16 +72,14 @@ export async function fetchHoshidictsAudioSourceTest(
     if (!isRecord(payload) || !Array.isArray(payload.candidates)) {
         throw new Error('GSM returned an invalid audio candidate response.');
     }
-    const candidates = payload.candidates.slice(
-        0,
-        MAX_CANDIDATES
-    ) as AudioCandidate[];
+    const candidates = payload.candidates as AudioCandidate[];
     if (candidates.length === 0) {
         throw new Error(`No pronunciation audio was found for ${TEST_TERM}（${TEST_READING}）.`);
     }
 
     let lastProviderError = '';
     for (const candidate of candidates) {
+        const signal = AbortSignal.timeout(TEST_REQUEST_TIMEOUT_MS);
         let media: Response;
         try {
             media = await post(
@@ -98,9 +93,6 @@ export async function fetchHoshidictsAudioSourceTest(
             );
         } catch (error) {
             lastProviderError = errorMessage(error);
-            if (signal.aborted) {
-                break;
-            }
             continue;
         }
         if (!media.ok) {
@@ -113,31 +105,18 @@ export async function fetchHoshidictsAudioSourceTest(
         const contentType = (media.headers.get('content-type') ?? '')
             .split(';', 1)[0]
             .trim()
-            .toLowerCase();
-        const declaredSize = Number(media.headers.get('content-length'));
-        if (
-            !contentType.startsWith('audio/') ||
-            (Number.isFinite(declaredSize) && declaredSize > MAX_AUDIO_BYTES)
-        ) {
-            continue;
-        }
+            .toLowerCase() || 'application/octet-stream';
         let bytes: Uint8Array;
         try {
             bytes = new Uint8Array(await media.arrayBuffer());
         } catch (error) {
             lastProviderError = errorMessage(error);
-            if (signal.aborted) {
-                break;
-            }
-            continue;
-        }
-        if (bytes.byteLength === 0 || bytes.byteLength > MAX_AUDIO_BYTES) {
             continue;
         }
         return {
             bytes,
             contentType,
-            candidateName: candidate.name,
+            candidateName: candidate.name.trim() || 'Default',
         };
     }
 

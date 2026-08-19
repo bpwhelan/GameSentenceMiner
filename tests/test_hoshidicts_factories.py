@@ -232,7 +232,9 @@ def wire_audio(
     resolver=None,
 ):
     wire(monkeypatch, fake_anki, mining_profile)
-    audio_profile = audio_profile or make_audio_profile()
+    audio_profile = audio_profile or make_audio_profile(
+        make_audio_source("test-audio", "custom", url="https://audio.test/{term}.mp3")
+    )
     monkeypatch.setattr(
         hoshidicts_audio_profile,
         "load_hoshidicts_audio_profile_or_default",

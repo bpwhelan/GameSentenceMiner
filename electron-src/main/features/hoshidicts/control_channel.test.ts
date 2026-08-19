@@ -197,7 +197,7 @@ describe('Hoshidicts loopback control channel', () => {
         const pendingFrame = nextFrame(reader);
         const pending = channel.requestReader(
             HOSHIDICTS_CONTROL_METHODS.audioProfile,
-            { volume: 80 },
+            { version: 1, autoPlay: true, sources: [] },
             1000
         );
         await pendingFrame;
@@ -218,7 +218,7 @@ describe('Hoshidicts loopback control channel', () => {
         const frame = nextFrame(second);
         const request = channel.requestReader(
             HOSHIDICTS_CONTROL_METHODS.audioProfile,
-            { volume: 65 },
+            { version: 1, autoPlay: false, sources: [] },
             1000
         );
         const delivered = await frame;

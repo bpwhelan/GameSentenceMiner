@@ -1073,7 +1073,14 @@ describe('Hoshidicts settings profiles', () => {
         await manager.setLookupMode('hover');
         await manager.setAudioProfile({
             ...created.audioProfile,
-            volume: 25,
+            autoPlay: true,
+            sources: [
+                {
+                    id: 'persona-audio',
+                    type: 'custom',
+                    url: 'https://audio.test/{term}.mp3',
+                },
+            ],
         });
         await manager.setMiningProfile({
             ...created.miningProfile,
@@ -1086,7 +1093,7 @@ describe('Hoshidicts settings profiles', () => {
         const defaultProfile = await manager.switchProfile('default');
         expect(reloadNative).toHaveBeenCalledOnce();
         expect(defaultProfile.lookupMode).toBe('shift');
-        expect(defaultProfile.audioProfile.volume).toBe(100);
+        expect(defaultProfile.audioProfile).toEqual(defaultHoshidictsAudioProfile());
         expect(defaultProfile.miningProfile.deck).toBe('Default');
         expect(defaultProfile.tabGroups).toEqual([]);
         expect(defaultProfile.dictionaries[0]).toMatchObject({
@@ -1098,7 +1105,18 @@ describe('Hoshidicts settings profiles', () => {
         const persona = await manager.switchProfile(created.activeProfileId);
         expect(reloadNative).toHaveBeenCalledOnce();
         expect(persona.lookupMode).toBe('hover');
-        expect(persona.audioProfile.volume).toBe(25);
+        expect(persona.audioProfile).toEqual({
+            version: 1,
+            autoPlay: true,
+            sources: [
+                {
+                    id: 'persona-audio',
+                    type: 'custom',
+                    url: 'https://audio.test/{term}.mp3',
+                    voice: '',
+                },
+            ],
+        });
         expect(persona.miningProfile.deck).toBe('Persona');
         expect(persona.tabGroups).toEqual([
             expect.objectContaining({ name: 'Names', dictionaryIds: [alphaId] }),
@@ -1795,9 +1813,7 @@ describe('Hoshidicts audio profile', () => {
         );
 
         const snapshot = await manager.setAudioProfile({
-            enabled: true,
             autoPlay: true,
-            volume: 45,
             sources: [
                 {
                     id: 'local',
@@ -1814,9 +1830,7 @@ describe('Hoshidicts audio profile', () => {
 
         expect(snapshot.audioProfile).toEqual({
             version: 1,
-            enabled: true,
             autoPlay: true,
-            volume: 45,
             sources: [
                 {
                     id: 'local',
@@ -1846,7 +1860,13 @@ describe('Hoshidicts audio profile', () => {
 
         expect(() =>
             normalizeHoshidictsAudioProfile({
-                sources: [{ id: 'bad id', type: 'jisho' }],
+                sources: [
+                    {
+                        id: 'bad id',
+                        type: 'custom',
+                        url: 'https://audio.test/{term}.mp3',
+                    },
+                ],
             })
         ).toThrow('source id is invalid');
         await expect(
@@ -2201,9 +2221,7 @@ describe('Hoshidicts snapshots', () => {
             disabledFields: ['frequency'],
         });
         await manager.setAudioProfile({
-            enabled: false,
             autoPlay: true,
-            volume: 20,
             sources: [],
         });
         const manifest = readManifest(baseDir);
@@ -2236,9 +2254,7 @@ describe('Hoshidicts snapshots', () => {
             disabledFields: ['frequency'],
         });
         expect(snapshot.audioProfile).toMatchObject({
-            enabled: false,
             autoPlay: true,
-            volume: 20,
             sources: [],
         });
         expect(snapshot.lastError).toMatch(/missing|dictionary/i);

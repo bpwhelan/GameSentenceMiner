@@ -893,11 +893,9 @@
       "audio": {
         "title": "単語の発音",
         "subtitle": "Hoshidictsの検索結果で日本語の単語音声を再生し、必要に応じてマイニングしたノートに追加します。",
-        "enabled": "発音音声を有効化",
-        "enabledHint": "スピーカー操作を表示し、マイニング時の発音音声を許可します。",
+        "setupGuidance": "TTS以外の音声を使いたい場合は、yomitan-fast-audioの設定をお試しください",
         "autoplay": "最初の結果を自動再生",
         "autoplayHint": "最新の検索が成功した後、最初の項目を再生します。",
-        "volume": "音量: {volume}%",
         "sources": "音声ソース",
         "sourcesHint": "再生できるソースが見つかるまで上から順に試します。",
         "restoreDefaults": "デフォルトに戻す",
@@ -924,18 +922,12 @@
         "removeSource": "{name}を削除",
         "privacy": "外部の音声ソースには、検索した表記と読みが送信されます。信頼できるプロバイダーだけを追加してください。",
         "sourceTypes": {
-          "jpod101": "JapanesePod101",
-          "languagePod101": "LanguagePod101",
-          "jisho": "Jisho",
           "custom": "カスタムURL",
           "customJson": "カスタムJSON",
           "termTts": "テキスト読み上げ（表記）",
           "readingTts": "テキスト読み上げ（読み）"
         },
         "sourceHelp": {
-          "jpod101": "JapanesePod101の辞書音声を検索します。",
-          "languagePod101": "LanguagePod101の日本語発音サービスを使用します。",
-          "jisho": "Jishoが提供する発音音声を検索します。",
           "custom": "URL内の{term}、{reading}、{language}を文字列のまま置換します。",
           "customJson": "Yomitan互換のaudioSourceList JSONレスポンスを取得します。",
           "termTts": "再生専用: ローカルのシステム音声で辞書の表記を読み上げます。マイニングしたノートには追加できません。",

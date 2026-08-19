@@ -14,10 +14,10 @@ MAX_PROFILE_BYTES = 64 * 1024
 MAX_AUDIO_SOURCES = 32
 MAX_URL_LENGTH = 4096
 
-BUILTIN_SOURCE_TYPES = frozenset({"jpod101", "language-pod-101", "jisho"})
 CUSTOM_SOURCE_TYPES = frozenset({"custom", "custom-json"})
 TTS_SOURCE_TYPES = frozenset({"text-to-speech", "text-to-speech-reading"})
-DOWNLOADABLE_SOURCE_TYPES = BUILTIN_SOURCE_TYPES | CUSTOM_SOURCE_TYPES
+AUDIO_SOURCE_TYPES = CUSTOM_SOURCE_TYPES | TTS_SOURCE_TYPES
+DOWNLOADABLE_SOURCE_TYPES = CUSTOM_SOURCE_TYPES
 PLACEHOLDER_PATTERN = re.compile(r"\{([^{}]*)\}")
 
 
@@ -69,13 +69,8 @@ def substitute_custom_url(url: str, term: str, reading: str) -> str:
 def default_hoshidicts_audio_profile() -> dict[str, Any]:
     return {
         "version": HOSHIDICTS_AUDIO_PROFILE_VERSION,
-        "enabled": True,
         "autoPlay": False,
-        "volume": 100,
-        "sources": [
-            {"id": source_type, "type": source_type, "url": "", "voice": ""}
-            for source_type in ("jpod101", "language-pod-101", "jisho")
-        ],
+        "sources": [],
     }
 
 
@@ -99,24 +94,34 @@ def load_hoshidicts_audio_profile(profile_path: Path | None = None) -> dict[str,
         raise HoshidictsAudioError("Hoshidicts audio profile must be an object.")
     # Electron writes this file from an already-validated profile, so only the
     # shape the audio pipeline indexes through is checked here.
-    profile = {**default_hoshidicts_audio_profile(), **parsed}
-    raw_sources = profile.get("sources")
+    auto_play = parsed.get("autoPlay", False)
+    if not isinstance(auto_play, bool):
+        raise HoshidictsAudioError("Hoshidicts audio autoplay setting is invalid.")
+    raw_sources = parsed.get("sources", [])
     if not isinstance(raw_sources, list):
         raise HoshidictsAudioError("Hoshidicts audio sources are invalid.")
     sources: list[dict[str, str]] = []
     for raw_source in raw_sources:
-        if not isinstance(raw_source, dict) or not isinstance(raw_source.get("id"), str):
+        if not isinstance(raw_source, dict):
+            raise HoshidictsAudioError("Hoshidicts audio source is invalid.")
+        source_type = raw_source.get("type")
+        if not isinstance(source_type, str) or source_type not in AUDIO_SOURCE_TYPES:
+            continue
+        if not isinstance(raw_source.get("id"), str):
             raise HoshidictsAudioError("Hoshidicts audio source is invalid.")
         sources.append(
             {
                 "id": raw_source["id"],
-                "type": str(raw_source.get("type") or ""),
+                "type": source_type,
                 "url": str(raw_source.get("url") or ""),
                 "voice": str(raw_source.get("voice") or ""),
             }
         )
-    profile["sources"] = sources
-    return profile
+    return {
+        "version": HOSHIDICTS_AUDIO_PROFILE_VERSION,
+        "autoPlay": auto_play,
+        "sources": sources,
+    }
 
 
 def load_hoshidicts_audio_profile_or_default(profile_path: Path | None = None) -> dict[str, Any]:
