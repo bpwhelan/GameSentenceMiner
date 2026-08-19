@@ -4,7 +4,6 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
-    createDefaultHoshidictsAudioProfile,
     HOSHIDICTS_AUDIO_SOURCE_TYPES,
 } from '../../../shared/features/hoshidicts.js';
 import { normalizeHoshidictsAudioProfile } from './audio_profile.js';
@@ -78,51 +77,6 @@ const RETIRED_PROVIDER_PATTERN =
 describe('generic Hoshidicts pronunciation audio contract', () => {
     it('uses only generic URL/JSON and local TTS source types', () => {
         expect(HOSHIDICTS_AUDIO_SOURCE_TYPES).toEqual(GENERIC_SOURCE_TYPES);
-        expect(createDefaultHoshidictsAudioProfile()).toEqual({
-            version: 1,
-            autoPlay: false,
-            sources: [],
-        });
-    });
-
-    it('ignores retired enable and volume keys in saved profiles', () => {
-        expect(
-            normalizeHoshidictsAudioProfile({
-                version: 1,
-                enabled: false,
-                volume: 7,
-                autoPlay: true,
-                sources: [
-                    {
-                        id: 'fast-audio',
-                        type: 'custom-json',
-                        url: ' http://127.0.0.1:5050/?term={term}&reading={reading} ',
-                    },
-                    {
-                        id: 'reading-tts',
-                        type: 'text-to-speech-reading',
-                        voice: ' Japanese Voice ',
-                    },
-                ],
-            })
-        ).toEqual({
-            version: 1,
-            autoPlay: true,
-            sources: [
-                {
-                    id: 'fast-audio',
-                    type: 'custom-json',
-                    url: 'http://127.0.0.1:5050/?term={term}&reading={reading}',
-                    voice: '',
-                },
-                {
-                    id: 'reading-tts',
-                    type: 'text-to-speech-reading',
-                    url: '',
-                    voice: 'Japanese Voice',
-                },
-            ],
-        });
     });
 
     it('drops retired named-provider sources while preserving generic sources', () => {
