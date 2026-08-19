@@ -426,7 +426,10 @@ def get_current_scene(client: obs.ReqClient):
     if svc and svc.state.current_scene:
         return svc.state.current_scene
     response = client.get_current_program_scene()
-    return response.scene_name if response else ""
+    if not response:
+        return ""
+    scene_name = getattr(response, "scene_name", None) or getattr(response, "current_program_scene_name", "")
+    return scene_name or ""
 
 
 @with_obs_client(default="", error_msg="Error getting source from scene")
@@ -479,7 +482,10 @@ def get_active_video_sources(client: obs.ReqClient):
     if not current_game:
         try:
             response = client.get_current_program_scene()
-            current_game = response.scene_name if response else ""
+            if not response:
+                current_game = ""
+            else:
+                current_game = getattr(response, "scene_name", None) or getattr(response, "current_program_scene_name", "")
         except Exception:
             current_game = ""
 
