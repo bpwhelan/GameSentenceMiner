@@ -233,6 +233,17 @@ def test_local_audio_yomichan_contract_discovers_and_downloads_opus(monkeypatch)
     assert calls == [("GET", discovery_url), ("GET", media_url)]
 
 
+def test_remote_candidate_urls_are_not_exposed_to_the_overlay(monkeypatch):
+    profile = make_audio_profile(
+        make_audio_source("remote", "custom", url="https://audio.test/{term}.mp3?token=secret")
+    )
+
+    candidates = hoshidicts_audio.get_audio_candidates("食べる", "たべる", "remote", profile=profile)
+
+    assert len(candidates) == 1
+    assert "playbackUrl" not in candidates[0]
+
+
 def test_custom_json_preserves_large_yomitan_audio_lists(monkeypatch):
     _respond(
         monkeypatch,
@@ -287,6 +298,16 @@ def test_media_download_uses_response_metadata_and_is_cached(monkeypatch):
     assert first.extension == "mp3"
     assert second == first
     assert calls == [("GET", "https://audio.test/%E9%A3%9F%E3%81%B9%E3%82%8B.mp3")]
+
+
+def test_extensionless_mp4_provider_response_uses_m4a_extension(monkeypatch):
+    _respond(monkeypatch, FakeResponse(b"opaque mp4 bytes", content_type="video/mp4"))
+    profile = make_audio_profile(make_audio_source("direct", "custom", url="https://audio.test/play"))
+
+    media = hoshidicts_audio.get_audio_media("食べる", "たべる", "direct", 0, profile=profile)
+
+    assert media.content_type == "video/mp4"
+    assert media.extension == "m4a"
 
 
 @pytest.mark.parametrize(
@@ -405,6 +426,25 @@ def test_mining_audio_tries_every_candidate_without_an_attempt_budget(monkeypatc
         hoshidicts_audio.get_mining_audio("食べる", "たべる", profile=profile)
 
     assert len(attempts) == 40
+
+
+def test_mining_audio_stops_immediately_when_its_deadline_expires(monkeypatch):
+    profile = make_audio_profile(make_audio_source("one", "custom", url="https://one.test/audio"))
+    candidates = [{"index": index, "name": "", "candidateId": f"{index:064x}"} for index in range(2)]
+    monkeypatch.setattr(hoshidicts_audio, "get_audio_candidates", lambda *_args, **_kwargs: candidates)
+    attempts = []
+
+    def timed_out(_term, _reading, _source_id, candidate_index, *_args, **_kwargs):
+        attempts.append(candidate_index)
+        raise HoshidictsAudioError("timed out", 504)
+
+    monkeypatch.setattr(hoshidicts_audio, "get_audio_media", timed_out)
+
+    with pytest.raises(HoshidictsAudioError, match="timed out") as error:
+        hoshidicts_audio.get_mining_audio("食べる", "たべる", profile=profile)
+
+    assert error.value.status_code == 504
+    assert attempts == [0]
 
 
 def test_provider_errors_do_not_echo_secret_urls(monkeypatch):

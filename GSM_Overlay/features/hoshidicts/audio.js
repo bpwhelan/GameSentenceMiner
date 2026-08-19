@@ -720,6 +720,14 @@
         operation,
         deadline,
       ]);
+      let fallbackSteps = 0;
+      const checkpointDeadline = () => {
+        fallbackSteps += 1;
+        if (fallbackSteps % 32 === 0) {
+          return withinDeadline(new Promise((resolve) => setTimeoutFn(resolve, 0)));
+        }
+        return null;
+      };
       let lastError = null;
       try {
         for (const source of preferences.sources) {
@@ -727,6 +735,13 @@
             return false;
           }
           try {
+            const sourceCheckpoint = checkpointDeadline();
+            if (sourceCheckpoint) {
+              await sourceCheckpoint;
+              if (destroyed || sequence !== operationSequence) {
+                return false;
+              }
+            }
             if (TTS_SOURCE_TYPES.has(source.type)) {
               const played = await withinDeadline(
                 playTts(result, source, button, sequence)
@@ -742,6 +757,13 @@
             );
             for (const candidate of candidates) {
               try {
+                const candidateCheckpoint = checkpointDeadline();
+                if (candidateCheckpoint) {
+                  await candidateCheckpoint;
+                  if (destroyed || sequence !== operationSequence) {
+                    return false;
+                  }
+                }
                 if (await withinDeadline(playCandidate(
                   result,
                   source,

@@ -116,7 +116,7 @@ export async function fetchHoshidictsAudioSourceTest(
         return {
             bytes,
             contentType,
-            candidateName: candidate.name.trim() || 'Default',
+            candidateName: candidate.name.trim(),
         };
     }
 

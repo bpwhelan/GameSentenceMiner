@@ -183,7 +183,7 @@ def test_custom_json_response_has_no_download_size_cap(monkeypatch):
 
     candidates = hoshidicts_audio.get_audio_candidates("食べる", "たべる", "fast-audio", profile=profile)
 
-    assert candidates[0]["playbackUrl"] == "https://cdn.test/recording.mp3"
+    assert "playbackUrl" not in candidates[0]
 
 
 def test_streamed_custom_json_body_has_no_download_size_cap(monkeypatch):
@@ -202,7 +202,7 @@ def test_streamed_custom_json_body_has_no_download_size_cap(monkeypatch):
 
     candidates = hoshidicts_audio.get_audio_candidates("食べる", "たべる", "streamed", profile=profile)
 
-    assert candidates[0]["playbackUrl"] == "https://cdn.test/streamed.mp3"
+    assert "playbackUrl" not in candidates[0]
 
 
 def test_media_download_has_no_declared_size_cap(monkeypatch):

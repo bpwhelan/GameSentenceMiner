@@ -2858,6 +2858,62 @@ describe("HoshidictsSettingsWindow", () => {
     ).toBe(true);
   });
 
+  it("starts the playback timeout only after downloadable source discovery completes", async () => {
+    vi.useFakeTimers();
+    const { instances } = installFakeAudio("blob:slow-discovery");
+    const pendingTest = deferred<unknown>();
+    const audioState: HoshidictsDesktopSnapshot = {
+      ...baseState,
+      audioProfile: {
+        version: 1,
+        autoPlay: false,
+        sources: [
+          {
+            id: "direct-audio",
+            type: "custom",
+            url: "https://audio.test/{term}.mp3",
+            voice: ""
+          }
+        ]
+      }
+    };
+    ipc.configure({
+      state: audioState,
+      handlers: {
+        [HOSHIDICTS_CHANNELS.testAudioSource]: () => pendingTest.promise
+      }
+    });
+
+    await render();
+    await openView("Audio");
+    const testButton = container.querySelector<HTMLButtonElement>(
+      '[data-audio-test-source="direct-audio"]'
+    );
+    await settle(() => testButton?.click(), 1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+
+    expect(container.textContent).toContain("Testing 聞く（きく）");
+    expect(testButton?.disabled).toBe(true);
+
+    await settle(() => {
+      pendingTest.resolve({
+        success: true,
+        audio: {
+          bytes: Uint8Array.from([1, 2, 3]),
+          contentType: "audio/mpeg",
+          candidateName: ""
+        },
+        state: audioState
+      });
+    });
+
+    expect(instances).toHaveLength(1);
+    expect(container.textContent).toContain("Playing Custom URL");
+  });
+
   it("locks the full audio profile and times out stalled media and TTS tests", async () => {
     vi.useFakeTimers();
     const { instances, revokeObjectUrl } = installFakeAudio("blob:stalled-kiku");

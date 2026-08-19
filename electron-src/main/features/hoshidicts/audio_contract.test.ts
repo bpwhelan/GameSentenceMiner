@@ -23,6 +23,7 @@ const AUDIO_PRODUCTION_FILES = [
     'GSM_Overlay/features/hoshidicts/audio.js',
     'GSM_Overlay/features/hoshidicts/constants.js',
     'GSM_Overlay/features/hoshidicts/desktop_bridge.js',
+    'GSM_Overlay/features/hoshidicts/reader.js',
     'GameSentenceMiner/hoshidicts_audio_profile.py',
     'GameSentenceMiner/hoshidicts_audio.py',
     'GameSentenceMiner/hoshidicts_mining.py',
@@ -50,6 +51,10 @@ const RETIRED_PROFILE_REFERENCE_CHECKS = [
     {
         path: 'GSM_Overlay/features/hoshidicts/constants.js',
         pattern: /audioVolume/u,
+    },
+    {
+        path: 'GSM_Overlay/features/hoshidicts/reader.js',
+        pattern: /normalized\.(?:enabled|volume)/u,
     },
     {
         path: 'GameSentenceMiner/hoshidicts_audio_profile.py',

@@ -361,6 +361,112 @@ describe("Hoshidicts audio controller", () => {
     controller.destroy();
   });
 
+  it("lets the total deadline interrupt immediately rejected candidates", async () => {
+    const candidates = Array.from({ length: 50_000 }, (_value, index) => ({
+      index,
+      name: `Recording ${index}`,
+      candidateId: index.toString(16).padStart(64, "0")
+    }));
+    const getMedia = vi.fn(async () => {
+      throw new Error("unplayable");
+    });
+    const { button, controller } = createControllerHarness({
+      client: {
+        getCandidates: vi.fn(async () => candidates),
+        getMedia
+      },
+      fallbackTimeoutMs: 1,
+      setTimeout,
+      clearTimeout
+    });
+
+    button.click();
+    await vi.waitFor(() => expect(button.dataset.state).toBe("error"));
+
+    expect(button.title).toMatch(/timed out/iu);
+    expect(getMedia.mock.calls.length).toBeLessThan(candidates.length);
+    controller.destroy();
+  });
+
+  it("does not resume a cancelled deadline checkpoint into TTS", async () => {
+    const dom = createDom();
+    const speak = vi.fn();
+    const cancel = vi.fn();
+    class FakeUtterance {
+      text: string;
+      constructor(text: string) {
+        this.text = text;
+      }
+    }
+    Object.assign(dom.window, {
+      SpeechSynthesisUtterance: FakeUtterance,
+      speechSynthesis: {
+        cancel,
+        getVoices: () => [],
+        speak
+      }
+    });
+    const sources = [
+      ...Array.from({ length: 31 }, (_value, index) => ({
+        id: `source-${index}`,
+        type: "custom",
+        url: `https://audio.test/${index}/{term}`,
+        voice: ""
+      })),
+      {
+        id: "tts",
+        type: "text-to-speech",
+        url: "",
+        voice: ""
+      }
+    ];
+    let releaseCheckpoint: (() => void) | null = null;
+    let timerId = 0;
+    const setTimeoutFn = vi.fn((callback: () => void, delay: number) => {
+      timerId += 1;
+      if (delay === 0) releaseCheckpoint = callback;
+      return timerId;
+    });
+    const play = vi.fn(async () => undefined);
+    const client = {
+      getCandidates: vi.fn(async ({ term, sourceId }: { term: string; sourceId: string }) =>
+        term === "new" && sourceId === "source-0"
+          ? [{ index: 0, name: "New", candidateId: CANDIDATE_ID }]
+          : []
+      ),
+      getMedia: vi.fn(async () => new Blob(["audio"], { type: "audio/mpeg" }))
+    };
+    const { controller } = createControllerHarness({
+      client,
+      dom,
+      render: false,
+      sources,
+      createAudioElement: () => audioElement({ play }),
+      createObjectURL: () => "blob:new",
+      revokeObjectURL: vi.fn(),
+      setTimeout: setTimeoutFn,
+      clearTimeout: vi.fn()
+    });
+    const oldButton = dom.window.document.createElement("button");
+    const newButton = dom.window.document.createElement("button");
+    controller.setRenderedResults([
+      { button: oldButton, result: result("old", "old") },
+      { button: newButton, result: result("new", "new") }
+    ]);
+
+    oldButton.click();
+    await vi.waitFor(() => expect(releaseCheckpoint).not.toBeNull());
+    newButton.click();
+    await vi.waitFor(() => expect(play).toHaveBeenCalledOnce());
+    const resumeCancelledPlayback = releaseCheckpoint as unknown as () => void;
+    resumeCancelledPlayback();
+    await flushPromises();
+
+    expect(speak).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
+    controller.destroy();
+  });
+
   it("tries ordered fallback candidates without an attempt cap", async () => {
     const sources = Array.from({ length: 13 }, (_value, index) => ({
       id: `source-${index}`,

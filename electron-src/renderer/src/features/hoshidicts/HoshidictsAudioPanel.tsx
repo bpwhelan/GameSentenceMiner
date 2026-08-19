@@ -304,16 +304,19 @@ export function HoshidictsAudioPanel({
     activeTestSourceRef.current = source.id;
     setActiveTestSourceId(source.id);
     updateTestFeedback(source.id, { phase: "testing" });
-    testTimeoutRef.current = setTimeout(() => {
-      if (testSequenceRef.current !== sequence) return;
-      stopActivePlayback();
-      completeTest(sequence, source.id, {
-        phase: "error",
-        detail: t("settings.hoshidicts.audio.testTimeout")
-      });
-    }, AUDIO_TEST_TIMEOUT_MS);
+    const startPlaybackTimeout = () => {
+      testTimeoutRef.current = setTimeout(() => {
+        if (testSequenceRef.current !== sequence) return;
+        stopActivePlayback();
+        completeTest(sequence, source.id, {
+          phase: "error",
+          detail: t("settings.hoshidicts.audio.testTimeout")
+        });
+      }, AUDIO_TEST_TIMEOUT_MS);
+    };
 
     if (isTtsSource(source.type)) {
+      startPlaybackTimeout();
       testTtsSource(source, sequence);
       return;
     }
@@ -345,6 +348,7 @@ export function HoshidictsAudioPanel({
       const audio = new Audio(objectUrl);
       const playback = { audio, objectUrl };
       audioPlaybackRef.current = playback;
+      startPlaybackTimeout();
       const candidateName = result.audio.candidateName.trim() || sourceName;
       audio.onended = () => {
         releaseAudioPlayback(playback);

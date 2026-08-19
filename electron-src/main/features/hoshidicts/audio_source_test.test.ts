@@ -181,7 +181,7 @@ describe('Hoshidicts audio source test proxy', () => {
         ).resolves.toEqual({
             bytes,
             contentType: 'text/html',
-            candidateName: 'Default',
+            candidateName: '',
         });
     });
 

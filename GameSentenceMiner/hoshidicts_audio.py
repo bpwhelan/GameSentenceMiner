@@ -293,8 +293,9 @@ def get_audio_candidates(
             "index": item["index"],
             "name": item["name"],
             "candidateId": item["candidateId"],
-            "playbackUrl": item["url"],
         }
+        if urlsplit(item["url"]).hostname in {"127.0.0.1", "localhost", "::1"}:
+            candidate["playbackUrl"] = item["url"]
         output.append(candidate)
     return output
 
@@ -310,6 +311,7 @@ _CONTENT_TYPE_EXTENSIONS = {
     "audio/webm": "webm",
     "audio/x-wav": "wav",
     "application/ogg": "ogg",
+    "video/mp4": "m4a",
 }
 
 
@@ -411,6 +413,7 @@ def get_mining_audio(
         )
 
     for source in normalized_profile["sources"]:
+        _remaining_request_seconds(deadline)
         if source["type"] not in DOWNLOADABLE_SOURCE_TYPES:
             continue
         try:
@@ -422,9 +425,12 @@ def get_mining_audio(
                 _deadline=deadline,
             )
         except HoshidictsAudioError as exc:
+            if exc.status_code == 504:
+                raise
             errors.append(exc)
             continue
         for candidate in candidates:
+            _remaining_request_seconds(deadline)
             try:
                 return get_audio_media(
                     term,
@@ -436,6 +442,8 @@ def get_mining_audio(
                     _deadline=deadline,
                 )
             except HoshidictsAudioError as exc:
+                if exc.status_code == 504:
+                    raise
                 errors.append(exc)
 
     if errors:
