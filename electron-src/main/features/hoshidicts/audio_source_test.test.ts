@@ -148,7 +148,8 @@ describe('Hoshidicts audio source test proxy', () => {
         ).rejects.toThrow('invalid audio candidate response');
     });
 
-    it('rejects empty and non-audio media after exhausting the candidates', async () => {
+    it('returns provider bytes without MIME, declared-size, or empty-body validation', async () => {
+        const bytes = new Uint8Array();
         const fetchMock = vi
             .fn<typeof fetch>()
             .mockResolvedValueOnce(
@@ -163,15 +164,53 @@ describe('Hoshidicts audio source test proxy', () => {
                 })
             )
             .mockResolvedValueOnce(
-                new Response('<html>not audio</html>', {
-                    headers: { 'content-type': 'text/html' },
+                new Response(bytes, {
+                    headers: {
+                        'content-type': 'text/html',
+                        'content-length': String(16 * 1024 * 1024 + 1),
+                    },
                 })
             );
         vi.stubGlobal('fetch', fetchMock);
 
         await expect(
-            fetchHoshidictsAudioSourceTest('jisho')
-        ).rejects.toThrow('playable audio');
+            fetchHoshidictsAudioSourceTest('custom-source')
+        ).resolves.toEqual({
+            bytes,
+            contentType: 'text/html',
+            candidateName: 'Default',
+        });
+    });
+
+    it('tries every returned candidate without a source-test attempt cap', async () => {
+        const candidates = Array.from({ length: 33 }, (_value, index) => ({
+            index,
+            name: `Recording ${index}`,
+            candidateId: index.toString(16).padStart(64, '0'),
+        }));
+        const fetchMock = vi
+            .fn<typeof fetch>()
+            .mockResolvedValueOnce(jsonResponse({ candidates }));
+        for (let index = 0; index < 32; index += 1) {
+            fetchMock.mockResolvedValueOnce(
+                jsonResponse({ error: 'unavailable' }, { status: 404 })
+            );
+        }
+        fetchMock.mockResolvedValueOnce(
+            new Response(Uint8Array.from([33]), {
+                headers: { 'content-type': 'audio/mpeg' },
+            })
+        );
+        vi.stubGlobal('fetch', fetchMock);
+
+        await expect(
+            fetchHoshidictsAudioSourceTest('custom-source')
+        ).resolves.toEqual({
+            bytes: Uint8Array.from([33]),
+            contentType: 'audio/mpeg',
+            candidateName: 'Recording 32',
+        });
+        expect(fetchMock).toHaveBeenCalledTimes(34);
     });
 
     it('reports when discovery returns no candidates', async () => {

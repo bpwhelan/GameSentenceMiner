@@ -2518,7 +2518,60 @@ describe("HoshidictsSettingsWindow", () => {
     });
   });
 
-  it("edits and auto-saves ordered pronunciation sources", async () => {
+  it("links the exact yomitan-audio-fast setup guidance near the top of Audio", async () => {
+    await render();
+    await openView("Audio");
+
+    const audioPanel = container.querySelector<HTMLElement>(".hoshidicts-audio");
+    const guidance = Array.from(audioPanel?.querySelectorAll("a") ?? []).find(
+      (link) =>
+        link.textContent ===
+        "You can install yomitan-fast-audio to set up instant high quality Japanese audio."
+    );
+
+    expect(guidance).toBeDefined();
+    expect(guidance?.getAttribute("href")).toBe(
+      "https://github.com/bee-san/yomitan-audio-fast"
+    );
+    expect(guidance?.closest("section")).toBe(
+      audioPanel?.querySelector("section")
+    );
+  });
+
+  it("shows only generic audio sources without enable or volume controls", async () => {
+    await render();
+    await openView("Audio");
+
+    const audioPanel = container.querySelector<HTMLElement>(".hoshidicts-audio");
+    expect.soft(audioPanel?.querySelector("#hoshidicts-audio-enabled")).toBeNull();
+    expect.soft(audioPanel?.querySelector("#hoshidicts-audio-volume")).toBeNull();
+    expect.soft(audioPanel?.textContent).not.toMatch(
+      /JapanesePod101|LanguagePod101|Jisho/u
+    );
+
+    let sourceSelect = audioPanel?.querySelector<HTMLSelectElement>(
+      ".hoshidicts-audio-source select"
+    );
+    if (!sourceSelect) {
+      await clickAndSettle(
+        audioPanel?.querySelector("#hoshidicts-audio-add-source")
+      );
+      sourceSelect = audioPanel?.querySelector<HTMLSelectElement>(
+        ".hoshidicts-audio-source select"
+      );
+    }
+    if (!sourceSelect) {
+      throw new Error("Expected an audio source type selector.");
+    }
+    expect(Array.from(sourceSelect.options, (option) => option.value)).toEqual([
+      "custom",
+      "custom-json",
+      "text-to-speech",
+      "text-to-speech-reading"
+    ]);
+  });
+
+  it("edits and auto-saves ordered pronunciation audio sources", async () => {
     vi.useFakeTimers();
     await render();
     await openView("Audio");
