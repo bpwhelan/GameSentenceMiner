@@ -468,6 +468,7 @@ struct ManualHotkeyBinding {
 #[derive(Debug, Clone)]
 struct AppHotkeyEntry {
     binding: ManualHotkeyBinding,
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     hotkey: String,
     active: bool,
 }
@@ -1528,6 +1529,7 @@ fn portal_bind_state_payload(state: &PortalBindState) -> Value {
     }
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn publish_portal_bind_state(
     state: &SharedPortalBindState,
     tx: &broadcast::Sender<String>,
@@ -1718,6 +1720,7 @@ fn parse_manual_hotkey_binding(hotkey: &str) -> Result<ManualHotkeyBinding, Stri
     Ok(ManualHotkeyBinding { modifiers, key })
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn portal_keysym(token: &str) -> Result<String, String> {
     let normalized = token.trim().to_ascii_uppercase();
     if normalized.len() == 1 && normalized.as_bytes()[0].is_ascii_alphabetic() {
@@ -1785,6 +1788,7 @@ fn portal_symbol_requires_shift(token: &str) -> bool {
 
 /// Convert the Electron/rdev accelerator syntax used by GSM to the XDG
 /// shortcuts specification used by the GlobalShortcuts portal.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn hotkey_to_portal_trigger(hotkey: &str) -> Result<String, String> {
     parse_manual_hotkey_binding(hotkey)?;
 
@@ -2916,6 +2920,7 @@ async fn furigana_via_sudachi(
 
 // ------------------------------ Websocket ------------------------------------
 
+#[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
 fn service_info_payload(features: &FeatureRegistry, xwayland_overlay_features_active: bool) -> Value {
     let payload = json!({
         "type": "service_info",
@@ -4042,15 +4047,18 @@ fn next_portal_retry_delay(current_delay: Duration) -> Duration {
         .min(PORTAL_RETRY_MAX_DELAY)
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn should_log_portal_failure(previous_message: Option<&str>, message: &str) -> bool {
     previous_message != Some(message)
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 struct PortalRetryBackoff {
     next_delay: Duration,
     last_failure_message: Option<String>,
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 impl PortalRetryBackoff {
     fn new() -> Self {
         Self {
