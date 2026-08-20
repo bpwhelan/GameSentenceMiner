@@ -91,7 +91,7 @@ Track your immersion habits with the stats dashboard.
 
 For full setup guides and configuration details, check the [Wiki](https://docs.gamesentenceminer.com/) (Currently WIP).
 
-For the current Linux scope, see [Wayland overlay support](docs/WAYLAND.md).
+On Linux, the overlay needs extra setup under Wayland. See [Wayland overlay support](docs/WAYLAND.md).
 
 ## ❤️ Acknowledgements
 
