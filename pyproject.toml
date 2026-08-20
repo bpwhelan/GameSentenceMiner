@@ -43,7 +43,7 @@ dependencies = [
   "opencv-python>=5.0.0.93,<5.0.1.0",
   "oneocr==1.0.12",
   "sounddevice~=0.5.2",
-  "groq~=0.33.0",
+  "groq>=0.33,<1.6",
   "flask~=3.1.2",
   "pystray~=0.19.5",
   "pygetwindow==0.0.9; sys_platform == 'win32'",
@@ -76,7 +76,7 @@ dependencies = [
   "aiohttp>=3.14.1,<3.15.0",
   "fpng-py-fix~=0.0.3 ; sys_platform == 'win32'",
   "onnxruntime>=1.24.3,<1.25.0",
-  "google-genai~=1.70.0",
+  "google-genai>=1.70,<2.13",
   "windows-capture>=2.0.0 ; sys_platform == 'win32'",
 ]
 
