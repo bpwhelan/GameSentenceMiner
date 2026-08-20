@@ -247,6 +247,55 @@ function spawnOverlayFromSource(overlayDir: string) {
     };
 }
 
+interface OverlayOzoneOptions {
+    platform?: NodeJS.Platform;
+    env?: NodeJS.ProcessEnv;
+    argv?: string[];
+}
+
+function getSwitchValue(argv: string[], switchName: string): string {
+    const prefix = `--${switchName}=`;
+    for (let index = 0; index < argv.length; index += 1) {
+        const argument = String(argv[index] || '');
+        if (argument.startsWith(prefix)) return argument.slice(prefix.length);
+        if (argument === `--${switchName}`) {
+            const next = String(argv[index + 1] || '');
+            if (next && !next.startsWith('--')) return next;
+        }
+    }
+    return '';
+}
+
+export function resolveOverlayOzoneArgs(options: OverlayOzoneOptions = {}): string[] {
+    const platform = options.platform || process.platform;
+    const env = options.env || process.env;
+    const argv = options.argv || process.argv;
+    if (platform !== 'linux') return [];
+
+    const normalize = (value: unknown) => String(value || '').trim().toLowerCase();
+    const wayland = normalize(env.XDG_SESSION_TYPE) === 'wayland' ||
+        String(env.WAYLAND_DISPLAY || '').trim().length > 0;
+    if (!wayland || normalize(env.GSM_OVERLAY_XWAYLAND_FEATURES) === '0') return [];
+
+    const explicitPlatform = normalize(
+        getSwitchValue(argv, 'ozone-platform') ||
+        getSwitchValue(argv, 'ozone-platform-hint') ||
+        env.ELECTRON_OZONE_PLATFORM_HINT
+    );
+    if (explicitPlatform === 'wayland') return [];
+    if (explicitPlatform === 'x11') return ['--ozone-platform=x11'];
+
+    const desktopIdentity = [
+        env.XDG_CURRENT_DESKTOP,
+        env.DESKTOP_SESSION,
+        env.GNOME_DESKTOP_SESSION_ID,
+    ].filter(Boolean).join(':').toLowerCase();
+    const optedIn = normalize(env.GSM_OVERLAY_XWAYLAND_FEATURES) === '1';
+    return optedIn || desktopIdentity.includes('gnome')
+        ? ['--ozone-platform=x11']
+        : [];
+}
+
 function spawnSharedOverlayRuntime(spawn: typeof import('child_process').spawn): ChildProcess {
     const overlayResourcesPath = getOverlayResourcesPath();
     const env: NodeJS.ProcessEnv = {
@@ -259,7 +308,7 @@ function spawnSharedOverlayRuntime(spawn: typeof import('child_process').spawn):
 
     return spawn(
         process.execPath,
-        [],
+        resolveOverlayOzoneArgs(),
         {
             detached: false,
             stdio: 'ignore',
@@ -287,10 +336,11 @@ export async function runOverlayWithSource(
     }
 
     const { spawn } = await import('child_process');
+    const platformPath = process.platform === 'win32' ? path.win32 : path;
 
     if (isDev) {
-        const overlayDir = path.join(getResourcesDir(), 'GSM_Overlay');
-        const overlayPackagePath = path.join(overlayDir, 'package.json');
+        const overlayDir = platformPath.join(getResourcesDir(), 'GSM_Overlay');
+        const overlayPackagePath = platformPath.join(overlayDir, 'package.json');
 
         if (!fs.existsSync(overlayPackagePath)) {
             console.error('Overlay package.json not found at:', overlayPackagePath);
@@ -334,10 +384,13 @@ export async function runOverlayWithSource(
         }
     }
 
-    const overlayPath = path.join(getOverlayPath(), getOverlayExecName());
+    const overlayPath = platformPath.join(getOverlayPath(), getOverlayExecName());
     if (fs.existsSync(overlayPath)) {
         try {
-            const processHandle = spawn(overlayPath, [], { detached: false, stdio: 'ignore' });
+            const processHandle = spawn(overlayPath, resolveOverlayOzoneArgs(), {
+                detached: false,
+                stdio: 'ignore',
+            });
             registerOverlayProcess(processHandle, source);
             console.log('Overlay launched successfully with legacy standalone runtime.');
             return true;

@@ -20,16 +20,17 @@ interface InputServerCandidateOptions {
 export function getInputServerExecutableCandidates(
     options: InputServerCandidateOptions
 ): string[] {
+    const platformPath = options.platform === 'win32' ? path.win32 : path;
     const executableName =
         options.platform === 'win32' ? 'gsm_overlay_server.exe' : 'gsm_overlay_server';
     if (!options.isDev) {
-        return [path.join(options.overlayResourcesDir, executableName)];
+        return [platformPath.join(options.overlayResourcesDir, executableName)];
     }
-    const inputServerDir = path.join(options.resourcesDir, 'GSM_Overlay', 'input_server');
+    const inputServerDir = platformPath.join(options.resourcesDir, 'GSM_Overlay', 'input_server');
     return [
-        path.join(inputServerDir, 'target', 'debug', executableName),
-        path.join(inputServerDir, 'target', 'release', executableName),
-        path.join(inputServerDir, 'bin', executableName),
+        platformPath.join(inputServerDir, 'target', 'debug', executableName),
+        platformPath.join(inputServerDir, 'target', 'release', executableName),
+        platformPath.join(inputServerDir, 'bin', executableName),
     ];
 }
 

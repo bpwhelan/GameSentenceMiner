@@ -20,6 +20,10 @@ class FakeWebSocket extends EventEmitter {
   close() {
     this.readyState = 3;
   }
+
+  terminate() {
+    this.readyState = 3;
+  }
 }
 
 describe("BackendConnector reliable delivery", () => {

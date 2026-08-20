@@ -27,12 +27,7 @@ class BackendConnector {
     }
     
     if (this.ws) {
-      try {
-        this.ws.removeAllListeners();
-        this.ws.close();
-      } catch (e) {
-        console.error('BackendConnector: Error closing existing socket', e);
-      }
+      this.closeSocketWithoutThrow(this.ws, 'existing socket');
     }
 
     try {
@@ -103,6 +98,32 @@ class BackendConnector {
     } catch (e) {
       console.error('BackendConnector: Connection error', e);
       this.scheduleReconnect();
+    }
+  }
+
+  closeSocketWithoutThrow(socket, description) {
+    try {
+      socket.removeAllListeners();
+      if (socket.readyState === this.WebSocket.CONNECTING) {
+        if (typeof socket.terminate === 'function') {
+          socket.once('error', () => {});
+          socket.terminate();
+        } else {
+          const closeAfterConnect = () => {
+            try {
+              socket.close();
+            } catch (e) {
+              console.error(`BackendConnector: Error closing ${description} after connect`, e);
+            }
+          };
+          socket.once('open', closeAfterConnect);
+          socket.once('error', () => {});
+        }
+      } else if (socket.readyState === this.WebSocket.OPEN) {
+        socket.close();
+      }
+    } catch (e) {
+      console.error(`BackendConnector: Error closing ${description}`, e);
     }
   }
 
@@ -200,12 +221,7 @@ class BackendConnector {
       this.reconnectInterval = null;
     }
     if (this.ws) {
-      try {
-        this.ws.removeAllListeners();
-        this.ws.close();
-      } catch (e) {
-        console.error('BackendConnector: Error closing socket during destroy', e);
-      }
+      this.closeSocketWithoutThrow(this.ws, 'socket during destroy');
       this.ws = null;
     }
   }

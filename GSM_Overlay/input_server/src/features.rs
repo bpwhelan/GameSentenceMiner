@@ -61,10 +61,7 @@ pub struct FeatureRegistry {
 
 impl FeatureRegistry {
     pub fn new(baseline: impl IntoIterator<Item = ServiceFeature>) -> Self {
-        let mut baseline = baseline.into_iter().collect::<HashSet<_>>();
-        // Gamepad input is the service's inexpensive baseline and cannot be
-        // disabled by an optional-feature client.
-        baseline.insert(ServiceFeature::Gamepad);
+        let baseline = baseline.into_iter().collect::<HashSet<_>>();
         let (changed, _) = watch::channel(0);
         Self {
             state: Arc::new(Mutex::new(RegistryState {
@@ -93,6 +90,9 @@ impl FeatureRegistry {
     ) -> FeatureSnapshot {
         let requested = features
             .into_iter()
+            // Gamepad polling is fixed at process startup because Gilrs owns a
+            // dedicated non-Send OS thread. Clients may observe that baseline,
+            // but cannot advertise a loop which was never started.
             .filter(|feature| *feature != ServiceFeature::Gamepad)
             .collect::<HashSet<_>>();
         let revision = {
@@ -165,13 +165,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn gamepad_is_always_enabled_and_optional_features_are_leased() {
+    fn gamepad_is_startup_only_and_optional_features_are_leased() {
         let registry = FeatureRegistry::new([]);
         let first = registry.register_client();
         let second = registry.register_client();
 
-        assert!(registry.is_enabled(ServiceFeature::Gamepad));
+        assert!(!registry.is_enabled(ServiceFeature::Gamepad));
         assert!(!registry.is_enabled(ServiceFeature::Keyboard));
+
+        registry.set_client_features(first, [ServiceFeature::Gamepad]);
+        assert!(!registry.is_enabled(ServiceFeature::Gamepad));
 
         registry.set_client_features(first, [ServiceFeature::Keyboard, ServiceFeature::Sudachi]);
         registry.set_client_features(second, [ServiceFeature::Keyboard]);
@@ -184,7 +187,7 @@ mod tests {
 
         registry.release_client(second);
         assert!(!registry.is_enabled(ServiceFeature::Keyboard));
-        assert!(registry.is_enabled(ServiceFeature::Gamepad));
+        assert!(!registry.is_enabled(ServiceFeature::Gamepad));
     }
 
     #[test]

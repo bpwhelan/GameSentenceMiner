@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const existsSyncMock = vi.fn();
 const spawnMock = vi.fn();
@@ -10,6 +10,15 @@ const waitForInProcessOverlayShutdownMock = vi.fn();
 let isDevValue = false;
 let useInProcessOverlayValue = false;
 const originalPlatform = process.platform;
+const ozoneEnvironmentKeys = [
+    'XDG_SESSION_TYPE',
+    'XDG_CURRENT_DESKTOP',
+    'GSM_OVERLAY_XWAYLAND_FEATURES',
+    'ELECTRON_OZONE_PLATFORM_HINT',
+] as const;
+const originalOzoneEnvironment = Object.fromEntries(
+    ozoneEnvironmentKeys.map((key) => [key, process.env[key]])
+);
 
 vi.mock('electron', () => ({
     ipcMain: {
@@ -120,7 +129,63 @@ describe('runOverlayWithSource', () => {
         });
     });
 
+    afterEach(() => {
+        for (const key of ozoneEnvironmentKeys) {
+            const value = originalOzoneEnvironment[key];
+            if (value === undefined) delete process.env[key];
+            else process.env[key] = value;
+        }
+    });
+
+    it('selects supervised X11 launch arguments only for GNOME Wayland by default', async () => {
+        const { resolveOverlayOzoneArgs } = await loadFrontModule();
+
+        expect(resolveOverlayOzoneArgs({
+            platform: 'linux',
+            env: { XDG_SESSION_TYPE: 'wayland', XDG_CURRENT_DESKTOP: 'GNOME' },
+            argv: ['gsm'],
+        })).toEqual(['--ozone-platform=x11']);
+        expect(resolveOverlayOzoneArgs({
+            platform: 'linux',
+            env: { XDG_SESSION_TYPE: 'wayland', XDG_CURRENT_DESKTOP: 'KDE' },
+            argv: ['gsm'],
+        })).toEqual([]);
+        expect(resolveOverlayOzoneArgs({
+            platform: 'darwin',
+            env: { XDG_SESSION_TYPE: 'wayland', XDG_CURRENT_DESKTOP: 'GNOME' },
+            argv: ['gsm'],
+        })).toEqual([]);
+    });
+
+    it('respects explicit backend preferences and compositor opt-in', async () => {
+        const { resolveOverlayOzoneArgs } = await loadFrontModule();
+
+        expect(resolveOverlayOzoneArgs({
+            platform: 'linux',
+            env: { XDG_SESSION_TYPE: 'wayland', XDG_CURRENT_DESKTOP: 'GNOME' },
+            argv: ['gsm', '--ozone-platform=wayland'],
+        })).toEqual([]);
+        expect(resolveOverlayOzoneArgs({
+            platform: 'linux',
+            env: { XDG_SESSION_TYPE: 'wayland', XDG_CURRENT_DESKTOP: 'KDE' },
+            argv: ['gsm', '--ozone-platform=x11'],
+        })).toEqual(['--ozone-platform=x11']);
+        expect(resolveOverlayOzoneArgs({
+            platform: 'linux',
+            env: {
+                XDG_SESSION_TYPE: 'wayland',
+                XDG_CURRENT_DESKTOP: 'COSMIC',
+                GSM_OVERLAY_XWAYLAND_FEATURES: '1',
+            },
+            argv: ['gsm'],
+        })).toEqual(['--ozone-platform=x11']);
+    });
+
     it('runs npm start in GSM_Overlay when launched from source', async () => {
+        Object.defineProperty(process, 'platform', {
+            value: 'win32',
+            configurable: true,
+        });
         isDevValue = true;
         existsSyncMock.mockReturnValue(true);
         const processHandle = createProcessHandle();
@@ -196,6 +261,14 @@ describe('runOverlayWithSource', () => {
     });
 
     it('runs the packaged overlay app through the shared Electron runtime outside source mode', async () => {
+        Object.defineProperty(process, 'platform', {
+            value: 'linux',
+            configurable: true,
+        });
+        process.env.XDG_SESSION_TYPE = 'wayland';
+        process.env.XDG_CURRENT_DESKTOP = 'GNOME';
+        delete process.env.GSM_OVERLAY_XWAYLAND_FEATURES;
+        delete process.env.ELECTRON_OZONE_PLATFORM_HINT;
         existsSyncMock.mockReturnValue(true);
         const processHandle = createProcessHandle();
         spawnMock.mockReturnValue(processHandle);
@@ -205,7 +278,7 @@ describe('runOverlayWithSource', () => {
         await expect(runOverlayWithSource('manual')).resolves.toBe(true);
 
         expect(existsSyncMock).toHaveBeenCalledWith('C:\\overlay-out\\resources\\app.asar');
-        expect(spawnMock).toHaveBeenCalledWith(process.execPath, [], {
+        expect(spawnMock).toHaveBeenCalledWith(process.execPath, ['--ozone-platform=x11'], {
             detached: false,
             stdio: 'ignore',
             env: expect.objectContaining({
@@ -222,6 +295,10 @@ describe('runOverlayWithSource', () => {
     });
 
     it('falls back to the standalone overlay executable when only the legacy package exists', async () => {
+        Object.defineProperty(process, 'platform', {
+            value: 'win32',
+            configurable: true,
+        });
         existsSyncMock.mockImplementation((candidate: string) => candidate === 'C:\\overlay-out\\gsm_overlay.exe');
         const processHandle = createProcessHandle();
         spawnMock.mockReturnValue(processHandle);
