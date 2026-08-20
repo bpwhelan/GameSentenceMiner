@@ -15,7 +15,6 @@ from typing import Dict, Any, List, Tuple, Optional
 # Updated imports to include window info helpers
 from GameSentenceMiner.obs import get_current_game, get_current_scene, get_screenshot_PIL
 from GameSentenceMiner.ocr.gsm_ocr_config import (
-    get_ocr_config,
     get_overlay_area_config,
     get_overlay_minimum_character_size as get_scene_overlay_minimum_character_size,
 )
@@ -69,7 +68,6 @@ from GameSentenceMiner.web.texthooking_page import (
 SAVE_DEBUG_IMAGES = False
 # Convert images to grayscale for overlay processing
 CONVERT_TO_GRAYSCALE = False
-MAX_SCALED_OCR_CACHE_SIZE = 24
 OCR_ENGINE_INACTIVITY_TIMEOUT_SECONDS = 5 * 60
 OVERLAY_VISIBLE_TEXT_REGEX = regex.compile(r"\S")
 OVERLAY_EXTENDED_CJK_MARK_REGEX = regex.compile(r"[々〆〇〻ヶヵ]")
@@ -329,8 +327,6 @@ class OverlayProcessor:
 
         # Reference to WindowStateMonitor (injected by OverlayThread)
         self.window_monitor: Optional[WindowStateMonitor] = None
-        self._scaled_ocr_config_cache: Dict[Tuple[Any, ...], Any] = {}
-        self._scaled_ocr_config_cache_lock = threading.Lock()
         self._last_monitor_workarea_warning: Optional[str] = None
         self.last_monitor_left: int = 0
         self.last_monitor_top: int = 0
@@ -342,66 +338,6 @@ class OverlayProcessor:
         self._last_overlay_capture_content_height: int = 0
         self._ocr_engine_unload_handle: Optional[asyncio.TimerHandle] = None
         self._ocr_engine_activity_generation = 0
-
-    def _build_scaled_ocr_cache_key(self, ocr_config, width: int, height: int) -> Optional[Tuple[Any, ...]]:
-        if not ocr_config:
-            return None
-        try:
-            rectangles = getattr(ocr_config, "pre_scale_rectangles", None) or getattr(ocr_config, "rectangles", [])
-            rect_signature = []
-            for rect in rectangles:
-                monitor = getattr(rect, "monitor", None)
-                monitor_signature = (
-                    getattr(monitor, "index", None),
-                    getattr(monitor, "left", None),
-                    getattr(monitor, "top", None),
-                    getattr(monitor, "width", None),
-                    getattr(monitor, "height", None),
-                )
-                rect_signature.append(
-                    (
-                        tuple(getattr(rect, "coordinates", []) or []),
-                        bool(getattr(rect, "is_excluded", False)),
-                        bool(getattr(rect, "is_secondary", False)),
-                        bool(getattr(rect, "is_black_hole", False)),
-                        monitor_signature,
-                    )
-                )
-            return (
-                getattr(ocr_config, "scene", "") or "",
-                getattr(ocr_config, "window", "") or "",
-                getattr(ocr_config, "coordinate_system", "") or "",
-                int(width or 0),
-                int(height or 0),
-                tuple(rect_signature),
-            )
-        except Exception:
-            return None
-
-    def _get_scaled_overlay_ocr_config(self, width: int, height: int):
-        ocr_config = get_ocr_config()
-        if not ocr_config:
-            return None
-        if not width or not height:
-            return ocr_config
-
-        cache_key = self._build_scaled_ocr_cache_key(ocr_config, width, height)
-        if cache_key:
-            with self._scaled_ocr_config_cache_lock:
-                cached = self._scaled_ocr_config_cache.get(cache_key)
-                if cached is not None:
-                    return cached
-
-        scaled_config = copy.deepcopy(ocr_config)
-        scaled_config.scale_to_custom_size(width, height)
-
-        if cache_key:
-            with self._scaled_ocr_config_cache_lock:
-                self._scaled_ocr_config_cache[cache_key] = scaled_config
-                while len(self._scaled_ocr_config_cache) > MAX_SCALED_OCR_CACHE_SIZE:
-                    self._scaled_ocr_config_cache.pop(next(iter(self._scaled_ocr_config_cache)), None)
-
-        return scaled_config
 
     def _get_scaled_overlay_area_config(self, width: int, height: int):
         overlay_area_config = get_overlay_area_config()
@@ -465,36 +401,6 @@ class OverlayProcessor:
             scaled_config.scale_to_custom_size(width, height)
         return scaled_config
 
-    def _build_overlay_area_config(self, ocr_config):
-        if not ocr_config:
-            return None
-
-        overlay_settings = get_overlay_config()
-        include_primary = bool(getattr(overlay_settings, "ocr_area_config_include_primary_areas", True))
-        include_secondary = bool(getattr(overlay_settings, "ocr_area_config_include_secondary_areas", True))
-        use_exclusions = bool(getattr(overlay_settings, "ocr_area_config_use_exclusion_zones", True))
-
-        def _should_include_rectangle(rectangle) -> bool:
-            if getattr(rectangle, "is_black_hole", False):
-                return False
-            if getattr(rectangle, "is_excluded", False):
-                return use_exclusions
-            if getattr(rectangle, "is_secondary", False):
-                return include_secondary
-            return include_primary
-
-        filtered_config = copy.deepcopy(ocr_config)
-        filtered_config.rectangles = [
-            rectangle for rectangle in filtered_config.rectangles if _should_include_rectangle(rectangle)
-        ]
-
-        if getattr(filtered_config, "pre_scale_rectangles", None) is not None:
-            filtered_config.pre_scale_rectangles = [
-                rectangle for rectangle in filtered_config.pre_scale_rectangles if _should_include_rectangle(rectangle)
-            ]
-
-        return filtered_config
-
     def _get_effective_overlay_area_config(self, width: int, height: int):
         overlay_settings = get_overlay_config()
 
@@ -502,14 +408,6 @@ class OverlayProcessor:
             overlay_area_config = self._get_scaled_overlay_area_config(width, height)
             if overlay_area_config and overlay_area_config.rectangles:
                 return overlay_area_config
-
-        # Dedicated overlay areas take priority. Only fall back to OCR area config
-        # when that legacy overlay option is explicitly enabled.
-        if bool(getattr(overlay_settings, "use_ocr_area_config_v2", False)):
-            overlay_config = self._get_scaled_overlay_ocr_config(width, height)
-            overlay_config = self._build_overlay_area_config(overlay_config)
-            if overlay_config and overlay_config.rectangles:
-                return overlay_config
 
         return None
 
@@ -521,11 +419,6 @@ class OverlayProcessor:
             overlay_area_config = get_overlay_area_config()
             if overlay_area_config and overlay_area_config.rectangles:
                 return overlay_area_config
-
-        if bool(getattr(overlay_settings, "use_ocr_area_config_v2", False)):
-            overlay_config = self._build_overlay_area_config(get_ocr_config())
-            if overlay_config and overlay_config.rectangles:
-                return overlay_config
 
         return None
 

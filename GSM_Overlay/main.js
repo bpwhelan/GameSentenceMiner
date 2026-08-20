@@ -296,7 +296,7 @@ const GSM_OWNED_OVERLAY_FIELD_MAP = {
   use_text_filtering: "use_text_filtering",
   manual_mode_desktop_background: "manual_mode_desktop_background",
   showRecycledIndicator: "check_previous_lines_for_recycled_indicator",
-  use_ocr_area_config_v2: "use_ocr_area_config_v2",
+  use_overlay_area_config: "use_overlay_area_config",
   ocr_area_config_include_primary_areas: "ocr_area_config_include_primary_areas",
   ocr_area_config_include_secondary_areas: "ocr_area_config_include_secondary_areas",
   ocr_area_config_use_exclusion_zones: "ocr_area_config_use_exclusion_zones",
@@ -309,6 +309,7 @@ const OVERLAY_NON_PROFILE_SETTING_KEYS = new Set([
   "weburl2",
   "texthookerUrl",
   "mainBoxStartupWarningAcknowledged",
+  "pushToShowEnforcedDialogDismissed",
   "dismissedFullscreenRecommendations",
   "dismissedExclusiveFullscreenRecommendations",
   "gamepadServerPort",
@@ -801,6 +802,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "offsetX": 0,
   "offsetY": 0,
   "mainBoxStartupWarningAcknowledged": false,
+  "pushToShowEnforcedDialogDismissed": false, // Never show the "Push to Show Enforced" startup dialog again
   "dismissedFullscreenRecommendations": [], // Games for which Push to Show recommendation was dismissed
   "dismissedExclusiveFullscreenRecommendations": [], // Games for which display-mode recommendation was dismissed
   "texthookerHotkey": DEFAULT_TEXTHOOKER_HOTKEY,
@@ -6169,17 +6171,25 @@ async function startOverlayAppImpl() {
 
   if (!isWindows()) {
     setOverlaySettingValue("manualMode", true); // enforce manual mode on non-Windows platforms
-    const manualModeDescription = normalizeManualModeType(userSettings.manualModeType) === "toggle"
-      ? "press the hotkey once to show the overlay and press it again to hide it"
-      : "hold the hotkey to keep the overlay visible";
-    dialog.showMessageBoxSync({
-      type: 'warning',
-      buttons: ['OK'],
-      defaultId: 0,
-      title: 'GSM Overlay - Push to Show Enforced',
-      message: 'Overlay requires hotkey to show text for lookups on macOS and Linux due to platform limitations.\n\n' +
-        'Use the configured hotkey: ' + userSettings.showHotkey + ' and the selected Push to Show type to control the overlay. Current mode: ' + manualModeDescription + '.',
-    });
+    if (!userSettings.pushToShowEnforcedDialogDismissed) {
+      const manualModeDescription = normalizeManualModeType(userSettings.manualModeType) === "toggle"
+        ? "press the hotkey once to show the overlay and press it again to hide it"
+        : "hold the hotkey to keep the overlay visible";
+      const { checkboxChecked } = await dialog.showMessageBox({
+        type: 'warning',
+        buttons: ['OK'],
+        defaultId: 0,
+        title: 'GSM Overlay - Push to Show Enforced',
+        message: 'Overlay requires hotkey to show text for lookups on macOS and Linux due to platform limitations.\n\n' +
+          'Use the configured hotkey: ' + userSettings.showHotkey + ' and the selected Push to Show type to control the overlay. Current mode: ' + manualModeDescription + '.',
+        checkboxLabel: 'Never show this again',
+        checkboxChecked: false,
+      });
+      if (checkboxChecked) {
+        setOverlaySettingValue("pushToShowEnforcedDialogDismissed", true);
+        saveSettings();
+      }
+    }
   }
 
   // ===========================================================

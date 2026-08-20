@@ -30,7 +30,7 @@
     // OCR / capture
     engine_v2: "Which OCR engine reads text from the screen. Stored with your active GSM profile.",
     monitor_to_capture: "Which monitor the OCR engine captures from.",
-    use_ocr_area_config_v2: "Restrict OCR to the capture areas you defined instead of the whole screen.",
+    use_overlay_area_config: "Restrict OCR to the capture areas you defined instead of the whole screen.",
     minimum_character_size: "Ignore detected characters smaller than this pixel height (0 = keep all).",
     periodic: "Re-run OCR on a timer so text updates without a manual trigger.",
     periodic_interval: "How often periodic scanning re-runs OCR, in seconds.",

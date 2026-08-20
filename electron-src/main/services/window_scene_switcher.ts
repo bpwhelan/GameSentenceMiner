@@ -406,6 +406,8 @@ let resolvedConflictContextKey = '';
 let pendingConflict: WindowSceneSwitcherConflict | null = null;
 let conflictWindow: BrowserWindow | null = null;
 let ipcRegistered = false;
+let startupSceneSyncPending = false;
+let startupSceneSyncToken = 0;
 
 function notifyStateChanged(): void {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -553,8 +555,19 @@ function scheduleEvaluation(): void {
         clearTimeout(settleTimer);
     }
     const generation = latestGeneration;
+    const startupTokenToComplete =
+        startupSceneSyncPending && obsConnected ? startupSceneSyncToken : 0;
     settleTimer = setTimeout(() => {
         settleTimer = null;
+        // OBS can emit its initial scene event just after the connection
+        // reconciliation finishes. Keep that short startup window from
+        // becoming a manual-scene hold for the already-focused game.
+        if (
+            startupTokenToComplete !== 0 &&
+            startupTokenToComplete === startupSceneSyncToken
+        ) {
+            startupSceneSyncPending = false;
+        }
         void evaluateForeground(generation);
     }, FOREGROUND_SETTLE_MS);
 }
@@ -564,6 +577,14 @@ export function configureWindowSceneSwitcherRuntime(
 ): void {
     dependencies = nextDependencies;
     obsConnected = nextDependencies.isOBSConnected();
+    if (obsConnected) {
+        // OBS may have connected before the scene-switcher runtime was wired
+        // (for example while the main window was being created). Reconcile the
+        // collection now instead of leaving activeCollectionName empty.
+        void handleOBSConnected().catch((error) =>
+            console.warn('[SceneSwitcher] Failed to reconcile after runtime setup:', error)
+        );
+    }
 }
 
 export function handleForegroundWindowSnapshot(snapshot: ForegroundWindowSnapshot): void {
@@ -622,11 +643,24 @@ export async function handleOBSConnected(): Promise<void> {
     // OBS may emit its initial program-scene event while we are still loading
     // the collection. Keep automatic switching inactive during that window so
     // the startup event is not mistaken for a user's manual scene override.
+    const syncToken = startupSceneSyncToken + 1;
+    startupSceneSyncToken = syncToken;
     obsConnected = false;
-    activeCollectionName = await dependencies.getCurrentCollectionName();
+    startupSceneSyncPending = true;
+    const collectionName = await dependencies.getCurrentCollectionName();
+    if (syncToken !== startupSceneSyncToken) {
+        return;
+    }
+    activeCollectionName = collectionName;
     const scenes = await dependencies.getScenes();
+    if (syncToken !== startupSceneSyncToken) {
+        return;
+    }
     if (scenes !== null) {
         await reconcileWindowSceneSwitcherRules(scenes);
+    }
+    if (syncToken !== startupSceneSyncToken) {
+        return;
     }
     obsConnected = true;
     dependencies.requestForegroundSnapshot();
@@ -635,7 +669,9 @@ export async function handleOBSConnected(): Promise<void> {
 }
 
 export function handleOBSDisconnected(): void {
+    startupSceneSyncToken += 1;
     obsConnected = false;
+    startupSceneSyncPending = false;
     cancelPendingConflict(false);
     notifyStateChanged();
 }
@@ -656,7 +692,7 @@ export async function handleOBSCollectionChanged(collectionName: string): Promis
 }
 
 export function handleOBSSceneChanged(scene: ObsSceneRef): void {
-    if (!obsConnected) {
+    if (!obsConnected || startupSceneSyncPending) {
         return;
     }
     if (

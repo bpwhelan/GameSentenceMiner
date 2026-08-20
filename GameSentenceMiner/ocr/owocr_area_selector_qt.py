@@ -63,6 +63,10 @@ OBS_SELECTOR_SCREENSHOT_RETRY_COUNT = 3
 OBS_SELECTOR_SCREENSHOT_RETRY_DELAY_SECONDS = 1.0
 
 
+class AreaSelectorCancelled(Exception):
+    """User cancelled selector initialization; not a fatal error."""
+
+
 def describe_obs_source_selection(sources, best_source):
     source_count = len(sources or [])
     if source_count <= 1:
@@ -365,17 +369,18 @@ class OWOCRAreaSelectorWidget(QWidget):
             logger.info(f"QPixmap created successfully: {self.pixmap.width()}x{self.pixmap.height()}")
             logger.info("Initialization completed successfully")
 
+        except AreaSelectorCancelled:
+            logger.info("Area selector initialization cancelled by user.")
+            raise
         except Exception as e:
             logger.exception(f"Failed to initialize: {e}")
-            import traceback
-
-            traceback.print_exc()
-            # Display error in a box and exit gracefully
+            # Never sys.exit() here: this can run in-process (tray test action,
+            # overlay area selector), and that would kill the whole GSM backend.
             try:
                 QMessageBox.critical(None, "Initialization Error", str(e))
             except Exception:
                 logger.error("Failed to show error dialog")
-            sys.exit(1)
+            raise
 
     def _init_monitor_capture(self):
         """Initialize by capturing the configured monitor via MSS."""
@@ -500,7 +505,7 @@ class OWOCRAreaSelectorWidget(QWidget):
 
                     if progress.wasCanceled():
                         logger.info("User quit during screenshot retry.")
-                        sys.exit(0)
+                        raise AreaSelectorCancelled("User cancelled OBS screenshot retry.")
 
                 try:
                     self.screenshot_img = obs.get_screenshot_PIL(
@@ -535,7 +540,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                     time.sleep(0.01)
                     if progress.wasCanceled():
                         logger.info("User quit during screenshot retry.")
-                        sys.exit(0)
+                        raise AreaSelectorCancelled("User cancelled OBS screenshot retry.")
         finally:
             if progress is not None:
                 progress.close()
@@ -2237,6 +2242,9 @@ def show_area_selector(
         )
         _selector.quit_app_on_close = created_app
         logger.info("OWOCRAreaSelectorWidget created successfully")
+    except AreaSelectorCancelled:
+        logger.info("Area selector cancelled before showing.")
+        raise
     except Exception as e:
         logger.exception(f"Failed to create OWOCRAreaSelectorWidget: {e}")
         raise
@@ -2286,6 +2294,9 @@ def show_monitor_selector(monitor_index=0, on_complete=None, overlay_config_mode
         )
         _selector.quit_app_on_close = created_app
         logger.info("OWOCRAreaSelectorWidget created successfully")
+    except AreaSelectorCancelled:
+        logger.info("Area selector cancelled before showing.")
+        raise
     except Exception as e:
         logger.exception(f"Failed to create OWOCRAreaSelectorWidget: {e}")
         raise
@@ -2371,9 +2382,9 @@ if __name__ == "__main__":
             )
 
         logger.success("OCR Area Selector completed successfully")
+    except AreaSelectorCancelled:
+        logger.info("OCR Area Selector cancelled by user.")
+        sys.exit(0)
     except Exception as e:
         logger.exception(f"Fatal error in main: {e}")
-        import traceback
-
-        traceback.print_exc()
         sys.exit(1)

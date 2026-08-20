@@ -369,7 +369,13 @@ class DialogManager(QObject):
     def _logic_area_selector(self, window_name, use_obs_screenshot, callback):
         from GameSentenceMiner.ocr.owocr_area_selector_qt import show_area_selector
 
-        show_area_selector(window_name, use_obs_screenshot=use_obs_screenshot, on_complete=callback)
+        try:
+            show_area_selector(window_name, use_obs_screenshot=use_obs_screenshot, on_complete=callback)
+        except Exception as e:
+            # Must not raise: this can run off the GUI thread via _run_sync's queue,
+            # where an uncaught exception would hang forever waiting on this callback.
+            logger.exception(f"Area selector failed to launch: {e}")
+            callback(None)
 
     async def area_selector_async(self, window_name="", use_obs_screenshot=False):
         return await self._run_async(lambda cb: self._logic_area_selector(window_name, use_obs_screenshot, cb))

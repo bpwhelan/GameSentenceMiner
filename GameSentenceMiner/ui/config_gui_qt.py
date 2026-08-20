@@ -1085,7 +1085,6 @@ class ConfigWindow(QWidget):
                     inject_scanned_lines=self.inject_scanned_lines_check.isChecked(),
                     minimum_character_size=int(self.overlay_minimum_character_size_edit.text() or 0),
                     use_overlay_area_config=self.use_overlay_area_config_check.isChecked(),
-                    use_ocr_area_config_v2=self.use_ocr_area_config_check.isChecked(),
                     ocr_area_config_include_primary_areas=self.ocr_area_config_include_primary_areas_check.isChecked(),
                     ocr_area_config_include_secondary_areas=self.ocr_area_config_include_secondary_areas_check.isChecked(),
                     ocr_area_config_use_exclusion_zones=self.ocr_area_config_use_exclusion_zones_check.isChecked(),
@@ -1696,7 +1695,6 @@ class ConfigWindow(QWidget):
         self.manual_overlay_scan_hotkey_edit = ClearableKeySequenceEdit()
         self.manual_overlay_scan_gamepad_combo = self._create_gamepad_hotkey_combo()
         self.use_overlay_area_config_check = QCheckBox()
-        self.use_ocr_area_config_check = QCheckBox()
         self.ocr_area_config_include_primary_areas_check = QCheckBox()
         self.ocr_area_config_include_secondary_areas_check = QCheckBox()
         self.ocr_area_config_use_exclusion_zones_check = QCheckBox()
@@ -3308,7 +3306,6 @@ class ConfigWindow(QWidget):
             getattr(s.hotkeys, "manual_overlay_scan_gamepad", ""),
         )
         self.use_overlay_area_config_check.setChecked(bool(getattr(s.overlay, "use_overlay_area_config", False)))
-        self.use_ocr_area_config_check.setChecked(s.overlay.use_ocr_area_config_v2)
         self.ocr_area_config_include_primary_areas_check.setChecked(
             bool(getattr(s.overlay, "ocr_area_config_include_primary_areas", True))
         )

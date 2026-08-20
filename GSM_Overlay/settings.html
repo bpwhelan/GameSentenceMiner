@@ -1707,7 +1707,7 @@
       </label>
       <label>
         <span class="label-text">Use OCR Area Config</span>
-        <input type="checkbox" id="use_ocr_area_config_v2" />
+        <input type="checkbox" id="use_overlay_area_config" />
       </label>
       <label>
         <span class="label-text">Minimum Character Size (0 = disabled)</span>
@@ -3458,7 +3458,7 @@
 
     // The OCR-area subset toggles only apply when OCR Area Config is enabled.
     function syncOcrAreaSubsetUi() {
-      const enabled = document.getElementById("use_ocr_area_config_v2")?.checked === true;
+      const enabled = document.getElementById("use_overlay_area_config")?.checked === true;
       ["ocr_area_config_include_primary_areas", "ocr_area_config_include_secondary_areas", "ocr_area_config_use_exclusion_zones"].forEach((id) => {
         const control = document.getElementById(id);
         if (control) control.disabled = !enabled;
@@ -3675,7 +3675,7 @@
           return Number.isFinite(numeric) ? numeric : 0;
         },
       },
-      createCheckboxBinding("use_ocr_area_config_v2", "#use_ocr_area_config_v2", {
+      createCheckboxBinding("use_overlay_area_config", "#use_overlay_area_config", {
         afterApply: () => syncOcrAreaSubsetUi(),
       }),
       createNumberBinding("minimum_character_size", "#minimum_character_size", {

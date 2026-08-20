@@ -244,11 +244,144 @@ describe("window scene switcher startup synchronization", () => {
       sequence: 1,
     });
     await service.handleOBSConnected();
+    // OBS can deliver its initial scene event just after the connection
+    // reconciliation finishes. It must not be treated as a manual override.
+    service.handleOBSSceneChanged({ id: "scene-other", name: "Other" });
     await vi.advanceTimersByTimeAsync(200);
 
     expect(requestForegroundSnapshot).toHaveBeenCalledOnce();
     expect(switchScene).toHaveBeenCalledOnce();
     expect(switchScene).toHaveBeenCalledWith("scene-game");
+    service.shutdownWindowSceneSwitcher();
+  });
+
+  it("hydrates the active collection when OBS was already connected during runtime setup", async () => {
+    const service = await loadService();
+    const switchScene = vi.fn(async () => {});
+    const requestForegroundSnapshot = vi.fn(() => {
+      service.handleForegroundWindowSnapshot({
+        hwnd: "1234",
+        pid: 999_999,
+        title: "Steins;Gate",
+        executableName: "game.exe",
+        capturedAt: Date.now(),
+        sequence: 1,
+      });
+    });
+    const runtime = {
+      isOBSConnected: () => true,
+      getCurrentCollectionName: async () => "Games",
+      getScenes: async () => [
+        { id: "scene-other", name: "Other" },
+        { id: "scene-game", name: "Steins;Gate" },
+      ],
+      getCurrentScene: async () => ({ id: "scene-other", name: "Other" }),
+      switchScene,
+      suggestRule: async () => null,
+      restoreForegroundWindow: () => {},
+      requestForegroundSnapshot,
+    };
+
+    service.configureWindowSceneSwitcherRuntime(runtime);
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(requestForegroundSnapshot).toHaveBeenCalledOnce();
+    expect(switchScene).toHaveBeenCalledOnce();
+    expect(switchScene).toHaveBeenCalledWith("scene-game");
+    service.shutdownWindowSceneSwitcher();
+  });
+
+  it("does not let an older foreground timer end startup scene suppression", async () => {
+    const service = await loadService();
+    const switchScene = vi.fn(async () => {});
+    let resolveScenes!: (scenes: Array<{ id: string; name: string }>) => void;
+    const scenesPromise = new Promise<Array<{ id: string; name: string }>>((resolve) => {
+      resolveScenes = resolve;
+    });
+    const getScenes = vi.fn(() => scenesPromise);
+    const runtime = {
+      isOBSConnected: () => false,
+      getCurrentCollectionName: async () => "Games",
+      getScenes,
+      getCurrentScene: async () => ({ id: "scene-other", name: "Other" }),
+      switchScene,
+      suggestRule: async () => null,
+      restoreForegroundWindow: () => {},
+      requestForegroundSnapshot: vi.fn(),
+    };
+
+    service.configureWindowSceneSwitcherRuntime(runtime);
+    service.handleForegroundWindowSnapshot({
+      hwnd: "1234",
+      pid: 999_999,
+      title: "Steins;Gate",
+      executableName: "game.exe",
+      capturedAt: Date.now(),
+      sequence: 1,
+    });
+
+    const connection = service.handleOBSConnected();
+    await Promise.resolve();
+    expect(getScenes).toHaveBeenCalledOnce();
+
+    // This timer predates the OBS synchronization and must not end its scene
+    // suppression while the scene list request is still unresolved.
+    await vi.advanceTimersByTimeAsync(200);
+    resolveScenes([
+      { id: "scene-other", name: "Other" },
+      { id: "scene-game", name: "Steins;Gate" },
+    ]);
+    await connection;
+
+    service.handleOBSSceneChanged({ id: "scene-other", name: "Other" });
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(switchScene).toHaveBeenCalledOnce();
+    expect(switchScene).toHaveBeenCalledWith("scene-game");
+    service.shutdownWindowSceneSwitcher();
+  });
+
+  it("invalidates an in-flight OBS synchronization after disconnect", async () => {
+    const service = await loadService();
+    const switchScene = vi.fn(async () => {});
+    let resolveScenes!: (scenes: Array<{ id: string; name: string }>) => void;
+    const scenesPromise = new Promise<Array<{ id: string; name: string }>>((resolve) => {
+      resolveScenes = resolve;
+    });
+    const requestForegroundSnapshot = vi.fn();
+    const runtime = {
+      isOBSConnected: () => false,
+      getCurrentCollectionName: async () => "Games",
+      getScenes: () => scenesPromise,
+      getCurrentScene: async () => ({ id: "scene-other", name: "Other" }),
+      switchScene,
+      suggestRule: async () => null,
+      restoreForegroundWindow: () => {},
+      requestForegroundSnapshot,
+    };
+
+    service.configureWindowSceneSwitcherRuntime(runtime);
+    service.handleForegroundWindowSnapshot({
+      hwnd: "1234",
+      pid: 999_999,
+      title: "Steins;Gate",
+      executableName: "game.exe",
+      capturedAt: Date.now(),
+      sequence: 1,
+    });
+
+    const connection = service.handleOBSConnected();
+    await Promise.resolve();
+    service.handleOBSDisconnected();
+    resolveScenes([
+      { id: "scene-other", name: "Other" },
+      { id: "scene-game", name: "Steins;Gate" },
+    ]);
+    await connection;
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(requestForegroundSnapshot).not.toHaveBeenCalled();
+    expect(switchScene).not.toHaveBeenCalled();
     service.shutdownWindowSceneSwitcher();
   });
 });

@@ -816,13 +816,16 @@ def _normalize_anki_sentence_line_breaks(note: Dict, anki_cfg=None) -> Dict:
         return note
 
     anki_cfg = anki_cfg or getattr(get_config(), "anki", None)
-    sentence_field = str(getattr(anki_cfg, "sentence_field", "") or "").strip()
-    if not sentence_field:
-        return note
+    sentence_fields = {
+        str(getattr(anki_cfg, "sentence_field", "") or "").strip(),
+        str(getattr(anki_cfg, "sentence_furigana_field", "") or "").strip(),
+    }
+    sentence_fields.discard("")
 
-    sentence = fields.get(sentence_field)
-    if isinstance(sentence, str):
-        fields[sentence_field] = sentence.replace("\r\n", "<br>").replace("\r", "<br>").replace("\n", "<br>")
+    for sentence_field in sentence_fields:
+        sentence = fields.get(sentence_field)
+        if isinstance(sentence, str):
+            fields[sentence_field] = sentence.replace("\r\n", "<br>").replace("\r", "<br>").replace("\n", "<br>")
 
     return note
 

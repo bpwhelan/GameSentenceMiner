@@ -178,6 +178,14 @@
 			// update while a dialog/timer is active would permanently strand that ID
 			// now that v2 intentionally has no polling/backfill workaround.
 			if (isAuthoritativeV2) {
+				if (
+					$isPaused$ &&
+					$autoStartTimerDuringPause$ &&
+					hasNoUserInteraction &&
+					!skipExternalLine
+				) {
+					$isPaused$ = false;
+				}
 				return true;
 			}
 

@@ -1542,7 +1542,6 @@ class Overlay:
     inject_scanned_lines: bool = False  # not recommended: persist overlay scans to the log (pollutes stats/texthooker)
     minimum_character_size: int = 0
     use_overlay_area_config: bool = False
-    use_ocr_area_config_v2: bool = False
     ocr_area_config_include_primary_areas: bool = True
     ocr_area_config_include_secondary_areas: bool = True
     ocr_area_config_use_exclusion_zones: bool = True
@@ -1634,7 +1633,7 @@ GSM_OWNED_OVERLAY_FIELDS: Dict[str, GsmOwnedOverlayField] = {
         "manual_mode_desktop_background", lambda v: "" if v is None else str(v)
     ),
     "check_previous_lines_for_recycled_indicator": GsmOwnedOverlayField("showRecycledIndicator", _coerce_overlay_bool),
-    "use_ocr_area_config_v2": GsmOwnedOverlayField("use_ocr_area_config_v2", _coerce_overlay_bool),
+    "use_overlay_area_config": GsmOwnedOverlayField("use_overlay_area_config", _coerce_overlay_bool),
     "ocr_area_config_include_primary_areas": GsmOwnedOverlayField(
         "ocr_area_config_include_primary_areas", _coerce_overlay_bool
     ),

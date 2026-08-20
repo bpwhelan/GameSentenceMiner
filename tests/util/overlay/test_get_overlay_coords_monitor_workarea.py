@@ -297,90 +297,6 @@ def test_get_overlay_preview_capture_falls_back_to_monitor_title(monkeypatch):
     assert title == "Overlay Monitor 2"
 
 
-def test_build_overlay_area_config_filters_primary_secondary_and_exclusions(
-    monkeypatch,
-):
-    processor = get_overlay_coords.OverlayProcessor()
-    source_config = OCRConfig(
-        scene="scene",
-        coordinate_system="percentage",
-        rectangles=[
-            Rectangle(
-                monitor=Monitor(index=1),
-                coordinates=[0, 0, 100, 20],
-                is_excluded=False,
-                is_secondary=False,
-            ),
-            Rectangle(
-                monitor=Monitor(index=1),
-                coordinates=[0, 30, 100, 20],
-                is_excluded=False,
-                is_secondary=True,
-            ),
-            Rectangle(
-                monitor=Monitor(index=1),
-                coordinates=[0, 60, 100, 20],
-                is_excluded=True,
-                is_secondary=False,
-            ),
-        ],
-    )
-
-    monkeypatch.setattr(
-        get_overlay_coords,
-        "get_overlay_config",
-        lambda: SimpleNamespace(
-            ocr_area_config_include_primary_areas=False,
-            ocr_area_config_include_secondary_areas=True,
-            ocr_area_config_use_exclusion_zones=False,
-        ),
-    )
-
-    filtered = processor._build_overlay_area_config(deepcopy(source_config))
-
-    assert [rect.is_secondary for rect in filtered.rectangles] == [True]
-    assert [rect.is_excluded for rect in filtered.rectangles] == [False]
-
-
-def test_build_overlay_area_config_defaults_to_existing_behavior(monkeypatch):
-    processor = get_overlay_coords.OverlayProcessor()
-    source_config = OCRConfig(
-        scene="scene",
-        coordinate_system="percentage",
-        rectangles=[
-            Rectangle(
-                monitor=Monitor(index=1),
-                coordinates=[0, 0, 100, 20],
-                is_excluded=False,
-                is_secondary=False,
-            ),
-            Rectangle(
-                monitor=Monitor(index=1),
-                coordinates=[0, 30, 100, 20],
-                is_excluded=False,
-                is_secondary=True,
-            ),
-            Rectangle(
-                monitor=Monitor(index=1),
-                coordinates=[0, 60, 100, 20],
-                is_excluded=True,
-                is_secondary=False,
-            ),
-        ],
-    )
-
-    monkeypatch.setattr(
-        get_overlay_coords,
-        "get_overlay_config",
-        lambda: SimpleNamespace(),
-    )
-
-    filtered = processor._build_overlay_area_config(deepcopy(source_config))
-
-    assert len(filtered.rectangles) == 3
-    assert len(filtered.pre_scale_rectangles) == 3
-
-
 def test_get_effective_overlay_area_config_prefers_dedicated_overlay_area(monkeypatch):
     processor = get_overlay_coords.OverlayProcessor()
     dedicated_config = OCRConfig(
@@ -398,62 +314,43 @@ def test_get_effective_overlay_area_config_prefers_dedicated_overlay_area(monkey
     monkeypatch.setattr(
         get_overlay_coords,
         "get_overlay_config",
-        lambda: SimpleNamespace(use_overlay_area_config=True, use_ocr_area_config_v2=False),
+        lambda: SimpleNamespace(use_overlay_area_config=True),
     )
     monkeypatch.setattr(processor, "_get_scaled_overlay_area_config", lambda width, height: dedicated_config)
-    monkeypatch.setattr(
-        processor,
-        "_get_scaled_overlay_ocr_config",
-        lambda width, height: (_ for _ in ()).throw(AssertionError("OCR area config should not be used")),
-    )
 
     effective = processor._get_effective_overlay_area_config(1920, 1080)
 
     assert effective is dedicated_config
 
 
-def test_get_effective_overlay_area_config_uses_ocr_area_config_when_enabled(monkeypatch):
+def test_get_effective_overlay_area_config_returns_none_when_disabled(monkeypatch):
     processor = get_overlay_coords.OverlayProcessor()
-    ocr_config = OCRConfig(
-        scene="scene",
-        coordinate_system="percentage",
-        rectangles=[
-            Rectangle(
-                monitor=Monitor(index=0),
-                coordinates=[0.05, 0.1, 0.2, 0.25],
-                is_excluded=False,
-            )
-        ],
-    )
 
     monkeypatch.setattr(
         get_overlay_coords,
         "get_overlay_config",
-        lambda: SimpleNamespace(use_overlay_area_config=True, use_ocr_area_config_v2=True),
+        lambda: SimpleNamespace(use_overlay_area_config=False),
     )
-    monkeypatch.setattr(processor, "_get_scaled_overlay_area_config", lambda width, height: None)
-    monkeypatch.setattr(processor, "_get_scaled_overlay_ocr_config", lambda width, height: ocr_config)
-    monkeypatch.setattr(processor, "_build_overlay_area_config", lambda config: config)
+    monkeypatch.setattr(
+        processor,
+        "_get_scaled_overlay_area_config",
+        lambda width, height: (_ for _ in ()).throw(AssertionError("overlay area config should not be used")),
+    )
 
     effective = processor._get_effective_overlay_area_config(1920, 1080)
 
-    assert effective is ocr_config
+    assert effective is None
 
 
-def test_get_effective_overlay_area_config_skips_ocr_area_config_when_disabled(monkeypatch):
+def test_get_effective_overlay_area_config_returns_none_when_area_empty(monkeypatch):
     processor = get_overlay_coords.OverlayProcessor()
 
     monkeypatch.setattr(
         get_overlay_coords,
         "get_overlay_config",
-        lambda: SimpleNamespace(use_overlay_area_config=True, use_ocr_area_config_v2=False),
+        lambda: SimpleNamespace(use_overlay_area_config=True),
     )
     monkeypatch.setattr(processor, "_get_scaled_overlay_area_config", lambda width, height: None)
-    monkeypatch.setattr(
-        processor,
-        "_get_scaled_overlay_ocr_config",
-        lambda width, height: (_ for _ in ()).throw(AssertionError("OCR area config should not be used")),
-    )
 
     effective = processor._get_effective_overlay_area_config(1920, 1080)
 

@@ -46,7 +46,7 @@ for ($i = 0; $i -lt $cmd.Count; $i++) {
         }
         "sync" {
             Write-Host "Syncing environment..." -ForegroundColor Cyan
-            uv sync --locked --no-dev
+            uv sync --locked --extra dev
             ~\AppData\Roaming\GameSentenceMiner\python_venv\Scripts\python.exe -m uv sync --active --locked --no-dev --no-install-project --inexact --project .
         }
         "gsm" {
