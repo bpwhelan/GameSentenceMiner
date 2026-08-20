@@ -226,7 +226,7 @@ class GamepadInputClient:
                     self.url,
                     open_timeout=2,
                     close_timeout=1,
-                    ping_interval=20,
+                    ping_interval=None,  # localhost; we reconnect via recv loop, keepalive only adds noise
                     proxy=None,
                 ) as connection:
                     with self._connection_lock:

@@ -20,6 +20,8 @@
  * - Auto-confirm: Yomitan lookups trigger automatically when navigating
  */
 
+const TOGGLE_ACTION_COOLDOWN_MS = 250;
+
 const GAMEPAD_BUTTON_LABELS = {
   0: 'A',
   1: 'B',
@@ -665,6 +667,7 @@ class GamepadHandler {
     // Repeat handling
     this.repeatTimers = new Map();
     this.lastNavigationTime = 0;
+    this.lastToggleActionTimes = new Map();
     
     // Confirm-to-mine gating state
     this.pendingMineCandidate = null; // Set after lookup confirm; consumed by second confirm
@@ -3027,13 +3030,17 @@ class GamepadHandler {
   // (it only acts while navigation is active) and echoes it back via setNavigationPauseActive().
   toggleNavigationPause() {
     if (!this.isNavigationActive()) {
-      return;
+      return false;
     }
     const ipc = this.getIpcRenderer();
     if (!ipc) {
-      return;
+      return false;
+    }
+    if (!this.shouldAcceptToggleAction('navigation-pause')) {
+      return false;
     }
     ipc.send('gamepad-toggle-pause');
+    return true;
   }
 
   // Apply the authoritative pause state reported by main (or local reset on deactivate).
@@ -3462,17 +3469,49 @@ class GamepadHandler {
     // Toggle mode - only check toggle flag
     return this.toggleModeActive;
   }
+
+  getToggleTimestamp() {
+    return Date.now();
+  }
+
+  shouldAcceptToggleAction(action, cooldownMs = TOGGLE_ACTION_COOLDOWN_MS) {
+    if (!this.lastToggleActionTimes || typeof this.lastToggleActionTimes.get !== 'function') {
+      this.lastToggleActionTimes = new Map();
+    }
+
+    const now = this.getToggleTimestamp();
+    const lastTriggeredAt = this.lastToggleActionTimes.get(action);
+    const elapsed = now - lastTriggeredAt;
+    this.lastToggleActionTimes.set(action, now);
+    if (Number.isFinite(lastTriggeredAt) && elapsed >= 0 && elapsed < cooldownMs) {
+      console.log(`[GamepadHandler] Ignoring duplicate ${action} toggle after ${elapsed}ms`);
+      return false;
+    }
+
+    return true;
+  }
   
   toggleNavigationMode() {
-    this.toggleModeActive = !this.toggleModeActive;
-    
-    if (this.toggleModeActive) {
-      this.activateNavigation();
-    } else {
-      this.deactivateNavigation();
+    const action = 'navigation-mode';
+    if (!this.shouldAcceptToggleAction(action)) {
+      return false;
     }
-    
-    console.log(`[GamepadHandler] Toggle mode: ${this.toggleModeActive ? 'ON' : 'OFF'}`);
+    try {
+      this.toggleModeActive = !this.toggleModeActive;
+
+      if (this.toggleModeActive) {
+        this.activateNavigation();
+      } else {
+        this.deactivateNavigation();
+      }
+
+      console.log(`[GamepadHandler] Toggle mode: ${this.toggleModeActive ? 'ON' : 'OFF'}`);
+      return true;
+    } finally {
+      // Activation can scan and focus synchronously. Measure the debounce from
+      // completion so a Steam-generated event queued during that work stays blocked.
+      this.lastToggleActionTimes.set(action, this.getToggleTimestamp());
+    }
   }
   
   activateNavigation() {
@@ -3486,7 +3525,7 @@ class GamepadHandler {
     
     // Select first block if none selected
     if (this.currentBlockIndex < 0 && this.textBlocks.length > 0) {
-      this.currentBlockIndex = 0;
+      this.currentBlockIndex = this.findFirstSelectableBlockIndex();
       this.currentCursorIndex = 0;
     }
 
@@ -3852,8 +3891,13 @@ class GamepadHandler {
       return this.textBlocks.length > 0 ? 0 : -1;
     }
 
-    if (selectableBlocks.length >= 3) {
-      const rankedBlocks = [...selectableBlocks].sort((a, b) => (
+    const nonNameBlocks = selectableBlocks.filter(({ index }) => (
+      this.textBlocks[index]?.dataset?.blockRole !== 'character-name'
+    ));
+    const preferredBlocks = nonNameBlocks.length > 0 ? nonNameBlocks : selectableBlocks;
+
+    if (preferredBlocks.length >= 3) {
+      const rankedBlocks = [...preferredBlocks].sort((a, b) => (
         (b.area - a.area) ||
         (b.textLength - a.textLength) ||
         (a.index - b.index)
@@ -3871,7 +3915,7 @@ class GamepadHandler {
       }
     }
 
-    return selectableBlocks[0].index;
+    return preferredBlocks[0].index;
   }
 
   resetSelectionToSingleBlockStart() {
@@ -6334,6 +6378,9 @@ class GamepadHandler {
   // ==================== Configuration ====================
   
   toggleTokenMode() {
+    if (!this.shouldAcceptToggleAction('token-mode')) {
+      return false;
+    }
     const anchorCharIndex = this.getCurrentAnchorCharIndex();
     const normalizedAnchorCharIndex = this.characters.length > 0
       ? Math.max(0, Math.min(anchorCharIndex >= 0 ? anchorCharIndex : 0, this.characters.length - 1))
@@ -6363,6 +6410,7 @@ class GamepadHandler {
     }));
     
     console.log(`[GamepadHandler] Token mode: ${this.tokenMode ? 'ON' : 'OFF'}`);
+    return true;
   }
   
   updateModeIndicatorText() {

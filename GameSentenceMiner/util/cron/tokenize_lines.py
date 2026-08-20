@@ -9,6 +9,7 @@ Provides:
 
 from __future__ import annotations
 
+import multiprocessing
 import queue
 import threading
 import time
@@ -21,6 +22,8 @@ from GameSentenceMiner.util.config.feature_flags import (
 )
 from GameSentenceMiner.util.database.db import DB_PRIORITY_LOW
 from GameSentenceMiner.util.text_utils import is_kanji
+from GameSentenceMiner.util.concurrency.actor import ActorStopped, MailboxFull
+from GameSentenceMiner.util.concurrency.resource_qos import configure_background_process
 
 
 DEFAULT_BACKFILL_BATCH_SIZE = 250
@@ -35,59 +38,122 @@ THROTTLE_SLEEP_SECONDS = MIN_ADAPTIVE_BATCH_SLEEP_SECONDS
 RealtimeTokenizationBatch = list[tuple[str, str, float | None]]
 
 
+def _run_realtime_tokenization_process(command_queue, pending_count) -> None:
+    """Process entry point: tokenization gets its own GIL and background CPUs."""
+    configure_background_process()
+    try:
+        from GameSentenceMiner.util.database.db import bind_database_worker_tables
+
+        bind_database_worker_tables()
+        while True:
+            kind, payload = command_queue.get()
+            try:
+                if kind == "stop":
+                    return
+                if kind == "line":
+                    line_id, line_text, line_timestamp = payload
+                    tokenize_line(line_id, line_text, line_timestamp)
+                else:
+                    for line_id, line_text, line_timestamp in payload:
+                        tokenize_line(line_id, line_text, line_timestamp)
+            except Exception as error:
+                logger.exception(f"Realtime tokenization process failed: {error}")
+            finally:
+                if kind != "stop":
+                    with pending_count.get_lock():
+                        pending_count.value = max(0, pending_count.value - 1)
+                command_queue.task_done()
+    finally:
+        # SQLite's writer is a non-daemon thread. Close it explicitly so this
+        # worker can exit without waiting on interpreter teardown.
+        try:
+            from GameSentenceMiner.util.database.db import gsm_db
+
+            gsm_db.close()
+        except Exception:
+            pass
+
+
 class _RealtimeTokenizationScheduler:
-    """Serialize realtime tokenization on a dedicated daemon worker."""
+    """Serialize realtime tokenization in one bounded low-priority process."""
 
     def __init__(self) -> None:
-        self._queue: queue.Queue[tuple[str, tuple[str, str, float | None] | RealtimeTokenizationBatch]] = queue.Queue()
-        self._thread: threading.Thread | None = None
+        self._context = multiprocessing.get_context("spawn")
+        self._queue = self._context.JoinableQueue(maxsize=4096)
+        self._pending_count = self._context.Value("i", 0)
+        self._process: multiprocessing.Process | None = None
         self._start_lock = threading.Lock()
+        self._accepting = True
 
     def enqueue_line(self, line_id: str, line_text: str, line_timestamp: float | None = None) -> None:
         self._ensure_started()
-        self._queue.put(("line", (line_id, line_text, line_timestamp)))
+        self._enqueue(("line", (line_id, line_text, line_timestamp)))
 
     def enqueue_batch(self, lines: RealtimeTokenizationBatch) -> None:
         if not lines:
             return
         self._ensure_started()
-        self._queue.put(("batch", list(lines)))
+        self._enqueue(("batch", list(lines)))
+
+    def _enqueue(self, item) -> None:
+        if not self._accepting:
+            raise ActorStopped("Realtime tokenization worker is stopped")
+        with self._pending_count.get_lock():
+            self._pending_count.value += 1
+        try:
+            # Persisted lines remain marked untokenized and are recoverable by
+            # backfill if this best-effort realtime lane is saturated.
+            self._queue.put(item, block=False)
+        except queue.Full as error:
+            with self._pending_count.get_lock():
+                self._pending_count.value = max(0, self._pending_count.value - 1)
+            raise MailboxFull("Realtime tokenization mailbox is backpressured") from error
 
     def wait_for_idle(self, timeout: float | None = 5.0) -> bool:
         deadline = None if timeout is None else time.monotonic() + timeout
-        while self._queue.unfinished_tasks:
+        while True:
+            with self._pending_count.get_lock():
+                pending = self._pending_count.value
+            if pending == 0:
+                return True
+            process = self._process
+            if process is not None and not process.is_alive():
+                return False
             if deadline is not None and time.monotonic() >= deadline:
                 return False
             time.sleep(0.01)
-        return True
 
     def _ensure_started(self) -> None:
         with self._start_lock:
-            if self._thread and self._thread.is_alive():
+            if self._process and self._process.is_alive():
                 return
-            self._thread = threading.Thread(
-                target=self._run,
+            if not self._accepting:
+                raise ActorStopped("Realtime tokenization worker is stopped")
+            self._process = self._context.Process(
+                target=_run_realtime_tokenization_process,
+                args=(self._queue, self._pending_count),
                 name="gsm-tokenization",
                 daemon=True,
             )
-            self._thread.start()
-            logger.background("Realtime tokenization worker started.")
+            self._process.start()
+            logger.background(f"Realtime tokenization process started (pid={self._process.pid}).")
 
-    def _run(self) -> None:
-        while True:
-            kind, payload = self._queue.get()
-            try:
-                if kind == "line":
-                    line_id, line_text, line_timestamp = payload  # type: ignore[misc]
-                    tokenize_line(line_id, line_text, line_timestamp)
-                    continue
-
-                for line_id, line_text, line_timestamp in payload:  # type: ignore[assignment]
-                    tokenize_line(line_id, line_text, line_timestamp)
-            except Exception as e:
-                logger.exception(f"Realtime tokenization worker failed: {e}")
-            finally:
-                self._queue.task_done()
+    def stop(self, timeout: float = 10.0) -> bool:
+        self._accepting = False
+        process = self._process
+        if process is None:
+            return True
+        try:
+            self._queue.put(("stop", None), timeout=0.25)
+        except queue.Full:
+            pass
+        process.join(timeout)
+        if process.is_alive():
+            process.terminate()
+            process.join(timeout=1)
+        self._queue.close()
+        self._queue.join_thread()
+        return not process.is_alive()
 
 
 _realtime_tokenization_scheduler = _RealtimeTokenizationScheduler()
@@ -103,6 +169,10 @@ def enqueue_realtime_tokenization_batch(lines: RealtimeTokenizationBatch) -> Non
 
 def wait_for_realtime_tokenization_idle(timeout: float | None = 5.0) -> bool:
     return _realtime_tokenization_scheduler.wait_for_idle(timeout)
+
+
+def stop_realtime_tokenization(timeout: float = 10.0) -> bool:
+    return _realtime_tokenization_scheduler.stop(timeout)
 
 
 def _get_backfill_batch_size(low_performance_mode: bool) -> int:

@@ -10,14 +10,18 @@ os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")  # Suppress TensorFlow logs
 os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")  # Suppress transformers logs
 
 from GameSentenceMiner.ocr.coordinate_math import scale_percentage_rectangle_to_even_pixels
+from GameSentenceMiner.ocr.compare import compare_ocr_results
 from GameSentenceMiner.ocr.composite_layout import CompositeLayout, pack_rectangles
+from GameSentenceMiner.ocr.debug_logging import emit_ocr_debug, text_preview
 from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness, get_scene_ocr_config
 from GameSentenceMiner.util.gsm_utils import do_text_replacements, OCR_REPLACEMENTS_FILE
 from GameSentenceMiner.util.config.electron_config import (
     get_furigana_filter_sensitivity,
     get_ocr_base_scale,
+    get_ocr_advanced_debug_logging,
     get_ocr_compact_boxes,
     get_ocr_compact_boxes_gap,
+    get_ocr_duplicate_similarity_threshold,
     get_ocr_keep_newline,
     get_ocr_language,
     get_ocr_obs_capture_preprocess_mode,
@@ -33,9 +37,18 @@ from GameSentenceMiner.util.config.electron_config import (
 from GameSentenceMiner.ocr.image_scaling import (
     scale_dimensions_to_minimum_bounds,
 )
+from GameSentenceMiner.native import ocr as native_ocr
+from GameSentenceMiner.native.runtime import NativeMode, get_native_mode
 from GameSentenceMiner.obs.screenshot_capture import (
     _capture_hwnd_windows_graphics_capture,
     is_image_empty,
+)
+from GameSentenceMiner.owocr.owocr.ocr import (
+    BoundingBox as StructuredBoundingBox,
+    Line as StructuredLine,
+    OcrResult as StructuredOcrResult,
+    Paragraph as StructuredParagraph,
+    google_lens_response_is_formula_only,
 )
 
 import signal
@@ -361,7 +374,20 @@ def _join_selected_blocks_with_source_separators(source_text, blocks, selected_i
     return "".join(result_parts)
 
 
-def _rebuild_text_from_structured_result(raw_response_dict, coords, filtering, is_second_ocr=False):
+def _rebuild_text_from_structured_result(
+    raw_response_dict,
+    coords,
+    filtering,
+    is_second_ocr=False,
+    furigana_filter_active=False,
+):
+    # Coordinate-aware engines such as OneOCR already applied the configured
+    # size filter to their returned text and line geometry. Their structured
+    # response intentionally retains every raw line for area-filter checks, so
+    # rebuilding from it here would restore the furigana that was just removed.
+    if furigana_filter_active:
+        return None
+
     if raw_response_dict and isinstance(raw_response_dict, dict) and "paragraphs" in raw_response_dict and filtering:
         try:
             ocr_result = dict_to_ocr_result(raw_response_dict)
@@ -1100,6 +1126,15 @@ class TextFiltering:
         }
 
         self.last_few_results = {}
+        self._python_filter_initialized = False
+
+    def _ensure_python_filter_backend(self):
+        """Load the legacy classifier only when fallback or shadow mode needs it."""
+        if getattr(self, "_python_filter_initialized", False):
+            return
+        if hasattr(self, "classify") or getattr(self, "accurate_filtering", False):
+            self._python_filter_initialized = True
+            return
         try:
             import warnings
 
@@ -1128,10 +1163,12 @@ class TextFiltering:
                 device=device,
             )
             self.accurate_filtering = True
-        except:
+        except Exception:
             import langid
 
             self.classify = langid.classify
+            self.accurate_filtering = False
+        self._python_filter_initialized = True
 
     def _get_regex(self, lang):
         if lang == "ja":
@@ -1180,6 +1217,146 @@ class TextFiltering:
     # --- Layout Analysis Methods (ported from upstream owocr) ---
 
     def order_paragraphs_and_lines(self, ocr_result):
+        mode = get_native_mode("ocr")
+        if mode is NativeMode.PYTHON or not native_ocr.is_available():
+            return self._order_paragraphs_and_lines_python(ocr_result)
+
+        try:
+            native_result = self._order_paragraphs_and_lines_native(ocr_result)
+        except Exception as exc:
+            logger.warning(f"Native OCR layout failed; using Python fallback: {exc}")
+            return self._order_paragraphs_and_lines_python(ocr_result)
+
+        if mode is not NativeMode.SHADOW:
+            return native_result
+
+        python_result = self._order_paragraphs_and_lines_python(copy.deepcopy(ocr_result))
+        if self._layout_signature(native_result) != self._layout_signature(python_result):
+            logger.warning("Native OCR layout shadow result differs from the Python reference")
+        return python_result
+
+    def _order_paragraphs_and_lines_native(self, ocr_result):
+        self.furigana_filter = get_furigana_filter_sensitivity() > 0
+        source_lines = {}
+        native_lines = []
+        source_id = 0
+
+        for paragraph in ocr_result.paragraphs:
+            paragraph_direction = getattr(paragraph, "writing_direction", None)
+            for line in paragraph.lines:
+                line_text = self.get_line_text(line)
+                if not line_text.strip():
+                    continue
+                if line.text is None:
+                    line.text = line_text
+                bbox = line.bounding_box
+                source_lines[source_id] = line
+                native_lines.append(
+                    (
+                        source_id,
+                        line_text,
+                        float(bbox.center_x),
+                        float(bbox.center_y),
+                        float(bbox.width),
+                        float(bbox.height),
+                        getattr(line, "writing_direction", None),
+                        paragraph_direction,
+                    )
+                )
+                source_id += 1
+
+        if not native_lines:
+            return ocr_result
+
+        image_properties = ocr_result.image_properties
+        native_paragraphs = native_ocr.order_layout(
+            lines=native_lines,
+            image_width=float(getattr(image_properties, "width", 0) or 0),
+            image_height=float(getattr(image_properties, "height", 0) or 0),
+            language=str(get_ocr_language() or self.initial_lang),
+            furigana_filter=self.furigana_filter,
+            support_center_aligned_text=self.support_center_aligned_text,
+            merge_close_paragraphs=self.merge_close_paragraphs,
+        )
+
+        paragraphs = []
+        for native_paragraph in native_paragraphs:
+            paragraph_lines = []
+            for native_line in native_paragraph.lines:
+                originals = [source_lines[source_id] for source_id in native_line.source_ids]
+                if len(originals) == 1 and originals[0].text == native_line.text:
+                    line = originals[0]
+                else:
+                    words = []
+                    for original in originals:
+                        words.extend(original.words)
+                    center_x, center_y, width, height = native_line.bounding_box
+                    line = StructuredLine(
+                        bounding_box=StructuredBoundingBox(
+                            center_x=center_x,
+                            center_y=center_y,
+                            width=width,
+                            height=height,
+                        ),
+                        words=words,
+                        text=native_line.text,
+                    )
+                paragraph_lines.append(line)
+
+            center_x, center_y, width, height = native_paragraph.bounding_box
+            paragraphs.append(
+                StructuredParagraph(
+                    bounding_box=StructuredBoundingBox(
+                        center_x=center_x,
+                        center_y=center_y,
+                        width=width,
+                        height=height,
+                    ),
+                    lines=paragraph_lines,
+                    writing_direction=native_paragraph.writing_direction,
+                )
+            )
+
+        return StructuredOcrResult(
+            image_properties=ocr_result.image_properties,
+            engine_capabilities=ocr_result.engine_capabilities,
+            paragraphs=paragraphs,
+        )
+
+    @staticmethod
+    def _layout_signature(ocr_result):
+        return [
+            (
+                paragraph.writing_direction,
+                tuple(
+                    round(value, 8)
+                    for value in (
+                        paragraph.bounding_box.center_x,
+                        paragraph.bounding_box.center_y,
+                        paragraph.bounding_box.width,
+                        paragraph.bounding_box.height,
+                    )
+                ),
+                [
+                    (
+                        line.text,
+                        tuple(
+                            round(value, 8)
+                            for value in (
+                                line.bounding_box.center_x,
+                                line.bounding_box.center_y,
+                                line.bounding_box.width,
+                                line.bounding_box.height,
+                            )
+                        ),
+                    )
+                    for line in paragraph.lines
+                ],
+            )
+            for paragraph in ocr_result.paragraphs
+        ]
+
+    def _order_paragraphs_and_lines_python(self, ocr_result):
         # Update sensitivity config
         self.furigana_filter = get_furigana_filter_sensitivity() > 0
 
@@ -1975,6 +2152,49 @@ class TextFiltering:
         return connected_components
 
     def extract_text_from_ocr_result(self, result_data):
+        mode = get_native_mode("ocr")
+        if mode is NativeMode.PYTHON or not native_ocr.is_available():
+            return self._extract_text_from_ocr_result_python(result_data)
+
+        line_entries = self._spatial_line_entries(result_data)
+        try:
+            native_result = native_ocr.build_spatial_text(line_entries)
+        except Exception as exc:
+            logger.warning(f"Native spatial text construction failed; using Python fallback: {exc}")
+            return self._extract_text_from_ocr_result_python(result_data)
+
+        if mode is not NativeMode.SHADOW:
+            return native_result
+        python_result = self._extract_text_from_ocr_result_python(result_data)
+        if native_result != python_result:
+            logger.warning("Native spatial text shadow result differs from the Python reference")
+        return python_result
+
+    def _spatial_line_entries(self, result_data):
+        line_entries = []
+        image_height = max(float(getattr(result_data.image_properties, "height", 0) or 0), 1.0)
+        image_width = max(float(getattr(result_data.image_properties, "width", 0) or 0), 1.0)
+
+        for paragraph in result_data.paragraphs:
+            paragraph_is_vertical = bool(getattr(paragraph, "writing_direction", None) == "TOP_TO_BOTTOM")
+            for line in paragraph.lines:
+                line_text = self.get_line_text(line)
+                if not line_text:
+                    continue
+                bbox = line.bounding_box
+                line_entries.append(
+                    (
+                        line_text,
+                        float(getattr(bbox, "center_x", 0.0) or 0.0) * image_width,
+                        float(getattr(bbox, "center_y", 0.0) or 0.0) * image_height,
+                        float(getattr(bbox, "width", 0.0) or 0.0) * image_width,
+                        float(getattr(bbox, "height", 0.0) or 0.0) * image_height,
+                        paragraph_is_vertical,
+                    )
+                )
+        return line_entries
+
+    def _extract_text_from_ocr_result_python(self, result_data):
         line_entries = []
         image_height = max(float(getattr(result_data.image_properties, "height", 0) or 0), 1.0)
         image_width = max(float(getattr(result_data.image_properties, "width", 0) or 0), 1.0)
@@ -2001,6 +2221,32 @@ class TextFiltering:
         return build_spatial_text(line_entries)
 
     def __call__(self, text, last_result, engine=None, is_second_ocr=False):
+        self._refresh_segmenter_language()
+        mode = get_native_mode("ocr")
+        if mode is NativeMode.PYTHON or not native_ocr.is_available():
+            self._ensure_python_filter_backend()
+            return self._filter_text_python(text, last_result, engine=engine, is_second_ocr=is_second_ocr)
+
+        original_history = copy.deepcopy(self.last_few_results)
+        try:
+            native_result = self._filter_text_native(text, last_result, engine=engine, is_second_ocr=is_second_ocr)
+        except Exception as exc:
+            self.last_few_results = original_history
+            logger.warning(f"Native OCR text filtering failed; using Python fallback: {exc}")
+            self._ensure_python_filter_backend()
+            return self._filter_text_python(text, last_result, engine=engine, is_second_ocr=is_second_ocr)
+
+        if mode is not NativeMode.SHADOW:
+            return native_result
+
+        self.last_few_results = original_history
+        self._ensure_python_filter_backend()
+        python_result = self._filter_text_python(text, last_result, engine=engine, is_second_ocr=is_second_ocr)
+        if native_result != python_result:
+            logger.warning("Native OCR text filtering shadow result differs from the Python reference")
+        return python_result
+
+    def _refresh_segmenter_language(self):
         lang = get_ocr_language()
         if self.initial_lang != lang:
             from pysbd import Segmenter, languages
@@ -2011,6 +2257,41 @@ class TextFiltering:
                 self.segmenter = PassthroughSegmenter()
             self.initial_lang = get_ocr_language()
             self.regex = self._get_regex(lang)
+
+    def _filter_text_native(self, text, last_result, engine=None, is_second_ocr=False):
+        lang = str(get_ocr_language() or self.initial_lang)
+        blocks = [str(block) for block in self.segmenter.segment(text)]
+        previous_blocks = []
+        try:
+            if isinstance(last_result, list):
+                previous_blocks = [str(block) for block in last_result if block is not None]
+            elif last_result and last_result[1] == engine_index:
+                previous_blocks = [str(block) for block in (last_result[0] or []) if block is not None]
+        except Exception as exc:
+            logger.error(f"Error processing last_result {last_result}: {exc}")
+
+        historic_compare_blocks = []
+        if engine and not is_second_ocr:
+            for previous_result in self.last_few_results.get(engine, []):
+                historic_compare_blocks.extend(str(block) for block in previous_result if block)
+
+        result = native_ocr.filter_text(
+            source_text=str(text or ""),
+            blocks=blocks,
+            language=lang,
+            previous_blocks=previous_blocks,
+            historic_compare_blocks=historic_compare_blocks,
+        )
+
+        if engine and not is_second_ocr:
+            history = self.last_few_results.setdefault(engine, deque(maxlen=3))
+            history.append(result.compare_blocks)
+        return result.text, result.all_blocks
+
+    def _filter_text_python(self, text, last_result, engine=None, is_second_ocr=False):
+        self._refresh_segmenter_language()
+        self._ensure_python_filter_backend()
+        lang = get_ocr_language()
 
         def _normalize_last_result_block(block_text):
             if block_text is None:
@@ -3786,6 +4067,7 @@ def process_and_write_results(
     apply_area_filters=None,
 ):
     global engine_index
+    debug_enabled = get_ocr_advanced_debug_logging()
     # Area filters must run whenever we emit an automatic result, not only when
     # write_to is set. OCR2 returns via return value (write_to=None), so its caller
     # enables area filters explicitly; scene-coordinate black-hole and menu
@@ -3808,9 +4090,32 @@ def process_and_write_results(
     engine_color = config.get_general("engine_color")
 
     start_time = time.time()
+    emit_ocr_debug(
+        debug_enabled,
+        "ocr_engine.started",
+        pass_number=2 if is_second_ocr else 1,
+        engine=getattr(engine_instance, "name", engine),
+        readable_engine=getattr(engine_instance, "readable_name", ""),
+        image_size=getattr(img_or_path, "size", None),
+        furigana_filter_sensitivity=furigana_filter_sensitivity,
+        apply_area_filters=apply_area_filters,
+        source=source,
+    )
     result = engine_instance(img_or_path, furigana_filter_sensitivity)
     # logger.info(f"OCR Result from {engine_instance.readable_name}: {result}")
     res, text, coords, crop_coords_list, crop_coords, raw_response_dict = (list(result) + [None] * 6)[:6]
+    emit_ocr_debug(
+        debug_enabled,
+        "ocr_engine.raw_result",
+        pass_number=2 if is_second_ocr else 1,
+        engine=getattr(engine_instance, "name", engine),
+        success=bool(res),
+        raw_text=text_preview(text),
+        line_count=len(coords or []) if isinstance(coords, list) else 0,
+        crop_coords=crop_coords,
+        crop_line_count=len(crop_coords_list or []),
+        has_structured_response=bool(raw_response_dict),
+    )
 
     # ScreenAI can legitimately produce no detections for a frame; treat that as empty success, not an engine failure.
     if (
@@ -3827,6 +4132,13 @@ def process_and_write_results(
         raw_response_dict = None
 
     if not res and ocr_2 == engine and ocr_1 and ocr_1.lower() != engine.lower():
+        emit_ocr_debug(
+            debug_enabled,
+            "ocr_engine.fallback",
+            failed_engine=getattr(engine_instance, "name", engine),
+            fallback_engine=ocr_1,
+            error=text_preview(text),
+        )
         logger.opt(ansi=True).info(
             f"<{engine_color}>{engine_instance.readable_name}</{engine_color}> failed with message: {text}, trying <{engine_color}>{ocr_1}</{engine_color}>"
         )
@@ -3879,6 +4191,14 @@ def process_and_write_results(
                     raw_response_dict=raw_response_dict,
                 )
             ):
+                emit_ocr_debug(
+                    debug_enabled,
+                    "area_filter.suppressed",
+                    reason="black_hole",
+                    payload_type="detection",
+                    crop_coords=detection_payload.get("crop_coords"),
+                    box_count=len(detection_payload.get("boxes") or []),
+                )
                 logger.opt(ansi=True).info(BLACK_HOLE_SKIP_LOG_MESSAGE)
                 if return_payload:
                     return "", "", None
@@ -3890,6 +4210,13 @@ def process_and_write_results(
                     original_width=original_size.get("width"),
                     original_height=original_size.get("height"),
                 )
+                emit_ocr_debug(
+                    debug_enabled,
+                    "area_filter.exclusive",
+                    payload_type="detection",
+                    applied=bool(_exclusive_applied),
+                    remaining_box_count=len(detection_payload.get("boxes") or []),
+                )
             if (
                 apply_area_filters
                 and not is_second_ocr
@@ -3900,6 +4227,14 @@ def process_and_write_results(
                     crop_padding=detection_payload.get("crop_padding", 5),
                 )
             ):
+                emit_ocr_debug(
+                    debug_enabled,
+                    "area_filter.suppressed",
+                    reason="menu_only",
+                    payload_type="detection",
+                    crop_coords=detection_payload.get("crop_coords"),
+                    box_count=len(detection_payload.get("boxes") or []),
+                )
                 logger.opt(ansi=True).info("Text is identified as all menu items, skipping further processing.")
                 if return_payload:
                     return "", "", None
@@ -3945,11 +4280,19 @@ def process_and_write_results(
                 return "", "", detection_payload
             return str(detection_payload), str(detection_payload)
 
+        effective_furigana_sensitivity = (
+            get_furigana_filter_sensitivity() if furigana_filter_sensitivity is None else furigana_filter_sensitivity
+        )
         rebuilt_text = _rebuild_text_from_structured_result(
-            raw_response_dict, coords, filtering, is_second_ocr=is_second_ocr
+            raw_response_dict,
+            coords,
+            filtering,
+            is_second_ocr=is_second_ocr,
+            furigana_filter_active=_safe_int(effective_furigana_sensitivity) > 0,
         )
         if rebuilt_text is not None:
             text = rebuilt_text
+        text_before_area_filters = text_preview(text)
 
         pipeline_metadata = _build_pipeline_metadata(
             image_metadata,
@@ -3969,6 +4312,15 @@ def process_and_write_results(
                 raw_response_dict=raw_response_dict,
             )
         ):
+            emit_ocr_debug(
+                debug_enabled,
+                "area_filter.suppressed",
+                reason="black_hole",
+                payload_type="text",
+                text=text_before_area_filters,
+                crop_coords=crop_coords,
+                line_count=len(crop_coords_list or []),
+            )
             logger.opt(ansi=True).info(BLACK_HOLE_SKIP_LOG_MESSAGE)
             if return_payload:
                 return "", "", None
@@ -3986,20 +4338,77 @@ def process_and_write_results(
                     original_height=original_size.get("height"),
                 )
             )
+            emit_ocr_debug(
+                debug_enabled,
+                "area_filter.exclusive",
+                payload_type="text",
+                applied=bool(_exclusive_applied),
+                before=text_before_area_filters,
+                after=text_preview(text),
+            )
 
+        text_before_replacements = text_preview(text)
         if isinstance(text, list):
             for i, line in enumerate(text):
                 text[i] = do_configured_ocr_replacements(line)
         else:
             text = do_configured_ocr_replacements(text)
+        text_after_replacements = text_preview(text)
 
+        raw_text_was_empty = not text or (isinstance(text, str) and not text.strip())
         raw_text_for_callback = str(text) if text is not None else ""
 
         if filtering:
             text, orig_text = filtering(text, last_result, engine=engine, is_second_ocr=is_second_ocr)
+        text_after_filtering = text_preview(text)
         ocr_language = get_ocr_language()
         if ocr_language in ("ja", "zh"):
             text = post_process(text, keep_blank_lines=get_ocr_keep_newline(source))
+
+        previous_chunks = []
+        if isinstance(last_result, list):
+            previous_chunks = last_result
+        elif (
+            isinstance(last_result, tuple)
+            and len(last_result) >= 2
+            and last_result[1] == engine_index
+            and isinstance(last_result[0], list)
+        ):
+            previous_chunks = last_result[0]
+
+        duplicate_suppressed_by_coverage = bool(
+            text
+            and previous_chunks
+            and compare_ocr_results(
+                previous_chunks,
+                [text],
+                threshold=get_ocr_duplicate_similarity_threshold(),
+            )
+        )
+        if duplicate_suppressed_by_coverage:
+            emit_ocr_debug(
+                debug_enabled,
+                "filtering.duplicate_suppressed",
+                pass_number=2 if is_second_ocr else 1,
+                engine=getattr(engine_instance, "name", engine),
+                previous_chunks=[text_preview(item) for item in previous_chunks],
+                candidate=text_preview(text),
+                comparison_mode="chunk_coverage",
+            )
+            text = ""
+        emit_ocr_debug(
+            debug_enabled,
+            "filtering.pipeline",
+            pass_number=2 if is_second_ocr else 1,
+            engine=getattr(engine_instance, "name", engine),
+            before_replacements=text_before_replacements,
+            after_replacements=text_after_replacements,
+            after_text_filtering=text_after_filtering,
+            after_post_process=text_preview(text),
+            chunks=[text_preview(item) for item in (orig_text or [])],
+            language=ocr_language,
+            keep_newline=get_ocr_keep_newline(source),
+        )
         if notify and config.get_general("notifications"):
             notifier.send(title="owocr", message="Text recognized: " + text)
 
@@ -4008,16 +4417,45 @@ def process_and_write_results(
             "crop_coords_list": [list(c[:5]) for c in (crop_coords_list or [])],
             "line_count": len(coords) if isinstance(coords, list) else 0,
         }
+        engine_key = str(getattr(engine_instance, "name", engine) or "").strip().lower()
+        if engine_key == "glens" and google_lens_response_is_formula_only(raw_response_dict):
+            pipeline_metadata["ocr"]["google_lens_formula_only"] = True
 
         if apply_area_filters and not is_second_ocr:
             if check_text_is_all_menu(crop_coords, crop_coords_list, crop_offset=current_crop_offset):
+                emit_ocr_debug(
+                    debug_enabled,
+                    "area_filter.suppressed",
+                    reason="menu_only",
+                    payload_type="text",
+                    text=text_preview(text),
+                    crop_coords=crop_coords,
+                    line_count=len(crop_coords_list or []),
+                )
                 logger.opt(ansi=True).info("Text is identified as all menu items, skipping further processing.")
                 if return_payload:
                     return orig_text, "", None
                 return orig_text, ""
 
-        logger.opt(ansi=True).info(
-            f"OCR Run {1 if not is_second_ocr else 2}: Text recognized in {end_time - start_time:0.03f}s using <{engine_color}>{engine_instance.readable_name}</{engine_color}>: {text}"
+        # OCR filtering uses the previous result to remove duplicate blocks in
+        # either pass. Suppress only that kind of empty recognition; genuinely
+        # empty raw scans (and empties caused by unrelated filters) remain visible.
+        duplicate_filtered_to_empty = duplicate_suppressed_by_coverage or (
+            bool(last_result) and not raw_text_was_empty and not text and bool(orig_text)
+        )
+        if not duplicate_filtered_to_empty:
+            logger.opt(ansi=True).info(
+                f"OCR Run {1 if not is_second_ocr else 2}: Text recognized in {end_time - start_time:0.03f}s using <{engine_color}>{engine_instance.readable_name}</{engine_color}>: {text}"
+            )
+        emit_ocr_debug(
+            debug_enabled,
+            "ocr_engine.completed",
+            pass_number=2 if is_second_ocr else 1,
+            engine=getattr(engine_instance, "name", engine),
+            duration_ms=round((end_time - start_time) * 1000, 3),
+            text=text_preview(text),
+            chunk_count=len(orig_text or []),
+            crop_coords=crop_coords,
         )
 
         callback_payload = {
@@ -4224,6 +4662,7 @@ def run(
     screen_capture_window=None,
     screen_capture_delay_secs=None,
     screen_capture_combo=None,
+    screen_capture_on_demand=False,
     stop_running_flag=None,
     screen_capture_event_bus=None,
     text_callback=None,
@@ -4261,6 +4700,7 @@ def run(
     :param screen_capture_delay_secs: Specifies the delay (in seconds) between screenshots when reading with screen capture.
     :param screen_capture_only_active_windows: When reading with screen capture and screen_capture_area is a window name, specifies whether to only target the window while it's active.
     :param screen_capture_combo: When reading with screen capture, specifies a combo to wait on for taking a screenshot instead of using the delay. As an example: "<ctrl>+<shift>+s". The list of keys can be found here: https://pynput.readthedocs.io/en/latest/keyboard.html#pynput.keyboard.Key
+    :param screen_capture_on_demand: Wait for the screenshot event without registering a keyboard combo. Intended for embedders that own input handling.
     """
 
     if read_from is None:
@@ -4421,7 +4861,7 @@ def run(
     if combo_pause and not combo_pause.startswith("<"):
         combo_pause = combo_pause.lower().replace("ctrl", "<ctrl>").replace("shift", "<shift>").replace("alt", "<alt>")
     combo_engine_switch = config.get_general("combo_engine_switch")
-    screen_capture_on_combo = False
+    screen_capture_on_combo = bool(screen_capture_on_demand)
     notifier = _create_notifier()
     image_queue = queue.Queue()
     key_combos = {}
@@ -4448,7 +4888,7 @@ def run(
         if screen_capture_combo != "":
             screen_capture_on_combo = True
             key_combos[screen_capture_combo] = on_screenshot_combo
-        else:
+        elif not screen_capture_on_demand:
             global periodic_screenshot_queue
             periodic_screenshot_queue = queue.Queue()
 
@@ -4645,6 +5085,11 @@ def run(
                     ocr_start_time = ocr_start_time - timedelta(seconds=adjusted_scan_rate - base_scan_rate)
 
         if img == 0:
+            emit_ocr_debug(
+                get_ocr_advanced_debug_logging(),
+                "capture.skipped",
+                reason="capture_window_closed",
+            )
             on_window_closed(False)
             terminated = True
             break
@@ -4653,6 +5098,14 @@ def run(
                 # Cheap blank-frame detector. Skips OCR when the capture is a
                 # solid color (game minimized, OBS scene blank, etc.).
                 if _is_capture_frame_empty(img):
+                    emit_ocr_debug(
+                        get_ocr_advanced_debug_logging(),
+                        "capture.skipped",
+                        reason="empty_frame",
+                        image_size=getattr(img, "size", None),
+                        scan_rate=base_scan_rate,
+                        backoff_seconds=round(sleep_time_to_add, 3),
+                    )
                     logger.background("Image is empty (all pixels same), sleeping.")
                     max_empty_add = max(0.0, EMPTY_FRAME_SCAN_RATE_CAP - base_scan_rate)
                     if sleep_reason != "empty":
@@ -4686,6 +5139,13 @@ def run(
                     image_metadata=image_metadata,
                 )
                 if not text:
+                    emit_ocr_debug(
+                        get_ocr_advanced_debug_logging(),
+                        "ocr1.no_text",
+                        reason="engine_or_filters_returned_empty",
+                        no_text_streak=no_text_streak + 1,
+                        image_size=getattr(img, "size", None),
+                    )
                     no_text_streak += 1
                     enough_idle_time = (time.time() - last_result_time) > IDLE_BACKOFF_AFTER_SECONDS
                     if no_text_streak > 1 and (not has_seen_text_result or enough_idle_time):

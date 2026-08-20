@@ -6,7 +6,12 @@ import * as path from 'node:path';
 import { exec } from 'node:child_process';
 import { BASE_DIR, isWindows } from '../util.js';
 import { mainWindow, sendTextHookLine } from '../main.js';
-import type { StartHookResult, TextHookArchitecture, TextHookStartSource } from './texthook.js';
+import {
+    sanitizeTextHookText,
+    type StartHookResult,
+    type TextHookArchitecture,
+    type TextHookStartSource,
+} from './texthook.js';
 
 interface AgentHookEntry {
     id: string;
@@ -32,6 +37,9 @@ interface AgentTextPayload {
     engine: 'agent';
     exeName: string;
     copyToClipboard: boolean;
+    capturedAt?: number;
+    revisionWindowMs?: number;
+    mergeFragments?: boolean;
 }
 
 interface AgentHookSession {
@@ -459,23 +467,21 @@ function flushAgentText(): void {
 
 function queueAgentText(text: string): void {
     if (!agentSession || !text.trim()) return;
+    const sanitizedText = sanitizeTextHookText(text);
+    if (!sanitizedText) return;
     const payload: AgentTextPayload = {
-        text,
+        text: sanitizedText.text,
         hookId: agentSession.hook.id,
         hookFunction: agentSession.hook.function,
         engine: 'agent',
         exeName: agentSession.exeName,
         copyToClipboard: agentSession.copyToClipboard,
+        capturedAt: Date.now(),
+        revisionWindowMs: Math.max(0, Math.round(agentSession.flushDelayMs)),
+        mergeFragments: true,
     };
-    const delayMs = Math.max(0, Math.round(agentSession.flushDelayMs));
-    if (delayMs <= 0) {
-        updateAgentHookPreview(text);
-        sendAgentText(payload);
-        return;
-    }
-    agentSession.outputCollector.push(payload);
-    if (agentSession.outputFlushTimer) clearTimeout(agentSession.outputFlushTimer);
-    agentSession.outputFlushTimer = setTimeout(flushAgentText, delayMs);
+    updateAgentHookPreview(sanitizedText.text);
+    sendAgentText(payload);
 }
 
 function handleAgentPayload(current: AgentHookSession, payload: any, data: Buffer | null): void {

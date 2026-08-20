@@ -220,6 +220,7 @@ def test_tadoku_settings_return_username_but_never_saved_secrets(client, monkeyp
         tadoku_username="reader",
         tadoku_password="existing-secret",
         tadoku_session_cookie="session-secret",
+        tadoku_daily_sync_game_ids=["game-old"],
     )
     saved = []
     monkeypatch.setattr(
@@ -239,12 +240,14 @@ def test_tadoku_settings_return_username_but_never_saved_secrets(client, monkeyp
             "tadoku_password": "new-secret",
             "tadoku_language_code": "JPN",
             "tadoku_daily_sync_deduplicate": False,
+            "tadoku_daily_sync_game_ids": ["game-main", "game-main", " game-side "],
         },
     )
 
     assert get_response.status_code == 200
     assert get_response.get_json()["tadoku_configured"] is True
     assert get_response.get_json()["tadoku_username"] == "reader"
+    assert get_response.get_json()["tadoku_daily_sync_game_ids"] == ["game-old"]
     assert "tadoku_password" not in get_response.get_json()
     assert "tadoku_session_cookie" not in get_response.get_json()
     assert save_response.status_code == 200
@@ -256,7 +259,27 @@ def test_tadoku_settings_return_username_but_never_saved_secrets(client, monkeyp
     assert config.tadoku_session_cookie == ""
     assert config.tadoku_language_code == "jpn"
     assert config.tadoku_daily_sync_deduplicate is False
+    assert config.tadoku_daily_sync_game_ids == ["game-main", "game-side"]
     assert saved == [config]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "game-main",
+        [123],
+        [""],
+    ],
+)
+def test_tadoku_settings_reject_invalid_game_whitelist(client, monkeypatch, value):
+    config = _stats_config()
+    monkeypatch.setattr("GameSentenceMiner.web.database_api.get_stats_config", lambda: config)
+    monkeypatch.setattr("GameSentenceMiner.web.database_api.save_stats_config", lambda _config: None)
+
+    response = client.post("/api/settings", json={"tadoku_daily_sync_game_ids": value})
+
+    assert response.status_code == 400
+    assert response.get_json()["error"] == "Tadoku automatic sync game whitelist must contain valid game IDs"
 
 
 def test_tadoku_settings_can_clear_saved_credentials(client, monkeypatch):

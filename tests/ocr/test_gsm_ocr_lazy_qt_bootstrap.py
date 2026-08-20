@@ -116,3 +116,20 @@ def test_request_clean_shutdown_quits_qt_app_without_config_window(monkeypatch):
     assert fake_hotkeys.clear_calls == 1
     assert fake_qt_main.shutdown_calls == 1
     assert _FakeQApplication._instance.quit_calls == 1
+
+
+def test_stop_command_relays_initiating_reason_to_clean_shutdown(monkeypatch):
+    shutdown_reasons = []
+
+    monkeypatch.setattr(gsm_ocr, "request_clean_shutdown", shutdown_reasons.append)
+    monkeypatch.setattr(gsm_ocr.ocr_ipc, "announce_stopped", lambda: None)
+
+    response = gsm_ocr.handle_ipc_command(
+        {
+            "command": "stop",
+            "data": {"reason": "auto-launcher-scene-inactive"},
+        }
+    )
+
+    assert response["success"] is True
+    assert shutdown_reasons == ["ipc-stop-command: auto-launcher-scene-inactive"]

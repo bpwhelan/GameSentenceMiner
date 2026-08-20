@@ -46,7 +46,7 @@ class OverlayRequestHandler:
             message = json.loads(message_str)
             message_type = message.get("type")
 
-            logger.info(f"Received overlay message of type: {message_type}")
+            logger.background(f"Received overlay message of type: {message_type}")
 
             if message_type == "translate-request":
                 await self.handle_translation_request()

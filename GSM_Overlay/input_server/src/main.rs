@@ -3066,7 +3066,7 @@ async fn handle_socket(
         }
     };
 
-    info!("client connected: {peer}");
+    debug!("client connected: {peer}");
 
     let (mut socket_sink, mut socket_stream) = ws.split();
     let (outbound_tx, mut outbound_rx) =
@@ -3548,7 +3548,7 @@ async fn handle_socket(
 
     shutdown_websocket_tasks(peer, reader, writer, broadcast_forwarder, ws_sink).await;
 
-    info!("client disconnected: {peer}");
+    debug!("client disconnected: {peer}");
 }
 
 async fn websocket_server(

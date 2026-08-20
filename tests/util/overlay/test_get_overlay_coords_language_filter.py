@@ -105,6 +105,60 @@ def test_filter_local_ocr_results_by_language_normalizes_katakana_long_vowels():
     assert [word["text"] for word in result[0]["words"]] == ["ス", "ー", "パ", "ー"]
 
 
+def test_filter_local_ocr_results_uses_native_batch_for_standard_language_regex(monkeypatch):
+    processor = get_overlay_coords.OverlayProcessor()
+    processor.ocr_language = "ja"
+    processor.regex = get_overlay_coords.get_regex("ja")
+    calls = []
+
+    def fake_native_filter(*, language, lines):
+        calls.append((language, lines))
+        return [
+            get_overlay_coords.native_ocr.OverlayFilterDecision(
+                source_id=1,
+                use_words=True,
+                source_word_ids=[0, 1],
+            )
+        ]
+
+    monkeypatch.setenv("GSM_NATIVE_OCR_MODE", "native")
+    monkeypatch.setattr(get_overlay_coords.native_ocr, "has_overlay_language_filter", lambda: True)
+    monkeypatch.setattr(get_overlay_coords.native_ocr, "filter_overlay_language", fake_native_filter)
+    source = [
+        {"text": "hello", "bounding_rect": {"x1": 1}, "words": []},
+        {
+            "text": "HP です",
+            "bounding_rect": {"x1": 2},
+            "words": [
+                {"text": "HP", "bounding_rect": {"x1": 2}},
+                {"text": "です", "bounding_rect": {"x1": 3}},
+            ],
+        },
+    ]
+
+    result = processor._filter_local_ocr_results_by_language(source)
+
+    assert calls == [
+        (
+            "ja",
+            [
+                (0, "hello", []),
+                (1, "HP です", [(0, "HP"), (1, "です")]),
+            ],
+        )
+    ]
+    assert result == [
+        {
+            "text": "HPです",
+            "bounding_rect": {"x1": 2},
+            "words": [
+                {"text": "HP", "bounding_rect": {"x1": 2}},
+                {"text": "です", "bounding_rect": {"x1": 3}},
+            ],
+        }
+    ]
+
+
 def test_filter_precomputed_results_by_minimum_character_size_removes_small_words():
     processor = get_overlay_coords.OverlayProcessor()
     source = [
@@ -139,3 +193,86 @@ def test_filter_precomputed_results_by_minimum_character_size_removes_small_word
         "x4": 0.0,
         "y4": 18.0,
     }
+
+
+def test_filter_precomputed_results_by_exclusion_regions_removes_overlapped_characters():
+    processor = get_overlay_coords.OverlayProcessor()
+    source = [
+        {
+            "text": "日時会話",
+            "bounding_rect": {
+                "x1": 0.1,
+                "y1": 0.1,
+                "x2": 0.5,
+                "y2": 0.1,
+                "x3": 0.5,
+                "y3": 0.2,
+                "x4": 0.1,
+                "y4": 0.2,
+            },
+            "words": [
+                {
+                    "text": character,
+                    "bounding_rect": {
+                        "x1": left,
+                        "y1": 0.1,
+                        "x2": left + 0.1,
+                        "y2": 0.1,
+                        "x3": left + 0.1,
+                        "y3": 0.2,
+                        "x4": left,
+                        "y4": 0.2,
+                    },
+                }
+                for character, left in zip("日時会話", (0.1, 0.2, 0.3, 0.4))
+            ],
+        }
+    ]
+    exclusion_regions = [
+        {
+            "x1": 0.09,
+            "y1": 0.09,
+            "x2": 0.31,
+            "y2": 0.09,
+            "x3": 0.31,
+            "y3": 0.21,
+            "x4": 0.09,
+            "y4": 0.21,
+        }
+    ]
+
+    result = processor._filter_precomputed_results_by_exclusion_regions(source, exclusion_regions)
+
+    assert result[0]["text"] == "会話"
+    assert [word["text"] for word in result[0]["words"]] == ["会", "話"]
+    assert result[0]["bounding_rect"] == {
+        "x1": 0.3,
+        "y1": 0.1,
+        "x2": 0.5,
+        "y2": 0.1,
+        "x3": 0.5,
+        "y3": 0.2,
+        "x4": 0.3,
+        "y4": 0.2,
+    }
+
+
+def test_filter_precomputed_results_by_exclusion_regions_drops_fully_excluded_line():
+    processor = get_overlay_coords.OverlayProcessor()
+    bounding_rect = {
+        "x1": 0.1,
+        "y1": 0.1,
+        "x2": 0.2,
+        "y2": 0.1,
+        "x3": 0.2,
+        "y3": 0.2,
+        "x4": 0.1,
+        "y4": 0.2,
+    }
+
+    result = processor._filter_precomputed_results_by_exclusion_regions(
+        [{"text": "日", "bounding_rect": bounding_rect, "words": [{"text": "日", "bounding_rect": bounding_rect}]}],
+        [bounding_rect],
+    )
+
+    assert result == []

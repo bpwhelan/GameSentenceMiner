@@ -555,7 +555,38 @@
     },
     "backup": {
       "title": "Backup and Restore",
+      "automatic": {
+        "title": "Automatic Database Backups",
+        "description": "Create one compressed database snapshot per day. Automatic backups are opt-in and the newest 2 are kept by default.",
+        "enabled": "Enable automatic database backups",
+        "retentionCount": "Number of backups to keep",
+        "directory": "Backup folder",
+        "defaultDirectory": "Default: backup/database next to the GSM database",
+        "chooseDirectory": "Choose Folder...",
+        "useDefaultDirectory": "Use Default Folder",
+        "restartHint": "Changes apply the next time the GSM backend starts."
+      },
       "description": "Back up GSM settings, overlay/Yomitan storage, OBS settings, the GSM database, and OCR configs without temp files or caches.",
+      "selectionHint": "Choose what to include when creating or restoring a backup.",
+      "selectAtLeastOne": "Select at least one item to back up or restore.",
+      "categories": {
+        "all": "All",
+        "database": "Database",
+        "settings": "Settings",
+        "pythonSettings": "Python Settings",
+        "desktopSettings": "Desktop App Settings",
+        "overlaySettings": "Overlay Settings",
+        "sceneConfig": "Scenes Config",
+        "ocrConfigs": "OCR Configs",
+        "obsConfig": "OBS Scenes and Config",
+        "textHookSettings": "Text Hook Settings",
+        "windowLayouts": "Window and Mining Layouts",
+        "yomitan": "Yomitan Data",
+        "customizations": "Scripts and Customizations",
+        "plugins": "Python Plugins",
+        "agentScripts": "Agent Scripts",
+        "userScripts": "User Scripts"
+      },
       "operationCreate": "Backup",
       "operationRestore": "Restore",
       "progressSummary": "{operation}: {phase}",
@@ -935,6 +966,7 @@
     },
     "debug": {
       "title": "Extra & Debug Tools",
+      "advancedDebugLogging": "Advanced Debug Logging:",
       "ignoreRun1Logs": "Ignore \"OCR Run 1\" Logs:",
       "processPriority": "Process Priority:",
       "defaultFuriganaSensitivity": "Default Furigana Sensitivity:",
@@ -1013,6 +1045,7 @@
       "compactBoxes": "Experimental. When multiple OCR areas are set, packs them together (removing transparent dead space) before running detection, while preserving their relative layout. Can improve engines that struggle with large empty regions, e.g. a black-hole box at the top of a menu with dialogue at the bottom. Coordinates are mapped back to the original frame automatically.",
       "compactBoxesGap": "Transparent padding kept between packed OCR areas, in pixels.",
       "ignoreRun1Logs": "Hides OCR terminal lines containing \"OCR Run 1: Text recognized...\" to reduce duplicate output noise when two-pass OCR is enabled. Run 2 lines stay highlighted in green.",
+      "advancedDebugLogging": "Writes structured JSON Lines for OCR capture, stability, OCR2 flush decisions, queueing, filtering, deduplication, and delivery to a dedicated file for each OCR run. The console shows the file path when logging starts.",
       "installDependency": "Install optional OCR dependencies into the GSM Python environment. If unsure, choose a recommended option.",
       "uninstallDependency": "Remove optional OCR dependencies from the GSM Python environment.",
       "replacements": "Open the OCR replacement rules page for fixing recurring OCR mistakes after recognition.",
@@ -1151,7 +1184,19 @@
       "label": "Hooking engine:",
       "luna": "Luna Hook",
       "textractor": "Textractor",
-      "agent": "Agent"
+      "agent": "Agent",
+      "mages": "Built-in Game Hook (Experimental)"
+    },
+    "mages": {
+      "title": "Built-in Game Hook",
+      "experimentalBadge": "Experimental",
+      "availability": "This experimental hook works only with the games and engines listed below. Other games, editions, storefronts, and executable builds are not supported yet.",
+      "support": {
+        "title": "Currently supported"
+      },
+      "description": "For a supported target, GSM attaches directly to the game and captures text and glyph positions without OCR or an external Agent script.",
+      "advance": "Advance text",
+      "advanceFailed": "Could not advance the game text."
     },
     "agent": {
       "title": "Agent Script",
@@ -1173,12 +1218,16 @@
       "saved": "Saved",
       "autoHook": "Auto-attach saved hook on next start",
       "copyToClipboard": "Copy processed text to clipboard",
-      "flushDelay": "Output flush delay (ms):",
+      "flushDelay": "Text revision window (ms):",
       "manualHook": "Manual hook code (H/R-code, optional):",
       "manualHookHint": "Leave this blank unless you already have a specific H-code or R-code. Most users should start the engine and pick a detected hook instead.",
       "attachManual": "Attach manual hook",
       "save": "Save Hook",
       "delete": "Delete Profile"
+    },
+    "global": {
+      "maxBufferSize": "Maximum incoming text length:",
+      "maxBufferSizeHint": "Applies to every text hook. Longer text is truncated before GSM processes or displays it."
     },
     "hooks": {
       "title": "Detected Hooks",
@@ -1210,6 +1259,12 @@
       "searchHooks": "Search for hooks",
       "stop": "Stop"
     },
+    "dev": {
+      "sendLargePayload": "Send random Japanese payload ({size} characters)",
+      "largePayloadSent": "Sent {size} characters through the texthook bus.",
+      "largePayloadTruncated": "Sent {size} characters after truncating a {originalSize}-character test payload.",
+      "largePayloadFailed": "Failed to send the developer payload."
+    },
     "notices": {
       "started": "Attached to {exe} (PID {pid}).",
       "selected": "Selected hook #{id}. Output is now being forwarded to GSM.",
@@ -1221,8 +1276,10 @@
       "startFailed": "Failed to start the hook engine.",
       "manualFailed": "Failed to attach manual hook.",
       "profileSaveFailed": "Failed to save hook profile.",
+      "maxBufferSizeSaveFailed": "Failed to save the maximum text length.",
       "agentUiFailed": "Failed to open Agent script UI.",
-      "noExe": "No executable detected for the active capture."
+      "noExe": "No executable detected for the active capture.",
+      "textExceededLimit": "Texthook exceeded {limit} characters; text was ignored."
     }
   },
   "sceneSwitcher": {

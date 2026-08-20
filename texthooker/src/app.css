@@ -1,6 +1,8 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@plugin "daisyui" {
+  themes: garden, business --default;
+}
+@source "./components/**/*.{svelte,js,ts}";
 
 @font-face {
   font-family: 'Ackaisyo';

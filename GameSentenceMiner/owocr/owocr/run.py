@@ -13,6 +13,7 @@ from GameSentenceMiner.ocr.coordinate_math import scale_percentage_rectangle_to_
 from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness, get_scene_ocr_config
 from GameSentenceMiner.util.gsm_utils import do_text_replacements, OCR_REPLACEMENTS_FILE
 from GameSentenceMiner.util.config.electron_config import (
+    get_furigana_filter_sensitivity,
     get_ocr_ocr2,
     get_ocr_requires_open_window,
     has_ocr_config_changed,
@@ -335,7 +336,20 @@ def _join_selected_blocks_with_source_separators(source_text, blocks, selected_i
     return "".join(result_parts)
 
 
-def _rebuild_text_from_structured_result(raw_response_dict, coords, filtering, is_second_ocr=False):
+def _rebuild_text_from_structured_result(
+    raw_response_dict,
+    coords,
+    filtering,
+    is_second_ocr=False,
+    furigana_filter_active=False,
+):
+    # Coordinate-aware engines such as OneOCR already applied the configured
+    # size filter to their returned text and line geometry. Their structured
+    # response intentionally retains every raw line for area-filter checks, so
+    # rebuilding from it here would restore the furigana that was just removed.
+    if furigana_filter_active:
+        return None
+
     if raw_response_dict and isinstance(raw_response_dict, dict) and "paragraphs" in raw_response_dict and filtering:
         try:
             ocr_result = dict_to_ocr_result(raw_response_dict)
@@ -3654,8 +3668,15 @@ def process_and_write_results(
                 return "", "", detection_payload
             return str(detection_payload), str(detection_payload)
 
+        effective_furigana_sensitivity = (
+            get_furigana_filter_sensitivity() if furigana_filter_sensitivity is None else furigana_filter_sensitivity
+        )
         rebuilt_text = _rebuild_text_from_structured_result(
-            raw_response_dict, coords, filtering, is_second_ocr=is_second_ocr
+            raw_response_dict,
+            coords,
+            filtering,
+            is_second_ocr=is_second_ocr,
+            furigana_filter_active=_safe_int(effective_furigana_sensitivity) > 0,
         )
         if rebuilt_text is not None:
             text = rebuilt_text

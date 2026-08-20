@@ -310,6 +310,130 @@ background: rgba(202, 12, 12, 0.692);
     padding: 0 8px;
   }
 
+  .font-size-control {
+    position: relative;
+    display: flex;
+    align-items: center;
+    -webkit-app-region: no-drag;
+  }
+
+  .font-size-button {
+    display: inline-flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 1px;
+    width: 30px;
+    height: 28px;
+    margin-left: 0;
+    padding: 0 0 3px;
+    border-radius: 6px;
+    transition: color 120ms ease, background-color 120ms ease;
+  }
+
+  .control-btn.font-size-button:hover,
+  .control-btn.font-size-button[aria-expanded="true"] {
+    color: white;
+    background: rgba(255, 255, 255, 0.16);
+  }
+
+  .font-size-button .font-size-icon-large {
+    font: 600 17px/1 sans-serif;
+  }
+
+  .font-size-button .font-size-icon-small {
+    font: 600 11px/1 sans-serif;
+  }
+
+  .font-size-popover {
+    --font-size-progress: 17.7%;
+    position: absolute;
+    bottom: calc(100% + 9px);
+    left: 50%;
+    z-index: 1003;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 9px;
+    width: 58px;
+    padding: 10px 8px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 12px;
+    background: rgba(24, 24, 28, 0.96);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.42);
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(-50%, 5px) scale(0.96);
+    transform-origin: center bottom;
+    transition: opacity 120ms ease, transform 120ms ease;
+    -webkit-app-region: no-drag;
+  }
+
+  .font-size-popover.visible {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate(-50%, 0) scale(1);
+  }
+
+  .font-size-popover::after {
+    content: "";
+    position: absolute;
+    bottom: -5px;
+    left: 50%;
+    width: 9px;
+    height: 9px;
+    border-right: 1px solid rgba(255, 255, 255, 0.16);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgb(24, 24, 28);
+    transform: translateX(-50%) rotate(45deg);
+  }
+
+  .font-size-value {
+    min-width: 38px;
+    color: rgba(255, 255, 255, 0.92);
+    font: 600 11px/1 sans-serif;
+    text-align: center;
+  }
+
+  .font-size-slider {
+    width: 5px;
+    height: 112px;
+    margin: 0;
+    border-radius: 999px;
+    outline: none;
+    background:
+      linear-gradient(
+        to top,
+        #8b7cff 0 var(--font-size-progress),
+        rgba(255, 255, 255, 0.2) var(--font-size-progress) 100%
+      );
+    appearance: none;
+    writing-mode: vertical-lr;
+    direction: rtl;
+    cursor: ns-resize;
+    -webkit-app-region: no-drag;
+  }
+
+  .font-size-slider::-webkit-slider-runnable-track {
+    width: 5px;
+    border-radius: 999px;
+    background: transparent;
+  }
+
+  .font-size-slider::-webkit-slider-thumb {
+    width: 17px;
+    height: 17px;
+    margin-left: -6px;
+    border: 2px solid #8b7cff;
+    border-radius: 50%;
+    background: white;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.38);
+    appearance: none;
+  }
+
+  .font-size-slider:focus-visible::-webkit-slider-thumb {
+    box-shadow: 0 0 0 3px rgba(139, 124, 255, 0.32), 0 2px 8px rgba(0, 0, 0, 0.38);
+  }
+
   #main-box {
     position: fixed;
     left: 50%;
@@ -798,6 +922,39 @@ background: rgba(202, 12, 12, 0.692);
 
   <div id="main-box" style="display: none;">
     <div draggable="false" id="draggable" class="interactive">
+      <div class="font-size-control" id="font-size-control">
+        <button
+          type="button"
+          class="control-btn font-size-button"
+          id="btn-font-size"
+          aria-label="Adjust floating window font size"
+          aria-controls="font-size-popover"
+          aria-expanded="false"
+          title="Font size"
+        >
+          <span class="font-size-icon-large" aria-hidden="true">A</span>
+          <span class="font-size-icon-small" aria-hidden="true">a</span>
+        </button>
+        <div
+          class="font-size-popover"
+          id="font-size-popover"
+          role="dialog"
+          aria-label="Floating window font size"
+        >
+          <output class="font-size-value" id="font-size-value" for="floating-font-size">42 px</output>
+          <input
+            type="range"
+            class="font-size-slider"
+            id="floating-font-size"
+            aria-label="Floating window font size"
+            aria-orientation="vertical"
+            value="42"
+            min="8"
+            max="200"
+            step="1"
+          >
+        </div>
+      </div>
       <button class="control-btn" id="btn-pin">⬤</button>
       <button class="control-btn" id="btn-translate-toolbar">🌐</button>
       <button class="control-btn" id="btn-settings">⚙</button>
@@ -1464,9 +1621,77 @@ background: rgba(202, 12, 12, 0.692);
 
   const dragBar = document.getElementById("draggable");
   const textEl = document.getElementById("text");
+  const fontSizeControl = document.getElementById("font-size-control");
+  const fontSizeButton = document.getElementById("btn-font-size");
+  const fontSizePopover = document.getElementById("font-size-popover");
+  const floatingFontSizeInput = document.getElementById("floating-font-size");
+  const floatingFontSizeValue = document.getElementById("font-size-value");
   const mainBox = document.getElementById("main-box");
   const mainRecycledIndicator = document.getElementById("main-recycled-indicator");
   const furiganaLayer = document.getElementById("furigana-layer");
+
+  function normalizeFloatingWindowFontSize(value) {
+    const numericValue = Number.parseInt(value, 10);
+    if (!Number.isFinite(numericValue)) {
+      return 42;
+    }
+    return Math.min(200, Math.max(8, numericValue));
+  }
+
+  function applyFloatingWindowFontSize(value) {
+    const fontSize = normalizeFloatingWindowFontSize(value);
+    textEl.style.fontSize = `${fontSize}px`;
+    floatingFontSizeInput.value = String(fontSize);
+    floatingFontSizeValue.value = `${fontSize} px`;
+    const progress = ((fontSize - 8) / (200 - 8)) * 100;
+    fontSizePopover.style.setProperty("--font-size-progress", `${progress}%`);
+    return fontSize;
+  }
+
+  function toggleFontSizePopover(forceOpen) {
+    const shouldOpen = typeof forceOpen === "boolean"
+      ? forceOpen
+      : !fontSizePopover.classList.contains("visible");
+    fontSizePopover.classList.toggle("visible", shouldOpen);
+    fontSizeButton.setAttribute("aria-expanded", String(shouldOpen));
+    if (shouldOpen) {
+      floatingFontSizeInput.focus();
+    }
+  }
+
+  fontSizeControl.addEventListener("mousedown", (event) => {
+    event.stopPropagation();
+  });
+
+  fontSizeControl.addEventListener("click", (event) => {
+    event.stopPropagation();
+  });
+
+  fontSizeButton.addEventListener("click", (event) => {
+    toggleFontSizePopover();
+  });
+
+  floatingFontSizeInput.addEventListener("input", () => {
+    applyFloatingWindowFontSize(floatingFontSizeInput.value);
+  });
+
+  floatingFontSizeInput.addEventListener("change", () => {
+    const fontSize = applyFloatingWindowFontSize(floatingFontSizeInput.value);
+    ipcRenderer.send("setting-changed", { key: "fontSize", value: fontSize });
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!fontSizeControl.contains(event.target)) {
+      toggleFontSizePopover(false);
+    }
+  });
+
+  fontSizeControl.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      toggleFontSizePopover(false);
+      fontSizeButton.focus();
+    }
+  });
 
   const DEFAULT_FURIGANA_STYLE = Object.freeze({
     furiganaScale: 0.55,
@@ -2855,6 +3080,7 @@ background: rgba(202, 12, 12, 0.692);
             magpieActive: isMagpieActive,
             magpieInfo: currentMagpieInfo,
             isFullscreen: data.is_fullscreen || false,
+            isExclusiveFullscreen: data.is_exclusive_fullscreen || false,
             cursorHidden: data.cursor_hidden || false,
             recommendManualMode: data.recommend_manual_mode || false,
             obsOutputActive: data.obs_output_active === true
@@ -2927,6 +3153,7 @@ background: rgba(202, 12, 12, 0.692);
           const {
             lineBlocks,
             blockBoundaries,
+            blockMetadata,
             blockCount: currentBlockId,
           } = detectTextBlocks(data.data);
           const renderSignatureInfo = getOverlayTextRenderSignature(
@@ -2955,6 +3182,7 @@ background: rgba(202, 12, 12, 0.692);
             blockId,
             start: boundaries.start,
             end: boundaries.end,
+            role: blockMetadata.get(blockId)?.role || 'text',
           })));
           
           // Log the complete text of each block
@@ -2993,6 +3221,13 @@ background: rgba(202, 12, 12, 0.692);
               blockContainer.setAttribute('data-block-id', blockId);
               blockContainer.setAttribute('data-line-start', boundaries.start);
               blockContainer.setAttribute('data-line-end', boundaries.end);
+              const metadata = blockMetadata.get(blockId) || { role: 'text' };
+              blockContainer.setAttribute('data-block-role', metadata.role);
+              if (Number.isInteger(metadata.relatedBlockId)) {
+                blockContainer.setAttribute('data-related-block-id', metadata.relatedBlockId);
+              } else {
+                blockContainer.removeAttribute('data-related-block-id');
+              }
               blockContainer.style.position = 'absolute';
               blockContainer.style.pointerEvents = 'none';
               blockContainer.style.left = '0';
@@ -4282,7 +4517,7 @@ background: rgba(202, 12, 12, 0.692);
   });
 
   ipcRenderer.on("load-settings", (event, newsettings) => {
-    textEl.style.fontSize = `${newsettings.fontSize}px`;
+    applyFloatingWindowFontSize(newsettings.fontSize);
     setupWebSocket(newsettings.weburl1, true)
     setupWebSocket(newsettings.weburl2, false)
     hideOnStartup = newsettings.hideOnStartup;
@@ -4534,7 +4769,7 @@ background: rgba(202, 12, 12, 0.692);
 
       switch (key) {
         case "fontSize":
-          textEl.style.fontSize = `${value}px`;
+          applyFloatingWindowFontSize(value);
           break;
         case "weburl1":
           setupWebSocket(value, true);
@@ -4568,8 +4803,12 @@ background: rgba(202, 12, 12, 0.692);
           updateTextIndicators(showTextIndicators, value);
           break;
         case "showTextBackground":
-          // Legacy compatibility path.
-          updateTextIndicators(value, value);
+          // A full settings snapshot contains this retired key as well as the
+          // modern indicator settings. Do not let its stale default overwrite
+          // showTextIndicators after the modern value was applied above.
+          if (!Object.prototype.hasOwnProperty.call(updatedSettings, "showTextIndicators")) {
+            updateTextIndicators(value, value);
+          }
           break;
         case "showReadyIndicator":
           shouldShowReadyIndicator = value !== false;
@@ -4764,7 +5003,7 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   ipcRenderer.on("new-fontsize", (event, newsize) => {
-    textEl.style.fontSize = `${newsize}px`;
+    applyFloatingWindowFontSize(newsize);
   })
   ipcRenderer.on("new-weburl1", (event, newurl) => {
     console.log("yes")

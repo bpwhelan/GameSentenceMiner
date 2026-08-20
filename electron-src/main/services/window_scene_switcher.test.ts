@@ -172,3 +172,83 @@ describe("window scene switcher hook status", () => {
     });
   });
 });
+
+describe("window scene switcher startup synchronization", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    config = {
+      schemaVersion: 1,
+      collections: [
+        {
+          collectionName: "Games",
+          collectionFileName: "Games.json",
+          enabled: true,
+          migrationVersion: 1,
+          legacySwitcherDisabled: true,
+          rules: [
+            {
+              sceneUuid: "scene-game",
+              sceneName: "Steins;Gate",
+              titlePattern: "Steins;Gate",
+              executableName: "game.exe",
+              enabled: true,
+              source: "manual",
+            },
+          ],
+        },
+      ],
+    };
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("requests the already-focused window and corrects the scene after OBS connects", async () => {
+    const service = await loadService();
+    const switchScene = vi.fn(async () => {});
+    const requestForegroundSnapshot = vi.fn(() => {
+      service.handleForegroundWindowSnapshot({
+        hwnd: "1234",
+        pid: 999_999,
+        title: "Steins;Gate",
+        executableName: "game.exe",
+        capturedAt: Date.now(),
+        sequence: 2,
+      });
+    });
+    const runtime = {
+      isOBSConnected: () => false,
+      getCurrentCollectionName: async () => "Games",
+      getScenes: async () => {
+        service.handleOBSSceneChanged({ id: "scene-other", name: "Other" });
+        return [
+          { id: "scene-other", name: "Other" },
+          { id: "scene-game", name: "Steins;Gate" },
+        ];
+      },
+      getCurrentScene: async () => ({ id: "scene-other", name: "Other" }),
+      switchScene,
+      suggestRule: async () => null,
+      restoreForegroundWindow: () => {},
+      requestForegroundSnapshot,
+    };
+
+    service.configureWindowSceneSwitcherRuntime(runtime);
+    service.handleForegroundWindowSnapshot({
+      hwnd: "1234",
+      pid: 999_999,
+      title: "Steins;Gate",
+      executableName: "game.exe",
+      capturedAt: Date.now(),
+      sequence: 1,
+    });
+    await service.handleOBSConnected();
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(requestForegroundSnapshot).toHaveBeenCalledOnce();
+    expect(switchScene).toHaveBeenCalledOnce();
+    expect(switchScene).toHaveBeenCalledWith("scene-game");
+    service.shutdownWindowSceneSwitcher();
+  });
+});

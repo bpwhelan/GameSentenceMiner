@@ -12,28 +12,24 @@ on:
         type: string
 
 jobs:
-  build-and-publish-python:
+  prepare:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-
+    outputs:
+      package_version: ${{ steps.package_meta.outputs.package_version }}
+      should_publish: ${{ steps.check_version.outputs.should_publish }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: true
 
-      - name: Set up Python environment
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
-      - name: Install check dependencies
-        run: |
-          python -m pip install --upgrade pip requests
-
-      - name: Apply post-release version
-        if: github.event_name == 'workflow_dispatch' && inputs.post_release != ''
+      - name: Resolve package version
+        id: package_meta
         env:
           POST_RELEASE: ${{ inputs.post_release }}
         run: |
@@ -41,110 +37,211 @@ jobs:
           import json
           import os
           import re
+          import tomllib
           from pathlib import Path
 
-          post_release = os.environ["POST_RELEASE"].strip()
-          if not re.fullmatch(r"[1-9]\d*", post_release):
-              raise SystemExit("post_release must be a positive integer")
+          with Path("pyproject.toml").open("rb") as stream:
+              project = tomllib.load(stream)["project"]
+          version = project["version"]
+          post_release = os.environ.get("POST_RELEASE", "").strip()
+          if post_release:
+              if not re.fullmatch(r"[1-9]\d*", post_release):
+                  raise SystemExit("post_release must be a positive integer")
+              base_version = json.loads(Path("package.json").read_text(encoding="utf-8"))["version"]
+              if not re.fullmatch(r"\d+(?:\.\d+)+", base_version):
+                  raise SystemExit(f"Electron version {base_version!r} is not a stable numeric version")
+              version = f"{base_version}.post{post_release}"
 
-          base_version = json.loads(Path("package.json").read_text(encoding="utf-8"))["version"]
-          if not re.fullmatch(r"\d+(?:\.\d+)+", base_version):
-              raise SystemExit(
-                  f"Electron version {base_version!r} is not a stable numeric version"
-              )
-
-          pyproject_path = Path("pyproject.toml")
-          pyproject = pyproject_path.read_text(encoding="utf-8")
-          version_pattern = re.compile(
-              r'(\[project\][\s\S]*?\nversion\s*=\s*)"[^"]*"'
-          )
-          post_version = f"{base_version}.post{post_release}"
-          updated, replacements = version_pattern.subn(
-              rf'\g<1>"{post_version}"',
-              pyproject,
-              count=1,
-          )
-          if replacements != 1:
-              raise SystemExit("Could not update [project] version in pyproject.toml")
-          pyproject_path.write_text(updated, encoding="utf-8")
-          print(f"Publishing Python-only post release {post_version}")
-          PY
-
-      - name: Read package metadata from pyproject.toml
-        id: package_meta
-        run: |
-          python - <<'PY'
-          import os
-          import tomllib
-
-          with open("pyproject.toml", "rb") as f:
-              project = tomllib.load(f)["project"]
-
-          package_name = project["name"]
-          package_version = project["version"]
-
-          print(f"Package: {package_name}")
-          print(f"Version: {package_version}")
-
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
-              out.write(f"package_name={package_name}\n")
-              out.write(f"package_version={package_version}\n")
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"package_version={version}\n")
+          print(f"Package: {project['name']} {version}")
           PY
 
       - name: Check if version exists on PyPI
         id: check_version
+        env:
+          PACKAGE_VERSION: ${{ steps.package_meta.outputs.package_version }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.request
+          from pathlib import Path
+
+          package_name = "GameSentenceMiner"
+          version = os.environ["PACKAGE_VERSION"]
+          url = f"https://pypi.org/pypi/{package_name}/{version}/json"
+          should_publish = "true"
+          try:
+              with urllib.request.urlopen(url, timeout=30):
+                  should_publish = "false"
+          except urllib.error.HTTPError as exc:
+              if exc.code != 404:
+                  print(f"Unexpected PyPI response {exc.code}; attempting publish")
+          except Exception as exc:
+              print(f"Version check failed ({exc}); attempting publish")
+
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"should_publish={should_publish}\n")
+          PY
+
+  build-wheels:
+    needs: prepare
+    if: needs.prepare.outputs.should_publish == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            cibw_build: cp310-win_amd64
+          - os: ubuntu-latest
+            cibw_build: cp310-manylinux_x86_64
+          - os: macos-15
+            cibw_build: cp310-macosx_arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Apply package version
+        env:
+          PACKAGE_VERSION: ${{ needs.prepare.outputs.package_version }}
+        shell: bash
         run: |
           python - <<'PY'
           import os
-          import requests
+          import re
+          from pathlib import Path
 
-          package_name = "${{ steps.package_meta.outputs.package_name }}"
-          version = "${{ steps.package_meta.outputs.package_version }}"
-          url = f"https://pypi.org/pypi/{package_name}/{version}/json"
-
-          print(f"Checking Package: {package_name}")
-          print(f"Checking Version: {version}")
-          print(f"Checking URL: {url}")
-
-          should_publish = "true"
-
-          try:
-              response = requests.get(url, timeout=30)
-              if response.status_code == 404:
-                  print(f"Version {version} not found on PyPI. Proceeding.")
-              elif response.status_code == 200:
-                  print(f"Version {version} already exists on PyPI. Skipping publish.")
-                  should_publish = "false"
-              else:
-                  print(f"Unexpected PyPI response: {response.status_code}")
-                  print("Proceeding with publish attempt.")
-          except Exception as exc:
-              print(f"Version check failed: {exc}")
-              print("Proceeding with publish attempt.")
-
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
-              out.write(f"should_publish={should_publish}\n")
+          path = Path("pyproject.toml")
+          text = path.read_text(encoding="utf-8")
+          updated, count = re.subn(
+              r'(\[project\][\s\S]*?\nversion\s*=\s*)"[^"]*"',
+              rf'\g<1>"{os.environ["PACKAGE_VERSION"]}"',
+              text,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit("Could not update package version")
+          path.write_text(updated, encoding="utf-8")
           PY
 
-      - name: Install build and publish dependencies
-        if: steps.check_version.outputs.should_publish == 'true'
-        run: |
-          python -m pip install --upgrade setuptools wheel twine build
+      - name: Install wheel builder
+        run: python -m pip install --upgrade cibuildwheel
 
-      - name: Build the package
-        if: steps.check_version.outputs.should_publish == 'true'
+      - name: Build stable-ABI wheel
+        env:
+          CIBW_BUILD: ${{ matrix.cibw_build }}
+          CIBW_ARCHS_WINDOWS: AMD64
+          CIBW_ARCHS_LINUX: x86_64
+          CIBW_ARCHS_MACOS: arm64
+          # Keep auditwheel's manylinux relabeling for PyPI, but do not follow
+          # the legacy MeCab dependency which is already bundled in the wheel.
+          CIBW_REPAIR_WHEEL_COMMAND_LINUX: "auditwheel repair --exclude libmecab.so.1 -w {dest_dir} {wheel}"
+          # delocate likewise follows obsolete dependencies embedded in the
+          # legacy MeCab binaries carried for other platforms.
+          CIBW_REPAIR_WHEEL_COMMAND_MACOS: ""
+          CIBW_BEFORE_BUILD_LINUX: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
+          CIBW_ENVIRONMENT_LINUX: 'PATH="$PATH:$HOME/.cargo/bin"'
+        run: python -m cibuildwheel --output-dir wheelhouse
+
+      - name: Smoke test stable backend wheel
+        run: node scripts/smoke-test-wheel.mjs wheelhouse
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-wheel-${{ matrix.os }}
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+
+  build-sdist:
+    needs: prepare
+    if: needs.prepare.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Apply package version
+        env:
+          PACKAGE_VERSION: ${{ needs.prepare.outputs.package_version }}
         run: |
-          python -m build
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          path = Path("pyproject.toml")
+          text = path.read_text(encoding="utf-8")
+          updated, count = re.subn(
+              r'(\[project\][\s\S]*?\nversion\s*=\s*)"[^"]*"',
+              rf'\g<1>"{os.environ["PACKAGE_VERSION"]}"',
+              text,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit("Could not update package version")
+          path.write_text(updated, encoding="utf-8")
+          PY
+
+      - name: Build source distribution
+        run: |
+          python -m pip install --upgrade build
+          python -m build --sdist --outdir sdist
+
+      - name: Upload source distribution
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-sdist
+          path: sdist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    needs:
+      - prepare
+      - build-wheels
+      - build-sdist
+    if: needs.prepare.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          pattern: python-*
+          path: dist
+          merge-multiple: true
 
       - name: Publish package to PyPI
-        if: steps.check_version.outputs.should_publish == 'true'
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
         run: |
-          twine upload dist/*
+          python -m pip install --upgrade twine
+          python -m twine upload dist/*
 
-      - name: Report skipped publish
-        if: steps.check_version.outputs.should_publish == 'false'
-        run: |
-          echo "Publish skipped because version ${{ steps.package_meta.outputs.package_version }} already exists on PyPI."
+  report-skipped:
+    needs: prepare
+    if: needs.prepare.outputs.should_publish == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Publish skipped because version ${{ needs.prepare.outputs.package_version }} already exists on PyPI."

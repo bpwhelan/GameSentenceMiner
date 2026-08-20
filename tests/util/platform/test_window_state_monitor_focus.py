@@ -420,7 +420,7 @@ def test_send_key_to_target_window_rejects_unknown_key(monkeypatch):
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
-def test_is_exclusive_fullscreen_accepts_tuple_window_rects(monkeypatch):
+def test_is_fullscreen_window_accepts_tuple_window_rects(monkeypatch):
     if not hasattr(_wwm, "MONITORINFO"):
         pytest.skip("Windows-only monitor APIs")
 
@@ -442,6 +442,75 @@ def test_is_exclusive_fullscreen_accepts_tuple_window_rects(monkeypatch):
     monkeypatch.setattr(_wwm, "user32", _FakeUser32())
     monkeypatch.setattr(_wwm, "get_window_rect_physical", lambda _hwnd: (0, 0, 1920, 1080))
 
-    monitor = window_state_monitor.WindowStateMonitor()
+    monitor = _wwm.WindowsWindowStateMonitor.__new__(_wwm.WindowsWindowStateMonitor)
 
-    assert monitor._is_exclusive_fullscreen(123) is True
+    assert monitor._is_fullscreen_window(123) is True
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+def test_is_exclusive_fullscreen_uses_windows_d3d_signal_for_foreground_target(monkeypatch):
+    class _FakeUser32:
+        def GetForegroundWindow(self):
+            return 123
+
+    class _FakeShell32:
+        def SHQueryUserNotificationState(self, state_ptr):
+            state_ptr._obj.value = _wwm.QUNS_RUNNING_D3D_FULL_SCREEN
+            return 0
+
+    monkeypatch.setattr(_wwm, "user32", _FakeUser32())
+    monkeypatch.setattr(_wwm, "shell32", _FakeShell32())
+
+    monitor = _wwm.WindowsWindowStateMonitor.__new__(_wwm.WindowsWindowStateMonitor)
+
+    assert monitor._is_exclusive_fullscreen(123, is_fullscreen_window=True) is True
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+def test_is_exclusive_fullscreen_rejects_signal_from_another_foreground_window(monkeypatch):
+    class _FakeUser32:
+        def GetForegroundWindow(self):
+            return 456
+
+    class _FakeShell32:
+        def SHQueryUserNotificationState(self, _state_ptr):
+            raise AssertionError("shell state should not be queried for a background target")
+
+    monkeypatch.setattr(_wwm, "user32", _FakeUser32())
+    monkeypatch.setattr(_wwm, "shell32", _FakeShell32())
+
+    monitor = _wwm.WindowsWindowStateMonitor.__new__(_wwm.WindowsWindowStateMonitor)
+
+    assert monitor._is_exclusive_fullscreen(123, is_fullscreen_window=True) is False
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+def test_is_exclusive_fullscreen_rejects_borderless_fullscreen(monkeypatch):
+    class _FakeUser32:
+        def GetForegroundWindow(self):
+            return 123
+
+    class _FakeShell32:
+        def SHQueryUserNotificationState(self, state_ptr):
+            state_ptr._obj.value = _wwm.QUNS_ACCEPTS_NOTIFICATIONS
+            return 0
+
+    monkeypatch.setattr(_wwm, "user32", _FakeUser32())
+    monkeypatch.setattr(_wwm, "shell32", _FakeShell32())
+
+    monitor = _wwm.WindowsWindowStateMonitor.__new__(_wwm.WindowsWindowStateMonitor)
+
+    assert monitor._is_exclusive_fullscreen(123, is_fullscreen_window=True) is False
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+def test_exclusive_fullscreen_confirmation_requires_stable_signal():
+    monitor = _wwm.WindowsWindowStateMonitor.__new__(_wwm.WindowsWindowStateMonitor)
+    monitor.exclusive_fullscreen_since = None
+    monitor.exclusive_fullscreen_confirm_seconds = 2.0
+
+    assert monitor._update_exclusive_fullscreen_state(True, 100.0) is False
+    assert monitor._update_exclusive_fullscreen_state(True, 101.9) is False
+    assert monitor._update_exclusive_fullscreen_state(True, 102.0) is True
+    assert monitor._update_exclusive_fullscreen_state(False, 102.1) is False
+    assert monitor.exclusive_fullscreen_since is None

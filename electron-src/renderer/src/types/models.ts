@@ -86,6 +86,9 @@ export interface AppSettings {
   textCaptureWizardEnabled: boolean;
   visibleTabs: ControlledTab[];
   statsEndpoint: string;
+  databaseBackupEnabled: boolean;
+  databaseBackupDirectory: string;
+  databaseBackupRetentionCount: number;
   singlePort: number;
   locale: string;
   theme: string;

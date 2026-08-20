@@ -73,6 +73,7 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
         "twoPassOCR": True,
         "optimize_second_scan": True,
         "text_appears_instantly": False,
+        "advanced_debug_logging": False,
         "ocr1": DEFAULT_STABILITY_OCR,
         "ocr2": "glens",
         "scanRate": 0.5,
@@ -145,6 +146,9 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
     "statsEndpoint": "overview",
     "locale": "en",
     "hasCompletedSetup": False,
+    "databaseBackupEnabled": False,
+    "databaseBackupDirectory": "",
+    "databaseBackupRetentionCount": 2,
 }
 
 
@@ -305,6 +309,22 @@ def get_electron_store() -> Store:
     return electron_store
 
 
+def get_database_backup_settings() -> Dict[str, Any]:
+    """Return the normalized automatic database backup policy."""
+    data = electron_store.read_from_disk()
+    raw_count = data.get("databaseBackupRetentionCount", 2)
+    try:
+        retention_count = int(raw_count)
+    except (TypeError, ValueError):
+        retention_count = 2
+
+    return {
+        "enabled": data.get("databaseBackupEnabled") is True,
+        "directory": str(data.get("databaseBackupDirectory") or "").strip(),
+        "retention_count": max(1, min(1000, retention_count)),
+    }
+
+
 def _get_ocr_config() -> Dict[str, Any]:
     config = electron_store.get("OCR", {})
     return config if isinstance(config, dict) else {}
@@ -399,6 +419,10 @@ def get_ocr_optimize_second_scan() -> bool:
 
 def get_ocr_text_appears_instantly() -> bool:
     return bool(_get_ocr_value("text_appears_instantly", False))
+
+
+def get_ocr_advanced_debug_logging() -> bool:
+    return bool(_get_ocr_value("advanced_debug_logging", False))
 
 
 def get_ocr_ocr1() -> str:

@@ -1,6 +1,7 @@
 import { dirname, join } from 'path';
 
 import { svelte } from '@sveltejs/vite-plugin-svelte';
+import tailwindcss from '@tailwindcss/vite';
 import { setDefaultResultOrder } from 'dns';
 import { cpSync } from 'fs';
 import { fileURLToPath } from 'url';
@@ -17,16 +18,21 @@ if (nodeVersion < 17) {
 
 export default defineConfig({
 	plugins: [
+		tailwindcss(),
 		svelte(),
 		viteSingleFile(),
 		(() => {
 			{
 				return {
-					name: 'copy-header',
+					name: 'copy-build-artifacts',
 					writeBundle() {
 						cpSync(join(__dirname, 'public', 'assets'), join(__dirname, 'docs', 'assets'), {
 							recursive: true,
 						});
+						cpSync(
+							join(__dirname, 'docs', 'index.html'),
+							join(__dirname, '..', 'GameSentenceMiner', 'web', 'templates', 'index.html'),
+						);
 					},
 				};
 			}

@@ -20,6 +20,11 @@ from GameSentenceMiner.util.config.configuration import (
     logger,
     save_full_config,
 )
+from GameSentenceMiner.util.concurrency.work_pool import submit_background_work
+from GameSentenceMiner.util.concurrency.scheduler import (
+    acquire_runtime_scheduler,
+    release_runtime_scheduler,
+)
 
 from GameSentenceMiner.obs.launch import (
     _queue_error_for_gui,
@@ -319,8 +324,9 @@ class OBSService:
         self._auto_start_paused_by_external_replay_stop = False
         self._connection_grace_deadline = 0.0
 
-        # Fit-to-screen delayed timer
-        self._fit_timer: Optional[threading.Timer] = None
+        # Fit-to-screen deadlines share the process scheduler.
+        self._deadline_scheduler = None
+        self._fit_deadline_key = f"obs.fit:{id(self)}"
         self._fit_to_screen_grace_deadline = 0.0
 
         # Tick scheduling & guards
@@ -340,6 +346,11 @@ class OBSService:
     # -- lifecycle -----------------------------------------------------------
 
     def disconnect(self):
+        scheduler = self._deadline_scheduler
+        if scheduler is not None:
+            scheduler.cancel(self._fit_deadline_key)
+            self._deadline_scheduler = None
+            release_runtime_scheduler(scheduler)
         try:
             if self.event_client:
                 self.event_client.disconnect()
@@ -883,9 +894,6 @@ class OBSService:
     # -- fit-to-screen -------------------------------------------------------
 
     def _schedule_fit_to_screen(self, scene_name: str, delay: float = 2.0):
-        if self._fit_timer is not None:
-            self._fit_timer.cancel()
-
         def _do_fit():
             try:
                 from GameSentenceMiner.obs.actions import set_fit_to_screen_for_scene_items
@@ -894,9 +902,12 @@ class OBSService:
             except Exception as e:
                 logger.debug(f"Delayed fit-to-screen failed: {e}")
 
-        self._fit_timer = threading.Timer(delay, _do_fit)
-        self._fit_timer.daemon = True
-        self._fit_timer.start()
+        scheduler = self._deadline_scheduler
+        if scheduler is None:
+            scheduler = acquire_runtime_scheduler()
+            self._deadline_scheduler = scheduler
+        if scheduler is not None:
+            scheduler.schedule_after(self._fit_deadline_key, delay, _do_fit)
 
     # -- periodic work (called from OBSConnectionManager) --------------------
 
@@ -1209,9 +1220,9 @@ def _call_with_obs_client(
 # ---------------------------------------------------------------------------
 class OBSConnectionManager(threading.Thread):
     def __init__(self, check_output=False):
-        super().__init__()
-        self.daemon = True
+        super().__init__(name="gsm-obs-actor", daemon=False)
         self.running = True
+        self._stop_event = threading.Event()
         self.check_connection_interval = 5.0
         self.recovery_cooldown_seconds = 2.0
         self.check_output = check_output
@@ -1243,11 +1254,10 @@ class OBSConnectionManager(threading.Thread):
             return False
 
         if not _obs_pkg.connecting:
-            threading.Thread(
-                target=connect_to_obs_sync,
-                kwargs={"retry": 1, "check_output": self.check_output},
-                daemon=True,
-            ).start()
+            try:
+                submit_background_work(connect_to_obs_sync, retry=1, check_output=self.check_output)
+            except Exception as error:
+                logger.warning(f"OBS reconnect work was rejected: {error}")
         return False
 
     def _check_obs_connection(self):
@@ -1289,7 +1299,8 @@ class OBSConnectionManager(threading.Thread):
         import GameSentenceMiner.obs as _obs_pkg
 
         disconnect_sleep_manager = SleepManager(initial_delay=2.0, name="OBS_Disconnect")
-        time.sleep(5)
+        if self._stop_event.wait(5):
+            return
 
         # Initial periodic work
         if _obs_pkg.obs_service:
@@ -1300,10 +1311,17 @@ class OBSConnectionManager(threading.Thread):
 
         while self.running:
             if not gsm_status.obs_connected:
-                disconnect_sleep_manager.sleep()
+                delay = disconnect_sleep_manager.current_delay
+                if self._stop_event.wait(delay):
+                    break
+                disconnect_sleep_manager.current_delay = min(
+                    delay * disconnect_sleep_manager.backoff_factor,
+                    disconnect_sleep_manager._get_max_delay(),
+                )
             else:
                 disconnect_sleep_manager.reset()
-                time.sleep(self.check_connection_interval)
+                if self._stop_event.wait(self.check_connection_interval):
+                    break
 
             if not self._check_obs_connection():
                 continue
@@ -1328,6 +1346,7 @@ class OBSConnectionManager(threading.Thread):
 
     def stop(self):
         self.running = False
+        self._stop_event.set()
 
 
 # ---------------------------------------------------------------------------

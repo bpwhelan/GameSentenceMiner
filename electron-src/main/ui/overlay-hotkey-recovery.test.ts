@@ -8,6 +8,64 @@ import { describe, expect, it, vi } from "vitest";
 const requireModule = createRequire(import.meta.url);
 
 describe("overlay hotkey recovery", () => {
+  it("blocks only keyboard toggles during controller-navigation focus recovery", () => {
+    const { shouldSuppressGamepadToggleDuringFocusTransition } = requireModule(
+      path.resolve(process.cwd(), "GSM_Overlay/hotkey_settings.js")
+    ) as {
+      shouldSuppressGamepadToggleDuringFocusTransition: (options: {
+        source: string;
+        navigationActive: boolean;
+        suppressedUntil: number;
+        now: number;
+      }) => boolean;
+    };
+
+    expect(shouldSuppressGamepadToggleDuringFocusTransition({
+      source: "keyboard:Alt+G",
+      navigationActive: true,
+      suppressedUntil: 1630,
+      now: 1400,
+    })).toBe(true);
+    expect(shouldSuppressGamepadToggleDuringFocusTransition({
+      source: "keyboard:Alt+G",
+      navigationActive: true,
+      suppressedUntil: 1630,
+      now: 1700,
+    })).toBe(false);
+    expect(shouldSuppressGamepadToggleDuringFocusTransition({
+      source: "controller",
+      navigationActive: true,
+      suppressedUntil: 1630,
+      now: 1400,
+    })).toBe(false);
+  });
+
+  it("runs a hotkey immediately but ignores duplicate presses during its cooldown", () => {
+    const { createLeadingEdgeCooldownHandler } = requireModule(
+      path.resolve(process.cwd(), "GSM_Overlay/hotkey_settings.js")
+    ) as {
+      createLeadingEdgeCooldownHandler: (
+        handler: () => void,
+        cooldownMs: number,
+        now: () => number
+      ) => () => boolean;
+    };
+    const handler = vi.fn();
+    // The first handler takes 400ms. A queued duplicate 50ms after completion
+    // must still be suppressed even though it arrived 450ms after invocation.
+    const times = [1000, 1400, 1450, 1700, 1700];
+    const debounced = createLeadingEdgeCooldownHandler(
+      handler,
+      250,
+      () => times.shift()!
+    );
+
+    expect(debounced()).toBe(true);
+    expect(debounced()).toBe(false);
+    expect(debounced()).toBe(true);
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+
   it("resets only an accelerator rejected by Electron and retries its default", () => {
     const { registerHotkeyWithFallback } = requireModule(
       path.resolve(process.cwd(), "GSM_Overlay/hotkey_settings.js")

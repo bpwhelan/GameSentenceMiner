@@ -6,7 +6,7 @@ import os
 import threading
 import time
 from ctypes import wintypes
-from typing import Dict, Any, List, Tuple, Optional, Set
+from typing import Dict, List, Tuple, Optional, Set
 
 from .base_window_monitor import *
 from .base_window_monitor import (
@@ -122,6 +122,21 @@ from GameSentenceMiner.util.platform.monitor_selection import (
 from GameSentenceMiner.web.gsm_websocket import websocket_manager, ID_OVERLAY
 
 
+# SHQueryUserNotificationState is the one public Windows signal that explicitly
+# distinguishes a Direct3D exclusive-fullscreen application from an ordinary
+# monitor-filling (borderless) window. It is system-wide, so callers must also
+# verify that the OBS target owns the foreground before attributing the state.
+QUNS_RUNNING_D3D_FULL_SCREEN = 3
+QUNS_ACCEPTS_NOTIFICATIONS = 5
+
+if is_windows():
+    shell32 = ctypes.windll.shell32
+    shell32.SHQueryUserNotificationState.argtypes = [ctypes.POINTER(ctypes.c_int)]
+    shell32.SHQueryUserNotificationState.restype = ctypes.c_long
+else:
+    shell32 = None
+
+
 class WindowsWindowStateMonitor(BaseWindowStateMonitor):
     """
     Monitors the state of the target game window (Minimized, Active, Background)
@@ -146,6 +161,9 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         self.max_poll_interval = 1.0
         self.last_obs_check_time = 0
         self.last_is_fullscreen: bool = False
+        self.last_is_exclusive_fullscreen: bool = False
+        self.exclusive_fullscreen_since: Optional[float] = None
+        self.exclusive_fullscreen_confirm_seconds: float = 2.0
         self.last_cursor_hidden: bool = False
         self.cursor_hidden_since: Optional[float] = None
         self.cursor_hidden_confirm_seconds: float = 3.0
@@ -167,6 +185,8 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         self.last_monitor_layout_signature: Optional[Tuple[Tuple[int, int, int, int], ...]] = None
         self.last_monitor_validation_time = 0.0
         self.minimized_audio_mutes: Dict[int, Tuple[Set[str], bool]] = {}
+        self.hotkey_audio_mutes: Dict[int, Tuple[Set[str], bool]] = {}
+        self._audio_mute_lock = threading.RLock()
         self._reprocess_tasks: set = set()  # strong refs so fire-and-forget reprocess tasks aren't GC'd
 
         self.BROWSER_CLASSES = {
@@ -219,6 +239,16 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
     def _start_event_hooks(self) -> None:
         """Start the dedicated thread that owns the Win32 event hook message pump."""
         if not is_windows() or not user32:
+            return
+        required_functions = (
+            "SetWinEventHook",
+            "GetMessageW",
+            "TranslateMessage",
+            "DispatchMessageW",
+            "UnhookWinEvent",
+            "PostThreadMessageW",
+        )
+        if not all(hasattr(user32, function_name) for function_name in required_functions):
             return
         if self._event_hook_thread and self._event_hook_thread.is_alive():
             return
@@ -291,6 +321,11 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                 user32.PostThreadMessageW(tid, WM_QUIT, 0, 0)
             except Exception:
                 pass
+        thread = self._event_hook_thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=2)
+        self._event_hook_thread = None
+        self._event_hook_thread_id = 0
 
     # --- Audio mute helpers ---
 
@@ -303,15 +338,16 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         force_all_sessions: bool = False,
         pid: Optional[int] = None,
     ) -> bool:
-        if pid is not None:
-            if pid not in self.minimized_audio_mutes:
-                return False
-            mutes_to_restore = [(pid, self.minimized_audio_mutes.pop(pid))]
-        else:
-            if not self.minimized_audio_mutes:
-                return False
-            mutes_to_restore = list(self.minimized_audio_mutes.items())
-            self.minimized_audio_mutes.clear()
+        with self._audio_mute_lock:
+            if pid is not None:
+                if pid not in self.minimized_audio_mutes:
+                    return False
+                mutes_to_restore = [(pid, self.minimized_audio_mutes.pop(pid))]
+            else:
+                if not self.minimized_audio_mutes:
+                    return False
+                mutes_to_restore = list(self.minimized_audio_mutes.items())
+                self.minimized_audio_mutes.clear()
 
         if not is_windows():
             return False
@@ -319,6 +355,17 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         restored_any = False
 
         for muted_pid, (session_ids, restore_all_sessions) in mutes_to_restore:
+            with self._audio_mute_lock:
+                hotkey_mute = self.hotkey_audio_mutes.get(muted_pid)
+                if hotkey_mute is not None and reason != "shutdown":
+                    hotkey_session_ids, hotkey_restore_all = hotkey_mute
+                    hotkey_session_ids.update(session_ids)
+                    self.hotkey_audio_mutes[muted_pid] = (
+                        hotkey_session_ids,
+                        hotkey_restore_all or restore_all_sessions,
+                    )
+                    restored_any = True
+                    continue
             try:
                 if force_all_sessions or restore_all_sessions:
                     results = set_process_mute(muted_pid, False)
@@ -341,6 +388,90 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
 
         return restored_any
 
+    def _restore_hotkey_audio_mutes_internal(
+        self,
+        reason: str = "",
+        force_all_sessions: bool = False,
+        pid: Optional[int] = None,
+    ) -> bool:
+        with self._audio_mute_lock:
+            if pid is not None:
+                if pid not in self.hotkey_audio_mutes:
+                    return False
+                mutes_to_restore = [(pid, self.hotkey_audio_mutes.pop(pid))]
+            else:
+                if not self.hotkey_audio_mutes:
+                    return False
+                mutes_to_restore = list(self.hotkey_audio_mutes.items())
+                self.hotkey_audio_mutes.clear()
+
+        restored_any = False
+        for muted_pid, (session_ids, restore_all_sessions) in mutes_to_restore:
+            with self._audio_mute_lock:
+                minimized_mute = self.minimized_audio_mutes.get(muted_pid)
+                if minimized_mute is not None and not force_all_sessions:
+                    minimized_session_ids, minimized_restore_all = minimized_mute
+                    minimized_session_ids.update(session_ids)
+                    self.minimized_audio_mutes[muted_pid] = (
+                        minimized_session_ids,
+                        minimized_restore_all or restore_all_sessions,
+                    )
+                    continue
+
+            try:
+                if force_all_sessions or restore_all_sessions:
+                    results = set_process_mute(muted_pid, False)
+                else:
+                    results = set_process_mute(muted_pid, False, session_instance_ids=session_ids)
+                    if session_ids and not results:
+                        results = set_process_mute(muted_pid, False)
+                restored_any = restored_any or bool(results)
+                if any(result.changed for result in results):
+                    logger.info(f"Unmuted target-window audio for PID {muted_pid} ({reason or 'hotkey'}).")
+            except Exception as e:
+                logger.debug(f"Failed to restore hotkey-muted target PID {muted_pid}: {e}")
+
+        return restored_any
+
+    def _toggle_target_window_mute_internal(self, hwnd: Optional[int] = None) -> bool:
+        target_hwnd = hwnd or self.target_hwnd or self.last_known_target_hwnd
+        if not target_hwnd:
+            logger.info("Target-window mute hotkey ignored because no captured window is available.")
+            return False
+
+        pid = _get_pid_for_hwnd(target_hwnd)
+        if pid <= 0:
+            logger.info("Target-window mute hotkey could not resolve the captured window process.")
+            return False
+
+        with self._audio_mute_lock:
+            is_hotkey_muted = pid in self.hotkey_audio_mutes
+
+        if is_hotkey_muted:
+            self._restore_hotkey_audio_mutes_internal("hotkey", pid=pid)
+            logger.info(f"Target-window mute disabled for PID {pid}.")
+            return True
+
+        try:
+            results = set_process_mute(pid, True)
+        except Exception as e:
+            logger.debug(f"Failed to mute target-window PID {pid}: {e}")
+            return False
+
+        changed_results = [result for result in results if result.changed]
+        session_ids = {result.session_instance_id for result in changed_results if result.session_instance_id}
+        restore_all_sessions = any(not result.session_instance_id for result in changed_results)
+        with self._audio_mute_lock:
+            minimized_mute = self.minimized_audio_mutes.pop(pid, None)
+            if minimized_mute is not None:
+                minimized_session_ids, minimized_restore_all = minimized_mute
+                session_ids.update(minimized_session_ids)
+                restore_all_sessions = restore_all_sessions or minimized_restore_all
+            self.hotkey_audio_mutes[pid] = (session_ids, restore_all_sessions)
+
+        logger.info(f"Target-window mute enabled for PID {pid}.")
+        return True
+
     def _force_unmute_current_target_audio(self, reason: str = "") -> bool:
         if not is_windows() or not self.target_hwnd:
             return False
@@ -348,6 +479,10 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         pid = _get_pid_for_hwnd(self.target_hwnd)
         if pid <= 0:
             return False
+
+        with self._audio_mute_lock:
+            if pid in self.hotkey_audio_mutes:
+                return True
 
         try:
             results = set_process_mute(pid, False)
@@ -398,8 +533,9 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         if pid <= 0:
             return
 
-        if pid in self.minimized_audio_mutes:
-            return
+        with self._audio_mute_lock:
+            if pid in self.minimized_audio_mutes or pid in self.hotkey_audio_mutes:
+                return
 
         try:
             results = set_process_mute(pid, True)
@@ -413,7 +549,8 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
 
         session_ids = {result.session_instance_id for result in changed_results if result.session_instance_id}
         restore_all_sessions = any(not result.session_instance_id for result in changed_results)
-        self.minimized_audio_mutes[pid] = (session_ids, restore_all_sessions)
+        with self._audio_mute_lock:
+            self.minimized_audio_mutes[pid] = (session_ids, restore_all_sessions)
         logger.debug(f"Muted audio for minimized target PID {pid}.")
 
     # --- Window info helpers ---
@@ -633,17 +770,15 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             logger.debug(f"Error checking window occlusion: {e}")
             return False
 
-    def _is_exclusive_fullscreen(self, hwnd) -> bool:
+    def _is_fullscreen_window(self, hwnd) -> bool:
+        """Return whether the target fills its nearest monitor.
+
+        Window styles cannot reliably distinguish fullscreen modes. In particular,
+        older Direct3D games can change their style while entering exclusive mode,
+        while modern borderless windows commonly use the same popup style. Keep this
+        helper geometric and use SHQueryUserNotificationState for exclusivity.
+        """
         try:
-            style = user32.GetWindowLongW(hwnd, GWL_STYLE)
-
-            has_popup = (style & WS_POPUP) != 0
-            has_no_caption = (style & WS_CAPTION) == 0
-            has_no_thickframe = (style & WS_THICKFRAME) == 0
-
-            if not (has_popup and has_no_caption and has_no_thickframe):
-                return False
-
             window_rect = get_window_rect_physical(hwnd)
             if not window_rect:
                 return False
@@ -672,7 +807,28 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             )
 
         except Exception as e:
-            logger.debug(f"Error checking exclusive fullscreen: {e}")
+            logger.debug(f"Error checking fullscreen window geometry: {e}")
+            return False
+
+    def _is_exclusive_fullscreen(self, hwnd, *, is_fullscreen_window: Optional[bool] = None) -> bool:
+        """Return whether the foreground OBS target is in Direct3D exclusive fullscreen."""
+        if not is_windows() or not user32 or not shell32 or not hwnd:
+            return False
+
+        try:
+            if user32.GetForegroundWindow() != hwnd:
+                return False
+
+            if is_fullscreen_window is None:
+                is_fullscreen_window = self._is_fullscreen_window(hwnd)
+            if not is_fullscreen_window:
+                return False
+
+            notification_state = ctypes.c_int(0)
+            result = shell32.SHQueryUserNotificationState(ctypes.byref(notification_state))
+            return result == 0 and notification_state.value == QUNS_RUNNING_D3D_FULL_SCREEN
+        except Exception as e:
+            logger.debug(f"Error checking Direct3D exclusive fullscreen state: {e}")
             return False
 
     def _target_is_uwp(self) -> bool:
@@ -1080,6 +1236,8 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             self.hidden_due_to_no_output = True
             self.last_state = "minimized"
             self.last_is_fullscreen = False
+            self.last_is_exclusive_fullscreen = False
+            self.exclusive_fullscreen_since = None
 
             payload = {
                 "type": "window_state",
@@ -1087,6 +1245,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                 "game": self.last_target_info.get("title", self.last_game_name),
                 "magpie_info": None,
                 "is_fullscreen": False,
+                "is_exclusive_fullscreen": False,
                 "recommend_manual_mode": False,
                 "target_window_rect": None,
                 "target_client_rect": None,
@@ -1109,6 +1268,8 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         logger.info("OBS output detected without a target window - showing overlay for non-HWND capture.")
         self.last_state = "background"
         self.last_is_fullscreen = False
+        self.last_is_exclusive_fullscreen = False
+        self.exclusive_fullscreen_since = None
 
         payload = {
             "type": "window_state",
@@ -1116,6 +1277,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             "game": self.last_target_info.get("title", self.last_game_name),
             "magpie_info": self.magpie_info,
             "is_fullscreen": False,
+            "is_exclusive_fullscreen": False,
             "recommend_manual_mode": False,
             "target_window_rect": None,
             "target_client_rect": None,
@@ -1137,6 +1299,8 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         logger.info("Target window lost after being acquired - hiding overlay (closed).")
         self.last_state = "closed"
         self.last_is_fullscreen = False
+        self.last_is_exclusive_fullscreen = False
+        self.exclusive_fullscreen_since = None
 
         payload = {
             "type": "window_state",
@@ -1144,6 +1308,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             "game": self.last_target_info.get("title", self.last_game_name),
             "magpie_info": None,
             "is_fullscreen": False,
+            "is_exclusive_fullscreen": False,
             "recommend_manual_mode": False,
             "target_window_rect": None,
             "target_client_rect": None,
@@ -1168,6 +1333,8 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         self.retry_find_count = 0
         self.last_state = restored_state
         self.last_is_fullscreen = restored_fullscreen
+        self.last_is_exclusive_fullscreen = False
+        self.exclusive_fullscreen_since = None
         self.poll_interval = self.fast_poll_interval
 
         payload = {
@@ -1176,6 +1343,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             "game": self.last_target_info.get("title", self.last_game_name),
             "magpie_info": self.magpie_info,
             "is_fullscreen": restored_fullscreen,
+            "is_exclusive_fullscreen": False,
             "recommend_manual_mode": False,
             "target_window_rect": None,
             "target_client_rect": None,
@@ -1205,6 +1373,15 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             self.cursor_hidden_since = now
             return False
         return (now - self.cursor_hidden_since) >= self.cursor_hidden_confirm_seconds
+
+    def _update_exclusive_fullscreen_state(self, raw_exclusive: bool, now: float) -> bool:
+        if not raw_exclusive:
+            self.exclusive_fullscreen_since = None
+            return False
+        if self.exclusive_fullscreen_since is None:
+            self.exclusive_fullscreen_since = now
+            return False
+        return (now - self.exclusive_fullscreen_since) >= self.exclusive_fullscreen_confirm_seconds
 
     async def check_and_send(self):
         """Check window state and broadcast changes."""
@@ -1316,10 +1493,13 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
 
                 current_state = "obscured" if is_obscured else "background"
 
-            is_fullscreen = self._is_exclusive_fullscreen(self.target_hwnd)
+            is_fullscreen = self._is_fullscreen_window(self.target_hwnd)
             current_rect = get_window_rect_physical(self.target_hwnd)
 
         self._sync_minimized_audio_mute(current_state)
+        if current_state == "active" and self.last_state != "active":
+            if getattr(getattr(get_config(), "hotkeys", None), "unmute_target_window_on_focus", True):
+                self._restore_hotkey_audio_mutes_internal("window focused", pid=_get_pid_for_hwnd(self.target_hwnd))
 
         window_moved_or_resized = current_rect != self.last_window_rect
         if window_moved_or_resized:
@@ -1359,6 +1539,13 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
 
         fullscreen_changed = is_fullscreen != self.last_is_fullscreen
 
+        raw_exclusive_fullscreen = current_state == "active" and self._is_exclusive_fullscreen(
+            self.target_hwnd,
+            is_fullscreen_window=is_fullscreen,
+        )
+        is_exclusive_fullscreen = self._update_exclusive_fullscreen_state(raw_exclusive_fullscreen, now)
+        exclusive_fullscreen_changed = is_exclusive_fullscreen != self.last_is_exclusive_fullscreen
+
         raw_cursor_hidden = current_state == "active" and self._is_cursor_hidden()
         cursor_hidden = self._update_cursor_hidden_state(raw_cursor_hidden, now)
         cursor_hidden_changed = cursor_hidden != self.last_cursor_hidden
@@ -1367,15 +1554,18 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             current_state != self.last_state
             or magpie_changed
             or fullscreen_changed
+            or exclusive_fullscreen_changed
             or window_moved_or_resized
             or cursor_hidden_changed
         ):
             logger.debug(
                 f"Window state changed: {self.last_state} -> {current_state} "
-                f"(game: {game_name_ref}, fullscreen: {is_fullscreen}, cursor_hidden: {cursor_hidden})"
+                f"(game: {game_name_ref}, fullscreen: {is_fullscreen}, "
+                f"exclusive_fullscreen: {is_exclusive_fullscreen}, cursor_hidden: {cursor_hidden})"
             )
             self.last_state = current_state
             self.last_is_fullscreen = is_fullscreen
+            self.last_is_exclusive_fullscreen = is_exclusive_fullscreen
             self.last_cursor_hidden = cursor_hidden
 
             recommend_manual = cursor_hidden
@@ -1386,6 +1576,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                 "game": game_name_ref,
                 "magpie_info": self.magpie_info,
                 "is_fullscreen": is_fullscreen,
+                "is_exclusive_fullscreen": is_exclusive_fullscreen,
                 "cursor_hidden": cursor_hidden,
                 "recommend_manual_mode": recommend_manual,
                 "target_window_rect": self._build_window_rect_payload(current_rect),

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import threading
 import time
 from typing import Any
@@ -21,6 +22,7 @@ TADOKU_READING_ACTIVITY_ID = 1
 TADOKU_GAME_TAG = "game"
 TADOKU_GSM_TAG = "gsm"
 TADOKU_REQUEST_TIMEOUT_SECONDS = 20
+TADOKU_AUTO_SYNC_MINIMUM_CHARACTERS = 5_000
 
 _sync_lock = threading.Lock()
 
@@ -41,6 +43,11 @@ def initialize_tadoku_cursor(now: float | None = None) -> float:
     return cursor
 
 
+def tadoku_game_cursor_key(game_key: str) -> str:
+    """Return the export-state key used to track one game's Tadoku progress."""
+    return f"{TADOKU_CURSOR_KEY}:game:{game_key}"
+
+
 def _game_key(line) -> str:
     game_id = str(line.game_id or "").strip()
     if game_id:
@@ -48,22 +55,47 @@ def _game_key(line) -> str:
     return f"scene:{line.game_name or 'Unknown Game'}"
 
 
-def _display_names(lines: list) -> dict[str, str]:
+def _tadoku_media_tag(media_type: str | None) -> str:
+    """Normalize a GSM media type into a compact Tadoku tag."""
+    normalized = re.sub(r"[^a-z0-9]+", "", str(media_type or "").casefold())
+    aliases = {
+        "visualnovel": "vn",
+        "vn": "vn",
+        "videogame": TADOKU_GAME_TAG,
+        "game": TADOKU_GAME_TAG,
+        "unknown": TADOKU_GAME_TAG,
+    }
+    return aliases.get(normalized, normalized or TADOKU_GAME_TAG)
+
+
+def _game_metadata(lines: list) -> tuple[dict[str, str], dict[str, str]]:
     names: dict[str, str] = {}
+    media_tags: dict[str, str] = {}
     game_ids = {_game_key(line) for line in lines if not _game_key(line).startswith("scene:")}
     for game_id in game_ids:
         game = GamesTable.get(game_id)
-        if game is not None and game.title_original:
-            names[game_id] = game.title_original
+        if game is not None:
+            english_title = str(getattr(game, "title_english", "") or "").strip()
+            original_title = str(getattr(game, "title_original", "") or "").strip()
+            if english_title:
+                names[game_id] = english_title
+            elif original_title:
+                names[game_id] = original_title
+            media_tags[game_id] = _tadoku_media_tag(game.type)
 
     for line in lines:
         key = _game_key(line)
         names.setdefault(key, line.game_name or "Unknown Game")
-    return names
+        media_tags.setdefault(key, TADOKU_GAME_TAG)
+    return names, media_tags
 
 
 def _deduplication_ids(lines: list, game_keys: set[str] | None = None) -> set[str]:
-    """Return newer duplicate line IDs, keeping the oldest text per linked game."""
+    """Return newer duplicate IDs, keeping the oldest text within each game group.
+
+    Identical text in different game groups is intentionally retained because
+    each group is exported as its own Tadoku log.
+    """
     grouped: dict[str, list] = {}
     for line in lines:
         key = _game_key(line)
@@ -102,23 +134,43 @@ def build_tadoku_preview(
     cursor = initialize_tadoku_cursor()
     cutoff = float(upper_bound if upper_bound is not None else time.time())
     lines = _load_lines(cutoff)
-    duplicates = _deduplication_ids(lines) if deduplicate else set()
-    names = _display_names(lines)
+    names, media_tags = _game_metadata(lines)
+    game_character_totals: dict[str, int] = {}
+    for line in lines:
+        text = line.line_text if isinstance(line.line_text, str) else ""
+        if text:
+            key = _game_key(line)
+            game_character_totals[key] = game_character_totals.get(key, 0) + len(text)
+    game_cursors: dict[str, float] = {}
+
+    def game_cursor(game_key: str) -> float:
+        if game_key not in game_cursors:
+            saved_cursor = StatsExportStateTable.get_last_successful_export_at(tadoku_game_cursor_key(game_key))
+            # The legacy global cursor remains the baseline for games that have
+            # never been handled by the per-game automatic sync.
+            game_cursors[game_key] = max(cursor, saved_cursor) if saved_cursor is not None else cursor
+        return game_cursors[game_key]
+
+    # Only compare lines in the current pending batch. Historical lines from a
+    # previous successful sync must not suppress newly queued text.
+    pending_lines = [line for line in lines if float(line.created_at or 0) > game_cursor(_game_key(line))]
+    duplicates = _deduplication_ids(pending_lines) if deduplicate else set()
 
     grouped: dict[str, dict[str, Any]] = {}
     for line in lines:
         created_at = float(line.created_at or 0)
-        if created_at <= cursor or line.id in duplicates:
+        key = _game_key(line)
+        if created_at <= game_cursor(key) or line.id in duplicates:
             continue
         text = line.line_text if isinstance(line.line_text, str) else ""
         if not text:
             continue
-        key = _game_key(line)
         entry = grouped.setdefault(
             key,
             {
                 "game_key": key,
                 "game_name": names.get(key, line.game_name or "Unknown Game"),
+                "media_tag": media_tags.get(key, TADOKU_GAME_TAG),
                 "characters": 0,
                 "lines": 0,
             },
@@ -132,8 +184,13 @@ def build_tadoku_preview(
         "upper_bound": cutoff,
         "deduplicate": bool(deduplicate),
         "duplicates_excluded": len(
-            {line.id for line in lines if line.id in duplicates and float(line.created_at or 0) > cursor}
+            {
+                line.id
+                for line in lines
+                if line.id in duplicates and float(line.created_at or 0) > game_cursor(_game_key(line))
+            }
         ),
+        "game_character_totals": game_character_totals,
         "total_entries": len(entries),
         "total_characters": sum(entry["characters"] for entry in entries),
         "entries": entries,
@@ -327,8 +384,10 @@ def run_tadoku_sync(
     config=None,
     client: TadokuClient | None = None,
     deduplicate: bool = False,
+    minimum_characters_per_game: int = 0,
+    game_whitelist: set[str] | None = None,
 ) -> dict[str, Any]:
-    """Upload one Character log per game and advance the cursor only on success."""
+    """Upload eligible per-game Character logs without consuming deferred games."""
     if not _sync_lock.acquire(blocking=False):
         raise TadokuSyncError("A Tadoku sync is already running")
 
@@ -342,8 +401,41 @@ def run_tadoku_sync(
         # Deduplication is export-only. Local gamelines are immutable from Tadoku's
         # perspective; duplicates are omitted from the outgoing aggregate and kept.
         preview = build_tadoku_preview(deduplicate=deduplicate, upper_bound=upper_bound)
-        entries = preview["entries"]
+        pending_entries = preview["entries"]
         duplicates_excluded = int(preview["duplicates_excluded"])
+        required_characters = max(0, int(minimum_characters_per_game))
+        normalized_whitelist = None
+        if game_whitelist:
+            normalized_whitelist = {str(game_id).strip() for game_id in game_whitelist if str(game_id).strip()} or None
+        whitelisted_entries = [
+            entry
+            for entry in pending_entries
+            if normalized_whitelist is None or entry["game_key"] in normalized_whitelist
+        ]
+        game_character_totals = preview["game_character_totals"]
+        entries = [
+            entry
+            for entry in whitelisted_entries
+            if game_character_totals.get(entry["game_key"], 0) >= required_characters
+        ]
+        partial_sync = normalized_whitelist is not None or required_characters > 0
+
+        if not entries and partial_sync:
+            scope = "whitelisted game" if normalized_whitelist is not None else "game"
+            reason = f"no {scope} has queued characters"
+            if required_characters and whitelisted_entries:
+                reason = f"no {scope} has {required_characters:,} total characters"
+            return {
+                "success": True,
+                "skipped": True,
+                "reason": reason,
+                "entries_sent": 0,
+                "characters_sent": 0,
+                "pending_characters": sum(entry["characters"] for entry in whitelisted_entries),
+                "minimum_characters_per_game": required_characters,
+                "duplicates_excluded": duplicates_excluded,
+                "cursor": preview["cursor"],
+            }
         if not entries:
             StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, upper_bound)
             return {
@@ -373,7 +465,7 @@ def run_tadoku_sync(
                     "activity_id": TADOKU_READING_ACTIVITY_ID,
                     "amount": entry["characters"],
                     "unit_id": unit_id,
-                    "tags": [TADOKU_GAME_TAG, TADOKU_GSM_TAG],
+                    "tags": [entry["media_tag"], TADOKU_GSM_TAG],
                     "description": entry["game_name"][:255],
                     "registration_ids": registration_ids,
                 }
@@ -395,13 +487,20 @@ def run_tadoku_sync(
                 raise
             raise TadokuSyncError(str(exc)) from exc
 
-        StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, upper_bound)
+        for entry in entries:
+            StatsExportStateTable.mark_successful_export(tadoku_game_cursor_key(entry["game_key"]), upper_bound)
+        if not partial_sync:
+            # A manual/unfiltered sync consumed every pending entry. Partial
+            # automatic runs must leave the global cursor in place so filtered
+            # and below-threshold games remain queued.
+            StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, upper_bound)
+        characters_sent = sum(entry["characters"] for entry in entries)
         return {
             "success": True,
             "entries_sent": len(entries),
-            "characters_sent": preview["total_characters"],
+            "characters_sent": characters_sent,
             "duplicates_excluded": duplicates_excluded,
-            "cursor": upper_bound,
+            "cursor": upper_bound if not partial_sync else preview["cursor"],
         }
     finally:
         if client is None and tadoku_client is not None and stats_config is not None:

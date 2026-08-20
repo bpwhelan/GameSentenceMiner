@@ -5,8 +5,12 @@ import log from "electron-log";
 import { getPythonPath } from "./store.js";
 import {
     getProjectPath,
-    isBackendVersionCompatible,
 } from "./services/python_ops.js";
+import {
+    getBackendUpdateDecision,
+    selectLatestCompatibleVersion,
+    type PyPiReleases,
+} from './services/backend_version.js';
 
 const PACKAGE_NAME = "GameSentenceMiner";
 
@@ -43,18 +47,7 @@ function getLatestVersion(): string | null {
 }
 
 interface PyPiPackageResponse {
-    releases?: Record<string, Array<{ yanked?: boolean }>>;
-}
-
-function getPostReleaseNumber(version: string, bundledVersion: string): number {
-    if (version === bundledVersion) {
-        return -1;
-    }
-    const escapedBundledVersion = bundledVersion.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const match = version.match(
-        new RegExp(`^${escapedBundledVersion}\\.post(\\d+)$`, 'i')
-    );
-    return match ? Number.parseInt(match[1], 10) : -1;
+    releases?: PyPiReleases;
 }
 
 async function getLatestCompatibleVersion(bundledVersion: string): Promise<string> {
@@ -67,27 +60,7 @@ async function getLatestCompatibleVersion(bundledVersion: string): Promise<strin
         }
 
         const data = (await response.json()) as PyPiPackageResponse;
-        let latestVersion = bundledVersion;
-        let latestPostNumber = -1;
-
-        for (const [version, files] of Object.entries(data.releases ?? {})) {
-            if (!files.some((file) => !file.yanked)) {
-                continue;
-            }
-            if (version === bundledVersion) {
-                continue;
-            }
-            const postNumber = getPostReleaseNumber(version, bundledVersion);
-            if (postNumber < 0) {
-                continue;
-            }
-            if (postNumber > latestPostNumber) {
-                latestPostNumber = postNumber;
-                latestVersion = version;
-            }
-        }
-
-        return latestVersion;
+        return selectLatestCompatibleVersion(bundledVersion, data.releases ?? {});
     } catch (error) {
         log.warn(
             `Could not query PyPI for compatible backend post releases; using bundled ${bundledVersion}: ${error}`
@@ -97,9 +70,13 @@ async function getLatestCompatibleVersion(bundledVersion: string): Promise<strin
 }
 
 // Check whether a compatible post release is newer than the installed backend.
-async function checkForUpdates(force: boolean = false): Promise<{ updateAvailable: boolean; latestVersion: string | null }> {
+async function checkForUpdates(
+    force: boolean = false,
+    knownInstalledVersion?: string | null
+): Promise<{ updateAvailable: boolean; latestVersion: string | null }> {
     try {
-        const installedVersion = getCurrentVersion();
+        const installedVersion =
+            knownInstalledVersion === undefined ? getCurrentVersion() : knownInstalledVersion;
         const bundledVersion = getLatestVersion();
 
         console.log(`Installed backend version: ${installedVersion}`);
@@ -113,28 +90,18 @@ async function checkForUpdates(force: boolean = false): Promise<{ updateAvailabl
         const latestVersion = await getLatestCompatibleVersion(bundledVersion);
         console.log(`Latest compatible backend version: ${latestVersion}`);
 
-        if (!installedVersion) {
-            log.info(`No installed ${PACKAGE_NAME} version found. Treating ${latestVersion} as install target.`);
-            return { updateAvailable: true, latestVersion };
-        }
-
-        const installedVersionIsCompatible = isBackendVersionCompatible(
+        const decision = getBackendUpdateDecision(
             installedVersion,
-            bundledVersion
-        );
-        const newerPostReleaseAvailable =
-            getPostReleaseNumber(latestVersion, bundledVersion) >
-            getPostReleaseNumber(installedVersion, bundledVersion);
-        if (
-            !installedVersionIsCompatible ||
-            newerPostReleaseAvailable ||
+            bundledVersion,
+            latestVersion,
             force
-        ) {
+        );
+        if (decision.updateAvailable) {
             log.info(`Backend version differs: ${installedVersion} -> ${latestVersion}`);
-            return { updateAvailable: true, latestVersion };
+            return decision;
         } else {
             log.info("Backend already matches the latest compatible version.");
-            return { updateAvailable: false, latestVersion };
+            return decision;
         }
     } catch (error) {
         log.error(`Error checking for updates: ${error}`);

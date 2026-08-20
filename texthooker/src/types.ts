@@ -72,6 +72,7 @@ export interface Settings {
 	flashOnMissedLine$: boolean;
 	displayVertical$: boolean;
 	reverseLineOrder$: boolean;
+	alwaysScrollToNewest$: boolean;
 	preserveWhitespace$: boolean;
 	removeAllWhitespace$: boolean;
 	showTimer$: boolean;
@@ -150,12 +151,18 @@ export interface LineItem {
 	gsmSessionId?: string;
 	gsmStatus?: GSMLineStatus;
 	sessionBackfill?: boolean;
+	streamSequence?: number;
+	revision?: number;
+	recordState?: 'provisional' | 'frozen' | 'expired';
 }
 
 export interface TextFeedSessionLine {
 	id: string;
 	text: string;
 	excludedFromStats: boolean;
+	streamSequence?: number;
+	revision?: number;
+	recordState?: 'provisional' | 'frozen' | 'expired';
 }
 
 export interface TextFeedSessionSync {
@@ -164,6 +171,7 @@ export interface TextFeedSessionSync {
 	activeIds: string[];
 	timedOutIds: string[];
 	missingLines: TextFeedSessionLine[];
+	requestedIds: string[];
 }
 
 export interface LineItemEditEvent {

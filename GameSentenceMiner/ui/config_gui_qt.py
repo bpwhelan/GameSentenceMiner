@@ -254,7 +254,7 @@ class ConfigWindow(QWidget):
         # --- Window Setup ---
         self._update_window_title()
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.Window)  # Ensure it's a standalone window
-        self.resize(800, 700)
+        self.resize(800, 800)
         self.setMinimumSize(640, 480)
 
         # Set window icon explicitly
@@ -968,6 +968,9 @@ class ConfigWindow(QWidget):
                     manual_overlay_scan_gamepad=str(self.manual_overlay_scan_gamepad_combo.currentData() or ""),
                     play_latest_audio=self.play_latest_audio_hotkey_edit.keySequence().toString(),
                     play_latest_audio_gamepad=str(self.play_latest_audio_gamepad_combo.currentData() or ""),
+                    mute_target_window=self.mute_target_window_hotkey_edit.keySequence().toString(),
+                    mute_target_window_gamepad=str(self.mute_target_window_gamepad_combo.currentData() or ""),
+                    unmute_target_window_on_focus=self.unmute_target_window_on_focus_check.isChecked(),
                     process_pause=self.process_pause_hotkey_edit.keySequence().toString(),
                     process_pause_gamepad=str(self.process_pause_gamepad_combo.currentData() or ""),
                     pause_text_intake=self.pause_text_intake_hotkey_edit.keySequence().toString(),
@@ -984,6 +987,7 @@ class ConfigWindow(QWidget):
                     backup_vad_model=self.backup_vad_model_combo.currentText(),
                     trim_beginning=self.vad_trim_beginning_check.isChecked(),
                     beginning_offset=float(self.vad_beginning_offset_edit.text() or 0.0),
+                    adaptive_preroll=self.adaptive_preroll_check.isChecked(),
                     add_audio_on_no_results=self.add_audio_on_no_results_check.isChecked(),
                     use_tts_as_fallback=self.use_tts_as_fallback_check.isChecked(),
                     tts_url=self.tts_url_edit.text(),
@@ -1592,6 +1596,7 @@ class ConfigWindow(QWidget):
         self.end_offset_edit = QLineEdit()
         self.vad_trim_beginning_check = QCheckBox()
         self.vad_beginning_offset_edit = QLineEdit()
+        self.adaptive_preroll_check = QCheckBox()
         self.cut_and_splice_segments_check = QCheckBox()
         self.splice_padding_edit = QLineEdit()
         self.use_cpu_for_inference_check = QCheckBox()
@@ -1711,6 +1716,9 @@ class ConfigWindow(QWidget):
         self.video_player_path_edit = QLineEdit()
         self.play_latest_audio_hotkey_edit = ClearableKeySequenceEdit()
         self.play_latest_audio_gamepad_combo = self._create_gamepad_hotkey_combo()
+        self.mute_target_window_hotkey_edit = ClearableKeySequenceEdit()
+        self.mute_target_window_gamepad_combo = self._create_gamepad_hotkey_combo()
+        self.unmute_target_window_on_focus_check = QCheckBox()
         self.multi_line_line_break_edit = QLineEdit()
         self.texthooker_communication_websocket_port_edit = QLineEdit()
         self.plaintext_websocket_export_port_edit = QLineEdit()
@@ -3180,6 +3188,7 @@ class ConfigWindow(QWidget):
         self.end_offset_edit.setText(str(s.audio.end_offset))
         self.vad_trim_beginning_check.setChecked(s.vad.trim_beginning)
         self.vad_beginning_offset_edit.setText(str(s.vad.beginning_offset))
+        self.adaptive_preroll_check.setChecked(getattr(s.vad, "adaptive_preroll", False))
         self.cut_and_splice_segments_check.setChecked(s.vad.cut_and_splice_segments)
         self.splice_padding_edit.setText(str(s.vad.splice_padding))
         self.use_cpu_for_inference_check.setChecked(
@@ -3382,6 +3391,16 @@ class ConfigWindow(QWidget):
         self._set_gamepad_hotkey_combo(
             self.play_latest_audio_gamepad_combo,
             getattr(s.hotkeys, "play_latest_audio_gamepad", ""),
+        )
+        self.mute_target_window_hotkey_edit.setKeySequence(
+            QKeySequence(getattr(s.hotkeys, "mute_target_window", "") or "")
+        )
+        self._set_gamepad_hotkey_combo(
+            self.mute_target_window_gamepad_combo,
+            getattr(s.hotkeys, "mute_target_window_gamepad", ""),
+        )
+        self.unmute_target_window_on_focus_check.setChecked(
+            bool(getattr(s.hotkeys, "unmute_target_window_on_focus", True))
         )
         self._set_text_value(self.multi_line_line_break_edit, s.advanced.multi_line_line_break)
         self.texthooker_communication_websocket_port_edit.setText(

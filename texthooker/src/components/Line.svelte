@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { mdiTrophy, mdiClockOutline, mdiHistory, mdiPlay, mdiStop } from '@mdi/js';
+	import { mdiClockOutline, mdiHistory, mdiMenu, mdiPlay, mdiStop, mdiTrophy } from '@mdi/js';
 	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import {
+		alwaysScrollToNewest$,
 		displayVertical$,
 		enableLineAnimation$,
 		preserveWhitespace$,
@@ -22,14 +23,21 @@
 		settingsOpen$,
 	} from '../stores/stores';
 	import type { LineItem, LineItemEditEvent } from '../types';
-	import { dummyFn, getAutoScrollStick, isScrolledToEnd, newLineCharacter, updateScroll } from '../util';
+	import {
+		dummyFn,
+		getAutoScrollStick,
+		isScrolledToEnd,
+		newLineCharacter,
+		shouldAutoScroll,
+		updateScroll,
+	} from '../util';
 	import Icon from './Icon.svelte';
 	import { getGSMEndpoint } from '../gsm';
 
 	export let line: LineItem;
 	export let index: number;
 	export let isLast: boolean;
-	export let pipWindow: Window = undefined;
+	export let pipWindow: Window | undefined = undefined;
 	export let audioLineId = '';
 	export let audioIsPlaying = false;
 	export let audioPendingLineId = '';
@@ -52,8 +60,16 @@
 
 	let paragraph: HTMLElement;
 	let originalText = '';
+	let componentMounted = false;
+	let lineTextMounted = false;
+	let autoTranslationRevision = -1;
 	let isSelected = false;
 	let isEditable = false;
+	let actionsMenuOpen = false;
+	let actionsMenuElement: HTMLElement;
+	let actionsMenuButton: HTMLButtonElement;
+	let actionsMenuPopover: HTMLElement;
+	let actionsMenuStyle = 'visibility: hidden;';
 	$: isAudioLine = audioLineId === line.id;
 	$: isAudioPending = audioPendingLineId === line.id;
 	$: audioButtonTitle = isAudioPending ? 'Preparing audio...' : isAudioLine && audioIsPlaying ? 'Stop audio' : 'Play audio';
@@ -61,29 +77,127 @@
 	$: isTimedOutGSMLine = line.gsmStatus === 'timed_out' || (!line.gsmStatus && $timedOutIDs$.includes(line.id));
 
 	$: isVerticalDisplay = !pipWindow && $displayVertical$;
+	$: if (
+		componentMounted &&
+		line.recordState === 'frozen' &&
+		!line.sessionBackfill &&
+		$autoTranslateLines$ &&
+		Number(line.revision ?? 0) > autoTranslationRevision
+	) {
+		autoTranslationRevision = Number(line.revision ?? 0);
+		handleAction(line.id, 'TL', $blurAutoTranslatedLines$);
+	}
 
 	onMount(() => {
-		if (isLast) {
-			// Don't yank a reader who scrolled up.
-			if (getAutoScrollStick(!!pipWindow)) {
-				updateScroll(
-					pipWindow || window,
-					paragraph.parentElement.parentElement,
-					$reverseLineOrder$,
-					isVerticalDisplay,
-					$enableLineAnimation$ ? 'smooth' : 'auto',
-				);
-			}
-			if (isActiveGSMLine && !line.sessionBackfill && $autoTranslateLines$) {
-				handleAction(line.id, 'TL', $blurAutoTranslatedLines$);
-			}
-		}
+		componentMounted = true;
+		void revealLineText();
 	});
 
 	onDestroy(() => {
+		componentMounted = false;
 		document.removeEventListener('click', clickOutsideHandler, false);
+		removeActionsMenuListeners();
 		dispatch('edit', { inEdit: false });
 	});
+
+	async function revealLineText() {
+		// Svelte 5 builds each line off-DOM before inserting its wrapper. Reveal the
+		// text after attachment so extension MutationObservers receive a connected
+		// child-list mutation, matching the insertion behavior of the legacy build.
+		await tick();
+		if (!componentMounted) {
+			return;
+		}
+		lineTextMounted = true;
+		await tick();
+		if (!componentMounted || !isLast) {
+			return;
+		}
+
+		// Keep the reader's position unless continuous following is enabled.
+		if (shouldAutoScroll($alwaysScrollToNewest$, getAutoScrollStick(!!pipWindow))) {
+			updateScroll(
+				pipWindow || window,
+				paragraph.parentElement?.parentElement ?? null,
+				$reverseLineOrder$,
+				isVerticalDisplay,
+				$enableLineAnimation$ ? 'smooth' : 'auto',
+			);
+		}
+		if (isActiveGSMLine && !line.recordState && !line.sessionBackfill && $autoTranslateLines$) {
+			handleAction(line.id, 'TL', $blurAutoTranslatedLines$);
+		}
+	}
+
+	function getActionsWindow() {
+		return pipWindow || window;
+	}
+
+	function getActionsDocument() {
+		return getActionsWindow().document;
+	}
+
+	function removeActionsMenuListeners() {
+		getActionsDocument().removeEventListener('click', actionsMenuClickOutsideHandler, false);
+		getActionsDocument().removeEventListener('keydown', actionsMenuKeyHandler, false);
+		getActionsWindow().removeEventListener('resize', closeActionsMenu, false);
+		getActionsDocument().removeEventListener('scroll', closeActionsMenu, true);
+	}
+
+	function closeActionsMenu() {
+		actionsMenuOpen = false;
+		actionsMenuStyle = 'visibility: hidden;';
+		removeActionsMenuListeners();
+	}
+
+	function positionActionsMenu() {
+		if (!actionsMenuButton || !actionsMenuPopover) {
+			return;
+		}
+
+		const view = getActionsWindow();
+		const buttonRect = actionsMenuButton.getBoundingClientRect();
+		const menuRect = actionsMenuPopover.getBoundingClientRect();
+		const viewportGap = 8;
+		const menuGap = 5;
+		const maxLeft = Math.max(viewportGap, view.innerWidth - menuRect.width - viewportGap);
+		const left = Math.min(maxLeft, Math.max(viewportGap, buttonRect.right - menuRect.width));
+		const fitsBelow = buttonRect.bottom + menuGap + menuRect.height <= view.innerHeight - viewportGap;
+		const top = fitsBelow
+			? buttonRect.bottom + menuGap
+			: Math.max(viewportGap, buttonRect.top - menuGap - menuRect.height);
+
+		actionsMenuStyle = `left: ${Math.round(left)}px; top: ${Math.round(top)}px; visibility: visible;`;
+	}
+
+	function toggleActionsMenu(event: MouseEvent) {
+		event.stopPropagation();
+		if (actionsMenuOpen) {
+			closeActionsMenu();
+			return;
+		}
+
+		actionsMenuOpen = true;
+		tick().then(() => {
+			positionActionsMenu();
+			getActionsDocument().addEventListener('click', actionsMenuClickOutsideHandler, false);
+			getActionsDocument().addEventListener('keydown', actionsMenuKeyHandler, false);
+			getActionsWindow().addEventListener('resize', closeActionsMenu, false);
+			getActionsDocument().addEventListener('scroll', closeActionsMenu, true);
+		});
+	}
+
+	function actionsMenuClickOutsideHandler(event: MouseEvent) {
+		if (!actionsMenuElement?.contains(event.target as Node)) {
+			closeActionsMenu();
+		}
+	}
+
+	function actionsMenuKeyHandler(event: KeyboardEvent) {
+		if (event.key === 'Escape') {
+			closeActionsMenu();
+		}
+	}
 
 	function handleDblClick(event: MouseEvent) {
 		if (pipWindow) {
@@ -144,14 +258,37 @@
 	}
 
 	function handleAudioToggle() {
+		closeActionsMenu();
 		dispatch('audioToggle', { lineId: line.id, text: line.text });
 	}
 
 	function handleVideoTrim() {
+		closeActionsMenu();
 		dispatch('videoTrim', { lineId: line.id, text: line.text });
 	}
 
+	async function handleDeleteFromStats() {
+		if (!getActionsWindow().confirm('Delete this line from stats?')) {
+			return;
+		}
+
+		closeActionsMenu();
+		try {
+			const response = await fetch(getGSMEndpoint('/api/delete-sentence-lines'), {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ line_ids: [line.id] }),
+			});
+			if (!response.ok) {
+				throw new Error(`HTTP error! Status: ${response.status}`);
+			}
+		} catch (error) {
+			console.error(`Error deleting line ${line.id} from stats:`, error);
+		}
+	}
+
 	function handleAction(id: string, action: string, blurTranslate: boolean = false) {
+		closeActionsMenu();
 		const endpoints: Record<string, string> = {
 			TL: '/translate-line',
 			Screenshot: '/get-screenshot',
@@ -173,14 +310,17 @@
 			})
 			.then((data) => {
 				if (action === 'TL') {
-					// Capture before render; a slow TL landing must not yank a scrolled-up reader.
-					const wasAtEnd =
+					// Capture before render so a delayed translation respects the selected scroll behavior.
+					const shouldFollowTranslation =
 						isLast &&
-						isScrolledToEnd(
-							pipWindow || window,
-							paragraph.parentElement.parentElement,
-							$reverseLineOrder$,
-							isVerticalDisplay,
+						shouldAutoScroll(
+							$alwaysScrollToNewest$,
+							isScrolledToEnd(
+								pipWindow || window,
+								paragraph.parentElement?.parentElement ?? null,
+								$reverseLineOrder$,
+								isVerticalDisplay,
+							),
 						);
 
 					line.translation = data['TL'];
@@ -198,8 +338,10 @@
 					if (!line.text.endsWith('\n')) {
 						line.text += '\n';
 					}
-					$lineData$[line.index] = line;
-					if (wasAtEnd) {
+					if (line.index !== undefined) {
+						$lineData$[line.index] = line;
+					}
+					if (shouldFollowTranslation) {
 						tick().then(() => {
 							const behavior = $enableLineAnimation$ ? 'smooth' : 'auto';
 							paragraph?.scrollIntoView({
@@ -231,46 +373,49 @@
 				on:change={() => toggleCheckbox(line.id)}
 			/>
 		{/if}
-		<p
-			class="my-2 cursor-pointer border-2"
-			class:py-4={!isVerticalDisplay}
-			class:px-2={!isVerticalDisplay}
-			class:py-2={isVerticalDisplay}
-			class:px-4={isVerticalDisplay}
-			class:border-transparent={!isSelected}
-			class:cursor-text={isEditable}
-			class:border-primary={isSelected}
-			class:border-accent-focus={isEditable}
-			class:whitespace-pre-wrap={$preserveWhitespace$}
-			contenteditable={isEditable}
-			on:dblclick={handleDblClick}
-			on:keyup={dummyFn}
-			bind:this={paragraph}
-			in:fly={{ x: isVerticalDisplay ? 100 : -100, duration: $enableLineAnimation$ ? 250 : 0 }}
-		>
-			{line.text}
-			{#if line.translation}
-				<p
-					class:blur-translation={line.blurTranslation}
-					style="color: #888; padding-bottom: 16px; padding-top: 16px; width: 100%; {line.blurTranslation
-						? 'filter: blur(8px); transition: filter 0.2s;'
-						: ''}"
-					on:mouseenter={line.blurTranslation
-						? function () {
-								this.style.filter = 'blur(0px)';
-								this.style.transition = 'filter 0.3s';
-							}
-						: undefined}
-					on:mouseleave={line.blurTranslation
-						? function () {
-								this.style.filter = 'blur(8px)';
-							}
-						: undefined}
-				>
-					<i>{line.translation}</i>
-				</p>
-			{/if}
-		</p>
+		{#if lineTextMounted}
+			<p
+				class="my-2 cursor-pointer border-2"
+				class:py-4={!isVerticalDisplay}
+				class:px-2={!isVerticalDisplay}
+				class:py-2={isVerticalDisplay}
+				class:px-4={isVerticalDisplay}
+				class:border-transparent={!isSelected}
+				class:cursor-text={isEditable}
+				class:border-primary={isSelected}
+				class:border-accent-focus={isEditable}
+				class:whitespace-pre-wrap={$preserveWhitespace$}
+				contenteditable={isEditable}
+				on:dblclick={handleDblClick}
+				on:keyup={dummyFn}
+				bind:this={paragraph}
+				in:fly={{ x: isVerticalDisplay ? 100 : -100, duration: $enableLineAnimation$ ? 250 : 0 }}
+			>
+				{line.text}
+				{#if line.translation}
+					<span
+						class:blur-translation={line.blurTranslation}
+						style="color: #888; padding-bottom: 16px; padding-top: 16px; width: 100%; {line.blurTranslation
+							? 'filter: blur(8px); transition: filter 0.2s;'
+							: ''}"
+						on:mouseenter={line.blurTranslation
+							? function (event: MouseEvent) {
+									const target = event.currentTarget as HTMLElement;
+									target.style.filter = 'blur(0px)';
+									target.style.transition = 'filter 0.3s';
+								}
+							: undefined}
+						on:mouseleave={line.blurTranslation
+							? function (event: MouseEvent) {
+									(event.currentTarget as HTMLElement).style.filter = 'blur(8px)';
+								}
+							: undefined}
+					>
+						<i>{line.translation}</i>
+					</span>
+				{/if}
+			</p>
+		{/if}
 		<div class="line-actions-container" class:hidden={$settingsOpen$}>
 			{#if line.excludedFromStats}
 				<div
@@ -294,7 +439,12 @@
 						</button>
 					{/if}
 					{#if $showTrimVideoButton$}
-						<button class="hide-on-mobile action-button" on:click={handleVideoTrim} title="Trim replay video" tabindex="-1">
+						<button
+							class="hide-on-mobile action-button"
+							on:click={handleVideoTrim}
+							title="Save cropped replay"
+							tabindex="-1"
+						>
 							🎬
 						</button>
 					{/if}
@@ -320,6 +470,52 @@
 							🌐
 						</button>
 					{/if}
+					<div class="actions-menu" bind:this={actionsMenuElement}>
+						<button
+							class="action-button menu-toggle"
+							class:menu-open={actionsMenuOpen}
+							on:click={toggleActionsMenu}
+							title="More line actions"
+							aria-label="More line actions"
+							aria-expanded={actionsMenuOpen}
+							tabindex="-1"
+							bind:this={actionsMenuButton}
+						>
+							<Icon path={mdiMenu} width="16px" height="16px" />
+						</button>
+						{#if actionsMenuOpen}
+							<div
+								class="actions-menu-popover"
+								style={actionsMenuStyle}
+								bind:this={actionsMenuPopover}
+							>
+								<button on:click={() => handleAction(line.id, 'Screenshot')}>
+									<span aria-hidden="true">📷</span>
+									<span>Screenshot</span>
+								</button>
+								<button on:click={handleVideoTrim}>
+									<span aria-hidden="true">🎬</span>
+									<span>Save cropped replay</span>
+								</button>
+								<button on:click={handleAudioToggle} disabled={isAudioPending}>
+									<Icon
+										path={isAudioLine && audioIsPlaying ? mdiStop : mdiPlay}
+										width="16px"
+										height="16px"
+									/>
+									<span>{audioButtonTitle}</span>
+								</button>
+								<button on:click={() => handleAction(line.id, 'TL')}>
+									<span aria-hidden="true">🌐</span>
+									<span>Translate</span>
+								</button>
+								<button on:click={handleDeleteFromStats}>
+									<span aria-hidden="true">🗑️</span>
+									<span>Delete from stats</span>
+								</button>
+							</div>
+						{/if}
+					</div>
 				</div>
 			{:else if isTimedOutGSMLine}
 				<div
@@ -427,6 +623,11 @@
 		border-color: #2f8a73;
 	}
 
+	.action-button.menu-open {
+		background-color: #444;
+		border-color: #777;
+	}
+
 	.action-button:disabled {
 		opacity: 0.6;
 		cursor: not-allowed;
@@ -436,6 +637,59 @@
 		margin-left: auto; /* Align buttons to the right */
 		display: flex;
 		gap: 10px;
+	}
+
+	.actions-menu {
+		position: relative;
+		display: inline-flex;
+	}
+
+	.actions-menu-popover {
+		position: fixed;
+		z-index: 70;
+		display: flex;
+		width: min(172px, calc(100vw - 16px));
+		flex-direction: column;
+		overflow: hidden;
+		border: 1px solid #555;
+		border-radius: 4px;
+		background: #222;
+		box-shadow: 0 4px 14px rgb(0 0 0 / 35%);
+		font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+		font-size: 12px;
+		font-weight: 400;
+		line-height: 1.2;
+		letter-spacing: normal;
+		writing-mode: horizontal-tb;
+	}
+
+	.actions-menu-popover button {
+		display: flex;
+		align-items: center;
+		gap: 7px;
+		min-height: 30px;
+		border: 0;
+		border-bottom: 1px solid #444;
+		background: transparent;
+		color: #fff;
+		padding: 6px 8px;
+		font: inherit;
+		text-align: left;
+		white-space: nowrap;
+		cursor: pointer;
+	}
+
+	.actions-menu-popover button:last-child {
+		border-bottom: 0;
+	}
+
+	.actions-menu-popover button:hover {
+		background: #3a3a3a;
+	}
+
+	.actions-menu-popover button:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
 	}
 
 	/* Hide only buttons with .hide-on-mobile on mobile devices */

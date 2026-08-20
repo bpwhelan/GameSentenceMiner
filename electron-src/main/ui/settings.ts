@@ -24,6 +24,9 @@ import {
     getAgentScriptsPath,
     getConsoleMode,
     getCustomPythonPackage,
+    getDatabaseBackupDirectory,
+    getDatabaseBackupEnabled,
+    getDatabaseBackupRetentionCount,
     getForceManualOcrAllProfiles,
     getIgnoreActiveSceneForOcr,
     getHasCompletedSetup,
@@ -59,6 +62,9 @@ import {
     setPullPreReleases,
     setConsoleMode,
     setCustomPythonPackage,
+    setDatabaseBackupDirectory,
+    setDatabaseBackupEnabled,
+    setDatabaseBackupRetentionCount,
     setQuitOnWindowClose,
     setForceManualOcrAllProfiles,
     setIgnoreActiveSceneForOcr,
@@ -122,6 +128,10 @@ import {
     restoreBackupArchive,
     type SettingsBackupProgressEvent,
 } from '../services/settings_backup.js';
+import {
+    normalizeSettingsBackupCategories,
+    type SettingsBackupCategoryId,
+} from '../../shared/settings_backup.js';
 
 export let window_transparency_process: any = null; // Process for the Window Transparency Tool
 type DownloadableTool = 'agent' | 'textractor';
@@ -361,6 +371,16 @@ function emitSettingsBackupProgress(
     const fileText = progress.fileName ? ` ${progress.fileName}` : '';
     console.log(
         `[Settings Backup] ${progress.operation}:${progress.phase}${countText}${fileText}`
+    );
+}
+
+function getRequestedBackupCategories(payload: unknown): SettingsBackupCategoryId[] {
+    if (!payload || typeof payload !== 'object' || !Object.hasOwn(payload, 'categories')) {
+        return normalizeSettingsBackupCategories(undefined);
+    }
+    return normalizeSettingsBackupCategories(
+        (payload as { categories?: unknown }).categories,
+        false,
     );
 }
 
@@ -948,6 +968,9 @@ function getSettingsSnapshot() {
         textCaptureWizardEnabled: getTextCaptureWizardEnabled(),
         visibleTabs: getVisibleTabs(),
         statsEndpoint: getStatsEndpoint(),
+        databaseBackupEnabled: getDatabaseBackupEnabled(),
+        databaseBackupDirectory: getDatabaseBackupDirectory(),
+        databaseBackupRetentionCount: getDatabaseBackupRetentionCount(),
         singlePort: getConfiguredSinglePort(),
         iconStyle: store.get('iconStyle') || 'gsm',
         locale: getLocale(),
@@ -1162,6 +1185,18 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
         if (typeof payload.statsEndpoint === 'string') {
             setStatsEndpoint(payload.statsEndpoint || 'overview');
         }
+        if (typeof payload.databaseBackupEnabled === 'boolean') {
+            setDatabaseBackupEnabled(payload.databaseBackupEnabled);
+        }
+        if (typeof payload.databaseBackupDirectory === 'string') {
+            setDatabaseBackupDirectory(payload.databaseBackupDirectory);
+        }
+        if (
+            typeof payload.databaseBackupRetentionCount === 'number' &&
+            Number.isFinite(payload.databaseBackupRetentionCount)
+        ) {
+            setDatabaseBackupRetentionCount(payload.databaseBackupRetentionCount);
+        }
         if (typeof payload.iconStyle === 'string') {
             setIconStyle(payload.iconStyle || 'gsm');
         }
@@ -1219,12 +1254,30 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
         };
     });
 
-    ipcMain.handle('settings.createBackup', async (event) => {
+    ipcMain.handle('settings.selectDatabaseBackupDirectory', async () => {
+        const configuredDirectory = getDatabaseBackupDirectory();
+        const result = await showOpenDialog({
+            title: 'Choose Database Backup Folder',
+            defaultPath: configuredDirectory || path.join(BASE_DIR, 'backup', 'database'),
+            properties: ['openDirectory', 'createDirectory'],
+        });
+        if (result.canceled || result.filePaths.length === 0) {
+            return { canceled: true };
+        }
+        return { canceled: false, directory: result.filePaths[0] };
+    });
+
+    ipcMain.handle('settings.createBackup', async (event, payload) => {
         const reportProgress = (progress: SettingsBackupProgressEvent) => {
             emitSettingsBackupProgress(event, progress);
         };
+        let databaseSnapshotPath: string | undefined;
 
         try {
+            const categories = getRequestedBackupCategories(payload);
+            if (categories.length === 0) {
+                throw new Error('Select at least one item to include in the backup.');
+            }
             const saveResult = await showSaveDialog({
                 title: 'Save GSM Settings Backup',
                 defaultPath: path.join(app.getPath('downloads'), getDefaultBackupFileName()),
@@ -1239,7 +1292,35 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
                 path.extname(saveResult.filePath).toLowerCase() === '.zip'
                     ? saveResult.filePath
                     : `${saveResult.filePath}.zip`;
-            const backup = await createBackupArchive({ outputPath, onProgress: reportProgress });
+            if (categories.includes('database')) {
+                const response = await axios.post<{ backup_path?: string }>(
+                    `http://127.0.0.1:${getConfiguredSinglePort()}/api/database_backup`,
+                    {},
+                    { timeout: 120_000 },
+                );
+                const candidatePath = response.data?.backup_path;
+                if (typeof candidatePath !== 'string' || candidatePath.trim().length === 0) {
+                    throw new Error('The GSM backend did not return a verified database snapshot.');
+                }
+                const resolvedSnapshotPath = path.resolve(candidatePath);
+                const backupRoot = path.resolve(BASE_DIR, 'backup');
+                const relativeSnapshotPath = path.relative(backupRoot, resolvedSnapshotPath);
+                if (
+                    relativeSnapshotPath.startsWith('..') ||
+                    path.isAbsolute(relativeSnapshotPath)
+                ) {
+                    throw new Error(
+                        'The GSM backend returned a database snapshot outside the backup folder.',
+                    );
+                }
+                databaseSnapshotPath = resolvedSnapshotPath;
+            }
+            const backup = await createBackupArchive({
+                outputPath,
+                categories,
+                databaseSnapshotPath,
+                onProgress: reportProgress,
+            });
 
             const response = await showMessageBox({
                 type: 'info',
@@ -1265,16 +1346,28 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
                 success: false,
                 error: error?.message ?? String(error),
             };
+        } finally {
+            if (databaseSnapshotPath) {
+                try {
+                    await fs.promises.rm(databaseSnapshotPath, { force: true });
+                } catch (error) {
+                    console.warn('Failed to remove temporary verified database snapshot:', error);
+                }
+            }
         }
     });
 
-    ipcMain.handle('settings.restoreBackup', async (event) => {
+    ipcMain.handle('settings.restoreBackup', async (event, payload) => {
         const reportProgress = (progress: SettingsBackupProgressEvent) => {
             emitSettingsBackupProgress(event, progress);
         };
         let stoppedPythonProcesses = false;
 
         try {
+            const categories = getRequestedBackupCategories(payload);
+            if (categories.length === 0) {
+                throw new Error('Select at least one item to restore.');
+            }
             const openResult = await showOpenDialog({
                 title: 'Restore GSM Settings Backup',
                 properties: ['openFile'],
@@ -1290,7 +1383,7 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
                 title: 'Restore GSM Settings Backup',
                 message: 'Restore this GSM settings backup?',
                 detail:
-                    'This overwrites GSM settings, overlay/Yomitan storage, OCR configs, OBS config, and the GSM database from the selected backup. GSM Python processes, the overlay, and Electron-managed OBS will be stopped automatically.',
+                    `This overwrites the ${categories.length} selected backup categories when they are present in the archive. GSM Python processes, the overlay, and Electron-managed OBS will be stopped automatically.`,
                 buttons: ['Restore', 'Cancel'],
                 defaultId: 1,
                 cancelId: 1,
@@ -1332,6 +1425,7 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
 
             const restored = await restoreBackupArchive({
                 archivePath: openResult.filePaths[0],
+                categories,
                 onProgress: reportProgress,
             });
 

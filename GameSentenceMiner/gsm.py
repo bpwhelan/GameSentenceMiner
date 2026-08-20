@@ -58,7 +58,7 @@ try:
     import warnings
     from dataclasses import dataclass, field
     from subprocess import Popen
-    from typing import Any, Coroutine, Optional
+    from typing import Optional
 
     import psutil
     from PIL import Image
@@ -68,11 +68,13 @@ try:
     from GameSentenceMiner.obs import check_obs_folder_is_correct
     from GameSentenceMiner.profile_switcher import ProfileSwitcher, get_profile_switcher
     from GameSentenceMiner.util.clients.discord_rpc import discord_rpc_manager
+    from GameSentenceMiner.util.concurrency.transport import AsyncTransportRuntime
     from GameSentenceMiner.util.communication.electron_ipc import (
         FunctionName,
         announce_connected,
         get_install_session_id,
         register_command_handler,
+        register_text_ingress_handler,
         send_install_progress,
         send_message,
         start_ipc_listener_in_thread,
@@ -138,6 +140,7 @@ ASYNC_LOOP_STRESS_SECONDS = 0
 ASYNC_LOOP_STRESS_DELAY_SECONDS = 10.0
 ASYNC_LOOP_STRESS_REPEAT = 1
 ASYNC_LOOP_STRESS_MODE = "block"
+MANAGED_THREAD_JOIN_TIMEOUT_SECONDS = 0.25
 _instance_lock_handle = None
 
 
@@ -302,9 +305,9 @@ def _set_audio_callback(callback) -> None:
 
 
 def _get_run_text_hooker_page():
-    from GameSentenceMiner.web.texthooking_page import run_text_hooker_page
+    from GameSentenceMiner.web.texthooking_page import start_web_server
 
-    return run_text_hooker_page
+    return start_web_server
 
 
 # Module-level sync file helpers so async callers can offload them via asyncio.to_thread
@@ -319,74 +322,13 @@ def _write_text_file(path: str, content: str) -> None:
         f.write(content)
 
 
-class AsyncBackgroundRunner:
-    def __init__(self, name: str = "gsm-async"):
-        self._name = name
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
-        self._thread: Optional[threading.Thread] = None
-        self._ready = threading.Event()
-        # asyncio only weakly references its tasks, and run_coroutine_threadsafe's
-        # returned future is the only strong ref to the scheduled task. Callers that
-        # discard it (fire-and-forget) let the GC collect a still-pending task, which
-        # closes the coroutine and runs its `finally` early. Hold the futures here so
-        # long-lived background tasks survive until they actually finish.
-        self._futures: set = set()
-
-    def start(self) -> None:
-        if self._thread:
-            return
-        self._thread = threading.Thread(target=self._run, name=self._name, daemon=True)
-        self._thread.start()
-        self._ready.wait(timeout=5)
-
-    def custom_exception_handler(self, loop, context):
-        message = context.get("message", "")
-        if "Task was destroyed but it is pending" in message:
-            return
-
-        loop.default_exception_handler(context)
-
-    def _run(self) -> None:
-        loop = asyncio.new_event_loop()
-        loop.set_exception_handler(self.custom_exception_handler)
-        asyncio.set_event_loop(loop)
-        self._loop = loop
-        self._ready.set()
-        loop.run_forever()
-        pending = asyncio.all_tasks(loop)
-        if pending:
-            for task in pending:
-                task.cancel()
-            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-        loop.close()
-
-    def submit(self, coro: Coroutine[Any, Any, Any]):
-        if not self._loop:
-            raise RuntimeError("Async background loop is not running.")
-        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
-        self._futures.add(future)
-        future.add_done_callback(self._futures.discard)
-        return future
-
-    def stop(self, timeout: float = 2) -> None:
-        if not self._loop:
-            return
-        self._loop.call_soon_threadsafe(self._loop.stop)
-        if self._thread:
-            self._thread.join(timeout=timeout)
-
-
 @dataclass
 class AppState:
     procs_to_close: list[Popen] = field(default_factory=list)
     settings_window: Optional[object] = None
     file_watcher_observer: Optional[Observer] = None
     file_watcher_path: Optional[str] = None
-    async_runner: AsyncBackgroundRunner = field(default_factory=AsyncBackgroundRunner)
-    text_async_runner: AsyncBackgroundRunner = field(default_factory=lambda: AsyncBackgroundRunner("gsm-text-async"))
-    overlay_async_runner: AsyncBackgroundRunner = field(
-        default_factory=lambda: AsyncBackgroundRunner("gsm-overlay-async")
-    )
+    transport_runtime: AsyncTransportRuntime = field(default_factory=AsyncTransportRuntime)
 
 
 class GSMTray(threading.Thread):
@@ -401,12 +343,12 @@ class GSMTray(threading.Thread):
     the *main* thread (before Qt's ``app.exec()`` takes over) and the Qt event
     loop processes Cocoa events for both Qt and pystray.
 
-    On other platforms the original behaviour is preserved: the tray runs in its
-    own daemon thread with a blocking ``Icon.run()`` call.
+    On other platforms the tray runs in a named managed thread with a blocking
+    ``Icon.run()`` call. Cleanup stops and joins it explicitly.
     """
 
     def __init__(self, app: "GSMApplication"):
-        super().__init__(daemon=True)
+        super().__init__(name="gsm-system-tray", daemon=False)
         self._app = app
         self.icon = None
 
@@ -514,12 +456,16 @@ class GSMTray(threading.Thread):
 
 class GSMApplication:
     def __init__(self) -> None:
+        db.start_database_runtime()
         self.state = AppState()
         self._replay_extractor = _get_replay_handler_module().ReplayAudioExtractor()
         self._tray = GSMTray(self)
         self._threads: list[threading.Thread] = []
         self._obs_connect_task: Optional[asyncio.Task] = None
         self._obs_launch_thread: Optional[threading.Thread] = None
+        self._shutdown_lock = threading.Lock()
+        self._shutdown_requested = False
+        self._shutdown_thread: Optional[threading.Thread] = None
         self.foreground_window_hook = None
         self.profile_switcher = get_profile_switcher()
 
@@ -544,6 +490,9 @@ class GSMApplication:
         self._broadcast_overlay_profile_state()
 
     def _start_thread(self, target, name: str) -> threading.Thread:
+        # These are best-effort adapters around blocking third-party APIs. Cleanup
+        # signals each owner and briefly joins it, but a stuck HTTP/filesystem call
+        # must never hold the Python process past Electron's shutdown deadline.
         thread = threading.Thread(target=target, name=name, daemon=True)
         thread.start()
         self._threads.append(thread)
@@ -565,28 +514,16 @@ class GSMApplication:
             return
 
         logger.info("Launching OBS asynchronously during early startup.")
-        self._obs_launch_thread = threading.Thread(
-            target=obs.start_obs,
-            name="obs-launch",
-            daemon=True,
-        )
-        self._obs_launch_thread.start()
+        self._obs_launch_thread = self._start_thread(obs.start_obs, "obs-launch")
 
     def register_hotkeys(self) -> None:
         hotkey_manager.clear()
-        overlay_coords = _get_overlay_coords_module()
 
         def call_overlay_processor():
-            overlay_processor = overlay_coords.get_overlay_processor()
-            loop = overlay_processor.processing_loop
-            if loop and loop.is_running():
+            if _get_gametext_module().trigger_manual_overlay_scan():
                 logger.info("Manually triggering overlay scan via hotkey.")
-                asyncio.run_coroutine_threadsafe(
-                    overlay_processor.find_box_and_send_to_overlay(source=TextSource.HOTKEY),
-                    loop,
-                )
             else:
-                logger.warning("Overlay loop not ready yet.")
+                logger.warning("Overlay scan could not be queued.")
 
         hotkey_manager.register(lambda: get_config().hotkeys.play_latest_audio, self.play_most_recent_audio)
         hotkey_manager.register_gamepad(
@@ -605,6 +542,16 @@ class GSMApplication:
             lambda: get_config().hotkeys.pause_text_intake_gamepad,
             _get_gametext_module().toggle_text_intake_paused,
         )
+
+        if is_windows():
+            hotkey_manager.register(
+                lambda: get_config().hotkeys.mute_target_window,
+                _get_window_state_monitor_module().toggle_target_window_mute,
+            )
+            hotkey_manager.register_gamepad(
+                lambda: get_config().hotkeys.mute_target_window_gamepad,
+                _get_window_state_monitor_module().toggle_target_window_mute,
+            )
 
         # Area-select (screen-crop) ad-hoc OCR runs in the main process so it works
         # whether or not the continuous OCR subprocess is running. Hotkey value still
@@ -632,7 +579,7 @@ class GSMApplication:
         def _worker() -> None:
             from GameSentenceMiner.ocr import adhoc_ocr
 
-            adhoc_ocr.run_area_select_ocr(self.state.text_async_runner.submit)
+            adhoc_ocr.run_area_select_ocr(self.state.transport_runtime.submit)
 
         threading.Thread(target=_worker, name="adhoc-area-select-ocr", daemon=True).start()
 
@@ -793,6 +740,48 @@ class GSMApplication:
             time.sleep(1)
             obs.start_obs()
 
+    def _request_shutdown(self) -> None:
+        """Hand shutdown off so the IPC command actor can finish its envelope."""
+        with self._shutdown_lock:
+            if getattr(self, "_shutdown_requested", False):
+                return
+            self._shutdown_requested = True
+            shutdown_thread = threading.Thread(
+                target=self.cleanup,
+                name="gsm-shutdown",
+                daemon=False,
+            )
+            self._shutdown_thread = shutdown_thread
+            shutdown_thread.start()
+
+    def _finish_shutdown_transport(self) -> None:
+        """Acknowledge cleanup before closing the bus and its shared loop."""
+        from GameSentenceMiner.util.communication.electron_ipc import stop_ipc_listener
+
+        _release_single_instance_lock()
+        try:
+            send_message("cleanup_complete", wait=True)
+        finally:
+            try:
+                stop_ipc_listener()
+            finally:
+                self.state.transport_runtime.stop()
+
+    @staticmethod
+    def _signal_cron_shutdown() -> None:
+        from GameSentenceMiner.util.cron import cron_scheduler
+
+        cron_scheduler.shutdown()
+
+    def _join_managed_threads(self) -> None:
+        deadline = time.monotonic() + MANAGED_THREAD_JOIN_TIMEOUT_SECONDS
+        for thread in self._threads:
+            if thread is threading.current_thread():
+                continue
+            thread.join(max(0.0, deadline - time.monotonic()))
+            if thread.is_alive():
+                logger.warning(f"Managed thread '{thread.name}' is still winding down during shutdown")
+
     def cleanup(self) -> None:
         try:
             logger.info("Performing cleanup...")
@@ -804,15 +793,45 @@ class GSMApplication:
                 foreground_window_hook.stop()
                 self.foreground_window_hook = None
 
+            # Close text producers before draining the authoritative stream. Keep
+            # TextFeed transport alive until its final projection has been sent.
+            try:
+                from GameSentenceMiner.util.communication.electron_ipc import stop_ipc_listener
+
+                stop_ipc_listener(close_bus=False)
+            except Exception as e:
+                logger.error(f"Error stopping IPC text intake: {e}")
+            try:
+                from GameSentenceMiner.gametext import stop_authoritative_text_runtime
+
+                stop_authoritative_text_runtime()
+            except Exception as e:
+                logger.error(f"Error stopping authoritative text runtime: {e}")
+            _get_websocket_manager().stop_all()
+            try:
+                _get_texthooking_page_module().stop_web_server()
+            except Exception as e:
+                logger.error(f"Error stopping TextFeed HTTP transport: {e}")
+            try:
+                _get_anki_module().stop_anki_runtime()
+            except Exception as e:
+                logger.error(f"Error stopping Anki actor: {e}")
+            try:
+                self._signal_cron_shutdown()
+            except Exception as e:
+                logger.error(f"Error stopping scheduler actor: {e}")
+
             if obs.obs_connection_manager and obs.obs_connection_manager.is_alive():
                 obs.obs_connection_manager.stop()
+                obs.obs_connection_manager.join(timeout=6)
+                if obs.obs_connection_manager.is_alive():
+                    logger.warning("OBS actor did not stop before shutdown")
             obs.stop_replay_buffer()
             obs.disconnect_from_obs()
 
             if get_config().obs.close_obs and not _is_running_under_electron():
                 self.close_obs()
 
-            _get_websocket_manager().stop_all()
             gsm_cloud_auth_cache_service.stop_background_loop()
             cloud_sync_service.stop_background_loop()
 
@@ -838,6 +857,10 @@ class GSMApplication:
 
             if self._tray:
                 self._tray.stop()
+                if self._tray.is_alive() and self._tray is not threading.current_thread():
+                    self._tray.join(timeout=3)
+                    if self._tray.is_alive():
+                        logger.warning("System tray thread did not stop before shutdown")
 
             discord_rpc_manager.stop()
 
@@ -858,12 +881,41 @@ class GSMApplication:
                     logger.error(f"Error removing temporary video file {video}: {e}")
 
             window_state_monitor_module = _get_window_state_monitor_module()
-            getattr(window_state_monitor_module, "cleanup_minimized_audio_mutes", lambda: None)()
+            getattr(window_state_monitor_module, "cleanup_target_audio_mutes", lambda: None)()
             window_state_monitor_module.cleanup_suspended_processes()
             _get_qt_main_module().shutdown_qt_app()
-            self.state.overlay_async_runner.stop()
-            self.state.text_async_runner.stop()
-            self.state.async_runner.stop()
+            try:
+                overlay_coords = _get_overlay_coords_module()
+                shutdown_overlay = getattr(
+                    overlay_coords,
+                    "shutdown_overlay_processor_dedicated",
+                    overlay_coords.shutdown_overlay_processor,
+                )
+                overlay_shutdown = shutdown_overlay()
+                self.state.transport_runtime.submit(overlay_shutdown).result(timeout=3)
+            except Exception as e:
+                logger.error(f"Error stopping overlay processing: {e}")
+            try:
+                from GameSentenceMiner.util.concurrency.work_pool import shutdown_background_work
+
+                shutdown_background_work(wait=True)
+            except Exception as e:
+                logger.error(f"Error stopping background work pool: {e}")
+            try:
+                from GameSentenceMiner.util.cron.tokenize_lines import stop_realtime_tokenization
+
+                if not stop_realtime_tokenization():
+                    logger.warning("Tokenization actor did not stop before shutdown")
+            except Exception as e:
+                logger.error(f"Error stopping tokenization actor: {e}")
+            try:
+                from GameSentenceMiner.util.concurrency.scheduler import shutdown_runtime_scheduler
+
+                shutdown_runtime_scheduler()
+            except Exception as e:
+                logger.error(f"Error stopping deadline scheduler: {e}")
+
+            self._join_managed_threads()
 
             # Drain and close the single DB writer so any queued line/stats writes
             # are flushed before we report shutdown. Runners are already stopped, so
@@ -875,11 +927,9 @@ class GSMApplication:
             except Exception as e:
                 logger.error(f"Error closing database writer: {e}")
 
-            # Release the single-instance lock before notifying Electron so that
-            # when Electron immediately spawns a new Python process it can acquire
-            # the lock without seeing a "GSM is already running" false-positive.
-            _release_single_instance_lock()
-            send_message("cleanup_complete")
+            # Release the single-instance lock and flush the final acknowledgement
+            # before closing the bus and its shared asyncio transport.
+            self._finish_shutdown_transport()
         except Exception as e:
             logger.exception(f"Error during cleanup: {e}")
             sys.exit(1)
@@ -1083,8 +1133,9 @@ class GSMApplication:
             0.5,
             "Finalizing backend startup...",
         )
-        start_ipc_listener_in_thread()
         register_command_handler(self.handle_ipc_command)
+        register_text_ingress_handler(self.handle_text_ingress_request)
+        start_ipc_listener_in_thread(self.state.transport_runtime)
         announce_connected()
         self._start_foreground_window_hook()
 
@@ -1131,8 +1182,7 @@ class GSMApplication:
         try:
             function = cmd.get("function")
             if function == FunctionName.QUIT.value:
-                self.cleanup()
-                sys.exit(0)
+                self._request_shutdown()
             elif function == FunctionName.QUIT_OBS.value:
                 self.close_obs()
             elif function == FunctionName.START_OBS.value:
@@ -1191,8 +1241,7 @@ class GSMApplication:
             elif function == FunctionName.TEST_SCREEN_CROPPER.value:
                 self.test_screen_cropper()
             elif function == FunctionName.EXIT.value:
-                self.cleanup()
-                sys.exit(0)
+                self._request_shutdown()
             elif function == FunctionName.CONNECT.value:
                 logger.debug("Electron reported connect")
             elif function == FunctionName.TEXTHOOK_TEXT.value:
@@ -1203,6 +1252,10 @@ class GSMApplication:
                 self._handle_inhouse_source_status("ocr", cmd.get("data") if isinstance(cmd, dict) else None)
             elif function == FunctionName.TEXTHOOK_STATUS.value:
                 self._handle_inhouse_source_status("texthook", cmd.get("data") if isinstance(cmd, dict) else None)
+            elif function == FunctionName.REFRESH_FOREGROUND_WINDOW.value:
+                foreground_window_hook = getattr(self, "foreground_window_hook", None)
+                if foreground_window_hook is not None:
+                    foreground_window_hook.emit_current(force=True)
             elif function == FunctionName.RESTORE_FOREGROUND_WINDOW.value:
                 data = cmd.get("data") if isinstance(cmd, dict) else {}
                 hwnd = data.get("hwnd") if isinstance(data, dict) else None
@@ -1213,6 +1266,12 @@ class GSMApplication:
                 logger.background(f"Unknown IPC command: {cmd}")
         except Exception as e:
             logger.background(f"Error handling IPC command: {e}")
+
+    def handle_text_ingress_request(self, payload: dict) -> dict:
+        """Accept one versioned text observation and reply after mailbox admission."""
+        from GameSentenceMiner.gametext import ingest_text_v2_payload
+
+        return ingest_text_v2_payload(payload)
 
     def _handle_inhouse_source_status(self, source: str, data: Optional[dict]) -> None:
         """Pause/resume clipboard polling when an in-house source (OCR/texthook) starts/stops."""
@@ -1265,7 +1324,7 @@ class GSMApplication:
         try:
             # De-duplication against other sources is handled centrally in
             # gametext.handle_new_text_event.
-            self.state.text_async_runner.submit(coro)
+            self.state.transport_runtime.submit(coro)
         except Exception as e:
             try:
                 coro.close()
@@ -1310,7 +1369,7 @@ class GSMApplication:
             copy_to_clipboard=copy_to_clipboard,
         )
         try:
-            self.state.text_async_runner.submit(coro)
+            self.state.transport_runtime.submit(coro)
         except Exception as e:
             logger.background(f"Failed to schedule texthook line: {e}")
 
@@ -1456,12 +1515,12 @@ class GSMApplication:
 
     async def init_overlay_processor_async(self) -> None:
         overlay_coords = _get_overlay_coords_module()
-        overlay_runner = getattr(getattr(self, "state", None), "overlay_async_runner", None)
-        if overlay_runner is None:
-            await overlay_coords.init_overlay_processor()
-            return
-
-        await asyncio.wrap_future(overlay_runner.submit(overlay_coords.init_overlay_processor()))
+        initialize_overlay = getattr(
+            overlay_coords,
+            "init_overlay_processor_dedicated",
+            overlay_coords.init_overlay_processor,
+        )
+        await initialize_overlay()
 
     async def async_loop_stress_test_task(self) -> None:
         stress_seconds = max(0.0, float(ASYNC_LOOP_STRESS_SECONDS))
@@ -1557,6 +1616,10 @@ class GSMApplication:
         await asyncio.to_thread(_write_text_file, pid_path, str(current_pid))
 
     def run(self, reloading: bool = False) -> None:
+        # The one process-wide asyncio loop must exist before transport adapters
+        # (notably the Electron bus) are initialized.
+        self.state.transport_runtime.start()
+        _get_websocket_manager().set_transport_runtime(self.state.transport_runtime)
         self.initialize(reloading)
 
         qt_main = _get_qt_main_module()
@@ -1572,14 +1635,11 @@ class GSMApplication:
         if hasattr(self.state.settings_window, "add_profile_change_hook"):
             self.state.settings_window.add_profile_change_hook(self._handle_manual_profile_change)
 
-        self.state.async_runner.start()
-        self.state.text_async_runner.start()
-        self.state.overlay_async_runner.start()
-        post_init = self.state.async_runner.submit(self.post_init_async())
+        post_init = self.state.transport_runtime.submit(self.post_init_async())
         post_init.result()
-        self.state.async_runner.submit(self.background_tasks_async())
-        self.state.text_async_runner.submit(self.start_text_monitor_async())
-        self.state.async_runner.submit(self.async_loop_stress_test_task())
+        self.state.transport_runtime.submit(self.background_tasks_async())
+        self.state.transport_runtime.submit(self.start_text_monitor_async())
+        self.state.transport_runtime.submit(self.async_loop_stress_test_task())
 
         signal.signal(signal.SIGTERM, self.handle_exit())
         signal.signal(signal.SIGINT, self.handle_exit())

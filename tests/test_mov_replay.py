@@ -96,9 +96,15 @@ def test_replay_file_watcher_accepts_mov():
         processed = []
 
         extractor = MagicMock()
-        extractor.process_replay.side_effect = lambda path: processed.append(path)
+        extractor.claim_replay_job.return_value = "claimed-job"
+        extractor.process_replay.side_effect = lambda path, **_kwargs: processed.append(path)
 
-        watcher = rh.ReplayFileWatcher(extractor)
+        class _InlineExecutor:
+            @staticmethod
+            def submit(callback, *args):
+                callback(*args)
+
+        watcher = rh.ReplayFileWatcher(extractor, executor=_InlineExecutor())
 
         # Simulate a .mov file creation event
         event = SimpleNamespace(

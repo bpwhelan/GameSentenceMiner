@@ -6,6 +6,10 @@ from pypresence import Presence, PyPresenceException
 from GameSentenceMiner import obs
 from GameSentenceMiner.util.config.configuration import logger, get_master_config
 from GameSentenceMiner.util.stats.live_stats import live_stats_tracker
+from GameSentenceMiner.util.concurrency.scheduler import (
+    acquire_runtime_scheduler,
+    release_runtime_scheduler,
+)
 
 
 # Decorator to guard methods if self.DISABLED is True
@@ -27,7 +31,8 @@ class DiscordRPCManager:
         self.last_game_name = None
         self.start_time = None
         self.current_cph = 0
-        self.stop_timer = None
+        self._deadline_scheduler = None
+        self._stop_deadline_key = f"discord.inactivity:{id(self)}"
         # Flag to disable all functionality, to release this feature, change this to False
         self.DISABLED = False
 
@@ -148,7 +153,11 @@ class DiscordRPCManager:
         if not self.running:
             self.running = True
             self.start_time = int(time.time())
-            self.rpc_thread = threading.Thread(target=self._run, daemon=True)
+            self.rpc_thread = threading.Thread(
+                target=self._run,
+                name="gsm-discord-actor",
+                daemon=False,
+            )
             self.rpc_thread.start()
             logger.info("Discord RPC thread started.")
 
@@ -167,18 +176,16 @@ class DiscordRPCManager:
             inactivity_seconds = int(config.discord.inactivity_timer)
         except Exception:
             inactivity_seconds = 300
-        if self.stop_timer:
-            try:
-                self.stop_timer.cancel()
-            except Exception:
-                pass
-            self.stop_timer = None
-        # Schedule stop due to inactivity
         try:
-            self.stop_timer = threading.Timer(inactivity_seconds, self._stop_rpc_due_to_inactivity)
-            self.stop_timer.start()
+            if self._deadline_scheduler is None:
+                self._deadline_scheduler = acquire_runtime_scheduler()
+            self._deadline_scheduler.schedule_after(
+                self._stop_deadline_key,
+                inactivity_seconds,
+                self._stop_rpc_due_to_inactivity,
+            )
         except Exception:
-            self.stop_timer = None
+            pass
 
         if game_name and game_name != self.last_game_name:
             logger.info(f"Updating Discord RPC for game: {game_name}")
@@ -191,11 +198,13 @@ class DiscordRPCManager:
 
     @disabled_guard
     def stop(self, inactivity=False):
+        scheduler = self._deadline_scheduler
+        self._deadline_scheduler = None
+        if scheduler is not None:
+            scheduler.cancel(self._stop_deadline_key)
+            release_runtime_scheduler(scheduler)
         if self.running:
             self.clear()
-            if self.stop_timer:
-                self.stop_timer.cancel()
-                self.stop_timer = None
             if inactivity:
                 logger.info("Stopping Discord RPC due to inactivity.")
             else:

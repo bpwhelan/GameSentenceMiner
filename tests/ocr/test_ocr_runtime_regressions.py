@@ -3,13 +3,182 @@ from __future__ import annotations
 from datetime import datetime
 from types import SimpleNamespace
 
+import pytest
 from PIL import Image
 
 import GameSentenceMiner.ocr.gsm_ocr as gsm_ocr
 from GameSentenceMiner.ocr import owocr_area_selector_qt as area_selector_qt
 from GameSentenceMiner.ocr.gsm_ocr_config import Monitor, OCRConfig, Rectangle
+from GameSentenceMiner.owocr.owocr import ocr as ocr_module
 from GameSentenceMiner.owocr.owocr.ocr import post_process
 from GameSentenceMiner.owocr.owocr import ocr_runtime as run_module
+
+
+@pytest.mark.parametrize(
+    (
+        "engine",
+        "raw_text",
+        "filtered_text",
+        "filtered_blocks",
+        "previous_result",
+        "expected_text",
+        "expect_recognized_log",
+    ),
+    [
+        ("ocr2", "same text", "", ["same text"], ["same text"], "", False),
+        (
+            None,
+            "「すげー、ちゃんと電源ついた」",
+            "",
+            ["「すげー、ちゃんと電源ついた」"],
+            (["「すげー、ちゃんと電源ついた」"], 0),
+            "",
+            False,
+        ),
+        (
+            None,
+            "日格国\nR-c For BCッR >-j3-Fe O\nAng\n「すげー、ちゃんと電源ついた」",
+            "「すげー、ちゃんと電源ついた」",
+            ["日格国", "R-c For BCッR >-j3-Fe O", "「すげー、ちゃんと電源ついた」"],
+            (["日格国", "R-c For BCッR >-j3-Fe O", "「すげー、ちゃんと電源ついた」"], 0),
+            "",
+            False,
+        ),
+        ("ocr2", "", "", [], [], "", True),
+        ("ocr2", "filtered text", "", [], [], "", True),
+    ],
+    ids=[
+        "ocr2_duplicate",
+        "ocr1_duplicate",
+        "ocr1_previous_chunk_subset",
+        "raw_ocr2_output_empty",
+        "nonduplicate_filter_empty",
+    ],
+)
+def test_ocr_suppresses_empty_recognition_log_only_for_duplicate_filtering(
+    monkeypatch,
+    engine,
+    raw_text,
+    filtered_text,
+    filtered_blocks,
+    previous_result,
+    expected_text,
+    expect_recognized_log,
+):
+    class FakeOCR:
+        name = "ocr2"
+        readable_name = "OCR 2"
+
+        def __call__(self, _img, _furigana_filter_sensitivity=0):
+            return True, raw_text, [], [], None, None
+
+    info_messages = []
+    log_sink = SimpleNamespace(info=lambda message, *_args, **_kwargs: info_messages.append(message))
+
+    monkeypatch.setattr(
+        run_module,
+        "config",
+        SimpleNamespace(get_general=lambda key: {"engine_color": "cyan", "notifications": False}.get(key)),
+    )
+    monkeypatch.setattr(run_module, "logger", SimpleNamespace(opt=lambda **_kwargs: log_sink))
+    monkeypatch.setattr(run_module, "engine_instances", [FakeOCR()], raising=False)
+    monkeypatch.setattr(run_module, "engine_index", 0, raising=False)
+    monkeypatch.setattr(run_module, "auto_pause_handler", None, raising=False)
+    monkeypatch.setattr(run_module, "get_ocr_language", lambda: "en")
+    monkeypatch.setattr(run_module, "get_ocr_advanced_debug_logging", lambda: False)
+    monkeypatch.setattr(run_module, "do_configured_ocr_replacements", lambda text: text)
+
+    _orig_text, returned_text, _payload = run_module.process_and_write_results(
+        Image.new("RGB", (2, 2), color=0),
+        last_result=previous_result,
+        filtering=lambda *_args, **_kwargs: (filtered_text, filtered_blocks),
+        engine=engine,
+        return_payload=True,
+    )
+
+    assert returned_text == expected_text
+    pass_number = 2 if engine else 1
+    recognized_logs = [
+        message for message in info_messages if message.startswith(f"OCR Run {pass_number}: Text recognized")
+    ]
+    assert bool(recognized_logs) is expect_recognized_log
+
+
+def test_oneocr_furigana_filter_is_not_undone_by_structured_text_rebuild(monkeypatch):
+    dialogue = ocr_module.Line(
+        text="本文です",
+        bounding_box=ocr_module.BoundingBox(center_x=0.5, center_y=0.4, width=0.8, height=0.4),
+        words=[],
+    )
+    small_text = ocr_module.Line(
+        text="最新号",
+        bounding_box=ocr_module.BoundingBox(center_x=0.5, center_y=0.8, width=0.1, height=0.1),
+        words=[],
+    )
+    ocr_result = ocr_module.OcrResult(
+        image_properties=ocr_module.ImageProperties(width=200, height=100),
+        engine_capabilities=ocr_module.OneOCR.capabilities,
+        paragraphs=[
+            ocr_module.Paragraph(
+                bounding_box=dialogue.bounding_box,
+                lines=[dialogue, small_text],
+            )
+        ],
+    )
+    engine_result = ocr_module.ocr_result_to_oneocr_tuple(
+        (True, ocr_result),
+        furigana_filter_sensitivity=20,
+        prefer_axis_spacing=True,
+    )
+    assert engine_result[1] == dialogue.text
+    assert [line["text"] for line in engine_result[2]] == [dialogue.text]
+
+    class FakeOneOCR:
+        name = "oneocr"
+        readable_name = "OneOCR"
+
+        def __call__(self, _img, furigana_filter_sensitivity=0):
+            assert furigana_filter_sensitivity is None
+            return engine_result
+
+    class FakeFiltering:
+        def __call__(self, text, _last_result, **_kwargs):
+            return text, [text] if text else []
+
+        def extract_text_from_ocr_result(self, result):
+            return "\n".join(line.text for paragraph in result.paragraphs for line in paragraph.lines)
+
+        def order_paragraphs_and_lines(self, result):
+            return result
+
+    monkeypatch.setattr(
+        run_module,
+        "config",
+        SimpleNamespace(get_general=lambda key: {"engine_color": "cyan", "notifications": False}.get(key)),
+    )
+    monkeypatch.setattr(
+        run_module,
+        "logger",
+        SimpleNamespace(opt=lambda **_kwargs: SimpleNamespace(info=lambda *_args, **_kwargs: None)),
+    )
+    monkeypatch.setattr(run_module, "engine_instances", [FakeOneOCR()], raising=False)
+    monkeypatch.setattr(run_module, "engine_index", 0, raising=False)
+    monkeypatch.setattr(run_module, "auto_pause_handler", None, raising=False)
+    monkeypatch.setattr(run_module, "get_ocr_language", lambda: "ja")
+    monkeypatch.setattr(run_module, "get_furigana_filter_sensitivity", lambda: 20)
+    monkeypatch.setattr(run_module, "get_ocr_advanced_debug_logging", lambda: False)
+    monkeypatch.setattr(run_module, "do_configured_ocr_replacements", lambda text: text)
+
+    orig_text, text, _payload = run_module.process_and_write_results(
+        Image.new("RGB", (200, 100), color="white"),
+        filtering=FakeFiltering(),
+        furigana_filter_sensitivity=None,
+        return_payload=True,
+        apply_area_filters=False,
+    )
+
+    assert text == dialogue.text
+    assert orig_text == [dialogue.text]
 
 
 def test_resolve_requested_engines_prioritizes_cli_values():
@@ -64,7 +233,6 @@ def test_run_oneocr_disables_manual_combo_in_auto_mode(monkeypatch):
     monkeypatch.setattr(gsm_ocr, "ocr1", "alivetext", raising=False)
     monkeypatch.setattr(gsm_ocr, "ocr2", "alivetext", raising=False)
     monkeypatch.setattr(gsm_ocr, "manual", False)
-    monkeypatch.setattr(gsm_ocr, "manual_ocr_hotkey_combo", "<alt>+b")
     monkeypatch.setattr(gsm_ocr, "global_pause_hotkey", "ctrl+shift+p")
     monkeypatch.setattr(gsm_ocr, "furigana_filter_sensitivity", 0)
     monkeypatch.setattr(gsm_ocr, "ocr_result_callback", lambda *_args, **_kwargs: None)
@@ -73,20 +241,15 @@ def test_run_oneocr_disables_manual_combo_in_auto_mode(monkeypatch):
     gsm_ocr.run_oneocr(None, [])
 
     assert captured["screen_capture_combo"] == ""
+    assert captured["screen_capture_on_demand"] is False
     assert captured["include_configured_engines"] is True
 
 
-def test_run_oneocr_uses_manual_combo_in_manual_mode(monkeypatch):
+def test_run_oneocr_leaves_manual_combo_to_shared_hotkey_manager(monkeypatch):
     captured = {}
-    activations = []
 
     monkeypatch.setattr(gsm_ocr.ocr_runtime, "init_config", lambda _parse_args: None)
-
-    def fake_run(**kwargs):
-        captured.update(kwargs)
-        gsm_ocr.ocr_runtime.on_screenshot_combo()
-
-    monkeypatch.setattr(gsm_ocr.ocr_runtime, "run", fake_run)
+    monkeypatch.setattr(gsm_ocr.ocr_runtime, "run", lambda **kwargs: captured.update(kwargs))
 
     monkeypatch.setattr(gsm_ocr, "obs_ocr", True)
     monkeypatch.setattr(gsm_ocr, "window", None)
@@ -94,23 +257,15 @@ def test_run_oneocr_uses_manual_combo_in_manual_mode(monkeypatch):
     monkeypatch.setattr(gsm_ocr, "ocr1", "alivetext", raising=False)
     monkeypatch.setattr(gsm_ocr, "ocr2", "alivetext", raising=False)
     monkeypatch.setattr(gsm_ocr, "manual", True)
-    monkeypatch.setattr(gsm_ocr, "manual_ocr_hotkey_combo", "<alt>+b")
     monkeypatch.setattr(gsm_ocr, "global_pause_hotkey", "ctrl+shift+p")
     monkeypatch.setattr(gsm_ocr, "furigana_filter_sensitivity", 0)
     monkeypatch.setattr(gsm_ocr, "ocr_result_callback", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(gsm_ocr, "get_ocr_scan_rate", lambda: 0.5)
-    monkeypatch.setattr(
-        gsm_ocr,
-        "trigger_manual_ocr",
-        lambda **kwargs: activations.append(kwargs) or True,
-    )
-    monkeypatch.setattr(gsm_ocr.ocr_runtime, "paused", False, raising=False)
-
     gsm_ocr.run_oneocr(None, [])
 
-    assert captured["screen_capture_combo"] == "<alt>+b"
+    assert captured["screen_capture_combo"] == ""
+    assert captured["screen_capture_on_demand"] is True
     assert captured["include_configured_engines"] is False
-    assert activations == [{"gamepad_activation": False}]
 
 
 def test_ocr_processor_lazily_initializes_missing_engine(monkeypatch):
@@ -211,20 +366,16 @@ def test_manual_command_runs_primary_ocr2_directly_during_auto_mode(monkeypatch)
 
 def test_manual_ocr_trigger_delays_keyboard_activation(monkeypatch):
     calls = []
-    timers = []
+    deadlines = []
 
-    class FakeTimer:
-        def __init__(self, interval, callback):
-            self.interval = interval
-            self.callback = callback
-            self.daemon = False
-            timers.append(self)
-
-        def start(self):
+    class FakeScheduler:
+        def schedule_after(self, key, delay, callback):
+            deadlines.append((key, delay, callback))
             calls.append("scheduled")
 
     monkeypatch.setattr(gsm_ocr, "manual", False)
-    monkeypatch.setattr(gsm_ocr.threading, "Timer", FakeTimer)
+    monkeypatch.setattr(gsm_ocr, "_ocr_deadline_scheduler", None)
+    monkeypatch.setattr(gsm_ocr, "acquire_runtime_scheduler", lambda: FakeScheduler())
     monkeypatch.setattr(gsm_ocr, "get_ocr_manual_scan_delay_ms", lambda: 350)
     monkeypatch.setattr(gsm_ocr, "get_ocr_manual_scan_delay_gamepad_only", lambda: False)
     monkeypatch.setattr(
@@ -235,30 +386,24 @@ def test_manual_ocr_trigger_delays_keyboard_activation(monkeypatch):
 
     assert gsm_ocr.trigger_manual_ocr(gamepad_activation=False) is True
     assert calls == ["scheduled"]
-    assert len(timers) == 1
-    assert timers[0].interval == 0.35
-    assert timers[0].daemon is True
+    assert [(key, delay) for key, delay, _ in deadlines] == [("ocr.manual.capture", 0.35)]
 
-    timers[0].callback()
+    deadlines[0][2]()
     assert calls == ["scheduled", "captured"]
 
 
 def test_manual_ocr_delay_can_be_limited_to_gamepad_activation(monkeypatch):
     calls = []
-    timers = []
+    deadlines = []
 
-    class FakeTimer:
-        def __init__(self, interval, callback):
-            self.interval = interval
-            self.callback = callback
-            self.daemon = False
-            timers.append(self)
-
-        def start(self):
+    class FakeScheduler:
+        def schedule_after(self, key, delay, callback):
+            deadlines.append((key, delay, callback))
             calls.append("scheduled")
 
     monkeypatch.setattr(gsm_ocr, "manual", False)
-    monkeypatch.setattr(gsm_ocr.threading, "Timer", FakeTimer)
+    monkeypatch.setattr(gsm_ocr, "_ocr_deadline_scheduler", None)
+    monkeypatch.setattr(gsm_ocr, "acquire_runtime_scheduler", lambda: FakeScheduler())
     monkeypatch.setattr(gsm_ocr, "get_ocr_manual_scan_delay_ms", lambda: 250)
     monkeypatch.setattr(gsm_ocr, "get_ocr_manual_scan_delay_gamepad_only", lambda: True)
     monkeypatch.setattr(
@@ -269,13 +414,12 @@ def test_manual_ocr_delay_can_be_limited_to_gamepad_activation(monkeypatch):
 
     assert gsm_ocr.trigger_manual_ocr(gamepad_activation=False) is True
     assert calls == ["captured"]
-    assert timers == []
+    assert deadlines == []
 
     calls.clear()
     assert gsm_ocr.trigger_manual_ocr(gamepad_activation=True) is True
     assert calls == ["scheduled"]
-    assert len(timers) == 1
-    assert timers[0].interval == 0.25
+    assert [(key, delay) for key, delay, _ in deadlines] == [("ocr.manual.capture", 0.25)]
 
 
 def test_manual_mode_delayed_trigger_sets_screenshot_event(monkeypatch):
@@ -296,7 +440,8 @@ def test_manual_mode_delayed_trigger_sets_screenshot_event(monkeypatch):
     assert events == ["set"]
 
 
-def test_manual_hotkeys_identify_keyboard_and_gamepad_activations(monkeypatch):
+@pytest.mark.parametrize("manual_mode", [False, True])
+def test_manual_hotkeys_identify_keyboard_and_gamepad_activations(monkeypatch, manual_mode):
     activations = []
 
     class FakeHotkeyManager:
@@ -315,7 +460,7 @@ def test_manual_hotkeys_identify_keyboard_and_gamepad_activations(monkeypatch):
 
     manager = FakeHotkeyManager()
     monkeypatch.setattr(gsm_ocr, "_get_hotkey_manager", lambda: manager)
-    monkeypatch.setattr(gsm_ocr, "manual", False)
+    monkeypatch.setattr(gsm_ocr, "manual", manual_mode)
     monkeypatch.setattr(gsm_ocr, "area_select_ocr_hotkey", "")
     monkeypatch.setattr(gsm_ocr, "manual_ocr_hotkey", "Ctrl+Shift+M")
     monkeypatch.setattr(gsm_ocr, "menu_ocr_hotkey", "")
@@ -506,6 +651,62 @@ def test_second_ocr_prefers_google_lens_overlay_payload(monkeypatch):
     assert saved
     assert sent[0]["response_dict"]["pipeline"]["engine"] == "glens"
     assert sent[0]["response_dict"]["line_coords"] == lens_payload["line_coords"]
+
+
+def test_second_ocr_formula_only_google_lens_payload_uses_ocr1_result(monkeypatch):
+    sent = []
+    ctrl = SimpleNamespace(
+        last_sent_result="",
+        last_ocr2_result=[],
+        config=gsm_ocr.TwoPassConfig(),
+    )
+    first_pass_payload = {
+        "schema": "gsm_ocr_geometry_v1",
+        "line_coords": [{"text": "「えーー？」", "words": []}],
+        "pipeline": {"engine": "oneocr", "ocr": {}},
+    }
+    formula_payload = {
+        "schema": "gsm_ocr_geometry_v1",
+        "line_coords": [{"text": "lceil z -? rfloor", "words": []}],
+        "pipeline": {
+            "engine": "glens",
+            "ocr": {"google_lens_formula_only": True},
+        },
+    }
+
+    monkeypatch.setattr(gsm_ocr, "TextFiltering", lambda lang: object())
+    monkeypatch.setattr(gsm_ocr, "get_ocr_language", lambda: "ja")
+    monkeypatch.setattr(gsm_ocr, "get_controller", lambda: ctrl)
+    monkeypatch.setattr(gsm_ocr, "get_ocr_ocr2", lambda: "glens")
+    monkeypatch.setattr(gsm_ocr, "capture_ocr_metrics_sample", lambda *args, **kwargs: None)
+    monkeypatch.setattr(gsm_ocr, "save_result_image", lambda *args, **kwargs: None)
+
+    async def _send_result(text, time, *, response_dict=None, source=None):
+        sent.append({"text": text, "response_dict": response_dict, "source": source})
+
+    monkeypatch.setattr(gsm_ocr, "send_result", _send_result)
+    monkeypatch.setattr(
+        gsm_ocr.ocr_runtime,
+        "process_and_write_results",
+        lambda *args, **kwargs: (["lceil z -? rfloor"], "lceil z -? rfloor", formula_payload),
+    )
+
+    processor = gsm_ocr.OCRProcessor()
+    processor.do_second_ocr(
+        "「えーー？」",
+        datetime(2026, 2, 22, 12, 0, 0),
+        Image.new("RGB", (2, 2), color=255),
+        filtering=None,
+        response_dict=first_pass_payload,
+    )
+
+    assert sent == [
+        {
+            "text": "「えーー？」",
+            "response_dict": first_pass_payload,
+            "source": gsm_ocr.TextSource.OCR,
+        }
+    ]
 
 
 def test_second_ocr_rebases_cropped_google_lens_overlay_payload():

@@ -16,6 +16,16 @@ def test_tadoku_stats_defaults_are_safe_and_cleanup_daily_sync():
     assert stats.tadoku_language_code == "jpn"
     assert stats.tadoku_daily_sync_enabled is False
     assert stats.tadoku_daily_sync_deduplicate is True
+    assert stats.tadoku_daily_sync_game_ids == []
+
+
+def test_tadoku_whitelist_defaults_empty_when_loading_older_config():
+    data = StatsConfig().to_dict()
+    data.pop("tadoku_daily_sync_game_ids")
+
+    loaded = StatsConfig.from_dict(data)
+
+    assert loaded.tadoku_daily_sync_game_ids == []
 
 
 def test_stats_day_rollover_defaults_to_four_am():

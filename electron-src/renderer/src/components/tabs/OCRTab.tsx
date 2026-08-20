@@ -42,6 +42,7 @@ interface OcrStoredConfig {
   twoPassOCR?: boolean;
   optimize_second_scan?: boolean;
   text_appears_instantly?: boolean;
+  advanced_debug_logging?: boolean;
   scanRate?: number;
   scanRate_basic?: number;
   scanRate_advanced?: number;
@@ -90,6 +91,7 @@ interface OcrUiConfig {
   twoPassOCR: boolean;
   optimizeSecondScan: boolean;
   textAppearsInstantly: boolean;
+  advancedDebugLogging: boolean;
   language: string;
   ocrScreenshots: boolean;
   furiganaFilterSensitivity: number;
@@ -725,6 +727,7 @@ function normalizeOcrConfig(
         ? true
         : Boolean(value.optimize_second_scan),
     textAppearsInstantly: value?.text_appears_instantly === true,
+    advancedDebugLogging: value?.advanced_debug_logging === true,
     language: typeof value?.language === "string" ? value.language : "ja",
     ocrScreenshots: Boolean(value?.ocr_screenshots),
     furiganaFilterSensitivity: integerValue(
@@ -813,6 +816,7 @@ function buildPersistedConfig(
     twoPassOCR: config.twoPassOCR,
     optimize_second_scan: config.optimizeSecondScan,
     text_appears_instantly: config.textAppearsInstantly,
+    advanced_debug_logging: config.advancedDebugLogging,
     scanRate: config.advancedMode ? config.advancedScanRate : config.basicScanRate,
     scanRate_basic: config.basicScanRate,
     scanRate_advanced: config.advancedScanRate,
@@ -981,6 +985,7 @@ const OCR_TOOLTIP_KEYS = {
   compactBoxes: "ocr.tooltips.compactBoxes",
   compactBoxesGap: "ocr.tooltips.compactBoxesGap",
   ignoreRun1Logs: "ocr.tooltips.ignoreRun1Logs",
+  advancedDebugLogging: "ocr.tooltips.advancedDebugLogging",
   installDependency: "ocr.tooltips.installDependency",
   uninstallDependency: "ocr.tooltips.uninstallDependency",
   replacements: "ocr.tooltips.replacements",
@@ -1586,13 +1591,6 @@ export function OCRTab({ active }: OcrTabProps) {
           lastFooterScanKeyRef.current = footerScanKey;
           setRuntimeMessage(nextRuntimeMessage);
         }
-        return;
-      }
-
-      if (
-        trimmedLine.endsWith(":") &&
-        OCR_RUN_2_RECOGNIZED_PATTERN.test(trimmedLine)
-      ) {
         return;
       }
 
@@ -2785,6 +2783,26 @@ export function OCRTab({ active }: OcrTabProps) {
             <details className="card legacy-card ocr-card ocr-details-card ocr-details-card--debug">
               <summary>{t("ocr.debug.title")}</summary>
               <div className="form-group ocr-form-group ocr-details-body">
+                <div className="input-group">
+                  <label
+                    htmlFor="advanced-debug-logging"
+                    {...titleProps(ocrTooltips.advancedDebugLogging)}
+                  >
+                    {t("ocr.debug.advancedDebugLogging")}
+                  </label>
+                  <input
+                    id="advanced-debug-logging"
+                    type="checkbox"
+                    checked={config.advancedDebugLogging}
+                    onChange={(event) => {
+                      setConfig((current) => ({
+                        ...current,
+                        advancedDebugLogging: event.target.checked
+                      }));
+                    }}
+                  />
+                </div>
+
                 <div className="input-group">
                   <label
                     htmlFor="ignore-ocr-run-1"

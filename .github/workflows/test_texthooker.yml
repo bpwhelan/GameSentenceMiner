@@ -1,0 +1,47 @@
+name: Test Text Feed
+
+on:
+  pull_request:
+    paths:
+      - "texthooker/**"
+      - "GameSentenceMiner/web/templates/index.html"
+      - ".github/workflows/test_texthooker.yml"
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - "texthooker/**"
+      - "GameSentenceMiner/web/templates/index.html"
+      - ".github/workflows/test_texthooker.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: texthooker
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: texthooker/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm run check
+      - run: pnpm run check:types
+      - run: pnpm run build
+      - name: Verify the embedded template is current
+        run: cmp docs/index.html ../GameSentenceMiner/web/templates/index.html

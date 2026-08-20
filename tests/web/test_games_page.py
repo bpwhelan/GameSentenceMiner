@@ -528,6 +528,7 @@ class TestDeleteGame:
     def test_unlink_game_preserves_lines(self, client):
         game = _create_game("Unlinkable")
         line = _create_line(game, text="残る行")
+        assert GamesTable.get_or_create_id_by_name("Unlinkable") == game.id
         resp = client.delete(f"/api/games/{game.id}")
         assert resp.status_code == 200
         data = resp.get_json()
@@ -538,6 +539,7 @@ class TestDeleteGame:
         remaining_line = GameLinesTable.get(line.id)
         assert remaining_line is not None
         assert remaining_line.game_id is None or remaining_line.game_id == ""
+        assert GamesTable.get_or_create_id_by_name("Unlinkable") != game.id
 
     def test_unlink_nonexistent_game_404(self, client):
         resp = client.delete(f"/api/games/{uuid.uuid4()}")
@@ -672,6 +674,38 @@ class TestGamesTableModel:
     def test_get_or_create_returns_existing(self):
         original = _create_game("Already Exists")
         found = GamesTable.get_or_create_by_name("Already Exists")
+        assert found.id == original.id
+
+    def test_get_or_create_id_caches_resolved_game_name(self, monkeypatch):
+        original = _create_game("Canonical Title")
+        GameLinesTable(
+            id=str(uuid.uuid4()),
+            game_name="OBS Scene",
+            game_id=original.id,
+            line_text="テスト文",
+            timestamp=time.time(),
+        ).add()
+
+        assert GamesTable.get_or_create_id_by_name("OBS Scene") == original.id
+
+        def fail_if_resolved_again(cls, game_name):
+            raise AssertionError(f"unexpected repeated database lookup for {game_name}")
+
+        monkeypatch.setattr(GamesTable, "get_or_create_by_name", classmethod(fail_if_resolved_again))
+        assert GamesTable.get_or_create_id_by_name("OBS Scene") == original.id
+
+    def test_get_or_create_uses_persisted_obs_scene_name_before_game_lines(self, monkeypatch):
+        original = _create_game("Canonical Title", obs_scene_name="OBS Scene")
+        original_fetchone = GameLinesTable._db.fetchone
+
+        def fail_if_game_lines_queried(query, *args, **kwargs):
+            if "FROM game_lines" in query:
+                raise AssertionError("game_lines fallback should not run for a persisted OBS scene name")
+            return original_fetchone(query, *args, **kwargs)
+
+        monkeypatch.setattr(GameLinesTable._db, "fetchone", fail_if_game_lines_queried)
+        found = GamesTable.get_or_create_by_name("OBS Scene")
+
         assert found.id == original.id
 
     def test_get_all_completed(self):

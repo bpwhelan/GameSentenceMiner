@@ -32,8 +32,10 @@ const {
   resolveManualHotkeyBackend,
 } = require('./manual_hotkey_controller');
 const {
+  createLeadingEdgeCooldownHandler,
   normalizeConfiguredHotkeyValues,
   registerHotkeyWithFallback,
+  shouldSuppressGamepadToggleDuringFocusTransition,
 } = require('./hotkey_settings');
 const {
   isEffectiveInputServerHotkeyRouting,
@@ -374,6 +376,8 @@ const GSM_OWNED_OVERLAY_FIELD_MAP = {
   periodic_ratio: "periodic_ratio",
   scan_on_mouse_move: "scan_on_mouse_move",
   scan_on_overlay_activation: "scan_on_overlay_activation",
+  text_appears_instantly: "text_appears_instantly",
+  base_scale: "base_scale",
   inject_scanned_lines: "inject_scanned_lines",
   minimum_character_size: "minimum_character_size",
   use_ocr_result_v2: "use_ocr_result_v2",
@@ -396,6 +400,7 @@ const OVERLAY_NON_PROFILE_SETTING_KEYS = new Set([
   "texthookerUrl",
   "mainBoxStartupWarningAcknowledged",
   "dismissedFullscreenRecommendations",
+  "dismissedExclusiveFullscreenRecommendations",
   "gamepadServerPort",
   "gamepadDeviceBlacklist",
   "gamepadJitenApiKey",
@@ -887,7 +892,8 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "offsetX": 0,
   "offsetY": 0,
   "mainBoxStartupWarningAcknowledged": false,
-  "dismissedFullscreenRecommendations": [], // Games for which fullscreen recommendation was dismissed
+  "dismissedFullscreenRecommendations": [], // Games for which Push to Show recommendation was dismissed
+  "dismissedExclusiveFullscreenRecommendations": [], // Games for which display-mode recommendation was dismissed
   "texthookerHotkey": DEFAULT_TEXTHOOKER_HOTKEY,
   "texthookerUrl": DEFAULT_TEXTHOOKER_URL,
   "enableJitenReader": true,
@@ -1084,6 +1090,14 @@ function persistOverlaySettingForActiveProfile(key, value) {
 function setOverlaySettingValue(key, value) {
   userSettings[key] = value;
   persistOverlaySettingForActiveProfile(key, value);
+}
+
+function normalizeFloatingWindowFontSize(value) {
+  const numericValue = Number.parseInt(value, 10);
+  if (!Number.isFinite(numericValue)) {
+    return DEFAULT_USER_SETTINGS.fontSize;
+  }
+  return Math.min(200, Math.max(8, numericValue));
 }
 
 function normalizeOverlayHotkeySettings(settings = userSettings) {
@@ -1567,6 +1581,15 @@ function isTrackedGameWindowVisibleForManualHotkey() {
   return !isManualHotkeyBlockedByGameWindowState(trackedGameWindowState);
 }
 
+function isTexthookerDefinitelyVisible() {
+  return (
+    isTexthookerMode === true &&
+    !!texthookerWindow &&
+    !texthookerWindow.isDestroyed() &&
+    texthookerWindow.isVisible()
+  );
+}
+
 function getManualHotkeyTriggerBlockReason() {
   if (!mainWindow || mainWindow.isDestroyed()) {
     return "overlay-window-unavailable";
@@ -1574,6 +1597,14 @@ function getManualHotkeyTriggerBlockReason() {
 
   if (mainWindow.isMinimized()) {
     return "overlay-window-minimized";
+  }
+
+  // TextFeed uses the same Yomitan modifier as the overlay, so a modifier-only
+  // Push to Show hotkey must not reveal in-game lookups over a visible feed.
+  // Require both the explicit mode and concrete BrowserWindow visibility so an
+  // merely created, hidden, or transitioning TextFeed window does not block it.
+  if (isTexthookerDefinitelyVisible()) {
+    return "texthooker-visible";
   }
 
   if (!isTrackedGameWindowVisibleForManualHotkey()) {
@@ -3296,6 +3327,7 @@ function syncManualHotkeyInputServerConnection(reason = "unknown") {
 // globalShortcut, so it fires even in games that swallow global hotkeys.
 
 const appHotkeyGlobalShortcutAccelerators = new Map(); // id -> accelerator currently held by globalShortcut
+const TOGGLE_HOTKEY_COOLDOWN_MS = 250;
 
 function isRouteAllHotkeysEnabled(settings = userSettings) {
   return isEffectiveInputServerHotkeyRouting(
@@ -3517,13 +3549,18 @@ function setAppHotkey(id, accelerator, handler, options = {}) {
     return false;
   }
 
+  const debounceMs = Math.max(0, Number(options.debounceMs) || 0);
+  const effectiveHandler = debounceMs > 0
+    ? createLeadingEdgeCooldownHandler(handler, debounceMs)
+    : handler;
+
   if (isRouteAllHotkeysEnabled()) {
     if (isWaylandSession({ platform: process.platform, env: process.env })) {
       console.log(
         `[Hotkeys] Wayland session detected; routing ${id} through the input server instead of Electron globalShortcut: ${accel}`
       );
     }
-    appHotkeyInputServerConnection.registry.set(id, { accelerator: accel, handler });
+    appHotkeyInputServerConnection.registry.set(id, { accelerator: accel, handler: effectiveHandler });
     syncAppHotkeyInputServerConnection(`register:${id}`);
     sendAppHotkeyConfig();
     return true;
@@ -3535,7 +3572,7 @@ function setAppHotkey(id, accelerator, handler, options = {}) {
   const result = registerHotkeyWithFallback({
     accelerator: accel,
     fallbackAccelerator,
-    register: (candidate) => globalShortcut.register(candidate, handler),
+    register: (candidate) => globalShortcut.register(candidate, effectiveHandler),
   });
   if (result.error) {
     console.warn(`[Hotkeys] Failed to register ${accel} for ${id}:`, result.error.message);
@@ -3975,6 +4012,98 @@ function maybeShowManualModeRecommendation(game) {
   });
 }
 
+// --- Exclusive-fullscreen recommendation (custom window) ---
+// Unlike the monitor-filling geometry flag, this is driven by Windows' explicit
+// Direct3D exclusive-fullscreen state. Exclusive mode minimizes many games when
+// the overlay or gamepad navigation takes focus, so recommend a composited mode.
+const FULLSCREEN_MODE_RESOURCE_URLS = Object.freeze({
+  magpie: "https://github.com/Blinue/Magpie",
+  specialK: "https://www.special-k.info/",
+});
+const fullscreenModeRecommendationPromptedGames = new Set();
+let fullscreenModeRecommendationWindow = null;
+
+function getDismissedFullscreenModeRecommendations() {
+  return Array.isArray(userSettings.dismissedExclusiveFullscreenRecommendations)
+    ? userSettings.dismissedExclusiveFullscreenRecommendations
+    : [];
+}
+
+function rememberDismissedFullscreenModeRecommendation(game) {
+  const dismissed = getDismissedFullscreenModeRecommendations();
+  if (game && !dismissed.includes(game)) {
+    setOverlaySettingValue("dismissedExclusiveFullscreenRecommendations", [...dismissed, game]);
+    saveSettings();
+  }
+}
+
+function maybeShowFullscreenModeRecommendation(game) {
+  if (!isWindows()) return;
+
+  const gameKey = game || "";
+  if (getDismissedFullscreenModeRecommendations().includes(gameKey)) return;
+
+  if (fullscreenModeRecommendationWindow && !fullscreenModeRecommendationWindow.isDestroyed()) {
+    fullscreenModeRecommendationWindow.focus();
+    return;
+  }
+
+  if (fullscreenModeRecommendationPromptedGames.has(gameKey)) return;
+  fullscreenModeRecommendationPromptedGames.add(gameKey);
+
+  // The display-mode warning is the actionable fix for exclusive fullscreen;
+  // avoid stacking the cursor/Push to Show recommendation on top of it.
+  if (manualModeRecommendationWindow && !manualModeRecommendationWindow.isDestroyed()) {
+    manualModeRecommendationWindow.close();
+  }
+
+  const workArea = getOverlayDisplayWorkArea();
+  const winWidth = Math.min(680, workArea.width);
+  const winHeight = Math.min(850, workArea.height);
+
+  fullscreenModeRecommendationWindow = new BrowserWindow({
+    width: winWidth,
+    height: winHeight,
+    x: Math.round(workArea.x + (workArea.width - winWidth) / 2),
+    y: Math.round(workArea.y + (workArea.height - winHeight) / 2),
+    icon: getOverlayAppIconPath(),
+    resizable: true,
+    alwaysOnTop: true,
+    show: false,
+    title: "Borderless Fullscreen Recommended",
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+  });
+  fullscreenModeRecommendationWindow.removeMenu();
+  fullscreenModeRecommendationWindow.setAlwaysOnTop(true, "screen-saver");
+
+  loadOverlayPage(fullscreenModeRecommendationWindow, "fullscreen-mode-recommendation.html");
+  fullscreenModeRecommendationWindow.webContents.once("did-finish-load", () => {
+    if (!fullscreenModeRecommendationWindow || fullscreenModeRecommendationWindow.isDestroyed()) return;
+    playSystemWarningSound();
+    fullscreenModeRecommendationWindow.webContents.send("preload-fullscreen-mode-recommendation", {
+      game: gameKey,
+    });
+    fullscreenModeRecommendationWindow.show();
+    fullscreenModeRecommendationWindow.moveTop();
+    fullscreenModeRecommendationWindow.focus();
+    fullscreenModeRecommendationWindow.flashFrame(true);
+    fullscreenModeRecommendationWindow.webContents.focus();
+  });
+
+  fullscreenModeRecommendationWindow.once("focus", () => {
+    if (fullscreenModeRecommendationWindow && !fullscreenModeRecommendationWindow.isDestroyed()) {
+      fullscreenModeRecommendationWindow.flashFrame(false);
+    }
+  });
+
+  fullscreenModeRecommendationWindow.on("closed", () => {
+    fullscreenModeRecommendationWindow = null;
+  });
+}
+
 function shouldKeepOverlayVisibleWhenManualInactive() {
   return isManualMode() &&
     !isLinux() &&
@@ -4291,11 +4420,20 @@ function restoreOverlayAfterYomitanLookup() {
   }
 }
 
+const GAMEPAD_FOCUS_RETRY_DELAYS_MS = [0, 50, 120, 240, 380];
+const GAMEPAD_FOCUS_TOGGLE_GUARD_AFTER_LAST_RETRY_MS = 250;
+let gamepadKeyboardToggleSuppressedUntil = 0;
+
 function aggressivelyFocusOverlayForGamepadNavigation() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
 
-  const focusDelays = [0, 50, 120, 240, 380];
-  for (const delay of focusDelays) {
+  const lastFocusDelay = GAMEPAD_FOCUS_RETRY_DELAYS_MS[GAMEPAD_FOCUS_RETRY_DELAYS_MS.length - 1] || 0;
+  gamepadKeyboardToggleSuppressedUntil = Math.max(
+    gamepadKeyboardToggleSuppressedUntil,
+    Date.now() + lastFocusDelay + GAMEPAD_FOCUS_TOGGLE_GUARD_AFTER_LAST_RETRY_MS
+  );
+
+  for (const delay of GAMEPAD_FOCUS_RETRY_DELAYS_MS) {
     setTimeout(() => {
       if (!gamepadNavigationActive) return;
       if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -4320,6 +4458,7 @@ function aggressivelyFocusOverlayForGamepadNavigation() {
 }
 
 let gamepadToggleRequestSeq = 0;
+let lastGamepadNavigationToggleRequestAt = Number.NEGATIVE_INFINITY;
 
 function requestGamepadNavigationToggleFromMain(source = "unknown") {
   if (!userSettings.gamepadEnabled) {
@@ -4328,6 +4467,27 @@ function requestGamepadNavigationToggleFromMain(source = "unknown") {
   }
   if (!mainWindow || mainWindow.isDestroyed()) {
     console.log(`[Gamepad] Ignoring toggle request from ${source}: main window unavailable`);
+    return;
+  }
+
+  const now = Date.now();
+  if (shouldSuppressGamepadToggleDuringFocusTransition({
+    source,
+    navigationActive: gamepadNavigationActive,
+    suppressedUntil: gamepadKeyboardToggleSuppressedUntil,
+    now,
+  })) {
+    lastGamepadNavigationToggleRequestAt = now;
+    const remainingMs = Math.max(0, gamepadKeyboardToggleSuppressedUntil - now);
+    console.log(
+      `[Gamepad] Ignoring keyboard toggle from ${source} during focus recovery (${remainingMs}ms remaining)`
+    );
+    return;
+  }
+  const elapsed = now - lastGamepadNavigationToggleRequestAt;
+  lastGamepadNavigationToggleRequestAt = now;
+  if (elapsed >= 0 && elapsed < TOGGLE_HOTKEY_COOLDOWN_MS) {
+    console.log(`[Gamepad] Ignoring duplicate toggle request from ${source} after ${elapsed}ms`);
     return;
   }
 
@@ -4357,6 +4517,9 @@ function setGamepadNavigationModeActive(active, triggerSource = "unknown", optio
     nextActive && isManualMode() && shouldKeepOverlayVisibleWhenManualInactive();
   gamepadNavigationActive = nextActive;
   syncLinuxX11MousePoller();
+  if (!nextActive) {
+    gamepadKeyboardToggleSuppressedUntil = 0;
+  }
 
   if (nextActive) {
     if (!wasActive) {
@@ -6011,7 +6174,7 @@ function registerTexthookerHotkey(oldHotkey) {
         blurAndRestoreFocus();
       }
     }
-  }, { settingKey: "texthookerHotkey" });
+  }, { settingKey: "texthookerHotkey", debounceMs: TOGGLE_HOTKEY_COOLDOWN_MS });
 
   if (!registered) {
     console.warn(`[TexthookerMode] Failed to register texthooker hotkey: ${texthookerHotkey}`);
@@ -6646,6 +6809,16 @@ function updateTrayMenu() {
       label: 'Jiten Reader Settings',
       click: () => openJitenReaderSettings()
     },
+    ...(isDev ? [
+      {
+        label: 'Open DevTools',
+        click: () => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.openDevTools({ mode: 'detach' });
+          }
+        }
+      }
+    ] : []),
     { type: 'separator' },
     {
       label: 'Push to Show',
@@ -7107,7 +7280,7 @@ async function startOverlayAppImpl() {
         ensureMainWindowIsOnConnectedDisplay("hotkey-toggle-window");
         mainWindow.webContents.send('toggle-main-box');
       }
-    }, { settingKey: "toggleWindowHotkey" });
+    }, { settingKey: "toggleWindowHotkey", debounceMs: TOGGLE_HOTKEY_COOLDOWN_MS });
   }
   registerToggleWindowHotkey();
 
@@ -7130,7 +7303,7 @@ async function startOverlayAppImpl() {
         }
         else mainWindow.minimize();
       }
-    }, { settingKey: "minimizeHotkey" });
+    }, { settingKey: "minimizeHotkey", debounceMs: TOGGLE_HOTKEY_COOLDOWN_MS });
   }
   registerMinimizeHotkey();
 
@@ -7172,7 +7345,7 @@ async function startOverlayAppImpl() {
           }
         }
       }
-    }, { settingKey: "translateHotkey" });
+    }, { settingKey: "translateHotkey", debounceMs: TOGGLE_HOTKEY_COOLDOWN_MS });
   }
   registerTranslateHotkey();
 
@@ -7182,14 +7355,14 @@ async function startOverlayAppImpl() {
       if (mainWindow) {
         mainWindow.webContents.send("toggle-furigana-visibility");
       }
-    }, { settingKey: "toggleFuriganaHotkey" });
+    }, { settingKey: "toggleFuriganaHotkey", debounceMs: TOGGLE_HOTKEY_COOLDOWN_MS });
   }
   registerToggleFuriganaHotkey();
 
   function registerLiveStatsToggleHotkey(_oldHotkey) {
     setAppHotkey("liveStatsToggle", userSettings.liveStatsToggleHotkey || "Alt+Shift+L", () => {
       advanceLiveStatsVisibilityMode("hotkey");
-    }, { settingKey: "liveStatsToggleHotkey" });
+    }, { settingKey: "liveStatsToggleHotkey", debounceMs: TOGGLE_HOTKEY_COOLDOWN_MS });
   }
   registerLiveStatsToggleHotkey();
   
@@ -7836,12 +8009,6 @@ async function startOverlayAppImpl() {
   mainWindow.webContents.on('did-finish-load', () => {
     startOverlayWebSockets();
   });
-  if (isDev) {
-    mainWindow.webContents.on('context-menu', () => {
-      mainWindow.webContents.openDevTools({ mode: 'detach' });
-    });
-    // openSettings();
-  }
   mainWindow.once('ready-to-show', () => {
     const syncResult = syncOverlayWindowsToCurrentMonitor("ready-to-show", { forceSendDisplayInfo: true });
     display = syncResult.display;
@@ -7939,7 +8106,28 @@ async function startOverlayAppImpl() {
     }
   });
 
-  ipcMain.on("window-state-changed", (event, { state, game, magpieActive, magpieInfo, isFullscreen, cursorHidden, recommendManualMode, obsOutputActive }) => {
+  ipcMain.on("fullscreen-mode-recommendation-dismiss", (event, { game } = {}) => {
+    rememberDismissedFullscreenModeRecommendation(game || "");
+    if (fullscreenModeRecommendationWindow && !fullscreenModeRecommendationWindow.isDestroyed()) {
+      fullscreenModeRecommendationWindow.close();
+    }
+  });
+
+  ipcMain.on("fullscreen-mode-recommendation-close", () => {
+    if (fullscreenModeRecommendationWindow && !fullscreenModeRecommendationWindow.isDestroyed()) {
+      fullscreenModeRecommendationWindow.close();
+    }
+  });
+
+  ipcMain.on("fullscreen-mode-recommendation-open-resource", (event, { resource } = {}) => {
+    const url = FULLSCREEN_MODE_RESOURCE_URLS[resource];
+    if (!url) return;
+    void electron.shell.openExternal(url).catch((error) => {
+      console.error(`Failed to open exclusive-fullscreen resource ${resource}:`, error);
+    });
+  });
+
+  ipcMain.on("window-state-changed", (event, { state, game, magpieActive, magpieInfo, isFullscreen, isExclusiveFullscreen, cursorHidden, recommendManualMode, obsOutputActive }) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
 
     if (isTexthookerMode) return;
@@ -7959,15 +8147,18 @@ async function startOverlayAppImpl() {
 
     console.log(
       `Window state changed to: ${normalizedWindowState} for game: ${game}, ` +
-      `magpie active: ${currentMagpieState.active}, signature: ${currentMagpieState.signature || "inactive"}, fullscreen: ${isFullscreen}`
+      `magpie active: ${currentMagpieState.active}, signature: ${currentMagpieState.signature || "inactive"}, ` +
+      `fullscreen: ${isFullscreen}, exclusive fullscreen: ${isExclusiveFullscreen}`
     );
 
     // Send game state to renderer to control action panel visibility
     mainWindow.webContents.send("game-state", normalizedWindowState);
 
-    // When the game may be hiding the OS cursor the automatic overlay is awkward to
-    // use, so nudge toward manual mode via the custom recommendation window.
-    if (recommendManualMode && !isManualMode()) {
+    // Exclusive fullscreen is the more disruptive condition, so its display-mode
+    // recommendation takes priority over the cursor/Push to Show recommendation.
+    if (isExclusiveFullscreen) {
+      maybeShowFullscreenModeRecommendation(game);
+    } else if (recommendManualMode && !isManualMode()) {
       maybeShowManualModeRecommendation(game);
     }
 
@@ -8179,6 +8370,8 @@ async function startOverlayAppImpl() {
     }
     if (key === "showRecycledIndicator") {
       value = value === true;
+    } else if (key === "fontSize") {
+      value = normalizeFloatingWindowFontSize(value);
     } else if (key === "gamepadServerPort" && INPUT_SERVER_MANAGED_BY_GSM) {
       value = MANAGED_INPUT_SERVER_PORT;
     } else if (key === "gamepadTokenizerBackend") {
@@ -8438,8 +8631,17 @@ async function startOverlayAppImpl() {
     if (GSM_OWNED_OVERLAY_FIELD_MAP[key]) {
       sendGsmOwnedOverlayConfig(key, value);
     }
+    const settingUpdate = { [key]: userSettings[key] };
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("settings-updated", { [key]: userSettings[key] });
+      mainWindow.webContents.send("settings-updated", settingUpdate);
+    }
+    if (
+      key === "fontSize"
+      && settingsWindow
+      && !settingsWindow.isDestroyed()
+      && event.sender !== settingsWindow.webContents
+    ) {
+      settingsWindow.webContents.send("settings-updated", settingUpdate);
     }
     saveSettings();
     updateTrayMenu();
@@ -8453,8 +8655,12 @@ async function startOverlayAppImpl() {
 
   // Legacy handlers for backward compatibility - can be removed after transition
   ipcMain.on("fontsize-changed", (event, newsize) => {
-    setOverlaySettingValue("fontSize", newsize);
-    mainWindow.webContents.send("settings-updated", { fontSize: newsize });
+    const fontSize = normalizeFloatingWindowFontSize(newsize);
+    setOverlaySettingValue("fontSize", fontSize);
+    mainWindow.webContents.send("settings-updated", { fontSize });
+    if (settingsWindow && !settingsWindow.isDestroyed()) {
+      settingsWindow.webContents.send("settings-updated", { fontSize });
+    }
     saveSettings();
   })
   ipcMain.on("weburl1-changed", (event, newurl) => {
@@ -8869,6 +9075,7 @@ async function stopOverlayApp() {
       mainWindow = null;
       startupNotificationWindow = null;
       manualModeRecommendationWindow = null;
+      fullscreenModeRecommendationWindow = null;
       settingsWindow = null;
       yomitanSettingsWindow = null;
       jitenReaderSettingsWindow = null;

@@ -604,6 +604,7 @@ class General:
     open_config_on_startup: bool = False
     open_multimine_on_startup: bool = True
     texthook_replacement_regex: str = ""
+    texthook_max_buffer_size: int = 3000
     # Primary public port used for both web and websocket endpoints.
     single_port: int = 7275
     # Legacy texthooker port kept for compatibility routing.
@@ -657,6 +658,13 @@ class General:
             self.texthooker_port = 55000
         if self.texthooker_port < 0:
             self.texthooker_port = 55000
+        try:
+            self.texthook_max_buffer_size = int(self.texthook_max_buffer_size or 3000)
+        except (TypeError, ValueError):
+            self.texthook_max_buffer_size = 3000
+        if self.texthook_max_buffer_size < 1:
+            self.texthook_max_buffer_size = 3000
+        self.texthook_max_buffer_size = min(self.texthook_max_buffer_size, 100_000)
 
 
 @dataclass_json
@@ -1202,6 +1210,9 @@ class Hotkeys:
     open_utility: str = "ctrl+m"
     play_latest_audio: str = "f7"
     play_latest_audio_gamepad: str = ""
+    mute_target_window: str = ""
+    mute_target_window_gamepad: str = ""
+    unmute_target_window_on_focus: bool = True
     manual_overlay_scan: str = ""
     manual_overlay_scan_gamepad: str = ""
     process_pause: str = ""
@@ -1222,6 +1233,7 @@ class VAD:
     backup_vad_model: str = OFF
     trim_beginning: bool = False
     beginning_offset: float = -0.25
+    adaptive_preroll: bool = False
     add_audio_on_no_results: bool = False
     use_tts_as_fallback: bool = False
     tts_url: str = "http://127.0.0.1:5050/?term=$s"
@@ -1525,6 +1537,8 @@ class Overlay:
     periodic_ratio: float = 0.9
     scan_on_mouse_move: bool = True  # only scan on a periodic tick when the cursor moved and is over the game window
     scan_on_overlay_activation: bool = False  # scan when Push to Show/navigation makes the overlay interactive
+    text_appears_instantly: bool = False  # send the first overlay OCR pass without waiting for stabilization
+    base_scale: float = 0.75  # screenshot scale used before OCR (50% fast -> 100% highest quality)
     inject_scanned_lines: bool = False  # not recommended: persist overlay scans to the log (pollutes stats/texthooker)
     minimum_character_size: int = 0
     use_overlay_area_config: bool = False
@@ -1606,6 +1620,8 @@ GSM_OWNED_OVERLAY_FIELDS: Dict[str, GsmOwnedOverlayField] = {
     "periodic_ratio": GsmOwnedOverlayField("periodic_ratio", float),
     "scan_on_mouse_move": GsmOwnedOverlayField("scan_on_mouse_move", _coerce_overlay_bool),
     "scan_on_overlay_activation": GsmOwnedOverlayField("scan_on_overlay_activation", _coerce_overlay_bool),
+    "text_appears_instantly": GsmOwnedOverlayField("text_appears_instantly", _coerce_overlay_bool),
+    "base_scale": GsmOwnedOverlayField("base_scale", lambda v: max(0.5, min(1.0, float(v)))),
     "inject_scanned_lines": GsmOwnedOverlayField("inject_scanned_lines", _coerce_overlay_bool),
     "minimum_character_size": GsmOwnedOverlayField("minimum_character_size", int),
     "use_ocr_result_v2": GsmOwnedOverlayField("use_ocr_result_v2", _coerce_overlay_bool),
@@ -1798,6 +1814,7 @@ class StatsConfig:
     tadoku_language_code: str = "jpn"
     tadoku_daily_sync_enabled: bool = False
     tadoku_daily_sync_deduplicate: bool = True
+    tadoku_daily_sync_game_ids: List[str] = field(default_factory=list)
     easy_days_settings: Dict[str, int] = field(
         default_factory=lambda: {
             "monday": 100,
@@ -2277,6 +2294,7 @@ class Config:
             self.sync_shared_field(config.general, profile.general, "websocket_uri")
             self.sync_shared_field(config.general, profile.general, "single_port")
             self.sync_shared_field(config.general, profile.general, "texthooker_port")
+            self.sync_shared_field(config.general, profile.general, "texthook_max_buffer_size")
             self.sync_shared_field(config.general, profile.general, "target_language")
             self.sync_shared_field(config.vad, profile.vad, "preload_vad_model")
             self.sync_shared_field(config.audio, profile.audio, "external_tool")

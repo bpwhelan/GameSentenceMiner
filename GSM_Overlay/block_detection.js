@@ -20,6 +20,16 @@
     // paragraph, even with an indented first line) tolerate a looser vertical
     // gap, since line spacing varies.
     alignedVerticalGapMultiplier: 1.6,
+    // A conservative character-name heuristic. Names are commonly rendered as
+    // one short line just above a much wider dialogue body. Keep the width
+    // contrast strict so short first lines of ordinary dialogue stay grouped.
+    characterNameMinLength: 2,
+    characterNameMaxLength: 16,
+    characterNameMaxWidthRatio: 0.65,
+    characterNameMaxHeightRatio: 1.15,
+    characterNameStrongHeightRatio: 0.9,
+    characterNameGapContrastRatio: 1.35,
+    characterNameMinGapMultiplier: 0.35,
   });
 
   // Empty space between two intervals on one axis (0 if they overlap).
@@ -61,7 +71,15 @@
       const x3 = xs.length ? Math.max(...xs) : 0;
       const y1 = ys.length ? Math.min(...ys) : 0;
       const y3 = ys.length ? Math.max(...ys) : 0;
-      return { index, x1, y1, x3, y3, height: y3 - y1 };
+      return {
+        index,
+        x1,
+        y1,
+        x3,
+        y3,
+        width: x3 - x1,
+        height: y3 - y1,
+      };
     });
   }
 
@@ -87,12 +105,123 @@
       && gapY <= unit * tuning.verticalGapMultiplier;
   }
 
+  function getVisibleTextSymbols(line) {
+    const text = line && typeof line.text === 'string' ? line.text : '';
+    return Array.from(text).filter((symbol) => !/\s/u.test(symbol));
+  }
+
+  function isLikelyCharacterNamePrefix(memberIndexes, metrics, lines, floorUnit, tuning) {
+    if (!Array.isArray(memberIndexes) || memberIndexes.length < 2) {
+      return null;
+    }
+
+    const orderedIndexes = memberIndexes.slice().sort((a, b) => (
+      (metrics[a].y1 - metrics[b].y1)
+      || (metrics[a].x1 - metrics[b].x1)
+      || (a - b)
+    ));
+    const candidateIndex = orderedIndexes[0];
+    const bodyIndexes = orderedIndexes.slice(1);
+    const candidate = metrics[candidateIndex];
+    const firstBody = metrics[bodyIndexes[0]];
+    const candidateSymbols = getVisibleTextSymbols(lines[candidateIndex]);
+    const candidateText = candidateSymbols.join('');
+
+    if (
+      candidateSymbols.length < tuning.characterNameMinLength
+      || candidateSymbols.length > tuning.characterNameMaxLength
+      || !candidate.width
+      || !candidate.height
+      || /[。！？!?…‥.,，、：:；;]$/u.test(candidateText)
+    ) {
+      return null;
+    }
+
+    // Names sit wholly above the dialogue and must be close to at least one of
+    // its lines. The closest line is not always the first: centered nameplates
+    // can sit to the right of a short first line but over a wider line below.
+    const bodyMetrics = bodyIndexes.map((idx) => metrics[idx]);
+    if (
+      candidate.y3 > firstBody.y1
+      || !bodyMetrics.some((bodyMetric) => (
+        areBoxesClose(candidate, bodyMetric, floorUnit, tuning)
+      ))
+    ) {
+      return null;
+    }
+
+    const bodyLeft = Math.min(...bodyMetrics.map((bodyMetric) => bodyMetric.x1));
+    const bodyRight = Math.max(...bodyMetrics.map((bodyMetric) => bodyMetric.x3));
+    const horizontalOverlap = getAxisOverlap(
+      candidate.x1,
+      candidate.x3,
+      bodyLeft,
+      bodyRight
+    );
+    const gapToBodyFootprint = getAxisGap(
+      candidate.x1,
+      candidate.x3,
+      bodyLeft,
+      bodyRight
+    );
+    if (horizontalOverlap <= 0 && gapToBodyFootprint > floorUnit) {
+      return null;
+    }
+
+    const widestBodyLine = Math.max(...bodyIndexes.map((idx) => metrics[idx].width));
+    const medianBodyHeight = getMedianValue(bodyIndexes.map((idx) => metrics[idx].height));
+    if (
+      widestBodyLine <= 0
+      || medianBodyHeight <= 0
+      || candidate.width > widestBodyLine * tuning.characterNameMaxWidthRatio
+      || candidate.height > medianBodyHeight * tuning.characterNameMaxHeightRatio
+    ) {
+      return null;
+    }
+
+    // A short first dialogue line can have the same width contrast as a name.
+    // Require either a visibly smaller name font or header-like extra spacing
+    // above a multi-line body before assigning the semantic role.
+    const candidateGap = Math.max(0, firstBody.y1 - candidate.y3);
+    const orderedBodyMetrics = bodyIndexes
+      .map((idx) => metrics[idx])
+      .sort((a, b) => (a.y1 - b.y1) || (a.x1 - b.x1) || (a.index - b.index));
+    const bodyLineGaps = [];
+    for (let i = 1; i < orderedBodyMetrics.length; i++) {
+      bodyLineGaps.push(Math.max(0, orderedBodyMetrics[i].y1 - orderedBodyMetrics[i - 1].y3));
+    }
+    const medianBodyGap = getMedianValue(bodyLineGaps);
+    const hasSmallerNameFont = (
+      candidate.height <= medianBodyHeight * tuning.characterNameStrongHeightRatio
+    );
+    const hasHeaderSpacing = (
+      bodyLineGaps.length > 0
+      && candidateGap >= floorUnit * tuning.characterNameMinGapMultiplier
+      && candidateGap >= medianBodyGap * tuning.characterNameGapContrastRatio
+    );
+    if (!hasSmallerNameFont && !hasHeaderSpacing) {
+      return null;
+    }
+
+    return { candidateIndex, bodyIndexes };
+  }
+
   function detectTextBlocks(lines, tuning = BLOCK_DETECTION_TUNING) {
+    tuning = {
+      ...BLOCK_DETECTION_TUNING,
+      ...(tuning || {}),
+    };
     const lineBlocks = new Map();
     const blockBoundaries = new Map();
+    const blockMetadata = new Map();
 
     if (!Array.isArray(lines) || lines.length === 0) {
-      return { lineBlocks, blockBoundaries, blockCount: 0 };
+      return {
+        lineBlocks,
+        blockBoundaries,
+        blockMetadata,
+        blockCount: 0,
+      };
     }
 
     const metrics = buildLineMetrics(lines);
@@ -129,8 +258,7 @@
       }
     }
 
-    // Group lines by their connected component and order blocks top-to-bottom,
-    // then left-to-right, then by original line order.
+    // Group lines by their connected component.
     const components = new Map();
     for (let i = 0; i < metrics.length; i++) {
       const root = find(i);
@@ -140,26 +268,78 @@
       components.get(root).push(i);
     }
 
-    const orderedComponents = Array.from(components.values())
-      .map((memberIndexes) => ({
+    // Split a high-confidence character-name prefix from its dialogue body.
+    // Retain both as navigable blocks and attach a relationship key so the
+    // renderer can expose explicit roles for navigation and future filtering.
+    let relationshipKey = 0;
+    const semanticComponents = [];
+    for (const memberIndexes of components.values()) {
+      const nameSplit = isLikelyCharacterNamePrefix(
         memberIndexes,
-        top: Math.min(...memberIndexes.map((idx) => metrics[idx].y1)),
-        left: Math.min(...memberIndexes.map((idx) => metrics[idx].x1)),
-        minIndex: Math.min(...memberIndexes),
+        metrics,
+        lines,
+        unit,
+        tuning
+      );
+      if (!nameSplit) {
+        semanticComponents.push({ memberIndexes, role: 'text', relationshipKey: null });
+        continue;
+      }
+
+      const currentRelationshipKey = relationshipKey++;
+      semanticComponents.push({
+        memberIndexes: [nameSplit.candidateIndex],
+        role: 'character-name',
+        relationshipKey: currentRelationshipKey,
+      });
+      semanticComponents.push({
+        memberIndexes: nameSplit.bodyIndexes,
+        role: 'dialogue',
+        relationshipKey: currentRelationshipKey,
+      });
+    }
+
+    // Order blocks top-to-bottom, then left-to-right, then by original line
+    // order. The gamepad layer uses the semantic role, not this visual order,
+    // to choose the initial block.
+    const orderedComponents = semanticComponents
+      .map((component) => ({
+        ...component,
+        top: Math.min(...component.memberIndexes.map((idx) => metrics[idx].y1)),
+        left: Math.min(...component.memberIndexes.map((idx) => metrics[idx].x1)),
+        minIndex: Math.min(...component.memberIndexes),
       }))
       .sort((a, b) => (a.top - b.top) || (a.left - b.left) || (a.minIndex - b.minIndex));
 
+    const relationshipBlockIds = new Map();
     orderedComponents.forEach((component, blockId) => {
       for (const idx of component.memberIndexes) {
         lineBlocks.set(idx, blockId);
       }
       const sorted = component.memberIndexes.slice().sort((a, b) => a - b);
       blockBoundaries.set(blockId, { start: sorted[0], end: sorted[sorted.length - 1] });
+      blockMetadata.set(blockId, { role: component.role });
+      if (component.relationshipKey !== null) {
+        if (!relationshipBlockIds.has(component.relationshipKey)) {
+          relationshipBlockIds.set(component.relationshipKey, []);
+        }
+        relationshipBlockIds.get(component.relationshipKey).push(blockId);
+      }
+    });
+
+    relationshipBlockIds.forEach((blockIds) => {
+      if (blockIds.length !== 2) {
+        return;
+      }
+      const [firstBlockId, secondBlockId] = blockIds;
+      blockMetadata.get(firstBlockId).relatedBlockId = secondBlockId;
+      blockMetadata.get(secondBlockId).relatedBlockId = firstBlockId;
     });
 
     return {
       lineBlocks,
       blockBoundaries,
+      blockMetadata,
       blockCount: orderedComponents.length,
     };
   }
@@ -186,9 +366,11 @@
     areBoxesClose,
     buildLineMetrics,
     detectTextBlocks,
+    getVisibleTextSymbols,
     getAxisGap,
     getAxisOverlap,
     getMedianValue,
+    isLikelyCharacterNamePrefix,
     insertBlockSeparatorAfter,
   };
 }));

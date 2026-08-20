@@ -37,7 +37,7 @@
 		};
 	});
 
-	function handleSocketState(socketStateValue) {
+	function handleSocketState(socketStateValue: number) {
 		switch (socketStateValue) {
 			case 0:
 				wasConnected = false;
@@ -105,7 +105,7 @@
 {#if $socketState !== 0}
 	<div
 		class="hover:text-primary"
-		class:text-red-500={$socketState !== -1}
+		class:text-red-500={$socketState > WebSocket.OPEN}
 		class:text-green-700={$socketState === 1}
 		title={connectedWithLabel}
 	>

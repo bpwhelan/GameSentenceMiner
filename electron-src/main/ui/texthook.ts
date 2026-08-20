@@ -29,7 +29,7 @@ import {
     getGameExePathForScene,
     setGameExePathForScene,
 } from '../store.js';
-import { mainWindow, sendTextHookLine, sendTextHookStatus } from '../main.js';
+import { mainWindow, sendReloadSettings, sendTextHookLine, sendTextHookStatus } from '../main.js';
 import {
     TEXTHOOK_DOWNLOAD_DIR,
     FORCE_TEXTHOOK_DOWNLOAD,
@@ -53,10 +53,22 @@ import {
     startAgentHookSession,
     stopAgentHookSession,
 } from './agent.js';
+import {
+    advanceEngineHookSession,
+    getEngineHookRuntimeStatus,
+    isEngineHookRunning,
+    listEngineHooks,
+    setEngineHookCopyToClipboard,
+    setEngineHookFlushDelayMs,
+    startEngineHookSession,
+    stopEngineHookSession,
+} from '../engine_hooks/session.js';
+import { loadEngineHookCatalog } from '../engine_hooks/support.js';
 
 const execFileAsync = promisify(execFile);
 
-export type TextHookEngine = 'textractor' | 'luna' | 'agent';
+export type TextHookEngine = 'textractor' | 'luna' | 'agent' | 'mages';
+type CliTextHookEngine = Exclude<TextHookEngine, 'agent' | 'mages'>;
 export type TextHookArchitecture = 'x86' | 'x64';
 /** Who started the session: a manual user action or the auto-launcher. */
 export type TextHookStartSource = 'user' | 'auto-launcher';
@@ -70,7 +82,7 @@ export interface TextHookProfile {
     engine: TextHookEngine;
     /** Auto-attach to the saved hook the moment it appears. */
     autoHook: boolean;
-    /** Debounce window before forwarding selected hook output to GSM. */
+    /** Provisional revision window used by Python after immediate forwarding. */
     flushDelayMs: number;
     /** Stored hook id from the engine output. */
     hookId?: string | null;
@@ -94,7 +106,7 @@ interface HookEntry {
 
 interface ActiveSession {
     proc: ChildProcessWithoutNullStreams;
-    engine: Exclude<TextHookEngine, 'agent'>;
+    engine: CliTextHookEngine;
     arch: TextHookArchitecture;
     architectureFallbackAttempted: boolean;
     recoveringArchitectureMismatch: boolean;
@@ -113,9 +125,11 @@ interface ActiveSession {
     stdoutCarry: Buffer;
     /** Pending UTF-16 decoded line carry. */
     lineCarry: string;
+    /** Whether the pending unterminated output line was truncated. */
+    lineCarryTruncated: boolean;
     /** Last hook line, used for multiline hook text continuations. */
     lastHookForContinuation: { id: string; function: string; ignored: boolean } | null;
-    /** Debounced selected-hook text waiting to be forwarded. */
+    /** Legacy collector retained only for profile/session compatibility. */
     outputCollector: TextHookOutputPayload[];
     outputFlushTimer: NodeJS.Timeout | null;
     /** Debounced detected-hook preview text waiting to be shown in the hook list. */
@@ -138,20 +152,31 @@ const TEXT_HOOK_ERASE_PATTERNS = [
 const PROFILES_FILE = path.join(BASE_DIR, 'texthook', 'profiles.json');
 const DEFAULT_FLUSH_DELAY_MS = 100;
 const MAX_FLUSH_DELAY_MS = 5000;
+const DEFAULT_TEXT_HOOK_MAX_BUFFER_SIZE = 3000;
+const MAX_TEXT_HOOK_MAX_BUFFER_SIZE = 100_000;
+const HARD_TEXT_HOOK_REJECTION_LIMIT = 10_000;
+const MAX_JAPANESE_QUOTE_PAIRS = 10;
+const GSM_CONFIG_FILE = path.join(BASE_DIR, 'config.json');
+
+let textHookMaxBufferSize = loadTextHookMaxBufferSize();
 
 interface TextHookOutputPayload {
     text: string;
     hookId: string;
     hookFunction: string;
-    engine: Exclude<TextHookEngine, 'agent'>;
+    engine: CliTextHookEngine;
     exeName: string;
     copyToClipboard: boolean;
+    capturedAt?: number;
+    revisionWindowMs?: number;
+    mergeFragments?: boolean;
 }
 
 interface HookPreviewCollector {
     hookId: string;
     hookFunction: string;
     pending: string[];
+    pendingLength: number;
     timer: NodeJS.Timeout | null;
 }
 
@@ -204,6 +229,10 @@ function emitEngineLog(message: string, level: 'info' | 'error' | 'warn' = 'info
 }
 
 function emitHooks(): void {
+    if (isEngineHookRunning()) {
+        emitToRenderer('texthook.hooks', listEngineHooks());
+        return;
+    }
     if (!session) {
         emitToRenderer('texthook.hooks', { hooks: [], selectedHookId: null });
         return;
@@ -218,7 +247,7 @@ function emitHooks(): void {
 // Asset paths
 // ---------------------------------------------------------------------------
 
-function getEngineCliPath(engine: TextHookEngine, arch: TextHookArchitecture): string {
+function getEngineCliPath(engine: CliTextHookEngine, arch: TextHookArchitecture): string {
     const rel =
         engine === 'luna'
             ? path.join('luna_builds', arch === 'x86' ? 'LunaHostCLI32.exe' : 'LunaHostCLI64.exe')
@@ -623,6 +652,122 @@ export async function getActiveCapture(): Promise<ActiveCaptureInfo> {
 // Profile storage
 // ---------------------------------------------------------------------------
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function normalizeTextHookMaxBufferSize(value: unknown): number {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return DEFAULT_TEXT_HOOK_MAX_BUFFER_SIZE;
+    }
+    return Math.min(MAX_TEXT_HOOK_MAX_BUFFER_SIZE, Math.round(parsed));
+}
+
+function getCurrentGsmProfile(config: Record<string, unknown>): Record<string, unknown> | null {
+    const configs = config.configs;
+    if (!isRecord(configs)) {
+        return config;
+    }
+    const currentProfile = typeof config.current_profile === 'string' ? config.current_profile : 'Default';
+    const profile = configs[currentProfile] ?? configs.Default;
+    return isRecord(profile) ? profile : null;
+}
+
+function loadTextHookMaxBufferSize(): number {
+    try {
+        if (!fs.existsSync(GSM_CONFIG_FILE)) {
+            return DEFAULT_TEXT_HOOK_MAX_BUFFER_SIZE;
+        }
+        const config = JSON.parse(fs.readFileSync(GSM_CONFIG_FILE, 'utf-8').replace(/^\uFEFF/, ''));
+        if (!isRecord(config)) {
+            return DEFAULT_TEXT_HOOK_MAX_BUFFER_SIZE;
+        }
+        const profile = getCurrentGsmProfile(config);
+        const general = profile?.general;
+        return isRecord(general)
+            ? normalizeTextHookMaxBufferSize(general.texthook_max_buffer_size)
+            : DEFAULT_TEXT_HOOK_MAX_BUFFER_SIZE;
+    } catch {
+        return DEFAULT_TEXT_HOOK_MAX_BUFFER_SIZE;
+    }
+}
+
+function saveTextHookMaxBufferSize(value: number): boolean {
+    try {
+        const config = fs.existsSync(GSM_CONFIG_FILE)
+            ? JSON.parse(fs.readFileSync(GSM_CONFIG_FILE, 'utf-8').replace(/^\uFEFF/, ''))
+            : {};
+        if (!isRecord(config)) {
+            return false;
+        }
+
+        const configs = config.configs;
+        const profiles = isRecord(configs) ? Object.values(configs) : [config];
+        let updated = false;
+        for (const profile of profiles) {
+            if (!isRecord(profile)) continue;
+            const general = isRecord(profile.general) ? profile.general : {};
+            general.texthook_max_buffer_size = value;
+            profile.general = general;
+            updated = true;
+        }
+        if (!updated) {
+            return false;
+        }
+
+        fs.writeFileSync(GSM_CONFIG_FILE, JSON.stringify(config, null, 4), 'utf-8');
+        return true;
+    } catch (error) {
+        emitLog(`Failed to save text hook buffer limit: ${(error as Error).message}`, 'error');
+        return false;
+    }
+}
+
+function hasExcessiveJapaneseQuotePairs(text: string): boolean {
+    let openingQuotes = 0;
+    let closingQuotes = 0;
+    for (const character of text) {
+        if (character === '「') openingQuotes += 1;
+        if (character === '」') closingQuotes += 1;
+        if (openingQuotes > MAX_JAPANESE_QUOTE_PAIRS && closingQuotes > MAX_JAPANESE_QUOTE_PAIRS) {
+            return true;
+        }
+    }
+    return false;
+}
+
+export function sanitizeTextHookText(
+    text: string,
+    maxBufferSize: number = textHookMaxBufferSize,
+): { text: string; truncated: boolean } | null {
+    if (text.length > HARD_TEXT_HOOK_REJECTION_LIMIT) {
+        return null;
+    }
+    if (hasExcessiveJapaneseQuotePairs(text)) {
+        return null;
+    }
+    const limit = normalizeTextHookMaxBufferSize(maxBufferSize);
+    return {
+        text: text.slice(0, limit),
+        truncated: text.length > limit,
+    };
+}
+
+function setTextHookMaxBufferSize(value: unknown): {
+    success: boolean;
+    maxBufferSize?: number;
+    error?: string;
+} {
+    const maxBufferSize = normalizeTextHookMaxBufferSize(value);
+    if (!saveTextHookMaxBufferSize(maxBufferSize)) {
+        return { success: false, error: 'Could not save the text hook buffer limit.' };
+    }
+    textHookMaxBufferSize = maxBufferSize;
+    sendReloadSettings();
+    return { success: true, maxBufferSize };
+}
+
 function ensureProfilesDir(): void {
     fs.mkdirSync(path.dirname(PROFILES_FILE), { recursive: true });
 }
@@ -652,7 +797,9 @@ function normalizeProfile(value: unknown): TextHookProfile | null {
     const v = value as Partial<TextHookProfile>;
     if (typeof v.exeName !== 'string' || v.exeName.trim().length === 0) return null;
     const engine: TextHookEngine =
-        v.engine === 'textractor' || v.engine === 'agent' ? v.engine : 'luna';
+        v.engine === 'textractor' || v.engine === 'agent' || v.engine === 'mages'
+            ? v.engine
+            : 'luna';
     return {
         sceneId: typeof v.sceneId === 'string' && v.sceneId.trim() ? v.sceneId.trim() : undefined,
         exeName: v.exeName.trim().toLowerCase(),
@@ -865,6 +1012,25 @@ function consumeLines(currentSession: ActiveSession, text: string): string[] {
     const combined = currentSession.lineCarry + text;
     const lines = combined.split(/\r?\n/);
     currentSession.lineCarry = lines.pop() ?? '';
+    // Keep enough of an unterminated engine line to determine whether its text
+    // payload breaches the hard rejection limit. The prior configurable cap
+    // could truncate a huge payload before validation and accidentally admit it.
+    const rawLineBufferLimit = Math.max(
+        textHookMaxBufferSize,
+        HARD_TEXT_HOOK_REJECTION_LIMIT + 4096,
+    );
+    if (currentSession.lineCarry.length > rawLineBufferLimit) {
+        currentSession.lineCarry = currentSession.lineCarry.slice(0, rawLineBufferLimit + 1);
+        if (!currentSession.lineCarryTruncated) {
+            currentSession.lineCarryTruncated = true;
+            emitLog(
+                'Discarding an oversized unterminated hook output line.',
+                'warn',
+            );
+        }
+    } else if (currentSession.lineCarry.length === 0) {
+        currentSession.lineCarryTruncated = false;
+    }
     return lines.map((l) => l.replace(/\u0000+$/, ''));
 }
 
@@ -1012,12 +1178,17 @@ function queueHookPreviewText(hookId: string, fn: string, text: string): void {
             hookId,
             hookFunction: fn,
             pending: [],
+            pendingLength: 0,
             timer: null,
         };
         session.hookPreviewCollectors.set(hookId, collector);
     }
     collector.hookFunction = fn;
-    collector.pending.push(text);
+    const remaining = textHookMaxBufferSize - collector.pendingLength;
+    if (remaining <= 0) return;
+    const bufferedText = text.slice(0, remaining);
+    collector.pending.push(bufferedText);
+    collector.pendingLength += bufferedText.length;
     if (collector.timer) {
         clearTimeout(collector.timer);
     }
@@ -1028,9 +1199,20 @@ function queueHookPreviewText(hookId: string, fn: string, text: string): void {
 
 function recordHookEvent(hookId: string, fn: string, text: string): void {
     if (!session) return;
+    const cleanedInput = eraseTextHookNoise(text);
+    const sanitizedText = sanitizeTextHookText(cleanedInput);
+    if (!sanitizedText) {
+        if (cleanedInput.length <= HARD_TEXT_HOOK_REJECTION_LIMIT) {
+            emitLog(
+                `Blocked text from hook #${hookId}: more than ${MAX_JAPANESE_QUOTE_PAIRS} Japanese quote pairs.`,
+                'warn',
+            );
+        }
+        return;
+    }
     const entry = getOrCreateHookEntry(hookId, fn);
     if (!entry) return;
-    const cleanedText = eraseTextHookNoise(text);
+    const cleanedText = sanitizedText.text;
     if (cleanedText) {
         queueHookPreviewText(hookId, fn, cleanedText);
     } else {
@@ -1065,13 +1247,31 @@ function recordHookEvent(hookId: string, fn: string, text: string): void {
     }
 }
 
-function sendSelectedHookText(payload: TextHookOutputPayload): void {
-    sendTextHookLine({ ...payload, copyToClipboard: payload.copyToClipboard });
+function sendSelectedHookText(
+    payload: TextHookOutputPayload,
+): { text: string; truncated: boolean } | null {
+    const sanitizedText = sanitizeTextHookText(payload.text);
+    if (!sanitizedText) {
+        if (payload.text.length <= HARD_TEXT_HOOK_REJECTION_LIMIT) {
+            emitLog(
+                `Blocked text from hook #${payload.hookId}: more than ${MAX_JAPANESE_QUOTE_PAIRS} Japanese quote pairs.`,
+                'warn',
+            );
+        }
+        return null;
+    }
+    const guardedPayload = {
+        ...payload,
+        text: sanitizedText.text,
+        copyToClipboard: payload.copyToClipboard,
+    };
+    sendTextHookLine(guardedPayload);
     emitToRenderer('texthook.text', {
-        hookId: payload.hookId,
-        text: payload.text,
+        hookId: guardedPayload.hookId,
+        text: guardedPayload.text,
         ts: Date.now(),
     });
+    return sanitizedText;
 }
 
 function flushSelectedHookText(): void {
@@ -1101,18 +1301,14 @@ function mergeTextHookOutput(pending: TextHookOutputPayload[]): TextHookOutputPa
 function queueSelectedHookText(payload: TextHookOutputPayload): void {
     if (!session) return;
     const delayMs = normalizeFlushDelayMs(session.flushDelayMs);
-    if (delayMs <= 0) {
-        sendSelectedHookText(payload);
-        return;
-    }
-
-    session.outputCollector.push(payload);
-    if (session.outputFlushTimer) {
-        clearTimeout(session.outputFlushTimer);
-    }
-    session.outputFlushTimer = setTimeout(() => {
-        flushSelectedHookText();
-    }, delayMs);
+    // Forward every fragment immediately. Python owns aggregation and uses the
+    // former debounce duration as a provisional revision/freeze window.
+    sendSelectedHookText({
+        ...payload,
+        capturedAt: Date.now(),
+        revisionWindowMs: delayMs,
+        mergeFragments: true,
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -1164,7 +1360,7 @@ export interface StartHookResult {
 }
 
 export async function startHookSession(options: StartHookOptions = {}): Promise<StartHookResult> {
-    if (session || isAgentHookRunning()) {
+    if (session || isAgentHookRunning() || isEngineHookRunning()) {
         return { success: false, error: 'A text hook session is already running.' };
     }
     const onLinux = isLinux();
@@ -1173,7 +1369,9 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
     }
 
     const engine: TextHookEngine =
-        options.engine === 'textractor' || options.engine === 'agent' ? options.engine : 'luna';
+        options.engine === 'textractor' || options.engine === 'agent' || options.engine === 'mages'
+            ? options.engine
+            : 'luna';
     const source: TextHookStartSource =
         options.source === 'auto-launcher' ? 'auto-launcher' : 'user';
     const archOverride =
@@ -1247,6 +1445,31 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
     }
     const profile = getProfileFor(exeName, sceneId);
     const flushDelayMs = normalizeFlushDelayMs(options.flushDelayMs ?? profile?.flushDelayMs);
+    if (engine === 'mages') {
+        const executablePath = isWindows() ? await getProcessExecutablePath(target.pid) : null;
+        return startEngineHookSession({
+            pid: target.pid,
+            exeName,
+            executablePath,
+            arch: target.arch,
+            source,
+            flushDelayMs,
+            copyToClipboard: options.copyToClipboard ?? profile?.copyToClipboard ?? false,
+            onText: (payload) => {
+                sendTextHookLine(payload);
+                emitToRenderer('texthook.text', {
+                    hookId: payload.hookId,
+                    text: payload.text,
+                    ts: payload.capturedAt,
+                });
+            },
+            onLog: emitEngineLog,
+            onStateChanged: () => {
+                emitStatus();
+                emitHooks();
+            },
+        });
+    }
     if (engine === 'agent') {
         const scriptPath =
             typeof options.agentScriptPath === 'string' && options.agentScriptPath.trim().length > 0
@@ -1329,6 +1552,7 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
             profile && profile.engine === engine && profile.autoHook ? profile.manualHookCode ?? null : null,
         stdoutCarry: Buffer.alloc(0),
         lineCarry: '',
+        lineCarryTruncated: false,
         lastHookForContinuation: null,
         outputCollector: [],
         outputFlushTimer: null,
@@ -1485,6 +1709,7 @@ function teardownSession(): void {
 
 export function stopHookSession(): void {
     teardownSession();
+    stopEngineHookSession();
     stopAgentHookSession();
 }
 
@@ -1493,8 +1718,11 @@ export interface SelectHookOptions {
 }
 
 export async function selectHook(hookId: string, options: SelectHookOptions = {}): Promise<boolean> {
+    if (isEngineHookRunning()) {
+        return listEngineHooks().selectedHookId === hookId;
+    }
     if (isAgentHookRunning()) {
-        return hookId === 'agent';
+        return listAgentHooks().selectedHookId === hookId;
     }
     if (!session) return false;
     if (!session.hooks.has(hookId)) return false;
@@ -1517,6 +1745,9 @@ export async function selectHook(hookId: string, options: SelectHookOptions = {}
 }
 
 export function attachManualHookCode(code: string): { success: boolean; error?: string } {
+    if (isEngineHookRunning()) {
+        return { success: false, error: 'Manual H/R-code hooks are not used by built-in engine hooks.' };
+    }
     if (isAgentHookRunning()) {
         return { success: false, error: 'Manual H/R-code hooks are not used by Agent sessions.' };
     }
@@ -1540,6 +1771,10 @@ export function attachManualHookCode(code: string): { success: boolean; error?: 
 }
 
 export function getRuntimeStatus() {
+    const engineHookStatus = getEngineHookRuntimeStatus();
+    if (engineHookStatus) {
+        return engineHookStatus;
+    }
     const agentStatus = getAgentHookRuntimeStatus();
     if (agentStatus) {
         return agentStatus;
@@ -1562,8 +1797,11 @@ export function getRuntimeStatus() {
 }
 
 export function setFlushDelayMs(value: number): { success: boolean; flushDelayMs?: number; error?: string } {
+    const normalizedValue = normalizeFlushDelayMs(value);
+    const engineHookResult = setEngineHookFlushDelayMs(normalizedValue);
+    if (engineHookResult) return engineHookResult;
     if (isAgentHookRunning()) {
-        return setAgentFlushDelayMs(normalizeFlushDelayMs(value));
+        return setAgentFlushDelayMs(normalizedValue);
     }
     if (!session) return { success: false, error: 'No active text hook session.' };
     const flushDelayMs = normalizeFlushDelayMs(value);
@@ -1594,6 +1832,8 @@ export function setFlushDelayMs(value: number): { success: boolean; flushDelayMs
 }
 
 export function setCopyToClipboard(value: boolean): { success: boolean; copyToClipboard?: boolean; error?: string } {
+    const engineHookResult = setEngineHookCopyToClipboard(value);
+    if (engineHookResult) return engineHookResult;
     if (isAgentHookRunning()) {
         return setAgentCopyToClipboard(value);
     }
@@ -1638,6 +1878,10 @@ function gsmBackendUrl(routePath: string): string {
 
 export function registerTextHookIPC(): void {
     ipcMain.handle('texthook.getStatus', async () => getRuntimeStatus());
+    ipcMain.handle('texthook.getSettings', async () => ({ maxBufferSize: textHookMaxBufferSize }));
+    ipcMain.handle('texthook.setMaxBufferSize', async (_event, value: unknown) =>
+        setTextHookMaxBufferSize(value),
+    );
 
     ipcMain.handle('texthook.getActiveCapture', async () => {
         try {
@@ -1687,6 +1931,7 @@ export function registerTextHookIPC(): void {
     );
 
     ipcMain.handle('texthook.listHooks', async () => {
+        if (isEngineHookRunning()) return listEngineHooks();
         if (isAgentHookRunning()) return listAgentHooks();
         if (!session) return { hooks: [], selectedHookId: null };
         return {
@@ -1695,7 +1940,53 @@ export function registerTextHookIPC(): void {
         };
     });
 
+    ipcMain.handle('texthook.builtInHookTargets', async () => {
+        try {
+            return loadEngineHookCatalog(path.join(getAssetsDir(), 'engine_hooks')).map(
+                (support) => ({
+                    id: support.manifest.id,
+                    name: support.manifest.name,
+                    details: support.manifest.display?.details ?? {},
+                }),
+            );
+        } catch (error) {
+            console.error('[texthook] Could not read the engine-hook catalog:', error);
+            return [];
+        }
+    });
+
+    ipcMain.handle('texthook.advance', async () => advanceEngineHookSession());
+
     ipcMain.handle('texthook.showAgentUi', async () => showAgentScriptUi());
+
+    ipcMain.handle('texthook.devSendLargePayload', async (_event, text: unknown) => {
+        const payload = typeof text === 'string' ? text : '';
+        if (!payload) {
+            return { success: false };
+        }
+        const hookId = 'dev-large-payload';
+        const result = sendSelectedHookText({
+            text: payload,
+            hookId,
+            hookFunction: hookId,
+            engine: 'luna',
+            exeName: hookId,
+            copyToClipboard: false,
+        });
+        if (!result) {
+            return {
+                success: false,
+                blockedByHardLimit: payload.length > HARD_TEXT_HOOK_REJECTION_LIMIT,
+                limit: HARD_TEXT_HOOK_REJECTION_LIMIT,
+            };
+        }
+        return {
+            success: true,
+            length: result.text.length,
+            originalLength: payload.length,
+            truncated: result.truncated,
+        };
+    });
 
     ipcMain.handle('texthook.agentUiRpcCall', async (_event, func: string, args: unknown[] | undefined) =>
         callAgentUiRpc(String(func ?? ''), Array.isArray(args) ? args : []),
@@ -1728,7 +2019,9 @@ export function registerTextHookIPC(): void {
                 return { success: false, error: 'exeName is required' };
             }
             const engine: TextHookEngine =
-                payload.engine === 'textractor' || payload.engine === 'agent' ? payload.engine : 'luna';
+                payload.engine === 'textractor' || payload.engine === 'agent' || payload.engine === 'mages'
+                    ? payload.engine
+                    : 'luna';
             const profile = upsertProfile({
                 exeName: payload.exeName,
                 sceneId: payload.sceneId?.trim() || undefined,
@@ -1846,6 +2139,7 @@ export { checkForTexthookUpdates };
 // Used by main.ts on app shutdown to make sure the CLI process is killed.
 export function shutdownTextHook(): void {
     teardownSession();
+    stopEngineHookSession();
     stopAgentHookSession();
 }
 
@@ -1858,6 +2152,8 @@ export const __test = {
     readPortableExecutableBitness,
     eraseTextHookNoise,
     normalizeFlushDelayMs,
+    normalizeTextHookMaxBufferSize,
+    sanitizeTextHookText,
     mergeTextHookOutput,
     parseLunaContext,
     hookFunctionMatches,
@@ -1867,6 +2163,9 @@ export const __test = {
     LAUNCHER_MEMORY_FLOOR,
     DEFAULT_FLUSH_DELAY_MS,
     MAX_FLUSH_DELAY_MS,
+    DEFAULT_TEXT_HOOK_MAX_BUFFER_SIZE,
+    HARD_TEXT_HOOK_REJECTION_LIMIT,
+    MAX_JAPANESE_QUOTE_PAIRS,
     TEXTRACTOR_HOOK_LINE,
     LUNA_HOOK_LINE,
     LUNA_HOOK_CREATED_LINE,

@@ -30,6 +30,17 @@ function applySearchBootstrapState(app, bootstrapState, tokenizationEnabled) {
     app.updateLastSeenSortOptions(true);
 }
 
+const MAX_SEARCH_RESULT_TEXT_LENGTH = 4000;
+
+function truncateSearchResultText(value, wasTruncated = false) {
+    const text = typeof value === 'string' ? value : String(value ?? '');
+    const truncated = wasTruncated || text.length > MAX_SEARCH_RESULT_TEXT_LENGTH;
+    return {
+        text: text.slice(0, MAX_SEARCH_RESULT_TEXT_LENGTH),
+        truncated,
+    };
+}
+
 if (typeof globalThis !== 'undefined' && globalThis.__GSM_SEARCH_TEST_HOOKS__) {
     globalThis.__GSM_SEARCH_TEST_HOOKS__.readSearchBootstrapState = readSearchBootstrapState;
     globalThis.__GSM_SEARCH_TEST_HOOKS__.applySearchBootstrapState = applySearchBootstrapState;
@@ -448,18 +459,27 @@ class SentenceSearchApp {
 
         if (typeof result.sentence !== 'string') {
             console.warn('Unexpected sentence format:', result.sentence);
-            result.sentence = JSON.stringify(result.sentence);
         }
+
+        const sentencePreview = truncateSearchResultText(result.sentence, result.sentence_truncated);
         
-        const highlightedText = this.highlightSearchTerms(result.sentence, this.currentQuery);
+        const highlightedText = this.highlightSearchTerms(sentencePreview.text, this.currentQuery);
         
         const date = new Date(result.timestamp * 1000);
         const formattedDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${date.toTimeString().split(' ')[0]}`;
         
         const contentDiv = document.createElement('div');
         contentDiv.style.flex = '1';
+        const sentenceDiv = document.createElement('div');
+        sentenceDiv.className = 'result-sentence';
+        sentenceDiv.innerHTML = highlightedText;
+        if (sentencePreview.truncated) {
+            const totalLength = Number.isFinite(result.sentence_length)
+                ? result.sentence_length.toLocaleString()
+                : 'more';
+            sentenceDiv.title = `Line truncated for display (${totalLength} characters total)`;
+        }
         contentDiv.innerHTML = `
-            <div class="result-sentence">${highlightedText}</div>
             <div class="result-metadata">
                 <div class="metadata-item">
                     <span class="game-tag">${escapeHtml(result.game_name)}</span>
@@ -476,6 +496,7 @@ class SentenceSearchApp {
                 ` : ''}
             </div>
         `;
+        contentDiv.prepend(sentenceDiv);
         
         div.appendChild(checkbox);
         div.appendChild(contentDiv);

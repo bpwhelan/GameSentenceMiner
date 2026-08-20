@@ -23,15 +23,61 @@ def test_send_message_prints_structured_payload(monkeypatch):
     assert payload == {"function": "start", "data": {"ok": True}, "id": "abc"}
 
 
+def test_send_message_can_wait_until_bus_frame_is_written(monkeypatch):
+    calls = []
+
+    class _FakeFuture:
+        def result(self, timeout):
+            calls.append(("wait", timeout))
+
+    class _FakeBus:
+        def publish(self, *args):
+            calls.append(("publish", args))
+            return _FakeFuture()
+
+    monkeypatch.setattr(electron_ipc, "_use_bus", lambda: True)
+    monkeypatch.setattr(electron_ipc.bus_client, "get_bus", lambda: _FakeBus())
+
+    electron_ipc.send_message("cleanup_complete", wait=True)
+
+    assert calls == [
+        (
+            "publish",
+            (
+                electron_ipc.bus_client.MAIN,
+                electron_ipc.BACKEND_EVENT_TOPIC,
+                {"function": "cleanup_complete"},
+            ),
+        ),
+        ("wait", 1.0),
+    ]
+
+
+def test_stop_ipc_listener_can_leave_bus_open_for_final_ack(monkeypatch):
+    bus_stops = []
+    monkeypatch.setattr(electron_ipc, "_use_bus", lambda: True)
+    monkeypatch.setattr(
+        electron_ipc.bus_client,
+        "get_bus",
+        lambda: type("FakeBus", (), {"stop": lambda self: bus_stops.append(True)})(),
+    )
+    monkeypatch.setattr(electron_ipc, "_command_actor", None)
+
+    electron_ipc.stop_ipc_listener(close_bus=False)
+
+    assert bus_stops == []
+
+
 def test_stdin_loop_dispatches_only_valid_gsmcmd_lines(monkeypatch):
     received = []
     electron_ipc.register_command_handler(received.append)
 
-    class InlineExecutor:
-        def submit(self, fn, *args, **kwargs):
-            fn(*args, **kwargs)
+    class InlineRef:
+        @staticmethod
+        def tell(message):
+            electron_ipc._safe_dispatch(message)
 
-    monkeypatch.setattr(electron_ipc, "_command_dispatch_pool", InlineExecutor())
+    monkeypatch.setattr(electron_ipc, "_get_command_actor", lambda: type("InlineActor", (), {"ref": InlineRef()})())
 
     stdin_data = io.StringIO(
         'ignored\nGSMCMD:{"function":"ping","data":{"x":1}}\nGSMCMD:not-json\nGSMCMD:{"function":"pong"}\n'
@@ -43,7 +89,7 @@ def test_stdin_loop_dispatches_only_valid_gsmcmd_lines(monkeypatch):
     assert received == [{"function": "ping", "data": {"x": 1}}, {"function": "pong"}]
 
 
-def test_start_ipc_listener_starts_daemon_thread(monkeypatch):
+def test_start_ipc_listener_starts_named_platform_input_thread(monkeypatch):
     ran = threading.Event()
 
     def fake_loop():
@@ -54,8 +100,11 @@ def test_start_ipc_listener_starts_daemon_thread(monkeypatch):
     thread.join(timeout=1)
 
     assert ran.is_set()
+    # stdin is the one listener that cannot be interrupted portably; domain
+    # commands still cross into the bounded command actor.
     assert thread.daemon is True
     assert thread.name == "GSM_IPC_Listener"
+    electron_ipc.stop_ipc_listener()
 
 
 def test_convenience_announce_helpers(monkeypatch):

@@ -124,7 +124,8 @@ def test_sends_hello_with_token(broker, client):
 
 
 def test_publish_event_reaches_broker(broker, client):
-    client.publish("main", "ping", {"x": 1})
+    published = client.publish("main", "ping", {"x": 1})
+    published.result(timeout=1)
     frame = broker.wait_for(lambda f: f.get("topic") == "ping")
     assert frame["kind"] == "event"
     assert frame["data"] == {"x": 1}

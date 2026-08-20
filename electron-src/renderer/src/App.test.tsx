@@ -285,6 +285,72 @@ describe('App install-session integration', () => {
         );
     });
 
+    it('reloads an already-mounted stats iframe when GSM finishes initializing', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true })));
+
+        invokeMock.mockImplementation(async (channel: string) => {
+            if (channel === 'install-session.getActive') {
+                return null;
+            }
+            if (channel === 'changelog.getPendingDesktopUpdate') {
+                return null;
+            }
+            if (channel === 'settings.getSettings') {
+                return {
+                    hasCompletedSetup: true,
+                    statsEndpoint: 'overview',
+                    singlePort: 7275,
+                };
+            }
+            if (channel === 'state.set') {
+                return null;
+            }
+            return {};
+        });
+
+        const { default: App } = await import('./App.js');
+
+        await act(async () => {
+            root.render(<App />);
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        const statsButton = Array.from(container.querySelectorAll('button')).find(
+            (button) => button.textContent === 'Stats'
+        );
+
+        await act(async () => {
+            statsButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        const initialIframe = container.querySelector<HTMLIFrameElement>('iframe[title="stats"]');
+        expect(initialIframe).not.toBeNull();
+
+        await act(async () => {
+            initialIframe?.dispatchEvent(new Event('load'));
+        });
+        expect(container.querySelector('.stats-loading')).toBeNull();
+
+        await act(async () => {
+            for (const callback of listeners.get('gsm-initialized') ?? []) {
+                callback({}, {});
+            }
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        const reloadedIframe = container.querySelector<HTMLIFrameElement>('iframe[title="stats"]');
+        expect(reloadedIframe).not.toBe(initialIframe);
+
+        await act(async () => {
+            reloadedIframe?.dispatchEvent(new Event('load'));
+        });
+        expect(container.querySelector('.stats-loading')).toBeNull();
+    });
+
     it('hides the Texthook / Agent tab on platforms without hooking (macOS)', async () => {
         Object.defineProperty(window, 'gsmEnv', {
             configurable: true,

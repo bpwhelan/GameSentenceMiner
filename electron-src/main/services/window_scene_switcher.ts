@@ -54,6 +54,7 @@ export interface WindowSceneSwitcherRuntimeDependencies {
     suggestRule: (
         sceneUuid: string
     ) => Promise<{ titlePattern: string; executableName?: string } | null>;
+    requestForegroundSnapshot: () => void;
     restoreForegroundWindow: (hwnd: string) => void;
 }
 
@@ -618,12 +619,17 @@ export async function handleOBSConnected(): Promise<void> {
     if (!dependencies) {
         return;
     }
-    obsConnected = true;
+    // OBS may emit its initial program-scene event while we are still loading
+    // the collection. Keep automatic switching inactive during that window so
+    // the startup event is not mistaken for a user's manual scene override.
+    obsConnected = false;
     activeCollectionName = await dependencies.getCurrentCollectionName();
     const scenes = await dependencies.getScenes();
     if (scenes !== null) {
         await reconcileWindowSceneSwitcherRules(scenes);
     }
+    obsConnected = true;
+    dependencies.requestForegroundSnapshot();
     scheduleEvaluation();
     notifyStateChanged();
 }
@@ -650,6 +656,9 @@ export async function handleOBSCollectionChanged(collectionName: string): Promis
 }
 
 export function handleOBSSceneChanged(scene: ObsSceneRef): void {
+    if (!obsConnected) {
+        return;
+    }
     if (
         pendingAutoSceneUuid === scene.id &&
         Date.now() <= pendingAutoSceneDeadline

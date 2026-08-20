@@ -6,6 +6,14 @@ from GameSentenceMiner.util.cron import run_crons
 from GameSentenceMiner.util.database.cron_table import CronTable
 
 
+def test_tadoku_task_summary_reports_threshold_skip_reason():
+    task = run_crons._TASK_REGISTRY[run_crons.Crons.TADOKU_SYNC.value]
+
+    assert task.summary({"skipped": True, "reason": "no whitelisted game has 5,000 total characters"}) == (
+        "skipped: no whitelisted game has 5,000 total characters"
+    )
+
+
 def test_scheduler_runs_initial_check_on_dedicated_thread(monkeypatch):
     calls = []
     run_entered = threading.Event()
@@ -98,6 +106,36 @@ def test_shutdown_is_nonblocking_and_stops_thread(monkeypatch):
     assert not thread.is_alive()
 
 
+def test_shutdown_does_not_wait_for_an_active_cron_task(monkeypatch):
+    task_started = threading.Event()
+    release_task = threading.Event()
+
+    def blocking_run_due_crons(force_task=None, progress=None, **kwargs):
+        task_started.set()
+        release_task.wait(timeout=2)
+        return {"executed": 0}
+
+    monkeypatch.setattr(run_crons, "run_due_crons", blocking_run_due_crons)
+    scheduler = run_crons.CronScheduler(check_interval=60)
+    scheduler.start()
+    thread = scheduler._thread
+
+    try:
+        assert task_started.wait(timeout=1)
+        started = run_crons.time.monotonic()
+        scheduler.shutdown()
+        elapsed = run_crons.time.monotonic() - started
+
+        assert elapsed < 0.75
+        assert thread is not None
+        assert thread.daemon is True
+        assert thread.is_alive()
+    finally:
+        release_task.set()
+        if thread is not None:
+            thread.join(timeout=1)
+
+
 def test_run_due_crons_dispatches_via_registry(monkeypatch):
     ran = []
 
@@ -140,6 +178,50 @@ def test_run_due_crons_counts_failures(monkeypatch):
     assert result["executed"] == 0
     assert result["failed"] == 1
     assert "kaboom" in result["details"][0]["error"]
+
+
+def test_registered_cron_task_runs_in_isolated_process():
+    result = run_crons.run_due_crons(
+        force_task=run_crons.Crons.ANKI_WORD_SYNC,
+        isolate_background=True,
+    )
+
+    assert result["executed"] == 1
+    assert result["details"][0]["result"]["skipped"] is True
+
+
+def test_isolated_cron_process_binds_worker_database_tables(monkeypatch):
+    calls = []
+
+    class FakeConnection:
+        def send(self, message):
+            calls.append(("send", message))
+
+        def close(self):
+            calls.append(("close", None))
+
+    monkeypatch.setattr(run_crons, "configure_background_process", lambda: calls.append(("qos", None)))
+    monkeypatch.setattr(
+        "GameSentenceMiner.util.config.configuration.get_config",
+        lambda: calls.append(("config", None)),
+    )
+    monkeypatch.setattr(
+        "GameSentenceMiner.util.database.db.bind_database_worker_tables",
+        lambda: calls.append(("bind", None)),
+    )
+    monkeypatch.setattr(
+        "GameSentenceMiner.util.database.db.gsm_db.close",
+        lambda: calls.append(("db_close", None)),
+    )
+    monkeypatch.setitem(
+        run_crons._TASK_REGISTRY,
+        run_crons.Crons.ANKI_WORD_SYNC.value,
+        run_crons._TaskDef(runner=lambda: calls.append(("run", None)) or {"skipped": True}),
+    )
+
+    run_crons._isolated_cron_process_entry(run_crons.Crons.ANKI_WORD_SYNC.value, FakeConnection())
+
+    assert [kind for kind, _ in calls[:5]] == ["qos", "config", "bind", "run", "send"]
 
 
 def test_active_task_cleared_after_forced_run(monkeypatch):

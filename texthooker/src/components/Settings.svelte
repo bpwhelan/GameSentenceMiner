@@ -17,6 +17,7 @@
 		actionHistory$,
 		adjustTimerOnAfk$,
 		afkTimer$,
+		alwaysScrollToNewest$,
 		allowNewLineDuringPause$,
 		allowPasteDuringPause$,
 		autoStartTimerDuringPause$,
@@ -81,7 +82,6 @@
 		trimAudioWithVAD$,
 		showTrimVideoButton$,
 		trimVideoWithVAD$,
-		showTrimmedVideoInExplorer$,
 		showGSMCheckboxes$,
 		unblurTLTimer$,
 		settingsOpen$,
@@ -96,6 +96,7 @@
 		type LineItem,
 		type SettingPreset,
 	} from '../types';
+	import { deduplicateLineData } from '../session-sync';
 	import { clickOutside } from '../use-click-outside';
 	import { applyCustomCSS, dummyFn, timeStringToSeconds } from '../util';
 	import Icon from './Icon.svelte';
@@ -124,16 +125,30 @@
 			}
 		}
 
+		const removedLines = $lineData$;
 		$lineData$ = [];
 		selectedLineIds = [];
 		window.localStorage.removeItem('bannou-texthooker-lineData');
+		dispatch('linesRemoved', removedLines);
 
 		if (!linesOnly) {
 			$timeValue$ = 0;
 		}
 	}
 
-	const dispatch = createEventDispatcher<{ layoutChange: void; maxLinesChange: void }>();
+	async function handleResetAllData() {
+		const removedLines = $lineData$;
+		await resetAllData();
+		if (removedLines.length && !$lineData$.length) {
+			dispatch('linesRemoved', removedLines);
+		}
+	}
+
+	const dispatch = createEventDispatcher<{
+		layoutChange: void;
+		linesRemoved: LineItem[];
+		maxLinesChange: void;
+	}>();
 	const onlineFonts = [
 		OnlineFont.OFF,
 		OnlineFont.NOTO,
@@ -219,7 +234,11 @@
 		let styleElement = document.getElementById('user-css');
 
 		if (styleElement) {
-			styleElement.replaceChild(textNode, styleElement.firstChild);
+			if (styleElement.firstChild) {
+				styleElement.replaceChild(textNode, styleElement.firstChild);
+			} else {
+				styleElement.appendChild(textNode);
+			}
 		} else {
 			styleElement = document.createElement('style');
 			styleElement.id = 'user-css';
@@ -356,7 +375,7 @@
 						$userNotes$ = value;
 						break;
 					case 'bannou-texthooker-lineData':
-						$lineData$ = value;
+						$lineData$ = deduplicateLineData(value);
 						break;
 					case 'bannou-texthooker-actionHistory':
 						$actionHistory$ = value;
@@ -367,7 +386,7 @@
 			}
 		}
 
-		dataFileInput.value = null;
+		dataFileInput.value = '';
 	}
 
 	async function handleSettingsFileChange() {
@@ -388,7 +407,7 @@
 			}
 		}
 
-		settingsFileInput.value = null;
+		settingsFileInput.value = '';
 	}
 
 	async function handlePresetFileChange() {
@@ -414,7 +433,7 @@
 			presetComponent.updateSettingsWithPreset(data);
 		}
 
-		presetFileInput.value = null;
+		presetFileInput.value = '';
 	}
 
 	async function handlePersistenceChange(settingEnabled: boolean, message: String, storageKey: string) {
@@ -455,7 +474,7 @@
 		}
 	}
 
-	function handleCharacterMilestoneBlur(event) {
+	function handleCharacterMilestoneBlur(event: FocusEvent) {
 		const target = event.target as HTMLInputElement;
 		const value = Number.parseInt(target.value || '0');
 
@@ -472,7 +491,7 @@
 		target.value = `${$characterMilestone$}`;
 	}
 
-	function handlePreventLastDuplicateBlur(event) {
+	function handlePreventLastDuplicateBlur(event: FocusEvent) {
 		const target = event.target as HTMLInputElement;
 		const value = Number.parseInt(target.value || '0');
 		const wasChange = value !== $preventLastDuplicate$;
@@ -527,7 +546,7 @@
 		selectedLineIds = selectedLineIds.filter((selectedLineId) => !removedIds.has(selectedLineId));
 	}
 
-	function handleMaxLinesBlur(event) {
+	function handleMaxLinesBlur(event: FocusEvent) {
 		const target = event.target as HTMLInputElement;
 		const value = Number.parseInt(target.value || '0');
 		const wasChange = value !== $maxLines$;
@@ -545,7 +564,7 @@
 		}
 	}
 
-	function handleMaxPipLinesBlur(event) {
+	function handleMaxPipLinesBlur(event: FocusEvent) {
 		const target = event.target as HTMLInputElement;
 		const value = Number.parseInt(target.value || '0');
 
@@ -669,7 +688,7 @@
 
 	function loadFile<T>(inputElement: HTMLInputElement) {
 		return new Promise<T | void>((resolve, reject) => {
-			const [file] = inputElement.files;
+			const file = inputElement.files?.[0];
 			const fileReader = new FileReader();
 
 			if (!file) {
@@ -683,13 +702,13 @@
 					showCancel: false,
 				};
 
-				inputElement.value = null;
+				inputElement.value = '';
 				return resolve();
 			}
 
 			fileReader.addEventListener('loadend', (event) => {
 				try {
-					const data = JSON.parse(event.target.result as string);
+					const data = JSON.parse(String(event.target?.result ?? ''));
 
 					resolve(data);
 				} catch (error) {
@@ -769,7 +788,7 @@
 				<div
 					role="button"
 					class="flex flex-col items-center hover:text-primary"
-					on:click={resetAllData}
+					on:click={handleResetAllData}
 					on:keyup={dummyFn}
 				>
 					<Icon path={mdiDelete} />
@@ -1022,6 +1041,8 @@
 			bind:checked={$reverseLineOrder$}
 			on:change={() => dispatch('layoutChange')}
 		/>
+		<span class="label-text">Always scroll to newest line</span>
+		<input type="checkbox" class="checkbox checkbox-primary ml-2" bind:checked={$alwaysScrollToNewest$} />
 		<span class="label-text">Preserve Whitespace</span>
 		<input type="checkbox" class="checkbox checkbox-primary ml-2" bind:checked={$preserveWhitespace$} />
 		<span class="label-text">Remove all Whitespace</span>
@@ -1113,20 +1134,18 @@
 			<h3 class="font-semibold text-base tracking-wide">UI Customizability</h3>
 		</div>
 		<div class="col-span-4 grid grid-cols-4 gap-x-2 gap-y-1 mb-2">
-			<span class="label-text col-span-2">Show Screenshot Button</span>
+			<span class="label-text col-span-2">Pin Screenshot Button</span>
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showScreenshotButton$} />
-			<span class="label-text col-span-2">Show Translate Button</span>
+			<span class="label-text col-span-2">Pin Translate Button</span>
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showTranslateButton$} />
-			<span class="label-text col-span-2">Show Audio Button</span>
+			<span class="label-text col-span-2">Pin Audio Button</span>
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showAudioButton$} />
 			<span class="label-text col-span-2">Trim Audio With VAD</span>
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$trimAudioWithVAD$} />
-			<span class="label-text col-span-2">Show Trim Video Button</span>
+			<span class="label-text col-span-2">Pin Save Cropped Replay Button</span>
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showTrimVideoButton$} />
 			<span class="label-text col-span-2">Trim Video With VAD</span>
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$trimVideoWithVAD$} />
-			<span class="label-text col-span-2">Show Trimmed Video In File Explorer</span>
-			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showTrimmedVideoInExplorer$} />
 			<span class="label-text col-span-2">Show Checkboxes</span>
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showGSMCheckboxes$} />
 		</div>

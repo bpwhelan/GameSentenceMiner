@@ -457,6 +457,32 @@ def test_v2_genuine_new_line_still_flushes_after_previous_settled():
     assert len(queued) == 2  # B settled -> flushed too
 
 
+def test_v2_filtered_residual_chunk_does_not_queue_another_ocr2():
+    """A previously seen static chunk must not become a new OCR2 candidate.
+
+    OCR1 can filter a persistent UI fragment to an empty delivered result while
+    retaining the fragment in ``orig_text`` for stability comparisons. Once the
+    dialogue disappears, that subset of the prior chunks must remain deduped.
+    """
+    queued: list[dict] = []
+    ctrl = _make_queued_controller(queued)
+    dialogue = "「手作り……だと……？」"
+    residual = "最新号"
+    chunks = [dialogue, residual]
+    img = _image_with_text(dialogue)
+    coords = (10, 10, 200, 60)
+
+    ctrl.handle_ocr_result(dialogue + residual, chunks, _make_time(0), img, crop_coords=coords)
+    ctrl.handle_ocr_result("", chunks, _make_time(1), img, crop_coords=coords, raw_text=dialogue + residual)
+    assert len(queued) == 1
+
+    residual_img = _image_with_text(residual)
+    ctrl.handle_ocr_result("", [residual], _make_time(2), residual_img, raw_text=residual)
+    ctrl.handle_ocr_result("", [residual], _make_time(3), residual_img, raw_text=residual)
+
+    assert len(queued) == 1
+
+
 def test_v2_text_appears_instantly_detector_runs_second_ocr_on_first_box():
     sent: list[dict] = []
     calls: list[dict] = []

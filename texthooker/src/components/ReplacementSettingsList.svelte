@@ -17,7 +17,7 @@
 
 	let sortableInstance: Sortable;
 	let listContainer: HTMLDivElement;
-	let listItems = JSON.parse(JSON.stringify($replacements$));
+	let listItems: ReplacementItem[] = JSON.parse(JSON.stringify($replacements$));
 
 	$: canApplyReplacements = !!$lineData$.length && !!$enabledReplacements$.length;
 

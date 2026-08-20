@@ -484,7 +484,8 @@ def test_apply_field_grouping_merge_updates_original_then_deletes_duplicate(monk
                     "id": 100,
                     "fields": {
                         "Sentence": (
-                            '<span data-group-id="200">confirmed new</span>\n<span data-group-id="100">original</span>'
+                            '<span data-group-id="200">confirmed new</span><br>'
+                            '<span data-group-id="100">original</span>'
                         )
                     },
                 }
@@ -641,7 +642,7 @@ def test_update_single_card_reuses_audio_only_for_same_selection_different_mined
     )
     monkeypatch.setattr(
         anki,
-        "run_new_thread",
+        "submit_background_work",
         lambda _fn, *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not reuse all media")),
     )
 
@@ -696,7 +697,7 @@ def test_update_single_card_reuses_all_media_for_same_selection_different_mined_
         "queue_card_for_processing",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should reuse animated media")),
     )
-    monkeypatch.setattr(anki, "run_new_thread", lambda fn, *args, **kwargs: fn())
+    monkeypatch.setattr(anki, "submit_background_work", lambda fn, *args, **kwargs: fn())
     monkeypatch.setattr(
         anki, "update_card_from_same_sentence", lambda *args, **kwargs: reuse_calls.append((args, kwargs))
     )
@@ -744,7 +745,7 @@ def test_update_single_card_reuses_same_selection_and_mined_line(monkeypatch):
         "queue_card_for_processing",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should reuse media")),
     )
-    monkeypatch.setattr(anki, "run_new_thread", lambda fn, *args, **kwargs: fn())
+    monkeypatch.setattr(anki, "submit_background_work", lambda fn, *args, **kwargs: fn())
     monkeypatch.setattr(
         anki, "update_card_from_same_sentence", lambda *args, **kwargs: reuse_calls.append((args, kwargs))
     )
@@ -792,7 +793,7 @@ def test_update_single_card_does_not_use_line_result_without_matching_selection_
     )
     monkeypatch.setattr(
         anki,
-        "run_new_thread",
+        "submit_background_work",
         lambda _fn, *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not reuse media")),
     )
 
@@ -849,7 +850,7 @@ def test_update_single_card_reuses_screenshot_only_when_configured(monkeypatch):
     )
     monkeypatch.setattr(
         anki,
-        "run_new_thread",
+        "submit_background_work",
         lambda _fn, *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not reuse all media")),
     )
 
@@ -1499,6 +1500,34 @@ def test_update_anki_note_removes_overlay_tag_when_enabled(monkeypatch):
         ("addTags", {"tags": "GSM", "notes": [42]}),
         ("removeTags", {"tags": "overlay", "notes": [42]}),
     ]
+
+
+def test_update_anki_note_converts_sentence_newlines_to_html_breaks(monkeypatch):
+    config = _base_config()
+    calls = []
+    assets = SimpleNamespace(
+        audio_in_anki="voice.mp3",
+        screenshot_in_anki="",
+        prev_screenshot_in_anki="",
+        video_in_anki="",
+        animated=False,
+    )
+
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "invoke", lambda action, **kwargs: calls.append((action, kwargs)) or [])
+    monkeypatch.setattr(anki.notification, "open_browser_window", lambda *_args, **_kwargs: None, raising=False)
+
+    anki._update_anki_note(
+        SimpleNamespace(noteId=42),
+        {"fields": {"Sentence": "first line\r\nsecond line", "Other": "keep\nraw"}},
+        [],
+        assets,
+    )
+
+    assert calls[1] == (
+        "updateNoteFields",
+        {"note": {"fields": {"Sentence": "first line<br>second line", "Other": "keep\nraw"}}},
+    )
 
 
 def test_update_anki_note_does_not_remove_overlay_tag_when_disabled(monkeypatch):
@@ -2387,7 +2416,7 @@ def test_update_anki_card_confirmation_marks_reused_media(monkeypatch):
     monkeypatch.setitem(sys.modules, "GameSentenceMiner.ui.qt_main", qt_main_stub)
 
     captured = {}
-    monkeypatch.setattr(anki, "run_new_thread", lambda fn: fn())
+    monkeypatch.setattr(anki, "submit_background_work", lambda fn: fn())
     monkeypatch.setattr(
         anki,
         "check_and_update_note",
@@ -2450,7 +2479,11 @@ def test_update_anki_card_confirmation_delete_card_deletes_note_and_skips_update
 
     invoke_calls = []
     monkeypatch.setattr(anki, "invoke", lambda action, **kwargs: invoke_calls.append((action, kwargs)))
-    monkeypatch.setattr(anki, "run_new_thread", lambda _fn: pytest.fail("normal update should not be queued"))
+    monkeypatch.setattr(
+        anki,
+        "submit_background_work",
+        lambda _fn: pytest.fail("normal update should not be queued"),
+    )
 
     result = anki.update_anki_card(
         last_note=SimpleNamespace(noteId=10, get_field=lambda _field: ""),
@@ -2487,7 +2520,7 @@ def test_update_anki_card_does_not_enter_field_grouping_path_when_disabled(monke
         "check_and_update_note",
         lambda *_args, **kwargs: worker_kwargs.update(kwargs),
     )
-    monkeypatch.setattr(anki, "run_new_thread", lambda func: func())
+    monkeypatch.setattr(anki, "submit_background_work", lambda func: func())
 
     result = anki.update_anki_card(
         last_note=SimpleNamespace(noteId=10, get_field=lambda _field: ""),
@@ -2522,7 +2555,7 @@ def test_update_anki_card_marks_video_pending_for_background_work(monkeypatch):
     monkeypatch.setattr(anki, "_synchronize_deferred_media_metadata", lambda *args, **kwargs: None)
     monkeypatch.setattr(anki, "_prepare_anki_note_fields", lambda note, *_args, **_kwargs: note)
     monkeypatch.setattr(anki, "_prepare_anki_tags", lambda: [])
-    monkeypatch.setattr(anki, "run_new_thread", lambda func: None)
+    monkeypatch.setattr(anki, "submit_background_work", lambda func: None)
 
     video_path = "C:/Users/test/Videos/GSM/Replay.mp4"
     anki.gsm_state.videos_with_pending_operations.clear()

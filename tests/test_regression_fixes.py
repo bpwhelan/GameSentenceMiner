@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import importlib.util
 import os
 import subprocess
@@ -111,3 +112,109 @@ def test_same_line_audio_reextracts_when_vad_variant_changes(monkeypatch, tmp_pa
     assert extracted == [True]
     assert played == [(str(new_audio_path), line.id)]
     assert service.gsm_state.previous_audio_cache_key == service._audio_cache_key(line.id, True)
+
+
+def test_save_texthooker_video_clip_uses_dated_output_folder(monkeypatch, tmp_path):
+    trimmed_video = tmp_path / "trimmed.mp4"
+    trimmed_video.write_bytes(b"video")
+    output_folder = tmp_path / "output"
+    line = SimpleNamespace(text="A line: with invalid? filename characters")
+
+    monkeypatch.setattr(
+        service,
+        "get_config",
+        lambda: SimpleNamespace(paths=SimpleNamespace(output_folder=str(output_folder))),
+    )
+    monkeypatch.setattr(
+        service.time,
+        "strftime",
+        lambda pattern: {"%Y-%m": "2026-07", "%d": "27", "%H-%M-%S": "12-34-56"}[pattern],
+    )
+
+    saved_path = service._save_texthooker_video_clip(str(trimmed_video), line)
+
+    expected_folder = output_folder / "2026-07" / "27"
+    assert os.path.dirname(saved_path) == str(expected_folder)
+    assert os.path.isfile(saved_path)
+    assert saved_path.endswith("_Alinewithinvalidfilenamecharacters.mp4")
+
+
+def test_show_item_in_folder_selects_file_on_windows(monkeypatch, tmp_path):
+    clip_path = tmp_path / "saved clip.mp4"
+    launched = []
+
+    monkeypatch.setattr(service.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(service.subprocess, "Popen", lambda command: launched.append(command))
+
+    service._show_item_in_folder(str(clip_path))
+
+    assert launched == [["explorer.exe", f"/select,{os.path.normpath(clip_path)}"]]
+
+
+def test_video_trim_button_persists_clip_and_selects_it(monkeypatch, tmp_path):
+    line = SimpleNamespace(id="line-1", text="hello")
+    trimmed_path = tmp_path / "trimmed.mp4"
+    saved_path = tmp_path / "output" / "saved.mp4"
+    selected = []
+
+    monkeypatch.setattr(service.gsm_state, "lines_for_media_creation", None, raising=False)
+    monkeypatch.setattr(service.gsm_state, "line_for_audio", None, raising=False)
+    monkeypatch.setattr(service.gsm_state, "line_for_video_trim", line, raising=False)
+    monkeypatch.setattr(
+        service.gsm_state,
+        "texthooker_video_trim_request",
+        {"trim_with_vad": True, "show_in_explorer": True},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        service,
+        "_trim_video_for_line",
+        lambda actual_line, video_path, trim_with_vad: (
+            str(trimmed_path) if (actual_line, video_path, trim_with_vad) == (line, "replay.mp4", True) else ""
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "_save_texthooker_video_clip",
+        lambda actual_path, actual_line: (
+            str(saved_path) if (actual_path, actual_line) == (str(trimmed_path), line) else ""
+        ),
+    )
+    monkeypatch.setattr(service, "_show_item_in_folder", selected.append)
+
+    service.handle_texthooker_button("replay.mp4")
+
+    assert service.gsm_state.previous_trimmed_video_path == str(saved_path)
+    assert selected == [str(saved_path)]
+
+
+def test_trim_video_uses_the_same_line_window_as_audio(monkeypatch):
+    line_time = datetime.datetime(2026, 7, 27, 12, 0, 0)
+    line = SimpleNamespace(
+        text="hello",
+        time=line_time,
+        next=SimpleNamespace(time=line_time + datetime.timedelta(seconds=3)),
+        source_padding=0,
+    )
+    trim_calls = []
+
+    monkeypatch.setattr(
+        service,
+        "get_config",
+        lambda: SimpleNamespace(audio=SimpleNamespace(pre_vad_end_offset=0.5)),
+    )
+    monkeypatch.setattr(
+        service,
+        "get_video_timings",
+        lambda _video_path, _line: (40.2, 40.0, 40.2, 60.0),
+    )
+    monkeypatch.setattr(
+        service.ffmpeg,
+        "trim_replay_for_gameline",
+        lambda path, start, end, accurate: trim_calls.append((path, start, end, accurate)) or "clip.mp4",
+    )
+
+    result = service._trim_video_for_line(line, "replay.mp4", trim_with_vad=False)
+
+    assert result == "clip.mp4"
+    assert trim_calls == [("replay.mp4", 40.2, 43.5, True)]

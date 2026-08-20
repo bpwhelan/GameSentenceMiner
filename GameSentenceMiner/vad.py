@@ -24,7 +24,7 @@ from GameSentenceMiner.util.config.configuration import (
     SILERO,
     WHISPER,
 )
-from GameSentenceMiner.util.gsm_utils import run_new_thread
+from GameSentenceMiner.util.concurrency.work_pool import submit_background_work
 from GameSentenceMiner.util.media import ffmpeg
 from GameSentenceMiner.util.media.ffmpeg import get_audio_length
 from GameSentenceMiner.util.models.model import VADResult
@@ -53,6 +53,15 @@ FIRERED_MAX_SPEECH_FRAME_DEFAULT = 2000
 FIRERED_MIN_SILENCE_FRAME_DEFAULT = 20
 FIRERED_MERGE_SILENCE_FRAME_DEFAULT = 0
 FIRERED_EXTEND_SPEECH_FRAME_DEFAULT = 0
+FIRERED_TRAILING_GUARD_BOUNDARY_TOLERANCE_SECONDS_DEFAULT = 0.05
+FIRERED_TRAILING_GUARD_MIN_DISAGREEMENT_SECONDS_DEFAULT = 1.0
+FIRERED_TRAILING_GUARD_HIGH_CONFIDENCE_DEFAULT = 0.9
+FIRERED_TRAILING_GUARD_HIGH_CONFIDENCE_FRAMES_DEFAULT = 20
+CLEAN_PREROLL_WINDOW_SECONDS = 0.03
+CLEAN_PREROLL_MIN_LEAD_SECONDS = 0.06
+CLEAN_PREROLL_MAX_QUIET_RMS = 0.01
+CLEAN_PREROLL_MIN_RESIDUE_RMS = 0.01
+CLEAN_PREROLL_CONTRAST_RATIO = 3.0
 
 
 def _get_vad_config_value(name: str, default):
@@ -84,6 +93,55 @@ def _load_pcm16_mono_audio_from_wav(path: str):
     if channel_count > 1:
         audio = audio.reshape(-1, channel_count).mean(axis=1).astype(np.int16)
     return audio
+
+
+def _select_clean_preroll_start(
+    audio,
+    *,
+    sample_rate: int,
+    requested_start: float,
+    detected_start: float,
+) -> float:
+    """Move a padded start past an isolated residue only when a clear quiet trough exists."""
+    import numpy as np
+
+    requested_start = max(0.0, float(requested_start))
+    detected_start = max(requested_start, float(detected_start))
+    window_samples = max(1, round(CLEAN_PREROLL_WINDOW_SECONDS * sample_rate))
+    hop_samples = max(1, round(0.01 * sample_rate))
+    requested_sample = max(0, round(requested_start * sample_rate))
+    latest_window_start = min(
+        len(audio) - window_samples,
+        round((detected_start - CLEAN_PREROLL_MIN_LEAD_SECONDS) * sample_rate) - window_samples,
+    )
+    if latest_window_start <= requested_sample:
+        return requested_start
+
+    window_starts = list(range(requested_sample, latest_window_start + 1, hop_samples))
+    if window_starts[-1] != latest_window_start:
+        window_starts.append(latest_window_start)
+
+    rms_values = np.asarray(
+        [
+            np.sqrt(np.mean(np.square(np.asarray(audio[start : start + window_samples], dtype=np.float32))))
+            for start in window_starts
+        ],
+        dtype=np.float32,
+    )
+    quietest_index = int(np.argmin(rms_values))
+    if quietest_index == 0:
+        return requested_start
+
+    quiet_rms = float(rms_values[quietest_index])
+    preceding_peak_rms = float(np.max(rms_values[:quietest_index]))
+    if (
+        quiet_rms > CLEAN_PREROLL_MAX_QUIET_RMS
+        or preceding_peak_rms < CLEAN_PREROLL_MIN_RESIDUE_RMS
+        or preceding_peak_rms < quiet_rms * CLEAN_PREROLL_CONTRAST_RATIO
+    ):
+        return requested_start
+
+    return window_starts[quietest_index] / sample_rate
 
 
 def _read_kaldi_binary_int(handle) -> int:
@@ -169,6 +227,25 @@ def _load_whisper_audio_from_wav(path: str):
     return audio.astype(np.float32) / 32768.0
 
 
+def _detect_silero_segments_from_audio(audio) -> list["Segment"]:
+    from faster_whisper.vad import get_speech_timestamps, VadOptions
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        # Match the standalone silero-vad defaults used by SileroVADProcessor.
+        speech_timestamps = get_speech_timestamps(
+            audio,
+            VadOptions(
+                threshold=0.5,
+                min_speech_duration_ms=250,
+                min_silence_duration_ms=100,
+                speech_pad_ms=30,
+            ),
+            sampling_rate=16000,
+        )
+    return [Segment(start=item["start"] / 16000, end=item["end"] / 16000) for item in speech_timestamps]
+
+
 @dataclass(frozen=True)
 class Segment:
     start: float
@@ -225,6 +302,28 @@ class TempWav:
         return False
 
 
+def _find_clean_preroll_start(input_audio: str, requested_start: float, detected_start: float) -> float:
+    try:
+        with TempWav(input_audio) as temp_wav:
+            audio = _load_pcm16_mono_audio_from_wav(temp_wav).astype("float32") / 32768.0
+        selected_start = _select_clean_preroll_start(
+            audio,
+            sample_rate=16000,
+            requested_start=requested_start,
+            detected_start=detected_start,
+        )
+    except Exception as e:
+        logger.warning(f"Experimental clean VAD pre-roll analysis failed; keeping configured pre-roll: {e}")
+        return requested_start
+
+    if selected_start > requested_start:
+        logger.info(
+            f"Experimental clean VAD pre-roll moved the audio start from "
+            f"{requested_start:.2f}s to {selected_start:.2f}s."
+        )
+    return selected_start
+
+
 class VADSystem:
     def __init__(self):
         self.initialized = False
@@ -267,7 +366,7 @@ class VADSystem:
     def init(self):
         self.ensure_initialized()
         if get_config().vad.preload_vad_model:
-            run_new_thread(self._preload_models)
+            submit_background_work(self._preload_models)
         # if get_config().vad.is_vosk():
         #     if not self.vosk:
         #         self.vosk = VoskVADProcessor()
@@ -375,7 +474,7 @@ class VADProcessor(ABC):
             if i == len(segments) - 1:
                 end += end_padding
             ffmpeg_threads.append(
-                run_new_thread(
+                submit_background_work(
                     partial(
                         ffmpeg.trim_audio,
                         input_audio,
@@ -459,6 +558,7 @@ class VADProcessor(ABC):
             return VADResult(False, 0, 0, self.vad_system_name)
 
         start_time, end_time = decision
+        output_start_time = max(0, start_time + get_config().vad.beginning_offset)
         if get_config().vad.cut_and_splice_segments:
             self.extract_audio_and_combine_segments(
                 input_audio,
@@ -468,18 +568,34 @@ class VADProcessor(ABC):
                 end_padding=get_config().audio.end_offset,
             )
         else:
+            fade_in_duration = 0.05
+            if (
+                get_config().vad.trim_beginning
+                and _get_vad_config_value("adaptive_preroll", False)
+                and get_config().vad.beginning_offset < 0
+            ):
+                configured_start_time = output_start_time
+                output_start_time = _find_clean_preroll_start(
+                    input_audio,
+                    output_start_time,
+                    start_time,
+                )
+                if output_start_time > configured_start_time:
+                    # The selected point is already quiet; keep the fade short so it
+                    # cannot soften a low-energy consonant just before the VAD boundary.
+                    fade_in_duration = 0.01
             ffmpeg.trim_audio(
                 input_audio,
-                start_time + get_config().vad.beginning_offset,
+                output_start_time,
                 end_time + get_config().audio.end_offset,
                 output_audio,
                 trim_beginning=get_config().vad.trim_beginning,
-                fade_in_duration=0.05,
+                fade_in_duration=fade_in_duration,
                 fade_out_duration=0,
             )
         return VADResult(
             True,
-            max(0, start_time + get_config().vad.beginning_offset),
+            output_start_time,
             max(0, end_time + get_config().audio.end_offset),
             self.vad_system_name,
             detection.segments,
@@ -714,20 +830,10 @@ class FireRedVADProcessor(VADProcessor):
             import onnxruntime as ort
 
             model_path = _get_firered_asset_path("fireredvad_vad.onnx")
-            available_providers = ort.get_available_providers()
-            use_cpu = get_config().vad.use_cpu_for_inference_v2
-            providers = ["CPUExecutionProvider"]
-            if not use_cpu and "CUDAExecutionProvider" in available_providers:
-                providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
-
-            try:
-                self.vad_model = ort.InferenceSession(model_path, providers=providers)
-            except Exception:
-                if providers[0] != "CPUExecutionProvider":
-                    logger.warning("FireRedVAD GPU loading failed, falling back to CPU.")
-                    self.vad_model = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
-                else:
-                    raise
+            # FireRedVAD is already fast enough for GSM's short clips on CPU.
+            # Avoid probing CUDA here: missing CUDA/cuDNN DLLs produce noisy
+            # native ONNX Runtime errors before Python can fall back to CPU.
+            self.vad_model = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
 
             self._feature_extractor = FireRedFeatureExtractor(_get_firered_asset_path("cmvn.ark"))
             self._postprocessor = FireRedVADPostprocessor(
@@ -755,24 +861,129 @@ class FireRedVADProcessor(VADProcessor):
             )
             logger.info(f"FireRedVAD ONNX model loaded with providers: {self.vad_model.get_providers()}")
 
+    def _corroborate_trailing_boundary(
+        self,
+        segments: list[Segment],
+        probabilities,
+        wav_duration: float,
+        decoded_audio,
+    ) -> list[Segment]:
+        if not segments:
+            return segments
+
+        boundary_tolerance = float(
+            _get_vad_config_value(
+                "firered_trailing_guard_boundary_tolerance_seconds",
+                FIRERED_TRAILING_GUARD_BOUNDARY_TOLERANCE_SECONDS_DEFAULT,
+            )
+        )
+        firered_end = segments[-1].end
+        if wav_duration - firered_end > boundary_tolerance:
+            return segments
+
+        try:
+            silero_segments = _detect_silero_segments_from_audio(decoded_audio)
+        except Exception as e:
+            logger.warning(f"FireRedVAD trailing-boundary corroboration failed; keeping FireRed result: {e}")
+            return segments
+        if not silero_segments:
+            return segments
+
+        silero_end = silero_segments[-1].end
+        min_disagreement = float(
+            _get_vad_config_value(
+                "firered_trailing_guard_min_disagreement_seconds",
+                FIRERED_TRAILING_GUARD_MIN_DISAGREEMENT_SECONDS_DEFAULT,
+            )
+        )
+        if firered_end - silero_end < min_disagreement:
+            return segments
+
+        high_confidence = float(
+            _get_vad_config_value(
+                "firered_trailing_guard_high_confidence",
+                FIRERED_TRAILING_GUARD_HIGH_CONFIDENCE_DEFAULT,
+            )
+        )
+        high_confidence_frames = int(
+            _get_vad_config_value(
+                "firered_trailing_guard_high_confidence_frames",
+                FIRERED_TRAILING_GUARD_HIGH_CONFIDENCE_FRAMES_DEFAULT,
+            )
+        )
+        smoothed_probabilities = self._postprocessor._smooth_prob(probabilities)
+        first_trailing_frame = max(0, int(silero_end / FIRERED_FRAME_SHIFT_S))
+        consecutive_high_confidence = 0
+        for probability in smoothed_probabilities[first_trailing_frame:]:
+            if probability >= high_confidence:
+                consecutive_high_confidence += 1
+                if consecutive_high_confidence >= high_confidence_frames:
+                    return segments
+            else:
+                consecutive_high_confidence = 0
+
+        corroborated_segments = []
+        for segment in segments:
+            if segment.start >= silero_end:
+                break
+            corroborated_end = min(segment.end, silero_end)
+            if corroborated_end > segment.start:
+                corroborated_segments.append(
+                    Segment(
+                        start=segment.start,
+                        end=corroborated_end,
+                        text=segment.text,
+                        confidence=segment.confidence,
+                    )
+                )
+
+        if not corroborated_segments:
+            return segments
+
+        logger.info(
+            f"FireRedVAD reached the clip boundary at {firered_end:.2f}s with no later high-confidence speech; "
+            f"using Silero's corroborated end at {silero_end:.2f}s."
+        )
+        return corroborated_segments
+
     def _detect_voice_activity(self, input_audio, text_mined) -> DetectionResult:
         import numpy as np
 
         self._ensure_model()
         with TempWav(input_audio) as temp_wav:
             features, duration = self._feature_extractor.extract(temp_wav)
+            if features.shape[0] <= 0:
+                return DetectionResult(segments=[])
 
-        if features.shape[0] <= 0:
-            return DetectionResult(segments=[])
+            outputs = self.vad_model.run(None, {"feat": features[np.newaxis, :, :].astype(np.float32, copy=False)})
+            probabilities = np.asarray(outputs[0], dtype=np.float32).squeeze()
+            if probabilities.ndim == 0:
+                probabilities = probabilities.reshape(1)
 
-        outputs = self.vad_model.run(None, {"feat": features[np.newaxis, :, :].astype(np.float32, copy=False)})
-        probabilities = np.asarray(outputs[0], dtype=np.float32).squeeze()
-        if probabilities.ndim == 0:
-            probabilities = probabilities.reshape(1)
+            decisions = self._postprocessor.process(probabilities.tolist())
+            timestamps = self._postprocessor.decision_to_segment(decisions, duration)
+            segments = [Segment(start=float(start), end=float(end)) for start, end in timestamps if end > start]
 
-        decisions = self._postprocessor.process(probabilities.tolist())
-        timestamps = self._postprocessor.decision_to_segment(decisions, duration)
-        segments = [Segment(start=float(start), end=float(end)) for start, end in timestamps if end > start]
+            boundary_tolerance = float(
+                _get_vad_config_value(
+                    "firered_trailing_guard_boundary_tolerance_seconds",
+                    FIRERED_TRAILING_GUARD_BOUNDARY_TOLERANCE_SECONDS_DEFAULT,
+                )
+            )
+            min_disagreement = float(
+                _get_vad_config_value(
+                    "firered_trailing_guard_min_disagreement_seconds",
+                    FIRERED_TRAILING_GUARD_MIN_DISAGREEMENT_SECONDS_DEFAULT,
+                )
+            )
+            if segments and duration >= min_disagreement and duration - segments[-1].end <= boundary_tolerance:
+                decoded_audio = _load_whisper_audio_from_wav(temp_wav)
+                segments = self._corroborate_trailing_boundary(
+                    segments,
+                    probabilities,
+                    wav_duration=duration,
+                    decoded_audio=decoded_audio,
+                )
         logger.debug(segments)
         return DetectionResult(segments=segments)
 
@@ -796,27 +1007,12 @@ class SileroVADProcessor(VADProcessor):
             self.vad_model = get_vad_model()
 
     def _detect_voice_activity(self, input_audio, text_mined) -> DetectionResult:
-        from faster_whisper.vad import get_speech_timestamps, VadOptions
-
         self._ensure_model()
         with TempWav(input_audio) as temp_wav:
             audio = _load_whisper_audio_from_wav(temp_wav)
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                # Match the standalone silero-vad package defaults (tuned for trimming a short
-                # clip), not faster-whisper's long-audio chunking defaults (400ms pad / 2s silence).
-                speech_timestamps = get_speech_timestamps(
-                    audio,
-                    VadOptions(
-                        threshold=0.5,
-                        min_speech_duration_ms=250,
-                        min_silence_duration_ms=100,
-                        speech_pad_ms=30,
-                    ),
-                    sampling_rate=16000,
-                )
-        # faster-whisper returns sample indices; convert to seconds.
-        segments = [Segment(start=item["start"] / 16000, end=item["end"] / 16000) for item in speech_timestamps]
+            # These defaults are tuned for trimming a short clip, not
+            # faster-whisper's long-audio chunking defaults (400ms pad / 2s silence).
+            segments = _detect_silero_segments_from_audio(audio)
         logger.debug(segments)
         return DetectionResult(segments=segments)
 

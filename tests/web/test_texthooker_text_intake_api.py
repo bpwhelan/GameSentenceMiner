@@ -10,7 +10,7 @@ def test_root_redirects_to_texthooker():
 
 
 def test_get_ids_reports_current_text_intake_state(monkeypatch):
-    async def no_op_check():
+    def no_op_check():
         return None
 
     monkeypatch.setattr(texthooking_page, "check_for_lines_outside_replay_buffer", no_op_check)
@@ -24,7 +24,7 @@ def test_get_ids_reports_current_text_intake_state(monkeypatch):
 
 
 def test_get_ids_disables_caching(monkeypatch):
-    async def no_op_check():
+    def no_op_check():
         return None
 
     monkeypatch.setattr(texthooking_page, "check_for_lines_outside_replay_buffer", no_op_check)
@@ -60,3 +60,38 @@ def test_set_text_intake_paused_rejects_implicit_or_missing_state(monkeypatch):
     assert missing_response.status_code == 400
     assert string_response.status_code == 400
     assert calls == []
+
+
+def test_set_stats_gathering_enabled_requires_an_explicit_boolean(monkeypatch):
+    from GameSentenceMiner.util.config import configuration
+
+    config = type("Config", (), {"advanced": type("Advanced", (), {"dont_collect_stats": False})()})()
+    monkeypatch.setattr(configuration, "get_config", lambda: config)
+    client = texthooking_page.app.test_client()
+
+    disable_response = client.post("/set_stats_gathering_enabled", json={"enabled": False})
+
+    assert disable_response.status_code == 200
+    assert disable_response.get_json() == {"enabled": False}
+    assert config.advanced.dont_collect_stats is True
+
+    enable_response = client.post("/set_stats_gathering_enabled", json={"enabled": True})
+
+    assert enable_response.status_code == 200
+    assert enable_response.get_json() == {"enabled": True}
+    assert config.advanced.dont_collect_stats is False
+
+
+def test_set_stats_gathering_enabled_rejects_implicit_or_missing_state(monkeypatch):
+    from GameSentenceMiner.util.config import configuration
+
+    config = type("Config", (), {"advanced": type("Advanced", (), {"dont_collect_stats": False})()})()
+    monkeypatch.setattr(configuration, "get_config", lambda: config)
+    client = texthooking_page.app.test_client()
+
+    missing_response = client.post("/set_stats_gathering_enabled", json={})
+    string_response = client.post("/set_stats_gathering_enabled", json={"enabled": "false"})
+
+    assert missing_response.status_code == 400
+    assert string_response.status_code == 400
+    assert config.advanced.dont_collect_stats is False

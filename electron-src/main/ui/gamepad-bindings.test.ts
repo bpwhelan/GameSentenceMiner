@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 function loadLegacyGamepadHandler() {
   const source = fs.readFileSync(
@@ -81,6 +81,40 @@ describe("legacy gamepad startup settings", () => {
     expect(loadStartupGamepadSettings({ gamepadEnabled: false })).toMatchObject({
       enabled: false
     });
+  });
+});
+
+describe("legacy gamepad toggle debouncing", () => {
+  it("ignores a second navigation toggle during a Steam input-mode handoff", () => {
+    const handler = Object.create(GamepadHandler.prototype) as {
+      toggleModeActive: boolean;
+      lastToggleActionTimes: Map<string, number>;
+      activateNavigation: ReturnType<typeof vi.fn>;
+      deactivateNavigation: ReturnType<typeof vi.fn>;
+      getToggleTimestamp: ReturnType<typeof vi.fn>;
+      toggleNavigationMode: () => boolean;
+    };
+    handler.toggleModeActive = false;
+    handler.lastToggleActionTimes = new Map();
+    handler.activateNavigation = vi.fn();
+    handler.deactivateNavigation = vi.fn();
+    handler.getToggleTimestamp = vi.fn()
+      .mockReturnValueOnce(1000)
+      .mockReturnValueOnce(1400)
+      .mockReturnValueOnce(1450)
+      .mockReturnValueOnce(1700)
+      .mockReturnValueOnce(1700);
+
+    expect(handler.toggleNavigationMode()).toBe(true);
+    expect(handler.toggleNavigationMode()).toBe(false);
+
+    expect(handler.toggleModeActive).toBe(true);
+    expect(handler.activateNavigation).toHaveBeenCalledTimes(1);
+    expect(handler.deactivateNavigation).not.toHaveBeenCalled();
+
+    expect(handler.toggleNavigationMode()).toBe(true);
+    expect(handler.toggleModeActive).toBe(false);
+    expect(handler.deactivateNavigation).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -386,9 +420,15 @@ describe("legacy gamepad button bindings", () => {
 });
 
 describe("legacy gamepad start block selection", () => {
-  function createStartSelectionHandler(blocks: Array<{ area: number; text: string }>) {
+  function createStartSelectionHandler(
+    blocks: Array<{ area: number; text: string; role?: string }>
+  ) {
     const handler = Object.create(GamepadHandler.prototype) as {
-      textBlocks: Array<{ __area: number; textContent: string }>;
+      textBlocks: Array<{
+        __area: number;
+        textContent: string;
+        dataset: { blockRole?: string };
+      }>;
       blockHasSelectableCharacters: (block: { textContent: string }) => boolean;
       getBlockBoundingRect: (block: { __area: number }) => { width: number; height: number };
       getBlockSelectionMetrics: (block: { __area: number; textContent: string }) => { area: number; textLength: number };
@@ -397,7 +437,8 @@ describe("legacy gamepad start block selection", () => {
 
     handler.textBlocks = blocks.map((block) => ({
       __area: block.area,
-      textContent: block.text
+      textContent: block.text,
+      dataset: { blockRole: block.role }
     }));
     handler.blockHasSelectableCharacters = (block) => block.textContent.trim().length > 0;
     handler.getBlockBoundingRect = (block) => ({ width: block.__area, height: 1 });
@@ -421,6 +462,23 @@ describe("legacy gamepad start block selection", () => {
       { area: 30, text: "first" },
       { area: 40, text: "second" },
       { area: 35, text: "third" }
+    ]);
+
+    expect(handler.findFirstSelectableBlockIndex()).toBe(0);
+  });
+
+  it("starts on dialogue instead of a preceding character-name block", () => {
+    const handler = createStartSelectionHandler([
+      { area: 12, text: "エステル", role: "character-name" },
+      { area: 70, text: "ってことは、この向こう側はもうリベールじゃないんだ……", role: "dialogue" }
+    ]);
+
+    expect(handler.findFirstSelectableBlockIndex()).toBe(1);
+  });
+
+  it("still allows a character-name block when it is the only selectable block", () => {
+    const handler = createStartSelectionHandler([
+      { area: 12, text: "エステル", role: "character-name" }
     ]);
 
     expect(handler.findFirstSelectableBlockIndex()).toBe(0);

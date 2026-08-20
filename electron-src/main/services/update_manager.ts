@@ -177,6 +177,12 @@ export class UpdateManager {
         return this.lastBackendUpdateError;
     }
 
+    public get checkedBackendVersion(): string | null | undefined {
+        return this.backendStatusCache.checkedAt
+            ? this.backendStatusCache.currentVersion
+            : undefined;
+    }
+
     public async waitForNoActiveUpdates(pollIntervalMs: number = 200): Promise<void> {
         while (this.anyUpdateInProgress) {
             await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
@@ -324,7 +330,7 @@ export class UpdateManager {
                 const installedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
 
                 devFaultInjector.maybeFail('update.check_for_updates');
-                const versionCheck = await checkForUpdates();
+                const versionCheck = await checkForUpdates(false, installedVersion);
                 const updateAvailable = versionCheck.updateAvailable;
                 const latestVersion = versionCheck.latestVersion;
 
@@ -803,7 +809,7 @@ export class UpdateManager {
 
         try {
             const currentVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
-            const versionCheck = await checkForUpdates();
+            const versionCheck = await checkForUpdates(false, currentVersion);
             this.backendStatusCache = {
                 currentVersion,
                 latestVersion: versionCheck.latestVersion,

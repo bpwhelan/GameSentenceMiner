@@ -9,11 +9,25 @@ Usage:
 """
 
 import enum
+import multiprocessing
 import queue
 import threading
 import time
+import traceback
 from dataclasses import dataclass, field
 from typing import Callable, Optional
+
+from GameSentenceMiner.util.concurrency.actor import MailboxFull
+from GameSentenceMiner.util.concurrency.scheduler import (
+    SchedulerActor,
+    acquire_runtime_scheduler,
+    release_runtime_scheduler,
+)
+from GameSentenceMiner.util.concurrency.resource_qos import (
+    ExecutionClass,
+    configure_background_process,
+    configure_current_thread,
+)
 
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.database.cron_table import CronTable
@@ -190,7 +204,10 @@ _TASK_REGISTRY: dict[str, _TaskDef] = {
     Crons.TADOKU_SYNC.value: _TaskDef(
         runner=_run_tadoku_sync,
         success=lambda r: bool(r.get("success", False)),
-        summary=lambda r: f"sent {r.get('characters_sent', 0)} characters in {r.get('entries_sent', 0)} game logs",
+        summary=lambda r: _skip_or(
+            r,
+            f"sent {r.get('characters_sent', 0)} characters in {r.get('entries_sent', 0)} game logs",
+        ),
         warn=lambda r: f"Tadoku daily sync failed: {r['error']}" if r.get("error") else None,
     ),
 }
@@ -206,7 +223,8 @@ class _SlowTaskWatchdog:
     def __init__(self, name: str, interval: float = SLOW_TASK_WARN_SECONDS):
         self._name = name
         self._interval = interval
-        self._timer: Optional[threading.Timer] = None
+        self._scheduler: Optional[SchedulerActor] = None
+        self._key = f"cron-watchdog:{name}:{id(self)}"
         self._started = 0.0
 
     def __enter__(self) -> "_SlowTaskWatchdog":
@@ -215,15 +233,20 @@ class _SlowTaskWatchdog:
         return self
 
     def __exit__(self, *exc) -> None:
-        if self._timer:
-            self._timer.cancel()
-            self._timer = None
+        if self._scheduler:
+            self._scheduler.cancel(self._key)
+            self._scheduler = None
 
     def _arm(self) -> None:
-        self._timer = threading.Timer(self._interval, self._fire)
-        self._timer.daemon = True
-        self._timer.name = f"gsm-cron-watchdog-{self._name}"
-        self._timer.start()
+        scheduler_owner = globals().get("cron_scheduler")
+        scheduler = getattr(scheduler_owner, "_deadline_scheduler", None)
+        if scheduler is None:
+            return
+        self._scheduler = scheduler
+        try:
+            scheduler.schedule_after(self._key, self._interval, self._fire)
+        except Exception:
+            self._scheduler = None
 
     def _fire(self) -> None:
         elapsed = time.monotonic() - self._started
@@ -296,7 +319,9 @@ class CronScheduler:
         self._state_lock = threading.Lock()
         self._stop_event = threading.Event()
 
-        self._queue: queue.Queue[Crons] = queue.Queue()
+        self._queue: queue.Queue[Crons] = queue.Queue(maxsize=128)
+        self._deadline_scheduler: Optional[SchedulerActor] = None
+        self._scheduler_acquired = False
 
         # Currently-running task, for diagnostics (skips / stop-while-busy).
         self._active_task: Optional[str] = None
@@ -309,7 +334,10 @@ class CronScheduler:
         """
         if not self.is_running():
             logger.warning("CronScheduler is not running, task queued but won't run until start()")
-        self._queue.put(task)
+        try:
+            self._queue.put(task, timeout=0.25)
+        except queue.Full as error:
+            raise MailboxFull("Cron command mailbox is backpressured") from error
 
     def force_daily_rollup(self):
         self.add_external_task(Crons.DAILY_STATS_ROLLUP)
@@ -351,9 +379,14 @@ class CronScheduler:
 
             self._running = True
             self._stop_event.clear()
+            self._deadline_scheduler = acquire_runtime_scheduler()
+            self._scheduler_acquired = True
             self._thread = threading.Thread(
                 target=self._run_scheduler,
                 name="gsm-cron-scheduler",
+                # Cron runners can be inside blocking network libraries which
+                # Python cannot cancel. shutdown() signals them but they must not
+                # keep the process alive after application state is drained.
                 daemon=True,
             )
             self._thread.start()
@@ -373,6 +406,7 @@ class CronScheduler:
         with self._state_lock:
             self._running = False
         self._stop_event.set()
+        self._release_deadline_scheduler(timeout=1)
 
     def stop(self, timeout: float = 2.0):
         """Stop the cron scheduler gracefully (blocks up to ``timeout`` for the thread)."""
@@ -386,6 +420,7 @@ class CronScheduler:
 
         if thread and thread.is_alive() and threading.current_thread() is not thread:
             thread.join(timeout=timeout)
+        self._release_deadline_scheduler(timeout=timeout)
 
         with self._state_lock:
             if self._thread is thread and thread and not thread.is_alive():
@@ -403,6 +438,14 @@ class CronScheduler:
             self._active_task = name
             self._active_since = time.monotonic() if name else None
 
+    def _release_deadline_scheduler(self, *, timeout: float) -> None:
+        scheduler = self._deadline_scheduler
+        if scheduler is None or not self._scheduler_acquired:
+            return
+        self._scheduler_acquired = False
+        self._deadline_scheduler = None
+        release_runtime_scheduler(scheduler, timeout=timeout)
+
     def _active_task_info(self) -> Optional[str]:
         """Human-readable description of the in-flight task, or None when idle."""
         with self._state_lock:
@@ -416,6 +459,7 @@ class CronScheduler:
         The main loop.
         It waits for 'check_interval' seconds OR for a forced task in the queue.
         """
+        configure_current_thread(ExecutionClass.BACKGROUND)
         logger.background("CronScheduler thread started")
 
         try:
@@ -467,7 +511,11 @@ class CronScheduler:
 
         try:
             if force_task:
-                run_due_crons(force_task, progress=self._set_active_task)
+                run_due_crons(
+                    force_task,
+                    progress=self._set_active_task,
+                    isolate_background=True,
+                )
                 return
 
             due_crons = self._cron_cache.get_due_crons()
@@ -475,6 +523,7 @@ class CronScheduler:
                 progress=self._set_active_task,
                 due_crons=due_crons,
                 on_cron_ran=self._cron_cache.update_cron,
+                isolate_background=True,
             )
         except Exception as e:
             logger.exception(f"Cron batch execution failed: {e}")
@@ -487,7 +536,81 @@ class CronScheduler:
             return self._running
 
 
-def _execute_cron(cron, task_def: "_TaskDef", progress: Optional[Callable[[Optional[str]], None]]) -> dict:
+def _isolated_cron_process_entry(task_name: str, result_connection) -> None:
+    """Run one registered task in a low-priority interpreter with its own GIL."""
+    configure_background_process()
+    try:
+        from GameSentenceMiner.util.config.configuration import get_config
+        from GameSentenceMiner.util.database.db import bind_database_worker_tables
+
+        # Windows ``spawn`` starts with an empty configuration cache. Load the
+        # saved config before feature-gated tasks inspect the master settings.
+        get_config()
+        bind_database_worker_tables()
+        task_def = _TASK_REGISTRY[task_name]
+        result_connection.send({"ok": True, "result": task_def.runner()})
+    except BaseException as error:  # noqa: BLE001 - serialized back to the scheduler
+        result_connection.send(
+            {
+                "ok": False,
+                "error": str(error),
+                "traceback": traceback.format_exc(),
+            }
+        )
+    finally:
+        result_connection.close()
+        try:
+            from GameSentenceMiner.util.database.db import gsm_db
+
+            gsm_db.close()
+        except Exception:
+            pass
+
+
+def _can_isolate_task(task_def: "_TaskDef") -> bool:
+    """Only module-owned registry wrappers are stable across Windows spawn."""
+    return task_def.runner.__module__ == __name__ and task_def.runner.__name__.startswith("_run_")
+
+
+def _run_registered_task_isolated(task_name: str) -> dict:
+    context = multiprocessing.get_context("spawn")
+    result_connection, child_connection = context.Pipe(duplex=False)
+    process = context.Process(
+        target=_isolated_cron_process_entry,
+        args=(task_name, child_connection),
+        name=f"gsm-cron-{task_name}",
+        daemon=True,
+    )
+    process.start()
+    child_connection.close()
+    try:
+        while process.is_alive() and not result_connection.poll(0.1):
+            pass
+        message = result_connection.recv() if result_connection.poll() else None
+    finally:
+        result_connection.close()
+        process.join(timeout=5)
+        if process.is_alive():
+            process.terminate()
+            process.join(timeout=1)
+    if not isinstance(message, dict):
+        raise RuntimeError(f"Background task process exited without a result (exit={process.exitcode})")
+    if not message.get("ok"):
+        detail = str(message.get("traceback") or message.get("error") or "unknown error")
+        raise RuntimeError(detail)
+    result = message.get("result")
+    if not isinstance(result, dict):
+        raise TypeError(f"Scheduled task '{task_name}' returned {type(result).__name__}, expected dict")
+    return result
+
+
+def _execute_cron(
+    cron,
+    task_def: "_TaskDef",
+    progress: Optional[Callable[[Optional[str]], None]],
+    *,
+    isolate_background: bool = False,
+) -> dict:
     """Run a single due cron task with timing + watchdog logging.
 
     Returns its detail dict, augmented with internal ``_executed``/``_failed`` flags.
@@ -502,7 +625,10 @@ def _execute_cron(cron, task_def: "_TaskDef", progress: Optional[Callable[[Optio
 
     try:
         with _SlowTaskWatchdog(cron.name):
-            result = task_def.runner()
+            if isolate_background and _can_isolate_task(task_def):
+                result = _run_registered_task_isolated(cron.name)
+            else:
+                result = task_def.runner()
 
         duration = time.monotonic() - started
         if cron.id != -1:
@@ -540,6 +666,7 @@ def run_due_crons(
     progress: Optional[Callable[[Optional[str]], None]] = None,
     due_crons: Optional[list] = None,
     on_cron_ran: Optional[Callable[[CronTable], None]] = None,
+    isolate_background: bool = False,
 ) -> dict:
     """
     Check for and execute all due cron jobs.
@@ -595,7 +722,12 @@ def run_due_crons(
             failed_count += 1
             continue
 
-        detail = _execute_cron(cron, task_def, progress)
+        detail = _execute_cron(
+            cron,
+            task_def,
+            progress,
+            isolate_background=isolate_background,
+        )
         executed = detail.pop("_executed", False)
         failed = detail.pop("_failed", False)
         executed_count += executed

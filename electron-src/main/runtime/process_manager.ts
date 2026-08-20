@@ -83,6 +83,11 @@ export interface ProcessManagerOptions {
     resolveExecutable?: (command: string, label: string | undefined) => string;
 }
 
+export interface ProcessStopOptions {
+    /** Override the spec's graceful-stop payload for this stop/restart request. */
+    gracefulStopData?: unknown;
+}
+
 interface ManagedEntry {
     spec: ProcessSpec;
     proc: ChildProcess | null;
@@ -182,7 +187,7 @@ export class ProcessManager extends EventEmitter {
         this.spawnEntry(entry);
     }
 
-    async stop(id: string): Promise<void> {
+    async stop(id: string, options?: ProcessStopOptions): Promise<void> {
         const entry = this.requireEntry(id);
         this.clearRestartTimer(entry);
         if (!entry.proc || entry.proc.exitCode !== null) {
@@ -191,11 +196,11 @@ export class ProcessManager extends EventEmitter {
         }
         entry.stopping = true;
         this.setState(entry, 'stopping');
-        await this.gracefulStop(entry);
+        await this.gracefulStop(entry, options);
     }
 
-    async restart(id: string): Promise<void> {
-        await this.stop(id);
+    async restart(id: string, options?: ProcessStopOptions): Promise<void> {
+        await this.stop(id, options);
         this.start(id);
     }
 
@@ -300,7 +305,7 @@ export class ProcessManager extends EventEmitter {
 
     // -- stopping -----------------------------------------------------------
 
-    private async gracefulStop(entry: ManagedEntry): Promise<void> {
+    private async gracefulStop(entry: ManagedEntry, options?: ProcessStopOptions): Promise<void> {
         const proc = entry.proc;
         if (!proc) {
             return;
@@ -309,7 +314,10 @@ export class ProcessManager extends EventEmitter {
 
         const graceful = entry.spec.gracefulStop;
         if (graceful && this.options.bus.isClientConnected(entry.spec.id)) {
-            this.options.bus.publish(entry.spec.id, graceful.topic, graceful.data, 'command');
+            const data = options && 'gracefulStopData' in options
+                ? options.gracefulStopData
+                : graceful.data;
+            this.options.bus.publish(entry.spec.id, graceful.topic, data, 'command');
             entry.stopTimer = setTimeout(() => this.signalTerminate(entry), graceful.timeoutMs);
         } else {
             this.signalTerminate(entry);

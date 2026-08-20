@@ -17,6 +17,27 @@ from GameSentenceMiner.util.database.db import gsm_db, get_db_directory
 from GameSentenceMiner.web.game_profiles import invalidate_game_profiles_cache
 
 
+SEARCH_RESULT_TEXT_MAX_LENGTH = 4000
+
+
+def _serialize_search_result(line):
+    """Serialize a search result without sending unbounded line text to the UI."""
+    sentence = line.line_text if isinstance(line.line_text, str) else str(line.line_text or "")
+    sentence_truncated = len(sentence) > SEARCH_RESULT_TEXT_MAX_LENGTH
+
+    return {
+        "id": line.id,
+        "sentence": sentence[:SEARCH_RESULT_TEXT_MAX_LENGTH],
+        "sentence_length": len(sentence),
+        "sentence_truncated": sentence_truncated,
+        "game_name": line.game_name or "Unknown Game",
+        "timestamp": float(line.timestamp) if line.timestamp else 0,
+        "translation": line.translation or None,
+        "has_audio": bool(getattr(line, "audio_path", None)),
+        "has_screenshot": bool(getattr(line, "screenshot_path", None)),
+    }
+
+
 def _chunked(values, size):
     for start in range(0, len(values), size):
         yield values[start : start + size]
@@ -86,11 +107,13 @@ def _get_existing_game_record_names(game_names):
 def _delete_game_records_by_id(game_ids):
     from GameSentenceMiner.util.database.games_table import GamesTable
 
-    return GamesTable._db.delete_where_in(
+    deleted = GamesTable._db.delete_where_in(
         GamesTable._table,
         GamesTable._pk,
         game_ids,
     )
+    GamesTable.clear_name_id_cache()
+    return deleted
 
 
 def _parse_local_date_timestamp(date_text: str, *, end_of_day: bool = False) -> float:
@@ -643,17 +666,7 @@ def register_database_api_routes(app):
                     for row in rows:
                         game_line = GameLinesTable.from_row(row)
                         if game_line:
-                            results.append(
-                                {
-                                    "id": game_line.id,
-                                    "sentence": game_line.line_text or "",
-                                    "game_name": game_line.game_name or "Unknown Game",
-                                    "timestamp": float(game_line.timestamp) if game_line.timestamp else 0,
-                                    "translation": game_line.translation or None,
-                                    "has_audio": bool(game_line.audio_path),
-                                    "has_screenshot": bool(game_line.screenshot_path),
-                                }
-                            )
+                            results.append(_serialize_search_result(game_line))
 
                     return jsonify(
                         {
@@ -668,6 +681,13 @@ def register_database_api_routes(app):
                 except sqlite3.OperationalError:
                     logger.warning("Tokenized search failed (tables may not exist), falling back to LIKE search")
                     # Fall through to LIKE search below
+
+            # The empty search field is represented by ``.*`` in the web UI.
+            # It matches every non-empty line, so let SQLite paginate it instead
+            # of materializing the entire database through the regex path.
+            if use_regex and query in {".*", "^.*$"}:
+                use_regex = False
+                query = ""
 
             if use_regex:
                 # Regex search: fetch all candidate rows, filter in Python
@@ -720,20 +740,20 @@ def register_database_api_routes(app):
 
                     # Sorting (default: timestamp DESC, or as specified)
                     if sort_by == "date_asc":
-                        filtered_lines.sort(key=lambda l: float(l.timestamp) if l.timestamp else 0)
+                        filtered_lines.sort(key=lambda line: float(line.timestamp) if line.timestamp else 0)
                     elif sort_by == "game_name":
                         filtered_lines.sort(
-                            key=lambda l: (
-                                l.game_name or "",
-                                -(float(l.timestamp) if l.timestamp else 0),
+                            key=lambda line: (
+                                line.game_name or "",
+                                -(float(line.timestamp) if line.timestamp else 0),
                             )
                         )
                     elif sort_by == "length_desc":
-                        filtered_lines.sort(key=lambda l: -(len(l.line_text) if l.line_text else 0))
+                        filtered_lines.sort(key=lambda line: -(len(line.line_text) if line.line_text else 0))
                     elif sort_by == "length_asc":
-                        filtered_lines.sort(key=lambda l: len(l.line_text) if l.line_text else 0)
+                        filtered_lines.sort(key=lambda line: len(line.line_text) if line.line_text else 0)
                     else:  # date_desc or relevance
-                        filtered_lines.sort(key=lambda l: -(float(l.timestamp) if l.timestamp else 0))
+                        filtered_lines.sort(key=lambda line: -(float(line.timestamp) if line.timestamp else 0))
 
                     total_results = len(filtered_lines)
                     # Pagination
@@ -742,17 +762,7 @@ def register_database_api_routes(app):
                     paged_lines = filtered_lines[start:end]
                     results = []
                     for line in paged_lines:
-                        results.append(
-                            {
-                                "id": line.id,
-                                "sentence": line.line_text or "",
-                                "game_name": line.game_name or "Unknown Game",
-                                "timestamp": float(line.timestamp) if line.timestamp else 0,
-                                "translation": line.translation or None,
-                                "has_audio": bool(getattr(line, "audio_path", None)),
-                                "has_screenshot": bool(getattr(line, "screenshot_path", None)),
-                            }
-                        )
+                        results.append(_serialize_search_result(line))
                     return jsonify(
                         {
                             "results": results,
@@ -767,8 +777,15 @@ def register_database_api_routes(app):
                     return jsonify({"error": f"Search failed: {str(e)}"}), 500
             else:
                 # Build the SQL query
-                base_query = f"SELECT * FROM {GameLinesTable._table} WHERE line_text LIKE ?"
-                params = [f"%{query}%"]
+                if query:
+                    search_clause = "line_text LIKE ?"
+                    search_params = [f"%{query}%"]
+                else:
+                    search_clause = "line_text IS NOT NULL AND line_text != ''"
+                    search_params = []
+
+                base_query = f"SELECT * FROM {GameLinesTable._table} WHERE {search_clause}"
+                params = list(search_params)
 
                 # Add game filter if specified
                 if game_filter:
@@ -798,8 +815,8 @@ def register_database_api_routes(app):
                     base_query += " ORDER BY timestamp DESC"
 
                 # Get total count for pagination
-                count_query = f"SELECT COUNT(*) FROM {GameLinesTable._table} WHERE line_text LIKE ?"
-                count_params = [f"%{query}%"]
+                count_query = f"SELECT COUNT(*) FROM {GameLinesTable._table} WHERE {search_clause}"
+                count_params = list(search_params)
                 if game_filter:
                     count_query += " AND game_name = ?"
                     count_params.append(game_filter)
@@ -825,17 +842,7 @@ def register_database_api_routes(app):
                 for row in rows:
                     game_line = GameLinesTable.from_row(row)
                     if game_line:
-                        results.append(
-                            {
-                                "id": game_line.id,
-                                "sentence": game_line.line_text or "",
-                                "game_name": game_line.game_name or "Unknown Game",
-                                "timestamp": float(game_line.timestamp) if game_line.timestamp else 0,
-                                "translation": game_line.translation or None,
-                                "has_audio": bool(game_line.audio_path),
-                                "has_screenshot": bool(game_line.screenshot_path),
-                            }
-                        )
+                        results.append(_serialize_search_result(game_line))
 
                 return jsonify(
                     {
@@ -1277,6 +1284,7 @@ def register_database_api_routes(app):
                     "tadoku_language_code": getattr(config, "tadoku_language_code", "jpn"),
                     "tadoku_daily_sync_enabled": bool(getattr(config, "tadoku_daily_sync_enabled", False)),
                     "tadoku_daily_sync_deduplicate": bool(getattr(config, "tadoku_daily_sync_deduplicate", True)),
+                    "tadoku_daily_sync_game_ids": list(getattr(config, "tadoku_daily_sync_game_ids", []) or []),
                     "easy_days_monday": getattr(config, "easy_days_settings", {}).get("monday", 100),
                     "easy_days_tuesday": getattr(config, "easy_days_settings", {}).get("tuesday", 100),
                     "easy_days_wednesday": getattr(config, "easy_days_settings", {}).get("wednesday", 100),
@@ -1380,6 +1388,7 @@ def register_database_api_routes(app):
             tadoku_language_code = data.get("tadoku_language_code")
             tadoku_daily_sync_enabled = data.get("tadoku_daily_sync_enabled")
             tadoku_daily_sync_deduplicate = data.get("tadoku_daily_sync_deduplicate")
+            tadoku_daily_sync_game_ids = data.get("tadoku_daily_sync_game_ids")
 
             # Easy days settings
             easy_days_monday = data.get("easy_days_monday")
@@ -1555,6 +1564,21 @@ def register_database_api_routes(app):
                         return jsonify({"error": f"{setting_name} must be a boolean value"}), 400
                     settings_to_update[setting_name] = setting_value
 
+            if tadoku_daily_sync_game_ids is not None:
+                valid_game_ids = (
+                    isinstance(tadoku_daily_sync_game_ids, list)
+                    and len(tadoku_daily_sync_game_ids) <= 1_000
+                    and all(
+                        isinstance(game_id, str) and bool(game_id.strip()) and len(game_id.strip()) <= 512
+                        for game_id in tadoku_daily_sync_game_ids
+                    )
+                )
+                if not valid_game_ids:
+                    return jsonify({"error": "Tadoku automatic sync game whitelist must contain valid game IDs"}), 400
+                settings_to_update["tadoku_daily_sync_game_ids"] = list(
+                    dict.fromkeys(game_id.strip() for game_id in tadoku_daily_sync_game_ids)
+                )
+
             # Validate and process easy days settings
             easy_days_settings = {}
             if easy_days_monday is not None:
@@ -1670,6 +1694,8 @@ def register_database_api_routes(app):
                 config.tadoku_daily_sync_enabled = settings_to_update["tadoku_daily_sync_enabled"]
             if "tadoku_daily_sync_deduplicate" in settings_to_update:
                 config.tadoku_daily_sync_deduplicate = settings_to_update["tadoku_daily_sync_deduplicate"]
+            if "tadoku_daily_sync_game_ids" in settings_to_update:
+                config.tadoku_daily_sync_game_ids = settings_to_update["tadoku_daily_sync_game_ids"]
 
             # Save easy days settings if provided
             if easy_days_settings:
@@ -2448,17 +2474,7 @@ def register_database_api_routes(app):
             # Format results to match search results format
             results = []
             for line in duplicate_lines:
-                results.append(
-                    {
-                        "id": line.id,
-                        "sentence": line.line_text or "",
-                        "game_name": line.game_name or "Unknown Game",
-                        "timestamp": float(line.timestamp) if line.timestamp else 0,
-                        "translation": line.translation or None,
-                        "has_audio": bool(getattr(line, "audio_path", None)),
-                        "has_screenshot": bool(getattr(line, "screenshot_path", None)),
-                    }
-                )
+                results.append(_serialize_search_result(line))
 
             return jsonify(
                 {

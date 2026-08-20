@@ -80,6 +80,24 @@ _fake_logging_module.LoggerManager = object
 sys.modules["GameSentenceMiner.util.logging_config"] = _fake_logging_module
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _initialize_database_runtime_for_tests():
+    from GameSentenceMiner.util.database.db import gsm_db, start_database_runtime
+
+    start_database_runtime()
+    yield
+    from GameSentenceMiner.util.communication.electron_ipc import stop_ipc_listener
+    from GameSentenceMiner.util.concurrency.scheduler import shutdown_runtime_scheduler
+    from GameSentenceMiner.util.concurrency.work_pool import shutdown_background_work
+    from GameSentenceMiner.util.cron.tokenize_lines import stop_realtime_tokenization
+
+    stop_ipc_listener(close_bus=False)
+    stop_realtime_tokenization()
+    shutdown_runtime_scheduler()
+    shutdown_background_work(wait=True)
+    gsm_db.close()
+
+
 @pytest.fixture
 def tmp_path():
     case_path = _TMP_CASES / f"case_{uuid.uuid4().hex}"
@@ -88,3 +106,17 @@ def tmp_path():
         yield case_path
     finally:
         shutil.rmtree(case_path, ignore_errors=True)
+
+
+@pytest.fixture(autouse=True)
+def _stop_authoritative_text_runtime_between_tests():
+    """Never leak GSM's managed non-daemon actors across test boundaries."""
+    yield
+    gametext_module = sys.modules.get("GameSentenceMiner.gametext")
+    stop = getattr(gametext_module, "stop_authoritative_text_runtime", None)
+    if callable(stop):
+        stop()
+    ocr_ipc_module = sys.modules.get("GameSentenceMiner.util.communication.ocr_ipc")
+    stop_ocr_outbox = getattr(ocr_ipc_module, "stop_text_ingress_outbox", None)
+    if callable(stop_ocr_outbox):
+        stop_ocr_outbox()

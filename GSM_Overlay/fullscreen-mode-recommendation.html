@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8" />
+  <title>Borderless Fullscreen Recommended</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      scrollbar-width: thin;
+      scrollbar-color: #5a5a5a #20242c;
+    }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      padding: 16px;
+      color: #f4f6fa;
+      background:
+        radial-gradient(circle at top right, rgba(66, 133, 244, 0.2), transparent 34%),
+        linear-gradient(145deg, #15171d 0%, #242a35 100%);
+      line-height: 1.45;
+    }
+
+    .container {
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 18px;
+      background: rgba(255, 255, 255, 0.055);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 14px;
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
+    }
+
+    .header {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+    }
+
+    .header-icon {
+      flex: 0 0 auto;
+      display: grid;
+      width: 42px;
+      height: 42px;
+      place-items: center;
+      font-size: 24px;
+      background: rgba(255, 183, 77, 0.15);
+      border: 1px solid rgba(255, 183, 77, 0.35);
+      border-radius: 10px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.2;
+    }
+
+    .game-name {
+      display: inline-block;
+      max-width: 100%;
+      margin-top: 7px;
+      padding: 3px 9px;
+      overflow: hidden;
+      color: #ffd18c;
+      font-size: 12px;
+      font-weight: 600;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      background: rgba(255, 183, 77, 0.1);
+      border-radius: 999px;
+    }
+
+    .summary {
+      margin: 12px 0;
+      color: #d9dee8;
+    }
+
+    .primary-advice {
+      padding: 12px 14px;
+      background: rgba(76, 175, 80, 0.11);
+      border: 1px solid rgba(102, 187, 106, 0.35);
+      border-radius: 10px;
+    }
+
+    .primary-advice strong {
+      color: #9fe5a4;
+    }
+
+    .primary-advice p {
+      margin: 5px 0 0;
+      color: #dce7dd;
+      font-size: 13px;
+    }
+
+    h2 {
+      margin: 16px 0 9px;
+      color: #f0f3f9;
+      font-size: 15px;
+    }
+
+    .resource-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .resource-card {
+      display: flex;
+      min-width: 0;
+      flex-direction: column;
+      padding: 13px;
+      background: rgba(0, 0, 0, 0.18);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+    }
+
+    .resource-card h3 {
+      margin: 0 0 7px;
+      font-size: 16px;
+    }
+
+    .resource-card p {
+      margin: 0 0 9px;
+      color: #cdd3df;
+      font-size: 12px;
+    }
+
+    .resource-card .best-for {
+      color: #a9c7ff;
+      font-weight: 600;
+    }
+
+    .resource-link {
+      align-self: flex-start;
+      margin-top: auto;
+      padding: 7px 11px;
+      color: #eef5ff;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      background: rgba(66, 133, 244, 0.22);
+      border: 1px solid rgba(104, 158, 255, 0.45);
+      border-radius: 6px;
+    }
+
+    .resource-link:hover {
+      background: rgba(66, 133, 244, 0.35);
+    }
+
+    .note {
+      margin: 10px 0 0;
+      color: #aeb6c5;
+      font-size: 11px;
+    }
+
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .btn {
+      padding: 8px 14px;
+      color: #e8eaf0;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 7px;
+    }
+
+    .btn:hover {
+      background: rgba(255, 255, 255, 0.13);
+    }
+
+    .btn-primary {
+      color: #fff;
+      background: linear-gradient(135deg, #4285f4, #3269c8);
+      border: none;
+    }
+
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #5292fa, #3976db);
+    }
+
+    @media (max-width: 560px) {
+      .resource-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .footer {
+        align-items: stretch;
+        flex-direction: column-reverse;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main class="container">
+    <header class="header">
+      <span class="header-icon" aria-hidden="true">🖥️</span>
+      <div>
+        <h1>Exclusive fullscreen detected</h1>
+        <div class="game-name" id="game-name">OBS target</div>
+      </div>
+    </header>
+
+    <p class="summary">
+      Exclusive fullscreen gives the game sole control of the display. When the GSM overlay or gamepad navigation
+      takes focus, Windows may minimize the game, interrupting lookups and navigation.
+    </p>
+
+    <section class="primary-advice">
+      <strong>Recommended: switch the game to Borderless Fullscreen or Windowed.</strong>
+      <p>
+        Check the game's Display or Graphics settings first. “Borderless,” “Fullscreen Windowed,” and “Windowed
+        Fullscreen” are equivalent names. <kbd>Alt</kbd> + <kbd>Enter</kbd> also toggles window mode in many games.
+      </p>
+    </section>
+
+    <h2>If the game has no borderless option</h2>
+    <div class="resource-grid">
+      <section class="resource-card">
+        <h3>Magpie</h3>
+        <p class="best-for">Best for older games that can run in a normal window.</p>
+        <p>
+          A lightweight window scaler for Windows 10/11. Run the game in Windowed mode, then let Magpie present and
+          upscale it fullscreen. It includes FSR, Anime4K, CRT filters, and multi-monitor support. GSM also recognizes
+          Magpie and applies its compatibility behavior automatically.
+        </p>
+        <button class="resource-link" type="button" data-resource="magpie">Open Magpie on GitHub ↗</button>
+      </section>
+
+      <section class="resource-card">
+        <h3>Special K</h3>
+        <p class="best-for">Best when a game needs its window mode overridden.</p>
+        <p>
+          A PC game mod framework that can force borderless fullscreen through Window Management. It also offers
+          frame-pacing, limiter, HDR, and display controls. Compatibility varies by game; do not inject it into
+          anti-cheat or online games unless the game explicitly permits it.
+        </p>
+        <button class="resource-link" type="button" data-resource="specialK">Open Special K ↗</button>
+      </section>
+    </div>
+
+    <p class="note">
+      After changing the display mode, restore the game. GSM will stop warning once Windows no longer reports an
+      exclusive Direct3D fullscreen session.
+    </p>
+
+    <footer class="footer">
+      <button type="button" class="btn" id="btn-dismiss">Don't show again for this game</button>
+      <button type="button" class="btn btn-primary" id="btn-close">Got it</button>
+    </footer>
+  </main>
+
+  <script>
+    const { ipcRenderer } = require("electron");
+    let currentGame = "";
+
+    ipcRenderer.on("preload-fullscreen-mode-recommendation", (event, { game = "" } = {}) => {
+      currentGame = game || "";
+      document.getElementById("game-name").textContent = currentGame || "OBS target";
+    });
+
+    document.querySelectorAll("[data-resource]").forEach((button) => {
+      button.addEventListener("click", () => {
+        ipcRenderer.send("fullscreen-mode-recommendation-open-resource", {
+          resource: button.dataset.resource,
+        });
+      });
+    });
+
+    document.getElementById("btn-dismiss").addEventListener("click", () => {
+      ipcRenderer.send("fullscreen-mode-recommendation-dismiss", { game: currentGame });
+    });
+
+    document.getElementById("btn-close").addEventListener("click", () => {
+      ipcRenderer.send("fullscreen-mode-recommendation-close");
+    });
+  </script>
+</body>
+
+</html>

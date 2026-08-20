@@ -6,6 +6,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { getBaseDir, getDefaultBaseDir } from '../data_dir.js';
+import {
+    normalizeSettingsBackupCategories,
+    type SettingsBackupCategoryId,
+} from '../../shared/settings_backup.js';
 
 const BACKUP_FORMAT_VERSION = 1;
 const MANIFEST_NAME = 'gsm-backup-manifest.json';
@@ -94,6 +98,7 @@ export interface BackupManifest {
     roots: Array<'gsm' | 'overlay' | 'home'>;
     fileCount: number;
     totalBytes: number;
+    categories?: SettingsBackupCategoryId[];
 }
 
 export type SettingsBackupOperation = 'create' | 'restore';
@@ -125,7 +130,9 @@ export interface BackupArchiveOptions {
     baseDir?: string;
     overlayDir?: string;
     homeConfigPath?: string;
+    databaseSnapshotPath?: string;
     onProgress?: SettingsBackupProgressReporter;
+    categories?: readonly SettingsBackupCategoryId[];
 }
 
 export interface BackupArchiveResult {
@@ -133,6 +140,7 @@ export interface BackupArchiveResult {
     fileCount: number;
     totalBytes: number;
     roots: BackupManifest['roots'];
+    categories: SettingsBackupCategoryId[];
 }
 
 export interface RestoreArchiveOptions {
@@ -141,12 +149,14 @@ export interface RestoreArchiveOptions {
     overlayDir?: string;
     homeConfigPath?: string;
     onProgress?: SettingsBackupProgressReporter;
+    categories?: readonly SettingsBackupCategoryId[];
 }
 
 export interface RestoreArchiveResult {
     fileCount: number;
     totalBytes: number;
     roots: BackupManifest['roots'];
+    categories: SettingsBackupCategoryId[];
 }
 
 interface CollectedFile {
@@ -166,6 +176,82 @@ interface BackupSourceRoot {
     absolutePath: string;
     archiveRoot: string;
     include: (relativePath: string, isDirectory: boolean) => boolean;
+}
+
+function getGsmBackupCategory(relativePath: string): SettingsBackupCategoryId | null {
+    const parts = splitRelativePath(relativePath);
+    const [first, second] = parts;
+
+    if (!first) {
+        return null;
+    }
+    if (isSqliteDatabaseFile(first)) {
+        return 'database';
+    }
+    if (first === 'config.json' || first === 'shared_config.json' || first === 'config') {
+        return 'python-settings';
+    }
+    if (first === 'electron' && second === 'config.json') {
+        return 'desktop-settings';
+    }
+    if (first === 'electron' && second === 'overlay_settings.json') {
+        return 'overlay-settings';
+    }
+    if (first === 'scene_config.json') {
+        return 'scene-config';
+    }
+    if (first === 'ocr_config') {
+        return 'ocr-configs';
+    }
+    if (first === 'obs-studio') {
+        return 'obs-config';
+    }
+    if (first === 'texthook') {
+        return 'text-hook-settings';
+    }
+    if (first === 'multi-mine-window-config.json' || first === 'window_layout.json') {
+        return 'window-layouts';
+    }
+    if (first === 'plugins.py') {
+        return 'plugins';
+    }
+    if (first === 'agent-scripts') {
+        return 'agent-scripts';
+    }
+    if (first === 'scripts') {
+        return 'user-scripts';
+    }
+    return null;
+}
+
+function getOverlayBackupCategory(relativePath: string): SettingsBackupCategoryId | null {
+    const [first] = splitRelativePath(relativePath);
+    if (!first) {
+        return null;
+    }
+    if (OVERLAY_STORAGE_DIRS.has(first)) {
+        return 'yomitan';
+    }
+    if (OVERLAY_TOP_LEVEL_FILES.has(first)) {
+        return 'overlay-settings';
+    }
+    return null;
+}
+
+function getArchiveBackupCategory(archivePath: string): SettingsBackupCategoryId | null {
+    const parts = splitRelativePath(archivePath);
+    const [root, ...relativeParts] = parts;
+    const relativePath = relativeParts.join('/');
+    if (root === GSM_ARCHIVE_ROOT) {
+        return getGsmBackupCategory(relativePath);
+    }
+    if (root === OVERLAY_ARCHIVE_ROOT) {
+        return getOverlayBackupCategory(relativePath);
+    }
+    if (root === HOME_ARCHIVE_ROOT) {
+        return 'ocr-configs';
+    }
+    return null;
 }
 
 function normalizeArchivePath(value: string): string {
@@ -366,17 +452,28 @@ async function collectStandaloneFile(
 async function collectBackupFiles(options: BackupArchiveOptions): Promise<{
     files: CollectedFile[];
     roots: BackupManifest['roots'];
+    categories: SettingsBackupCategoryId[];
 }> {
     const baseDir = options.baseDir ?? getBaseDir();
     const overlayDir = options.overlayDir ?? getOverlayDataDir(baseDir);
     const homeConfigPath = options.homeConfigPath ?? getOwocrConfigPath();
+    const categories = normalizeSettingsBackupCategories(options.categories);
+    const selectedCategories = new Set(categories);
+    const useDatabaseSnapshot =
+        selectedCategories.has('database') && typeof options.databaseSnapshotPath === 'string';
 
     const roots: BackupSourceRoot[] = [
         {
             key: 'gsm',
             absolutePath: baseDir,
             archiveRoot: GSM_ARCHIVE_ROOT,
-            include: shouldIncludeGsmBackupPath,
+            include: (relativePath, isDirectory) => {
+                const [first] = splitRelativePath(relativePath);
+                if (useDatabaseSnapshot && !isDirectory && isSqliteDatabaseFile(first)) {
+                    return false;
+                }
+                return shouldIncludeGsmBackupPath(relativePath, isDirectory);
+            },
         },
         {
             key: 'overlay',
@@ -389,17 +486,34 @@ async function collectBackupFiles(options: BackupArchiveOptions): Promise<{
     const collected: CollectedFile[] = [];
     const includedRoots = new Set<BackupManifest['roots'][number]>();
     for (const root of roots) {
-        const files = await collectFilesForRoot(root);
+        const files = (await collectFilesForRoot(root)).filter((file) => {
+            const category = getArchiveBackupCategory(file.archivePath);
+            return category !== null && selectedCategories.has(category);
+        });
         if (files.length > 0) {
             includedRoots.add(root.key);
             collected.push(...files);
         }
     }
 
-    const homeFiles = await collectStandaloneFile(
-        homeConfigPath,
-        `${HOME_ARCHIVE_ROOT}/${OWOCR_HOME_RELATIVE_PATH}`,
-    );
+    if (useDatabaseSnapshot) {
+        const snapshotFiles = await collectStandaloneFile(
+            options.databaseSnapshotPath!,
+            `${GSM_ARCHIVE_ROOT}/gsm.db`,
+        );
+        if (snapshotFiles.length !== 1) {
+            throw new Error('The verified database snapshot is missing.');
+        }
+        includedRoots.add('gsm');
+        collected.push(...snapshotFiles);
+    }
+
+    const homeFiles = selectedCategories.has('ocr-configs')
+        ? await collectStandaloneFile(
+            homeConfigPath,
+            `${HOME_ARCHIVE_ROOT}/${OWOCR_HOME_RELATIVE_PATH}`,
+        )
+        : [];
     if (homeFiles.length > 0) {
         includedRoots.add('home');
         collected.push(...homeFiles);
@@ -408,6 +522,7 @@ async function collectBackupFiles(options: BackupArchiveOptions): Promise<{
     return {
         files: collected.sort((left, right) => left.archivePath.localeCompare(right.archivePath)),
         roots: Array.from(includedRoots).sort() as BackupManifest['roots'],
+        categories,
     };
 }
 
@@ -421,7 +536,7 @@ export async function createBackupArchive(
         progress: null,
     });
 
-    const { files, roots } = await collectBackupFiles(options);
+    const { files, roots, categories } = await collectBackupFiles(options);
     const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
     const manifest: BackupManifest = {
         format: 'gsm-settings-backup',
@@ -430,6 +545,7 @@ export async function createBackupArchive(
         roots,
         fileCount: files.length,
         totalBytes,
+        categories,
     };
 
     await fsp.mkdir(path.dirname(options.outputPath), { recursive: true });
@@ -488,6 +604,7 @@ export async function createBackupArchive(
         fileCount: files.length,
         totalBytes,
         roots,
+        categories,
     };
 }
 
@@ -519,6 +636,7 @@ function parseManifest(value: unknown): BackupManifest {
             typeof manifest.totalBytes === 'number' && Number.isFinite(manifest.totalBytes)
                 ? manifest.totalBytes
                 : 0,
+        categories: normalizeSettingsBackupCategories(manifest.categories),
     };
 }
 
@@ -549,6 +667,7 @@ async function collectRestoreFiles(
     sourceDir: string,
     destinationDir: string,
     displayRoot: string,
+    selectedCategories: ReadonlySet<SettingsBackupCategoryId>,
 ): Promise<RestoreFile[]> {
     if (!(await pathExists(sourceDir))) {
         return [];
@@ -574,10 +693,16 @@ async function collectRestoreFiles(
                 continue;
             }
 
+            const displayPath = normalizeArchivePath(path.join(displayRoot, relativePath));
+            const category = getArchiveBackupCategory(displayPath);
+            if (category === null || !selectedCategories.has(category)) {
+                continue;
+            }
+
             files.push({
                 sourcePath,
                 destinationPath: path.join(destinationDir, relativePath),
-                displayPath: normalizeArchivePath(path.join(displayRoot, relativePath)),
+                displayPath,
             });
         }
     }
@@ -621,7 +746,26 @@ async function copyRestoreFiles(
         });
 
         await fsp.mkdir(path.dirname(file.destinationPath), { recursive: true });
-        await fsp.copyFile(file.sourcePath, file.destinationPath);
+        if (file.displayPath === `${GSM_ARCHIVE_ROOT}/gsm.db`) {
+            const temporaryPath = path.join(
+                path.dirname(file.destinationPath),
+                `.${path.basename(file.destinationPath)}.${process.pid}.${Date.now()}.tmp`,
+            );
+            try {
+                await fsp.copyFile(file.sourcePath, temporaryPath);
+                const handle = await fsp.open(temporaryPath, 'r+');
+                try {
+                    await handle.sync();
+                } finally {
+                    await handle.close();
+                }
+                await fsp.rename(temporaryPath, file.destinationPath);
+            } finally {
+                await fsp.rm(temporaryPath, { force: true });
+            }
+        } else {
+            await fsp.copyFile(file.sourcePath, file.destinationPath);
+        }
         completed += 1;
 
         reportProgress(onProgress, {
@@ -635,42 +779,77 @@ async function copyRestoreFiles(
     }
 }
 
-async function prepareGsmRestoreTarget(sourceDir: string, baseDir: string): Promise<void> {
+async function prepareGsmRestoreTarget(
+    sourceDir: string,
+    baseDir: string,
+    selectedCategories: ReadonlySet<SettingsBackupCategoryId>,
+): Promise<void> {
     if (!(await pathExists(sourceDir))) {
         return;
     }
 
     for (const fileName of GSM_TOP_LEVEL_FILES) {
-        if (await pathExists(path.join(sourceDir, fileName))) {
+        const category = getGsmBackupCategory(fileName);
+        if (
+            category &&
+            selectedCategories.has(category) &&
+            await pathExists(path.join(sourceDir, fileName))
+        ) {
+            if (fileName === 'gsm.db') {
+                // Keep the old main DB until the replacement has been copied and
+                // synced. copyRestoreFiles publishes the new snapshot atomically.
+                continue;
+            }
             await removeIfExists(path.join(baseDir, fileName));
         }
     }
 
-    if (await pathExists(path.join(sourceDir, 'config'))) {
+    if (
+        selectedCategories.has('python-settings') &&
+        await pathExists(path.join(sourceDir, 'config'))
+    ) {
         await removeIfExists(path.join(baseDir, 'config'));
     }
-    if (await pathExists(path.join(sourceDir, 'agent-scripts'))) {
+    if (
+        selectedCategories.has('agent-scripts') &&
+        await pathExists(path.join(sourceDir, 'agent-scripts'))
+    ) {
         await removeIfExists(path.join(baseDir, 'agent-scripts'));
     }
-    if (await pathExists(path.join(sourceDir, 'scripts'))) {
+    if (
+        selectedCategories.has('user-scripts') &&
+        await pathExists(path.join(sourceDir, 'scripts'))
+    ) {
         await removeIfExists(path.join(baseDir, 'scripts'));
     }
-    if (await pathExists(path.join(sourceDir, 'ocr_config'))) {
+    if (
+        selectedCategories.has('ocr-configs') &&
+        await pathExists(path.join(sourceDir, 'ocr_config'))
+    ) {
         await fsp.mkdir(path.join(baseDir, 'ocr_config'), { recursive: true });
         await clearChildrenExcept(path.join(baseDir, 'ocr_config'), new Set(['backup']));
     }
     if (await pathExists(path.join(sourceDir, 'electron'))) {
         await fsp.mkdir(path.join(baseDir, 'electron'), { recursive: true });
         for (const fileName of ELECTRON_SETTINGS_FILES) {
-            await removeIfExists(path.join(baseDir, 'electron', fileName));
+            const category = getGsmBackupCategory(path.join('electron', fileName));
+            if (category && selectedCategories.has(category)) {
+                await removeIfExists(path.join(baseDir, 'electron', fileName));
+            }
         }
     }
-    if (await pathExists(path.join(sourceDir, 'obs-studio', 'config', 'obs-studio'))) {
+    if (
+        selectedCategories.has('obs-config') &&
+        await pathExists(path.join(sourceDir, 'obs-studio', 'config', 'obs-studio'))
+    ) {
         const obsConfigDir = path.join(baseDir, 'obs-studio', 'config', 'obs-studio');
         await fsp.mkdir(obsConfigDir, { recursive: true });
         await clearChildrenExcept(obsConfigDir, OBS_EXCLUDED_CONFIG_DIRS);
     }
-    if (await pathExists(path.join(sourceDir, 'texthook'))) {
+    if (
+        selectedCategories.has('text-hook-settings') &&
+        await pathExists(path.join(sourceDir, 'texthook'))
+    ) {
         await fsp.mkdir(path.join(baseDir, 'texthook'), { recursive: true });
         for (const fileName of TEXTHOOK_SETTINGS_FILES) {
             await removeIfExists(path.join(baseDir, 'texthook', fileName));
@@ -678,14 +857,21 @@ async function prepareGsmRestoreTarget(sourceDir: string, baseDir: string): Prom
     }
 }
 
-async function prepareOverlayRestoreTarget(sourceDir: string, overlayDir: string): Promise<void> {
+async function prepareOverlayRestoreTarget(
+    sourceDir: string,
+    overlayDir: string,
+    selectedCategories: ReadonlySet<SettingsBackupCategoryId>,
+): Promise<void> {
     if (!(await pathExists(sourceDir))) {
         return;
     }
     await fsp.mkdir(overlayDir, { recursive: true });
     const entries = await fsp.readdir(sourceDir, { withFileTypes: true });
     for (const entry of entries) {
-        await removeIfExists(path.join(overlayDir, entry.name));
+        const category = getOverlayBackupCategory(entry.name);
+        if (category && selectedCategories.has(category)) {
+            await removeIfExists(path.join(overlayDir, entry.name));
+        }
     }
 }
 
@@ -695,6 +881,8 @@ export async function restoreBackupArchive(
     const baseDir = options.baseDir ?? getBaseDir();
     const overlayDir = options.overlayDir ?? getOverlayDataDir(baseDir);
     const homeConfigPath = options.homeConfigPath ?? getOwocrConfigPath();
+    const categories = normalizeSettingsBackupCategories(options.categories);
+    const selectedCategories = new Set(categories);
     const extractDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'gsm-settings-restore-'));
 
     try {
@@ -727,22 +915,28 @@ export async function restoreBackupArchive(
         const restoreFiles: RestoreFile[] = [];
 
         if (manifest.roots.includes('gsm')) {
-            await prepareGsmRestoreTarget(gsmSourceDir, baseDir);
+            await prepareGsmRestoreTarget(gsmSourceDir, baseDir, selectedCategories);
             restoreFiles.push(
-                ...(await collectRestoreFiles(gsmSourceDir, baseDir, GSM_ARCHIVE_ROOT)),
+                ...(await collectRestoreFiles(
+                    gsmSourceDir,
+                    baseDir,
+                    GSM_ARCHIVE_ROOT,
+                    selectedCategories,
+                )),
             );
         }
         if (manifest.roots.includes('overlay')) {
-            await prepareOverlayRestoreTarget(overlaySourceDir, overlayDir);
+            await prepareOverlayRestoreTarget(overlaySourceDir, overlayDir, selectedCategories);
             restoreFiles.push(
                 ...(await collectRestoreFiles(
                     overlaySourceDir,
                     overlayDir,
                     OVERLAY_ARCHIVE_ROOT,
+                    selectedCategories,
                 )),
             );
         }
-        if (manifest.roots.includes('home')) {
+        if (manifest.roots.includes('home') && selectedCategories.has('ocr-configs')) {
             restoreFiles.push(...(await collectHomeRestoreFile(homeSourceDir, homeConfigPath)));
         }
 
@@ -765,9 +959,10 @@ export async function restoreBackupArchive(
         });
 
         return {
-            fileCount: manifest.fileCount,
+            fileCount: restoreFiles.length,
             totalBytes: manifest.totalBytes,
             roots: manifest.roots,
+            categories,
         };
     } finally {
         await fsp.rm(extractDir, { recursive: true, force: true });

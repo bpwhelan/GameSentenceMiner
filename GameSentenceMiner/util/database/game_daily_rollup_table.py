@@ -57,14 +57,14 @@ class GameDailyRollupTable(SQLiteDBTable):
         self.updated_at = updated_at if updated_at is not None else time.time()
 
     @classmethod
-    def set_db(cls, db: SQLiteDB):
-        if db.read_only:
+    def set_db(cls, db: SQLiteDB, *, ensure_schema: bool = True):
+        if db.read_only or not ensure_schema:
             cls._db = db
             cls._column_order_cache = None
             cls._row_field_mapping_cache = None
             return
 
-        super().set_db(db)
+        super().set_db(db, ensure_schema=ensure_schema)
         if db.read_only:
             return
         db.execute(

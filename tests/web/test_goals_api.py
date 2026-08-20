@@ -415,7 +415,11 @@ class TestGoalsDashboard:
         assert data["today_progress"]["goal_active"]["required"] == 70
         assert data["today_progress"]["goal_active"]["total_progress"] == 130
 
-    def test_finish_game_goal_resolves_stale_game_id_from_stored_game_name(self, client):
+    def test_finish_game_goal_resolves_stale_game_id_from_stored_game_name(self, client, monkeypatch):
+        monkeypatch.setattr(
+            "GameSentenceMiner.web.live_goals._local_timezone",
+            lambda: datetime.timezone.utc,
+        )
         today = datetime.datetime.now(datetime.timezone.utc).date()
         yesterday = today - datetime.timedelta(days=1)
         end = today + datetime.timedelta(days=2)

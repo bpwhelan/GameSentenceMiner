@@ -537,7 +537,38 @@
     },
     "backup": {
       "title": "バックアップと復元",
+      "automatic": {
+        "title": "データベースの自動バックアップ",
+        "description": "1日1回、圧縮されたデータベースのスナップショットを作成します。自動バックアップはオプトインで、既定では最新の2件を保持します。",
+        "enabled": "データベースの自動バックアップを有効にする",
+        "retentionCount": "保持するバックアップ数",
+        "directory": "バックアップフォルダー",
+        "defaultDirectory": "既定：GSMデータベースの隣の backup/database",
+        "chooseDirectory": "フォルダーを選択...",
+        "useDefaultDirectory": "既定のフォルダーを使用",
+        "restartHint": "変更は次回GSMバックエンドを起動したときに適用されます。"
+      },
       "description": "一時ファイルやキャッシュを含めずに、GSM設定、Overlay/Yomitanストレージ、OBS設定、GSMデータベース、OCR設定をバックアップします。",
+      "selectionHint": "バックアップの作成または復元に含める項目を選択してください。",
+      "selectAtLeastOne": "バックアップまたは復元する項目を1つ以上選択してください。",
+      "categories": {
+        "all": "すべて",
+        "database": "データベース",
+        "settings": "設定",
+        "pythonSettings": "Python設定",
+        "desktopSettings": "デスクトップアプリ設定",
+        "overlaySettings": "オーバーレイ設定",
+        "sceneConfig": "シーン設定",
+        "ocrConfigs": "OCR設定",
+        "obsConfig": "OBSシーンと設定",
+        "textHookSettings": "テキストフック設定",
+        "windowLayouts": "ウィンドウとマイニングのレイアウト",
+        "yomitan": "Yomitanデータ",
+        "customizations": "スクリプトとカスタマイズ",
+        "plugins": "Pythonプラグイン",
+        "agentScripts": "Agentスクリプト",
+        "userScripts": "ユーザースクリプト"
+      },
       "operationCreate": "バックアップ",
       "operationRestore": "復元",
       "progressSummary": "{operation}: {phase}",
@@ -913,6 +944,7 @@
     },
     "debug": {
       "title": "追加＆デバッグツール",
+      "advancedDebugLogging": "高度なデバッグログ:",
       "ignoreRun1Logs": "「OCR Run 1」ログを無視:",
       "processPriority": "プロセス優先度:",
       "defaultFuriganaSensitivity": "デフォルトふりがな感度:",
@@ -985,6 +1017,7 @@
       "defaultSceneFurigana": "シーンにまだ保存済み設定ファイルがない場合に使用されます。既存のシーンは各自の保存値を保持します。",
       "obsCapturePreprocess": "OCRの切り抜き前にOBSスクリーンショットへ前処理を適用します。グレースケール + 自動コントラスト + アンシャープは、ノイズの多い場面の字幕OCRを改善できます。",
       "ignoreRun1Logs": "\"OCR Run 1: Text recognized...\" を含むOCR端末行を隠し、2パスOCR時の重複出力ノイズを減らします。Run 2行は緑で強調表示されたままです。",
+      "advancedDebugLogging": "OCRのキャプチャ、安定性、OCR2へのフラッシュ判断、キュー、フィルタリング、重複排除、配信を、OCR実行ごとの専用ファイルへ構造化JSON Linesとして出力します。開始時にコンソールへファイルパスを表示します。",
       "installDependency": "任意のOCR依存関係をGSM Python環境へインストールします。迷った場合は推奨オプションを選んでください。",
       "uninstallDependency": "任意のOCR依存関係をGSM Python環境から削除します。",
       "replacements": "認識後に繰り返し発生するOCRミスを修正するためのOCR置換ルールページを開きます。",
@@ -1166,7 +1199,19 @@
       "label": "フックエンジン:",
       "luna": "Luna Hook",
       "textractor": "Textractor",
-      "agent": "Agent"
+      "agent": "Agent",
+      "mages": "内蔵ゲームフック（実験的）"
+    },
+    "mages": {
+      "title": "内蔵ゲームフック",
+      "experimentalBadge": "実験的",
+      "availability": "この実験的なフックは、以下に記載されたゲームとエンジンでのみ動作します。他のゲーム、エディション、ストア版、実行ファイルのビルドにはまだ対応していません。",
+      "support": {
+        "title": "現在対応しているゲーム・エンジン"
+      },
+      "description": "対応するゲームでは、GSMがゲームに直接アタッチし、外部のAgentスクリプトやOCRを使わずにテキストと文字位置を取得します。",
+      "advance": "テキストを進める",
+      "advanceFailed": "ゲームのテキストを進められませんでした。"
     },
     "agent": {
       "title": "Agentスクリプト",
@@ -1188,12 +1233,16 @@
       "saved": "保存済み",
       "autoHook": "次回起動時にフックを自動アタッチ",
       "copyToClipboard": "処理済みテキストをクリップボードにコピー",
-      "flushDelay": "出力フラッシュ遅延 (ms):",
+      "flushDelay": "テキスト更新ウィンドウ (ms):",
       "manualHook": "手動フックコード (H/Rコード、任意):",
       "manualHookHint": "特定のHコードまたはRコードがある場合だけ入力してください。通常はエンジンを開始して、検出されたフックを選択します。",
       "attachManual": "手動フックをアタッチ",
       "save": "フックを保存",
       "delete": "プロファイル削除"
+    },
+    "global": {
+      "maxBufferSize": "受信テキストの最大長:",
+      "maxBufferSizeHint": "すべてのテキストフックに適用されます。長いテキストは GSM が処理・表示する前に切り詰められます。"
     },
     "hooks": {
       "title": "検出されたフック",
@@ -1225,6 +1274,12 @@
       "searchHooks": "フックを検索",
       "stop": "停止"
     },
+    "dev": {
+      "sendLargePayload": "ランダムな日本語ペイロードを送信 ({size} 文字)",
+      "largePayloadSent": "テキストフックバスに {size} 文字を送信しました。",
+      "largePayloadTruncated": "{originalSize} 文字のテストペイロードを切り詰め、{size} 文字を送信しました。",
+      "largePayloadFailed": "開発用ペイロードの送信に失敗しました。"
+    },
     "notices": {
       "started": "{exe} (PID {pid}) にアタッチしました。",
       "selected": "フック #{id} を選択しました。出力は GSM に転送されます。",
@@ -1236,8 +1291,10 @@
       "startFailed": "フックエンジンの起動に失敗しました。",
       "manualFailed": "手動フックのアタッチに失敗しました。",
       "profileSaveFailed": "プロファイルの保存に失敗しました。",
+      "maxBufferSizeSaveFailed": "最大テキスト長の保存に失敗しました。",
       "agentUiFailed": "AgentスクリプトUIを開けませんでした。",
-      "noExe": "アクティブキャプチャの実行ファイルを検出できません。"
+      "noExe": "アクティブキャプチャの実行ファイルを検出できません。",
+      "textExceededLimit": "テキストフックが {limit} 文字を超えたため、テキストを無視しました。"
     }
   }
 }

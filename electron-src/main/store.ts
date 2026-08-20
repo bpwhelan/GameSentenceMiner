@@ -57,6 +57,7 @@ interface OCRConfig {
     twoPassOCR: boolean;
     optimize_second_scan: boolean;
     text_appears_instantly?: boolean;
+    advanced_debug_logging?: boolean;
     ocr1: string;
     ocr2: string;
     scanRate: number;
@@ -189,6 +190,9 @@ interface StoreConfig {
     ignoreActiveSceneForOcr: boolean; // Keep auto-launched OCR running regardless of the active OBS scene
     visibleTabs: string[]; // Array of visible tab IDs
     statsEndpoint: string; // Stats tab endpoint
+    databaseBackupEnabled: boolean;
+    databaseBackupDirectory: string;
+    databaseBackupRetentionCount: number;
     locale: string; // UI language code (e.g. "en", "ukr")
     theme: string; // Renderer UI theme id (daisyUI theme name)
     pythonPath: string;
@@ -257,6 +261,7 @@ export const store = new Store<StoreConfig>({
             twoPassOCR: true,
             optimize_second_scan: true,
             text_appears_instantly: false,
+            advanced_debug_logging: false,
             ocr1: DEFAULT_STABILITY_OCR,
             ocr2: "glens",
             language: "ja",
@@ -327,6 +332,9 @@ export const store = new Store<StoreConfig>({
         ignoreActiveSceneForOcr: false,
         visibleTabs: ['launcher', 'stats', 'console'], // Default all tabs visible
         statsEndpoint: 'overview', // Default stats endpoint
+        databaseBackupEnabled: true,
+        databaseBackupDirectory: '',
+        databaseBackupRetentionCount: 2,
         locale: 'en', // UI language code
         theme: 'gsm-dark', // Default renderer UI theme
         hasCompletedSetup: false,
@@ -1023,6 +1031,32 @@ export function getStatsEndpoint(): string {
 
 export function setStatsEndpoint(endpoint: string): void {
     store.set("statsEndpoint", endpoint);
+}
+
+export function getDatabaseBackupEnabled(): boolean {
+    return store.get("databaseBackupEnabled", false) === true;
+}
+
+export function setDatabaseBackupEnabled(enabled: boolean): void {
+    store.set("databaseBackupEnabled", enabled);
+}
+
+export function getDatabaseBackupDirectory(): string {
+    const value = store.get("databaseBackupDirectory", "");
+    return typeof value === "string" ? value.trim() : "";
+}
+
+export function setDatabaseBackupDirectory(directory: string): void {
+    store.set("databaseBackupDirectory", directory.trim());
+}
+
+export function getDatabaseBackupRetentionCount(): number {
+    const value = Number(store.get("databaseBackupRetentionCount", 2));
+    return Number.isFinite(value) ? Math.max(1, Math.min(1000, Math.trunc(value))) : 2;
+}
+
+export function setDatabaseBackupRetentionCount(count: number): void {
+    store.set("databaseBackupRetentionCount", Math.max(1, Math.min(1000, Math.trunc(count))));
 }
 
 export function getIconStyle(): string {

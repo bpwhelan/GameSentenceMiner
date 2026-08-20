@@ -1,4 +1,5 @@
 import re
+import threading
 import uuid
 from difflib import SequenceMatcher
 from typing import Optional, List, Dict
@@ -56,6 +57,51 @@ class GamesTable(SQLiteDBTable):
     ]
     _pk = "id"
     _auto_increment = False  # UUID-based primary key
+    _name_to_id_cache: Dict[str, str] = {}
+    _name_to_id_cache_db: Optional[object] = None
+    _name_to_id_cache_lock = threading.RLock()
+
+    @classmethod
+    def set_db(cls, db, *, ensure_schema: bool = True):
+        """Attach a database and discard name mappings from the previous DB."""
+        super().set_db(db, ensure_schema=ensure_schema)
+        cls.clear_name_id_cache()
+
+    @classmethod
+    def clear_name_id_cache(cls) -> None:
+        """Clear cached game-name aliases after external mapping mutations."""
+        with cls._name_to_id_cache_lock:
+            cls._name_to_id_cache.clear()
+            cls._name_to_id_cache_db = cls._db
+
+    @classmethod
+    def _ensure_name_id_cache_for_current_db(cls) -> None:
+        # Some callers and older tests assign ``_db`` directly instead of using
+        # set_db(), so guard the cache against crossing database instances.
+        if cls._name_to_id_cache_db is not cls._db:
+            cls._name_to_id_cache.clear()
+            cls._name_to_id_cache_db = cls._db
+
+    @classmethod
+    def _cache_game_names(cls, requested_name: str, game: "GamesTable") -> None:
+        with cls._name_to_id_cache_lock:
+            cls._ensure_name_id_cache_for_current_db()
+            for name in (requested_name, game.title_original, game.obs_scene_name):
+                if name:
+                    cls._name_to_id_cache[name] = game.id
+
+    @classmethod
+    def get_or_create_id_by_name(cls, game_name: str) -> str:
+        """Resolve a source game name to an ID, querying only on cache misses."""
+        with cls._name_to_id_cache_lock:
+            cls._ensure_name_id_cache_for_current_db()
+            game_id = cls._name_to_id_cache.get(game_name)
+            if game_id:
+                return game_id
+
+            game = cls.get_or_create_by_name(game_name)
+            cls._cache_game_names(game_name, game)
+            return game.id
 
     def __init__(
         self,
@@ -226,12 +272,18 @@ class GamesTable(SQLiteDBTable):
         """
         logger.debug(f"[GET_OR_CREATE] Looking up game: '{game_name}'")
 
-        # Try exact match on title_original first
-        existing = cls.get_by_title(game_name)
+        # Both fields are persisted on the game record. Checking them together
+        # avoids scanning game_lines for the common OBS-name/title mismatch.
+        row = cls._db.fetchone(
+            f"SELECT * FROM {cls._table} WHERE title_original=? OR obs_scene_name=? LIMIT 1",
+            (game_name, game_name),
+        )
+        existing = cls.from_row(row) if row else None
         if existing:
             logger.debug(
-                f"[GET_OR_CREATE] Found exact match in games table: id={existing.id}, deck_id={existing.deck_id}"
+                f"[GET_OR_CREATE] Found exact title/scene match in games table: id={existing.id}, deck_id={existing.deck_id}"
             )
+            cls._cache_game_names(game_name, existing)
             return existing
 
         logger.debug("[GET_OR_CREATE] No exact match found, checking game_lines for existing mapping...")
@@ -240,11 +292,6 @@ class GamesTable(SQLiteDBTable):
         # This handles cases where OBS scene name != game title_original
         from GameSentenceMiner.util.database.db import GameLinesTable
 
-        # First, let's see what game_names exist in game_lines
-        all_game_names = GameLinesTable._db.fetchall(f"SELECT DISTINCT game_name FROM {GameLinesTable._table} LIMIT 10")
-        logger.debug(f"[GET_OR_CREATE] Sample game_names in game_lines: {[row[0] for row in all_game_names]}")
-
-        # Now try to find our specific game_name
         existing_line = GameLinesTable._db.fetchone(
             f"SELECT game_id FROM {GameLinesTable._table} WHERE game_name=? AND game_id IS NOT NULL AND game_id != '' LIMIT 1",
             (game_name,),
@@ -258,6 +305,7 @@ class GamesTable(SQLiteDBTable):
                 logger.debug(
                     f"[GET_OR_CREATE] ✓ Reusing existing game: '{game_name}' -> game_id={game_id} ('{existing_game.title_original}', deck_id={existing_game.deck_id})"
                 )
+                cls._cache_game_names(game_name, existing_game)
                 return existing_game
             else:
                 logger.warning(f"[GET_OR_CREATE] game_id {game_id} found in game_lines but not in games table!")
@@ -282,6 +330,7 @@ class GamesTable(SQLiteDBTable):
         logger.debug(
             "[GET_OR_CREATE] ℹ️ This game needs to be manually linked to jiten.moe via the Games Management interface"
         )
+        cls._cache_game_names(game_name, new_game)
         return new_game
 
     @classmethod

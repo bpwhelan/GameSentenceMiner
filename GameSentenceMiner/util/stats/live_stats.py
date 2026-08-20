@@ -122,6 +122,8 @@ class LiveSessionTracker:
         self.session_start_time = None
         self.times_mined = 0
         self.lines_count = 0
+        self.last_line_id = None
+        self._line_ledger: dict[str, dict[str, object]] = {}
         # v2: per-line raw reading speeds (chars/sec) for the adaptive cap.
         self._speed_samples: list[float] = []
 
@@ -139,7 +141,14 @@ class LiveSessionTracker:
             max_time = min(max_time, ABSOLUTE_CEILING)
         self.total_reading_seconds += min(gap, max_time)
 
-    def add_line(self, line_text: str, timestamp: float):
+    def add_line(
+        self,
+        line_text: str,
+        timestamp: float,
+        *,
+        line_id: str | None = None,
+        revision: int = 1,
+    ):
         """
         Adds a new line to the tracker, updating character counts and
         calculating active reading time based on gaps between lines.
@@ -152,8 +161,33 @@ class LiveSessionTracker:
         (v1 fixed seconds-per-char, or v2 adaptive to conservative session median speed).
         """
         stats_config = get_stats_config()
+        cleaned = clean_text_for_stats(
+            line_text,
+            regex_out_repetitions=getattr(stats_config, "regex_out_repetitions", False),
+            extra_punctuation_regex=getattr(stats_config, "extra_punctuation_regex", ""),
+        )
+        char_count = len(cleaned) if cleaned else 0
+        if line_id:
+            previous = self._line_ledger.get(line_id)
+            if previous is not None:
+                if int(revision) <= int(previous["revision"]):
+                    return
+                old_chars = int(previous["chars"])
+                previous["revision"] = int(revision)
+                previous["chars"] = char_count
+                previous["text"] = line_text
+                if bool(previous["credited"]):
+                    self.total_characters = max(0, self.total_characters + char_count - old_chars)
+                elif self.last_line_id == line_id:
+                    self.last_line_text = line_text
+                    self.last_line_chars = char_count
+                publish_live_stats_update(self, reason="line_revision")
+                return
+
         if self.last_line_time:
-            gap = timestamp - self.last_line_time
+            # First-seen order is authoritative. A wall-clock correction may
+            # move backward, but it must never create negative reading time.
+            gap = max(0.0, timestamp - self.last_line_time)
             # If the gap between lines exceeds the session gap, reset stats.
             if gap > stats_config.session_gap_seconds:
                 self.reset()
@@ -163,6 +197,8 @@ class LiveSessionTracker:
                 # Previous line is now done: credit its time and characters together.
                 self._credit_gap(gap)
                 self.total_characters += self.last_line_chars
+                if self.last_line_id in self._line_ledger:
+                    self._line_ledger[self.last_line_id]["credited"] = True
         else:
             # This is the first line of a new session.
             self.session_start_time = timestamp
@@ -172,20 +208,23 @@ class LiveSessionTracker:
         # Store raw text (for the adaptive cap) and the cleaned char count; both
         # are credited when the next line arrives, not now.
         self.last_line_text = line_text
-        cleaned = clean_text_for_stats(
-            line_text,
-            regex_out_repetitions=getattr(stats_config, "regex_out_repetitions", False),
-            extra_punctuation_regex=getattr(stats_config, "extra_punctuation_regex", ""),
-        )
-        self.last_line_chars = len(cleaned) if cleaned else 0
+        self.last_line_chars = char_count
         self.last_line_time = timestamp
+        self.last_line_id = line_id
+        if line_id:
+            self._line_ledger[line_id] = {
+                "revision": int(revision),
+                "chars": char_count,
+                "text": line_text,
+                "credited": False,
+            }
 
         publish_live_stats_update(self, reason="line")
         # Keep overlay goals advancing while reading (throttled inside the publisher).
         try:
-            from GameSentenceMiner.web.live_goals import publish_live_goals_update
+            from GameSentenceMiner.web.live_goals import schedule_live_goals_update
 
-            publish_live_goals_update()
+            schedule_live_goals_update()
         except Exception:
             pass
 

@@ -316,6 +316,21 @@
       gap: 6px;
     }
 
+    .range-input {
+      width: min(240px, 32vw);
+      min-width: 160px;
+      accent-color: #4CAF50;
+      cursor: pointer;
+    }
+
+    .range-value {
+      min-width: 42px;
+      color: #cfcfcf;
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+    }
+
     .setting-control-shell {
       display: inline-flex;
       align-items: center;
@@ -1626,6 +1641,13 @@
       </label>
       <label>
         <span class="label-text">
+          Floating Window Font Size
+          <div class="hotkey-info">Text size for the floating main box, in pixels.</div>
+        </span>
+        <input type="number" id="fontSize" value="42" min="8" max="200" step="1" />
+      </label>
+      <label>
+        <span class="label-text">
           Focus Overlay on Yomitan Lookup
           <div class="hotkey-info">Bring the overlay to the foreground while Yomitan popups are open, then restore the prior pass-through state when they close.</div>
         </span>
@@ -1648,6 +1670,30 @@
           <option value="meikiocr">MeikiOCR</option>
           <option value="screenai">ScreenAI</option>
         </select>
+      </label>
+      <label>
+        <span class="label-text">
+          Text Appears Instantly
+          <div class="hotkey-info">
+            Run only the first overlay OCR scan instead of retrying until the text stabilizes. Enable this only when
+            the full line appears at once; if text spools or types in gradually, Yomitan lookups can miss characters
+            that appeared after the scan.
+          </div>
+        </span>
+        <input type="checkbox" id="text_appears_instantly" />
+      </label>
+      <label>
+        <span class="label-text">
+          Image Scaling
+          <div class="hotkey-info">
+            Scale screenshots before OCR. Lower values scan faster and use less CPU; higher values improve accuracy
+            for small text.
+          </div>
+        </span>
+        <span class="input-container">
+          <input class="range-input" type="range" id="base_scale" value="0.75" min="0.5" max="1" step="0.05" />
+          <output class="range-value" id="base_scale_value" for="base_scale">75%</output>
+        </span>
       </label>
       <label>
         <span class="label-text">Monitor to Capture</span>
@@ -2063,7 +2109,7 @@
       <label>
         <span class="label-text">
           Toggle Window Hotkey
-          <div class="hotkey-info">Show/hide main overlay box</div>
+          <div class="hotkey-info">Show/hide floating overlay box</div>
           <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key (modifiers optional)</div>
           <div id="togglewindow-ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning: Ctrl key may interfere with game controls (text skipping)</div>
         </span>
@@ -2232,7 +2278,7 @@
       <label>
         <span class="label-text">
           Confirm Button
-          <div class="hotkey-info">Press to confirm selection (optional - auto-confirm is enabled)</div>
+          <div class="hotkey-info">Press to confirm selection for yomitan lookup (optional - auto-confirm is enabled). This is the same button to mine in Yomitan.</div>
         </span>
         <input type="text" id="gamepadConfirmButton" class="gamepad-binding-input" value="A" placeholder="Click and press a controller combo" readonly />
         <input type="text" id="keyboardConfirmKey" class="keyboard-binding-input" value="Enter" placeholder="Click and press a key" readonly />
@@ -2240,7 +2286,7 @@
       <label>
         <span class="label-text">
           Cancel Button
-          <div class="hotkey-info">Press to cancel/exit navigation mode</div>
+          <div class="hotkey-info">Press to hide Yomitan Lookup Window.</div>
         </span>
         <input type="text" id="gamepadCancelButton" class="gamepad-binding-input" value="B" placeholder="Click and press a controller combo" readonly />
         <input type="text" id="keyboardCancelKey" class="keyboard-binding-input" value="Escape" placeholder="Click and press a key" readonly />
@@ -2280,7 +2326,7 @@
       <label>
         <span class="label-text">
           Forward Click Button
-          <div class="hotkey-info">Left-click the center of the current GSM target window</div>
+          <div class="hotkey-info">Left-click the top left corner of the current GSM target window</div>
         </span>
         <input type="text" id="gamepadForwardClickButton" class="gamepad-binding-input" value="Disabled" placeholder="Click and press a controller combo" readonly />
         <input type="text" id="keyboardForwardClickKey" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
@@ -3643,6 +3689,16 @@
         integer: true,
       }),
       createCheckboxBinding("scan_on_overlay_activation", "#scan_on_overlay_activation"),
+      createCheckboxBinding("text_appears_instantly", "#text_appears_instantly"),
+      createNumberBinding("base_scale", "#base_scale", {
+        fallback: 0.75,
+        min: 0.5,
+        max: 1,
+        afterApply: (value) => {
+          const output = document.getElementById("base_scale_value");
+          if (output) output.textContent = `${Math.round(value * 100)}%`;
+        },
+      }),
       createCheckboxBinding("periodic", "#periodic"),
       createNumberBinding("periodic_interval", "#periodic_interval", {
         fallback: 1,
@@ -3751,6 +3807,13 @@
         normalize: (value) => value === true,
         afterApply: () => syncShowMainBoxStartupUi(),
       },
+      createNumberBinding("fontSize", "#fontSize", {
+        fallback: 42,
+        min: 8,
+        max: 200,
+        integer: true,
+        event: "change",
+      }),
       createCheckboxBinding("openSettingsOnStartup", "#openSettingsOnStartup"),
       createCheckboxBinding("focusOverlayOnYomitanLookup", "#focusOverlayOnYomitanLookup"),
       createCheckboxBinding("routeAllHotkeysThroughInputServer", "#routeAllHotkeysThroughInputServer"),

@@ -77,6 +77,21 @@ jobs:
       - name: Stamp version into package.json
         run: npm version ${{ needs.compute-version.outputs.PACKAGE_VERSION }} --no-git-tag-version --allow-same-version
 
+      - name: Sync Python package version
+        run: node scripts/sync-version.mjs
+
+      - name: Install wheel builder
+        run: python -m pip install --upgrade cibuildwheel
+
+      - name: Build prerelease backend wheel
+        env:
+          CIBW_BUILD: cp310-*
+          CIBW_ARCHS_WINDOWS: AMD64
+        run: python -m cibuildwheel --output-dir electron-src/assets/python
+
+      - name: Smoke test prerelease backend wheel
+        run: node scripts/smoke-test-wheel.mjs
+
       - name: Build gamepad server (Windows)
         run: |
           cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
@@ -84,8 +99,7 @@ jobs:
           Copy-Item GSM_Overlay/input_server/target/release/gsm_overlay_server.exe GSM_Overlay/input_server/bin/win32/gsm_overlay_server.exe -Force
 
       - name: Write prerelease metadata
-        run: |
-          node -e "const fs=require('fs');const path=require('path');const branch=(process.env.GITHUB_HEAD_REF||process.env.GITHUB_REF_NAME||'unknown').trim()||'unknown';const payload={branch,generatedAt:new Date().toISOString()};const out=path.join('electron-src','assets','prerelease.json');fs.writeFileSync(out, JSON.stringify(payload, null, 2)+'\n');console.log('Wrote prerelease metadata to', out, 'for branch', branch);"
+        run: node scripts/write-prerelease-metadata.mjs --version "${{ needs.compute-version.outputs.PACKAGE_VERSION }}"
 
       - name: Convert Handlebar files to LF
         run: |
@@ -113,4 +127,11 @@ jobs:
         with:
           name: windows-unpacked-${{ needs.compute-version.outputs.PACKAGE_VERSION }}
           path: dist/win-unpacked
+          if-no-files-found: error
+
+      - name: Upload prerelease backend wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-backend-wheel-${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+          path: electron-src/assets/python/*.whl
           if-no-files-found: error

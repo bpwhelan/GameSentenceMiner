@@ -58,6 +58,110 @@ def test_main_logs_pid_before_run_when_no_existing_instance(monkeypatch):
     assert calls == ["check", "log", "run"]
 
 
+def test_quit_command_hands_cleanup_off_the_ipc_command_thread():
+    app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
+    app._shutdown_lock = threading.Lock()
+    app._shutdown_thread = None
+    cleanup_entered = threading.Event()
+    allow_cleanup_to_finish = threading.Event()
+    handler_finished = threading.Event()
+    cleanup_threads = []
+
+    def fake_cleanup():
+        cleanup_threads.append(threading.current_thread().name)
+        cleanup_entered.set()
+        allow_cleanup_to_finish.wait(timeout=2)
+
+    def invoke_quit_handler():
+        try:
+            app.handle_ipc_command({"function": gsm_module.FunctionName.QUIT.value})
+        finally:
+            handler_finished.set()
+
+    app.cleanup = fake_cleanup
+    handler_thread = threading.Thread(target=invoke_quit_handler, name="gsm-ipc-command-actor")
+    handler_thread.start()
+    try:
+        assert cleanup_entered.wait(timeout=1)
+        assert handler_finished.wait(timeout=0.2), "quit handler remained blocked inside cleanup"
+        assert cleanup_threads == ["gsm-shutdown"]
+    finally:
+        allow_cleanup_to_finish.set()
+        handler_thread.join(timeout=1)
+        shutdown_thread = app._shutdown_thread
+        if shutdown_thread is not None:
+            shutdown_thread.join(timeout=1)
+
+
+def test_finish_shutdown_transport_flushes_ack_before_closing_bus(monkeypatch):
+    calls = []
+    app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
+    app.state = SimpleNamespace(transport_runtime=SimpleNamespace(stop=lambda: calls.append("runtime-stop")))
+
+    monkeypatch.setattr(gsm_module, "_release_single_instance_lock", lambda: calls.append("release-lock"))
+    monkeypatch.setattr(
+        gsm_module,
+        "send_message",
+        lambda function, **kwargs: calls.append(("send", function, kwargs)),
+    )
+    monkeypatch.setattr(
+        "GameSentenceMiner.util.communication.electron_ipc.stop_ipc_listener",
+        lambda **kwargs: calls.append(("ipc-stop", kwargs)),
+    )
+
+    app._finish_shutdown_transport()
+
+    assert calls == [
+        "release-lock",
+        ("send", "cleanup_complete", {"wait": True}),
+        ("ipc-stop", {}),
+        "runtime-stop",
+    ]
+
+
+def test_managed_background_thread_is_daemonized_for_bounded_shutdown():
+    app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
+    app._threads = []
+    ran = threading.Event()
+
+    thread = app._start_thread(ran.set, "bounded-background-test")
+    thread.join(timeout=1)
+
+    assert ran.is_set()
+    assert thread.daemon is True
+
+
+def test_signal_cron_shutdown_does_not_use_blocking_stop(monkeypatch):
+    calls = []
+    fake_cron_scheduler = SimpleNamespace(
+        shutdown=lambda: calls.append("shutdown"),
+        stop=lambda **_kwargs: calls.append("stop"),
+    )
+    monkeypatch.setattr("GameSentenceMiner.util.cron.cron_scheduler", fake_cron_scheduler)
+
+    app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
+    app._signal_cron_shutdown()
+
+    assert calls == ["shutdown"]
+
+
+def test_join_managed_threads_has_a_small_total_budget():
+    app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
+    release = threading.Event()
+    blocked = threading.Thread(target=release.wait, name="blocked-managed-thread", daemon=True)
+    blocked.start()
+    app._threads = [blocked]
+
+    started = time.monotonic()
+    try:
+        app._join_managed_threads()
+    finally:
+        release.set()
+        blocked.join(timeout=1)
+
+    assert time.monotonic() - started < 0.75
+
+
 def test_connect_obs_when_available_uses_single_connection(monkeypatch):
     app = gsm_module.GSMApplication()
     connect_calls = []
@@ -158,9 +262,7 @@ def test_run_schedules_default_config_dialog_after_backend_ready(monkeypatch):
     app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
     app.state = SimpleNamespace(
         settings_window=None,
-        async_runner=_FakeRunner("main"),
-        text_async_runner=_FakeRunner("text"),
-        overlay_async_runner=_FakeRunner("overlay"),
+        transport_runtime=_FakeRunner("transport"),
     )
     app.initialize = lambda reloading=False: calls.append("initialize")
     app.start_background_threads = lambda: calls.append("background-threads")
@@ -192,6 +294,11 @@ def test_run_schedules_default_config_dialog_after_backend_ready(monkeypatch):
     )
 
     monkeypatch.setattr(gsm_module, "_get_qt_main_module", lambda: fake_qt_main)
+    monkeypatch.setattr(
+        gsm_module,
+        "_get_websocket_manager",
+        lambda: SimpleNamespace(set_transport_runtime=lambda _runtime: calls.append("websocket-transport")),
+    )
     monkeypatch.setattr(
         gsm_module, "get_config", lambda: SimpleNamespace(general=SimpleNamespace(open_config_on_startup=False))
     )
@@ -403,7 +510,7 @@ def test_async_runner_keeps_fire_and_forget_task_alive_through_gc():
     future let the GC close the still-pending coroutine, running its `finally`
     (cron_scheduler.shutdown) early. The runner must retain a strong reference.
     """
-    runner = gsm_module.AsyncBackgroundRunner("gsm-test-async")
+    runner = gsm_module.AsyncTransportRuntime("gsm-test-async")
     runner.start()
 
     finally_ran = threading.Event()

@@ -11,6 +11,7 @@ throttled (see MIN_PUBLISH_INTERVAL_SECONDS).
 """
 
 import datetime
+import threading
 import time
 
 LIVE_GOALS_UPDATE_TYPE = "live_goals_update"
@@ -31,6 +32,8 @@ def _local_timezone():
 
 
 _last_publish_time = 0.0
+_publish_pending = False
+_publish_lock = threading.Lock()
 
 
 def _goal_is_active(goal, today_str, get_goal_value):
@@ -130,3 +133,39 @@ def publish_live_goals_update(*, force: bool = False) -> bool:
         return True
     except Exception:
         return False
+
+
+def schedule_live_goals_update(*, force: bool = False) -> bool:
+    """Queue DB-backed goal calculation without blocking live text projection."""
+    global _publish_pending
+    try:
+        from GameSentenceMiner.web.gsm_websocket import ID_OVERLAY, websocket_manager
+
+        if not websocket_manager.has_clients(ID_OVERLAY):
+            return False
+    except Exception:
+        return False
+    now = time.time()
+    with _publish_lock:
+        if _publish_pending:
+            return False
+        if not force and (now - _last_publish_time) < MIN_PUBLISH_INTERVAL_SECONDS:
+            return False
+        _publish_pending = True
+
+    try:
+        from GameSentenceMiner.util.concurrency.work_pool import submit_background_work
+
+        future = submit_background_work(publish_live_goals_update, force=force, timeout=0)
+    except Exception:
+        with _publish_lock:
+            _publish_pending = False
+        return False
+
+    def completed(_future) -> None:
+        global _publish_pending
+        with _publish_lock:
+            _publish_pending = False
+
+    future.add_done_callback(completed)
+    return True

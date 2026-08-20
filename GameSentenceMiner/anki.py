@@ -8,12 +8,12 @@ import shutil
 import subprocess
 import threading
 import time
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from html import unescape
 from pathlib import Path
-from queue import Empty, Queue
+from queue import Empty, Full, Queue
 from types import SimpleNamespace
 from typing import Dict, Any, List, Tuple, Optional
 
@@ -50,9 +50,9 @@ from GameSentenceMiner.util.gsm_utils import (
     wait_for_stable_file,
     remove_html_and_cloze_tags,
     combine_dialogue,
-    run_new_thread,
     open_audio_in_external,
 )
+from GameSentenceMiner.util.concurrency.work_pool import BoundedDeque, BoundedWorkPool, submit_background_work
 from GameSentenceMiner.util.media import ffmpeg
 from GameSentenceMiner.util.models.model import AnkiCard
 from GameSentenceMiner.util.platform import notification
@@ -90,12 +90,13 @@ def _animated_screenshot_codec(settings) -> str:
 # Global variables to track state
 previous_note_ids = set()
 first_run = True
-card_queue = []
-translation_prefetch_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="gsm-translation")
+card_queue = BoundedDeque(256, name="anki-media")
+translation_prefetch_executor = BoundedWorkPool("gsm-translation", max_workers=2, capacity=256)
 sentence_audio_cache = {}
-anki_beacon_note_queue: "Queue[Dict[str, Any]]" = Queue()
+anki_beacon_note_queue: "Queue[Dict[str, Any]]" = Queue(maxsize=256)
 anki_beacon_state_lock = threading.Lock()
 processed_push_note_keys = set()
+_anki_monitor_stop = threading.Event()
 
 
 @dataclass
@@ -559,6 +560,7 @@ def _apply_field_grouping_merge(
     )
     if not merged_note["fields"]:
         raise ValueError("No configured context fields contained data to merge.")
+    _normalize_anki_sentence_line_breaks(merged_note, anki_cfg=config.anki)
     invoke("updateNoteFields", note=merged_note)
 
     merged_tags = _field_grouping_tags(source_note, generated_tags)
@@ -802,6 +804,27 @@ def _apply_field_policy(
 
     note["fields"][field_cfg.name] = value
     return True
+
+
+def _normalize_anki_sentence_line_breaks(note: Dict, anki_cfg=None) -> Dict:
+    """Convert sentence text newlines to HTML breaks immediately before an Anki update."""
+    if not isinstance(note, dict):
+        return note
+
+    fields = note.get("fields")
+    if not isinstance(fields, dict):
+        return note
+
+    anki_cfg = anki_cfg or getattr(get_config(), "anki", None)
+    sentence_field = str(getattr(anki_cfg, "sentence_field", "") or "").strip()
+    if not sentence_field:
+        return note
+
+    sentence = fields.get(sentence_field)
+    if isinstance(sentence, str):
+        fields[sentence_field] = sentence.replace("\r\n", "<br>").replace("\r", "<br>").replace("\n", "<br>")
+
+    return note
 
 
 def _determine_update_conditions(last_note: "AnkiCard") -> (bool, bool):
@@ -1322,7 +1345,7 @@ def _start_animated_screenshot_prefetch(
         finally:
             assets.animated_prefetch_event.set()
 
-    run_new_thread(_prefetch)
+    submit_background_work(_prefetch)
 
 
 def _get_prefetched_animated_screenshot_path(assets: MediaAssets) -> str:
@@ -1777,7 +1800,7 @@ def update_anki_card(
         pending_animated=bool(getattr(assets, "pending_animated", False)),
         pending_video=bool(getattr(assets, "pending_video", False)),
     )
-    run_new_thread(
+    submit_background_work(
         lambda: check_and_update_note(
             last_note,
             note,
@@ -2231,6 +2254,7 @@ def _update_anki_note(
         if note["fields"][field_name] is None:
             note["fields"][field_name] = ""
 
+    _normalize_anki_sentence_line_breaks(note, anki_cfg=config.anki)
     invoke_with_optional_timing("updateNoteFields", note=note)
 
     if not assets.audio_in_anki and config.anki.tag_unvoiced_cards:
@@ -2449,7 +2473,7 @@ def add_image_to_card(last_note: AnkiCard, image_path):
     note = {"id": last_note.noteId, "fields": {}}
 
     # Media upload and field update will happen in check_and_update_note
-    run_new_thread(
+    submit_background_work(
         lambda: check_and_update_note(
             last_note,
             note,
@@ -3152,13 +3176,19 @@ def handle_incoming_anki_event(payload: Dict[str, Any], received_at: Optional[da
             return "duplicate_note_added"
         processed_push_note_keys.add(note_key)
 
-    anki_beacon_note_queue.put(
-        {
-            "session_id": session_id,
-            "note_id": note_id,
-            "payload": dict(payload),
-        }
-    )
+    try:
+        anki_beacon_note_queue.put(
+            {
+                "session_id": session_id,
+                "note_id": note_id,
+                "payload": dict(payload),
+            },
+            timeout=0.25,
+        )
+    except Full as error:
+        with anki_beacon_state_lock:
+            processed_push_note_keys.discard(note_key)
+        raise RuntimeError("Anki event mailbox is backpressured") from error
     return "note_added"
 
 
@@ -3226,7 +3256,7 @@ def _trigger_incremental_anki_cache_sync(note_ids: List[int]) -> None:
     try:
         from GameSentenceMiner.util.cron.anki_card_sync import run_incremental_sync
 
-        run_new_thread(run_incremental_sync, unique_note_ids)
+        submit_background_work(run_incremental_sync, unique_note_ids)
     except Exception as e:
         logger.error(f"Error triggering incremental sync: {e}")
 
@@ -3341,6 +3371,9 @@ def update_single_card(card):
         line_id=getattr(game_line, "id", ""),
         word=current_word,
         selected_line_count=len(lines or []),
+        # The context is passed through bounded queues as correlation metadata
+        # even when the optional timing log sink is disabled.
+        force=True,
     )
     log_anki_card_timing(
         timing_context,
@@ -3418,7 +3451,7 @@ def update_single_card(card):
         }
         if timing_context is not None:
             reuse_kwargs["timing_context"] = timing_context
-        run_new_thread(
+        submit_background_work(
             lambda: update_card_from_same_sentence(
                 card,
                 **reuse_kwargs,
@@ -3472,18 +3505,26 @@ def queue_card_for_processing(
             last_mined_line,
         )
 
-    card_queue.append(
-        (
-            last_card,
-            datetime.now(),
-            lines,
-            last_mined_line,
-            reuse_audio_result_id,
-            reuse_screenshot_result_id,
-            timing_context,
-            translation_future,
-        )
+    card_queue_item = (
+        last_card,
+        datetime.now(),
+        lines,
+        last_mined_line,
+        reuse_audio_result_id,
+        reuse_screenshot_result_id,
+        timing_context,
+        translation_future,
     )
+    try:
+        card_queue.append(card_queue_item)
+    except Exception as error:
+        if translation_future is not None:
+            translation_future.cancel()
+        reason = f"Anki media queue is backpressured for note {last_card.noteId}: {error}"
+        logger.error(reason)
+        _mark_anki_update_failure(last_mined_line.id if last_mined_line else None, reason, current_word)
+        _notify_anki_enhancement_failure(reason)
+        return
     reuse_key = _build_sentence_audio_key(last_mined_line, lines)
     previous_entry = sentence_audio_cache.get(reuse_key) if reuse_key else None
     _set_sentence_audio_cache_entry(reuse_key, last_mined_line.id, current_word)
@@ -3499,7 +3540,10 @@ def queue_card_for_processing(
         with time_anki_card_block(timing_context, "anki.obs_save_replay_buffer", queue_depth=len(card_queue)):
             obs.save_replay_buffer()
     except Exception as e:
-        card_queue.pop(0)
+        try:
+            card_queue.remove(card_queue_item)
+        except ValueError:
+            pass
         if reuse_key:
             if previous_entry:
                 sentence_audio_cache[reuse_key] = previous_entry
@@ -3774,13 +3818,19 @@ def _seed_anki_polling_baseline() -> bool:
         return False
 
 
-def _monitor_anki_iteration(unsuccessful_count: int, scaled_polling_rate: float) -> Tuple[int, float]:
+def _monitor_anki_iteration(
+    unsuccessful_count: int,
+    scaled_polling_rate: float,
+    *,
+    sleep_func=None,
+) -> Tuple[int, float]:
+    sleep_func = sleep_func or time.sleep
     config = get_config()
     base_polling_rate = _get_anki_base_polling_rate_seconds()
 
     if not config.anki.enabled:
         refresh_anki_beacon_connection_status()
-        time.sleep(5)
+        sleep_func(5)
         return unsuccessful_count, base_polling_rate
 
     push_wait_timeout = get_anki_beacon_wait_timeout_seconds()
@@ -3810,7 +3860,7 @@ def _monitor_anki_iteration(unsuccessful_count: int, scaled_polling_rate: float)
             anki_polling_gate_state.replay_buffer_polling_active = False
         _reset_anki_polling_baseline_seed_log_state()
         refresh_anki_connect_connection_status()
-        time.sleep(base_polling_rate)
+        sleep_func(base_polling_rate)
         return 0, base_polling_rate
 
     if not anki_polling_gate_state.replay_buffer_polling_active:
@@ -3819,7 +3869,7 @@ def _monitor_anki_iteration(unsuccessful_count: int, scaled_polling_rate: float)
             anki_polling_gate_state.baseline_seed_activation_logged = True
         if _seed_anki_polling_baseline():
             anki_polling_gate_state.replay_buffer_polling_active = True
-        time.sleep(base_polling_rate)
+        sleep_func(base_polling_rate)
         return 0, base_polling_rate
 
     successful = check_for_new_cards()
@@ -3831,7 +3881,7 @@ def _monitor_anki_iteration(unsuccessful_count: int, scaled_polling_rate: float)
         if unsuccessful_count >= 5:
             scaled_polling_rate = min(max(scaled_polling_rate, base_polling_rate) * 2, 5.0)
 
-    time.sleep(scaled_polling_rate)
+    sleep_func(scaled_polling_rate)
     return unsuccessful_count, scaled_polling_rate
 
 
@@ -3840,10 +3890,11 @@ def monitor_anki():
     try:
         unsuccessful_count = 0
         scaled_polling_rate = _get_anki_base_polling_rate_seconds()
-        while True:
+        while not _anki_monitor_stop.is_set():
             unsuccessful_count, scaled_polling_rate = _monitor_anki_iteration(
                 unsuccessful_count,
                 scaled_polling_rate,
+                sleep_func=_anki_monitor_stop.wait,
             )
     except KeyboardInterrupt:
         print("Stopped Checking For Anki Cards...")
@@ -3862,9 +3913,17 @@ def get_note_ids():
 
 
 def start_monitoring_anki():
-    obs_thread = threading.Thread(target=monitor_anki)
-    obs_thread.daemon = True
-    obs_thread.start()
+    _anki_monitor_stop.clear()
+    monitor_anki()
+
+
+def stop_monitoring_anki() -> None:
+    _anki_monitor_stop.set()
+
+
+def stop_anki_runtime() -> None:
+    _anki_monitor_stop.set()
+    translation_prefetch_executor.shutdown(wait=True, cancel_futures=False)
 
 
 # --- Anki Stats Utilities ---

@@ -82,8 +82,9 @@ def new_anki_card_timing_context(
     line_id: Any = "",
     word: str = "",
     selected_line_count: int = 0,
+    force: bool = False,
 ) -> AnkiCardTimingContext | None:
-    if not is_anki_card_timing_enabled():
+    if not force and not is_anki_card_timing_enabled():
         return None
     return AnkiCardTimingContext(
         timing_id=uuid.uuid4().hex[:12],

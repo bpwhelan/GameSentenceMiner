@@ -1,5 +1,12 @@
 import os
 
+# NumPy's Windows OpenBLAS build otherwise creates one worker per logical CPU
+# and commits a 32 MiB scratch buffer for each worker at import time. GSM's
+# NumPy usage is not BLAS-heavy, so keep one worker unless the user explicitly
+# opts into a different value before launching GSM.
+if os.name == "nt":
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+
 # Remove environment variables that could interfere with managed Python instance
 # This prevents conflicts with user's system Python installations and configurations
 

@@ -646,6 +646,22 @@ def cleanup_minimized_audio_mutes() -> None:
         monitor._restore_minimized_audio_mute_internal("shutdown", force_all_sessions=True)
 
 
+def toggle_target_window_mute(hwnd: Optional[int] = None) -> bool:
+    monitor = get_window_state_monitor()
+    if not monitor:
+        logger.info("Target-window mute hotkey ignored because no window monitor is available.")
+        return False
+    return monitor._toggle_target_window_mute_internal(hwnd)
+
+
+def cleanup_target_audio_mutes() -> None:
+    monitor = get_window_state_monitor()
+    if not monitor:
+        return
+    monitor._restore_hotkey_audio_mutes_internal("shutdown", force_all_sessions=True)
+    monitor._restore_minimized_audio_mute_internal("shutdown", force_all_sessions=True)
+
+
 # --- Process pausing state helpers ---
 
 
@@ -1752,6 +1768,19 @@ class BaseWindowStateMonitor:
         return False
 
     def _restore_minimized_audio_mute_internal(
+        self,
+        reason: str = "",
+        force_all_sessions: bool = False,
+        pid: Optional[int] = None,
+    ) -> bool:
+        """No-op on non-Windows platforms."""
+        return False
+
+    def _toggle_target_window_mute_internal(self, hwnd: Optional[int] = None) -> bool:
+        """No-op on non-Windows platforms."""
+        return False
+
+    def _restore_hotkey_audio_mutes_internal(
         self,
         reason: str = "",
         force_all_sessions: bool = False,

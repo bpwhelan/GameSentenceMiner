@@ -4,16 +4,77 @@
 // Python path used to write — otherwise OBS would launch into its first-run
 // wizard with no GSM profile/scene collection and no websocket server.
 
+function toObsSafePath(pathValue: string): string {
+    return pathValue.replaceAll('\\', '/');
+}
+
 /** Replay-buffer profile (basic.ini) written for both the GSM and Untitled profiles. */
 export function buildObsReplayBufferProfileIni(videosDir: string): string {
+    // OBS treats \n and \r as escape sequences while parsing INI values. A raw
+    // Windows home path such as C:\Users\nyanspruk would therefore turn the
+    // separator plus the username's leading "n" into a newline. Forward slashes
+    // are valid path separators on Windows and avoid OBS's escaping entirely.
+    const obsSafeVideosDir = toObsSafePath(videosDir);
     return (
         '[SimpleOutput]\n' +
-        `FilePath=${videosDir}\n` +
+        `FilePath=${obsSafeVideosDir}\n` +
         'RecRB=true\n' +
         'RecRBTime=300\n' +
         'RecRBSize=512\n' +
         'RecAudioEncoder=opus\n' +
         'RecRBPrefix=GSM\n'
+    );
+}
+
+function decodeObsIniValue(value: string): string {
+    let decoded = '';
+    for (let index = 0; index < value.length; index += 1) {
+        const current = value[index];
+        if (current !== '\\' || index + 1 >= value.length) {
+            decoded += current;
+            continue;
+        }
+
+        const next = value[index + 1];
+        if (next === '\\') {
+            decoded += '\\';
+            index += 1;
+        } else if (next === 'n') {
+            decoded += '\n';
+            index += 1;
+        } else if (next === 'r') {
+            decoded += '\r';
+            index += 1;
+        } else {
+            decoded += current;
+        }
+    }
+    return decoded;
+}
+
+/**
+ * Repair the generated default FilePath after OBS has decoded a username's
+ * leading "n" or "r" as an INI escape. Paths that do not decode to GSM's
+ * generated default are left untouched.
+ */
+export function repairObsReplayBufferProfileIni(
+    profileIni: string,
+    videosDir: string
+): string {
+    const decodedUnsafeDefault = decodeObsIniValue(videosDir);
+    const safeDefault = toObsSafePath(videosDir);
+
+    return profileIni.replace(
+        /^FilePath=([^\r\n]*)/m,
+        (line, storedPath: string) => {
+            if (
+                storedPath !== safeDefault &&
+                decodeObsIniValue(storedPath) === decodedUnsafeDefault
+            ) {
+                return `FilePath=${safeDefault}`;
+            }
+            return line;
+        }
     );
 }
 

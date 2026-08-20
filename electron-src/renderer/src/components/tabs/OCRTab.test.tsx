@@ -312,4 +312,40 @@ describe("OCRTab hotkeys", () => {
     );
     expect(saveCall?.[1]).not.toHaveProperty("wgcCaptureFps");
   });
+
+  it("loads and persists advanced OCR debug logging", async () => {
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "ocr.get-ocr-config") {
+        return {
+          advanced_debug_logging: true
+        };
+      }
+      return null;
+    });
+
+    await act(async () => {
+      root.render(<OCRTab active={false} />);
+      await flushAsyncWork();
+    });
+
+    const toggle = container.querySelector(
+      "#advanced-debug-logging"
+    ) as HTMLInputElement;
+    expect(toggle).toBeInstanceOf(HTMLInputElement);
+    expect(toggle.checked).toBe(true);
+
+    await act(async () => {
+      toggle.click();
+      await flushAsyncWork();
+      vi.advanceTimersByTime(200);
+      await flushAsyncWork();
+    });
+
+    expect(sendMock).toHaveBeenCalledWith(
+      "ocr.save-ocr-config",
+      expect.objectContaining({
+        advanced_debug_logging: false
+      })
+    );
+  });
 });

@@ -4,7 +4,7 @@
 	import { createEventDispatcher } from 'svelte';
 	import { replacements$ } from '../stores/stores';
 	import type { ReplacementItem } from '../types';
-	import { applyReplacements, reduceToEmptyString } from '../util';
+	import { applyReplacements, getErrorMessage, reduceToEmptyString } from '../util';
 	import Icon from './Icon.svelte';
 
 	export let currentReplacement: ReplacementItem | undefined;
@@ -33,8 +33,8 @@
 				}
 
 				currentTestOutcome = applyReplacements(currentTestValue, [replacement]);
-			} catch ({ message }) {
-				currentPatternError = `Error: ${message}`;
+			} catch (error) {
+				currentPatternError = `Error: ${getErrorMessage(error)}`;
 			}
 		}),
 		reduceToEmptyString(),

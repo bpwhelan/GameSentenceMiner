@@ -4,6 +4,7 @@
 	import {
 		adjustTimerOnAfk$,
 		afkTimer$,
+		alwaysScrollToNewest$,
 		allowNewLineDuringPause$,
 		allowPasteDuringPause$,
 		autoStartTimerDuringPause$,
@@ -108,6 +109,7 @@
 			flashOnMissedLine$: $flashOnMissedLine$,
 			displayVertical$: $displayVertical$,
 			reverseLineOrder$: $reverseLineOrder$,
+			alwaysScrollToNewest$: $alwaysScrollToNewest$,
 			preserveWhitespace$: $preserveWhitespace$,
 			removeAllWhitespace$: $removeAllWhitespace$,
 			showTimer$: $showTimer$,
@@ -180,6 +182,9 @@
 		flashOnMissedLine$.next(preset.settings.flashOnMissedLine$ ?? defaultSettings.flashOnMissedLine$);
 		displayVertical$.next(preset.settings.displayVertical$ ?? defaultSettings.displayVertical$);
 		reverseLineOrder$.next(preset.settings.reverseLineOrder$ ?? defaultSettings.reverseLineOrder$);
+		alwaysScrollToNewest$.next(
+			preset.settings.alwaysScrollToNewest$ ?? defaultSettings.alwaysScrollToNewest$,
+		);
 		preserveWhitespace$.next(preset.settings.preserveWhitespace$ ?? defaultSettings.preserveWhitespace$);
 		removeAllWhitespace$.next(preset.settings.removeAllWhitespace$ ?? defaultSettings.removeAllWhitespace$);
 		showTimer$.next(preset.settings.showTimer$ ?? defaultSettings.showTimer$);

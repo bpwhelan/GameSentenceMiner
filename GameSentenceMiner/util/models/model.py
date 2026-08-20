@@ -228,8 +228,15 @@ class AnkiCard:
         return False, None
 
     def pretty_print(self):
+        max_field_length = 100
+
+        def truncate(value: str) -> str:
+            if len(value) <= max_field_length:
+                return value
+            return value[: max_field_length - 3] + "..."
+
         field_strings = [
-            f"{key}: {field.value}"
+            f"{key}: {truncate(field.value)}"
             for key, field in self.fields.items()
             if "dictionary" not in key.lower() and "glossary" not in key.lower()
         ]

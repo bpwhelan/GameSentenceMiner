@@ -56,6 +56,60 @@ describe('settings backup path filters', () => {
 });
 
 describe('settings backup archive', () => {
+    it('archives only the selected backup categories', async () => {
+        const baseDir = makeTempDir('gsm-backup-selective-base-');
+        const overlayDir = makeTempDir('gsm-backup-selective-overlay-');
+        const outputPath = path.join(makeTempDir('gsm-backup-selective-out-'), 'backup.zip');
+        const extractDir = makeTempDir('gsm-backup-selective-extract-');
+
+        writeFile(path.join(baseDir, 'config.json'), '{"settings":true}');
+        writeFile(path.join(baseDir, 'gsm.db'), 'sqlite');
+        writeFile(path.join(baseDir, 'ocr_config', 'Game.json'), '{"areas":[]}');
+        writeFile(path.join(overlayDir, 'IndexedDB', 'ext.leveldb', '000003.log'), 'leveldb');
+
+        const result = await createBackupArchive({
+            outputPath,
+            baseDir,
+            overlayDir,
+            categories: ['database'],
+        });
+        await extract(outputPath, { dir: extractDir });
+
+        expect(result.categories).toEqual(['database']);
+        expect(result.fileCount).toBe(1);
+        expect(fs.readFileSync(path.join(extractDir, 'GameSentenceMiner', 'gsm.db'), 'utf8')).toBe('sqlite');
+        expect(fs.existsSync(path.join(extractDir, 'GameSentenceMiner', 'config.json'))).toBe(false);
+        expect(fs.existsSync(path.join(extractDir, 'GameSentenceMiner', 'ocr_config', 'Game.json'))).toBe(false);
+        expect(fs.existsSync(path.join(extractDir, 'gsm_overlay'))).toBe(false);
+    });
+
+    it('uses one verified snapshot instead of a live SQLite/WAL file set', async () => {
+        const baseDir = makeTempDir('gsm-backup-live-db-base-');
+        const outputPath = path.join(makeTempDir('gsm-backup-live-db-out-'), 'backup.zip');
+        const extractDir = makeTempDir('gsm-backup-live-db-extract-');
+        const snapshotPath = path.join(makeTempDir('gsm-backup-live-db-snapshot-'), 'snapshot.db');
+
+        writeFile(path.join(baseDir, 'gsm.db'), 'inconsistent-main');
+        writeFile(path.join(baseDir, 'gsm.db-wal'), 'inconsistent-wal');
+        writeFile(path.join(baseDir, 'gsm.db-shm'), 'inconsistent-shm');
+        writeFile(snapshotPath, 'verified-snapshot');
+
+        const result = await createBackupArchive({
+            outputPath,
+            baseDir,
+            categories: ['database'],
+            databaseSnapshotPath: snapshotPath,
+        });
+        await extract(outputPath, { dir: extractDir });
+
+        expect(result.fileCount).toBe(1);
+        expect(fs.readFileSync(path.join(extractDir, 'GameSentenceMiner', 'gsm.db'), 'utf8')).toBe(
+            'verified-snapshot'
+        );
+        expect(fs.existsSync(path.join(extractDir, 'GameSentenceMiner', 'gsm.db-wal'))).toBe(false);
+        expect(fs.existsSync(path.join(extractDir, 'GameSentenceMiner', 'gsm.db-shm'))).toBe(false);
+    });
+
     it('archives relevant settings and excludes temp/cache/runtime folders', async () => {
         const baseDir = makeTempDir('gsm-backup-base-');
         const overlayDir = makeTempDir('gsm-backup-overlay-');
@@ -222,5 +276,32 @@ describe('settings backup archive', () => {
         expect(fs.existsSync(path.join(targetOverlayDir, 'IndexedDB', 'ext.leveldb', 'stale.log'))).toBe(false);
         expect(fs.readFileSync(path.join(targetOverlayDir, 'Cache', 'Cache_Data', 'data_0'), 'utf8')).toBe('keep-cache');
         expect(fs.readFileSync(targetHomeConfig, 'utf8')).toContain('websocket_port = 7331');
+    });
+
+    it('restores only the selected categories without clearing unselected settings', async () => {
+        const sourceBaseDir = makeTempDir('gsm-selective-restore-source-');
+        const archivePath = path.join(makeTempDir('gsm-selective-restore-archive-'), 'backup.zip');
+
+        writeFile(path.join(sourceBaseDir, 'config.json'), '{"restored":true}');
+        writeFile(path.join(sourceBaseDir, 'gsm.db'), 'restored-db');
+        writeFile(path.join(sourceBaseDir, 'ocr_config', 'Game.json'), '{"restored":true}');
+        await createBackupArchive({ outputPath: archivePath, baseDir: sourceBaseDir });
+
+        const targetBaseDir = makeTempDir('gsm-selective-restore-target-');
+        writeFile(path.join(targetBaseDir, 'config.json'), '{"keep":true}');
+        writeFile(path.join(targetBaseDir, 'gsm.db'), 'old-db');
+        writeFile(path.join(targetBaseDir, 'ocr_config', 'Extra.json'), '{"keep":true}');
+
+        const result = await restoreBackupArchive({
+            archivePath,
+            baseDir: targetBaseDir,
+            categories: ['database'],
+        });
+
+        expect(result.categories).toEqual(['database']);
+        expect(result.fileCount).toBe(1);
+        expect(fs.readFileSync(path.join(targetBaseDir, 'gsm.db'), 'utf8')).toBe('restored-db');
+        expect(fs.readFileSync(path.join(targetBaseDir, 'config.json'), 'utf8')).toBe('{"keep":true}');
+        expect(fs.readFileSync(path.join(targetBaseDir, 'ocr_config', 'Extra.json'), 'utf8')).toBe('{"keep":true}');
     });
 });

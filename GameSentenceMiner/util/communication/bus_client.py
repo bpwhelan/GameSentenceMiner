@@ -5,10 +5,11 @@ over a localhost WebSocket and speaks the shared envelope. Used by both the GSM
 backend and the OCR subprocess; it replaces the stdout/stdin line protocols in
 electron_ipc.py and ocr_ipc.py.
 
-The client owns its own asyncio loop on a daemon thread so synchronous callers
-(most of GSM) can use thread-safe publish()/request() while the connection,
-reconnect, and dispatch happen in the background. Connection details come from
-env vars injected by ProcessManager at spawn:
+The client can run on the process-owned AsyncTransportRuntime so synchronous
+callers (most of GSM) can use thread-safe publish()/request() while connection,
+reconnect, and dispatch happen in the background. Standalone users may still
+let the client create its one transport loop. Connection details come from env
+vars injected by ProcessManager at spawn:
 
     GSM_BROKER_PORT, GSM_BROKER_TOKEN, GSM_CLIENT_ID
 """
@@ -21,9 +22,12 @@ import os
 import threading
 import uuid
 from concurrent.futures import Future
-from typing import Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 import websockets
+
+if TYPE_CHECKING:
+    from GameSentenceMiner.util.concurrency.transport import AsyncTransportRuntime
 
 try:
     from GameSentenceMiner.util.config.configuration import logger
@@ -62,7 +66,9 @@ class BusClient:
 
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._ws: Optional[Any] = None
-        self._thread: Optional[threading.Thread] = None
+        self._runtime: Optional[AsyncTransportRuntime] = None
+        self._owns_runtime = False
+        self._main_future: Optional[Future[Any]] = None
         self._stop = False
         self._connected = threading.Event()
 
@@ -73,15 +79,23 @@ class BusClient:
 
     # -- lifecycle ----------------------------------------------------------
 
-    def start(self) -> "BusClient":
-        if self._thread and self._thread.is_alive():
+    def start(self, runtime: Optional[AsyncTransportRuntime] = None) -> "BusClient":
+        if self._main_future and not self._main_future.done():
             return self
         if not self.port or not self.token:
             logger.warning("BusClient: no broker port/token; not connecting.")
             return self
         self._stop = False
-        self._thread = threading.Thread(target=self._run, name=f"GSM_Bus_{self.client_id}", daemon=True)
-        self._thread.start()
+        if runtime is not None:
+            self._runtime = runtime
+            self._main_future = runtime.submit(self._main())
+            return self
+        from GameSentenceMiner.util.concurrency.transport import AsyncTransportRuntime
+
+        self._runtime = AsyncTransportRuntime(name=f"gsm-bus-transport-{self.client_id}")
+        self._owns_runtime = True
+        self._runtime.start()
+        self._main_future = self._runtime.submit(self._main())
         return self
 
     def stop(self) -> None:
@@ -93,9 +107,18 @@ class BusClient:
                 asyncio.run_coroutine_threadsafe(ws.close(), loop)
             except Exception:
                 pass
-        thread = self._thread
-        if thread and thread.is_alive() and thread is not threading.current_thread():
-            thread.join(timeout=2)
+        future = self._main_future
+        if future and not future.done():
+            try:
+                future.result(timeout=2)
+            except Exception:
+                pass
+        runtime = self._runtime
+        if runtime is not None and self._owns_runtime:
+            runtime.stop(timeout=3)
+        self._main_future = None
+        self._runtime = None
+        self._owns_runtime = False
 
     def wait_connected(self, timeout: Optional[float] = None) -> bool:
         return self._connected.wait(timeout)
@@ -121,8 +144,8 @@ class BusClient:
 
     # -- sending ------------------------------------------------------------
 
-    def publish(self, dst: str, topic: str, data: Any = None, kind: str = "event") -> None:
-        self._send_threadsafe(self._envelope(dst, topic, kind, data))
+    def publish(self, dst: str, topic: str, data: Any = None, kind: str = "event") -> Future[Any] | None:
+        return self._send_threadsafe(self._envelope(dst, topic, kind, data))
 
     def request(self, dst: str, topic: str, data: Any = None, timeout: float = 15.0) -> Any:
         """Blocking request/response for synchronous callers."""
@@ -145,12 +168,6 @@ class BusClient:
             self._pending.pop(msg["id"], None)
 
     # -- internals ----------------------------------------------------------
-
-    def _run(self) -> None:
-        try:
-            asyncio.run(self._main())
-        except Exception as e:  # pragma: no cover - defensive
-            logger.error(f"BusClient loop crashed: {e}")
 
     async def _main(self) -> None:
         self._loop = asyncio.get_running_loop()
@@ -210,11 +227,11 @@ class BusClient:
             return
         await ws.send(json.dumps(msg, ensure_ascii=False))
 
-    def _send_threadsafe(self, msg: Dict[str, Any]) -> None:
+    def _send_threadsafe(self, msg: Dict[str, Any]) -> Future[Any] | None:
         loop = self._loop
         if not loop:
-            return
-        asyncio.run_coroutine_threadsafe(self._send(msg), loop)
+            return None
+        return asyncio.run_coroutine_threadsafe(self._send(msg), loop)
 
     async def _on_raw(self, raw: Any) -> None:
         try:
@@ -291,9 +308,9 @@ def get_bus() -> BusClient:
     return _client
 
 
-def start_bus(**kwargs: Any) -> BusClient:
+def start_bus(runtime: Optional[AsyncTransportRuntime] = None, **kwargs: Any) -> BusClient:
     """Create (if needed) and start the singleton bus client."""
     global _client
     if _client is None:
         _client = BusClient(**kwargs)
-    return _client.start()
+    return _client.start(runtime)

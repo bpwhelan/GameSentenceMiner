@@ -27,6 +27,7 @@
 	import { fade, fly } from 'svelte/transition';
 	import {
 		actionHistory$,
+		alwaysScrollToNewest$,
 		allowNewLineDuringPause$,
 		allowPasteDuringPause$,
 		autoStartTimerDuringPause$,
@@ -68,7 +69,6 @@
 		websocketUrl$,
 		trimAudioWithVAD$,
 		trimVideoWithVAD$,
-		showTrimmedVideoInExplorer$,
 		texthookerAudioEvents$,
 	} from '../stores/stores';
 	import {
@@ -80,14 +80,23 @@
 		Theme,
 	} from '../types';
 	import {
+		buildTextFeedSessionSyncPlan,
+		deduplicateLineData,
+		DEFAULT_TEXTFEED_SESSION_SYNC_LINE_LIMIT,
+		reconcileTextFeedSessionSyncBatch,
+		TEXTFEED_SESSION_SYNC_BATCH_SIZE,
+	} from '../session-sync';
+	import {
 		applyAfkBlur,
 		applyCustomCSS,
 		applyReplacements,
 		generateRandomUUID,
+		getErrorMessage,
 		isScrolledToEnd,
 		newLineCharacter,
 		reduceToEmptyString,
 		setAutoScrollStick,
+		shouldAutoScroll,
 		updateScroll
 	} from '../util';
 	import DialogManager from './DialogManager.svelte';
@@ -119,21 +128,29 @@
 	let audioWidgetVisible = false;
 	let audioWidgetText = '';
 	let activeAudioLineId = '';
+	let textFeedSessionSyncVersion = 0;
 	let pendingAudioLineId = '';
 	let browserAudioPlaying = false;
 	let currentGSMSessionId = '';
 	let gsmTextIntakePaused: boolean | undefined;
 	let gsmTextIntakeStateRequestPending = false;
 	let timerPauseClarificationShown = false;
+	const REMOVED_GSM_LINES_STORAGE_KEY = 'bannou-texthooker-removedGSMLineIds';
+	const storedRemovedGSMLines = loadRemovedGSMLines();
+	let removedGSMSessionId = storedRemovedGSMLines.sessionId;
+	let removedGSMLineIds = new Set(storedRemovedGSMLines.ids);
 	let audioCurrentTime = 0;
 	let audioDuration = 0;
 	let lastBrowserAudioStartAt = 0;
 	const AUDIO_PLAY_START_GUARD_MS = 350;
 	const TIMER_PAUSE_CLARIFICATION_KEY = 'gsm-texthooker-timer-pause-clarification-shown';
 
-	startIdPolling()
-
 	const cjkCharacters = /[\p{scx=Hira}\p{scx=Kana}\p{scx=Han}]/imu;
+	const initialLineData = lineData$.getValue();
+	const deduplicatedInitialLineData = deduplicateLineData(initialLineData);
+	if (deduplicatedInitialLineData !== initialLineData) {
+		lineData$.next(deduplicatedInitialLineData);
+	}
 
 	const uniqueLines$ = preventGlobalDuplicate$.pipe(
 		map((preventGlobalDuplicate) =>
@@ -142,8 +159,9 @@
 	);
 
 	const handleLine$ = newLine$.pipe(
-		filter(([value, lineType, _1]) => {
+		filter(([value, lineType, _1, lineMeta]) => {
 			const isResetCheckboxes = lineType === LineType.RESETCHECKBOXES;
+			const isAuthoritativeV2 = Number.isFinite(Number(lineMeta?.streamSequence));
 			const isPaste = lineType === LineType.PASTE;
 			const hasNoUserInteraction = !isPaste || (!$notesOpen$ && !$dialogOpen$ && !$settingsOpen$ && !lineInEdit);
 			const skipExternalLine = blockNextExternalLine && lineType === LineType.EXTERNAL;
@@ -155,6 +173,12 @@
 			if (isResetCheckboxes) {
 				resetCheckBoxes()
 				return false;
+			}
+			// Authoritative stream events must always reach the reducer. Dropping an
+			// update while a dialog/timer is active would permanently strand that ID
+			// now that v2 intentionally has no polling/backfill workaround.
+			if (isAuthoritativeV2) {
+				return true;
 			}
 
 			if (
@@ -181,51 +205,79 @@
 			return false;
 		}),
 		tap((newLine: [string, LineType, string, Partial<LineItem>?]) => {
-			const [lineContent] = newLine;
-			const type = newLine.at(1) || LineType.SOCKET;
-			const text = transformLine(lineContent, type !== LineType.TL);
-			const id = newLine.at(2) || generateRandomUUID();
-			const lineMeta: Partial<LineItem> = { gsmStatus: 'external', ...(newLine[3] ?? {}) };
+			const [lineContent, requestedType, requestedId, requestedLineMeta] = newLine;
+			const type = requestedType || LineType.SOCKET;
+			const id = requestedId || generateRandomUUID();
+			const lineMeta: Partial<LineItem> = { gsmStatus: 'external', ...(requestedLineMeta ?? {}) };
+			if (lineMeta.gsmSessionId && isRemovedGSMLine(id, lineMeta.gsmSessionId)) {
+				return;
+			}
+			const isAuthoritativeV2 = Number.isFinite(Number(lineMeta.streamSequence));
+			const text = transformLine(lineContent, type !== LineType.TL, !isAuthoritativeV2);
+			if (!text) {
+				return;
+			}
 
-			if ($lineData$?.some(line => line.id === id)) {
-				console.warn(`Skipping new line with duplicate ID: '${id}'`);
+			const existingLineIndex = $lineData$?.findIndex((line) => line.id === id) ?? -1;
+			if (existingLineIndex >= 0) {
+				const existing = $lineData$[existingLineIndex];
+				const incomingRevision = Number(lineMeta.revision ?? 1);
+				if (incomingRevision > Number(existing.revision ?? 0)) {
+					$lineData$ = $lineData$.map((item, index) =>
+						index === existingLineIndex ? { ...item, ...lineMeta, text } : item,
+					);
+				}
+				if (lineMeta.gsmStatus === 'timed_out') {
+					$lineIDs$ = $lineIDs$.filter((lineId) => lineId !== id);
+					if (!$timedOutIDs$.includes(id)) $timedOutIDs$ = [...$timedOutIDs$, id];
+				}
 				return;
 			}
 
 			if (lineMeta.gsmStatus === 'active') {
 				$lineIDs$ = [...$lineIDs$, id];
+			} else if (lineMeta.gsmStatus === 'timed_out' && !$timedOutIDs$.includes(id)) {
+				$timedOutIDs$ = [...$timedOutIDs$, id];
 			}
 
 			if (text) {
 				// Capture before render: content grows, so a later check is too late.
 				const mainAtEnd = isScrolledToEnd(window, lineContainer, $reverseLineOrder$, $displayVertical$);
-				setAutoScrollStick(false, mainAtEnd);
+				const mainShouldScroll = shouldAutoScroll($alwaysScrollToNewest$, mainAtEnd);
+				setAutoScrollStick(false, mainShouldScroll);
 				if (pipWindow) {
-					setAutoScrollStick(true, isScrolledToEnd(pipWindow, pipContainer, $reverseLineOrder$, false));
+					setAutoScrollStick(
+						true,
+						shouldAutoScroll(
+							$alwaysScrollToNewest$,
+							isScrolledToEnd(pipWindow, pipContainer, $reverseLineOrder$, false),
+						),
+					);
 				}
 
 				// Tally lines that skipped autoscroll so the indicator can show them.
-				if (!mainAtEnd) {
+				if (!mainShouldScroll) {
 					newLinesBelow += 1;
 				}
 
-				$lineData$ = applyEqualLineStartMerge([
+				const nextLineData = [
 					...applyMaxLinesAndGetRemainingLineData(1),
 					{ id, text, ...lineMeta },
-				]);
+				];
+				$lineData$ = isAuthoritativeV2 ? nextLineData : applyEqualLineStartMerge(nextLineData);
 			}
 		}),
 		reduceToEmptyString(),
 	);
 
 	const handleTextFeedSessionSync$ = textfeedSessionSync$.pipe(
-		tap((sync: TextFeedSessionSync) => applyTextFeedSessionSync(sync)),
+		tap((sync: TextFeedSessionSync) => void applyTextFeedSessionSync(sync)),
 		reduceToEmptyString(),
 	);
 
 	const pasteHandler$ = enablePaste$.pipe(
-		switchMap((enablePaste) => (enablePaste ? fromEvent(document, 'paste') : NEVER)),
-		tap((event: ClipboardEvent) => newLine$.next([event.clipboardData.getData('text/plain'), LineType.PASTE, ''])),
+		switchMap((enablePaste) => (enablePaste ? fromEvent<ClipboardEvent>(document, 'paste') : NEVER)),
+		tap((event) => newLine$.next([event.clipboardData?.getData('text/plain') ?? '', LineType.PASTE, ''])),
 		reduceToEmptyString(),
 	);
 
@@ -283,9 +335,11 @@
 	onMount(() => {
 		mountFunction();
 		initializeAudioElement();
+		void fetchGSMTextIntakePausedState();
 		audioEventsSub = texthookerAudioEvents$.subscribe(handleAudioEvent);
 
 		return () => {
+			textFeedSessionSyncVersion += 1;
 			audioEventsSub?.unsubscribe();
 			if (audioElement) {
 				audioElement.pause();
@@ -308,8 +362,9 @@
 		const key = (event.key || '')?.toLowerCase();
 
 		if (key === 'delete') {
-			if (window.getSelection()?.toString().trim()) {
-				const range = window.getSelection().getRangeAt(0);
+			const selection = window.getSelection();
+			if (selection?.toString().trim() && selection.rangeCount) {
+				const range = selection.getRangeAt(0);
 
 				for (let index = 0, { length } = lineElements; index < length; index += 1) {
 					const lineElement = lineElements[index];
@@ -371,6 +426,21 @@
 		};
 	}
 
+	async function fetchGSMTextIntakePausedState() {
+		try {
+			const response = await fetch(getGSMEndpoint('/get_ids'));
+			if (!response.ok) {
+				throw new Error(`HTTP error: ${response.status}`);
+			}
+			const data = await response.json();
+			if (typeof data.text_intake_paused === 'boolean') {
+				gsmTextIntakePaused = data.text_intake_paused;
+			}
+		} catch (error) {
+			console.error('Failed to fetch GSM stats collection state:', error);
+		}
+	}
+
 	async function setGSMTextIntakePaused(requestedPausedState: boolean): Promise<boolean | undefined> {
 		if (gsmTextIntakeStateRequestPending) {
 			return undefined;
@@ -413,24 +483,25 @@
 	}
 
 	function initializeAudioElement() {
-		audioElement = new Audio();
-		audioElement.preload = 'auto';
-		audioElement.addEventListener('play', () => {
+		const createdAudioElement = new Audio();
+		audioElement = createdAudioElement;
+		createdAudioElement.preload = 'auto';
+		createdAudioElement.addEventListener('play', () => {
 			lastBrowserAudioStartAt = Date.now();
 			browserAudioPlaying = true;
 		});
-		audioElement.addEventListener('pause', () => {
+		createdAudioElement.addEventListener('pause', () => {
 			browserAudioPlaying = false;
 		});
-		audioElement.addEventListener('ended', () => {
+		createdAudioElement.addEventListener('ended', () => {
 			browserAudioPlaying = false;
 			audioCurrentTime = 0;
 		});
-		audioElement.addEventListener('timeupdate', () => {
-			audioCurrentTime = audioElement?.currentTime || 0;
+		createdAudioElement.addEventListener('timeupdate', () => {
+			audioCurrentTime = createdAudioElement.currentTime || 0;
 		});
-		audioElement.addEventListener('loadedmetadata', () => {
-			audioDuration = Number.isFinite(audioElement?.duration) ? audioElement.duration : 0;
+		createdAudioElement.addEventListener('loadedmetadata', () => {
+			audioDuration = Number.isFinite(createdAudioElement.duration) ? createdAudioElement.duration : 0;
 		});
 	}
 
@@ -619,7 +690,7 @@
 				body: JSON.stringify({
 					id: lineId,
 					trim_with_vad: $trimVideoWithVAD$,
-					show_in_explorer: $showTrimmedVideoInExplorer$,
+					show_in_explorer: true,
 				}),
 			});
 			if (!response.ok) {
@@ -630,106 +701,170 @@
 		}
 	}
 
-	export function startIdPolling() {
-		setInterval(async () => {
-			try {
-				const response = await fetch(getGSMEndpoint('/get_ids'), { cache: 'no-store' });
-				if (!response.ok) {
-					throw new Error(`HTTP error! Status: ${response.status}`);
-				}
-				const resp = await response.json();
-				const ids = Array.isArray(resp.ids) ? resp.ids : [];
-				const timedOutIds = Array.isArray(resp.timed_out_ids) ? resp.timed_out_ids : [];
-				const sessionId = typeof resp.session_id === 'string' ? resp.session_id : undefined;
-				updateGSMLineStatuses(ids, timedOutIds, sessionId);
-				$lineIDs$ = ids;
-				$timedOutIDs$ = timedOutIds;
-				if (typeof resp.text_intake_paused === 'boolean' && !gsmTextIntakeStateRequestPending) {
-					gsmTextIntakePaused = resp.text_intake_paused;
-				}
-			} catch (error) {
-				console.error('Failed to fetch ids:', error);
-			}
-		}, 1000);
-	}
-
-	function applyTextFeedSessionSync(sync: TextFeedSessionSync) {
+	async function applyTextFeedSessionSync(sync: TextFeedSessionSync) {
 		if (!sync.sessionId) {
 			return;
 		}
 
+		const syncVersion = ++textFeedSessionSyncVersion;
 		currentGSMSessionId = sync.sessionId;
-		const activeIds = new Set(sync.activeIds);
-		const timedOutIds = new Set(sync.timedOutIds);
-		const orderedIds = new Set(sync.orderedIds);
-		const existingLines = new Map($lineData$.map((line) => [line.id, line]));
-		const missingLines = new Map(sync.missingLines.map((line) => [line.id, line]));
-		const syncedLines: LineItem[] = [];
-
-		for (const id of sync.orderedIds) {
-			const existingLine = existingLines.get(id);
-			const gsmStatus = activeIds.has(id) ? 'active' : timedOutIds.has(id) ? 'timed_out' : 'active';
-			if (existingLine) {
-				syncedLines.push({
-					...existingLine,
-					gsmSessionId: sync.sessionId,
-					gsmStatus,
-				});
-				continue;
-			}
-
-			const missingLine = missingLines.get(id);
-			if (!missingLine) {
-				continue;
-			}
-			const text = normalizeLineContent(missingLine.text);
-			if (text) {
-				syncedLines.push({
-					id,
-					text,
-					excludedFromStats: missingLine.excludedFromStats,
-					gsmSessionId: sync.sessionId,
-					gsmStatus,
-					sessionBackfill: true,
-				});
-			}
+		activateRemovedGSMSession(sync.sessionId);
+		await yieldToBrowser();
+		if (syncVersion !== textFeedSessionSyncVersion) {
+			return;
 		}
 
-		// A live line can arrive after the server takes its sync snapshot. It belongs
-		// after the snapshot and must not be discarded when the ordered block is rebuilt.
-		for (const line of $lineData$) {
-			if (line.gsmSessionId === sync.sessionId && !orderedIds.has(line.id)) {
-				syncedLines.push(line);
-			}
-		}
-
-		let insertionIndex = -1;
-		const otherLines: LineItem[] = [];
-		for (const line of $lineData$) {
-			const belongsToCurrentSession =
-				line.gsmSessionId === sync.sessionId || orderedIds.has(line.id);
-			if (belongsToCurrentSession) {
-				if (insertionIndex < 0) {
-					insertionIndex = otherLines.length;
-				}
-			} else {
-				otherLines.push(line);
-			}
-		}
-		if (insertionIndex < 0) {
-			insertionIndex = otherLines.length;
-		}
-
-		$lineData$ = [
-			...otherLines.slice(0, insertionIndex),
-			...syncedLines,
-			...otherLines.slice(insertionIndex),
-		];
+		const { syncedLines, retainedLines, insertionIndex } = buildTextFeedSessionSyncPlan(
+			sync,
+			$lineData$,
+			normalizeLineContent,
+			removedGSMLineIds,
+		);
 		$lineIDs$ = sync.activeIds;
 		$timedOutIDs$ = sync.timedOutIds;
 
-		for (const line of syncedLines) {
-			$uniqueLines$.add(line.text);
+		if (!syncedLines.length) {
+			$lineData$ = retainedLines;
+			$lineData$ = applyMaxLinesAndGetRemainingLineData();
+			updateGSMLineStatuses(sync.activeIds, sync.timedOutIds, sync.sessionId);
+			return;
+		}
+
+		let batchEnd = syncedLines.length;
+		let firstRenderedId = '';
+		while (batchEnd > 0) {
+			const batchStart = Math.max(0, batchEnd - TEXTFEED_SESSION_SYNC_BATCH_SIZE);
+			const snapshotBatch = syncedLines.slice(batchStart, batchEnd);
+			const { batchLines, remainingLines } = reconcileTextFeedSessionSyncBatch(
+				snapshotBatch,
+				firstRenderedId ? $lineData$ : retainedLines,
+			);
+
+			if (!firstRenderedId) {
+				const boundedInsertionIndex = Math.min(insertionIndex, remainingLines.length);
+				$lineData$ = [
+					...remainingLines.slice(0, boundedInsertionIndex),
+					...batchLines,
+					...remainingLines.slice(boundedInsertionIndex),
+				];
+			} else {
+				const renderedBlockIndex = remainingLines.findIndex((line) => line.id === firstRenderedId);
+				if (renderedBlockIndex < 0) {
+					return;
+				}
+				$lineData$ = [
+					...remainingLines.slice(0, renderedBlockIndex),
+					...batchLines,
+					...remainingLines.slice(renderedBlockIndex),
+				];
+			}
+
+			for (const line of batchLines) {
+				$uniqueLines$.add(line.text);
+			}
+			firstRenderedId = batchLines[0].id;
+			batchEnd = batchStart;
+
+			if (batchEnd > 0) {
+				await yieldToBrowser();
+				if (syncVersion !== textFeedSessionSyncVersion) {
+					return;
+				}
+			}
+		}
+		$lineData$ = applyMaxLinesAndGetRemainingLineData();
+		updateGSMLineStatuses(sync.activeIds, sync.timedOutIds, sync.sessionId);
+	}
+
+	function yieldToBrowser() {
+		return new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+	}
+
+	function loadRemovedGSMLines(): { sessionId: string; ids: string[] } {
+		try {
+			const storedValue = window.localStorage.getItem(REMOVED_GSM_LINES_STORAGE_KEY);
+			if (!storedValue) {
+				return { sessionId: '', ids: [] };
+			}
+
+			const storedState = JSON.parse(storedValue) as { sessionId?: unknown; ids?: unknown };
+			const sessionId = typeof storedState.sessionId === 'string' ? storedState.sessionId : '';
+			const ids = Array.isArray(storedState.ids)
+				? storedState.ids.filter((id): id is string => typeof id === 'string' && Boolean(id))
+				: [];
+			return {
+				sessionId,
+				ids: [...new Set(ids)].slice(-DEFAULT_TEXTFEED_SESSION_SYNC_LINE_LIMIT),
+			};
+		} catch (error) {
+			console.warn('Could not restore removed GSM TextFeed lines:', error);
+			return { sessionId: '', ids: [] };
+		}
+	}
+
+	function persistRemovedGSMLines() {
+		try {
+			if (!removedGSMSessionId || !removedGSMLineIds.size) {
+				window.localStorage.removeItem(REMOVED_GSM_LINES_STORAGE_KEY);
+				return;
+			}
+
+			window.localStorage.setItem(
+				REMOVED_GSM_LINES_STORAGE_KEY,
+				JSON.stringify({ sessionId: removedGSMSessionId, ids: [...removedGSMLineIds] }),
+			);
+		} catch (error) {
+			console.warn('Could not save removed GSM TextFeed lines:', error);
+		}
+	}
+
+	function activateRemovedGSMSession(sessionId: string) {
+		if (removedGSMSessionId === sessionId) {
+			return;
+		}
+
+		removedGSMSessionId = sessionId;
+		removedGSMLineIds = new Set();
+		persistRemovedGSMLines();
+	}
+
+	function isRemovedGSMLine(id: string, sessionId: string) {
+		return sessionId === removedGSMSessionId && removedGSMLineIds.has(id);
+	}
+
+	function rememberRemovedGSMLines(lines: LineItem[]) {
+		if (!currentGSMSessionId) {
+			return;
+		}
+
+		let changed = false;
+		for (const line of lines) {
+			if (line.gsmSessionId === currentGSMSessionId && !removedGSMLineIds.has(line.id)) {
+				removedGSMLineIds.add(line.id);
+				changed = true;
+			}
+		}
+
+		while (removedGSMLineIds.size > DEFAULT_TEXTFEED_SESSION_SYNC_LINE_LIMIT) {
+			const oldestId = removedGSMLineIds.values().next().value;
+			if (!oldestId) {
+				break;
+			}
+			removedGSMLineIds.delete(oldestId);
+		}
+
+		if (changed) {
+			// Do not let a yielded snapshot batch repopulate the display after a
+			// deletion or a clear-lines action performed while it was rendering.
+			textFeedSessionSyncVersion += 1;
+			persistRemovedGSMLines();
+		}
+	}
+
+	function forgetRemovedGSMLines(lines: LineItem[]) {
+		const changed = lines.reduce((didChange, line) => removedGSMLineIds.delete(line.id) || didChange, false);
+		if (changed) {
+			persistRemovedGSMLines();
 		}
 	}
 
@@ -787,19 +922,26 @@
 		}
 
 		const linesToRevert = $actionHistory$.pop();
+		if (!linesToRevert) {
+			return;
+		}
 
+		const restoredLines: LineItem[] = [];
 		let lineToRevert = linesToRevert.pop();
 
 		while (lineToRevert) {
 			const text = transformLine(lineToRevert.text, false);
 
 			if (text) {
-				const { id, index } = lineToRevert;
+				const { id } = lineToRevert;
+				const index = lineToRevert.index ?? $lineData$.length;
+				const existingIndex = $lineData$.findIndex((line) => line.id === id);
+				restoredLines.push(lineToRevert);
 
-				if (index > $lineData$.length - 1) {
+				if (existingIndex >= 0) {
+					$lineData$[existingIndex] = { ...lineToRevert, id, text };
+				} else if (index > $lineData$.length - 1) {
 					$lineData$.push({ ...lineToRevert, id, text });
-				} else if ($lineData$[index].id === id) {
-					$lineData$[index] = { ...lineToRevert, id, text };
 				} else {
 					$lineData$.splice(index, 0, { ...lineToRevert, id, text });
 				}
@@ -808,6 +950,7 @@
 			lineToRevert = linesToRevert.pop();
 		}
 
+		forgetRemovedGSMLines(restoredLines);
 		await tick();
 
 		$lineData$ = applyEqualLineStartMerge(applyMaxLinesAndGetRemainingLineData());
@@ -821,6 +964,7 @@
 
 		const [removedLine] = $lineData$.splice($lineData$.length - 1, 1);
 
+		rememberRemovedGSMLines([removedLine]);
 		selectedLineIds = selectedLineIds.filter((selectedLineId) => selectedLineId !== removedLine.id);
 		$lineData$ = $lineData$;
 		$actionHistory$ = [...$actionHistory$, [{ ...removedLine, index: $lineData$.length }]];
@@ -848,6 +992,7 @@
 		selectedLineIds = linesToDelete.size ? [...linesToDelete] : [];
 
 		if (newActionHistory.length) {
+			rememberRemovedGSMLines(newActionHistory);
 			$actionHistory$ = [...$actionHistory$, newActionHistory];
 		}
 	}
@@ -883,13 +1028,14 @@
 		if (!pipWindow) {
 			return;
 		}
+		const activePipWindow = pipWindow;
 
-		pipWindow.document.body.appendChild(pipContainer);
+		activePipWindow.document.body.appendChild(pipContainer);
 
-		pipWindow.addEventListener('pagehide', onPipHide, { once: true });
-		pipWindow.addEventListener('resize', onPipResize, false);
-		pipWindow.addEventListener('blur', onPipFocusBlur, false);
-		pipWindow.addEventListener('focus', onPipFocusBlur, false);
+		activePipWindow.addEventListener('pagehide', onPipHide, { once: true });
+		activePipWindow.addEventListener('resize', onPipResize, false);
+		activePipWindow.addEventListener('blur', onPipFocusBlur, false);
+		activePipWindow.addEventListener('focus', onPipFocusBlur, false);
 
 		[...document.styleSheets].forEach((styleSheet) => {
 			if (styleSheet.ownerNode instanceof Element && styleSheet.ownerNode.id === 'user-css') {
@@ -901,25 +1047,31 @@
 				const style = document.createElement('style');
 
 				style.textContent = cssRules;
-				pipWindow.document.head.appendChild(style);
+				activePipWindow.document.head.appendChild(style);
 			} catch (_error) {
 				const link = document.createElement('link');
 
 				link.rel = 'stylesheet';
 				link.type = styleSheet.type;
 				link.media = styleSheet.media.toString();
-				link.href = styleSheet.href;
-				pipWindow.document.head.appendChild(link);
+				if (styleSheet.href) {
+					link.href = styleSheet.href;
+				}
+				activePipWindow.document.head.appendChild(link);
 			}
 		});
 	}
 
 	function onPipHide() {
+		const closingPipWindow = pipWindow;
+		if (!closingPipWindow) {
+			return;
+		}
 		updatePipDimensions();
 
-		pipWindow.removeEventListener('resize', onPipResize, false);
-		pipWindow.removeEventListener('blur', onPipFocusBlur, false);
-		pipWindow.removeEventListener('focus', onPipFocusBlur, false);
+		closingPipWindow.removeEventListener('resize', onPipResize, false);
+		closingPipWindow.removeEventListener('blur', onPipFocusBlur, false);
+		closingPipWindow.removeEventListener('focus', onPipFocusBlur, false);
 
 		hasPipFocus = false;
 		pipWindow = undefined;
@@ -997,32 +1149,31 @@
 		return lineToAppend || undefined;
 	}
 
-	function transformLine(text: string, useReplacements = true) {
+	function transformLine(text: string, useReplacements = true, enforceDuplicateFilters = true) {
 		const lineToAppend = normalizeLineContent(text, useReplacements);
 		let canAppend = Boolean(lineToAppend);
 
-		if (lineToAppend && $preventGlobalDuplicate$) {
+		if (lineToAppend && enforceDuplicateFilters && $preventGlobalDuplicate$) {
 			canAppend = !$uniqueLines$.has(lineToAppend);
 			$uniqueLines$.add(lineToAppend);
-		} else if (lineToAppend && $preventLastDuplicate$ && $lineData$.length) {
+		} else if (lineToAppend && enforceDuplicateFilters && $preventLastDuplicate$ && $lineData$.length) {
 			canAppend = $lineData$.slice(-$preventLastDuplicate$).every((line) => line.text !== lineToAppend);
 		}
 
 		return canAppend ? lineToAppend : undefined;
 	}
 
-	function handleLineEdit(event) {
-		const { inEdit, data } = event.detail as LineItemEditEvent;
+	function handleLineEdit(event: CustomEvent<LineItemEditEvent>) {
+		const { inEdit, data } = event.detail;
 
 		if (data && data.originalText !== data.newText) {
 			const text = transformLine(data.newText);
 
-			$lineData$[data.lineIndex] = {
-				...data.line,
-				text,
-			};
-
 			if (text) {
+				$lineData$[data.lineIndex] = {
+					...data.line,
+					text,
+				};
 				$actionHistory$ = [...$actionHistory$, [{ ...data.line, index: data.lineIndex }]];
 				$uniqueLines$.delete(data.originalText);
 				$uniqueLines$.add(text);
@@ -1041,31 +1192,19 @@
 	}
 
 	function applyMaxLinesAndGetRemainingLineData(diffMod = 0) {
-		const oldLinesToRemove = new Set<string>();
-		let remainingToRemove = $maxLines$ ? $lineData$.length - $maxLines$ + diffMod : 0;
-		const remainingLineData =
-			remainingToRemove > 0
-				? $lineData$.filter((oldLine) => {
-						if (
-							remainingToRemove > 0 &&
-							(!currentGSMSessionId || oldLine.gsmSessionId !== currentGSMSessionId)
-						) {
-							remainingToRemove -= 1;
-							oldLinesToRemove.add(oldLine.id);
-
-							$uniqueLines$.delete(oldLine.text);
-							return false;
-						}
-
-						return true;
-					})
-				: $lineData$;
-
-		if (oldLinesToRemove.size) {
-			selectedLineIds = selectedLineIds.filter((selectedLineId) => !oldLinesToRemove.has(selectedLineId));
+		const linesToRemove = $maxLines$ ? Math.min($lineData$.length, $lineData$.length - $maxLines$ + diffMod) : 0;
+		if (linesToRemove <= 0) {
+			return $lineData$;
 		}
 
-		return remainingLineData;
+		const oldLinesToRemove = new Set($lineData$.slice(0, linesToRemove).map((line) => line.id));
+		for (let index = 0; index < linesToRemove; index += 1) {
+			$uniqueLines$.delete($lineData$[index].text);
+		}
+
+		selectedLineIds = selectedLineIds.filter((selectedLineId) => !oldLinesToRemove.has(selectedLineId));
+
+		return $lineData$.slice(linesToRemove);
 	}
 
 	function updateLineData(executeUpdate: boolean) {
@@ -1091,10 +1230,10 @@
 				message: `Operation executed`,
 				showCancel: false,
 			};
-		} catch ({ message }) {
+		} catch (error) {
 			$openDialog$ = {
 				type: 'error',
-				message: `An Error occured: ${message}`,
+				message: `An Error occured: ${getErrorMessage(error)}`,
 				showCancel: false,
 			};
 		}
@@ -1317,6 +1456,7 @@
 		bind:this={settingsComponent}
 		on:applyReplacements={() => updateLineData(!!$enabledReplacements$.length)}
 		on:layoutChange={executeUpdateScroll}
+		on:linesRemoved={({ detail }) => rememberRemovedGSMLines(detail)}
 		on:maxLinesChange={() => ($lineData$ = applyMaxLinesAndGetRemainingLineData())}
 	/>
 	<Presets isQuickSwitch={true} on:layoutChange={executeUpdateScroll} />

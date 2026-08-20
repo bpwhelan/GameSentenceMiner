@@ -87,7 +87,7 @@ def _load_fpng_module():
     global _FPNG_MODULE
     if _FPNG_MODULE is _UNINITIALIZED:
         try:
-            _FPNG_MODULE = importlib.import_module("fpng_py")
+            _FPNG_MODULE = importlib.import_module("fpng_py_fix")
         except ImportError:
             _FPNG_MODULE = None
     return _FPNG_MODULE
@@ -1523,6 +1523,20 @@ class GoogleVision:
         return pil_image_to_bytes(img)
 
 
+def google_lens_response_is_formula_only(response_dict):
+    """Return True only when Lens classified every recognized word as a formula."""
+    if not isinstance(response_dict, dict):
+        return False
+
+    text_layout = response_dict.get("objects_response", {}).get("text", {}).get("text_layout", {})
+    words = []
+    for paragraph in text_layout.get("paragraphs", []):
+        for line in paragraph.get("lines", []):
+            words.extend(word for word in line.get("words", []) if isinstance(word, dict))
+
+    return bool(words) and all(str(word.get("type", "")).upper() == "FORMULA" for word in words)
+
+
 class GoogleLens:
     name = "glens"
     readable_name = "Google Lens"
@@ -1641,12 +1655,8 @@ class GoogleLens:
                 "Connection": "keep-alive",
                 "Content-Type": "application/x-protobuf",
                 "X-Goog-Api-Key": "AIzaSyDr2UxVnv_U85AbhhY8XSHSIavUW0DC-sY",
-                "Sec-Fetch-Site": "none",
                 "Sec-Fetch-Mode": "no-cors",
                 "Sec-Fetch-Dest": "empty",
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
-                "Accept-Encoding": "gzip, deflate, br, zstd",
-                "Accept-Language": "ja-JP;q=0.6,ja;q=0.5",
             }
 
             try:

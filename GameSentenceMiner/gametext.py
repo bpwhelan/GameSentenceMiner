@@ -1,15 +1,20 @@
 import asyncio
+import atexit
 import json
 import os
+import threading
+import time
 import uuid
+from dataclasses import replace
 
 import websockets
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
-from rapidfuzz import fuzz
 
 from GameSentenceMiner import obs
 from GameSentenceMiner.util.clients.discord_rpc import discord_rpc_manager
+from GameSentenceMiner.util.concurrency.actor import MailboxFull
+from GameSentenceMiner.util.concurrency.work_pool import submit_background_work
 from GameSentenceMiner.util.communication.electron_ipc import send_message
 from GameSentenceMiner.util.config.configuration import (
     get_config,
@@ -22,18 +27,31 @@ from GameSentenceMiner.util.database.db import DB_PRIORITY_HIGH, GameLinesTable,
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.text_processing import apply_text_processing
 from GameSentenceMiner.util.gsm_utils import SleepManager
-from GameSentenceMiner.util.overlay.get_overlay_coords import get_overlay_processor
 from GameSentenceMiner.util.platform.notification import (
     announce_text_intake_state,
     send_text_intake_paused_notification,
     send_text_intake_resumed_notification,
 )
+from GameSentenceMiner.util.platform.windows_clipboard import WindowsClipboardListener
 from GameSentenceMiner.util.stats.live_stats import live_stats_tracker
 from GameSentenceMiner.util.text_log import (
     GameLine,
     TextSource,
-    add_line,
+    game_log,
+    to_local_naive_datetime,
 )
+from GameSentenceMiner.text_pipeline.models import (
+    IngressAck,
+    IngressStatus,
+    SourceKind,
+    TextDomainEvent,
+    TextEventKind,
+    TextObservation,
+    TextRecordSnapshot,
+    TextStreamSnapshot,
+    normalize_utc,
+)
+from GameSentenceMiner.text_pipeline.runtime import AuthoritativeTextRuntime
 
 pyperclip = None
 try:
@@ -51,11 +69,6 @@ except Exception:
 current_line = ""
 current_line_time = datetime.now()
 
-# Sequential-merge bookkeeping (only used when merge_matching_sequential_text is on).
-current_sequence_start_time = None
-last_raw_clipboard = ""
-timer = None
-
 last_clipboard = ""
 
 websocket_connected = {}
@@ -65,35 +78,32 @@ _config_monitor_task = None  # Long-lived task watching config for URI changes
 text_monitor_initialized = False
 
 # In-house text sources (OCR, texthook). Like a connected websocket, an active
-# in-house source pauses clipboard polling so the same line isn't ingested twice.
+# in-house source pauses clipboard intake so the same line isn't ingested twice.
 inhouse_sources_active = {}
 
 # Rate-based spam detection: keep the last 60 message timestamps per source.
 message_timestamps = defaultdict(lambda: deque(maxlen=60))
 rate_limit_active = defaultdict(bool)
 
-# De-duplication of incoming text events. Every source (clipboard, websocket, and
-# Electron IPC such as OCR / texthook) funnels through handle_new_text_event, so a
-# single recent-history check here covers all of them -- including IPC events that
-# never touch the clipboard or a websocket.
-# Cross-source fuzzy dedup: when an OCR line echoes a hook line that arrived
-# moments earlier (same screen, slightly different recognition/whitespace), drop
-# the OCR copy and keep the more reliable hook line.
-_DEDUP_WINDOW_SECONDS = 2.0
-_CROSS_SOURCE_DEDUP_WINDOW_SECONDS = 5.0
-_CROSS_SOURCE_SIMILARITY_THRESHOLD = 70  # fuzz.ratio over whitespace-stripped text
-_recent_text_events = deque(maxlen=20)  # entries of (text, arrival_datetime, source)
-
-# After a few auto-OCR lines are dropped as echoes of hook lines, warn once that
-# running auto OCR alongside a hook is usually redundant (and offer to stop it).
-_OCR_HOOK_REDUNDANCY_THRESHOLD = 3
-_ocr_hook_redundancy_count = 0
-_ocr_hook_redundancy_warned = False
-
 # When stats collection is disabled in advanced config, remind the user on the
 # first few received lines each startup so it's obvious nothing is being stored.
 _dont_collect_stats_notice_count = 0
 _DONT_COLLECT_STATS_NOTICE_LIMIT = 10
+
+# The coordinator owns correlation. These counters preserve the existing one-time
+# Electron warning without keeping a second mutable text-history cache here.
+_OCR_HOOK_REDUNDANCY_THRESHOLD = 3
+_ocr_hook_redundancy_count = 0
+_ocr_hook_redundancy_warned = False
+
+_text_runtime: AuthoritativeTextRuntime | None = None
+_text_runtime_lock = threading.RLock()
+_projected_lines: dict[str, GameLine] = {}
+_overlay_dispatcher = None
+
+DEFAULT_TEXTHOOK_MAX_BUFFER_SIZE = 3000
+MAX_TEXTHOOK_MAX_BUFFER_SIZE = 100_000
+MAX_JAPANESE_QUOTE_PAIRS = 10
 
 
 # ---------------------------------------------------------------------------
@@ -101,10 +111,57 @@ _DONT_COLLECT_STATS_NOTICE_LIMIT = 10
 # ---------------------------------------------------------------------------
 
 
-def _get_overlay_websocket():
-    from GameSentenceMiner.web.gsm_websocket import ID_OVERLAY, websocket_manager
+def get_authoritative_text_runtime() -> AuthoritativeTextRuntime:
+    global _text_runtime
+    with _text_runtime_lock:
+        if _text_runtime is None:
+            _text_runtime = AuthoritativeTextRuntime(
+                _project_text_domain_event,
+                retention_provider=lambda: timedelta(
+                    seconds=max(0, float(getattr(gsm_state, "replay_buffer_length", 0) or 0)) + 5
+                ),
+            )
+        _text_runtime.start()
+        return _text_runtime
 
-    return ID_OVERLAY, websocket_manager
+
+def get_text_stream_snapshot() -> TextStreamSnapshot:
+    return get_authoritative_text_runtime().snapshot(timeout=1.0)
+
+
+def freeze_authoritative_text_line(line_id: str) -> bool:
+    with _text_runtime_lock:
+        runtime = _text_runtime
+    if runtime is None:
+        return False
+    events = runtime.freeze(str(line_id), timeout=1.0)
+    runtime.wait_projected(timeout=1.0)
+    return bool(events)
+
+
+def get_text_runtime_health() -> dict[str, object]:
+    with _text_runtime_lock:
+        if _text_runtime is None:
+            return {"state": "created", "healthy": True, "actors": {}}
+        health = _text_runtime.health_snapshot()
+        if _overlay_dispatcher is not None:
+            health["overlay"] = _overlay_dispatcher.health_snapshot()
+        return health
+
+
+def stop_authoritative_text_runtime() -> bool:
+    global _text_runtime, _overlay_dispatcher
+    with _text_runtime_lock:
+        runtime = _text_runtime
+        _text_runtime = None
+    text_stopped = True if runtime is None else runtime.stop()
+    overlay = _overlay_dispatcher
+    _overlay_dispatcher = None
+    overlay_stopped = True if overlay is None else overlay.stop()
+    return text_stopped and overlay_stopped
+
+
+atexit.register(stop_authoritative_text_runtime)
 
 
 def _log_info(message: str, *, colors: bool = False) -> None:
@@ -117,6 +174,37 @@ def _log_info(message: str, *, colors: bool = False) -> None:
         except Exception:
             pass
     logger.info(message)
+
+
+def get_texthook_max_buffer_size() -> int:
+    """Return the shared text-hook limit, with a safe fallback for old configs."""
+    try:
+        configured = getattr(getattr(get_config(), "general", None), "texthook_max_buffer_size", None)
+        value = int(configured)
+    except (AttributeError, TypeError, ValueError):
+        return DEFAULT_TEXTHOOK_MAX_BUFFER_SIZE
+    if value < 1:
+        return DEFAULT_TEXTHOOK_MAX_BUFFER_SIZE
+    return min(value, MAX_TEXTHOOK_MAX_BUFFER_SIZE)
+
+
+def guard_text_input(line) -> tuple[str | None, str | None]:
+    """Block quote-heavy backlogs and cap text before the processing pipeline."""
+    text = line if isinstance(line, str) else str(line)
+    opening_quotes = 0
+    closing_quotes = 0
+    for character in text:
+        if character == "「":
+            opening_quotes += 1
+        elif character == "」":
+            closing_quotes += 1
+        if opening_quotes > MAX_JAPANESE_QUOTE_PAIRS and closing_quotes > MAX_JAPANESE_QUOTE_PAIRS:
+            return None, "too many Japanese quote pairs"
+
+    max_buffer_size = get_texthook_max_buffer_size()
+    if len(text) > max_buffer_size:
+        return text[:max_buffer_size], "truncated"
+    return text, None
 
 
 def _send_text_received_preview_event(
@@ -141,6 +229,22 @@ def _send_text_received_preview_event(
         )
     except Exception as exc:
         logger.debug(f"Failed to send text preview event to Electron: {exc}")
+
+
+def _note_authoritative_duplicate(source_kind: SourceKind, matched_source: str | None) -> None:
+    """Warn once when the coordinator repeatedly identifies auto-OCR hook echoes."""
+    global _ocr_hook_redundancy_count, _ocr_hook_redundancy_warned
+    if _ocr_hook_redundancy_warned or source_kind is not SourceKind.OCR or matched_source != SourceKind.TEXTHOOK.value:
+        return
+    _ocr_hook_redundancy_count += 1
+    if _ocr_hook_redundancy_count < _OCR_HOOK_REDUNDANCY_THRESHOLD:
+        return
+    _ocr_hook_redundancy_warned = True
+    if os.environ.get("GSM_ELECTRON"):
+        try:
+            send_message("ocr_hook_redundant", {})
+        except Exception as exc:
+            logger.debug(f"Failed to send OCR/hook redundancy warning: {exc}")
 
 
 async def _add_event_to_texthooker(new_line):
@@ -187,79 +291,6 @@ def should_relay_outputs_when_text_intake_paused() -> bool:
 
 def should_drop_text_input_completely() -> bool:
     return is_text_intake_paused() and not should_relay_outputs_when_text_intake_paused()
-
-
-# ---------------------------------------------------------------------------
-# De-duplication
-# ---------------------------------------------------------------------------
-
-
-def _is_ocr_source(source: str | None) -> bool:
-    return bool(source) and str(source).lower() in (TextSource.OCR, TextSource.OCR_MANUAL)
-
-
-def _classify_duplicate_text_event(text: str, source: str | None = None) -> str | None:
-    """Return why this text is a duplicate, or None if it should be accepted.
-
-    Reasons:
-      * "exact"     -- an immediate repeat of the last accepted line (e.g. OCR
-        re-reading an unchanged screen), regardless of how much time has passed.
-      * "recent"    -- the same line echoed by a second source within a short
-        window (e.g. OCR over IPC while the clipboard picks up the same text).
-      * "ocr_echo"  -- an OCR line that is *nearly* identical to a hook line
-        received moments earlier (same screen, minor whitespace/recognition
-        differences). With both a hook and OCR connected the hook is the
-        reliable copy, so the OCR echo is discarded.
-
-    Dialogue that legitimately recurs later, with other lines in between, is
-    still accepted because it is no longer the most recent line.
-    """
-    if not text:
-        return None
-    if _recent_text_events and _recent_text_events[-1][0] == text:
-        return "exact"
-    now = datetime.now()
-    for previous_text, previous_time, _ in _recent_text_events:
-        if previous_text == text and (now - previous_time).total_seconds() <= _DEDUP_WINDOW_SECONDS:
-            return "recent"
-
-    if _is_ocr_source(source):
-        stripped = "".join(text.split())
-        for previous_text, previous_time, previous_source in _recent_text_events:
-            if _is_ocr_source(previous_source):
-                continue
-            if (now - previous_time).total_seconds() > _CROSS_SOURCE_DEDUP_WINDOW_SECONDS:
-                continue
-            previous_stripped = "".join(previous_text.split())
-            if not previous_stripped:
-                continue
-            if (
-                previous_stripped == stripped
-                or fuzz.ratio(previous_stripped, stripped) >= _CROSS_SOURCE_SIMILARITY_THRESHOLD
-            ):
-                return "ocr_echo"
-    return None
-
-
-def _record_text_event(text: str, source: str | None = None) -> None:
-    _recent_text_events.append((text, datetime.now(), source))
-
-
-def _note_ocr_hook_redundancy(source: str | None) -> None:
-    """Track auto-OCR lines dropped as hook echoes; warn once past the threshold."""
-    global _ocr_hook_redundancy_count, _ocr_hook_redundancy_warned
-    # Only *auto* OCR running alongside a hook is the redundant case; manual OCR
-    # is a deliberate per-shot action, so an occasional echo there is expected.
-    if _ocr_hook_redundancy_warned or str(source).lower() != TextSource.OCR:
-        return
-    _ocr_hook_redundancy_count += 1
-    if _ocr_hook_redundancy_count >= _OCR_HOOK_REDUNDANCY_THRESHOLD:
-        _ocr_hook_redundancy_warned = True
-        if os.environ.get("GSM_ELECTRON"):
-            try:
-                send_message("ocr_hook_redundant", {})
-            except Exception as exc:
-                logger.debug(f"Failed to send OCR/hook redundancy warning: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +357,7 @@ def set_inhouse_source_active(source: str, active: bool) -> None:
     """Mark an in-house text source (e.g. "ocr", "texthook") active or inactive.
 
     Mirrors websocket connect/disconnect: while any in-house source is active,
-    clipboard polling pauses (unless use_both_clipboard_and_websocket is set), so
+    clipboard intake pauses (unless use_both_clipboard_and_websocket is set), so
     the same line isn't ingested from both the bus and the clipboard.
     """
     key = (source or "").strip().lower()
@@ -379,7 +410,7 @@ async def monitor_clipboard():
         logger.warning("Clipboard monitoring is disabled because pyperclip is not available.")
         return
     try:
-        current_line = pyperclip.paste()
+        current_line = await asyncio.to_thread(pyperclip.paste)
     except Exception as e:
         logger.error(f"Error accessing clipboard: {e}")
         return
@@ -387,36 +418,73 @@ async def monitor_clipboard():
     # ingest stale content on launch.
     last_clipboard = current_line
     send_message_on_resume = False
-    while True:
-        if not get_config().general.use_clipboard:
-            gsm_status.clipboard_enabled = False
-            await asyncio.sleep(5)
-            continue
-        if should_pause_clipboard_for_other_source():
-            gsm_status.clipboard_enabled = False
-            await asyncio.sleep(5)
-            send_message_on_resume = True
-            continue
-        elif send_message_on_resume:
-            logger.info("No other text source active; Clipboard Monitoring resumed.")
-            send_message_on_resume = False
-        gsm_status.clipboard_enabled = True
-        time_received = datetime.now()
-        current_clipboard = pyperclip.paste()
+    loop = asyncio.get_running_loop()
+    clipboard_changed = asyncio.Event()
+    native_listener = WindowsClipboardListener(
+        lambda: loop.call_soon_threadsafe(clipboard_changed.set),
+    )
+    native_listener_active = native_listener.start()
+    intake_was_active = False
 
-        # Only act when the clipboard actually changes; cross-source de-dup is
-        # handled centrally in handle_new_text_event.
-        if current_clipboard and current_clipboard != last_clipboard:
-            if is_message_rate_limited("clipboard"):
-                await asyncio.sleep(0.2)
+    async def wait_for_clipboard_change(timeout: float) -> None:
+        if not native_listener_active:
+            await asyncio.sleep(timeout)
+            return
+        try:
+            await asyncio.wait_for(clipboard_changed.wait(), timeout=timeout)
+        except TimeoutError:
+            pass
+
+    try:
+        while True:
+            if not get_config().general.use_clipboard:
+                gsm_status.clipboard_enabled = False
+                intake_was_active = False
+                clipboard_changed.clear()
+                await wait_for_clipboard_change(5)
                 continue
-            last_clipboard = current_clipboard
-            await handle_new_text_event(
-                current_clipboard,
-                line_time=time_received,
-                source_display_name="Clipboard",
-            )
-        await asyncio.sleep(0.2)
+            if should_pause_clipboard_for_other_source():
+                gsm_status.clipboard_enabled = False
+                intake_was_active = False
+                clipboard_changed.clear()
+                await wait_for_clipboard_change(5)
+                send_message_on_resume = True
+                continue
+            elif send_message_on_resume:
+                logger.info("No other text source active; Clipboard Monitoring resumed.")
+                send_message_on_resume = False
+            gsm_status.clipboard_enabled = True
+
+            # Check once immediately after startup/resume. Afterwards native
+            # Windows notifications wake us; the sleep is only the fallback.
+            if not intake_was_active:
+                intake_was_active = True
+            else:
+                await wait_for_clipboard_change(0.2)
+                if native_listener_active:
+                    clipboard_changed.clear()
+
+            try:
+                current_clipboard = await asyncio.to_thread(pyperclip.paste)
+            except Exception as error:
+                logger.debug(f"Error reading clipboard: {error}")
+                continue
+
+            # Only act when the clipboard actually changes; cross-source de-dup is
+            # handled centrally in handle_new_text_event.
+            if current_clipboard and current_clipboard != last_clipboard:
+                if is_message_rate_limited("clipboard"):
+                    await asyncio.sleep(0.2)
+                    clipboard_changed.set()
+                    continue
+                last_clipboard = current_clipboard
+                await handle_new_text_event(
+                    current_clipboard,
+                    line_time=datetime.now(),
+                    source_display_name="Clipboard",
+                )
+    finally:
+        native_listener.stop()
 
 
 # ---------------------------------------------------------------------------
@@ -663,60 +731,6 @@ async def listen_on_websocket(uri, stop_event=None):
 
 
 # ---------------------------------------------------------------------------
-# Sequential line merging
-# ---------------------------------------------------------------------------
-
-
-async def merge_sequential_lines(line, start_time=None, source=None, source_display_name=None):
-    if not get_config().general.merge_matching_sequential_text:
-        return
-    logger.info(f"Merging Sequential Lines: {line}")
-    # Use the sequence start time for the merged line.
-    await add_line_to_text_log(
-        line,
-        start_time if start_time else datetime.now(),
-        source=source,
-        source_display_name=source_display_name,
-    )
-
-
-def schedule_merge(wait, coro, args):
-    async def wrapper():
-        await asyncio.sleep(wait)
-        await coro(*args)
-
-    return asyncio.create_task(wrapper())
-
-
-def _schedule_sequential_merge(line_text, line_time, source, source_display_name):
-    """Debounce rapidly-growing text (e.g. OCR streaming a sentence) into one line.
-
-    A new fragment that extends (or closely matches) the previous one keeps the
-    same sequence and just resets the flush timer; an unrelated line starts a new
-    sequence while letting the previous sequence's pending flush fire.
-    """
-    global timer, current_sequence_start_time, last_raw_clipboard
-
-    is_continuation = bool(timer) and (
-        line_text.startswith(last_raw_clipboard) or fuzz.ratio(line_text, last_raw_clipboard) > 50
-    )
-
-    if is_continuation:
-        # Same sequence: keep the original start time and restart the flush timer.
-        timer.cancel()
-    else:
-        # New sequence: do not cancel any in-flight flush for the prior sequence.
-        current_sequence_start_time = line_time if line_time else datetime.now()
-
-    last_raw_clipboard = line_text
-    timer = schedule_merge(
-        2,
-        merge_sequential_lines,
-        [line_text, current_sequence_start_time, source, source_display_name],
-    )
-
-
-# ---------------------------------------------------------------------------
 # Core text intake pipeline
 # ---------------------------------------------------------------------------
 
@@ -729,38 +743,37 @@ async def handle_new_text_event(
     source_display_name=None,
     copy_to_clipboard=False,
     exclude_from_stats=False,
+    observation_id=None,
+    emitted_at=None,
+    source_instance=None,
+    revision_window_ms=None,
 ):
     """Single entry point for every text source (clipboard, websocket, IPC)."""
     global current_line
-    current_line = current_clipboard
+    guarded_line, guard_reason = guard_text_input(current_clipboard)
+    if guarded_line is None:
+        logger.warning(f"Blocked text input: {guard_reason}.")
+        return
+    current_line = guarded_line
 
     if should_drop_text_input_completely():
         logger.debug("Text intake is paused; dropping incoming text without further processing.")
         return
 
-    duplicate_reason = _classify_duplicate_text_event(current_clipboard, source)
-    if duplicate_reason:
-        logger.debug(f"Dropping duplicate text event from [{source_display_name or source or 'Unknown'}].")
-        if duplicate_reason == "ocr_echo":
-            _note_ocr_hook_redundancy(source)
-        return
-    _record_text_event(current_clipboard, source)
-
-    obs.update_current_game()
-    discord_rpc_manager.update(obs.get_current_game(sanitize=False, update=False))
-
-    if get_config().general.merge_matching_sequential_text:
-        _schedule_sequential_merge(current_clipboard, line_time, source, source_display_name)
-    else:
-        await add_line_to_text_log(
-            current_clipboard,
-            line_time,
-            dict_from_ocr=dict_from_ocr,
-            source=source,
-            source_display_name=source_display_name,
-            copy_to_clipboard=copy_to_clipboard,
-            exclude_from_stats=exclude_from_stats,
-        )
+    await add_line_to_text_log(
+        guarded_line,
+        line_time,
+        dict_from_ocr=dict_from_ocr,
+        source=source,
+        source_display_name=source_display_name,
+        copy_to_clipboard=copy_to_clipboard,
+        exclude_from_stats=exclude_from_stats,
+        observation_id=observation_id,
+        emitted_at=emitted_at,
+        source_instance=source_instance,
+        revision_window_ms=revision_window_ms,
+        merge_fragments=bool(get_config().general.merge_matching_sequential_text),
+    )
 
 
 async def add_line_to_text_log(
@@ -772,93 +785,316 @@ async def add_line_to_text_log(
     source_display_name=None,
     copy_to_clipboard=False,
     exclude_from_stats=False,
+    observation_id=None,
+    emitted_at=None,
+    source_instance=None,
+    revision_window_ms=None,
+    merge_fragments=False,
+    source_sequence=None,
+    metadata_extra=None,
 ):
-    global current_line_time, _dont_collect_stats_notice_count
-
-    current_line_after_regex = apply_text_processing(line, get_config().text_processing)
-    source_label = source_display_name or source or "Unknown"
-    _log_info(f"<cyan>Line Received from [{source_label}]: {current_line_after_regex}</cyan>", colors=True)
-    current_line_time = line_time if line_time else datetime.now()
-
-    if get_config().advanced.dont_collect_stats and _dont_collect_stats_notice_count < _DONT_COLLECT_STATS_NOTICE_LIMIT:
-        _dont_collect_stats_notice_count += 1
-        logger.info("stats is disabled in advanced config, skipping DB")
-
-    if copy_to_clipboard and current_line_after_regex:
-        from GameSentenceMiner.util.clipboard import copy as clipboard_copy
-
-        clipboard_copy(current_line_after_regex)
-
-    _send_text_received_preview_event(
+    return _ingest_line_sync(
         line,
-        current_line_after_regex,
-        current_line_time,
-        source,
-        source_display_name,
+        line_time=line_time,
+        dict_from_ocr=dict_from_ocr,
+        source=source,
+        skip_overlay=skip_overlay,
+        source_display_name=source_display_name,
+        copy_to_clipboard=copy_to_clipboard,
+        exclude_from_stats=exclude_from_stats,
+        observation_id=observation_id,
+        emitted_at=emitted_at,
+        source_instance=source_instance,
+        revision_window_ms=revision_window_ms,
+        merge_fragments=merge_fragments,
+        source_sequence=source_sequence,
+        metadata_extra=metadata_extra,
     )
-    if is_text_intake_paused():
-        await _handle_paused_text_input(
-            current_line_after_regex,
-            current_line_time,
-            source=source,
-            source_label=source_label,
+
+
+def _ingest_line_sync(
+    line,
+    line_time=None,
+    dict_from_ocr=None,
+    source=None,
+    skip_overlay=False,
+    source_display_name=None,
+    copy_to_clipboard=False,
+    exclude_from_stats=False,
+    observation_id=None,
+    emitted_at=None,
+    source_instance=None,
+    revision_window_ms=None,
+    merge_fragments=False,
+    wait_projected=True,
+    source_sequence=None,
+    metadata_extra=None,
+):
+    global current_line_time
+    guarded_line, guard_reason = guard_text_input(line)
+    observation_id = str(observation_id or uuid.uuid4())
+    if guarded_line is None:
+        logger.warning(f"Blocked text input from [{source_display_name or source or 'Unknown'}]: {guard_reason}.")
+        return IngressAck(IngressStatus.REJECTED, observation_id, reason=guard_reason or "text blocked")
+    if guard_reason == "truncated":
+        logger.warning(
+            f"Truncated text input from [{source_display_name or source or 'Unknown'}] "
+            f"to {len(guarded_line)} characters."
         )
-        return
 
-    # When the current game isn't actually being captured by OBS (e.g. manual OCR
-    # left running for the screen cropper while not gaming), don't mine the line:
-    # the clipboard copy above already ran, so just relay it to the texthooker/output
-    # websocket clients and stop before stats/DB/overlay/persistence.
-    # if not obs.is_game_capture_active():
-    #     logger.info(
-    #         f"Game not being captured by OBS; relaying line from [{source_label}] to texthooker/output only."
-    #     )
-    #     await _add_event_to_texthooker(
-    #         _build_transient_output_line(current_line_after_regex, current_line_time, source=source)
-    #     )
-    #     from GameSentenceMiner.util.clipboard import copy as clipboard_copy
+    current_line_after_regex = apply_text_processing(guarded_line, get_config().text_processing)
+    current_line_time = line_time if line_time else datetime.now()
+    now_utc = normalize_utc(datetime.now())
+    captured_at = normalize_utc(current_line_time)
+    emitted = normalize_utc(emitted_at) if isinstance(emitted_at, datetime) else now_utc
+    source_kind = SourceKind.normalize(source, source_display_name)
+    source_key = source_instance or source_display_name or source or source_kind.value
+    configured_merge_window = 2000 if merge_fragments else 100
+    window_ms = configured_merge_window if revision_window_ms is None else max(0, int(revision_window_ms))
+    paused = is_text_intake_paused()
+    metadata = {
+        "dict_from_ocr": dict_from_ocr,
+        "scene": str(getattr(gsm_state, "current_game", "") or ""),
+    }
+    if isinstance(metadata_extra, dict):
+        metadata.update(metadata_extra)
+    observation = TextObservation(
+        observation_id=observation_id,
+        source_kind=source_kind,
+        source_instance=str(source_key),
+        raw_text=guarded_line,
+        processed_text=current_line_after_regex,
+        captured_at_utc=captured_at,
+        emitted_at_utc=emitted,
+        received_at_utc=now_utc,
+        received_monotonic_ns=time.monotonic_ns(),
+        source_display_name=str(source_display_name or source or "Unknown"),
+        source_sequence=int(source_sequence) if source_sequence is not None else None,
+        revision_window_ms=window_ms,
+        merge_fragments=merge_fragments,
+        copy_to_clipboard=bool(copy_to_clipboard),
+        excluded_from_stats=bool(exclude_from_stats or paused),
+        relay_only=bool(paused),
+        skip_overlay=bool(skip_overlay),
+        metadata=metadata,
+    )
+    result = get_authoritative_text_runtime().ingest(observation)
+    if result.ack.status is IngressStatus.DUPLICATE:
+        _note_authoritative_duplicate(source_kind, result.ack.matched_source)
+    elif result.ack.status is IngressStatus.BACKPRESSURED:
+        logger.warning(f"Text ingress backpressured for observation {observation.observation_id}")
+    elif result.ack.status is IngressStatus.STALE_EXCLUDED:
+        logger.warning(f"Excluded stale text observation {observation.observation_id} from the live stream")
+    elif result.ack.status is IngressStatus.REJECTED:
+        logger.warning(f"Rejected text observation {observation.observation_id}: {result.ack.reason}")
+    if wait_projected:
+        get_authoritative_text_runtime().wait_projected(timeout=1.0)
+    return result.ack
 
-    #     if copy_to_clipboard and current_line_after_regex:
-    #         from GameSentenceMiner.util.clipboard import copy as clipboard_copy
 
-    #         clipboard_copy(current_line_after_regex)
-    #     return
+def _parse_ingress_datetime(value, fallback: datetime | None = None) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, (int, float)):
+        try:
+            return datetime.fromtimestamp(float(value) / 1000 if float(value) > 10_000_000_000 else float(value))
+        except (OSError, OverflowError, ValueError):
+            pass
+    if isinstance(value, str) and value.strip():
+        try:
+            return datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            pass
+    return fallback or datetime.now()
 
-    if not exclude_from_stats:
-        live_stats_tracker.add_line(current_line_after_regex, current_line_time.timestamp())
-    gsm_status.last_line_received = current_line_time.strftime("%Y-%m-%d %H:%M:%S")
 
-    new_line = add_line(current_line_after_regex, current_line_time, source=source)
-    if not new_line:
-        return
-    if exclude_from_stats:
-        # e.g. ad-hoc area-select OCR while OBS isn't capturing a game: relay/show
-        # the line but don't attribute it to the current game's stats or persist it.
-        new_line.excluded_from_stats = True
+def ingest_text_v2_payload(payload: dict) -> dict[str, object]:
+    """Synchronous request/ack ingress used by Electron and future producers."""
+    if not isinstance(payload, dict):
+        return {
+            "status": IngressStatus.REJECTED.value,
+            "observation_id": "",
+            "reason": "payload must be an object",
+        }
+    text = payload.get("text") or payload.get("sentence")
+    if not isinstance(text, str) or not text.strip():
+        return {
+            "status": IngressStatus.REJECTED.value,
+            "observation_id": str(payload.get("observation_id") or payload.get("observationId") or ""),
+            "reason": "text is required",
+        }
 
-    await _add_event_to_texthooker(new_line)
-    id_overlay, websocket_manager = _get_overlay_websocket()
-    if websocket_manager.has_clients(id_overlay) and not skip_overlay:
-        overlay_processor = get_overlay_processor()
-        if overlay_processor.ready:
-            # Increment sequence to mark this as the latest request
-            overlay_processor._current_sequence += 1
-            asyncio.run_coroutine_threadsafe(
-                overlay_processor.find_box_and_send_to_overlay(
-                    new_line,
-                    dict_from_ocr=dict_from_ocr,
-                    sequence=overlay_processor._current_sequence,
-                ),
-                overlay_processor.processing_loop,
+    source = str(payload.get("source") or "texthook")
+    display_name = str(payload.get("source_display_name") or payload.get("sourceDisplayName") or "")
+    captured_at = _parse_ingress_datetime(
+        payload.get("captured_at") or payload.get("capturedAt") or payload.get("time")
+    )
+    emitted_at = _parse_ingress_datetime(
+        payload.get("emitted_at") or payload.get("emittedAt"),
+        fallback=datetime.now(),
+    )
+    dict_from_ocr = payload.get("dict_from_ocr")
+    if payload.get("engine") == "mages":
+        if isinstance(dict_from_ocr, dict) and dict_from_ocr.get("schema") == "gsm_overlay_coords_v1":
+            logger.info(
+                "MAGES text-position payload received: {} line box(es); forwarding directly to overlay.",
+                len(dict_from_ocr.get("lines", [])),
             )
-    obs.add_longplay_srt_line(current_line_time, new_line)
+        else:
+            logger.warning("MAGES text arrived without position data; overlay will fall back to OCR.")
+    ack = _ingest_line_sync(
+        text,
+        line_time=captured_at,
+        dict_from_ocr=dict_from_ocr,
+        source=source,
+        source_display_name=display_name or None,
+        copy_to_clipboard=bool(payload.get("copyToClipboard", payload.get("copy_to_clipboard", False))),
+        exclude_from_stats=bool(payload.get("exclude_from_stats", False)),
+        observation_id=payload.get("observation_id") or payload.get("observationId"),
+        emitted_at=emitted_at,
+        source_instance=(
+            payload.get("source_instance") or payload.get("sourceInstance") or payload.get("hookId") or display_name
+        ),
+        revision_window_ms=payload.get("revision_window_ms", payload.get("revisionWindowMs", 100)),
+        merge_fragments=bool(payload.get("merge_fragments", payload.get("mergeFragments", False))),
+        wait_projected=False,
+        source_sequence=payload.get("source_sequence", payload.get("sourceSequence")),
+        metadata_extra={key: payload[key] for key in ("hookId", "hookFunction", "engine", "exeName") if key in payload},
+    )
+    return ack.to_dict()
 
-    # Persist the line off the event loop. This is submitted to the single DB
-    # writer as a HIGH-priority, fire-and-forget job so text intake is never
-    # blocked by long-running background writes (e.g. the daily Anki cache sync).
-    # Skip if 'nostatspls' in scene.
-    if not exclude_from_stats and "nostatspls" not in new_line.scene.lower():
-        _persist_game_line_async(new_line)
+
+def _line_from_record(record: TextRecordSnapshot) -> GameLine:
+    if not record.relay_only:
+        return game_log.upsert_authoritative_line(record)
+    line = _projected_lines.get(record.line_id)
+    captured_at = to_local_naive_datetime(record.captured_at_utc)
+    if line is None:
+        line = GameLine(
+            id=record.line_id,
+            text=record.text,
+            time=captured_at,
+            prev=None,
+            next=None,
+            index=-1,
+            scene=record.scene,
+            source=record.source_kind.value,
+            source_padding=TextSource.padding_seconds(record.source_kind.value),
+        )
+        _projected_lines[record.line_id] = line
+    line.text = record.text
+    line.revision = record.revision
+    line.state = record.state.value
+    line.session_id = record.session_id
+    line.stream_sequence = record.stream_sequence
+    line.first_seen_time = to_local_naive_datetime(record.first_seen_at_utc)
+    line.finalized_time = to_local_naive_datetime(record.finalized_at_utc) if record.finalized_at_utc else None
+    line.source_instance = record.source_instance
+    line.excluded_from_stats = True
+    return line
+
+
+def _project_text_domain_event(event: TextDomainEvent) -> None:
+    global current_line_time, _dont_collect_stats_notice_count
+    record = event.record
+    line = _line_from_record(record)
+    source_label = record.source_display_name or record.source_kind.value
+    current_line_time = to_local_naive_datetime(record.captured_at_utc)
+
+    from GameSentenceMiner.web.texthooking_page import project_text_domain_event
+
+    project_text_domain_event(event, line)
+    if event.kind in (TextEventKind.APPENDED, TextEventKind.UPDATED):
+        if event.kind is TextEventKind.APPENDED:
+            log_message = f"<cyan>Line Received from [{source_label}]: {record.text}</cyan>"
+        else:
+            log_message = (
+                f"<cyan>Line revised from [{source_label}] "
+                f"seq={record.stream_sequence} rev={record.revision}: {record.text}</cyan>"
+            )
+        _log_info(log_message, colors=True)
+        _send_text_received_preview_event(
+            record.raw_text,
+            record.text,
+            current_line_time,
+            record.source_kind.value,
+            source_label,
+        )
+        gsm_status.last_line_received = record.first_seen_at_utc.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+        if event.kind is TextEventKind.APPENDED and record.copy_to_clipboard and record.text:
+            from GameSentenceMiner.util.clipboard import copy as clipboard_copy
+
+            clipboard_copy(record.text)
+        _project_overlay_event(record, line)
+        if get_config().advanced.dont_collect_stats:
+            if (
+                event.kind is TextEventKind.APPENDED
+                and _dont_collect_stats_notice_count < _DONT_COLLECT_STATS_NOTICE_LIMIT
+            ):
+                _dont_collect_stats_notice_count += 1
+                logger.info("stats is disabled in advanced config, skipping DB")
+        elif not record.excluded_from_stats:
+            # The tracker has a revision ledger, so provisional text can update
+            # stats immediately without double-counting later corrections.
+            live_stats_tracker.add_line(
+                record.text,
+                record.first_seen_at_utc.timestamp(),
+                line_id=record.line_id,
+                revision=record.revision,
+            )
+        _notify_discord_activity(record.scene)
+        return
+
+    if event.kind is not TextEventKind.FROZEN or record.relay_only:
+        return
+
+    obs.add_longplay_srt_line(current_line_time, line)
+    if (
+        not get_config().advanced.dont_collect_stats
+        and not record.excluded_from_stats
+        and "nostatspls" not in line.scene.lower()
+    ):
+        _persist_game_line_async(replace(line, prev=None, next=None))
+
+
+def _project_overlay_event(record: TextRecordSnapshot, line: GameLine) -> None:
+    from GameSentenceMiner.util.communication.overlay_dispatch import OverlayCommand
+
+    # The compatibility GameLine may be revised again immediately; detach the
+    # visual command so the actor never observes cross-thread mutation.
+    detached_line = replace(line, prev=None, next=None)
+    _get_overlay_dispatcher().submit(OverlayCommand(record, detached_line))
+
+
+def _notify_discord_activity(scene: str) -> None:
+    """Notify the optional Discord adapter only after all live projections queue.
+
+    This is deliberately best-effort and non-blocking: a saturated background
+    lane may skip a presence refresh, but it can never hold up the next text line.
+    """
+    discord_config = getattr(get_config(), "discord", None)
+    if not bool(getattr(discord_config, "enabled", False)):
+        return
+    try:
+        submit_background_work(discord_rpc_manager.update, scene, timeout=0)
+    except (MailboxFull, RuntimeError):
+        logger.debug("Skipping Discord activity refresh because background work is saturated")
+
+
+def _get_overlay_dispatcher():
+    global _overlay_dispatcher
+    if _overlay_dispatcher is None:
+        from GameSentenceMiner.util.communication.overlay_dispatch import OverlayDispatcher
+
+        _overlay_dispatcher = OverlayDispatcher()
+    return _overlay_dispatcher
+
+
+def trigger_manual_overlay_scan() -> bool:
+    """Route hotkey scans through the same latest-wins overlay owner."""
+    from GameSentenceMiner.util.communication.overlay_dispatch import OverlayCommand
+
+    return _get_overlay_dispatcher().submit(OverlayCommand(source=TextSource.HOTKEY))
 
 
 def _persist_game_line_async(new_line: GameLine) -> None:
@@ -867,8 +1103,8 @@ def _persist_game_line_async(new_line: GameLine) -> None:
     def _op(_conn):
         try:
             if new_line.scene:
-                game = GamesTable.get_or_create_by_name(new_line.scene)
-                GameLinesTable.add_line(new_line, game_id=game.id)
+                game_id = GamesTable.get_or_create_id_by_name(new_line.scene)
+                GameLinesTable.add_line(new_line, game_id=game_id)
             else:
                 GameLinesTable.add_line(new_line)
         except Exception as exc:

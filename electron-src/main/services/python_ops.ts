@@ -3,14 +3,16 @@ import * as path from 'node:path';
 import { spawn } from 'child_process';
 
 import {
-    BACKEND_GITHUB_REPO_URL,
     execFileAsync,
     getResourcesDir,
     getSanitizedPythonEnv,
     isDev,
     PACKAGE_NAME,
-    resolvePreReleaseBranch,
+    resolvePreReleaseBackendWheelPath,
 } from '../util.js';
+import { isBackendVersionCompatible } from './backend_version.js';
+
+export { isBackendVersionCompatible } from './backend_version.js';
 
 const PINNED_UV_VERSION = '0.9.22';
 
@@ -401,17 +403,6 @@ export function getBundledBackendVersion(): string | null {
  * Stable clients accept their bundled Python version plus PEP 440 post releases
  * of that exact version, such as 2026.7.4.post1.
  */
-export function isBackendVersionCompatible(
-    installedVersion: string,
-    bundledVersion: string
-): boolean {
-    const escapedBundledVersion = bundledVersion.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return new RegExp(
-        `^${escapedBundledVersion}(?:\\.post\\d+)?(?:\\+[A-Za-z0-9.-]+)?$`,
-        'i'
-    ).test(installedVersion);
-}
-
 function getNextReleaseVersion(version: string): string | null {
     if (!/^\d+(?:\.\d+)+$/.test(version)) {
         return null;
@@ -425,15 +416,10 @@ function getNextReleaseVersion(version: string): string | null {
 /**
  * Specifier for installing the GSM backend package.
  *
- * Pre-release (beta) builds are cut from a branch whose backend code is not
- * published to PyPI, so we install from that branch's GitHub source archive
- * (`<repo>/archive/refs/heads/<branch>.zip`), read from the bundled
- * prerelease.json. This makes beta testers actually run the branch's backend
- * instead of a stale (or nonexistent) PyPI wheel for the bundled version. The zip
- * archive (rather than a `git+` specifier) keeps git from being a hard runtime
- * requirement on the user's machine. uv downloads + builds it in a temp dir, which
- * also sidesteps the read-only egg-info build failure that bundled-source installs
- * hit on AppImage squashfs mounts and macOS .app bundles (issue #479).
+ * Pre-release builds install the platform-specific wheel bundled with the
+ * Electron app. CI builds that wheel from the same commit and version as the
+ * app, so beta users do not need Git or a Rust compiler and cannot drift to a
+ * newer branch head after the app artifact was produced.
  *
  * For stable production releases we install from PyPI within the compatible
  * release window. For example, a client bundling 2026.7.4 installs
@@ -450,9 +436,9 @@ export function getBundledBackendSpecifier(): string {
         return getProjectPath();
     }
 
-    const preReleaseBranch = resolvePreReleaseBranch();
-    if (preReleaseBranch) {
-        return `${BACKEND_GITHUB_REPO_URL}/archive/refs/heads/${preReleaseBranch}.zip`;
+    const preReleaseWheelPath = resolvePreReleaseBackendWheelPath();
+    if (preReleaseWheelPath) {
+        return preReleaseWheelPath;
     }
 
     const version = getBundledBackendVersion();

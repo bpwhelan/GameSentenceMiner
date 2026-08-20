@@ -112,6 +112,8 @@ class ForegroundWindowHook:
         self._stop_event = threading.Event()
         self._ready_event = threading.Event()
         self._latest_hwnd: queue.Queue[Optional[int]] = queue.Queue(maxsize=1)
+        self._queue_lock = threading.Lock()
+        self._snapshot_lock = threading.Lock()
         self._sequence = 0
         self._last_snapshot_key: tuple[int, int, str, str] | None = None
 
@@ -170,7 +172,7 @@ class ForegroundWindowHook:
         self._event_thread_id = 0
         self._publish_status("stopped")
 
-    def emit_current(self) -> None:
+    def emit_current(self, *, force: bool = False) -> None:
         if self._user32 is None:
             return
         try:
@@ -178,6 +180,9 @@ class ForegroundWindowHook:
         except Exception:
             return
         if hwnd:
+            if force:
+                with self._snapshot_lock:
+                    self._last_snapshot_key = None
             self._replace_queued_hwnd(hwnd)
 
     def restore_window(self, hwnd_value: str | int) -> bool:
@@ -194,15 +199,27 @@ class ForegroundWindowHook:
             return False
 
     def _replace_queued_hwnd(self, hwnd: Optional[int]) -> None:
-        while True:
+        with self._queue_lock:
             try:
                 self._latest_hwnd.get_nowait()
             except queue.Empty:
-                break
+                pass
+            try:
+                self._latest_hwnd.put_nowait(hwnd)
+            except queue.Full:
+                pass
+
+    def _reconcile_foreground(self, processed_hwnd: int) -> None:
+        """Queue the current foreground if it changed while processing an event."""
+
+        if self._user32 is None or self._stop_event.is_set():
+            return
         try:
-            self._latest_hwnd.put_nowait(hwnd)
-        except queue.Full:
-            pass
+            foreground = int(self._user32.GetForegroundWindow() or 0)
+        except Exception:
+            return
+        if foreground and foreground != processed_hwnd:
+            self._replace_queued_hwnd(foreground)
 
     def _event_loop(self) -> None:
         assert self._user32 is not None
@@ -280,6 +297,7 @@ class ForegroundWindowHook:
                 break
             snapshot = self._resolve_snapshot(hwnd)
             if snapshot is None:
+                self._reconcile_foreground(hwnd)
                 continue
             key = (
                 int(snapshot["hwnd"]),
@@ -287,12 +305,24 @@ class ForegroundWindowHook:
                 str(snapshot["title"]),
                 str(snapshot.get("executablePath") or ""),
             )
-            if key == self._last_snapshot_key:
+            with self._snapshot_lock:
+                if key == self._last_snapshot_key:
+                    is_duplicate = True
+                else:
+                    is_duplicate = False
+                    self._last_snapshot_key = key
+                    self._sequence += 1
+                    snapshot["sequence"] = self._sequence
+            if is_duplicate:
+                self._reconcile_foreground(hwnd)
                 continue
-            self._last_snapshot_key = key
-            self._sequence += 1
-            snapshot["sequence"] = self._sequence
-            self._on_snapshot(snapshot)
+            try:
+                self._on_snapshot(snapshot)
+            finally:
+                # Resolving process metadata and publishing over IPC can both
+                # overlap a second foreground transition. Re-read once so the
+                # latest window is not dependent on another WinEvent arriving.
+                self._reconcile_foreground(hwnd)
 
     def _resolve_snapshot(self, hwnd: int) -> Optional[dict[str, Any]]:
         if self._user32 is None:

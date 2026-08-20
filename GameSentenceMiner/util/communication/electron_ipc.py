@@ -23,17 +23,21 @@ import json
 import os
 import sys
 import threading
-from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
-from typing import Callable, Optional, Dict, Any
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.communication import bus_client
+from GameSentenceMiner.util.concurrency.actor import Actor, ActorStopped, MailboxFull, MailboxPolicy
+
+if TYPE_CHECKING:
+    from GameSentenceMiner.util.concurrency.transport import AsyncTransportRuntime
 
 # Bus topics for the backend <-> main channel.
 BACKEND_EVENT_TOPIC = "backend.event"
 BACKEND_COMMAND_TOPIC = "backend.command"
 OCR_EVENT_TOPIC = "ocr.event"
+TEXT_INGRESS_TOPIC = "text.ingress.v2"
 
 
 class FunctionName(Enum):
@@ -68,18 +72,29 @@ class FunctionName(Enum):
     TEXTHOOK_STATUS = "texthook_status"
     FOREGROUND_WINDOW_CHANGED = "foreground_window_changed"
     FOREGROUND_WINDOW_HOOK_STATUS = "foreground_window_hook_status"
+    REFRESH_FOREGROUND_WINDOW = "refresh_foreground_window"
     RESTORE_FOREGROUND_WINDOW = "restore_foreground_window"
 
 
 CommandHandler = Callable[[Dict[str, Any]], None]
 _command_handler: Optional[CommandHandler] = None
+_text_ingress_handler: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None
 
 # Text events are non-blocking (just schedule a coroutine). They must never be
 # queued behind slow commands like config reloads or OBS restarts.
 _FAST_PATH_FUNCTIONS = frozenset({FunctionName.TEXTHOOK_TEXT.value, FunctionName.OCR_RESULT.value})
 
-# Worker thread for slow IPC commands so the transport reader is never blocked.
-_command_dispatch_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="GSM_IPC_Cmd")
+
+class _IPCCommandActor(Actor[Dict[str, Any], None]):
+    def __init__(self) -> None:
+        super().__init__("gsm-ipc-command-actor", capacity=128, policy=MailboxPolicy.ORDERED)
+
+    def handle(self, message: Dict[str, Any]) -> None:
+        _safe_dispatch(message)
+
+
+_command_actor: Optional[_IPCCommandActor] = None
+_command_actor_lock = threading.Lock()
 
 _stdin_thread: Optional[threading.Thread] = None
 
@@ -95,7 +110,27 @@ def register_command_handler(handler: CommandHandler) -> None:
     _command_handler = handler
 
 
-def send_message(function: str, data: Optional[Dict[str, Any]] = None, id: Optional[str] = None) -> None:
+def register_text_ingress_handler(handler: Callable[[Dict[str, Any]], Dict[str, Any]]) -> None:
+    global _text_ingress_handler
+    _text_ingress_handler = handler
+
+
+def _on_text_ingress_request(busmsg: Dict[str, Any]) -> Dict[str, Any]:
+    if _text_ingress_handler is None:
+        return {"status": "rejected", "observation_id": "", "reason": "text runtime is not ready"}
+    payload = busmsg.get("data")
+    if not isinstance(payload, dict):
+        payload = {}
+    return _text_ingress_handler(payload)
+
+
+def send_message(
+    function: str,
+    data: Optional[Dict[str, Any]] = None,
+    id: Optional[str] = None,
+    *,
+    wait: bool = False,
+) -> None:
     """Send a structured message to Electron (bus, or stdout fallback)."""
     if _use_bus():
         payload: Dict[str, Any] = {"function": function}
@@ -103,7 +138,9 @@ def send_message(function: str, data: Optional[Dict[str, Any]] = None, id: Optio
             payload["data"] = data
         if id is not None:
             payload["id"] = id
-        bus_client.get_bus().publish(bus_client.MAIN, BACKEND_EVENT_TOPIC, payload)
+        published = bus_client.get_bus().publish(bus_client.MAIN, BACKEND_EVENT_TOPIC, payload)
+        if wait and published is not None:
+            published.result(timeout=1.0)
         logger.debug(f"IPC bus event sent: {function}")
         return
 
@@ -159,6 +196,15 @@ def _safe_dispatch(msg: Dict[str, Any]) -> None:
         logger.warning(f"Error in IPC command dispatch: {e}")
 
 
+def _get_command_actor() -> _IPCCommandActor:
+    global _command_actor
+    with _command_actor_lock:
+        if _command_actor is None:
+            _command_actor = _IPCCommandActor()
+            _command_actor.start()
+        return _command_actor
+
+
 def _dispatch_command(msg: Dict[str, Any]) -> None:
     """Route a {function, data, id} command: fast-path inline, slow ones to a worker."""
     if not _command_handler:
@@ -170,7 +216,10 @@ def _dispatch_command(msg: Dict[str, Any]) -> None:
         except Exception as e:
             logger.warning(f"Error in fast-path IPC handler: {e}")
     else:
-        _command_dispatch_pool.submit(_safe_dispatch, msg)
+        try:
+            _get_command_actor().ref.tell(msg)
+        except (ActorStopped, MailboxFull) as error:
+            logger.warning(f"IPC command rejected by bounded dispatcher: {error}")
 
 
 def _on_backend_command(busmsg: Dict[str, Any]) -> None:
@@ -208,12 +257,16 @@ def _stdin_loop() -> None:
         _dispatch_command(msg)
 
 
-def start_ipc_listener_in_thread() -> Optional[threading.Thread]:
+def start_ipc_listener_in_thread(
+    runtime: Optional[AsyncTransportRuntime] = None,
+) -> Optional[threading.Thread]:
     """Begin receiving commands from Electron (bus, or stdin fallback)."""
+    _get_command_actor()
     if _use_bus():
-        client = bus_client.start_bus()
+        client = bus_client.start_bus(runtime=runtime)
         client.subscribe(BACKEND_COMMAND_TOPIC, _on_backend_command)
         client.subscribe(OCR_EVENT_TOPIC, _on_ocr_event)
+        client.handle(TEXT_INGRESS_TOPIC, _on_text_ingress_request)
         logger.debug("Backend IPC listener started (message bus)")
         return None
 
@@ -222,6 +275,20 @@ def start_ipc_listener_in_thread() -> Optional[threading.Thread]:
     t.start()
     _stdin_thread = t
     return t
+
+
+def stop_ipc_listener(*, close_bus: bool = True) -> None:
+    """Stop command intake, optionally retaining the bus for a final event."""
+    global _command_actor, _command_handler, _text_ingress_handler
+    _command_handler = None
+    _text_ingress_handler = None
+    with _command_actor_lock:
+        command_actor = _command_actor
+        _command_actor = None
+    if command_actor is not None:
+        command_actor.stop(drain=True, timeout=3)
+    if close_bus and _use_bus():
+        bus_client.get_bus().stop()
 
 
 # Convenience wrappers for common messages to Electron

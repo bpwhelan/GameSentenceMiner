@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invokeIpc, onIpc } from "../../lib/ipc";
-import { useTranslation } from "../../i18n";
+import { useLocale, useTranslation } from "../../i18n";
 import { AgentScriptSearchDialog } from "../AgentScriptSearchDialog";
 import {
   buildAgentScriptCandidateList,
@@ -8,7 +8,7 @@ import {
   type AgentScriptCandidate,
 } from "../../../../shared/agent_scripts";
 
-type TextHookEngine = "luna" | "textractor" | "agent";
+type TextHookEngine = "luna" | "textractor" | "agent" | "mages";
 
 interface ListAgentScriptsResponse {
   status?: string;
@@ -22,6 +22,17 @@ interface HookEntry {
   function: string;
   preview: string;
   samples: string[];
+}
+
+/**
+ * A support package from the built-in engine-hook catalog. An entry is a single
+ * game build or a whole engine, depending on what the package identifies its
+ * target by; `details` is the package's own locale map.
+ */
+interface BuiltInHookTarget {
+  id: string;
+  name: string;
+  details: Record<string, string>;
 }
 
 interface RuntimeStatusRunning {
@@ -88,6 +99,19 @@ const MAX_LOG_LINES = 200;
 const MAX_TEXT_LINES = 300;
 const DEFAULT_FLUSH_DELAY_MS = 100;
 const MAX_FLUSH_DELAY_MS = 5000;
+const DEFAULT_TEXT_HOOK_MAX_BUFFER_SIZE = 3000;
+const MAX_TEXT_HOOK_MAX_BUFFER_SIZE = 100_000;
+const MAX_JAPANESE_QUOTE_PAIRS = 10;
+// Set to true when the large-payload test button is needed during development.
+const SHOW_DEV_LARGE_PAYLOAD_TEST = false;
+const DEV_LARGE_PAYLOAD_LENGTH = 120_000;
+const DEV_JAPANESE_PAYLOAD_FRAGMENTS = [
+  "これはテキストフックの負荷試験用ランダム文字列です。",
+  "静かな夜の街を歩きながら、遠くの灯りを眺めていた。",
+  "同じ文章が何度も現れても、これは開発中の確認データです。",
+  "風がページをめくり、時計の音だけが部屋に響いている。",
+  "ゲームから受け取った長い文章を安全に処理できるか確認します。",
+];
 const AGENT_RELEASES_URL = "https://github.com/0xDC00/agent/releases/latest";
 const LUNA_TRANSLATOR_RELEASES_URL = "https://github.com/HIllya51/LunaTranslator/releases";
 const TEXTRACTOR_RELEASES_URL = "https://github.com/Chenx221/Textractor/releases";
@@ -103,20 +127,57 @@ function normalizeFlushDelayMs(value: unknown): number {
   return Math.min(MAX_FLUSH_DELAY_MS, Math.max(0, Math.round(parsed)));
 }
 
+function normalizeTextHookMaxBufferSize(value: unknown): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed) || parsed < 1) return DEFAULT_TEXT_HOOK_MAX_BUFFER_SIZE;
+  return Math.min(MAX_TEXT_HOOK_MAX_BUFFER_SIZE, Math.round(parsed));
+}
+
+function sanitizeTextHookText(text: string, maxBufferSize: number): string | null {
+  let openingQuotes = 0;
+  let closingQuotes = 0;
+  for (const character of text) {
+    if (character === "「") openingQuotes += 1;
+    if (character === "」") closingQuotes += 1;
+    if (openingQuotes > MAX_JAPANESE_QUOTE_PAIRS && closingQuotes > MAX_JAPANESE_QUOTE_PAIRS) {
+      return null;
+    }
+  }
+  return text.slice(0, normalizeTextHookMaxBufferSize(maxBufferSize));
+}
+
+function createDevJapanesePayload(length: number): string {
+  let payload = "";
+  while (payload.length < length) {
+    const fragment =
+      DEV_JAPANESE_PAYLOAD_FRAGMENTS[
+        Math.floor(Math.random() * DEV_JAPANESE_PAYLOAD_FRAGMENTS.length)
+      ];
+    payload += fragment;
+  }
+  return payload.slice(0, length);
+}
+
 interface TextHookTabProps {
   active: boolean;
 }
 
 export function TextHookTab({ active }: TextHookTabProps) {
   const t = useTranslation();
+  const [locale] = useLocale();
   const [status, setStatus] = useState<RuntimeStatus>({ running: false });
   const [capture, setCapture] = useState<ActiveCapture | null>(null);
   const [hooks, setHooks] = useState<HookEntry[]>([]);
   const [selectedHookId, setSelectedHookId] = useState<string | null>(null);
   const [engine, setEngine] = useState<TextHookEngine>("luna");
+  const [builtInHookTargets, setBuiltInHookTargets] = useState<BuiltInHookTarget[]>([]);
   const [autoHook, setAutoHook] = useState(true);
   const [flushDelayMs, setFlushDelayMs] = useState(DEFAULT_FLUSH_DELAY_MS);
   const [flushDelayInput, setFlushDelayInput] = useState(String(DEFAULT_FLUSH_DELAY_MS));
+  const [maxBufferSize, setMaxBufferSize] = useState(DEFAULT_TEXT_HOOK_MAX_BUFFER_SIZE);
+  const [maxBufferSizeInput, setMaxBufferSizeInput] = useState(
+    String(DEFAULT_TEXT_HOOK_MAX_BUFFER_SIZE)
+  );
   const [manualHookCode, setManualHookCode] = useState("");
   const [agentScriptPath, setAgentScriptPath] = useState("");
   const [agentScriptDialog, setAgentScriptDialog] = useState<{
@@ -140,6 +201,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
   const logScrollRef = useRef<HTMLDivElement | null>(null);
   const statusRunningRef = useRef(false);
   const flushDelayInputFocusedRef = useRef(false);
+  const maxBufferSizeInputFocusedRef = useRef(false);
   const lastAppliedProfileKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -154,6 +216,20 @@ export function TextHookTab({ active }: TextHookTabProps) {
     }
     return next;
   }, []);
+
+  const syncMaxBufferSizeState = useCallback((value: unknown, forceInput = false) => {
+    const next = normalizeTextHookMaxBufferSize(value);
+    setMaxBufferSize(next);
+    if (forceInput || !maxBufferSizeInputFocusedRef.current) {
+      setMaxBufferSizeInput(String(next));
+    }
+    return next;
+  }, []);
+
+  const refreshTextHookSettings = useCallback(async () => {
+    const settings = await invokeIpc<{ maxBufferSize?: number }>("texthook.getSettings");
+    syncMaxBufferSizeState(settings?.maxBufferSize);
+  }, [syncMaxBufferSizeState]);
 
   const showNotice = useCallback((message: string, type: NoticeState["type"] = "info") => {
     setNotice({ type, message });
@@ -232,7 +308,26 @@ export function TextHookTab({ active }: TextHookTabProps) {
     void refreshStatus();
     void refreshHooks();
     void refreshActiveCapture();
-  }, [active, refreshStatus, refreshHooks, refreshActiveCapture]);
+    void refreshTextHookSettings();
+  }, [active, refreshStatus, refreshHooks, refreshActiveCapture, refreshTextHookSettings]);
+
+  // The supported-target list is the on-disk support catalog, so it is read from
+  // the main process rather than duplicated in the renderer.
+  useEffect(() => {
+    if (!active || engine !== "mages") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const targets = await invokeIpc<BuiltInHookTarget[]>("texthook.builtInHookTargets");
+        if (!cancelled && Array.isArray(targets)) setBuiltInHookTargets(targets);
+      } catch {
+        if (!cancelled) setBuiltInHookTargets([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [active, engine]);
 
   // IPC subscriptions.
   useEffect(() => {
@@ -249,12 +344,14 @@ export function TextHookTab({ active }: TextHookTabProps) {
     });
     const offText = onIpc("texthook.text", (_e, payload: any) => {
       if (!payload || typeof payload.text !== "string") return;
+      const text = sanitizeTextHookText(payload.text, maxBufferSize);
+      if (text === null) return;
       setTextLines((current) => {
         const next: TextLine[] = [
           ...current,
           {
             ts: typeof payload.ts === "number" ? payload.ts : Date.now(),
-            text: payload.text,
+            text,
             hookId: String(payload.hookId ?? ""),
           },
         ];
@@ -309,7 +406,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
       offDownloadProgress();
       offDownloadComplete();
     };
-  }, [refreshStatus]);
+  }, [maxBufferSize, refreshStatus]);
 
   // Periodic capture refresh while tab is active.
   useEffect(() => {
@@ -364,6 +461,18 @@ export function TextHookTab({ active }: TextHookTabProps) {
     }
   }, [refreshHooks, refreshStatus]);
 
+  const advanceText = useCallback(async () => {
+    setBusy(true);
+    try {
+      const result = await invokeIpc<{ success: boolean; error?: string }>("texthook.advance");
+      if (!result?.success) {
+        showNotice(result?.error ?? t("texthook.mages.advanceFailed"), "error");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [showNotice, t]);
+
   const selectHook = useCallback(
     async (hookId: string) => {
       const ok = await invokeIpc<{ success: boolean }>("texthook.selectHook", hookId);
@@ -412,6 +521,25 @@ export function TextHookTab({ active }: TextHookTabProps) {
     }
   }, [flushDelayInput, status.running, syncFlushDelayState]);
 
+  const updateMaxBufferSize = useCallback((value: string) => {
+    setMaxBufferSizeInput(value);
+  }, []);
+
+  const commitMaxBufferSizeInput = useCallback(async () => {
+    maxBufferSizeInputFocusedRef.current = false;
+    const next = syncMaxBufferSizeState(maxBufferSizeInput, true);
+    const result = await invokeIpc<{ success: boolean; maxBufferSize?: number; error?: string }>(
+      "texthook.setMaxBufferSize",
+      next
+    );
+    if (result?.success) {
+      syncMaxBufferSizeState(result.maxBufferSize ?? next, true);
+    } else {
+      showNotice(result?.error ?? t("texthook.errors.maxBufferSizeSaveFailed"), "error");
+      void refreshTextHookSettings();
+    }
+  }, [maxBufferSizeInput, refreshTextHookSettings, showNotice, syncMaxBufferSizeState, t]);
+
   const toggleCopyToClipboard = useCallback(
     (checked: boolean) => {
       setCopyToClipboard(checked);
@@ -440,8 +568,9 @@ export function TextHookTab({ active }: TextHookTabProps) {
         copyToClipboard,
         hookId: selectedHookId,
         hookFunction: targetHook?.function ?? null,
-        manualHookCode: manualHookCode.trim() || null,
-        agentScriptPath: agentScriptPath.trim() || null,
+        manualHookCode:
+          engine === "luna" || engine === "textractor" ? manualHookCode.trim() || null : null,
+        agentScriptPath: engine === "agent" ? agentScriptPath.trim() || null : null,
       }
     );
     if (result?.success && result.profile) {
@@ -515,6 +644,40 @@ export function TextHookTab({ active }: TextHookTabProps) {
     }
   }, [showNotice, t]);
 
+  const sendDevLargePayload = useCallback(async () => {
+    const payload = createDevJapanesePayload(DEV_LARGE_PAYLOAD_LENGTH);
+    const result = await invokeIpc<{
+      success: boolean;
+      length?: number;
+      originalLength?: number;
+      truncated?: boolean;
+      blockedByHardLimit?: boolean;
+      limit?: number;
+    }>("texthook.devSendLargePayload", payload);
+    if (result?.success) {
+      showNotice(
+        result.truncated
+          ? t("texthook.dev.largePayloadTruncated", {
+              size: String(result.length ?? payload.length),
+              originalSize: String(result.originalLength ?? payload.length),
+            })
+          : t("texthook.dev.largePayloadSent", {
+              size: String(result.length ?? payload.length),
+            }),
+        "success"
+      );
+    } else {
+      showNotice(
+        result?.blockedByHardLimit
+          ? t("texthook.errors.textExceededLimit", {
+              limit: String(result.limit ?? 10_000),
+            })
+          : t("texthook.dev.largePayloadFailed"),
+        "error"
+      );
+    }
+  }, [showNotice, t]);
+
   const exeNameDisplay = status.running
     ? status.exeName
     : capture?.exeName ?? t("texthook.capture.unknown");
@@ -522,7 +685,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
 
   const visibleHooks = useMemo(
     () =>
-      engine === "agent"
+      engine === "agent" || engine === "mages"
         ? hooks
         : hooks.filter((hook) => hook.id === selectedHookId || hasHookText(hook)),
     [engine, hooks, selectedHookId]
@@ -550,7 +713,9 @@ export function TextHookTab({ active }: TextHookTabProps) {
       ? t("texthook.engine.luna")
       : engine === "textractor"
         ? t("texthook.engine.textractor")
-        : t("texthook.engine.agent");
+        : engine === "agent"
+          ? t("texthook.engine.agent")
+          : t("texthook.engine.mages");
 
   return (
     <div className={`tab-panel ${active ? "active" : ""}`}>
@@ -641,6 +806,17 @@ export function TextHookTab({ active }: TextHookTabProps) {
                         >
                           {t("texthook.capture.refresh")}
                         </button>
+                        {SHOW_DEV_LARGE_PAYLOAD_TEST ? (
+                          <button
+                            type="button"
+                            className="secondary"
+                            onClick={() => void sendDevLargePayload()}
+                          >
+                            {t("texthook.dev.sendLargePayload", {
+                              size: String(DEV_LARGE_PAYLOAD_LENGTH),
+                            })}
+                          </button>
+                        ) : null}
                       </div>
                     </div>
                   </section>
@@ -687,6 +863,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
                           <option value="luna">{t("texthook.engine.luna")}</option>
                           <option value="textractor">{t("texthook.engine.textractor")}</option>
                           <option value="agent">{t("texthook.engine.agent")}</option>
+                          <option value="mages">{t("texthook.engine.mages")}</option>
                         </select>
                       </div>
 
@@ -741,8 +918,49 @@ export function TextHookTab({ active }: TextHookTabProps) {
                         </div>
                       ) : null}
 
+                      {engine === "mages" ? (
+                        <div
+                          className="texthook-subsection texthook-mages-notice"
+                          role="note"
+                          aria-labelledby="texthook-mages-title"
+                        >
+                          <div className="texthook-mages-heading">
+                            <div
+                              id="texthook-mages-title"
+                              className="texthook-subsection-label"
+                            >
+                              {t("texthook.mages.title")}
+                            </div>
+                            <span className="texthook-mages-badge">
+                              {t("texthook.mages.experimentalBadge")}
+                            </span>
+                          </div>
+                          <p className="texthook-mages-availability">
+                            {t("texthook.mages.availability")}
+                          </p>
+                          <div className="texthook-supported-games">
+                            <div className="texthook-supported-games__label">
+                              {t("texthook.mages.support.title")}
+                            </div>
+                            <ul>
+                              {builtInHookTargets.map((target) => (
+                                <li key={target.id}>
+                                  <strong>{target.name}</strong>
+                                  <span>
+                                    {target.details[locale] ?? target.details.en ?? ""}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                          <p className="texthook-card-hint">
+                            {t("texthook.mages.description")}
+                          </p>
+                        </div>
+                      ) : null}
+
                       {/* Manual hook code (Luna / Textractor only) */}
-                      {engine !== "agent" ? (
+                      {engine === "luna" || engine === "textractor" ? (
                         <>
                           <div className="link-row texthook-hook-search-row">
                             <button
@@ -851,6 +1069,27 @@ export function TextHookTab({ active }: TextHookTabProps) {
                             flushDelayInputFocusedRef.current = true;
                           }}
                           onBlur={commitFlushDelayInput}
+                        />
+                      </div>
+                      <div className="input-group">
+                        <label
+                          htmlFor="texthook-max-buffer-size-input"
+                          title={t("texthook.global.maxBufferSizeHint")}
+                        >
+                          {t("texthook.global.maxBufferSize")}
+                        </label>
+                        <input
+                          id="texthook-max-buffer-size-input"
+                          type="number"
+                          min="1"
+                          max={String(MAX_TEXT_HOOK_MAX_BUFFER_SIZE)}
+                          step="100"
+                          value={maxBufferSizeInput}
+                          onChange={(e) => updateMaxBufferSize(e.target.value)}
+                          onFocus={() => {
+                            maxBufferSizeInputFocusedRef.current = true;
+                          }}
+                          onBlur={() => void commitMaxBufferSizeInput()}
                         />
                       </div>
                       <div className="link-row">
@@ -1018,14 +1257,25 @@ export function TextHookTab({ active }: TextHookTabProps) {
           ) : null}
           <div className="ocr-sticky-footer-actions">
             {status.running ? (
-              <button
-                type="button"
-                className="danger"
-                disabled={busy}
-                onClick={() => void stopSession()}
-              >
-                {t("texthook.actions.stop")}
-              </button>
+              <>
+                {status.engine === "mages" ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void advanceText()}
+                  >
+                    {t("texthook.mages.advance")}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="danger"
+                  disabled={busy}
+                  onClick={() => void stopSession()}
+                >
+                  {t("texthook.actions.stop")}
+                </button>
+              </>
             ) : (
               <button
                 type="button"
