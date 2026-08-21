@@ -1,6 +1,7 @@
 import type { EngineHookDecoderDescriptor } from '../manifest.js';
 import { bgiDecoderDescriptor } from './bgi.js';
 import { magesDecoderDescriptor } from './mages.js';
+import { unityTmpDecoderDescriptor } from './unity-tmp.js';
 import { vlrDecoderDescriptor } from './vlr.js';
 
 // One sorted line per engine. A new engine adds its line here and nothing else
@@ -8,6 +9,7 @@ import { vlrDecoderDescriptor } from './vlr.js';
 const ENGINE_HOOK_DECODERS: Record<string, EngineHookDecoderDescriptor> = {
     'bgi-v1': bgiDecoderDescriptor,
     'mages-v1': magesDecoderDescriptor,
+    'unity-tmp-v1': unityTmpDecoderDescriptor,
     'vlr-v1': vlrDecoderDescriptor,
 };
 

@@ -1,0 +1,61 @@
+{
+  "schema": "gsm_engine_hook_manifest_v1",
+  "id": "aokana-steam",
+  "name": "Aokana (Sprite Unity)",
+  "engine": "Unity + TextMeshPro",
+  "decoder": "unity-tmp-v1",
+  "target": {
+    "platform": "windows",
+    "architecture": "ia32",
+    "executableNames": [
+      "Aokana.exe",
+      "AokanaEXTRA1.exe",
+      "AokanaEXTRA2.exe"
+    ],
+    "knownExecutableSha256": [
+      "9c6a938189d4e18dfdbd1891204e35d7b3ed1f8325f24386d354b5838721eb91",
+      "30ac46318f2f92885fa5387abaec04b563f229a094acd21eb0caea7052b83c46",
+      "1ca61a5859818360326a0f7988bc9f65e3e0e2925cdee91b4ec7ba7ceb71ac77"
+    ]
+  },
+  "coordinateSpace": {
+    "provider": "payload-client-pixels"
+  },
+  "payload": "payload.js",
+  "mono": {
+    "dialogue": {
+      "assembly": "Assembly-CSharp",
+      "namespace": "",
+      "class": "UIAdv",
+      "method": "ShowText",
+      "parameterCount": 3,
+      "textComponentField": "advtext",
+      "updateOnlyArgumentIndex": 3
+    },
+    "layout": {
+      "assembly": "Unity.TextMeshPro",
+      "namespace": "TMPro",
+      "class": "TextMeshProUGUI",
+      "method": "GenerateTextMesh",
+      "parameterCount": 0
+    }
+  },
+  "capture": {
+    "acceptedModes": [
+      0
+    ],
+    "maximumGlyphs": 600
+  },
+  "advance": {
+    "method": "foreground-key",
+    "virtualKey": 13,
+    "scanCode": 28
+  },
+  "display": {
+    "details": {
+      "en": "Steam builds of Aokana, EXTRA1 and EXTRA2",
+      "ja": "Aokana／EXTRA1／EXTRA2（Steam版）",
+      "ukr": "Steam-збірки Aokana, EXTRA1 та EXTRA2"
+    }
+  }
+}
