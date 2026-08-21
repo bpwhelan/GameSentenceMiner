@@ -14,6 +14,7 @@ import {
 const RELOCATED_DATA_PATHS = [
     'config',
     'config.json',
+    'dictionaries/hoshidicts',
     'electron/config.json',
     'electron/overlay_settings.json',
     'gsm.db',
@@ -129,7 +130,9 @@ function relocatedManagedObsPath(
 ): string | null {
     // GSM runs on Windows, but using the configured path's style keeps this testable on
     // other platforms and handles configs containing either slash style.
-    const pathImpl = path.win32.isAbsolute(configuredPath) ? path.win32 : path;
+    const usesWindowsPath =
+        /^[A-Za-z]:[\\/]/u.test(configuredPath) || configuredPath.startsWith('\\\\');
+    const pathImpl = usesWindowsPath ? path.win32 : path;
     if (!pathImpl.isAbsolute(configuredPath)) {
         return null;
     }
@@ -256,8 +259,9 @@ export async function validateTargetDir(oldDir: string, newDir: string): Promise
 /**
  * Change the active GSM data directory by copying configuration and database files, then
  * committing the new pointer. Explicit desktop/overlay config files are included, while
- * Chromium session/storage, Yomitan data, caches, logs, installed tools, and other runtime
- * data are not copied. Nothing in the source is deleted.
+ * Hoshidicts generations are copied with the explicit configs. Chromium session/storage,
+ * Yomitan data, caches, logs, installed tools, and other runtime data are not copied.
+ * Nothing in the source is deleted.
  *
  * Processes holding database/config handles MUST be stopped by the caller first.
  */

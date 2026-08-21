@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src blob:; connect-src ws://127.0.0.1:7276; object-src 'none'; base-uri 'none'; form-action 'none';"
+    />
+    <link rel="stylesheet" href="./reader.css" />
+    <link rel="stylesheet" href="./preview.css" />
+    <title>Hoshidicts popup preview</title>
+    <script defer src="./constants.js"></script>
+    <script defer src="./audio.js"></script>
+    <script defer src="./popup.js"></script>
+    <script defer src="./reader.js"></script>
+    <script defer src="./preview.js"></script>
+  </head>
+  <body>
+    <main class="preview-scene" aria-label="Hoshidicts popup preview">
+      <div id="text" class="text-block-container preview-sentence">
+        <span class="text-box" data-selectable="true">私は</span><span
+          id="preview-word"
+          class="text-box"
+          data-selectable="true"
+        >蜂</span><span class="text-box" data-selectable="true">が好きです。</span>
+      </div>
+    </main>
+  </body>
+</html>

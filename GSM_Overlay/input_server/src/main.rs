@@ -1,9 +1,11 @@
 mod features;
+mod hoshidicts;
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use features::{FeatureRegistry, ServiceFeature, PROTOCOL_VERSION};
 use futures_util::{SinkExt, StreamExt};
 use gilrs::{Axis, Button, Event, EventType, GamepadId, Gilrs};
+use hoshidicts::SharedHoshidicts;
 use rdev::{
     listen as listen_global_keyboard, Event as KeyboardEvent, EventType as KeyboardEventType,
     Key as KeyboardKey,
@@ -43,6 +45,9 @@ use zip::ZipArchive;
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
 struct Args {
+    #[command(subcommand)]
+    command: Option<ServerCommand>,
+
     /// Bind address, e.g. 127.0.0.1
     #[arg(long, default_value = "127.0.0.1")]
     host: String,
@@ -55,6 +60,18 @@ struct Args {
     /// Gamepad input is always enabled; other features are normally leased by clients.
     #[arg(long = "enable", value_delimiter = ',')]
     enable_features: Vec<String>,
+}
+
+#[derive(Subcommand, Debug)]
+enum ServerCommand {
+    /// Import one trusted Yomitan dictionary archive and emit one JSON result.
+    #[command(name = "hoshidicts-import")]
+    HoshidictsImport {
+        #[arg(long)]
+        archive: PathBuf,
+        #[arg(long = "output-dir")]
+        output_dir: PathBuf,
+    },
 }
 
 const SUDACHI_DICT_RELEASE: &str = "20260116";
@@ -1009,6 +1026,16 @@ fn default_gsm_app_data_dir() -> PathBuf {
     std::env::current_dir()
         .unwrap_or_else(|_| PathBuf::from("."))
         .join("GameSentenceMiner")
+}
+
+fn resolve_hoshidicts_data_root() -> PathBuf {
+    let data_root = std::env::var("GSM_DATA_DIR")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(default_gsm_app_data_dir);
+    data_root.join("dictionaries").join("hoshidicts")
 }
 
 fn resolve_sudachi_user_dicts_dir() -> PathBuf {
@@ -2258,9 +2285,15 @@ async fn handle_socket(
     device_blacklist: SharedDeviceBlacklist,
     mecab: &'static SharedMecab,
     sudachi: &'static SharedSudachi,
+    hoshidicts: SharedHoshidicts,
     manual_hotkey: SharedManualHotkey,
     features: FeatureRegistry,
 ) {
+    // Lookup replies are small and request/response shaped. Nagle holds a reply
+    // behind an unacked one, which stalls back-to-back hover lookups by ~40-50ms.
+    if let Err(e) = stream.set_nodelay(true) {
+        warn!("failed to disable Nagle for {peer}: {e}");
+    }
     let ws = match accept_async(stream).await {
         Ok(ws) => ws,
         Err(e) => {
@@ -2562,7 +2595,19 @@ async fn handle_socket(
                                 }
                             }
                             _ => {
-                                // ignore unknown messages
+                                // Hoshidicts owns its own request dispatch; every
+                                // other unknown message is ignored.
+                                if let Some(payload) = hoshidicts::handle_client_message(
+                                    &text,
+                                    features.is_enabled(ServiceFeature::Hoshidicts),
+                                    &hoshidicts,
+                                )
+                                .await
+                                {
+                                    if ws_sink.send(Message::Text(payload)).await.is_err() {
+                                        break;
+                                    }
+                                }
                             }
                         }
                     }
@@ -2605,6 +2650,7 @@ async fn websocket_server(
     device_blacklist: SharedDeviceBlacklist,
     mecab: &'static SharedMecab,
     sudachi: &'static SharedSudachi,
+    hoshidicts: SharedHoshidicts,
     manual_hotkey: SharedManualHotkey,
     features: FeatureRegistry,
 ) {
@@ -2633,6 +2679,7 @@ async fn websocket_server(
             device_blacklist_clone,
             mecab,
             sudachi,
+            hoshidicts.clone(),
             manual_hotkey.clone(),
             features.clone(),
         ));
@@ -3100,6 +3147,7 @@ async fn optional_feature_lifecycle_loop(
     tx: broadcast::Sender<String>,
     mecab: &'static SharedMecab,
     sudachi: &'static SharedSudachi,
+    hoshidicts: SharedHoshidicts,
     manual_hotkey: SharedManualHotkey,
 ) {
     let mut changes = features.subscribe();
@@ -3107,11 +3155,13 @@ async fn optional_feature_lifecycle_loop(
     let mut keyboard_was_enabled = false;
     let mut mecab_was_enabled = false;
     let mut sudachi_was_enabled = false;
+    let mut hoshidicts_was_enabled = false;
 
     loop {
         let keyboard_enabled = features.is_enabled(ServiceFeature::Keyboard);
         let mecab_enabled = features.is_enabled(ServiceFeature::Mecab);
         let sudachi_enabled = features.is_enabled(ServiceFeature::Sudachi);
+        let hoshidicts_enabled = features.is_enabled(ServiceFeature::Hoshidicts);
 
         if keyboard_enabled && !keyboard_started {
             keyboard_started = true;
@@ -3134,10 +3184,14 @@ async fn optional_feature_lifecycle_loop(
         if sudachi_was_enabled && !sudachi_enabled {
             sudachi.lock().await.disable();
         }
+        hoshidicts
+            .apply_feature_state(hoshidicts_enabled, hoshidicts_was_enabled)
+            .await;
 
         keyboard_was_enabled = keyboard_enabled;
         mecab_was_enabled = mecab_enabled;
         sudachi_was_enabled = sudachi_enabled;
+        hoshidicts_was_enabled = hoshidicts_enabled;
 
         if changes.changed().await.is_err() {
             return;
@@ -3154,6 +3208,18 @@ async fn main() {
         .with_writer(std::io::stderr)
         .try_init();
     let args = Args::parse();
+    if let Some(ServerCommand::HoshidictsImport {
+        archive,
+        output_dir,
+    }) = args.command
+    {
+        let report = hoshidicts::import_dictionary(&archive, &output_dir);
+        println!("{}", report.to_json_line());
+        if !report.success {
+            std::process::exit(1);
+        }
+        return;
+    }
     let features = FeatureRegistry::new(baseline_features_from_args(&args.enable_features));
     let bind: SocketAddr = format!("{}:{}", args.host, args.port)
         .parse()
@@ -3176,6 +3242,7 @@ async fn main() {
         sudachi_user_dict_dir,
         sudachi_dictionary_kind,
     ))));
+    let hoshidicts = SharedHoshidicts::new(resolve_hoshidicts_data_root());
     let manual_hotkey: SharedManualHotkey = Arc::new(StdMutex::new(ManualHotkeyState {
         status: ManualHotkeyStatus {
             available: features.is_enabled(ServiceFeature::Keyboard),
@@ -3195,6 +3262,7 @@ async fn main() {
         device_blacklist.clone(),
         mecab,
         sudachi,
+        hoshidicts.clone(),
         manual_hotkey.clone(),
         features.clone(),
     ));
@@ -3209,6 +3277,7 @@ async fn main() {
         tx.clone(),
         mecab,
         sudachi,
+        hoshidicts,
         manual_hotkey.clone(),
     ));
     tokio::spawn(sudachi_idle_unload_loop(sudachi));
@@ -3299,6 +3368,27 @@ mod tests {
             }
             _ => panic!("expected tokenization request"),
         }
+    }
+
+    #[test]
+    fn hoshidicts_cli_arguments_are_path_scoped_and_do_not_add_websocket_paths() {
+        let args = Args::try_parse_from([
+            "gsm_overlay_server",
+            "hoshidicts-import",
+            "--archive",
+            "dictionary.zip",
+            "--output-dir",
+            "staging",
+        ])
+        .expect("import command should parse");
+        assert!(matches!(
+            args.command,
+            Some(ServerCommand::HoshidictsImport {
+                archive,
+                output_dir,
+            }) if archive.as_path() == Path::new("dictionary.zip")
+                && output_dir.as_path() == Path::new("staging")
+        ));
     }
 
     #[test]

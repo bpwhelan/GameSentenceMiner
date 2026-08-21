@@ -34,6 +34,7 @@ const GSM_TOP_LEVEL_FILES = new Set([
 const GSM_TRAVERSABLE_DIRS = new Set([
     'agent-scripts',
     'config',
+    'dictionaries',
     'electron',
     'obs-studio',
     'ocr_config',
@@ -44,6 +45,12 @@ const GSM_TRAVERSABLE_DIRS = new Set([
 const ELECTRON_SETTINGS_FILES = new Set([
     'config.json',
     'overlay_settings.json',
+]);
+
+const HOSHIDICTS_SETTINGS_FILES = new Set([
+    'audio-profile.json',
+    'custom-dictionary.txt',
+    'mining-profile.json',
 ]);
 
 const OBS_EXCLUDED_CONFIG_DIRS = new Set([
@@ -209,6 +216,9 @@ function getGsmBackupCategory(relativePath: string): SettingsBackupCategoryId | 
     if (first === 'texthook') {
         return 'text-hook-settings';
     }
+    if (first === 'dictionaries' && second === 'hoshidicts') {
+        return 'dictionaries';
+    }
     if (first === 'multi-mine-window-config.json' || first === 'window_layout.json') {
         return 'window-layouts';
     }
@@ -329,6 +339,18 @@ export function shouldIncludeGsmBackupPath(relativePath: string, isDirectory: bo
             return ELECTRON_SETTINGS_FILES.has(second);
         }
         return false;
+    }
+
+    if (first === 'dictionaries') {
+        if (parts.length === 2 && second === 'hoshidicts' && isDirectory) {
+            return true;
+        }
+        return (
+            parts.length === 3 &&
+            second === 'hoshidicts' &&
+            !isDirectory &&
+            HOSHIDICTS_SETTINGS_FILES.has(parts[2])
+        );
     }
 
     if (first === 'ocr_config') {

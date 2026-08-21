@@ -275,6 +275,11 @@ function getBackupSelectionTree(isWindows: boolean): BackupSelectionNode[] {
           labelKey: "settings.backup.categories.yomitan"
         },
         {
+          id: "dictionaries",
+          category: "dictionaries",
+          labelKey: "settings.backup.categories.dictionaries"
+        },
+        {
           id: "customizations",
           labelKey: "settings.backup.categories.customizations",
           children: [
