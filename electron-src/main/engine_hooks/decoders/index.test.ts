@@ -46,7 +46,7 @@ function supportStub(decoder: string): EngineHookSupport {
 
 describe('engine-hook decoder registry', () => {
     it('registers every shipped decoder id', () => {
-        expect(listEngineHookDecoderIds()).toEqual(['bgi-v1', 'mages-v1', 'vlr-v1']);
+        expect(listEngineHookDecoderIds()).toEqual(['bgi-v1', 'mages-v1', 'unity-tmp-v1', 'vlr-v1']);
     });
 
     it('refuses an unknown decoder instead of falling back to one', () => {
