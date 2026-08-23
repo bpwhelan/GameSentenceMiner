@@ -654,10 +654,24 @@
         "label": "Desktop tabs and stats",
         "description": "Show or hide desktop tabs and choose the default stats page."
       },
+      "desktopTransparency": {
+        "label": "Window transparency tool",
+        "description": "Configure and run the Windows window-transparency helper.",
+        "notes": "Available on Windows."
+      },
       "desktopUpdates": {
         "label": "Updates and beta releases",
         "description": "Control update checks and whether beta builds are offered.",
         "notes": "Some update changes take effect next launch."
+      },
+      "desktopBackups": {
+        "label": "Settings and database backups",
+        "description": "Create selective backups, restore them, and configure automatic database copies."
+      },
+      "desktopDataFolder": {
+        "label": "Data folder location",
+        "description": "Move GSM data to another drive or return it to the original AppData folder.",
+        "notes": "Changing the data folder restarts the app."
       },
       "keySettings": {
         "label": "Key Settings",
@@ -666,12 +680,47 @@
       },
       "general": {
         "label": "General",
-        "description": "General behavior, folders, Discord status, and text cleanup settings.",
+        "description": "Input sources, startup behavior, languages, ports, and general automation.",
         "notes": "Saved per GSM profile."
+      },
+      "features": {
+        "label": "Features",
+        "description": "Configure optional conveniences, tokenization, Longplay recording, and game pausing.",
+        "notes": "Game muting is Windows-only; tokenization and process pausing are experimental."
+      },
+      "paths": {
+        "label": "Paths and exported media",
+        "description": "Choose replay and output folders and control exported-media cleanup.",
+        "notes": "Saved per GSM profile."
+      },
+      "discord": {
+        "label": "Discord Rich Presence",
+        "description": "Publish the current game to Discord and configure privacy and inactivity rules.",
+        "notes": "Saved in the main GSM settings."
+      },
+      "textProcessing": {
+        "label": "Text filtering and replacement",
+        "description": "Clean incoming text with filters, regular expressions, and replacement rules.",
+        "notes": "Applied before text is logged or sent to the overlay."
       },
       "anki": {
         "label": "Anki",
-        "description": "Decks, fields, confirmation pop-up behavior, and tags for Anki cards.",
+        "description": "Configure AnkiConnect, note fields, updates, and media overwrite behavior.",
+        "notes": "Saved per GSM profile."
+      },
+      "ankiConfirmation": {
+        "label": "Anki confirmation dialog",
+        "description": "Control the card-confirmation window, auto-accept timer, audio choices, and gamepad input.",
+        "notes": "Saved per GSM profile."
+      },
+      "ankiFieldGrouping": {
+        "label": "Anki field grouping",
+        "description": "Merge new mining context into duplicate Anki notes and choose grouped fields.",
+        "notes": "Used when exact duplicate words are found in the same note type."
+      },
+      "ankiTags": {
+        "label": "Anki tags",
+        "description": "Add custom, game, parent, and unvoiced tags to mined cards.",
         "notes": "Saved per GSM profile."
       },
       "screenshot": {
@@ -681,8 +730,18 @@
       },
       "audio": {
         "label": "Audio",
-        "description": "Audio clips, trimming, export, voice detection, and speech model settings.",
+        "description": "Configure audio extraction, format, re-encoding, paths, and external editing.",
         "notes": "Saved per GSM profile."
+      },
+      "voiceDetection": {
+        "label": "Voice detection (VAD)",
+        "description": "Choose speech-detection models and tune trimming, pre-roll, fallback, and inference behavior.",
+        "notes": "Saved per GSM profile."
+      },
+      "hotkeys": {
+        "label": "Main GSM hotkeys",
+        "description": "Assign global shortcuts for text intake, captured-window audio, playback, scans, and screenshots.",
+        "notes": "These are desktop-wide GSM shortcuts, separate from overlay bindings."
       },
       "obs": {
         "label": "OBS",
@@ -691,18 +750,38 @@
       },
       "ai": {
         "label": "AI and Translation",
-        "description": "AI providers, prompts, translation settings, and GSM Cloud.",
+        "description": "Configure cloud and local AI providers, models, API keys, and translation output.",
         "notes": "Saved per GSM profile."
       },
-      "overlayOcr": {
-        "label": "Overlay OCR",
-        "description": "Choose monitor, OCR area, and backend overlay capture behavior.",
+      "aiPrompts": {
+        "label": "AI translation prompts",
+        "description": "Edit canned and custom instructions used for translation and dialogue context.",
         "notes": "Saved per GSM profile."
+      },
+      "gsmCloud": {
+        "label": "GSM Cloud",
+        "description": "Authenticate with GSM Cloud and choose cloud synchronization options.",
+        "notes": "This tab can be hidden when GSM Cloud preview features are unavailable."
+      },
+      "gsmOverlayCapture": {
+        "label": "Main GSM overlay capture",
+        "description": "Configure the Python-side overlay scan pipeline, capture regions, and OCR result merging.",
+        "notes": "Related live controls also appear in Overlay Settings."
       },
       "advanced": {
         "label": "Advanced",
-        "description": "Advanced networking, player paths, ports, and experimental process pausing.",
+        "description": "Advanced networking, player paths, ports, and media playback behavior.",
         "notes": "Most users will not need this often."
+      },
+      "experimental": {
+        "label": "Experimental game pausing",
+        "description": "Pause and resume the active game during overlay, Text Feed, or gamepad interaction.",
+        "notes": "Experimental; executable safety rules apply."
+      },
+      "tokenization": {
+        "label": "Tokenization",
+        "description": "Tokenize captured lines for word and kanji frequency features.",
+        "notes": "Experimental; may use significant CPU, memory, and disk space."
       },
       "profiles": {
         "label": "Profiles",
@@ -710,19 +789,39 @@
         "notes": "Profiles save different setups for different games."
       },
       "overlayDisplay": {
-        "label": "Overlay display and hotkeys",
-        "description": "Overlay visibility, furigana display, indicators, offsets, and hotkeys.",
+        "label": "Overlay display, interaction, and hotkeys",
+        "description": "Control Push to Show, visibility, startup behavior, window focus, offsets, and shortcuts.",
         "notes": "Saved in the overlay window itself."
+      },
+      "overlayReadingStats": {
+        "label": "Overlay reading stats and Pomodoro",
+        "description": "Choose overlay session metrics, goals, indicators, layout, and Pomodoro timing.",
+        "notes": "Found under Reading, Stats & Jiten in Overlay Settings."
+      },
+      "overlayFuriganaTokenization": {
+        "label": "Furigana, pinyin, and tokenization",
+        "description": "Style readings and choose the MeCab, Sudachi, Yomitan, Jiten, or JPDB tokenizer backend.",
+        "notes": "Found under Reading, Stats & Jiten in Overlay Settings."
       },
       "overlayTranslation": {
         "label": "Overlay translation and reader tools",
         "description": "Translation requests, reader tools, Yomitan, and Text Feed options.",
         "notes": "Saved in the overlay window itself."
       },
+      "overlayOcr": {
+        "label": "Overlay OCR and capture",
+        "description": "Choose an OCR engine, monitor, region, scaling, scan schedule, and result pipeline.",
+        "notes": "Found under Capture / OCR in Overlay Settings."
+      },
       "overlayGamepad": {
         "label": "Overlay gamepad navigation",
         "description": "Controller navigation, tokenizer backends, keyboard toggle, and input testing.",
         "notes": "Saved in the overlay window itself."
+      },
+      "overlayProfilesSystem": {
+        "label": "Overlay profiles and system",
+        "description": "Use per-profile overlay settings and inspect or override platform-specific behavior.",
+        "notes": "Found under System in Overlay Settings."
       }
     }
   },

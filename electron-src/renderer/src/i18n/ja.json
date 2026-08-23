@@ -636,10 +636,24 @@
         "label": "デスクトップタブと統計",
         "description": "デスクトップタブの表示/非表示とデフォルトの統計ページを選択します。"
       },
+      "desktopTransparency": {
+        "label": "ウィンドウ透過ツール",
+        "description": "Windowsのウィンドウ透過ツールを設定して実行します。",
+        "notes": "Windowsでのみ利用できます。"
+      },
       "desktopUpdates": {
         "label": "アップデートとベータリリース",
         "description": "アップデート確認とベータビルドの提供を制御します。",
         "notes": "一部のアップデート変更は次回起動時に有効になります。"
+      },
+      "desktopBackups": {
+        "label": "設定とデータベースのバックアップ",
+        "description": "対象を選んでバックアップや復元を行い、データベースの自動コピーを設定します。"
+      },
+      "desktopDataFolder": {
+        "label": "データフォルダーの場所",
+        "description": "GSMデータを別のドライブへ移動するか、元のAppDataフォルダーへ戻します。",
+        "notes": "データフォルダーを変更するとアプリが再起動します。"
       },
       "keySettings": {
         "label": "キー設定",
@@ -648,12 +662,47 @@
       },
       "general": {
         "label": "一般",
-        "description": "一般的な動作、フォルダ、Discordステータス、テキストクリーンアップ設定。",
+        "description": "入力ソース、起動動作、言語、ポート、一般的な自動化を設定します。",
         "notes": "GSMプロファイルごとに保存されます。"
+      },
+      "features": {
+        "label": "機能",
+        "description": "便利機能、トークン化、Longplay録画、ゲーム一時停止を設定します。",
+        "notes": "ゲームのミュートはWindowsのみ対応し、トークン化とプロセス一時停止は実験的機能です。"
+      },
+      "paths": {
+        "label": "パスとエクスポートメディア",
+        "description": "リプレイと出力フォルダーを選び、エクスポート済みメディアの整理方法を設定します。",
+        "notes": "GSMプロファイルごとに保存されます。"
+      },
+      "discord": {
+        "label": "Discord Rich Presence",
+        "description": "現在のゲームをDiscordに表示し、プライバシーと非アクティブ時の動作を設定します。",
+        "notes": "GSMのメイン設定に保存されます。"
+      },
+      "textProcessing": {
+        "label": "テキストのフィルターと置換",
+        "description": "フィルター、正規表現、置換ルールで入力テキストを整形します。",
+        "notes": "ログ記録またはオーバーレイ送信の前に適用されます。"
       },
       "anki": {
         "label": "Anki",
-        "description": "デッキ、フィールド、確認ポップアップの動作、Ankiカードのタグ。",
+        "description": "AnkiConnect、ノートフィールド、更新、メディアの上書き動作を設定します。",
+        "notes": "GSMプロファイルごとに保存されます。"
+      },
+      "ankiConfirmation": {
+        "label": "Anki確認ダイアログ",
+        "description": "カード確認ウィンドウ、自動承認タイマー、音声選択、ゲームパッド入力を設定します。",
+        "notes": "GSMプロファイルごとに保存されます。"
+      },
+      "ankiFieldGrouping": {
+        "label": "Ankiフィールドグループ化",
+        "description": "重複するAnkiノートへ新しいマイニング文脈を統合し、対象フィールドを選びます。",
+        "notes": "同じノートタイプで完全一致の単語が見つかった場合に使用します。"
+      },
+      "ankiTags": {
+        "label": "Ankiタグ",
+        "description": "マイニングしたカードへカスタム、ゲーム、親、音声なしタグを追加します。",
         "notes": "GSMプロファイルごとに保存されます。"
       },
       "screenshot": {
@@ -663,8 +712,18 @@
       },
       "audio": {
         "label": "音声",
-        "description": "音声クリップ、トリミング、エクスポート、音声検出、音声モデル設定。",
+        "description": "音声の抽出、形式、再エンコード、パス、外部編集を設定します。",
         "notes": "GSMプロファイルごとに保存されます。"
+      },
+      "voiceDetection": {
+        "label": "音声検出（VAD）",
+        "description": "音声検出モデルと、トリミング、プリロール、フォールバック、推論動作を設定します。",
+        "notes": "GSMプロファイルごとに保存されます。"
+      },
+      "hotkeys": {
+        "label": "GSMメインホットキー",
+        "description": "テキスト入力、対象ウィンドウの音声、再生、スキャン、スクリーンショットのグローバルショートカットを割り当てます。",
+        "notes": "オーバーレイの割り当てとは別の、デスクトップ全体で使うGSMショートカットです。"
       },
       "obs": {
         "label": "OBS",
@@ -673,18 +732,38 @@
       },
       "ai": {
         "label": "AIと翻訳",
-        "description": "AIプロバイダー、プロンプト、翻訳設定、GSM Cloud。",
+        "description": "クラウドとローカルのAIプロバイダー、モデル、APIキー、翻訳出力を設定します。",
         "notes": "GSMプロファイルごとに保存されます。"
       },
-      "overlayOcr": {
-        "label": "オーバーレイOCR",
-        "description": "モニター、OCRエリア、バックエンドオーバーレイキャプチャ動作を選択。",
+      "aiPrompts": {
+        "label": "AI翻訳プロンプト",
+        "description": "翻訳と会話文脈に使う定型およびカスタム指示を編集します。",
         "notes": "GSMプロファイルごとに保存されます。"
+      },
+      "gsmCloud": {
+        "label": "GSM Cloud",
+        "description": "GSM Cloudに認証し、クラウド同期オプションを選択します。",
+        "notes": "GSM Cloudのプレビュー機能が利用できない場合、このタブは非表示になります。"
+      },
+      "gsmOverlayCapture": {
+        "label": "GSMメインのオーバーレイキャプチャ",
+        "description": "Python側のオーバーレイスキャン処理、キャプチャ領域、OCR結果の統合を設定します。",
+        "notes": "関連するライブ操作はオーバーレイ設定にもあります。"
       },
       "advanced": {
         "label": "詳細設定",
-        "description": "ネットワーク、プレイヤーパス、ポート、実験的なプロセス一時停止の設定。",
+        "description": "ネットワーク、プレイヤーパス、ポート、メディア再生動作の詳細設定。",
         "notes": "ほとんどのユーザーには頻繁に必要ありません。"
+      },
+      "experimental": {
+        "label": "実験的なゲーム一時停止",
+        "description": "オーバーレイ、テキストフィード、ゲームパッド操作中にアクティブなゲームを一時停止・再開します。",
+        "notes": "実験的機能です。実行ファイルの安全ルールが適用されます。"
+      },
+      "tokenization": {
+        "label": "トークン化",
+        "description": "取り込んだ行を単語頻度と漢字頻度の機能向けにトークン化します。",
+        "notes": "実験的機能で、CPU、メモリ、ディスクを多く使用する場合があります。"
       },
       "profiles": {
         "label": "プロファイル",
@@ -692,19 +771,39 @@
         "notes": "プロファイルはゲームごとに異なるセットアップを保存します。"
       },
       "overlayDisplay": {
-        "label": "オーバーレイの表示とホットキー",
-        "description": "オーバーレイの表示、ふりがな表示、インジケーター、オフセット、ホットキー。",
+        "label": "オーバーレイの表示、操作、ホットキー",
+        "description": "Push to Show、表示状態、起動動作、ウィンドウフォーカス、オフセット、ショートカットを設定します。",
         "notes": "オーバーレイウィンドウ自体に保存されます。"
+      },
+      "overlayReadingStats": {
+        "label": "オーバーレイ読書統計とポモドーロ",
+        "description": "セッション指標、目標、インジケーター、レイアウト、ポモドーロ時間を選択します。",
+        "notes": "オーバーレイ設定の「読書、統計、Jiten」にあります。"
+      },
+      "overlayFuriganaTokenization": {
+        "label": "ふりがな、ピンイン、トークン化",
+        "description": "読みの表示を整え、MeCab、Sudachi、Yomitan、Jiten、JPDBのトークナイザーを選択します。",
+        "notes": "オーバーレイ設定の「読書、統計、Jiten」にあります。"
       },
       "overlayTranslation": {
         "label": "オーバーレイの翻訳とリーダーツール",
         "description": "翻訳リクエスト、リーダーツール、Yomitan、テキストフィードオプション。",
         "notes": "オーバーレイウィンドウ自体に保存されます。"
       },
+      "overlayOcr": {
+        "label": "オーバーレイOCRとキャプチャ",
+        "description": "OCRエンジン、モニター、領域、拡大率、スキャン間隔、結果処理を選択します。",
+        "notes": "オーバーレイ設定の「キャプチャ / OCR」にあります。"
+      },
       "overlayGamepad": {
         "label": "オーバーレイのゲームパッドナビゲーション",
         "description": "コントローラーナビゲーション、トークナイザーバックエンド、キーボード切替、入力テスト。",
         "notes": "オーバーレイウィンドウ自体に保存されます。"
+      },
+      "overlayProfilesSystem": {
+        "label": "オーバーレイのプロファイルとシステム",
+        "description": "プロファイル別のオーバーレイ設定を使い、プラットフォーム固有の動作を確認または上書きします。",
+        "notes": "オーバーレイ設定の「システム」にあります。"
       }
     }
   },

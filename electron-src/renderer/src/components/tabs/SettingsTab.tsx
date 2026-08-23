@@ -19,7 +19,8 @@ import type { SettingsCatalogAction } from "../../types/settings";
 import {
   filterSettingsCatalogEntries,
   performSettingsCatalogAction,
-  SETTINGS_CATALOG
+  SETTINGS_CATALOG,
+  SETTINGS_CATALOG_I18N_KEYS
 } from "./settingsCatalog";
 import { SUPPORTED_LOCALES, useLocale, useTranslation } from "../../i18n";
 import type { SettingsCatalogOwner } from "../../types/settings";
@@ -28,24 +29,6 @@ import {
   SETTINGS_BACKUP_CATEGORY_IDS,
   type SettingsBackupCategoryId
 } from "../../../../shared/settings_backup";
-
-const CATALOG_I18N_KEYS: Record<string, string> = {
-  "desktop-appearance-startup": "desktopAppearance",
-  "desktop-tabs-and-stats": "desktopTabs",
-  "desktop-updates": "desktopUpdates",
-  "gsm-key-settings": "keySettings",
-  "gsm-general": "general",
-  "gsm-anki": "anki",
-  "gsm-screenshot": "screenshot",
-  "gsm-audio": "audio",
-  "gsm-obs": "obs",
-  "gsm-ai": "ai",
-  "gsm-advanced-network": "advanced",
-  "gsm-profiles": "profiles",
-  "overlay-display-hotkeys": "overlayDisplay",
-  "overlay-translation-reader": "overlayTranslation",
-  "overlay-gamepad": "overlayGamepad"
-};
 
 const ACTION_I18N_KEYS: Record<string, string> = {
   "current-tab": "settings.catalog.alreadyOnScreen",
@@ -1030,20 +1013,37 @@ export function SettingsTab({ active }: SettingsTabProps) {
   const displayCheckedAt = formatCheckedAt(checkedAt);
   const combinedUpdateError =
     updateMessage || updateStatus.backend.error || updateStatus.app.error;
+  const localizedCatalogEntries = useMemo(
+    () =>
+      SETTINGS_CATALOG.map((entry) => {
+        const i18nKey = SETTINGS_CATALOG_I18N_KEYS[entry.id];
+        return {
+          ...entry,
+          label: t(`settings.catalog.${i18nKey}.label`),
+          shortDescription: t(`settings.catalog.${i18nKey}.description`),
+          notes: entry.notes
+            ? t(`settings.catalog.${i18nKey}.notes`)
+            : undefined
+        };
+      }),
+    [currentLocale, t]
+  );
   const filteredCatalogEntries = useMemo(
-    () => filterSettingsCatalogEntries(SETTINGS_CATALOG, settingsSearchQuery),
-    [settingsSearchQuery]
+    () =>
+      filterSettingsCatalogEntries(localizedCatalogEntries, settingsSearchQuery),
+    [localizedCatalogEntries, settingsSearchQuery]
   );
   const totalCatalogMatches = filteredCatalogEntries.length;
   const hasSearchQuery = settingsSearchQuery.trim().length > 0;
   const quickLinkEntries = useMemo(
     () =>
       SETTINGS_QUICK_LINK_IDS.map((id) =>
-        SETTINGS_CATALOG.find((entry) => entry.id === id)
+        localizedCatalogEntries.find((entry) => entry.id === id)
       ).filter(
-        (entry): entry is (typeof SETTINGS_CATALOG)[number] => entry !== undefined
+        (entry): entry is (typeof localizedCatalogEntries)[number] =>
+          entry !== undefined
       ),
-    []
+    [localizedCatalogEntries]
   );
   const backupProgressLabel = backupProgress
     ? t("settings.backup.progressSummary", {
@@ -1134,7 +1134,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
                   void handleCatalogAction(entry.openAction);
                 }}
               >
-                {t(`settings.catalog.${CATALOG_I18N_KEYS[entry.id]}.label`)}
+                {entry.label}
               </button>
             ))}
           </div>
@@ -1156,7 +1156,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
                     <div key={entry.id} className="settings-directory-item">
                       <div className="settings-directory-copy">
                         <div className="settings-directory-title-row">
-                          <strong>{t(`settings.catalog.${CATALOG_I18N_KEYS[entry.id]}.label`)}</strong>
+                          <strong>{entry.label}</strong>
                           <span
                             className={`settings-owner-pill settings-owner-pill--${entry.owner}`}
                           >
@@ -1164,10 +1164,10 @@ export function SettingsTab({ active }: SettingsTabProps) {
                           </span>
                         </div>
                         <p className="muted settings-directory-description">
-                          {t(`settings.catalog.${CATALOG_I18N_KEYS[entry.id]}.description`)}
+                          {entry.shortDescription}
                         </p>
                         {entry.notes ? (
-                          <p className="settings-directory-note">{t(`settings.catalog.${CATALOG_I18N_KEYS[entry.id]}.notes`)}</p>
+                          <p className="settings-directory-note">{entry.notes}</p>
                         ) : null}
                       </div>
                       <button
