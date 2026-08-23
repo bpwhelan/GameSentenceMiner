@@ -5,6 +5,7 @@ import {
     filterAgentScriptCandidatesForQuery,
     formatAgentScriptDisplay,
     isListableAgentScriptPath,
+    scoreAgentScriptForQuery,
 } from "./agent_scripts.js";
 
 describe("agent script helpers", () => {
@@ -103,5 +104,18 @@ describe("agent script helpers", () => {
         expect(filterAgentScriptCandidatesForQuery(candidates, "unicorn")).toEqual([
             candidates[0],
         ]);
+    });
+
+    it("matches title substrings in either direction despite separators", () => {
+        const scriptPath =
+            "C:\\Agent\\data\\scripts\\PC_Steam_Resident_Evil_HD_REMASTER.js";
+
+        expect(scoreAgentScriptForQuery("ResidentEvil", scriptPath)).toBeLessThan(0.1);
+        expect(
+            scoreAgentScriptForQuery(
+                "CAPCOM | Resident Evil HD REMASTER™ | DirectX 11",
+                scriptPath
+            )
+        ).toBeLessThan(0.1);
     });
 });

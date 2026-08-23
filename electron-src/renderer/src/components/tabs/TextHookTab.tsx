@@ -59,6 +59,7 @@ interface ActiveCapture {
   sceneName: string;
   sceneId: string;
   exeName: string | null;
+  windowTitle?: string | null;
   pid?: number | null;
   arch?: "x86" | "x64" | null;
   error?: string;
@@ -624,14 +625,17 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
       showNotice(response?.message ?? t("texthook.agent.noScripts"), "error");
       return;
     }
-    const exeName = status.running ? status.exeName : capture?.exeName ?? "";
-    const initialQuery = getAgentScriptFileName(agentScriptPath || exeName).replace(/\.[^/.]+$/u, "");
+    const titleQuery = capture?.windowTitle?.trim() || capture?.sceneName?.trim() || "";
+    const fallbackExeName = status.running ? status.exeName : capture?.exeName ?? "";
+    const initialQuery = agentScriptPath
+      ? getAgentScriptFileName(agentScriptPath).replace(/\.[^/.]+$/u, "")
+      : titleQuery || getAgentScriptFileName(fallbackExeName).replace(/\.[^/.]+$/u, "");
     const candidates = buildAgentScriptCandidateList({
       query: initialQuery,
       scripts,
     });
     setAgentScriptDialog({ candidates, query: initialQuery });
-  }, [agentScriptPath, capture?.exeName, showNotice, status, t]);
+  }, [agentScriptPath, capture?.exeName, capture?.sceneName, capture?.windowTitle, showNotice, status, t]);
 
   const pickAgentScriptCandidate = useCallback((scriptPath: string) => {
     setAgentScriptPath(scriptPath);

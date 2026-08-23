@@ -126,12 +126,23 @@ export function isListableAgentScriptPath(filePath: string): boolean {
 }
 
 function tokenize(value: string): string[] {
-  return value
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
+  return normalizeSearchText(value)
     .split(/\s+/)
     .map((token) => token.trim())
     .filter((token) => token.length >= 2);
+}
+
+function normalizeSearchText(value: string): string {
+  return value
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function compactSearchText(value: string): string {
+  return normalizeSearchText(value).replace(/\s+/g, "");
 }
 
 function prettifyScriptText(value: string): string {
@@ -219,30 +230,54 @@ export function normalizeAgentScriptCandidateScore(score: unknown): number | nul
 }
 
 export function scoreAgentScriptForQuery(query: string, scriptPath: string): number {
-  const normalizedQuery = normalizeString(query).toLowerCase();
-  if (!normalizedQuery) {
+  const rawQuery = normalizeString(query).normalize("NFKC").toLowerCase();
+  if (!rawQuery) {
     return 0;
   }
-  const normalizedPathQuery = normalizedQuery.replace(/\\/g, "/");
+  const normalizedPathQuery = rawQuery.replace(/\\/g, "/");
 
   const display = formatAgentScriptDisplay(scriptPath);
   const normalizedPath = normalizeAgentScriptPathForCompare(scriptPath);
   const normalizedFileName = display.fileName.toLowerCase();
-  const normalizedTitle = display.title.toLowerCase();
+  const normalizedQuery = normalizeSearchText(rawQuery);
+  const normalizedTitle = normalizeSearchText(display.title);
+  const normalizedFileNameText = normalizeSearchText(display.fileName);
+  const compactQuery = compactSearchText(rawQuery);
+  const compactTitle = compactSearchText(display.title);
+  const compactFileName = compactSearchText(display.fileName);
 
   if (
     normalizedPath === normalizedPathQuery ||
-    normalizedFileName === normalizedQuery ||
+    normalizedFileName === rawQuery ||
     normalizedTitle === normalizedQuery
   ) {
     return 0;
   }
 
-  if (normalizedTitle.includes(normalizedQuery)) {
+  if (
+    normalizedQuery &&
+    (normalizedTitle.includes(normalizedQuery) || normalizedQuery.includes(normalizedTitle))
+  ) {
     return 0.05;
   }
-  if (normalizedFileName.includes(normalizedQuery)) {
+  if (
+    compactQuery &&
+    (compactTitle.includes(compactQuery) || compactQuery.includes(compactTitle))
+  ) {
+    return 0.06;
+  }
+  if (
+    normalizedQuery &&
+    (normalizedFileNameText.includes(normalizedQuery) ||
+      normalizedQuery.includes(normalizedFileNameText))
+  ) {
     return 0.1;
+  }
+  if (
+    compactQuery &&
+    (compactFileName.includes(compactQuery) || compactQuery.includes(compactFileName))
+  ) {
+    return 0.12;
   }
   if (normalizedPath.includes(normalizedPathQuery)) {
     return 0.2;

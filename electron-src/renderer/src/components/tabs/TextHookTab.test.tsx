@@ -294,6 +294,58 @@ describe("TextHookTab", () => {
     );
   });
 
+  it("searches Agent scripts by the captured window title instead of the executable", async () => {
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "texthook.getStatus") return { running: false };
+      if (channel === "texthook.listHooks") return { selectedHookId: null, hooks: [] };
+      if (channel === "texthook.getActiveCapture") {
+        return {
+          sceneName: "Resident Evil",
+          sceneId: "scene-1",
+          exeName: "re1.exe",
+          windowTitle: "Resident Evil HD REMASTER",
+        };
+      }
+      if (channel === "texthook.getProfile") return null;
+      if (channel === "settings.listAgentScripts") {
+        return {
+          scripts: [
+            "C:\\Agent\\data\\scripts\\PC_Steam_Resident_Evil_HD_REMASTER.js",
+            "C:\\Agent\\data\\scripts\\PC_Unrelated_Game.js",
+          ],
+        };
+      }
+      return null;
+    });
+
+    await act(async () => {
+      root.render(<TextHookTab active />);
+      await flushAsyncWork();
+    });
+
+    const engineSelect = container.querySelector("#texthook-engine-select") as HTMLSelectElement;
+    await act(async () => {
+      engineSelect.value = "agent";
+      engineSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    const searchButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Search"
+    );
+    await act(async () => {
+      searchButton?.click();
+      await flushAsyncWork();
+    });
+
+    const searchInput = container.querySelector(
+      ".agent-script-search-dialog input[type='search']"
+    ) as HTMLInputElement;
+    expect(searchInput.value).toBe("Resident Evil HD REMASTER");
+    expect(searchInput.value).not.toContain("re1");
+    expect(container.querySelectorAll(".agent-script-search-option")).toHaveLength(1);
+    expect(container.textContent).toContain("Resident Evil HD REMASTER");
+  });
+
   it("labels the built-in game hook experimental and lists every supported target", async () => {
     invokeMock.mockImplementation(async (channel: string) => {
       if (channel === "texthook.getStatus") return { running: false };

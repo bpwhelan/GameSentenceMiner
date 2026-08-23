@@ -40,6 +40,7 @@ import {
 import {
     getCurrentScene,
     getExecutableNameFromSource,
+    getWindowTitleFromSource,
 } from './obs.js';
 import {
     callAgentUiRpc,
@@ -604,6 +605,7 @@ export interface ActiveCaptureInfo {
     sceneName: string;
     sceneId: string;
     exeName: string | null;
+    windowTitle: string | null;
     // Linux only: the running game process resolved from the per-scene exe, for pre-start display.
     pid?: number | null;
     arch?: 'x86' | 'x64' | null;
@@ -612,6 +614,7 @@ export interface ActiveCaptureInfo {
 export async function getActiveCapture(): Promise<ActiveCaptureInfo> {
     const scene = await getCurrentScene();
     let exeName: string | null = null;
+    let windowTitle: string | null = null;
     if (scene && scene.id) {
         try {
             const found = await getExecutableNameFromSource(scene.id);
@@ -620,6 +623,14 @@ export async function getActiveCapture(): Promise<ActiveCaptureInfo> {
             }
         } catch (err) {
             emitLog(`Could not infer executable from active scene: ${(err as Error).message}`, 'warn');
+        }
+        try {
+            const found = await getWindowTitleFromSource(scene.id);
+            if (typeof found === 'string' && found.trim().length > 0) {
+                windowTitle = found.trim();
+            }
+        } catch (err) {
+            emitLog(`Could not infer window title from active scene: ${(err as Error).message}`, 'warn');
         }
     }
     // OBS window capture yields no executable on Linux, so fall back to the per-scene
@@ -643,6 +654,7 @@ export async function getActiveCapture(): Promise<ActiveCaptureInfo> {
         sceneName: scene?.name ?? '',
         sceneId: scene?.id ?? '',
         exeName,
+        windowTitle,
         pid,
         arch,
     };
@@ -1891,6 +1903,7 @@ export function registerTextHookIPC(): void {
                 sceneName: '',
                 sceneId: '',
                 exeName: null,
+                windowTitle: null,
                 error: (err as Error).message,
             };
         }
