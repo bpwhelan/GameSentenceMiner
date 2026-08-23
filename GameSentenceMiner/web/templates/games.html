@@ -15,6 +15,23 @@
         <!-- Search/Filter Bar -->
         <div class="games-toolbar">
             <input type="text" id="gamesSearchInput" class="games-search-input" placeholder="Search games by title...">
+            <div class="games-filter-container">
+                <label for="gamesTypeFilter" class="games-sort-label">Category</label>
+                <select id="gamesTypeFilter" class="games-sort-select">
+                    <option value="">All Categories</option>
+                </select>
+            </div>
+            <div class="games-filter-container">
+                <label for="gamesStatusFilter" class="games-sort-label">Status</label>
+                <select id="gamesStatusFilter" class="games-sort-select">
+                    <option value="">All Statuses</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="completed">Completed</option>
+                    <option value="planned">Planned</option>
+                    <option value="on_hold">On Hold / Postponed</option>
+                    <option value="dropped">Dropped</option>
+                </select>
+            </div>
             <div class="games-sort-container">
                 <label for="gamesSortSelect" class="games-sort-label">Sort by</label>
                 <select id="gamesSortSelect" class="games-sort-select">
@@ -72,7 +89,7 @@
         <!-- No Search Results State -->
         <div class="games-no-results" id="gamesNoResults" style="display: none;">
             <div class="games-no-results-icon">&#128269;</div>
-            <div class="games-no-results-message">No games match your search</div>
+            <div class="games-no-results-message">No games match your search or filters</div>
         </div>
 
         <!-- Games Grid -->

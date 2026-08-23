@@ -201,6 +201,7 @@ def api_games_management():
                     "difficulty": game.difficulty,
                     "difficulty_label": get_jiten_difficulty_label(game.difficulty),
                     "completed": game.completed,
+                    "status": game.effective_status,
                     "is_linked": is_linked,
                     "has_manual_overrides": has_manual_overrides,
                     "manual_overrides": game.manual_overrides,
@@ -305,7 +306,7 @@ def api_update_game(game_id):
     Supports all game fields including image, deck_id, character_count, and links.
     """
     try:
-        from GameSentenceMiner.util.database.games_table import GamesTable
+        from GameSentenceMiner.util.database.games_table import GAME_STATUS_VALUES, GamesTable
 
         data = request.get_json(silent=True)
         if not data:
@@ -315,6 +316,9 @@ def api_update_game(game_id):
         game = GamesTable.get(game_id)
         if not game:
             return jsonify({"error": "Game not found"}), 404
+
+        if "status" in data and data["status"] not in GAME_STATUS_VALUES:
+            return jsonify({"error": "Unknown game status"}), 400
 
         # Update fields using manual update method (marks as manual override)
         update_fields = {}
@@ -328,6 +332,7 @@ def api_update_game(game_id):
             "description",
             "difficulty",
             "completed",
+            "status",
             "deck_id",
             "vndb_id",
             "anilist_id",
@@ -422,6 +427,7 @@ def api_mark_game_complete(game_id):
 
         # Mark as completed
         game.completed = True
+        game.status = "completed"
         game.save()
 
         logger.debug(f"Marked game {game_id} ({game.title_original}) as completed")
@@ -432,6 +438,7 @@ def api_mark_game_complete(game_id):
                 "message": f'Game "{game.title_original}" marked as completed',
                 "game_id": game_id,
                 "completed": True,
+                "status": "completed",
             }
         ), 200
 
@@ -631,7 +638,7 @@ def api_create_game():
     Links orphaned game_lines to the newly created game.
     """
     try:
-        from GameSentenceMiner.util.database.games_table import GamesTable
+        from GameSentenceMiner.util.database.games_table import GAME_STATUS_VALUES, GamesTable
 
         data = request.get_json(silent=True)
         if not data:
@@ -641,6 +648,10 @@ def api_create_game():
         title_original = data.get("title_original", "").strip()
         if not title_original:
             return jsonify({"error": "title_original is required"}), 400
+
+        status = data.get("status")
+        if status is not None and status not in GAME_STATUS_VALUES:
+            return jsonify({"error": "Unknown game status"}), 400
 
         # Check if game already exists
         existing_game = GamesTable.get_by_title(title_original)
@@ -658,6 +669,7 @@ def api_create_game():
             "difficulty": data.get("difficulty"),
             "links": data.get("links", []),
             "completed": data.get("completed", False),
+            "status": status,
         }
 
         # Create the game
@@ -699,6 +711,7 @@ def api_create_game():
                         "title_romaji": new_game.title_romaji,
                         "title_english": new_game.title_english,
                         "type": new_game.type,
+                        "status": new_game.effective_status,
                         "jiten_character_count": new_game.character_count,  # Jiten total (if linked)
                         "lines_linked": lines_updated,
                     },

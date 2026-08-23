@@ -726,7 +726,7 @@ function openEditGameModal(game) {
     document.getElementById('editVndbId').value = game.vndb_id || '';
     document.getElementById('editAnilistId').value = game.anilist_id || '';
     document.getElementById('editCharacterCount').value = game.jiten_character_count || '';
-    document.getElementById('editCompleted').checked = !!game.completed;
+    document.getElementById('editStatus').value = game.status || (game.completed ? 'completed' : 'in_progress');
     document.getElementById('editCharacterSummary').value = game.character_summary || '';
     
     // Handle release date - convert ISO format to date input format (YYYY-MM-DD)
@@ -890,7 +890,7 @@ async function saveGameEdits() {
             title_english: document.getElementById('editTitleEnglish').value.trim(),
             type: document.getElementById('editType').value,
             description: document.getElementById('editDescription').value.trim(),
-            completed: document.getElementById('editCompleted').checked,
+            status: document.getElementById('editStatus').value,
             character_summary: characterSummary || null
         };
         

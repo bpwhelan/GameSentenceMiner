@@ -10,6 +10,21 @@
     'use strict';
 
     const PLACEHOLDER_IMAGE = '/static/favicon-96x96.png';
+    const UNCATEGORIZED_FILTER = '__uncategorized__';
+    const STATUS_LABELS = {
+        in_progress: 'In Progress',
+        completed: 'Completed',
+        planned: 'Planned',
+        on_hold: 'On Hold / Postponed',
+        dropped: 'Dropped'
+    };
+    const STATUS_SORT_ORDER = {
+        in_progress: 0,
+        planned: 1,
+        on_hold: 2,
+        completed: 3,
+        dropped: 4
+    };
     let allGames = [];
     let bulkMode = false;
     let bulkSelected = new Set();
@@ -25,6 +40,8 @@
     const gamesSearchInput = document.getElementById('gamesSearchInput');
     const gamesRetryBtn = document.getElementById('gamesRetryBtn');
     const gamesSortSelect = document.getElementById('gamesSortSelect');
+    const gamesTypeFilter = document.getElementById('gamesTypeFilter');
+    const gamesStatusFilter = document.getElementById('gamesStatusFilter');
     const bulkModeToggle = document.getElementById('bulkModeToggle');
     const bulkBar = document.getElementById('gamesBulkBar');
     const bulkCountLabel = document.getElementById('gamesBulkCount');
@@ -59,6 +76,15 @@
         return '';
     }
 
+    function getGameStatus(game) {
+        if (game.status && STATUS_LABELS[game.status]) return game.status;
+        return game.completed ? 'completed' : 'in_progress';
+    }
+
+    function getStatusLabel(game) {
+        return STATUS_LABELS[getGameStatus(game)];
+    }
+
     function formatLastPlayed(timestamp) {
         if (!timestamp) return 'Never';
         const date = new Date(timestamp * 1000);
@@ -89,8 +115,12 @@
             ? `<img class="game-card-image" src="${imageSrc}" alt="${escapeHtml(title)}" loading="lazy">`
             : `<div class="game-card-placeholder"><img src="${PLACEHOLDER_IMAGE}" alt="No cover"></div>`;
 
-        const statusClass = game.completed ? 'completed' : 'in-progress';
-        const statusLabel = game.completed ? 'Completed' : 'In Progress';
+        const gameStatus = getGameStatus(game);
+        const statusClass = gameStatus.replace('_', '-');
+        const statusLabel = getStatusLabel(game);
+        const typeBadge = game.type
+            ? `<span class="game-card-type-badge">${escapeHtml(game.type)}</span>`
+            : '';
 
         let subtitleHTML = '';
         if (subtitle) subtitleHTML = `<div class="game-card-subtitle">${escapeHtml(subtitle)}</div>`;
@@ -120,6 +150,7 @@
             <div class="game-card-info">
                 <div class="game-card-title">${escapeHtml(title)}</div>
                 ${subtitleHTML}
+                ${typeBadge ? `<div class="game-card-labels">${typeBadge}</div>` : ''}
                 <div class="game-card-stats">
                     <span class="game-card-stat">Last played <span class="game-card-stat-value">${formatLastPlayed(game.last_played)}</span></span>
                     <span class="game-card-stat"><span class="game-card-stat-value">${formatNumber(game.mined_character_count)}</span> chars</span>
@@ -265,33 +296,66 @@
                 break;
             case 'status':
                 games.sort(function (a, b) {
-                    if (a.completed === b.completed) return (b.last_played || 0) - (a.last_played || 0);
-                    return a.completed ? 1 : -1;
+                    const orderDifference = STATUS_SORT_ORDER[getGameStatus(a)] - STATUS_SORT_ORDER[getGameStatus(b)];
+                    return orderDifference || (b.last_played || 0) - (a.last_played || 0);
                 });
                 break;
         }
         return games;
     }
 
-    function filterAndRender() {
+    function getFilteredGames() {
         const query = gamesSearchInput.value.trim().toLowerCase();
-        let gamesToShow = allGames;
-        if (query) {
-            gamesToShow = allGames.filter(function (game) {
+        const selectedType = gamesTypeFilter.value;
+        const selectedStatus = gamesStatusFilter.value;
+        return allGames.filter(function (game) {
+            if (query) {
                 const original = (game.title_original || '').toLowerCase();
                 const romaji = (game.title_romaji || '').toLowerCase();
                 const english = (game.title_english || '').toLowerCase();
-                return original.includes(query) || romaji.includes(query) || english.includes(query);
-            });
-        }
+                const type = (game.type || '').toLowerCase();
+                if (!original.includes(query) && !romaji.includes(query) && !english.includes(query) && !type.includes(query)) {
+                    return false;
+                }
+            }
+            if (selectedType === UNCATEGORIZED_FILTER && game.type) return false;
+            if (selectedType && selectedType !== UNCATEGORIZED_FILTER && game.type !== selectedType) return false;
+            if (selectedStatus && getGameStatus(game) !== selectedStatus) return false;
+            return true;
+        });
+    }
+
+    function filterAndRender() {
+        let gamesToShow = getFilteredGames();
         gamesToShow = sortGames(gamesToShow.slice());
-        if (gamesToShow.length === 0 && query) {
+        if (gamesToShow.length === 0) {
             gamesGrid.style.display = 'none';
             gamesNoResults.style.display = 'flex';
         } else {
             gamesGrid.style.display = '';
             gamesNoResults.style.display = 'none';
             renderGrid(gamesToShow);
+        }
+    }
+
+    function populateTypeFilter() {
+        const selectedValue = gamesTypeFilter.value;
+        const types = Array.from(new Set(allGames.map(function (game) {
+            return (game.type || '').trim();
+        }).filter(Boolean))).sort(function (a, b) {
+            return a.localeCompare(b, undefined, { sensitivity: 'base' });
+        });
+
+        gamesTypeFilter.innerHTML = '';
+        gamesTypeFilter.appendChild(new Option('All Categories', ''));
+        types.forEach(function (type) {
+            gamesTypeFilter.appendChild(new Option(type, type));
+        });
+        if (allGames.some(function (game) { return !(game.type || '').trim(); })) {
+            gamesTypeFilter.appendChild(new Option('Uncategorized', UNCATEGORIZED_FILTER));
+        }
+        if (Array.from(gamesTypeFilter.options).some(function (option) { return option.value === selectedValue; })) {
+            gamesTypeFilter.value = selectedValue;
         }
     }
 
@@ -314,6 +378,7 @@
             if (!response.ok) throw new Error('Failed to fetch games: ' + response.status);
             const data = await response.json();
             allGames = data.games || [];
+            populateTypeFilter();
 
             // Keep the database modules in sync
             if (typeof window !== 'undefined') {
@@ -357,15 +422,7 @@
     }
 
     function bulkSelectAll() {
-        const query = gamesSearchInput.value.trim().toLowerCase();
-        let visible = allGames;
-        if (query) {
-            visible = allGames.filter(function (g) {
-                return (g.title_original || '').toLowerCase().includes(query)
-                    || (g.title_romaji || '').toLowerCase().includes(query)
-                    || (g.title_english || '').toLowerCase().includes(query);
-            });
-        }
+        const visible = getFilteredGames();
         bulkSelected.clear();
         bulkMergeTarget = null;
         visible.forEach(function (g, i) {
@@ -542,8 +599,8 @@
             console.log('Refreshing games grid after linking...');
             await loadGames();
         };
-        // Also patch loadGamesForDataManagement which is called after
-        // saveGameEdits and markGameCompleted in database-jiten-integration.js
+        // Also patch loadGamesForDataManagement, which is called after
+        // edits, status changes, and individual game deletion.
         window.loadGamesForDataManagement = async function () {
             await loadGames();
         };
@@ -571,6 +628,8 @@
         _searchDebounceTimer = setTimeout(filterAndRender, 200);
     });
     gamesSortSelect.addEventListener('change', filterAndRender);
+    gamesTypeFilter.addEventListener('change', filterAndRender);
+    gamesStatusFilter.addEventListener('change', filterAndRender);
     gamesRetryBtn.addEventListener('click', loadGames);
     bulkModeToggle.addEventListener('click', toggleBulkMode);
     document.getElementById('gamesBulkSelectAll').addEventListener('click', bulkSelectAll);

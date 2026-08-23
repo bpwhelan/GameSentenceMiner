@@ -157,6 +157,45 @@
     white-space: nowrap;
 }
 
+.game-detail-badges {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+}
+
+.game-status-badge {
+    display: inline-block;
+    padding: 6px 14px;
+    border-radius: 16px;
+    color: white;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.game-status-badge.status-in-progress {
+    background: var(--accent-color, #007bff);
+}
+
+.game-status-badge.status-completed {
+    background: var(--success-color, #28a745);
+}
+
+.game-status-badge.status-planned {
+    background: #6f42c1;
+}
+
+.game-status-badge.status-on-hold {
+    background: #d98200;
+}
+
+.game-status-badge.status-dropped {
+    background: var(--danger-color, #dc3545);
+}
+
 /* ================================
    Game Description
 ================================ */
@@ -738,6 +777,10 @@
         flex-direction: column;
         align-items: flex-start;
         gap: 8px;
+    }
+
+    .game-detail-badges {
+        align-items: flex-start;
     }
 
     .settings-cog-dropdown {

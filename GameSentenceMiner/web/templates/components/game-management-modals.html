@@ -38,6 +38,16 @@
                     </select>
                 </div>
                 <div class="form-group">
+                    <label class="form-label" for="editStatus">Status</label>
+                    <select id="editStatus" class="form-input">
+                        <option value="in_progress">In Progress</option>
+                        <option value="completed">Completed</option>
+                        <option value="planned">Planned</option>
+                        <option value="on_hold">On Hold / Postponed</option>
+                        <option value="dropped">Dropped</option>
+                    </select>
+                </div>
+                <div class="form-group">
                     <label class="form-label">Description</label>
                     <textarea id="editDescription" class="form-textarea" rows="4"></textarea>
                 </div>
@@ -83,12 +93,6 @@
                 <div class="form-group">
                     <label class="form-label">Links (one URL per line)</label>
                     <textarea id="editLinksList" class="form-textarea" rows="6" placeholder="https://example.com"></textarea>
-                </div>
-                <div class="form-group">
-                    <div class="checkbox-container">
-                        <input type="checkbox" id="editCompleted" class="checkbox-input">
-                        <label for="editCompleted" class="checkbox-label">Mark as completed</label>
-                    </div>
                 </div>
             </form>
             <div id="editGameError" class="error-text" style="display: none;"></div>

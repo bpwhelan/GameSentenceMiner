@@ -8,6 +8,15 @@ from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.database.db import SQLiteDBTable
 
 
+GAME_STATUS_VALUES = (
+    "in_progress",
+    "completed",
+    "planned",
+    "on_hold",
+    "dropped",
+)
+
+
 class GamesTable(SQLiteDBTable):
     _table = "games"
     _fields = [
@@ -31,6 +40,7 @@ class GamesTable(SQLiteDBTable):
         "character_summary",
         "vndb_id",
         "anilist_id",
+        "status",
     ]
     _types = [
         str,  # id (primary key)
@@ -54,6 +64,7 @@ class GamesTable(SQLiteDBTable):
         str,  # character_summary (AI-generated summary text)
         str,  # vndb_id
         str,  # anilist_id
+        str,  # lifecycle status
     ]
     _pk = "id"
     _auto_increment = False  # UUID-based primary key
@@ -126,6 +137,7 @@ class GamesTable(SQLiteDBTable):
         character_summary: Optional[str] = None,
         vndb_id: Optional[str] = None,
         anilist_id: Optional[str] = None,
+        status: Optional[str] = None,
     ):
         self.id = id if id else str(uuid.uuid4())
         self.deck_id = deck_id
@@ -148,6 +160,16 @@ class GamesTable(SQLiteDBTable):
         self.character_summary = character_summary
         self.vndb_id = vndb_id if vndb_id else ""
         self.anilist_id = anilist_id if anilist_id else ""
+        self.status = status if status in GAME_STATUS_VALUES else ""
+        if self.status:
+            self.completed = self.status == "completed"
+
+    @property
+    def effective_status(self) -> str:
+        """Return the lifecycle status, including completed-only legacy rows."""
+        if self.status in GAME_STATUS_VALUES:
+            return self.status
+        return "completed" if self.completed else "in_progress"
 
     @classmethod
     def all_without_images(cls) -> list["GamesTable"]:
@@ -469,6 +491,7 @@ class GamesTable(SQLiteDBTable):
         character_summary: Optional[str] = None,
         vndb_id: Optional[str] = None,
         anilist_id: Optional[str] = None,
+        status: Optional[str] = None,
     ):
         """
         Update all fields of the game at once. Only provided fields will be updated.
@@ -522,9 +545,13 @@ class GamesTable(SQLiteDBTable):
         if links is not None:
             self.links = links
             self.mark_field_manual("links")
+        completed_changed = completed is not None and bool(completed) != bool(self.completed)
         if completed is not None:
             self.completed = completed
             self.mark_field_manual("completed")
+            if status is None and (completed_changed or self.status not in GAME_STATUS_VALUES):
+                self.status = "completed" if completed else "in_progress"
+                self.mark_field_manual("status")
         if release_date is not None:
             self.release_date = release_date
             self.mark_field_manual("release_date")
@@ -546,6 +573,13 @@ class GamesTable(SQLiteDBTable):
         if anilist_id is not None:
             self.anilist_id = anilist_id
             self.mark_field_manual("anilist_id")
+        if status is not None:
+            if status not in GAME_STATUS_VALUES:
+                raise ValueError(f"Unknown game status: {status}")
+            self.status = status
+            self.completed = status == "completed"
+            self.mark_field_manual("status")
+            self.mark_field_manual("completed")
 
         self.save()
         logger.debug(f"Updated game {self.id} ({self.title_original})")

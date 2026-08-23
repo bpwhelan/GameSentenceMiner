@@ -6,6 +6,19 @@ let currentGameToUnlink = null;
 let currentGameToDelete = null;
 
 /**
+ * Refresh whichever game-management view is hosting these shared operations.
+ */
+async function refreshGameManagementView() {
+    const activeTab = document.querySelector('.tab-btn.active');
+    if (activeTab) {
+        await switchTab(activeTab.dataset.tab);
+    } else if (typeof loadGamesForDataManagement === 'function') {
+        // Standalone Games page replaces this loader with its card-grid refresh.
+        await loadGamesForDataManagement();
+    }
+}
+
+/**
  * Open individual game unlink confirmation modal
  * @param {string} gameId - Game ID to unlink
  * @param {string} gameName - Game name for display
@@ -73,11 +86,7 @@ async function confirmIndividualGameUnlink() {
             closeModal('individualGameUnlinkModal');
             showDatabaseSuccessPopup(`Game "${result.game_name}" has been unlinked successfully. ${result.unlinked_lines} sentences preserved.`);
             
-            // Refresh the current tab
-            const activeTab = document.querySelector('.tab-btn.active');
-            if (activeTab) {
-                switchTab(activeTab.dataset.tab);
-            }
+            await refreshGameManagementView();
             
             // Update dashboard stats
             if (typeof databaseManager !== 'undefined') {
@@ -167,11 +176,7 @@ async function confirmIndividualGameDelete() {
             closeModal('individualGameDeleteModal');
             showDatabaseSuccessPopup(`Game lines for "${result.game_name}" have been PERMANENTLY DELETED. ${result.deleted_lines} sentences removed forever.`);
             
-            // Refresh the current tab
-            const activeTab = document.querySelector('.tab-btn.active');
-            if (activeTab) {
-                switchTab(activeTab.dataset.tab);
-            }
+            await refreshGameManagementView();
             
             // Update dashboard stats
             if (typeof databaseManager !== 'undefined') {

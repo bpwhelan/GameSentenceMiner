@@ -24,6 +24,7 @@ from GameSentenceMiner.util.database.game_daily_rollup_table import (
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
 from GameSentenceMiner.util.jiten_difficulty import get_jiten_difficulty_label
+from GameSentenceMiner.util.text_utils import is_kanji
 from GameSentenceMiner.web.rollup_stats import (
     calculate_difficulty_speed_from_rollup,
     calculate_genre_tag_stats_from_rollup,
@@ -157,6 +158,17 @@ def _build_kanji_grid_data(combined_stats: Dict) -> Dict:
     }
 
 
+def _build_game_kanji_grid_data(line_text_rows: list) -> Dict:
+    """Build kanji grid data from raw line-text rows for one game."""
+    frequencies: dict[str, int] = defaultdict(int)
+    for row in line_text_rows:
+        line_text = row[0] if row else ""
+        for character in str(line_text or ""):
+            if is_kanji(character):
+                frequencies[character] += 1
+    return _build_kanji_grid_data({"kanji_frequency_data": frequencies})
+
+
 def _serialise_game_metadata(game) -> dict | None:
     """Convert a game row into the metadata shape used by stats endpoints."""
     if not game:
@@ -175,6 +187,7 @@ def _serialise_game_metadata(game) -> dict | None:
         "difficulty_label": get_jiten_difficulty_label(game.difficulty),
         "links": game.links or [],
         "completed": game.completed or False,
+        "status": game.effective_status,
         "release_date": getattr(game, "release_date", "") or "",
         "manual_overrides": getattr(game, "manual_overrides", []) or [],
         "obs_scene_name": getattr(game, "obs_scene_name", "") or "",
@@ -222,6 +235,7 @@ def _build_game_stats_response_payload(
             "tags": game.tags or [],
             "links": game.links or [],
             "completed": game.completed or False,
+            "status": game.effective_status,
             "character_count": game.character_count or 0,
             "difficulty": getattr(game, "difficulty", None),
             "release_date": getattr(game, "release_date", "") or "",
@@ -2421,6 +2435,22 @@ def register_stats_api_routes(app):
         except Exception as e:
             logger.exception(f"Error in api_kanji_frequency: {e}")
             return jsonify({"error": "Failed to calculate kanji frequency"}), 500
+
+    @app.route("/api/game/<game_id>/kanji-grid")
+    def api_game_kanji_grid(game_id):
+        """Get kanji frequencies for a single game's captured text."""
+        try:
+            if not GamesTable.get(game_id):
+                return jsonify({"error": "Game not found"}), 404
+
+            line_text_rows = GameLinesTable._db.fetchall(
+                f"SELECT line_text FROM {GameLinesTable._table} WHERE game_id=?",
+                (game_id,),
+            )
+            return jsonify(_build_game_kanji_grid_data(line_text_rows)), 200
+        except Exception as e:
+            logger.exception(f"Error building kanji grid for game {game_id}: {e}")
+            return jsonify({"error": "Failed to build game kanji grid"}), 500
 
     @app.route("/api/game/<game_id>/stats")
     def api_game_stats(game_id):

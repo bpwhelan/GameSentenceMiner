@@ -167,6 +167,18 @@ class TestGamesManagementAPI:
         assert titles == {"Game A", "Game B"}
         assert data["summary"]["total_games"] == 2
 
+    def test_includes_effective_game_status(self, client):
+        _create_game("Current", status="dropped")
+        _create_game("Legacy Complete", completed=True)
+
+        resp = client.get("/api/games-management")
+
+        statuses = {game["title_original"]: game["status"] for game in resp.get_json()["games"]}
+        assert statuses == {
+            "Current": "dropped",
+            "Legacy Complete": "completed",
+        }
+
     def test_includes_line_count_and_character_count(self, client):
         game = _create_game("Counted Game")
         _create_line(game, text="あいうえお")  # 5 chars
@@ -331,6 +343,14 @@ class TestGamesPageRoute:
         resp = client.get("/games")
         assert resp.content_type.startswith("text/html")
 
+    def test_games_route_contains_category_and_status_filters(self, client):
+        html = client.get("/games").data.decode()
+
+        assert 'id="gamesTypeFilter"' in html
+        assert 'id="gamesStatusFilter"' in html
+        assert "All Categories" in html
+        assert "On Hold / Postponed" in html
+
 
 # ===================================================================
 # Phase 1 – Navigation
@@ -490,6 +510,32 @@ class TestUpdateGame:
         assert resp.status_code == 200
         updated = GamesTable.get(game.id)
         assert updated.completed is True
+        assert updated.effective_status == "completed"
+
+    @pytest.mark.parametrize("status", ["in_progress", "completed", "planned", "on_hold", "dropped"])
+    def test_update_game_status(self, client, status):
+        game = _create_game("Status Update")
+
+        resp = client.put(
+            f"/api/games/{game.id}",
+            json={"status": status},
+        )
+
+        assert resp.status_code == 200
+        updated = GamesTable.get(game.id)
+        assert updated.status == status
+        assert updated.completed is (status == "completed")
+
+    def test_update_rejects_unknown_game_status(self, client):
+        game = _create_game("Bad Status")
+
+        resp = client.put(
+            f"/api/games/{game.id}",
+            json={"status": "abandoned_forever"},
+        )
+
+        assert resp.status_code == 400
+        assert "status" in resp.get_json()["error"].lower()
 
     def test_update_genres_and_tags(self, client):
         game = _create_game("Genre Tag Game")
@@ -515,6 +561,7 @@ class TestMarkGameComplete:
         # Verify in DB
         updated = GamesTable.get(game.id)
         assert updated.completed is True
+        assert updated.effective_status == "completed"
 
     def test_mark_complete_nonexistent_404(self, client):
         resp = client.post(f"/api/games/{uuid.uuid4()}/mark-complete")
@@ -801,6 +848,11 @@ class TestGamesTableModel:
     def test_completed_defaults_false(self):
         game = GamesTable(title_original="Defaults")
         assert game.completed is False
+        assert game.effective_status == "in_progress"
+
+    def test_explicit_status_is_authoritative(self):
+        game = GamesTable(title_original="Paused", completed=True, status="on_hold")
+        assert game.effective_status == "on_hold"
 
     def test_lists_default_empty(self):
         game = GamesTable(title_original="Defaults")
@@ -951,6 +1003,15 @@ class TestGameDetailPageRendering:
         assert "vocabularyNoveltyCard" in html
         assert "statUniqueWordsInGame" in html
         assert "gameNewWordsBucketSize" in html
+        assert "gameKanjiGrid" in html
+        assert "gameKanjiCount" in html
+        assert "/static/css/kanji-grid.css" in html
+
+    def test_individual_delete_refreshes_games_view(self, client):
+        javascript = client.get("/static/js/database-game-operations.js").data.decode()
+
+        assert "await loadGamesForDataManagement()" in javascript
+        assert javascript.count("await refreshGameManagementView()") == 2
 
     def test_detail_page_contains_chart_containers(self, client):
         game = _create_game("Chart Test")
@@ -1129,6 +1190,7 @@ class TestGameStatsAPI:
         resp = client.get(f"/api/game/{game.id}/stats")
         g = resp.get_json()["game"]
         assert g["completed"] is True
+        assert g["status"] == "completed"
 
     def test_stats_game_genres_and_tags(self, client):
         game = _create_game(
@@ -1158,6 +1220,42 @@ class TestGameStatsAPI:
 
     def test_stats_with_malformed_game_id(self, client):
         resp = client.get("/api/game/not-a-uuid/stats")
+        assert resp.status_code == 404
+
+
+class TestGameKanjiGridAPI:
+    def test_returns_frequency_data_for_only_the_requested_game(self, client):
+        game = _create_game("Kanji Game")
+        other_game = _create_game("Other Kanji Game")
+        _create_line(game, text="漢字と漢字")
+        _create_line(other_game, text="外外外")
+
+        resp = client.get(f"/api/game/{game.id}/kanji-grid")
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["unique_count"] == 2
+        assert data["max_frequency"] == 2
+        assert {item["kanji"]: item["frequency"] for item in data["kanji_data"]} == {
+            "漢": 2,
+            "字": 2,
+        }
+
+    def test_empty_game_returns_empty_grid(self, client):
+        game = _create_game("No Kanji")
+
+        resp = client.get(f"/api/game/{game.id}/kanji-grid")
+
+        assert resp.status_code == 200
+        assert resp.get_json() == {
+            "kanji_data": [],
+            "unique_count": 0,
+            "max_frequency": 0,
+        }
+
+    def test_missing_game_returns_404(self, client):
+        resp = client.get(f"/api/game/{uuid.uuid4()}/kanji-grid")
+
         assert resp.status_code == 404
 
 

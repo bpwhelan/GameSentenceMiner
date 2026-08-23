@@ -7,6 +7,13 @@
     'use strict';
 
     const PLACEHOLDER_IMAGE = '/static/favicon-96x96.png';
+    const STATUS_LABELS = {
+        in_progress: 'In Progress',
+        completed: 'Completed',
+        planned: 'Planned',
+        on_hold: 'On Hold / Postponed',
+        dropped: 'Dropped'
+    };
     const gameId = window.gameConfig ? window.gameConfig.gameId : null;
 
     if (!gameId) {
@@ -49,6 +56,7 @@
     const gameTitleRomaji = document.getElementById('gameTitleRomaji');
     const gameTitleEnglish = document.getElementById('gameTitleEnglish');
     const gameTypeBadge = document.getElementById('gameTypeBadge');
+    const gameStatusBadge = document.getElementById('gameStatusBadge');
     const gameDescription = document.getElementById('gameDescription');
     const descriptionExpandBtn = document.getElementById('descriptionExpandBtn');
     const gameLinksContainer = document.getElementById('gameLinksContainer');
@@ -82,6 +90,13 @@
     const gameNewWordsNoData = document.getElementById('gameNewWordsNoData');
     const gameNewWordsBucketSize = document.getElementById('gameNewWordsBucketSize');
 
+    const gameKanjiGridRenderer = new KanjiGridRenderer({
+        containerSelector: '#gameKanjiGrid',
+        counterSelector: '#gameKanjiCount',
+        colorMode: 'backend',
+        emptyMessage: 'No kanji have been seen in this game yet.'
+    });
+
     // Settings cog
     const settingsCogBtn = document.getElementById('settingsCogBtn');
     const settingsCogDropdown = document.getElementById('settingsCogDropdown');
@@ -99,6 +114,11 @@
 
     function getSceneName(game) {
         return (game && (game.obs_scene_name || game.title_original || game.title_romaji || game.title_english)) || '';
+    }
+
+    function getGameStatus(game) {
+        if (game && game.status && STATUS_LABELS[game.status]) return game.status;
+        return game && game.completed ? 'completed' : 'in_progress';
     }
 
     function formatNumber(num) {
@@ -470,6 +490,10 @@
         } else {
             gameTypeBadge.style.display = 'none';
         }
+
+        const gameStatus = getGameStatus(game);
+        gameStatusBadge.textContent = STATUS_LABELS[gameStatus];
+        gameStatusBadge.className = 'game-status-badge status-' + gameStatus.replace('_', '-');
 
         // Description
         if (game.description) {
@@ -1463,6 +1487,17 @@
     // ================================================================
     //  Load Game Data
     // ================================================================
+    async function loadGameKanjiGrid() {
+        try {
+            const response = await fetch('/api/game/' + gameId + '/kanji-grid');
+            if (!response.ok) throw new Error('Failed to load game kanji grid');
+            gameKanjiGridRenderer.render(await response.json());
+        } catch (error) {
+            console.error('Error loading game kanji grid:', error);
+            gameKanjiGridRenderer.render([]);
+        }
+    }
+
     async function loadGameData() {
         showState('loading');
         resetSummaryCards();
@@ -1495,6 +1530,7 @@
             renderDailyTimeChart(data.dailySpeed);
             renderMiningDensityChart(data.dailySpeed);
             renderSpeedHeatmap(data.heatmapData);
+            loadGameKanjiGrid();
 
             showState('loaded');
         } catch (error) {
@@ -1604,6 +1640,7 @@
         document.getElementById('editTitleRomaji').value = g.title_romaji || '';
         document.getElementById('editTitleEnglish').value = g.title_english || '';
         document.getElementById('editType').value = g.type || '';
+        document.getElementById('editStatus').value = getGameStatus(g);
         document.getElementById('editDescription').value = g.description || '';
         document.getElementById('editDifficulty').value = g.difficulty || '';
         document.getElementById('editDeckId').value = g.deck_id || '';
@@ -1612,7 +1649,6 @@
         document.getElementById('editCharacterCount').value = g.character_count || '';
         document.getElementById('editReleaseDate').value = g.release_date || '';
         document.getElementById('editCharacterSummary').value = g.character_summary || '';
-        document.getElementById('editCompleted').checked = g.completed || false;
 
         // Links
         const links = g.links || [];
@@ -1681,6 +1717,7 @@
                 title_romaji: document.getElementById('editTitleRomaji').value,
                 title_english: document.getElementById('editTitleEnglish').value,
                 type: document.getElementById('editType').value,
+                status: document.getElementById('editStatus').value,
                 description: document.getElementById('editDescription').value,
                 difficulty: document.getElementById('editDifficulty').value ? parseInt(document.getElementById('editDifficulty').value) : '',
                 deck_id: document.getElementById('editDeckId').value ? parseInt(document.getElementById('editDeckId').value) : '',
@@ -1690,7 +1727,6 @@
                 release_date: document.getElementById('editReleaseDate').value,
                 character_summary: document.getElementById('editCharacterSummary').value,
                 links: links,
-                completed: document.getElementById('editCompleted').checked,
             };
 
             if (imageValue !== undefined) {
