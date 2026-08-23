@@ -36,6 +36,11 @@
         <input type="checkbox" id="tadoku_daily_sync_enabled">
         Sync to Tadoku once per day
     </label>
+    <label style="display: flex; align-items: center; gap: 8px; margin: 10px 0 0 24px; color: var(--text-secondary);">
+        Sync time
+        <input type="time" id="tadoku_daily_sync_time" class="form-input" style="width: 120px;" value="00:01">
+        <small>local time</small>
+    </label>
     <label style="display: flex; align-items: center; gap: 8px; margin: 10px 0 16px 24px; color: var(--text-secondary);">
         <input type="checkbox" id="tadoku_daily_sync_deduplicate" checked>
         Exclude repeated text from Tadoku counts (local lines are always kept)

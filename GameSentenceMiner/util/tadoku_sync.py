@@ -135,6 +135,9 @@ def build_tadoku_preview(
     cutoff = float(upper_bound if upper_bound is not None else time.time())
     lines = _load_lines(cutoff)
     names, media_tags = _game_metadata(lines)
+    lines = [
+        line for line in lines if str(names.get(_game_key(line), "")).strip().casefold() not in {"", "unknown game"}
+    ]
     game_character_totals: dict[str, int] = {}
     for line in lines:
         text = line.line_text if isinstance(line.line_text, str) else ""

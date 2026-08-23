@@ -118,10 +118,6 @@ Este proyecto incluye versiones modificadas de las siguientes librerías, me can
 
 ## Historial de Estrellas
 
-<a href="https://www.star-history.com/#bpwhelan/GameSentenceMiner&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=bpwhelan/GameSentenceMiner&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=bpwhelan/GameSentenceMiner&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=bpwhelan/GameSentenceMiner&type=date&legend=top-left" />
- </picture>
+<a href="https://github.com/bpwhelan/GameSentenceMiner/stargazers">
+  <img alt="Star History Chart" src="../../assets/star-history.svg" />
 </a>

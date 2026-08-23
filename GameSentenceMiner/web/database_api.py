@@ -1283,6 +1283,7 @@ def register_database_api_routes(app):
                     "tadoku_username": getattr(config, "tadoku_username", ""),
                     "tadoku_language_code": getattr(config, "tadoku_language_code", "jpn"),
                     "tadoku_daily_sync_enabled": bool(getattr(config, "tadoku_daily_sync_enabled", False)),
+                    "tadoku_daily_sync_time": getattr(config, "tadoku_daily_sync_time", "00:01"),
                     "tadoku_daily_sync_deduplicate": bool(getattr(config, "tadoku_daily_sync_deduplicate", True)),
                     "tadoku_daily_sync_game_ids": list(getattr(config, "tadoku_daily_sync_game_ids", []) or []),
                     "easy_days_monday": getattr(config, "easy_days_settings", {}).get("monday", 100),
@@ -1387,6 +1388,7 @@ def register_database_api_routes(app):
             tadoku_clear_credentials = data.get("tadoku_clear_credentials")
             tadoku_language_code = data.get("tadoku_language_code")
             tadoku_daily_sync_enabled = data.get("tadoku_daily_sync_enabled")
+            tadoku_daily_sync_time = data.get("tadoku_daily_sync_time")
             tadoku_daily_sync_deduplicate = data.get("tadoku_daily_sync_deduplicate")
             tadoku_daily_sync_game_ids = data.get("tadoku_daily_sync_game_ids")
 
@@ -1564,6 +1566,13 @@ def register_database_api_routes(app):
                         return jsonify({"error": f"{setting_name} must be a boolean value"}), 400
                     settings_to_update[setting_name] = setting_value
 
+            if tadoku_daily_sync_time is not None:
+                if not isinstance(tadoku_daily_sync_time, str) or not re.fullmatch(
+                    r"(?:[01]\d|2[0-3]):[0-5]\d", tadoku_daily_sync_time
+                ):
+                    return jsonify({"error": "Tadoku automatic sync time must use HH:MM format"}), 400
+                settings_to_update["tadoku_daily_sync_time"] = tadoku_daily_sync_time
+
             if tadoku_daily_sync_game_ids is not None:
                 valid_game_ids = (
                     isinstance(tadoku_daily_sync_game_ids, list)
@@ -1692,6 +1701,8 @@ def register_database_api_routes(app):
                 config.tadoku_language_code = settings_to_update["tadoku_language_code"]
             if "tadoku_daily_sync_enabled" in settings_to_update:
                 config.tadoku_daily_sync_enabled = settings_to_update["tadoku_daily_sync_enabled"]
+            if "tadoku_daily_sync_time" in settings_to_update:
+                config.tadoku_daily_sync_time = settings_to_update["tadoku_daily_sync_time"]
             if "tadoku_daily_sync_deduplicate" in settings_to_update:
                 config.tadoku_daily_sync_deduplicate = settings_to_update["tadoku_daily_sync_deduplicate"]
             if "tadoku_daily_sync_game_ids" in settings_to_update:
@@ -1714,7 +1725,7 @@ def register_database_api_routes(app):
 
             save_stats_config(config)
 
-            if "tadoku_daily_sync_enabled" in settings_to_update:
+            if {"tadoku_daily_sync_enabled", "tadoku_daily_sync_time"} & settings_to_update.keys():
                 from GameSentenceMiner.util.cron import cron_scheduler
                 from GameSentenceMiner.util.cron.tadoku_sync import configure_tadoku_cron
 

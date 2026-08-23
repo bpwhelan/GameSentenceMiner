@@ -324,9 +324,9 @@ def get_matching_line(last_note: AnkiCard, lines=None, *, prefer_recent: bool = 
     Args:
         last_note: The AnkiCard to match against
         lines: Optional list of GameLines to search in. If None, uses all game log lines.
-        prefer_recent: Prefer the newest valid match instead of the highest text-similarity
-            score. Overlay mines use this because an NVL block can contain several recent
-            text events, while the clicked expression usually belongs to the newest one.
+        prefer_recent: Prefer the newest valid match before applying expression or
+            text-similarity ranking. Overlay mines use this because an NVL block can
+            contain several recent text events and older dialogue remains on screen.
 
     Returns:
         GameLine: The matching line or the latest line if no match found
@@ -376,7 +376,13 @@ def get_matching_line(last_note: AnkiCard, lines=None, *, prefer_recent: bool = 
         if lines_match(line.text, anki_sentence):
             candidates.append(line)
 
-    # The clicked expression is the strongest discriminator in an NVL block. Only
+    # Overlay scans of NVL games often put every visible line into the Anki sentence.
+    # In that mode stream recency must outrank both expression containment and match
+    # size: otherwise a longer older line containing the clicked expression can win.
+    if prefer_recent and candidates:
+        return candidates[0]
+
+    # For normal mining, the clicked expression is the strongest discriminator. Only
     # enforce it when it occurs literally in the Anki sentence and at least one
     # candidate, so dictionary-form expressions do not discard a valid inflected line.
     if normalized_expression and normalized_expression in normalized_anki_sentence:
@@ -385,9 +391,6 @@ def get_matching_line(last_note: AnkiCard, lines=None, *, prefer_recent: bool = 
         ]
         if expression_candidates:
             candidates = expression_candidates
-
-    if prefer_recent and candidates:
-        return candidates[0]
 
     best_line = None
     best_score = -1.0

@@ -287,8 +287,14 @@ class CronTable(SQLiteDBTable):
             cron.next_run = next_run_dt.timestamp()
             logger.debug(f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}")
         elif cron.schedule == "daily":
-            next_run_dt = (now_dt + timedelta(days=1)).replace(hour=0, minute=1, second=0, microsecond=0)
-            cron.next_run = next_run_dt.timestamp()
+            if cron.name == "tadoku_sync":
+                from GameSentenceMiner.util.cron.tadoku_sync import _next_daily_run
+
+                cron.next_run = _next_daily_run(now_dt)
+                next_run_dt = datetime.fromtimestamp(cron.next_run)
+            else:
+                next_run_dt = (now_dt + timedelta(days=1)).replace(hour=0, minute=1, second=0, microsecond=0)
+                cron.next_run = next_run_dt.timestamp()
             logger.debug(f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}")
         elif cron.schedule == "weekly":
             # Schedule for 3am next week (same day)

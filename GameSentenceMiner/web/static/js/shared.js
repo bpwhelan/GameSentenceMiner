@@ -281,6 +281,7 @@ class SettingsManager {
         this.tadokuClearCredentialsInput = document.getElementById('tadoku_clear_credentials');
         this.tadokuLanguageCodeInput = document.getElementById('tadoku_language_code');
         this.tadokuDailySyncEnabledInput = document.getElementById('tadoku_daily_sync_enabled');
+        this.tadokuDailySyncTimeInput = document.getElementById('tadoku_daily_sync_time');
         this.tadokuDailySyncDeduplicateInput = document.getElementById('tadoku_daily_sync_deduplicate');
         this.tadokuGameWhitelist = document.getElementById('tadokuGameWhitelist');
         this.tadokuWhitelistSelectAllBtn = document.getElementById('tadokuWhitelistSelectAllBtn');
@@ -371,6 +372,7 @@ class SettingsManager {
             this.tadokuClearCredentialsInput,
             this.tadokuLanguageCodeInput,
             this.tadokuDailySyncEnabledInput,
+            this.tadokuDailySyncTimeInput,
             this.tadokuDailySyncDeduplicateInput,
         ]
             .filter(Boolean)
@@ -621,6 +623,7 @@ class SettingsManager {
                 tadoku_clear_credentials: clearCredentials,
                 tadoku_language_code: languageCode,
                 tadoku_daily_sync_enabled: Boolean(this.tadokuDailySyncEnabledInput?.checked),
+                tadoku_daily_sync_time: this.tadokuDailySyncTimeInput?.value || '00:01',
                 tadoku_daily_sync_deduplicate: Boolean(this.tadokuDailySyncDeduplicateInput?.checked),
                 tadoku_daily_sync_game_ids: Array.from(this.tadokuWhitelistSelectedGameIds),
             };
@@ -698,6 +701,9 @@ class SettingsManager {
         }
         if (this.tadokuDailySyncEnabledInput) {
             this.tadokuDailySyncEnabledInput.checked = Boolean(settings.tadoku_daily_sync_enabled);
+        }
+        if (this.tadokuDailySyncTimeInput) {
+            this.tadokuDailySyncTimeInput.value = settings.tadoku_daily_sync_time || '00:01';
         }
         if (this.tadokuDailySyncDeduplicateInput) {
             this.tadokuDailySyncDeduplicateInput.checked = settings.tadoku_daily_sync_deduplicate !== false;

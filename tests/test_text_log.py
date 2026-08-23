@@ -135,7 +135,7 @@ def test_get_matching_line_can_prefer_latest_valid_partial_match(monkeypatch):
     )
 
 
-def test_expression_match_beats_recency_for_overlay_ranking(monkeypatch):
+def test_overlay_recency_beats_expression_and_longer_match_for_nvl_ranking(monkeypatch):
     monkeypatch.setattr(
         text_log,
         "get_config",
@@ -146,7 +146,7 @@ def test_expression_match_beats_recency_for_overlay_ranking(monkeypatch):
     now = datetime.now()
     clicked_earlier_line = text_log.GameLine(
         id="clicked",
-        text="対象語がある一つ目の台詞です。",
+        text="対象語がある、先に表示されたとても長い一つ目の台詞です。",
         time=now - timedelta(seconds=2),
         prev=None,
         next=None,
@@ -171,5 +171,5 @@ def test_expression_match_beats_recency_for_overlay_ranking(monkeypatch):
             [clicked_earlier_line, newer_line],
             prefer_recent=True,
         )
-        is clicked_earlier_line
+        is newer_line
     )

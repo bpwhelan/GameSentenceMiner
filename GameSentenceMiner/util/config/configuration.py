@@ -1812,6 +1812,7 @@ class StatsConfig:
     tadoku_session_cookie: str = ""
     tadoku_language_code: str = "jpn"
     tadoku_daily_sync_enabled: bool = False
+    tadoku_daily_sync_time: str = "00:01"
     tadoku_daily_sync_deduplicate: bool = True
     tadoku_daily_sync_game_ids: List[str] = field(default_factory=list)
     easy_days_settings: Dict[str, int] = field(

@@ -1,4 +1,15 @@
-from GameSentenceMiner.owocr.owocr.ocr import build_spatial_text
+from GameSentenceMiner.owocr.owocr import ocr as ocr_module
+from GameSentenceMiner.owocr.owocr.ocr import (
+    BoundingBox,
+    ImageProperties,
+    Line,
+    OcrResult,
+    OneOCR,
+    Paragraph,
+    build_spatial_text,
+    ocr_result_to_oneocr_tuple,
+    post_process,
+)
 
 
 def test_build_spatial_text_joins_same_axis_lines_with_space():
@@ -58,3 +69,46 @@ def test_build_spatial_text_uses_x_axis_for_vertical_lines():
     ]
 
     assert build_spatial_text(lines) == "A B"
+
+
+def test_furigana_filter_reorders_surviving_fragments_by_position(monkeypatch):
+    monkeypatch.setattr(ocr_module, "get_ocr_language", lambda: "ja")
+
+    def line(text, center_x, center_y, width, height):
+        return Line(
+            text=text,
+            words=[],
+            bounding_box=BoundingBox(
+                center_x=center_x,
+                center_y=center_y,
+                width=width,
+                height=height,
+            ),
+        )
+
+    # OneOCR can return the right-hand fragment first when ruby text sits above
+    # it. Once those small ruby blocks are removed, reading order must come from
+    # the surviving geometry rather than that stale engine order.
+    lines = [
+        line("記録できたッチ!", 0.547, 0.175, 0.323, 0.207),
+        line("きろく", 0.431, 0.042, 0.051, 0.079),
+        line("「うむ。しっかり", 0.197, 0.174, 0.306, 0.224),
+        line("それではヨッチ村にレッツゴーだッチ!", 0.466, 0.454, 0.796, 0.221),
+        line("むら", 0.410, 0.321, 0.034, 0.084),
+    ]
+    result = OcrResult(
+        image_properties=ImageProperties(width=977, height=208),
+        engine_capabilities=OneOCR.capabilities,
+        paragraphs=[Paragraph(bounding_box=lines[-2].bounding_box, lines=lines)],
+    )
+
+    converted = ocr_result_to_oneocr_tuple(
+        (True, result),
+        furigana_filter_sensitivity=20,
+        prefer_axis_spacing=True,
+    )
+
+    assert converted[1] == "「うむ。しっかり 記録できたッチ!\nそれではヨッチ村にレッツゴーだッチ!"
+    assert post_process(converted[1], keep_blank_lines=True) == (
+        "「うむ。しっかり記録できたッチ！\nそれではヨッチ村にレッツゴーだッチ！"
+    )

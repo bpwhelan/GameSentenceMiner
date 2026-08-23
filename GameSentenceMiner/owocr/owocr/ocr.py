@@ -913,6 +913,39 @@ def _should_insert_inter_line_space(previous_text, current_text):
     return True
 
 
+def _order_filtered_horizontal_entries(line_entries, same_axis_height_ratio=0.6):
+    """Restore reading order after small ruby blocks have been removed."""
+    if len(line_entries) < 2 or any(entry.get("is_vertical") for entry in line_entries):
+        return line_entries
+
+    rows = []
+    for entry in sorted(line_entries, key=lambda item: float(item.get("center_y") or 0.0)):
+        center_y = float(entry.get("center_y") or 0.0)
+        height = max(float(entry.get("height") or 0.0), 1.0)
+        matching_row = next(
+            (
+                row
+                for row in rows
+                if abs(center_y - row["center_y"]) <= max(height, row["max_height"]) * float(same_axis_height_ratio)
+            ),
+            None,
+        )
+        if matching_row is None:
+            rows.append({"center_y": center_y, "max_height": height, "entries": [entry]})
+            continue
+
+        matching_row["entries"].append(entry)
+        matching_row["center_y"] = sum(
+            float(row_entry.get("center_y") or 0.0) for row_entry in matching_row["entries"]
+        ) / len(matching_row["entries"])
+        matching_row["max_height"] = max(matching_row["max_height"], height)
+
+    ordered_entries = []
+    for row in rows:
+        ordered_entries.extend(sorted(row["entries"], key=lambda item: float(item.get("center_x") or 0.0)))
+    return ordered_entries
+
+
 def build_spatial_text(
     line_entries,
     same_axis_height_ratio=0.6,
@@ -1126,6 +1159,8 @@ def ocr_result_to_oneocr_tuple(result_tuple, furigana_filter_sensitivity=0, pref
             )
 
     if prefer_axis_spacing:
+        if furigana_filter_sensitivity > 0:
+            full_text_entries = _order_filtered_horizontal_entries(full_text_entries)
         full_text = build_spatial_text(full_text_entries, blank_line_token="BLANK_LINE")
     else:
         full_text = "\n".join(entry["text"] for entry in full_text_entries)
