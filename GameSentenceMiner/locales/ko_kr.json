@@ -379,6 +379,10 @@
           "full_auto": {
             "label": "완전 자동 모드:",
             "tooltip": "Yomitan 1클릭 Anki 카드 생성."
+          },
+          "generate_longplay": {
+            "label": "롱플레이 생성:",
+            "tooltip": "OBS 녹화로 롱플레이 영상을 만들고 GSM에 입력되는 텍스트를 SRT 자막 파일로 기록합니다. 다시 시작해야 합니다."
           }
         },
         "screenshot": {
@@ -807,7 +811,11 @@
         "experimental": {
           "title": "실험적"
         },
+        "tokenization": {
+          "title": "토큰화"
+        },
         "game_pausing": {
+          "title": "게임 일시 중지",
           "enabled": {
             "label": "게임 일시 중지 활성화:",
             "tooltip": "실험적인 게임 일시 중지 기능을 활성화합니다."

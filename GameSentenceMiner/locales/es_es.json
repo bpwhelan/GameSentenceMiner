@@ -805,7 +805,11 @@
         "experimental": {
           "title": "Experimental"
         },
+        "tokenization": {
+          "title": "Tokenización"
+        },
         "game_pausing": {
+          "title": "Pausa del juego",
           "enabled": {
             "label": "Habilitar Pausa de Juego:",
             "tooltip": "Habilitar funciones experimentales de pausa de juego."

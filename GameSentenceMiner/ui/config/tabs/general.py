@@ -13,7 +13,6 @@ from PyQt6.QtWidgets import (
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from GameSentenceMiner.util.docs import DOCS_URLS
 from GameSentenceMiner.util.config.configuration import is_beangate
 from GameSentenceMiner.ui.config.safety import safe_config_callback
 from ..binding import ValueTransform
@@ -75,12 +74,6 @@ GENERAL_FIELDS = [
         "open_texthooker_on_startup",
         "open_multimine_on_startup_check",
     ),
-    FieldSpec(
-        ("profile", "features", "notify_on_update"),
-        "features",
-        "notify_on_update",
-        "notify_on_update_check",
-    ),
 ]
 
 
@@ -140,20 +133,6 @@ def build_general_tab(window: ConfigWindow, binder: BindingManager, i18n: dict) 
         layout.addRow(label, getattr(window, spec.attr))
         binder.bind(spec.path, getattr(window, spec.attr), transform=spec.transform)
 
-    features_group = window._create_group_box("Features")
-    features_layout = QFormLayout()
-    features_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-    features_layout.addRow(QLabel("Generate LongPlay"), window.generate_longplay_check)
-    window.generate_longplay_check.setToolTip(
-        "Generate a LongPlay video using OBS recording, and write to a .srt file with all the text coming into gsm. RESTART REQUIRED."
-    )
-    features_layout.addRow(
-        QLabel("Documentation:"),
-        window._create_docs_links_widget([("Longplay Guide", DOCS_URLS["longplay"])]),
-    )
-    features_group.setLayout(features_layout)
-    layout.addRow(features_group)
-
     if is_beangate:
         test_button = QPushButton(i18n.get("buttons", {}).get("run_function", "Run Function"))
         test_button.clicked.connect(
@@ -165,7 +144,7 @@ def build_general_tab(window: ConfigWindow, binder: BindingManager, i18n: dict) 
         layout.addRow(test_button)
 
     layout.addItem(QVBoxLayout().addStretch())
-    layout.addRow(window._create_reset_button(["general", "features"], window._create_general_tab))
+    layout.addRow(window._create_reset_button("general", window._create_general_tab))
     return widget
 
 

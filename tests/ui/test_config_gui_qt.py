@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from types import SimpleNamespace
 
 from PyQt6.QtCore import QEvent, Qt
@@ -445,6 +446,60 @@ def test_reset_to_default_handles_numeric_screenshot_defaults(monkeypatch) -> No
         assert window.screenshot_width_edit.text() == "0"
         assert window.screenshot_height_edit.text() == "0"
         assert window.screenshot_quality_edit.text() == "85"
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_features_tab_collects_optional_feature_controls(monkeypatch) -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+
+    monkeypatch.setattr(
+        "GameSentenceMiner.ui.config_gui_qt.get_latest_version",
+        lambda: "test-version",
+    )
+    monkeypatch.setattr(ConfigWindow, "_refresh_anki_model_list", lambda self, preserve_selection=True: None)
+    monkeypatch.setattr(ConfigWindow, "_load_monitors", lambda self, preferred_index=None: None)
+    monkeypatch.setattr(ConfigWindow, "get_online_models", lambda self: None)
+
+    window = ConfigWindow()
+    try:
+        window.obs_error_timer.stop()
+        window.obs_scene_refresh_timer.stop()
+
+        assert "features" in window._settings_tab_indices
+        assert window.tab_widget.tabText(window._settings_tab_indices["features"]) == "Features"
+        assert set(window._settings_subtab_indices["features"]) == {
+            "general",
+            "tokenization",
+            "game_pausing",
+        }
+
+        feature_tabs = window._settings_subtab_widgets["features"]
+        promoted_controls = {
+            "general": (
+                window.generate_longplay_check,
+                window.notify_on_update_check,
+            ),
+            "tokenization": (
+                window.experimental_features_enabled_check,
+                window.enable_tokenization_check,
+                window.tokenization_backend_combo,
+            ),
+            "game_pausing": (
+                window.process_pausing_enabled_check,
+                window.process_pausing_auto_resume_seconds_edit,
+            ),
+        }
+        if sys.platform == "win32":
+            promoted_controls["general"] += (window.mute_game_on_minimize_check,)
+        for subtab_key, controls in promoted_controls.items():
+            pane = feature_tabs.widget(window._settings_subtab_indices["features"][subtab_key])
+            assert all(pane.isAncestorOf(control) for control in controls)
+
+        assert "advanced" not in window._settings_subtab_widgets
+        assert "discord" in window._settings_subtab_indices["general"]
     finally:
         window.close()
         app.processEvents()

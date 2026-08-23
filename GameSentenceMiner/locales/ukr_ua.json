@@ -379,6 +379,10 @@
           "full_auto": {
             "label": "Режим повної автоматизації:",
             "tooltip": "Створення карток Anki в 1 клік через Yomitan."
+          },
+          "generate_longplay": {
+            "label": "Створювати Longplay:",
+            "tooltip": "Створювати Longplay-відео із запису OBS і записувати вхідний текст GSM у файл субтитрів SRT. Потрібен перезапуск."
           }
         },
         "screenshot": {
@@ -810,7 +814,11 @@
         "experimental": {
           "title": "Експериментальні"
         },
+        "tokenization": {
+          "title": "Токенізація"
+        },
         "game_pausing": {
+          "title": "Призупинення гри",
           "enabled": {
             "label": "Увімкнути паузу гри:",
             "tooltip": "Увімкнути експериментальну функцію паузи гри."

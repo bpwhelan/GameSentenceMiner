@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from PyQt6.QtWidgets import (
+    QFormLayout,
     QHBoxLayout,
     QLabel,
-    QFormLayout,
-    QWidget,
-    QStyle,
-    QPushButton,
     QMessageBox,
+    QPushButton,
+    QStyle,
+    QWidget,
 )
-from typing import TYPE_CHECKING
 
 from GameSentenceMiner.ui.config.safety import safe_config_call, safe_config_callback
 from GameSentenceMiner.util.config.configuration import is_linux, logger
@@ -155,13 +156,14 @@ def _create_process_list_row(window: "ConfigWindow", line_edit, list_name: str) 
     return row_widget
 
 
-def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
+def build_tokenization_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     widget = QWidget()
     layout = QFormLayout(widget)
     layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
     tabs_i18n = i18n.get("tabs", {})
 
-    warning_label = QLabel("Warning: These features are experimental, use at your own risk.")
+    warning_label = QLabel("Tokenization is experimental and may use significant CPU, memory, and disk space.")
+    warning_label.setWordWrap(True)
     warning_label.setStyleSheet("color: #FF6B6B;")
     layout.addRow(warning_label)
 
@@ -175,8 +177,7 @@ def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window.experimental_features_enabled_check,
     )
 
-    # -- Tokenization group --
-    tokenization_group = window._create_group_box("Tokenization (Experimental)")
+    tokenization_group = window._create_group_box("Tokenization")
     tokenization_layout = QFormLayout(tokenization_group)
     tokenization_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
 
@@ -209,6 +210,14 @@ def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     tokenization_layout.addRow(weak_mode_label, window.tokenize_low_performance_check)
 
     layout.addRow(tokenization_group)
+    return widget
+
+
+def build_game_pausing_tab(window: ConfigWindow, i18n: dict) -> QWidget:
+    widget = QWidget()
+    layout = QFormLayout(widget)
+    layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    tabs_i18n = i18n.get("tabs", {})
 
     layout.addRow(
         QLabel("Documentation:"),

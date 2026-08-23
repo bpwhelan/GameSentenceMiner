@@ -370,6 +370,10 @@
           "full_auto": {
             "label": "フルオートモード:",
             "tooltip": "YomitanのワンクリックでAnkiカードを作成します。"
+          },
+          "generate_longplay": {
+            "label": "ロングプレイを生成:",
+            "tooltip": "OBS録画からロングプレイ動画を生成し、GSMに入力されたテキストをSRT字幕ファイルに書き込みます。再起動が必要です。"
           }
         },
         "screenshot": {
@@ -776,7 +780,11 @@
         "experimental": {
           "title": "Experimental"
         },
+        "tokenization": {
+          "title": "トークン化"
+        },
         "game_pausing": {
+          "title": "ゲーム一時停止",
           "enabled": {
             "label": "ゲーム一時停止を有効化:",
             "tooltip": "実験的なゲーム一時停止機能を有効化します。"

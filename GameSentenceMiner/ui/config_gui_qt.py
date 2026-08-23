@@ -68,7 +68,8 @@ from GameSentenceMiner.ui.config.tabs.anki import (
     build_anki_tags_tab,
 )
 from GameSentenceMiner.ui.config.tabs.audio import build_audio_tab
-from GameSentenceMiner.ui.config.tabs.experimental import build_experimental_tab
+from GameSentenceMiner.ui.config.tabs.experimental import build_game_pausing_tab, build_tokenization_tab
+from GameSentenceMiner.ui.config.tabs.features import build_features_tab
 from GameSentenceMiner.ui.config.tabs.gsm_cloud import build_gsm_cloud_tab
 from GameSentenceMiner.ui.config.tabs.general import (
     build_general_tab,
@@ -2362,6 +2363,31 @@ class ConfigWindow(QWidget):
             general_subtabs, tabs_i18n.get("general", {}).get("title", "General")
         )
 
+        features_subtabs = self._create_subtab_widget(
+            [
+                (
+                    "general",
+                    self._create_features_tab(),
+                    tabs_i18n.get("general", {}).get("title", "General"),
+                ),
+                (
+                    "tokenization",
+                    self._create_tokenization_tab(),
+                    tabs_i18n.get("tokenization", {}).get("title", "Tokenization"),
+                ),
+                (
+                    "game_pausing",
+                    self._create_game_pausing_tab(),
+                    tabs_i18n.get("game_pausing", {}).get("title", "Game Pausing"),
+                ),
+            ],
+            root_key="features",
+        )
+        features_subtabs.setStyleSheet(self._get_sub_tabs_style(min_width=88, horizontal_padding=8))
+        self._settings_tab_indices["features"] = self.tab_widget.addTab(
+            features_subtabs, tabs_i18n.get("features", {}).get("title", "Features")
+        )
+
         anki_subtabs = self._create_subtab_widget(
             [
                 ("general", self._create_anki_general_tab(), "General"),
@@ -2433,23 +2459,9 @@ class ConfigWindow(QWidget):
         )
         self._settings_tab_indices["overlay"] = self.overlay_tab_index
 
-        advanced_subtabs = self._create_subtab_widget(
-            [
-                (
-                    "advanced",
-                    self._create_advanced_tab(),
-                    tabs_i18n.get("advanced", {}).get("title", "Advanced"),
-                ),
-                (
-                    "experimental",
-                    self._create_experimental_tab(),
-                    tabs_i18n.get("experimental", {}).get("title", "Experimental"),
-                ),
-            ],
-            root_key="advanced",
-        )
         self._settings_tab_indices["advanced"] = self.tab_widget.addTab(
-            advanced_subtabs, tabs_i18n.get("advanced", {}).get("title", "Advanced")
+            self._wrap_tab_in_scroll_area(self._create_advanced_tab()),
+            tabs_i18n.get("advanced", {}).get("title", "Advanced"),
         )
 
         self._settings_tab_indices["profiles"] = self.tab_widget.addTab(
@@ -2916,6 +2928,9 @@ class ConfigWindow(QWidget):
     def _create_discord_tab(self):
         return build_discord_tab(self, self.binder, self.i18n)
 
+    def _create_features_tab(self):
+        return build_features_tab(self, self.binder, self.i18n)
+
     def _create_text_processing_tab(self):
         return build_text_processing_tab(self, self.binder, self.i18n)
 
@@ -2961,8 +2976,11 @@ class ConfigWindow(QWidget):
     def _create_hotkeys_tab(self):
         return build_hotkeys_tab(self, self.i18n)
 
-    def _create_experimental_tab(self):
-        return build_experimental_tab(self, self.i18n)
+    def _create_tokenization_tab(self):
+        return build_tokenization_tab(self, self.i18n)
+
+    def _create_game_pausing_tab(self):
+        return build_game_pausing_tab(self, self.i18n)
 
     def _show_game_pausing_warning(self):
         warning_msg = (
@@ -3624,9 +3642,9 @@ class ConfigWindow(QWidget):
             }
         """
 
-    def _get_sub_tabs_style(self):
+    def _get_sub_tabs_style(self, min_width: int = 120, horizontal_padding: int = 12):
         """Returns stylesheet for horizontal sub-tab groups."""
-        return """
+        style = """
             QTabWidget#ConfigSubTabs::pane {
                 border: 1px solid #333943;
                 border-radius: 10px;
@@ -3657,6 +3675,9 @@ class ConfigWindow(QWidget):
                 font-weight: 600;
             }
         """
+        return style.replace("padding: 8px 12px", f"padding: 8px {horizontal_padding}px").replace(
+            "min-width: 120px", f"min-width: {min_width}px"
+        )
 
     def _update_ai_provider_visibility(self):
         """Shows/hides AI provider settings based on selected provider."""

@@ -413,6 +413,10 @@
           "full_auto": {
             "label": "Full Auto Mode:",
             "tooltip": "Yomitan 1-click anki card creation."
+          },
+          "generate_longplay": {
+            "label": "Generate Longplay:",
+            "tooltip": "Generate a Longplay video from OBS recording and write incoming GSM text to an SRT subtitle file. Restart required."
           }
         },
         "screenshot": {
@@ -859,7 +863,11 @@
         "experimental": {
           "title": "Experimental"
         },
+        "tokenization": {
+          "title": "Tokenization"
+        },
         "game_pausing": {
+          "title": "Game Pausing",
           "enabled": {
             "label": "Enable Game Pausing:",
             "tooltip": "Enable experimental game pausing features."

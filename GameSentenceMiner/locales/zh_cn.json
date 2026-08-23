@@ -371,6 +371,10 @@
           "full_auto": {
             "label": "全自动模式:",
             "tooltip": "Yomitan 一键创建 Anki 卡片。"
+          },
+          "generate_longplay": {
+            "label": "生成长流程视频:",
+            "tooltip": "从 OBS 录制生成长流程视频，并将 GSM 收到的文本写入 SRT 字幕文件。需要重启。"
           }
         },
         "screenshot": {
@@ -762,7 +766,11 @@
         "experimental": {
           "title": "Experimental"
         },
+        "tokenization": {
+          "title": "分词"
+        },
         "game_pausing": {
+          "title": "游戏暂停",
           "enabled": {
             "label": "启用游戏暂停:",
             "tooltip": "启用实验性的游戏暂停功能。"
