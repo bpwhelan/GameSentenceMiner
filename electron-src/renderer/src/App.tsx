@@ -8,6 +8,7 @@ import { InstallSessionModal } from "./components/InstallSessionModal";
 import { WhatsChangedDialog } from "./components/WhatsChangedDialog";
 import type { ControlledTab } from "./types/models";
 import { OCRTab } from "./components/tabs/OCRTab";
+import { getDevPreviewTab } from "./lib/devPreview";
 import { TextHookTab } from "./components/tabs/TextHookTab";
 import { TextProcessingTab } from "./components/tabs/TextProcessingTab";
 import { HomeTab } from "./components/tabs/HomeTab";
@@ -875,7 +876,12 @@ export default function App() {
   const isWindows = platform === "win32";
   const isLinux = platform === "linux";
   const canTextHook = isWindows;
-  const [activeTab, setActiveTab] = useState<TabId>("obs");
+  const requestedPreviewTab = getDevPreviewTab();
+  const initialTab =
+    requestedPreviewTab && TAB_IDS.has(requestedPreviewTab as TabId)
+      ? (requestedPreviewTab as TabId)
+      : "obs";
+  const [activeTab, setActiveTab] = useState<TabId>(initialTab);
   const [showWizard, setShowWizard] = useState(false);
   const [wizardChecked, setWizardChecked] = useState(false);
   const [installSession, setInstallSession] = useState<InstallSessionSnapshot | null>(null);

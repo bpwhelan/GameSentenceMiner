@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import { SceneSwitchConflictWindow } from "./components/SceneSwitchConflictWindow";
 import { I18nProvider } from "./i18n";
+import { installDevPreviewBridge } from "./lib/devPreview";
 import { applyTheme } from "./lib/theme";
 import "./styles.css";
 import "@xterm/xterm/css/xterm.css";
@@ -24,6 +25,8 @@ const suppressReactDevtoolsBanner = (original: (...args: unknown[]) => void) => 
 
 console.info = suppressReactDevtoolsBanner(originalConsoleInfo);
 console.log = suppressReactDevtoolsBanner(originalConsoleLog);
+
+installDevPreviewBridge();
 
 async function getInitialSettings(): Promise<{ locale: string; theme?: string }> {
   try {
