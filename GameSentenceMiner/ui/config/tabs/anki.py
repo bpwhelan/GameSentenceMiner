@@ -323,6 +323,18 @@ def build_anki_confirmation_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window._create_labeled_widget(
             tabs_i18n,
             "anki",
+            "confirmation_gamepad_enabled",
+            (
+                "Use D-pad to move focus, A to choose the VAD-recommended audio result, and B to choose "
+                "the opposite. Other GSM gamepad controls are paused while the dialog is open."
+            ),
+        ),
+        window.anki_confirmation_gamepad_enabled_check,
+    )
+    layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "anki",
             "autoplay_audio",
             "Automatically play the selected audio range when the dialog opens.",
         ),

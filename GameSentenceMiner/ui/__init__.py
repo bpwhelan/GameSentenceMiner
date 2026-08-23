@@ -117,6 +117,22 @@ class WindowStateManager:
             logger.error(f"Error centering window: {e}")
             return False
 
+    def ensure_geometry_visible(self, window: "QWidget") -> bool:
+        """Clamp a currently positioned window to an available screen.
+
+        Unlike :meth:`restore_geometry`, this uses the window's live geometry. It
+        is intended for reusable dialogs whose monitor may disappear between
+        showings while the application remains open.
+        """
+        target_rect = self._fit_rect_to_screens(window.geometry())
+        if target_rect is None:
+            return False
+
+        if window.geometry() != target_rect:
+            window.resize(target_rect.size())
+            window.move(target_rect.topLeft())
+        return True
+
     @staticmethod
     def _to_int(value):
         try:

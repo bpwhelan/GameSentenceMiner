@@ -208,6 +208,10 @@
             "label": "Show Update Confirmation Dialog:",
             "tooltip": "Show a confirmation dialog before updating Anki cards."
           },
+          "confirmation_gamepad_enabled": {
+            "label": "Gamepad Controls:",
+            "tooltip": "Use the D-pad to move focus, A for the VAD-recommended audio result, and B for the opposite result. Other GSM gamepad controls are paused while the dialog is open."
+          },
           "url": {
             "label": "Anki URL:",
             "tooltip": "The URL to connect to your Anki instance."

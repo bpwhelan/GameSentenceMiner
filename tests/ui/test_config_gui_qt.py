@@ -8,7 +8,7 @@ from PyQt6.QtGui import QKeyEvent, QKeySequence
 from PyQt6.QtWidgets import QApplication, QCheckBox, QMessageBox
 
 from GameSentenceMiner.ui.config_gui_qt import ClearableKeySequenceEdit, ConfigWindow
-from GameSentenceMiner.util.config.configuration import Locale
+from GameSentenceMiner.util.config.configuration import Anki, Locale
 
 
 class _FakeConfigWindow:
@@ -75,6 +75,10 @@ class _FakeDeleteButton:
 
     def setHidden(self, hidden: bool) -> None:
         self.hidden = hidden
+
+
+def test_anki_confirmation_gamepad_support_is_opt_in() -> None:
+    assert Anki().confirmation_gamepad_enabled is False
 
 
 def test_show_window_impl_restores_minimized_window(monkeypatch) -> None:

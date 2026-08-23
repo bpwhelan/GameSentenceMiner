@@ -42,6 +42,7 @@ from GameSentenceMiner.util.gsm_utils import (
 )
 from GameSentenceMiner.util.media.audio_player import AudioPlayer
 from GameSentenceMiner.util.media.ffmpeg import get_audio_length, get_video_duration, splice_audio, trim_audio
+from GameSentenceMiner.util.platform.gamepad_hotkey import GamepadHotkeyDispatcher, GamepadInputClient
 
 
 # -------------------------------------------------------------------------
@@ -178,6 +179,7 @@ EXIT_CHOICE_CANCEL = "cancel"
 
 class AnkiConfirmationDialog(QDialog):
     audio_finished_signal = pyqtSignal()
+    gamepad_button_signal = pyqtSignal(int)
     WINDOW_ID = "anki_confirmation_dialog"
 
     # UPDATE 1: Accept parent=None
@@ -223,6 +225,9 @@ class AnkiConfirmationDialog(QDialog):
         self._dialogue_replay_selected_lines = None
         self._exit_confirmed = False
         self._rejected_cleanup_done = False
+        self._gamepad_dispatcher = None
+        self._gamepad_client = None
+        self._gamepad_capture_active = False
 
         # Auto-accept timer
         self._auto_accept_qtimer = None
@@ -233,6 +238,7 @@ class AnkiConfirmationDialog(QDialog):
         # Audio player
         self.audio_player = AudioPlayer(finished_callback=self._audio_finished)
         self.audio_finished_signal.connect(self._update_audio_buttons)
+        self.gamepad_button_signal.connect(self._on_gamepad_button)
         self._translation_future = None
         self._translation_pending = False
         self._translation_poll_timer = QTimer(self)
@@ -821,7 +827,14 @@ class AnkiConfirmationDialog(QDialog):
             if not restored:
                 self._center_on_screen()
             self.first_launch = False
+        else:
+            window_state_manager.ensure_geometry_visible(self)
         super().showEvent(event)
+
+        if getattr(get_config().anki, "confirmation_gamepad_enabled", False):
+            self._start_gamepad_capture()
+        else:
+            self._stop_gamepad_capture()
 
         if self._should_focus_on_show():
             self.raise_()
@@ -849,6 +862,65 @@ class AnkiConfirmationDialog(QDialog):
         if get_config().anki.autoplay_audio and self.audio_path and os.path.exists(self.audio_path):
             # Use QTimer to delay slightly to ensure window is ready/rendered
             QTimer.singleShot(100, self._play_range)
+
+    def hideEvent(self, event):
+        self._stop_gamepad_capture()
+        super().hideEvent(event)
+
+    def _start_gamepad_capture(self):
+        if self._gamepad_client is not None:
+            return
+
+        dispatcher = GamepadHotkeyDispatcher()
+        for button in (0, 1, 12, 13, 14, 15):
+            dispatcher.register(button, lambda button=button: self.gamepad_button_signal.emit(button))
+
+        self._gamepad_dispatcher = dispatcher
+        self._gamepad_client = GamepadInputClient(dispatcher, exclusive=True)
+        self._gamepad_capture_active = True
+        self._gamepad_client.start()
+
+    def _stop_gamepad_capture(self):
+        self._gamepad_capture_active = False
+        client = self._gamepad_client
+        self._gamepad_client = None
+        self._gamepad_dispatcher = None
+        if client is not None:
+            client.stop()
+
+    def _on_gamepad_button(self, button):
+        if not self._gamepad_capture_active or not self.isVisible():
+            return
+        active_modal = QApplication.activeModalWidget()
+        if active_modal is not None and active_modal is not self:
+            return
+
+        if button in (12, 14):
+            self._cancel_auto_accept()
+            self.focusNextPrevChild(False)
+        elif button in (13, 15):
+            self._cancel_auto_accept()
+            self.focusNextPrevChild(True)
+        elif button == 0:
+            self._apply_gamepad_confirmation_action(use_recommended=True)
+        elif button == 1:
+            self._apply_gamepad_confirmation_action(use_recommended=False)
+
+    def _apply_gamepad_confirmation_action(self, *, use_recommended):
+        self._cancel_auto_accept()
+
+        audio_choices_visible = self.voice_button.isVisible() and self.no_voice_button.isVisible()
+        if not audio_choices_visible:
+            self._on_no_voice()
+            return
+
+        vad_ran = self.vad_result is not None and hasattr(self.vad_result, "success")
+        vad_detected_voice = vad_ran and bool(self.vad_result.success)
+        keep_audio = vad_detected_voice if use_recommended else not vad_detected_voice
+        if keep_audio:
+            self._on_voice()
+        else:
+            self._on_no_voice()
 
     def _cancel_auto_accept(self):
         if self._auto_accept_qtimer and self._auto_accept_qtimer.isActive():

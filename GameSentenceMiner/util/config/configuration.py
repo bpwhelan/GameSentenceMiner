@@ -835,6 +835,7 @@ class Anki:
     auto_accept_timer: int = 10
     confirmation_always_on_top: bool = True
     confirmation_focus_on_show: bool = True
+    confirmation_gamepad_enabled: bool = False
     url: str = "http://127.0.0.1:8765"
     note_type: str = ""
     available_fields: List[str] = field(default_factory=list)
@@ -2272,6 +2273,7 @@ class Config:
             self.sync_shared_field(config.anki, profile.anki, "auto_accept_timer")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_always_on_top")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_focus_on_show")
+            self.sync_shared_field(config.anki, profile.anki, "confirmation_gamepad_enabled")
             self.sync_shared_field(config.anki, profile.anki, "replay_audio_on_tts_generation")
             self.sync_shared_field(
                 config.anki,

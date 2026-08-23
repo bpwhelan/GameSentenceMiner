@@ -198,6 +198,10 @@
             "label": "显示更新确认对话框:",
             "tooltip": "在更新 Anki 卡片之前显示确认对话框。"
           },
+          "confirmation_gamepad_enabled": {
+            "label": "手柄控制:",
+            "tooltip": "使用方向键移动焦点，按 A 选择 VAD 推荐的音频结果，按 B 选择相反结果。对话框打开时，其他 GSM 手柄控制会暂停。"
+          },
           "url": {
             "label": "Anki URL:",
             "tooltip": "连接到您的 Anki 实例的 URL。"

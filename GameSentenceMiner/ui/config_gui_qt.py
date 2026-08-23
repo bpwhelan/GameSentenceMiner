@@ -888,6 +888,7 @@ class ConfigWindow(QWidget):
                     remove_overlay_tag=self.remove_overlay_tag_check.isChecked(),
                     confirmation_always_on_top=self.anki_confirmation_always_on_top_check.isChecked(),
                     confirmation_focus_on_show=self.anki_confirmation_focus_on_show_check.isChecked(),
+                    confirmation_gamepad_enabled=self.anki_confirmation_gamepad_enabled_check.isChecked(),
                     replay_audio_on_tts_generation=self.anki_confirmation_replay_audio_on_tts_generation_check.isChecked(),
                     reuse_audio_for_same_selected_lines_different_mined_line=(
                         self.anki_same_selection_different_line_reuse_audio_check.isChecked()
@@ -1460,6 +1461,7 @@ class ConfigWindow(QWidget):
         self.auto_accept_timer_edit.setValidator(QTGui.QIntValidator())
         self.anki_confirmation_always_on_top_check = QCheckBox()
         self.anki_confirmation_focus_on_show_check = QCheckBox()
+        self.anki_confirmation_gamepad_enabled_check = QCheckBox()
         self.anki_confirmation_autoplay_audio_check = QCheckBox()
         self.anki_confirmation_replay_audio_on_tts_generation_check = QCheckBox()
         self.anki_same_selection_different_line_reuse_audio_check = QCheckBox()
@@ -3018,6 +3020,9 @@ class ConfigWindow(QWidget):
         self._sync_auto_accept_timer_controls()
         self.anki_confirmation_always_on_top_check.setChecked(bool(getattr(s.anki, "confirmation_always_on_top", True)))
         self.anki_confirmation_focus_on_show_check.setChecked(bool(getattr(s.anki, "confirmation_focus_on_show", True)))
+        self.anki_confirmation_gamepad_enabled_check.setChecked(
+            bool(getattr(s.anki, "confirmation_gamepad_enabled", False))
+        )
         self.anki_confirmation_autoplay_audio_check.setChecked(bool(s.anki.autoplay_audio))
         self.anki_confirmation_replay_audio_on_tts_generation_check.setChecked(
             bool(getattr(s.anki, "replay_audio_on_tts_generation", True))

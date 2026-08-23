@@ -202,6 +202,10 @@
             "label": "업데이트 확인 대화상자 표시:",
             "tooltip": "Anki 카드를 업데이트하기 전에 확인 대화상자를 표시합니다."
           },
+          "confirmation_gamepad_enabled": {
+            "label": "게임패드 컨트롤:",
+            "tooltip": "방향 패드로 포커스를 이동하고, A로 VAD 권장 오디오 결과를 선택하며, B로 반대 결과를 선택합니다. 대화상자가 열려 있는 동안 다른 GSM 게임패드 컨트롤은 일시 중지됩니다."
+          },
           "url": {
             "label": "Anki URL:",
             "tooltip": "Anki 인스턴스에 연결하기 위한 URL입니다."

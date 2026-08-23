@@ -18,6 +18,7 @@ use std::io::{BufWriter, Cursor, Write};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::thread;
 use std::time::{Duration, Instant, UNIX_EPOCH};
@@ -157,6 +158,98 @@ enum ButtonCode {
     DPAD_LEFT = 14,
     DPAD_RIGHT = 15,
     GUIDE = 16,
+}
+
+static GAMEPAD_CAPTURE_OWNER: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Debug, Clone, Copy, Default)]
+struct GamepadCaptureRegistry;
+
+impl GamepadCaptureRegistry {
+    fn acquire(&self, client_id: u64) -> bool {
+        loop {
+            let owner = GAMEPAD_CAPTURE_OWNER.load(Ordering::Acquire);
+            if owner == client_id {
+                return true;
+            }
+            if owner != 0 {
+                return false;
+            }
+            if GAMEPAD_CAPTURE_OWNER
+                .compare_exchange(0, client_id, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                return true;
+            }
+        }
+    }
+
+    fn release(&self, client_id: u64) -> bool {
+        GAMEPAD_CAPTURE_OWNER
+            .compare_exchange(client_id, 0, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+
+    fn is_owner(&self, client_id: u64) -> bool {
+        self.owner() == Some(client_id)
+    }
+
+    fn is_active(&self) -> bool {
+        self.owner().is_some()
+    }
+
+    fn owner(&self) -> Option<u64> {
+        match GAMEPAD_CAPTURE_OWNER.load(Ordering::Acquire) {
+            0 => None,
+            owner => Some(owner),
+        }
+    }
+
+    fn should_route(&self, client_id: u64, payload: &str) -> bool {
+        if !self.is_active() && !payload.contains("\"_captureOwner\"") {
+            return true;
+        }
+        let Some(capture_owner) = gamepad_control_capture_owner(payload) else {
+            return true;
+        };
+        match capture_owner {
+            Some(owner_at_emission) => owner_at_emission == client_id,
+            None => self.owner().is_none_or(|owner| owner == client_id),
+        }
+    }
+}
+
+fn gamepad_control_capture_owner(payload: &str) -> Option<Option<u64>> {
+    let value = serde_json::from_str::<Value>(payload).ok()?;
+    if !matches!(
+        value.get("type").and_then(Value::as_str),
+        Some("button" | "axis")
+    ) {
+        return None;
+    }
+    Some(value.get("_captureOwner").and_then(Value::as_u64))
+}
+
+fn tag_gamepad_control_payload(payload: String) -> String {
+    let owner = GAMEPAD_CAPTURE_OWNER.load(Ordering::Acquire);
+    if owner == 0 {
+        return payload;
+    }
+
+    let Ok(mut value) = serde_json::from_str::<Value>(&payload) else {
+        return payload;
+    };
+    if !matches!(
+        value.get("type").and_then(Value::as_str),
+        Some("button" | "axis")
+    ) {
+        return payload;
+    }
+    let Some(object) = value.as_object_mut() else {
+        return payload;
+    };
+    object.insert("_captureOwner".to_string(), json!(owner));
+    value.to_string()
 }
 
 fn map_button(btn: Button) -> Option<ButtonCode> {
@@ -1607,6 +1700,14 @@ enum ClientMsg {
     #[serde(rename = "get_state")]
     GetState,
 
+    /// Temporarily route controller button/axis events only to this connection.
+    /// Ownership is released automatically when the connection closes.
+    #[serde(rename = "configure_gamepad_capture")]
+    ConfigureGamepadCapture {
+        #[serde(default)]
+        enabled: bool,
+    },
+
     /// Replace this connection's optional-capability lease. Leases from other
     /// clients remain active and are released automatically on disconnect.
     #[serde(rename = "configure_features")]
@@ -1736,7 +1837,7 @@ fn should_send_axis(
 }
 
 fn send_broadcast(tx: &broadcast::Sender<String>, payload: String, label: &str) {
-    match tx.send(payload) {
+    match tx.send(tag_gamepad_control_payload(payload)) {
         Ok(receivers) => debug!("broadcast {label} to {receivers} subscriber(s)"),
         Err(_) => warn!("broadcast {label} dropped: no websocket subscribers"),
     }
@@ -1792,6 +1893,35 @@ async fn configure_device_blacklist(
         "devices": sorted_devices,
     });
     send_broadcast(tx, msg.to_string(), "device_blacklist_updated");
+}
+
+async fn broadcast_gamepad_state_snapshots(
+    states: &'static SharedStates,
+    device_blacklist: &SharedDeviceBlacklist,
+    tx: &broadcast::Sender<String>,
+) {
+    let snapshot = {
+        let guard = states.lock().await;
+        guard
+            .values()
+            .filter(|st| !is_device_blacklisted(device_blacklist, &st.device_name))
+            .map(|st| (st.device_name.clone(), st.buttons.clone(), st.axes.clone()))
+            .collect::<Vec<_>>()
+    };
+
+    for (device_name, buttons, axes) in snapshot {
+        send_broadcast(
+            tx,
+            json!({
+                "type": "gamepad_state",
+                "device": device_name,
+                "buttons": buttons,
+                "axes": axes,
+            })
+            .to_string(),
+            "gamepad_state(capture_released)",
+        );
+    }
 }
 
 fn configure_manual_hotkey(
@@ -2260,6 +2390,7 @@ async fn handle_socket(
     sudachi: &'static SharedSudachi,
     manual_hotkey: SharedManualHotkey,
     features: FeatureRegistry,
+    gamepad_capture: GamepadCaptureRegistry,
 ) {
     let ws = match accept_async(stream).await {
         Ok(ws) => ws,
@@ -2343,7 +2474,9 @@ async fn handle_socket(
             b = rx.recv() => {
                 match b {
                     Ok(text) => {
-                        if ws_sink.send(Message::Text(text)).await.is_err() {
+                        if gamepad_capture.should_route(feature_client_id, &text)
+                            && ws_sink.send(Message::Text(text)).await.is_err()
+                        {
                             break;
                         }
                     }
@@ -2392,6 +2525,30 @@ async fn handle_socket(
                                     if ws_sink.send(Message::Text(msg.to_string())).await.is_err() {
                                         break;
                                     }
+                                }
+                            }
+                            Ok(ClientMsg::ConfigureGamepadCapture { enabled }) => {
+                                let released = if enabled {
+                                    gamepad_capture.acquire(feature_client_id);
+                                    false
+                                } else {
+                                    gamepad_capture.release(feature_client_id)
+                                };
+                                let payload = json!({
+                                    "type": "gamepad_capture_changed",
+                                    "active": gamepad_capture.is_active(),
+                                    "owned": gamepad_capture.is_owner(feature_client_id),
+                                });
+                                if ws_sink.send(Message::Text(payload.to_string())).await.is_err() {
+                                    break;
+                                }
+                                if released {
+                                    broadcast_gamepad_state_snapshots(
+                                        states,
+                                        &device_blacklist,
+                                        &_tx,
+                                    )
+                                    .await;
                                 }
                             }
                             Ok(ClientMsg::ConfigureFeatures { features: requested }) => {
@@ -2588,6 +2745,10 @@ async fn handle_socket(
         guard.capture_all = false;
     }
 
+    if gamepad_capture.release(feature_client_id) {
+        broadcast_gamepad_state_snapshots(states, &device_blacklist, &_tx).await;
+    }
+
     features.release_client(feature_client_id);
     send_broadcast(
         &_tx,
@@ -2607,6 +2768,7 @@ async fn websocket_server(
     sudachi: &'static SharedSudachi,
     manual_hotkey: SharedManualHotkey,
     features: FeatureRegistry,
+    gamepad_capture: GamepadCaptureRegistry,
 ) {
     let listener = TcpListener::bind(bind).await.expect("bind failed");
     info!("server running at ws://{bind}");
@@ -2635,6 +2797,7 @@ async fn websocket_server(
             sudachi,
             manual_hotkey.clone(),
             features.clone(),
+            gamepad_capture.clone(),
         ));
     }
 }
@@ -3184,6 +3347,7 @@ async fn main() {
         },
         ..ManualHotkeyState::default()
     }));
+    let gamepad_capture = GamepadCaptureRegistry::default();
 
     let cfg = Config::default();
 
@@ -3197,6 +3361,7 @@ async fn main() {
         sudachi,
         manual_hotkey.clone(),
         features.clone(),
+        gamepad_capture,
     ));
     tokio::spawn(axis_repeat_loop(
         tx.clone(),
@@ -3409,6 +3574,39 @@ mod tests {
         // capture-all (settings recording a binding) overrides the allowlist.
         state.capture_all = true;
         assert!(should_broadcast_key(&state, "KeyA"));
+    }
+
+    #[test]
+    fn gamepad_capture_routes_controls_only_to_owner_and_releases_safely() {
+        let capture = GamepadCaptureRegistry::default();
+        let button = r#"{"type":"button","device":"pad","button":0,"pressed":true}"#;
+        let service_info = r#"{"type":"service_info"}"#;
+
+        assert!(capture.should_route(1, button));
+        assert!(capture.acquire(1));
+        assert!(capture.should_route(1, button));
+        assert!(!capture.should_route(2, button));
+        assert!(capture.should_route(2, service_info));
+        let captured_button = tag_gamepad_control_payload(button.to_string());
+        assert!(!capture.acquire(2));
+        assert!(!capture.release(2));
+        assert!(capture.release(1));
+        assert!(capture.should_route(2, button));
+        assert!(capture.should_route(1, &captured_button));
+        assert!(!capture.should_route(2, &captured_button));
+    }
+
+    #[test]
+    fn gamepad_capture_command_deserializes() {
+        let message = serde_json::from_str::<ClientMsg>(
+            r#"{"type":"configure_gamepad_capture","enabled":true}"#,
+        )
+        .expect("gamepad capture request should deserialize");
+
+        assert!(matches!(
+            message,
+            ClientMsg::ConfigureGamepadCapture { enabled: true }
+        ));
     }
 
     #[test]

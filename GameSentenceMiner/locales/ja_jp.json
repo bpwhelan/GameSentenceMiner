@@ -197,6 +197,10 @@
             "label": "更新確認ダイアログを表示:",
             "tooltip": "Ankiカードを更新する前に確認ダイアログを表示します。"
           },
+          "confirmation_gamepad_enabled": {
+            "label": "ゲームパッド操作:",
+            "tooltip": "方向キーでフォーカスを移動し、AでVAD推奨の音声結果、Bで反対の結果を選択します。ダイアログ表示中は他のGSMゲームパッド操作を一時停止します。"
+          },
           "url": {
             "label": "Anki URL:",
             "tooltip": "AnkiConnectの接続URL。"

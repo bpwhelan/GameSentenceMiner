@@ -150,6 +150,60 @@ def test_exec_routes_to_modal_exec_when_focus_enabled():
     assert probe.calls == ["apply", "with"]
 
 
+@pytest.mark.parametrize(
+    ("vad_success", "use_recommended", "expected"),
+    [
+        (True, True, "voice"),
+        (True, False, "no_voice"),
+        (False, True, "no_voice"),
+        (False, False, "voice"),
+        (None, True, "no_voice"),
+        (None, False, "voice"),
+    ],
+)
+def test_gamepad_confirmation_action_uses_vad_recommendation_and_inverse(
+    vad_success,
+    use_recommended,
+    expected,
+):
+    calls = []
+    vad_result = None if vad_success is None else SimpleNamespace(success=vad_success)
+    probe = SimpleNamespace(
+        vad_result=vad_result,
+        voice_button=SimpleNamespace(isVisible=lambda: True),
+        no_voice_button=SimpleNamespace(isVisible=lambda: True),
+        _on_voice=lambda: calls.append("voice"),
+        _on_no_voice=lambda: calls.append("no_voice"),
+        _cancel_auto_accept=lambda: calls.append("cancel_timer"),
+    )
+
+    anki_confirmation_qt.AnkiConfirmationDialog._apply_gamepad_confirmation_action(
+        probe,
+        use_recommended=use_recommended,
+    )
+
+    assert calls == ["cancel_timer", expected]
+
+
+def test_gamepad_confirmation_action_uses_plain_confirm_when_audio_choices_are_hidden():
+    calls = []
+    probe = SimpleNamespace(
+        vad_result=SimpleNamespace(success=True),
+        voice_button=SimpleNamespace(isVisible=lambda: False),
+        no_voice_button=SimpleNamespace(isVisible=lambda: False),
+        _on_voice=lambda: calls.append("voice"),
+        _on_no_voice=lambda: calls.append("no_voice"),
+        _cancel_auto_accept=lambda: calls.append("cancel_timer"),
+    )
+
+    anki_confirmation_qt.AnkiConfirmationDialog._apply_gamepad_confirmation_action(
+        probe,
+        use_recommended=False,
+    )
+
+    assert calls == ["cancel_timer", "no_voice"]
+
+
 def test_apply_exit_choice_cancel_keeps_dialog_open():
     probe = SimpleNamespace(result="existing", _exit_confirmed=False)
 

@@ -1,5 +1,6 @@
 from GameSentenceMiner.util.platform.gamepad_hotkey import (
     GamepadHotkeyDispatcher,
+    GamepadInputClient,
     parse_gamepad_binding,
 )
 
@@ -56,3 +57,27 @@ def test_dispatcher_keeps_devices_independent():
     dispatcher.handle_message({"type": "button", "device": "pad-2", "button": 0, "pressed": True})
 
     assert triggered == ["confirm", "confirm"]
+
+
+def test_exclusive_client_ignores_input_until_capture_is_owned():
+    triggered = []
+    dispatcher = GamepadHotkeyDispatcher()
+    dispatcher.register("A", lambda: triggered.append("confirm"))
+    client = GamepadInputClient(dispatcher, exclusive=True)
+
+    client._handle_message({"type": "button", "device": "pad", "button": 0, "pressed": True})
+    assert triggered == []
+
+    client._handle_message({"type": "gamepad_capture_changed", "active": True, "owned": True})
+    client._handle_message({"type": "button", "device": "pad", "button": 0, "pressed": True})
+    assert triggered == ["confirm"]
+
+
+def test_exclusive_client_requests_capture_before_state_snapshot():
+    dispatcher = GamepadHotkeyDispatcher()
+    client = GamepadInputClient(dispatcher, exclusive=True)
+
+    assert client._connection_messages()[0] == {
+        "type": "configure_gamepad_capture",
+        "enabled": True,
+    }

@@ -198,6 +198,10 @@
             "label": "Mostrar Diálogo de Confirmación de Actualización:",
             "tooltip": "Mostrar un diálogo de confirmación antes de actualizar tarjetas de Anki."
           },
+          "confirmation_gamepad_enabled": {
+            "label": "Controles del mando:",
+            "tooltip": "Usa la cruceta para mover el foco, A para el resultado de audio recomendado por VAD y B para el resultado opuesto. Los demás controles del mando de GSM se pausan mientras el diálogo está abierto."
+          },
           "url": {
             "label": "URL de Anki:",
             "tooltip": "La URL para conectarse a su instancia de Anki."

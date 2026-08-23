@@ -190,13 +190,37 @@ def get_input_server_url() -> str:
 class GamepadInputClient:
     """Small reconnecting client for the Electron-owned GSM input service."""
 
-    def __init__(self, dispatcher: GamepadHotkeyDispatcher, url: str | None = None) -> None:
+    def __init__(
+        self,
+        dispatcher: GamepadHotkeyDispatcher,
+        url: str | None = None,
+        *,
+        exclusive: bool = False,
+    ) -> None:
         self.dispatcher = dispatcher
         self.url = url or get_input_server_url()
+        self.exclusive = exclusive
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._connection = None
         self._connection_lock = threading.Lock()
+        self._exclusive_acquired = not exclusive
+
+    def _connection_messages(self) -> list[dict[str, Any]]:
+        messages: list[dict[str, Any]] = []
+        if self.exclusive:
+            messages.append({"type": "configure_gamepad_capture", "enabled": True})
+        messages.extend(({"type": "get_service_info"}, {"type": "get_state"}))
+        return messages
+
+    def _handle_message(self, message: dict[str, Any]) -> None:
+        if message.get("type") == "gamepad_capture_changed":
+            if self.exclusive:
+                self._exclusive_acquired = bool(message.get("active") and message.get("owned"))
+            return
+        if self.exclusive and not self._exclusive_acquired:
+            return
+        self.dispatcher.handle_message(message)
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -207,6 +231,7 @@ class GamepadInputClient:
 
     def stop(self) -> None:
         self._stop_event.set()
+        self._exclusive_acquired = not self.exclusive
         with self._connection_lock:
             connection = self._connection
         if connection is not None:
@@ -231,8 +256,9 @@ class GamepadInputClient:
                 ) as connection:
                     with self._connection_lock:
                         self._connection = connection
-                    connection.send(json.dumps({"type": "get_service_info"}))
-                    connection.send(json.dumps({"type": "get_state"}))
+                    self._exclusive_acquired = not self.exclusive
+                    for message in self._connection_messages():
+                        connection.send(json.dumps(message))
                     logger.info(f"Gamepad hotkeys connected to GSM input service at {self.url}.")
                     while not self._stop_event.is_set():
                         try:
@@ -243,7 +269,7 @@ class GamepadInputClient:
                             continue
                         message = json.loads(raw_message)
                         if isinstance(message, dict):
-                            self.dispatcher.handle_message(message)
+                            self._handle_message(message)
             except (ConnectionClosed, OSError, TimeoutError):
                 logger.debug(f"Gamepad hotkey client waiting for GSM input service at {self.url}.")
             except (TypeError, ValueError, json.JSONDecodeError) as exc:
