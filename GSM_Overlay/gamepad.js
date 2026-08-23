@@ -1124,7 +1124,7 @@ class GamepadHandler {
             this.tokens.map(t => t.word).join(' | '));
 
           if (this.tokens.length > 0 && this.tokenMode && this.isNavigationActive()) {
-            const syncedFromMouse = this.syncSelectionFromVirtualMouse();
+            const syncedFromMouse = this.syncSelectionFromVirtualMouse(null, { autoConfirm: false });
             if (syncedFromMouse) {
               this.syncVirtualMouseToCurrentSelection();
             } else {
@@ -1132,8 +1132,9 @@ class GamepadHandler {
               this.currentCursorIndex = this.charIndexToTokenIndex(anchorCharIndex >= 0 ? anchorCharIndex : 0);
               this.currentLineIndex = this.getLineIndexForCursor();
               this.updateVisuals();
-              this.positionCursorAtToken();
-              this.autoConfirmSelection();
+              // Tokenization can finish after an overlay redraw. Keep the internal
+              // cursor aligned without emitting a synthetic mouse move or lookup.
+              this.syncVirtualMouseToCurrentSelection();
             }
           }
         } else if (currentText) {
@@ -5601,7 +5602,7 @@ class GamepadHandler {
     return nearestIndex;
   }
 
-  syncSelectionFromVirtualMouse(sourceElement = null) {
+  syncSelectionFromVirtualMouse(sourceElement = null, options = {}) {
     if (!this.isNavigationActive() || !this.virtualMouse.initialized) return false;
     const lastLookupAnchorKey = this.lastLookupAnchorKey;
 
@@ -5664,7 +5665,9 @@ class GamepadHandler {
         this.navigationAwayHideTimer = null;
       }
     }
-    this.autoConfirmSelection();
+    if (options.autoConfirm !== false) {
+      this.autoConfirmSelection();
+    }
 
     if (blockChanged && this.config.onBlockChange) {
       this.config.onBlockChange({

@@ -153,6 +153,79 @@ describe("legacy gamepad Sudachi requests", () => {
   });
 });
 
+describe("legacy gamepad token refreshes", () => {
+  it("does not trigger a lookup when refreshed text finishes tokenizing", () => {
+    const handler = Object.create(GamepadHandler.prototype) as any;
+    handler.pendingTokenizationByBlock = new Map([[0, true]]);
+    handler.tokenCacheByBlock = new Map();
+    handler.currentBlockIndex = 0;
+    handler.currentCursorIndex = 1;
+    handler.tokens = [];
+    handler.tokensBlockIndex = -1;
+    handler.tokenMode = true;
+    handler.getBlockText = () => "日本語";
+    handler.shouldTokenizeText = () => true;
+    handler.isNavigationActive = () => true;
+    handler.syncSelectionFromVirtualMouse = () => false;
+    handler.getCurrentAnchorCharIndex = () => 1;
+    handler.charIndexToTokenIndex = () => 0;
+    handler.getLineIndexForCursor = () => 0;
+    handler.updateVisuals = vi.fn();
+    handler.positionCursorAtToken = vi.fn();
+    handler.syncVirtualMouseToCurrentSelection = vi.fn();
+    handler.autoConfirmSelection = vi.fn();
+    handler.updateModeIndicatorText = vi.fn();
+
+    handler.onTokensReceived({
+      blockIndex: 0,
+      text: "日本語",
+      tokens: [{ word: "日本語", start: 0, end: 3 }]
+    });
+
+    expect(handler.currentCursorIndex).toBe(0);
+    expect(handler.positionCursorAtToken).not.toHaveBeenCalled();
+    expect(handler.syncVirtualMouseToCurrentSelection).toHaveBeenCalledTimes(1);
+    expect(handler.autoConfirmSelection).not.toHaveBeenCalled();
+  });
+
+  it("suppresses lookup when refreshed tokens resync the virtual cursor", () => {
+    const handler = Object.create(GamepadHandler.prototype) as any;
+    handler.pendingTokenizationByBlock = new Map([[0, true]]);
+    handler.tokenCacheByBlock = new Map();
+    handler.currentBlockIndex = 0;
+    handler.tokens = [];
+    handler.tokensBlockIndex = -1;
+    handler.tokenMode = true;
+    handler.getBlockText = () => "日本語";
+    handler.shouldTokenizeText = () => true;
+    handler.isNavigationActive = () => true;
+    handler.autoConfirmSelection = vi.fn();
+    handler.syncSelectionFromVirtualMouse = vi.fn(
+      (_sourceElement: unknown, options: { autoConfirm?: boolean } = {}) => {
+        if (options.autoConfirm !== false) {
+          handler.autoConfirmSelection();
+        }
+        return true;
+      }
+    );
+    handler.syncVirtualMouseToCurrentSelection = vi.fn();
+    handler.updateModeIndicatorText = vi.fn();
+
+    handler.onTokensReceived({
+      blockIndex: 0,
+      text: "日本語",
+      tokens: [{ word: "日本語", start: 0, end: 3 }]
+    });
+
+    expect(handler.syncSelectionFromVirtualMouse).toHaveBeenCalledWith(
+      null,
+      { autoConfirm: false }
+    );
+    expect(handler.syncVirtualMouseToCurrentSelection).toHaveBeenCalledTimes(1);
+    expect(handler.autoConfirmSelection).not.toHaveBeenCalled();
+  });
+});
+
 describe("legacy gamepad button bindings", () => {
   it("normalizes legacy numeric buttons and human-readable combos", () => {
     expect(GamepadHandler.normalizeButtonBindingValue(8)).toMatchObject({
