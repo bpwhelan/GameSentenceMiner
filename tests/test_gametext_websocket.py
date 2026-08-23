@@ -329,6 +329,24 @@ def test_v2_ingress_does_not_run_background_integrations_before_admission(monkey
     assert integration_calls == []
 
 
+def test_notify_discord_activity_uses_master_discord_config(monkeypatch):
+    submitted = []
+    profile_config = SimpleNamespace()
+    master_config = SimpleNamespace(discord=SimpleNamespace(enabled=True))
+
+    monkeypatch.setattr(gametext, "get_config", lambda: profile_config)
+    monkeypatch.setattr(gametext, "get_master_config", lambda: master_config, raising=False)
+    monkeypatch.setattr(
+        gametext,
+        "submit_background_work",
+        lambda fn, *args, **kwargs: submitted.append((fn, args, kwargs)),
+    )
+
+    gametext._notify_discord_activity("Steins;Gate")
+
+    assert submitted == [(gametext.discord_rpc_manager.update, ("Steins;Gate",), {"timeout": 0})]
+
+
 def test_text_input_guard_truncates_to_the_texthook_limit(monkeypatch):
     monkeypatch.setattr(
         gametext,

@@ -18,6 +18,7 @@ from GameSentenceMiner.util.concurrency.work_pool import submit_background_work
 from GameSentenceMiner.util.communication.electron_ipc import send_message
 from GameSentenceMiner.util.config.configuration import (
     get_config,
+    get_master_config,
     gsm_status,
     logger,
     gsm_state,
@@ -1072,7 +1073,7 @@ def _notify_discord_activity(scene: str) -> None:
     This is deliberately best-effort and non-blocking: a saturated background
     lane may skip a presence refresh, but it can never hold up the next text line.
     """
-    discord_config = getattr(get_config(), "discord", None)
+    discord_config = getattr(get_master_config(), "discord", None)
     if not bool(getattr(discord_config, "enabled", False)):
         return
     try:
