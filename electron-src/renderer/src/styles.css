@@ -6045,16 +6045,16 @@ button.danger:hover:not(:disabled) {
   padding: 8px 10px;
 }
 
-.texthook-workspace .texthook-experimental-card {
+.texthook-workspace .texthook-notice-card {
   display: flex;
   align-items: flex-start;
   gap: 12px;
   margin-bottom: 10px;
-  background: linear-gradient(135deg, var(--gsm-warning-soft), var(--gsm-surface-1));
-  border-color: rgba(227, 183, 101, 0.42);
+  background: linear-gradient(135deg, var(--gsm-accent-soft), var(--gsm-surface-1));
+  border-color: var(--gsm-accent-border);
 }
 
-.texthook-experimental-icon {
+.texthook-notice-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -6062,24 +6062,50 @@ button.danger:hover:not(:disabled) {
   width: 28px;
   height: 28px;
   border-radius: var(--gsm-radius-pill);
-  background: var(--gsm-warning-soft);
-  border: 1px solid rgba(227, 183, 101, 0.38);
-  color: var(--gsm-warning);
+  background: var(--gsm-accent-soft);
+  border: 1px solid var(--gsm-accent-border);
+  color: var(--gsm-accent-text);
   font-weight: 800;
   line-height: 1;
 }
 
-.texthook-experimental-card h2 {
+.texthook-notice-card h2 {
   margin: 0 0 4px;
-  color: var(--gsm-warning);
+  color: var(--gsm-accent-text);
   font-size: 0.96rem;
 }
 
-.texthook-experimental-card p {
-  margin: 0;
+.texthook-notice-card p {
+  margin: 0 0 4px;
   color: var(--gsm-text-secondary);
   font-size: 0.84rem;
   line-height: 1.45;
+}
+
+.texthook-notice-card p:last-child {
+  margin-bottom: 0;
+}
+
+.texthook-notice-link {
+  appearance: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--gsm-accent-text);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.texthook-notice-link:hover {
+  color: var(--gsm-accent-strong);
+}
+
+.texthook-notice-link:focus-visible {
+  border-radius: 2px;
+  outline: 2px solid var(--gsm-accent);
+  outline-offset: 2px;
 }
 
 .texthook-card-hint {

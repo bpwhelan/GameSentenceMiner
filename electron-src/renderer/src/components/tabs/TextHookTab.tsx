@@ -160,9 +160,10 @@ function createDevJapanesePayload(length: number): string {
 
 interface TextHookTabProps {
   active: boolean;
+  onNavigateTab?: (tab: "textprocessing") => void;
 }
 
-export function TextHookTab({ active }: TextHookTabProps) {
+export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
   const t = useTranslation();
   const [locale] = useLocale();
   const [status, setStatus] = useState<RuntimeStatus>({ running: false });
@@ -727,19 +728,26 @@ export function TextHookTab({ active }: TextHookTabProps) {
         ) : null}
 
         <section
-          className="card legacy-card ocr-card texthook-experimental-card"
-          aria-labelledby="texthook-experimental-title"
+          className="card legacy-card ocr-card texthook-notice-card"
+          aria-labelledby="texthook-notice-title"
         >
-          <div className="texthook-experimental-icon" aria-hidden="true">
-            !
+          <div className="texthook-notice-icon" aria-hidden="true">
+            i
           </div>
           <div>
-            <h2 id="texthook-experimental-title">{t("texthook.experimental.title")}</h2>
-            <p>{t("texthook.experimental.description")}</p>
-            <p style={{ marginTop: "6px", fontSize: "0.82rem", color: "var(--gsm-text-secondary)" }}>
-              Hook engine support (Luna Hook &amp; Textractor) is downloaded automatically the first time
-              you start texthooking. Antivirus software may flag these files as suspicious due to the
-              DLL-injection technique used to extract text from games — this is a known false positive.
+            <h2 id="texthook-notice-title">{t("texthook.notice.title")}</h2>
+            <p>{t("texthook.notice.description")}</p>
+            <p>{t("texthook.notice.engineGuide")}</p>
+            <p>
+              {t("texthook.notice.processingPrefix")}
+              <button
+                type="button"
+                className="texthook-notice-link"
+                onClick={() => onNavigateTab?.("textprocessing")}
+              >
+                {t("app.tabs.textProcessing")}
+              </button>
+              {t("texthook.notice.processingSuffix")}
             </p>
           </div>
         </section>

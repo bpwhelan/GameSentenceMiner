@@ -108,12 +108,38 @@ describe("TextHookTab", () => {
       await flushAsyncWork();
     });
 
-    expect(container.textContent).toContain("Experimental");
+    expect(container.textContent).toContain("About text hooking");
     expect(container.querySelectorAll(".texthook-hook-row")).toHaveLength(1);
     expect(container.textContent).toContain("1 hooks");
     expect(container.textContent).toContain("Visible hook text");
     expect(container.textContent).not.toContain("Hook #5");
     expect(container.textContent).not.toContain("(no text yet)");
+  });
+
+  it("explains which hook engine to use and links to Text Processing", async () => {
+    const onNavigateTab = vi.fn();
+
+    await act(async () => {
+      root.render(<TextHookTab active onNavigateTab={onNavigateTab} />);
+      await flushAsyncWork();
+    });
+
+    const notice = container.querySelector('[aria-labelledby="texthook-notice-title"]');
+    expect(notice?.textContent).toContain("Luna Hook or Textractor");
+    expect(notice?.textContent).toContain("visual novels");
+    expect(notice?.textContent).toContain("Agent");
+    expect(notice?.textContent).toContain("games with supported scripts");
+
+    const textProcessingLink = Array.from(notice?.querySelectorAll("button") ?? []).find(
+      (button) => button.textContent === "Text Processing"
+    );
+    expect(textProcessingLink).toBeTruthy();
+
+    await act(async () => {
+      textProcessingLink?.click();
+    });
+
+    expect(onNavigateTab).toHaveBeenCalledWith("textprocessing");
   });
 
   it("opens upstream text hook project credits", async () => {

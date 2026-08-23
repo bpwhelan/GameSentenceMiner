@@ -1276,7 +1276,12 @@ export default function App() {
       <main className="tab-content-area">
         <HomeTab active={activeTab === "obs"} onNavigateTab={selectTab} />
         <OCRTab active={activeTab === "ocr"} />
-        {canTextHook ? <TextHookTab active={activeTab === "texthook"} /> : null}
+        {canTextHook ? (
+          <TextHookTab
+            active={activeTab === "texthook"}
+            onNavigateTab={selectTab}
+          />
+        ) : null}
         <TextProcessingTab active={activeTab === "textprocessing"} />
         <StatsPanel active={activeTab === "stats"} />
         <LauncherTab active={activeTab === "launcher"} />

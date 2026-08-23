@@ -1152,9 +1152,12 @@
     }
   },
   "texthook": {
-    "experimental": {
-      "title": "Experimental",
-      "description": "This tab is still experimental. Hooks can be noisy or change between games, so verify the selected hook before saving a profile. Text hooking is intended mostly for visual novels — for most other games OCR is the more reliable option."
+    "notice": {
+      "title": "About text hooking",
+      "description": "Text hooking captures text directly from a running game, which can provide cleaner and more accurate text than OCR when the game is compatible.",
+      "engineGuide": "Use Luna Hook or Textractor for most visual novels. Use Agent for games with supported scripts.",
+      "processingPrefix": "If the output is not exactly what you want, use the ",
+      "processingSuffix": " tab to clean, filter, or transform it before mining."
     },
     "credits": {
       "text": "Credits",
