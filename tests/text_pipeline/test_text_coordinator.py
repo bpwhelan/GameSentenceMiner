@@ -3,8 +3,12 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
-from GameSentenceMiner.text_pipeline.coordinator import TextCoordinatorState
-from GameSentenceMiner.text_pipeline.coordinator import IngestCommand, SnapshotCommand, TextCoordinatorActor
+from GameSentenceMiner.text_pipeline.coordinator import (
+    IngestCommand,
+    SnapshotCommand,
+    TextCoordinatorActor,
+    TextCoordinatorState,
+)
 from GameSentenceMiner.text_pipeline.models import (
     IngressStatus,
     SourceKind,
@@ -12,7 +16,6 @@ from GameSentenceMiner.text_pipeline.models import (
     TextObservation,
     TextRecordState,
 )
-
 
 NOW = datetime(2026, 8, 9, 12, 0, tzinfo=timezone.utc)
 
@@ -154,6 +157,56 @@ def test_recurrence_after_an_intervening_line_always_gets_a_new_record():
     assert [record.text for record in records] == ["repeated", "intervening", "repeated"]
     assert [record.stream_sequence for record in records] == [1, 2, 3]
     assert first.ack.line_id != middle.ack.line_id != repeated.ack.line_id
+
+
+def test_back_to_back_exact_duplicate_is_suppressed_after_same_source_window():
+    state = TextCoordinatorState(session_id="session")
+    first = state.ingest(
+        observation("repeated", SourceKind.TEXTHOOK, "1", source_instance="hook-1"),
+        now=NOW,
+        now_monotonic_ns=1_000_000_000,
+    )
+    repeated = state.ingest(
+        observation(
+            "repeated",
+            SourceKind.TEXTHOOK,
+            "2",
+            emitted_at=NOW + timedelta(minutes=1),
+            source_instance="hook-1",
+        ),
+        now=NOW + timedelta(minutes=1),
+        now_monotonic_ns=61_000_000_000,
+    )
+
+    assert repeated.ack.status is IngressStatus.DUPLICATE
+    assert repeated.ack.line_id == first.ack.line_id
+    assert repeated.events == ()
+    assert len(state.snapshot().records) == 1
+
+
+def test_back_to_back_exact_duplicate_is_suppressed_from_any_source():
+    state = TextCoordinatorState(session_id="session")
+    first = state.ingest(
+        observation("repeated", SourceKind.TEXTHOOK, "1", source_instance="hook-1"),
+        now=NOW,
+        now_monotonic_ns=1_000_000_000,
+    )
+    repeated = state.ingest(
+        observation(
+            "repeated",
+            SourceKind.MANUAL,
+            "2",
+            emitted_at=NOW + timedelta(minutes=1),
+            source_instance="manual-entry",
+        ),
+        now=NOW + timedelta(minutes=1),
+        now_monotonic_ns=61_000_000_000,
+    )
+
+    assert repeated.ack.status is IngressStatus.DUPLICATE
+    assert repeated.ack.line_id == first.ack.line_id
+    assert repeated.events == ()
+    assert len(state.snapshot().records) == 1
 
 
 def test_same_source_fragments_are_visible_immediately_then_joined_by_revision():

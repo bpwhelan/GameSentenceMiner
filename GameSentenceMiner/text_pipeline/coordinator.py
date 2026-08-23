@@ -4,9 +4,9 @@ import threading
 import time
 import uuid
 from collections import OrderedDict, deque
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
-from typing import Callable
 
 from rapidfuzz import fuzz
 
@@ -115,8 +115,22 @@ class TextCoordinatorState:
                 IngressAck(IngressStatus.REJECTED, observation.observation_id, reason="empty processed text")
             )
 
-        current = self._by_id.get(self._open_line_id or "")
         newest = self._records[-1] if self._records else None
+        if newest is not None and _compact(newest.text) == _compact(processed):
+            self.metrics.duplicates += 1
+            return IngressResult(
+                IngressAck(
+                    IngressStatus.DUPLICATE,
+                    observation.observation_id,
+                    line_id=newest.line_id,
+                    stream_sequence=newest.stream_sequence,
+                    revision=newest.revision,
+                    reason="same text as immediately previous record",
+                    matched_source=newest.source_kind.value,
+                )
+            )
+
+        current = self._by_id.get(self._open_line_id or "")
         if (
             current is None
             and newest is not None
