@@ -4848,16 +4848,17 @@ body {
    =========================================================== */
 
 .modern-tab.ocr-workspace {
-  padding: 18px 22px 22px;
+  padding: 12px 16px 14px;
   background: var(--gsm-surface-0);
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 10px;
   min-height: 0;
   overflow: hidden;
 }
 
 .ocr-workspace .ocr-dashboard {
-  gap: 16px;
+  gap: 12px;
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
@@ -4867,15 +4868,15 @@ body {
 }
 
 .ocr-workspace .ocr-col {
-  gap: 14px;
+  gap: 10px;
 }
 
 /* Outer cards */
 .ocr-workspace .card.ocr-card {
   background: var(--gsm-surface-1);
   border: 1px solid var(--gsm-border-subtle);
-  border-radius: var(--gsm-radius-lg);
-  padding: 16px 18px;
+  border-radius: var(--gsm-radius-md);
+  padding: 12px 14px;
   box-shadow: none;
   overflow: visible;
 }
@@ -4894,8 +4895,8 @@ body {
 }
 
 .ocr-workspace .ocr-card-header-row {
-  margin-bottom: 14px;
-  padding-bottom: 12px;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
   border-bottom: 1px solid var(--gsm-border-subtle);
 }
 
@@ -4903,8 +4904,8 @@ body {
 .ocr-workspace input[type="text"],
 .ocr-workspace input[type="number"],
 .ocr-workspace select {
-  height: 34px;
-  padding: 0 10px;
+  height: 32px;
+  padding: 0 9px;
   border-radius: var(--gsm-radius-sm);
   border: 1px solid var(--gsm-border-default);
   background: var(--gsm-surface-2);
@@ -4948,7 +4949,7 @@ body {
 
 /* Form group spacing */
 .ocr-workspace .ocr-form-group {
-  gap: 12px;
+  gap: 9px;
 }
 
 .ocr-workspace .input-group label {
@@ -4995,7 +4996,7 @@ body {
   border: none;
   background: transparent;
   padding: 0;
-  gap: 8px;
+  gap: 6px;
 }
 
 .ocr-workspace .ocr-slider-header {
@@ -5015,8 +5016,8 @@ body {
   border: 1px solid var(--gsm-border-subtle);
   background: var(--gsm-surface-2);
   border-radius: var(--gsm-radius-md);
-  padding: 10px 14px;
-  gap: 8px 16px;
+  padding: 7px 10px;
+  gap: 6px 12px;
 }
 
 .ocr-workspace .ocr-linebreak-label {
@@ -5033,8 +5034,8 @@ body {
 
 /* Pipeline section */
 .ocr-workspace .ocr-pipeline-section {
-  margin-top: 14px;
-  padding: 14px 16px;
+  margin-top: 10px;
+  padding: 10px 12px;
   border: 1px solid var(--gsm-border-subtle);
   background: var(--gsm-surface-2);
   border-radius: var(--gsm-radius-md);
@@ -5044,14 +5045,14 @@ body {
   color: var(--gsm-text-primary);
   font-size: 0.85rem;
   font-weight: 600;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .ocr-workspace .ocr-pipeline-summary {
   background: var(--gsm-surface-1);
   border: 1px solid var(--gsm-border-subtle);
   border-radius: var(--gsm-radius-sm);
-  padding: 10px 14px;
+  padding: 8px 10px;
   color: var(--gsm-text-secondary);
 }
 
@@ -5063,7 +5064,7 @@ body {
   background: var(--gsm-surface-1);
   border: 1px solid var(--gsm-border-subtle);
   border-radius: var(--gsm-radius-sm);
-  padding: 10px 12px;
+  padding: 8px 10px;
 }
 
 /* Comparison details */
@@ -5071,8 +5072,8 @@ body {
   background: var(--gsm-surface-2);
   border: 1px solid var(--gsm-border-subtle);
   border-radius: var(--gsm-radius-md);
-  padding: 12px 16px;
-  margin-top: 14px;
+  padding: 9px 12px;
+  margin-top: 10px;
 }
 
 .ocr-workspace .ocr-details-card--nested {
@@ -5112,20 +5113,27 @@ body {
   font-weight: 500;
 }
 
-/* Hotkey action cards */
+/* Hotkey bindings — compact, table-like rows */
 .ocr-hotkey-card-header {
-  align-items: flex-start;
+  align-items: center;
 }
 
 .ocr-hotkey-card-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
   min-width: 0;
 }
 
 .ocr-hotkey-card-heading p {
-  margin: 4px 0 0;
-  max-width: 52ch;
-  font-size: 0.76rem;
-  line-height: 1.35;
+  margin: 0;
+  max-width: none;
+  overflow: hidden;
+  color: var(--gsm-text-muted);
+  font-size: 0.74rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ocr-gamepad-toggle {
@@ -5137,91 +5145,149 @@ body {
 }
 
 .ocr-workspace .ocr-hotkey-grid {
-  gap: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.ocr-workspace .ocr-hotkey-columns,
+.ocr-workspace .ocr-hotkey-item {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.8fr) minmax(180px, 1.6fr) 58px;
+  column-gap: 10px;
+}
+
+.ocr-workspace .ocr-hotkey-grid--gamepad-visible .ocr-hotkey-columns,
+.ocr-workspace .ocr-hotkey-grid--gamepad-visible .ocr-hotkey-item {
+  grid-template-columns:
+    minmax(110px, 0.8fr)
+    repeat(2, minmax(130px, 1fr))
+    58px;
+}
+
+.ocr-workspace .ocr-hotkey-columns {
+  align-items: end;
+  padding: 0 8px 6px;
+  border-bottom: 1px solid var(--gsm-border-default);
+  color: var(--gsm-text-muted);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
 .ocr-workspace .ocr-hotkey-item {
-  background: var(--gsm-surface-2);
-  border: 1px solid var(--gsm-border-subtle);
-  border-radius: var(--gsm-radius-sm);
-  padding: 11px 12px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  align-items: center;
+  row-gap: 7px;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--gsm-border-subtle);
   min-width: 0;
 }
 
+.ocr-workspace .ocr-hotkey-item:last-child {
+  border-bottom: 0;
+}
+
 .ocr-hotkey-item-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  min-height: 28px;
+  grid-column: 1;
+  min-width: 0;
 }
 
 .ocr-hotkey-item-header h3 {
   margin: 0;
   color: var(--gsm-text-primary);
-  font-size: 0.84rem;
-  font-weight: 650;
+  overflow: hidden;
+  font-size: 0.8rem;
+  font-weight: 600;
   line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ocr-hotkey-bindings {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 8px;
-  min-width: 0;
+  display: contents;
 }
 
-.ocr-hotkey-grid--gamepad-visible .ocr-hotkey-bindings {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.ocr-hotkey-bindings > :first-child {
+  grid-column: 2;
+}
+
+.ocr-hotkey-grid--gamepad-visible .ocr-hotkey-bindings > :nth-child(2) {
+  grid-column: 3;
 }
 
 .ocr-workspace .ocr-hotkey-binding {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 5px;
+  display: block;
   min-width: 0;
 }
 
 .ocr-workspace .ocr-hotkey-binding > span {
-  color: var(--gsm-text-muted);
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.035em;
-  line-height: 1;
-  text-transform: uppercase;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .ocr-workspace .ocr-hotkey-grid input[type='text'] {
-  background: var(--gsm-surface-1);
+  height: 30px;
+  background: var(--gsm-surface-0);
   font-family: "Consolas", "Courier New", monospace;
-  font-size: 0.84rem;
-  color: var(--gsm-accent-strong);
-  text-align: center;
+  font-size: 0.8rem;
+  color: var(--gsm-text-primary);
+  text-align: left;
   flex: 1 1 auto;
   min-width: 0;
   width: 100%;
 }
 
 .ocr-workspace .ocr-gamepad-hotkey {
+  height: 30px;
   min-width: 0;
   width: 100%;
 }
 
 .ocr-manual-delay-settings {
+  grid-column: 2 / -1;
+  grid-row: 2;
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(140px, 180px) minmax(0, 1fr);
+  align-items: end;
   gap: 8px;
-  padding-top: 2px;
+  min-width: 0;
+}
+
+.ocr-workspace .ocr-manual-delay-settings .ocr-hotkey-binding {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ocr-workspace .ocr-manual-delay-settings .ocr-hotkey-binding > span {
+  position: static;
+  width: auto;
+  height: auto;
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+  color: var(--gsm-text-muted);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
 .ocr-workspace .ocr-manual-delay-settings input[type='number'] {
+  height: 30px;
   width: 100%;
   min-width: 0;
-  background: var(--gsm-surface-1);
+  background: var(--gsm-surface-0);
 }
 
 .ocr-workspace .ocr-manual-delay-gamepad-only {
@@ -5231,16 +5297,86 @@ body {
 }
 
 .ocr-hotkey-run {
+  grid-column: -2;
+  grid-row: 1;
   flex: 0 0 auto;
-  min-height: 28px;
-  padding: 3px 10px;
-  font-size: 0.76rem;
+  min-width: 58px;
+  min-height: 30px;
+  padding: 3px 8px !important;
+  font-size: 0.74rem !important;
   white-space: nowrap;
 }
 
 .ocr-hotkey-run:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+@media (max-width: 700px) {
+  .ocr-hotkey-card-header {
+    align-items: stretch;
+  }
+
+  .ocr-hotkey-card-heading {
+    display: block;
+  }
+
+  .ocr-hotkey-card-heading p {
+    margin-top: 3px;
+    white-space: normal;
+  }
+
+  .ocr-workspace .ocr-hotkey-columns {
+    display: none;
+  }
+
+  .ocr-workspace .ocr-hotkey-item,
+  .ocr-workspace .ocr-hotkey-grid--gamepad-visible .ocr-hotkey-item {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .ocr-hotkey-bindings {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .ocr-hotkey-grid--gamepad-visible .ocr-hotkey-bindings {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ocr-hotkey-bindings > :first-child,
+  .ocr-hotkey-grid--gamepad-visible .ocr-hotkey-bindings > :nth-child(2) {
+    grid-column: auto;
+  }
+
+  .ocr-workspace .ocr-hotkey-bindings .ocr-hotkey-binding {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .ocr-workspace .ocr-hotkey-bindings .ocr-hotkey-binding > span {
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    clip: auto;
+    color: var(--gsm-text-muted);
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    line-height: 1;
+    text-transform: uppercase;
+  }
+
+  .ocr-manual-delay-settings {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
 }
 
 /* Console */
@@ -5336,16 +5472,19 @@ body {
   color: var(--gsm-text-on-accent, #fff) !important;
 }
 
-/* Sticky footer — refresh */
+/* Persistent OCR actions */
 .ocr-workspace .ocr-sticky-footer {
-  position: static;
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
   flex: 0 0 auto;
-  margin-top: 16px;
-  padding: 12px 18px;
-  border-radius: var(--gsm-radius-lg);
+  margin-top: 0;
+  padding: 8px 12px;
+  border-radius: var(--gsm-radius-md);
   border: 1px solid var(--gsm-border-default);
   background: var(--gsm-surface-1);
-  box-shadow: var(--gsm-shadow-md);
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .ocr-workspace .ocr-sticky-footer--running {
@@ -5366,7 +5505,7 @@ body {
 
 .ocr-workspace .ocr-runtime-badge {
   border-radius: var(--gsm-radius-pill);
-  padding: 4px 10px;
+  padding: 3px 8px;
   font-size: 0.7rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -5401,30 +5540,30 @@ body {
 
 .ocr-workspace .ocr-sticky-footer-copy strong {
   color: var(--gsm-text-primary);
-  font-size: 0.9rem;
+  font-size: 0.86rem;
 }
 
 .ocr-workspace .ocr-sticky-footer-copy p {
   color: var(--gsm-text-muted);
-  font-size: 0.8rem;
+  font-size: 0.76rem;
 }
 
 .ocr-workspace .ocr-sticky-footer-actions button {
-  padding: 8px 16px !important;
+  padding: 7px 13px !important;
   border-radius: var(--gsm-radius-sm) !important;
-  font-size: 0.86rem !important;
+  font-size: 0.82rem !important;
   font-weight: 600 !important;
 }
 
-@media (max-height: 760px) {
+@media (max-height: 850px) {
   .modern-tab.ocr-workspace {
-    padding: 12px 16px;
+    padding: 10px 12px 12px;
+    gap: 8px;
   }
 
   .ocr-workspace .ocr-sticky-footer {
     gap: 8px;
-    margin-top: 10px;
-    padding: 8px 12px;
+    padding: 7px 10px;
   }
 
   .ocr-workspace .ocr-sticky-footer-copy p {
@@ -5432,7 +5571,7 @@ body {
   }
 
   .ocr-workspace .ocr-sticky-footer-actions button {
-    padding: 7px 12px !important;
+    padding: 6px 11px !important;
   }
 }
 

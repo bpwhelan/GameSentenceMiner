@@ -148,6 +148,22 @@ describe("OCRTab hotkeys", () => {
     );
   });
 
+  it("renders hotkeys as compact rows with shared binding columns", async () => {
+    await act(async () => {
+      root.render(<OCRTab active={false} />);
+      await flushAsyncWork();
+    });
+
+    const columns = container.querySelector(".ocr-hotkey-columns");
+    expect(columns?.textContent).toContain("Action");
+    expect(columns?.textContent).toContain("Keyboard");
+    expect(columns?.textContent).toContain("Gamepad");
+    expect(container.querySelectorAll(".ocr-hotkey-item")).toHaveLength(5);
+    expect(
+      container.querySelector(".ocr-hotkey-item > .ocr-hotkey-run")
+    ).toBeInstanceOf(HTMLButtonElement);
+  });
+
   it("starts disabled when no gamepad bindings are configured and reveals them when enabled", async () => {
     invokeMock.mockImplementation(async (channel: string) => {
       if (channel === "ocr.get-ocr-config") {

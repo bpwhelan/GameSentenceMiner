@@ -2632,6 +2632,14 @@ export function OCRTab({ active }: OcrTabProps) {
                     : ""
                 }`}
               >
+                <div className="ocr-hotkey-columns" aria-hidden="true">
+                  <span>{t("ocr.hotkeys.action")}</span>
+                  <span>{t("ocr.hotkeys.keyboard")}</span>
+                  {config.gamepadHotkeysEnabled ? (
+                    <span>{t("ocr.hotkeys.gamepad")}</span>
+                  ) : null}
+                  <span />
+                </div>
                 {hotkeyActions.map((action) => {
                   const actionLabel = t(action.labelKey);
                   const hotkeyInputId = `${action.id}-hotkey`;
@@ -2641,17 +2649,6 @@ export function OCRTab({ active }: OcrTabProps) {
                     <div className="ocr-hotkey-item" key={action.id}>
                       <div className="ocr-hotkey-item-header">
                         <h3 {...titleProps(action.tooltip)}>{actionLabel}</h3>
-                        {action.trigger ? (
-                          <button
-                            type="button"
-                            className="secondary ocr-hotkey-run"
-                            disabled={!runningState.isRunning}
-                            title={t("ocr.hotkeys.runActionTitle")}
-                            onClick={action.trigger}
-                          >
-                            {t("ocr.hotkeys.runAction")}
-                          </button>
-                        ) : null}
                       </div>
                       <div className="ocr-hotkey-bindings">
                         <label className="ocr-hotkey-binding" htmlFor={hotkeyInputId}>
@@ -2751,6 +2748,17 @@ export function OCRTab({ active }: OcrTabProps) {
                             </label>
                           ) : null}
                         </div>
+                      ) : null}
+                      {action.trigger ? (
+                        <button
+                          type="button"
+                          className="secondary ocr-hotkey-run"
+                          disabled={!runningState.isRunning}
+                          title={t("ocr.hotkeys.runActionTitle")}
+                          onClick={action.trigger}
+                        >
+                          {t("ocr.hotkeys.runAction")}
+                        </button>
                       ) : null}
                     </div>
                   );
