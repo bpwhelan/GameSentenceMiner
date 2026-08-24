@@ -10,6 +10,9 @@ def register_routes() -> None:
         register_goals_projection_api_routes,
     )
     from GameSentenceMiner.web.import_api import register_import_api_routes
+    from GameSentenceMiner.web.hoshidicts_api import (
+        register_hoshidicts_api_routes,
+    )
     from GameSentenceMiner.web.jiten_database_api import (
         register_jiten_database_api_routes,
     )
@@ -31,6 +34,7 @@ def register_routes() -> None:
     register_goals_api_routes(app)
     register_goals_projection_api_routes(app)
     register_import_api_routes(app)
+    register_hoshidicts_api_routes(app)
     register_third_party_stats_routes(app)
     register_tadoku_api_routes(app)
     register_yomitan_api_routes(app)

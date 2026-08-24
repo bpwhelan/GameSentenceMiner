@@ -5,5 +5,9 @@
     "outDir": "dist"
   },
   "include": ["electron-src/main/**/*", "electron-src/preload/**/*", "electron-src/shared/**/*"],
-  "exclude": ["electron-src/main/**/*.test.ts", "electron-src/main/test/**/*"]
+  "exclude": [
+    "electron-src/main/**/*.test.ts",
+    "electron-src/main/**/test_helpers.ts",
+    "electron-src/main/test/**/*"
+  ]
 }

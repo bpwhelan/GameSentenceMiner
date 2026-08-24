@@ -95,6 +95,7 @@ def test_property_2_index_metadata_completeness(url):
     assert index["title"] == "GSM Frequency Dictionary"
     assert index["format"] == 3
     assert index["frequencyMode"] == "occurrence-based"
+    assert index["sourceLanguage"] == "ja"
     assert index["author"] == "GameSentenceMiner"
 
     if url is not None:

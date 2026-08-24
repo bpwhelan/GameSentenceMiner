@@ -11,6 +11,7 @@ tungstenite = "0.21"
 gilrs = { version = "0.10", default-features = false, features = ["xinput"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+base64 = "0.22"
 
 clap = { version = "4.5", features = ["derive"] }
 tracing = "0.1"
@@ -21,3 +22,5 @@ sha2 = "0.10"
 sudachi = { git = "https://github.com/WorksApplications/sudachi.rs.git", tag = "v0.6.10" }
 zip = { version = "2.2", default-features = false, features = ["deflate"] }
 rdev = "0.5.3"
+
+hoshidicts = { git = "https://github.com/Manhhao/hoshidicts-rs.git", rev = "57a0e434922a3192bc999f4971a9ca33c677c078" }

@@ -12,6 +12,7 @@ export const SETTINGS_BACKUP_CATEGORY_IDS = [
     'agent-scripts',
     'user-scripts',
     'yomitan',
+    'dictionaries',
 ] as const;
 
 export type SettingsBackupCategoryId = (typeof SETTINGS_BACKUP_CATEGORY_IDS)[number];

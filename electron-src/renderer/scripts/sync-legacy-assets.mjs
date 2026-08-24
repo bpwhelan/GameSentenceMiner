@@ -1,8 +1,24 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-const sourceDir = path.resolve("electron-src/assets");
-const targetDir = path.resolve("electron-src/renderer/public/legacy");
+const legacySourceDir = path.resolve("electron-src/assets");
+const legacyTargetDir = path.resolve("electron-src/renderer/public/legacy");
+const previewSourceDir = path.resolve(
+  "electron-src/renderer/hoshidicts-preview"
+);
+const previewTargetDir = path.resolve(
+  "electron-src/renderer/public/hoshidicts-preview"
+);
+const hoshidictsRuntimeDir = path.resolve(
+  "GSM_Overlay/features/hoshidicts"
+);
+const hoshidictsRuntimeFiles = [
+  "constants.js",
+  "audio.js",
+  "popup.js",
+  "reader.js",
+  "reader.css"
+];
 const htmlCspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' http://localhost:* ws://localhost:* https://localhost:*; frame-src 'self' http://localhost:* https://localhost:*; object-src 'none'; base-uri 'self';" />`;
 
 function injectCsp(html) {
@@ -45,8 +61,26 @@ async function copyDirectory(source, target) {
 }
 
 async function main() {
-  await fs.rm(targetDir, { recursive: true, force: true });
-  await copyDirectory(sourceDir, targetDir);
+  await Promise.all([
+    fs.rm(legacyTargetDir, { recursive: true, force: true }),
+    fs.rm(previewTargetDir, { recursive: true, force: true })
+  ]);
+  await Promise.all([
+    copyDirectory(legacySourceDir, legacyTargetDir),
+    copyDirectory(previewSourceDir, previewTargetDir)
+  ]);
+  await Promise.all([
+    ...hoshidictsRuntimeFiles.map((fileName) =>
+      fs.copyFile(
+        path.join(hoshidictsRuntimeDir, fileName),
+        path.join(previewTargetDir, fileName)
+      )
+    ),
+    copyDirectory(
+      path.join(hoshidictsRuntimeDir, "icons"),
+      path.join(previewTargetDir, "icons")
+    )
+  ]);
 }
 
 main().catch((error) => {
