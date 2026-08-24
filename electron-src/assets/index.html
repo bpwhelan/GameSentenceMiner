@@ -634,8 +634,12 @@
             statsLoadInProgress = true;
 
             const settings = await ipcRenderer.invoke('settings.getSettings');
+            const localHostBindAddress = settings?.localhostBindAddress || 'localhost';
+            const singlePort = Number.isFinite(Number(settings?.singlePort)) && Number(settings?.singlePort) > 0
+                ? Math.trunc(Number(settings.singlePort))
+                : 7275;
             const statsEndpoint = settings?.statsEndpoint || 'overview';
-            const statsUrl = `http://localhost:7275/${statsEndpoint}`;
+            const statsUrl = 'http://' + localHostBindAddress + ':' + singlePort + '/' + statsEndpoint;
             const statsIframe = document.querySelector('#stats iframe');
 
             const isAvailable = await waitForStatsEndpoint(statsUrl);

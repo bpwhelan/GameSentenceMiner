@@ -132,7 +132,7 @@ import {
     registerChangelogProtocolScheme,
 } from './services/changelog_protocol.js';
 import { startInputServer, stopInputServer } from './services/input_server.js';
-import { getConfiguredSinglePort } from './gsm_config.js';
+import { getConfiguredSinglePort, getConfiguredLocalhostBindAddress } from './gsm_config.js';
 import {
     getStatusTrayIconPath,
     getTrayBaseIconPath,
@@ -1019,7 +1019,7 @@ async function pollBackendStatusOnce(): Promise<void> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 1500);
     try {
-        const response = await fetch(`http://localhost:${getConfiguredSinglePort()}/get_status`, {
+        const response = await fetch(`http://${getConfiguredLocalhostBindAddress()}:${getConfiguredSinglePort()}/get_status`, {
             signal: controller.signal,
         });
         if (!response.ok) {

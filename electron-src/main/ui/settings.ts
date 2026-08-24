@@ -95,7 +95,7 @@ import {
 import type { SceneLaunchProfile } from '../store.js';
 import { APP_NAME, BASE_DIR, getSanitizedPythonEnv } from '../util.js';
 import { syncPythonDisplayLocale } from '../python_locale.js';
-import { getConfiguredSinglePort, getGsmProfileNames } from '../gsm_config.js';
+import { getConfiguredSinglePort, getConfiguredLocalhostBindAddress, getGsmProfileNames } from '../gsm_config.js';
 // Replaced WebSocket usage with stdout IPC helpers
 import {
     closeAllPythonProcesses,
@@ -974,6 +974,7 @@ function getSettingsSnapshot() {
         singlePort: getConfiguredSinglePort(),
         iconStyle: store.get('iconStyle') || 'gsm',
         locale: getLocale(),
+        localhostBindAddress: getConfiguredLocalhostBindAddress(),
         theme: getTheme(),
         consoleMode: getConsoleMode(),
         setupWizardVersion: getSetupWizardVersion(),

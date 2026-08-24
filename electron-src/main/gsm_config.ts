@@ -3,6 +3,7 @@ import * as path from 'path';
 import { getBaseDir } from './data_dir.js';
 
 export const DEFAULT_GSM_SINGLE_PORT = 7275;
+export const DEFAULT_GSM_BIND_ADDRESS = "localhost";
 const DEFAULT_GSM_BASE_DIR = getBaseDir();
 
 type JsonObject = Record<string, unknown>;
@@ -79,6 +80,22 @@ export interface GsmProfileList {
     profileScenes: Record<string, string[]>;
 }
 
+export function resolveLocalhostBindAddressFromConfigData(configData: unknown): string {
+	if (!isJsonObject(configData)) {
+		return DEFAULT_GSM_BIND_ADDRESS;
+	}
+	
+	const profileData = getProfileData(configData);
+	if (!profileData || !isJsonObject(profileData.advanced)) {
+		return DEFAULT_GSM_BIND_ADDRESS;
+	}
+	
+	const value = profileData.advanced.localhost_bind_address;
+	return typeof value == "string" && value.trim()
+		? value.trim()
+		: DEFAULT_GSM_BIND_ADDRESS;
+}
+
 export function resolveGsmProfilesFromConfigData(configData: unknown): GsmProfileList {
     if (!isJsonObject(configData) || !isJsonObject(configData.configs)) {
         return { profiles: [], currentProfile: '', profileScenes: {} };
@@ -130,4 +147,19 @@ export function getConfiguredSinglePort(
     } catch {
         return DEFAULT_GSM_SINGLE_PORT;
     }
+}
+
+export function getConfiguredLocalhostBindAddress(
+	configPath = path.join(DEFAULT_GSM_BASE_DIR, 'config.json')
+) : string {
+	try {
+		if (!fs.existsSync(configPath)) {
+			return DEFAULT_GSM_BIND_ADDRESS;
+		}
+		
+		const raw = fs.readFileSync(configPath, 'utf8').replace(/^\uFEFF/, '');
+		return resolveLocalhostBindAddressFromConfigData(JSON.parse(raw));
+	} catch {
+		return DEFAULT_GSM_BIND_ADDRESS;
+	}
 }
