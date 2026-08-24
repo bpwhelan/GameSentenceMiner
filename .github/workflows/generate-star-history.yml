@@ -19,6 +19,8 @@ jobs:
         steps:
             - name: Checkout repository
               uses: actions/checkout@v7
+              with:
+                  token: ${{ secrets.STARS_WRITE_TOKEN }}
 
             - name: Generate star history
               uses: kitswas/generate-star-history@v1
