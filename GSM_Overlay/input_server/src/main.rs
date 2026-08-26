@@ -1,11 +1,15 @@
 mod features;
+#[cfg(target_os = "windows")]
+mod windows_keyboard_listener;
 
 use clap::Parser;
 use features::{FeatureRegistry, ServiceFeature, PROTOCOL_VERSION};
 use futures_util::{SinkExt, StreamExt};
-use gilrs::{Axis, Button, Event, EventType, GamepadId, Gilrs};
+use gilrs::{Axis, Button as GamepadButton, Event, EventType, GamepadId, Gilrs};
+#[cfg(not(target_os = "windows"))]
+use rdev::listen as listen_global_keyboard;
 use rdev::{
-    listen as listen_global_keyboard, Event as KeyboardEvent, EventType as KeyboardEventType,
+    Button as MouseButton, Event as KeyboardEvent, EventType as KeyboardEventType,
     Key as KeyboardKey,
 };
 use reqwest::Client as HttpClient;
@@ -35,11 +39,13 @@ use tokio::sync::{broadcast, Mutex};
 use tokio::time;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 use tracing::{debug, error, info, warn};
+#[cfg(target_os = "windows")]
+use windows_keyboard_listener::listen as listen_global_keyboard;
 use zip::ZipArchive;
 
 /// GSM shared input and high-performance services host (Rust)
 ///
-/// Gamepad input is the always-on baseline. Keyboard input and tokenizer
+/// Gamepad input is the always-on baseline. Keyboard/mouse input and tokenizer
 /// backends are optional capabilities leased by connected GSM clients.
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
@@ -252,30 +258,30 @@ fn tag_gamepad_control_payload(payload: String) -> String {
     value.to_string()
 }
 
-fn map_button(btn: Button) -> Option<ButtonCode> {
+fn map_button(btn: GamepadButton) -> Option<ButtonCode> {
     match btn {
-        Button::South => Some(ButtonCode::A),
-        Button::East => Some(ButtonCode::B),
-        Button::West => Some(ButtonCode::X),
-        Button::North => Some(ButtonCode::Y),
+        GamepadButton::South => Some(ButtonCode::A),
+        GamepadButton::East => Some(ButtonCode::B),
+        GamepadButton::West => Some(ButtonCode::X),
+        GamepadButton::North => Some(ButtonCode::Y),
 
-        Button::LeftTrigger => Some(ButtonCode::LB),
-        Button::RightTrigger => Some(ButtonCode::RB),
-        Button::LeftTrigger2 => Some(ButtonCode::LT),
-        Button::RightTrigger2 => Some(ButtonCode::RT),
+        GamepadButton::LeftTrigger => Some(ButtonCode::LB),
+        GamepadButton::RightTrigger => Some(ButtonCode::RB),
+        GamepadButton::LeftTrigger2 => Some(ButtonCode::LT),
+        GamepadButton::RightTrigger2 => Some(ButtonCode::RT),
 
-        Button::Select => Some(ButtonCode::BACK),
-        Button::Start => Some(ButtonCode::START),
+        GamepadButton::Select => Some(ButtonCode::BACK),
+        GamepadButton::Start => Some(ButtonCode::START),
 
-        Button::LeftThumb => Some(ButtonCode::LS),
-        Button::RightThumb => Some(ButtonCode::RS),
+        GamepadButton::LeftThumb => Some(ButtonCode::LS),
+        GamepadButton::RightThumb => Some(ButtonCode::RS),
 
-        Button::DPadUp => Some(ButtonCode::DPAD_UP),
-        Button::DPadDown => Some(ButtonCode::DPAD_DOWN),
-        Button::DPadLeft => Some(ButtonCode::DPAD_LEFT),
-        Button::DPadRight => Some(ButtonCode::DPAD_RIGHT),
+        GamepadButton::DPadUp => Some(ButtonCode::DPAD_UP),
+        GamepadButton::DPadDown => Some(ButtonCode::DPAD_DOWN),
+        GamepadButton::DPadLeft => Some(ButtonCode::DPAD_LEFT),
+        GamepadButton::DPadRight => Some(ButtonCode::DPAD_RIGHT),
 
-        Button::Mode => Some(ButtonCode::GUIDE),
+        GamepadButton::Mode => Some(ButtonCode::GUIDE),
 
         _ => None,
     }
@@ -451,6 +457,7 @@ impl ManualHotkeyModifiers {
 struct ManualHotkeyBinding {
     modifiers: ManualHotkeyModifiers,
     key: Option<KeyboardKey>,
+    mouse_button: Option<MouseButton>,
 }
 
 /// An app-level hotkey (toggle window, translate, etc.) routed through the input
@@ -476,11 +483,11 @@ struct ManualHotkeyState {
     active: bool,
     status: ManualHotkeyStatus,
     /// Allowlist of key identifiers the connected overlay actually reacts to.
-    /// Only these keys are broadcast as `keyboard_event`; everything else the
+    /// Only these inputs are broadcast as `keyboard_event`/`mouse_event`; everything else the
     /// user types is seen by the hook for hotkey evaluation but never leaves the
     /// process. This is what keeps the server from behaving like a keylogger.
     capture_keys: HashSet<String>,
-    /// When true, broadcast *every* key transition regardless of the allowlist.
+    /// When true, broadcast *every* keyboard/mouse transition regardless of the allowlist.
     /// Only used transiently while the settings UI is recording a new binding
     /// ("press a key..."), and reset to false as soon as capture ends.
     capture_all: bool,
@@ -490,8 +497,8 @@ struct ManualHotkeyState {
     app_hotkeys: HashMap<String, AppHotkeyEntry>,
 }
 
-/// Decide whether a key transition should be broadcast to clients as a
-/// `keyboard_event`. Default-deny: nothing is broadcast unless the key is on the
+/// Decide whether an input transition should be broadcast to clients as a
+/// `keyboard_event`/`mouse_event`. Default-deny: nothing is broadcast unless the input is on the
 /// client-supplied allowlist or an explicit capture-all recording session is active.
 fn should_broadcast_key(state: &ManualHotkeyState, key_name: &str) -> bool {
     state.capture_all || state.capture_keys.contains(key_name)
@@ -1620,6 +1627,14 @@ fn parse_manual_hotkey_key(token: &str) -> Result<KeyboardKey, String> {
     Ok(key)
 }
 
+fn parse_manual_hotkey_mouse_button(token: &str) -> Option<MouseButton> {
+    match token.trim().to_ascii_lowercase().as_str() {
+        "mouse4" => Some(MouseButton::Unknown(1)),
+        "mouse5" => Some(MouseButton::Unknown(2)),
+        _ => None,
+    }
+}
+
 fn parse_manual_hotkey_binding(hotkey: &str) -> Result<ManualHotkeyBinding, String> {
     let tokens = hotkey
         .split('+')
@@ -1632,22 +1647,31 @@ fn parse_manual_hotkey_binding(hotkey: &str) -> Result<ManualHotkeyBinding, Stri
 
     let mut modifiers = ManualHotkeyModifiers::default();
     let mut key = None;
+    let mut mouse_button = None;
     for token in tokens {
         if parse_manual_hotkey_modifier(token, &mut modifiers) {
             continue;
         }
 
-        if key.is_some() {
-            return Err("manual hotkey may contain only one non-modifier key".to_string());
+        if key.is_some() || mouse_button.is_some() {
+            return Err("manual hotkey may contain only one non-modifier input".to_string());
+        }
+        if let Some(button) = parse_manual_hotkey_mouse_button(token) {
+            mouse_button = Some(button);
+            continue;
         }
         key = Some(parse_manual_hotkey_key(token)?);
     }
 
-    if key.is_none() && !modifiers.any() {
+    if key.is_none() && mouse_button.is_none() && !modifiers.any() {
         return Err("manual hotkey is empty".to_string());
     }
 
-    Ok(ManualHotkeyBinding { modifiers, key })
+    Ok(ManualHotkeyBinding {
+        modifiers,
+        key,
+        mouse_button,
+    })
 }
 
 fn pressed_modifiers(pressed_keys: &HashSet<KeyboardKey>) -> ManualHotkeyModifiers {
@@ -1666,6 +1690,14 @@ fn manual_hotkey_binding_active(
     binding: &ManualHotkeyBinding,
     pressed_keys: &HashSet<KeyboardKey>,
 ) -> bool {
+    manual_hotkey_binding_active_with_mouse(binding, pressed_keys, &HashSet::new())
+}
+
+fn manual_hotkey_binding_active_with_mouse(
+    binding: &ManualHotkeyBinding,
+    pressed_keys: &HashSet<KeyboardKey>,
+    pressed_mouse_buttons: &HashSet<MouseButton>,
+) -> bool {
     let pressed_modifiers = pressed_modifiers(pressed_keys);
     if binding.modifiers.ctrl && !pressed_modifiers.ctrl {
         return false;
@@ -1680,10 +1712,13 @@ fn manual_hotkey_binding_active(
         return false;
     }
 
-    match binding.key {
-        Some(key) => pressed_keys.contains(&key),
-        None => true,
+    if let Some(key) = binding.key {
+        return pressed_keys.contains(&key);
     }
+    if let Some(button) = binding.mouse_button {
+        return pressed_mouse_buttons.contains(&button);
+    }
+    true
 }
 
 // ------------------------------ JSON messages --------------------------------
@@ -1739,8 +1774,8 @@ enum ClientMsg {
         devices: Vec<String>,
     },
 
-    /// Configure which keys are broadcast as `keyboard_event`. `keys`, when
-    /// present, replaces the allowlist of keys the overlay reacts to. `captureAll`,
+    /// Configure which keyboard/mouse identifiers are broadcast. `keys`, when
+    /// present, replaces the allowlist of inputs the overlay reacts to. `captureAll`,
     /// when present, toggles transient "broadcast everything" mode used only while
     /// the settings UI records a new binding. Either field may be omitted so a
     /// client can update one without clobbering the other.
@@ -1754,8 +1789,8 @@ enum ClientMsg {
 
     /// Replace the full set of app-level hotkeys evaluated server-side. Each entry
     /// maps a stable action id to a hotkey string (same syntax as the manual
-    /// hotkey, e.g. "Alt+Shift+H" or "F13"). Sent by the Electron main process when
-    /// "route all hotkeys through input server" is enabled.
+    /// hotkey, e.g. "Alt+Shift+H", "F13", or "Mouse4"). Sent by the Electron
+    /// main process when route-all mode is enabled or a mouse hotkey is configured.
     #[serde(rename = "configure_app_hotkeys")]
     ConfigureAppHotkeys {
         #[serde(default)]
@@ -2125,38 +2160,57 @@ fn rdev_key_to_string(key: &KeyboardKey) -> Option<&'static str> {
     })
 }
 
+fn rdev_button_to_string(button: &MouseButton) -> Option<&'static str> {
+    match button {
+        // Windows low-level XBUTTON1/XBUTTON2 and rdev's Windows backend use
+        // 1/2 for the browser back/forward buttons respectively.
+        MouseButton::Unknown(1) => Some("Mouse4"),
+        MouseButton::Unknown(2) => Some("Mouse5"),
+        _ => None,
+    }
+}
+
 fn handle_manual_keyboard_event(
     tx: &broadcast::Sender<String>,
     manual_hotkey: &SharedManualHotkey,
     features: &FeatureRegistry,
     pressed_keys: &mut HashSet<KeyboardKey>,
+    pressed_mouse_buttons: &mut HashSet<MouseButton>,
     event: KeyboardEvent,
 ) {
     if !features.is_enabled(ServiceFeature::Keyboard) {
         pressed_keys.clear();
+        pressed_mouse_buttons.clear();
         return;
     }
 
-    let (key, pressed) = match event.event_type {
-        KeyboardEventType::KeyPress(key) => (key, true),
-        KeyboardEventType::KeyRelease(key) => (key, false),
+    let (input_name, is_mouse, pressed, is_transition) = match event.event_type {
+        KeyboardEventType::KeyPress(key) => {
+            let is_transition = pressed_keys.insert(key);
+            (rdev_key_to_string(&key), false, true, is_transition)
+        }
+        KeyboardEventType::KeyRelease(key) => {
+            let is_transition = pressed_keys.remove(&key);
+            (rdev_key_to_string(&key), false, false, is_transition)
+        }
+        KeyboardEventType::ButtonPress(button) => {
+            let is_transition = pressed_mouse_buttons.insert(button);
+            (rdev_button_to_string(&button), true, true, is_transition)
+        }
+        KeyboardEventType::ButtonRelease(button) => {
+            let is_transition = pressed_mouse_buttons.remove(&button);
+            (rdev_button_to_string(&button), true, false, is_transition)
+        }
         _ => return,
     };
 
-    // Track key state (dedup: only process transitions)
-    let is_transition = if pressed {
-        pressed_keys.insert(key)
-    } else {
-        pressed_keys.remove(&key)
-    };
-
-    // ── Broadcast keyboard_event only for allowlisted keys ──
-    // The global hook necessarily sees every key (so modifier-only hotkeys can
-    // work), but we only transmit the keys the overlay actually reacts to — never
+    // ── Broadcast allowlisted keyboard/mouse events ──
+    // The global hook necessarily sees every input (so modifier-only hotkeys can
+    // work), but we only transmit inputs the overlay actually reacts to — never
     // arbitrary text the user types. This keeps the server from being, or looking
     // like, a network keylogger.
     if is_transition {
-        if let Some(key_name) = rdev_key_to_string(&key) {
+        if let Some(key_name) = input_name {
             let should_emit = {
                 let guard = manual_hotkey.lock().expect("manual hotkey mutex poisoned");
                 should_broadcast_key(&guard, key_name)
@@ -2164,7 +2218,7 @@ fn handle_manual_keyboard_event(
             if should_emit {
                 let mods = pressed_modifiers(pressed_keys);
                 let payload = json!({
-                    "type": "keyboard_event",
+                    "type": if is_mouse { "mouse_event" } else { "keyboard_event" },
                     "key": key_name,
                     "pressed": pressed,
                     "modifiers": {
@@ -2175,7 +2229,15 @@ fn handle_manual_keyboard_event(
                     },
                 })
                 .to_string();
-                send_broadcast(tx, payload, "keyboard_event");
+                send_broadcast(
+                    tx,
+                    payload,
+                    if is_mouse {
+                        "mouse_event"
+                    } else {
+                        "keyboard_event"
+                    },
+                );
             }
         }
     }
@@ -2187,7 +2249,11 @@ fn handle_manual_keyboard_event(
         let mut guard = manual_hotkey.lock().expect("manual hotkey mutex poisoned");
         let mut events = Vec::new();
         for (id, entry) in guard.app_hotkeys.iter_mut() {
-            let next_active = manual_hotkey_binding_active(&entry.binding, pressed_keys);
+            let next_active = manual_hotkey_binding_active_with_mouse(
+                &entry.binding,
+                pressed_keys,
+                pressed_mouse_buttons,
+            );
             if next_active != entry.active {
                 entry.active = next_active;
                 events.push((id.clone(), next_active));
@@ -2211,7 +2277,8 @@ fn handle_manual_keyboard_event(
             return;
         };
 
-        let next_active = manual_hotkey_binding_active(binding, pressed_keys);
+        let next_active =
+            manual_hotkey_binding_active_with_mouse(binding, pressed_keys, pressed_mouse_buttons);
         if next_active == guard.active {
             return;
         }
@@ -3184,8 +3251,9 @@ fn keyboard_input_thread(
     features: FeatureRegistry,
 ) {
     let mut pressed_keys = HashSet::new();
+    let mut pressed_mouse_buttons = HashSet::new();
     set_manual_hotkey_listener_status(&manual_hotkey, &tx, true, None);
-    info!("global keyboard listener initialized");
+    info!("global keyboard and mouse listener initialized");
 
     let tx_for_listener = tx.clone();
     let manual_hotkey_for_listener = manual_hotkey.clone();
@@ -3196,6 +3264,7 @@ fn keyboard_input_thread(
             &manual_hotkey_for_listener,
             &features_for_listener,
             &mut pressed_keys,
+            &mut pressed_mouse_buttons,
             event,
         );
     });
@@ -3524,7 +3593,49 @@ mod tests {
         let binding =
             parse_manual_hotkey_binding("Shift+Space").expect("shift+space hotkey should parse");
         assert_eq!(binding.key, Some(KeyboardKey::Space));
+        assert_eq!(binding.mouse_button, None);
         assert!(binding.modifiers.shift);
+    }
+
+    #[test]
+    fn mouse_hotkeys_parse_and_activate() {
+        let plain_binding =
+            parse_manual_hotkey_binding("Mouse4").expect("plain mouse4 hotkey should parse");
+        assert_eq!(plain_binding.mouse_button, Some(MouseButton::Unknown(1)));
+
+        let binding =
+            parse_manual_hotkey_binding("Shift+Mouse4").expect("mouse4 hotkey should parse");
+        assert_eq!(binding.key, None);
+        assert_eq!(binding.mouse_button, Some(MouseButton::Unknown(1)));
+        assert!(binding.modifiers.shift);
+
+        let mut pressed_keys = HashSet::new();
+        let mut pressed_mouse_buttons = HashSet::new();
+        pressed_mouse_buttons.insert(MouseButton::Unknown(1));
+        assert!(!manual_hotkey_binding_active_with_mouse(
+            &binding,
+            &pressed_keys,
+            &pressed_mouse_buttons,
+        ));
+
+        pressed_keys.insert(KeyboardKey::ShiftLeft);
+        assert!(manual_hotkey_binding_active_with_mouse(
+            &binding,
+            &pressed_keys,
+            &pressed_mouse_buttons,
+        ));
+    }
+
+    #[test]
+    fn mouse_button_names_match_browser_back_and_forward_buttons() {
+        assert_eq!(
+            rdev_button_to_string(&MouseButton::Unknown(1)),
+            Some("Mouse4")
+        );
+        assert_eq!(
+            rdev_button_to_string(&MouseButton::Unknown(2)),
+            Some("Mouse5")
+        );
     }
 
     #[test]

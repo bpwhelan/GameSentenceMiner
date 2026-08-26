@@ -2,6 +2,8 @@ const MODIFIER_TOKENS = new Set(["ctrl", "cmd", "alt", "shift"]);
 const SUPPORTED_KEY_TOKENS = new Set([
   ..."abcdefghijklmnopqrstuvwxyz0123456789".split(""),
   ...Array.from({ length: 24 }, (_value, index) => `f${index + 1}`),
+  "mouse4",
+  "mouse5",
   "space",
   "return",
   "escape",
@@ -40,6 +42,19 @@ const SUPPORTED_KEY_TOKENS = new Set([
   "(",
   ")",
 ]);
+
+function isMouseHotkey(value) {
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  const tokens = value
+    .split("+")
+    .map((token) => token.trim().toLowerCase())
+    .filter(Boolean);
+  const primaryTokens = tokens.filter((token) => !MODIFIER_TOKENS.has(token));
+  return primaryTokens.length === 1 && ["mouse4", "mouse5"].includes(primaryTokens[0]);
+}
 
 function isSupportedHotkey(value) {
   if (typeof value !== "string") {
@@ -174,6 +189,7 @@ function shouldSuppressGamepadToggleDuringFocusTransition({
 
 module.exports = {
   createLeadingEdgeCooldownHandler,
+  isMouseHotkey,
   isSupportedHotkey,
   normalizeConfiguredHotkeyValues,
   registerHotkeyWithFallback,

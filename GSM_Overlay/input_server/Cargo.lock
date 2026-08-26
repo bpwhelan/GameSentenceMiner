@@ -610,6 +610,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tungstenite",
+ "winapi",
  "zip",
 ]
 

@@ -8,6 +8,37 @@ import { describe, expect, it, vi } from "vitest";
 const requireModule = createRequire(import.meta.url);
 
 describe("overlay hotkey recovery", () => {
+  it("warns against holding Mouse4 or Mouse5 for Push to Show", () => {
+    const source = fs.readFileSync(
+      path.resolve(process.cwd(), "GSM_Overlay/components/manual-mode-card.js"),
+      "utf8"
+    );
+    const context = vm.createContext({});
+    vm.runInContext(source, context);
+    const card = context.GSMManualModeCard as {
+      getMouseHotkeyHoldWarning: (hotkey: string, manualModeType: string) => string;
+    };
+
+    expect(card.getMouseHotkeyHoldWarning("Mouse4", "hold")).toContain("Yomitan");
+    expect(card.getMouseHotkeyHoldWarning("Ctrl+Mouse5", "hold")).toContain("Toggle");
+    expect(card.getMouseHotkeyHoldWarning("Mouse4", "toggle")).toBe("");
+  });
+
+  it("accepts Mouse4 and Mouse5 as supported overlay hotkeys", () => {
+    const { isMouseHotkey, isSupportedHotkey } = requireModule(
+      path.resolve(process.cwd(), "GSM_Overlay/hotkey_settings.js")
+    ) as {
+      isMouseHotkey: (value: string) => boolean;
+      isSupportedHotkey: (value: string) => boolean;
+    };
+
+    expect(isSupportedHotkey("Mouse4")).toBe(true);
+    expect(isSupportedHotkey("Ctrl+Mouse5")).toBe(true);
+    expect(isSupportedHotkey("Mouse6")).toBe(false);
+    expect(isMouseHotkey("Mouse4")).toBe(true);
+    expect(isMouseHotkey("Shift+Mouse5")).toBe(true);
+  });
+
   it("blocks only keyboard toggles during controller-navigation focus recovery", () => {
     const { shouldSuppressGamepadToggleDuringFocusTransition } = requireModule(
       path.resolve(process.cwd(), "GSM_Overlay/hotkey_settings.js")

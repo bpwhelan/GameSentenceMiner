@@ -27,6 +27,7 @@ const {
 } = require('./manual_hotkey_controller');
 const {
   createLeadingEdgeCooldownHandler,
+  isMouseHotkey,
   normalizeConfiguredHotkeyValues,
   registerHotkeyWithFallback,
   shouldSuppressGamepadToggleDuringFocusTransition,
@@ -2337,6 +2338,10 @@ function shouldRunInputServer(settings = userSettings) {
     return true;
   }
 
+  if (isAppHotkeyInputServerRequired()) {
+    return true;
+  }
+
   if (isManualHotkeyUsingInputServer(settings)) {
     return true;
   }
@@ -2496,6 +2501,7 @@ async function startGamepadServer(reason = "unknown") {
           gamepadServerProcess = null;
         }
         syncManualHotkeyInputServerConnection("process-close");
+        syncAppHotkeyInputServerConnection("process-close");
       });
 
       serverProcess.on('error', (err) => {
@@ -2507,6 +2513,7 @@ async function startGamepadServer(reason = "unknown") {
 
       console.log('[InputServer] Started successfully');
       syncManualHotkeyInputServerConnection("start-success");
+      syncAppHotkeyInputServerConnection("start-success");
     } catch (e) {
       console.error('[InputServer] Error starting server:', e);
       gamepadServerProcess = null;
@@ -2546,6 +2553,7 @@ async function stopGamepadServer(reason = "unknown") {
       await pendingStartPromise;
     }
     syncManualHotkeyInputServerConnection("stop-no-process");
+    syncAppHotkeyInputServerConnection("stop-no-process");
     return;
   }
 
@@ -2570,6 +2578,7 @@ async function stopGamepadServer(reason = "unknown") {
         console.log(`[InputServer] Stop completed (${reason}): ${details}`);
       }
       syncManualHotkeyInputServerConnection("stop-finished");
+      syncAppHotkeyInputServerConnection("stop-finished");
       resolve();
     };
 
@@ -2785,13 +2794,27 @@ function syncManualHotkeyInputServerConnection(reason = "unknown") {
 // ─────────────────────── App-hotkey input-server routing ───────────────────────
 // When "route all hotkeys through input server" is enabled, every overlay hotkey
 // is registered on the Rust input server (server-side combo eval) instead of
-// Electron globalShortcut, so it fires even in games that swallow global hotkeys.
+// Electron globalShortcut. Mouse4/Mouse5 always use this path because Electron
+// globalShortcut only understands keyboard accelerators.
 
 const appHotkeyGlobalShortcutAccelerators = new Map(); // id -> accelerator currently held by globalShortcut
 const TOGGLE_HOTKEY_COOLDOWN_MS = 250;
 
 function isRouteAllHotkeysEnabled() {
   return userSettings.routeAllHotkeysThroughInputServer === true;
+}
+
+function isAppHotkeyInputServerRequired() {
+  if (isRouteAllHotkeysEnabled()) {
+    return true;
+  }
+
+  for (const entry of appHotkeyInputServerConnection.registry.values()) {
+    if (entry && isMouseHotkey(entry.accelerator)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function buildAppHotkeyConfigPayload() {
@@ -2812,7 +2835,7 @@ function sendAppHotkeyConfig() {
   try {
     state.socket.send(JSON.stringify({
       type: "configure_features",
-      features: isRouteAllHotkeysEnabled() ? ["keyboard"] : [],
+      features: isAppHotkeyInputServerRequired() ? ["keyboard"] : [],
     }));
     state.socket.send(JSON.stringify({
       type: "configure_app_hotkeys",
@@ -2878,7 +2901,7 @@ function handleAppHotkeyInputServerMessage(rawMessage) {
 function syncAppHotkeyInputServerConnection(reason = "unknown") {
   const state = appHotkeyInputServerConnection;
 
-  if (!isRouteAllHotkeysEnabled()) {
+  if (!isAppHotkeyInputServerRequired()) {
     if (state.socket && state.socket.readyState === WebSocket.OPEN) {
       try {
         state.socket.send(JSON.stringify({ type: "configure_app_hotkeys", hotkeys: [] }));
@@ -2921,7 +2944,7 @@ function syncAppHotkeyInputServerConnection(reason = "unknown") {
   socket.on("close", () => {
     if (appHotkeyInputServerConnection.socket !== socket) return;
     appHotkeyInputServerConnection.socket = null;
-    if (isRouteAllHotkeysEnabled()) {
+    if (isAppHotkeyInputServerRequired()) {
       scheduleAppHotkeyInputServerReconnect(reason);
     }
   });
@@ -2985,8 +3008,9 @@ function setAppHotkey(id, accelerator, handler, options = {}) {
     ? createLeadingEdgeCooldownHandler(handler, debounceMs)
     : handler;
 
-  if (isRouteAllHotkeysEnabled()) {
+  if (isRouteAllHotkeysEnabled() || isMouseHotkey(accel)) {
     appHotkeyInputServerConnection.registry.set(id, { accelerator: accel, handler: effectiveHandler });
+    syncGamepadServerState(`app-hotkey:${id}`);
     syncAppHotkeyInputServerConnection(`register:${id}`);
     sendAppHotkeyConfig();
     return true;
@@ -3030,6 +3054,8 @@ function clearAppHotkey(id) {
   }
   if (appHotkeyInputServerConnection.registry.delete(id)) {
     sendAppHotkeyConfig();
+    syncAppHotkeyInputServerConnection(`clear:${id}`);
+    syncGamepadServerState(`clear-app-hotkey:${id}`);
   }
 }
 
@@ -6563,22 +6589,24 @@ async function startOverlayAppImpl() {
 
     if (!userSettings.gamepadEnabled || !userSettings.gamepadKeyboardEnabled) {
       console.log('[Gamepad] Keyboard navigation hotkey disabled');
+      syncGamepadServerState("gamepad-keyboard-disabled");
       return;
     }
 
     const requestedHotkey = (userSettings.gamepadKeyboardHotkey || '').trim();
     if (!requestedHotkey) {
       console.log('[Gamepad] Keyboard navigation hotkey empty; skipping registration');
+      syncGamepadServerState("gamepad-keyboard-empty");
       return;
     }
 
-    // Route-all mode: register server-side (always succeeds for a valid combo, so
-    // the globalShortcut-failure Alt+G fallback below does not apply).
-    if (isRouteAllHotkeysEnabled()) {
+    // Route-all mode and mouse buttons use the input server because Electron's
+    // globalShortcut API cannot observe Mouse4/Mouse5.
+    if (isRouteAllHotkeysEnabled() || isMouseHotkey(requestedHotkey)) {
       setAppHotkey("gamepadKeyboard", requestedHotkey, () => {
         requestGamepadNavigationToggleFromMain(`keyboard:${requestedHotkey}`);
       });
-      console.log(`[Gamepad] Keyboard hotkey routed through input server: ${requestedHotkey}`);
+      console.log(`[Gamepad] Keyboard/mouse hotkey routed through input server: ${requestedHotkey}`);
       return;
     }
 
@@ -7624,6 +7652,7 @@ async function startOverlayAppImpl() {
         console.log(`[Gamepad] Keyboard setting changed: ${key} = ${value}`);
         // Re-register hotkey if keyboard enabled or hotkey changed
         registerGamepadKeyboardHotkey(oldValue);
+        syncGamepadServerState(`setting-changed:${key}`);
         break;
     }
     // GSM-owned OCR-capture settings are persisted by the backend, not the overlay profile.

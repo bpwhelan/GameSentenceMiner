@@ -1036,6 +1036,7 @@ class GamepadHandler {
         break;
 
       case 'keyboard_event':
+      case 'mouse_event':
         this.onKeyboardEvent(data);
         break;
         

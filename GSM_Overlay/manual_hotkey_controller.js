@@ -27,6 +27,12 @@ function isModifierOnlyHotkey(hotkey) {
   return parts.length > 0 && parts.every(isModifierToken);
 }
 
+function isMouseHotkey(hotkey) {
+  const parts = normalizeHotkeyParts(hotkey);
+  const primaryParts = parts.filter((part) => !isModifierToken(part));
+  return primaryParts.length === 1 && ["mouse4", "mouse5"].includes(primaryParts[0]);
+}
+
 function isManualHotkeyBlockedByGameWindowState(state) {
   const normalized = String(state || "").trim().toLowerCase();
   return MANUAL_HOTKEY_BLOCKED_GAME_WINDOW_STATES.has(normalized);
@@ -37,7 +43,7 @@ function resolveManualHotkeyBackend(hotkey, options = {}) {
     return MANUAL_HOTKEY_BACKEND_INPUT_SERVER;
   }
 
-  if (isModifierOnlyHotkey(hotkey)) {
+  if (isModifierOnlyHotkey(hotkey) || isMouseHotkey(hotkey)) {
     return MANUAL_HOTKEY_BACKEND_INPUT_SERVER;
   }
 
@@ -197,6 +203,7 @@ module.exports = {
   MANUAL_HOTKEY_MODE_TOGGLE,
   createManualHotkeyController,
   isManualHotkeyBlockedByGameWindowState,
+  isMouseHotkey,
   isModifierOnlyHotkey,
   normalizeManualHotkeyMode,
   resolveManualHotkeyBackend,

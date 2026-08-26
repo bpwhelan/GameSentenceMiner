@@ -2102,7 +2102,7 @@
       <label>
         <span class="label-text">
           Route all hotkeys through input server
-          <div class="hotkey-info">For games (e.g. Skyrim) where normal global hotkeys don't fire. Uses GSM's low-level keyboard hook for every hotkey. Also enables F13–F24 bindings.</div>
+          <div class="hotkey-info">For games (e.g. Skyrim) where normal global hotkeys don't fire. Uses GSM's low-level keyboard and mouse hook for every hotkey. Also enables F13–F24 and Mouse4/Mouse5 bindings.</div>
         </span>
         <input type="checkbox" id="routeAllHotkeysThroughInputServer" />
       </label>
@@ -3321,7 +3321,8 @@
       const backendElement = document.getElementById("manualHotkeyBackendStatus");
       const platformWarning = document.getElementById("manual-hotkey-platform-warning");
       const runtimeWarning = document.getElementById("manual-hotkey-runtime-warning");
-      if (!backendElement || !platformWarning || !runtimeWarning) {
+      const mouseHoldWarning = document.getElementById("manual-hotkey-mouse-hold-warning");
+      if (!backendElement || !platformWarning || !runtimeWarning || !mouseHoldWarning) {
         return;
       }
 
@@ -3345,8 +3346,16 @@
 
       platformWarning.style.display = "none";
       runtimeWarning.style.display = "none";
+      mouseHoldWarning.style.display = "none";
       platformWarning.textContent = "";
       runtimeWarning.textContent = "";
+      mouseHoldWarning.textContent = "";
+
+      const mouseHoldWarningText = GSMManualModeCard.getMouseHotkeyHoldWarning(configuredHotkey, manualModeType);
+      if (mouseHoldWarningText) {
+        mouseHoldWarning.textContent = mouseHoldWarningText;
+        mouseHoldWarning.style.display = "block";
+      }
 
       const platform = document.getElementById('platform-override')?.value && document.getElementById('platform-override')?.value !== 'null'
         ? document.getElementById('platform-override').value
@@ -4256,6 +4265,47 @@
           }, 500);
         }
       });
+
+      input.addEventListener("mousedown", (event) => {
+        if (!isCapturing) return;
+
+        const accelerator = captureMouseEvent(event);
+        if (!accelerator) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        event.target.value = accelerator;
+        if (onCapture) {
+          onCapture(accelerator);
+        }
+        if (showCtrlWarning && warningElementId) {
+          updateCtrlWarning(accelerator, warningElementId);
+        }
+        if (settingKey === "showHotkey") {
+          syncManualHotkeyStatusUi();
+        }
+
+        // Let the normal blur path validate and persist the captured value.
+        setTimeout(() => {
+          if (isCapturing && validateHotkey(event.target.value)) {
+            event.target.blur();
+          }
+        }, 0);
+      });
+
+      input.addEventListener("mouseup", (event) => {
+        if (isCapturing && captureMouseEvent(event)) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      });
+
+      input.addEventListener("auxclick", (event) => {
+        if (isCapturing && captureMouseEvent(event)) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      });
     }
 
     function initializeGamepadBindingInput(inputId) {
@@ -4746,6 +4796,10 @@
     // Delegated to the shared Manual Mode card component (single source of truth).
     function captureKeyboardEvent(event) {
       return GSMManualModeCard.captureKeyboardEvent(event);
+    }
+
+    function captureMouseEvent(event) {
+      return GSMManualModeCard.captureMouseEvent(event);
     }
 
     // Update Ctrl warning visibility
@@ -5930,6 +5984,16 @@
             break;
           case "keyboard_event":
             // Forward server keyboard events for keyboard binding capture
+            window.dispatchEvent(new CustomEvent("gsm-keyboard-event", {
+              detail: {
+                key: data.key,
+                pressed: data.pressed,
+                modifiers: data.modifiers || {},
+              }
+            }));
+            break;
+          case "mouse_event":
+            // Mouse4/Mouse5 use the same capture surface as keyboard bindings.
             window.dispatchEvent(new CustomEvent("gsm-keyboard-event", {
               detail: {
                 key: data.key,

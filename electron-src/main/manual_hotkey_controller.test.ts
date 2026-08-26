@@ -7,6 +7,7 @@ const {
   MANUAL_HOTKEY_MODE_TOGGLE,
   createManualHotkeyController,
   isManualHotkeyBlockedByGameWindowState,
+  resolveManualHotkeyBackend,
 } = require('../../GSM_Overlay/manual_hotkey_controller.js');
 
 type Snapshot = {
@@ -135,5 +136,11 @@ describe('manual_hotkey_controller', () => {
     expect(isManualHotkeyBlockedByGameWindowState('obscured')).toBe(true);
     expect(isManualHotkeyBlockedByGameWindowState('minimized')).toBe(true);
     expect(isManualHotkeyBlockedByGameWindowState('closed')).toBe(true);
+  });
+
+  it('routes Mouse4 and Mouse5 through the input server', () => {
+    expect(resolveManualHotkeyBackend('Mouse4')).toBe('input_server');
+    expect(resolveManualHotkeyBackend('Shift+Mouse5')).toBe('input_server');
+    expect(resolveManualHotkeyBackend('Alt+G')).toBe('electron');
   });
 });

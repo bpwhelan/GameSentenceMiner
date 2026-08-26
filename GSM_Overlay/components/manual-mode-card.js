@@ -35,8 +35,30 @@
     return parts.length > 0 && parts.every((part) => modifierTokens.has(part));
   }
 
+  function isMouseHotkey(hotkey) {
+    const parts = splitHotkeyParts(hotkey).map((part) => part.toLowerCase());
+    const primaryParts = parts.filter((part) => !["ctrl", "cmd", "alt", "shift"].includes(part));
+    return primaryParts.length === 1 && ["mouse4", "mouse5"].includes(primaryParts[0]);
+  }
+
+  const MOUSE_HOLD_WARNING =
+    "⚠️ Avoid Push to Show Hold with Mouse4/Mouse5: Yomitan may not work correctly while either button is held. Use Toggle instead.";
+
+  function getMouseHotkeyHoldWarning(hotkey, manualModeType) {
+    return isMouseHotkey(hotkey) && normalizeManualModeType(manualModeType) === "hold"
+      ? MOUSE_HOLD_WARNING
+      : "";
+  }
+
   function predictManualHotkeyBackend(hotkey) {
-    return isModifierOnlyHotkey(hotkey) ? "input_server" : "electron";
+    return isModifierOnlyHotkey(hotkey) || isMouseHotkey(hotkey) ? "input_server" : "electron";
+  }
+
+  function captureMouseEvent(event) {
+    if (!event) return null;
+    if (event.button === 3) return "Mouse4";
+    if (event.button === 4) return "Mouse5";
+    return null;
   }
 
   function captureKeyboardEvent(event) {
@@ -130,6 +152,7 @@
       "F13", "F14", "F15", "F16", "F17", "F18", "F19", "F20", "F21", "F22", "F23", "F24",
       "Space", "Return", "Escape", "Backspace", "Delete", "Tab",
       "Up", "Down", "Left", "Right", "Home", "End", "PageUp", "PageDown", "Insert",
+      "Mouse4", "Mouse5",
       "+", "-", "=", "[", "]", "\\", ";", "'", ",", ".", "/", "`",
       "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "_",
     ];
@@ -213,7 +236,12 @@
       runtimeWarning = runtimeState.keyboardError || "Input-server keyboard listener unavailable.";
     }
 
-    return { statusText, platformWarning, runtimeWarning };
+    return {
+      statusText,
+      platformWarning,
+      runtimeWarning,
+      mouseHoldWarning: getMouseHotkeyHoldWarning(hotkey, type),
+    };
   }
 
   // --- Host-agnostic hotkey capture (the shared "hotkey handler") ---
@@ -290,13 +318,49 @@
         }, 500);
       }
     });
+
+    input.addEventListener("mousedown", (event) => {
+      if (!isCapturing) return;
+
+      const accelerator = captureMouseEvent(event);
+      if (!accelerator) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      event.target.value = accelerator;
+      if (onCapture) onCapture(accelerator);
+      if (showCtrlWarning && warningElement) {
+        updateCtrlWarning(accelerator, warningElement);
+      }
+      if (onStatus) onStatus();
+
+      setTimeout(() => {
+        if (isCapturing && validateHotkey(event.target.value)) {
+          event.target.blur();
+        }
+      }, 0);
+    });
+
+    input.addEventListener("mouseup", (event) => {
+      if (isCapturing && captureMouseEvent(event)) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    });
+
+    input.addEventListener("auxclick", (event) => {
+      if (isCapturing && captureMouseEvent(event)) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    });
   }
 
   // --- Card markup ---
   // Inner markup only (no outer .setting-group); the host supplies the container.
   // Element IDs match settings.html so its binding system keeps working unchanged.
   const HOTKEY_INPUT_TITLE =
-    "Enter a valid hotkey (e.g., Shift + Space)\n\n" +
+    "Enter a valid hotkey (e.g., Shift + Space or Mouse4)\n\n" +
     "⚠️ WARNING: Avoid Ctrl key in games/visual novels\n" +
     "(Ctrl is commonly used for text skipping)\n\n" +
     "Note: Some keys may not work (e.g., numpad +, certain special keys)\n" +
@@ -333,11 +397,12 @@
     <div id="manualHotkeyBackendStatus" class="hotkey-info">Backend: Electron</div>
     <div id="manual-hotkey-platform-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;"></div>
     <div id="manual-hotkey-runtime-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;"></div>
+    <div id="manual-hotkey-mouse-hold-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;"></div>
     <label>
       <span class="label-text">
         Hotkey
         <div class="hotkey-info">Used for the selected Push to Show type above</div>
-        <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key (modifiers optional)</div>
+        <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key or Mouse4/Mouse5 (modifiers optional)</div>
         <div id="ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning: Ctrl key may interfere with game controls (text skipping)</div>
       </span>
       <div class="input-container">
@@ -372,6 +437,7 @@
     const statusEl = get("manualHotkeyBackendStatus");
     const platformWarn = get("manual-hotkey-platform-warning");
     const runtimeWarn = get("manual-hotkey-runtime-warning");
+    const mouseHoldWarn = get("manual-hotkey-mouse-hold-warning");
     const ctrlWarn = get("ctrl-warning");
 
     let runtime = { ...runtimeState };
@@ -383,7 +449,7 @@
     }
 
     function applyStatus() {
-      const { statusText, platformWarning, runtimeWarning } = computeManualHotkeyStatus({
+      const { statusText, platformWarning, runtimeWarning, mouseHoldWarning } = computeManualHotkeyStatus({
         hotkey: showHotkey ? showHotkey.value : "",
         manualModeType: manualModeType ? manualModeType.value : "hold",
         runtimeState: runtime,
@@ -397,6 +463,10 @@
       if (runtimeWarn) {
         runtimeWarn.textContent = runtimeWarning;
         runtimeWarn.style.display = runtimeWarning ? "block" : "none";
+      }
+      if (mouseHoldWarn) {
+        mouseHoldWarn.textContent = mouseHoldWarning;
+        mouseHoldWarn.style.display = mouseHoldWarning ? "block" : "none";
       }
     }
 
@@ -478,8 +548,11 @@
   global.GSMManualModeCard = {
     splitHotkeyParts,
     isModifierOnlyHotkey,
+    isMouseHotkey,
+    getMouseHotkeyHoldWarning,
     predictManualHotkeyBackend,
     captureKeyboardEvent,
+    captureMouseEvent,
     validateHotkey,
     updateCtrlWarning,
     normalizeManualModeType,
