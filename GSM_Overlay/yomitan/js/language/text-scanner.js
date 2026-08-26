@@ -469,6 +469,17 @@ export class TextScanner extends EventDispatcher {
         await this._searchAt(x, y, inputInfo);
     }
 
+    /**
+     * Performs a search from an already-resolved text source. This preserves the
+     * click lookup behavior without using coordinate hit testing.
+     * @param {import('text-source').TextSource} textSource
+     * @param {import('text-scanner').InputInfoDetail?} [inputDetail]
+     */
+    async searchAtTextSource(textSource, inputDetail) {
+        const inputInfo = this._createInputInfo(null, 'mouse', 'click', false, [], [], inputDetail);
+        await this._search(textSource, this._searchTerms, this._searchKanji, inputInfo);
+    }
+
     // Private
 
     /**

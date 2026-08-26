@@ -33,6 +33,7 @@ const GSM_GAMEPAD_NAVIGATION_EVENT_TYPE = 'gsm-gamepad-navigation-active';
 const GSM_YOMITAN_CONTROL_EVENT_TYPE = 'gsm-yomitan-control';
 const GSM_YOMITAN_CONTROL_ACTION_HIDE_POPUP = 'hide-popup';
 const GSM_YOMITAN_CONTROL_ACTION_LOOKUP_POINT = 'lookup-point';
+const GSM_YOMITAN_LOOKUP_TARGET_ATTRIBUTE = 'data-gsm-yomitan-lookup-target';
 
 /**
  * This is the main class responsible for scanning and handling webpage content.
@@ -114,8 +115,12 @@ export class Frontend {
         this._updatePopupToken = null;
         /** @type {?import('core').Timeout} */
         this._clearSelectionTimer = null;
+        /** @type {number} */
+        this._clearSelectionDelayToken = 0;
         /** @type {boolean} */
         this._isPointerOverPopup = false;
+        /** @type {boolean} */
+        this._gsmGamepadNavigationActive = false;
         /** @type {?import('settings').OptionsContext} */
         this._optionsContextOverride = null;
         /** @type {(event: MessageEvent) => void} */
@@ -124,6 +129,8 @@ export class Frontend {
         this._onGsmGamepadNavigationEventBind = this._onGsmGamepadNavigationEvent.bind(this);
         /** @type {GsmYomitanApiBridge} */
         this._gsmYomitanApiBridge = new GsmYomitanApiBridge(this._application.api);
+        /** @type {number} */
+        this._gsmLookupSequence = 0;
 
         /* eslint-disable @stylistic/no-multi-spaces */
         /** @type {import('application').ApiMap} */
@@ -281,6 +288,9 @@ export class Frontend {
         if (typeof data !== 'object' || data === null) { return; }
 
         if (data.type === GSM_GAMEPAD_NAVIGATION_EVENT_TYPE) {
+            if (typeof data.active === 'boolean') {
+                this._gsmGamepadNavigationActive = data.active;
+            }
             if (data.active === false) {
                 this._clearSelection(false);
             }
@@ -293,7 +303,7 @@ export class Frontend {
             return;
         }
         if (data.action === GSM_YOMITAN_CONTROL_ACTION_LOOKUP_POINT) {
-            void this._triggerGsmLookupAtPoint(data.x, data.y);
+            void this._triggerGsmLookup(data.targetId, data.x, data.y);
         }
     }
 
@@ -302,21 +312,100 @@ export class Frontend {
      */
     _onGsmGamepadNavigationEvent(event) {
         const detail = /** @type {{active?: boolean}|undefined} */ (event instanceof CustomEvent ? event.detail : void 0);
+        if (typeof detail?.active === 'boolean') {
+            this._gsmGamepadNavigationActive = detail.active;
+        }
         if (detail?.active === false) {
             this._clearSelection(false);
         }
     }
 
     /**
-     * @param {unknown} x
-     * @param {unknown} y
+     * @param {unknown} targetId
+     * @param {unknown} fallbackX
+     * @param {unknown} fallbackY
      * @returns {Promise<void>}
      */
-    async _triggerGsmLookupAtPoint(x, y) {
-        if (typeof x !== 'number' || !Number.isFinite(x) || typeof y !== 'number' || !Number.isFinite(y)) {
+    async _triggerGsmLookup(targetId, fallbackX, fallbackY) {
+        const gsmLookupId = ++this._gsmLookupSequence;
+        const inputDetail = {gsmLookupId};
+        this._stopClearSelectionDelayed();
+        const textSource = this._createGsmLookupTextSource(targetId);
+        if (textSource !== null) {
+            await this._textScanner.searchAtTextSource(textSource, inputDetail);
             return;
         }
-        await this._textScanner.searchAtPoint(x, y);
+
+        if (
+            typeof fallbackX !== 'number' || !Number.isFinite(fallbackX) ||
+            typeof fallbackY !== 'number' || !Number.isFinite(fallbackY)
+        ) {
+            return;
+        }
+        await this._textScanner.searchAtPoint(fallbackX, fallbackY, inputDetail);
+    }
+
+    /**
+     * @param {unknown} inputInfoDetail
+     * @returns {boolean}
+     */
+    _isCurrentGsmLookup(inputInfoDetail) {
+        if (typeof inputInfoDetail !== 'object' || inputInfoDetail === null) { return true; }
+        if (!Object.prototype.hasOwnProperty.call(inputInfoDetail, 'gsmLookupId')) { return true; }
+        return inputInfoDetail.gsmLookupId === this._gsmLookupSequence;
+    }
+
+    /**
+     * @returns {boolean}
+     */
+    _isGsmGamepadNavigationActive() {
+        if (this._gsmGamepadNavigationActive === true) { return true; }
+        if (typeof window !== 'undefined' && window.gsmGamepadNavigationActive === true) { return true; }
+        if (typeof document !== 'undefined') {
+            return document.documentElement?.dataset?.gsmGamepadNavigationActive === 'true';
+        }
+        return false;
+    }
+
+    /**
+     * @param {unknown} targetId
+     * @returns {?TextSourceRange}
+     */
+    _createGsmLookupTextSource(targetId) {
+        if (typeof targetId !== 'string' || targetId.length === 0) { return null; }
+
+        let targetElement = null;
+        for (const element of document.querySelectorAll(`[${GSM_YOMITAN_LOOKUP_TARGET_ATTRIBUTE}]`)) {
+            if (element.getAttribute(GSM_YOMITAN_LOOKUP_TARGET_ATTRIBUTE) === targetId) {
+                targetElement = element;
+                break;
+            }
+        }
+        if (targetElement === null) { return null; }
+
+        targetElement.removeAttribute(GSM_YOMITAN_LOOKUP_TARGET_ATTRIBUTE);
+        const textNode = this._findFirstGsmLookupTextNode(targetElement);
+        if (textNode === null) { return null; }
+
+        const range = document.createRange();
+        range.setStart(textNode, 0);
+        range.collapse(true);
+        return TextSourceRange.create(range);
+    }
+
+    /**
+     * @param {Node} node
+     * @returns {?Text}
+     */
+    _findFirstGsmLookupTextNode(node) {
+        if (node.nodeType === Node.TEXT_NODE && typeof node.nodeValue === 'string' && node.nodeValue.length > 0) {
+            return /** @type {Text} */ (node);
+        }
+        for (const child of node.childNodes) {
+            const textNode = this._findFirstGsmLookupTextNode(child);
+            if (textNode !== null) { return textNode; }
+        }
+        return null;
     }
 
     // Action handlers
@@ -452,6 +541,7 @@ export class Frontend {
      * @param {import('text-scanner').EventArgument<'searchSuccess'>} details
      */
     _onSearchSuccess({type, dictionaryEntries, sentence, inputInfo: {eventType, detail: inputInfoDetail}, textSource, optionsContext, detail, pageTheme}) {
+        if (!this._isCurrentGsmLookup(inputInfoDetail)) { return; }
         this._stopClearSelectionDelayed();
         let focus = (eventType === 'mouseMove');
         if (typeof inputInfoDetail === 'object' && inputInfoDetail !== null) {
@@ -462,7 +552,8 @@ export class Frontend {
     }
 
     /** */
-    _onSearchEmpty() {
+    _onSearchEmpty({inputInfo: {detail: inputInfoDetail}}) {
+        if (!this._isCurrentGsmLookup(inputInfoDetail)) { return; }
         const scanningOptions = /** @type {import('settings').ProfileOptions} */ (this._options).scanning;
         if (scanningOptions.autoHideResults) {
             void this._clearSelectionDelayed(scanningOptions.hideDelay, false, false);
@@ -472,7 +563,8 @@ export class Frontend {
     /**
      * @param {import('text-scanner').EventArgument<'searchError'>} details
      */
-    _onSearchError({error, textSource, inputInfo: {passive}}) {
+    _onSearchError({error, textSource, inputInfo: {passive, detail: inputInfoDetail}}) {
+        if (!this._isCurrentGsmLookup(inputInfoDetail)) { return; }
         if (this._application.webExtension.unloaded) {
             if (textSource !== null && !passive) {
                 this._showExtensionUnloaded(textSource);
@@ -494,6 +586,7 @@ export class Frontend {
      */
     _onPopupFramePointerOut() {
         this._isPointerOverPopup = false;
+        if (this._isGsmGamepadNavigationActive()) { return; }
         if (!this._options) { return; }
         const {scanning: {hidePopupOnCursorExit, hidePopupOnCursorExitDelay}} = this._options;
         if (hidePopupOnCursorExit) {
@@ -505,6 +598,7 @@ export class Frontend {
      * @param {boolean} passive
      */
     _clearSelection(passive) {
+        this._gsmLookupSequence += 1;
         this._stopClearSelectionDelayed();
         if (this._popup !== null) {
             void this._popup.clearAutoPlayTimer();
@@ -565,21 +659,28 @@ export class Frontend {
      */
     async _clearSelectionDelayed(delay, restart, passive) {
         if (!this._textScanner.hasSelection()) { return; }
+        const delayToken = this._clearSelectionDelayToken;
 
         // Add a small delay to allow mouseover events to be processed
         await new Promise((resolve) => {
             setTimeout(resolve, 50);
         });
 
+        if (delayToken !== this._clearSelectionDelayToken) { return; }
+
         // Always check if pointer is over any popup before clearing
         if (await this._isPointerOverAnyPopup()) { return; }
+        if (delayToken !== this._clearSelectionDelayToken) { return; }
 
         if (delay > 0) {
             if (this._clearSelectionTimer !== null && !restart) { return; } // Already running
             this._stopClearSelectionDelayed();
+            const timerToken = this._clearSelectionDelayToken;
             this._clearSelectionTimer = setTimeout(async () => {
                 this._clearSelectionTimer = null;
+                if (timerToken !== this._clearSelectionDelayToken) { return; }
                 if (await this._isPointerOverAnyPopup()) { return; }
+                if (timerToken !== this._clearSelectionDelayToken) { return; }
                 this._clearSelection(passive);
             }, delay);
         } else {
@@ -591,6 +692,7 @@ export class Frontend {
      * @returns {void}
      */
     _stopClearSelectionDelayed() {
+        this._clearSelectionDelayToken += 1;
         if (this._clearSelectionTimer !== null) {
             clearTimeout(this._clearSelectionTimer);
             this._clearSelectionTimer = null;

@@ -21,7 +21,8 @@ function loadLegacyGamepadHandler() {
     clearInterval,
     document: {
       querySelectorAll: () => [],
-      querySelector: () => null
+      querySelector: () => null,
+      elementFromPoint: () => null
     },
     window: {},
     CustomEvent: class CustomEvent {
@@ -223,6 +224,87 @@ describe("legacy gamepad token refreshes", () => {
     );
     expect(handler.syncVirtualMouseToCurrentSelection).toHaveBeenCalledTimes(1);
     expect(handler.autoConfirmSelection).not.toHaveBeenCalled();
+  });
+
+  it("confirms the current selection when navigation enters with tokenization pending", () => {
+    const handler = Object.create(GamepadHandler.prototype) as any;
+    handler.pendingTokenizationByBlock = new Map([[0, "日本語"]]);
+    handler.pendingTokenizationStartedWhileNavigationActive = new Map([[0, false]]);
+    handler.tokenCacheByBlock = new Map();
+    handler.currentBlockIndex = 0;
+    handler.tokens = [];
+    handler.tokensBlockIndex = -1;
+    handler.tokenMode = true;
+    handler.getBlockText = () => "日本語";
+    handler.shouldTokenizeText = () => true;
+    handler.isNavigationActive = () => true;
+    handler.syncSelectionFromVirtualMouse = vi.fn(() => false);
+    handler.getCurrentAnchorCharIndex = () => 1;
+    handler.charIndexToTokenIndex = () => 0;
+    handler.getLineIndexForCursor = () => 0;
+    handler.updateVisuals = vi.fn();
+    handler.syncVirtualMouseToCurrentSelection = vi.fn();
+    handler.autoConfirmSelection = vi.fn();
+    handler.updateModeIndicatorText = vi.fn();
+
+    handler.onTokensReceived({
+      blockIndex: 0,
+      text: "日本語",
+      tokens: [{ word: "日本語", start: 0, end: 3 }]
+    });
+
+    expect(handler.syncVirtualMouseToCurrentSelection).toHaveBeenCalledTimes(1);
+    expect(handler.autoConfirmSelection).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("legacy gamepad analog lookup path", () => {
+  it("does not emit synthetic mouse events during virtual cursor movement", () => {
+    const targetElement = {};
+    const previousElementFromPoint = legacyGamepadContext.document.elementFromPoint;
+    legacyGamepadContext.document.elementFromPoint = () => targetElement;
+
+    const handler = Object.create(GamepadHandler.prototype) as any;
+    handler.virtualMouse = {
+      x: 0,
+      y: 0,
+      initialized: false,
+      movedByAnalog: true,
+      lastMoveTime: 0,
+      lastUpdateTime: 0
+    };
+    handler.getVirtualMouseConstraintRects = () => [];
+    handler.updateVirtualMouseCursor = vi.fn();
+    handler.simulateMousePosition = vi.fn();
+    handler.syncSelectionFromVirtualMouse = vi.fn();
+
+    try {
+      GamepadHandler.prototype.setVirtualMousePosition.call(handler, 120, 80, true);
+    } finally {
+      legacyGamepadContext.document.elementFromPoint = previousElementFromPoint;
+    }
+
+    expect(handler.simulateMousePosition).not.toHaveBeenCalled();
+    expect(handler.syncSelectionFromVirtualMouse).toHaveBeenCalledWith(targetElement);
+  });
+
+  it("does not arm a delayed hide when autoconfirm replaces the lookup", () => {
+    const handler = Object.create(GamepadHandler.prototype) as any;
+    handler.config = {
+      autoConfirmSelection: true,
+      navigationHideDelay: 200
+    };
+    handler.navigationAwayHideToken = 0;
+    handler.navigationAwayHideTimer = null;
+
+    try {
+      GamepadHandler.prototype.scheduleHideYomitanAfterLeavingAnchor.call(handler, "0:0");
+      expect(handler.navigationAwayHideTimer).toBeNull();
+    } finally {
+      if (handler.navigationAwayHideTimer) {
+        clearTimeout(handler.navigationAwayHideTimer);
+      }
+    }
   });
 });
 

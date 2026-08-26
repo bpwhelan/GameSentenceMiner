@@ -114,6 +114,7 @@ function buildGamepadButtonAliasLookup() {
 
 const GAMEPAD_BUTTON_ALIAS_LOOKUP = buildGamepadButtonAliasLookup();
 const TOKENIZABLE_CJK_REGEX = /[\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\p{Script_Extensions=Han}\p{Script_Extensions=Hangul}]/u;
+const YOMITAN_LOOKUP_TARGET_ATTRIBUTE = 'data-gsm-yomitan-lookup-target';
 
 function getGamepadButtonSortKey(buttonIndex) {
   return Object.prototype.hasOwnProperty.call(GAMEPAD_BUTTON_SORT_PRIORITY, buttonIndex)
@@ -656,6 +657,8 @@ class GamepadHandler {
     this.jpdbApiReachable = false; // Whether JPDB API is reachable when selected
     this.tokenCacheByBlock = new Map(); // blockIndex -> { text, tokens }
     this.pendingTokenizationByBlock = new Map(); // blockIndex -> text
+    this.pendingTokenizationStartedWhileNavigationActive = new Map(); // blockIndex -> boolean
+    this.navigationActivationInProgress = false;
     
     // Button state tracking
     this.buttonStates = new Map(); // device -> {button: pressed}
@@ -674,6 +677,7 @@ class GamepadHandler {
     this.yomitanPopupCount = 0;
     this.yomitanPopupIds = new Set();
     this.yomitanPopupVisible = false;
+    this.yomitanLookupTargetSequence = 0;
     this.lookupDismissToken = 0;
     this.lookupDismissTimer = null;
     this.lastLookupAnchorKey = null;
@@ -800,6 +804,7 @@ class GamepadHandler {
     this.clearPendingMineCandidate();
     this.tokenCacheByBlock.clear();
     this.pendingTokenizationByBlock.clear();
+    this.pendingTokenizationStartedWhileNavigationActive.clear();
 
     // Close WebSocket
     if (this.ws) {
@@ -861,6 +866,7 @@ class GamepadHandler {
     this.mecabAvailable = false;
     this.sudachiAvailable = false;
     this.pendingTokenizationByBlock.clear();
+    this.pendingTokenizationStartedWhileNavigationActive.clear();
   }
   
   connectWebSocket() {
@@ -922,6 +928,7 @@ class GamepadHandler {
     this.wsConnected = true;
     this.primeConfiguredLocalTokenizerAvailability();
     this.pendingTokenizationByBlock.clear();
+    this.pendingTokenizationStartedWhileNavigationActive.clear();
     
     // Clear any pending reconnect
     if (this.reconnectTimer) {
@@ -956,6 +963,7 @@ class GamepadHandler {
     this.sudachiAvailable = false;
     this.ws = null;
     this.pendingTokenizationByBlock.clear();
+    this.pendingTokenizationStartedWhileNavigationActive.clear();
     
     // Dispatch event
     window.dispatchEvent(new CustomEvent('gsm-gamepad-server-disconnected'));
@@ -1087,7 +1095,12 @@ class GamepadHandler {
         ? text
         : this.getBlockText(blockIndex);
 
+      const pendingNavigationStates = this.pendingTokenizationStartedWhileNavigationActive;
+      const tokenizationStartedWhileNavigationActive = pendingNavigationStates?.has(blockIndex)
+        ? pendingNavigationStates.get(blockIndex)
+        : this.isNavigationActive();
       this.pendingTokenizationByBlock.delete(blockIndex);
+      pendingNavigationStates?.delete(blockIndex);
       if (!this.shouldTokenizeText(resolvedText)) {
         this.tokenCacheByBlock.delete(blockIndex);
         if (blockIndex === this.currentBlockIndex) {
@@ -1124,7 +1137,10 @@ class GamepadHandler {
             this.tokens.map(t => t.word).join(' | '));
 
           if (this.tokens.length > 0 && this.tokenMode && this.isNavigationActive()) {
-            const syncedFromMouse = this.syncSelectionFromVirtualMouse(null, { autoConfirm: false });
+            const syncOptions = tokenizationStartedWhileNavigationActive
+              ? { autoConfirm: false }
+              : {};
+            const syncedFromMouse = this.syncSelectionFromVirtualMouse(null, syncOptions);
             if (syncedFromMouse) {
               this.syncVirtualMouseToCurrentSelection();
             } else {
@@ -1133,8 +1149,11 @@ class GamepadHandler {
               this.currentLineIndex = this.getLineIndexForCursor();
               this.updateVisuals();
               // Tokenization can finish after an overlay redraw. Keep the internal
-              // cursor aligned without emitting a synthetic mouse move or lookup.
+              // cursor aligned, and only confirm requests that predate navigation.
               this.syncVirtualMouseToCurrentSelection();
+              if (!tokenizationStartedWhileNavigationActive) {
+                this.autoConfirmSelection();
+              }
             }
           }
         } else if (currentText) {
@@ -3361,6 +3380,12 @@ class GamepadHandler {
   }
 
   getYomitanTargetFramesForControlAction(action) {
+    // Lookup targets live in the overlay document. Sending this command into an
+    // existing popup can only scan the popup document, never the selected word.
+    if (action === 'lookup-point') {
+      return [];
+    }
+
     const popupFrames = this.getYomitanPopupFrames();
     if (!this.isPopupFrameScopedYomitanAction(action)) {
       return popupFrames;
@@ -3517,10 +3542,15 @@ class GamepadHandler {
   
   activateNavigation() {
     if (this.isActive) return;
-    
+
+    this.navigationActivationInProgress = true;
     this.isActive = true;
     this.publishNavigationActiveState(true);
-    this.refreshTextBlocks();
+    try {
+      this.refreshTextBlocks();
+    } finally {
+      this.navigationActivationInProgress = false;
+    }
     this.virtualMouse.movedByAnalog = false;
     this.virtualMouse.lastMoveTime = 0;
     
@@ -4078,6 +4108,7 @@ class GamepadHandler {
     for (const blockIndex of Array.from(this.pendingTokenizationByBlock.keys())) {
       if (blockIndex < 0 || blockIndex >= this.textBlocks.length) {
         this.pendingTokenizationByBlock.delete(blockIndex);
+        this.pendingTokenizationStartedWhileNavigationActive.delete(blockIndex);
       }
     }
 
@@ -4163,6 +4194,7 @@ class GamepadHandler {
     if (!shouldTokenizeCurrentBlock) {
       this.tokenCacheByBlock.delete(this.currentBlockIndex);
       this.pendingTokenizationByBlock.delete(this.currentBlockIndex);
+      this.pendingTokenizationStartedWhileNavigationActive.delete(this.currentBlockIndex);
     }
     
     // Validate cursor index
@@ -4488,6 +4520,7 @@ class GamepadHandler {
     if (!text) return;
     if (!this.shouldTokenizeText(text)) {
       this.pendingTokenizationByBlock.delete(blockIndex);
+      this.pendingTokenizationStartedWhileNavigationActive.delete(blockIndex);
       this.tokenCacheByBlock.delete(blockIndex);
       if (blockIndex === this.currentBlockIndex) {
         this.tokens = [];
@@ -4508,6 +4541,13 @@ class GamepadHandler {
     }
 
     this.pendingTokenizationByBlock.set(blockIndex, text);
+    // Only suppress the lookup for responses requested while navigation was
+    // already open. A request started while entering navigation should still
+    // confirm the cursor once its tokens are available.
+    this.pendingTokenizationStartedWhileNavigationActive.set(
+      blockIndex,
+      this.isNavigationActive() && !this.navigationActivationInProgress,
+    );
     let lastError = null;
     for (const backend of this.getBackendAttemptOrder()) {
       try {
@@ -4520,6 +4560,7 @@ class GamepadHandler {
     }
 
     this.pendingTokenizationByBlock.delete(blockIndex);
+    this.pendingTokenizationStartedWhileNavigationActive.delete(blockIndex);
     if (lastError) {
       console.warn(`[GamepadHandler] Tokenization fallback exhausted for block ${blockIndex}: ${lastError.message}`);
     }
@@ -5444,7 +5485,10 @@ class GamepadHandler {
     }
 
     if (sourceElement) {
-      this.simulateMousePosition(clampedX, clampedY, sourceElement);
+      // Autoconfirm performs the Yomitan lookup directly from the selected
+      // text source. Do not also feed the position into Yomitan's hover
+      // scanner: an intermediate empty hover result can hide the popup while
+      // the virtual cursor is still inside the current token.
       this.syncSelectionFromVirtualMouse(sourceElement);
     }
   }
@@ -5523,6 +5567,18 @@ class GamepadHandler {
 
   scheduleHideYomitanAfterLeavingAnchor(previousAnchorKey) {
     if (!previousAnchorKey) return;
+
+    // With autoconfirm enabled, the next lookup replaces the current popup
+    // directly. A delayed hide from the previous anchor would close that new
+    // popup, especially when analog hit-testing briefly crosses a boundary.
+    if (this.config.autoConfirmSelection !== false) {
+      this.navigationAwayHideToken += 1;
+      if (this.navigationAwayHideTimer) {
+        clearTimeout(this.navigationAwayHideTimer);
+        this.navigationAwayHideTimer = null;
+      }
+      return;
+    }
 
     const delay = Math.max(40, Number(this.config.navigationHideDelay) || 200);
     const token = ++this.navigationAwayHideToken;
@@ -5705,11 +5761,8 @@ class GamepadHandler {
     const centerY = rect.top + rect.height / 2;
     this.setVirtualMousePosition(centerX, centerY, false);
     
-    // Create and dispatch a synthetic mouse event at this position
-    // This allows Yomitan to detect the cursor position
-    this.simulateMousePosition(centerX, centerY, character);
-    
-    // Also dispatch a custom event for any listeners
+    // Notify overlay listeners without generating mouse input. Yomitan lookup is
+    // initiated directly from autoConfirmSelection/confirmSelection.
     window.dispatchEvent(new CustomEvent('gsm-gamepad-cursor-position', {
       detail: {
         x: centerX,
@@ -5746,10 +5799,8 @@ class GamepadHandler {
       const centerY = rect.top + rect.height / 2;
       this.setVirtualMousePosition(centerX, centerY, false);
       
-      // Create and dispatch a synthetic mouse event at this position
-      this.simulateMousePosition(centerX, centerY, character);
-      
-      // Also dispatch a custom event with token information
+      // Notify overlay listeners without generating mouse input. Yomitan lookup
+      // is initiated directly from autoConfirmSelection/confirmSelection.
       window.dispatchEvent(new CustomEvent('gsm-gamepad-cursor-position', {
         detail: {
           x: centerX,
@@ -5864,10 +5915,7 @@ class GamepadHandler {
     // First press - perform normal lookup
     console.log(`Confirming selection at ${label}: ${targetChar.textContent}`);
 
-    this.sendYomitanControlMessage('lookup-point', {
-      x: centerX,
-      y: centerY,
-    });
+    this.triggerYomitanLookup(lookupInfo);
     this.lastLookupAnchorKey = anchorKey || null;
     
     if (this.config.onConfirm) {
@@ -5893,10 +5941,7 @@ class GamepadHandler {
     const result = this.getLookupInfoForConfirm();
     if (!result.targetChar) return;
 
-    this.sendYomitanControlMessage('lookup-point', {
-      x: result.centerX,
-      y: result.centerY,
-    });
+    this.triggerYomitanLookup(result);
     this.lastLookupAnchorKey = result.anchorKey || null;
     
     console.log(`[GamepadHandler] Auto-confirmed selection at ${result.label}: ${result.targetChar.textContent}`);
@@ -5918,8 +5963,33 @@ class GamepadHandler {
     return lookupInfo;
   }
 
+  triggerYomitanLookup(lookupInfo) {
+    const { targetChar, centerX, centerY } = lookupInfo;
+    if (!targetChar) return;
+
+    let targetId = null;
+    if (typeof targetChar.setAttribute === 'function') {
+      targetId = `${Date.now().toString(36)}-${++this.yomitanLookupTargetSequence}`;
+      targetChar.setAttribute(YOMITAN_LOOKUP_TARGET_ATTRIBUTE, targetId);
+
+      // The Yomitan bridge removes the marker as soon as it resolves the target.
+      // Clean it up here as well when Yomitan is disabled or still starting.
+      setTimeout(() => {
+        if (targetChar.getAttribute?.(YOMITAN_LOOKUP_TARGET_ATTRIBUTE) === targetId) {
+          targetChar.removeAttribute(YOMITAN_LOOKUP_TARGET_ATTRIBUTE);
+        }
+      }, 1000);
+    }
+
+    this.sendYomitanControlMessage('lookup-point', {
+      targetId,
+      x: centerX,
+      y: centerY,
+    });
+  }
+
   getTargetCharForLookup() {
-    // In token mode, click the first character of the current token
+    // In token mode, look up the first character of the current token.
     let targetIndex = this.currentCursorIndex;
     let label = 'character index';
     if (!this.lineNavPrefersCharacters && this.tokenMode && this.tokens.length > 0 && this.currentCursorIndex < this.tokens.length) {
@@ -6541,6 +6611,7 @@ class GamepadHandler {
       this.jpdbApiReachable = false;
       this.tokenCacheByBlock.clear();
       this.pendingTokenizationByBlock.clear();
+      this.pendingTokenizationStartedWhileNavigationActive.clear();
       if (this.wsConnected && this.ws && this.ws.readyState === WebSocket.OPEN) {
         try {
           this.ws.send(JSON.stringify({ type: 'get_state' }));
