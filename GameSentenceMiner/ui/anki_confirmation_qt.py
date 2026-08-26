@@ -872,7 +872,7 @@ class AnkiConfirmationDialog(QDialog):
             return
 
         dispatcher = GamepadHotkeyDispatcher()
-        for button in (0, 1, 12, 13, 14, 15):
+        for button in (0, 1, 2, 12, 13, 14, 15):
             dispatcher.register(button, lambda button=button: self.gamepad_button_signal.emit(button))
 
         self._gamepad_dispatcher = dispatcher
@@ -902,22 +902,26 @@ class AnkiConfirmationDialog(QDialog):
             self._cancel_auto_accept()
             self.focusNextPrevChild(True)
         elif button == 0:
-            self._apply_gamepad_confirmation_action(use_recommended=True)
+            self._cancel_auto_accept()
+            self._click_active_component()
         elif button == 1:
-            self._apply_gamepad_confirmation_action(use_recommended=False)
+            self._apply_gamepad_confirmation_action(use_audio=False)
+        elif button == 2:
+            self._apply_gamepad_confirmation_action(use_audio=True)
 
-    def _apply_gamepad_confirmation_action(self, *, use_recommended):
-        self._cancel_auto_accept()
-
-        audio_choices_visible = self.voice_button.isVisible() and self.no_voice_button.isVisible()
-        if not audio_choices_visible:
-            self._on_no_voice()
+    def _click_active_component(self):
+        active_widget = QApplication.focusWidget()
+        if active_widget is None or not self.isAncestorOf(active_widget):
             return
 
-        vad_ran = self.vad_result is not None and hasattr(self.vad_result, "success")
-        vad_detected_voice = vad_ran and bool(self.vad_result.success)
-        keep_audio = vad_detected_voice if use_recommended else not vad_detected_voice
-        if keep_audio:
+        click = getattr(active_widget, "click", None)
+        if callable(click):
+            click()
+
+    def _apply_gamepad_confirmation_action(self, *, use_audio):
+        self._cancel_auto_accept()
+
+        if use_audio:
             self._on_voice()
         else:
             self._on_no_voice()

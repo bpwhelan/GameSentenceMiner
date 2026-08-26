@@ -151,27 +151,15 @@ def test_exec_routes_to_modal_exec_when_focus_enabled():
 
 
 @pytest.mark.parametrize(
-    ("vad_success", "use_recommended", "expected"),
+    ("use_audio", "expected"),
     [
-        (True, True, "voice"),
-        (True, False, "no_voice"),
-        (False, True, "no_voice"),
-        (False, False, "voice"),
-        (None, True, "no_voice"),
-        (None, False, "voice"),
+        (True, "voice"),
+        (False, "no_voice"),
     ],
 )
-def test_gamepad_confirmation_action_uses_vad_recommendation_and_inverse(
-    vad_success,
-    use_recommended,
-    expected,
-):
+def test_gamepad_confirmation_action_uses_explicit_audio_choice(use_audio, expected):
     calls = []
-    vad_result = None if vad_success is None else SimpleNamespace(success=vad_success)
     probe = SimpleNamespace(
-        vad_result=vad_result,
-        voice_button=SimpleNamespace(isVisible=lambda: True),
-        no_voice_button=SimpleNamespace(isVisible=lambda: True),
         _on_voice=lambda: calls.append("voice"),
         _on_no_voice=lambda: calls.append("no_voice"),
         _cancel_auto_accept=lambda: calls.append("cancel_timer"),
@@ -179,29 +167,99 @@ def test_gamepad_confirmation_action_uses_vad_recommendation_and_inverse(
 
     anki_confirmation_qt.AnkiConfirmationDialog._apply_gamepad_confirmation_action(
         probe,
-        use_recommended=use_recommended,
+        use_audio=use_audio,
     )
 
     assert calls == ["cancel_timer", expected]
 
 
-def test_gamepad_confirmation_action_uses_plain_confirm_when_audio_choices_are_hidden():
-    calls = []
+def test_gamepad_capture_registers_a_b_x_and_dpad(monkeypatch):
+    registrations = []
+
+    class _DispatcherProbe:
+        def __init__(self):
+            self.registrations = registrations
+
+        def register(self, button, callback):
+            self.registrations.append(button)
+            return True
+
+    class _ClientProbe:
+        def __init__(self, dispatcher, *, exclusive):
+            self.dispatcher = dispatcher
+            self.exclusive = exclusive
+            self.started = False
+
+        def start(self):
+            self.started = True
+
+    monkeypatch.setattr(anki_confirmation_qt, "GamepadHotkeyDispatcher", _DispatcherProbe)
+    monkeypatch.setattr(anki_confirmation_qt, "GamepadInputClient", _ClientProbe)
     probe = SimpleNamespace(
-        vad_result=SimpleNamespace(success=True),
-        voice_button=SimpleNamespace(isVisible=lambda: False),
-        no_voice_button=SimpleNamespace(isVisible=lambda: False),
+        _gamepad_client=None,
+        gamepad_button_signal=SimpleNamespace(emit=lambda _button: None),
+    )
+
+    anki_confirmation_qt.AnkiConfirmationDialog._start_gamepad_capture(probe)
+
+    assert registrations == [0, 1, 2, 12, 13, 14, 15]
+    assert probe._gamepad_capture_active is True
+    assert probe._gamepad_client.started is True
+
+
+def test_gamepad_buttons_map_x_to_audio_b_to_no_audio_and_a_to_focused_component(monkeypatch):
+    calls = []
+
+    class _ApplicationProbe:
+        @staticmethod
+        def activeModalWidget():
+            return None
+
+    monkeypatch.setattr(anki_confirmation_qt, "QApplication", _ApplicationProbe)
+    probe = SimpleNamespace(
+        _gamepad_capture_active=True,
+        isVisible=lambda: True,
         _on_voice=lambda: calls.append("voice"),
         _on_no_voice=lambda: calls.append("no_voice"),
         _cancel_auto_accept=lambda: calls.append("cancel_timer"),
+        _click_active_component=lambda: calls.append("click"),
     )
 
-    anki_confirmation_qt.AnkiConfirmationDialog._apply_gamepad_confirmation_action(
-        probe,
-        use_recommended=False,
-    )
+    def apply_audio_choice(*, use_audio):
+        calls.append("cancel_timer")
+        calls.append("voice" if use_audio else "no_voice")
 
-    assert calls == ["cancel_timer", "no_voice"]
+    probe._apply_gamepad_confirmation_action = apply_audio_choice
+
+    anki_confirmation_qt.AnkiConfirmationDialog._on_gamepad_button(probe, 2)
+    anki_confirmation_qt.AnkiConfirmationDialog._on_gamepad_button(probe, 1)
+    anki_confirmation_qt.AnkiConfirmationDialog._on_gamepad_button(probe, 0)
+
+    assert calls == [
+        "cancel_timer",
+        "voice",
+        "cancel_timer",
+        "no_voice",
+        "cancel_timer",
+        "click",
+    ]
+
+
+def test_click_active_component_invokes_focused_clickable_widget(monkeypatch):
+    calls = []
+    focused_widget = SimpleNamespace(click=lambda: calls.append("clicked"))
+
+    class _ApplicationProbe:
+        @staticmethod
+        def focusWidget():
+            return focused_widget
+
+    monkeypatch.setattr(anki_confirmation_qt, "QApplication", _ApplicationProbe)
+    probe = SimpleNamespace(isAncestorOf=lambda widget: widget is focused_widget)
+
+    anki_confirmation_qt.AnkiConfirmationDialog._click_active_component(probe)
+
+    assert calls == ["clicked"]
 
 
 def test_apply_exit_choice_cancel_keeps_dialog_open():

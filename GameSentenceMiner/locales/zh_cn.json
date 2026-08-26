@@ -200,7 +200,7 @@
           },
           "confirmation_gamepad_enabled": {
             "label": "手柄控制:",
-            "tooltip": "使用方向键移动焦点，按 A 选择 VAD 推荐的音频结果，按 B 选择相反结果。对话框打开时，其他 GSM 手柄控制会暂停。"
+            "tooltip": "使用方向键移动焦点，按 A 激活当前焦点组件，按 X 确认并保留音频，按 B 确认但不保留音频。对话框打开时，其他 GSM 手柄控制会暂停。"
           },
           "url": {
             "label": "Anki URL:",

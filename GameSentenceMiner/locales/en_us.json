@@ -210,7 +210,7 @@
           },
           "confirmation_gamepad_enabled": {
             "label": "Gamepad Controls:",
-            "tooltip": "Use the D-pad to move focus, A for the VAD-recommended audio result, and B for the opposite result. Other GSM gamepad controls are paused while the dialog is open."
+            "tooltip": "Use the D-pad to move focus, A to activate the focused component, X to confirm with audio, and B to confirm without audio. Other GSM gamepad controls are paused while the dialog is open."
           },
           "url": {
             "label": "Anki URL:",
