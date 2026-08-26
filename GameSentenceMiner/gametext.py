@@ -5,28 +5,39 @@ import os
 import threading
 import time
 import uuid
-from dataclasses import replace
-
-import websockets
 from collections import defaultdict, deque
+from dataclasses import replace
 from datetime import datetime, timedelta
 
+import websockets
+
 from GameSentenceMiner import obs
+from GameSentenceMiner.text_pipeline.models import (
+    IngressAck,
+    IngressStatus,
+    SourceKind,
+    TextDomainEvent,
+    TextEventKind,
+    TextObservation,
+    TextRecordSnapshot,
+    TextStreamSnapshot,
+    normalize_utc,
+)
+from GameSentenceMiner.text_pipeline.runtime import AuthoritativeTextRuntime
 from GameSentenceMiner.util.clients.discord_rpc import discord_rpc_manager
+from GameSentenceMiner.util.communication.electron_ipc import send_message
 from GameSentenceMiner.util.concurrency.actor import MailboxFull
 from GameSentenceMiner.util.concurrency.work_pool import submit_background_work
-from GameSentenceMiner.util.communication.electron_ipc import send_message
 from GameSentenceMiner.util.config.configuration import (
     get_config,
     get_master_config,
-    gsm_status,
-    logger,
     gsm_state,
+    gsm_status,
     is_dev,
+    logger,
 )
 from GameSentenceMiner.util.database.db import DB_PRIORITY_HIGH, GameLinesTable, gsm_db
 from GameSentenceMiner.util.database.games_table import GamesTable
-from GameSentenceMiner.util.text_processing import apply_text_processing
 from GameSentenceMiner.util.gsm_utils import SleepManager
 from GameSentenceMiner.util.platform.notification import (
     announce_text_intake_state,
@@ -41,18 +52,7 @@ from GameSentenceMiner.util.text_log import (
     game_log,
     to_local_naive_datetime,
 )
-from GameSentenceMiner.text_pipeline.models import (
-    IngressAck,
-    IngressStatus,
-    SourceKind,
-    TextDomainEvent,
-    TextEventKind,
-    TextObservation,
-    TextRecordSnapshot,
-    TextStreamSnapshot,
-    normalize_utc,
-)
-from GameSentenceMiner.text_pipeline.runtime import AuthoritativeTextRuntime
+from GameSentenceMiner.util.text_processing import apply_text_processing
 
 pyperclip = None
 try:
@@ -82,9 +82,14 @@ text_monitor_initialized = False
 # in-house source pauses clipboard intake so the same line isn't ingested twice.
 inhouse_sources_active = {}
 
-# Rate-based spam detection: keep the last 60 message timestamps per source.
+# Skip-spam detection is enforced at the shared ingress boundary so clipboard,
+# websocket, OCR, and integrated hooks all take the same path.
 message_timestamps = defaultdict(lambda: deque(maxlen=60))
 rate_limit_active = defaultdict(bool)
+_rate_limit_lock = threading.Lock()
+SKIP_SPAM_WINDOW_SECONDS = 1.0
+SKIP_SPAM_EVENT_THRESHOLD = 5
+SKIP_SPAM_RECOVERY_SECONDS = 0.3
 
 # When stats collection is disabled in advanced config, remind the user on the
 # first few received lines each startup so it's obvious nothing is being stored.
@@ -300,9 +305,7 @@ def should_drop_text_input_completely() -> bool:
 
 
 def is_message_rate_limited(source="clipboard"):
-    """
-    Aggressive rate-based spam detection optimized for game texthookers.
-    Uses multiple time windows for faster detection and recovery.
+    """Drop skip-spam bursts while resuming quickly after the source goes quiet.
 
     Args:
         source (str): The source of the message (clipboard, websocket, etc.)
@@ -310,43 +313,41 @@ def is_message_rate_limited(source="clipboard"):
     Returns:
         bool: True if message should be dropped due to rate limiting
     """
-    current_time = datetime.now()
-    timestamps = message_timestamps[source]
+    source_key = str(source or "unknown").strip().lower() or "unknown"
+    current_time = time.monotonic()
+    activated = False
+    recovered = False
 
-    # Add current message timestamp
-    timestamps.append(current_time)
+    with _rate_limit_lock:
+        timestamps = message_timestamps[source_key]
 
-    # Check multiple time windows for aggressive detection
-    half_second_ago = current_time - timedelta(milliseconds=500)
-    one_second_ago = current_time - timedelta(seconds=1)
+        if rate_limit_active[source_key]:
+            quiet_for = current_time - timestamps[-1] if timestamps else SKIP_SPAM_RECOVERY_SECONDS
+            if quiet_for >= SKIP_SPAM_RECOVERY_SECONDS:
+                timestamps.clear()
+                rate_limit_active[source_key] = False
+                recovered = True
+            else:
+                timestamps.append(current_time)
+                return True
 
-    # Count messages in different time windows
-    last_500ms = sum(1 for ts in timestamps if ts > half_second_ago)
-    last_1s = sum(1 for ts in timestamps if ts > one_second_ago)
+        cutoff = current_time - SKIP_SPAM_WINDOW_SECONDS
+        while timestamps and timestamps[0] <= cutoff:
+            timestamps.popleft()
+        timestamps.append(current_time)
 
-    # Very aggressive thresholds for game texthookers:
-    # - 5+ messages in 500ms = instant spam detection
-    # - 8+ messages in 1 second = spam detection
-    spam_detected = last_500ms >= 5 or last_1s >= 8
+        if len(timestamps) >= SKIP_SPAM_EVENT_THRESHOLD:
+            rate_limit_active[source_key] = True
+            activated = True
 
-    if spam_detected:
-        if not rate_limit_active[source]:
-            logger.warning(f"Rate limiting activated for {source}: {last_500ms} msgs/500ms, {last_1s} msgs/1s")
-            rate_limit_active[source] = True
-        return True
-
-    # If rate limiting is active, check if we can deactivate it immediately
-    if rate_limit_active[source]:
-        # Very fast recovery: allow if current 500ms window has <= 2 messages
-        if last_500ms <= 2:
-            logger.background(f"Rate limiting deactivated for {source}: rate normalized ({last_500ms} msgs/500ms)")
-            rate_limit_active[source] = False
-            return False  # Allow this message through
-        else:
-            # Still too fast, keep dropping
-            return True
-
-    return False
+    if recovered:
+        logger.info(f"Skip-spam filtering deactivated for {source_key}; text intake resumed.")
+    if activated:
+        logger.warning(
+            f"Skip-spam filtering activated for {source_key}: "
+            f"{SKIP_SPAM_EVENT_THRESHOLD} events within {SKIP_SPAM_WINDOW_SECONDS:g} second."
+        )
+    return activated
 
 
 # ---------------------------------------------------------------------------
@@ -474,10 +475,6 @@ async def monitor_clipboard():
             # Only act when the clipboard actually changes; cross-source de-dup is
             # handled centrally in handle_new_text_event.
             if current_clipboard and current_clipboard != last_clipboard:
-                if is_message_rate_limited("clipboard"):
-                    await asyncio.sleep(0.2)
-                    clipboard_changed.set()
-                    continue
                 last_clipboard = current_clipboard
                 await handle_new_text_event(
                     current_clipboard,
@@ -659,7 +656,6 @@ async def listen_on_websocket(uri, stop_event=None):
             async with websockets.connect(websocket_url, ping_interval=None) as websocket:
                 reconnect_sleep_manager.reset()
 
-                websocket_source = f"websocket_{uri}"
                 if not _has_connected_websocket(websocket_url):
                     _mark_websocket_connected(websocket_url, websocket_source_name)
                 _log_info(
@@ -685,8 +681,6 @@ async def listen_on_websocket(uri, stop_event=None):
 
                     message_received_time = datetime.now()
                     if not message:
-                        continue
-                    if is_message_rate_limited(websocket_source):
                         continue
                     if is_dev:
                         logger.debug(message)
@@ -843,12 +837,15 @@ def _ingest_line_sync(
             f"to {len(guarded_line)} characters."
         )
 
+    source_kind = SourceKind.normalize(source, source_display_name)
+    if is_message_rate_limited(source_kind.value):
+        return IngressAck(IngressStatus.REJECTED, observation_id, reason="skip spam detected")
+
     current_line_after_regex = apply_text_processing(guarded_line, get_config().text_processing)
     current_line_time = line_time if line_time else datetime.now()
     now_utc = normalize_utc(datetime.now())
     captured_at = normalize_utc(current_line_time)
     emitted = normalize_utc(emitted_at) if isinstance(emitted_at, datetime) else now_utc
-    source_kind = SourceKind.normalize(source, source_display_name)
     source_key = source_instance or source_display_name or source or source_kind.value
     configured_merge_window = 2000 if merge_fragments else 100
     window_ms = configured_merge_window if revision_window_ms is None else max(0, int(revision_window_ms))
