@@ -124,17 +124,6 @@ class DiscordRPCManager:
                         details_url="https://github.com/bpwhelan/GameSentenceMiner",
                         large_url="https://github.com/bpwhelan/GameSentenceMiner",
                     )
-                else:
-                    self.rpc.update(
-                        details="GameSentenceMiner",
-                        state="Waiting for game...",
-                        start=self.start_time,
-                        large_image=icon,
-                        large_text="GameSentenceMiner",
-                        state_url="https://github.com/bpwhelan/GameSentenceMiner",
-                        details_url="https://github.com/bpwhelan/GameSentenceMiner",
-                        large_url="https://github.com/bpwhelan/GameSentenceMiner",
-                    )
                 self._interruptible_sleep(discord_config.update_interval)
             except PyPresenceException:
                 # logger.warning(f"Discord RPC connection error: {e}. Retrying in 20s.")
