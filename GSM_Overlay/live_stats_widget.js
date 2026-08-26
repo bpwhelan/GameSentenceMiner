@@ -10,6 +10,7 @@
   const DEFAULT_SETTINGS = Object.freeze({
     showLiveStats: true,
     showLiveGoals: true,
+    hideCompletedGoals: true,
     liveStatsVisibilityMode: "all",
     liveStatsDisplayModeV2: "always",
     liveStatsLayoutV2: "one-line",
@@ -51,6 +52,7 @@
     pomodoroEl: null,
     goals: [],
     goalsEl: null,
+    goalsAvailable: null,
     displayInfo: null,
     targetWindowRect: null,
     targetClientRect: null,
@@ -124,6 +126,7 @@
     return {
       showLiveStats: normalizeBoolean(settings.showLiveStats, state.settings.showLiveStats),
       showLiveGoals: normalizeBoolean(settings.showLiveGoals ?? state.settings.showLiveGoals, true),
+      hideCompletedGoals: normalizeBoolean(settings.hideCompletedGoals ?? state.settings.hideCompletedGoals, true),
       liveStatsVisibilityMode: normalizeVisibilityMode(settings.liveStatsVisibilityMode ?? state.settings.liveStatsVisibilityMode),
       overlayGoals: normalizeOverlayGoals(settings.overlayGoals ?? state.settings.overlayGoals),
       liveStatsDisplayModeV2: normalizeDisplayMode(settings.liveStatsDisplayModeV2 ?? state.settings.liveStatsDisplayModeV2),
@@ -350,12 +353,24 @@
     return formatInteger(value);
   }
 
-  // The server feeds every active goal; the overlay decides which to show (and in
-  // which view) via the overlayGoals setting configured in the settings window.
-  function getVisibleGoals() {
-    if (!isGoalsModeVisible()) {
-      return [];
+  function isGoalCompleted(goal) {
+    if (goal.view === "overall") {
+      const progress = Number(goal.overall?.progress);
+      const target = Number(goal.overall?.target);
+      if (Number.isFinite(progress) && Number.isFinite(target) && target > 0) {
+        return progress >= target;
+      }
+      return Number(goal.overall?.percent) >= 100;
     }
+
+    const progress = Number(goal.today?.progress);
+    const required = Number(goal.today?.required);
+    return Number.isFinite(progress) && Number.isFinite(required) && required > 0 && progress >= required;
+  }
+
+  // Resolve goals that can render independently of the current hotkey visibility
+  // mode, so the main process can omit an empty goals-only step from the cycle.
+  function getRenderableGoals() {
     const goals = Array.isArray(state.goals) ? state.goals : [];
     const overlayGoals = state.settings.overlayGoals || {};
     return goals
@@ -366,7 +381,24 @@
         }
         return { ...goal, view: cfg.view === "overall" ? "overall" : "today" };
       })
-      .filter(Boolean);
+      .filter((goal) => goal && (!state.settings.hideCompletedGoals || !isGoalCompleted(goal)));
+  }
+
+  // The server feeds every active goal; the overlay decides which to show (and in
+  // which view) via the overlayGoals setting configured in the settings window.
+  function getVisibleGoals() {
+    return isGoalsModeVisible() ? getRenderableGoals() : [];
+  }
+
+  function publishGoalsAvailability() {
+    const available = getRenderableGoals().length > 0;
+    if (state.goalsAvailable === available) {
+      return;
+    }
+    state.goalsAvailable = available;
+    if (ipcRenderer) {
+      ipcRenderer.send("live-goals-availability-changed", { available });
+    }
   }
 
   function renderGoals() {
@@ -374,6 +406,7 @@
     if (!el) {
       return;
     }
+    publishGoalsAvailability();
     const goals = getVisibleGoals();
     if (goals.length === 0) {
       el.replaceChildren();

@@ -760,6 +760,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "fadeTextIndicators": false,
   "showLiveStats": true,
   "showLiveGoals": true,
+  "hideCompletedGoals": true,
   "liveStatsToggleHotkey": "Alt+Shift+L",
   // Per-goal overlay selection chosen in the settings window:
   //   { [goalId]: { enabled: boolean, view: "today" | "overall" } }
@@ -873,6 +874,7 @@ let userSettings = { ...DEFAULT_USER_SETTINGS, [OVERLAY_PROFILE_SETTINGS_KEY]: {
 let shouldMigrateLegacyOverlayActivationScan = false;
 let reconfigureOverlayRuntimeForSettingsChange = () => {};
 let liveStatsVisibilityMode = "all";
+let liveGoalsAvailable = false;
 
 const MANUAL_HOTKEY_ELECTRON_RELEASE_TIMEOUT_MS = 650;
 
@@ -958,6 +960,10 @@ function normalizeOverlaySettingsProfiles(reason = "unknown") {
       } else {
         changed = true;
       }
+    }
+    if (!Object.prototype.hasOwnProperty.call(cleanedSettings, "hideCompletedGoals")) {
+      cleanedSettings.hideCompletedGoals = DEFAULT_USER_SETTINGS.hideCompletedGoals;
+      changed = true;
     }
     profiles[normalizedName] = cleanedSettings;
   }
@@ -1311,15 +1317,15 @@ function normalizeLiveStatsVisibilityMode(value) {
   return VALID_LIVE_STATS_VISIBILITY_MODES.has(normalized) ? normalized : "all";
 }
 
-function getLiveStatsAvailability(settings = userSettings) {
+function getLiveStatsAvailability(settings = userSettings, goalsAvailable = liveGoalsAvailable) {
   return {
     statsEnabled: settings.showLiveStats !== false,
-    goalsEnabled: settings.showLiveGoals !== false,
+    goalsEnabled: settings.showLiveGoals !== false && goalsAvailable === true,
   };
 }
 
-function getLiveStatsModeVisibility(mode, settings = userSettings) {
-  const { statsEnabled, goalsEnabled } = getLiveStatsAvailability(settings);
+function getLiveStatsModeVisibility(mode, settings = userSettings, goalsAvailable = liveGoalsAvailable) {
+  const { statsEnabled, goalsEnabled } = getLiveStatsAvailability(settings, goalsAvailable);
   const normalizedMode = normalizeLiveStatsVisibilityMode(mode);
 
   if (normalizedMode === "hidden") {
@@ -1340,17 +1346,17 @@ function getLiveStatsModeVisibility(mode, settings = userSettings) {
   };
 }
 
-function getLiveStatsVisibilitySignature(mode, settings = userSettings) {
-  const visibility = getLiveStatsModeVisibility(mode, settings);
+function getLiveStatsVisibilitySignature(mode, settings = userSettings, goalsAvailable = liveGoalsAvailable) {
+  const visibility = getLiveStatsModeVisibility(mode, settings, goalsAvailable);
   return `${visibility.statsVisible ? "1" : "0"}:${visibility.goalsVisible ? "1" : "0"}`;
 }
 
-function getLiveStatsVisibilityCycleModes(settings = userSettings) {
+function getLiveStatsVisibilityCycleModes(settings = userSettings, goalsAvailable = liveGoalsAvailable) {
   const modes = [];
   const seenSignatures = new Set();
 
   for (const mode of LIVE_STATS_VISIBILITY_CYCLE_ORDER) {
-    const visibility = getLiveStatsModeVisibility(mode, settings);
+    const visibility = getLiveStatsModeVisibility(mode, settings, goalsAvailable);
     if (mode !== "hidden" && !visibility.statsVisible && !visibility.goalsVisible) {
       continue;
     }
@@ -1407,6 +1413,12 @@ function normalizeLiveStatsSettings(settings) {
   const normalizedShowGoals = settings.showLiveGoals !== false;
   if (settings.showLiveGoals !== normalizedShowGoals) {
     settings.showLiveGoals = normalizedShowGoals;
+    changed = true;
+  }
+
+  const normalizedHideCompletedGoals = settings.hideCompletedGoals !== false;
+  if (settings.hideCompletedGoals !== normalizedHideCompletedGoals) {
+    settings.hideCompletedGoals = normalizedHideCompletedGoals;
     changed = true;
   }
 
@@ -6191,6 +6203,11 @@ function updateTrayMenu() {
 
 
 async function startOverlayAppImpl() {
+  liveGoalsAvailable = false;
+  ipcMain.on("live-goals-availability-changed", (_event, payload = {}) => {
+    liveGoalsAvailable = payload.available === true;
+  });
+
   if (!IN_PROCESS_OVERLAY && isMac() && app.dock) {
     app.dock.setIcon(getOverlayAppIconPath());
   }
@@ -7451,7 +7468,7 @@ async function startOverlayAppImpl() {
       value = normalizeLiveStatsFields(value);
     } else if (key === "overlayGoals") {
       value = normalizeOverlayGoals(value);
-    } else if (key === "pomodoroEnabled" || key === "pomodoroAutoStart") {
+    } else if (key === "hideCompletedGoals" || key === "pomodoroEnabled" || key === "pomodoroAutoStart") {
       value = value === true;
     } else if (key === "pomodoroWorkMinutes") {
       value = normalizePomodoroMinutes(value, 25);

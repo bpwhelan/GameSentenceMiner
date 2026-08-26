@@ -1517,6 +1517,13 @@
         </span>
         <input type="checkbox" id="showLiveGoals" />
       </label>
+      <label class="sub-option">
+        <span class="label-text">
+          Hide Completed Goals
+          <div class="hotkey-info">Removes each goal from the live stats widget once its selected Today or Overall target is complete.</div>
+        </span>
+        <input type="checkbox" id="hideCompletedGoals" checked />
+      </label>
       <label>
         <span class="label-text">
           Toggle Stats/Goals Hotkey
@@ -3749,6 +3756,7 @@
       },
       createCheckboxBinding("showLiveStats", "#showLiveStats"),
       createCheckboxBinding("showLiveGoals", "#showLiveGoals"),
+      createCheckboxBinding("hideCompletedGoals", "#hideCompletedGoals"),
       createHotkeyBinding("liveStatsToggleHotkey", "#liveStatsToggleHotkey"),
       createSelectBinding("liveStatsDisplayModeV2", "#liveStatsDisplayModeV2", {
         normalize: normalizeLiveStatsDisplayModeValue,
@@ -4831,6 +4839,7 @@
         showRecycledIndicator: userSettings.showRecycledIndicator !== false,
         showLiveStats: userSettings.showLiveStats !== false,
         showLiveGoals: userSettings.showLiveGoals !== false,
+        hideCompletedGoals: userSettings.hideCompletedGoals !== false,
         liveStatsDisplayModeV2: normalizeLiveStatsDisplayModeValue(userSettings.liveStatsDisplayModeV2),
         liveStatsLayoutV2: normalizeLiveStatsLayoutValue(userSettings.liveStatsLayoutV2),
         liveStatsAutoHideSeconds: clampNumericValue(userSettings.liveStatsAutoHideSeconds, 5, 0, 60, true),
