@@ -2,6 +2,13 @@ mod features;
 #[cfg(target_os = "windows")]
 mod windows_keyboard_listener;
 
+#[cfg(target_os = "linux")]
+use ashpd::desktop::{
+    global_shortcuts::{BindShortcutsOptions, GlobalShortcuts, NewShortcut},
+    CreateSessionOptions,
+};
+#[cfg(target_os = "linux")]
+use ashpd::zbus;
 use clap::Parser;
 use features::{FeatureRegistry, ServiceFeature, PROTOCOL_VERSION};
 use futures_util::{SinkExt, StreamExt};
@@ -35,7 +42,7 @@ use sudachi::dic::storage::{Storage as SudachiStorage, SudachiDicData};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{broadcast, mpsc, Mutex};
 use tokio::time;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 use tracing::{debug, error, info, warn};
@@ -67,6 +74,11 @@ struct Args {
 const SUDACHI_DICT_RELEASE: &str = "20260116";
 const SUDACHI_IDLE_UNLOAD_AFTER: Duration = Duration::from_secs(5 * 60);
 const SUDACHI_IDLE_CHECK_INTERVAL: Duration = Duration::from_secs(30);
+const MANUAL_HOTKEY_ACTION_ID: &str = "manual-show";
+#[cfg(target_os = "linux")]
+const MANUAL_PORTAL_SHORTCUT_ID: &str = "gsm:manual-show";
+#[cfg(target_os = "linux")]
+const APP_PORTAL_SHORTCUT_PREFIX: &str = "gsm:app:";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SudachiDictionaryKind {
@@ -466,6 +478,7 @@ struct ManualHotkeyBinding {
 #[derive(Debug, Clone)]
 struct AppHotkeyEntry {
     binding: ManualHotkeyBinding,
+    hotkey: String,
     active: bool,
 }
 
@@ -1674,6 +1687,158 @@ fn parse_manual_hotkey_binding(hotkey: &str) -> Result<ManualHotkeyBinding, Stri
     })
 }
 
+fn portal_keysym(token: &str) -> Result<String, String> {
+    let normalized = token.trim().to_ascii_uppercase();
+    if normalized.len() == 1 && normalized.as_bytes()[0].is_ascii_alphabetic() {
+        return Ok(normalized.to_ascii_lowercase());
+    }
+    if normalized.len() == 1 && normalized.as_bytes()[0].is_ascii_digit() {
+        return Ok(normalized);
+    }
+    if normalized
+        .strip_prefix('F')
+        .and_then(|value| value.parse::<u8>().ok())
+        .is_some_and(|number| (1..=24).contains(&number))
+    {
+        return Ok(normalized);
+    }
+
+    let keysym = match normalized.as_str() {
+        ")" => "0",
+        "!" => "1",
+        "@" => "2",
+        "#" => "3",
+        "$" => "4",
+        "%" => "5",
+        "^" => "6",
+        "&" => "7",
+        "*" => "8",
+        "(" => "9",
+        "SPACE" => "space",
+        "RETURN" => "Return",
+        "ESCAPE" => "Escape",
+        "BACKSPACE" => "BackSpace",
+        "DELETE" => "Delete",
+        "TAB" => "Tab",
+        "UP" => "Up",
+        "DOWN" => "Down",
+        "LEFT" => "Left",
+        "RIGHT" => "Right",
+        "HOME" => "Home",
+        "END" => "End",
+        "PAGEUP" => "Page_Up",
+        "PAGEDOWN" => "Page_Down",
+        "INSERT" => "Insert",
+        "-" | "_" => "minus",
+        "=" | "+" => "equal",
+        "[" | "{" => "bracketleft",
+        "]" | "}" => "bracketright",
+        "\\" | "|" => "backslash",
+        ";" | ":" => "semicolon",
+        "'" | "\"" => "apostrophe",
+        "," | "<" => "comma",
+        "." | ">" => "period",
+        "/" | "?" => "slash",
+        "`" | "~" => "grave",
+        _ => return Err(format!("unsupported portal hotkey token: {token}")),
+    };
+    Ok(keysym.to_string())
+}
+
+fn portal_symbol_requires_shift(token: &str) -> bool {
+    matches!(
+        token.trim(),
+        ")" | "!"
+            | "@"
+            | "#"
+            | "$"
+            | "%"
+            | "^"
+            | "&"
+            | "*"
+            | "("
+            | "_"
+            | "+"
+            | "{"
+            | "}"
+            | "|"
+            | ":"
+            | "\""
+            | "<"
+            | ">"
+            | "?"
+            | "~"
+    )
+}
+
+/// Convert GSM's Electron-style accelerator syntax to the trigger syntax from
+/// the XDG GlobalShortcuts specification. The portal intentionally requires a
+/// non-modifier key and does not support mouse buttons.
+fn hotkey_to_portal_trigger(hotkey: &str) -> Result<String, String> {
+    parse_manual_hotkey_binding(hotkey)?;
+
+    let mut modifiers = ManualHotkeyModifiers::default();
+    let mut keysym = None;
+    for token in hotkey
+        .split('+')
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+    {
+        if parse_manual_hotkey_modifier(token, &mut modifiers) {
+            continue;
+        }
+        if parse_manual_hotkey_mouse_button(token).is_some() {
+            return Err(
+                "the XDG GlobalShortcuts portal does not support mouse shortcuts".to_string(),
+            );
+        }
+        if portal_symbol_requires_shift(token) {
+            modifiers.shift = true;
+        }
+        keysym = Some(portal_keysym(token)?);
+    }
+
+    let keysym = keysym.ok_or_else(|| {
+        "the XDG GlobalShortcuts portal does not support modifier-only shortcuts".to_string()
+    })?;
+    let mut parts = Vec::with_capacity(5);
+    if modifiers.ctrl {
+        parts.push("CTRL".to_string());
+    }
+    if modifiers.alt {
+        parts.push("ALT".to_string());
+    }
+    if modifiers.shift {
+        parts.push("SHIFT".to_string());
+    }
+    if modifiers.cmd {
+        parts.push("LOGO".to_string());
+    }
+    parts.push(keysym);
+    Ok(parts.join("+"))
+}
+
+fn should_use_wayland_portal(
+    linux: bool,
+    session_type: Option<&str>,
+    wayland_display: Option<&str>,
+    backend: Option<&str>,
+) -> bool {
+    linux
+        && !backend.is_some_and(|value| value.trim().eq_ignore_ascii_case("rdev"))
+        && (session_type.is_some_and(|value| value.trim().eq_ignore_ascii_case("wayland"))
+            || wayland_display.is_some_and(|value| !value.trim().is_empty()))
+}
+
+fn is_wayland_session() -> bool {
+    should_use_wayland_portal(
+        cfg!(target_os = "linux"),
+        std::env::var("XDG_SESSION_TYPE").ok().as_deref(),
+        std::env::var("WAYLAND_DISPLAY").ok().as_deref(),
+        std::env::var("GSM_INPUT_SERVER_BACKEND").ok().as_deref(),
+    )
+}
+
 fn pressed_modifiers(pressed_keys: &HashSet<KeyboardKey>) -> ManualHotkeyModifiers {
     ManualHotkeyModifiers {
         ctrl: pressed_keys.contains(&KeyboardKey::ControlLeft)
@@ -2032,6 +2197,7 @@ fn configure_app_hotkeys(
                         cfg.id,
                         AppHotkeyEntry {
                             binding,
+                            hotkey: cfg.hotkey.trim().to_string(),
                             active: false,
                         },
                     );
@@ -2040,11 +2206,12 @@ fn configure_app_hotkeys(
             }
         }
 
-        // Emit released for any currently-active id that is gone or replaced.
+        // Every entry is replaced with an inactive one, so release every active
+        // old entry before the new configuration takes effect.
         let released_ids = guard
             .app_hotkeys
             .iter()
-            .filter(|(id, entry)| entry.active && !new_map.contains_key(*id))
+            .filter(|(_, entry)| entry.active)
             .map(|(id, _)| id.clone())
             .collect::<Vec<_>>();
 
@@ -2058,6 +2225,120 @@ fn configure_app_hotkeys(
             app_hotkey_event_payload(&id, "released"),
             "app_hotkey_event(released)",
         );
+    }
+}
+
+fn dispatch_hotkey_edge(
+    state: &mut ManualHotkeyState,
+    action_id: &str,
+    active: bool,
+) -> Result<Option<String>, String> {
+    if action_id == MANUAL_HOTKEY_ACTION_ID {
+        if state.binding.is_none() {
+            return Err("manual show hotkey is not configured".to_string());
+        }
+        if state.active == active {
+            return Ok(None);
+        }
+        state.active = active;
+        return Ok(Some(
+            json!({
+                "type": "manual_hotkey_event",
+                "state": if active { "pressed" } else { "released" },
+            })
+            .to_string(),
+        ));
+    }
+
+    let entry = state
+        .app_hotkeys
+        .get_mut(action_id)
+        .ok_or_else(|| format!("unknown or unconfigured hotkey action id: {action_id}"))?;
+    if entry.active == active {
+        return Ok(None);
+    }
+    entry.active = active;
+    Ok(Some(app_hotkey_event_payload(
+        action_id,
+        if active { "pressed" } else { "released" },
+    )))
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PortalShortcutBinding {
+    portal_id: String,
+    action_id: String,
+    description: String,
+    trigger: String,
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Debug, PartialEq, Eq)]
+struct PortalShortcutBindings {
+    bindings: Vec<PortalShortcutBinding>,
+    skipped: Vec<String>,
+}
+
+#[cfg(target_os = "linux")]
+fn portal_shortcut_bindings(state: &ManualHotkeyState) -> PortalShortcutBindings {
+    let mut bindings = Vec::with_capacity(state.app_hotkeys.len() + 1);
+    let mut skipped = Vec::new();
+    if let Some(hotkey) = state.binding_label.as_deref() {
+        match hotkey_to_portal_trigger(hotkey) {
+            Ok(trigger) => bindings.push(PortalShortcutBinding {
+                portal_id: MANUAL_PORTAL_SHORTCUT_ID.to_string(),
+                action_id: MANUAL_HOTKEY_ACTION_ID.to_string(),
+                description: "Show the GameSentenceMiner overlay".to_string(),
+                trigger,
+            }),
+            Err(err) => skipped.push(format!("{MANUAL_HOTKEY_ACTION_ID} ({hotkey}): {err}")),
+        }
+    }
+    for (id, entry) in &state.app_hotkeys {
+        match hotkey_to_portal_trigger(&entry.hotkey) {
+            Ok(trigger) => bindings.push(PortalShortcutBinding {
+                portal_id: format!("{APP_PORTAL_SHORTCUT_PREFIX}{id}"),
+                action_id: id.clone(),
+                description: format!("GameSentenceMiner action: {id}"),
+                trigger,
+            }),
+            Err(err) => skipped.push(format!("{id} ({}): {err}", entry.hotkey)),
+        }
+    }
+    bindings.sort_by(|left, right| left.portal_id.cmp(&right.portal_id));
+    skipped.sort();
+    PortalShortcutBindings { bindings, skipped }
+}
+
+#[cfg(target_os = "linux")]
+fn portal_action_id(shortcut_id: &str) -> Option<&str> {
+    if shortcut_id == MANUAL_PORTAL_SHORTCUT_ID {
+        Some(MANUAL_HOTKEY_ACTION_ID)
+    } else {
+        shortcut_id.strip_prefix(APP_PORTAL_SHORTCUT_PREFIX)
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn handle_portal_hotkey_edge(
+    tx: &broadcast::Sender<String>,
+    manual_hotkey: &SharedManualHotkey,
+    shortcut_id: &str,
+    active: bool,
+) {
+    let Some(action_id) = portal_action_id(shortcut_id) else {
+        warn!("ignoring unknown portal shortcut id: {shortcut_id}");
+        return;
+    };
+    let payload = {
+        let mut guard = manual_hotkey.lock().expect("manual hotkey mutex poisoned");
+        dispatch_hotkey_edge(&mut guard, action_id, active)
+    };
+    match payload {
+        Ok(Some(payload)) => send_broadcast(tx, payload, "hotkey_event(portal)"),
+        Ok(None) => {}
+        Err(err) => debug!("ignoring stale portal shortcut {shortcut_id}: {err}"),
     }
 }
 
@@ -2457,6 +2738,7 @@ async fn handle_socket(
     sudachi: &'static SharedSudachi,
     manual_hotkey: SharedManualHotkey,
     features: FeatureRegistry,
+    portal_rebind: Option<mpsc::UnboundedSender<()>>,
     gamepad_capture: GamepadCaptureRegistry,
 ) {
     let ws = match accept_async(stream).await {
@@ -2619,6 +2901,8 @@ async fn handle_socket(
                                 }
                             }
                             Ok(ClientMsg::ConfigureFeatures { features: requested }) => {
+                                let keyboard_was_enabled =
+                                    features.is_enabled(ServiceFeature::Keyboard);
                                 let requested = requested
                                     .iter()
                                     .filter_map(|feature| ServiceFeature::parse(feature))
@@ -2629,6 +2913,13 @@ async fn handle_socket(
                                     feature_status_payload(&features).to_string(),
                                     "service_features_changed",
                                 );
+                                if keyboard_was_enabled
+                                    != features.is_enabled(ServiceFeature::Keyboard)
+                                {
+                                    if let Some(rebind) = &portal_rebind {
+                                        let _ = rebind.send(());
+                                    }
+                                }
                             }
                             Ok(ClientMsg::ConfigureSudachi { dictionary }) => {
                                 let dictionary_kind =
@@ -2651,9 +2942,18 @@ async fn handle_socket(
                                 configure_device_blacklist(&device_blacklist, states, &_tx, devices).await;
                             }
                             Ok(ClientMsg::ConfigureManualHotkey { enabled, hotkey }) => {
-                                if let Err(err) =
-                                    configure_manual_hotkey(&manual_hotkey, &_tx, enabled, &hotkey)
-                                {
+                                let result = configure_manual_hotkey(
+                                    &manual_hotkey,
+                                    &_tx,
+                                    enabled,
+                                    &hotkey,
+                                );
+                                if result.is_ok() {
+                                    if let Some(rebind) = &portal_rebind {
+                                        let _ = rebind.send(());
+                                    }
+                                }
+                                if let Err(err) = result {
                                     let payload = json!({
                                         "type": "keyboard_listener_status",
                                         "available": false,
@@ -2682,6 +2982,9 @@ async fn handle_socket(
                             }
                             Ok(ClientMsg::ConfigureAppHotkeys { hotkeys }) => {
                                 configure_app_hotkeys(&manual_hotkey, &_tx, hotkeys);
+                                if let Some(rebind) = &portal_rebind {
+                                    let _ = rebind.send(());
+                                }
                             }
                             Ok(ClientMsg::Tokenize {
                                 text,
@@ -2816,7 +3119,13 @@ async fn handle_socket(
         broadcast_gamepad_state_snapshots(states, &device_blacklist, &_tx).await;
     }
 
+    let keyboard_was_enabled = features.is_enabled(ServiceFeature::Keyboard);
     features.release_client(feature_client_id);
+    if keyboard_was_enabled != features.is_enabled(ServiceFeature::Keyboard) {
+        if let Some(rebind) = &portal_rebind {
+            let _ = rebind.send(());
+        }
+    }
     send_broadcast(
         &_tx,
         feature_status_payload(&features).to_string(),
@@ -2835,6 +3144,7 @@ async fn websocket_server(
     sudachi: &'static SharedSudachi,
     manual_hotkey: SharedManualHotkey,
     features: FeatureRegistry,
+    portal_rebind: Option<mpsc::UnboundedSender<()>>,
     gamepad_capture: GamepadCaptureRegistry,
 ) {
     let listener = TcpListener::bind(bind).await.expect("bind failed");
@@ -2864,6 +3174,7 @@ async fn websocket_server(
             sudachi,
             manual_hotkey.clone(),
             features.clone(),
+            portal_rebind.clone(),
             gamepad_capture.clone(),
         ));
     }
@@ -3245,6 +3556,329 @@ async fn axis_repeat_loop(
     }
 }
 
+#[cfg(target_os = "linux")]
+fn portal_app_id_candidates(env_app_id: Option<String>) -> Vec<String> {
+    let mut candidates = env_app_id
+        .map(|value| value.trim().trim_end_matches(".desktop").to_string())
+        .filter(|value| !value.is_empty())
+        .into_iter()
+        .chain([
+            "com.beangate.gamesentenceminer".to_owned(),
+            "gamesentenceminer".to_owned(),
+        ])
+        .collect::<Vec<_>>();
+    candidates.dedup();
+    candidates
+}
+
+#[cfg(target_os = "linux")]
+async fn register_portal_host_app(connection: &zbus::Connection, app_id: &str) -> zbus::Result<()> {
+    let registry = zbus::Proxy::new(
+        connection,
+        "org.freedesktop.portal.Desktop",
+        "/org/freedesktop/portal/desktop",
+        "org.freedesktop.host.portal.Registry",
+    )
+    .await?;
+    let options = HashMap::<String, zbus::zvariant::OwnedValue>::new();
+    registry.call("Register", &(app_id, options)).await
+}
+
+#[cfg(target_os = "linux")]
+async fn create_registered_portal_connection() -> Result<zbus::Connection, zbus::Error> {
+    // Host registration is scoped to this D-Bus connection. KDE validates the
+    // ID against an installed .desktop filename, so Electron supplies the exact
+    // resolved ID through GSM_INPUT_SERVER_APP_ID.
+    let connection = zbus::Connection::session().await?;
+    let mut errors = Vec::new();
+    for app_id in portal_app_id_candidates(std::env::var("GSM_INPUT_SERVER_APP_ID").ok()) {
+        match register_portal_host_app(&connection, &app_id).await {
+            Ok(()) => {
+                info!(
+                    app_id,
+                    "registered host application ID with the desktop portal"
+                );
+                return Ok(connection);
+            }
+            Err(err) => errors.push(format!("{app_id}: {err}")),
+        }
+    }
+
+    // Older xdg-desktop-portal releases do not expose the host Registry. Let
+    // ashpd attempt session creation because those versions may not require it.
+    warn!(
+        "could not register a host application ID with the desktop portal: {}",
+        errors.join("; ")
+    );
+    Ok(connection)
+}
+
+#[cfg(target_os = "linux")]
+fn portal_error_message(cause: impl std::fmt::Display) -> String {
+    format!("Wayland GlobalShortcuts portal unavailable: {cause}")
+}
+
+#[cfg(target_os = "linux")]
+fn portal_skipped_bindings_error(skipped: &[String]) -> Option<String> {
+    (!skipped.is_empty()).then(|| {
+        format!(
+            "Unsupported Wayland portal shortcut(s): {}",
+            skipped.join("; ")
+        )
+    })
+}
+
+#[cfg(target_os = "linux")]
+async fn wait_for_portal_retry(rebind_rx: &mut mpsc::UnboundedReceiver<()>) -> bool {
+    tokio::select! {
+        _ = time::sleep(Duration::from_secs(2)) => true,
+        update = rebind_rx.recv() => update.is_some(),
+    }
+}
+
+#[cfg(target_os = "linux")]
+async fn wayland_portal_hotkey_loop(
+    tx: broadcast::Sender<String>,
+    manual_hotkey: SharedManualHotkey,
+    features: FeatureRegistry,
+    mut rebind_rx: mpsc::UnboundedReceiver<()>,
+) {
+    let mut pending_rebind = true;
+    'updates: loop {
+        if !pending_rebind && rebind_rx.recv().await.is_none() {
+            return;
+        }
+        pending_rebind = false;
+
+        // The overlay sends manual and app shortcut configurations back to
+        // back. Coalesce them into one portal request and one KDE settings view.
+        time::sleep(Duration::from_millis(100)).await;
+        while rebind_rx.try_recv().is_ok() {}
+
+        if !features.is_enabled(ServiceFeature::Keyboard) {
+            set_manual_hotkey_listener_status(&manual_hotkey, &tx, false, None);
+            continue;
+        }
+
+        let configured = {
+            let guard = manual_hotkey.lock().expect("manual hotkey mutex poisoned");
+            portal_shortcut_bindings(&guard)
+        };
+        for skipped in &configured.skipped {
+            warn!("skipping Wayland portal shortcut {skipped}");
+        }
+        if configured.bindings.is_empty() {
+            let error = portal_skipped_bindings_error(&configured.skipped);
+            set_manual_hotkey_listener_status(&manual_hotkey, &tx, error.is_none(), error);
+            continue;
+        }
+
+        let connection = match create_registered_portal_connection().await {
+            Ok(connection) => connection,
+            Err(err) => {
+                let message = portal_error_message(err);
+                warn!("{message}");
+                set_manual_hotkey_listener_status(&manual_hotkey, &tx, false, Some(message));
+                pending_rebind = true;
+                if !wait_for_portal_retry(&mut rebind_rx).await {
+                    return;
+                }
+                continue;
+            }
+        };
+        let portal = match GlobalShortcuts::with_connection(connection).await {
+            Ok(portal) => portal,
+            Err(err) => {
+                let message = portal_error_message(err);
+                warn!("{message}");
+                set_manual_hotkey_listener_status(&manual_hotkey, &tx, false, Some(message));
+                pending_rebind = true;
+                if !wait_for_portal_retry(&mut rebind_rx).await {
+                    return;
+                }
+                continue;
+            }
+        };
+        let mut activated = match portal.receive_activated().await {
+            Ok(stream) => stream,
+            Err(err) => {
+                let message = portal_error_message(err);
+                warn!("{message}");
+                set_manual_hotkey_listener_status(&manual_hotkey, &tx, false, Some(message));
+                pending_rebind = true;
+                if !wait_for_portal_retry(&mut rebind_rx).await {
+                    return;
+                }
+                continue;
+            }
+        };
+        let mut deactivated = match portal.receive_deactivated().await {
+            Ok(stream) => stream,
+            Err(err) => {
+                let message = portal_error_message(err);
+                warn!("{message}");
+                set_manual_hotkey_listener_status(&manual_hotkey, &tx, false, Some(message));
+                pending_rebind = true;
+                if !wait_for_portal_retry(&mut rebind_rx).await {
+                    return;
+                }
+                continue;
+            }
+        };
+        let session = match portal.create_session(CreateSessionOptions::default()).await {
+            Ok(session) => session,
+            Err(err) => {
+                let message = portal_error_message(err);
+                warn!("{message}");
+                set_manual_hotkey_listener_status(&manual_hotkey, &tx, false, Some(message));
+                pending_rebind = true;
+                if !wait_for_portal_retry(&mut rebind_rx).await {
+                    return;
+                }
+                continue;
+            }
+        };
+
+        let shortcuts = configured
+            .bindings
+            .iter()
+            .map(|binding| {
+                NewShortcut::new(binding.portal_id.clone(), binding.description.clone())
+                    .preferred_trigger(Some(binding.trigger.as_str()))
+            })
+            .collect::<Vec<_>>();
+        info!(
+            shortcuts = %configured.bindings
+                .iter()
+                .map(|binding| format!("{}={}", binding.action_id, binding.trigger))
+                .collect::<Vec<_>>()
+                .join(", "),
+            "requesting Wayland portal shortcuts"
+        );
+        let (response, updates_closed) = {
+            let bind_request =
+                portal.bind_shortcuts(&session, &shortcuts, None, BindShortcutsOptions::default());
+            tokio::pin!(bind_request);
+            tokio::select! {
+                result = &mut bind_request => {
+                    (Some(result.and_then(|request| request.response())), false)
+                },
+                update = rebind_rx.recv() => (None, update.is_none()),
+            }
+        };
+        if updates_closed {
+            release_active_hotkeys(&tx, &manual_hotkey);
+            let _ = session.close().await;
+            return;
+        }
+        let Some(response) = response else {
+            release_active_hotkeys(&tx, &manual_hotkey);
+            let _ = session.close().await;
+            pending_rebind = true;
+            continue;
+        };
+        let response = match response {
+            Ok(response) => response,
+            Err(err) => {
+                release_active_hotkeys(&tx, &manual_hotkey);
+                let _ = session.close().await;
+                let retry = !matches!(err, ashpd::Error::Response(_));
+                let message = portal_error_message(err);
+                warn!("{message}");
+                set_manual_hotkey_listener_status(&manual_hotkey, &tx, false, Some(message));
+                if retry {
+                    pending_rebind = true;
+                    if !wait_for_portal_retry(&mut rebind_rx).await {
+                        return;
+                    }
+                }
+                continue;
+            }
+        };
+        let bound_ids = response
+            .shortcuts()
+            .iter()
+            .map(|shortcut| shortcut.id())
+            .collect::<HashSet<_>>();
+        let missing = configured
+            .bindings
+            .iter()
+            .filter(|binding| !bound_ids.contains(binding.portal_id.as_str()))
+            .map(|binding| binding.action_id.as_str())
+            .collect::<Vec<_>>();
+        let mut binding_problems = configured.skipped.clone();
+        if !missing.is_empty() {
+            binding_problems.push(format!(
+                "the compositor did not bind action(s): {}",
+                missing.join(", ")
+            ));
+        }
+        let manual_requested = configured
+            .bindings
+            .iter()
+            .any(|binding| binding.action_id == MANUAL_HOTKEY_ACTION_ID)
+            || configured
+                .skipped
+                .iter()
+                .any(|entry| entry.starts_with(MANUAL_HOTKEY_ACTION_ID));
+        let manual_bound = bound_ids.contains(MANUAL_PORTAL_SHORTCUT_ID);
+        let status_error = (!binding_problems.is_empty()).then(|| binding_problems.join("; "));
+
+        info!("Wayland GlobalShortcuts portal initialized");
+        set_manual_hotkey_listener_status(
+            &manual_hotkey,
+            &tx,
+            !manual_requested || manual_bound,
+            status_error,
+        );
+
+        loop {
+            tokio::select! {
+                signal = activated.next() => match signal {
+                    Some(signal) => handle_portal_hotkey_edge(
+                        &tx,
+                        &manual_hotkey,
+                        signal.shortcut_id(),
+                        true,
+                    ),
+                    None => {
+                        warn!("Wayland portal Activated signal stream ended");
+                        pending_rebind = true;
+                        break;
+                    }
+                },
+                signal = deactivated.next() => match signal {
+                    Some(signal) => handle_portal_hotkey_edge(
+                        &tx,
+                        &manual_hotkey,
+                        signal.shortcut_id(),
+                        false,
+                    ),
+                    None => {
+                        warn!("Wayland portal Deactivated signal stream ended");
+                        pending_rebind = true;
+                        break;
+                    }
+                },
+                update = rebind_rx.recv() => {
+                    if update.is_none() {
+                        release_active_hotkeys(&tx, &manual_hotkey);
+                        let _ = session.close().await;
+                        return;
+                    }
+                    pending_rebind = true;
+                    break;
+                }
+            }
+        }
+        release_active_hotkeys(&tx, &manual_hotkey);
+        let _ = session.close().await;
+        if pending_rebind {
+            continue 'updates;
+        }
+    }
+}
+
 fn keyboard_input_thread(
     tx: broadcast::Sender<String>,
     manual_hotkey: SharedManualHotkey,
@@ -3276,11 +3910,8 @@ fn keyboard_input_thread(
     }
 }
 
-fn deactivate_keyboard_capability(
-    tx: &broadcast::Sender<String>,
-    manual_hotkey: &SharedManualHotkey,
-) {
-    let (manual_release, app_releases, status) = {
+fn release_active_hotkeys(tx: &broadcast::Sender<String>, manual_hotkey: &SharedManualHotkey) {
+    let (manual_release, app_releases) = {
         let mut guard = manual_hotkey.lock().expect("manual hotkey mutex poisoned");
         let manual_release = guard.active.then(|| {
             guard.active = false;
@@ -3302,10 +3933,7 @@ fn deactivate_keyboard_capability(
                 }
             })
             .collect::<Vec<_>>();
-        guard.status.available = false;
-        guard.status.error = None;
-        let status = manual_hotkey_status_payload(&guard).to_string();
-        (manual_release, app_releases, status)
+        (manual_release, app_releases)
     };
 
     if let Some(payload) = manual_release {
@@ -3314,6 +3942,19 @@ fn deactivate_keyboard_capability(
     for payload in app_releases {
         send_broadcast(tx, payload, "app_hotkey_event(feature_released)");
     }
+}
+
+fn deactivate_keyboard_capability(
+    tx: &broadcast::Sender<String>,
+    manual_hotkey: &SharedManualHotkey,
+) {
+    release_active_hotkeys(tx, manual_hotkey);
+    let status = {
+        let mut guard = manual_hotkey.lock().expect("manual hotkey mutex poisoned");
+        guard.status.available = false;
+        guard.status.error = None;
+        manual_hotkey_status_payload(&guard).to_string()
+    };
     send_broadcast(tx, status, "keyboard_listener_status(feature_released)");
 }
 
@@ -3333,6 +3974,7 @@ async fn optional_feature_lifecycle_loop(
     mecab: &'static SharedMecab,
     sudachi: &'static SharedSudachi,
     manual_hotkey: SharedManualHotkey,
+    wayland: bool,
 ) {
     let mut changes = features.subscribe();
     let mut keyboard_started = false;
@@ -3347,16 +3989,22 @@ async fn optional_feature_lifecycle_loop(
 
         if keyboard_enabled && !keyboard_started {
             keyboard_started = true;
-            let tx_for_keyboard = tx.clone();
-            let hotkey_for_keyboard = manual_hotkey.clone();
-            let features_for_keyboard = features.clone();
-            thread::spawn(move || {
-                keyboard_input_thread(tx_for_keyboard, hotkey_for_keyboard, features_for_keyboard)
-            });
+            if !wayland {
+                let tx_for_keyboard = tx.clone();
+                let hotkey_for_keyboard = manual_hotkey.clone();
+                let features_for_keyboard = features.clone();
+                thread::spawn(move || {
+                    keyboard_input_thread(
+                        tx_for_keyboard,
+                        hotkey_for_keyboard,
+                        features_for_keyboard,
+                    )
+                });
+            }
         } else if keyboard_was_enabled && !keyboard_enabled {
             deactivate_keyboard_capability(&tx, &manual_hotkey);
         }
-        if keyboard_enabled && !keyboard_was_enabled {
+        if keyboard_enabled && !keyboard_was_enabled && !wayland {
             set_manual_hotkey_listener_status(&manual_hotkey, &tx, true, None);
         }
 
@@ -3386,6 +4034,7 @@ async fn main() {
         .with_writer(std::io::stderr)
         .try_init();
     let args = Args::parse();
+    let wayland = is_wayland_session();
     let features = FeatureRegistry::new(baseline_features_from_args(&args.enable_features));
     let bind: SocketAddr = format!("{}:{}", args.host, args.port)
         .parse()
@@ -3420,6 +4069,28 @@ async fn main() {
 
     let cfg = Config::default();
 
+    let (portal_rebind_tx, portal_rebind_rx) = mpsc::unbounded_channel::<()>();
+    #[cfg(target_os = "linux")]
+    let portal_rebind = if wayland {
+        tokio::spawn(wayland_portal_hotkey_loop(
+            tx.clone(),
+            manual_hotkey.clone(),
+            features.clone(),
+            portal_rebind_rx,
+        ));
+        Some(portal_rebind_tx)
+    } else {
+        drop(portal_rebind_tx);
+        drop(portal_rebind_rx);
+        None
+    };
+    #[cfg(not(target_os = "linux"))]
+    let portal_rebind = {
+        drop(portal_rebind_tx);
+        drop(portal_rebind_rx);
+        None
+    };
+
     // Websocket server + axis repeat run on tokio.
     tokio::spawn(websocket_server(
         bind,
@@ -3430,6 +4101,7 @@ async fn main() {
         sudachi,
         manual_hotkey.clone(),
         features.clone(),
+        portal_rebind,
         gamepad_capture,
     ));
     tokio::spawn(axis_repeat_loop(
@@ -3444,6 +4116,7 @@ async fn main() {
         mecab,
         sudachi,
         manual_hotkey.clone(),
+        wayland,
     ));
     tokio::spawn(sudachi_idle_unload_loop(sudachi));
 
@@ -3747,5 +4420,125 @@ mod tests {
         pressed_keys.insert(KeyboardKey::ShiftLeft);
         pressed_keys.insert(KeyboardKey::KeyH);
         assert!(manual_hotkey_binding_active(&alt_shift_h, &pressed_keys));
+    }
+
+    #[test]
+    fn hotkey_strings_map_to_xdg_portal_triggers() {
+        assert_eq!(
+            hotkey_to_portal_trigger("Shift+Space").as_deref(),
+            Ok("SHIFT+space")
+        );
+        assert_eq!(
+            hotkey_to_portal_trigger("Alt+Shift+H").as_deref(),
+            Ok("ALT+SHIFT+h")
+        );
+        assert_eq!(
+            hotkey_to_portal_trigger("Ctrl+PageUp").as_deref(),
+            Ok("CTRL+Page_Up")
+        );
+        assert!(hotkey_to_portal_trigger("Shift").is_err());
+        assert!(hotkey_to_portal_trigger("Mouse4").is_err());
+    }
+
+    #[test]
+    fn wayland_detection_honors_the_explicit_raw_input_override() {
+        assert!(should_use_wayland_portal(
+            true,
+            Some("wayland"),
+            Some("wayland-0"),
+            None
+        ));
+        assert!(!should_use_wayland_portal(
+            true,
+            Some("wayland"),
+            Some("wayland-0"),
+            Some("rdev")
+        ));
+        assert!(!should_use_wayland_portal(
+            true,
+            Some("x11"),
+            Some("  "),
+            None
+        ));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn portal_bindings_include_overlay_actions_and_skip_unsupported_inputs() {
+        let mut state = ManualHotkeyState {
+            binding: Some(parse_manual_hotkey_binding("Shift+Space").unwrap()),
+            binding_label: Some("Shift+Space".to_string()),
+            ..ManualHotkeyState::default()
+        };
+        state.app_hotkeys.insert(
+            "toggleWindow".to_string(),
+            AppHotkeyEntry {
+                binding: parse_manual_hotkey_binding("Alt+H").unwrap(),
+                hotkey: "Alt+H".to_string(),
+                active: false,
+            },
+        );
+        state.app_hotkeys.insert(
+            "mouseAction".to_string(),
+            AppHotkeyEntry {
+                binding: parse_manual_hotkey_binding("Mouse4").unwrap(),
+                hotkey: "Mouse4".to_string(),
+                active: false,
+            },
+        );
+
+        let configured = portal_shortcut_bindings(&state);
+        assert_eq!(configured.bindings.len(), 2);
+        assert!(configured
+            .bindings
+            .iter()
+            .any(|binding| binding.action_id == "manual-show" && binding.trigger == "SHIFT+space"));
+        assert!(configured
+            .bindings
+            .iter()
+            .any(|binding| binding.action_id == "toggleWindow" && binding.trigger == "ALT+h"));
+        assert_eq!(configured.skipped.len(), 1);
+        assert!(configured.skipped[0].contains("mouseAction"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn portal_app_id_prefers_the_resolved_desktop_identity() {
+        assert_eq!(
+            portal_app_id_candidates(Some(
+                "GameSentenceMiner-2026.8.3-beta.1.AppImage.desktop".to_string()
+            ))[0],
+            "GameSentenceMiner-2026.8.3-beta.1.AppImage"
+        );
+    }
+
+    #[test]
+    fn portal_edges_preserve_press_and_release_semantics() {
+        let mut state = ManualHotkeyState {
+            binding: Some(parse_manual_hotkey_binding("Shift+Space").unwrap()),
+            binding_label: Some("Shift+Space".to_string()),
+            ..ManualHotkeyState::default()
+        };
+
+        let pressed = dispatch_hotkey_edge(&mut state, MANUAL_HOTKEY_ACTION_ID, true)
+            .unwrap()
+            .expect("first press should emit an event");
+        assert_eq!(
+            serde_json::from_str::<Value>(&pressed).unwrap(),
+            json!({"type": "manual_hotkey_event", "state": "pressed"})
+        );
+        assert!(
+            dispatch_hotkey_edge(&mut state, MANUAL_HOTKEY_ACTION_ID, true)
+                .unwrap()
+                .is_none()
+        );
+
+        let released = dispatch_hotkey_edge(&mut state, MANUAL_HOTKEY_ACTION_ID, false)
+            .unwrap()
+            .expect("release should emit an event");
+        assert_eq!(
+            serde_json::from_str::<Value>(&released).unwrap(),
+            json!({"type": "manual_hotkey_event", "state": "released"})
+        );
     }
 }

@@ -3,6 +3,7 @@
   "version": "1.0.2",
   "description": "On-screen overlay for GameSentenceMiner",
   "main": "main.js",
+  "desktopName": "com.beangate.gamesentenceminer.desktop",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
     "dev:renderer": "vite --host 127.0.0.1 --port 5174 --strictPort",

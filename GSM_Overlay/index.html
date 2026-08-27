@@ -3393,8 +3393,10 @@ background: rgba(202, 12, 12, 0.692);
             blockBox.style.position = "absolute";
             blockBox.style.pointerEvents = "none";
             blockBox.style.zIndex = "998";
-            blockBox.style.left = `${bounds.minx}%`;
-            blockBox.style.top = `${bounds.miny}%`;
+            // Keep the red indicator aligned with the translated text boxes
+            // when the user applies the overlay calibration offset.
+            blockBox.style.left = `${bounds.minx + offsetX}%`;
+            blockBox.style.top = `${bounds.miny + offsetY}%`;
             blockBox.style.width = `${bounds.maxx - bounds.minx}%`;
             blockBox.style.height = `${bounds.maxy - bounds.miny}%`;
             applyIndicatorBoxStyles(blockBox);

@@ -1,15 +1,23 @@
 export type ObsCaptureMode = 'window_capture' | 'game_capture';
-export type ObsSetupTargetKind = 'window' | 'capture_card';
+export type ObsSetupTargetKind = 'window' | 'capture_card' | 'wayland_pipewire';
 export const OBS_APPLICATION_AUDIO_INPUT_KIND = 'wasapi_process_output_capture';
 export const OBS_WASAPI_INPUT_CAPTURE_KIND = 'wasapi_input_capture';
 export const OBS_DSHOW_INPUT_KIND = 'dshow_input';
 export const OBS_XCOMPOSITE_INPUT_KIND = 'xcomposite_input';
+export const OBS_PIPEWIRE_DESKTOP_INPUT_KIND = 'pipewire-desktop-capture-source';
+export const OBS_PIPEWIRE_WINDOW_INPUT_KIND = 'pipewire-window-capture-source';
+export const OBS_PIPEWIRE_SCREEN_INPUT_KIND = 'pipewire-screen-capture-source';
+export type ObsPipewireInputKind =
+    | typeof OBS_PIPEWIRE_DESKTOP_INPUT_KIND
+    | typeof OBS_PIPEWIRE_WINDOW_INPUT_KIND
+    | typeof OBS_PIPEWIRE_SCREEN_INPUT_KIND;
 export type ObsSceneCaptureInputKind =
     | ObsCaptureMode
     | typeof OBS_APPLICATION_AUDIO_INPUT_KIND
     | typeof OBS_WASAPI_INPUT_CAPTURE_KIND
     | typeof OBS_DSHOW_INPUT_KIND
-    | typeof OBS_XCOMPOSITE_INPUT_KIND;
+    | typeof OBS_XCOMPOSITE_INPUT_KIND
+    | ObsPipewireInputKind;
 
 export interface ObsWindowPropertyItem {
     itemName: string;
@@ -40,6 +48,7 @@ export interface ObsSceneSetupOption {
     videoDeviceId?: string;
     audioDeviceId?: string;
     wasapiInputDeviceId?: string;
+    pipewireInputKind?: ObsPipewireInputKind;
 }
 
 export type ObsWindowOption = ObsSceneSetupOption;
@@ -61,6 +70,7 @@ export interface ObsSceneCaptureWindowSelection {
     videoDeviceId?: string | null;
     audioDeviceId?: string | null;
     wasapiInputDeviceId?: string | null;
+    pipewireInputKind?: ObsPipewireInputKind | null;
 }
 
 export interface WindowsCapturePlanOptions {
@@ -105,6 +115,52 @@ function isLegacyObsWindowValue(value: string | undefined): value is string {
 
 function isLinuxXCompositeWindowValue(value: string | undefined): value is string {
     return Boolean(value && value.includes('\r\n'));
+}
+
+const PIPEWIRE_INPUT_KIND_PREFERENCE: readonly ObsPipewireInputKind[] = [
+    OBS_PIPEWIRE_SCREEN_INPUT_KIND,
+    OBS_PIPEWIRE_WINDOW_INPUT_KIND,
+    OBS_PIPEWIRE_DESKTOP_INPUT_KIND,
+];
+
+export function isObsPipewireInputKind(value: unknown): value is ObsPipewireInputKind {
+    return PIPEWIRE_INPUT_KIND_PREFERENCE.includes(value as ObsPipewireInputKind);
+}
+
+/**
+ * Pick the most useful PipeWire source exposed by the connected OBS instance.
+ *
+ * OBS has used both a unified screen/window source and separate desktop/window
+ * source IDs over time. Prefer the unified source because it gives the user
+ * the same monitor-or-window chooser as OBS's "Screen Capture (PipeWire)" UI,
+ * while retaining compatibility with OBS versions that only expose one of the
+ * split source IDs.
+ */
+export function selectObsPipewireInputKind(
+    inputKinds: Iterable<string>
+): ObsPipewireInputKind | null {
+    const available = new Set(inputKinds);
+    return (
+        PIPEWIRE_INPUT_KIND_PREFERENCE.find((inputKind) => available.has(inputKind)) ??
+        null
+    );
+}
+
+export function buildWaylandPipewireOption(
+    inputKinds: Iterable<string>
+): ObsWindowOption | null {
+    const pipewireInputKind = selectObsPipewireInputKind(inputKinds);
+    if (!pipewireInputKind) {
+        return null;
+    }
+
+    return {
+        title: 'Screen Capture (PipeWire)',
+        value: pipewireInputKind,
+        suggestedSceneName: 'Wayland Capture',
+        targetKind: 'wayland_pipewire',
+        pipewireInputKind,
+    };
 }
 
 function getCaptureCardSourceNameBase(
@@ -449,8 +505,24 @@ export function buildLinuxSceneCaptureInputs(
 ): ObsSceneCaptureInput[] {
     if (!options.isLinux) {
         throw new Error(
-            'Automatic Linux OBS capture setup is currently only supported for XComposite window capture.'
+            'Automatic Linux OBS capture setup is currently only supported for XComposite or PipeWire capture.'
         );
+    }
+
+    if (
+        selectedWindow.targetKind === 'wayland_pipewire' &&
+        isObsPipewireInputKind(selectedWindow.pipewireInputKind)
+    ) {
+        return [
+            {
+                inputName: `${sceneName} - Screen Capture (PipeWire)`,
+                inputKind: selectedWindow.pipewireInputKind,
+                inputSettings: {
+                    ShowCursor: false,
+                },
+                sceneItemEnabled: true,
+            },
+        ];
     }
 
     const captureWindow =
@@ -463,7 +535,7 @@ export function buildLinuxSceneCaptureInputs(
     if (!captureWindow) {
         const windowLabel = selectedWindow.title || sceneName;
         throw new Error(
-            `No OBS XComposite capture source was available for "${windowLabel}".`
+            `No OBS XComposite or PipeWire capture source was available for "${windowLabel}".`
         );
     }
 

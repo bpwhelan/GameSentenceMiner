@@ -2,12 +2,18 @@ import electron from 'electron';
 import * as fs from 'node:fs';
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
+import { configureLinuxDesktopIdentity } from './linux_desktop_identity.js';
 import { USE_IN_PROCESS_OVERLAY } from './overlay_runtime_config.js';
 
 const { app, dialog } = electron;
 const OVERLAY_CHILD_ARG = '--gsm-overlay-child';
 const OVERLAY_RESOURCES_ARG = '--gsm-overlay-resources';
 const OVERLAY_RESOURCES_ENV = 'GSM_OVERLAY_RESOURCES_PATH';
+
+// Portals identify an unpackaged Linux process by its installed .desktop file.
+// Resolve that identity before Electron is ready and pass the matching app ID to
+// the shared input service that owns the Wayland shortcut session.
+configureLinuxDesktopIdentity(app);
 
 function traceOverlayBootstrap(message: string): void {
     const tracePath = process.env.GSM_OVERLAY_BOOTSTRAP_TRACE;

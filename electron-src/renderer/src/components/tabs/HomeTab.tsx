@@ -511,6 +511,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
 
   const selectedWindow = windows.find((w) => w.value === selectedWindowValue) ?? null;
   const isCaptureCardSelection = selectedWindow?.targetKind === "capture_card";
+  const isWaylandPipewireSelection = selectedWindow?.targetKind === "wayland_pipewire";
   const canUseWindowCapture = isCaptureModeAvailable(selectedWindow, "window_capture");
   const canUseGameCapture = isCaptureModeAvailable(selectedWindow, "game_capture");
   const canSelectCaptureMode = Boolean(selectedWindow && isWindows && !isCaptureCardSelection);
@@ -725,6 +726,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
       videoDeviceId: win.videoDeviceId,
       audioDeviceId: win.audioDeviceId,
       wasapiInputDeviceId: win.wasapiInputDeviceId,
+      pipewireInputKind: win.pipewireInputKind,
     };
     await invokeIpc("obs.createScene", payload);
     await refreshAll();
@@ -1123,7 +1125,11 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                       <optgroup label={t("home.obs.sectionWindows")}>
                         {windowTargets.map((w) => (
                           <option key={w.value} value={w.value}>
-                            {w.targetKind === "capture_card" ? t("home.obs.captureCardPrefix", { title: w.title }) : w.title}
+                            {w.targetKind === "capture_card"
+                              ? t("home.obs.captureCardPrefix", { title: w.title })
+                              : w.targetKind === "wayland_pipewire"
+                                ? t("home.obs.waylandPipewireOption")
+                                : w.title}
                           </option>
                         ))}
                       </optgroup>
@@ -1230,7 +1236,11 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                     type="button"
                     disabled={!canCreateScene}
                     onClick={() => void handleCreateScene()}
-                    title={t("home.obs.setupCaptureTooltip")}
+                    title={t(
+                      isWaylandPipewireSelection
+                        ? "home.obs.waylandPipewireTooltip"
+                        : "home.obs.setupCaptureTooltip",
+                    )}
                   >
                     {t("home.obs.setupCapture")}
                   </button>

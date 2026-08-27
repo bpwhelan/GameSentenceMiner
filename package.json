@@ -4,6 +4,7 @@
   "version": "2026.8.2",
   "description": "GameSentenceMiner",
   "main": "dist/main/bootstrap.js",
+  "desktopName": "com.beangate.gamesentenceminer.desktop",
   "scripts": {
     "start": "npm run build && electron .",
     "build": "npm run sync:version && npm run sync:legacy && npm run build:main && npm run build:renderer",
@@ -86,7 +87,8 @@
       "icon": "assets/gsm.png"
     },
     "linux": {
-      "target": "AppImage"
+      "target": "AppImage",
+      "executableName": "com.beangate.gamesentenceminer"
     },
     "publish": [
       {

@@ -211,6 +211,8 @@
     let statusText = `Backend: ${backendLabel}`;
     if (backend === "electron" && predictedBackend !== "electron") {
       statusText = "Backend: Electron (pending reconfiguration)";
+    } else if (backend === "input_server" && runtimeState.backendReason === "wayland-portal") {
+      statusText = "Backend: Wayland Portal";
     } else if (backend === "input_server" && runtimeState.backendReason === "electron-registration-failed") {
       statusText = "Backend: Input Server (Electron registration fallback)";
     }
@@ -225,7 +227,9 @@
       if (platform === "darwin") {
         platformWarning = "Input-server manual hotkeys on macOS require Accessibility permission.";
       } else if (platform === "linux") {
-        platformWarning = "Linux manual hotkeys are best-effort. Wayland may block global keyboard hooks.";
+        platformWarning = runtimeState.backendReason === "wayland-portal"
+          ? "Wayland uses the desktop shortcut portal. Modifier-only and mouse shortcuts are not supported by the portal."
+          : "Linux manual hotkeys are best-effort. Wayland may block global keyboard hooks.";
       }
     } else if (backend === "electron" && type === "hold") {
       platformWarning =

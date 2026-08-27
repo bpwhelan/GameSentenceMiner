@@ -13,8 +13,12 @@ const ipcHandleMock = vi.fn();
 const showMessageBoxMock = vi.fn();
 const mergeObsWindowItemsMock = vi.fn(() => []);
 const buildCaptureCardOptionsMock = vi.fn(() => []);
+const buildWaylandPipewireOptionMock = vi.fn(() => null);
+const buildLinuxSceneCaptureInputsMock = vi.fn(() => []);
 const buildWindowsSceneCaptureInputsMock = vi.fn();
 const buildWindowsVideoCaptureInputMock = vi.fn();
+const isLinuxMock = vi.fn(() => false);
+const isWindowsMock = vi.fn(() => true);
 const existsSyncMock = vi.fn();
 const readFileMock = vi.fn();
 const writeFileMock = vi.fn();
@@ -80,17 +84,21 @@ vi.mock('../util.js', () => ({
     execFileAsync: execFileAsyncMock,
     getAssetsDir: () => 'C:\\test-gsm\\assets',
     isMacOS: () => false,
-    isLinux: () => false,
-    isWindows: () => true,
+    isLinux: isLinuxMock,
+    isWindows: isWindowsMock,
     isWindows10OrHigher: () => true,
 }));
 
 vi.mock('./obs-capture.js', () => ({
     OBS_DSHOW_INPUT_KIND: 'dshow_input',
+    OBS_PIPEWIRE_DESKTOP_INPUT_KIND: 'pipewire-desktop-capture-source',
+    OBS_PIPEWIRE_SCREEN_INPUT_KIND: 'pipewire-screen-capture-source',
+    OBS_PIPEWIRE_WINDOW_INPUT_KIND: 'pipewire-window-capture-source',
     OBS_WASAPI_INPUT_CAPTURE_KIND: 'wasapi_input_capture',
     OBS_XCOMPOSITE_INPUT_KIND: 'xcomposite_input',
     buildCaptureCardOptions: buildCaptureCardOptionsMock,
-    buildLinuxSceneCaptureInputs: vi.fn(),
+    buildWaylandPipewireOption: buildWaylandPipewireOptionMock,
+    buildLinuxSceneCaptureInputs: buildLinuxSceneCaptureInputsMock,
     buildWindowsSceneCaptureInputs: buildWindowsSceneCaptureInputsMock,
     buildWindowsVideoCaptureInput: buildWindowsVideoCaptureInputMock,
     getObsWindowTitle: vi.fn((title: string) => title),
@@ -138,6 +146,13 @@ async function flushPromises() {
     await Promise.resolve();
     await Promise.resolve();
 }
+
+beforeEach(() => {
+    isLinuxMock.mockReturnValue(false);
+    isWindowsMock.mockReturnValue(true);
+    buildLinuxSceneCaptureInputsMock.mockReset();
+    buildLinuxSceneCaptureInputsMock.mockReturnValue([]);
+});
 
 describe('getGameInfoFromWindow', () => {
     it('extracts game names from yuzu Early Access titles', async () => {
@@ -1088,6 +1103,87 @@ describe('renameOBSScene', () => {
         });
         expect(obsCallMock).toHaveBeenCalledWith('RemoveInput', {
             inputName: 'audio_input_getter',
+        });
+    });
+});
+
+describe('Wayland PipeWire scene setup', () => {
+    beforeEach(() => {
+        obsCallMock.mockReset();
+        obsConnectMock.mockReset();
+        obsDisconnectMock.mockReset();
+        obsOnMock.mockReset();
+        obsRemoveAllListenersMock.mockReset();
+        ipcHandleMock.mockReset();
+        showMessageBoxMock.mockReset();
+        showMessageBoxMock.mockResolvedValue({ response: 0, checkboxChecked: false });
+        obsConnectMock.mockResolvedValue(undefined);
+        obsDisconnectMock.mockResolvedValue(undefined);
+        isLinuxMock.mockReturnValue(true);
+        isWindowsMock.mockReturnValue(false);
+        buildLinuxSceneCaptureInputsMock.mockReturnValue([
+            {
+                inputName: 'Wayland Game - Screen Capture (PipeWire)',
+                inputKind: 'pipewire-screen-capture-source',
+                inputSettings: { ShowCursor: false },
+                sceneItemEnabled: true,
+            },
+        ]);
+    });
+
+    it('shows selector instructions after creating the PipeWire source', async () => {
+        const { registerOBSIPC } = await loadObsModule();
+
+        obsCallMock.mockImplementation(async (requestType: string) => {
+            if (requestType === 'GetVersion') {
+                return {};
+            }
+            if (requestType === 'CreateScene') {
+                return { sceneUuid: 'scene-wayland' };
+            }
+            if (requestType === 'GetInputSettings') {
+                throw new Error('No source was found');
+            }
+            return {};
+        });
+
+        await registerOBSIPC();
+        const createSceneHandler = ipcHandleMock.mock.calls.find(
+            ([channel]) => channel === 'obs.createScene'
+        )?.[1];
+
+        expect(createSceneHandler).toBeTypeOf('function');
+
+        await expect(
+            createSceneHandler({}, {
+                title: 'Screen Capture (PipeWire)',
+                value: 'pipewire-screen-capture-source',
+                sceneName: 'Wayland Game',
+                targetKind: 'wayland_pipewire',
+                pipewireInputKind: 'pipewire-screen-capture-source',
+            })
+        ).resolves.toBeUndefined();
+
+        expect(obsCallMock).toHaveBeenCalledWith('CreateInput', {
+            sceneName: 'Wayland Game',
+            inputName: 'Wayland Game - Screen Capture (PipeWire)',
+            inputKind: 'pipewire-screen-capture-source',
+            inputSettings: { ShowCursor: false },
+            sceneItemEnabled: true,
+        });
+        expect(showMessageBoxMock).toHaveBeenCalledWith({
+            type: 'info',
+            title: 'Wayland Capture Setup',
+            message: 'Select the game window in OBS',
+            detail: [
+                'The Screen Capture (PipeWire) source has been added to the new scene.',
+                '',
+                'In OBS:',
+                '1. Click the Screen Capture (PipeWire) source.',
+                '2. Click Properties.',
+                '3. Click Open Selector.',
+                '4. Select the actual window you want to capture.',
+            ].join('\n'),
         });
     });
 });

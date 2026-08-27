@@ -32,6 +32,10 @@ const {
   registerHotkeyWithFallback,
   shouldSuppressGamepadToggleDuringFocusTransition,
 } = require('./hotkey_settings');
+const {
+  isEffectiveInputServerHotkeyRouting,
+  isWaylandSession,
+} = require('./hotkey_routing');
 const { shouldRevealAutomaticOverlay, shouldShowOverlayOnReady } = require('./automatic_visibility');
 const { URL } = require('url');
 
@@ -1616,7 +1620,7 @@ function isManualHotkeyUsingInputServer(settings = userSettings) {
 
   const preferredBackend = resolveManualHotkeyBackend(settings.showHotkey, {
     forceInputServer:
-      settings.routeAllHotkeysThroughInputServer === true ||
+      isEffectiveInputServerHotkeyRouting(settings.routeAllHotkeysThroughInputServer) ||
       normalizeHotkeyForComparison(settings.showHotkey) ===
         normalizeHotkeyForComparison(manualHotkeyElectronFailureHotkey),
   });
@@ -1624,9 +1628,11 @@ function isManualHotkeyUsingInputServer(settings = userSettings) {
 }
 
 function getManualHotkeyRuntimeStatus() {
-  const label = manualHotkeyBackend === MANUAL_HOTKEY_BACKEND_INPUT_SERVER
-    ? "Input Server"
-    : "Electron";
+  const label = manualHotkeyBackendReason === "wayland-portal"
+    ? "Wayland Portal"
+    : manualHotkeyBackend === MANUAL_HOTKEY_BACKEND_INPUT_SERVER
+      ? "Input Server"
+      : "Electron";
   return {
     manualHotkeyBackend,
     manualHotkeyBackendLabel: label,
@@ -2346,7 +2352,7 @@ function shouldRunInputServer(settings = userSettings) {
     return true;
   }
 
-  if (settings.routeAllHotkeysThroughInputServer) {
+  if (isEffectiveInputServerHotkeyRouting(settings.routeAllHotkeysThroughInputServer)) {
     return true;
   }
 
@@ -2813,7 +2819,9 @@ const appHotkeyGlobalShortcutAccelerators = new Map(); // id -> accelerator curr
 const TOGGLE_HOTKEY_COOLDOWN_MS = 250;
 
 function isRouteAllHotkeysEnabled() {
-  return userSettings.routeAllHotkeysThroughInputServer === true;
+  return isEffectiveInputServerHotkeyRouting(
+    userSettings.routeAllHotkeysThroughInputServer
+  );
 }
 
 function isAppHotkeyInputServerRequired() {
@@ -5483,7 +5491,10 @@ function registerManualShowHotkey(oldHotkey) {
     manualHotkeyBackend = resolveManualHotkeyBackend(userSettings.showHotkey, {
       forceInputServer: isRouteAllHotkeysEnabled(),
     });
-    manualHotkeyBackendReason = manualHotkeyBackend;
+    manualHotkeyBackendReason =
+      manualHotkeyBackend === MANUAL_HOTKEY_BACKEND_INPUT_SERVER && isWaylandSession()
+        ? "wayland-portal"
+        : manualHotkeyBackend;
     manualHotkeyElectronFailureHotkey = null;
     syncManualHotkeyInputServerConnection("manual-mode-disabled");
     publishManualHotkeyRuntimeStatus();
@@ -5494,7 +5505,10 @@ function registerManualShowHotkey(oldHotkey) {
     forceInputServer: isRouteAllHotkeysEnabled(),
   });
   manualHotkeyBackend = requestedBackend;
-  manualHotkeyBackendReason = requestedBackend;
+  manualHotkeyBackendReason =
+    requestedBackend === MANUAL_HOTKEY_BACKEND_INPUT_SERVER && isWaylandSession()
+      ? "wayland-portal"
+      : requestedBackend;
   const manualModeType = normalizeManualModeType(userSettings.manualModeType);
 
   if (requestedBackend === MANUAL_HOTKEY_BACKEND_ELECTRON) {

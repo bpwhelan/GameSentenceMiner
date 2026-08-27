@@ -4,7 +4,7 @@ export interface ObsScene {
 }
 
 export type ObsCaptureMode = "window_capture" | "game_capture";
-export type ObsSetupTargetKind = "window" | "capture_card";
+export type ObsSetupTargetKind = "window" | "capture_card" | "wayland_pipewire";
 
 export interface ObsWindow {
   title: string;
@@ -17,6 +17,10 @@ export interface ObsWindow {
   videoDeviceId?: string;
   audioDeviceId?: string;
   wasapiInputDeviceId?: string;
+  pipewireInputKind?:
+    | "pipewire-desktop-capture-source"
+    | "pipewire-window-capture-source"
+    | "pipewire-screen-capture-source";
 }
 
 export type HookableGameType = "steam" | "yuzu" | "vn" | "none";

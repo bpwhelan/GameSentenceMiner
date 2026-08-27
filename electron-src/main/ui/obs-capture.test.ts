@@ -1,11 +1,50 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+    buildWaylandPipewireOption,
     buildCaptureCardOptions,
     buildLinuxSceneCaptureInputs,
     buildWindowsSceneCaptureInputs,
     mergeObsWindowItems,
+    selectObsPipewireInputKind,
 } from './obs-capture.js';
+
+describe('Wayland PipeWire capture probing', () => {
+    it('prefers OBS’s unified screen capture source when available', () => {
+        expect(
+            selectObsPipewireInputKind([
+                'pipewire-desktop-capture-source',
+                'pipewire-screen-capture-source',
+                'pipewire-window-capture-source',
+            ])
+        ).toBe('pipewire-screen-capture-source');
+    });
+
+    it('falls back to split PipeWire source IDs used by newer OBS builds', () => {
+        expect(
+            selectObsPipewireInputKind(['pipewire-window-capture-source'])
+        ).toBe('pipewire-window-capture-source');
+        expect(
+            selectObsPipewireInputKind(['pipewire-desktop-capture-source'])
+        ).toBe('pipewire-desktop-capture-source');
+    });
+
+    it('does not advertise a Wayland candidate when OBS has no PipeWire source', () => {
+        expect(buildWaylandPipewireOption(['window_capture', 'game_capture'])).toBeNull();
+    });
+
+    it('builds a portal-backed setup candidate from the detected OBS source', () => {
+        expect(
+            buildWaylandPipewireOption(['pipewire-screen-capture-source'])
+        ).toEqual({
+            title: 'Screen Capture (PipeWire)',
+            value: 'pipewire-screen-capture-source',
+            suggestedSceneName: 'Wayland Capture',
+            targetKind: 'wayland_pipewire',
+            pipewireInputKind: 'pipewire-screen-capture-source',
+        });
+    });
+});
 
 describe('mergeObsWindowItems', () => {
     it('merges window and game capture entries for the same OBS window', () => {
@@ -284,6 +323,32 @@ describe('buildWindowsSceneCaptureInputs', () => {
 });
 
 describe('buildLinuxSceneCaptureInputs', () => {
+    it('creates a PipeWire source that lets OBS open the Wayland chooser', () => {
+        const plan = buildLinuxSceneCaptureInputs(
+            'Wayland Game',
+            {
+                title: 'Screen Capture (PipeWire)',
+                value: 'pipewire-screen-capture-source',
+                targetKind: 'wayland_pipewire',
+                pipewireInputKind: 'pipewire-screen-capture-source',
+            },
+            {
+                isLinux: true,
+            }
+        );
+
+        expect(plan).toEqual([
+            {
+                inputName: 'Wayland Game - Screen Capture (PipeWire)',
+                inputKind: 'pipewire-screen-capture-source',
+                inputSettings: {
+                    ShowCursor: false,
+                },
+                sceneItemEnabled: true,
+            },
+        ]);
+    });
+
     it('creates an XComposite capture plan from a Linux window selection', () => {
         const plan = buildLinuxSceneCaptureInputs(
             'NineSols',

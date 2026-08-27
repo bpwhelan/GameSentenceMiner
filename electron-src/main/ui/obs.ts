@@ -36,8 +36,12 @@ import {
 } from './obs_default_config.js';
 import {
     OBS_DSHOW_INPUT_KIND,
+    OBS_PIPEWIRE_DESKTOP_INPUT_KIND,
+    OBS_PIPEWIRE_SCREEN_INPUT_KIND,
+    OBS_PIPEWIRE_WINDOW_INPUT_KIND,
     OBS_WASAPI_INPUT_CAPTURE_KIND,
     buildCaptureCardOptions,
+    buildWaylandPipewireOption,
     buildLinuxSceneCaptureInputs,
     getObsWindowTitle,
     buildWindowsSceneCaptureInputs,
@@ -397,6 +401,9 @@ const VIDEO_CAPTURE_INPUT_KINDS = new Set([
     'game_capture',
     'monitor_capture',
     'xcomposite_input',
+    OBS_PIPEWIRE_DESKTOP_INPUT_KIND,
+    OBS_PIPEWIRE_WINDOW_INPUT_KIND,
+    OBS_PIPEWIRE_SCREEN_INPUT_KIND,
 ]);
 const OBS_PID_FILE = path.join(BASE_DIR, 'obs_pid.txt');
 
@@ -522,6 +529,13 @@ function parseLinuxXCompositeWindowValue(windowValue: string): {
         .split(/\r?\n/)
         .map((part) => part.trim());
     return { windowId, title, windowClass };
+}
+
+function isWaylandSession(): boolean {
+    return (
+        process.env.XDG_SESSION_TYPE?.toLowerCase() === 'wayland' ||
+        Boolean(process.env.WAYLAND_DISPLAY)
+    );
 }
 
 function encodeLinuxXCompositeWindowValue(
@@ -2082,7 +2096,7 @@ async function isOBSHealthy(): Promise<boolean> {
 async function createSceneWithCapture(window: ObsSceneCaptureWindowSelection): Promise<void> {
     if (!isWindows() && !isLinux()) {
         throw new Error(
-            'Automatic OBS capture setup is currently only supported on Windows and Linux XComposite.'
+            'Automatic OBS capture setup is currently only supported on Windows and Linux XComposite or PipeWire.'
         );
     }
 
@@ -2091,7 +2105,9 @@ async function createSceneWithCapture(window: ObsSceneCaptureWindowSelection): P
     const targetKind =
         window.targetKind === 'capture_card' || typeof window.videoDeviceId === 'string'
             ? 'capture_card'
-            : 'window';
+            : window.targetKind === 'wayland_pipewire'
+              ? 'wayland_pipewire'
+              : 'window';
     const rawWindowTitle =
         typeof window.title === 'string' && window.title.trim()
             ? window.title.trim()
@@ -2174,6 +2190,29 @@ async function createSceneWithCapture(window: ObsSceneCaptureWindowSelection): P
 
     for (const captureInput of captureInputs) {
         await upsertSceneInput(sceneName, captureInput);
+    }
+
+    if (targetKind === 'wayland_pipewire' && isLinux()) {
+        const dialogOptions = {
+            type: 'info' as const,
+            title: 'Wayland Capture Setup',
+            message: 'Select the game window in OBS',
+            detail: [
+                'The Screen Capture (PipeWire) source has been added to the new scene.',
+                '',
+                'In OBS:',
+                '1. Click the Screen Capture (PipeWire) source.',
+                '2. Click Properties.',
+                '3. Click Open Selector.',
+                '4. Select the actual window you want to capture.',
+            ].join('\n'),
+        };
+        const dialogParent = getObsDialogParent();
+        if (dialogParent) {
+            await dialog.showMessageBox(dialogParent, dialogOptions);
+        } else {
+            await dialog.showMessageBox(dialogOptions);
+        }
     }
 
     if (sceneInfo.switcherRegex) {
@@ -2892,6 +2931,14 @@ export async function registerOBSIPC() {
         );
     }
 
+    async function getWaylandPipewireWindows(): Promise<ObsWindowOption[]> {
+        const response = await callOBS('GetInputKindList');
+        const inputKinds = (Array.isArray(response?.inputKinds) ? response.inputKinds : [])
+            .filter((inputKind: unknown): inputKind is string => typeof inputKind === 'string');
+        const option = buildWaylandPipewireOption(inputKinds);
+        return option ? [option] : [];
+    }
+
     async function getCaptureCardList(): Promise<ObsWindowOption[]> {
         if (!captureCardProbeEnabled) {
             return [];
@@ -2940,7 +2987,9 @@ export async function registerOBSIPC() {
     async function getWindowListFast(): Promise<ObsWindowOption[]> {
         try {
             if (isLinux()) {
-                return await getLinuxXCompositeWindows();
+                return isWaylandSession()
+                    ? await getWaylandPipewireWindows()
+                    : await getLinuxXCompositeWindows();
             }
 
             await forceDisableHelperSceneInputs();
@@ -2977,7 +3026,9 @@ export async function registerOBSIPC() {
     async function getWindowListFull(): Promise<ObsWindowOption[]> {
         try {
             if (isLinux()) {
-                return await getLinuxXCompositeWindows();
+                return isWaylandSession()
+                    ? await getWaylandPipewireWindows()
+                    : await getLinuxXCompositeWindows();
             }
 
             await forceDisableHelperSceneInputs();
