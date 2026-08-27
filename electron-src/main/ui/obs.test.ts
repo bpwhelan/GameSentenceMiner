@@ -1183,6 +1183,9 @@ describe('Wayland PipeWire scene setup', () => {
                 '2. Click Properties.',
                 '3. Click Open Selector.',
                 '4. Select the actual window you want to capture.',
+                '5. Optional: To remove a title bar or other edge content, press Ctrl+E, or right-click the source and choose Transform > Edit Transform. Adjust the Crop section at the bottom.',
+                '',
+                'Note: Cropping is not needed for fullscreen capture. Be careful when switching to fullscreen afterward—the cropped area may still remain cropped.',
             ].join('\n'),
         });
     });
