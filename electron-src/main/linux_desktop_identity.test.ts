@@ -1,6 +1,8 @@
+import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
+    configureLinuxDesktopIdentity,
     LINUX_DESKTOP_NAME,
     resolveLinuxDesktopIdentity,
 } from './linux_desktop_identity.js';
@@ -25,7 +27,7 @@ describe('Linux desktop identity', () => {
 
     it('uses an installed AppImage desktop entry when the stable entry is absent', () => {
         const versionedName = 'GameSentenceMiner-2026.8.3-beta.1.AppImage.desktop';
-        const versionedPath = `/home/test/.local/share/applications/${versionedName}`;
+        const versionedPath = path.join('/home/test/.local/share/applications', versionedName);
 
         expect(
             resolveLinuxDesktopIdentity({
@@ -51,5 +53,22 @@ describe('Linux desktop identity', () => {
                 fileExists: () => false,
             })
         ).toBeNull();
+    });
+
+    it('falls back to CHROME_DESKTOP when Electron lacks setDesktopName', () => {
+        const env: NodeJS.ProcessEnv = { HOME: '/home/test' };
+
+        expect(
+            configureLinuxDesktopIdentity({}, {
+                platform: 'linux',
+                env,
+                fileExists: () => false,
+            })
+        ).toEqual({
+            appId: 'com.beangate.gamesentenceminer',
+            desktopName: LINUX_DESKTOP_NAME,
+        });
+        expect(env.CHROME_DESKTOP).toBe(LINUX_DESKTOP_NAME);
+        expect(env.GSM_INPUT_SERVER_APP_ID).toBe('com.beangate.gamesentenceminer');
     });
 });

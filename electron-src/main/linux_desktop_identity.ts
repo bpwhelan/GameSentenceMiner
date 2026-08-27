@@ -17,10 +17,6 @@ interface ResolveLinuxDesktopIdentityOptions {
     fileExists?: (candidate: string) => boolean;
 }
 
-interface DesktopIdentityApp {
-    setDesktopName(name: string): void;
-}
-
 function normalizeDesktopName(value: string | undefined): string | null {
     const name = path.basename(String(value || '').trim());
     if (!name || name === '.' || name === path.sep) {
@@ -85,7 +81,7 @@ export function resolveLinuxDesktopIdentity(
 }
 
 export function configureLinuxDesktopIdentity(
-    app: DesktopIdentityApp,
+    app: object,
     options: ResolveLinuxDesktopIdentityOptions = {}
 ): LinuxDesktopIdentity | null {
     const identity = resolveLinuxDesktopIdentity(options);
@@ -93,8 +89,16 @@ export function configureLinuxDesktopIdentity(
         return null;
     }
 
-    app.setDesktopName(identity.desktopName);
     const env = options.env ?? process.env;
+    env.CHROME_DESKTOP = identity.desktopName;
     env.GSM_INPUT_SERVER_APP_ID = identity.appId;
+
+    // Electron 42 reads CHROME_DESKTOP but does not expose setDesktopName.
+    // Use the API when available on newer releases while preserving the
+    // environment-variable fallback for the currently supported runtime.
+    const setDesktopName = Reflect.get(app, 'setDesktopName');
+    if (typeof setDesktopName === 'function') {
+        setDesktopName.call(app, identity.desktopName);
+    }
     return identity;
 }
