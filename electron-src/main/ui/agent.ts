@@ -646,7 +646,11 @@ async function teardownAgentSession(): Promise<void> {
 
 export async function startAgentHookSession(options: StartAgentHookOptions): Promise<StartHookResult> {
     if (agentSession) {
+        await options.wineConnection?.close();
         return { success: false, error: 'An Agent hook session is already running.' };
+    }
+    if (process.platform !== 'win32' && !options.wineConnection) {
+        return { success: false, error: 'Agent hooking on this platform requires a Wine Frida connection.' };
     }
     const scriptPath = resolveScriptPath(options.scriptPath);
     if (!scriptPath) {
@@ -712,10 +716,10 @@ export async function startAgentHookSession(options: StartAgentHookOptions): Pro
                 }
             })();
         }, 4000);
-        emitLog(
-            `Attached Agent script ${path.basename(scriptPath)} to ${options.exeName} ` +
-                `(Linux PID ${options.pid}${options.wineConnection ? `, Windows PID ${options.wineConnection.windowsPid}` : ''}).`,
-        );
+        const pidDescription = options.wineConnection
+            ? `Linux PID ${options.pid}, Windows PID ${options.wineConnection.windowsPid}`
+            : `PID ${options.pid}`;
+        emitLog(`Attached Agent script ${path.basename(scriptPath)} to ${options.exeName} (${pidDescription}).`);
         emitStatus();
         emitHooks();
         return { success: true, pid: options.pid, exeName: options.exeName, arch: options.arch };

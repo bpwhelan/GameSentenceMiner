@@ -43,6 +43,7 @@ import {
     startHookSession,
     stopHookSession,
 } from './ui/texthook.js';
+import { findLinuxGamePid } from './ui/linux_wine.js';
 
 type IntegratedTextHookEngine = "textractor" | "luna" | "agent" | "mages";
 
@@ -1013,6 +1014,26 @@ export class AutoLauncher {
     }
 
     private async getPidByProcessName(processName: string): Promise<number> {
+        const retryInterval = 1000;
+        const timeout = 5000;
+
+        if (process.platform === "linux") {
+            return new Promise((resolve) => {
+                const startedAt = Date.now();
+                const tryResolve = () => {
+                    const pid = findLinuxGamePid(processName);
+                    if (pid > 0) {
+                        resolve(pid);
+                    } else if (Date.now() - startedAt >= timeout) {
+                        resolve(-1);
+                    } else {
+                        setTimeout(tryResolve, retryInterval);
+                    }
+                };
+                tryResolve();
+            });
+        }
+
         return new Promise((resolve) => {
             let command: string;
 
@@ -1023,8 +1044,6 @@ export class AutoLauncher {
             }
 
             const startTime = Date.now();
-            const retryInterval = 1000;
-            const timeout = 5000;
 
             const tryGetPid = () => {
                 exec(command, (error, stdout) => {

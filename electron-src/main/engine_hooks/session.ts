@@ -201,7 +201,11 @@ export async function startEngineHookSession(
     options: StartEngineHookOptions,
 ): Promise<EngineHookStartResult> {
     if (activeSession || starting) {
+        await options.wineConnection?.close();
         return { success: false, error: 'An engine-hook session is already running.' };
+    }
+    if (process.platform !== 'win32' && !options.wineConnection) {
+        return { success: false, error: 'Built-in engine hooks on this platform require a Wine Frida connection.' };
     }
     starting = true;
     let fridaSession: Session | null = null;
@@ -291,10 +295,10 @@ export async function startEngineHookSession(
         }
         activeSession = candidate;
         options.onStateChanged();
-        options.onLog(
-            `Attached ${support.manifest.name} to ${options.exeName} (PID ${options.pid}).`,
-            'info',
-        );
+        const pidDescription = options.wineConnection
+            ? `Linux PID ${options.pid}, Windows PID ${options.wineConnection.windowsPid}`
+            : `PID ${options.pid}`;
+        options.onLog(`Attached ${support.manifest.name} to ${options.exeName} (${pidDescription}).`, 'info');
         return {
             success: true,
             pid: options.pid,

@@ -13,10 +13,10 @@ export interface WineLaunchContext {
     linuxPid: number;
     /** Resolved WINEPREFIX (or derived Proton pfx), or '' if unknown. */
     winePrefix: string;
-    /** Command that starts a Windows process in the game's Wine environment. */
-    wineBinary: string;
-    /** True when the process was launched through umu-run. */
-    isUmu: boolean;
+    /** Host command that starts a Windows process in the game's compatibility environment. */
+    launcherPath: string;
+    /** Launcher semantics required by launcherPath. */
+    launcherKind: 'wine' | 'umu';
     /** Environment captured from the game's /proc entry, never GSM's full environment. */
     env: Record<string, string>;
 }
@@ -96,12 +96,12 @@ export function readProcEnviron(pid: number, procRoot = '/proc'): Record<string,
     return env;
 }
 
-function readProcRss(procRoot: string, pid: number): number {
+function readProcResidentPages(procRoot: string, pid: number): number {
     const statm = readProcFile(procRoot, pid, 'statm');
     if (!statm) return 0;
     const fields = statm.toString('utf-8').trim().split(/\s+/);
     const residentPages = Number(fields[1] ?? 0);
-    return Number.isFinite(residentPages) ? residentPages * 4096 : 0;
+    return Number.isFinite(residentPages) ? residentPages : 0;
 }
 
 function listProcPids(procRoot: string): number[] {
@@ -129,7 +129,7 @@ export function findLinuxGamePid(exePath: string, procRoot = '/proc', selfPid = 
     if (!targetBasename) return 0;
 
     let bestPid = 0;
-    let bestRss = -1;
+    let bestResidentPages = -1;
     for (const pid of listProcPids(procRoot)) {
         if (pid === selfPid) continue;
         const comm = (readProcFile(procRoot, pid, 'comm')?.toString('utf-8') ?? '').trim();
@@ -138,9 +138,9 @@ export function findLinuxGamePid(exePath: string, procRoot = '/proc', selfPid = 
         // A launcher can inherit the game's command line in some Proton
         // versions. Do not let that high-RSS helper win over the real image.
         if (LAUNCHER_COMMS.has(comm.toLowerCase()) && comm.toLowerCase() !== targetBasename) continue;
-        const rss = readProcRss(procRoot, pid);
-        if (rss > bestRss) {
-            bestRss = rss;
+        const residentPages = readProcResidentPages(procRoot, pid);
+        if (residentPages > bestResidentPages) {
+            bestResidentPages = residentPages;
             bestPid = pid;
         }
     }
@@ -150,7 +150,7 @@ export function findLinuxGamePid(exePath: string, procRoot = '/proc', selfPid = 
 function resolveFromPath(command: string, searchPath: string): string {
     if (!command) return '';
     if (path.isAbsolute(command)) return command;
-    for (const dir of searchPath.split(':')) {
+    for (const dir of searchPath.split(path.delimiter)) {
         if (!dir) continue;
         const candidate = path.join(dir, command);
         try {
@@ -162,11 +162,13 @@ function resolveFromPath(command: string, searchPath: string): string {
     return '';
 }
 
-function existingFile(value: string, searchPath = process.env.PATH ?? ''): string {
+function existingExecutable(value: string, searchPath = process.env.PATH ?? ''): string {
     if (!value) return '';
     const candidate = path.isAbsolute(value) ? value : resolveFromPath(value, searchPath);
     try {
-        return fs.statSync(candidate).isFile() ? candidate : '';
+        if (!fs.statSync(candidate).isFile()) return '';
+        fs.accessSync(candidate, fs.constants.X_OK);
+        return candidate;
     } catch {
         return '';
     }
@@ -188,7 +190,7 @@ function deriveWineFromToolPaths(env: Record<string, string>): string {
         .flatMap((value) => value.split(':'));
     for (const root of roots) {
         for (const candidate of candidateWinePaths(root)) {
-            if (existingFile(candidate, env.PATH)) return candidate;
+            if (existingExecutable(candidate, env.PATH)) return candidate;
         }
     }
     return '';
@@ -209,10 +211,10 @@ function deriveWineFromProcess(procRoot: string, linuxPid: number, env: Record<s
             : resolveFromPath(env.WINE, env.PATH) || env.WINE;
     }
 
-    const wineServer = existingFile(env.WINESERVER, env.PATH);
+    const wineServer = existingExecutable(env.WINESERVER, env.PATH);
     if (wineServer) {
         const sibling = path.join(path.dirname(wineServer), 'wine');
-        if (existingFile(sibling, env.PATH)) return sibling;
+        if (existingExecutable(sibling, env.PATH)) return sibling;
     }
 
     const fromTools = deriveWineFromToolPaths(env);
@@ -224,12 +226,12 @@ function deriveWineFromProcess(procRoot: string, linuxPid: number, env: Record<s
     if (image) {
         for (const name of ['wine', 'wine64']) {
             const sibling = path.join(path.dirname(image), name);
-            if (existingFile(sibling, env.PATH)) return sibling;
+            if (existingExecutable(sibling, env.PATH)) return sibling;
         }
     }
     for (const name of ['wine', 'wine64']) {
         const found = resolveFromPath(name, env.PATH ?? '');
-        if (existingFile(found, env.PATH)) return found;
+        if (existingExecutable(found, env.PATH)) return found;
     }
     return '';
 }
@@ -282,20 +284,16 @@ export function resolveWineLaunch(
     if (!winePrefix && env.STEAM_COMPAT_DATA_PATH) winePrefix = path.join(env.STEAM_COMPAT_DATA_PATH, 'pfx');
     if (winePrefix) env.WINEPREFIX = winePrefix;
 
-    // UMU commonly leaves the launcher out of the visible process ancestry,
-    // so retain the environment signature used by UMU as a second detector.
-    const isUmu = linuxPid > 0 && (
-        processWasLaunchedByUmu(procRoot, linuxPid) ||
-        Boolean(gameEnv.PROTON_VERB && gameEnv.STEAM_COMPAT_TOOL_PATHS)
-    );
-    const umuBinary = isUmu ? resolveFromPath('umu-run', env.PATH ?? '') || existingFile('/usr/bin/umu-run') : '';
-    const wineBinary = umuBinary || deriveWineFromProcess(procRoot, linuxPid, gameEnv);
-    if (isUmu) {
+    const launchedByUmu = linuxPid > 0 && processWasLaunchedByUmu(procRoot, linuxPid);
+    const umuRunner = launchedByUmu
+        ? existingExecutable(resolveFromPath('umu-run', env.PATH ?? '')) || existingExecutable('/usr/bin/umu-run')
+        : '';
+    const launcherPath = umuRunner || deriveWineFromProcess(procRoot, linuxPid, gameEnv);
+    const launcherKind: WineLaunchContext['launcherKind'] = umuRunner ? 'umu' : 'wine';
+    if (launcherKind === 'umu') {
         // `waitforexitandrun` is correct for a game, but would make the helper
         // wait for the game to exit. UMU uses `run` for sidecar processes.
         env.PROTON_VERB = 'run';
     }
-    return { linuxPid, winePrefix, wineBinary, isUmu, env };
+    return { linuxPid, winePrefix, launcherPath, launcherKind, env };
 }
-
-export const __test = { deriveProtonWine: deriveWineFromToolPaths, processWasLaunchedByUmu };

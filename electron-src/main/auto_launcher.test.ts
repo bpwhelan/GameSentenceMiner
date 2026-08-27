@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const originalPlatform = process.platform;
 
 const getExecutableNameFromSourceMock = vi.fn();
 const getCurrentSceneMock = vi.fn();
@@ -33,10 +35,12 @@ const getSteamGamesMock = vi.fn();
 const getTextractorPath32Mock = vi.fn();
 const getTextractorPath64Mock = vi.fn();
 const getYuzuGamesConfigMock = vi.fn();
+const getGameExePathForSceneMock = vi.fn();
 const upsertSceneLaunchProfileMock = vi.fn();
 const isHighConfidenceScriptMatchMock = vi.fn();
 const isSwitchEmulatorTargetMock = vi.fn();
 const resolveSwitchAgentScriptMock = vi.fn();
+const findLinuxGamePidMock = vi.fn();
 
 vi.mock('./ui/obs.js', () => ({
     getExecutableNameFromSource: getExecutableNameFromSourceMock,
@@ -82,10 +86,15 @@ vi.mock('./store.js', () => ({
     getTextractorPath32: getTextractorPath32Mock,
     getTextractorPath64: getTextractorPath64Mock,
     getYuzuGamesConfig: getYuzuGamesConfigMock,
+    getGameExePathForScene: getGameExePathForSceneMock,
     runtimeState: {
         get: vi.fn(),
     },
     upsertSceneLaunchProfile: upsertSceneLaunchProfileMock,
+}));
+
+vi.mock('./ui/linux_wine.js', () => ({
+    findLinuxGamePid: findLinuxGamePidMock,
 }));
 
 vi.mock('./agent_script_resolver.js', () => ({
@@ -106,6 +115,10 @@ async function loadAutoLauncherModule() {
 
 describe('AutoLauncher OCR scene activity fallback', () => {
     beforeEach(() => {
+        Object.defineProperty(process, 'platform', {
+            value: 'win32',
+            configurable: true,
+        });
         getExecutableNameFromSourceMock.mockReset();
         getCurrentSceneMock.mockReset();
         getWindowTitleFromSourceMock.mockReset();
@@ -137,10 +150,12 @@ describe('AutoLauncher OCR scene activity fallback', () => {
         getTextractorPath32Mock.mockReset();
         getTextractorPath64Mock.mockReset();
         getYuzuGamesConfigMock.mockReset();
+        getGameExePathForSceneMock.mockReset();
         upsertSceneLaunchProfileMock.mockReset();
         isHighConfidenceScriptMatchMock.mockReset();
         isSwitchEmulatorTargetMock.mockReset();
         resolveSwitchAgentScriptMock.mockReset();
+        findLinuxGamePidMock.mockReset();
 
         getOCRRuntimeStateMock.mockReturnValue({
             isRunning: false,
@@ -165,6 +180,7 @@ describe('AutoLauncher OCR scene activity fallback', () => {
         getSceneLaunchProfileForSceneMock.mockReturnValue(null);
         getSteamGamesMock.mockReturnValue([]);
         getYuzuGamesConfigMock.mockReturnValue([]);
+        getGameExePathForSceneMock.mockReturnValue('');
         getAgentPathMock.mockReturnValue('');
         getAgentScriptsPathMock.mockReturnValue('');
         getLaunchAgentMinimizedMock.mockReturnValue(false);
@@ -175,6 +191,13 @@ describe('AutoLauncher OCR scene activity fallback', () => {
         getTextractorPath64Mock.mockReturnValue('');
         isHighConfidenceScriptMatchMock.mockReturnValue(false);
         isSwitchEmulatorTargetMock.mockReturnValue(false);
+    });
+
+    afterAll(() => {
+        Object.defineProperty(process, 'platform', {
+            value: originalPlatform,
+            configurable: true,
+        });
     });
 
     it('does not probe OBS scene output when the current scene is not configured for OCR auto-launch', async () => {
@@ -685,6 +708,57 @@ describe('AutoLauncher OCR scene activity fallback', () => {
             2
         );
         expect(startHookSessionMock).not.toHaveBeenCalled();
+    });
+
+    it('uses the integrated hook path and configured executable for Luna on Linux', async () => {
+        Object.defineProperty(process, 'platform', {
+            value: 'linux',
+            configurable: true,
+        });
+        const { AutoLauncher } = await loadAutoLauncherModule();
+        const launcher = new AutoLauncher() as any;
+        const scene = { id: 'scene-1', name: 'Visual Novel' };
+
+        getSceneLaunchProfileForSceneMock.mockReturnValue({
+            sceneId: scene.id,
+            sceneName: scene.name,
+            textHookMode: 'luna',
+            ocrMode: 'none',
+            launchOverlay: false,
+            agentScriptPath: '',
+            launchDelaySeconds: 2,
+        });
+        getExecutableNameFromSourceMock.mockResolvedValue(null);
+        getGameExePathForSceneMock.mockReturnValue('/games/vn.exe');
+        launcher.getPidByProcessName = vi.fn().mockResolvedValue(108800);
+        launcher.handleLunaAutomation = vi.fn().mockResolvedValue(undefined);
+
+        await launcher.runTextHookAutomation(scene);
+
+        expect(getGameExePathForSceneMock).toHaveBeenCalledWith(scene.name);
+        expect(startHookSessionMock).toHaveBeenCalledWith({
+            engine: 'luna',
+            exeName: 'vn.exe',
+            pidOverride: 108800,
+            source: 'auto-launcher',
+            sceneId: scene.id,
+            agentScriptPath: undefined,
+        });
+        expect(launcher.handleLunaAutomation).not.toHaveBeenCalled();
+    });
+
+    it('resolves Linux target PIDs through procfs instead of a shell command', async () => {
+        Object.defineProperty(process, 'platform', {
+            value: 'linux',
+            configurable: true,
+        });
+        findLinuxGamePidMock.mockReturnValue(4242);
+        const { AutoLauncher } = await loadAutoLauncherModule();
+        const launcher = new AutoLauncher() as any;
+
+        await expect(launcher.getPidByProcessName('game.exe')).resolves.toBe(4242);
+
+        expect(findLinuxGamePidMock).toHaveBeenCalledWith('game.exe');
     });
 
     it('uses a saved auto-hook profile to start the integrated text hook when scene mode is none', async () => {
