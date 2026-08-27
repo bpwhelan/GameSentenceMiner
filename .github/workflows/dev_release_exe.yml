@@ -3,8 +3,7 @@ name: Build Electron App for Development Release
 on:
   push:
     branches:
-      - develop
-      - unify-electron-runtimes
+      - main
   workflow_dispatch:
 
 concurrency:
