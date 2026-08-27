@@ -14,6 +14,7 @@ import {
     shouldSuppressEngineHookCoordinates,
     type EngineHookSupport,
 } from './support.js';
+import type { WineProcessConnection } from '../ui/wine_frida.js';
 
 export type EngineHookLogLevel = 'info' | 'warn' | 'error';
 export type EngineHookStartSource = 'user' | 'auto-launcher';
@@ -43,6 +44,8 @@ export interface StartEngineHookOptions {
     onText: (payload: EngineHookTextPayload) => void;
     onLog: (message: string, level: EngineHookLogLevel) => void;
     onStateChanged: () => void;
+    /** Remote Frida device when the target is a Windows process inside Wine. */
+    wineConnection?: WineProcessConnection;
 }
 
 export interface EngineHookStartResult {
@@ -73,6 +76,7 @@ interface ActiveEngineHookSession {
     preview: string;
     options: StartEngineHookOptions;
     stopping: boolean;
+    wineConnection?: WineProcessConnection;
 }
 
 const READY_TIMEOUT_MS = 5000;
@@ -116,6 +120,7 @@ function clearActiveSession(current: ActiveEngineHookSession): void {
     if (activeSession !== current) return;
     activeSession = null;
     current.options.onStateChanged();
+    void current.wineConnection?.close();
 }
 
 function handleTextLayout(
@@ -196,12 +201,12 @@ export async function startEngineHookSession(
     options: StartEngineHookOptions,
 ): Promise<EngineHookStartResult> {
     if (activeSession || starting) {
+        await options.wineConnection?.close();
         return { success: false, error: 'An engine-hook session is already running.' };
     }
-    if (process.platform !== 'win32') {
-        return { success: false, error: 'Built-in engine hooks are currently Windows-only.' };
+    if (process.platform !== 'win32' && !options.wineConnection) {
+        return { success: false, error: 'Built-in engine hooks on this platform require a Wine Frida connection.' };
     }
-
     starting = true;
     let fridaSession: Session | null = null;
     let script: Script | null = null;
@@ -212,7 +217,9 @@ export async function startEngineHookSession(
             ...(await readExecutable(options.executablePath)),
         });
 
-        fridaSession = await frida.attach(options.pid);
+        fridaSession = options.wineConnection
+            ? await options.wineConnection.device.attach(options.wineConnection.windowsPid)
+            : await frida.attach(options.pid);
         script = await fridaSession.createScript(createInjectedPayloadSource(support), {
             name: support.manifest.id,
             runtime: ScriptRuntime.QJS,
@@ -230,6 +237,7 @@ export async function startEngineHookSession(
             preview: '',
             options,
             stopping: false,
+            wineConnection: options.wineConnection,
         };
 
         let resolveReady: (() => void) | null = null;
@@ -287,10 +295,10 @@ export async function startEngineHookSession(
         }
         activeSession = candidate;
         options.onStateChanged();
-        options.onLog(
-            `Attached ${support.manifest.name} to ${options.exeName} (PID ${options.pid}).`,
-            'info',
-        );
+        const pidDescription = options.wineConnection
+            ? `Linux PID ${options.pid}, Windows PID ${options.wineConnection.windowsPid}`
+            : `PID ${options.pid}`;
+        options.onLog(`Attached ${support.manifest.name} to ${options.exeName} (${pidDescription}).`, 'info');
         return {
             success: true,
             pid: options.pid,
@@ -308,6 +316,7 @@ export async function startEngineHookSession(
         } catch {
             // The target may already be gone.
         }
+        await options.wineConnection?.close();
         return { success: false, error: `Failed to start built-in engine hook: ${(error as Error).message}` };
     } finally {
         starting = false;
@@ -331,6 +340,7 @@ export function stopEngineHookSession(): void {
         } catch {
             // The target may already be gone.
         }
+        await current.wineConnection?.close();
     })();
 }
 

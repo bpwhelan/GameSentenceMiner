@@ -17,7 +17,13 @@ function makeProcRoot(): string {
 function writeProcEntry(
     procRoot: string,
     pid: number,
-    opts: { cmdline?: string[]; comm?: string; environ?: Record<string, string>; residentPages?: number },
+    opts: {
+        cmdline?: string[];
+        comm?: string;
+        environ?: Record<string, string>;
+        parentPid?: number;
+        residentPages?: number;
+    },
 ): void {
     const dir = path.join(procRoot, String(pid));
     fs.mkdirSync(dir, { recursive: true });
@@ -31,6 +37,7 @@ function writeProcEntry(
     const resident = opts.residentPages ?? 0;
     // statm: size resident shared text lib data dt
     fs.writeFileSync(path.join(dir, 'statm'), `${resident + 100} ${resident} 0 0 0 0 0\n`);
+    fs.writeFileSync(path.join(dir, 'stat'), `${pid} (${opts.comm ?? ''}) S ${opts.parentPid ?? 1} 0 0 0\n`);
 }
 
 afterEach(() => {
@@ -108,7 +115,8 @@ describe('resolveWineLaunch', () => {
         const ctx = resolveWineLaunch('game.exe', procRoot, 1);
         expect(ctx.linuxPid).toBe(700);
         expect(ctx.winePrefix).toBe('/home/u/.local/share/wineprefixes/game');
-        expect(ctx.wineBinary).toBe('/opt/wine/bin/wine');
+        expect(ctx.launcherPath).toBe('/opt/wine/bin/wine');
+        expect(ctx.launcherKind).toBe('wine');
         expect(ctx.env.WINEPREFIX).toBe('/home/u/.local/share/wineprefixes/game');
         expect(ctx.env.WINEDLLOVERRIDES).toBe('winemenubuilder.exe=d');
     });
@@ -131,7 +139,76 @@ describe('resolveWineLaunch', () => {
         const ctx = resolveWineLaunch('missing.exe', procRoot, 1);
         expect(ctx.linuxPid).toBe(0);
         expect(ctx.winePrefix).toBe('');
-        expect(ctx.wineBinary).toBe('');
+        expect(ctx.launcherPath).toBe('');
+        expect(ctx.launcherKind).toBe('wine');
         expect(ctx.env).toEqual({});
+    });
+
+    it('uses a supplied PID without racing a second process lookup', () => {
+        const procRoot = makeProcRoot();
+        writeProcEntry(procRoot, 900, {
+            cmdline: ['unexpected-name.exe'],
+            comm: 'unexpected-name.exe',
+            environ: {
+                WINELOADER: '/opt/wine/bin/wine',
+                LC_ALL: 'ja_JP.UTF-8',
+                GSM_INTERNAL_SECRET: 'do-not-copy',
+            },
+        });
+
+        const ctx = resolveWineLaunch('game.exe', procRoot, 1, 900);
+
+        expect(ctx.linuxPid).toBe(900);
+        expect(ctx.env.LC_ALL).toBe('ja_JP.UTF-8');
+        expect(ctx.env.GSM_INTERNAL_SECRET).toBeUndefined();
+    });
+
+    it('uses umu-run only when the process ancestry identifies an UMU launch', () => {
+        const procRoot = makeProcRoot();
+        const binDir = path.join(procRoot, 'bin');
+        const umuRunner = path.join(binDir, 'umu-run');
+        fs.mkdirSync(binDir, { recursive: true });
+        fs.writeFileSync(umuRunner, '#!/bin/sh\n');
+        fs.chmodSync(umuRunner, 0o755);
+        writeProcEntry(procRoot, 910, {
+            cmdline: ['game.exe'],
+            comm: 'game.exe',
+            parentPid: 911,
+            environ: {
+                PATH: binDir,
+                WINELOADER: '/opt/wine/bin/wine',
+                PROTON_VERB: 'waitforexitandrun',
+            },
+        });
+        writeProcEntry(procRoot, 911, {
+            cmdline: [umuRunner],
+            comm: 'umu-run',
+            parentPid: 1,
+        });
+
+        const ctx = resolveWineLaunch('game.exe', procRoot, 1);
+
+        expect(ctx.launcherPath).toBe(umuRunner);
+        expect(ctx.launcherKind).toBe('umu');
+        expect(ctx.env.PROTON_VERB).toBe('run');
+    });
+
+    it('does not misclassify a regular Proton launch as UMU from shared environment variables', () => {
+        const procRoot = makeProcRoot();
+        writeProcEntry(procRoot, 920, {
+            cmdline: ['game.exe'],
+            comm: 'game.exe',
+            environ: {
+                WINELOADER: '/opt/proton/files/bin/wine',
+                PROTON_VERB: 'waitforexitandrun',
+                STEAM_COMPAT_TOOL_PATHS: '/opt/proton',
+            },
+        });
+
+        const ctx = resolveWineLaunch('game.exe', procRoot, 1);
+
+        expect(ctx.launcherPath).toBe('/opt/proton/files/bin/wine');
+        expect(ctx.launcherKind).toBe('wine');
+        expect(ctx.env.PROTON_VERB).toBe('waitforexitandrun');
     });
 });

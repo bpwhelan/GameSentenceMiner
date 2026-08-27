@@ -12,6 +12,7 @@ import {
     type TextHookArchitecture,
     type TextHookStartSource,
 } from './texthook.js';
+import type { WineProcessConnection } from './wine_frida.js';
 
 interface AgentHookEntry {
     id: string;
@@ -28,6 +29,8 @@ interface StartAgentHookOptions {
     flushDelayMs: number;
     copyToClipboard: boolean;
     source: TextHookStartSource;
+    /** Remote Frida device when the target is a Windows process inside Wine. */
+    wineConnection?: WineProcessConnection;
 }
 
 interface AgentTextPayload {
@@ -63,6 +66,7 @@ interface AgentHookSession {
     uiFileName: string | null;
     uiWindow: BrowserWindow | null;
     stopping: boolean;
+    wineConnection?: WineProcessConnection;
 }
 
 let agentSession: AgentHookSession | null = null;
@@ -632,6 +636,7 @@ async function teardownAgentSession(): Promise<void> {
     } catch {
         // Ignore detach failures during shutdown.
     }
+    await current.wineConnection?.close();
     if (agentSession === current) {
         agentSession = null;
     }
@@ -641,18 +646,26 @@ async function teardownAgentSession(): Promise<void> {
 
 export async function startAgentHookSession(options: StartAgentHookOptions): Promise<StartHookResult> {
     if (agentSession) {
+        await options.wineConnection?.close();
         return { success: false, error: 'An Agent hook session is already running.' };
+    }
+    if (process.platform !== 'win32' && !options.wineConnection) {
+        return { success: false, error: 'Agent hooking on this platform requires a Wine Frida connection.' };
     }
     const scriptPath = resolveScriptPath(options.scriptPath);
     if (!scriptPath) {
+        await options.wineConnection?.close();
         return { success: false, error: 'Select a valid Agent script before starting.' };
     }
     const loaderPath = resolveExistingLoader(scriptPath);
     if (!loaderPath) {
+        await options.wineConnection?.close();
         return { success: false, error: 'Agent loader missing. Expected libLoader.js next to the script.' };
     }
     try {
-        const fridaSession = await frida.attach(options.pid);
+        const fridaSession = options.wineConnection
+            ? await options.wineConnection.device.attach(options.wineConnection.windowsPid)
+            : await frida.attach(options.pid);
         const source = readAgentSource(loaderPath);
         const script = await fridaSession.createScript(source, {
             name: `GSM Agent: ${path.basename(scriptPath)}`,
@@ -683,6 +696,7 @@ export async function startAgentHookSession(options: StartAgentHookOptions): Pro
             uiFileName: null,
             uiWindow: null,
             stopping: false,
+            wineConnection: options.wineConnection,
         };
         agentSession = current;
         script.logHandler = handleAgentLog;
@@ -702,7 +716,10 @@ export async function startAgentHookSession(options: StartAgentHookOptions): Pro
                 }
             })();
         }, 4000);
-        emitLog(`Attached Agent script ${path.basename(scriptPath)} to ${options.exeName} (PID ${options.pid}).`);
+        const pidDescription = options.wineConnection
+            ? `Linux PID ${options.pid}, Windows PID ${options.wineConnection.windowsPid}`
+            : `PID ${options.pid}`;
+        emitLog(`Attached Agent script ${path.basename(scriptPath)} to ${options.exeName} (${pidDescription}).`);
         emitStatus();
         emitHooks();
         return { success: true, pid: options.pid, exeName: options.exeName, arch: options.arch };
@@ -711,6 +728,8 @@ export async function startAgentHookSession(options: StartAgentHookOptions): Pro
         emitLog(`Agent attach failed: ${error.message}`, 'error');
         if (agentSession) {
             await teardownAgentSession();
+        } else {
+            await options.wineConnection?.close();
         }
         return { success: false, error: error.message };
     }
