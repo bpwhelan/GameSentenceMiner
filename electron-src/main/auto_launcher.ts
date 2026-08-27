@@ -17,6 +17,7 @@ import {
     getLaunchTextractorMinimized,
     getLunaTranslatorPath,
     getObsOcrScenes,
+    getGameExePathForScene,
     getSceneLaunchProfileForScene,
     getSteamGames,
     getTextractorPath32,
@@ -918,7 +919,8 @@ export class AutoLauncher {
         exeName: string | null | undefined,
         engine: IntegratedTextHookEngine,
         launchDelaySeconds: number = 0,
-        sceneId?: string
+        sceneId?: string,
+        agentScriptPath?: string,
     ): Promise<void> {
         if (!exeName) {
             return;
@@ -974,6 +976,7 @@ export class AutoLauncher {
             pidOverride: gamePid,
             source: "auto-launcher",
             sceneId,
+            agentScriptPath,
         });
         const failureKey = `${engine}:${exeName}:${gamePid}:${result.error ?? "unknown"}`;
 
@@ -1110,6 +1113,20 @@ export class AutoLauncher {
                 sceneProfile.launchDelaySeconds
             );
 
+            // On Linux the Windows Agent executable cannot attach to a Wine
+            // process from the host. Use the integrated Agent path, which
+            // starts the script through GSM's Wine Frida bridge.
+            if (process.platform === "linux") {
+                await this.handleIntegratedTextHookAutomation(
+                    exeName,
+                    "agent",
+                    launchDelaySeconds,
+                    currentScene.id,
+                    scriptPath,
+                );
+                return false;
+            }
+
             // Nintendo Switch emulators (yuzu, ryujinx, ...) keep a single
             // process alive across games; the active game is identified by the
             // live window title, not the executable. While the emulator is
@@ -1165,7 +1182,17 @@ export class AutoLauncher {
 
             const targetProcess = steamGame.processName || exeName;
             if (targetProcess) {
-                await this.handleGame(targetProcess, steamGame.script, String(steamGame.id), steamGame.agentDelay);
+                if (process.platform === "linux") {
+                    await this.handleIntegratedTextHookAutomation(
+                        targetProcess,
+                        "agent",
+                        steamGame.agentDelay,
+                        currentScene.id,
+                        steamGame.script,
+                    );
+                } else {
+                    await this.handleGame(targetProcess, steamGame.script, String(steamGame.id), steamGame.agentDelay);
+                }
             }
             return false;
         }
@@ -1396,6 +1423,19 @@ export class AutoLauncher {
 
         this.resetAgentTracking();
 
+        // Scene launch profiles are the legacy auto-launcher UI. On Linux all
+        // Windows hook engines use the integrated Wine bridge, so they do not
+        // need separate native GUI executables or configured paths.
+        if (process.platform === "linux" && (textHookMode === "textractor" || textHookMode === "luna")) {
+            await this.handleIntegratedTextHookAutomation(
+                exeName,
+                textHookMode,
+                launchDelaySeconds,
+                currentScene.id,
+            );
+            return false;
+        }
+
         if (textHookMode === "textractor") {
             await this.handleTextractorAutomation(
                 exeName,
@@ -1433,6 +1473,14 @@ export class AutoLauncher {
                     `AutoLauncher: Could not resolve executable for scene "${currentScene.name}". Text hook launchers may be skipped.`,
                     error
                 );
+            }
+
+            // OBS window capture does not expose a process image on Linux.
+            // Reuse the executable configured for this scene so text-hook
+            // automation can still resolve the Wine process.
+            if ((!exeName || exeName.trim().length === 0) && process.platform === "linux") {
+                const configuredExe = getGameExePathForScene(currentScene.name).trim();
+                if (configuredExe) exeName = path.basename(configuredExe.replace(/\\/g, "/"));
             }
 
             await this.runSavedTextHookProfileAutomation(currentScene, exeName);

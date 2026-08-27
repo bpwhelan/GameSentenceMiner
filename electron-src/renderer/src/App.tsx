@@ -875,7 +875,7 @@ export default function App() {
   const platform = window.gsmEnv?.platform ?? "win32";
   const isWindows = platform === "win32";
   const isLinux = platform === "linux";
-  const canTextHook = isWindows;
+  const canTextHook = isWindows || isLinux;
   const requestedPreviewTab = getDevPreviewTab();
   const initialTab =
     requestedPreviewTab && TAB_IDS.has(requestedPreviewTab as TabId)
@@ -1323,4 +1323,3 @@ export default function App() {
     </div>
   );
 }
-

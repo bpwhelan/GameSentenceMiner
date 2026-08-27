@@ -24,6 +24,7 @@ import {
     sanitizeFilename,
 } from '../util.js';
 import { resolveWineLaunch, findLinuxGamePid, type WineLaunchContext } from './linux_wine.js';
+import { startWineFridaConnection, type WineProcessConnection } from './wine_frida.js';
 import { getConfiguredSinglePort } from '../gsm_config.js';
 import {
     getGameExePathForScene,
@@ -137,6 +138,8 @@ interface ActiveSession {
     hookPreviewCollectors: Map<string, HookPreviewCollector>;
     flushDelayMs: number;
     copyToClipboard: boolean;
+    /** Frida server/device used to map and attach to the Windows process under Wine. */
+    wineConnection?: WineProcessConnection;
     pidWatcher?: NodeJS.Timeout;
 }
 
@@ -1355,7 +1358,7 @@ export interface StartHookOptions {
     copyToClipboard?: boolean;
     /** Who is starting the session; defaults to a manual user action. */
     source?: TextHookStartSource;
-    /** Override the auto-detected PID (mainly for tests). */
+    /** Override the auto-detected host PID (used by the auto-launcher). */
     pidOverride?: number;
     /** Internal recovery path: force a specific hook engine architecture. */
     archOverride?: TextHookArchitecture;
@@ -1392,6 +1395,8 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
     let exeName = (options.exeName ?? '').trim();
     // The Wine/Proton launch context the hooker must spawn inside (Linux only).
     let wineLaunch: WineLaunchContext | null = null;
+    let wineExePath: string | null = null;
+    let wineConnection: WineProcessConnection | null = null;
     let target: { pid: number; exeName: string; arch: TextHookArchitecture } | null;
 
     if (onLinux) {
@@ -1399,6 +1404,7 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
         // executable the user pointed GSM at (Home tab → Game executable).
         const capture = await getActiveCapture();
         const exePath = getGameExePathForScene(capture.sceneName).trim();
+        wineExePath = exePath;
         if (!exePath) {
             return {
                 success: false,
@@ -1408,7 +1414,7 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
         if (!exeName) {
             exeName = path.basename(exePath.replace(/\\/g, '/'));
         }
-        wineLaunch = resolveWineLaunch(exePath);
+        wineLaunch = resolveWineLaunch(exePath, '/proc', process.pid, options.pidOverride);
         if (wineLaunch.linuxPid <= 0) {
             return {
                 success: false,
@@ -1451,6 +1457,16 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
         };
     }
 
+    const connectWineTarget = async (): Promise<WineProcessConnection | null> => {
+        if (!onLinux || !wineLaunch) return null;
+        try {
+            return await startWineFridaConnection(wineLaunch, exeName, target?.arch ?? 'x64', emitLog);
+        } catch (err) {
+            emitLog(`Could not start Wine Frida bridge: ${(err as Error).message}`, 'error');
+            return null;
+        }
+    };
+
     let sceneId = options.sceneId?.trim() ?? '';
     if (!sceneId) {
         sceneId = (await getCurrentScene())?.id ?? '';
@@ -1458,7 +1474,14 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
     const profile = getProfileFor(exeName, sceneId);
     const flushDelayMs = normalizeFlushDelayMs(options.flushDelayMs ?? profile?.flushDelayMs);
     if (engine === 'mages') {
-        const executablePath = isWindows() ? await getProcessExecutablePath(target.pid) : null;
+        wineConnection = await connectWineTarget();
+        if (onLinux && !wineConnection) {
+            return {
+                success: false,
+                error: 'Could not start Frida inside the game Wine prefix. Check the Wine/Proton launcher and network access for the Frida server download.',
+            };
+        }
+        const executablePath = isWindows() ? await getProcessExecutablePath(target.pid) : wineExePath;
         return startEngineHookSession({
             pid: target.pid,
             exeName,
@@ -1480,6 +1503,7 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
                 emitStatus();
                 emitHooks();
             },
+            wineConnection: wineConnection ?? undefined,
         });
     }
     if (engine === 'agent') {
@@ -1489,6 +1513,13 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
                 : profile?.engine === 'agent'
                     ? profile.agentScriptPath ?? ''
                     : '';
+        wineConnection = await connectWineTarget();
+        if (onLinux && !wineConnection) {
+            return {
+                success: false,
+                error: 'Could not start Frida inside the game Wine prefix. Check the Wine/Proton launcher and network access for the Frida server download.',
+            };
+        }
         return startAgentHookSession({
             pid: target.pid,
             exeName,
@@ -1497,6 +1528,7 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
             flushDelayMs,
             copyToClipboard: options.copyToClipboard ?? profile?.copyToClipboard ?? false,
             source,
+            wineConnection: wineConnection ?? undefined,
         });
     }
 
@@ -1519,16 +1551,24 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
         }
     }
 
+    wineConnection = await connectWineTarget();
+    if (onLinux && !wineConnection) {
+        return {
+            success: false,
+            error: 'Could not start Frida inside the game Wine prefix. Check the Wine/Proton launcher and network access for the Frida server download.',
+        };
+    }
+
     const cliDir = path.dirname(cliPath);
     let proc: ChildProcessWithoutNullStreams;
     try {
         if (onLinux && wineLaunch) {
             // Launch the Windows hooker CLI inside the game's Wine/Proton prefix.
-            const wineBin = wineLaunch.wineBinary || 'wine';
+            const wineBin = wineLaunch.wineBinary;
             proc = spawn(wineBin, [cliPath], {
                 cwd: cliDir,
                 stdio: ['pipe', 'pipe', 'pipe'],
-                env: { ...process.env, ...wineLaunch.env },
+                env: wineLaunch.env,
             });
         } else {
             proc = spawn(cliPath, [], {
@@ -1539,10 +1579,12 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
             });
         }
     } catch (err) {
+        await wineConnection?.close();
         return { success: false, error: `Failed to spawn hook engine: ${(err as Error).message}` };
     }
 
     if (!proc.pid) {
+        await wineConnection?.close();
         return { success: false, error: 'Failed to spawn hook engine (no pid).' };
     }
 
@@ -1571,6 +1613,7 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
         hookPreviewCollectors: new Map(),
         flushDelayMs,
         copyToClipboard: options.copyToClipboard ?? profile?.copyToClipboard ?? false,
+        wineConnection: wineConnection ?? undefined,
     };
 
     proc.stdout.on('data', (chunk: Buffer) => {
@@ -1597,17 +1640,8 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
 
     // Attach to the target PID. These CLI builds read stdin as UTF-16LE wide
     // text, matching Sugoi Hook's subprocess encoding.
-    if (onLinux) {
-        // NOTE: `attach -P` expects the Windows PID as seen inside Wine, which differs from the
-        // Linux PID. We pass the Linux PID as a starting point; if attach fails, this mapping is
-        // the thing to tune (resolve the Windows PID via the engine's process list / attach-by-name).
-        emitLog(
-            `Sending attach for Linux PID ${target.pid}; if the engine cannot attach, the Wine ` +
-                `Windows PID likely differs — check the engine's process list.`,
-            'warn',
-        );
-    }
-    const attachErr = await writeEngineCommand(proc, `attach -P${target.pid}\n`);
+    const attachPid = wineConnection?.windowsPid ?? target.pid;
+    const attachErr = await writeEngineCommand(proc, `attach -P${attachPid}\n`);
     if (attachErr) {
         teardownSession();
         return { success: false, error: `Failed to attach: ${attachErr.message}` };
@@ -1621,7 +1655,7 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
         setTimeout(() => {
             if (session && session.proc === proc) {
                 try {
-                    queueEngineCommand(proc, `${code} -P${target.pid}\n`, (err) => {
+                    queueEngineCommand(proc, `${code} -P${attachPid}\n`, (err) => {
                         emitLog(`Failed to push manual hook code: ${err.message}`, 'error');
                     });
                     emitLog(`Auto-applied saved manual hook: ${code}`);
@@ -1654,7 +1688,10 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
         })();
     }, 4000);
 
-    emitLog(`Attached ${engine} (${target.arch}) to ${exeName} (PID ${target.pid}).`);
+    emitLog(
+        `Attached ${engine} (${target.arch}) to ${exeName} ` +
+            `(Linux PID ${target.pid}${wineConnection ? `, Windows PID ${wineConnection.windowsPid}` : ''}).`,
+    );
     emitStatus();
     emitHooks();
     return { success: true, pid: target.pid, exeName, arch: target.arch };
@@ -1714,6 +1751,7 @@ function teardownSession(): void {
     } catch {
         // ignore
     }
+    void session.wineConnection?.close();
     session = null;
     emitStatus();
     emitHooks();
