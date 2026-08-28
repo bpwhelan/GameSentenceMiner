@@ -1,3 +1,5 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -70,5 +72,39 @@ describe('Linux desktop identity', () => {
         });
         expect(env.CHROME_DESKTOP).toBe(LINUX_DESKTOP_NAME);
         expect(env.GSM_INPUT_SERVER_APP_ID).toBe('com.beangate.gamesentenceminer');
+    });
+
+    it('installs a stable hidden desktop entry for a fresh AppImage profile', () => {
+        const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gsm-linux-identity-'));
+        const appImagePath = path.join(home, 'Downloads', 'GameSentenceMiner beta.AppImage');
+        fs.mkdirSync(path.dirname(appImagePath), { recursive: true });
+        fs.writeFileSync(appImagePath, 'appimage');
+        const env: NodeJS.ProcessEnv = {
+            HOME: home,
+            XDG_DATA_HOME: path.join(home, '.local', 'share'),
+            APPIMAGE: appImagePath,
+        };
+
+        try {
+            expect(configureLinuxDesktopIdentity({}, { platform: 'linux', env })).toEqual({
+                appId: 'com.beangate.gamesentenceminer',
+                desktopName: LINUX_DESKTOP_NAME,
+            });
+
+            const desktopEntryPath = path.join(
+                env.XDG_DATA_HOME!,
+                'applications',
+                LINUX_DESKTOP_NAME
+            );
+            const desktopEntry = fs.readFileSync(desktopEntryPath, 'utf8');
+            expect(desktopEntry).toContain('Name=GameSentenceMiner');
+            expect(desktopEntry).toContain(
+                `Exec="${appImagePath}" --no-sandbox %U`
+            );
+            expect(desktopEntry).toContain('NoDisplay=true');
+            expect(desktopEntry).toContain('X-GSM-Portal-Identity=true');
+        } finally {
+            fs.rmSync(home, { recursive: true, force: true });
+        }
     });
 });

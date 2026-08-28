@@ -18,6 +18,7 @@ jobs:
     outputs:
       PACKAGE_VERSION: ${{ steps.version.outputs.PACKAGE_VERSION }}
       release_body: ${{ steps.release_body.outputs.release_body }}
+      OVERLAY_SERVER_SOURCE_TREE: ${{ steps.overlay_server_source.outputs.OVERLAY_SERVER_SOURCE_TREE }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,6 +27,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.12.0
+
+      - name: Resolve overlay server source tree
+        id: overlay_server_source
+        run: echo "OVERLAY_SERVER_SOURCE_TREE=$(git rev-parse HEAD:GSM_Overlay/input_server)" >> "$GITHUB_OUTPUT"
 
       - name: Compute next pre-release version
         id: version
@@ -43,10 +48,66 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+  wait-for-overlay-server:
+    runs-on: ubuntu-latest
+    needs:
+      - compute-version
+    permissions:
+      contents: read
+    steps:
+      - name: Wait for matching overlay server binaries
+        env:
+          EXPECTED_SOURCE_TREE: ${{ needs.compute-version.outputs.OVERLAY_SERVER_SOURCE_TREE }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p staging
+          for attempt in $(seq 1 80); do
+            rm -f staging/overlay-server-source-tree.txt
+            if gh release download overlay-server \
+              --repo "${{ github.repository }}" \
+              --pattern overlay-server-source-tree.txt \
+              --dir staging \
+              --clobber; then
+              ACTUAL_SOURCE_TREE=$(tr -d '[:space:]' < staging/overlay-server-source-tree.txt)
+              if [ "$ACTUAL_SOURCE_TREE" = "$EXPECTED_SOURCE_TREE" ]; then
+                echo "Found overlay server binaries for source tree $EXPECTED_SOURCE_TREE."
+                break
+              fi
+              echo "Overlay server source tree is $ACTUAL_SOURCE_TREE; waiting for $EXPECTED_SOURCE_TREE."
+            else
+              echo "Overlay server provenance is not published yet."
+            fi
+            if [ "$attempt" -eq 80 ]; then
+              echo "Timed out waiting for overlay server source tree $EXPECTED_SOURCE_TREE." >&2
+              exit 1
+            fi
+            sleep 15
+          done
+          gh release download overlay-server \
+            --repo "${{ github.repository }}" \
+            --pattern gsm_overlay_server-win32.exe \
+            --pattern gsm_overlay_server-linux \
+            --pattern gsm_overlay_server-darwin \
+            --dir staging \
+            --clobber
+
+      - name: Share matching overlay server binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: overlay-server-binaries-${{ needs.compute-version.outputs.OVERLAY_SERVER_SOURCE_TREE }}
+          path: |
+            staging/gsm_overlay_server-win32.exe
+            staging/gsm_overlay_server-linux
+            staging/gsm_overlay_server-darwin
+          if-no-files-found: error
+          retention-days: 1
+
   prepare-prerelease:
     runs-on: ubuntu-latest
     needs:
       - compute-version
+      - wait-for-overlay-server
     permissions:
       contents: write
     steps:
@@ -67,6 +128,7 @@ jobs:
     needs:
       - compute-version
       - prepare-prerelease
+      - wait-for-overlay-server
     permissions:
       contents: write
       id-token: write
@@ -121,13 +183,17 @@ jobs:
       - name: Smoke test prerelease backend wheel
         run: node scripts/smoke-test-wheel.mjs
 
-      - name: Fetch prebuilt overlay server (Windows)
+      - name: Download matching overlay server binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: overlay-server-binaries-${{ needs.compute-version.outputs.OVERLAY_SERVER_SOURCE_TREE }}
+          path: overlay-server-binaries
+
+      - name: Stage prebuilt overlay server (Windows)
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           New-Item -ItemType Directory -Force -Path GSM_Overlay/input_server/bin/win32 | Out-Null
-          gh release download overlay-server --repo ${{ github.repository }} --pattern gsm_overlay_server-win32.exe --output GSM_Overlay/input_server/bin/win32/gsm_overlay_server.exe --clobber
+          Copy-Item overlay-server-binaries/gsm_overlay_server-win32.exe GSM_Overlay/input_server/bin/win32/gsm_overlay_server.exe -Force
 
       - name: Write prerelease metadata
         run: node scripts/write-prerelease-metadata.mjs --version "${{ needs.compute-version.outputs.PACKAGE_VERSION }}"
@@ -337,8 +403,10 @@ jobs:
     needs:
       - compute-version
       - prepare-prerelease
+      - wait-for-overlay-server
     permissions:
       contents: write
+      actions: read
 
     steps:
       - uses: actions/checkout@v4
@@ -393,12 +461,16 @@ jobs:
       - name: Smoke test prerelease backend wheel
         run: node scripts/smoke-test-wheel.mjs
 
-      - name: Fetch prebuilt overlay server (Linux)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download matching overlay server binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: overlay-server-binaries-${{ needs.compute-version.outputs.OVERLAY_SERVER_SOURCE_TREE }}
+          path: overlay-server-binaries
+
+      - name: Stage prebuilt overlay server (Linux)
         run: |
           mkdir -p GSM_Overlay/input_server/bin/linux
-          gh release download overlay-server --repo ${{ github.repository }} --pattern gsm_overlay_server-linux --output GSM_Overlay/input_server/bin/linux/gsm_overlay_server --clobber
+          cp overlay-server-binaries/gsm_overlay_server-linux GSM_Overlay/input_server/bin/linux/gsm_overlay_server
           chmod +x GSM_Overlay/input_server/bin/linux/gsm_overlay_server
 
       - name: Write prerelease metadata
@@ -433,8 +505,10 @@ jobs:
     needs:
       - compute-version
       - prepare-prerelease
+      - wait-for-overlay-server
     permissions:
       contents: write
+      actions: read
 
     steps:
       - uses: actions/checkout@v4
@@ -487,12 +561,16 @@ jobs:
       - name: Smoke test prerelease backend wheel
         run: node scripts/smoke-test-wheel.mjs
 
-      - name: Fetch prebuilt overlay server (macOS)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download matching overlay server binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: overlay-server-binaries-${{ needs.compute-version.outputs.OVERLAY_SERVER_SOURCE_TREE }}
+          path: overlay-server-binaries
+
+      - name: Stage prebuilt overlay server (macOS)
         run: |
           mkdir -p GSM_Overlay/input_server/bin/darwin
-          gh release download overlay-server --repo ${{ github.repository }} --pattern gsm_overlay_server-darwin --output GSM_Overlay/input_server/bin/darwin/gsm_overlay_server --clobber
+          cp overlay-server-binaries/gsm_overlay_server-darwin GSM_Overlay/input_server/bin/darwin/gsm_overlay_server
           chmod +x GSM_Overlay/input_server/bin/darwin/gsm_overlay_server
 
       - name: Write prerelease metadata

@@ -4,6 +4,27 @@ import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 describe('prerelease build contract', () => {
+    it('packages overlay-server binaries built from the exact input-server source tree', () => {
+        const prereleaseWorkflow = fs.readFileSync(
+            path.join(process.cwd(), '.github', 'workflows', 'dev_release_exe.yml'),
+            'utf8'
+        );
+        const overlayServerWorkflow = fs.readFileSync(
+            path.join(process.cwd(), '.github', 'workflows', 'build_overlay_server.yml'),
+            'utf8'
+        );
+
+        expect(prereleaseWorkflow).toContain(
+            'git rev-parse HEAD:GSM_Overlay/input_server'
+        );
+        expect(prereleaseWorkflow).toContain('wait-for-overlay-server');
+        expect(prereleaseWorkflow).toContain('overlay-server-source-tree.txt');
+        expect(overlayServerWorkflow).toContain(
+            'git rev-parse HEAD:GSM_Overlay/input_server'
+        );
+        expect(overlayServerWorkflow).toContain('overlay-server-source-tree.txt');
+    });
+
     it('builds, bundles, and uploads a native backend wheel for every release platform', () => {
         const workflow = fs.readFileSync(
             path.join(process.cwd(), '.github', 'workflows', 'dev_release_exe.yml'),

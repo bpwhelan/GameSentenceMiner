@@ -35,6 +35,55 @@ function desktopSearchDirectories(env: NodeJS.ProcessEnv): string[] {
     return [dataHome, ...dataDirs].map((directory) => path.join(directory, 'applications'));
 }
 
+function quoteDesktopExecArgument(value: string): string {
+    return `"${value.replace(/[\\`"$]/g, '\\$&')}"`;
+}
+
+function ensureStableAppImageDesktopEntry(
+    options: ResolveLinuxDesktopIdentityOptions
+): void {
+    const platform = options.platform ?? process.platform;
+    const env = options.env ?? process.env;
+    const appImagePath = String(env.APPIMAGE || '').trim();
+    if (platform !== 'linux' || !appImagePath || !fs.existsSync(appImagePath)) {
+        return;
+    }
+
+    const desktopEntryPath = path.join(
+        desktopSearchDirectories(env)[0],
+        LINUX_DESKTOP_NAME
+    );
+    const desktopEntry = [
+        '[Desktop Entry]',
+        'Type=Application',
+        'Name=GameSentenceMiner',
+        `Exec=${quoteDesktopExecArgument(appImagePath)} --no-sandbox %U`,
+        'Icon=com.beangate.gamesentenceminer',
+        'StartupWMClass=GameSentenceMiner',
+        'NoDisplay=true',
+        'X-GSM-Portal-Identity=true',
+        '',
+    ].join('\n');
+
+    try {
+        fs.mkdirSync(path.dirname(desktopEntryPath), { recursive: true });
+        const currentEntry = fs.existsSync(desktopEntryPath)
+            ? fs.readFileSync(desktopEntryPath, 'utf8')
+            : null;
+        if (currentEntry && !currentEntry.includes('X-GSM-Portal-Identity=true')) {
+            return;
+        }
+        if (currentEntry !== desktopEntry) {
+            fs.writeFileSync(desktopEntryPath, desktopEntry, { encoding: 'utf8', mode: 0o644 });
+        }
+    } catch (error) {
+        console.warn(
+            `Could not install Linux desktop identity at ${desktopEntryPath}:`,
+            error
+        );
+    }
+}
+
 function desktopEntryExists(
     desktopName: string,
     directories: string[],
@@ -84,6 +133,7 @@ export function configureLinuxDesktopIdentity(
     app: object,
     options: ResolveLinuxDesktopIdentityOptions = {}
 ): LinuxDesktopIdentity | null {
+    ensureStableAppImageDesktopEntry(options);
     const identity = resolveLinuxDesktopIdentity(options);
     if (!identity) {
         return null;

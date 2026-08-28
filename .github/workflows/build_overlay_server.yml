@@ -9,6 +9,7 @@ on:
       - main
     paths:
       - GSM_Overlay/input_server/**
+      - .github/workflows/build_overlay_server.yml
   workflow_dispatch:
 
 concurrency:
@@ -85,6 +86,8 @@ jobs:
 
   build-linux:
     runs-on: ubuntu-latest
+    outputs:
+      overlay_server_source_tree: ${{ steps.source_tree.outputs.overlay_server_source_tree }}
     permissions:
       contents: read
     steps:
@@ -93,6 +96,10 @@ jobs:
         with:
           submodules: true
           fetch-depth: 1
+
+      - name: Record overlay server source tree
+        id: source_tree
+        run: echo "overlay_server_source_tree=$(git rev-parse HEAD:GSM_Overlay/input_server)" >> "$GITHUB_OUTPUT"
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -178,6 +185,9 @@ jobs:
           path: staging
           merge-multiple: true
 
+      - name: Record binary provenance
+        run: echo '${{ needs.build-linux.outputs.overlay_server_source_tree }}' > staging/overlay-server-source-tree.txt
+
       - name: Publish to rolling overlay-server release
         uses: softprops/action-gh-release@v2
         with:
@@ -195,5 +205,6 @@ jobs:
             staging/gsm_overlay_server-win32.exe
             staging/gsm_overlay_server-linux
             staging/gsm_overlay_server-darwin
+            staging/overlay-server-source-tree.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
