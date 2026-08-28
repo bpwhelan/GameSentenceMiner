@@ -18,7 +18,12 @@ from GameSentenceMiner.util.config.configuration import (
 )
 from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags
 from GameSentenceMiner.util.overlay.get_overlay_coords import get_overlay_processor
-from GameSentenceMiner.util.text_log import TextSource, game_log, get_all_lines, normalize_text_for_comparison
+from GameSentenceMiner.util.text_log import (
+    TextSource,
+    game_log,
+    get_all_lines,
+    normalize_text_for_comparison,
+)
 from GameSentenceMiner.web.gsm_websocket import (
     ID_OVERLAY,
     build_gsm_profile_state_payload,
@@ -478,6 +483,9 @@ class OverlayRequestHandler:
 
             settings_window = getattr(gsm_state, "config_app", None)
             if settings_window is None:
+                factory = getattr(gsm_state, "config_app_factory", None)
+                settings_window = factory() if callable(factory) else None
+            if settings_window is None:
                 logger.warning("Unable to open OCR area selector from overlay: settings window is not initialized.")
                 return
             settings_window.request_open_overlay_area_selector()
@@ -487,20 +495,19 @@ class OverlayRequestHandler:
     def _sync_recycled_line_cache(self, enabled: bool) -> None:
         if not enabled:
             if game_log.previous_lines:
-                game_log.previous_lines = set()
+                game_log.clear_previous_lines()
                 logger.info("Cleared previous line recycle cache because overlay previous-line checking is disabled.")
             return
 
-        previous_lines = set()
         try:
             from GameSentenceMiner.util.database.db import GameLinesTable
 
-            for line in GameLinesTable.get_all_lines_for_scene(get_current_scene()):
-                normalized_line = normalize_text_for_comparison(getattr(line, "line_text", ""))
-                if normalized_line:
-                    previous_lines.add(normalized_line)
-            game_log.previous_lines = previous_lines
-            logger.info(f"Loaded {len(previous_lines)} previous lines for game '{get_current_game()}'")
+            game_log.replace_previous_lines(
+                normalized_line
+                for line in GameLinesTable.get_all_lines_for_scene(get_current_scene())
+                if (normalized_line := normalize_text_for_comparison(getattr(line, "line_text", "")))
+            )
+            logger.info(f"Loaded {len(game_log.previous_lines)} previous lines for game '{get_current_game()}'")
         except Exception as e:
             logger.debug(f"Error getting previous lines for game after overlay config change: {e}")
 
@@ -515,6 +522,9 @@ class OverlayRequestHandler:
             from GameSentenceMiner.util.config.configuration import gsm_state
 
             settings_window = getattr(gsm_state, "config_app", None)
+            if settings_window is None:
+                factory = getattr(gsm_state, "config_app_factory", None)
+                settings_window = factory() if callable(factory) else None
             if settings_window is None:
                 logger.warning("Unable to open GSM settings from overlay: settings window is not initialized.")
                 return

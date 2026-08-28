@@ -474,7 +474,7 @@ export function resolveSwitchAgentScript(
     }
 
     const fallbackCandidateScripts = isSwitchTarget
-        ? scriptFiles
+        ? scriptFiles.filter((filePath) => isNintendoSwitchScriptPath(filePath))
         : scriptFiles.filter((filePath) => !isNintendoSwitchScriptPath(filePath));
     if (fallbackCandidateScripts.length === 0) {
         return {

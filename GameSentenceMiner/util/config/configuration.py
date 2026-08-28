@@ -2729,6 +2729,7 @@ except Exception as e:
 class GsmAppState:
     def __init__(self):
         self.config_app = None
+        self.config_app_factory = None
         self.dialog_manager = None
         self.line_for_audio = None
         self.line_for_screenshot = None

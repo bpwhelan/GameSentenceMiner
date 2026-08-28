@@ -526,16 +526,20 @@ def get_config_window():
     return _config_window
 
 
+def get_config_window_threadsafe():
+    """Create or fetch ConfigWindow on the Qt GUI thread."""
+    return get_dialog_manager()._run_sync(lambda callback: callback(get_config_window()))
+
+
 def start_qt_app(show_config_immediately=False):
     """
     Start the Qt application event loop.
     BLOCKING call. Should be called from Main Thread.
     """
-    window = get_config_window()
-    if show_config_immediately:
-        window.show_window()
-
     app = get_qt_app()
+    if show_config_immediately:
+        get_config_window().show_window()
+
     return app.exec()
 
 

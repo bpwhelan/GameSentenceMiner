@@ -138,6 +138,8 @@ const WINDOW_FILTERS: WindowFilter[] = [
     { exeName: 'pythonw.exe', titlePattern: 'Preview' }, // Anki only
     // Exact title match
     { exeName: 'GameSentenceMiner.exe'},
+    // Eden/Yuzu settings dialogs share the emulator executable with the game.
+    { titlePattern: /^(?:Eden|yuzu)\s+Configuration(?:\s+-.*)?$/i },
     { titlePattern: 'GSM Overlay' },
     { titlePattern: 'GitHub Desktop' },
     { titlePattern: 'OBS Studio' },
@@ -458,7 +460,7 @@ function escapeRegexCharacters(str: string): string {
 }
 
 // Check if a window item should be filtered out
-function shouldFilterWindow(item: any): boolean {
+export function shouldFilterWindow(item: any): boolean {
     const windowValue = item.itemValue || '';
     const itemName = item.itemName || '';
     let exeName = '';

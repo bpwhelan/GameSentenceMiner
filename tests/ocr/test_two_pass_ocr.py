@@ -1949,14 +1949,14 @@ class TestCoverageGaps:
 
     # --- Line 587: _filter with filtering=None ---
 
-    def test_copy_img_exception_returns_original(self, sent_texts):
-        """If img.copy() raises, _copy_img should return the original."""
+    def test_copy_img_reuses_immutable_capture_reference(self, sent_texts):
+        """Pending OCR state should not duplicate the complete pixel buffer."""
         from GameSentenceMiner.ocr.two_pass_ocr import _copy_img
 
-        bad_img = MagicMock()
-        bad_img.copy.side_effect = RuntimeError("copy failed")
-        result = _copy_img(bad_img)
-        assert result is bad_img
+        img = MagicMock()
+        result = _copy_img(img)
+        assert result is img
+        img.copy.assert_not_called()
 
     def test_copy_img_none_returns_none(self, sent_texts):
         """_copy_img(None) should return None."""

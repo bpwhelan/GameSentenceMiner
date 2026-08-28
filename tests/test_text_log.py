@@ -15,6 +15,28 @@ def test_is_line_recycled_uses_normalized_text(monkeypatch):
     assert not text_log.is_line_recycled("Goodbye")
 
 
+def test_game_text_prunes_oldest_lines_and_unlinks_history(monkeypatch):
+    monkeypatch.setattr(text_log, "is_recycled_line_detection_enabled", lambda: False)
+    game_text = text_log.GameText(max_lines=3)
+
+    lines = [game_text.add_line(f"line {index}") for index in range(4)]
+
+    assert [line.text for line in game_text.snapshot()] == ["line 1", "line 2", "line 3"]
+    assert game_text.get_by_id(lines[0].id) is None
+    assert lines[1].prev is None
+    assert lines[0].next is None
+    assert game_text.game_line_index == 4
+
+
+def test_previous_line_cache_is_bounded(monkeypatch):
+    monkeypatch.setattr(text_log, "MAX_PREVIOUS_LINES", 2)
+    game_text = text_log.GameText()
+
+    game_text.replace_previous_lines(["one", "two", "three"])
+
+    assert game_text.previous_lines == {"two", "three"}
+
+
 def test_lines_match_rejects_punctuation_only_line_against_sentence():
     assert not text_log.lines_match("‥‥‥‥。", "‥‥ま、旅は道連れ、世は情け。一緒に行くか。")
 

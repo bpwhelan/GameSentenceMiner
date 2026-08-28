@@ -79,9 +79,9 @@ class TextCoordinatorState:
         self._by_id: dict[str, TextRecordSnapshot] = {}
         self._seen_observations: OrderedDict[str, None] = OrderedDict()
         self._stream_sequence = 0
+        self._record_sequence_offset = 0
         self._open_line_id: str | None = None
         self._open_deadline_monotonic_ns: int | None = None
-        self._retention_index = 0
 
     def ingest(
         self,
@@ -393,23 +393,27 @@ class TextCoordinatorState:
     def expire_before(self, cutoff: datetime) -> tuple[TextDomainEvent, ...]:
         cutoff = normalize_utc(cutoff)
         events = []
-        while self._retention_index < len(self._records):
-            record = self._records[self._retention_index]
+        remove_count = 0
+        for record in self._records:
             if record.first_seen_at_utc >= cutoff or record.state is TextRecordState.PROVISIONAL:
                 break
-            self._retention_index += 1
-            if record.state is not TextRecordState.FROZEN:
-                continue
-            expired = replace(record, revision=record.revision + 1, state=TextRecordState.EXPIRED)
-            self._replace(expired)
-            events.append(TextDomainEvent(TextEventKind.EXPIRED, expired))
+            remove_count += 1
+            if record.state is TextRecordState.FROZEN:
+                expired = replace(record, revision=record.revision + 1, state=TextRecordState.EXPIRED)
+                events.append(TextDomainEvent(TextEventKind.EXPIRED, expired))
+        if remove_count:
+            removed = self._records[:remove_count]
+            del self._records[:remove_count]
+            self._record_sequence_offset += remove_count
+            for record in removed:
+                self._by_id.pop(record.line_id, None)
         return tuple(events)
 
     def get(self, line_id: str) -> TextRecordSnapshot | None:
         return self._by_id.get(line_id)
 
     def _replace(self, record: TextRecordSnapshot) -> None:
-        index = record.stream_sequence - 1
+        index = record.stream_sequence - self._record_sequence_offset - 1
         self._records[index] = record
         self._by_id[record.line_id] = record
 

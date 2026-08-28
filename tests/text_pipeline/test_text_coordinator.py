@@ -332,6 +332,23 @@ def test_expiry_uses_first_seen_stream_time_not_old_capture_time():
     assert expired[0].kind is TextEventKind.EXPIRED
     assert expired[0].record.line_id == line_id
     assert expired[0].record.state is TextRecordState.EXPIRED
+    assert state.snapshot().records == ()
+    assert state.get(line_id) is None
+
+    replacement = state.ingest(
+        observation(
+            "replacement",
+            SourceKind.CLIPBOARD,
+            "replacement",
+            emitted_at=NOW + timedelta(seconds=2),
+        ),
+        now=NOW + timedelta(seconds=2),
+    )
+    replacement_id = replacement.events[-1].record.line_id
+    frozen = state.freeze(replacement_id, now=NOW + timedelta(seconds=3))
+
+    assert replacement.events[-1].record.stream_sequence == 2
+    assert frozen[-1].record.state is TextRecordState.FROZEN
 
 
 def test_concurrent_producers_receive_unique_authoritative_sequences():

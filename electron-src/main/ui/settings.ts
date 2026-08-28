@@ -925,11 +925,17 @@ async function resolveAgentScriptForScene(scene: { id: string; name: string }) {
     });
     const isExactYuzuIdMatch =
         Boolean(yuzuGame?.id) && resolution.reason === "matched_explicit_id";
+    const isTrustedSwitchMatch = !resolution.isSwitchTarget || (
+        yuzuGame?.id
+            ? resolution.reason === "matched_explicit_id"
+            : resolution.reason === "matched_title_id"
+    );
+    const resolvedPath = isTrustedSwitchMatch ? resolution.path : null;
 
-    if (resolution.path) {
+    if (resolvedPath) {
         return {
             status: 'success',
-            path: resolution.path,
+            path: resolvedPath,
             reason: resolution.reason,
             isExactYuzuIdMatch,
             isSwitchTarget: resolution.isSwitchTarget,

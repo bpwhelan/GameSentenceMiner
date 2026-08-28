@@ -13,12 +13,28 @@ import pytest
 from GameSentenceMiner.util.database import db as db_module
 from GameSentenceMiner.util.database.db import (
     AIModelsTable,
+    GameLinesTable,
     SQLiteDB,
     backup_db,
     get_db_directory,
     schedule_database_backup,
     sync_tokenization_schema_state,
 )
+
+
+def test_get_all_lines_for_scene_can_limit_to_latest_rows(monkeypatch):
+    calls = []
+
+    class FakeDB:
+        def fetchall(self, query, params):
+            calls.append((query, params))
+            return []
+
+    monkeypatch.setattr(GameLinesTable, "_db", FakeDB())
+
+    assert GameLinesTable.get_all_lines_for_scene("Scene", limit=10_000) == []
+    assert "ORDER BY timestamp DESC LIMIT ?" in calls[0][0]
+    assert calls[0][1] == ("Scene", 10_000)
 
 
 def test_set_gemini_groq_models_persist_their_input():

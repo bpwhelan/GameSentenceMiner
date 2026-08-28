@@ -90,6 +90,46 @@ def test_find_target_hwnd_requires_exe_match_for_same_class_candidates(monkeypat
     assert exe_lookups == [101, 202]
 
 
+@pytest.mark.parametrize(
+    ("executable", "configuration_title"),
+    [("eden.exe", "Eden Configuration"), ("yuzu.exe", "yuzu Configuration")],
+)
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only window enumeration APIs")
+def test_find_target_hwnd_never_selects_eden_yuzu_configuration_window(monkeypatch, executable, configuration_title):
+    fake_user32 = _FakeUser32ForFind()
+    fake_user32.classes = {
+        101: "Qt5152QWindowIcon",
+        202: "Qt5152QWindowIcon",
+    }
+    fake_user32.titles = {
+        101: "Eden | v0.0.4 | ANONYMOUS;CODE (64-bit) | 1.0.0 | NVIDIA",
+        202: configuration_title,
+    }
+    monkeypatch.setattr(_wwm, "user32", fake_user32)
+    monkeypatch.setattr(_wwm.ctypes, "WINFUNCTYPE", lambda *_args: lambda fn: fn, raising=False)
+    monkeypatch.setattr(_wwm, "get_current_scene", lambda: "Game Scene")
+    monkeypatch.setattr(_wwm, "get_current_game", lambda: "ANONYMOUS;CODE")
+    monkeypatch.setattr(
+        _wwm,
+        "get_window_info_from_source",
+        lambda scene_name=None: {
+            "title": fake_user32.titles[101],
+            "window_class": "Qt5152QWindowIcon",
+            "exe": executable,
+        },
+    )
+    monkeypatch.setattr(
+        _wwm.WindowsWindowStateMonitor,
+        "_get_window_exe_name",
+        lambda _monitor, hwnd: executable,
+    )
+
+    monitor = window_state_monitor.WindowStateMonitor()
+
+    assert monitor.find_target_hwnd() == 101
+    assert monitor.found_hwnds == [101]
+
+
 class _FakeUser32ForUwp:
     """Models the desktop child-list walk EnumWindows cannot do for immersive frames."""
 

@@ -312,7 +312,50 @@ def test_run_schedules_default_config_dialog_after_backend_ready(monkeypatch):
     app.run()
 
     assert "blocking-default-dialog" not in calls
+    assert "config-window" not in calls
     assert calls.index("send-initialized") < calls.index("schedule-default-dialog") < calls.index("qt-loop")
+
+
+def test_open_settings_creates_and_registers_config_window_lazily(monkeypatch):
+    calls = []
+
+    class FakeSettingsWindow:
+        def add_save_hook(self, hook):
+            calls.append(("save-hook", hook.__name__))
+
+        def add_profile_change_hook(self, hook):
+            calls.append(("profile-hook", hook.__name__))
+
+        def show_window(self, **kwargs):
+            calls.append(("show", kwargs))
+
+    settings_window = FakeSettingsWindow()
+    fake_qt_main = SimpleNamespace(
+        get_config_window_threadsafe=lambda: calls.append("create") or settings_window,
+    )
+    app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
+    app.state = SimpleNamespace(settings_window=None)
+    app.register_hotkeys = lambda: None
+    app.on_config_changed = lambda: None
+    app._handle_manual_profile_change = lambda *_args: None
+
+    monkeypatch.setattr(gsm_module, "_get_qt_main_module", lambda: fake_qt_main)
+    monkeypatch.setattr(gsm_module.obs, "update_current_game", lambda: None)
+
+    app.open_settings(root_tab_key="general", subtab_key="paths")
+    app.open_settings(root_tab_key="ocr")
+
+    assert calls.count("create") == 1
+    assert calls[:4] == [
+        "create",
+        ("save-hook", "<lambda>"),
+        ("save-hook", "<lambda>"),
+        ("profile-hook", "<lambda>"),
+    ]
+    assert calls[-2:] == [
+        ("show", {"root_tab_key": "general", "subtab_key": "paths"}),
+        ("show", {"root_tab_key": "ocr", "subtab_key": ""}),
+    ]
 
 
 def test_switch_profile_delegates_to_profile_switcher():
@@ -466,7 +509,7 @@ def test_get_previous_lines_for_game_normalizes_lines(monkeypatch):
     monkeypatch.setattr(
         gsm_module.db.GameLinesTable,
         "get_all_lines_for_scene",
-        lambda _scene: [
+        lambda _scene, limit=None: [
             SimpleNamespace(line_text="Hello, World!"),
             SimpleNamespace(line_text=" Hello  World "),
             SimpleNamespace(line_text="「テ ス、ト」"),
@@ -493,7 +536,7 @@ def test_get_previous_lines_for_game_clears_cache_when_disabled(monkeypatch):
     monkeypatch.setattr(
         gsm_module.db.GameLinesTable,
         "get_all_lines_for_scene",
-        lambda _scene: (_ for _ in ()).throw(AssertionError("db lookup should not run when disabled")),
+        lambda _scene, limit=None: (_ for _ in ()).throw(AssertionError("db lookup should not run when disabled")),
     )
     monkeypatch.setattr(gsm_module.logger, "info", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(text_log.game_log, "previous_lines", {"existing"})

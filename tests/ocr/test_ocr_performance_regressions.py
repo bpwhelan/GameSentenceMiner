@@ -341,6 +341,32 @@ def test_changed_pil_frame_is_rejected_before_numpy_conversion(monkeypatch):
     assert calls == 0
 
 
+def test_last_image_cache_keeps_only_a_fingerprint():
+    image = Image.new("RGB", (1920, 1080), color="black")
+    try:
+        ocr_runtime.set_last_image(image)
+
+        assert ocr_runtime.last_image is not image
+        assert ocr_runtime.last_image_np is None
+        assert ocr_runtime.are_images_identical(image, ocr_runtime.last_image)
+
+        changed = image.copy()
+        changed.putpixel((0, 0), (255, 255, 255))
+        assert not ocr_runtime.are_images_identical(changed, ocr_runtime.last_image)
+    finally:
+        ocr_runtime.set_last_image(None)
+
+
+def test_capture_queue_drops_stale_frames():
+    capture_queue = ocr_runtime.queue.Queue(maxsize=2)
+
+    ocr_runtime._put_latest_queue_item(capture_queue, "one")
+    ocr_runtime._put_latest_queue_item(capture_queue, "two")
+    ocr_runtime._put_latest_queue_item(capture_queue, "three")
+
+    assert [capture_queue.get_nowait(), capture_queue.get_nowait()] == ["two", "three"]
+
+
 def test_blank_frame_check_only_converts_a_small_pil_sample(monkeypatch):
     converted_pil_sizes = []
     converted_array_sizes = []

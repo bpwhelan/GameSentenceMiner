@@ -134,6 +134,7 @@ SAVE_OCR_DEBUG_IMAGES = os.environ.get("GSM_SAVE_OCR_DEBUG_IMAGES", "").lower() 
     "true",
     "yes",
 }
+SECOND_OCR_QUEUE_MAXSIZE = 4
 # Opt-in controller rewrite inspired by owocr's frame-stability flow.
 # Keep this False unless intentionally testing/enabling the v2 path.
 USE_TWO_PASS_OCR_V2 = True
@@ -1913,14 +1914,7 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
 
 
 def _copy_img(img: Any) -> Any:
-    """Safely copy an image if it supports ``.copy()``."""
-    if img is None:
-        return None
-    if hasattr(img, "copy"):
-        try:
-            return img.copy()
-        except Exception:
-            return img
+    """Retain the immutable capture reference without duplicating its full pixel buffer."""
     return img
 
 
@@ -2371,7 +2365,7 @@ def request_clean_shutdown(reason: str = "unknown") -> None:
     _get_hotkey_manager().clear()
 
     try:
-        second_ocr_queue.put_nowait(None)
+        _put_latest_second_ocr_task(None)
     except Exception:
         pass
     scheduler = _ocr_deadline_scheduler
@@ -3569,6 +3563,20 @@ def _get_ocr2_image_callback(crop_coords, og_image, extra_padding=0):
     )
 
 
+def _put_latest_second_ocr_task(task) -> None:
+    """Keep OCR2 work bounded and prefer the newest on-screen text when saturated."""
+    while True:
+        try:
+            second_ocr_queue.put_nowait(task)
+            return
+        except queue.Full:
+            try:
+                second_ocr_queue.get_nowait()
+                second_ocr_queue.task_done()
+            except queue.Empty:
+                continue
+
+
 def _queue_second_pass_callback(
     ocr1_text,
     stable_time,
@@ -3583,13 +3591,14 @@ def _queue_second_pass_callback(
 ):
     queue_id = time.monotonic_ns()
     enqueued_at = perf_counter()
-    second_ocr_queue.put(
+    queued_pre_crop_image = pre_crop_image if SAVE_OCR_DEBUG_IMAGES else None
+    _put_latest_second_ocr_task(
         (
             ocr1_text,
             stable_time,
             previous_img_local,
             filtering,
-            pre_crop_image,
+            queued_pre_crop_image,
             ignore_furigana_filter,
             ignore_previous_result,
             image_metadata,
@@ -3597,8 +3606,7 @@ def _queue_second_pass_callback(
             source,
             queue_id,
             enqueued_at,
-        ),
-        timeout=0.25,
+        )
     )
     emit_ocr_debug(
         get_ocr_advanced_debug_logging(),
@@ -3868,7 +3876,7 @@ done = False
 _ocr_deadline_scheduler = None
 
 # Create a queue for tasks
-second_ocr_queue = queue.Queue(maxsize=2048)
+second_ocr_queue = queue.Queue(maxsize=SECOND_OCR_QUEUE_MAXSIZE)
 
 
 def get_ocr2_image(crop_coords, og_image: Image.Image, ocr2_engine=None, extra_padding=0):
@@ -4187,7 +4195,7 @@ def run_area_select_ocr_once(source=TextSource.SCREEN_CROPPER) -> bool:
         return False
 
     image_metadata = get_screen_crop_image_metadata(cropped_img)
-    second_ocr_queue.put(
+    _put_latest_second_ocr_task(
         (
             "",
             capture_time,
@@ -4199,8 +4207,7 @@ def run_area_select_ocr_once(source=TextSource.SCREEN_CROPPER) -> bool:
             image_metadata,
             None,
             source,
-        ),
-        timeout=0.25,
+        )
     )
     return True
 

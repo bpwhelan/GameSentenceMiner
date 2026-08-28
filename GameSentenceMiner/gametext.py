@@ -1002,6 +1002,12 @@ def _project_text_domain_event(event: TextDomainEvent) -> None:
     from GameSentenceMiner.web.texthooking_page import project_text_domain_event
 
     project_text_domain_event(event, line)
+    if event.kind is TextEventKind.EXPIRED:
+        if record.relay_only:
+            _projected_lines.pop(record.line_id, None)
+        else:
+            game_log.remove_by_id(record.line_id)
+        return
     if event.kind in (TextEventKind.APPENDED, TextEventKind.UPDATED):
         if event.kind is TextEventKind.APPENDED:
             log_message = f"<cyan>Line Received from [{source_label}]: {record.text}</cyan>"

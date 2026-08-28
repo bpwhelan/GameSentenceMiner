@@ -552,7 +552,7 @@ describe('AutoLauncher OCR scene activity fallback', () => {
         expect(launcher.launchAgent).not.toHaveBeenCalled();
     });
 
-    it('resolves legacy Switch Agent scripts from the emulator executable without yuzu scene config', async () => {
+    it('does not resolve Switch Agent scripts from the emulator executable without yuzu scene config', async () => {
         const { AutoLauncher } = await loadAutoLauncherModule();
         const launcher = new AutoLauncher() as any;
         const scene = { id: 'scene-1', name: 'Unicorn Overlord' };
@@ -582,27 +582,11 @@ describe('AutoLauncher OCR scene activity fallback', () => {
             true
         );
 
-        expect(keepFastPolling).toBe(true);
-        expect(getYuzuGamesConfigMock).not.toHaveBeenCalled();
-        expect(resolveSwitchAgentScriptMock).toHaveBeenCalledWith({
-            scriptsPath: 'C:\\Agent\\data\\scripts',
-            processName: 'Eden.exe',
-            windowTitle: 'Eden | v0.0.4 | Unicorn Overlord (64-bit)',
-            sceneName: scene.name,
-            explicitGameId: null,
-        });
-        expect(launcher.createSwitchContextValidator).toHaveBeenCalledWith(
-            scene,
-            'Eden.exe',
-            scene.name
-        );
-        expect(launcher.handleGame).toHaveBeenCalledWith(
-            'Eden.exe',
-            scriptPath,
-            `switch:${scriptPath}`,
-            0,
-            validateContext
-        );
+        expect(keepFastPolling).toBe(false);
+        expect(getYuzuGamesConfigMock).toHaveBeenCalled();
+        expect(resolveSwitchAgentScriptMock).not.toHaveBeenCalled();
+        expect(launcher.createSwitchContextValidator).not.toHaveBeenCalled();
+        expect(launcher.handleGame).not.toHaveBeenCalled();
     });
 
     it('auto-fills Switch Agent scripts from trusted emulator title matches without yuzu scene config', async () => {
@@ -637,7 +621,7 @@ describe('AutoLauncher OCR scene activity fallback', () => {
             launcher.resolveSceneAgentScript(scene, 'Ryujinx.exe', sceneProfile)
         ).resolves.toBe(scriptPath);
 
-        expect(getYuzuGamesConfigMock).not.toHaveBeenCalled();
+        expect(getYuzuGamesConfigMock).toHaveBeenCalled();
         expect(resolveSwitchAgentScriptMock).toHaveBeenCalledWith({
             scriptsPath: 'C:\\Agent\\data\\scripts',
             processName: 'Ryujinx.exe',
@@ -654,6 +638,42 @@ describe('AutoLauncher OCR scene activity fallback', () => {
             agentScriptPath: scriptPath,
             launchDelaySeconds: sceneProfile.launchDelaySeconds,
         });
+    });
+
+    it('does not auto-fill a Switch scene from a name-only script match', async () => {
+        const { AutoLauncher } = await loadAutoLauncherModule();
+        const launcher = new AutoLauncher() as any;
+        const scene = { id: 'scene-1', name: 'Octopath Traveler 0' };
+        const sceneProfile = {
+            sceneId: scene.id,
+            sceneName: scene.name,
+            textHookMode: 'agent',
+            ocrMode: 'none',
+            launchOverlay: false,
+            agentScriptPath: '',
+            launchDelaySeconds: 0,
+        };
+        const scriptPath = 'C:\\Agent\\data\\scripts\\NS_01000E200DC58000_Octopath_Traveler.js';
+
+        getAgentScriptsPathMock.mockReturnValue('C:\\Agent\\data\\scripts');
+        isSwitchEmulatorTargetMock.mockReturnValue(true);
+        resolveSwitchAgentScriptMock.mockReturnValue({
+            path: scriptPath,
+            reason: 'matched_name',
+            isSwitchTarget: true,
+            titleId: null,
+            candidates: [{ path: scriptPath, reason: 'matched_name', score: 0.12 }],
+        });
+        launcher.getPidByProcessName = vi.fn().mockResolvedValue(1234);
+        launcher.getLiveWindowTitle = vi
+            .fn()
+            .mockResolvedValue('Eden | v0.0.4 | Octopath Traveler 0 (64-bit)');
+
+        await expect(
+            launcher.resolveSceneAgentScript(scene, 'Eden.exe', sceneProfile)
+        ).resolves.toBeNull();
+
+        expect(upsertSceneLaunchProfileMock).not.toHaveBeenCalled();
     });
 
     it('launches the legacy LunaTranslator autolauncher for scenes configured with Luna mode', async () => {

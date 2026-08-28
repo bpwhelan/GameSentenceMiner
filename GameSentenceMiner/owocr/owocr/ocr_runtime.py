@@ -1,6 +1,7 @@
 import os
 import sys
 import ctypes
+import hashlib
 import importlib
 import platform
 
@@ -292,6 +293,8 @@ crop_offset = (0, 0)  # Global offset for cropped OCR images
 scaled_ocr_config_cache = {}
 scaled_ocr_config_cache_lock = threading.Lock()
 MAX_SCALED_OCR_CACHE_SIZE = 24
+CAPTURE_QUEUE_MAXSIZE = 2
+IMAGE_FINGERPRINT_MARKER = "gsm-image-fingerprint-v1"
 TEXT_DETECTION_RESULT_SCHEMA = "gsm_text_detection_v1"
 BLACK_HOLE_SKIP_LOG_MESSAGE = "Text is inside a black hole OCR box, skipping further processing."
 _last_black_hole_match = None
@@ -302,6 +305,19 @@ _callback_signature_keywords = frozenset()
 
 _callback_signature_has_kwargs = False
 _callback_signature_failed = False
+
+
+def _put_latest_queue_item(target_queue, item):
+    """Enqueue the newest capture without allowing stale full frames to accumulate."""
+    while True:
+        try:
+            target_queue.put_nowait(item)
+            return
+        except queue.Full:
+            try:
+                target_queue.get_nowait()
+            except queue.Empty:
+                continue
 
 
 def _safe_int(value, default=0):
@@ -743,7 +759,7 @@ class ClipboardThread(threading.Thread):
                         clipboard_text = win32clipboard.GetClipboardData(win32clipboard.CF_UNICODETEXT)
                     if self.ignore_flag or clipboard_text != "*ocr_ignore*":
                         img = win32clipboard.GetClipboardData(win32clipboard.CF_DIB)
-                        image_queue.put((img, False, None))
+                        _put_latest_queue_item(image_queue, (img, False, None))
                 win32clipboard.CloseClipboard()
             except pywintypes.error:
                 pass
@@ -846,7 +862,7 @@ class ClipboardThread(threading.Thread):
                                             img = self.normalize_macos_clipboard(
                                                 pasteboard.dataForType_(NSPasteboardTypeTIFF)
                                             )
-                                            image_queue.put((img, False, None))
+                                            _put_latest_queue_item(image_queue, (img, False, None))
                         else:
                             old_img = img
                             try:
@@ -864,7 +880,7 @@ class ClipboardThread(threading.Thread):
                                     )
                                     and (not self.are_images_identical(img, old_img))
                                 ):
-                                    image_queue.put((img, False, None))
+                                    _put_latest_queue_item(image_queue, (img, False, None))
 
                         process_clipboard = True
 
@@ -901,7 +917,7 @@ class DirectoryWatcher(threading.Thread):
                             old_paths.add(path_key)
 
                             if not paused:
-                                image_queue.put((path, False, None))
+                                _put_latest_queue_item(image_queue, (path, False, None))
 
             if not terminated:
                 time.sleep(sleep_time)
@@ -932,7 +948,7 @@ class WebsocketServerThread(threading.Thread):
         try:
             async for message in websocket:
                 if self.read and not paused:
-                    image_queue.put((message, False, None))
+                    _put_latest_queue_item(image_queue, (message, False, None))
                     try:
                         await websocket.send("True")
                     except self._websockets.exceptions.ConnectionClosedOK:
@@ -991,7 +1007,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
             pass
 
         if not paused:
-            image_queue.put((img, False, None))
+            _put_latest_queue_item(image_queue, (img, False, None))
             conn.sendall(b"True")
         else:
             conn.sendall(b"False")
@@ -1027,7 +1043,7 @@ class UnixSocketRequestHandler(socketserver.BaseRequestHandler):
 
         try:
             if not paused and img:
-                image_queue.put((img, False, None))
+                _put_latest_queue_item(image_queue, (img, False, None))
                 conn.sendall(b"True")
             else:
                 conn.sendall(b"False")
@@ -2759,9 +2775,9 @@ class ScreenshotThread(threading.Thread):
 
     def write_result(self, result, metadata=None):
         if self.use_periodic_queue:
-            periodic_screenshot_queue.put((result, metadata))
+            _put_latest_queue_item(periodic_screenshot_queue, (result, metadata))
         else:
-            image_queue.put((result, True, metadata))
+            _put_latest_queue_item(image_queue, (result, True, metadata))
 
     def run(self):
         if self.screencapture_mode != 2:
@@ -2861,26 +2877,38 @@ def _close_cached_image(image):
 
 
 def _update_image_comparison_cache(cached_image, image):
-    """Cache the given image and its numpy view for fast pixel comparisons.
-
-    The returned ``cached_image`` is the same object passed in (no PIL.copy),
-    because callers treat the cache as read-only. We pay the PIL→numpy
-    conversion exactly once per cache update instead of per comparison.
-    """
+    """Cache a compact content fingerprint instead of retaining a full frame."""
     if image is None:
         _close_cached_image(cached_image)
         return None, None
 
     try:
-        cached_snapshot_np = image if isinstance(image, np.ndarray) else np.asarray(image)
+        fingerprint = _image_fingerprint(image)
     except Exception:
         logger.debug("Failed to cache image for comparison.")
         _close_cached_image(cached_image)
         return None, None
 
-    if cached_image is not None and cached_image is not image:
+    if cached_image is not None:
         _close_cached_image(cached_image)
-    return image, cached_snapshot_np
+    return fingerprint, None
+
+
+def _image_fingerprint(image):
+    image_array = image if isinstance(image, np.ndarray) else np.asarray(image)
+    if not image_array.flags.c_contiguous:
+        image_array = np.ascontiguousarray(image_array)
+    digest = hashlib.blake2b(memoryview(image_array), digest_size=16).digest()
+    return (
+        IMAGE_FINGERPRINT_MARKER,
+        tuple(int(dimension) for dimension in image_array.shape),
+        image_array.dtype.str,
+        digest,
+    )
+
+
+def _is_image_fingerprint(value) -> bool:
+    return isinstance(value, tuple) and len(value) == 4 and value[0] == IMAGE_FINGERPRINT_MARKER
 
 
 def set_last_image(image):
@@ -2921,6 +2949,11 @@ def are_images_identical(img1, img2, img2_np=None):
     """
     if img1 is None or (img2 is None and img2_np is None):
         return False
+    if _is_image_fingerprint(img2):
+        try:
+            return _image_fingerprint(img1) == img2
+        except Exception:
+            return False
 
     # The common capture path has a PIL candidate and a cached numpy reference.
     # Probe PIL pixels before converting the complete candidate frame: most game
@@ -2998,9 +3031,9 @@ class OBSScreenshotThread(threading.Thread):
 
     def write_result(self, result, metadata=None):
         if self.use_periodic_queue:
-            periodic_screenshot_queue.put((result, metadata))
+            _put_latest_queue_item(periodic_screenshot_queue, (result, metadata))
         else:
-            image_queue.put((result, True, metadata))
+            _put_latest_queue_item(image_queue, (result, True, metadata))
         screenshot_event.clear()
 
     def get_capture_original_size(self, capture_width, capture_height):
@@ -3516,6 +3549,42 @@ def engine_change_handler_name(engine, switch=True):
             notifier.send(title="owocr", message=f"Switched to {new_engine_name}")
             engine_color = config.get_general("engine_color")
             logger.opt(ansi=True).info(f"Switched to <{engine_color}>{new_engine_name}</{engine_color}>!")
+
+
+def set_ocr_engines(ocr1, ocr2):
+    """Keep only configured engines so inactive native/model instances can be released."""
+    global engine_instances, engine_keys, engine_index, ocr_1, ocr_2
+
+    ocr_1 = ocr1
+    ocr_2 = ocr2
+    active_names = {str(name or "").strip().lower() for name in (ocr1, ocr2)}
+    retained_instances = []
+    retained_keys = []
+    for index, instance in enumerate(engine_instances):
+        if str(getattr(instance, "name", "")).strip().lower() in active_names:
+            retained_instances.append(instance)
+            retained_keys.append(engine_keys[index])
+            continue
+        for method_name in ("close", "shutdown", "stop"):
+            method = getattr(instance, method_name, None)
+            if callable(method):
+                try:
+                    method()
+                except Exception:
+                    logger.debug(f"Failed to release inactive OCR engine {getattr(instance, 'name', instance)}")
+                break
+
+    engine_instances = retained_instances
+    engine_keys = retained_keys
+    preferred_name = str(ocr1 or "").strip().lower()
+    engine_index = next(
+        (
+            index
+            for index, instance in enumerate(engine_instances)
+            if str(getattr(instance, "name", "")).strip().lower() == preferred_name
+        ),
+        0,
+    )
 
 
 def user_input_thread_run():
@@ -4863,7 +4932,7 @@ def run(
     combo_engine_switch = config.get_general("combo_engine_switch")
     screen_capture_on_combo = bool(screen_capture_on_demand)
     notifier = _create_notifier()
-    image_queue = queue.Queue()
+    image_queue = queue.Queue(maxsize=CAPTURE_QUEUE_MAXSIZE)
     key_combos = {}
 
     if combo_pause != "":
@@ -4890,7 +4959,7 @@ def run(
             key_combos[screen_capture_combo] = on_screenshot_combo
         elif not screen_capture_on_demand:
             global periodic_screenshot_queue
-            periodic_screenshot_queue = queue.Queue()
+            periodic_screenshot_queue = queue.Queue(maxsize=CAPTURE_QUEUE_MAXSIZE)
 
     if "screencapture" in (read_from, read_from_secondary):
         last_screenshot_time = 0
@@ -5004,6 +5073,7 @@ def run(
             last_result = ([], engine_index)
             engine_change_handler_name(get_ocr_ocr1(), switch=True)
             engine_change_handler_name(get_ocr_ocr2(), switch=False)
+            set_ocr_engines(get_ocr_ocr1(), get_ocr_ocr2())
 
     def handle_area_config_changes(changes):
         clear_scaled_ocr_config_cache()

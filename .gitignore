@@ -147,3 +147,4 @@ native/windows-audio-capture/bin/x64/gsm-windows-audio-capture.exe
 /native/gsm-native/target
 /GameSentenceMiner/_native*.pyd
 /GameSentenceMiner/_native*.so
+/.tmp_capstone

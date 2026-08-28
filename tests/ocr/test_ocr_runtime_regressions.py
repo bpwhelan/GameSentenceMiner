@@ -14,6 +14,32 @@ from GameSentenceMiner.owocr.owocr.ocr import post_process
 from GameSentenceMiner.owocr.owocr import ocr_runtime as run_module
 
 
+def test_set_ocr_engines_releases_inactive_instances(monkeypatch):
+    released = []
+
+    class FakeEngine:
+        def __init__(self, name, key):
+            self.name = name
+            self.key = key
+
+        def close(self):
+            released.append(self.name)
+
+    old = FakeEngine("old", "o")
+    first = FakeEngine("first", "f")
+    second = FakeEngine("second", "s")
+    monkeypatch.setattr(run_module, "engine_instances", [old, first, second], raising=False)
+    monkeypatch.setattr(run_module, "engine_keys", ["o", "f", "s"], raising=False)
+    monkeypatch.setattr(run_module, "engine_index", 0, raising=False)
+
+    run_module.set_ocr_engines("first", "second")
+
+    assert run_module.engine_instances == [first, second]
+    assert run_module.engine_keys == ["f", "s"]
+    assert run_module.engine_index == 0
+    assert released == ["old"]
+
+
 @pytest.mark.parametrize(
     (
         "engine",

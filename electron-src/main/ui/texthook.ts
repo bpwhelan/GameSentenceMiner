@@ -79,7 +79,7 @@ type DetectedTextHookArchitecture = TextHookArchitecture | 'unknown';
 export interface TextHookProfile {
     /** OBS scene id used as the canonical lookup key. */
     sceneId?: string;
-    /** Lower-case executable name, retained for display and legacy fallback. */
+    /** Lower-case executable name, retained for display and legacy lookup without a scene id. */
     exeName: string;
     engine: TextHookEngine;
     /** Auto-attach to the saved hook the moment it appears. */
@@ -856,8 +856,8 @@ function saveAllProfiles(profiles: Record<string, TextHookProfile>): void {
 export function getProfileFor(exeName: string, sceneId?: string | null): TextHookProfile | null {
     const profiles = loadAllProfiles();
     const normalizedSceneId = sceneId?.trim().toLowerCase();
-    if (normalizedSceneId && profiles[`scene:${normalizedSceneId}`]) {
-        return profiles[`scene:${normalizedSceneId}`];
+    if (normalizedSceneId) {
+        return profiles[`scene:${normalizedSceneId}`] ?? null;
     }
     return exeName ? profiles[exeName.toLowerCase()] ?? null : null;
 }

@@ -3,7 +3,11 @@ import * as os from "os";
 import * as path from "path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { findAgentScriptById, listAgentScriptFiles } from "./agent_script_resolver.js";
+import {
+    findAgentScriptById,
+    listAgentScriptFiles,
+    resolveSwitchAgentScript,
+} from "./agent_script_resolver.js";
 
 const tempRoots: string[] = [];
 
@@ -47,5 +51,24 @@ describe("agent script file listing", () => {
         fs.writeFileSync(path.join(root, "libLoader.js"), "");
 
         expect(listAgentScriptFiles(root)).toEqual([visible]);
+    });
+
+    it("does not use PC scripts as YUZU fallback matches", () => {
+        const root = makeTempRoot();
+        const switchScript = path.join(root, "NS_0100A3501946E000_Octopath_Traveler_2.js");
+        const pcScript = path.join(root, "PC_Steam_Unreal_OCTOPATH_TRAVELER_0.js");
+        fs.writeFileSync(switchScript, "");
+        fs.writeFileSync(pcScript, "");
+
+        const result = resolveSwitchAgentScript({
+            scriptsPath: root,
+            processName: "yuzu.exe",
+            windowTitle: "yuzu | Octopath Traveler 0 (64-bit)",
+            sceneName: "Octopath Traveler 0",
+            explicitGameId: null,
+        });
+
+        expect(result.path).not.toBe(pcScript);
+        expect(result.candidates.every((candidate) => path.basename(candidate.path).startsWith("NS_"))).toBe(true);
     });
 });

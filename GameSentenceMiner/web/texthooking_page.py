@@ -1043,8 +1043,12 @@ def create_media():
     if not get_config().paths.output_folder:
         # No destination configured: open the settings to the Paths tab so the user can set one.
         try:
-            if gsm_state.config_app:
-                gsm_state.config_app.show_window(root_tab_key="general", subtab_key="paths")
+            settings_window = gsm_state.config_app
+            if settings_window is None:
+                factory = getattr(gsm_state, "config_app_factory", None)
+                settings_window = factory() if callable(factory) else None
+            if settings_window:
+                settings_window.show_window(root_tab_key="general", subtab_key="paths")
         except Exception as e:
             logger.debug(f"Failed to open settings for output folder: {e}")
         return jsonify(

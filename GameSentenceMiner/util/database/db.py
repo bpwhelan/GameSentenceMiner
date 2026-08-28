@@ -705,8 +705,16 @@ class GameLinesTable(SQLiteDBTable):
         return [cls.from_row(row, clean_columns=clean_columns) for row in rows]
 
     @classmethod
-    def get_all_lines_for_scene(cls, game_name: str) -> List["GameLinesTable"]:
-        rows = cls._db.fetchall(f"SELECT * FROM {cls._table} WHERE game_name=?", (game_name,))
+    def get_all_lines_for_scene(cls, game_name: str, limit: int | None = None) -> List["GameLinesTable"]:
+        if limit is None:
+            rows = cls._db.fetchall(f"SELECT * FROM {cls._table} WHERE game_name=?", (game_name,))
+        else:
+            rows = cls._db.fetchall(
+                f"SELECT * FROM ("
+                f"SELECT * FROM {cls._table} WHERE game_name=? ORDER BY timestamp DESC LIMIT ?"
+                f") ORDER BY timestamp ASC",
+                (game_name, max(1, int(limit))),
+            )
         return [cls.from_row(row) for row in rows]
 
     @classmethod

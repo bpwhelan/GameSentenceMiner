@@ -172,6 +172,33 @@ describe('getGameInfoFromWindow', () => {
     });
 });
 
+describe('shouldFilterWindow', () => {
+    it.each([
+        ['Eden Configuration', 'Eden.exe'],
+        ['yuzu Configuration', 'yuzu.exe'],
+    ])('filters the %s dialog', async (title, executable) => {
+        const { shouldFilterWindow } = await loadObsModule();
+
+        expect(
+            shouldFilterWindow({
+                itemName: title,
+                itemValue: `${title}:Qt5152QWindowIcon:${executable}`,
+            })
+        ).toBe(true);
+    });
+
+    it('keeps an Eden game window available', async () => {
+        const { shouldFilterWindow } = await loadObsModule();
+
+        expect(
+            shouldFilterWindow({
+                itemName: 'Eden | v0.0.4 | ANONYMOUS;CODE (64-bit)',
+                itemValue: 'Eden | v0.0.4 | ANONYMOUS;CODE (64-bit):Qt5152QWindowIcon:Eden.exe',
+            })
+        ).toBe(false);
+    });
+});
+
 describe('launchOBSFromElectron', () => {
     const CONFIG_PATH = 'C:\\test-gsm\\config.json';
     const DEFAULT_OBS_PATH = 'C:\\test-gsm\\obs-studio\\bin\\64bit\\obs64.exe';

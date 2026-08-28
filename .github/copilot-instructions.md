@@ -144,6 +144,6 @@ npm run app:dist  # Creates installer in dist/ using electron-builder
 
 ## Additional Notes
 - **Submodules**: `texthooker/` and `GSM_Overlay/` are separate repos, use `git clone --recurse-submodules`
-- **Node version**: Use NVM with Node 21 (22+ NOT supported)
+- **Node version**: Use NVM with Node 22.22.2 or newer
 - **Windows-first**: macOS/Linux support is WIP (some features Windows-only, e.g., `pygetwindow`, `pywin32`)
 - **Localization**: I18n files in `GameSentenceMiner/locales/*.json`, loaded in PyQt config GUI

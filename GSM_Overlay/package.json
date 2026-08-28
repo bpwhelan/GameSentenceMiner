@@ -15,6 +15,9 @@
   },
   "author": "Beangate",
   "license": "LGPL-3.0-only",
+  "engines": {
+    "node": ">=22.22.2"
+  },
   "devDependencies": {
     "@electron-forge/cli": "^7.11.2",
     "@electron-forge/maker-deb": "^7.11.2",
@@ -24,18 +27,18 @@
     "@electron-forge/plugin-auto-unpack-natives": "^7.11.2",
     "@electron-forge/plugin-fuses": "^7.11.2",
     "@electron/fuses": "^1.8.0",
-    "concurrently": "^10.0.3",
+    "concurrently": "^10.0.4",
     "cross-env": "^10.1.0",
-    "electron": "^42.3.2",
+    "electron": "^43.2.0",
     "nodemon": "^3.1.14",
-    "vite": "^8.0.16",
-    "wait-on": "^9.0.10"
+    "vite": "^8.1.5",
+    "wait-on": "^9.1.0"
   },
   "dependencies": {
     "electron-squirrel-startup": "1.0.1",
-    "koffi": "^3.0.2",
-    "pinyin-pro": "^3.28.1",
-    "ws": "^8.21.0"
+    "koffi": "^3.1.2",
+    "pinyin-pro": "^3.28.2",
+    "ws": "^8.21.1"
   },
   "overrides": {
     "@electron/rebuild": "^4.0.4",

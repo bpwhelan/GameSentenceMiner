@@ -133,3 +133,17 @@ def test_stop_command_relays_initiating_reason_to_clean_shutdown(monkeypatch):
 
     assert response["success"] is True
     assert shutdown_reasons == ["ipc-stop-command: auto-launcher-scene-inactive"]
+
+
+def test_second_ocr_queue_keeps_latest_task_without_precrop(monkeypatch):
+    monkeypatch.setattr(gsm_ocr, "second_ocr_queue", queue.Queue(maxsize=1))
+    monkeypatch.setattr(gsm_ocr, "SAVE_OCR_DEBUG_IMAGES", False)
+    monkeypatch.setattr(gsm_ocr.ocr_runtime, "set_last_image", lambda _image: None)
+
+    gsm_ocr._queue_second_pass_callback("old", None, "old-crop", None, pre_crop_image="old-full")
+    gsm_ocr._queue_second_pass_callback("new", None, "new-crop", None, pre_crop_image="new-full")
+
+    task = gsm_ocr.second_ocr_queue.get_nowait()
+    assert task[0] == "new"
+    assert task[2] == "new-crop"
+    assert task[4] is None

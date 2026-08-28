@@ -23,7 +23,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.12.0
+          node-version: 22.22.2
 
       - name: Compute next pre-release version
         id: version
@@ -49,7 +49,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.12.0
+          node-version: 22.22.2
           cache: npm
           cache-dependency-path: |
             package-lock.json

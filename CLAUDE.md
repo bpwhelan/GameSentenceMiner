@@ -138,7 +138,7 @@ Do **not** edit built files under `GSM_Overlay/yomitan/`. Edit source in the sep
 - **Windows-first.** macOS/Linux support is WIP; several features are Windows-only (`pygetwindow`,
   `pywin32`, `windows-capture`, `pynput`). macOS uses a Homebrew Python venv (not the managed uv
   flow); Linux text hooking runs Windows hookers via Wine/Proton.
-- **Node:** use Node 21 (NVM); newer majors have caused issues despite `engines` saying `>=18`.
+- **Node:** use Node 22.22.2 or newer (NVM); the JavaScript toolchain now requires Node 22+.
 - **External tools at runtime:** Anki-Connect (port 8765), optional OBS Studio via `obsws-python`
   (port 4455), and a text source (Agent / Textractor / built-in OCR).
 - **No torch.** VAD deliberately uses faster-whisper (+ its ONNX Silero VAD); do not reintroduce

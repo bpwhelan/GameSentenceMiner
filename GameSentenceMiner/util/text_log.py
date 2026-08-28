@@ -2,6 +2,7 @@ import rapidfuzz
 import threading
 import unicodedata
 import uuid
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Optional
@@ -11,6 +12,8 @@ from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags
 from GameSentenceMiner.util.models.model import AnkiCard
 
 initial_time = datetime.now()
+MAX_IN_MEMORY_GAME_LINES = 10_000
+MAX_PREVIOUS_LINES = 10_000
 
 
 def to_local_naive_datetime(value: datetime) -> datetime:
@@ -96,11 +99,13 @@ class GameText:
     previous_lines: set = field(default_factory=set)
     game_line_index: int = 0
 
-    def __init__(self):
+    def __init__(self, max_lines: int = MAX_IN_MEMORY_GAME_LINES):
         self.values = []
         self.values_dict = {}
         self.previous_lines = set()
+        self._previous_line_order = deque()
         self.game_line_index = 0
+        self.max_lines = max(1, int(max_lines))
         self._lock = threading.RLock()
 
     def __getitem__(self, index):
@@ -149,7 +154,8 @@ class GameText:
             if new_line.prev and is_recycled_line_detection_enabled():
                 normalized_previous_line = normalize_text_for_comparison(new_line.prev.text)
                 if normalized_previous_line:
-                    self.previous_lines.add(normalized_previous_line)
+                    self._remember_previous_line_locked(normalized_previous_line)
+            self._prune_to_limit_locked()
         return new_line
         # self.remove_old_events(datetime.now() - timedelta(minutes=10))
 
@@ -215,8 +221,62 @@ class GameText:
                 if is_recycled_line_detection_enabled():
                     normalized = normalize_text_for_comparison(previous.text)
                     if normalized:
-                        self.previous_lines.add(normalized)
+                        self._remember_previous_line_locked(normalized)
+            self._prune_to_limit_locked()
             return line
+
+    def remove_by_id(self, line_id: str) -> GameLine | None:
+        """Remove one projected line and detach it from the compatibility chain."""
+        with self._lock:
+            line = self.values_dict.pop(line_id, None)
+            if line is None:
+                return None
+            try:
+                self.values.remove(line)
+            except ValueError:
+                pass
+            if line.prev is not None:
+                line.prev.next = line.next
+            if line.next is not None:
+                line.next.prev = line.prev
+            line.prev = None
+            line.next = None
+            return line
+
+    def replace_previous_lines(self, lines) -> None:
+        """Replace the recycle cache while retaining only the newest bounded entries."""
+        with self._lock:
+            self.previous_lines = set()
+            self._previous_line_order = deque()
+            for line in lines:
+                self._remember_previous_line_locked(str(line))
+
+    def clear_previous_lines(self) -> None:
+        self.replace_previous_lines(())
+
+    def _remember_previous_line_locked(self, line: str) -> None:
+        if not line or line in self.previous_lines:
+            return
+        self.previous_lines.add(line)
+        self._previous_line_order.append(line)
+        while len(self._previous_line_order) > MAX_PREVIOUS_LINES:
+            self.previous_lines.discard(self._previous_line_order.popleft())
+
+    def _prune_to_limit_locked(self) -> None:
+        remove_count = len(self.values) - self.max_lines
+        if remove_count <= 0:
+            return
+        if self.max_lines >= 1_000:
+            remove_count += self.max_lines // 10
+        removed = self.values[:remove_count]
+        del self.values[:remove_count]
+        for line in removed:
+            if self.values_dict.get(line.id) is line:
+                self.values_dict.pop(line.id, None)
+            line.prev = None
+            line.next = None
+        if self.values:
+            self.values[0].prev = None
 
     def snapshot(self) -> tuple[GameLine, ...]:
         with self._lock:

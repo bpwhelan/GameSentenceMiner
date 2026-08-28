@@ -34,6 +34,8 @@ import {
 const AUTO_SCENE_SWITCHER_MODULE_NAME = 'auto-scene-switcher';
 const FOREGROUND_SETTLE_MS = 200;
 const SELF_SWITCH_EVENT_WINDOW_MS = 3_000;
+const OBS_RECONCILE_RETRY_MIN_MS = 1_000;
+const OBS_RECONCILE_RETRY_MAX_MS = 30_000;
 
 interface ObsSceneRef {
     id: string;
@@ -408,6 +410,8 @@ let conflictWindow: BrowserWindow | null = null;
 let ipcRegistered = false;
 let startupSceneSyncPending = false;
 let startupSceneSyncToken = 0;
+let obsReconcileRetryTimer: ReturnType<typeof setTimeout> | null = null;
+let obsReconcileRetryDelayMs = OBS_RECONCILE_RETRY_MIN_MS;
 
 function notifyStateChanged(): void {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -572,6 +576,50 @@ function scheduleEvaluation(): void {
     }, FOREGROUND_SETTLE_MS);
 }
 
+function clearOBSReconcileRetry(resetDelay: boolean): void {
+    if (obsReconcileRetryTimer) {
+        clearTimeout(obsReconcileRetryTimer);
+        obsReconcileRetryTimer = null;
+    }
+    if (resetDelay) {
+        obsReconcileRetryDelayMs = OBS_RECONCILE_RETRY_MIN_MS;
+    }
+}
+
+function scheduleOBSReconciliationRetry(): void {
+    if (
+        obsReconcileRetryTimer ||
+        !dependencies ||
+        !dependencies.isOBSConnected()
+    ) {
+        return;
+    }
+    const delay = obsReconcileRetryDelayMs;
+    obsReconcileRetryDelayMs = Math.min(
+        obsReconcileRetryDelayMs * 2,
+        OBS_RECONCILE_RETRY_MAX_MS
+    );
+    obsReconcileRetryTimer = setTimeout(() => {
+        obsReconcileRetryTimer = null;
+        void handleOBSConnected().catch((error) =>
+            console.warn('[SceneSwitcher] OBS reconciliation retry failed:', error)
+        );
+    }, delay);
+}
+
+function reconcileHealthyOBSConnection(reason: string): void {
+    if (
+        obsConnected ||
+        startupSceneSyncPending ||
+        !dependencies?.isOBSConnected()
+    ) {
+        return;
+    }
+    void handleOBSConnected().catch((error) =>
+        console.warn(`[SceneSwitcher] Failed to reconcile ${reason}:`, error)
+    );
+}
+
 export function configureWindowSceneSwitcherRuntime(
     nextDependencies: WindowSceneSwitcherRuntimeDependencies
 ): void {
@@ -598,6 +646,7 @@ export function handleForegroundWindowSnapshot(snapshot: ForegroundWindowSnapsho
         hookError = '';
     }
     if (isOwnWindowProcess(snapshot.pid)) {
+        reconcileHealthyOBSConnection('after a foreground-window event');
         notifyStateChanged();
         return;
     }
@@ -619,6 +668,7 @@ export function handleForegroundWindowSnapshot(snapshot: ForegroundWindowSnapsho
         resolvedConflictContextKey = '';
         cancelPendingConflict(false);
     }
+    reconcileHealthyOBSConnection('after a foreground-window event');
     scheduleEvaluation();
     notifyStateChanged();
 }
@@ -637,9 +687,10 @@ export function setForegroundWindowHookStatus(
 }
 
 export async function handleOBSConnected(): Promise<void> {
-    if (!dependencies) {
+    if (!dependencies || startupSceneSyncPending) {
         return;
     }
+    clearOBSReconcileRetry(false);
     // OBS may emit its initial program-scene event while we are still loading
     // the collection. Keep automatic switching inactive during that window so
     // the startup event is not mistaken for a user's manual scene override.
@@ -647,31 +698,43 @@ export async function handleOBSConnected(): Promise<void> {
     startupSceneSyncToken = syncToken;
     obsConnected = false;
     startupSceneSyncPending = true;
-    const collectionName = await dependencies.getCurrentCollectionName();
-    if (syncToken !== startupSceneSyncToken) {
-        return;
+    try {
+        const collectionName = await dependencies.getCurrentCollectionName();
+        if (syncToken !== startupSceneSyncToken) {
+            return;
+        }
+        activeCollectionName = collectionName;
+        const scenes = await dependencies.getScenes();
+        if (syncToken !== startupSceneSyncToken) {
+            return;
+        }
+        if (scenes !== null) {
+            await reconcileWindowSceneSwitcherRules(scenes);
+        }
+        if (syncToken !== startupSceneSyncToken) {
+            return;
+        }
+        obsConnected = true;
+        clearOBSReconcileRetry(true);
+        dependencies.requestForegroundSnapshot();
+        scheduleEvaluation();
+        notifyStateChanged();
+    } catch (error) {
+        if (syncToken === startupSceneSyncToken) {
+            obsConnected = false;
+            startupSceneSyncPending = false;
+            scheduleOBSReconciliationRetry();
+            notifyStateChanged();
+        }
+        throw error;
     }
-    activeCollectionName = collectionName;
-    const scenes = await dependencies.getScenes();
-    if (syncToken !== startupSceneSyncToken) {
-        return;
-    }
-    if (scenes !== null) {
-        await reconcileWindowSceneSwitcherRules(scenes);
-    }
-    if (syncToken !== startupSceneSyncToken) {
-        return;
-    }
-    obsConnected = true;
-    dependencies.requestForegroundSnapshot();
-    scheduleEvaluation();
-    notifyStateChanged();
 }
 
 export function handleOBSDisconnected(): void {
     startupSceneSyncToken += 1;
     obsConnected = false;
     startupSceneSyncPending = false;
+    clearOBSReconcileRetry(true);
     cancelPendingConflict(false);
     notifyStateChanged();
 }
@@ -918,6 +981,7 @@ export function shutdownWindowSceneSwitcher(): void {
         clearTimeout(settleTimer);
         settleTimer = null;
     }
+    clearOBSReconcileRetry(true);
     pendingConflict = null;
     closeConflictWindow();
 }

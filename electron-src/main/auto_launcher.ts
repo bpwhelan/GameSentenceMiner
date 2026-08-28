@@ -22,6 +22,7 @@ import {
     getSteamGames,
     getTextractorPath32,
     getTextractorPath64,
+    getYuzuGamesConfig,
     runtimeState,
     upsertSceneLaunchProfile
 } from './store.js';
@@ -30,11 +31,10 @@ import { exec, ChildProcess, spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import {
-    isHighConfidenceScriptMatch,
+    findAgentScriptById,
     isSwitchEmulatorTarget,
     resolveSwitchAgentScript
 } from './agent_script_resolver.js';
-import type { SwitchScriptResolutionResult } from './agent_script_resolver.js';
 import {
     getProfileFor,
     getRuntimeStatus,
@@ -1216,7 +1216,8 @@ export class AutoLauncher {
             return false;
         }
 
-        if (this.isSwitchEmulatorExecutable(exeName)) {
+        const yuzuGame = this.getSwitchGameForScene(currentScene);
+        if (yuzuGame?.id && this.isSwitchEmulatorExecutable(exeName)) {
             const emuProcessName = exeName.trim();
             const precheckPid = await this.getPidByProcessName(emuProcessName);
             if (precheckPid > 0) {
@@ -1224,19 +1225,7 @@ export class AutoLauncher {
                 this.currentPollingInterval = this.fastPollingInterval;
             }
 
-            const windowTitle = await this.resolveSceneWindowTitle(
-                currentScene,
-                emuProcessName,
-                precheckPid > 0 ? precheckPid : undefined
-            );
-            const resolution = resolveSwitchAgentScript({
-                scriptsPath: getAgentScriptsPath(),
-                processName: emuProcessName,
-                windowTitle,
-                sceneName: currentScene.name,
-                explicitGameId: null,
-            });
-            const scriptPath = this.getAutoLaunchableSwitchScriptPath(resolution);
+            const scriptPath = findAgentScriptById(getAgentScriptsPath(), yuzuGame.id);
             if (scriptPath) {
                 const validateSwitchContext = this.createSwitchContextValidator(
                     currentScene,
@@ -1257,7 +1246,7 @@ export class AutoLauncher {
                 await this.handleGame(
                     emuProcessName,
                     scriptPath,
-                    this.getSwitchGameTrackingId(scriptPath, resolution.titleId),
+                    this.getSwitchGameTrackingId(scriptPath, yuzuGame.id),
                     0,
                     validateSwitchContext
                 );
@@ -1279,35 +1268,16 @@ export class AutoLauncher {
         return isSwitchEmulatorTarget(exeName, null);
     }
 
-    private getAutoLaunchableSwitchScriptPath(
-        resolution: SwitchScriptResolutionResult
-    ): string | null {
-        if (!resolution.path || !resolution.isSwitchTarget) {
-            return null;
-        }
-
-        if (
-            resolution.reason === "matched_explicit_id" ||
-            resolution.reason === "matched_title_id" ||
-            resolution.reason === "matched_name"
-        ) {
-            return resolution.path;
-        }
-
-        if (resolution.reason !== "matched_fuzzy_name") {
-            return null;
-        }
-
-        const selectedCandidate = resolution.candidates.find(
-            (candidate) => candidate.path === resolution.path
-        );
-        if (!selectedCandidate) {
-            return null;
-        }
-
-        return isHighConfidenceScriptMatch(selectedCandidate.score)
-            ? resolution.path
-            : null;
+    private getSwitchGameForScene(currentScene: ObsScene) {
+        return getYuzuGamesConfig().find((game) => {
+            if (!game.scene) {
+                return false;
+            }
+            if (game.scene.id === currentScene.id) {
+                return true;
+            }
+            return game.scene.name === currentScene.name;
+        });
     }
 
     private getSwitchGameTrackingId(scriptPath: string, titleId: string | null): string {
@@ -1379,15 +1349,21 @@ export class AutoLauncher {
             }
         }
 
+        const yuzuGame = this.getSwitchGameForScene(currentScene);
         const windowTitle = await this.resolveSceneWindowTitle(currentScene, exeName);
         const resolution = resolveSwitchAgentScript({
             scriptsPath: getAgentScriptsPath(),
             processName: exeName,
             windowTitle,
             sceneName: currentScene.name,
-            explicitGameId: null,
+            explicitGameId: yuzuGame?.id ?? null,
         });
-        const resolvedScriptPath = this.getAutoLaunchableSwitchScriptPath(resolution);
+        const isTrustedSwitchMatch = yuzuGame?.id
+            ? resolution.reason === "matched_explicit_id"
+            : resolution.reason === "matched_title_id";
+        const resolvedScriptPath = resolution.isSwitchTarget && isTrustedSwitchMatch
+            ? resolution.path
+            : null;
 
         if (!resolvedScriptPath) {
             return null;

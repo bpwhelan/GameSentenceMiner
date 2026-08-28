@@ -384,4 +384,44 @@ describe("window scene switcher startup synchronization", () => {
     expect(switchScene).not.toHaveBeenCalled();
     service.shutdownWindowSceneSwitcher();
   });
+
+  it("retries reconciliation when OBS is connected but still initializing", async () => {
+    const service = await loadService();
+    const switchScene = vi.fn(async () => {});
+    const getCurrentCollectionName = vi.fn()
+      .mockRejectedValueOnce(new Error("OBS is still initializing"))
+      .mockResolvedValue("Games");
+    const requestForegroundSnapshot = vi.fn(() => {
+      service.handleForegroundWindowSnapshot({
+        hwnd: "1234",
+        pid: 999_999,
+        title: "Steins;Gate",
+        executableName: "game.exe",
+        capturedAt: Date.now(),
+        sequence: 1,
+      });
+    });
+    const runtime = {
+      isOBSConnected: () => true,
+      getCurrentCollectionName,
+      getScenes: async () => [
+        { id: "scene-other", name: "Other" },
+        { id: "scene-game", name: "Steins;Gate" },
+      ],
+      getCurrentScene: async () => ({ id: "scene-other", name: "Other" }),
+      switchScene,
+      suggestRule: async () => null,
+      restoreForegroundWindow: () => {},
+      requestForegroundSnapshot,
+    };
+
+    service.configureWindowSceneSwitcherRuntime(runtime);
+    await vi.advanceTimersByTimeAsync(1_200);
+
+    expect(getCurrentCollectionName).toHaveBeenCalledTimes(2);
+    expect(requestForegroundSnapshot).toHaveBeenCalledOnce();
+    expect(switchScene).toHaveBeenCalledOnce();
+    expect(switchScene).toHaveBeenCalledWith("scene-game");
+    service.shutdownWindowSceneSwitcher();
+  });
 });

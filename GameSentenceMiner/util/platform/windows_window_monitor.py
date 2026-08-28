@@ -43,6 +43,23 @@ WM_QUIT = 0x0012
 _UWP_TARGET_CLASSES = {"Windows.UI.Core.CoreWindow", "ApplicationFrameWindow"}
 _UWP_HOST_CLASS = "ApplicationFrameWindow"
 
+# Eden and Yuzu expose their settings dialog as another top-level Qt window owned by the
+# same executable as the game. It must never be selected as the OCR/window-capture target.
+_EDEN_YUZU_EXECUTABLES = {"eden.exe", "yuzu.exe"}
+_EDEN_YUZU_CONFIGURATION_TITLE_PREFIXES = ("eden configuration", "yuzu configuration")
+
+
+def _is_eden_yuzu_configuration_window(window_exe: str, window_title: str) -> bool:
+    if not any(_exe_names_match(window_exe, executable) for executable in _EDEN_YUZU_EXECUTABLES):
+        return False
+
+    normalized_title = " ".join((window_title or "").split()).casefold()
+    return any(
+        normalized_title == prefix or normalized_title.startswith(f"{prefix} ")
+        for prefix in _EDEN_YUZU_CONFIGURATION_TITLE_PREFIXES
+    )
+
+
 # Curated set of keys the overlay is allowed to forward to the target game window.
 # name -> (virtual-key code, scan code, is_extended). Literal VK codes are used so this
 # table is safe to build at import time on non-Windows. Kept small/explicit on purpose:
@@ -613,6 +630,8 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         window_exe = self._get_window_exe_name(hwnd)
         if not window_exe:
             return False
+        if _is_eden_yuzu_configuration_window(window_exe, self._get_window_title(hwnd)):
+            return False
         return _exe_names_match(window_exe, target_exe)
 
     def _is_overlay_window(self, hwnd) -> bool:
@@ -933,6 +952,8 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             if tgt_exe:
                 window_exe = self._get_window_exe_name(hwnd)
                 if _exe_name_matches_set(window_exe, self.EXCLUDED_EXES):
+                    return True
+                if _is_eden_yuzu_configuration_window(window_exe, self._get_window_title(hwnd)):
                     return True
                 if _exe_names_match(window_exe, tgt_exe):
                     self.found_hwnds.append(hwnd)

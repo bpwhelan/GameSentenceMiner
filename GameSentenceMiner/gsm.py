@@ -106,6 +106,7 @@ try:
     )
     from GameSentenceMiner.util.platform.hotkey import hotkey_manager
     from GameSentenceMiner.util.text_log import (
+        MAX_PREVIOUS_LINES,
         TextSource,
         game_log,
         get_all_lines,
@@ -464,6 +465,7 @@ class GSMApplication:
         self._obs_connect_task: Optional[asyncio.Task] = None
         self._obs_launch_thread: Optional[threading.Thread] = None
         self._shutdown_lock = threading.Lock()
+        self._settings_window_lock = threading.Lock()
         self._shutdown_requested = False
         self._shutdown_thread: Optional[threading.Thread] = None
         self.foreground_window_hook = None
@@ -589,11 +591,33 @@ class GSMApplication:
 
     def open_settings(self, *args, root_tab_key: str = "", subtab_key: str = "") -> None:
         obs.update_current_game()
-        if self.state.settings_window:
-            self.state.settings_window.show_window(
-                root_tab_key=root_tab_key,
-                subtab_key=subtab_key,
-            )
+        settings_window = self._ensure_settings_window()
+        settings_window.show_window(
+            root_tab_key=root_tab_key,
+            subtab_key=subtab_key,
+        )
+
+    def _ensure_settings_window(self):
+        """Create the heavy ConfigWindow only when something needs to show it."""
+        lock = getattr(self, "_settings_window_lock", None)
+        if lock is None:
+            lock = threading.Lock()
+            self._settings_window_lock = lock
+        with lock:
+            if self.state.settings_window is not None:
+                return self.state.settings_window
+            qt_main = _get_qt_main_module()
+            getter = getattr(qt_main, "get_config_window_threadsafe", None)
+            if getter is None:
+                getter = qt_main.get_config_window
+            settings_window = getter()
+            self.state.settings_window = settings_window
+            gsm_state.config_app = settings_window
+            settings_window.add_save_hook(self.register_hotkeys)
+            settings_window.add_save_hook(self.on_config_changed)
+            if hasattr(settings_window, "add_profile_change_hook"):
+                settings_window.add_profile_change_hook(self._handle_manual_profile_change)
+            return settings_window
 
     def play_most_recent_audio(self) -> None:
         if (get_config().advanced.audio_player_path or get_config().advanced.video_player_path) and len(
@@ -979,7 +1003,7 @@ class GSMApplication:
             if not game_log.previous_lines:
                 self.get_previous_lines_for_game()
         elif game_log.previous_lines:
-            game_log.previous_lines = set()
+            game_log.clear_previous_lines()
             logger.info("Cleared previous line recycle cache because overlay previous-line checking is disabled.")
 
     def initialize(self, reloading: bool = False) -> None:
@@ -1376,19 +1400,21 @@ class GSMApplication:
     def get_previous_lines_for_game(self) -> None:
         if not _is_overlay_previous_line_check_enabled():
             if game_log.previous_lines:
-                game_log.previous_lines = set()
+                game_log.clear_previous_lines()
                 logger.info("Cleared previous line recycle cache because overlay previous-line checking is disabled.")
             return
 
-        previous_lines = set()
         try:
-            all_lines = db.GameLinesTable.get_all_lines_for_scene(obs.get_current_scene())
-            for line in all_lines:
-                normalized_line = normalize_text_for_comparison(getattr(line, "line_text", ""))
-                if normalized_line:
-                    previous_lines.add(normalized_line)
-            game_log.previous_lines = previous_lines
-            logger.info(f"Loaded {len(previous_lines)} previous lines for game '{obs.get_current_game()}'")
+            all_lines = db.GameLinesTable.get_all_lines_for_scene(
+                obs.get_current_scene(),
+                limit=MAX_PREVIOUS_LINES,
+            )
+            game_log.replace_previous_lines(
+                normalized_line
+                for line in all_lines
+                if (normalized_line := normalize_text_for_comparison(getattr(line, "line_text", "")))
+            )
+            logger.info(f"Loaded {len(game_log.previous_lines)} previous lines for game '{obs.get_current_game()}'")
         except Exception as e:
             logger.debug(f"Error getting previous lines for game: {e}")
 
@@ -1624,16 +1650,14 @@ class GSMApplication:
 
         qt_main = _get_qt_main_module()
         qt_main.get_qt_app()
-
-        self.state.settings_window = qt_main.get_config_window()
         gsm_state.config_app = self.state.settings_window
+        gsm_state.config_app_factory = self._ensure_settings_window
+        open_config_on_startup = get_config().general.open_config_on_startup
+        if open_config_on_startup:
+            self._ensure_settings_window()
 
         self.start_background_threads()
         self.register_hotkeys()
-        self.state.settings_window.add_save_hook(self.register_hotkeys)
-        self.state.settings_window.add_save_hook(self.on_config_changed)
-        if hasattr(self.state.settings_window, "add_profile_change_hook"):
-            self.state.settings_window.add_profile_change_hook(self._handle_manual_profile_change)
 
         post_init = self.state.transport_runtime.submit(self.post_init_async())
         post_init.result()
@@ -1672,7 +1696,7 @@ class GSMApplication:
         send_message(FunctionName.INITIALIZED.value, {"status": "ready"})
         self._start_thread(self._announce_startup_ready, "startup-ready-announcer")
         qt_main.schedule_default_config_changes_if_needed(parent=self.state.settings_window)
-        qt_main.start_qt_app(show_config_immediately=get_config().general.open_config_on_startup)
+        qt_main.start_qt_app(show_config_immediately=open_config_on_startup)
 
 
 def main() -> None:
