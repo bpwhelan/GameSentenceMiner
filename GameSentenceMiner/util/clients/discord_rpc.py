@@ -145,7 +145,7 @@ class DiscordRPCManager:
             self.rpc_thread = threading.Thread(
                 target=self._run,
                 name="gsm-discord-actor",
-                daemon=False,
+                daemon=True,
             )
             self.rpc_thread.start()
             logger.info("Discord RPC thread started.")
