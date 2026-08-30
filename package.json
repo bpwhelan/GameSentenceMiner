@@ -1,7 +1,7 @@
 {
   "name": "gamesentenceminer",
   "productName": "GameSentenceMiner",
-  "version": "2026.8.2",
+  "version": "2026.8.3",
   "description": "GameSentenceMiner",
   "main": "dist/main/bootstrap.js",
   "desktopName": "com.beangate.gamesentenceminer.desktop",
