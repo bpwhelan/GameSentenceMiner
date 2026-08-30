@@ -1,10 +1,15 @@
+import asyncio
+import json
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 
 import pytest
 
 from GameSentenceMiner.web.remote_play import (
     RemoteInputGate,
     RemotePlayAccess,
+    RemotePlaySessionManager,
+    is_remote_play_origin_allowed,
     map_letterboxed_pointer,
 )
 
@@ -44,6 +49,10 @@ def test_remote_play_access_uses_an_expiring_token(monkeypatch):
 class FakeInputBackend:
     events: list[tuple[str, dict]] = field(default_factory=list)
     release_count: int = 0
+    available: bool = True
+
+    def prepare(self) -> bool:
+        return True
 
     def dispatch(self, event_type: str, payload: dict) -> bool:
         self.events.append((event_type, payload))
@@ -78,3 +87,92 @@ def test_input_gate_teardown_releases_held_input(reason):
 
     assert gate.enabled is False
     assert backend.release_count == 1
+
+
+class FakeWebsocket:
+    def __init__(self, messages=(), *, origin="http://localhost:7275", host="localhost:7275"):
+        self.request = SimpleNamespace(headers={"Origin": origin, "Host": host})
+        self._messages = iter(messages)
+        self.sent = []
+        self.closed = None
+
+    async def recv(self):
+        return next(self._messages)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        try:
+            return next(self._messages)
+        except StopIteration as error:
+            raise StopAsyncIteration from error
+
+    async def send(self, message):
+        self.sent.append(json.loads(message))
+
+    async def close(self, code, reason):
+        self.closed = (code, reason)
+
+
+def test_remote_play_origin_must_match_the_public_host():
+    assert is_remote_play_origin_allowed("http://localhost:7275", "localhost:7275") is True
+    assert is_remote_play_origin_allowed("https://gsm.example.test", "gsm.example.test") is True
+    assert is_remote_play_origin_allowed("https://attacker.example", "gsm.example.test") is False
+    assert is_remote_play_origin_allowed(None, "localhost:7275") is False
+
+
+def test_signaling_rejects_an_invalid_token():
+    manager = RemotePlaySessionManager()
+    websocket = FakeWebsocket([json.dumps({"type": "authenticate", "token": "invalid"})])
+
+    asyncio.run(manager.handle_connection(websocket))
+
+    assert websocket.closed == (1008, "Authentication failed")
+    assert manager.has_client() is False
+
+
+def test_signaling_rejects_a_second_client():
+    manager = RemotePlaySessionManager()
+    token = manager.access.issue_token()
+    existing_client = object()
+    manager._active_websocket = existing_client
+    websocket = FakeWebsocket([json.dumps({"type": "authenticate", "token": token})])
+
+    asyncio.run(manager.handle_connection(websocket))
+
+    assert websocket.closed == (1013, "Remote play already has an active client")
+    assert manager._active_websocket is existing_client
+
+
+def test_session_cleanup_stops_peer_media_and_input():
+    class FakePeer:
+        closed = False
+
+        async def close(self):
+            self.closed = True
+
+    class FakeMedia:
+        stopped = False
+
+        async def stop(self):
+            self.stopped = True
+
+    websocket = object()
+    backend = FakeInputBackend()
+    gate = RemoteInputGate(backend)
+    gate.set_enabled(True)
+    peer = FakePeer()
+    media = FakeMedia()
+    manager = RemotePlaySessionManager()
+    manager._active_websocket = websocket
+    manager._input_gate = gate
+    manager._peer = peer
+    manager._media = media
+
+    asyncio.run(manager._cleanup(websocket))
+
+    assert peer.closed is True
+    assert media.stopped is True
+    assert backend.release_count == 1
+    assert manager.has_client() is False
