@@ -61,6 +61,37 @@ LIVE_AREA_SAVED_MARKER = "GSM_AREA_SAVED"
 OBS_SELECTOR_CAPTURE_RETRY_COUNT = 1
 OBS_SELECTOR_SCREENSHOT_RETRY_COUNT = 3
 OBS_SELECTOR_SCREENSHOT_RETRY_DELAY_SECONDS = 1.0
+SELECTOR_WINDOW_WORK_AREA_RATIO = 0.98
+WINDOW_MANAGER_FRAME_TOLERANCE = 32
+
+
+def _fit_selector_window_to_available_geometry(
+    image_width,
+    image_height,
+    toolbar_height,
+    available_geometry,
+):
+    """Fit the complete selector client area inside the screen work area."""
+    if not available_geometry or image_width <= 0 or image_height <= 0:
+        return image_width, image_height + toolbar_height
+
+    max_window_width = max(1, int(available_geometry.width() * SELECTOR_WINDOW_WORK_AREA_RATIO))
+    max_window_height = max(1, int(available_geometry.height() * SELECTOR_WINDOW_WORK_AREA_RATIO))
+    max_image_height = max(1, max_window_height - toolbar_height)
+    scale = min(1.0, max_window_width / image_width, max_image_height / image_height)
+    fitted_width = max(1, round(image_width * scale))
+    fitted_image_height = max(1, round(image_height * scale))
+    return fitted_width, toolbar_height + fitted_image_height
+
+
+def _size_reaches_available_geometry(size, available_geometry):
+    """Detect a maximize/snap resize before Qt's window state catches up."""
+    if not available_geometry:
+        return False
+    return (
+        size.width() >= available_geometry.width() - WINDOW_MANAGER_FRAME_TOLERANCE
+        or size.height() >= available_geometry.height() - WINDOW_MANAGER_FRAME_TOLERANCE
+    )
 
 
 class AreaSelectorCancelled(Exception):
@@ -994,6 +1025,15 @@ class OWOCRAreaSelectorWidget(QWidget):
             # Disable resizing for the precise monitor/overlay placement modes.
             self.setFixedSize(win_w, win_h)
         else:
+            # The capture was fitted before the embedded toolbar existed. Fit
+            # the complete client area again so its frame stays above panels,
+            # docks and taskbars even before the user maximizes the window.
+            win_w, win_h = _fit_selector_window_to_available_geometry(
+                self.base_width,
+                self.base_height,
+                toolbar_h,
+                self.reference_screen_geometry,
+            )
             # Keep the minimum proportional so aspect-locked resize can't fight it.
             aspect = self.base_width / self.base_height if self.base_height else (4 / 3)
             min_w = 320
@@ -1088,7 +1128,9 @@ class OWOCRAreaSelectorWidget(QWidget):
     def resizeEvent(self, event):
         # Rectangles live in base coords, so a resize only needs to re-pin the
         # toolbar and repaint at the new display scale.
-        if not self._primary_only_mode():
+        screen = self.screen()
+        available_geometry = screen.availableGeometry() if screen else self.reference_screen_geometry
+        if not self._primary_only_mode() and not _size_reaches_available_geometry(event.size(), available_geometry):
             self._enforce_aspect_ratio()
         if self.toolbar:
             self.toolbar.reposition()

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCR Area Selector · GameSentenceMiner</title>
+    <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/ocr-area-selector.css') }}">
+</head>
+<body>
+    <header class="app-header">
+        <div class="brand-block">
+            <a class="back-link" href="/tools" aria-label="Back to tools">←</a>
+            <div>
+                <h1>OCR Area Selector</h1>
+                <p>Edit OCR capture regions from any browser connected to this GSM server.</p>
+            </div>
+        </div>
+        <div class="config-controls">
+            <label for="configSelect">OCR config</label>
+            <select id="configSelect" aria-label="OCR config"></select>
+            <button id="refreshConfigsButton" class="icon-button" type="button" title="Refresh config list">↻</button>
+            <button id="newConfigButton" type="button">New config</button>
+            <button id="saveButton" class="primary-button" type="button">Save areas</button>
+        </div>
+    </header>
+
+    <nav class="editor-toolbar" aria-label="Area selector tools">
+        <div class="tool-group mode-group" aria-label="Drawing mode">
+            <span class="group-label">Draw</span>
+            <button class="mode-button active" data-mode="normal" type="button"><i class="mode-dot normal"></i>Normal</button>
+            <button class="mode-button" data-mode="exclusion" type="button"><i class="mode-dot exclusion"></i>Exclusion</button>
+            <button class="mode-button" data-mode="secondary" type="button"><i class="mode-dot secondary"></i>Secondary</button>
+            <button class="mode-button" data-mode="exclusive" type="button"><i class="mode-dot exclusive"></i>Exclusive</button>
+            <button class="mode-button" data-mode="black_hole" type="button"><i class="mode-dot black-hole"></i>Black hole</button>
+        </div>
+        <div class="tool-divider" aria-hidden="true"></div>
+        <div class="tool-group">
+            <button id="undoButton" type="button" title="Undo (Ctrl+Z)">↶ Undo</button>
+            <button id="redoButton" type="button" title="Redo (Ctrl+Y)">↷ Redo</button>
+            <button id="selectAllButton" type="button" title="Add an area covering the whole image">▣ All</button>
+            <button id="deleteButton" type="button" title="Delete selected area (Delete)">Delete</button>
+            <button id="clearButton" type="button">Clear</button>
+        </div>
+        <div class="toolbar-spacer"></div>
+        <div class="tool-group source-group">
+            <span id="sourceDimensions" class="source-dimensions">1920 × 1080</span>
+            <button id="captureButton" type="button">Capture OBS frame</button>
+            <button id="uploadButton" type="button">Open image</button>
+            <input id="imageInput" type="file" accept="image/*" hidden>
+        </div>
+    </nav>
+
+    <main class="editor-layout">
+        <section class="canvas-panel" aria-label="OCR area canvas">
+            <div id="canvasScroller" class="canvas-scroller">
+                <div id="canvasStage" class="canvas-stage">
+                    <canvas id="areaCanvas" tabindex="0" aria-label="Draw, move, and resize OCR areas"></canvas>
+                    <div id="canvasLoading" class="canvas-loading" hidden>
+                        <span class="spinner" aria-hidden="true"></span>
+                        <span>Capturing current frame…</span>
+                    </div>
+                </div>
+            </div>
+            <div class="canvas-footer">
+                <span>Drag empty space to draw. Shift + drag to draw over a box. Drag a box to move it.</span>
+                <span id="dirtyIndicator" class="dirty-indicator" hidden>Unsaved changes</span>
+            </div>
+        </section>
+
+        <aside class="areas-panel">
+            <div class="areas-heading">
+                <div>
+                    <span class="eyebrow">Current config</span>
+                    <h2 id="sceneName">No config loaded</h2>
+                </div>
+                <span id="areaCount" class="count-badge">0 areas</span>
+            </div>
+            <div id="overlayNotice" class="notice" hidden>
+                Overlay configs support normal and exclusion areas only.
+            </div>
+            <ol id="areaList" class="area-list"></ol>
+            <div id="emptyAreas" class="empty-state">
+                <div class="empty-icon">▱</div>
+                <strong>No OCR areas yet</strong>
+                <span>Choose a mode, then drag over the image.</span>
+            </div>
+            <details class="shortcuts">
+                <summary>Keyboard shortcuts</summary>
+                <dl>
+                    <div><dt>Shift + drag</dt><dd>Draw overlapping area</dd></div>
+                    <div><dt>Ctrl/⌘ + Z</dt><dd>Undo</dd></div>
+                    <div><dt>Ctrl/⌘ + Y</dt><dd>Redo</dd></div>
+                    <div><dt>Delete</dt><dd>Delete selected</dd></div>
+                    <div><dt>Ctrl/⌘ + S</dt><dd>Save</dd></div>
+                    <div><dt>Escape</dt><dd>Cancel drawing</dd></div>
+                </dl>
+            </details>
+        </aside>
+    </main>
+
+    <div id="statusToast" class="status-toast" role="status" aria-live="polite" hidden></div>
+    <script src="{{ url_for('static', filename='js/ocr-area-selector.js') }}" defer></script>
+</body>
+</html>
