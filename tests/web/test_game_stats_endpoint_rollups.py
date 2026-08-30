@@ -463,6 +463,7 @@ def test_game_stats_uses_raw_card_query_when_rollup_cards_missing(client, monkey
         tags=[],
         links=[],
         completed=False,
+        effective_status="Backlog",
         character_count=10000,
     )
 
@@ -570,6 +571,7 @@ def test_game_stats_rollup_query_starts_at_first_game_activity_date(client, monk
         tags=[],
         links=[],
         completed=False,
+        effective_status="Backlog",
         character_count=5000,
     )
 

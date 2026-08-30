@@ -97,9 +97,10 @@ describe('Linux desktop identity', () => {
                 LINUX_DESKTOP_NAME
             );
             const desktopEntry = fs.readFileSync(desktopEntryPath, 'utf8');
+            const escapedAppImagePath = appImagePath.replace(/[\\`"$]/g, '\\$&');
             expect(desktopEntry).toContain('Name=GameSentenceMiner');
             expect(desktopEntry).toContain(
-                `Exec="${appImagePath}" --no-sandbox %U`
+                `Exec="${escapedAppImagePath}" --no-sandbox %U`
             );
             expect(desktopEntry).toContain('NoDisplay=true');
             expect(desktopEntry).toContain('X-GSM-Portal-Identity=true');
