@@ -195,3 +195,90 @@ def test_overlay_recency_beats_expression_and_longer_match_for_nvl_ranking(monke
         )
         is newer_line
     )
+
+
+def test_overlay_nvl_uses_bold_context_to_rescue_latest_transliterated_line(monkeypatch):
+    monkeypatch.setattr(
+        text_log,
+        "get_config",
+        lambda: SimpleNamespace(anki=SimpleNamespace(sentence_field="Sentence", word_field="Expression")),
+    )
+    monkeypatch.setattr(text_log.gsm_state, "replay_buffer_length", 300, raising=False)
+
+    now = datetime.now()
+    earlier_line = text_log.GameLine(
+        id="earlier",
+        text="　ラクガキがちっとも見えない！」",
+        time=now - timedelta(seconds=2),
+        prev=None,
+        next=None,
+    )
+    latest_line = text_log.GameLine(
+        id="latest",
+        text=(
+            "あったりまえよ。わざわざ姉貴の所のMystic Eyes殺しを奪ってまで作った、"
+            "AozakiAoko渾身の一品なんだから。粗末に扱ったらただじゃおかないからね、志貴"
+        ),
+        time=now - timedelta(seconds=1),
+        prev=earlier_line,
+        next=None,
+    )
+    earlier_line.next = latest_line
+    fields = {
+        "Sentence": (
+            "「うわあ！すごい、すごいよ先生！ラクガキがちっとも見えない！」"
+            "「あったりまえよ。わざわざ<b>姉貴</b>の所の魔眼殺しを奪ってまで作った、"
+            "蒼崎青子渾身の一品なんだから。粗末に扱ったらただじゃおかないからね、志貴」"
+        ),
+        "Expression": "姉貴",
+    }
+    card = SimpleNamespace(get_field=lambda field: fields[field])
+
+    assert text_log.get_matching_line(card, [earlier_line, latest_line], prefer_recent=True) is latest_line
+
+
+def test_overlay_nvl_bold_occurrence_and_recency_beat_older_exact_expression_match(monkeypatch):
+    monkeypatch.setattr(
+        text_log,
+        "get_config",
+        lambda: SimpleNamespace(anki=SimpleNamespace(sentence_field="Sentence", word_field="Expression")),
+    )
+    monkeypatch.setattr(text_log.gsm_state, "replay_buffer_length", 300, raising=False)
+
+    now = datetime.now()
+    older_expression_line = text_log.GameLine(
+        id="older-expression",
+        text="姉貴が用意した古い眼鏡は、もうここにはない。",
+        time=now - timedelta(seconds=2),
+        prev=None,
+        next=None,
+    )
+    latest_expression_line = text_log.GameLine(
+        id="latest-expression",
+        text=(
+            "あったりまえよ。わざわざ姉貴の所のMystic Eyes殺しを奪ってまで作った、"
+            "AozakiAoko渾身の一品なんだから。粗末に扱ったらただじゃおかないからね、志貴"
+        ),
+        time=now - timedelta(seconds=1),
+        prev=older_expression_line,
+        next=None,
+    )
+    older_expression_line.next = latest_expression_line
+    fields = {
+        "Sentence": (
+            "「姉貴が用意した古い眼鏡は、もうここにはない。」"
+            "「あったりまえよ。わざわざ<b>姉貴</b>の所の魔眼殺しを奪ってまで作った、"
+            "蒼崎青子渾身の一品なんだから。粗末に扱ったらただじゃおかないからね、志貴」"
+        ),
+        "Expression": "姉貴",
+    }
+    card = SimpleNamespace(get_field=lambda field: fields[field])
+
+    assert (
+        text_log.get_matching_line(
+            card,
+            [older_expression_line, latest_expression_line],
+            prefer_recent=True,
+        )
+        is latest_expression_line
+    )

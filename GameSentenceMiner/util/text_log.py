@@ -1,13 +1,15 @@
-import rapidfuzz
 import threading
 import unicodedata
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from html.parser import HTMLParser
 from typing import Optional
 
-from GameSentenceMiner.util.config.configuration import logger, get_config, gsm_state
+import rapidfuzz
+
+from GameSentenceMiner.util.config.configuration import get_config, gsm_state, logger
 from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags
 from GameSentenceMiner.util.models.model import AnkiCard
 
@@ -327,6 +329,112 @@ def is_line_recycled(line_text: str) -> bool:
 
 CONTAINMENT_MIN_RATIO = 0.3
 CONTAINMENT_MIN_CHARS = 5
+HIGHLIGHT_CONTEXT_MIN_SCORE = 80
+
+
+class _HighlightedTextParser(HTMLParser):
+    """Collect plain Anki text and the exact spans wrapped in bold tags."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts = []
+        self.length = 0
+        self.bold_depth = 0
+        self.bold_start = None
+        self.bold_spans = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag.casefold() not in {"b", "strong"}:
+            return
+        if self.bold_depth == 0:
+            self.bold_start = self.length
+        self.bold_depth += 1
+
+    def handle_endtag(self, tag):
+        if tag.casefold() not in {"b", "strong"} or self.bold_depth == 0:
+            return
+        self.bold_depth -= 1
+        if self.bold_depth == 0 and self.bold_start is not None:
+            self.bold_spans.append((self.bold_start, self.length))
+            self.bold_start = None
+
+    def handle_data(self, data):
+        self.parts.append(data)
+        self.length += len(data)
+
+
+def _find_term_spans(text: str, term: str) -> list[tuple[int, int]]:
+    if not text or not term:
+        return []
+    spans = []
+    start = 0
+    while True:
+        index = text.find(term, start)
+        if index < 0:
+            return spans
+        spans.append((index, index + len(term)))
+        start = index + max(1, len(term))
+
+
+def _get_mined_expression_spans(
+    sentence_html: str,
+    expression: str,
+) -> tuple[str, list[tuple[int, int]], bool]:
+    """Return normalized sentence text and the mined expression's exact occurrence.
+
+    Yomitan marks the clicked expression with ``<b>``. That occurrence is more
+    reliable than looking for the same word anywhere in a combined NVL block. If
+    bold markup is unavailable, fall back to every occurrence of the word field.
+    """
+    parser = _HighlightedTextParser()
+    parser.feed(str(sentence_html or ""))
+    parser.close()
+    plain_sentence = "".join(parser.parts)
+    normalized_sentence = normalize_text_for_comparison(plain_sentence)
+
+    highlighted_spans = []
+    for raw_start, raw_end in parser.bold_spans:
+        normalized_start = len(normalize_text_for_comparison(plain_sentence[:raw_start]))
+        normalized_end = len(normalize_text_for_comparison(plain_sentence[:raw_end]))
+        if normalized_end > normalized_start:
+            highlighted_spans.append((normalized_start, normalized_end))
+    if highlighted_spans:
+        return normalized_sentence, highlighted_spans, True
+
+    normalized_expression = normalize_text_for_comparison(expression)
+    return normalized_sentence, _find_term_spans(normalized_sentence, normalized_expression), False
+
+
+def _highlight_context_score(
+    line_text: str,
+    normalized_sentence: str,
+    expression_spans: list[tuple[int, int]],
+) -> float:
+    """Score a line aligned around the exact expression occurrence in Anki.
+
+    Anchoring the comparison at the bold word isolates the relevant portion of a
+    combined NVL block without using ``partial_ratio``. It also tolerates OCR/text
+    hook substitutions such as ``Mystic Eyes`` versus ``魔眼``.
+    """
+    normalized_line = normalize_text_for_comparison(line_text)
+    if not normalized_line or not normalized_sentence:
+        return 0.0
+
+    best_score = 0.0
+    for sentence_start, sentence_end in expression_spans:
+        expression = normalized_sentence[sentence_start:sentence_end]
+        for line_start, _line_end in _find_term_spans(normalized_line, expression):
+            aligned_sentence_start = sentence_start - line_start
+            compared_line_start = max(0, -aligned_sentence_start)
+            compared_sentence_start = max(0, aligned_sentence_start)
+            compared_line = normalized_line[compared_line_start:]
+            compared_sentence = normalized_sentence[
+                compared_sentence_start : compared_sentence_start + len(compared_line)
+            ]
+            if min(len(compared_line), len(compared_sentence)) < max(CONTAINMENT_MIN_CHARS, len(expression)):
+                continue
+            best_score = max(best_score, rapidfuzz.fuzz.ratio(compared_line, compared_sentence))
+    return best_score
 
 
 def _is_contained(needle: str, haystack: str) -> bool:
@@ -421,12 +529,18 @@ def get_matching_line(last_note: AnkiCard, lines=None, *, prefer_recent: bool = 
             # sentence still provides the same fallback behavior as before.
             expression = ""
     normalized_expression = normalize_text_for_comparison(expression)
+    normalized_context_sentence, mined_expression_spans, has_bold_expression = _get_mined_expression_spans(
+        sentence,
+        expression,
+    )
     time_window = datetime.now() - timedelta(seconds=gsm_state.replay_buffer_length) - timedelta(seconds=5)
 
     # Collect every valid candidate before ranking. A short recycled fragment
     # (e.g. "性質を……入れ替える？") can be contained in a longer mined sentence,
     # while an NVL sentence can legitimately contain several sequential events.
     candidates = []
+    expression_context_candidates = []
+    expression_context_scores = {}
     for line in reversed(lines):
         if line.time < time_window:
             # Authoritative stream order is independent of capture time. A slow
@@ -435,12 +549,33 @@ def get_matching_line(last_note: AnkiCard, lines=None, *, prefer_recent: bool = 
             continue
         if lines_match(line.text, anki_sentence):
             candidates.append(line)
+        context_score = _highlight_context_score(
+            line.text,
+            normalized_context_sentence,
+            mined_expression_spans,
+        )
+        if context_score >= HIGHLIGHT_CONTEXT_MIN_SCORE:
+            expression_context_candidates.append(line)
+            expression_context_scores[line.id] = context_score
 
     # Overlay scans of NVL games often put every visible line into the Anki sentence.
-    # In that mode stream recency must outrank both expression containment and match
-    # size: otherwise a longer older line containing the clicked expression can win.
-    if prefer_recent and candidates:
-        return candidates[0]
+    # First isolate lines fitting the exact bold expression occurrence, including
+    # OCR/text-hook variants that fail the whole-block similarity threshold. Within
+    # that strong match class stream recency is decisive. Only then fall back to the
+    # newest ordinary sentence match.
+    if prefer_recent:
+        if has_bold_expression and expression_context_candidates:
+            return expression_context_candidates[0]
+        if candidates:
+            return candidates[0]
+        if expression_context_candidates:
+            return expression_context_candidates[0]
+
+    # Outside overlay mode, the bold word and its surrounding text remain the
+    # strongest discriminator. This also admits a context-aligned candidate that
+    # could not match an entire combined NVL block on its own.
+    if has_bold_expression and expression_context_candidates:
+        candidates = expression_context_candidates
 
     # For normal mining, the clicked expression is the strongest discriminator. Only
     # enforce it when it occurs literally in the Anki sentence and at least one
@@ -455,7 +590,7 @@ def get_matching_line(last_note: AnkiCard, lines=None, *, prefer_recent: bool = 
     best_line = None
     best_score = -1.0
     for line in candidates:
-        score = _match_score(line.text, anki_sentence)
+        score = expression_context_scores.get(line.id, _match_score(line.text, anki_sentence))
         if score > best_score:
             best_score = score
             best_line = line
