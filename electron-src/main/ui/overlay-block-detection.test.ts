@@ -51,11 +51,141 @@ function makeLine(
 }
 
 const {
+  createRecentBlockHistory,
   detectTextBlocks,
   insertBlockSeparatorAfter
 } = loadBlockDetectionModule();
 
 describe("overlay block detection", () => {
+  it("splits the reported two-line NVL sequence across line IDs", () => {
+    const history = createRecentBlockHistory();
+    const previousLine = makeLine(
+      "「それじゃあお別れね。バイ、志貴。",
+      0.05,
+      0.08,
+      0.88,
+      0.16
+    );
+    detectTextBlocks([previousLine], undefined, history, { resultKey: "line-1" });
+
+    const result = detectTextBlocks(
+      [
+        previousLine,
+        makeLine(
+          "どんな人間だって人生ってのは落とし穴だらけなのよ。",
+          0.07,
+          0.20,
+          0.90,
+          0.28
+        ),
+      ],
+      undefined,
+      history,
+      { resultKey: "line-2" }
+    );
+
+    expect(result.blockCount).toBe(2);
+    expect(result.lineBlocks.get(0)).not.toBe(result.lineBlocks.get(1));
+  });
+
+  it("preserves a previous NVL block and starts a new block for appended text", () => {
+    const history = createRecentBlockHistory();
+    const firstFrame: OverlayLine[] = [
+      makeLine("古い台詞、その一。", 0.08, 0.60, 0.70, 0.66),
+      makeLine("古い台詞、その二。", 0.08, 0.68, 0.70, 0.74),
+    ];
+
+    const firstResult = detectTextBlocks(firstFrame, undefined, history);
+
+    expect(firstResult.blockCount).toBe(1);
+    expect(history.getRawTexts()).toEqual([
+      "古い台詞、その一。古い台詞、その二。"
+    ]);
+
+    const secondFrame: OverlayLine[] = [
+      ...firstFrame,
+      makeLine("新しい台詞、その一。", 0.08, 0.76, 0.70, 0.82),
+      makeLine("新しい台詞、その二。", 0.08, 0.84, 0.70, 0.90),
+    ];
+    const secondResult = detectTextBlocks(secondFrame, undefined, history);
+    const preservedBlockId = secondResult.lineBlocks.get(0);
+    const newBlockId = secondResult.lineBlocks.get(2);
+
+    expect(secondResult.blockCount).toBe(2);
+    expect(secondResult.lineBlocks.get(1)).toBe(preservedBlockId);
+    expect(secondResult.lineBlocks.get(3)).toBe(newBlockId);
+    expect(newBlockId).not.toBe(preservedBlockId);
+    expect(history.getRawTexts()).toEqual([
+      "古い台詞、その一。古い台詞、その二。",
+      "新しい台詞、その一。新しい台詞、その二。"
+    ]);
+
+    const thirdFrame: OverlayLine[] = [
+      ...secondFrame,
+      makeLine("さらに新しい台詞。", 0.08, 0.92, 0.70, 0.98),
+    ];
+    const thirdResult = detectTextBlocks(thirdFrame, undefined, history);
+
+    expect(thirdResult.blockCount).toBe(3);
+    expect(thirdResult.lineBlocks.get(0)).toBe(thirdResult.lineBlocks.get(1));
+    expect(thirdResult.lineBlocks.get(2)).toBe(thirdResult.lineBlocks.get(3));
+    expect(thirdResult.lineBlocks.get(4)).not.toBe(thirdResult.lineBlocks.get(3));
+  });
+
+  it("matches any of the five recent raw blocks and evicts the oldest", () => {
+    const history = createRecentBlockHistory();
+    for (const text of ["one", "two", "three", "four", "five", "six"]) {
+      history.remember(text);
+    }
+
+    expect(history.getRawTexts()).toEqual(["two", "three", "four", "five", "six"]);
+
+    const lines: OverlayLine[] = [
+      makeLine("three", 0.08, 0.70, 0.70, 0.76),
+      makeLine("brand-new", 0.08, 0.78, 0.70, 0.84),
+    ];
+    const result = detectTextBlocks(lines, undefined, history);
+
+    expect(result.blockCount).toBe(2);
+    expect(result.lineBlocks.get(0)).not.toBe(result.lineBlocks.get(1));
+  });
+
+  it("replaces retries for one line without matching partial text against itself", () => {
+    const history = createRecentBlockHistory();
+    const partialLines: OverlayLine[] = [
+      makeLine("partial OCR text", 0.08, 0.70, 0.70, 0.76),
+    ];
+    detectTextBlocks(partialLines, undefined, history, { resultKey: "line-1" });
+
+    const completedLines: OverlayLine[] = [
+      ...partialLines,
+      makeLine(" completed", 0.08, 0.78, 0.70, 0.84),
+    ];
+    const retryResult = detectTextBlocks(
+      completedLines,
+      undefined,
+      history,
+      { resultKey: "line-1" }
+    );
+
+    expect(retryResult.blockCount).toBe(1);
+    expect(history.getRawTexts()).toEqual(["partial OCR text completed"]);
+
+    const nextResult = detectTextBlocks(
+      [
+        ...completedLines,
+        makeLine("next line", 0.08, 0.86, 0.70, 0.92),
+      ],
+      undefined,
+      history,
+      { resultKey: "line-2" }
+    );
+
+    expect(nextResult.blockCount).toBe(2);
+    expect(nextResult.lineBlocks.get(0)).toBe(nextResult.lineBlocks.get(1));
+    expect(nextResult.lineBlocks.get(2)).not.toBe(nextResult.lineBlocks.get(1));
+  });
+
   it("merges stacked lines that are vertically close into one block", () => {
     const lines: OverlayLine[] = [
       makeLine("line-1", 0.04, 0.08, 0.52, 0.16),

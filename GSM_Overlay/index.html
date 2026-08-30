@@ -1595,10 +1595,12 @@ background: rgba(202, 12, 12, 0.692);
     throw new Error("block_detection.js failed to load");
   }
   const {
+    createRecentBlockHistory,
     detectTextBlocks,
     getMedianValue,
     insertBlockSeparatorAfter,
   } = BlockDetection;
+  const recentBlockHistory = createRecentBlockHistory();
   try {
     const MagpieUtils = require("./magpie.js");
     window.GSMMagpie = MagpieUtils;
@@ -3098,12 +3100,20 @@ background: rgba(202, 12, 12, 0.692);
           const renderGeneration = isSupplemental ? overlayRenderGeneration : ++overlayRenderGeneration;
           
           // FIRST PASS: Detect blocks by "general area" (y-first with soft x guards)
+          // OCR retries for one line may grow from partial to complete text. The
+          // line ID lets history replace that retry's snapshot without matching
+          // the partial text against itself.
           const {
             lineBlocks,
             blockBoundaries,
             blockMetadata,
             blockCount: currentBlockId,
-          } = detectTextBlocks(data.data);
+          } = detectTextBlocks(
+            data.data,
+            undefined,
+            isSupplemental ? null : recentBlockHistory,
+            { resultKey: data.line_id != null ? String(data.line_id) : null }
+          );
           const renderSignatureInfo = getOverlayTextRenderSignature(
             data.data,
             lineBlocks,

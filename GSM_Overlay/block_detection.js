@@ -31,6 +31,67 @@
     characterNameGapContrastRatio: 1.35,
     characterNameMinGapMultiplier: 0.35,
   });
+  const RECENT_BLOCK_HISTORY_LIMIT = 5;
+
+  function createRecentBlockHistory(maxEntries = RECENT_BLOCK_HISTORY_LIMIT) {
+    const limit = Number.isInteger(maxEntries) && maxEntries > 0
+      ? maxEntries
+      : RECENT_BLOCK_HISTORY_LIMIT;
+    let results = [];
+    let anonymousResultId = 0;
+
+    function remember(rawText, resultKey = null) {
+      if (typeof rawText !== 'string' || rawText.length === 0) {
+        return;
+      }
+      rememberAll([rawText], resultKey);
+    }
+
+    function rememberAll(texts, resultKey = null) {
+      const rawTexts = Array.from(new Set(
+        (Array.isArray(texts) ? texts : [])
+          .filter((text) => typeof text === 'string' && text.length > 0)
+      ));
+      if (rawTexts.length === 0) {
+        return;
+      }
+
+      // OCR retries share a line ID. Replace that result's snapshot so partial
+      // reads do not become separate history entries or match themselves.
+      const key = resultKey == null
+        ? `gsm-anonymous-block-result-${++anonymousResultId}`
+        : resultKey;
+      results = results.filter((result) => result.key !== key);
+      results.push({ key, rawTexts });
+      if (results.length > limit) {
+        results.splice(0, results.length - limit);
+      }
+    }
+
+    return {
+      clear() {
+        results = [];
+      },
+      getRawTexts(excludedResultKey = null) {
+        const rawTexts = [];
+        for (const result of results) {
+          if (excludedResultKey != null && result.key === excludedResultKey) {
+            continue;
+          }
+          for (const rawText of result.rawTexts) {
+            const existingIndex = rawTexts.indexOf(rawText);
+            if (existingIndex >= 0) {
+              rawTexts.splice(existingIndex, 1);
+            }
+            rawTexts.push(rawText);
+          }
+        }
+        return rawTexts;
+      },
+      remember,
+      rememberAll,
+    };
+  }
 
   // Empty space between two intervals on one axis (0 if they overlap).
   function getAxisGap(minA, maxA, minB, maxB) {
@@ -108,6 +169,87 @@
   function getVisibleTextSymbols(line) {
     const text = line && typeof line.text === 'string' ? line.text : '';
     return Array.from(text).filter((symbol) => !/\s/u.test(symbol));
+  }
+
+  function getBlockRawText(memberIndexes, lines) {
+    return memberIndexes
+      .slice()
+      .sort((a, b) => a - b)
+      .map((idx) => (
+        lines[idx] && typeof lines[idx].text === 'string' ? lines[idx].text : ''
+      ))
+      .join('');
+  }
+
+  function findRecentBlockMatchAt(orderedIndexes, start, lines, recentRawTexts) {
+    let candidateText = '';
+    let bestMatch = null;
+
+    for (let end = start; end < orderedIndexes.length; end++) {
+      const line = lines[orderedIndexes[end]];
+      candidateText += line && typeof line.text === 'string' ? line.text : '';
+      for (let historyIndex = recentRawTexts.length - 1; historyIndex >= 0; historyIndex--) {
+        if (candidateText !== recentRawTexts[historyIndex]) {
+          continue;
+        }
+        if (!bestMatch || candidateText.length > bestMatch.rawText.length) {
+          bestMatch = {
+            end: end + 1,
+            historyIndex,
+            rawText: candidateText,
+          };
+        }
+      }
+    }
+
+    return bestMatch;
+  }
+
+  // NVL games retain old dialogue and append new lines into the same nearby
+  // screen region. Geometry alone sees one connected component. Exact raw-text
+  // matches recover the boundaries detected on recent frames, leaving each
+  // unmatched run as a new block.
+  function splitComponentByRecentBlocks(component, lines, recentRawTexts) {
+    const orderedIndexes = component.memberIndexes.slice().sort((a, b) => a - b);
+    const usableRawTexts = (Array.isArray(recentRawTexts) ? recentRawTexts : [])
+      .filter((text) => typeof text === 'string' && text.length > 0);
+    if (orderedIndexes.length < 2 || usableRawTexts.length === 0) {
+      return [{ ...component, memberIndexes: orderedIndexes }];
+    }
+
+    const segments = [];
+    let cursor = 0;
+    while (cursor < orderedIndexes.length) {
+      const match = findRecentBlockMatchAt(
+        orderedIndexes,
+        cursor,
+        lines,
+        usableRawTexts
+      );
+      if (match) {
+        segments.push(orderedIndexes.slice(cursor, match.end));
+        cursor = match.end;
+        continue;
+      }
+
+      // Keep new consecutive lines together until the next known block. In the
+      // usual NVL append case there is no later match, so the entire new suffix
+      // becomes one block.
+      let nextKnownStart = cursor + 1;
+      while (
+        nextKnownStart < orderedIndexes.length
+        && !findRecentBlockMatchAt(orderedIndexes, nextKnownStart, lines, usableRawTexts)
+      ) {
+        nextKnownStart++;
+      }
+      segments.push(orderedIndexes.slice(cursor, nextKnownStart));
+      cursor = nextKnownStart;
+    }
+
+    return segments.map((memberIndexes) => ({
+      ...component,
+      memberIndexes,
+    }));
   }
 
   function isLikelyCharacterNamePrefix(memberIndexes, metrics, lines, floorUnit, tuning) {
@@ -206,7 +348,12 @@
     return { candidateIndex, bodyIndexes };
   }
 
-  function detectTextBlocks(lines, tuning = BLOCK_DETECTION_TUNING) {
+  function detectTextBlocks(
+    lines,
+    tuning = BLOCK_DETECTION_TUNING,
+    recentBlockHistory = null,
+    options = {}
+  ) {
     tuning = {
       ...BLOCK_DETECTION_TUNING,
       ...(tuning || {}),
@@ -302,7 +449,14 @@
     // Order blocks top-to-bottom, then left-to-right, then by original line
     // order. The gamepad layer uses the semantic role, not this visual order,
     // to choose the initial block.
-    const orderedComponents = semanticComponents
+    const recentRawTexts = recentBlockHistory
+      && typeof recentBlockHistory.getRawTexts === 'function'
+      ? recentBlockHistory.getRawTexts(options.resultKey)
+      : [];
+    const historyAwareComponents = semanticComponents.flatMap((component) => (
+      splitComponentByRecentBlocks(component, lines, recentRawTexts)
+    ));
+    const orderedComponents = historyAwareComponents
       .map((component) => ({
         ...component,
         top: Math.min(...component.memberIndexes.map((idx) => metrics[idx].y1)),
@@ -336,6 +490,15 @@
       blockMetadata.get(secondBlockId).relatedBlockId = firstBlockId;
     });
 
+    if (recentBlockHistory && typeof recentBlockHistory.rememberAll === 'function') {
+      recentBlockHistory.rememberAll(
+        orderedComponents.map((component) => (
+          getBlockRawText(component.memberIndexes, lines)
+        )),
+        options.resultKey
+      );
+    }
+
     return {
       lineBlocks,
       blockBoundaries,
@@ -363,14 +526,19 @@
 
   return {
     BLOCK_DETECTION_TUNING,
+    RECENT_BLOCK_HISTORY_LIMIT,
     areBoxesClose,
     buildLineMetrics,
+    createRecentBlockHistory,
     detectTextBlocks,
+    findRecentBlockMatchAt,
+    getBlockRawText,
     getVisibleTextSymbols,
     getAxisGap,
     getAxisOverlap,
     getMedianValue,
     isLikelyCharacterNamePrefix,
     insertBlockSeparatorAfter,
+    splitComponentByRecentBlocks,
   };
 }));
