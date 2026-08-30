@@ -89,7 +89,6 @@
     },
     "nsis": {
       "menuCategory": "GameSentenceMiner",
-      "oneClick": true,
       "runAfterFinish": true
     },
     "mac": {
