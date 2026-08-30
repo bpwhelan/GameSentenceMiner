@@ -669,7 +669,7 @@ export async function startAgentHookSession(options: StartAgentHookOptions): Pro
         const source = readAgentSource(loaderPath);
         const script = await fridaSession.createScript(source, {
             name: `GSM Agent: ${path.basename(scriptPath)}`,
-            runtime: ScriptRuntime.V8,
+            runtime: ScriptRuntime.QJS,
         });
         const current: AgentHookSession = {
             fridaSession,
