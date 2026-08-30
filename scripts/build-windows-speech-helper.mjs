@@ -13,11 +13,11 @@ if (process.platform !== 'win32') {
   process.exit(0);
 }
 
-execFileSync(
-  'cmake',
-  ['-S', helperRoot, '-B', buildRoot, '-G', 'Visual Studio 17 2022', '-A', 'x64'],
-  { cwd: repositoryRoot, stdio: 'inherit', windowsHide: true }
-);
+execFileSync('cmake', ['-S', helperRoot, '-B', buildRoot], {
+  cwd: repositoryRoot,
+  stdio: 'inherit',
+  windowsHide: true,
+});
 execFileSync(
   'cmake',
   [

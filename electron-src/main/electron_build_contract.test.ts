@@ -65,4 +65,15 @@ describe('Electron build configuration', () => {
         expect(packageJson.scripts?.['app:dist']).toContain('--publish=never');
         expect(packageJson.scripts?.['app:deploy']).toContain('--publish=always');
     });
+
+    it('lets CMake select the installed Visual Studio generator for Windows speech helpers', () => {
+        const repoRoot = process.cwd();
+        const buildScript = fs.readFileSync(
+            path.join(repoRoot, 'scripts', 'build-windows-speech-helper.mjs'),
+            'utf8',
+        );
+
+        expect(buildScript).not.toContain('Visual Studio 17 2022');
+        expect(buildScript).not.toContain("'-A', 'x64'");
+    });
 });
