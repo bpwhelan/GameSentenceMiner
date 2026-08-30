@@ -70,6 +70,11 @@ class FunctionName(Enum):
     # In-house text source lifecycle (pauses clipboard while active, like a websocket).
     OCR_STATUS = "ocr_status"
     TEXTHOOK_STATUS = "texthook_status"
+    WINDOWS_SPEECH_START = "windows_speech_start"
+    WINDOWS_SPEECH_STOP = "windows_speech_stop"
+    WINDOWS_SPEECH_GET_STATUS = "windows_speech_get_status"
+    WINDOWS_SPEECH_STATUS = "windows_speech_status"
+    WINDOWS_SPEECH_LOG = "windows_speech_log"
     FOREGROUND_WINDOW_CHANGED = "foreground_window_changed"
     FOREGROUND_WINDOW_HOOK_STATUS = "foreground_window_hook_status"
     REFRESH_FOREGROUND_WINDOW = "refresh_foreground_window"

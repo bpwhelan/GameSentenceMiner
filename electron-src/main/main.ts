@@ -27,6 +27,7 @@ import {
     execFileAsync,
     getAssetsDir,
     getRendererEntryPath,
+    getResourcesDir,
     resolvePreReleaseBranch,
     getSecureWebPreferences,
     getSanitizedPythonEnv,
@@ -1320,6 +1321,12 @@ async function showOcrHookRedundantDialog(): Promise<void> {
 }
 
 function handleBackendMessage(msg: BackendMessage): void {
+    if (msg.function === 'windows_speech_status') {
+        safeSendToMainWindow('speech-recognition.status', msg.data ?? {});
+    }
+    if (msg.function === 'windows_speech_log') {
+        safeSendToMainWindow('speech-recognition.log', msg.data ?? {});
+    }
     if (msg.function === 'foreground_window_changed' && msg.data) {
         const snapshot = msg.data as Partial<ForegroundWindowSnapshot>;
         if (
@@ -1469,6 +1476,7 @@ function runGSM(command: string, args: string[]): Promise<void> {
                 ...getSanitizedPythonEnv(),
                 GSM_ELECTRON: '1',
                 GSM_DATA_DIR: BASE_DIR,
+                GSM_NATIVE_HELPER_ROOT: path.join(getResourcesDir(), 'native'),
                 GSM_INSTALL_SESSION_ID: activeInstallSessionId,
                 ...(busConnectInfo
                     ? {
@@ -3112,6 +3120,15 @@ export function sendOpenSettings(data?: Record<string, unknown>) {
 }
 export function sendReloadSettings() {
     sendBackendCommand('reload_settings');
+}
+export function sendWindowsSpeechStart(data: Record<string, unknown>) {
+    return sendBackendCommand('windows_speech_start', data);
+}
+export function sendWindowsSpeechStop() {
+    return sendBackendCommand('windows_speech_stop');
+}
+export function sendWindowsSpeechGetStatus() {
+    return sendBackendCommand('windows_speech_get_status');
 }
 export function sendOpenOverlaySettings() {
     return sendBackendCommand('open_overlay_settings');

@@ -14,6 +14,7 @@ import { registerYuzuIPC } from '../ui/yuzu.js';
 import { registerVNIPC } from '../ui/vn.js';
 import { registerTextHookIPC } from '../ui/texthook.js';
 import { registerTextProcessIPC } from '../ui/textprocess.js';
+import { registerWindowsSpeechRecognitionIPC } from '../ui/speech_recognition.js';
 import { exportLogsArchive } from './log_export.js';
 import { BASE_DIR } from '../util.js';
 import { isAllowedDocsUrl } from '../../shared/docs.js';
@@ -108,6 +109,7 @@ export function registerMainIPC(deps: MainIPCDependencies): void {
     registerAnkiBeaconIPC();
     registerTextHookIPC();
     registerTextProcessIPC();
+    registerWindowsSpeechRecognitionIPC();
     registerWindowSceneSwitcherIPC();
 
     ipcMain.handle('show-error-box', async (_event, { title, message, detail }) => {

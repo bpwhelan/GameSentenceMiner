@@ -469,6 +469,19 @@ class GSMApplication:
         self._shutdown_requested = False
         self._shutdown_thread: Optional[threading.Thread] = None
         self.foreground_window_hook = None
+        self._windows_speech_recognition_lock = threading.RLock()
+        self._windows_speech_recognition_service = None
+        self._windows_speech_recognition_signature = None
+        self._windows_speech_recognition_scene = None
+        self._windows_speech_recognition_status = {
+            "state": "idle",
+            "sceneId": "",
+            "sceneName": "",
+            "backend": "",
+            "language": "",
+            "error": "",
+            "reason": "",
+        }
         self.profile_switcher = get_profile_switcher()
 
     def _get_profile_switcher(self) -> ProfileSwitcher:
@@ -816,6 +829,8 @@ class GSMApplication:
             if foreground_window_hook is not None:
                 foreground_window_hook.stop()
                 self.foreground_window_hook = None
+
+            self._stop_windows_speech_recognition()
 
             # Close text producers before draining the authoritative stream. Keep
             # TextFeed transport alive until its final projection has been sent.
@@ -1190,6 +1205,257 @@ class GSMApplication:
                 {"status": "failed", "error": str(exc)},
             )
 
+    def _send_windows_speech_status(self, state: str | None = None, **updates) -> None:
+        status = dict(getattr(self, "_windows_speech_recognition_status", {"state": "idle"}))
+        if state is not None:
+            status["state"] = state
+        status.update(updates)
+        self._windows_speech_recognition_status = status
+        send_message(FunctionName.WINDOWS_SPEECH_STATUS.value, status)
+
+    @staticmethod
+    def _send_windows_speech_log(level: str, message: str) -> None:
+        send_message(
+            FunctionName.WINDOWS_SPEECH_LOG.value,
+            {
+                "level": str(level or "info").lower(),
+                "message": str(message),
+                "timestamp": int(time.time() * 1000),
+            },
+        )
+
+    def _stop_windows_speech_recognition(self, *, reason: str = "") -> None:
+        """Invalidate callbacks first, then stop the active scene's speech helpers."""
+
+        lock = getattr(self, "_windows_speech_recognition_lock", None)
+        if lock is None:
+            lock = threading.RLock()
+            self._windows_speech_recognition_lock = lock
+        with lock:
+            existing = getattr(self, "_windows_speech_recognition_service", None)
+            if existing is not None:
+                self._send_windows_speech_status("stopping", reason=reason, error="")
+            self._windows_speech_recognition_service = None
+            self._windows_speech_recognition_signature = None
+            self._windows_speech_recognition_scene = None
+            if existing is None:
+                if reason:
+                    self._send_windows_speech_status("idle", reason=reason, error="")
+                return
+            try:
+                existing.stop()
+            except Exception as exc:
+                logger.warning("Could not stop Windows speech recognition cleanly: %s", exc)
+            if reason:
+                logger.info("Windows speech recognition stopped (%s).", reason)
+            self._send_windows_speech_log("info", f"Stopped speech recognition ({reason or 'requested'}).")
+            self._send_windows_speech_status("idle", reason=reason, error="")
+
+    def _start_windows_speech_recognition(self, data: dict | None) -> None:
+        if not is_windows():
+            self._send_windows_speech_status("error", error="Windows speech recognition is only available on Windows.")
+            return
+
+        payload = data if isinstance(data, dict) else {}
+        settings = payload.get("settings") if isinstance(payload.get("settings"), dict) else {}
+        scene_id = str(payload.get("sceneId") or "").strip()
+        scene_name = str(payload.get("sceneName") or "").strip()
+        backend = "sapi" if str(settings.get("backend") or "").strip().lower() == "sapi" else "embedded"
+        language = "en" if str(settings.get("language") or "").strip().lower().startswith("en") else "ja"
+        model_path = str(settings.get("modelPath") or "").strip()
+        runtime_path = str(settings.get("runtimePath") or "").strip()
+        license_file = str(settings.get("licenseFile") or "").strip()
+
+        try:
+            active_scene = str(obs.get_current_scene() or "").strip()
+        except Exception as exc:
+            logger.debug("Could not resolve the active scene for Windows speech recognition: %s", exc)
+            active_scene = ""
+        if not scene_name:
+            message = "An OBS scene is required to start Windows speech recognition."
+            self._send_windows_speech_log("error", message)
+            self._send_windows_speech_status("error", error=message)
+            return
+        if active_scene and active_scene != scene_name:
+            message = f"Cannot start speech recognition for '{scene_name}' while OBS is on '{active_scene}'."
+            self._send_windows_speech_log("error", message)
+            self._send_windows_speech_status("error", sceneId=scene_id, sceneName=scene_name, error=message)
+            return
+
+        lock = getattr(self, "_windows_speech_recognition_lock", None)
+        if lock is None:
+            lock = threading.RLock()
+            self._windows_speech_recognition_lock = lock
+        if getattr(self, "_windows_speech_recognition_service", None) is not None:
+            self._stop_windows_speech_recognition(reason="restarted from the Speech Recognition tab")
+
+        self._send_windows_speech_status(
+            "starting",
+            sceneId=scene_id,
+            sceneName=scene_name,
+            backend=backend,
+            language=language,
+            error="",
+            reason="",
+        )
+        self._send_windows_speech_log("info", f"Starting speech recognition for scene '{scene_name}'.")
+
+        try:
+            from GameSentenceMiner.windows_speech_recognition import (
+                WindowsSpeechRecognitionService,
+                get_target_window,
+            )
+
+            service = None
+
+            def is_current_service() -> bool:
+                return service is not None and getattr(self, "_windows_speech_recognition_service", None) is service
+
+            def on_text(event, window, source_instance):
+                if not is_current_service():
+                    return
+                result_kind = "final" if event.final else "partial"
+                self._send_windows_speech_log("result", f"[{result_kind}] {event.text}")
+                metadata = {
+                    "window_hwnd": window.hwnd,
+                    "window_pid": window.pid,
+                    "window_title": window.title,
+                    "window_process_name": window.process_name,
+                    "window_process_path": window.process_path,
+                    "speech_backend": backend,
+                    "speech_final": event.final,
+                }
+                if event.offset is not None:
+                    metadata["speech_offset"] = event.offset
+                if event.duration is not None:
+                    metadata["speech_duration"] = event.duration
+
+                async def ingest_speech_text():
+                    if not is_current_service():
+                        return
+                    await _get_gametext_module().handle_new_text_event(
+                        event.text,
+                        source="speech_recognition",
+                        source_display_name="Windows Speech Recognition",
+                        source_instance=source_instance,
+                        revision_window_ms=2500,
+                        merge_fragments=True,
+                        metadata_extra=metadata,
+                    )
+
+                try:
+                    self.state.transport_runtime.submit(ingest_speech_text())
+                except Exception as exc:
+                    logger.debug("Could not submit Windows speech text to the transport runtime: %s", exc)
+
+            class SpeechTabLogger:
+                def _write(self, level, message, *args):
+                    rendered = str(message)
+                    if args:
+                        try:
+                            rendered = rendered % args
+                        except Exception:
+                            rendered = " ".join([rendered, *(str(arg) for arg in args)])
+                    getattr(logger, level if level != "exception" else "error")(rendered)
+                    if is_current_service():
+                        self_app._send_windows_speech_log("error" if level == "exception" else level, rendered)
+
+                def debug(self, message, *args, **_kwargs):
+                    self._write("debug", message, *args)
+
+                def info(self, message, *args, **_kwargs):
+                    self._write("info", message, *args)
+
+                def warning(self, message, *args, **_kwargs):
+                    self._write("warning", message, *args)
+
+                def error(self, message, *args, **_kwargs):
+                    self._write("error", message, *args)
+
+                def exception(self, message, *args, **_kwargs):
+                    self._write("exception", message, *args)
+
+            self_app = self
+            service = WindowsSpeechRecognitionService(
+                on_text,
+                language=language,
+                backend=backend,
+                model_path=model_path,
+                runtime_path=runtime_path,
+                license_file=license_file,
+                target_window_provider=get_target_window,
+                log=SpeechTabLogger(),
+            )
+            with lock:
+                self._windows_speech_recognition_service = service
+                self._windows_speech_recognition_signature = (
+                    scene_id,
+                    scene_name,
+                    backend,
+                    language,
+                    model_path,
+                    runtime_path,
+                    license_file,
+                )
+                self._windows_speech_recognition_scene = scene_name
+
+            try:
+                latest_scene = str(obs.get_current_scene() or "").strip()
+            except Exception:
+                latest_scene = ""
+            if latest_scene and latest_scene != scene_name:
+                self._stop_windows_speech_recognition(reason="scene changed while speech recognition was starting")
+                return
+
+            def finish_start() -> None:
+                try:
+                    started = service.start()
+                except Exception as exc:
+                    logger.error("Failed to start Windows speech recognition: %s", exc)
+                    with lock:
+                        if not is_current_service():
+                            return
+                        self._windows_speech_recognition_service = None
+                        self._windows_speech_recognition_signature = None
+                        self._windows_speech_recognition_scene = None
+                    self._send_windows_speech_log("error", f"Failed to start speech recognition: {exc}")
+                    self._send_windows_speech_status("error", error=str(exc))
+                    return
+
+                with lock:
+                    if not is_current_service():
+                        invalidated = True
+                    elif not started:
+                        invalidated = False
+                        self._windows_speech_recognition_service = None
+                        self._windows_speech_recognition_signature = None
+                        self._windows_speech_recognition_scene = None
+                        message = "Windows speech recognition could not be started."
+                        self._send_windows_speech_log("error", message)
+                        self._send_windows_speech_status("error", error=message)
+                        return
+                    else:
+                        invalidated = False
+                        logger.info("Windows speech recognition started for scene '%s'.", scene_name)
+                        self._send_windows_speech_status("running", error="", reason="")
+                        return
+
+                if invalidated and started:
+                    service.stop()
+
+            threading.Thread(
+                target=finish_start,
+                name="windows-speech-recognition-start",
+                daemon=True,
+            ).start()
+        except Exception as exc:
+            self._windows_speech_recognition_service = None
+            self._windows_speech_recognition_signature = None
+            self._windows_speech_recognition_scene = None
+            logger.error("Failed to prepare Windows speech recognition: %s", exc)
+            self._send_windows_speech_log("error", f"Failed to prepare speech recognition: {exc}")
+            self._send_windows_speech_status("error", error=str(exc))
+
     def start_background_threads(self) -> None:
         anki = _get_anki_module()
         self._start_thread(anki.start_monitoring_anki, "anki-monitor")
@@ -1276,6 +1542,12 @@ class GSMApplication:
                 self._handle_inhouse_source_status("ocr", cmd.get("data") if isinstance(cmd, dict) else None)
             elif function == FunctionName.TEXTHOOK_STATUS.value:
                 self._handle_inhouse_source_status("texthook", cmd.get("data") if isinstance(cmd, dict) else None)
+            elif function == FunctionName.WINDOWS_SPEECH_START.value:
+                self._start_windows_speech_recognition(cmd.get("data") if isinstance(cmd, dict) else None)
+            elif function == FunctionName.WINDOWS_SPEECH_STOP.value:
+                self._stop_windows_speech_recognition(reason="stopped from the Speech Recognition tab")
+            elif function == FunctionName.WINDOWS_SPEECH_GET_STATUS.value:
+                self._send_windows_speech_status()
             elif function == FunctionName.REFRESH_FOREGROUND_WINDOW.value:
                 foreground_window_hook = getattr(self, "foreground_window_hook", None)
                 if foreground_window_hook is not None:
@@ -1419,6 +1691,12 @@ class GSMApplication:
             logger.debug(f"Error getting previous lines for game: {e}")
 
     def _check_profile_for_scene_tick(self, scene: str) -> None:
+        if (
+            getattr(self, "_windows_speech_recognition_service", None) is not None
+            and getattr(self, "_windows_speech_recognition_scene", None) != str(scene or "").strip()
+        ):
+            self._stop_windows_speech_recognition(reason="scene changed")
+
         def on_profile_switched() -> None:
             self.get_previous_lines_for_game()
             self._broadcast_overlay_profile_state()
@@ -1443,6 +1721,11 @@ class GSMApplication:
     async def register_scene_switcher_callback(self) -> None:
         def scene_switcher_callback(scene):
             logger.info(f"Scene changed to: {scene}")
+            if (
+                getattr(self, "_windows_speech_recognition_service", None) is not None
+                and getattr(self, "_windows_speech_recognition_scene", None) != str(scene or "").strip()
+            ):
+                self._stop_windows_speech_recognition(reason="scene changed")
             try:
                 from GameSentenceMiner.util.yomitan_dict.sudachi_user_dict import (
                     queue_ensure_scene_dictionary,

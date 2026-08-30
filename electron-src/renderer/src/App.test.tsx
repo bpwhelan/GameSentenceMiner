@@ -57,6 +57,11 @@ vi.mock('./components/tabs/HomeTab', () => ({
     HomeTab: ({ active }: { active: boolean }) => (active ? <div>Home Tab</div> : null),
 }));
 
+vi.mock('./components/tabs/SpeechRecognitionTab', () => ({
+    SpeechRecognitionTab: ({ active }: { active: boolean }) =>
+        active ? <div>Speech Recognition Tab</div> : null,
+}));
+
 vi.mock('./components/SetupWizard', () => ({
     SetupWizard: () => null,
 }));
@@ -396,6 +401,74 @@ describe('App install-session integration', () => {
 
         expect(container.textContent).toContain('Home Tab');
         expect(container.textContent).not.toContain('Texthook / Agent');
+    });
+
+    it('keeps Windows Speech hidden by default', async () => {
+        invokeMock.mockImplementation(async (channel: string) => {
+            if (channel === 'install-session.getActive') {
+                return null;
+            }
+            if (channel === 'changelog.getPendingDesktopUpdate') {
+                return null;
+            }
+            if (channel === 'settings.getSettings') {
+                return { hasCompletedSetup: true };
+            }
+            if (channel === 'state.set') {
+                return null;
+            }
+            return {};
+        });
+
+        const { default: App } = await import('./App.js');
+
+        await act(async () => {
+            root.render(<App />);
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        expect(
+            Array.from(container.querySelectorAll('.tab-button')).map((button) => button.textContent)
+        ).not.toContain('Windows Speech');
+    });
+
+    it('shows Windows Speech when selected in visible tabs', async () => {
+        invokeMock.mockImplementation(async (channel: string) => {
+            if (channel === 'install-session.getActive') {
+                return null;
+            }
+            if (channel === 'changelog.getPendingDesktopUpdate') {
+                return null;
+            }
+            if (channel === 'settings.getSettings') {
+                return { hasCompletedSetup: true, visibleTabs: ['speech'] };
+            }
+            if (channel === 'state.set') {
+                return null;
+            }
+            return {};
+        });
+
+        const { default: App } = await import('./App.js');
+
+        await act(async () => {
+            root.render(<App />);
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        const speechButton = Array.from(container.querySelectorAll('button')).find(
+            (button) => button.textContent === 'Windows Speech'
+        );
+        expect(speechButton).toBeDefined();
+
+        await act(async () => {
+            speechButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            await Promise.resolve();
+        });
+
+        expect(container.textContent).toContain('Speech Recognition Tab');
     });
 
     it('shows the blocking install modal automatically for an active failed session', async () => {

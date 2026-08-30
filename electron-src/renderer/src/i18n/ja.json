@@ -137,6 +137,7 @@
       "ocr": "OCR",
       "textHook": "Texthook / Agent",
       "textProcessing": "テキスト処理",
+      "speech": "Windows音声認識",
       "stats": "統計",
       "gameSettings": "ゲーム自動化",
       "settings": "設定",
@@ -502,6 +503,7 @@
       "title": "表示設定",
       "visibleTabs": "表示するタブ:",
       "tabGameSettings": "ゲーム自動化",
+      "tabSpeech": "Windows音声認識",
       "tabStats": "統計",
       "tabPython": "Python",
       "tabConsole": "コンソール",
@@ -636,7 +638,7 @@
       },
       "desktopTabs": {
         "label": "デスクトップタブと統計",
-        "description": "デスクトップタブの表示/非表示とデフォルトの統計ページを選択します。"
+        "description": "Windows音声認識を含むデスクトップタブの表示/非表示とデフォルトの統計ページを選択します。"
       },
       "desktopTransparency": {
         "label": "ウィンドウ透過ツール",
@@ -1264,6 +1266,68 @@
     "untitled": "無題のウィンドウ",
     "unavailable": "利用不可",
     "cancel": "キャンセル"
+  },
+  "speechRecognition": {
+    "title": "Windows音声認識",
+    "subtitle": "現在のOBSシーンで音声認識を実行し、認識した台詞をGSMのテキスト処理へ送ります。",
+    "experimental": "試験的機能・Windows専用",
+    "loading": "音声認識ワークスペースを読み込んでいます...",
+    "loadFailed": "音声認識設定を読み込めませんでした。",
+    "scenesLoadFailed": "OBSシーンを読み込めませんでした。",
+    "sceneSwitchFailed": "有効なOBSシーンを切り替えられませんでした。",
+    "scene": {
+      "title": "シーン",
+      "hint": "ゲーム音声を認識するOBSシーンを選択します。",
+      "label": "OBSシーン",
+      "refresh": "更新",
+      "none": "OBSシーンが見つかりません",
+      "savedPerScene": "以下の設定は{scene}専用として保存されます。",
+      "connectObs": "シーンを選択するにはOBSへ接続してください。"
+    },
+    "engine": {
+      "title": "音声認識",
+      "hint": "このシーンを開始するときに使用する認識エンジンを設定します。",
+      "downloadHint": "埋め込みバックエンドは初回使用時に約358 MBをダウンロードし、約492 MBを展開する場合があります。"
+    },
+    "backend": "認識バックエンド",
+    "backendEmbedded": "埋め込み音声認識（推奨）",
+    "backendSapi": "Windows SAPI",
+    "language": "認識言語",
+    "languageJapanese": "日本語",
+    "languageEnglish": "英語",
+    "advanced": "高度なランタイム上書き",
+    "advancedHint": "GSMがダウンロードした音声バンドルと自動検出を使う場合は空欄のままにしてください。",
+    "modelPath": "モデルのパス",
+    "runtimePath": "ランタイムのパス",
+    "licenseFile": "Embedded Speechライセンスファイル",
+    "automatic": "自動",
+    "optional": "任意",
+    "save": "保存",
+    "saving": "保存中...",
+    "savedForScene": "{scene}の音声認識設定を保存しました。",
+    "saveFailed": "音声認識設定を保存できませんでした。",
+    "start": "音声認識を開始",
+    "stop": "音声認識を停止",
+    "startFailed": "音声認識を開始できませんでした。",
+    "stopFailed": "音声認識を停止できませんでした。",
+    "status": {
+      "idle": "待機中",
+      "starting": "開始中",
+      "running": "実行中",
+      "stopping": "停止中",
+      "error": "エラー"
+    },
+    "console": {
+      "title": "認識ログ",
+      "hint": "実行メッセージと認識テキストは、このアプリセッション内にのみ保持されます。",
+      "clear": "消去",
+      "empty": "音声認識を開始すると、実行ログと認識テキストがここに表示されます。"
+    },
+    "footer": {
+      "noScene": "シーンが選択されていません",
+      "runningHint": "OBSシーンが変わると音声認識は自動的に停止します。",
+      "idleHint": "設定はシーンごとに保存されます。準備ができたら音声認識を開始してください。"
+    }
   },
   "textProcessing": {
     "previewFailed": "プレビューを生成できませんでした"

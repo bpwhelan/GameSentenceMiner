@@ -32,6 +32,7 @@ class SourceKind(Enum):
     SCREEN_CROPPER = "screen_cropper"
     HOTKEY = "hotkey"
     SECONDARY = "secondary"
+    SPEECH_RECOGNITION = "speech_recognition"
     UNKNOWN = "unknown"
 
     @classmethod
@@ -52,6 +53,11 @@ class SourceKind(Enum):
             "hotkey": cls.HOTKEY,
             "secondary": cls.SECONDARY,
             "websocket": cls.WEBSOCKET,
+            "speech": cls.SPEECH_RECOGNITION,
+            "speech_recognition": cls.SPEECH_RECOGNITION,
+            "windows_speech": cls.SPEECH_RECOGNITION,
+            "windows_speech_recognition": cls.SPEECH_RECOGNITION,
+            "mssr": cls.SPEECH_RECOGNITION,
         }
         if candidate in aliases:
             return aliases[candidate]
@@ -61,6 +67,8 @@ class SourceKind(Enum):
             return cls.CLIPBOARD
         if "ocr" in display:
             return cls.OCR
+        if "speech" in display and "recogn" in display:
+            return cls.SPEECH_RECOGNITION
         if candidate:
             return cls.WEBSOCKET
         return cls.UNKNOWN

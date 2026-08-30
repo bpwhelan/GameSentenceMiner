@@ -76,6 +76,7 @@ const invokePrefixes = [
   "front.",
   "texthook.",
   "textprocess.",
+  "speech-recognition.",
   "scene-switcher.",
   "wanakana-",
   "kuroshiro-"
@@ -105,6 +106,7 @@ const onPrefixes = [
   "gsm-",
   "textprocess-",
   "texthook.",
+  "speech-recognition.",
   "scene-switcher."
 ];
 

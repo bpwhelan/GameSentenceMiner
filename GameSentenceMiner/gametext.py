@@ -742,6 +742,8 @@ async def handle_new_text_event(
     emitted_at=None,
     source_instance=None,
     revision_window_ms=None,
+    merge_fragments=None,
+    metadata_extra=None,
 ):
     """Single entry point for every text source (clipboard, websocket, IPC)."""
     global current_line
@@ -767,7 +769,12 @@ async def handle_new_text_event(
         emitted_at=emitted_at,
         source_instance=source_instance,
         revision_window_ms=revision_window_ms,
-        merge_fragments=bool(get_config().general.merge_matching_sequential_text),
+        merge_fragments=(
+            bool(get_config().general.merge_matching_sequential_text)
+            if merge_fragments is None
+            else bool(merge_fragments)
+        ),
+        metadata_extra=metadata_extra,
     )
 
 

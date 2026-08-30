@@ -371,11 +371,31 @@ def test_switch_profile_delegates_to_profile_switcher():
     app.profile_switcher = _FakeProfileSwitcher()
     broadcasts = []
     app._broadcast_overlay_profile_state = lambda: broadcasts.append(True)
-
     gsm_module.GSMApplication.switch_profile(app, "Default")
 
     assert calls == [("Default", settings_window)]
     assert broadcasts == [True]
+
+
+def test_switch_profile_does_not_invalidate_scene_owned_speech():
+    calls = []
+    app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
+    app.state = SimpleNamespace(settings_window=None)
+    app._windows_speech_recognition_service = SimpleNamespace(stop=lambda: calls.append("stop"))
+    app._windows_speech_recognition_signature = ("Old",)
+    app._windows_speech_recognition_scene = "Scene A"
+
+    class _FakeProfileSwitcher:
+        def switch_profile(self, _profile_name, *, settings_window=None):
+            calls.append("switch")
+
+    app.profile_switcher = _FakeProfileSwitcher()
+    app._broadcast_overlay_profile_state = lambda: calls.append("broadcast")
+
+    app.switch_profile("New")
+
+    assert calls == ["switch", "broadcast"]
+    assert app._windows_speech_recognition_service is not None
 
 
 def test_manual_profile_change_records_override_and_broadcasts():
@@ -414,13 +434,220 @@ def test_check_profile_for_scene_tick_delegates_to_profile_switcher():
     app.get_previous_lines_for_game = lambda: refreshes.append(True)
     broadcasts = []
     app._broadcast_overlay_profile_state = lambda: broadcasts.append(True)
-
     gsm_module.GSMApplication._check_profile_for_scene_tick(app, "Dorm")
 
     assert calls[0][:3] == ("Dorm", False, settings_window)
     assert callable(calls[0][3])
     assert refreshes == [True]
     assert broadcasts == [True]
+
+
+def test_scene_tick_invalidates_speech_before_resolving_the_scene_profile():
+    calls = []
+    app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
+    app.state = SimpleNamespace(settings_window=None)
+    app._windows_speech_recognition_service = SimpleNamespace(stop=lambda: calls.append("stop"))
+    app._windows_speech_recognition_signature = ("Profile", "Old Scene")
+    app._windows_speech_recognition_scene = "Old Scene"
+
+    class _FakeProfileSwitcher:
+        def sync_profile_for_scene(self, *_args, **_kwargs):
+            assert app._windows_speech_recognition_service is None
+            calls.append("resolve-profile")
+
+    app.profile_switcher = _FakeProfileSwitcher()
+
+    app._check_profile_for_scene_tick("New Scene")
+
+    assert calls == ["stop", "resolve-profile"]
+    assert app._windows_speech_recognition_service is None
+
+
+def test_windows_speech_starts_explicitly_for_the_requested_scene(monkeypatch):
+    from GameSentenceMiner import windows_speech_recognition as speech_module
+
+    instances = []
+
+    class FakeSpeechService:
+        def __init__(self, on_text, **_kwargs):
+            self.on_text = on_text
+            self.stop_calls = 0
+            instances.append(self)
+
+        def start(self):
+            return True
+
+        def stop(self):
+            self.stop_calls += 1
+
+    app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
+    app.state = SimpleNamespace(transport_runtime=SimpleNamespace(submit=lambda coro: coro.close()))
+    app._windows_speech_recognition_service = None
+    app._windows_speech_recognition_signature = None
+    app._windows_speech_recognition_scene = None
+    app._windows_speech_recognition_status = {"state": "idle"}
+
+    monkeypatch.setattr(gsm_module, "is_windows", lambda: True)
+    monkeypatch.setattr(gsm_module.obs, "get_current_scene", lambda: "Scene A")
+    monkeypatch.setattr(speech_module, "WindowsSpeechRecognitionService", FakeSpeechService)
+    monkeypatch.setattr(gsm_module, "send_message", lambda *_args, **_kwargs: None)
+
+    app._start_windows_speech_recognition(
+        {
+            "sceneId": "scene-a",
+            "sceneName": "Scene A",
+            "settings": {
+                "backend": "embedded",
+                "language": "ja",
+                "modelPath": "model",
+                "runtimePath": "runtime",
+                "licenseFile": "license",
+            },
+        }
+    )
+
+    for _ in range(100):
+        if app._windows_speech_recognition_status["state"] == "running":
+            break
+        time.sleep(0.01)
+
+    assert len(instances) == 1
+    assert app._windows_speech_recognition_service is instances[0]
+    assert app._windows_speech_recognition_scene == "Scene A"
+    assert app._windows_speech_recognition_status["state"] == "running"
+
+
+def test_windows_speech_scene_change_stops_without_restarting(monkeypatch):
+    stopped = []
+    existing = SimpleNamespace(stop=lambda: stopped.append(True))
+    app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
+    app._windows_speech_recognition_service = existing
+    app._windows_speech_recognition_signature = ("old",)
+    app._windows_speech_recognition_scene = "Scene A"
+    app._windows_speech_recognition_status = {"state": "running"}
+    app.state = SimpleNamespace(settings_window=None)
+    app.profile_switcher = SimpleNamespace(sync_profile_for_scene=lambda *_args, **_kwargs: None)
+
+    monkeypatch.setattr(gsm_module, "send_message", lambda *_args, **_kwargs: None)
+
+    app._check_profile_for_scene_tick("Scene B")
+
+    assert stopped == [True]
+    assert app._windows_speech_recognition_service is None
+    assert app._windows_speech_recognition_signature is None
+    assert app._windows_speech_recognition_status["state"] == "idle"
+
+
+def test_windows_speech_startup_cannot_reactivate_after_scene_invalidation(monkeypatch):
+    from GameSentenceMiner import windows_speech_recognition as speech_module
+
+    start_entered = threading.Event()
+    allow_start_to_finish = threading.Event()
+    stopped = []
+
+    class SlowSpeechService:
+        def __init__(self, _on_text, **_kwargs):
+            pass
+
+        def start(self):
+            start_entered.set()
+            allow_start_to_finish.wait(timeout=2)
+            return True
+
+        def stop(self):
+            stopped.append(True)
+
+    app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
+    app.state = SimpleNamespace(transport_runtime=SimpleNamespace(submit=lambda coro: coro.close()))
+    app._windows_speech_recognition_service = None
+    app._windows_speech_recognition_signature = None
+    app._windows_speech_recognition_scene = None
+    app._windows_speech_recognition_status = {"state": "idle"}
+
+    monkeypatch.setattr(gsm_module, "is_windows", lambda: True)
+    monkeypatch.setattr(gsm_module.obs, "get_current_scene", lambda: "Scene A")
+    monkeypatch.setattr(speech_module, "WindowsSpeechRecognitionService", SlowSpeechService)
+    monkeypatch.setattr(gsm_module, "send_message", lambda *_args, **_kwargs: None)
+
+    app._start_windows_speech_recognition(
+        {
+            "sceneId": "scene-a",
+            "sceneName": "Scene A",
+            "settings": {"backend": "embedded", "language": "ja"},
+        }
+    )
+    assert start_entered.wait(timeout=1)
+
+    app._stop_windows_speech_recognition(reason="scene changed")
+    allow_start_to_finish.set()
+
+    for _ in range(100):
+        if stopped:
+            break
+        time.sleep(0.01)
+
+    assert stopped
+    assert app._windows_speech_recognition_service is None
+    assert app._windows_speech_recognition_status["state"] == "idle"
+
+
+def test_windows_speech_ignores_callbacks_from_an_invalidated_service(monkeypatch):
+    from GameSentenceMiner import windows_speech_recognition as speech_module
+
+    instances = []
+    submitted = []
+
+    class FakeSpeechService:
+        def __init__(self, on_text, **_kwargs):
+            self.on_text = on_text
+            instances.append(self)
+
+        def start(self):
+            return True
+
+        def stop(self):
+            return None
+
+    def submit(coro):
+        submitted.append(coro)
+        coro.close()
+
+    app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
+    app.state = SimpleNamespace(transport_runtime=SimpleNamespace(submit=submit))
+    app._windows_speech_recognition_service = None
+    app._windows_speech_recognition_signature = None
+    app._windows_speech_recognition_scene = None
+    app._windows_speech_recognition_status = {"state": "idle"}
+
+    monkeypatch.setattr(gsm_module, "is_windows", lambda: True)
+    monkeypatch.setattr(gsm_module.obs, "get_current_scene", lambda: "Scene A")
+    monkeypatch.setattr(speech_module, "WindowsSpeechRecognitionService", FakeSpeechService)
+    monkeypatch.setattr(gsm_module, "send_message", lambda *_args, **_kwargs: None)
+
+    payload = {
+        "sceneId": "scene-a",
+        "sceneName": "Scene A",
+        "settings": {"backend": "embedded", "language": "ja"},
+    }
+    app._start_windows_speech_recognition(payload)
+    for _ in range(100):
+        if app._windows_speech_recognition_status["state"] == "running":
+            break
+        time.sleep(0.01)
+    old_service = instances[0]
+    app._stop_windows_speech_recognition(reason="scene changed")
+    app._start_windows_speech_recognition(payload)
+    for _ in range(100):
+        if len(instances) == 2 and app._windows_speech_recognition_status["state"] == "running":
+            break
+        time.sleep(0.01)
+
+    event = SimpleNamespace(text="old", final=False, offset=None, duration=None)
+    window = SimpleNamespace(hwnd=1, pid=2, title="Game", process_name="game.exe", process_path="game.exe")
+    old_service.on_text(event, window, "old-source")
+    instances[1].on_text(event, window, "new-source")
+
+    assert len(submitted) == 1
 
 
 def test_register_scene_observed_profile_check_registers_handler_and_checks_current_scene(monkeypatch):

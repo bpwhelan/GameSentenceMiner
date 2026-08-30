@@ -230,6 +230,115 @@ def test_same_source_fragments_are_visible_immediately_then_joined_by_revision()
     assert revised.events[0].record.text == "first fragment\nsecond fragment"
 
 
+def test_windows_speech_corrected_hypothesis_replaces_the_previous_revision():
+    state = TextCoordinatorState(session_id="session")
+    first = observation("first fragment", SourceKind.SPEECH_RECOGNITION, "speech-1", source_instance="speech-4")
+    first = TextObservation(**{**first.__dict__, "merge_fragments": True, "metadata": {}})
+    second = observation(
+        "second fragment",
+        SourceKind.SPEECH_RECOGNITION,
+        "speech-2",
+        emitted_at=NOW + timedelta(milliseconds=25),
+        source_instance="speech-4",
+    )
+    second = TextObservation(**{**second.__dict__, "merge_fragments": True, "metadata": {}})
+
+    appended = state.ingest(first, now=NOW)
+    revised = state.ingest(second, now=NOW + timedelta(milliseconds=25))
+
+    assert appended.events[0].kind is TextEventKind.APPENDED
+    assert revised.events[0].kind is TextEventKind.UPDATED
+    assert revised.events[0].record.source_kind is SourceKind.SPEECH_RECOGNITION
+    assert revised.events[0].record.text == "second fragment"
+
+
+def test_windows_speech_cumulative_hypotheses_remain_one_line():
+    state = TextCoordinatorState(session_id="session")
+    hypotheses = [
+        "ダウドワ",
+        "ダウトワが",
+        "ダウドワが",
+        "ダウド我が",
+        "ダウド我が古き友よし",
+        "ダウド我が古き友よしば",
+        "ダウド我が古き友よしばら",
+        "ダウド我が古き友よしばらく",
+        "ダウド我が古き友よしばらくぶ",
+        "ダウド我が古き友よしばらくぶりだが、",
+        "ダウド我が古き友よしばらくぶりだが、再びお前に興味が向いたんでね。",
+    ]
+
+    latest = None
+    for index, hypothesis in enumerate(hypotheses):
+        item = observation(
+            hypothesis,
+            SourceKind.SPEECH_RECOGNITION,
+            f"speech-{index}",
+            emitted_at=NOW + timedelta(milliseconds=index * 25),
+            source_instance="speech-4",
+        )
+        item = TextObservation(
+            **{
+                **item.__dict__,
+                "merge_fragments": True,
+                "revision_window_ms": 2500,
+                "metadata": {"speech_final": index == len(hypotheses) - 1},
+            }
+        )
+        latest = state.ingest(
+            item,
+            now=NOW + timedelta(milliseconds=index * 25),
+            now_monotonic_ns=1_000_000_000 + index * 25_000_000,
+        )
+
+    assert latest is not None
+    assert len(state.snapshot().records) == 1
+    assert latest.events[0].record.text == hypotheses[-1]
+
+
+def test_windows_speech_final_result_can_correct_a_longer_hypothesis():
+    state = TextCoordinatorState(session_id="session")
+    hypothesis = observation(
+        "我が古き友よしばらくぶりだが余分な言葉",
+        SourceKind.SPEECH_RECOGNITION,
+        "speech-1",
+        source_instance="speech-4",
+    )
+    hypothesis = TextObservation(
+        **{
+            **hypothesis.__dict__,
+            "merge_fragments": True,
+            "revision_window_ms": 2500,
+            "metadata": {"speech_final": False},
+        }
+    )
+    final = observation(
+        "我が古き友よしばらくぶりだが",
+        SourceKind.SPEECH_RECOGNITION,
+        "speech-2",
+        emitted_at=NOW + timedelta(milliseconds=25),
+        source_instance="speech-4",
+    )
+    final = TextObservation(
+        **{
+            **final.__dict__,
+            "merge_fragments": True,
+            "revision_window_ms": 2500,
+            "metadata": {"speech_final": True},
+        }
+    )
+
+    state.ingest(hypothesis, now=NOW, now_monotonic_ns=1_000_000_000)
+    revised = state.ingest(
+        final,
+        now=NOW + timedelta(milliseconds=25),
+        now_monotonic_ns=1_025_000_000,
+    )
+
+    assert revised.events[0].kind is TextEventKind.UPDATED
+    assert revised.events[0].record.text == final.raw_text
+
+
 def test_duplicate_observation_id_is_idempotent():
     state = TextCoordinatorState(session_id="session")
     state.ingest(observation("hello", SourceKind.CLIPBOARD, "same"), now=NOW)

@@ -12,6 +12,7 @@ import { getDevPreviewTab } from "./lib/devPreview";
 import { TextHookTab } from "./components/tabs/TextHookTab";
 import { TextProcessingTab } from "./components/tabs/TextProcessingTab";
 import { HomeTab } from "./components/tabs/HomeTab";
+import { SpeechRecognitionTab } from "./components/tabs/SpeechRecognitionTab";
 import { useTranslation } from "./i18n";
 import { getTerminalColors, THEME_CHANGED_EVENT } from "./lib/theme";
 import type { DesktopUpdateChangelogSnapshot } from "../../shared/changelog";
@@ -22,6 +23,7 @@ type TabId =
   | "ocr"
   | "texthook"
   | "textprocessing"
+  | "speech"
   | "stats"
   | "launcher"
   | "settings"
@@ -35,6 +37,7 @@ const TABS: Array<{ id: TabId; labelKey: string }> = [
   { id: "ocr", labelKey: "app.tabs.ocr" },
   { id: "texthook", labelKey: "app.tabs.textHook" },
   { id: "textprocessing", labelKey: "app.tabs.textProcessing" },
+  { id: "speech", labelKey: "app.tabs.speech" },
   { id: "stats", labelKey: "app.tabs.stats" },
   { id: "launcher", labelKey: "app.tabs.gameSettings" },
   { id: "settings", labelKey: "app.tabs.settings" },
@@ -47,7 +50,9 @@ const TAB_IDS = new Set<TabId>(TABS.map((tab) => tab.id));
 const ALWAYS_VISIBLE_TABS = new Set<TabId>(["obs", "ocr", "texthook", "textprocessing", "settings"]);
 // Text hooking is supported on Windows and Linux (Wine/Proton); hidden elsewhere (e.g. macOS).
 const DESKTOP_HOOK_TABS = new Set<TabId>(["texthook"]);
+const WINDOWS_ONLY_TABS = new Set<TabId>(["speech"]);
 const CONTROLLABLE_TABS: ControlledTab[] = [
+  "speech",
   "launcher",
   "stats",
   "python",
@@ -896,6 +901,7 @@ export default function App() {
   const [visibleControlledTabs, setVisibleControlledTabs] = useState<
     Record<ControlledTab, boolean>
   >({
+    speech: false,
     launcher: true,
     stats: true,
     python: true,
@@ -904,6 +910,9 @@ export default function App() {
 
   const isTabVisible = useCallback(
     (tab: TabId) => {
+      if (WINDOWS_ONLY_TABS.has(tab) && !isWindows) {
+        return false;
+      }
       if (DESKTOP_HOOK_TABS.has(tab) && !canTextHook) {
         return false;
       }
@@ -915,7 +924,7 @@ export default function App() {
       }
       return true;
     },
-    [canTextHook, visibleControlledTabs]
+    [canTextHook, isWindows, visibleControlledTabs]
   );
 
   const visibleTabs = useMemo(
@@ -985,6 +994,7 @@ export default function App() {
         ) ?? DEFAULT_VISIBLE_TABS;
 
       const next: Record<ControlledTab, boolean> = {
+        speech: false,
         launcher: false,
         stats: false,
         python: false,
@@ -1289,6 +1299,7 @@ export default function App() {
           />
         ) : null}
         <TextProcessingTab active={activeTab === "textprocessing"} />
+        {isWindows ? <SpeechRecognitionTab active={activeTab === "speech"} /> : null}
         <StatsPanel active={activeTab === "stats"} />
         <LauncherTab active={activeTab === "launcher"} />
         <SettingsTab active={activeTab === "settings"} />

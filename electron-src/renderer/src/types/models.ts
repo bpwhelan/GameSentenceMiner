@@ -73,7 +73,7 @@ export interface GameSettings {
   sceneProfiles: SceneLaunchProfile[];
 }
 
-export type ControlledTab = "launcher" | "stats" | "python" | "console";
+export type ControlledTab = "speech" | "launcher" | "stats" | "python" | "console";
 
 export interface AppSettings {
   autoUpdateGSMApp: boolean;

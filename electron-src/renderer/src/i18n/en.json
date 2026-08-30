@@ -143,6 +143,7 @@
       "ocr": "OCR",
       "textHook": "Texthook / Agent",
       "textProcessing": "Text Processing",
+      "speech": "Windows Speech",
       "stats": "Stats",
       "gameSettings": "Game Automation",
       "settings": "Settings",
@@ -520,6 +521,7 @@
       "title": "Visibility Settings",
       "visibleTabs": "Visible Tabs:",
       "tabGameSettings": "Game Automation",
+      "tabSpeech": "Windows Speech Recognition",
       "tabStats": "Stats",
       "tabPython": "Python",
       "tabConsole": "Console",
@@ -654,7 +656,7 @@
       },
       "desktopTabs": {
         "label": "Desktop tabs and stats",
-        "description": "Show or hide desktop tabs and choose the default stats page."
+        "description": "Show or hide desktop tabs, including Windows Speech, and choose the default stats page."
       },
       "desktopTransparency": {
         "label": "Window transparency tool",
@@ -1426,6 +1428,68 @@
     "untitled": "Untitled window",
     "unavailable": "Unavailable",
     "cancel": "Cancel"
+  },
+  "speechRecognition": {
+    "title": "Windows Speech Recognition",
+    "subtitle": "Run speech recognition for the current OBS scene and send recognized dialogue through GSM's text pipeline.",
+    "experimental": "Experimental · Windows only",
+    "loading": "Loading speech recognition workspace...",
+    "loadFailed": "Could not load speech recognition settings.",
+    "scenesLoadFailed": "Could not load OBS scenes.",
+    "sceneSwitchFailed": "Could not switch the active OBS scene.",
+    "scene": {
+      "title": "Scene",
+      "hint": "Choose the OBS scene whose game audio should be recognized.",
+      "label": "OBS scene",
+      "refresh": "Refresh",
+      "none": "No OBS scenes found",
+      "savedPerScene": "Settings below are saved for {scene} only.",
+      "connectObs": "Connect OBS to select a scene."
+    },
+    "engine": {
+      "title": "Recognition",
+      "hint": "Configure the recognizer used when this scene is started.",
+      "downloadHint": "The embedded backend may download about 358 MB and unpack about 492 MB on first use."
+    },
+    "backend": "Recognition backend",
+    "backendEmbedded": "Embedded speech (recommended)",
+    "backendSapi": "Windows SAPI",
+    "language": "Recognition language",
+    "languageJapanese": "Japanese",
+    "languageEnglish": "English",
+    "advanced": "Advanced runtime overrides",
+    "advancedHint": "Leave these blank to use GSM's downloaded speech bundle and automatic discovery.",
+    "modelPath": "Model path",
+    "runtimePath": "Runtime path",
+    "licenseFile": "Embedded Speech license file",
+    "automatic": "Automatic",
+    "optional": "Optional",
+    "save": "Save",
+    "saving": "Saving...",
+    "savedForScene": "Speech recognition settings saved for {scene}.",
+    "saveFailed": "Could not save speech recognition settings.",
+    "start": "Start Speech Recognition",
+    "stop": "Stop Speech Recognition",
+    "startFailed": "Could not start speech recognition.",
+    "stopFailed": "Could not stop speech recognition.",
+    "status": {
+      "idle": "Idle",
+      "starting": "Starting",
+      "running": "Running",
+      "stopping": "Stopping",
+      "error": "Error"
+    },
+    "console": {
+      "title": "Recognition log",
+      "hint": "Runtime messages and recognized text stay local to this app session.",
+      "clear": "Clear",
+      "empty": "Start speech recognition to see runtime logs and recognized text here."
+    },
+    "footer": {
+      "noScene": "No scene selected",
+      "runningHint": "Recognition stops automatically when the OBS scene changes.",
+      "idleHint": "Settings are scene-specific. Start recognition when you are ready."
+    }
   },
   "textProcessing": {
     "title": "Text Preprocessing",

@@ -10,6 +10,9 @@
     "build": "npm run sync:version && npm run sync:legacy && npm run build:main && npm run build:renderer",
     "build:main": "tsc -p tsconfig.electron.json",
     "build:renderer": "vite build --config electron-src/renderer/vite.config.ts",
+    "build:windows-audio": "node scripts/build-windows-audio-helper.mjs",
+    "build:windows-speech": "node scripts/build-windows-speech-helper.mjs",
+    "build:windows-helpers": "node scripts/build-windows-helpers.mjs",
     "dev": "npm run sync:legacy && concurrently -k \"npm:dev:renderer\" \"npm:dev:main\" \"npm:dev:electron\"",
     "dev:chaos-update": "npm run build:main && node scripts/run-update-chaos.cjs",
     "dev:main": "tsc -p tsconfig.electron.json --watch --preserveWatchOutput",
@@ -19,14 +22,14 @@
     "test:ts": "vitest run --config vitest.config.ts",
     "test:ts:watch": "vitest --config vitest.config.ts",
     "build:native": "python -m pip install --disable-pip-version-check --no-deps -e .",
-    "app:dir": "npm run build:native && npm run build && npm run stage:overlay && electron-builder --dir",
+    "app:dir": "npm run build:native && npm run build && npm run build:windows-helpers && npm run stage:overlay && electron-builder --dir",
     "sync:version": "node scripts/sync-version.mjs",
     "changelog:validate": "node scripts/validate-changelog.mjs",
     "changelog:export": "node scripts/export-changelog-release-asset.mjs",
     "stage:overlay": "node scripts/stage-overlay-build.mjs",
     "verify:overlay-package": "node scripts/verify-overlay-package.mjs",
-    "app:dist": "npm run build:native && npm run build && npm run stage:overlay && electron-builder --publish=never",
-    "app:deploy": "npm run build:native && npm run build && npm run stage:overlay && electron-builder --publish=always"
+    "app:dist": "npm run build:native && npm run build && npm run build:windows-helpers && npm run stage:overlay && electron-builder --publish=never",
+    "app:deploy": "npm run build:native && npm run build && npm run build:windows-helpers && npm run stage:overlay && electron-builder --publish=always"
   },
   "type": "module",
   "engines": {
@@ -70,6 +73,13 @@
       {
         "from": "uv.lock",
         "to": "resources/uv.lock"
+      },
+      {
+        "from": "native",
+        "to": "resources/native",
+        "filter": [
+          "**/bin/x64/*.exe"
+        ]
       }
     ],
     "win": {

@@ -37,6 +37,7 @@ SOURCE_PRIORITY = {
     SourceKind.WEBSOCKET: 30,
     SourceKind.CLIPBOARD: 35,
     SourceKind.TEXTHOOK: 40,
+    SourceKind.SPEECH_RECOGNITION: 40,
     SourceKind.HOTKEY: 50,
     SourceKind.SCREEN_CROPPER: 50,
     SourceKind.MANUAL: 60,
@@ -176,7 +177,11 @@ class TextCoordinatorState:
                 if observation.source_kind is current.source_kind and observation.merge_fragments:
                     current_compact = _compact(current.text)
                     incoming_compact = _compact(processed)
-                    if current_compact.startswith(incoming_compact):
+                    # Recognizer hypotheses revise one utterance in place; they
+                    # are not independent fragments like texthook emissions.
+                    speech_hypothesis = observation.source_kind is SourceKind.SPEECH_RECOGNITION
+                    final_speech_result = speech_hypothesis and bool(observation.metadata.get("speech_final"))
+                    if current_compact.startswith(incoming_compact) and not final_speech_result:
                         self.metrics.duplicates += 1
                         return IngressResult(
                             IngressAck(
@@ -189,9 +194,8 @@ class TextCoordinatorState:
                                 matched_source=current.source_kind.value,
                             )
                         )
-                    should_join_fragments = (
-                        observation.source_kind is SourceKind.TEXTHOOK
-                        or fuzz.ratio(current_compact, incoming_compact) <= 50
+                    should_join_fragments = observation.source_kind is SourceKind.TEXTHOOK or (
+                        not speech_hypothesis and fuzz.ratio(current_compact, incoming_compact) <= 50
                     )
                     if not incoming_compact.startswith(current_compact) and should_join_fragments:
                         updated_text = f"{current.text}\n{processed}"

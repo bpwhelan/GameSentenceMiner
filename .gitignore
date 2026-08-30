@@ -143,7 +143,10 @@ electron-src/assets/prerelease.json
 /.history
 /.owocr
 /native/windows-audio-capture/target
-native/windows-audio-capture/bin/x64/gsm-windows-audio-capture.exe
+/native/windows-audio-capture/bin
+/native/windows-speech-recognition/build
+/native/windows-speech-recognition/build-*
+/native/windows-speech-recognition/bin/x64/*.exe
 /native/gsm-native/target
 /GameSentenceMiner/_native*.pyd
 /GameSentenceMiner/_native*.so

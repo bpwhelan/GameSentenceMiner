@@ -87,6 +87,7 @@ const DEFAULT_UPDATE_STATUS: UpdateStatusSnapshot = {
 };
 
 const VISIBLE_TAB_OPTIONS: Array<{ id: ControlledTab; labelKey: string }> = [
+  { id: "speech", labelKey: "settings.visibility.tabSpeech" },
   { id: "launcher", labelKey: "settings.visibility.tabGameSettings" },
   { id: "stats", labelKey: "settings.visibility.tabStats" },
   { id: "python", labelKey: "settings.visibility.tabPython" },
@@ -1377,7 +1378,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
                     }));
                   }}
                 >
-                  {VISIBLE_TAB_OPTIONS.map((tab) => (
+                  {VISIBLE_TAB_OPTIONS.filter((tab) => tab.id !== "speech" || isWindows).map((tab) => (
                     <option key={tab.id} value={tab.id}>
                       {t(tab.labelKey)}
                     </option>
