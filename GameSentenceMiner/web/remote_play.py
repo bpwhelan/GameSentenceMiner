@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Protocol
 from urllib.parse import urlsplit
 
-from GameSentenceMiner.util.config.configuration import get_config, logger
+from GameSentenceMiner.util.config.configuration import logger
 
 
 @dataclass(frozen=True)
@@ -276,7 +276,10 @@ class RemotePlaySessionManager:
             return
         if message_type == "input_enabled":
             enabled = bool(message.get("enabled"))
-            accepted = await asyncio.to_thread(self._input_gate.set_enabled, enabled)
+            peer_connected = self._peer is not None and self._peer.connectionState == "connected"
+            accepted = not enabled or peer_connected
+            if accepted:
+                accepted = await asyncio.to_thread(self._input_gate.set_enabled, enabled)
             await self._send_json(
                 websocket,
                 {"type": "input_state", "enabled": self._input_gate.enabled, "accepted": accepted},

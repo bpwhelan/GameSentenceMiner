@@ -1,4 +1,18 @@
-from GameSentenceMiner.web.websocket_proxy import build_upstream_websocket_headers
+from types import SimpleNamespace
+
+from GameSentenceMiner.web.websocket_proxy import (
+    build_upstream_websocket_headers,
+    get_websocket_close_args,
+)
+
+
+def test_close_args_preserve_code_and_reason():
+    message = SimpleNamespace(data=1013, extra="Remote play already has an active client")
+
+    assert get_websocket_close_args(message) == (
+        1013,
+        b"Remote play already has an active client",
+    )
 
 
 def test_upstream_headers_drop_client_websocket_negotiation_state():
@@ -28,6 +42,7 @@ def test_upstream_headers_drop_client_websocket_negotiation_state():
         "Host": "127.0.0.1:65444",
         "Origin": "http://127.0.0.1:7275",
         "X-GSM-Client": "overlay",
+        "X-GSM-Forwarded-Host": "127.0.0.1:7275",
     }
 
 

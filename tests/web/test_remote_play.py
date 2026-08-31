@@ -5,6 +5,13 @@ from types import SimpleNamespace
 
 import pytest
 
+from GameSentenceMiner.web.gsm_websocket import (
+    ID_OVERLAY,
+    ID_REMOTE_PLAY,
+    EndpointSpec,
+    MultiplexWebsocketServerThread,
+    WebsocketManager,
+)
 from GameSentenceMiner.web.remote_play import (
     RemoteInputGate,
     RemotePlayAccess,
@@ -176,3 +183,51 @@ def test_session_cleanup_stops_peer_media_and_input():
     assert media.stopped is True
     assert backend.release_count == 1
     assert manager.has_client() is False
+
+
+def test_multiplex_server_delegates_remote_play_connection():
+    handled = []
+
+    async def handle_connection(websocket):
+        handled.append(websocket)
+
+    server = MultiplexWebsocketServerThread(
+        name="test",
+        get_port_func=lambda: 0,
+        msg_queue=None,
+        is_paused_func=lambda: False,
+        endpoint_specs={ID_REMOTE_PLAY: EndpointSpec(connection_handler=handle_connection)},
+    )
+    websocket = SimpleNamespace(request=SimpleNamespace(path="/ws/remote-play"))
+
+    asyncio.run(server._handler(websocket))
+
+    assert handled == [websocket]
+
+
+def test_remote_client_is_an_overlay_consumer_and_receives_ocr_payload(monkeypatch):
+    manager = WebsocketManager()
+    forwarded = []
+    future = object()
+    monkeypatch.setattr("GameSentenceMiner.web.remote_play.remote_play_manager.has_client", lambda: True)
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.remote_play.remote_play_manager.send_overlay_payload_nowait",
+        lambda payload: forwarded.append(payload) or future,
+    )
+    payload = {"type": "word_coordinates", "data": [{"text": "猫"}]}
+
+    assert manager.has_clients(ID_OVERLAY) is True
+    assert manager.send_nowait(ID_OVERLAY, payload) == [future]
+    assert forwarded == [payload]
+
+
+def test_input_cannot_be_enabled_without_a_connected_peer():
+    backend = FakeInputBackend()
+    manager = RemotePlaySessionManager()
+    manager._input_gate = RemoteInputGate(backend)
+    websocket = FakeWebsocket()
+
+    asyncio.run(manager._handle_message(websocket, json.dumps({"type": "input_enabled", "enabled": True})))
+
+    assert manager._input_gate.enabled is False
+    assert websocket.sent == [{"type": "input_state", "enabled": False, "accepted": False}]

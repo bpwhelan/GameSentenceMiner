@@ -22,6 +22,7 @@ from GameSentenceMiner.util.port_diagnostics import (
 ID_HOOKER = "texthooker"
 ID_PLAINTEXT = "plaintext"
 ID_OVERLAY = "overlay"
+ID_REMOTE_PLAY = "remote_play"
 OVERLAY_COMMAND_OPEN_SETTINGS = "open-overlay-settings"
 
 # Internal compatibility listener ids
@@ -32,6 +33,7 @@ ID_PLAINTEXT_LEGACY = "plaintext_legacy"
 WS_PATH_HOOKER = "/ws/texthooker"
 WS_PATH_OVERLAY = "/ws/overlay"
 WS_PATH_PLAINTEXT = "/ws/plaintext"
+WS_PATH_REMOTE_PLAY = "/ws/remote-play"
 
 TEXTFEED_SESSION_SYNC_REQUEST = "textfeed_session_sync_request"
 TEXTFEED_SESSION_SYNC = "textfeed_session_sync"
@@ -166,6 +168,7 @@ def _resolve_server_id_from_path(path: Optional[str]) -> Optional[str]:
         "/overlay": ID_OVERLAY,
         WS_PATH_PLAINTEXT: ID_PLAINTEXT,
         "/plaintext": ID_PLAINTEXT,
+        WS_PATH_REMOTE_PLAY: ID_REMOTE_PLAY,
     }
     return path_map.get(normalized)
 
@@ -190,6 +193,7 @@ def _extract_ws_path(websocket, fallback_path: Optional[str] = None) -> str:
 class EndpointSpec:
     read_mode: bool = False
     message_callback: Optional[Callable[[str], Any]] = None
+    connection_handler: Optional[Callable[[Any], Any]] = None
     enable_backup: bool = True
 
 
@@ -606,6 +610,11 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
             await websocket.close(code=1008, reason="Unsupported websocket path")
             return
 
+        endpoint_spec = self.endpoint_specs.get(server_id)
+        if endpoint_spec and endpoint_spec.connection_handler:
+            await endpoint_spec.connection_handler(websocket)
+            return
+
         clients = self._get_clients(server_id)
         clients.add(websocket)
         output: asyncio.Queue[str] = asyncio.Queue(maxsize=self._client_output_capacity)
@@ -959,7 +968,16 @@ class WebsocketManager:
     async def send(self, server_id: str, message: Any):
         result = None
         targets = list(self._iter_server_targets(server_id))
-        if not targets:
+        is_remote_overlay_payload = (
+            server_id == ID_OVERLAY
+            and isinstance(message, dict)
+            and message.get("type")
+            in {
+                "word_coordinates",
+                "overlay_clear",
+            }
+        )
+        if not targets and not is_remote_overlay_payload:
             logger.debug(f"Attempted to send to non-existent server/channel: {server_id}")
             return None
 
@@ -971,12 +989,28 @@ class WebsocketManager:
             if result is None:
                 result = current_result
 
+        if is_remote_overlay_payload:
+            from GameSentenceMiner.web.remote_play import remote_play_manager
+
+            remote_future = remote_play_manager.send_overlay_payload_nowait(message)
+            if remote_future is not None:
+                await asyncio.wrap_future(remote_future)
+
         return result
 
     def send_nowait(self, server_id: str, message: Any):
         futures = []
         targets = list(self._iter_server_targets(server_id))
-        if not targets:
+        is_remote_overlay_payload = (
+            server_id == ID_OVERLAY
+            and isinstance(message, dict)
+            and message.get("type")
+            in {
+                "word_coordinates",
+                "overlay_clear",
+            }
+        )
+        if not targets and not is_remote_overlay_payload:
             logger.debug(f"Attempted to send to non-existent server/channel: {server_id}")
             return futures
 
@@ -987,6 +1021,13 @@ class WebsocketManager:
                 current_future = target_server.send_payload_nowait(message)
             if current_future is not None:
                 futures.append(current_future)
+
+        if is_remote_overlay_payload:
+            from GameSentenceMiner.web.remote_play import remote_play_manager
+
+            remote_future = remote_play_manager.send_overlay_payload_nowait(message)
+            if remote_future is not None:
+                futures.append(remote_future)
 
         return futures
 
@@ -1007,6 +1048,11 @@ class WebsocketManager:
         return [] if future is None else [future]
 
     def has_clients(self, server_id: str) -> bool:
+        if server_id == ID_OVERLAY:
+            from GameSentenceMiner.web.remote_play import remote_play_manager
+
+            if remote_play_manager.has_client():
+                return True
         for _, target_server in self._iter_server_targets(server_id):
             if isinstance(target_server, MultiplexWebsocketServerThread):
                 if target_server.has_clients(server_id):
@@ -1079,6 +1125,8 @@ async def _overlay_message_handler(message: str):
 
 def start_default_websocket_server() -> None:
     """Start the multiplex transport explicitly during application startup."""
+    from GameSentenceMiner.web.remote_play import remote_play_manager
+
     websocket_manager.start_multiplex_server(
         port_getter=lambda: _internal_ws_ingress_port,
         endpoint_specs={
@@ -1089,6 +1137,10 @@ def start_default_websocket_server() -> None:
                 enable_backup=False,
             ),
             ID_PLAINTEXT: EndpointSpec(read_mode=False, enable_backup=True),
+            ID_REMOTE_PLAY: EndpointSpec(
+                connection_handler=remote_play_manager.handle_connection,
+                enable_backup=False,
+            ),
         },
     )
 

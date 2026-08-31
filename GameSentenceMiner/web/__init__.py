@@ -16,6 +16,7 @@ def register_routes() -> None:
     from GameSentenceMiner.web.ocr_area_selector_api import (
         register_ocr_area_selector_routes,
     )
+    from GameSentenceMiner.web.remote_play_routes import register_remote_play_routes
     from GameSentenceMiner.web.stats_api import register_stats_api_routes
     from GameSentenceMiner.web.stats_export_api import register_stats_export_api_routes
     from GameSentenceMiner.web.third_party_stats_api import (
@@ -30,6 +31,7 @@ def register_routes() -> None:
     register_database_api_routes(app)
     register_jiten_database_api_routes(app)
     register_ocr_area_selector_routes(app)
+    register_remote_play_routes(app)
     register_stats_api_routes(app)
     register_stats_export_api_routes(app)
     register_goals_api_routes(app)

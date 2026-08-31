@@ -32,12 +32,17 @@ from GameSentenceMiner.web.gsm_websocket import (
     ID_HOOKER,
     ID_OVERLAY,
     ID_PLAINTEXT,
+    ID_REMOTE_PLAY,
     EndpointSpec,
     _overlay_message_handler,
     start_default_websocket_server,
     websocket_manager,
 )
-from GameSentenceMiner.web.websocket_proxy import build_upstream_websocket_headers
+from GameSentenceMiner.web.remote_play import remote_play_manager
+from GameSentenceMiner.web.websocket_proxy import (
+    build_upstream_websocket_headers,
+    get_websocket_close_args,
+)
 
 server_start_time = datetime.datetime.now().timestamp()
 _legacy_notice_server = None
@@ -199,6 +204,10 @@ def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
                     enable_backup=False,
                 ),
                 ID_PLAINTEXT: EndpointSpec(read_mode=False, enable_backup=True),
+                ID_REMOTE_PLAY: EndpointSpec(
+                    connection_handler=remote_play_manager.handle_connection,
+                    enable_backup=False,
+                ),
             },
         )
         if not _wait_for_tcp_port(upstream_host, replacement_ws_port):
@@ -255,6 +264,8 @@ def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
         forward_headers = {
             key: value for key, value in incoming_request.headers.items() if key.lower() not in hop_by_hop_headers
         }
+        forward_headers["X-GSM-Forwarded-Host"] = incoming_request.headers.get("Host", "")
+        forward_headers["X-GSM-Forwarded-For"] = incoming_request.remote or ""
         forward_headers["Connection"] = "close"
         forward_headers["Host"] = f"{upstream_host}:{internal_http_port}"
 
@@ -310,17 +321,19 @@ def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
 
     async def pipe_client_to_upstream(client_ws, upstream_ws):
         try:
-            async for message in client_ws:
+            while True:
+                message = await client_ws.receive()
                 try:
                     if message.type == WSMsgType.TEXT:
                         await upstream_ws.send_str(message.data)
                     elif message.type == WSMsgType.BINARY:
                         await upstream_ws.send_bytes(message.data)
-                    elif message.type in (
-                        WSMsgType.CLOSE,
-                        WSMsgType.CLOSING,
-                        WSMsgType.CLOSED,
-                    ):
+                    elif message.type == WSMsgType.CLOSE:
+                        code, reason = get_websocket_close_args(message)
+                        if not upstream_ws.closed:
+                            await upstream_ws.close(code=code, message=reason)
+                        break
+                    elif message.type in (WSMsgType.CLOSING, WSMsgType.CLOSED):
                         break
                     elif message.type == WSMsgType.ERROR:
                         break
@@ -328,23 +341,27 @@ def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
                     if _is_expected_ws_proxy_close_error(send_error):
                         break
                     raise
+            if not upstream_ws.closed:
+                await upstream_ws.close(code=client_ws.close_code or 1000)
         except Exception as pipe_error:
             if not _is_expected_ws_proxy_close_error(pipe_error):
                 raise
 
     async def pipe_upstream_to_client(upstream_ws, client_ws):
         try:
-            async for message in upstream_ws:
+            while True:
+                message = await upstream_ws.receive()
                 try:
                     if message.type == WSMsgType.TEXT:
                         await client_ws.send_str(message.data)
                     elif message.type == WSMsgType.BINARY:
                         await client_ws.send_bytes(message.data)
-                    elif message.type in (
-                        WSMsgType.CLOSE,
-                        WSMsgType.CLOSING,
-                        WSMsgType.CLOSED,
-                    ):
+                    elif message.type == WSMsgType.CLOSE:
+                        code, reason = get_websocket_close_args(message)
+                        if not client_ws.closed:
+                            await client_ws.close(code=code, message=reason)
+                        break
+                    elif message.type in (WSMsgType.CLOSING, WSMsgType.CLOSED):
                         break
                     elif message.type == WSMsgType.ERROR:
                         break
@@ -352,6 +369,8 @@ def _try_start_single_port_gateway(host: str, external_port: int) -> bool:
                     if _is_expected_ws_proxy_close_error(send_error):
                         break
                     raise
+            if not client_ws.closed:
+                await client_ws.close(code=upstream_ws.close_code or 1000)
         except Exception as pipe_error:
             if not _is_expected_ws_proxy_close_error(pipe_error):
                 raise

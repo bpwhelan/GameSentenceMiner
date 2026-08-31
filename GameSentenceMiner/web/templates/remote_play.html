@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Remote Play · GameSentenceMiner</title>
+    <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/remote-play.css') }}">
+</head>
+<body>
+    <main class="remote-shell">
+        <header class="topbar">
+            <a class="brand" href="/" aria-label="GameSentenceMiner home">
+                <span class="brand-mark" aria-hidden="true">G</span>
+                <span>GameSentenceMiner</span>
+            </a>
+            <div class="connection-summary">
+                <span id="connectionDot" class="status-dot" aria-hidden="true"></span>
+                <span id="connectionLabel">Disconnected</span>
+            </div>
+            <div class="topbar-actions">
+                <button id="shareButton" class="text-button" type="button">Copy session code</button>
+                <button id="fullscreenButton" class="icon-button" type="button" title="Fullscreen" aria-label="Fullscreen">
+                    <span aria-hidden="true">⛶</span>
+                </button>
+                <button id="disconnectButton" class="text-button" type="button" disabled>Disconnect</button>
+            </div>
+        </header>
+
+        <section class="stream-workspace" aria-label="Remote game stream">
+            <div id="videoStage" class="video-stage" tabindex="0">
+                <video id="remoteVideo" autoplay playsinline></video>
+                <div id="ocrOverlay" class="ocr-overlay" aria-label="OCR text regions"></div>
+
+                <div id="emptyState" class="empty-state">
+                    <div class="empty-signal" aria-hidden="true"><span></span><span></span><span></span></div>
+                    <h1>OBS Remote Play</h1>
+                    <p>Stream the active OBS program view with browser input disabled until you explicitly enable it.</p>
+                    <button id="connectButton" class="primary-button" type="button">Connect to stream</button>
+                    <button id="enterTokenButton" class="link-button" type="button">Enter a session code</button>
+                </div>
+
+                <div id="streamNotice" class="stream-notice" role="status" aria-live="polite" hidden></div>
+                <div id="inputBadge" class="input-badge" hidden>Input active</div>
+            </div>
+        </section>
+
+        <footer class="control-dock">
+            <div class="control-copy">
+                <strong id="inputTitle">Remote input is off</strong>
+                <span id="inputDescription">Video and OCR lookup are available without controlling the game.</span>
+            </div>
+            <label class="switch-control">
+                <input id="inputToggle" type="checkbox" disabled>
+                <span class="switch-track" aria-hidden="true"><span></span></span>
+                <span>Enable input</span>
+            </label>
+        </footer>
+    </main>
+
+    <dialog id="tokenDialog">
+        <form id="tokenForm" method="dialog">
+            <div class="dialog-heading">
+                <h2>Join remote session</h2>
+                <button id="closeTokenDialog" class="icon-button" type="button" aria-label="Close" title="Close">×</button>
+            </div>
+            <p>Enter the short-lived session code created on the GSM computer.</p>
+            <label for="tokenInput">Session code</label>
+            <input id="tokenInput" type="password" autocomplete="off" spellcheck="false" required>
+            <button class="primary-button" value="default" type="submit">Connect</button>
+        </form>
+    </dialog>
+
+    <dialog id="lookupDialog" class="lookup-dialog">
+        <div class="dialog-heading">
+            <h2 id="lookupHeading">Lookup</h2>
+            <button id="closeLookupDialog" class="icon-button" type="button" aria-label="Close" title="Close">×</button>
+        </div>
+        <div id="lookupContent" class="lookup-content"></div>
+    </dialog>
+
+    <script src="{{ url_for('static', filename='js/remote-play.js') }}" defer></script>
+</body>
+</html>
