@@ -802,7 +802,7 @@ class AnkiField:
 class Anki:
     _FIELD_DEFAULTS: ClassVar[Dict[str, AnkiField]] = {
         "sentence": AnkiField(name="Sentence", enabled=True, overwrite=True, append=False, core=True),
-        "sentence_audio": AnkiField(name="SentenceAudio", enabled=True, overwrite=False, append=False, core=True),
+        "sentence_audio": AnkiField(name="SentenceAudio", enabled=True, overwrite=True, append=False, core=True),
         "picture": AnkiField(name="Picture", enabled=True, overwrite=True, append=False, core=True),
         "word": AnkiField(name="Expression", enabled=True, overwrite=True, append=False, core=True),
         "previous_sentence": AnkiField(name="", enabled=True, overwrite=False, append=False, core=False),
@@ -844,7 +844,7 @@ class Anki:
         default_factory=lambda: AnkiField(name="Sentence", enabled=True, overwrite=True, append=False, core=True)
     )
     sentence_audio: AnkiField = field(
-        default_factory=lambda: AnkiField(name="SentenceAudio", enabled=True, overwrite=False, append=False, core=True)
+        default_factory=lambda: AnkiField(name="SentenceAudio", enabled=True, overwrite=True, append=False, core=True)
     )
     picture: AnkiField = field(
         default_factory=lambda: AnkiField(name="Picture", enabled=True, overwrite=True, append=False, core=True)
@@ -870,7 +870,7 @@ class Anki:
     polling_rate: int = 500
     polling_rate_v2: int = 1000
     # Legacy flags kept for compatibility with older configs.
-    overwrite_audio: bool = False
+    overwrite_audio: bool = True
     overwrite_picture: bool = True
     overwrite_sentence: bool = True
     parent_tag: str = "Game"
@@ -1884,7 +1884,7 @@ class Config:
                 "default_name": "SentenceAudio",
                 "core": True,
                 "legacy_overwrite": "overwrite_audio",
-                "default_overwrite": False,
+                "default_overwrite": True,
             },
             "picture": {
                 "legacy": "picture_field",

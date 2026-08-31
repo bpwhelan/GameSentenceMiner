@@ -177,6 +177,13 @@ EXIT_CHOICE_DELETE_CARD = "delete_card"
 EXIT_CHOICE_CANCEL = "cancel"
 
 
+def gamepad_audio_choice_conflicts_with_vad(vad_result, *, use_audio):
+    """Whether a gamepad audio choice disagrees with a completed VAD result."""
+    if vad_result is None or not hasattr(vad_result, "success"):
+        return False
+    return bool(vad_result.success) != bool(use_audio)
+
+
 class AnkiConfirmationDialog(QDialog):
     audio_finished_signal = pyqtSignal()
     gamepad_button_signal = pyqtSignal(int)
@@ -228,6 +235,9 @@ class AnkiConfirmationDialog(QDialog):
         self._gamepad_dispatcher = None
         self._gamepad_client = None
         self._gamepad_capture_active = False
+        self._gamepad_audio_choice_message_box = None
+        self._gamepad_audio_choice_confirm_button = None
+        self._gamepad_audio_choice_cancel_button = None
 
         # Auto-accept timer
         self._auto_accept_qtimer = None
@@ -892,6 +902,15 @@ class AnkiConfirmationDialog(QDialog):
         if not self._gamepad_capture_active or not self.isVisible():
             return
         active_modal = QApplication.activeModalWidget()
+        gamepad_audio_choice_message_box = getattr(self, "_gamepad_audio_choice_message_box", None)
+        if gamepad_audio_choice_message_box is not None and active_modal is gamepad_audio_choice_message_box:
+            confirm_button = getattr(self, "_gamepad_audio_choice_confirm_button", None)
+            cancel_button = getattr(self, "_gamepad_audio_choice_cancel_button", None)
+            if button == 0 and confirm_button is not None:
+                confirm_button.click()
+            elif button == 1 and cancel_button is not None:
+                cancel_button.click()
+            return
         if active_modal is not None and active_modal is not self:
             return
 
@@ -921,10 +940,48 @@ class AnkiConfirmationDialog(QDialog):
     def _apply_gamepad_confirmation_action(self, *, use_audio):
         self._cancel_auto_accept()
 
+        if gamepad_audio_choice_conflicts_with_vad(
+            self.vad_result, use_audio=use_audio
+        ) and not self._show_gamepad_audio_choice_confirmation(use_audio=use_audio):
+            return
+
         if use_audio:
             self._on_voice()
         else:
             self._on_no_voice()
+
+    def _show_gamepad_audio_choice_confirmation(self, *, use_audio):
+        message_box = QMessageBox(self)
+        message_box.setIcon(QMessageBox.Icon.Warning)
+        message_box.setWindowTitle("Confirm audio choice")
+
+        if use_audio:
+            message_box.setText("No voice was detected. Keep the captured audio anyway?")
+            message_box.setInformativeText(
+                "The audio may contain silence or non-dialogue sound. Press A to keep it or B to cancel."
+            )
+            confirm_button = message_box.addButton("Keep Audio", QMessageBox.ButtonRole.AcceptRole)
+        else:
+            message_box.setText("Voice was detected. Continue without audio?")
+            message_box.setInformativeText(
+                "The detected audio will be omitted from the Anki card. Press A to continue or B to cancel."
+            )
+            confirm_button = message_box.addButton("No Audio", QMessageBox.ButtonRole.DestructiveRole)
+
+        cancel_button = message_box.addButton(QMessageBox.StandardButton.Cancel)
+        message_box.setDefaultButton(cancel_button)
+        message_box.setEscapeButton(cancel_button)
+
+        self._gamepad_audio_choice_message_box = message_box
+        self._gamepad_audio_choice_confirm_button = confirm_button
+        self._gamepad_audio_choice_cancel_button = cancel_button
+        try:
+            message_box.exec()
+            return message_box.clickedButton() == confirm_button
+        finally:
+            self._gamepad_audio_choice_message_box = None
+            self._gamepad_audio_choice_confirm_button = None
+            self._gamepad_audio_choice_cancel_button = None
 
     def _cancel_auto_accept(self):
         if self._auto_accept_qtimer and self._auto_accept_qtimer.isActive():
