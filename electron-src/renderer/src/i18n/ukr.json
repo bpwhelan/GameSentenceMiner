@@ -1395,7 +1395,9 @@
       "searchPlaceholder": "Пошук за грою або назвою файлу",
       "pickerNoResults": "Відповідних скриптів не знайдено.",
       "scriptCandidate": "Скрипт Agent",
-      "showScriptUi": "Показати UI скрипта"
+      "showScriptUi": "Показати UI скрипта",
+      "runDetached": "Залишати Agent запущеним після закриття GSM",
+      "runDetachedHint": "GSM повторно підключиться до активного сеансу Agent під час наступного запуску."
     },
     "profile": {
       "title": "Збережений профіль",
@@ -1458,6 +1460,7 @@
     },
     "errors": {
       "startFailed": "Не вдалося запустити рушій хукінгу.",
+      "stopFailed": "Не вдалося зупинити рушій хукінгу.",
       "manualFailed": "Не вдалося під'єднати ручний хук.",
       "profileSaveFailed": "Не вдалося зберегти профіль.",
       "maxBufferSizeSaveFailed": "Не вдалося зберегти максимальну довжину тексту.",

@@ -753,6 +753,11 @@ desktopChangelogManager.setManualSnapshotListener((snapshot) => {
 const updateManager = new UpdateManager({
     getPythonPath: () => pythonPath,
     closeAllPythonProcesses: async () => closeAllPythonProcesses(),
+    closeAllForAppUpdate: async () => {
+        await closeAllPythonProcesses();
+        const { shutdownTextHookForUpdate } = await import('./ui/texthook.js');
+        await shutdownTextHookForUpdate();
+    },
     ensureAndRunGSM: async (pyPath: string) =>
         ensureAndRunGSM(pyPath, 1, { allowDuringUpdate: true, origin: 'backend_update' }),
     reinstallPython: async () => reinstallPython(),

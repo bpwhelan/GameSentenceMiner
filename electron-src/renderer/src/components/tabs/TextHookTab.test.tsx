@@ -346,6 +346,129 @@ describe("TextHookTab", () => {
     expect(container.textContent).toContain("Resident Evil HD REMASTER");
   });
 
+  it("starts Agent detached by default without showing the option for other engines", async () => {
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "texthook.getStatus") return { running: false };
+      if (channel === "texthook.listHooks") return { selectedHookId: null, hooks: [] };
+      if (channel === "texthook.getActiveCapture") {
+        return { sceneName: "Scene", sceneId: "scene-1", exeName: "game.exe" };
+      }
+      if (channel === "texthook.getProfile") return null;
+      if (channel === "texthook.start") {
+        return { success: true, pid: 1234, exeName: "game.exe" };
+      }
+      return null;
+    });
+
+    await act(async () => {
+      root.render(<TextHookTab active />);
+      await flushAsyncWork();
+    });
+
+    expect(container.querySelector("#texthook-agent-detached-input")).toBeNull();
+
+    const engineSelect = container.querySelector("#texthook-engine-select") as HTMLSelectElement;
+    await act(async () => {
+      engineSelect.value = "agent";
+      engineSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    const detachedInput = container.querySelector(
+      "#texthook-agent-detached-input"
+    ) as HTMLInputElement;
+    expect(detachedInput.checked).toBe(true);
+
+    const scriptInput = container.querySelector(
+      "#texthook-agent-script-input"
+    ) as HTMLInputElement;
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value"
+      )?.set;
+      valueSetter?.call(scriptInput, "C:\\Agent\\data\\scripts\\game.js");
+      scriptInput.dispatchEvent(new Event("input", { bubbles: true }));
+      await flushAsyncWork();
+    });
+
+    const startButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Start"
+    );
+    await act(async () => {
+      startButton?.click();
+      await flushAsyncWork();
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      "texthook.start",
+      expect.objectContaining({
+        engine: "agent",
+        agentDetached: true,
+      })
+    );
+  });
+
+  it("resets detached Agent to on after switching from an opted-out Agent profile", async () => {
+    let sceneId = "agent-scene";
+    invokeMock.mockImplementation(async (channel: string, payload?: { sceneId?: string }) => {
+      if (channel === "texthook.getStatus") return { running: false };
+      if (channel === "texthook.listHooks") return { selectedHookId: null, hooks: [] };
+      if (channel === "texthook.getActiveCapture") {
+        return { sceneName: "Scene", sceneId, exeName: "game.exe" };
+      }
+      if (channel === "texthook.getProfile" && payload?.sceneId === "agent-scene") {
+        return {
+          sceneId: "agent-scene",
+          exeName: "game.exe",
+          engine: "agent",
+          autoHook: true,
+          flushDelayMs: 100,
+          agentScriptPath: "C:\\Agent\\game.js",
+          agentDetached: false,
+          lastUsed: 1,
+        };
+      }
+      if (channel === "texthook.getProfile") {
+        return {
+          sceneId: "luna-scene",
+          exeName: "game.exe",
+          engine: "luna",
+          autoHook: true,
+          flushDelayMs: 100,
+          agentDetached: false,
+          lastUsed: 2,
+        };
+      }
+      return null;
+    });
+
+    await act(async () => {
+      root.render(<TextHookTab active />);
+      await flushAsyncWork();
+    });
+
+    expect(
+      (container.querySelector("#texthook-agent-detached-input") as HTMLInputElement).checked
+    ).toBe(false);
+
+    sceneId = "luna-scene";
+    await act(async () => {
+      vi.advanceTimersByTime(4000);
+      await flushAsyncWork();
+    });
+
+    const engineSelect = container.querySelector("#texthook-engine-select") as HTMLSelectElement;
+    expect(engineSelect.value).toBe("luna");
+    await act(async () => {
+      engineSelect.value = "agent";
+      engineSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(
+      (container.querySelector("#texthook-agent-detached-input") as HTMLInputElement).checked
+    ).toBe(true);
+  });
+
   it("labels the built-in game hook experimental and lists every supported target", async () => {
     invokeMock.mockImplementation(async (channel: string) => {
       if (channel === "texthook.getStatus") return { running: false };

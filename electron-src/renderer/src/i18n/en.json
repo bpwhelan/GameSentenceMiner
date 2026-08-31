@@ -1318,7 +1318,9 @@
       "searchPlaceholder": "Search scripts by game or file name",
       "pickerNoResults": "No matching scripts found.",
       "scriptCandidate": "Agent script",
-      "showScriptUi": "Show Script UI"
+      "showScriptUi": "Show Script UI",
+      "runDetached": "Keep Agent running when GSM closes",
+      "runDetachedHint": "GSM reconnects to the running Agent session the next time it opens."
     },
     "profile": {
       "title": "Saved Profile",
@@ -1381,6 +1383,7 @@
     },
     "errors": {
       "startFailed": "Failed to start the hook engine.",
+      "stopFailed": "Failed to stop the hook engine.",
       "manualFailed": "Failed to attach manual hook.",
       "profileSaveFailed": "Failed to save hook profile.",
       "maxBufferSizeSaveFailed": "Failed to save the maximum text length.",

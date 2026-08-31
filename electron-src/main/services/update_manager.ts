@@ -34,6 +34,7 @@ type ReinstallPythonFn = () => Promise<void>;
 interface UpdateManagerDependencies {
     getPythonPath: PythonPathGetter;
     closeAllPythonProcesses: CloseAllFn;
+    closeAllForAppUpdate: CloseAllFn;
     ensureAndRunGSM: EnsureAndRunFn;
     reinstallPython: ReinstallPythonFn;
 }
@@ -702,7 +703,7 @@ export class UpdateManager {
             }
 
             log.info('Python process is stable. Proceeding with application restart.');
-            await this.deps.closeAllPythonProcesses();
+            await this.deps.closeAllForAppUpdate();
             const updateFilePath = path.join(BASE_DIR, 'update_python.flag');
             try {
                 devFaultInjector.maybeFail(

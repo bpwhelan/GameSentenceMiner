@@ -1395,7 +1395,9 @@
       "searchPlaceholder": "ゲーム名またはファイル名で検索",
       "pickerNoResults": "一致するスクリプトがありません。",
       "scriptCandidate": "Agentスクリプト",
-      "showScriptUi": "スクリプトUIを表示"
+      "showScriptUi": "スクリプトUIを表示",
+      "runDetached": "GSMを閉じてもAgentを実行し続ける",
+      "runDetachedHint": "次回GSMを開いたとき、実行中のAgentセッションに再接続します。"
     },
     "profile": {
       "title": "保存済みプロファイル",
@@ -1458,6 +1460,7 @@
     },
     "errors": {
       "startFailed": "フックエンジンの起動に失敗しました。",
+      "stopFailed": "フックエンジンの停止に失敗しました。",
       "manualFailed": "手動フックのアタッチに失敗しました。",
       "profileSaveFailed": "プロファイルの保存に失敗しました。",
       "maxBufferSizeSaveFailed": "最大テキスト長の保存に失敗しました。",

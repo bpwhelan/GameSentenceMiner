@@ -44,17 +44,43 @@ import {
     getWindowTitleFromSource,
 } from './obs.js';
 import {
-    callAgentUiRpc,
-    getAgentHookRuntimeStatus,
-    isAgentHookRunning,
-    listAgentHooks,
-    sendAgentUiRpc,
-    setAgentCopyToClipboard,
-    setAgentFlushDelayMs,
-    showAgentScriptUi,
+    callAgentUiRpc as callLocalAgentUiRpc,
+    configureAgentHookCallbacks,
+    getAgentHookRuntimeStatus as getLocalAgentHookRuntimeStatus,
+    isAgentHookRunning as isLocalAgentHookRunning,
+    listAgentHooks as listLocalAgentHooks,
+    sendAgentUiRpc as sendLocalAgentUiRpc,
+    setAgentCopyToClipboard as setLocalAgentCopyToClipboard,
+    setAgentFlushDelayMs as setLocalAgentFlushDelayMs,
+    showAgentScriptUi as showLocalAgentScriptUi,
     startAgentHookSession,
-    stopAgentHookSession,
+    stopAgentHookSession as stopLocalAgentHookSession,
 } from './agent.js';
+import {
+    callDetachedAgentUiRpc,
+    configureDetachedAgentCallbacks,
+    getDetachedAgentHookRuntimeStatus,
+    isDetachedAgentHookRunning,
+    listDetachedAgentHooks,
+    reconnectDetachedAgentHookSession,
+    sendDetachedAgentUiRpc,
+    setDetachedAgentCopyToClipboard,
+    setDetachedAgentFlushDelayMs,
+    setDetachedAgentMaxBufferSize,
+    showDetachedAgentScriptUi,
+    shutdownDetachedAgentHostForUpdate,
+    startDetachedAgentHookSession,
+    stopDetachedAgentHookSession,
+} from './detached_agent_client.js';
+import {
+    DEFAULT_MAX_BUFFER_SIZE,
+    HARD_TEXT_HOOK_REJECTION_LIMIT,
+    MAX_JAPANESE_QUOTE_PAIRS,
+    MAX_TEXT_HOOK_MAX_BUFFER_SIZE,
+    normalizeTextHookMaxBufferSize,
+    sanitizeTextHookText,
+    setRuntimeTextHookMaxBufferSize,
+} from './text_hook_sanitize.js';
 import {
     advanceEngineHookSession,
     getEngineHookRuntimeStatus,
@@ -94,6 +120,8 @@ export interface TextHookProfile {
     manualHookCode?: string | null;
     /** Agent script path used when engine is "agent". */
     agentScriptPath?: string | null;
+    /** Keep the Agent host alive when GSM exits so a later instance can reconnect. */
+    agentDetached?: boolean;
     /** Copy processed text to clipboard after forwarding to Python. */
     copyToClipboard?: boolean;
     lastUsed: number;
@@ -156,10 +184,7 @@ const TEXT_HOOK_ERASE_PATTERNS = [
 const PROFILES_FILE = path.join(BASE_DIR, 'texthook', 'profiles.json');
 const DEFAULT_FLUSH_DELAY_MS = 100;
 const MAX_FLUSH_DELAY_MS = 5000;
-const DEFAULT_TEXT_HOOK_MAX_BUFFER_SIZE = 3000;
-const MAX_TEXT_HOOK_MAX_BUFFER_SIZE = 100_000;
-const HARD_TEXT_HOOK_REJECTION_LIMIT = 10_000;
-const MAX_JAPANESE_QUOTE_PAIRS = 10;
+const DEFAULT_TEXT_HOOK_MAX_BUFFER_SIZE = DEFAULT_MAX_BUFFER_SIZE;
 const GSM_CONFIG_FILE = path.join(BASE_DIR, 'config.json');
 
 let textHookMaxBufferSize = loadTextHookMaxBufferSize();
@@ -237,6 +262,10 @@ function emitHooks(): void {
         emitToRenderer('texthook.hooks', listEngineHooks());
         return;
     }
+    if (isAgentHookRunning()) {
+        emitToRenderer('texthook.hooks', listAgentHooks());
+        return;
+    }
     if (!session) {
         emitToRenderer('texthook.hooks', { hooks: [], selectedHookId: null });
         return;
@@ -245,6 +274,71 @@ function emitHooks(): void {
         hooks: Array.from(session.hooks.values()),
         selectedHookId: session.selectedHookId,
     });
+}
+
+function isAgentHookRunning(): boolean {
+    return isDetachedAgentHookRunning() || isLocalAgentHookRunning();
+}
+
+function getAgentHookRuntimeStatus() {
+    return getDetachedAgentHookRuntimeStatus() ?? getLocalAgentHookRuntimeStatus();
+}
+
+function listAgentHooks() {
+    return isDetachedAgentHookRunning() ? listDetachedAgentHooks() : listLocalAgentHooks();
+}
+
+function stopAgentHookSession(): void {
+    if (isDetachedAgentHookRunning()) {
+        void stopDetachedAgentHookSession();
+        return;
+    }
+    stopLocalAgentHookSession();
+}
+
+async function stopAgentHookSessionAndWait(): Promise<{ success: boolean; error?: string }> {
+    if (isDetachedAgentHookRunning()) {
+        return stopDetachedAgentHookSession();
+    }
+    stopLocalAgentHookSession();
+    return { success: true };
+}
+
+function shutdownAgentHookSession(): void {
+    if (isDetachedAgentHookRunning()) {
+        return;
+    }
+    stopLocalAgentHookSession();
+}
+
+function setAgentFlushDelayMs(value: number) {
+    return isDetachedAgentHookRunning()
+        ? setDetachedAgentFlushDelayMs(value)
+        : setLocalAgentFlushDelayMs(value);
+}
+
+function setAgentCopyToClipboard(value: boolean) {
+    return isDetachedAgentHookRunning()
+        ? setDetachedAgentCopyToClipboard(value)
+        : setLocalAgentCopyToClipboard(value);
+}
+
+function showAgentScriptUi() {
+    return isDetachedAgentHookRunning()
+        ? showDetachedAgentScriptUi()
+        : showLocalAgentScriptUi();
+}
+
+function callAgentUiRpc(func: string, args: unknown[]) {
+    return isDetachedAgentHookRunning()
+        ? callDetachedAgentUiRpc(func, args)
+        : callLocalAgentUiRpc(func, args);
+}
+
+function sendAgentUiRpc(func: string, args: unknown[]) {
+    return isDetachedAgentHookRunning()
+        ? sendDetachedAgentUiRpc(func, args)
+        : sendLocalAgentUiRpc(func, args);
 }
 
 // ---------------------------------------------------------------------------
@@ -671,14 +765,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function normalizeTextHookMaxBufferSize(value: unknown): number {
-    const parsed = typeof value === 'number' ? value : Number(value);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        return DEFAULT_TEXT_HOOK_MAX_BUFFER_SIZE;
-    }
-    return Math.min(MAX_TEXT_HOOK_MAX_BUFFER_SIZE, Math.round(parsed));
-}
-
 function getCurrentGsmProfile(config: Record<string, unknown>): Record<string, unknown> | null {
     const configs = config.configs;
     if (!isRecord(configs)) {
@@ -739,36 +825,6 @@ function saveTextHookMaxBufferSize(value: number): boolean {
     }
 }
 
-function hasExcessiveJapaneseQuotePairs(text: string): boolean {
-    let openingQuotes = 0;
-    let closingQuotes = 0;
-    for (const character of text) {
-        if (character === '「') openingQuotes += 1;
-        if (character === '」') closingQuotes += 1;
-        if (openingQuotes > MAX_JAPANESE_QUOTE_PAIRS && closingQuotes > MAX_JAPANESE_QUOTE_PAIRS) {
-            return true;
-        }
-    }
-    return false;
-}
-
-export function sanitizeTextHookText(
-    text: string,
-    maxBufferSize: number = textHookMaxBufferSize,
-): { text: string; truncated: boolean } | null {
-    if (text.length > HARD_TEXT_HOOK_REJECTION_LIMIT) {
-        return null;
-    }
-    if (hasExcessiveJapaneseQuotePairs(text)) {
-        return null;
-    }
-    const limit = normalizeTextHookMaxBufferSize(maxBufferSize);
-    return {
-        text: text.slice(0, limit),
-        truncated: text.length > limit,
-    };
-}
-
 function setTextHookMaxBufferSize(value: unknown): {
     success: boolean;
     maxBufferSize?: number;
@@ -779,6 +835,8 @@ function setTextHookMaxBufferSize(value: unknown): {
         return { success: false, error: 'Could not save the text hook buffer limit.' };
     }
     textHookMaxBufferSize = maxBufferSize;
+    setRuntimeTextHookMaxBufferSize(maxBufferSize);
+    setDetachedAgentMaxBufferSize(maxBufferSize);
     sendReloadSettings();
     return { success: true, maxBufferSize };
 }
@@ -831,6 +889,7 @@ function normalizeProfile(value: unknown): TextHookProfile | null {
             typeof v.agentScriptPath === 'string' && v.agentScriptPath.trim().length > 0
                 ? v.agentScriptPath.trim()
                 : null,
+        agentDetached: engine === 'agent' ? v.agentDetached !== false : false,
         copyToClipboard: v.copyToClipboard === true,
         lastUsed: typeof v.lastUsed === 'number' ? v.lastUsed : Date.now(),
     };
@@ -1355,6 +1414,7 @@ export interface StartHookOptions {
     sceneId?: string | null;
     flushDelayMs?: number;
     agentScriptPath?: string | null;
+    agentDetached?: boolean;
     copyToClipboard?: boolean;
     /** Who is starting the session; defaults to a manual user action. */
     source?: TextHookStartSource;
@@ -1375,6 +1435,7 @@ export interface StartHookResult {
 }
 
 export async function startHookSession(options: StartHookOptions = {}): Promise<StartHookResult> {
+    await reconnectDetachedAgentHookSession();
     if (session || isAgentHookRunning() || isEngineHookRunning()) {
         return { success: false, error: 'A text hook session is already running.' };
     }
@@ -1528,7 +1589,7 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
         if (onLinux && !wineConnection) {
             return wineConnectionFailure();
         }
-        return startAgentHookSession({
+        const agentOptions = {
             pid: target.pid,
             exeName,
             arch: target.arch,
@@ -1536,8 +1597,26 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
             flushDelayMs,
             copyToClipboard: options.copyToClipboard ?? profile?.copyToClipboard ?? false,
             source,
+            maxBufferSize: textHookMaxBufferSize,
             wineConnection: wineConnection ?? undefined,
-        });
+        };
+        const runDetached =
+            isWindows() &&
+            (options.agentDetached ?? (profile?.engine === 'agent' ? profile.agentDetached !== false : true));
+        if (runDetached) {
+            await wineConnection?.close();
+            return startDetachedAgentHookSession({
+                pid: agentOptions.pid,
+                exeName: agentOptions.exeName,
+                arch: agentOptions.arch,
+                scriptPath: agentOptions.scriptPath,
+                flushDelayMs: agentOptions.flushDelayMs,
+                copyToClipboard: agentOptions.copyToClipboard,
+                source: agentOptions.source,
+                maxBufferSize: agentOptions.maxBufferSize,
+            });
+        }
+        return startAgentHookSession(agentOptions);
     }
 
     let cliPath = getEngineCliPath(engine, target.arch);
@@ -1767,6 +1846,12 @@ export function stopHookSession(): void {
     stopAgentHookSession();
 }
 
+export async function stopHookSessionAndWait(): Promise<{ success: boolean; error?: string }> {
+    teardownSession();
+    stopEngineHookSession();
+    return stopAgentHookSessionAndWait();
+}
+
 export interface SelectHookOptions {
     silent?: boolean;
 }
@@ -1931,7 +2016,32 @@ function gsmBackendUrl(routePath: string): string {
 }
 
 export function registerTextHookIPC(): void {
-    ipcMain.handle('texthook.getStatus', async () => getRuntimeStatus());
+    setRuntimeTextHookMaxBufferSize(textHookMaxBufferSize);
+    configureAgentHookCallbacks({
+        onEvent: (channel, payload) => {
+            if (channel === 'texthook.status') emitStatus();
+            else emitToRenderer(channel, payload);
+        },
+        onText: sendTextHookLine,
+    });
+    configureDetachedAgentCallbacks({
+        onEvent: (channel, payload) => {
+            if (channel === 'texthook.status') emitStatus();
+            else emitToRenderer(channel, payload);
+        },
+        onText: (payload) =>
+            sendTextHookLine(payload as Parameters<typeof sendTextHookLine>[0]),
+    });
+    void reconnectDetachedAgentHookSession().then((connected) => {
+        if (connected) {
+            emitStatus();
+            emitHooks();
+        }
+    });
+    ipcMain.handle('texthook.getStatus', async () => {
+        await reconnectDetachedAgentHookSession();
+        return getRuntimeStatus();
+    });
     ipcMain.handle('texthook.getSettings', async () => ({ maxBufferSize: textHookMaxBufferSize }));
     ipcMain.handle('texthook.setMaxBufferSize', async (_event, value: unknown) =>
         setTextHookMaxBufferSize(value),
@@ -1961,11 +2071,11 @@ export function registerTextHookIPC(): void {
 
     ipcMain.handle('texthook.stop', async () => {
         const statusBeforeStop = getRuntimeStatus();
-        stopHookSession();
-        if (statusBeforeStop.running) {
+        const result = await stopHookSessionAndWait();
+        if (result.success && statusBeforeStop.running) {
             notifyTextHookUserStop(statusBeforeStop);
         }
-        return { success: true };
+        return result;
     });
 
     ipcMain.handle('texthook.selectHook', async (_event, hookId: string) => {
@@ -2066,6 +2176,7 @@ export function registerTextHookIPC(): void {
                       hookFunction?: string | null;
                       manualHookCode?: string | null;
                       agentScriptPath?: string | null;
+                      agentDetached?: boolean;
                       copyToClipboard?: boolean;
                   }
                 | undefined,
@@ -2087,6 +2198,7 @@ export function registerTextHookIPC(): void {
                 hookFunction: payload.hookFunction ?? null,
                 manualHookCode: payload.manualHookCode ?? null,
                 agentScriptPath: payload.agentScriptPath ?? null,
+                agentDetached: engine === 'agent' ? payload.agentDetached !== false : false,
                 copyToClipboard: payload.copyToClipboard === true,
                 lastUsed: Date.now(),
             });
@@ -2195,11 +2307,19 @@ export { checkForTexthookUpdates };
 export function shutdownTextHook(): void {
     teardownSession();
     stopEngineHookSession();
-    stopAgentHookSession();
+    shutdownAgentHookSession();
+}
+
+export async function shutdownTextHookForUpdate(): Promise<void> {
+    teardownSession();
+    stopEngineHookSession();
+    stopLocalAgentHookSession();
+    await shutdownDetachedAgentHostForUpdate();
 }
 
 // Exported for tests.
 export const __test = {
+    normalizeProfile,
     sanitizeFilename,
     isValidHookCode,
     isIgnorableEngineLine,

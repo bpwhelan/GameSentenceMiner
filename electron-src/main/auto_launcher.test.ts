@@ -19,7 +19,7 @@ const getRuntimeStatusMock = vi.fn();
 const setTextHookUserStartListenerMock = vi.fn();
 const setTextHookUserStopListenerMock = vi.fn();
 const startHookSessionMock = vi.fn();
-const stopHookSessionMock = vi.fn();
+const stopHookSessionAndWaitMock = vi.fn();
 
 const getAgentPathMock = vi.fn();
 const getAgentScriptsPathMock = vi.fn();
@@ -68,7 +68,7 @@ vi.mock('./ui/texthook.js', () => ({
     setTextHookUserStartListener: setTextHookUserStartListenerMock,
     setTextHookUserStopListener: setTextHookUserStopListenerMock,
     startHookSession: startHookSessionMock,
-    stopHookSession: stopHookSessionMock,
+    stopHookSessionAndWait: stopHookSessionAndWaitMock,
 }));
 
 vi.mock('./store.js', () => ({
@@ -135,7 +135,7 @@ describe('AutoLauncher OCR scene activity fallback', () => {
         setTextHookUserStartListenerMock.mockReset();
         setTextHookUserStopListenerMock.mockReset();
         startHookSessionMock.mockReset();
-        stopHookSessionMock.mockReset();
+        stopHookSessionAndWaitMock.mockReset();
         getAgentPathMock.mockReset();
         getAgentScriptsPathMock.mockReset();
         getLaunchAgentMinimizedMock.mockReset();
@@ -174,6 +174,7 @@ describe('AutoLauncher OCR scene activity fallback', () => {
         getProfileForMock.mockReturnValue(null);
         getRuntimeStatusMock.mockReturnValue({ running: false });
         startHookSessionMock.mockResolvedValue({ success: true });
+        stopHookSessionAndWaitMock.mockResolvedValue({ success: true });
         getObsOcrScenesMock.mockReturnValue([]);
         getIgnoreActiveSceneForOcrMock.mockReturnValue(false);
         getForceManualOcrAllProfilesMock.mockReturnValue(false);
@@ -1007,7 +1008,76 @@ describe('AutoLauncher OCR scene activity fallback', () => {
 
         await launcher.runTextHookAutomation(scene);
 
-        expect(stopHookSessionMock).not.toHaveBeenCalled();
+        expect(stopHookSessionAndWaitMock).not.toHaveBeenCalled();
+        expect(startHookSessionMock).not.toHaveBeenCalled();
+    });
+
+    it('waits for an auto-started Agent session to stop before starting another engine', async () => {
+        const { AutoLauncher } = await loadAutoLauncherModule();
+        const launcher = new AutoLauncher() as any;
+        let finishStop!: () => void;
+        stopHookSessionAndWaitMock.mockReturnValue(
+            new Promise((resolve) => {
+                finishStop = () => resolve({ success: true });
+            }),
+        );
+        getRuntimeStatusMock.mockReturnValue({
+            running: true,
+            engine: 'agent',
+            exeName: 'old-game.exe',
+            pid: 100,
+            source: 'auto-launcher',
+        });
+        launcher.getPidByProcessName = vi.fn().mockResolvedValue(200);
+
+        const transition = launcher.handleIntegratedTextHookAutomation(
+            'new-game.exe',
+            'luna',
+            0,
+            'scene-2',
+        );
+        await Promise.resolve();
+
+        expect(stopHookSessionAndWaitMock).toHaveBeenCalledOnce();
+        expect(startHookSessionMock).not.toHaveBeenCalled();
+
+        finishStop();
+        await transition;
+
+        expect(startHookSessionMock).toHaveBeenCalledWith({
+            engine: 'luna',
+            exeName: 'new-game.exe',
+            pidOverride: 200,
+            source: 'auto-launcher',
+            sceneId: 'scene-2',
+            agentScriptPath: undefined,
+        });
+    });
+
+    it('does not start another engine when the active Agent session fails to stop', async () => {
+        const { AutoLauncher } = await loadAutoLauncherModule();
+        const launcher = new AutoLauncher() as any;
+        stopHookSessionAndWaitMock.mockResolvedValue({
+            success: false,
+            error: 'host still running',
+        });
+        getRuntimeStatusMock.mockReturnValue({
+            running: true,
+            engine: 'agent',
+            exeName: 'old-game.exe',
+            pid: 100,
+            source: 'auto-launcher',
+        });
+        launcher.getPidByProcessName = vi.fn().mockResolvedValue(200);
+
+        await launcher.handleIntegratedTextHookAutomation(
+            'new-game.exe',
+            'luna',
+            0,
+            'scene-2',
+        );
+
+        expect(stopHookSessionAndWaitMock).toHaveBeenCalledOnce();
         expect(startHookSessionMock).not.toHaveBeenCalled();
     });
 });

@@ -47,6 +47,7 @@ interface RuntimeStatusRunning {
   copyToClipboard?: boolean;
   agentScriptPath?: string;
   agentHasUi?: boolean;
+  agentDetached?: boolean;
 }
 
 interface RuntimeStatusStopped {
@@ -75,6 +76,7 @@ interface SavedProfile {
   hookFunction?: string | null;
   manualHookCode?: string | null;
   agentScriptPath?: string | null;
+  agentDetached?: boolean;
   copyToClipboard?: boolean;
   lastUsed: number;
 }
@@ -182,6 +184,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
   );
   const [manualHookCode, setManualHookCode] = useState("");
   const [agentScriptPath, setAgentScriptPath] = useState("");
+  const [agentDetached, setAgentDetached] = useState(true);
   const [agentScriptDialog, setAgentScriptDialog] = useState<{
     candidates: AgentScriptCandidate[];
     query: string;
@@ -250,6 +253,9 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
       if (next.engine === "agent" && next.agentScriptPath) {
         setAgentScriptPath(next.agentScriptPath);
       }
+      if (next.engine === "agent") {
+        setAgentDetached(next.agentDetached !== false);
+      }
     }
   }, [syncFlushDelayState]);
 
@@ -270,24 +276,28 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
         { exeName: info.exeName, sceneId: info.sceneId }
       );
       setSavedProfile(profile ?? null);
-      if (profile && !statusRunningRef.current && info.sceneId !== lastAppliedProfileKeyRef.current) {
+      if (!statusRunningRef.current && info.sceneId !== lastAppliedProfileKeyRef.current) {
         lastAppliedProfileKeyRef.current = info.sceneId;
-        setEngine(profile.engine);
-        setAutoHook(profile.autoHook);
-        syncFlushDelayState(profile.flushDelayMs);
-        setCopyToClipboard(profile.copyToClipboard ?? false);
-        if (profile.manualHookCode) {
-          setManualHookCode(profile.manualHookCode);
+        if (profile) {
+          setEngine(profile.engine);
+          setAutoHook(profile.autoHook);
+          syncFlushDelayState(profile.flushDelayMs);
+          setCopyToClipboard(profile.copyToClipboard ?? false);
+          if (profile.manualHookCode) {
+            setManualHookCode(profile.manualHookCode);
+          }
+          if (profile.agentScriptPath) {
+            setAgentScriptPath(profile.agentScriptPath);
+          }
         }
-        if (profile.agentScriptPath) {
-          setAgentScriptPath(profile.agentScriptPath);
-        }
+        setAgentDetached(profile?.engine === "agent" ? profile.agentDetached !== false : true);
       }
     } else {
       setSavedProfile(null);
       lastAppliedProfileKeyRef.current = null;
       if (!statusRunningRef.current) {
         syncFlushDelayState(DEFAULT_FLUSH_DELAY_MS);
+        setAgentDetached(true);
       }
     }
   }, [syncFlushDelayState]);
@@ -431,6 +441,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
           flushDelayMs,
           copyToClipboard,
           agentScriptPath: engine === "agent" ? agentScriptPath.trim() : undefined,
+          agentDetached: engine === "agent" ? agentDetached : undefined,
         }
       );
       if (!result.success) {
@@ -450,18 +461,21 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
     } finally {
       setBusy(false);
     }
-  }, [agentScriptPath, capture?.exeName, copyToClipboard, engine, flushDelayMs, refreshHooks, refreshStatus, showNotice, t]);
+  }, [agentDetached, agentScriptPath, capture?.exeName, copyToClipboard, engine, flushDelayMs, refreshHooks, refreshStatus, showNotice, t]);
 
   const stopSession = useCallback(async () => {
     setBusy(true);
     try {
-      await invokeIpc("texthook.stop");
+      const result = await invokeIpc<{ success: boolean; error?: string }>("texthook.stop");
+      if (!result?.success) {
+        showNotice(result?.error ?? t("texthook.errors.stopFailed"), "error");
+      }
       await refreshStatus();
       await refreshHooks();
     } finally {
       setBusy(false);
     }
-  }, [refreshHooks, refreshStatus]);
+  }, [refreshHooks, refreshStatus, showNotice, t]);
 
   const advanceText = useCallback(async () => {
     setBusy(true);
@@ -573,6 +587,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
         manualHookCode:
           engine === "luna" || engine === "textractor" ? manualHookCode.trim() || null : null,
         agentScriptPath: engine === "agent" ? agentScriptPath.trim() || null : null,
+        agentDetached: engine === "agent" ? agentDetached : false,
       }
     );
     if (result?.success && result.profile) {
@@ -588,6 +603,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
     engine,
     flushDelayMs,
     agentScriptPath,
+    agentDetached,
     hooks,
     manualHookCode,
     selectedHookId,
@@ -603,6 +619,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
       sceneId: savedProfile.sceneId ?? capture?.sceneId,
     });
     setSavedProfile(null);
+    setAgentDetached(true);
     showNotice(t("texthook.notices.profileDeleted"), "info");
   }, [capture?.sceneId, savedProfile, showNotice, t]);
 
@@ -926,6 +943,21 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
                                 {t("texthook.agent.showScriptUi")}
                               </button>
                             ) : null}
+                          </div>
+                          <div className="input-group">
+                            <label htmlFor="texthook-agent-detached-input">
+                              <input
+                                id="texthook-agent-detached-input"
+                                type="checkbox"
+                                checked={agentDetached}
+                                disabled={status.running}
+                                onChange={(e) => setAgentDetached(e.target.checked)}
+                              />{" "}
+                              {t("texthook.agent.runDetached")}
+                            </label>
+                            <span className="texthook-card-hint">
+                              {t("texthook.agent.runDetachedHint")}
+                            </span>
                           </div>
                         </div>
                       ) : null}
