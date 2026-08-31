@@ -181,6 +181,96 @@
       .join('');
   }
 
+  function normalizeRecentBlockText(text) {
+    return String(text || '')
+      .normalize('NFKC')
+      .replace(/[\s\p{P}\p{S}]/gu, '');
+  }
+
+  function getTextEditDistance(left, right) {
+    if (left === right) {
+      return 0;
+    }
+    if (!left) {
+      return right.length;
+    }
+    if (!right) {
+      return left.length;
+    }
+
+    let previousRow = Array.from({ length: right.length + 1 }, (_, index) => index);
+    for (let leftIndex = 0; leftIndex < left.length; leftIndex++) {
+      const currentRow = [leftIndex + 1];
+      for (let rightIndex = 0; rightIndex < right.length; rightIndex++) {
+        const substitutionCost = left[leftIndex] === right[rightIndex] ? 0 : 1;
+        currentRow.push(Math.min(
+          currentRow[rightIndex] + 1,
+          previousRow[rightIndex + 1] + 1,
+          previousRow[rightIndex] + substitutionCost
+        ));
+      }
+      previousRow = currentRow;
+    }
+    return previousRow[right.length];
+  }
+
+  function getRecentBlockMatchSimilarity(candidateText, recentText) {
+    const normalizedCandidate = normalizeRecentBlockText(candidateText);
+    const normalizedRecent = normalizeRecentBlockText(recentText);
+    if (!normalizedCandidate || !normalizedRecent) {
+      return 0;
+    }
+    if (normalizedCandidate === normalizedRecent) {
+      return 1;
+    }
+
+    const longestLength = Math.max(normalizedCandidate.length, normalizedRecent.length);
+    const shortestLength = Math.min(normalizedCandidate.length, normalizedRecent.length);
+    if (shortestLength < 6 || shortestLength / longestLength < 0.8) {
+      return 0;
+    }
+
+    const similarity = 1 - getTextEditDistance(normalizedCandidate, normalizedRecent) / longestLength;
+    return similarity >= 0.85 ? similarity : 0;
+  }
+
+  function getLatestTextMatchScore(candidateText, latestText) {
+    const normalizedCandidate = normalizeRecentBlockText(candidateText);
+    const normalizedLatest = normalizeRecentBlockText(latestText);
+    if (!normalizedCandidate || !normalizedLatest) {
+      return 0;
+    }
+    if (normalizedCandidate === normalizedLatest) {
+      return 4;
+    }
+    if (normalizedCandidate.includes(normalizedLatest)) {
+      return 3 + normalizedLatest.length / normalizedCandidate.length;
+    }
+    if (
+      normalizedLatest.includes(normalizedCandidate)
+      && normalizedCandidate.length >= normalizedLatest.length * 0.8
+    ) {
+      return 2 + normalizedCandidate.length / normalizedLatest.length;
+    }
+    return getRecentBlockMatchSimilarity(candidateText, latestText);
+  }
+
+  function findLatestTextComponentIndex(components, lines, latestText) {
+    let bestIndex = -1;
+    let bestScore = 0;
+    components.forEach((component, index) => {
+      const score = getLatestTextMatchScore(
+        getBlockRawText(component.memberIndexes, lines),
+        latestText
+      );
+      if (score > bestScore || (score > 0 && score === bestScore && index > bestIndex)) {
+        bestIndex = index;
+        bestScore = score;
+      }
+    });
+    return bestIndex;
+  }
+
   function findRecentBlockMatchAt(orderedIndexes, start, lines, recentRawTexts) {
     let candidateText = '';
     let bestMatch = null;
@@ -189,14 +279,20 @@
       const line = lines[orderedIndexes[end]];
       candidateText += line && typeof line.text === 'string' ? line.text : '';
       for (let historyIndex = recentRawTexts.length - 1; historyIndex >= 0; historyIndex--) {
-        if (candidateText !== recentRawTexts[historyIndex]) {
+        const similarity = getRecentBlockMatchSimilarity(candidateText, recentRawTexts[historyIndex]);
+        if (similarity === 0) {
           continue;
         }
-        if (!bestMatch || candidateText.length > bestMatch.rawText.length) {
+        if (
+          !bestMatch
+          || similarity > bestMatch.similarity
+          || (similarity === bestMatch.similarity && candidateText.length > bestMatch.rawText.length)
+        ) {
           bestMatch = {
             end: end + 1,
             historyIndex,
             rawText: candidateText,
+            similarity,
           };
         }
       }
@@ -453,9 +549,19 @@
       && typeof recentBlockHistory.getRawTexts === 'function'
       ? recentBlockHistory.getRawTexts(options.resultKey)
       : [];
-    const historyAwareComponents = semanticComponents.flatMap((component) => (
-      splitComponentByRecentBlocks(component, lines, recentRawTexts)
-    ));
+    let nvlChainKey = 0;
+    const historyAwareComponents = semanticComponents.flatMap((component) => {
+      const splitComponents = splitComponentByRecentBlocks(component, lines, recentRawTexts);
+      if (splitComponents.length < 2) {
+        return splitComponents;
+      }
+
+      const currentNvlChainKey = nvlChainKey++;
+      return splitComponents.map((splitComponent) => ({
+        ...splitComponent,
+        nvlChainKey: currentNvlChainKey,
+      }));
+    });
     const orderedComponents = historyAwareComponents
       .map((component) => ({
         ...component,
@@ -464,6 +570,11 @@
         minIndex: Math.min(...component.memberIndexes),
       }))
       .sort((a, b) => (a.top - b.top) || (a.left - b.left) || (a.minIndex - b.minIndex));
+    const latestTextComponentIndex = findLatestTextComponentIndex(
+      orderedComponents,
+      lines,
+      options.latestText
+    );
 
     const relationshipBlockIds = new Map();
     orderedComponents.forEach((component, blockId) => {
@@ -472,7 +583,13 @@
       }
       const sorted = component.memberIndexes.slice().sort((a, b) => a - b);
       blockBoundaries.set(blockId, { start: sorted[0], end: sorted[sorted.length - 1] });
-      blockMetadata.set(blockId, { role: component.role });
+      blockMetadata.set(blockId, {
+        role: component.role,
+        ...(blockId === latestTextComponentIndex ? { isLatestLine: true } : {}),
+        ...(Number.isInteger(component.nvlChainKey)
+          ? { nvlChainId: component.nvlChainKey }
+          : {}),
+      });
       if (component.relationshipKey !== null) {
         if (!relationshipBlockIds.has(component.relationshipKey)) {
           relationshipBlockIds.set(component.relationshipKey, []);

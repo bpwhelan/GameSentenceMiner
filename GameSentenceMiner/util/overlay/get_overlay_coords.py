@@ -316,6 +316,7 @@ class OverlayProcessor:
         self.obs_width = None
         self.obs_height = None
         self.last_overlay_line_id: Optional[str] = None
+        self.last_overlay_latest_text: Optional[str] = None
         self.sentence_is_recycled = False
 
         # State for reprocessing without re-scanning
@@ -579,6 +580,7 @@ class OverlayProcessor:
         overlay_data: List[Dict[str, Any]],
         *,
         line_id: Optional[str] = None,
+        latest_text: Optional[str] = None,
         supplemental: bool = False,
         is_final: bool = False,
     ) -> Dict[str, Any]:
@@ -590,6 +592,8 @@ class OverlayProcessor:
         }
         if line_id:
             payload["line_id"] = str(line_id)
+        if latest_text:
+            payload["latest_text"] = str(latest_text)
         if supplemental:
             payload["supplemental"] = True
         # Marks the stabilized/authoritative pass for a line. Consumers that throttle
@@ -2085,7 +2089,12 @@ class OverlayProcessor:
 
         # Precomputed coordinates come from the (stable) texthook sentence, so this
         # single send is authoritative — flag it final so highlight consumers parse it.
-        payload = self._build_overlay_word_coordinates_payload(final_data, line_id=line_id, is_final=True)
+        payload = self._build_overlay_word_coordinates_payload(
+            final_data,
+            line_id=line_id,
+            latest_text=sentence_to_check,
+            is_final=True,
+        )
         await send_word_coordinates_to_overlay(payload)
         if self._is_forced_ocr_bypass_payload(dict_from_ocr):
             logger.info(
@@ -2299,6 +2308,7 @@ class OverlayProcessor:
         sentence_to_check = (
             line.text.replace(" ", "").replace("\t", "").replace("\n", "").replace("\r", "") if line else None
         )
+        self.last_overlay_latest_text = sentence_to_check
         normalized_sentence_to_check = normalize_text_for_comparison(line.text) if line else None
         self._log_timing(op_start, "Sentence preprocessing and recycling check")
 
@@ -2539,7 +2549,11 @@ class OverlayProcessor:
                 ]
                 is_final_payload = local_is_final_engine and (should_stop or i == tries - 1)
                 data = self._build_overlay_word_coordinates_payload(
-                    oneocr_final, line_id=line_id, supplemental=precomputed_sent, is_final=is_final_payload
+                    oneocr_final,
+                    line_id=line_id,
+                    latest_text=sentence_to_check,
+                    supplemental=precomputed_sent,
+                    is_final=is_final_payload,
                 )
 
                 send_start_time = time.time()
@@ -2712,7 +2726,11 @@ class OverlayProcessor:
 
         # Lens is the authoritative final pass (it runs after any local preliminary).
         data = self._build_overlay_word_coordinates_payload(
-            extracted_data, line_id=line_id, supplemental=precomputed_sent, is_final=True
+            extracted_data,
+            line_id=line_id,
+            latest_text=sentence_to_check,
+            supplemental=precomputed_sent,
+            is_final=True,
         )
 
         op_start = time.time()
@@ -2846,7 +2864,11 @@ class OverlayProcessor:
             )
 
         if final_data:
-            data = self._build_overlay_word_coordinates_payload(final_data, line_id=self.last_overlay_line_id)
+            data = self._build_overlay_word_coordinates_payload(
+                final_data,
+                line_id=self.last_overlay_line_id,
+                latest_text=self.last_overlay_latest_text,
+            )
             await send_word_coordinates_to_overlay(data)
             logger.info("Resent {} text boxes with updated coordinates.", len(final_data))
 

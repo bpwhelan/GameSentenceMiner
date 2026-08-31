@@ -2970,6 +2970,7 @@ background: rgba(202, 12, 12, 0.692);
       gamepadHandler.handleOverlayTextRenderComplete({
         snapshot,
         preserveSelection: options.preserveSelection !== false,
+        focusLatestLine: options.focusLatestLine === true,
       });
     } else if (typeof gamepadHandler.refreshTextBlocks === 'function') {
       gamepadHandler.refreshTextBlocks();
@@ -3112,7 +3113,12 @@ background: rgba(202, 12, 12, 0.692);
             data.data,
             undefined,
             isSupplemental ? null : recentBlockHistory,
-            { resultKey: data.line_id != null ? String(data.line_id) : null }
+            {
+              resultKey: data.line_id != null ? String(data.line_id) : null,
+              latestText: !isSupplemental && typeof data.latest_text === 'string'
+                ? data.latest_text
+                : null,
+            }
           );
           const renderSignatureInfo = getOverlayTextRenderSignature(
             data.data,
@@ -3181,6 +3187,16 @@ background: rgba(202, 12, 12, 0.692);
               blockContainer.setAttribute('data-line-end', boundaries.end);
               const metadata = blockMetadata.get(blockId) || { role: 'text' };
               blockContainer.setAttribute('data-block-role', metadata.role);
+              if (metadata.isLatestLine === true) {
+                blockContainer.setAttribute('data-latest-line-block', 'true');
+              } else {
+                blockContainer.removeAttribute('data-latest-line-block');
+              }
+              if (Number.isInteger(metadata.nvlChainId)) {
+                blockContainer.setAttribute('data-nvl-chain-id', metadata.nvlChainId);
+              } else {
+                blockContainer.removeAttribute('data-nvl-chain-id');
+              }
               if (Number.isInteger(metadata.relatedBlockId)) {
                 blockContainer.setAttribute('data-related-block-id', metadata.relatedBlockId);
               } else {
@@ -3476,7 +3492,10 @@ background: rgba(202, 12, 12, 0.692);
           lastOverlayTextRenderSignature = isSupplemental
             ? null
             : renderSignatureInfo.signature;
-          completeGamepadOverlayTextRender(gamepadRenderSnapshot, { preserveSelection: true });
+          completeGamepadOverlayTextRender(gamepadRenderSnapshot, {
+            preserveSelection: true,
+            focusLatestLine: !isSupplemental,
+          });
 
         } else {
           const line = data?.sentence ?? data;

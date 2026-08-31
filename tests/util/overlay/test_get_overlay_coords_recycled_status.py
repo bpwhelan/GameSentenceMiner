@@ -5,6 +5,20 @@ from GameSentenceMiner.util import text_log
 from GameSentenceMiner.util.overlay import get_overlay_coords
 
 
+def test_word_coordinates_payload_includes_latest_text():
+    processor = get_overlay_coords.OverlayProcessor()
+    processor.ocr_language = "en"
+
+    payload = processor._build_overlay_word_coordinates_payload(
+        [{"text": "latest line"}],
+        line_id="line-1",
+        latest_text="latest line",
+    )
+
+    assert payload["line_id"] == "line-1"
+    assert payload["latest_text"] == "latest line"
+
+
 def test_do_work_sends_recycled_status_at_start_of_overlay_work(monkeypatch):
     processor = get_overlay_coords.OverlayProcessor()
     sent_messages = []

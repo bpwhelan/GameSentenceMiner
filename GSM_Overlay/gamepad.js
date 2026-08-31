@@ -3907,6 +3907,65 @@ class GamepadHandler {
     return bestCandidate ? bestCandidate.index : -1;
   }
 
+  findBottomNvlChainBlockIndex(selectableBlocks) {
+    const chainCounts = new Map();
+    for (const { index } of selectableBlocks) {
+      const chainId = this.textBlocks[index]?.dataset?.nvlChainId;
+      if (chainId !== undefined && chainId !== '') {
+        chainCounts.set(chainId, (chainCounts.get(chainId) || 0) + 1);
+      }
+    }
+
+    let bottomBlock = null;
+    for (const { index } of selectableBlocks) {
+      const block = this.textBlocks[index];
+      const chainId = block?.dataset?.nvlChainId;
+      if (!chainId || chainCounts.get(chainId) < 2) continue;
+
+      const rect = this.getBlockBoundingRect(block);
+      const bottom = Number.isFinite(rect?.bottom)
+        ? rect.bottom
+        : (Number.isFinite(rect?.top) && Number.isFinite(rect?.height)
+          ? rect.top + rect.height
+          : index);
+      if (!bottomBlock || bottom > bottomBlock.bottom || (bottom === bottomBlock.bottom && index > bottomBlock.index)) {
+        bottomBlock = { index, bottom };
+      }
+    }
+
+    return bottomBlock ? bottomBlock.index : -1;
+  }
+
+  findLatestLineBlockIndex(selectableBlocks) {
+    for (let i = selectableBlocks.length - 1; i >= 0; i--) {
+      const blockIndex = selectableBlocks[i].index;
+      if (this.textBlocks[blockIndex]?.dataset?.latestLineBlock === 'true') {
+        return blockIndex;
+      }
+    }
+    return -1;
+  }
+
+  focusLatestLineBlock() {
+    const selectableBlocks = [];
+    for (let index = 0; index < this.textBlocks.length; index++) {
+      if (this.blockHasSelectableCharacters(this.textBlocks[index])) {
+        selectableBlocks.push({ index });
+      }
+    }
+
+    const latestLineBlockIndex = this.findLatestLineBlockIndex(selectableBlocks);
+    if (latestLineBlockIndex < 0) return false;
+
+    this.currentBlockIndex = latestLineBlockIndex;
+    this.currentCursorIndex = 0;
+    this.currentLineIndex = 0;
+    this.lineNavPrefersCharacters = false;
+    this.refreshCharacters();
+    this.rememberCurrentSelectionSnapshot();
+    return true;
+  }
+
   findFirstSelectableBlockIndex() {
     const selectableBlocks = [];
 
@@ -3927,6 +3986,14 @@ class GamepadHandler {
       this.textBlocks[index]?.dataset?.blockRole !== 'character-name'
     ));
     const preferredBlocks = nonNameBlocks.length > 0 ? nonNameBlocks : selectableBlocks;
+    const latestLineBlockIndex = this.findLatestLineBlockIndex(preferredBlocks);
+    if (latestLineBlockIndex >= 0) {
+      return latestLineBlockIndex;
+    }
+    const bottomNvlChainBlockIndex = this.findBottomNvlChainBlockIndex(preferredBlocks);
+    if (bottomNvlChainBlockIndex >= 0) {
+      return bottomNvlChainBlockIndex;
+    }
 
     if (preferredBlocks.length >= 3) {
       const rankedBlocks = [...preferredBlocks].sort((a, b) => (
@@ -4007,7 +4074,8 @@ class GamepadHandler {
     this.updateVirtualMouseCursor();
 
     this.refreshTextBlocks();
-    if (preserveSelection && snapshot) {
+    const focusedLatestLine = options.focusLatestLine === true && this.focusLatestLineBlock();
+    if (!focusedLatestLine && preserveSelection && snapshot) {
       this.restoreSelectionFromSnapshot(snapshot);
     }
     this.prefetchTokenizationForAllBlocks();

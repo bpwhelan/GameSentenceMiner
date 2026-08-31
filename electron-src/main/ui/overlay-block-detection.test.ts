@@ -130,6 +130,94 @@ describe("overlay block detection", () => {
     expect(thirdResult.lineBlocks.get(0)).toBe(thirdResult.lineBlocks.get(1));
     expect(thirdResult.lineBlocks.get(2)).toBe(thirdResult.lineBlocks.get(3));
     expect(thirdResult.lineBlocks.get(4)).not.toBe(thirdResult.lineBlocks.get(3));
+    const chainIds = [0, 2, 4].map((lineIndex) => (
+      thirdResult.blockMetadata.get(thirdResult.lineBlocks.get(lineIndex))?.nvlChainId
+    ));
+    expect(chainIds.every((chainId) => chainId === chainIds[0])).toBe(true);
+    expect(chainIds[0]).toBeTypeOf("number");
+  });
+
+  it("keeps splitting an NVL chain when retained OCR text changes slightly", () => {
+    const history = createRecentBlockHistory();
+    const firstLine = makeLine(
+      "となりのレールを快速電車が通過していく。",
+      0.15,
+      0.14,
+      0.66,
+      0.19
+    );
+    detectTextBlocks([firstLine], undefined, history, { resultKey: "line-1" });
+
+    const correctedFirstLine = makeLine(
+      "となりのレールを快速電車が通過していく",
+      0.15,
+      0.14,
+      0.66,
+      0.19
+    );
+    const secondLine = makeLine(
+      "「お待たせしました。次の停車駅は――」",
+      0.15,
+      0.21,
+      0.65,
+      0.26
+    );
+    const secondResult = detectTextBlocks(
+      [correctedFirstLine, secondLine],
+      undefined,
+      history,
+      { resultKey: "line-2" }
+    );
+    expect(secondResult.blockCount).toBe(2);
+
+    const thirdResult = detectTextBlocks(
+      [
+        correctedFirstLine,
+        makeLine(
+          "「お待たせしました。次の停車駅はー―」",
+          0.15,
+          0.21,
+          0.65,
+          0.26
+        ),
+        makeLine(
+          "聞き慣れたアナウンス。",
+          0.16,
+          0.28,
+          0.45,
+          0.33
+        ),
+      ],
+      undefined,
+      history,
+      { resultKey: "line-3" }
+    );
+
+    expect(thirdResult.blockCount).toBe(3);
+    expect(new Set([0, 1, 2].map((lineIndex) => (
+      thirdResult.lineBlocks.get(lineIndex)
+    ))).size).toBe(3);
+  });
+
+  it("marks the block containing the latest dialogue outside an NVL chain", () => {
+    const latestDialogue = "笑顔につられて思わず謝ってしまった。";
+    const result = detectTextBlocks(
+      [
+        makeLine("おはようございます。朝からお騒がせしてごめんなさい", 0.15, 0.14, 0.80, 0.19),
+        makeLine("unrelated UI text", 0.02, 0.50, 0.15, 0.54),
+        makeLine(latestDialogue, 0.16, 0.28, 0.55, 0.33),
+      ],
+      undefined,
+      null,
+      { latestText: latestDialogue }
+    );
+    const latestBlockId = result.lineBlocks.get(2);
+
+    expect(result.blockMetadata.get(latestBlockId)).toMatchObject({
+      isLatestLine: true
+    });
+    expect(result.blockMetadata.get(result.lineBlocks.get(0))?.isLatestLine).not.toBe(true);
+    expect(result.blockMetadata.get(result.lineBlocks.get(1))?.isLatestLine).not.toBe(true);
   });
 
   it("matches any of the five recent raw blocks and evicts the oldest", () => {
