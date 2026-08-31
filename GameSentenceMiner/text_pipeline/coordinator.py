@@ -54,6 +54,12 @@ class TextCoordinatorMetrics:
     frozen: int = 0
 
 
+@dataclass(frozen=True)
+class _SourceTextSnapshot:
+    text: str
+    line_id: str
+
+
 def _compact(text: str) -> str:
     return "".join(str(text or "").split())
 
@@ -83,6 +89,10 @@ class TextCoordinatorState:
         self._record_sequence_offset = 0
         self._open_line_id: str | None = None
         self._open_deadline_monotonic_ns: int | None = None
+        self._last_full_text_by_source: OrderedDict[tuple[SourceKind, str, bool, str], _SourceTextSnapshot] = (
+            OrderedDict()
+        )
+        self._max_prefix_sources = 512
 
     def ingest(
         self,
@@ -109,15 +119,15 @@ class TextCoordinatorState:
             )
         self._remember_observation(observation.observation_id)
 
-        processed = observation.processed_text if observation.processed_text is not None else observation.raw_text
-        if not processed:
+        full_processed = observation.processed_text if observation.processed_text is not None else observation.raw_text
+        if not full_processed:
             self.metrics.rejected += 1
             return IngressResult(
                 IngressAck(IngressStatus.REJECTED, observation.observation_id, reason="empty processed text")
             )
 
         newest = self._records[-1] if self._records else None
-        if newest is not None and _compact(newest.text) == _compact(processed):
+        if newest is not None and _compact(newest.text) == _compact(full_processed):
             self.metrics.duplicates += 1
             return IngressResult(
                 IngressAck(
@@ -130,6 +140,30 @@ class TextCoordinatorState:
                     matched_source=newest.source_kind.value,
                 )
             )
+
+        processed = full_processed
+        source_text_key = self._source_text_key(observation)
+        previous_full_text = self._last_full_text_by_source.get(source_text_key)
+        if observation.remove_matching_prefix and previous_full_text is not None:
+            if full_processed == previous_full_text.text:
+                previous_record = self._by_id.get(previous_full_text.line_id)
+                if previous_record is not None and newest is not None and previous_record.line_id == newest.line_id:
+                    self.metrics.duplicates += 1
+                    return IngressResult(
+                        IngressAck(
+                            IngressStatus.DUPLICATE,
+                            observation.observation_id,
+                            line_id=previous_record.line_id,
+                            stream_sequence=previous_record.stream_sequence,
+                            revision=previous_record.revision,
+                            reason="same full text as immediately previous source payload",
+                            matched_source=previous_record.source_kind.value,
+                        )
+                    )
+            elif full_processed.startswith(previous_full_text.text):
+                suffix = full_processed[len(previous_full_text.text) :].lstrip()
+                if suffix:
+                    processed = suffix
 
         current = self._by_id.get(self._open_line_id or "")
         if (
@@ -218,6 +252,7 @@ class TextCoordinatorState:
                     metadata=observation.metadata,
                 )
                 self._replace(updated)
+                self._remember_full_source_text(source_text_key, full_processed, updated)
                 self._set_deadline(observation, now_monotonic_ns)
                 self.metrics.accepted += 1
                 self.metrics.updated += 1
@@ -262,6 +297,7 @@ class TextCoordinatorState:
         )
         self._records.append(record)
         self._by_id[record.line_id] = record
+        self._remember_full_source_text(source_text_key, full_processed, record)
         self._open_line_id = record.line_id
         self._set_deadline(observation, now_monotonic_ns)
         self.metrics.accepted += 1
@@ -350,6 +386,26 @@ class TextCoordinatorState:
     def _set_deadline(self, observation: TextObservation, now_monotonic_ns: int) -> None:
         delay_seconds = self.freeze_delay_seconds(observation)
         self._open_deadline_monotonic_ns = now_monotonic_ns + int(delay_seconds * 1_000_000_000)
+
+    @staticmethod
+    def _source_text_key(observation: TextObservation) -> tuple[SourceKind, str, bool, str]:
+        return (
+            observation.source_kind,
+            observation.source_instance,
+            observation.relay_only,
+            str(observation.metadata.get("scene", "") or ""),
+        )
+
+    def _remember_full_source_text(
+        self,
+        source_text_key: tuple[SourceKind, str, bool, str],
+        text: str,
+        record: TextRecordSnapshot,
+    ) -> None:
+        self._last_full_text_by_source[source_text_key] = _SourceTextSnapshot(text=text, line_id=record.line_id)
+        self._last_full_text_by_source.move_to_end(source_text_key)
+        while len(self._last_full_text_by_source) > self._max_prefix_sources:
+            self._last_full_text_by_source.popitem(last=False)
 
     def freeze_delay_seconds(self, observation: TextObservation) -> float:
         """Return the full correlation window the coordinator promises for an observation."""

@@ -1,10 +1,19 @@
 from GameSentenceMiner.util.config import configuration
-from GameSentenceMiner.util.config.configuration import Config, OBS, ProfileConfig, StatsConfig, VAD
+from GameSentenceMiner.util.config.configuration import OBS, VAD, Config, General, ProfileConfig, StatsConfig
 
 
 def test_vad_defaults_to_firered():
     assert VAD().selected_vad_model_v2 == configuration.FIRERED
     assert ProfileConfig().vad.selected_vad_model_v2 == configuration.FIRERED
+
+
+def test_cumulative_text_prefix_removal_defaults_to_enabled():
+    assert General().remove_matching_prefix_on_subsequent_lines is True
+
+    data = Config.new().to_dict()
+    data["configs"]["Default"]["general"].pop("remove_matching_prefix_on_subsequent_lines")
+
+    assert Config.from_dict(data).configs["Default"].general.remove_matching_prefix_on_subsequent_lines is True
 
 
 def test_tadoku_stats_defaults_are_safe_and_cleanup_daily_sync():

@@ -597,6 +597,7 @@ class General:
     use_clipboard: bool = False
     use_both_clipboard_and_websocket: bool = False
     merge_matching_sequential_text: bool = False
+    remove_matching_prefix_on_subsequent_lines: bool = True
     websocket_uri: str = "localhost:6677,localhost:9001,localhost:2333"
     websocket_sources: List[WebsocketInputSource] = field(
         default_factory=lambda: [WebsocketInputSource(**s) for s in DEFAULT_WEBSOCKET_SOURCES]

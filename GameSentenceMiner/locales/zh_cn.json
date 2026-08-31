@@ -71,6 +71,10 @@
             "label": "合并连续匹配文本:",
             "tooltip": "将连续匹配的文本合并为单个条目。这是一个非常特殊的功能。"
           },
+          "remove_matching_prefix_on_subsequent_lines": {
+            "label": "移除后续行中重复的前缀:",
+            "tooltip": "当输入源发送的行以前一完整行为开头时，移除重复的前缀。适用于累积文本钩子；不会合并行。"
+          },
           "websocket_uri": {
             "label": "输入 WebSocket URI:",
             "tooltip": "输入源的 WebSocket URI（Agent、Textractor、LunaTranslator 等）。允许使用逗号分隔多个源。请勿包含 GSM 的输出端口（文本评送、OCR 覆盖层）。"

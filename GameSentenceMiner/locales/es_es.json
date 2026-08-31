@@ -71,6 +71,10 @@
             "label": "Fusionar Texto Secuencial Coincidente:",
             "tooltip": "Habilitar para fusionar texto secuencial coincidente en una sola entrada. Diseñado para la función de Reconocimiento de Voz de Luna. Muy específico."
           },
+          "remove_matching_prefix_on_subsequent_lines": {
+            "label": "Eliminar Prefijo Coincidente de Líneas Posteriores:",
+            "tooltip": "Cuando una fuente envía una línea que empieza con su línea completa anterior, elimina el prefijo repetido. Útil para hooks de texto acumulativo; no fusiona líneas."
+          },
           "websocket_uri": {
             "label": "URI de WebSocket de Entrada:",
             "tooltip": "URIs de WebSocket para fuentes de ENTRADA (Agent, Textractor, LunaTranslator, etc.). Permite valores separados por comas para múltiples fuentes. NO incluya los puertos de salida de GSM (Text Feed, superposición OCR)."

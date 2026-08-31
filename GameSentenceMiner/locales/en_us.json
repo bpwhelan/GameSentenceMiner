@@ -77,6 +77,10 @@
             "label": "Merge Matching Sequential Text:",
             "tooltip": "Enable to merge matching sequential text into a single entry. Designed for Luna's Speech Recognition feature. Very niche."
           },
+          "remove_matching_prefix_on_subsequent_lines": {
+            "label": "Remove Matching Prefix from Subsequent Lines:",
+            "tooltip": "When a source sends a line beginning with its previous full line, remove the repeated prefix. Useful for cumulative text hooks; does not merge lines."
+          },
           "websocket_uri": {
             "label": "Input Websocket URI(s):",
             "tooltip": "WebSocket URIs for INPUT sources (Agent, Textractor, LunaTranslator, etc.). Allows comma-separated values for multiple sources. Do NOT include GSM's output ports (Text Feed, OCR overlay)."

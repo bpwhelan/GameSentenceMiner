@@ -1430,6 +1430,7 @@ class ConfigWindow(QWidget):
         self.clipboard_enabled_check = QCheckBox()
         self.use_both_clipboard_and_websocket_check = QCheckBox()
         self.merge_matching_sequential_text_check = QCheckBox()
+        self.remove_matching_prefix_on_subsequent_lines_check = QCheckBox()
         self.websocket_uri_edit = QLineEdit()
         self.open_config_on_startup_check = QCheckBox()
         self.open_multimine_on_startup_check = QCheckBox()

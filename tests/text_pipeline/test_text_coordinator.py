@@ -230,6 +230,57 @@ def test_same_source_fragments_are_visible_immediately_then_joined_by_revision()
     assert revised.events[0].record.text == "first fragment\nsecond fragment"
 
 
+def test_matching_prefix_is_removed_from_cumulative_source_lines():
+    state = TextCoordinatorState(session_id="session")
+    lines = [
+        "で、最後。",
+        "で、最後。シグマとファイが閉じ込められていたのは――",
+        "で、最後。シグマとファイが閉じ込められていたのは――右から２番目のエレベータが、あなたたちのいた場所。",
+    ]
+
+    for index, text in enumerate(lines):
+        item = observation(
+            text,
+            SourceKind.TEXTHOOK,
+            str(index),
+            emitted_at=NOW + timedelta(seconds=index),
+            source_instance="hook-cumulative",
+        )
+        item = TextObservation(
+            **{
+                **item.__dict__,
+                "remove_matching_prefix": True,
+                "metadata": {},
+            }
+        )
+        state.ingest(item, now=NOW + timedelta(seconds=index))
+
+    records = state.snapshot().records
+    assert [record.text for record in records] == [
+        "で、最後。",
+        "シグマとファイが閉じ込められていたのは――",
+        "右から２番目のエレベータが、あなたたちのいた場所。",
+    ]
+    assert [record.raw_text for record in records] == lines
+
+
+def test_matching_prefix_removal_can_be_disabled_independently_of_fragment_merging():
+    state = TextCoordinatorState(session_id="session")
+    first = observation("ああ。", SourceKind.TEXTHOOK, "1", source_instance="hook-cumulative")
+    second = observation(
+        "ああ。そのとおりだ。",
+        SourceKind.TEXTHOOK,
+        "2",
+        emitted_at=NOW + timedelta(seconds=1),
+        source_instance="hook-cumulative",
+    )
+
+    state.ingest(first, now=NOW)
+    state.ingest(second, now=NOW + timedelta(seconds=1))
+
+    assert [record.text for record in state.snapshot().records] == ["ああ。", "ああ。そのとおりだ。"]
+
+
 def test_windows_speech_corrected_hypothesis_replaces_the_previous_revision():
     state = TextCoordinatorState(session_id="session")
     first = observation("first fragment", SourceKind.SPEECH_RECOGNITION, "speech-1", source_instance="speech-4")

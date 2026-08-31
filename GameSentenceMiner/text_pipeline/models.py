@@ -111,6 +111,7 @@ class TextObservation:
     processed_text: str | None = None
     revision_window_ms: int = 100
     merge_fragments: bool = False
+    remove_matching_prefix: bool = False
     copy_to_clipboard: bool = False
     excluded_from_stats: bool = False
     relay_only: bool = False

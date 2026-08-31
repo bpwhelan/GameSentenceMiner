@@ -70,6 +70,10 @@
             "label": "連続する一致テキストを結合:",
             "tooltip": "連続する同じテキストを一つにまとめます。特殊な用途向けです。"
           },
+          "remove_matching_prefix_on_subsequent_lines": {
+            "label": "後続行から同じ接頭辞を削除:",
+            "tooltip": "入力ソースが前の完全な行から始まる行を送信した場合、重複する接頭辞を削除します。累積テキストを送るフックに便利で、行の結合は行いません。"
+          },
           "websocket_uri": {
             "label": "入力WebSocket URI:",
             "tooltip": "入力ソース用のWebSocket URI（Agent、Textractor、LunaTranslatorなど）。複数のソースにはカンマ区切りを使用。GSMの出力ポート（テキストフィード、OCRオーバーレイ）は含めないでください。"

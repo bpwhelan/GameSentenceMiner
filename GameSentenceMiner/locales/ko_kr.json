@@ -71,6 +71,10 @@
             "label": "일치하는 순차 텍스트 병합:",
             "tooltip": "일치하는 순차 텍스트를 하나의 항목으로 병합합니다. Luna의 음성 인식 기능을 위해 설계된 매우 특수한 기능입니다."
           },
+          "remove_matching_prefix_on_subsequent_lines": {
+            "label": "후속 줄에서 일치하는 접두사 제거:",
+            "tooltip": "입력 소스가 이전 전체 줄로 시작하는 줄을 보내면 반복된 접두사를 제거합니다. 누적 텍스트 훅에 유용하며 줄을 병합하지 않습니다."
+          },
           "websocket_uri": {
             "label": "입력 WebSocket URI:",
             "tooltip": "입력 소스(Agent, Textractor, LunaTranslator 등)용 WebSocket URI입니다. 여러 소스에 대해 쉼표로 구분된 값을 허용합니다. GSM의 출력 포트(텍스트 피드, OCR 오버레이)는 포함하지 마세요."
