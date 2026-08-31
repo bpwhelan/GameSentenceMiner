@@ -425,3 +425,289 @@ describe("window scene switcher startup synchronization", () => {
     service.shutdownWindowSceneSwitcher();
   });
 });
+
+describe("window scene switcher continuous reconciliation", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    config = {
+      schemaVersion: 1,
+      collections: [
+        {
+          collectionName: "Games",
+          collectionFileName: "Games.json",
+          enabled: true,
+          migrationVersion: 1,
+          legacySwitcherDisabled: true,
+          rules: [
+            {
+              sceneUuid: "scene-game",
+              sceneName: "Steins;Gate",
+              titlePattern: "Steins;Gate",
+              executableName: "game.exe",
+              enabled: true,
+              source: "manual",
+            },
+          ],
+        },
+      ],
+    };
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("recovers when both the foreground hook event and OBS scene event are missed", async () => {
+    const service = await loadService();
+    let sequence = 0;
+    let currentScene = { id: "scene-game", name: "Steins;Gate" };
+    const switchScene = vi.fn(async (sceneUuid: string) => {
+      currentScene = { id: sceneUuid, name: "Steins;Gate" };
+    });
+    const requestForegroundSnapshot = vi.fn(() => {
+      sequence += 1;
+      service.handleForegroundWindowSnapshot({
+        hwnd: "1234",
+        pid: 999_999,
+        title: "Steins;Gate",
+        executableName: "game.exe",
+        capturedAt: Date.now(),
+        sequence,
+      });
+    });
+
+    service.configureWindowSceneSwitcherRuntime({
+      isOBSConnected: () => true,
+      getCurrentCollectionName: async () => "Games",
+      getScenes: async () => [
+        { id: "scene-other", name: "Other" },
+        { id: "scene-game", name: "Steins;Gate" },
+      ],
+      getCurrentScene: async () => currentScene,
+      switchScene,
+      suggestRule: async () => null,
+      restoreForegroundWindow: () => {},
+      requestForegroundSnapshot,
+    });
+    await vi.advanceTimersByTimeAsync(200);
+    expect(switchScene).not.toHaveBeenCalled();
+
+    // Model OBS changing while both its websocket event and the WinEvent hook
+    // transition are lost. The periodic foreground refresh must still repair it.
+    currentScene = { id: "scene-other", name: "Other" };
+    await vi.advanceTimersByTimeAsync(1_200);
+
+    expect(requestForegroundSnapshot).toHaveBeenCalledTimes(2);
+    expect(switchScene).toHaveBeenCalledOnce();
+    expect(switchScene).toHaveBeenCalledWith("scene-game");
+    service.shutdownWindowSceneSwitcher();
+  });
+
+  it("retries when OBS accepts a switch request but remains on the wrong scene", async () => {
+    const service = await loadService();
+    let sequence = 0;
+    let currentScene = { id: "scene-other", name: "Other" };
+    const switchScene = vi.fn(async (sceneUuid: string) => {
+      if (switchScene.mock.calls.length >= 2) {
+        currentScene = { id: sceneUuid, name: "Steins;Gate" };
+      }
+    });
+    const requestForegroundSnapshot = vi.fn(() => {
+      sequence += 1;
+      service.handleForegroundWindowSnapshot({
+        hwnd: "1234",
+        pid: 999_999,
+        title: "Steins;Gate",
+        executableName: "game.exe",
+        capturedAt: Date.now(),
+        sequence,
+      });
+    });
+
+    service.configureWindowSceneSwitcherRuntime({
+      isOBSConnected: () => true,
+      getCurrentCollectionName: async () => "Games",
+      getScenes: async () => [
+        { id: "scene-other", name: "Other" },
+        { id: "scene-game", name: "Steins;Gate" },
+      ],
+      getCurrentScene: async () => currentScene,
+      switchScene,
+      suggestRule: async () => null,
+      restoreForegroundWindow: () => {},
+      requestForegroundSnapshot,
+    });
+    await vi.advanceTimersByTimeAsync(200);
+    expect(switchScene).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(1_200);
+
+    expect(switchScene).toHaveBeenCalledTimes(2);
+    expect(currentScene.id).toBe("scene-game");
+    service.shutdownWindowSceneSwitcher();
+  });
+
+  it("releases a stale manual hold when a generated rule is saved for the focused game", async () => {
+    config.collections[0].rules = [];
+    const service = await loadService();
+    let sequence = 0;
+    let currentScene = { id: "scene-other", name: "Other" };
+    const switchScene = vi.fn(async (sceneUuid: string) => {
+      currentScene = { id: sceneUuid, name: "New Game Scene" };
+    });
+    const emitFocusedGame = () => {
+      sequence += 1;
+      service.handleForegroundWindowSnapshot({
+        hwnd: "1234",
+        pid: 999_999,
+        title: "Steins;Gate",
+        executableName: "game.exe",
+        capturedAt: Date.now(),
+        sequence,
+      });
+    };
+
+    service.configureWindowSceneSwitcherRuntime({
+      isOBSConnected: () => true,
+      getCurrentCollectionName: async () => "Games",
+      getScenes: async () => [
+        { id: "scene-other", name: "Other" },
+        { id: "scene-created", name: "New Game Scene" },
+      ],
+      getCurrentScene: async () => currentScene,
+      switchScene,
+      suggestRule: async () => null,
+      restoreForegroundWindow: () => {},
+      requestForegroundSnapshot: emitFocusedGame,
+    });
+    await vi.advanceTimersByTimeAsync(200);
+
+    // Scene creation changes the program scene before the generated rule is
+    // persisted. Previously this latched a manual hold onto the game forever.
+    currentScene = { id: "scene-created", name: "New Game Scene" };
+    service.handleOBSSceneChanged(currentScene);
+    service.upsertGeneratedWindowSceneRule("Games", "Games.json", {
+      sceneUuid: "scene-created",
+      sceneName: "New Game Scene",
+      titlePattern: "Steins;Gate",
+      executableName: "game.exe",
+    });
+    await vi.advanceTimersByTimeAsync(200);
+
+    currentScene = { id: "scene-other", name: "Other" };
+    emitFocusedGame();
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(switchScene).toHaveBeenCalledOnce();
+    expect(switchScene).toHaveBeenCalledWith("scene-created");
+    service.shutdownWindowSceneSwitcher();
+  });
+
+  it("treats focusing a GSM window as leaving a manually held game context", async () => {
+    const service = await loadService();
+    let sequence = 0;
+    let currentScene = { id: "scene-game", name: "Steins;Gate" };
+    const switchScene = vi.fn(async (sceneUuid: string) => {
+      currentScene = { id: sceneUuid, name: "Steins;Gate" };
+    });
+    const emitFocusedGame = () => {
+      sequence += 1;
+      service.handleForegroundWindowSnapshot({
+        hwnd: "1234",
+        pid: 999_999,
+        title: "Steins;Gate",
+        executableName: "game.exe",
+        capturedAt: Date.now(),
+        sequence,
+      });
+    };
+
+    service.configureWindowSceneSwitcherRuntime({
+      isOBSConnected: () => true,
+      getCurrentCollectionName: async () => "Games",
+      getScenes: async () => [
+        { id: "scene-other", name: "Other" },
+        { id: "scene-game", name: "Steins;Gate" },
+      ],
+      getCurrentScene: async () => currentScene,
+      switchScene,
+      suggestRule: async () => null,
+      restoreForegroundWindow: () => {},
+      requestForegroundSnapshot: emitFocusedGame,
+    });
+    await vi.advanceTimersByTimeAsync(200);
+
+    currentScene = { id: "scene-other", name: "Other" };
+    service.handleOBSSceneChanged(currentScene);
+    sequence += 1;
+    service.handleForegroundWindowSnapshot({
+      hwnd: "5678",
+      pid: process.pid,
+      title: "GameSentenceMiner",
+      executableName: "GameSentenceMiner.exe",
+      capturedAt: Date.now(),
+      sequence,
+    });
+    emitFocusedGame();
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(switchScene).toHaveBeenCalledOnce();
+    expect(switchScene).toHaveBeenCalledWith("scene-game");
+    service.shutdownWindowSceneSwitcher();
+  });
+
+  it("does not latch a manual hold when a scene-creation event arrives after its rule", async () => {
+    config.collections[0].rules = [];
+    const service = await loadService();
+    let sequence = 0;
+    let currentScene = { id: "scene-other", name: "Other" };
+    const switchScene = vi.fn(async (sceneUuid: string) => {
+      currentScene = { id: sceneUuid, name: "New Game Scene" };
+    });
+    const emitFocusedGame = () => {
+      sequence += 1;
+      service.handleForegroundWindowSnapshot({
+        hwnd: "1234",
+        pid: 999_999,
+        title: "Steins;Gate",
+        executableName: "game.exe",
+        capturedAt: Date.now(),
+        sequence,
+      });
+    };
+
+    service.configureWindowSceneSwitcherRuntime({
+      isOBSConnected: () => true,
+      getCurrentCollectionName: async () => "Games",
+      getScenes: async () => [
+        { id: "scene-other", name: "Other" },
+        { id: "scene-created", name: "New Game Scene" },
+      ],
+      getCurrentScene: async () => currentScene,
+      switchScene,
+      suggestRule: async () => null,
+      restoreForegroundWindow: () => {},
+      requestForegroundSnapshot: emitFocusedGame,
+    });
+    await vi.advanceTimersByTimeAsync(200);
+
+    currentScene = { id: "scene-created", name: "New Game Scene" };
+    service.upsertGeneratedWindowSceneRule("Games", "Games.json", {
+      sceneUuid: "scene-created",
+      sceneName: "New Game Scene",
+      titlePattern: "Steins;Gate",
+      executableName: "game.exe",
+    });
+    service.expectWindowSceneSwitcherOBSSceneChange("scene-created");
+    service.handleOBSSceneChanged(currentScene);
+    await vi.advanceTimersByTimeAsync(200);
+
+    currentScene = { id: "scene-other", name: "Other" };
+    emitFocusedGame();
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(switchScene).toHaveBeenCalledOnce();
+    expect(switchScene).toHaveBeenCalledWith("scene-created");
+    service.shutdownWindowSceneSwitcher();
+  });
+});

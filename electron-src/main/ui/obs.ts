@@ -56,6 +56,7 @@ import {
     type ObsWindowPropertyItem,
 } from './obs-capture.js';
 import {
+    expectWindowSceneSwitcherOBSSceneChange,
     handleOBSCollectionChanged,
     handleOBSConnected,
     handleOBSDisconnected,
@@ -2179,6 +2180,7 @@ async function createSceneWithCapture(window: ObsSceneCaptureWindowSelection): P
     }
 
     // Set the new scene as the current program scene
+    expectWindowSceneSwitcherOBSSceneChange(sceneUuid);
     await callOBS('SetCurrentProgramScene', { sceneName });
 
     const captureInputs = isWindows()

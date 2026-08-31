@@ -2,6 +2,7 @@ import { BrowserWindow, ipcMain } from 'electron';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import log from 'electron-log/main.js';
 
 import {
     findWindowSceneSwitcherCandidates,
@@ -33,9 +34,12 @@ import {
 
 const AUTO_SCENE_SWITCHER_MODULE_NAME = 'auto-scene-switcher';
 const FOREGROUND_SETTLE_MS = 200;
+const FOREGROUND_RECONCILE_INTERVAL_MS = 1_000;
 const SELF_SWITCH_EVENT_WINDOW_MS = 3_000;
 const OBS_RECONCILE_RETRY_MIN_MS = 1_000;
 const OBS_RECONCILE_RETRY_MAX_MS = 30_000;
+const DIAGNOSTIC_REPEAT_MS = 30_000;
+const MAX_DIAGNOSTIC_KEYS = 500;
 
 interface ObsSceneRef {
     id: string;
@@ -319,7 +323,7 @@ export async function migrateLegacyWindowSceneSwitcherCollections(
             }
             parsedCollections.push({ fileName, filePath, data, state });
         } catch (error) {
-            console.warn(`[SceneSwitcher] Failed to read OBS collection ${fileName}:`, error);
+            log.warn(`[SceneSwitcher] Failed to read OBS collection ${fileName}:`, error);
         }
     }
 
@@ -389,6 +393,21 @@ export function upsertGeneratedWindowSceneRule(
         collection.rules.push(saved);
     }
     writeConfig(config);
+    if (
+        activeCollectionName === collectionName &&
+        latestForeground &&
+        matchWindowSceneRule(saved, latestForeground).matched
+    ) {
+        // Scene creation changes OBS before this generated rule is persisted.
+        // That event can look like a manual override for the already-focused
+        // game, so release only that hold and immediately reconcile the rule.
+        manualHoldContextKey = '';
+        logDiagnostic(
+            `generated-rule:${collectionName}:${saved.sceneUuid}`,
+            `Saved generated rule for scene "${saved.sceneName}" and released the stale manual hold for ${describeForeground(latestForeground)}.`
+        );
+        scheduleEvaluation();
+    }
     return saved;
 }
 
@@ -412,6 +431,51 @@ let startupSceneSyncPending = false;
 let startupSceneSyncToken = 0;
 let obsReconcileRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let obsReconcileRetryDelayMs = OBS_RECONCILE_RETRY_MIN_MS;
+let foregroundReconcileTimer: ReturnType<typeof setInterval> | null = null;
+let foregroundReconcileInFlight = false;
+let latestDecisionKey = '';
+const diagnosticLastLoggedAt = new Map<string, number>();
+
+function describeForeground(snapshot: ForegroundWindowSnapshot): string {
+    const executable = normalizeExecutableName(
+        snapshot.executableName ?? snapshot.executablePath
+    );
+    return `window title=${JSON.stringify(snapshot.title)}, hwnd=${snapshot.hwnd}, executable=${JSON.stringify(executable || 'unknown')}`;
+}
+
+function getForegroundEvaluationKey(snapshot: ForegroundWindowSnapshot): string {
+    return JSON.stringify([
+        snapshot.hwnd,
+        snapshot.pid,
+        snapshot.title,
+        normalizeExecutableName(snapshot.executableName ?? snapshot.executablePath).toLowerCase(),
+    ]);
+}
+
+function logDiagnostic(
+    key: string,
+    message: string,
+    level: 'info' | 'warn' = 'info'
+): void {
+    const now = Date.now();
+    const lastLoggedAt = diagnosticLastLoggedAt.get(key);
+    if (
+        key === latestDecisionKey ||
+        (lastLoggedAt !== undefined && now - lastLoggedAt < DIAGNOSTIC_REPEAT_MS)
+    ) {
+        latestDecisionKey = key;
+        return;
+    }
+    latestDecisionKey = key;
+    diagnosticLastLoggedAt.set(key, now);
+    if (diagnosticLastLoggedAt.size > MAX_DIAGNOSTIC_KEYS) {
+        const oldestKey = diagnosticLastLoggedAt.keys().next().value;
+        if (oldestKey !== undefined) {
+            diagnosticLastLoggedAt.delete(oldestKey);
+        }
+    }
+    log[level](`[SceneSwitcher] ${message}`);
+}
 
 function notifyStateChanged(): void {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -505,33 +569,102 @@ async function performSceneSwitch(sceneUuid: string, generation: number): Promis
         return;
     }
     const current = await dependencies.getCurrentScene();
-    if (generation !== latestGeneration || current.id === sceneUuid) {
+    if (generation !== latestGeneration) {
         return;
     }
-    pendingAutoSceneUuid = sceneUuid;
-    pendingAutoSceneDeadline = Date.now() + SELF_SWITCH_EVENT_WINDOW_MS;
+    const targetName =
+        getActiveCollection()?.rules.find((rule) => rule.sceneUuid === sceneUuid)?.sceneName ??
+        sceneUuid;
+    if (current.id === sceneUuid) {
+        logDiagnostic(
+            `current:${sceneUuid}:${generation}`,
+            `OBS is already on the matched scene "${targetName}" for ${describeForeground(latestForeground!)}.`
+        );
+        return;
+    }
+    logDiagnostic(
+        `switch:${current.id}:${sceneUuid}:${generation}`,
+        `Switching OBS from "${current.name}" to matched scene "${targetName}" for ${describeForeground(latestForeground!)}.`
+    );
+    expectWindowSceneSwitcherOBSSceneChange(sceneUuid);
     await dependencies.switchScene(sceneUuid);
+    if (generation !== latestGeneration || !obsConnected) {
+        return;
+    }
+    const verified = await dependencies.getCurrentScene();
+    if (generation !== latestGeneration) {
+        return;
+    }
+    if (verified.id === sceneUuid) {
+        logDiagnostic(
+            `verified:${sceneUuid}:${generation}`,
+            `Verified OBS switched to "${targetName}".`
+        );
+        return;
+    }
+    logDiagnostic(
+        `unverified:${verified.id}:${sceneUuid}:${generation}`,
+        `OBS accepted the switch to "${targetName}" but still reports "${verified.name}"; the 1-second reconciliation loop will retry.`,
+        'warn'
+    );
 }
 
 async function evaluateForeground(generation: number): Promise<void> {
-    if (
-        generation !== latestGeneration ||
-        !dependencies ||
-        !latestForeground ||
-        !obsConnected
-    ) {
+    if (generation !== latestGeneration || !dependencies) {
+        return;
+    }
+    if (!obsConnected) {
+        logDiagnostic('waiting:obs', 'Waiting for a healthy OBS connection.');
+        return;
+    }
+    if (!latestForeground) {
+        logDiagnostic('waiting:foreground', 'Waiting for a foreground-window snapshot.');
         return;
     }
     const collection = getActiveCollection();
-    if (!collection?.enabled || !collection.legacySwitcherDisabled) {
+    if (!collection) {
+        logDiagnostic(
+            `disabled:no-collection:${activeCollectionName}`,
+            `No Scene Switcher configuration exists for OBS collection ${JSON.stringify(activeCollectionName || 'unknown')}.`
+        );
+        return;
+    }
+    if (!collection.enabled) {
+        logDiagnostic(
+            `disabled:collection:${collection.collectionName}`,
+            `Scene switching is disabled for OBS collection "${collection.collectionName}".`
+        );
+        return;
+    }
+    if (!collection.legacySwitcherDisabled) {
+        logDiagnostic(
+            `disabled:migration:${collection.collectionName}`,
+            `Scene switching is blocked because the legacy OBS switcher could not be disabled for collection "${collection.collectionName}".`,
+            'warn'
+        );
         return;
     }
     const contextKey = getForegroundWindowContextKey(latestForeground);
-    if (contextKey === manualHoldContextKey || contextKey === resolvedConflictContextKey) {
+    if (contextKey === manualHoldContextKey) {
+        logDiagnostic(
+            `hold:manual:${contextKey}`,
+            `Keeping the manually selected OBS scene until focus leaves ${describeForeground(latestForeground)}.`
+        );
+        return;
+    }
+    if (contextKey === resolvedConflictContextKey) {
+        logDiagnostic(
+            `hold:conflict:${contextKey}`,
+            `Keeping the resolved scene-choice conflict until focus leaves ${describeForeground(latestForeground)}.`
+        );
         return;
     }
     const candidates = findWindowSceneSwitcherCandidates(collection.rules, latestForeground);
     if (candidates.length === 0) {
+        logDiagnostic(
+            `unmatched:${collection.collectionName}:${getForegroundEvaluationKey(latestForeground)}`,
+            `No enabled rule matched ${describeForeground(latestForeground)} in collection "${collection.collectionName}".`
+        );
         return;
     }
     if (candidates.length > 1) {
@@ -541,6 +674,11 @@ async function evaluateForeground(generation: number): Promise<void> {
         ) {
             return;
         }
+        logDiagnostic(
+            `conflict:${contextKey}:${candidates.map((candidate) => candidate.sceneUuid).join(',')}`,
+            `${candidates.length} scene rules matched ${describeForeground(latestForeground)}; opening the conflict picker.`,
+            'warn'
+        );
         await showConflictPicker({
             requestId: randomUUID(),
             foreground: latestForeground,
@@ -550,7 +688,7 @@ async function evaluateForeground(generation: number): Promise<void> {
     }
     switchChain = switchChain
         .then(() => performSceneSwitch(candidates[0].sceneUuid, generation))
-        .catch((error) => console.warn('[SceneSwitcher] Failed to switch OBS scene:', error));
+        .catch((error) => log.warn('[SceneSwitcher] Failed to switch OBS scene:', error));
     await switchChain;
 }
 
@@ -574,6 +712,58 @@ function scheduleEvaluation(): void {
         }
         void evaluateForeground(generation);
     }, FOREGROUND_SETTLE_MS);
+}
+
+async function runForegroundReconciliation(): Promise<void> {
+    if (!dependencies || foregroundReconcileInFlight) {
+        return;
+    }
+    foregroundReconcileInFlight = true;
+    try {
+        const runtimeOBSConnected = dependencies.isOBSConnected();
+        if (!runtimeOBSConnected) {
+            if (obsConnected || startupSceneSyncPending) {
+                logDiagnostic(
+                    'runtime:obs-lost',
+                    'The OBS runtime is disconnected; pausing scene reconciliation.',
+                    'warn'
+                );
+                handleOBSDisconnected();
+            }
+            return;
+        }
+        if (!obsConnected) {
+            if (!startupSceneSyncPending) {
+                logDiagnostic(
+                    'runtime:obs-recovered',
+                    'The 1-second reconciliation loop found a healthy OBS connection; reloading the active collection.'
+                );
+                await handleOBSConnected();
+            }
+            return;
+        }
+        // Force-publishing the current HWND makes the hook an optimization
+        // rather than a single point of failure. The resulting snapshot also
+        // re-verifies the actual OBS program scene every second.
+        dependencies.requestForegroundSnapshot();
+    } catch (error) {
+        logDiagnostic(
+            `runtime:error:${error instanceof Error ? error.message : String(error)}`,
+            `Continuous reconciliation failed and will retry: ${error instanceof Error ? error.message : String(error)}`,
+            'warn'
+        );
+    } finally {
+        foregroundReconcileInFlight = false;
+    }
+}
+
+function startForegroundReconciliation(): void {
+    if (foregroundReconcileTimer) {
+        clearInterval(foregroundReconcileTimer);
+    }
+    foregroundReconcileTimer = setInterval(() => {
+        void runForegroundReconciliation();
+    }, FOREGROUND_RECONCILE_INTERVAL_MS);
 }
 
 function clearOBSReconcileRetry(resetDelay: boolean): void {
@@ -602,7 +792,7 @@ function scheduleOBSReconciliationRetry(): void {
     obsReconcileRetryTimer = setTimeout(() => {
         obsReconcileRetryTimer = null;
         void handleOBSConnected().catch((error) =>
-            console.warn('[SceneSwitcher] OBS reconciliation retry failed:', error)
+            log.warn('[SceneSwitcher] OBS reconciliation retry failed:', error)
         );
     }, delay);
 }
@@ -616,7 +806,7 @@ function reconcileHealthyOBSConnection(reason: string): void {
         return;
     }
     void handleOBSConnected().catch((error) =>
-        console.warn(`[SceneSwitcher] Failed to reconcile ${reason}:`, error)
+        log.warn(`[SceneSwitcher] Failed to reconcile ${reason}:`, error)
     );
 }
 
@@ -625,12 +815,17 @@ export function configureWindowSceneSwitcherRuntime(
 ): void {
     dependencies = nextDependencies;
     obsConnected = nextDependencies.isOBSConnected();
+    startForegroundReconciliation();
+    logDiagnostic(
+        `runtime:configured:${obsConnected}`,
+        `Runtime configured; OBS connected=${obsConnected}; foreground and scene state will reconcile every ${FOREGROUND_RECONCILE_INTERVAL_MS}ms.`
+    );
     if (obsConnected) {
         // OBS may have connected before the scene-switcher runtime was wired
         // (for example while the main window was being created). Reconcile the
         // collection now instead of leaving activeCollectionName empty.
         void handleOBSConnected().catch((error) =>
-            console.warn('[SceneSwitcher] Failed to reconcile after runtime setup:', error)
+            log.warn('[SceneSwitcher] Failed to reconcile after runtime setup:', error)
         );
     }
 }
@@ -646,6 +841,21 @@ export function handleForegroundWindowSnapshot(snapshot: ForegroundWindowSnapsho
         hookError = '';
     }
     if (isOwnWindowProcess(snapshot.pid)) {
+        // Own windows are intentionally not candidates, but they are still a
+        // real focus boundary. Without this, a manual hold created during scene
+        // setup can remain attached to the previously focused game forever.
+        latestGeneration += 1;
+        if (!pendingConflict) {
+            const releasedHold = Boolean(manualHoldContextKey || resolvedConflictContextKey);
+            manualHoldContextKey = '';
+            resolvedConflictContextKey = '';
+            if (releasedHold) {
+                logDiagnostic(
+                    `own-focus:released:${snapshot.pid}`,
+                    'Focus moved to a GameSentenceMiner window; stale scene holds were released.'
+                );
+            }
+        }
         reconcileHealthyOBSConnection('after a foreground-window event');
         notifyStateChanged();
         return;
@@ -660,9 +870,19 @@ export function handleForegroundWindowSnapshot(snapshot: ForegroundWindowSnapsho
     const previousKey = latestForeground
         ? getForegroundWindowContextKey(latestForeground)
         : '';
+    const previousEvaluationKey = latestForeground
+        ? getForegroundEvaluationKey(latestForeground)
+        : '';
     const nextKey = getForegroundWindowContextKey(snapshot);
+    const nextEvaluationKey = getForegroundEvaluationKey(snapshot);
     latestForeground = snapshot;
-    latestGeneration += 1;
+    if (previousEvaluationKey !== nextEvaluationKey) {
+        latestGeneration += 1;
+        logDiagnostic(
+            `foreground:${nextEvaluationKey}`,
+            `Observed foreground ${describeForeground(snapshot)}.`
+        );
+    }
     if (previousKey !== nextKey) {
         manualHoldContextKey = '';
         resolvedConflictContextKey = '';
@@ -683,6 +903,13 @@ export function setForegroundWindowHookStatus(
     }
     hookStatus = status;
     hookError = error;
+    logDiagnostic(
+        `hook:${status}:${error}`,
+        error
+            ? `Foreground hook status=${status}: ${error}`
+            : `Foreground hook status=${status}.`,
+        status === 'failed' ? 'warn' : 'info'
+    );
     notifyStateChanged();
 }
 
@@ -716,6 +943,11 @@ export async function handleOBSConnected(): Promise<void> {
         }
         obsConnected = true;
         clearOBSReconcileRetry(true);
+        const collection = getActiveCollection();
+        logDiagnostic(
+            `obs-ready:${activeCollectionName}:${scenes?.length ?? 'unknown'}`,
+            `OBS reconciliation is ready for collection ${JSON.stringify(activeCollectionName)} with ${collection?.rules.length ?? 0} saved rule(s).`
+        );
         dependencies.requestForegroundSnapshot();
         scheduleEvaluation();
         notifyStateChanged();
@@ -736,6 +968,7 @@ export function handleOBSDisconnected(): void {
     startupSceneSyncPending = false;
     clearOBSReconcileRetry(true);
     cancelPendingConflict(false);
+    logDiagnostic('obs:disconnected', 'OBS disconnected; scene switching is paused.', 'warn');
     notifyStateChanged();
 }
 
@@ -754,6 +987,15 @@ export async function handleOBSCollectionChanged(collectionName: string): Promis
     notifyStateChanged();
 }
 
+export function expectWindowSceneSwitcherOBSSceneChange(sceneUuid: string): void {
+    const normalizedSceneUuid = sceneUuid.trim();
+    if (!normalizedSceneUuid) {
+        return;
+    }
+    pendingAutoSceneUuid = normalizedSceneUuid;
+    pendingAutoSceneDeadline = Date.now() + SELF_SWITCH_EVENT_WINDOW_MS;
+}
+
 export function handleOBSSceneChanged(scene: ObsSceneRef): void {
     if (!obsConnected || startupSceneSyncPending) {
         return;
@@ -764,10 +1006,18 @@ export function handleOBSSceneChanged(scene: ObsSceneRef): void {
     ) {
         pendingAutoSceneUuid = '';
         pendingAutoSceneDeadline = 0;
+        logDiagnostic(
+            `scene:auto-event:${scene.id}`,
+            `Observed the expected automatic OBS scene change to "${scene.name}".`
+        );
         return;
     }
     if (latestForeground) {
         manualHoldContextKey = getForegroundWindowContextKey(latestForeground);
+        logDiagnostic(
+            `scene:manual:${scene.id}:${manualHoldContextKey}`,
+            `Observed an external OBS scene change to "${scene.name}"; holding it until focus leaves ${describeForeground(latestForeground)}.`
+        );
     }
 }
 
@@ -966,7 +1216,7 @@ export function registerWindowSceneSwitcherIPC(): void {
                 switchChain = switchChain
                     .then(() => performSceneSwitch(sceneUuid, generation))
                     .catch((error) =>
-                        console.warn('[SceneSwitcher] Conflict scene switch failed:', error)
+                        log.warn('[SceneSwitcher] Conflict scene switch failed:', error)
                     );
                 await switchChain;
             }
@@ -981,7 +1231,15 @@ export function shutdownWindowSceneSwitcher(): void {
         clearTimeout(settleTimer);
         settleTimer = null;
     }
+    if (foregroundReconcileTimer) {
+        clearInterval(foregroundReconcileTimer);
+        foregroundReconcileTimer = null;
+    }
+    foregroundReconcileInFlight = false;
     clearOBSReconcileRetry(true);
     pendingConflict = null;
     closeConflictWindow();
+    dependencies = null;
+    latestDecisionKey = '';
+    diagnosticLastLoggedAt.clear();
 }
