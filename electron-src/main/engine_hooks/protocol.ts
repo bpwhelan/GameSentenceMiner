@@ -25,6 +25,21 @@ export interface EngineHookDiagnosticMessage {
     message: string;
 }
 
+/**
+ * Text captured by an engine hook when the engine's glyph layout could not be
+ * read. It deliberately has no coordinates, so consumers can still mine the
+ * dialogue without trying to position an overlay from untrusted geometry.
+ */
+export interface EngineHookTextMessage {
+    schema: 'gsm_engine_hook_message_v1';
+    type: 'text';
+    integrationId: string;
+    sequence: number;
+    capturedAt: number;
+    callerOffset: string | null;
+    text: string;
+}
+
 export interface EngineHookTextLayoutMessage {
     schema: 'gsm_engine_hook_message_v1';
     type: 'text-layout';
@@ -51,11 +66,13 @@ export interface EngineHookTextLayoutMessage {
 export type EngineHookMessage =
     | EngineHookReadyMessage
     | EngineHookDiagnosticMessage
+    | EngineHookTextMessage
     | EngineHookTextLayoutMessage;
 
 const MAX_CODES = 2000;
 const MAX_CANDIDATES = 32;
 const MAX_CANDIDATE_LENGTH = 2000;
+const MAX_TEXT_LENGTH = 4096;
 const MAX_COORDINATE_SPACE = 16_384;
 const MAX_ABSOLUTE_COORDINATE = 32_768;
 const MAX_GLYPH_DIMENSION = 4096;
@@ -122,23 +139,42 @@ export function sanitizeEngineHookMessage(value: unknown): EngineHookMessage | n
         if ((level !== 'info' && level !== 'warn' && level !== 'error') || !message) return null;
         return { schema: 'gsm_engine_hook_message_v1', type: 'diagnostic', level, message };
     }
-    if (value.type !== 'text-layout') return null;
+    if (value.type !== 'text' && value.type !== 'text-layout') return null;
 
     const integrationId = string(value.integrationId);
     const sequence = integer(value.sequence, 0, Number.MAX_SAFE_INTEGER);
     const capturedAt = integer(value.capturedAt, 0, Number.MAX_SAFE_INTEGER);
-    const mode = integer(value.mode, 0, 255);
-    const style = integer(value.style, 0, 255);
-    const coordinateSpace = deriveEngineLogicalCoordinateSpace(value.coordinateSpace);
     const callerOffset = value.callerOffset === null ? null : string(value.callerOffset, 32);
     if (
         !integrationId ||
         sequence === null ||
         capturedAt === null ||
+        (value.callerOffset !== null && callerOffset === null)
+    ) {
+        return null;
+    }
+
+    if (value.type === 'text') {
+        const text = string(value.text, MAX_TEXT_LENGTH);
+        if (text === null) return null;
+        return {
+            schema: 'gsm_engine_hook_message_v1',
+            type: 'text',
+            integrationId,
+            sequence,
+            capturedAt,
+            callerOffset,
+            text,
+        };
+    }
+
+    const mode = integer(value.mode, 0, 255);
+    const style = integer(value.style, 0, 255);
+    const coordinateSpace = deriveEngineLogicalCoordinateSpace(value.coordinateSpace);
+    if (
         mode === null ||
         style === null ||
         coordinateSpace === null ||
-        (value.callerOffset !== null && callerOffset === null) ||
         !Array.isArray(value.positionedCodes) ||
         value.positionedCodes.length === 0 ||
         value.positionedCodes.length > MAX_CODES

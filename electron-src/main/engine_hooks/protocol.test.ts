@@ -35,6 +35,24 @@ describe('engine-hook protocol', () => {
         expect(message?.type).toBe('text-layout');
     });
 
+    it('accepts text-only messages when an engine could not produce a layout', () => {
+        const message = sanitizeEngineHookMessage({
+            schema: 'gsm_engine_hook_message_v1',
+            type: 'text',
+            integrationId: 'vlr-zero-escape-vlr-steam',
+            sequence: 4,
+            capturedAt: 123,
+            callerOffset: '0x47c71',
+            text: '痛てっ……。',
+        });
+
+        expect(message).toMatchObject({
+            type: 'text',
+            integrationId: 'vlr-zero-escape-vlr-steam',
+            text: '痛てっ……。',
+        });
+    });
+
     it('carries the candidate strings engines without per-glyph codes rely on', () => {
         const message = sanitizeEngineHookMessage({
             schema: 'gsm_engine_hook_message_v1',
