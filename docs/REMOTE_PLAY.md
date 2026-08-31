@@ -8,8 +8,8 @@ keyboard and pointer input to GSM's configured game window.
 
 - OBS Studio must be running with its WebSocket server configured for GSM.
 - The OBS program canvas must contain the game source you want to stream.
-- The browser and GSM computer must currently be on the same local network. This first iteration
-  has no STUN or TURN service.
+- The browser and GSM computer can connect directly over a local network or a NAT path supported
+  by the configured public STUN servers. Restrictive or symmetric NATs may still require TURN.
 - Windows is required for remote input. Video and OCR lookup remain available when input is not.
 
 ## Connect
@@ -32,6 +32,10 @@ video through `aiortc` and DirectShow. On disconnect, GSM closes the peer and me
 Virtual Camera only if that session started it.
 
 Audio is not included in this iteration.
+
+Both peers use Cloudflare STUN with Google STUN as a fallback to discover server-reflexive ICE
+candidates. This iteration does not relay media through TURN, so connectivity is not guaranteed
+across every firewall or NAT configuration.
 
 ## OCR Lookup
 

@@ -29,6 +29,14 @@ def test_remote_play_page_loads_without_embedding_a_token(client):
     assert response.headers["Cache-Control"] == "no-store"
 
 
+def test_remote_play_browser_uses_stun_servers(client):
+    response = client.get("/static/js/remote-play.js")
+
+    assert response.status_code == 200
+    assert b"stun:stun.cloudflare.com:3478" in response.data
+    assert b"stun:stun.l.google.com:19302" in response.data
+
+
 def test_session_token_can_only_be_issued_to_a_loopback_client(client):
     denied = client.post(
         "/api/remote-play/session",

@@ -231,3 +231,15 @@ def test_input_cannot_be_enabled_without_a_connected_peer():
 
     assert manager._input_gate.enabled is False
     assert websocket.sent == [{"type": "input_state", "enabled": False, "accepted": False}]
+
+
+def test_peer_connection_uses_stun_server():
+    peer = RemotePlaySessionManager._create_peer()
+
+    try:
+        configuration = peer._RTCPeerConnection__configuration
+        assert [server.urls for server in configuration.iceServers] == [
+            ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"]
+        ]
+    finally:
+        asyncio.run(peer.close())

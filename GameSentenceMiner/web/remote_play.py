@@ -11,6 +11,11 @@ from urllib.parse import urlsplit
 
 from GameSentenceMiner.util.config.configuration import logger
 
+REMOTE_PLAY_STUN_URLS = [
+    "stun:stun.cloudflare.com:3478",
+    "stun:stun.l.google.com:19302",
+]
+
 
 @dataclass(frozen=True)
 class NormalizedPointer:
@@ -329,9 +334,13 @@ class RemotePlaySessionManager:
 
     @staticmethod
     def _create_peer():
-        from aiortc import RTCPeerConnection
+        from aiortc import RTCConfiguration, RTCIceServer, RTCPeerConnection
 
-        return RTCPeerConnection()
+        return RTCPeerConnection(
+            RTCConfiguration(
+                iceServers=[RTCIceServer(urls=REMOTE_PLAY_STUN_URLS)],
+            )
+        )
 
     async def _close_peer_and_media(self) -> None:
         peer, self._peer = self._peer, None

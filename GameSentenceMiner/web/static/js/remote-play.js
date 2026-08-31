@@ -1,6 +1,10 @@
 (() => {
     "use strict";
 
+    const ICE_SERVERS = [{
+        urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"],
+    }];
+
     const elements = {
         video: document.getElementById("remoteVideo"),
         stage: document.getElementById("videoStage"),
@@ -100,7 +104,7 @@
 
     async function startPeerConnection() {
         state.peer?.close();
-        const peer = new RTCPeerConnection({ iceServers: [] });
+        const peer = new RTCPeerConnection({ iceServers: ICE_SERVERS });
         state.peer = peer;
         peer.addTransceiver("video", { direction: "recvonly" });
         peer.addEventListener("track", (event) => {
