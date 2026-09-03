@@ -158,7 +158,7 @@ describe('getOrInstallPython', () => {
             }
 
             if (command === UV_PATH && args[0] === '--version') {
-                return { stdout: 'uv 0.9.22', stderr: '' };
+                return { stdout: 'uv 0.12.4', stderr: '' };
             }
 
             if (command === UV_PATH && args[0] === 'python' && args[1] === 'install') {
@@ -236,12 +236,40 @@ describe('getOrInstallPython', () => {
         );
     });
 
+    it('reinstalls a cached uv binary when its version does not match the runtime lock tool', async () => {
+        let uvVersionCheckCount = 0;
+        mockExecFileAsync.mockImplementation(async (command: string, args: string[]) => {
+            if (command === UV_PATH && args[0] === '--version') {
+                uvVersionCheckCount += 1;
+                return {
+                    stdout: uvVersionCheckCount === 1 ? 'uv 0.11.33' : 'uv 0.12.4',
+                    stderr: '',
+                };
+            }
+
+            if (command === PYTHON_PATH && args[0] === '--version') {
+                return { stdout: 'Python 3.13.2', stderr: '' };
+            }
+
+            throw new Error(`Unexpected execFileAsync call: ${command} ${args.join(' ')}`);
+        });
+
+        const { getOrInstallPython } = await import('./python_downloader.js');
+        await expect(getOrInstallPython()).resolves.toBe(PYTHON_PATH);
+
+        expect(fsMock.rmSync).toHaveBeenCalledWith(UV_DIR, {
+            recursive: true,
+            force: true,
+        });
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
     it('shares a single install operation across concurrent callers', async () => {
         let resolveVenvCreation: (() => void) | null = null;
 
         mockExecFileAsync.mockImplementation(async (command: string, args: string[]) => {
             if (command === UV_PATH && args[0] === '--version') {
-                return { stdout: 'uv 0.9.22', stderr: '' };
+                return { stdout: 'uv 0.12.4', stderr: '' };
             }
 
             if (command === PYTHON_PATH && args[0] === '--version') {
@@ -307,7 +335,7 @@ describe('getOrInstallPython', () => {
         let venvAttemptCount = 0;
         mockExecFileAsync.mockImplementation(async (command: string, args: string[]) => {
             if (command === UV_PATH && args[0] === '--version') {
-                return { stdout: 'uv 0.9.22', stderr: '' };
+                return { stdout: 'uv 0.12.4', stderr: '' };
             }
 
             if (command === PYTHON_PATH && args[0] === '--version') {

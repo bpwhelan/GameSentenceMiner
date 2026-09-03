@@ -20,7 +20,7 @@ import {
   type AgentScriptCandidate,
 } from "../../../../shared/agent_scripts";
 
-interface LauncherTabProps {
+interface GameAutomationTabProps {
   active: boolean;
 }
 
@@ -309,7 +309,7 @@ function formatDownloadSummary(
   return `${toolLabel}: Downloading...`;
 }
 
-export function LauncherTab({ active }: LauncherTabProps) {
+export function GameAutomationTab({ active }: GameAutomationTabProps) {
   const t = useTranslation();
   const [sharedSettings, setSharedSettings] = useState<SharedGameSettings>(
     DEFAULT_SHARED_SETTINGS

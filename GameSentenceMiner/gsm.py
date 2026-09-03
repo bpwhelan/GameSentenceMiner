@@ -1490,6 +1490,29 @@ class GSMApplication:
                 if self.state.settings_window:
                     self.state.settings_window.reload_settings()
                 self.on_config_changed()
+            elif function == FunctionName.APPLY_CHANGELOG_SETTING_CHOICE.value:
+                data = cmd.get("data") if isinstance(cmd, dict) else {}
+                choice = str(data.get("choice") or "") if isinstance(data, dict) else ""
+                master_config = configuration.get_master_config()
+                if master_config is None:
+                    configuration.get_config()
+                    master_config = configuration.get_master_config()
+                if master_config is None or not configuration.apply_changelog_setting_choice(master_config, choice):
+                    logger.warning(f"Rejected changelog setting choice: {choice!r}")
+                    return
+
+                configuration.save_full_config(master_config)
+                from GameSentenceMiner.web.gsm_websocket import ID_OVERLAY, websocket_manager
+
+                websocket_manager.send_nowait(
+                    ID_OVERLAY,
+                    {
+                        "type": "gsm-overlay-config-updated",
+                        "settings": configuration.serialize_gsm_owned_overlay(master_config.overlay),
+                        "monitors": list(getattr(master_config.overlay, "monitors", []) or []),
+                    },
+                )
+                logger.info(f"Applied changelog setting choice: {choice}")
             elif function == FunctionName.OPEN_OVERLAY_SETTINGS.value:
                 from GameSentenceMiner.web.gsm_websocket import (
                     request_overlay_settings_open,
@@ -1978,7 +2001,6 @@ class GSMApplication:
         )
         send_message(FunctionName.INITIALIZED.value, {"status": "ready"})
         self._start_thread(self._announce_startup_ready, "startup-ready-announcer")
-        qt_main.schedule_default_config_changes_if_needed(parent=self.state.settings_window)
         qt_main.start_qt_app(show_config_immediately=open_config_on_startup)
 
 

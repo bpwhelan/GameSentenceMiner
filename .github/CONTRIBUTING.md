@@ -70,8 +70,9 @@ node --version
 
 3. **Install Python Dev Tooling**
    ```bash
-   uv sync --extra dev
-   uv run pre-commit install
+   uv lock --check
+   uv sync --frozen --extra dev
+   uv run --frozen pre-commit install
    ```
    This requires [`uv`](https://docs.astral.sh/uv/) and installs the repo's Python formatter plus a pre-commit hook that auto-formats staged Python files for you.
 
@@ -100,7 +101,7 @@ GSM includes Python components that handle OCR, AI integration, and other backen
 
 - Runtime Python dependencies are managed by GSM itself
 - Local changes to Python files in `GameSentenceMiner/` will be used during development
-- Contributor-only dev tooling such as Ruff and pre-commit can be installed locally with `uv sync --extra dev`
+- Contributor-only dev tooling such as Ruff and pre-commit can be installed locally with `uv sync --frozen --extra dev`
 
 ### Python Formatting
 
@@ -193,4 +194,3 @@ Thank you for contributing to GameSentenceMiner! Your efforts help make language
 In Python:
 * info() and errror() are sent to the console
 * info(), error(), and debug() are all sent to log file
-

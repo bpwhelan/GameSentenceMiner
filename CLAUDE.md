@@ -35,10 +35,11 @@ picked up immediately. The repo's own `.venv` is used for running tests/ruff loc
 
 ```powershell
 uv run ruff format GameSentenceMiner tests scripts   # ALWAYS run after Python changes
-uv sync                                               # sync the local .venv from the lockfile
+uv sync --frozen --extra dev                          # reproduce the locked dev environment
 ```
-Lockfiles (`uv.lock`, `requirements.lock`) are generated in CI — only `uv lock` locally to test
-lock changes. Use `.\run.ps1 add <package>` to add a dependency.
+`uv.lock` is the only Python dependency lockfile. Update it locally with `uv add`,
+`uv remove`, or `uv lock --upgrade-package <name>`, then verify with `uv lock --check`.
+Use `.\run.ps1 add <package>` to add a dependency.
 
 ### Tests
 ```powershell

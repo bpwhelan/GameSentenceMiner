@@ -1759,6 +1759,20 @@ background: rgba(202, 12, 12, 0.692);
   let immediateSentenceRecycled = false;
   let overlayRenderGeneration = 0;
   let lastOverlayTextRenderSignature = null;
+  let activeOcrPresenceId = null;
+  const invalidatedOcrPresenceIds = new Set();
+  const invalidatedOcrPresenceActions = new Map();
+
+  function rememberInvalidatedOcrPresenceId(presenceId, action) {
+    if (!presenceId) return;
+    invalidatedOcrPresenceIds.add(presenceId);
+    invalidatedOcrPresenceActions.set(presenceId, action);
+    while (invalidatedOcrPresenceIds.size > 32) {
+      const oldestId = invalidatedOcrPresenceIds.values().next().value;
+      invalidatedOcrPresenceIds.delete(oldestId);
+      invalidatedOcrPresenceActions.delete(oldestId);
+    }
+  }
   const FURIGANA_LINE_CACHE_TTL_MS = 2500;
   const MAX_FURIGANA_LINE_CACHE_ENTRIES = 200;
   let lastFuriganaRenderSignature = null;
@@ -3076,8 +3090,46 @@ background: rgba(202, 12, 12, 0.692);
         }
 
         if (data.type === "overlay_clear") {
+          activeOcrPresenceId = null;
           clearTextBoxes();
           return;
+        }
+
+        if (data.type === "ocr_text_invalidated") {
+          const presenceId = String(data.presence_id || "").trim();
+          if (!presenceId) return;
+          const staleAction = {
+            removeNotation: data.remove_notation !== false,
+            invalidateLookups: data.invalidate_lookups !== false,
+          };
+          if (!staleAction.removeNotation && !staleAction.invalidateLookups) return;
+          rememberInvalidatedOcrPresenceId(presenceId, staleAction);
+          if (presenceId === activeOcrPresenceId) {
+            invalidateStaleOcrOverlayText(staleAction);
+            activeOcrPresenceId = null;
+          }
+          return;
+        }
+
+        if (data.type === "ocr_text_revalidated") {
+          const presenceId = String(data.presence_id || "").trim();
+          const restoredPayload = data.payload;
+          if (!presenceId || !invalidatedOcrPresenceActions.has(presenceId)) return;
+          if (activeOcrPresenceId && activeOcrPresenceId !== presenceId) return;
+          if (!restoredPayload || restoredPayload.type !== "word_coordinates" || !Array.isArray(restoredPayload.data)) return;
+
+          // Invalidation may have removed either the lookup boxes, the notation,
+          // or both. Re-render the saved authoritative payload to restore exactly
+          // what was on screen before the text disappeared.
+          invalidatedOcrPresenceIds.delete(presenceId);
+          invalidatedOcrPresenceActions.delete(presenceId);
+          activeOcrPresenceId = null;
+          clearTextBoxes();
+          data = {
+            ...restoredPayload,
+            type: "word_coordinates",
+            presence_id: presenceId,
+          };
         }
 
         // Clear existing text boxes
@@ -3089,8 +3141,15 @@ background: rgba(202, 12, 12, 0.692);
 
         // Check if data has words array (new word-level coordinate format)
         if (data.type == "word_coordinates" && Array.isArray(data.data) && data.data.every(item => item.text && item.bounding_rect)) {
-          renderedTextPayload = true;
           const isSupplemental = data.supplemental === true;
+          const incomingPresenceId = String(data.presence_id || "").trim() || null;
+          const stalePresenceAction = !isSupplemental && incomingPresenceId
+            ? invalidatedOcrPresenceActions.get(incomingPresenceId) || null
+            : null;
+          if (!isSupplemental) {
+            activeOcrPresenceId = incomingPresenceId;
+          }
+          renderedTextPayload = true;
           const isSentenceRecycled = resolvePendingSentenceRecycledState(data.line_id, data.is_sentence_recycled);
           if (!isSupplemental) {
             setImmediateSentenceRecycled(isSentenceRecycled);
@@ -3496,6 +3555,10 @@ background: rgba(202, 12, 12, 0.692);
             preserveSelection: true,
             focusLatestLine: !isSupplemental,
           });
+          if (stalePresenceAction) {
+            invalidateStaleOcrOverlayText(stalePresenceAction);
+            activeOcrPresenceId = null;
+          }
 
         } else {
           const line = data?.sentence ?? data;
@@ -4186,6 +4249,32 @@ background: rgba(202, 12, 12, 0.692);
     // but DO remove it if you're getting new text.
     const trans = document.getElementById('translation-display');
     if (trans) trans.remove();
+  }
+
+  function invalidateStaleOcrOverlayText(options = {}) {
+    const removeNotation = options.removeNotation === true;
+    const invalidateLookups = options.invalidateLookups === true;
+    overlayRenderGeneration += 1;
+    lastOverlayTextRenderSignature = null;
+
+    if (invalidateLookups) {
+      const lookupSelectors = ['.text-box', '.big-interactive-area', '.spacer', '.text-block-container', '.block-separator'];
+      lookupSelectors.forEach((selector) => {
+        document.querySelectorAll(selector).forEach((element) => element.remove());
+      });
+      const plainText = document.getElementById('text');
+      if (plainText) plainText.textContent = '';
+    }
+
+    if (removeNotation) {
+      ['.line-box', '.recycled-indicator'].forEach((selector) => {
+        document.querySelectorAll(selector).forEach((element) => element.remove());
+      });
+      resetFuriganaRenderState();
+      if (window.GsmJitenHighlight) window.GsmJitenHighlight.clearJitenHighlighting();
+    }
+
+    completeGamepadOverlayTextRender(null, { preserveSelection: false, focusLatestLine: false });
   }
 
   function hideTextBoxes() {

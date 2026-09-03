@@ -1,3 +1,4 @@
+import { useCallback, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
@@ -27,7 +28,23 @@ function resolveAssetUrl(src: string | undefined, assetBaseUrl: string): string 
 }
 
 function isVideoAsset(src: string | undefined): boolean {
-  return /\.(?:mp4|webm)(?:[?#]|$)/i.test(src ?? "");
+    return /\.(?:mp4|webm)(?:[?#]|$)/i.test(src ?? "");
+}
+
+type ChangelogSettingAction = {
+  setting: string;
+  choice: "enable" | "disable";
+};
+
+function parseChangelogSettingAction(href: string | undefined): ChangelogSettingAction | null {
+  const match = /^https:\/\/gsm-setting\.invalid\/([a-z0-9-]+)\/(enable|disable)$/i.exec(href ?? "");
+  if (!match) {
+    return null;
+  }
+  return {
+    setting: match[1].toLowerCase(),
+    choice: match[2].toLowerCase() as ChangelogSettingAction["choice"],
+  };
 }
 
 export function WhatsChangedDialog({
@@ -50,8 +67,12 @@ export function WhatsChangedDialog({
   onQuit: () => void;
 }) {
   const t = useTranslation();
+  const [appliedSettingChoices, setAppliedSettingChoices] = useState<Record<string, string>>({});
+  const [pendingSetting, setPendingSetting] = useState<string | null>(null);
+  const [settingChoiceError, setSettingChoiceError] = useState(false);
   const isFailed = requiresBackendSync && backendStatus === "failed";
   const canContinue = !requiresBackendSync || backendStatus === "completed";
+  const canApplySettingChoices = !requiresBackendSync || backendStatus === "completed";
   const progress =
     installSession && typeof installSession.overallProgress === "number"
       ? installSession.overallProgress
@@ -63,7 +84,30 @@ export function WhatsChangedDialog({
       ? t("changelog.backend.completed")
       : backendStatus === "failed"
         ? t("changelog.backend.failed")
-        : installSession?.currentMessage || t("changelog.backend.preparing");
+      : installSession?.currentMessage || t("changelog.backend.preparing");
+
+  const applySettingChoice = useCallback(async (action: ChangelogSettingAction) => {
+    setPendingSetting(action.setting);
+    setSettingChoiceError(false);
+    try {
+      const response = await window.ipcRenderer.invoke<{ success?: boolean }>(
+        "changelog.applySettingChoice",
+        `${action.setting}:${action.choice}`
+      );
+      if (response?.success) {
+        setAppliedSettingChoices((previous) => ({
+          ...previous,
+          [action.setting]: action.choice,
+        }));
+      } else {
+        setSettingChoiceError(true);
+      }
+    } catch {
+      setSettingChoiceError(true);
+    } finally {
+      setPendingSetting(null);
+    }
+  }, []);
 
   return (
     <div className="whats-changed-overlay">
@@ -116,17 +160,49 @@ export function WhatsChangedDialog({
               rehypePlugins={[rehypeSanitize]}
               components={{
                 a: ({ href, children }) => (
-                  <a
-                    href={href}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      if (href && /^https?:\/\//i.test(href)) {
-                        void window.ipcRenderer.invoke("open-external", href);
+                  (() => {
+                    const action = parseChangelogSettingAction(href);
+                    if (action) {
+                      const selectedChoice = appliedSettingChoices[action.setting];
+                      if (selectedChoice === action.choice) {
+                        return (
+                          <span
+                            className="changelog-setting-choice-result"
+                            data-changelog-setting={action.setting}
+                          >
+                            {action.choice === "enable"
+                              ? t("changelog.settingChoice.enabled")
+                              : t("changelog.settingChoice.disabled")}
+                          </span>
+                        );
                       }
-                    }}
-                  >
-                    {children}
-                  </a>
+                      return (
+                        <button
+                          type="button"
+                          className="changelog-setting-choice"
+                          data-changelog-setting={action.setting}
+                          onClick={() => void applySettingChoice(action)}
+                          disabled={!canApplySettingChoices || pendingSetting === action.setting}
+                        >
+                          {children}
+                        </button>
+                      );
+                    }
+
+                    return (
+                      <a
+                        href={href}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          if (href && /^https?:\/\//i.test(href)) {
+                            void window.ipcRenderer.invoke("open-external", href);
+                          }
+                        }}
+                      >
+                        {children}
+                      </a>
+                    );
+                  })()
                 ),
                 img: ({ src, alt }) => {
                   const resolvedSrc = resolveAssetUrl(src, changelog.assetBaseUrl);
@@ -152,8 +228,12 @@ export function WhatsChangedDialog({
           )}
         </section>
 
-        {changelog.error ? (
-          <p className="whats-changed-note">{t("changelog.fallbackNote")}</p>
+        {changelog.error || settingChoiceError ? (
+          <p className={`whats-changed-note${settingChoiceError ? " changelog-setting-choice-error" : ""}`}>
+            {changelog.error ? t("changelog.fallbackNote") : null}
+            {changelog.error && settingChoiceError ? " " : null}
+            {settingChoiceError ? t("changelog.settingChoice.error") : null}
+          </p>
         ) : null}
 
         <footer className="whats-changed-footer">

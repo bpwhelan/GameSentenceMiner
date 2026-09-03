@@ -2,16 +2,17 @@ import asyncio
 import os
 import sys
 from functools import lru_cache
-from PyQt6.QtCore import QObject, pyqtSignal, QThread, Qt, QTimer
+from queue import Queue
+
+from PyQt6.QtCore import QObject, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication, QInputDialog
-from queue import Queue
 
 from GameSentenceMiner.util.config.configuration import (
     get_pickaxe_png_path,
     gsm_state,
-    logger,
     is_dev,
+    logger,
 )
 
 # Enable the handler
@@ -26,7 +27,6 @@ from GameSentenceMiner.util.config.configuration import (
 _qt_app = None
 _config_window = None
 _dialog_manager = None
-_default_config_changes_scheduled = False
 
 
 @lru_cache(maxsize=1)
@@ -55,13 +55,6 @@ def _get_config_window_class():
     from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
 
     return ConfigWindow
-
-
-@lru_cache(maxsize=1)
-def _get_show_default_config_change_dialogs():
-    from GameSentenceMiner.ui.default_config_change_dialog_qt import show_default_config_change_dialogs
-
-    return show_default_config_change_dialogs
 
 
 @lru_cache(maxsize=1)
@@ -472,27 +465,6 @@ def get_dialog_manager():
     """Get the global DialogManager, initializing App if needed."""
     get_qt_app()  # Ensures App and Manager exist
     return _dialog_manager
-
-
-def show_default_config_changes_if_needed(parent=None):
-    get_qt_app()
-    return _get_show_default_config_change_dialogs()(parent=parent)
-
-
-def schedule_default_config_changes_if_needed(parent=None) -> None:
-    global _default_config_changes_scheduled
-    if _default_config_changes_scheduled:
-        return
-    _default_config_changes_scheduled = True
-    get_qt_app()
-
-    def show_changes() -> None:
-        try:
-            show_default_config_changes_if_needed(parent=parent)
-        except Exception as exc:
-            logger.exception(f"Error showing default config change dialogs: {exc}")
-
-    QTimer.singleShot(0, show_changes)
 
 
 # def get_config_window():

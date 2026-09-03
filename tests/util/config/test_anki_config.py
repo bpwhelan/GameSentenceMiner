@@ -8,6 +8,42 @@ def test_same_selected_lines_different_mined_line_reuse_defaults():
     assert config.reuse_screenshot_for_same_selected_lines_different_mined_line is False
 
 
+def test_confirmation_gamepad_binding_defaults_preserve_existing_controls():
+    config = Anki()
+
+    assert config.confirmation_gamepad_focus_up == "12"
+    assert config.confirmation_gamepad_focus_down == "13"
+    assert config.confirmation_gamepad_focus_left == "14"
+    assert config.confirmation_gamepad_focus_right == "15"
+    assert config.confirmation_gamepad_activate == "0"
+    assert config.confirmation_gamepad_confirm_with_audio == "2"
+    assert config.confirmation_gamepad_confirm_without_audio == "1"
+
+
+def test_existing_anki_config_without_gamepad_bindings_uses_existing_controls():
+    existing_config = Anki().to_dict()
+    for field_name in (
+        "confirmation_gamepad_focus_up",
+        "confirmation_gamepad_focus_down",
+        "confirmation_gamepad_focus_left",
+        "confirmation_gamepad_focus_right",
+        "confirmation_gamepad_activate",
+        "confirmation_gamepad_confirm_with_audio",
+        "confirmation_gamepad_confirm_without_audio",
+    ):
+        existing_config.pop(field_name)
+
+    config = Anki.from_dict(existing_config)
+
+    assert config.confirmation_gamepad_focus_up == "12"
+    assert config.confirmation_gamepad_focus_down == "13"
+    assert config.confirmation_gamepad_focus_left == "14"
+    assert config.confirmation_gamepad_focus_right == "15"
+    assert config.confirmation_gamepad_activate == "0"
+    assert config.confirmation_gamepad_confirm_with_audio == "2"
+    assert config.confirmation_gamepad_confirm_without_audio == "1"
+
+
 def test_field_grouping_defaults_are_opt_in_and_keep_the_newest_context_first():
     config = Anki()
 

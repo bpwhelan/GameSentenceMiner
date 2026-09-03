@@ -890,6 +890,27 @@ class ConfigWindow(QWidget):
                     confirmation_always_on_top=self.anki_confirmation_always_on_top_check.isChecked(),
                     confirmation_focus_on_show=self.anki_confirmation_focus_on_show_check.isChecked(),
                     confirmation_gamepad_enabled=self.anki_confirmation_gamepad_enabled_check.isChecked(),
+                    confirmation_gamepad_focus_up=str(
+                        self.anki_confirmation_gamepad_focus_up_combo.currentData() or ""
+                    ),
+                    confirmation_gamepad_focus_down=str(
+                        self.anki_confirmation_gamepad_focus_down_combo.currentData() or ""
+                    ),
+                    confirmation_gamepad_focus_left=str(
+                        self.anki_confirmation_gamepad_focus_left_combo.currentData() or ""
+                    ),
+                    confirmation_gamepad_focus_right=str(
+                        self.anki_confirmation_gamepad_focus_right_combo.currentData() or ""
+                    ),
+                    confirmation_gamepad_activate=str(
+                        self.anki_confirmation_gamepad_activate_combo.currentData() or ""
+                    ),
+                    confirmation_gamepad_confirm_with_audio=str(
+                        self.anki_confirmation_gamepad_confirm_with_audio_combo.currentData() or ""
+                    ),
+                    confirmation_gamepad_confirm_without_audio=str(
+                        self.anki_confirmation_gamepad_confirm_without_audio_combo.currentData() or ""
+                    ),
                     replay_audio_on_tts_generation=self.anki_confirmation_replay_audio_on_tts_generation_check.isChecked(),
                     reuse_audio_for_same_selected_lines_different_mined_line=(
                         self.anki_same_selection_different_line_reuse_audio_check.isChecked()
@@ -1464,6 +1485,13 @@ class ConfigWindow(QWidget):
         self.anki_confirmation_always_on_top_check = QCheckBox()
         self.anki_confirmation_focus_on_show_check = QCheckBox()
         self.anki_confirmation_gamepad_enabled_check = QCheckBox()
+        self.anki_confirmation_gamepad_focus_up_combo = self._create_gamepad_hotkey_combo()
+        self.anki_confirmation_gamepad_focus_down_combo = self._create_gamepad_hotkey_combo()
+        self.anki_confirmation_gamepad_focus_left_combo = self._create_gamepad_hotkey_combo()
+        self.anki_confirmation_gamepad_focus_right_combo = self._create_gamepad_hotkey_combo()
+        self.anki_confirmation_gamepad_activate_combo = self._create_gamepad_hotkey_combo()
+        self.anki_confirmation_gamepad_confirm_with_audio_combo = self._create_gamepad_hotkey_combo()
+        self.anki_confirmation_gamepad_confirm_without_audio_combo = self._create_gamepad_hotkey_combo()
         self.anki_confirmation_autoplay_audio_check = QCheckBox()
         self.anki_confirmation_replay_audio_on_tts_generation_check = QCheckBox()
         self.anki_same_selection_different_line_reuse_audio_check = QCheckBox()
@@ -3041,6 +3069,34 @@ class ConfigWindow(QWidget):
         self.anki_confirmation_focus_on_show_check.setChecked(bool(getattr(s.anki, "confirmation_focus_on_show", True)))
         self.anki_confirmation_gamepad_enabled_check.setChecked(
             bool(getattr(s.anki, "confirmation_gamepad_enabled", False))
+        )
+        self._set_gamepad_hotkey_combo(
+            self.anki_confirmation_gamepad_focus_up_combo,
+            getattr(s.anki, "confirmation_gamepad_focus_up", "12"),
+        )
+        self._set_gamepad_hotkey_combo(
+            self.anki_confirmation_gamepad_focus_down_combo,
+            getattr(s.anki, "confirmation_gamepad_focus_down", "13"),
+        )
+        self._set_gamepad_hotkey_combo(
+            self.anki_confirmation_gamepad_focus_left_combo,
+            getattr(s.anki, "confirmation_gamepad_focus_left", "14"),
+        )
+        self._set_gamepad_hotkey_combo(
+            self.anki_confirmation_gamepad_focus_right_combo,
+            getattr(s.anki, "confirmation_gamepad_focus_right", "15"),
+        )
+        self._set_gamepad_hotkey_combo(
+            self.anki_confirmation_gamepad_activate_combo,
+            getattr(s.anki, "confirmation_gamepad_activate", "0"),
+        )
+        self._set_gamepad_hotkey_combo(
+            self.anki_confirmation_gamepad_confirm_with_audio_combo,
+            getattr(s.anki, "confirmation_gamepad_confirm_with_audio", "2"),
+        )
+        self._set_gamepad_hotkey_combo(
+            self.anki_confirmation_gamepad_confirm_without_audio_combo,
+            getattr(s.anki, "confirmation_gamepad_confirm_without_audio", "1"),
         )
         self.anki_confirmation_autoplay_audio_check.setChecked(bool(s.anki.autoplay_audio))
         self.anki_confirmation_replay_audio_on_tts_generation_check.setChecked(

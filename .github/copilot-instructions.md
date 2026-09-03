@@ -66,7 +66,7 @@ npm run app:dist  # Creates installer in dist/ using electron-builder
 - **NO manual Python setup needed**: Electron downloads/manages Python via `electron-src/main/python/python_downloader.ts`
 - **Dependencies**: Managed by `uv` (bundled), installed automatically on first run
 - **Local edits**: Changes to `GameSentenceMiner/` are picked up immediately (uses local files, not installed package)
-- **Package management**: `pyproject.toml` defines deps, `uv sync` installs them
+- **Package management**: `pyproject.toml` defines deps; `uv.lock` is authoritative and `uv sync --frozen` installs it
 
 ### Configuration Management
 - **Master config**: `GameSentenceMiner/util/configuration.py::MasterConfig` + `Config` dataclass

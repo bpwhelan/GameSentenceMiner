@@ -214,7 +214,38 @@
           },
           "confirmation_gamepad_enabled": {
             "label": "Gamepad Controls:",
-            "tooltip": "Use the D-pad to move focus, A to activate the focused component, X to confirm with audio, and B to confirm without audio. Other GSM gamepad controls are paused while the dialog is open."
+            "tooltip": "Enable configurable gamepad bindings for the Anki confirmation dialog. Other GSM gamepad controls are paused while the dialog is open."
+          },
+          "confirmation_gamepad_bindings": {
+            "label": "Gamepad Bindings:"
+          },
+          "confirmation_gamepad_focus_up": {
+            "label": "Move Focus Up:",
+            "tooltip": "Button that moves focus to the previous item."
+          },
+          "confirmation_gamepad_focus_down": {
+            "label": "Move Focus Down:",
+            "tooltip": "Button that moves focus to the next item."
+          },
+          "confirmation_gamepad_focus_left": {
+            "label": "Move Focus Left:",
+            "tooltip": "Button that moves focus to the previous item."
+          },
+          "confirmation_gamepad_focus_right": {
+            "label": "Move Focus Right:",
+            "tooltip": "Button that moves focus to the next item."
+          },
+          "confirmation_gamepad_activate": {
+            "label": "Activate Focused Component:",
+            "tooltip": "Button that activates the focused component and accepts an audio-choice warning."
+          },
+          "confirmation_gamepad_confirm_with_audio": {
+            "label": "Confirm With Audio:",
+            "tooltip": "Button that confirms the card while keeping audio."
+          },
+          "confirmation_gamepad_confirm_without_audio": {
+            "label": "Confirm Without Audio:",
+            "tooltip": "Button that confirms the card without audio and cancels an audio-choice warning."
           },
           "url": {
             "label": "Anki URL:",

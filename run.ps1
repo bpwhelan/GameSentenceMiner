@@ -46,8 +46,10 @@ for ($i = 0; $i -lt $cmd.Count; $i++) {
         }
         "sync" {
             Write-Host "Syncing environment..." -ForegroundColor Cyan
-            uv sync --locked --extra dev
-            ~\AppData\Roaming\GameSentenceMiner\python_venv\Scripts\python.exe -m uv sync --active --locked --no-dev --no-install-project --inexact --project .
+            uv lock --check
+            uv sync --frozen --extra dev
+            ~\AppData\Roaming\GameSentenceMiner\python_venv\Scripts\python.exe -m uv sync --active --frozen --no-dev --no-editable --no-install-project --inexact --project .
+            ~\AppData\Roaming\GameSentenceMiner\python_venv\Scripts\python.exe -m pip check
         }
         "gsm" {
             Write-Host "Forking Main App..." -ForegroundColor Green
@@ -62,15 +64,17 @@ for ($i = 0; $i -lt $cmd.Count; $i++) {
                 $package = $cmd[$i + 1]
                 Write-Host "Adding package: $package" -ForegroundColor Yellow
                 uv add "$package"
-                Write-Host "Lockfiles are generated in CI. Run uv lock locally only if you need to test lock changes." -ForegroundColor DarkYellow
+                uv lock --check
                 $i++
             } else {
                 Write-Error "Usage: add <package>"
             }
         }
-        "manifest" {
-            Write-Host "Generating runtime lock manifest..." -ForegroundColor Cyan
-            python scripts/generate_runtime_lock_manifest.py --lock uv.lock --pyproject pyproject.toml --output runtime-lock-manifest.json --uv-version 0.9.22
+        "verify-python" {
+            Write-Host "Verifying Python dependency policy and lock..." -ForegroundColor Cyan
+            & ".\.venv\Scripts\python.exe" scripts/verify_python_dependency_policy.py
+            & ".\.venv\Scripts\python.exe" -m uv lock --check
+            & ".\.venv\Scripts\python.exe" -m pip check
         }
         "concat" {
             Write-Host "Concatenating files..." -ForegroundColor Blue

@@ -159,7 +159,6 @@ import {
 } from './services/python_ops.js';
 import {
     getDevPyprojectSyncState,
-    markDevPyprojectSynced,
     type DevPyprojectSyncState,
 } from './services/dev_environment_sync.js';
 import type {
@@ -1615,6 +1614,7 @@ async function createWindow() {
         markDesktopUpdateChangelogSeen: async (toVersion?: string) =>
             desktopChangelogManager.markSeen(toVersion),
         clearManualDesktopChangelog: () => desktopChangelogManager.clearManualDisplay(),
+        applyChangelogSettingChoice,
     });
     registerDataRelocateIPC();
 
@@ -2129,15 +2129,14 @@ async function ensureAndRunGSM(
     }
 
     let devPyprojectSyncState: DevPyprojectSyncState | null = null;
-    if (isDev) {
-        try {
-            devPyprojectSyncState = getDevPyprojectSyncState(
-                getProjectPath(),
-                getVenvDirFromPythonPath(runtimePythonPath)
-            );
-        } catch (error) {
-            console.warn('Could not determine whether pyproject.toml changed:', error);
-        }
+    try {
+        devPyprojectSyncState = getDevPyprojectSyncState(
+            getProjectPath(),
+            getVenvDirFromPythonPath(runtimePythonPath),
+            selectedExtras
+        );
+    } catch (error) {
+        console.warn('Could not determine whether the locked Python environment changed:', error);
     }
     const shouldSyncChangedDevPyproject = devPyprojectSyncState?.changed === true;
     const requiresEnvironmentPreparation =
@@ -2195,7 +2194,7 @@ async function ensureAndRunGSM(
 
         if (shouldSyncChangedDevPyproject && devPyprojectSyncState) {
             console.log(
-                `pyproject.toml changed; syncing the development Python environment, extras: ${selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
+                `Locked Python environment inputs changed; syncing dependencies, extras: ${selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
                 }`
             );
             devFaultInjector.maybeFail('startup.sync_lock_apply');
@@ -2204,7 +2203,7 @@ async function ensureAndRunGSM(
                 'running',
                 'estimated',
                 0.15,
-                'pyproject.toml changed; syncing the development Python environment...'
+                'Lockfile, project dependencies, or selected extras changed; syncing...'
             );
             await syncLockedEnvironment(runtimePythonPath, selectedExtras, false, (event) => {
                 updateInstallStage(
@@ -2215,16 +2214,12 @@ async function ensureAndRunGSM(
                     event.message
                 );
             });
-            markDevPyprojectSynced(
-                getVenvDirFromPythonPath(runtimePythonPath),
-                devPyprojectSyncState.fingerprint
-            );
             updateInstallStage(
                 'lock_sync',
                 'completed',
                 'estimated',
                 1,
-                'Development Python environment synced after pyproject.toml changed.'
+                'Python environment synced after its locked inputs changed.'
             );
         } else {
             // App-version and backend updates still verify the environment and
@@ -2275,13 +2270,6 @@ async function ensureAndRunGSM(
                     'estimated',
                     1,
                     'Python environment synced to the lockfile.'
-                );
-            }
-
-            if (isDev && devPyprojectSyncState) {
-                markDevPyprojectSynced(
-                    getVenvDirFromPythonPath(runtimePythonPath),
-                    devPyprojectSyncState.fingerprint
                 );
             }
         }
@@ -3125,6 +3113,17 @@ export function sendOpenSettings(data?: Record<string, unknown>) {
 }
 export function sendReloadSettings() {
     sendBackendCommand('reload_settings');
+}
+const CHANGELOG_SETTING_CHOICES = new Set([
+    'overlay-presence-invalidation:enable',
+    'overlay-presence-invalidation:disable',
+]);
+
+export function applyChangelogSettingChoice(choice: string): boolean {
+    if (!CHANGELOG_SETTING_CHOICES.has(choice)) {
+        return false;
+    }
+    return sendBackendCommand('apply_changelog_setting_choice', { choice });
 }
 export function sendWindowsSpeechStart(data: Record<string, unknown>) {
     return sendBackendCommand('windows_speech_start', data);

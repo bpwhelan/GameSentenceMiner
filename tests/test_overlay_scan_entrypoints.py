@@ -41,3 +41,28 @@ def test_overlay_activation_scan_covers_each_overlay_entrypoint():
     assert 'requestOverlayScanForActivation("controller-navigation")' in main_js
     assert 'requestOverlayScanForActivation("main-box-show")' in main_js
     assert "overlay-main-box-shown" in index_html
+
+
+def test_last_sent_ocr_presence_settings_are_nested_and_synced_to_backend():
+    settings_html = (OVERLAY_DIR / "settings.html").read_text(encoding="utf-8")
+    main_js = (OVERLAY_DIR / "main.js").read_text(encoding="utf-8")
+    index_html = (OVERLAY_DIR / "index.html").read_text(encoding="utf-8")
+    overlay_processor = (
+        Path(__file__).resolve().parents[1] / "GameSentenceMiner" / "util" / "overlay" / "get_overlay_coords.py"
+    ).read_text(encoding="utf-8")
+    ocr_runtime = (
+        Path(__file__).resolve().parents[1] / "GameSentenceMiner" / "owocr" / "owocr" / "ocr_runtime.py"
+    ).read_text(encoding="utf-8")
+
+    assert 'id="last_sent_ocr_presence_check"' in settings_html
+    assert 'id="last_sent_ocr_presence_remove_notation"' in settings_html
+    assert 'id="last_sent_ocr_presence_invalidate_lookups"' in settings_html
+    assert 'class="sub-option last-sent-ocr-presence-option"' in settings_html
+    assert 'createCheckboxBinding("last_sent_ocr_presence_check"' in settings_html
+    assert 'last_sent_ocr_presence_check: "last_sent_ocr_presence_check"' in main_js
+    assert 'data.type === "ocr_text_invalidated"' in index_html
+    assert 'data.type === "ocr_text_revalidated"' in index_html
+    assert "invalidatedOcrPresenceIds" in index_html
+    assert "_send_word_coordinates_with_presence" in overlay_processor
+    assert "_monitor_last_sent_overlay_text" in overlay_processor
+    assert "observe_capture_frame" not in ocr_runtime

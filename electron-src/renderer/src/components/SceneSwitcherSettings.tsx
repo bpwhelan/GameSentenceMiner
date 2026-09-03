@@ -13,6 +13,10 @@ interface SaveRuleResponse {
   error?: string;
 }
 
+interface SuggestedRuleResponse {
+  titlePattern?: string;
+}
+
 function getPatternError(pattern: string): string | null {
   if (!pattern.trim()) return null;
   try {
@@ -30,6 +34,7 @@ export function SceneSwitcherSettings({ scene }: SceneSwitcherSettingsProps) {
   const [ruleEnabled, setRuleEnabled] = useState(false);
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const [loadingCaptureSource, setLoadingCaptureSource] = useState(false);
   const dirtyRef = useRef(false);
 
   const load = useCallback(async (preserveDraft = false) => {
@@ -113,6 +118,30 @@ export function SceneSwitcherSettings({ scene }: SceneSwitcherSettingsProps) {
     }
   }, [ruleEnabled, save]);
 
+  const useCaptureSource = useCallback(async () => {
+    if (loadingCaptureSource || saving) return;
+    setLoadingCaptureSource(true);
+    try {
+      const suggested = await invokeIpc<SuggestedRuleResponse | null>(
+        "scene-switcher.suggestRule",
+        scene.id
+      );
+      const pattern = suggested?.titlePattern?.trim();
+      if (!pattern) {
+        setMessage(t("sceneSwitcher.status.noCaptureSource"));
+        return;
+      }
+
+      dirtyRef.current = true;
+      setTitlePattern(pattern);
+      setMessage(t("sceneSwitcher.status.sourceLoaded"));
+    } catch {
+      setMessage(t("sceneSwitcher.status.noCaptureSource"));
+    } finally {
+      setLoadingCaptureSource(false);
+    }
+  }, [loadingCaptureSource, saving, scene.id, t]);
+
   if (window.gsmEnv?.platform !== "win32") {
     return null;
   }
@@ -120,6 +149,16 @@ export function SceneSwitcherSettings({ scene }: SceneSwitcherSettingsProps) {
   return (
     <section className="scene-switcher-settings" aria-label={t("sceneSwitcher.title")}>
       <h3>{t("sceneSwitcher.title")}</h3>
+
+      <button
+        type="button"
+        className="secondary scene-switcher-settings__source-button"
+        title={t("sceneSwitcher.useCaptureSource")}
+        disabled={saving || loadingCaptureSource}
+        onClick={() => void useCaptureSource()}
+      >
+        {t("sceneSwitcher.useCaptureSource")}
+      </button>
 
       <label className="scene-switcher-settings__toggle" htmlFor={`scene-switcher-rule-${scene.id}`}>
         <input

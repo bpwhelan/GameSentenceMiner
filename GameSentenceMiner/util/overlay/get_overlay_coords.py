@@ -7,6 +7,7 @@ import os
 import regex
 import threading
 import time
+import uuid
 from PIL import Image
 from datetime import datetime
 from rapidfuzz import fuzz
@@ -43,6 +44,10 @@ from GameSentenceMiner.util.config.configuration import (
 )
 from GameSentenceMiner.util.config.electron_config import get_ocr_language
 from GameSentenceMiner.util.platform.monitor_selection import resolve_monitor_descriptor
+from GameSentenceMiner.util.overlay.last_sent_text_presence import (
+    LastSentTextPresenceTracker,
+    prepare_presence_candidate,
+)
 from GameSentenceMiner.util.platform.window_state_monitor import (
     WindowStateMonitor,
     get_window_client_physical_geometry,
@@ -69,6 +74,7 @@ SAVE_DEBUG_IMAGES = False
 # Convert images to grayscale for overlay processing
 CONVERT_TO_GRAYSCALE = False
 OCR_ENGINE_INACTIVITY_TIMEOUT_SECONDS = 5 * 60
+LAST_SENT_PRESENCE_SCAN_INTERVAL_SECONDS = 0.35
 OVERLAY_VISIBLE_TEXT_REGEX = regex.compile(r"\S")
 OVERLAY_EXTENDED_CJK_MARK_REGEX = regex.compile(r"[々〆〇〻ヶヵ]")
 LOG_RESULTS_TO_JSON = False  # Set to True to log OCR results to JSON files for debugging
@@ -339,6 +345,8 @@ class OverlayProcessor:
         self._last_overlay_capture_content_height: int = 0
         self._ocr_engine_unload_handle: Optional[asyncio.TimerHandle] = None
         self._ocr_engine_activity_generation = 0
+        self._last_sent_presence_task: Optional[asyncio.Task] = None
+        self._last_sent_presence_generation = 0
 
     def _get_scaled_overlay_area_config(self, width: int, height: int):
         overlay_area_config = get_overlay_area_config()
@@ -603,6 +611,208 @@ class OverlayProcessor:
         if is_final:
             payload["is_final"] = True
         return payload
+
+    def _cancel_last_sent_presence_monitor(self) -> None:
+        self._last_sent_presence_generation += 1
+        task = self._last_sent_presence_task
+        self._last_sent_presence_task = None
+        if task is not None and not task.done():
+            task.cancel()
+
+    @staticmethod
+    def _presence_pixel_payload(
+        overlay_data: List[Dict[str, Any]],
+        image: Image.Image,
+        *,
+        offset_x: int,
+        offset_y: int,
+        content_width: int,
+        content_height: int,
+        monitor_width: int,
+        monitor_height: int,
+    ) -> Dict[str, Any]:
+        content_width = max(1, int(content_width))
+        content_height = max(1, int(content_height))
+        monitor_width = max(1, int(monitor_width))
+        monitor_height = max(1, int(monitor_height))
+
+        def to_image_x(value: Any) -> float:
+            return ((float(value) * monitor_width - offset_x) / content_width) * image.width
+
+        def to_image_y(value: Any) -> float:
+            return ((float(value) * monitor_height - offset_y) / content_height) * image.height
+
+        pixel_lines = []
+        for line in overlay_data:
+            rect = line.get("bounding_rect") if isinstance(line, dict) else None
+            if not isinstance(rect, dict):
+                continue
+            try:
+                pixel_rect = {
+                    key: to_image_x(value) if key.startswith("x") else to_image_y(value)
+                    for key, value in rect.items()
+                    if key in {"x1", "x2", "x3", "x4", "y1", "y2", "y3", "y4"}
+                }
+            except (TypeError, ValueError):
+                continue
+            pixel_lines.append({"bounding_rect": pixel_rect})
+        return {"line_coords": pixel_lines}
+
+    def _capture_last_sent_presence_frame(
+        self,
+        overlay_data: List[Dict[str, Any]],
+    ) -> Tuple[Image.Image, Tuple[Any, ...], Dict[str, Any]]:
+        image, offset_x, offset_y, monitor_width, monitor_height = self._get_screenshot_and_offset()
+        content_width = int(self._last_overlay_capture_content_width or image.width)
+        content_height = int(self._last_overlay_capture_content_height or image.height)
+        geometry = (
+            image.size,
+            int(offset_x),
+            int(offset_y),
+            content_width,
+            content_height,
+            int(monitor_width),
+            int(monitor_height),
+            self._last_overlay_capture_source,
+        )
+        pixel_payload = self._presence_pixel_payload(
+            overlay_data,
+            image,
+            offset_x=offset_x,
+            offset_y=offset_y,
+            content_width=content_width,
+            content_height=content_height,
+            monitor_width=monitor_width,
+            monitor_height=monitor_height,
+        )
+        return image, geometry, pixel_payload
+
+    async def _monitor_last_sent_overlay_text(
+        self,
+        presence_id: str,
+        overlay_payload: Dict[str, Any],
+        generation: int,
+    ) -> None:
+        tracker = LastSentTextPresenceTracker()
+        overlay_data = overlay_payload.get("data", [])
+        invalidated = False
+        capture_failures = 0
+        try:
+            # This task starts only after the coordinate payload has been sent.
+            await asyncio.sleep(0)
+            reference_frame, reference_geometry, pixel_payload = self._capture_last_sent_presence_frame(overlay_data)
+            candidate = prepare_presence_candidate(
+                reference_frame,
+                pixel_payload,
+                presence_id=presence_id,
+            )
+            if candidate is None:
+                return
+            tracker.activate(candidate)
+            logger.debug(
+                "Last-sent overlay presence monitor armed for {} at crop {}.",
+                presence_id,
+                candidate.crop_box,
+            )
+
+            while generation == self._last_sent_presence_generation:
+                await asyncio.sleep(LAST_SENT_PRESENCE_SCAN_INTERVAL_SECONDS)
+                if generation != self._last_sent_presence_generation:
+                    return
+                overlay_config = get_overlay_config()
+                if not overlay_config.last_sent_ocr_presence_check or not websocket_manager.has_clients(ID_OVERLAY):
+                    return
+                try:
+                    current_frame, current_geometry, _ = self._capture_last_sent_presence_frame(overlay_data)
+                except Exception as error:
+                    logger.debug(f"Last-sent overlay presence capture failed: {error}")
+                    capture_failures += 1
+                    if capture_failures >= 3:
+                        return
+                    continue
+                capture_failures = 0
+                if current_geometry != reference_geometry:
+                    # Coordinate reprocessing will send a replacement overlay event
+                    # and arm a monitor using the new capture geometry.
+                    return
+                invalidation = tracker.observe(current_frame, enabled=True)
+                if invalidation is None:
+                    if not invalidated:
+                        continue
+                if generation != self._last_sent_presence_generation:
+                    return
+                if not invalidated:
+                    logger.info(
+                        "Last-sent overlay text {} disappeared (similarity {:.3f}).",
+                        presence_id,
+                        invalidation.similarity,
+                    )
+                    await websocket_manager.send(
+                        ID_OVERLAY,
+                        {
+                            "type": "ocr_text_invalidated",
+                            "presence_id": presence_id,
+                            "remove_notation": bool(overlay_config.last_sent_ocr_presence_remove_notation),
+                            "invalidate_lookups": bool(overlay_config.last_sent_ocr_presence_invalidate_lookups),
+                        },
+                    )
+                    invalidated = True
+                    continue
+
+                similarity = candidate.similarity(current_frame)
+                if similarity is None or similarity < tracker.similarity_threshold:
+                    continue
+                logger.info(
+                    "Last-sent overlay text {} reappeared (similarity {:.3f}).",
+                    presence_id,
+                    similarity,
+                )
+                await websocket_manager.send(
+                    ID_OVERLAY,
+                    {
+                        "type": "ocr_text_revalidated",
+                        "presence_id": presence_id,
+                        "payload": copy.deepcopy(overlay_payload),
+                    },
+                )
+                invalidated = False
+                tracker.activate(candidate)
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            logger.debug(f"Last-sent overlay presence monitor stopped: {error}")
+        finally:
+            if self._last_sent_presence_task is asyncio.current_task():
+                self._last_sent_presence_task = None
+
+    async def _send_word_coordinates_with_presence(self, payload: Dict[str, Any]) -> None:
+        is_primary_payload = payload.get("supplemental") is not True
+        overlay_config = get_overlay_config()
+        has_overlay_event = bool(payload.get("data") and websocket_manager.has_clients(ID_OVERLAY))
+        enabled = bool(
+            is_primary_payload
+            and has_overlay_event
+            and overlay_config.last_sent_ocr_presence_check
+            and (
+                overlay_config.last_sent_ocr_presence_remove_notation
+                or overlay_config.last_sent_ocr_presence_invalidate_lookups
+            )
+        )
+        if is_primary_payload and has_overlay_event:
+            self._cancel_last_sent_presence_monitor()
+        if enabled:
+            payload["presence_id"] = uuid.uuid4().hex
+
+        await send_word_coordinates_to_overlay(payload)
+
+        if not enabled:
+            return
+        generation = self._last_sent_presence_generation
+        monitor_payload = copy.deepcopy(payload)
+        loop = self.processing_loop or asyncio.get_running_loop()
+        self._last_sent_presence_task = loop.create_task(
+            self._monitor_last_sent_overlay_text(payload["presence_id"], monitor_payload, generation)
+        )
 
     def _send_sentence_recycled_status(self, *, line_id: Optional[str], sentence: Optional[str]) -> None:
         if not line_id or sentence is None:
@@ -1036,6 +1246,7 @@ class OverlayProcessor:
         # Clear stale overlay boxes immediately so there's no window where old
         # word boxes are visible while OCR for the new line is in-flight.
         if line is not None:
+            self._cancel_last_sent_presence_monitor()
             clear_line_id = str(getattr(line, "id", "")).strip() or None
             await send_overlay_clear(clear_line_id)
 
@@ -2095,7 +2306,7 @@ class OverlayProcessor:
             latest_text=sentence_to_check,
             is_final=True,
         )
-        await send_word_coordinates_to_overlay(payload)
+        await self._send_word_coordinates_with_presence(payload)
         if self._is_forced_ocr_bypass_payload(dict_from_ocr):
             logger.info(
                 "Overlay OCR bypass: used MAGES text-hook coordinates ({} text boxes).",
@@ -2557,7 +2768,7 @@ class OverlayProcessor:
                 )
 
                 send_start_time = time.time()
-                await send_word_coordinates_to_overlay(data)
+                await self._send_word_coordinates_with_presence(data)
                 self._log_timing(
                     send_start_time,
                     f"Send {len(oneocr_final)} word coordinates to overlay",
@@ -2734,7 +2945,7 @@ class OverlayProcessor:
         )
 
         op_start = time.time()
-        await send_word_coordinates_to_overlay(data)
+        await self._send_word_coordinates_with_presence(data)
         self._log_timing(op_start, f"Send {len(extracted_data)} Lens word coordinates to overlay")
 
         await self._record_overlay_scan(text_str, line)
@@ -2869,7 +3080,7 @@ class OverlayProcessor:
                 line_id=self.last_overlay_line_id,
                 latest_text=self.last_overlay_latest_text,
             )
-            await send_word_coordinates_to_overlay(data)
+            await self._send_word_coordinates_with_presence(data)
             logger.info("Resent {} text boxes with updated coordinates.", len(final_data))
 
     def _correct_ocr_with_backlog(
@@ -3388,6 +3599,10 @@ async def shutdown_overlay_processor() -> None:
     if current_task is not None and not current_task.done():
         current_task.cancel()
         tasks.append(current_task)
+    presence_task = overlay_processor._last_sent_presence_task
+    overlay_processor._cancel_last_sent_presence_monitor()
+    if presence_task is not None and not presence_task.done():
+        tasks.append(presence_task)
     for task in tasks:
         task.cancel()
     if tasks:

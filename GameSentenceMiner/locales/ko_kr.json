@@ -208,7 +208,38 @@
           },
           "confirmation_gamepad_enabled": {
             "label": "게임패드 컨트롤:",
-            "tooltip": "방향 패드로 포커스를 이동하고, A로 포커스된 구성 요소를 활성화하며, X로 오디오 포함 확인, B로 오디오 없이 확인합니다. 대화상자가 열려 있는 동안 다른 GSM 게임패드 컨트롤은 일시 중지됩니다."
+            "tooltip": "Anki 확인 대화상자에 사용할 구성 가능한 게임패드 바인딩을 활성화합니다. 대화상자가 열려 있는 동안 다른 GSM 게임패드 컨트롤은 일시 중지됩니다."
+          },
+          "confirmation_gamepad_bindings": {
+            "label": "게임패드 바인딩:"
+          },
+          "confirmation_gamepad_focus_up": {
+            "label": "포커스를 위로 이동:",
+            "tooltip": "포커스를 이전 항목으로 이동하는 버튼입니다."
+          },
+          "confirmation_gamepad_focus_down": {
+            "label": "포커스를 아래로 이동:",
+            "tooltip": "포커스를 다음 항목으로 이동하는 버튼입니다."
+          },
+          "confirmation_gamepad_focus_left": {
+            "label": "포커스를 왼쪽으로 이동:",
+            "tooltip": "포커스를 이전 항목으로 이동하는 버튼입니다."
+          },
+          "confirmation_gamepad_focus_right": {
+            "label": "포커스를 오른쪽으로 이동:",
+            "tooltip": "포커스를 다음 항목으로 이동하는 버튼입니다."
+          },
+          "confirmation_gamepad_activate": {
+            "label": "포커스된 구성 요소 활성화:",
+            "tooltip": "포커스된 구성 요소를 활성화하고 오디오 선택 경고를 수락하는 버튼입니다."
+          },
+          "confirmation_gamepad_confirm_with_audio": {
+            "label": "오디오 포함 확인:",
+            "tooltip": "오디오를 유지한 채 카드를 확인하는 버튼입니다."
+          },
+          "confirmation_gamepad_confirm_without_audio": {
+            "label": "오디오 없이 확인:",
+            "tooltip": "오디오 없이 카드를 확인하고 오디오 선택 경고를 취소하는 버튼입니다."
           },
           "url": {
             "label": "Anki URL:",

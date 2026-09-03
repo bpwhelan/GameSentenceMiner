@@ -42,7 +42,11 @@ from GameSentenceMiner.util.gsm_utils import (
 )
 from GameSentenceMiner.util.media.audio_player import AudioPlayer
 from GameSentenceMiner.util.media.ffmpeg import get_audio_length, get_video_duration, splice_audio, trim_audio
-from GameSentenceMiner.util.platform.gamepad_hotkey import GamepadHotkeyDispatcher, GamepadInputClient
+from GameSentenceMiner.util.platform.gamepad_hotkey import (
+    GamepadHotkeyDispatcher,
+    GamepadInputClient,
+    parse_gamepad_binding,
+)
 
 
 # -------------------------------------------------------------------------
@@ -176,6 +180,16 @@ EXIT_CHOICE_DISCARD = "discard"
 EXIT_CHOICE_DELETE_CARD = "delete_card"
 EXIT_CHOICE_CANCEL = "cancel"
 
+ANKI_CONFIRMATION_GAMEPAD_ACTIONS = (
+    ("focus_previous", "confirmation_gamepad_focus_up", "12"),
+    ("focus_next", "confirmation_gamepad_focus_down", "13"),
+    ("focus_previous", "confirmation_gamepad_focus_left", "14"),
+    ("focus_next", "confirmation_gamepad_focus_right", "15"),
+    ("activate", "confirmation_gamepad_activate", "0"),
+    ("confirm_with_audio", "confirmation_gamepad_confirm_with_audio", "2"),
+    ("confirm_without_audio", "confirmation_gamepad_confirm_without_audio", "1"),
+)
+
 
 def gamepad_audio_choice_conflicts_with_vad(vad_result, *, use_audio):
     """Whether a gamepad audio choice disagrees with a completed VAD result."""
@@ -186,7 +200,7 @@ def gamepad_audio_choice_conflicts_with_vad(vad_result, *, use_audio):
 
 class AnkiConfirmationDialog(QDialog):
     audio_finished_signal = pyqtSignal()
-    gamepad_button_signal = pyqtSignal(int)
+    gamepad_action_signal = pyqtSignal(str)
     WINDOW_ID = "anki_confirmation_dialog"
 
     # UPDATE 1: Accept parent=None
@@ -248,7 +262,7 @@ class AnkiConfirmationDialog(QDialog):
         # Audio player
         self.audio_player = AudioPlayer(finished_callback=self._audio_finished)
         self.audio_finished_signal.connect(self._update_audio_buttons)
-        self.gamepad_button_signal.connect(self._on_gamepad_button)
+        self.gamepad_action_signal.connect(self._on_gamepad_action)
         self._translation_future = None
         self._translation_pending = False
         self._translation_poll_timer = QTimer(self)
@@ -882,8 +896,20 @@ class AnkiConfirmationDialog(QDialog):
             return
 
         dispatcher = GamepadHotkeyDispatcher()
-        for button in (0, 1, 2, 12, 13, 14, 15):
-            dispatcher.register(button, lambda button=button: self.gamepad_button_signal.emit(button))
+        registered_bindings = set()
+        for action, config_key, default_binding in ANKI_CONFIRMATION_GAMEPAD_ACTIONS:
+            binding = str(getattr(get_config().anki, config_key, default_binding) or "").strip()
+            try:
+                parsed_binding = parse_gamepad_binding(binding)
+            except ValueError:
+                logger.warning(f"Ignoring invalid Anki confirmation gamepad binding {binding!r} for {config_key}.")
+                continue
+
+            if not parsed_binding or parsed_binding in registered_bindings:
+                continue
+
+            if dispatcher.register(binding, lambda action=action: self.gamepad_action_signal.emit(action)):
+                registered_bindings.add(parsed_binding)
 
         self._gamepad_dispatcher = dispatcher
         self._gamepad_client = GamepadInputClient(dispatcher, exclusive=True)
@@ -898,7 +924,7 @@ class AnkiConfirmationDialog(QDialog):
         if client is not None:
             client.stop()
 
-    def _on_gamepad_button(self, button):
+    def _on_gamepad_action(self, action):
         if not self._gamepad_capture_active or not self.isVisible():
             return
         active_modal = QApplication.activeModalWidget()
@@ -906,26 +932,26 @@ class AnkiConfirmationDialog(QDialog):
         if gamepad_audio_choice_message_box is not None and active_modal is gamepad_audio_choice_message_box:
             confirm_button = getattr(self, "_gamepad_audio_choice_confirm_button", None)
             cancel_button = getattr(self, "_gamepad_audio_choice_cancel_button", None)
-            if button == 0 and confirm_button is not None:
+            if action == "activate" and confirm_button is not None:
                 confirm_button.click()
-            elif button == 1 and cancel_button is not None:
+            elif action == "confirm_without_audio" and cancel_button is not None:
                 cancel_button.click()
             return
         if active_modal is not None and active_modal is not self:
             return
 
-        if button in (12, 14):
+        if action == "focus_previous":
             self._cancel_auto_accept()
             self.focusNextPrevChild(False)
-        elif button in (13, 15):
+        elif action == "focus_next":
             self._cancel_auto_accept()
             self.focusNextPrevChild(True)
-        elif button == 0:
+        elif action == "activate":
             self._cancel_auto_accept()
             self._click_active_component()
-        elif button == 1:
+        elif action == "confirm_without_audio":
             self._apply_gamepad_confirmation_action(use_audio=False)
-        elif button == 2:
+        elif action == "confirm_with_audio":
             self._apply_gamepad_confirmation_action(use_audio=True)
 
     def _click_active_component(self):

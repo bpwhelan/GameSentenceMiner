@@ -81,3 +81,48 @@ describe('checkAndEnsurePip', () => {
         expect(mockExecFileAsync).toHaveBeenNthCalledWith(3, expect.any(String), ['-m', 'pip', '--version']);
     });
 });
+
+describe('checkAndInstallUV', () => {
+    beforeEach(() => {
+        vi.resetModules();
+        vi.clearAllMocks();
+    });
+
+    it('keeps the exact lock-compatible uv version', async () => {
+        mockExecFileAsync.mockResolvedValueOnce({
+            stdout: 'Name: uv\nVersion: 0.12.4\n',
+            stderr: '',
+        });
+
+        const { checkAndInstallUV } = await import('./python_ops.js');
+        await checkAndInstallUV('C:\\managed\\python.exe');
+
+        expect(mockExecFileAsync).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(['0.9.22', '0.11.33'])(
+        'replaces incompatible uv %s with the exact lock-compatible version',
+        async (installedVersion) => {
+            mockExecFileAsync
+                .mockResolvedValueOnce({
+                    stdout: `Name: uv\nVersion: ${installedVersion}\n`,
+                    stderr: '',
+                })
+                .mockResolvedValueOnce({ stdout: '', stderr: '' });
+
+            const { checkAndInstallUV } = await import('./python_ops.js');
+            await checkAndInstallUV('C:\\managed\\python.exe');
+
+            expect(mockExecFileAsync).toHaveBeenLastCalledWith(
+                'C:\\managed\\python.exe',
+                [
+                    '-m',
+                    'pip',
+                    'install',
+                    '--no-warn-script-location',
+                    'uv==0.12.4',
+                ]
+            );
+        }
+    );
+});

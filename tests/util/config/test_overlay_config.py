@@ -21,6 +21,34 @@ def test_overlay_ocr_area_subset_defaults_preserve_existing_behavior():
     assert overlay.ocr_area_config_include_primary_areas is True
     assert overlay.ocr_area_config_include_secondary_areas is True
     assert overlay.ocr_area_config_use_exclusion_zones is True
+    assert overlay.last_sent_ocr_presence_check is False
+    assert overlay.last_sent_ocr_presence_remove_notation is True
+    assert overlay.last_sent_ocr_presence_invalidate_lookups is True
+
+
+def test_last_sent_ocr_presence_settings_round_trip_and_backward_compatibility():
+    overlay = Overlay(
+        last_sent_ocr_presence_check=True,
+        last_sent_ocr_presence_remove_notation=False,
+        last_sent_ocr_presence_invalidate_lookups=False,
+    )
+    data = overlay.to_dict()
+
+    restored = Overlay.from_dict(data)
+    assert restored.last_sent_ocr_presence_check is True
+    assert restored.last_sent_ocr_presence_remove_notation is False
+    assert restored.last_sent_ocr_presence_invalidate_lookups is False
+
+    for key in (
+        "last_sent_ocr_presence_check",
+        "last_sent_ocr_presence_remove_notation",
+        "last_sent_ocr_presence_invalidate_lookups",
+    ):
+        data.pop(key, None)
+    restored_without_fields = Overlay.from_dict(data)
+    assert restored_without_fields.last_sent_ocr_presence_check is False
+    assert restored_without_fields.last_sent_ocr_presence_remove_notation is True
+    assert restored_without_fields.last_sent_ocr_presence_invalidate_lookups is True
 
 
 def test_overlay_text_appears_instantly_round_trip_and_backward_compatibility():

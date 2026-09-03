@@ -18,7 +18,10 @@ describe('development pyproject environment sync state', () => {
         }
     });
 
-    function createFixture(contents: string): { projectPath: string; venvPath: string } {
+    function createFixture(
+        contents: string,
+        lockContents: string = 'version = 1\n'
+    ): { projectPath: string; venvPath: string } {
         const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gsm-dev-sync-'));
         temporaryDirectories.push(root);
         const projectPath = path.join(root, 'project');
@@ -26,6 +29,8 @@ describe('development pyproject environment sync state', () => {
         fs.mkdirSync(projectPath);
         fs.mkdirSync(venvPath);
         fs.writeFileSync(path.join(projectPath, 'pyproject.toml'), contents);
+        fs.writeFileSync(path.join(projectPath, 'uv.lock'), lockContents);
+        fs.writeFileSync(path.join(projectPath, '.python-version'), '3.13.2\n');
         return { projectPath, venvPath };
     }
 
@@ -51,6 +56,48 @@ describe('development pyproject environment sync state', () => {
         expect(getDevPyprojectSyncState(projectPath, venvPath).changed).toBe(false);
 
         fs.appendFileSync(pyprojectPath, 'dependencies = ["example"]\n');
+        expect(getDevPyprojectSyncState(projectPath, venvPath).changed).toBe(true);
+    });
+
+    it('detects lock-only dependency changes', () => {
+        const { projectPath, venvPath } = createFixture(
+            '[project]\nname = "gsm"\n',
+            'version = 1\nrevision = 1\n'
+        );
+        const initialState = getDevPyprojectSyncState(projectPath, venvPath);
+        markDevPyprojectSynced(venvPath, initialState.fingerprint);
+
+        fs.writeFileSync(
+            path.join(projectPath, 'uv.lock'),
+            'version = 1\nrevision = 2\n'
+        );
+
+        expect(getDevPyprojectSyncState(projectPath, venvPath).changed).toBe(true);
+    });
+
+    it('detects a different selected extras set regardless of ordering', () => {
+        const { projectPath, venvPath } = createFixture('[project]\nname = "gsm"\n');
+        const initialState = getDevPyprojectSyncState(projectPath, venvPath, [
+            'lens',
+            'gpu',
+        ]);
+        markDevPyprojectSynced(venvPath, initialState.fingerprint);
+
+        expect(
+            getDevPyprojectSyncState(projectPath, venvPath, ['gpu', 'lens']).changed
+        ).toBe(false);
+        expect(getDevPyprojectSyncState(projectPath, venvPath, ['gpu']).changed).toBe(
+            true
+        );
+    });
+
+    it('detects a managed Python version change', () => {
+        const { projectPath, venvPath } = createFixture('[project]\nname = "gsm"\n');
+        const initialState = getDevPyprojectSyncState(projectPath, venvPath);
+        markDevPyprojectSynced(venvPath, initialState.fingerprint);
+
+        fs.writeFileSync(path.join(projectPath, '.python-version'), '3.13.3\n');
+
         expect(getDevPyprojectSyncState(projectPath, venvPath).changed).toBe(true);
     });
 });

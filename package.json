@@ -28,6 +28,7 @@
     "changelog:export": "node scripts/export-changelog-release-asset.mjs",
     "stage:overlay": "node scripts/stage-overlay-build.mjs",
     "verify:overlay-package": "node scripts/verify-overlay-package.mjs",
+    "verify:python-deps": "python scripts/verify_python_dependency_policy.py",
     "app:dist": "npm run build:native && npm run build && npm run build:windows-helpers && npm run stage:overlay && electron-builder --publish=never",
     "app:deploy": "npm run build:native && npm run build && npm run build:windows-helpers && npm run stage:overlay && electron-builder --publish=always"
   },
@@ -73,6 +74,10 @@
       {
         "from": "uv.lock",
         "to": "resources/uv.lock"
+      },
+      {
+        "from": ".python-version",
+        "to": "resources/.python-version"
       },
       {
         "from": "native",

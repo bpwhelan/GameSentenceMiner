@@ -204,7 +204,38 @@
           },
           "confirmation_gamepad_enabled": {
             "label": "Controles del mando:",
-            "tooltip": "Usa la cruceta para mover el foco, A para activar el componente enfocado, X para confirmar con audio y B para confirmar sin audio. Los demás controles del mando de GSM se pausan mientras el diálogo está abierto."
+            "tooltip": "Activa las asignaciones configurables del mando para el diálogo de confirmación de Anki. Los demás controles del mando de GSM se pausan mientras el diálogo está abierto."
+          },
+          "confirmation_gamepad_bindings": {
+            "label": "Asignaciones del mando:"
+          },
+          "confirmation_gamepad_focus_up": {
+            "label": "Mover foco hacia arriba:",
+            "tooltip": "Botón que mueve el foco al elemento anterior."
+          },
+          "confirmation_gamepad_focus_down": {
+            "label": "Mover foco hacia abajo:",
+            "tooltip": "Botón que mueve el foco al elemento siguiente."
+          },
+          "confirmation_gamepad_focus_left": {
+            "label": "Mover foco a la izquierda:",
+            "tooltip": "Botón que mueve el foco al elemento anterior."
+          },
+          "confirmation_gamepad_focus_right": {
+            "label": "Mover foco a la derecha:",
+            "tooltip": "Botón que mueve el foco al elemento siguiente."
+          },
+          "confirmation_gamepad_activate": {
+            "label": "Activar componente enfocado:",
+            "tooltip": "Botón que activa el componente enfocado y acepta una advertencia de elección de audio."
+          },
+          "confirmation_gamepad_confirm_with_audio": {
+            "label": "Confirmar con audio:",
+            "tooltip": "Botón que confirma la tarjeta conservando el audio."
+          },
+          "confirmation_gamepad_confirm_without_audio": {
+            "label": "Confirmar sin audio:",
+            "tooltip": "Botón que confirma la tarjeta sin audio y cancela una advertencia de elección de audio."
           },
           "url": {
             "label": "URL de Anki:",

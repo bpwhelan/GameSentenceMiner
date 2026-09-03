@@ -38,6 +38,9 @@
     inject_scanned_lines: "Send scanned lines to the text log so they count toward mining and stats.",
     use_ocr_result_v2: "Use the newer OCR result pipeline.",
     supplement_ocr_result_with_overlay: "Merge overlay text into the OCR result for more complete lines.",
+    last_sent_ocr_presence_check: "Start a background image check after each overlay result and mark its text stale when the tight text crop disappears.",
+    last_sent_ocr_presence_remove_notation: "Remove furigana, Jiten highlights, and text indicators when the last OCR text disappears.",
+    last_sent_ocr_presence_invalidate_lookups: "Remove stale OCR text targets so Yomitan and controller lookups cannot select text that is no longer visible.",
     use_text_filtering: "Filter out junk/noise characters from OCR output.",
     ocr_full_screen_instead_of_obs: "Capture the full screen for OCR instead of the OBS game window.",
 

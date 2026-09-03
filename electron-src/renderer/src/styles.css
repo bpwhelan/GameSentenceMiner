@@ -7616,6 +7616,45 @@ button.danger:hover:not(:disabled) {
   color: var(--gsm-accent-text, #8db9ff);
 }
 
+.changelog-setting-choice,
+.changelog-setting-choice-result {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  margin: 2px 8px 2px 0;
+  border-radius: 6px;
+  padding: 6px 11px;
+  font: inherit;
+  font-weight: 650;
+}
+
+.changelog-setting-choice {
+  border: 1px solid var(--gsm-accent-border, #5f88cc);
+  color: var(--gsm-accent-strong, #dbe8ff);
+  background: rgba(90, 132, 205, 0.17);
+  cursor: pointer;
+}
+
+.changelog-setting-choice:hover:not(:disabled) {
+  border-color: var(--gsm-accent, #7aa2ff);
+  background: rgba(122, 162, 255, 0.28);
+}
+
+.changelog-setting-choice:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.changelog-setting-choice-result {
+  border: 1px solid rgba(116, 214, 147, 0.55);
+  color: var(--gsm-success-text, #9be7b0);
+  background: rgba(116, 214, 147, 0.12);
+}
+
+.changelog-setting-choice-error {
+  color: var(--gsm-warning-text, #ffd18c);
+}
+
 .whats-changed-body img,
 .whats-changed-body video {
   display: block;
@@ -7775,6 +7814,10 @@ button.danger:hover:not(:disabled) {
 
 .scene-switcher-settings h3 {
   margin: 0;
+}
+
+.scene-switcher-settings__source-button {
+  margin-top: 0.75rem;
 }
 
 .scene-switcher-settings__toggle {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
-import { LauncherTab } from "./components/tabs/LauncherTab";
+import { GameAutomationTab } from "./components/tabs/GameAutomationTab";
 import { SettingsTab } from "./components/tabs/SettingsTab";
 import { SetupWizard } from "./components/SetupWizard";
 import { InstallSessionModal } from "./components/InstallSessionModal";
@@ -1301,7 +1301,7 @@ export default function App() {
         <TextProcessingTab active={activeTab === "textprocessing"} />
         {isWindows ? <SpeechRecognitionTab active={activeTab === "speech"} /> : null}
         <StatsPanel active={activeTab === "stats"} />
-        <LauncherTab active={activeTab === "launcher"} />
+        <GameAutomationTab active={activeTab === "launcher"} />
         <SettingsTab active={activeTab === "settings"} />
         <div className={`tab-panel ${activeTab === "python" ? "active" : ""}`}>
           <PythonPanel onRequestConsole={switchToConsole} />

@@ -324,13 +324,32 @@ def build_anki_confirmation_tab(window: ConfigWindow, i18n: dict) -> QWidget:
             tabs_i18n,
             "anki",
             "confirmation_gamepad_enabled",
-            (
-                "Use D-pad to move focus, A to activate the focused component, X to confirm with audio, "
-                "and B to confirm without audio. Other GSM gamepad controls are paused while the dialog is open."
-            ),
+            "Enable gamepad bindings for the Anki confirmation dialog.",
         ),
         window.anki_confirmation_gamepad_enabled_check,
     )
+    gamepad_bindings_group = window._create_group_box(
+        tabs_i18n.get("anki", {}).get("confirmation_gamepad_bindings", {}).get("label", "Gamepad Bindings")
+    )
+    gamepad_bindings_layout = QFormLayout(gamepad_bindings_group)
+    gamepad_bindings_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    for label_key, combo in (
+        ("confirmation_gamepad_focus_up", window.anki_confirmation_gamepad_focus_up_combo),
+        ("confirmation_gamepad_focus_down", window.anki_confirmation_gamepad_focus_down_combo),
+        ("confirmation_gamepad_focus_left", window.anki_confirmation_gamepad_focus_left_combo),
+        ("confirmation_gamepad_focus_right", window.anki_confirmation_gamepad_focus_right_combo),
+        ("confirmation_gamepad_activate", window.anki_confirmation_gamepad_activate_combo),
+        ("confirmation_gamepad_confirm_with_audio", window.anki_confirmation_gamepad_confirm_with_audio_combo),
+        (
+            "confirmation_gamepad_confirm_without_audio",
+            window.anki_confirmation_gamepad_confirm_without_audio_combo,
+        ),
+    ):
+        gamepad_bindings_layout.addRow(
+            window._create_labeled_widget(tabs_i18n, "anki", label_key),
+            combo,
+        )
+    layout.addRow(gamepad_bindings_group)
     layout.addRow(
         window._create_labeled_widget(
             tabs_i18n,

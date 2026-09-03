@@ -231,7 +231,7 @@ def test_gamepad_confirmation_action_applies_conflicting_choice_after_confirmati
     assert calls == ["cancel_timer", "confirm", "voice"]
 
 
-def test_gamepad_capture_registers_a_b_x_and_dpad(monkeypatch):
+def test_gamepad_capture_registers_configured_bindings(monkeypatch):
     registrations = []
 
     class _DispatcherProbe:
@@ -253,19 +253,34 @@ def test_gamepad_capture_registers_a_b_x_and_dpad(monkeypatch):
 
     monkeypatch.setattr(anki_confirmation_qt, "GamepadHotkeyDispatcher", _DispatcherProbe)
     monkeypatch.setattr(anki_confirmation_qt, "GamepadInputClient", _ClientProbe)
+    monkeypatch.setattr(
+        anki_confirmation_qt,
+        "get_config",
+        lambda: SimpleNamespace(
+            anki=SimpleNamespace(
+                confirmation_gamepad_focus_up="16",
+                confirmation_gamepad_focus_down="15",
+                confirmation_gamepad_focus_left="14",
+                confirmation_gamepad_focus_right="13",
+                confirmation_gamepad_activate="12",
+                confirmation_gamepad_confirm_with_audio="11",
+                confirmation_gamepad_confirm_without_audio="10",
+            )
+        ),
+    )
     probe = SimpleNamespace(
         _gamepad_client=None,
-        gamepad_button_signal=SimpleNamespace(emit=lambda _button: None),
+        gamepad_action_signal=SimpleNamespace(emit=lambda _action: None),
     )
 
     anki_confirmation_qt.AnkiConfirmationDialog._start_gamepad_capture(probe)
 
-    assert registrations == [0, 1, 2, 12, 13, 14, 15]
+    assert registrations == ["16", "15", "14", "13", "12", "11", "10"]
     assert probe._gamepad_capture_active is True
     assert probe._gamepad_client.started is True
 
 
-def test_gamepad_buttons_map_x_to_audio_b_to_no_audio_and_a_to_focused_component(monkeypatch):
+def test_gamepad_actions_map_to_audio_no_audio_and_focused_component(monkeypatch):
     calls = []
 
     class _ApplicationProbe:
@@ -289,9 +304,9 @@ def test_gamepad_buttons_map_x_to_audio_b_to_no_audio_and_a_to_focused_component
 
     probe._apply_gamepad_confirmation_action = apply_audio_choice
 
-    anki_confirmation_qt.AnkiConfirmationDialog._on_gamepad_button(probe, 2)
-    anki_confirmation_qt.AnkiConfirmationDialog._on_gamepad_button(probe, 1)
-    anki_confirmation_qt.AnkiConfirmationDialog._on_gamepad_button(probe, 0)
+    anki_confirmation_qt.AnkiConfirmationDialog._on_gamepad_action(probe, "confirm_with_audio")
+    anki_confirmation_qt.AnkiConfirmationDialog._on_gamepad_action(probe, "confirm_without_audio")
+    anki_confirmation_qt.AnkiConfirmationDialog._on_gamepad_action(probe, "activate")
 
     assert calls == [
         "cancel_timer",
@@ -303,7 +318,7 @@ def test_gamepad_buttons_map_x_to_audio_b_to_no_audio_and_a_to_focused_component
     ]
 
 
-def test_gamepad_audio_choice_confirmation_uses_a_to_confirm_and_b_to_cancel(monkeypatch):
+def test_gamepad_audio_choice_confirmation_uses_activate_to_confirm_and_no_audio_to_cancel(monkeypatch):
     calls = []
     confirmation_dialog = object()
 
@@ -321,8 +336,8 @@ def test_gamepad_audio_choice_confirmation_uses_a_to_confirm_and_b_to_cancel(mon
         _gamepad_audio_choice_cancel_button=SimpleNamespace(click=lambda: calls.append("cancel")),
     )
 
-    anki_confirmation_qt.AnkiConfirmationDialog._on_gamepad_button(probe, 0)
-    anki_confirmation_qt.AnkiConfirmationDialog._on_gamepad_button(probe, 1)
+    anki_confirmation_qt.AnkiConfirmationDialog._on_gamepad_action(probe, "activate")
+    anki_confirmation_qt.AnkiConfirmationDialog._on_gamepad_action(probe, "confirm_without_audio")
 
     assert calls == ["confirm", "cancel"]
 

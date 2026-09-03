@@ -203,7 +203,38 @@
           },
           "confirmation_gamepad_enabled": {
             "label": "ゲームパッド操作:",
-            "tooltip": "方向キーでフォーカスを移動し、Aでフォーカス中の項目を実行、Xで音声あり、Bで音声なしで確定します。ダイアログ表示中は他のGSMゲームパッド操作を一時停止します。"
+            "tooltip": "Anki確認ダイアログ用のカスタマイズ可能なゲームパッド割り当てを有効にします。ダイアログ表示中は他のGSMゲームパッド操作を一時停止します。"
+          },
+          "confirmation_gamepad_bindings": {
+            "label": "ゲームパッド割り当て:"
+          },
+          "confirmation_gamepad_focus_up": {
+            "label": "フォーカスを上へ移動:",
+            "tooltip": "フォーカスを前の項目へ移動するボタン。"
+          },
+          "confirmation_gamepad_focus_down": {
+            "label": "フォーカスを下へ移動:",
+            "tooltip": "フォーカスを次の項目へ移動するボタン。"
+          },
+          "confirmation_gamepad_focus_left": {
+            "label": "フォーカスを左へ移動:",
+            "tooltip": "フォーカスを前の項目へ移動するボタン。"
+          },
+          "confirmation_gamepad_focus_right": {
+            "label": "フォーカスを右へ移動:",
+            "tooltip": "フォーカスを次の項目へ移動するボタン。"
+          },
+          "confirmation_gamepad_activate": {
+            "label": "フォーカス中の項目を実行:",
+            "tooltip": "フォーカス中の項目を実行し、音声選択の警告を確定するボタン。"
+          },
+          "confirmation_gamepad_confirm_with_audio": {
+            "label": "音声ありで確定:",
+            "tooltip": "音声を保持してカードを確定するボタン。"
+          },
+          "confirmation_gamepad_confirm_without_audio": {
+            "label": "音声なしで確定:",
+            "tooltip": "音声なしでカードを確定し、音声選択の警告をキャンセルするボタン。"
           },
           "url": {
             "label": "Anki URL:",

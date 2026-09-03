@@ -459,6 +459,11 @@
     "continue": "Continue",
     "close": "Close",
     "syncing": "Syncing backend...",
+    "settingChoice": {
+      "enabled": "Enabled for this profile.",
+      "disabled": "Kept disabled for this profile.",
+      "error": "Could not save this setting choice. Please try again after the backend is ready."
+    },
     "source": {
       "loading": "Loading",
       "bundled": "Bundled notes",

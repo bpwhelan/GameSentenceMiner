@@ -45,7 +45,8 @@ retain that classifier for rollback and representative parity audits.
 The root setuptools build uses `setuptools-rust`, so the normal environment sync builds the extension:
 
 ```powershell
-uv sync --extra dev
+uv lock --check
+uv sync --frozen --extra dev
 cargo test --manifest-path native/gsm-native/Cargo.toml
 .venv\Scripts\python.exe -m pytest tests/native tests/ocr/test_text_filtering_punctuation.py
 ```
