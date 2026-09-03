@@ -61,8 +61,8 @@ struct Args {
     #[arg(long, default_value = "127.0.0.1")]
     host: String,
 
-    /// Port for the websocket server
-    #[arg(long, default_value_t = 7276)]
+    /// Port for the websocket server. Use 0 to let the OS choose an available port.
+    #[arg(long, default_value_t = 0)]
     port: u16,
 
     /// Optional baseline capabilities to enable before clients connect.
@@ -3136,7 +3136,7 @@ async fn handle_socket(
 }
 
 async fn websocket_server(
-    bind: SocketAddr,
+    listener: TcpListener,
     tx: broadcast::Sender<String>,
     states: &'static SharedStates,
     device_blacklist: SharedDeviceBlacklist,
@@ -3147,8 +3147,10 @@ async fn websocket_server(
     portal_rebind: Option<mpsc::UnboundedSender<()>>,
     gamepad_capture: GamepadCaptureRegistry,
 ) {
-    let listener = TcpListener::bind(bind).await.expect("bind failed");
-    info!("server running at ws://{bind}");
+    let bound_addr = listener
+        .local_addr()
+        .expect("listener must have a local socket address");
+    info!("server running at ws://{bound_addr}");
 
     loop {
         let (stream, peer) = match listener.accept().await {
@@ -3177,6 +3179,27 @@ async fn websocket_server(
             portal_rebind.clone(),
             gamepad_capture.clone(),
         ));
+    }
+}
+
+/// Emits the endpoint only after the listener has bound successfully. The
+/// Electron parent consumes this one-line protocol before launching overlay
+/// children, so they all receive the same dynamically assigned port.
+fn input_server_ready_message(bound_addr: SocketAddr) -> String {
+    format!(
+        "GSM_INPUT_SERVER_READY:{}",
+        json!({
+            "host": bound_addr.ip().to_string(),
+            "port": bound_addr.port(),
+        })
+    )
+}
+
+fn emit_input_server_ready(bound_addr: SocketAddr) {
+    let message = input_server_ready_message(bound_addr);
+    let mut stdout = std::io::stdout().lock();
+    if let Err(err) = writeln!(stdout, "{message}").and_then(|_| stdout.flush()) {
+        error!("failed to announce input server endpoint: {err}");
     }
 }
 
@@ -4039,6 +4062,20 @@ async fn main() {
     let bind: SocketAddr = format!("{}:{}", args.host, args.port)
         .parse()
         .expect("invalid bind addr");
+    // Bind before initializing any input loops. Port 0 gives us an OS-reserved
+    // ephemeral port and avoids the check-then-bind race of probing in a parent
+    // process first.
+    let listener = match TcpListener::bind(bind).await {
+        Ok(listener) => listener,
+        Err(err) => {
+            error!("failed to bind input server at {bind}: {err}");
+            std::process::exit(1);
+        }
+    };
+    let bound_addr = listener
+        .local_addr()
+        .expect("listener must have a local socket address");
+    emit_input_server_ready(bound_addr);
 
     let (tx, _rx) = broadcast::channel::<String>(2048);
 
@@ -4093,7 +4130,7 @@ async fn main() {
 
     // Websocket server + axis repeat run on tokio.
     tokio::spawn(websocket_server(
-        bind,
+        listener,
         tx.clone(),
         states,
         device_blacklist.clone(),
@@ -4141,6 +4178,21 @@ mod tests {
     fn katakana_readings_convert_to_hiragana() {
         assert_eq!(katakana_to_hiragana("キンチョウ"), "きんちょう");
         assert_eq!(katakana_to_hiragana("ゲーム"), "げーむ");
+    }
+
+    #[test]
+    fn ready_message_reports_the_actual_bound_endpoint() {
+        let endpoint: SocketAddr = "127.0.0.1:49152".parse().unwrap();
+        assert_eq!(
+            input_server_ready_message(endpoint),
+            r#"GSM_INPUT_SERVER_READY:{"host":"127.0.0.1","port":49152}"#
+        );
+    }
+
+    #[test]
+    fn input_server_uses_an_os_selected_port_by_default() {
+        let args = Args::try_parse_from(["gsm_overlay_server"]).unwrap();
+        assert_eq!(args.port, 0);
     }
 
     #[test]

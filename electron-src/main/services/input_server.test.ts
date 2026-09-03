@@ -8,6 +8,7 @@ import {
     DEFAULT_INPUT_SERVER_PORT,
     buildInputServerEnvironment,
     getInputServerExecutableCandidates,
+    parseInputServerReadyLine,
     selectNewestInputServerExecutable,
     shouldSuppressInputServerLine,
 } from './input_server.js';
@@ -41,12 +42,24 @@ describe('input server lifecycle helpers', () => {
         ]);
     });
 
-    it('exports one stable endpoint for Electron children', () => {
-        expect(buildInputServerEnvironment(DEFAULT_INPUT_SERVER_PORT)).toEqual({
+    it('requests an ephemeral port, then exports the bound endpoint for Electron children', () => {
+        expect(DEFAULT_INPUT_SERVER_PORT).toBe(0);
+        expect(buildInputServerEnvironment(49152)).toEqual({
             GSM_INPUT_SERVER_MANAGED: '1',
-            GSM_INPUT_SERVER_PORT: '7276',
-            GSM_INPUT_SERVER_URL: 'ws://127.0.0.1:7276',
+            GSM_INPUT_SERVER_PORT: '49152',
+            GSM_INPUT_SERVER_URL: 'ws://127.0.0.1:49152',
         });
+    });
+
+    it('accepts only a valid loopback readiness announcement from the input server', () => {
+        expect(
+            parseInputServerReadyLine(
+                'GSM_INPUT_SERVER_READY:{"host":"127.0.0.1","port":49152}'
+            )
+        ).toBe(49152);
+        expect(parseInputServerReadyLine('GSM_INPUT_SERVER_READY:{"host":"0.0.0.0","port":49152}')).toBeNull();
+        expect(parseInputServerReadyLine('GSM_INPUT_SERVER_READY:{"host":"127.0.0.1","port":0}')).toBeNull();
+        expect(parseInputServerReadyLine('server running at ws://127.0.0.1:49152')).toBeNull();
     });
 
     it('uses the newest available development build', () => {
@@ -67,7 +80,8 @@ describe('input server lifecycle helpers', () => {
     it.each([
         '2026-07-18T05:30:51.562859Z  INFO client connected: 127.0.0.1:52021',
         '2026-07-18T05:30:51.563376Z  INFO client disconnected: 127.0.0.1:52021',
-    ])('suppresses routine client connection chatter: %s', (line) => {
+        'GSM_INPUT_SERVER_READY:{"host":"127.0.0.1","port":49152}',
+    ])('suppresses routine input-server protocol chatter: %s', (line) => {
         expect(shouldSuppressInputServerLine(line)).toBe(true);
     });
 
