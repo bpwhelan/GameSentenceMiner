@@ -76,10 +76,18 @@ from loguru import logger
 
 from GameSentenceMiner.owocr.owocr.config import Config
 from GameSentenceMiner.util.config.configuration import get_config
+from GameSentenceMiner.util.image_stability import ImageStabilityGate
 
 # Set to True to use synthetic OCR results for CPU benchmarking (no actual OCR computation).
 # The mock returns rotating Japanese text that changes every 5 calls.
 USE_MOCK_OCR = False
+
+# Experimental OCR1 gate. The first two visually stable frames still reach the
+# local engine so the existing two-pass controller can confirm a line; later
+# stable frames are skipped until the text crop changes.
+USE_OCR_IMAGE_STABILITY_GATE = True
+OCR_IMAGE_STABILITY_THRESHOLD = 0.985
+OCR_IMAGE_STABILITY_REQUIRED_OCR_CALLS = 2
 
 if USE_MOCK_OCR:
     from GameSentenceMiner.owocr.owocr.mock_ocr import *  # noqa: F403
@@ -5061,9 +5069,14 @@ def run(
 
     base_scan_rate = get_ocr_scan_rate()
     last_scan_rate_refresh = time.monotonic()
+    visual_stability_gate = ImageStabilityGate(
+        similarity_threshold=OCR_IMAGE_STABILITY_THRESHOLD,
+        required_ocr_calls=OCR_IMAGE_STABILITY_REQUIRED_OCR_CALLS,
+    )
 
     def handle_config_changes(changes):
         nonlocal base_scan_rate, last_result, last_scan_rate_refresh
+        visual_stability_gate.reset()
         if any(c in changes for c in ("scanRate", "scanRate_basic", "scanRate_advanced", "advancedMode")):
             base_scan_rate = get_ocr_scan_rate()
             last_scan_rate_refresh = time.monotonic()
@@ -5076,6 +5089,7 @@ def run(
             set_ocr_engines(get_ocr_ocr1(), get_ocr_ocr2())
 
     def handle_area_config_changes(changes):
+        visual_stability_gate.reset()
         clear_scaled_ocr_config_cache()
         if screenshot_thread:
             screenshot_thread.ocr_config = get_scene_ocr_config()
@@ -5165,6 +5179,15 @@ def run(
             break
         elif img:
             if filter_img:
+                local_ocr_engine = engine_instances[engine_index] if engine_instances else None
+                stability_gate_enabled = (
+                    USE_OCR_IMAGE_STABILITY_GATE
+                    and not screen_capture_on_combo
+                    and bool(getattr(local_ocr_engine, "local", False))
+                )
+                if not stability_gate_enabled:
+                    visual_stability_gate.reset()
+
                 # Cheap blank-frame detector. Skips OCR when the capture is a
                 # solid color (game minimized, OBS scene blank, etc.).
                 if _is_capture_frame_empty(img):
@@ -5188,6 +5211,20 @@ def run(
                     sleep_time_to_add = 0.0
                     sleep_reason = ""
 
+                if stability_gate_enabled:
+                    stability = visual_stability_gate.observe(img, allow_skip=True)
+                    if not stability.should_run:
+                        emit_ocr_debug(
+                            get_ocr_advanced_debug_logging(),
+                            "ocr1.skipped",
+                            reason="visual_stability",
+                            similarity=round(stability.similarity, 4) if stability.similarity is not None else None,
+                            stable_frames=stability.stable_frames,
+                            required_ocr_calls=OCR_IMAGE_STABILITY_REQUIRED_OCR_CALLS,
+                            image_size=getattr(img, "size", None),
+                        )
+                        continue
+
                 # if are_images_identical(img, last_image, last_image_np):
                 #     logger.background("Screenshot identical to last, sleeping.")
                 #     sleep_reason = "identical"
@@ -5198,7 +5235,7 @@ def run(
                 #         )
                 #     continue
 
-                orig_text, text = process_and_write_results(
+                orig_text, text, ocr_payload = process_and_write_results(
                     img,
                     write_to,
                     last_result,
@@ -5207,7 +5244,10 @@ def run(
                     ocr_start_time=ocr_start_time,
                     furigana_filter_sensitivity=None if get_ocr_two_pass_ocr() else get_furigana_filter_sensitivity(),
                     image_metadata=image_metadata,
+                    return_payload=True,
                 )
+                if stability_gate_enabled:
+                    visual_stability_gate.update_reference(img, ocr_payload)
                 if not text:
                     emit_ocr_debug(
                         get_ocr_advanced_debug_logging(),

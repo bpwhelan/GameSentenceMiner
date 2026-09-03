@@ -65,4 +65,6 @@ def test_last_sent_ocr_presence_settings_are_nested_and_synced_to_backend():
     assert "invalidatedOcrPresenceIds" in index_html
     assert "_send_word_coordinates_with_presence" in overlay_processor
     assert "_monitor_last_sent_overlay_text" in overlay_processor
+    assert "ImageStabilityGate" in ocr_runtime
+    assert 'reason="visual_stability"' in ocr_runtime
     assert "observe_capture_frame" not in ocr_runtime

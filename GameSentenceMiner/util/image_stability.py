@@ -1,9 +1,7 @@
-"""Cheap visual presence signatures for rendered overlay text."""
+"""Small image-signature helpers for avoiding redundant OCR work."""
 
 from __future__ import annotations
 
-import threading
-import uuid
 from dataclasses import dataclass
 from typing import Any
 
@@ -36,7 +34,7 @@ def _crop_gray_array(
     frame_size: tuple[int, int],
     crop_box: tuple[int, int, int, int],
 ) -> np.ndarray | None:
-    """Crop before conversion so each comparison never processes a full frame."""
+    """Crop before conversion so comparisons do not process a full frame."""
     x1, y1, x2, y2 = crop_box
     if isinstance(image, np.ndarray):
         if image.ndim not in (2, 3) or (image.shape[1], image.shape[0]) != frame_size:
@@ -48,6 +46,22 @@ def _crop_gray_array(
         return _to_gray_array(image.crop(crop_box))
     except (AttributeError, OSError, TypeError, ValueError):
         return None
+
+
+def _normalize_crop_box(raw_box: Any, width: int, height: int) -> tuple[int, int, int, int] | None:
+    if not isinstance(raw_box, (list, tuple)) or len(raw_box) < 4:
+        return None
+    try:
+        x1, y1, x2, y2 = (round(float(raw_box[index])) for index in range(4))
+    except (TypeError, ValueError):
+        return None
+    x1 = min(max(0, x1), width)
+    y1 = min(max(0, y1), height)
+    x2 = min(max(x1, x2), width)
+    y2 = min(max(y1, y2), height)
+    if x2 - x1 < 3 or y2 - y1 < 3:
+        return None
+    return x1, y1, x2, y2
 
 
 def _rect_bounds(rect: Any) -> tuple[float, float, float, float] | None:
@@ -82,26 +96,11 @@ def _payload_crop_box(payload: Any, width: int, height: int) -> tuple[int, int, 
             max(bound[3] for bound in bounds) + 1,
         )
     else:
-        # OCR detector/text payloads may only expose the union crop rather than
-        # per-line geometry. It is still useful as a conservative stability crop.
         pipeline = payload.get("pipeline") if isinstance(payload.get("pipeline"), dict) else {}
         ocr_metadata = pipeline.get("ocr") if isinstance(pipeline.get("ocr"), dict) else {}
-        fallback = payload.get("crop_coords") or ocr_metadata.get("crop_coords")
-        if not isinstance(fallback, (list, tuple)) or len(fallback) < 4:
-            return None
-        try:
-            raw_box = tuple(float(fallback[index]) for index in range(4))
-        except (TypeError, ValueError):
-            return None
+        raw_box = payload.get("crop_coords") or ocr_metadata.get("crop_coords")
 
-    x1, y1, x2, y2 = (round(raw_box[index]) for index in range(4))
-    x1 = min(max(0, x1), width)
-    y1 = min(max(0, y1), height)
-    x2 = min(max(x1, x2), width)
-    y2 = min(max(y1, y2), height)
-    if x2 - x1 < 3 or y2 - y1 < 3:
-        return None
-    return x1, y1, x2, y2
+    return _normalize_crop_box(raw_box, width, height)
 
 
 def _fit_reference_size(width: int, height: int) -> tuple[int, int]:
@@ -148,14 +147,14 @@ def _tolerant_f1(reference: np.ndarray, current: np.ndarray) -> float:
 
 
 @dataclass(frozen=True)
-class _ReferenceSignature:
+class _ImageSignature:
     size: tuple[int, int]
     bright_mask: np.ndarray
     dark_mask: np.ndarray
     edge_mask: np.ndarray
 
     @classmethod
-    def from_gray(cls, gray: np.ndarray) -> _ReferenceSignature:
+    def from_gray(cls, gray: np.ndarray) -> _ImageSignature:
         size = _fit_reference_size(gray.shape[1], gray.shape[0])
         prepared = _resize(gray, size)
         bright, dark = _contrast_masks(prepared)
@@ -173,11 +172,10 @@ class _ReferenceSignature:
 
 
 @dataclass(frozen=True)
-class PresenceCandidate:
-    presence_id: str
+class _ImageCandidate:
     frame_size: tuple[int, int]
     crop_box: tuple[int, int, int, int]
-    signature: _ReferenceSignature
+    signature: _ImageSignature
 
     def similarity(self, image: Any) -> float | None:
         gray = _crop_gray_array(image, self.frame_size, self.crop_box)
@@ -186,83 +184,95 @@ class PresenceCandidate:
         return self.signature.similarity(gray)
 
 
-@dataclass(frozen=True)
-class PresenceInvalidation:
-    presence_id: str
-    similarity: float
-
-
-def prepare_presence_candidate(
+def prepare_image_candidate(
     image: Any,
     payload: Any = None,
     *,
-    presence_id: str | None = None,
     crop_box: tuple[int, int, int, int] | None = None,
-) -> PresenceCandidate | None:
-    gray = _to_gray_array(image)
+) -> _ImageCandidate | None:
+    if isinstance(image, np.ndarray):
+        if image.ndim not in (2, 3) or image.shape[1] <= 0 or image.shape[0] <= 0:
+            return None
+        frame_size = (int(image.shape[1]), int(image.shape[0]))
+    else:
+        try:
+            frame_size = tuple(int(value) for value in image.size)
+        except (AttributeError, TypeError, ValueError):
+            return None
+        if len(frame_size) != 2 or min(frame_size) <= 0:
+            return None
+
+    if len(frame_size) != 2:
+        return None
+    resolved_crop_box = crop_box or _payload_crop_box(payload, *frame_size)
+    if resolved_crop_box is None:
+        return None
+    resolved_crop_box = _normalize_crop_box(resolved_crop_box, *frame_size)
+    if resolved_crop_box is None:
+        return None
+    gray = _crop_gray_array(image, frame_size, resolved_crop_box)
     if gray is None:
         return None
-    frame_size = (gray.shape[1], gray.shape[0])
-    crop_box = crop_box or _payload_crop_box(payload, *frame_size)
-    if crop_box is None:
-        return None
-    x1, y1, x2, y2 = (round(crop_box[index]) for index in range(4))
-    x1 = min(max(0, x1), frame_size[0])
-    y1 = min(max(0, y1), frame_size[1])
-    x2 = min(max(x1, x2), frame_size[0])
-    y2 = min(max(y1, y2), frame_size[1])
-    crop_box = (x1, y1, x2, y2)
-    if x2 - x1 < 3 or y2 - y1 < 3:
-        return None
-    return PresenceCandidate(
-        presence_id=str(presence_id or uuid.uuid4().hex),
+    return _ImageCandidate(
         frame_size=frame_size,
-        crop_box=crop_box,
-        signature=_ReferenceSignature.from_gray(gray[y1:y2, x1:x2]),
+        crop_box=resolved_crop_box,
+        signature=_ImageSignature.from_gray(gray),
     )
 
 
-class LastSentTextPresenceTracker:
-    def __init__(self, *, similarity_threshold: float = 0.65, required_misses: int = 2):
+@dataclass(frozen=True)
+class ImageStabilityObservation:
+    should_run: bool
+    similarity: float | None
+    stable_frames: int
+
+
+class ImageStabilityGate:
+    """Skip redundant image consumers after a short OCR warm-up."""
+
+    def __init__(self, *, similarity_threshold: float = 0.985, required_ocr_calls: int = 2):
         self.similarity_threshold = float(similarity_threshold)
-        self.required_misses = max(1, int(required_misses))
-        self._active: PresenceCandidate | None = None
-        self._misses = 0
-        self._lock = threading.Lock()
+        self.required_ocr_calls = max(1, int(required_ocr_calls))
+        self._candidate: _ImageCandidate | None = None
+        self._stable_frames = 0
 
-    @property
-    def has_active_reference(self) -> bool:
-        with self._lock:
-            return self._active is not None
+    def reset(self) -> None:
+        self._candidate = None
+        self._stable_frames = 0
 
-    def activate(self, candidate: PresenceCandidate | None) -> None:
-        with self._lock:
-            self._active = candidate
-            self._misses = 0
+    def update_reference(self, image: Any, payload: Any = None) -> bool:
+        candidate = prepare_image_candidate(image, payload)
+        if candidate is None:
+            return False
+        if (
+            self._candidate is None
+            or self._candidate.frame_size != candidate.frame_size
+            or self._candidate.crop_box != candidate.crop_box
+        ):
+            self._candidate = candidate
+            self._stable_frames = 1
+        return True
 
-    def clear(self) -> None:
-        self.activate(None)
+    def observe(self, image: Any, *, allow_skip: bool = True) -> ImageStabilityObservation:
+        candidate = self._candidate
+        if candidate is None:
+            return ImageStabilityObservation(should_run=True, similarity=None, stable_frames=0)
 
-    def observe(self, image: Any, *, enabled: bool) -> PresenceInvalidation | None:
-        with self._lock:
-            if not enabled:
-                self._active = None
-                self._misses = 0
-                return None
-            candidate = self._active
-            if candidate is None:
-                return None
-            similarity = candidate.similarity(image)
-            if similarity is None:
-                self._active = None
-                self._misses = 0
-                return None
-            if similarity >= self.similarity_threshold:
-                self._misses = 0
-                return None
-            self._misses += 1
-            if self._misses < self.required_misses:
-                return None
-            self._active = None
-            self._misses = 0
-            return PresenceInvalidation(candidate.presence_id, similarity)
+        similarity = candidate.similarity(image)
+        if similarity is None:
+            return ImageStabilityObservation(should_run=True, similarity=None, stable_frames=self._stable_frames)
+
+        if similarity < self.similarity_threshold:
+            rebased = prepare_image_candidate(image, crop_box=candidate.crop_box)
+            if rebased is not None:
+                self._candidate = rebased
+            self._stable_frames = 1
+            return ImageStabilityObservation(should_run=True, similarity=similarity, stable_frames=1)
+
+        self._stable_frames += 1
+        should_run = not allow_skip or self._stable_frames <= self.required_ocr_calls
+        return ImageStabilityObservation(
+            should_run=should_run,
+            similarity=similarity,
+            stable_frames=self._stable_frames,
+        )

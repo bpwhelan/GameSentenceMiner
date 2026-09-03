@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 from PIL import Image
 
+from GameSentenceMiner.util.image_stability import ImageStabilityGate
 from GameSentenceMiner.util.overlay.last_sent_text_presence import (
     LastSentTextPresenceTracker,
     prepare_presence_candidate,
@@ -85,3 +86,23 @@ def test_disabling_presence_check_clears_reference_without_invalidating():
 
     assert tracker.observe(_frame(text=False), enabled=False) is None
     assert tracker.has_active_reference is False
+
+
+def test_image_stability_gate_keeps_two_ocr_warmup_calls_then_skips():
+    gate = ImageStabilityGate(similarity_threshold=0.985, required_ocr_calls=2)
+    image = _frame(text=True)
+
+    assert gate.update_reference(image, _payload()) is True
+    assert gate.observe(image).should_run is True
+    assert gate.observe(image).should_run is False
+
+
+def test_image_stability_gate_rearms_when_text_crop_changes():
+    gate = ImageStabilityGate(similarity_threshold=0.985, required_ocr_calls=2)
+    original = _frame(text=True)
+    replacement = _frame(text=False)
+
+    assert gate.update_reference(original, _payload()) is True
+    assert gate.observe(replacement).should_run is True
+    assert gate.observe(replacement).should_run is True
+    assert gate.observe(replacement).should_run is False
