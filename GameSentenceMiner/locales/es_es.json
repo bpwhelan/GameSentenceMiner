@@ -672,6 +672,10 @@
             "label": "Tasa de Sondeo:",
             "tooltip": "Velocidad a la que Anki verificará las actualizaciones (en milisegundos)."
           },
+          "direct_websocket_port": {
+            "label": "Puerto WebSocket directo (respaldo):",
+            "tooltip": "Puerto estable opcional para conexiones directas a /ws/texthooker, /ws/overlay y /ws/plaintext. Use 0 para el descubrimiento automático de respaldo. Debe ser distinto del puerto principal y del puerto del servidor de entrada (7276). GSM se reinicia al guardar."
+          },
           "mute_game_on_minimize": {
             "label": "Silenciar Juego al Minimizar:",
             "tooltip": "En Windows, silencia el juego capturado solo mientras su ventana está minimizada. No se silencia al estar en segundo plano o sin foco."

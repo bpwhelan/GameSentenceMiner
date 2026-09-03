@@ -1273,6 +1273,7 @@ class VAD:
 @dataclass
 class Advanced:
     plaintext_websocket_port: int = 0
+    direct_websocket_port: int = 0
     audio_player_path: str = ""
     video_player_path: str = ""
     show_screenshot_buttons: bool = False
@@ -1305,6 +1306,11 @@ class Advanced:
         # "communication_port + 1" while allowing new installs to keep this off.
         if self.plaintext_websocket_port == -1:
             self.plaintext_websocket_port = self.texthooker_communication_websocket_port + 1
+        try:
+            direct_websocket_port = int(self.direct_websocket_port or 0)
+        except (TypeError, ValueError):
+            direct_websocket_port = 0
+        self.direct_websocket_port = direct_websocket_port if 0 <= direct_websocket_port <= 65535 else 0
         self.screenshot_capture_backend = normalize_screenshot_capture_backend(self.screenshot_capture_backend)
         self.screenshot_capture_backend_v2 = normalize_screenshot_capture_backend(self.screenshot_capture_backend_v2)
         self.wgc_capture_fps = normalize_wgc_capture_fps(
@@ -1761,6 +1767,7 @@ class ProfileConfig:
                 previous.obs.port != self.obs.port,
                 previous.general.single_port != self.general.single_port,
                 previous.general.texthooker_port != self.general.texthooker_port,
+                previous.advanced.direct_websocket_port != self.advanced.direct_websocket_port,
             ]
         ):
             logger.info("Restart Required for Some Settings that were Changed")
@@ -2294,6 +2301,7 @@ class Config:
                 "texthooker_communication_websocket_port",
             )
             self.sync_shared_field(config.advanced, profile.advanced, "plaintext_websocket_port")
+            self.sync_shared_field(config.advanced, profile.advanced, "direct_websocket_port")
             self.sync_shared_field(config.advanced, profile.advanced, "localhost_bind_address")
             self.sync_shared_field(config.advanced, profile.advanced, "longest_sleep_time")
             self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_enabled")

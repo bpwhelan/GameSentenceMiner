@@ -670,6 +670,10 @@
             "label": "ポーリングレート:",
             "tooltip": "Ankiの更新をチェックする間隔（ミリ秒）。"
           },
+          "direct_websocket_port": {
+            "label": "直接 WebSocket ポート（フォールバック）:",
+            "tooltip": "/ws/texthooker、/ws/overlay、/ws/plaintext への直接接続用の任意の固定ポートです。0 にすると自動フォールバック検出を使用します。メインポートおよび入力サーバーポート（7276）とは異なる値にしてください。保存後に GSM が再起動します。"
+          },
           "mute_game_on_minimize": {
             "label": "最小化時にゲームをミュート:",
             "tooltip": "Windowsで、対象ゲームのウィンドウが最小化されている間だけミュートします。バックグラウンドや非フォーカス状態ではミュートしません。"

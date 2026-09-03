@@ -1054,6 +1054,31 @@ _internal_ws_ingress_port: int = _pick_free_port()
 websocket_manager = WebsocketManager()
 
 
+def get_configured_direct_websocket_port() -> int:
+    """Return the opt-in stable ingress port, or zero for automatic ingress."""
+    try:
+        config = get_config()
+        port = int(getattr(config.advanced, "direct_websocket_port", 0) or 0)
+        gateway_port = int(getattr(config.general, "single_port", 7275) or 7275)
+        input_port = int(getattr(config.advanced, "texthooker_communication_websocket_port", 7276) or 7276)
+    except (AttributeError, TypeError, ValueError):
+        return 0
+
+    if not 1 <= port <= 65535:
+        return 0
+    if port in {gateway_port, input_port}:
+        logger.warning(
+            f"Direct websocket port {port} conflicts with the primary or input-server port; using automatic ingress."
+        )
+        return 0
+    return port
+
+
+def get_default_websocket_ingress_port() -> int:
+    """Return the configured direct ingress port or this process's automatic one."""
+    return get_configured_direct_websocket_port() or _internal_ws_ingress_port
+
+
 def broadcast_gsm_profile_state() -> None:
     """Push a profile snapshot from the GSM process to connected overlay clients."""
     websocket_manager.send_nowait(ID_OVERLAY, build_gsm_profile_state_payload())
@@ -1080,7 +1105,7 @@ async def _overlay_message_handler(message: str):
 def start_default_websocket_server() -> None:
     """Start the multiplex transport explicitly during application startup."""
     websocket_manager.start_multiplex_server(
-        port_getter=lambda: _internal_ws_ingress_port,
+        port_getter=get_default_websocket_ingress_port,
         endpoint_specs={
             ID_HOOKER: EndpointSpec(read_mode=True, enable_backup=False),
             ID_OVERLAY: EndpointSpec(

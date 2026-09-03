@@ -1,9 +1,11 @@
 import configparser
 import os
 
+DEFAULT_CONFIG_PATH = os.path.expanduser("~/.config/owocr_config_gsm.ini")
+
 
 class OCRConfig:
-    def __init__(self, config_file=os.path.expanduser("~/.config/owocr_config_gsm.ini")):
+    def __init__(self, config_file=DEFAULT_CONFIG_PATH):
         self.config_file = config_file
         self.config = configparser.ConfigParser(allow_no_value=True)
         self.raw_config = {}  # Store the raw lines of the config file
@@ -14,9 +16,11 @@ class OCRConfig:
             self.raw_config = self._read_config_with_comments()
             self.config.read_dict(self._parse_config_to_dict())
         else:
-            self.create_default_config()
+            # Keep the legacy config optional. Defaults are available in
+            # memory, but constructing GSM must not create a hidden OWOCR file.
+            self.create_default_config(save=False)
 
-    def create_default_config(self):
+    def create_default_config(self, save=True):
         self.raw_config = {
             "general": [
                 ";engines = avision,alivetext,bing,glens,glensweb,gvision,azure,mangaocr,winrtocr,oneocr,screenai,mlkitocr,easyocr,rapidocr,ocrspace",
@@ -73,7 +77,8 @@ class OCRConfig:
             "ocrspace": [";api_key = api_key_here"],
         }
         self.config.read_dict(self._parse_config_to_dict())
-        self.save_config()
+        if save:
+            self.save_config()
 
     def _read_config_with_comments(self):
         with open(self.config_file, "r") as f:
@@ -103,8 +108,7 @@ class OCRConfig:
         with open(self.config_file, "w") as f:
             for section, lines in self.raw_config.items():
                 f.write(f"[{section}]\n")
-                for line in lines:
-                    f.write(f"{line}\n")
+                f.writelines(f"{line}\n" for line in lines)
 
     def get_value(self, section, key):
         if section in self.config and key in self.config[section]:

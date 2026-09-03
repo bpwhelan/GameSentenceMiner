@@ -680,6 +680,10 @@
             "label": "폴링 속도:",
             "tooltip": "Anki가 업데이트를 확인하는 주기(밀리초)입니다."
           },
+          "direct_websocket_port": {
+            "label": "직접 WebSocket 포트(대체):",
+            "tooltip": "/ws/texthooker, /ws/overlay, /ws/plaintext에 직접 연결할 때 쓸 선택적 고정 포트입니다. 0이면 자동 대체 검색을 사용합니다. 기본 포트와 입력 서버 포트(7276)와 달라야 합니다. 저장하면 GSM이 재시작됩니다."
+          },
           "mute_game_on_minimize": {
             "label": "최소화 시 게임 음소거:",
             "tooltip": "Windows에서 창이 최소화된 동안 캡처된 게임을 음소거합니다. 백그라운드 또는 포커스가 없는 창은 음소거되지 않습니다."

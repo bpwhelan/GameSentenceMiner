@@ -40,3 +40,49 @@ export function isGSMTextFeedWebSocketUrl(websocketUrl: string) {
 		return false;
 	}
 }
+
+function getValidPort(value: unknown): number | null {
+	const port = Number(value);
+	return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : null;
+}
+
+export function buildGSMWebSocketFallbackUrl(websocketUrl: string, endpoint: unknown): string | null {
+	const directPort = getValidPort((endpoint as { direct_port?: unknown } | null)?.direct_port);
+	if (!directPort) return null;
+
+	try {
+		const url = new URL(websocketUrl);
+		if (!['ws:', 'wss:'].includes(url.protocol) || url.port === String(directPort)) {
+			return null;
+		}
+		url.port = String(directPort);
+		return url.toString();
+	} catch (_) {
+		return null;
+	}
+}
+
+export async function resolveGSMWebSocketFallbackUrl(websocketUrl: string): Promise<string | null> {
+	if (typeof fetch !== 'function') return null;
+
+	try {
+		const endpoint = new URL(websocketUrl);
+		if (!['ws:', 'wss:'].includes(endpoint.protocol)) return null;
+		endpoint.protocol = endpoint.protocol === 'wss:' ? 'https:' : 'http:';
+		endpoint.pathname = '/get_websocket_port';
+		endpoint.search = '';
+		endpoint.hash = '';
+
+		const controller = typeof AbortController === 'function' ? new AbortController() : null;
+		const timeout = controller ? setTimeout(() => controller.abort(), 1500) : null;
+		try {
+			const response = await fetch(endpoint.toString(), controller ? { signal: controller.signal } : undefined);
+			if (!response.ok) return null;
+			return buildGSMWebSocketFallbackUrl(websocketUrl, await response.json());
+		} finally {
+			if (timeout) clearTimeout(timeout);
+		}
+	} catch (_) {
+		return null;
+	}
+}

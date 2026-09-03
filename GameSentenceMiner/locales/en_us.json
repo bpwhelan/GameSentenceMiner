@@ -717,6 +717,10 @@
             "label": "Polling Rate:",
             "tooltip": "Rate at which Anki will check for updates (in milliseconds)."
           },
+          "direct_websocket_port": {
+            "label": "Direct WebSocket Port (Fallback):",
+            "tooltip": "Optional stable port for direct /ws/texthooker, /ws/overlay, and /ws/plaintext connections. Set 0 to use automatic fallback discovery. Must differ from the Primary Port and input-server port (7276). GSM restarts after saving."
+          },
           "mute_game_on_minimize": {
             "label": "Mute Game When Minimized:",
             "tooltip": "On Windows, mute the captured game while its window is minimized. Background or unfocused windows are not muted."

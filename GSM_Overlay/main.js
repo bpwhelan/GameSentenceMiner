@@ -510,13 +510,98 @@ function getGSMTransportBasePort(gsmSettings = getGSMSettings()) {
   return DEFAULT_GSM_SINGLE_PORT;
 }
 
+function getValidNetworkPort(value) {
+  const port = Number(value);
+  return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : null;
+}
+
+function getGSMDirectWebSocketPort(gsmSettings = getGSMSettings()) {
+  const profileSettings = getCurrentGSMProfileSettings(gsmSettings);
+  const advancedSettings = profileSettings && typeof profileSettings.advanced === "object"
+    ? profileSettings.advanced
+    : {};
+  const directPort = getValidNetworkPort(advancedSettings.direct_websocket_port);
+  if (!directPort) return null;
+
+  const gatewayPort = getGSMTransportBasePort(gsmSettings);
+  const inputPort = getValidNetworkPort(advancedSettings.texthooker_communication_websocket_port) || 7276;
+  return directPort === gatewayPort || directPort === inputPort ? null : directPort;
+}
+
 function getEnforcedOverlayTransportUrls(gsmSettings = getGSMSettings()) {
-  const port = getGSMTransportBasePort(gsmSettings);
+  const gatewayPort = getGSMTransportBasePort(gsmSettings);
+  const directWebSocketPort = getGSMDirectWebSocketPort(gsmSettings);
+  const webSocketPort = directWebSocketPort || gatewayPort;
   return {
-    weburl1: `ws://127.0.0.1:${port}/ws/plaintext`,
-    weburl2: `ws://127.0.0.1:${port}/ws/overlay`,
-    texthookerUrl: `http://127.0.0.1:${port}/texthooker`,
+    weburl1: `ws://127.0.0.1:${webSocketPort}/ws/plaintext`,
+    weburl2: `ws://127.0.0.1:${webSocketPort}/ws/overlay`,
+    texthookerUrl: `http://127.0.0.1:${gatewayPort}/texthooker`,
   };
+}
+
+const GSM_MULTIPLEX_WEBSOCKET_PATHS = new Set(["/ws/texthooker", "/ws/overlay", "/ws/plaintext"]);
+
+function getGSMGatewayWebSocketUrl(websocketUrl) {
+  try {
+    const url = new URL(websocketUrl);
+    if (!['ws:', 'wss:'].includes(url.protocol) || !GSM_MULTIPLEX_WEBSOCKET_PATHS.has(url.pathname)) {
+      return null;
+    }
+    const gatewayPort = String(getGSMTransportBasePort());
+    if (url.port === gatewayPort) return null;
+    url.port = gatewayPort;
+    return url.toString();
+  } catch (_) {
+    return null;
+  }
+}
+
+function buildGSMDirectWebSocketUrl(websocketUrl, payload) {
+  const directPort = getValidNetworkPort(payload && payload.direct_port);
+  if (!directPort) return null;
+
+  try {
+    const url = new URL(websocketUrl);
+    if (!['ws:', 'wss:'].includes(url.protocol) || url.port === String(directPort)) {
+      return null;
+    }
+    url.port = String(directPort);
+    return url.toString();
+  } catch (_) {
+    return null;
+  }
+}
+
+async function resolveGSMWebSocketFallbackUrl(websocketUrl) {
+  const configuredGatewayUrl = getGSMGatewayWebSocketUrl(websocketUrl);
+  if (configuredGatewayUrl) return configuredGatewayUrl;
+  if (typeof fetch !== "function") return null;
+
+  let endpoint;
+  try {
+    endpoint = new URL(websocketUrl);
+    if (!['ws:', 'wss:'].includes(endpoint.protocol) || !GSM_MULTIPLEX_WEBSOCKET_PATHS.has(endpoint.pathname)) {
+      return null;
+    }
+    endpoint.protocol = endpoint.protocol === 'wss:' ? 'https:' : 'http:';
+    endpoint.pathname = "/get_websocket_port";
+    endpoint.search = "";
+    endpoint.hash = "";
+  } catch (_) {
+    return null;
+  }
+
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  const timeout = controller ? setTimeout(() => controller.abort(), 1500) : null;
+  try {
+    const response = await fetch(endpoint.toString(), controller ? { signal: controller.signal } : undefined);
+    if (!response.ok) return null;
+    return buildGSMDirectWebSocketUrl(websocketUrl, await response.json());
+  } catch (_) {
+    return null;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 function getGSMRecycledIndicatorSetting(gsmSettings = getGSMSettings()) {
@@ -1963,8 +2048,8 @@ let gamepadInputTestActive = false;
 let yomitanManifestWatcher = null;
 const findInPageStateByWebContentsId = new Map();
 const overlayWebSockets = {
-  ws1: { socket: null, url: null, reconnectTimer: null },
-  ws2: { socket: null, url: null, reconnectTimer: null },
+  ws1: { socket: null, url: null, reconnectTimer: null, fallbackInFlight: false },
+  ws2: { socket: null, url: null, reconnectTimer: null, fallbackInFlight: false },
 };
 
 function publishOverlaySocketState(type, isOpen) {
@@ -2186,6 +2271,36 @@ function scheduleOverlayWebSocketReconnect(type) {
   }, OVERLAY_WS_RECONNECT_DELAY_MS);
 }
 
+function tryOverlayWebSocketFallback(type, socket) {
+  const state = overlayWebSockets[type];
+  if (!state || state.fallbackInFlight || (state.socket && state.socket !== socket) || !state.url) {
+    return;
+  }
+
+  const failedUrl = state.url;
+  state.fallbackInFlight = true;
+  void resolveGSMWebSocketFallbackUrl(failedUrl)
+    .then((fallbackUrl) => {
+      if (state.socket !== null || state.url !== failedUrl) return;
+      if (fallbackUrl && fallbackUrl !== failedUrl) {
+        console.warn(`[OverlayWS] Failing over ${type} to ${fallbackUrl}`);
+        connectOverlayWebSocket(type, fallbackUrl);
+        if (type === "ws2" && backend) {
+          backend.connect(fallbackUrl);
+        }
+        return;
+      }
+      scheduleOverlayWebSocketReconnect(type);
+    })
+    .catch((error) => {
+      console.warn(`[OverlayWS] Fallback lookup failed for ${type}:`, error);
+      scheduleOverlayWebSocketReconnect(type);
+    })
+    .finally(() => {
+      state.fallbackInFlight = false;
+    });
+}
+
 function closeOverlayWebSocket(type, options = {}) {
   const state = overlayWebSockets[type];
   if (!state) {
@@ -2270,7 +2385,7 @@ function connectOverlayWebSocket(type, url) {
     publishOverlaySocketState(type, false);
     const reasonText = Buffer.isBuffer(reason) ? reason.toString("utf8") : String(reason || "");
     console.log(`[OverlayWS] Closed ${type} (code=${code}${reasonText ? `, reason=${reasonText}` : ""})`);
-    scheduleOverlayWebSocketReconnect(type);
+    tryOverlayWebSocketFallback(type, socket);
   });
 
   socket.on("error", (err) => {
@@ -6757,6 +6872,7 @@ async function startOverlayAppImpl() {
     // Processing it here removes the old dependency on a second websocket being
     // healthy before the settings UI can observe backend acceptance.
     onMessage: (message) => handleOverlayWebSocketControlMessage("backend-connector", message),
+    resolveFallbackUrl: resolveGSMWebSocketFallbackUrl,
   });
   backend.connect(userSettings.weburl2);
   if (shouldMigrateLegacyOverlayActivationScan) {

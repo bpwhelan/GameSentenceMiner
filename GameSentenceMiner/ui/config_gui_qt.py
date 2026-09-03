@@ -701,6 +701,8 @@ class ConfigWindow(QWidget):
                 [
                     int(previous_config.general.single_port) != int(new_config.general.single_port),
                     int(previous_config.general.texthooker_port) != int(new_config.general.texthooker_port),
+                    int(previous_config.advanced.direct_websocket_port)
+                    != int(new_config.advanced.direct_websocket_port),
                 ]
             )
         except Exception:
@@ -1027,6 +1029,7 @@ class ConfigWindow(QWidget):
                     multi_line_line_break=self.multi_line_line_break_edit.text(),
                     texthooker_communication_websocket_port=self.settings.advanced.texthooker_communication_websocket_port,
                     plaintext_websocket_port=self.settings.advanced.plaintext_websocket_port,
+                    direct_websocket_port=int(self.direct_websocket_port_edit.text() or 0),
                     localhost_bind_address=self.localhost_bind_address_edit.text(),
                     longest_sleep_time=float(self.longest_sleep_time_edit.text() or 5.0),
                     screenshot_capture_backend_v2=self.screenshot_capture_backend_combo.currentText(),
@@ -1752,6 +1755,8 @@ class ConfigWindow(QWidget):
         self.multi_line_line_break_edit = QLineEdit()
         self.texthooker_communication_websocket_port_edit = QLineEdit()
         self.plaintext_websocket_export_port_edit = QLineEdit()
+        self.direct_websocket_port_edit = QLineEdit()
+        self.direct_websocket_port_edit.setValidator(QTGui.QIntValidator(0, 65535))
         self.polling_rate_edit = QLineEdit()
         self.localhost_bind_address_edit = QLineEdit()
         self.longest_sleep_time_edit = QLineEdit()
@@ -3484,6 +3489,7 @@ class ConfigWindow(QWidget):
             str(s.advanced.texthooker_communication_websocket_port)
         )
         self.plaintext_websocket_export_port_edit.setText(str(s.advanced.plaintext_websocket_port))
+        self.direct_websocket_port_edit.setText(str(getattr(s.advanced, "direct_websocket_port", 0)))
         self.polling_rate_edit.setText(str(s.anki.polling_rate_v2))
         self._set_text_value(self.localhost_bind_address_edit, s.advanced.localhost_bind_address)
         self.longest_sleep_time_edit.setText(str(s.advanced.longest_sleep_time))

@@ -331,3 +331,22 @@ def test_slow_textfeed_client_is_disconnected_when_output_mailbox_fills():
     asyncio.run(scenario())
 
     assert websocket.closed == {"code": 1013, "reason": "TextFeed client output queue exceeded"}
+
+
+def test_configured_direct_websocket_port_replaces_only_the_internal_ingress(monkeypatch):
+    from GameSentenceMiner.web import gsm_websocket
+
+    config = SimpleNamespace(
+        general=SimpleNamespace(single_port=7275),
+        advanced=SimpleNamespace(direct_websocket_port=8383, texthooker_communication_websocket_port=7276),
+    )
+    monkeypatch.setattr(gsm_websocket, "get_config", lambda: config)
+    monkeypatch.setattr(gsm_websocket, "_internal_ws_ingress_port", 49152)
+
+    assert gsm_websocket.get_default_websocket_ingress_port() == 8383
+
+    config.advanced.direct_websocket_port = 7275
+    assert gsm_websocket.get_default_websocket_ingress_port() == 49152
+
+    config.advanced.direct_websocket_port = 7276
+    assert gsm_websocket.get_default_websocket_ingress_port() == 49152

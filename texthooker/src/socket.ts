@@ -14,7 +14,11 @@ import {
 	websocketUrl$,
 } from './stores/stores';
 
-import { isGSMTextFeedWebSocketUrl, normalizeGSMWebSocketUrl } from './gsm';
+import {
+	isGSMTextFeedWebSocketUrl,
+	normalizeGSMWebSocketUrl,
+	resolveGSMWebSocketFallbackUrl,
+} from './gsm';
 import { getTextFeedSessionSyncLineLimit } from './session-sync';
 import { LineType } from './types';
 
@@ -22,6 +26,12 @@ export class SocketConnection {
 	private isPrimary: boolean;
 
 	private websocketUrl = '';
+
+	private configuredWebsocketUrl = '';
+
+	private fallbackLookupInFlight = false;
+
+	private manualDisconnectRequested = false;
 
 	private socket: WebSocket | undefined;
 
@@ -43,6 +53,7 @@ export class SocketConnection {
 					return;
 				}
 				if (websocketUrl !== this.websocketUrl) {
+					this.configuredWebsocketUrl = websocketUrl;
 					this.websocketUrl = websocketUrl;
 					this.reloadSocket();
 				}
@@ -66,6 +77,7 @@ export class SocketConnection {
 	}
 
 	connect() {
+		this.manualDisconnectRequested = false;
 		if ((this.socket?.readyState ?? WebSocket.CLOSED) < WebSocket.CLOSING) {
 			return;
 		}
@@ -80,7 +92,7 @@ export class SocketConnection {
 		try {
 			this.socket = new WebSocket(this.websocketUrl);
 			this.socket.onopen = this.handleOpen.bind(this);
-			this.socket.onclose = this.updateSocketState.bind(this);
+			this.socket.onclose = this.handleClose.bind(this);
 			this.socket.onmessage = this.handleMessage.bind(this);
 		} catch (error) {
 			this.socketState.next(3);
@@ -88,6 +100,7 @@ export class SocketConnection {
 	}
 
 	disconnect() {
+		this.manualDisconnectRequested = true;
 		if (this.socket?.readyState === 1) {
 			this.socket.close(1000, 'User Request');
 		}
@@ -113,6 +126,41 @@ export class SocketConnection {
 		}
 
 		this.socketState.next(this.socket.readyState);
+	}
+
+	private handleClose() {
+		const closedSocket = this.socket;
+		this.updateSocketState();
+		if (!closedSocket) return;
+		void this.tryGSMFallback(closedSocket);
+	}
+
+	private async tryGSMFallback(closedSocket: WebSocket) {
+		if (
+			!this.isPrimary ||
+			this.manualDisconnectRequested ||
+			this.fallbackLookupInFlight ||
+			this.socket !== closedSocket ||
+			!isGSMTextFeedWebSocketUrl(this.configuredWebsocketUrl)
+		) {
+			return;
+		}
+
+		this.fallbackLookupInFlight = true;
+		try {
+			const fallbackUrl = await resolveGSMWebSocketFallbackUrl(this.configuredWebsocketUrl);
+			if (
+				fallbackUrl &&
+				fallbackUrl !== this.websocketUrl &&
+				this.socket === closedSocket &&
+				closedSocket.readyState === WebSocket.CLOSED
+			) {
+				this.websocketUrl = fallbackUrl;
+				this.reloadSocket();
+			}
+		} finally {
+			this.fallbackLookupInFlight = false;
+		}
 	}
 
 	private handleOpen() {

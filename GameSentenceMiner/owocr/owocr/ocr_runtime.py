@@ -4834,9 +4834,7 @@ def run(
     if config.has_config:
         logger.success("Parsed config file")
     else:
-        logger.warning("No config file, defaults will be used.")
-        if config.downloaded_config:
-            logger.info(f"A default config file has been downloaded to {config.config_path}")
+        logger.info("No optional OWOCR config found; using built-in defaults.")
 
     global engine_instances
     global engine_keys
