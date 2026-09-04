@@ -190,7 +190,31 @@ export class FeatureFlags {
 }
 
 const APP_USER_MODEL_ID = 'com.beangate.gamesentenceminer';
+const YOUTUBE_EMBED_REFERER = 'https://github.com/bpwhelan/GameSentenceMiner/';
 let cachedPreReleaseBranch: string | null | undefined = undefined;
+
+function configureYouTubeEmbedHeaders(window: BrowserWindow): void {
+    window.webContents.session.webRequest.onBeforeSendHeaders(
+        {
+            urls: [
+                'https://youtube.com/*',
+                'https://*.youtube.com/*',
+                'https://www.youtube-nocookie.com/*',
+                'https://*.youtube-nocookie.com/*',
+            ],
+        },
+        (details, callback) => {
+            const requestHeaders = { ...details.requestHeaders };
+            for (const header of Object.keys(requestHeaders)) {
+                if (header.toLowerCase() === 'referer') {
+                    delete requestHeaders[header];
+                }
+            }
+            requestHeaders.Referer = YOUTUBE_EMBED_REFERER;
+            callback({ requestHeaders });
+        },
+    );
+}
 
 function getPreReleaseBranch(): string | null {
     if (cachedPreReleaseBranch !== undefined) {
@@ -1557,6 +1581,7 @@ async function createWindow() {
         }),
         title: windowTitle,
     });
+    configureYouTubeEmbedHeaders(mainWindow);
 
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
         if (url.startsWith('http://') || url.startsWith('https://')) {
@@ -2141,6 +2166,7 @@ async function ensureAndRunGSM(
     const shouldSyncChangedDevPyproject = devPyprojectSyncState?.changed === true;
     const requiresEnvironmentPreparation =
         requiresStartupPreparation || shouldSyncChangedDevPyproject;
+    const syncOptions = { deferValidation: requiresStartupPreparation };
 
     if (requiresEnvironmentPreparation) {
         try {
@@ -2213,7 +2239,7 @@ async function ensureAndRunGSM(
                     event.progress,
                     event.message
                 );
-            });
+            }, syncOptions);
             updateInstallStage(
                 'lock_sync',
                 'completed',
@@ -2233,7 +2259,7 @@ async function ensureAndRunGSM(
                     0.1,
                     'Checking whether the Python environment matches the lockfile...'
                 );
-                await syncLockedEnvironment(runtimePythonPath, selectedExtras, true);
+                await syncLockedEnvironment(runtimePythonPath, selectedExtras, true, undefined, syncOptions);
                 console.log('Python environment already matches lockfile.');
                 updateInstallStage(
                     'lock_sync',
@@ -2263,7 +2289,7 @@ async function ensureAndRunGSM(
                         event.progress,
                         event.message
                     );
-                });
+                }, syncOptions);
                 updateInstallStage(
                     'lock_sync',
                     'completed',
@@ -2325,7 +2351,8 @@ async function ensureAndRunGSM(
                     event.progress,
                     event.message
                 );
-            }
+            },
+            selectedExtras
         );
         installedVersion = await getInstalledPackageVersion(runtimePythonPath, APP_NAME);
         console.log(
@@ -2421,7 +2448,7 @@ async function ensureAndRunGSM(
                         event.progress,
                         event.message
                     );
-                });
+                }, { deferValidation: true });
                 updateInstallStage(
                     'lock_sync',
                     'completed',
@@ -2447,7 +2474,7 @@ async function ensureAndRunGSM(
                         event.progress,
                         event.message
                     );
-                });
+                }, selectedExtras);
                 updateInstallStage(
                     'gsm_package',
                     'completed',

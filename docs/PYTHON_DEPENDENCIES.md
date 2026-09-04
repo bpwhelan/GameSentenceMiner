@@ -23,7 +23,9 @@ without spawning Python just to re-check its version on every startup.
 
 The Electron runtime keeps intentionally installed optional OCR extensions, but
 every lock sync restores all core packages to their locked versions and runs
-`python -m pip check`. A successful sync is stamped with a hash of
+`python -m pip check`. During backend upgrades and repairs, this check runs after
+the backend is replaced so its old dependency metadata cannot block the upgrade.
+A successful, validated environment is stamped with a hash of
 `pyproject.toml`, `uv.lock`, `.python-version`, and the selected extras.
 Lock-only, interpreter, and extra changes therefore trigger a sync without
 repeated package-version probes.

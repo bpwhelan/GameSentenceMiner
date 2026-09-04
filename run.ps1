@@ -47,9 +47,13 @@ for ($i = 0; $i -lt $cmd.Count; $i++) {
         "sync" {
             Write-Host "Syncing environment..." -ForegroundColor Cyan
             uv lock --check
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             uv sync --frozen --extra dev
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             ~\AppData\Roaming\GameSentenceMiner\python_venv\Scripts\python.exe -m uv sync --active --frozen --no-dev --no-editable --no-install-project --inexact --project .
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             ~\AppData\Roaming\GameSentenceMiner\python_venv\Scripts\python.exe -m pip check
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         }
         "gsm" {
             Write-Host "Forking Main App..." -ForegroundColor Green
@@ -64,7 +68,9 @@ for ($i = 0; $i -lt $cmd.Count; $i++) {
                 $package = $cmd[$i + 1]
                 Write-Host "Adding package: $package" -ForegroundColor Yellow
                 uv add "$package"
+                if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
                 uv lock --check
+                if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
                 $i++
             } else {
                 Write-Error "Usage: add <package>"
@@ -73,8 +79,11 @@ for ($i = 0; $i -lt $cmd.Count; $i++) {
         "verify-python" {
             Write-Host "Verifying Python dependency policy and lock..." -ForegroundColor Cyan
             & ".\.venv\Scripts\python.exe" scripts/verify_python_dependency_policy.py
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             & ".\.venv\Scripts\python.exe" -m uv lock --check
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             & ".\.venv\Scripts\python.exe" -m pip check
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         }
         "concat" {
             Write-Host "Concatenating files..." -ForegroundColor Blue

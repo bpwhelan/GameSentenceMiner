@@ -420,7 +420,7 @@ export class UpdateManager {
                                 event.progress,
                                 event.message
                             );
-                        });
+                        }, { deferValidation: true });
                         updateInstallStage(
                             'lock_sync',
                             'completed',
@@ -444,7 +444,7 @@ export class UpdateManager {
                                 event.progress,
                                 event.message
                             );
-                        });
+                        }, selectedExtras);
                         updateInstallStage(
                             'gsm_package',
                             'completed',
@@ -473,7 +473,7 @@ export class UpdateManager {
                                 event.progress,
                                 event.message
                             );
-                        });
+                        }, { deferValidation: true });
                         updateInstallStage(
                             'lock_sync',
                             'completed',
@@ -497,7 +497,7 @@ export class UpdateManager {
                                 event.progress,
                                 event.message
                             );
-                        });
+                        }, selectedExtras);
                         updateInstallStage(
                             'gsm_package',
                             'completed',

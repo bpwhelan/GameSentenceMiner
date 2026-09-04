@@ -1,5 +1,5 @@
-import { useCallback, useState } from "react";
-import ReactMarkdown from "react-markdown";
+import { useCallback, useMemo, useState } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 
@@ -29,6 +29,50 @@ function resolveAssetUrl(src: string | undefined, assetBaseUrl: string): string 
 
 function isVideoAsset(src: string | undefined): boolean {
     return /\.(?:mp4|webm)(?:[?#]|$)/i.test(src ?? "");
+}
+
+const CHANGELOG_REMARK_PLUGINS = [remarkGfm];
+const CHANGELOG_REHYPE_PLUGINS = [rehypeSanitize];
+
+function getYouTubeEmbedUrl(href: string | undefined): string | null {
+  if (!href) {
+    return null;
+  }
+
+  let url: URL;
+  try {
+    url = new URL(href);
+  } catch {
+    return null;
+  }
+
+  if (url.protocol !== "https:") {
+    return null;
+  }
+
+  const hostname = url.hostname.toLowerCase();
+  let videoId: string | null = null;
+  if (hostname === "youtu.be") {
+    videoId = url.pathname.split("/").filter(Boolean)[0] ?? null;
+  } else if (
+    hostname === "youtube.com" ||
+    hostname === "www.youtube.com" ||
+    hostname === "m.youtube.com"
+  ) {
+    videoId = url.pathname === "/watch" ? url.searchParams.get("v") : null;
+  }
+
+  if (!videoId || !/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
+    return null;
+  }
+
+  const embedUrl = new URL(`https://www.youtube-nocookie.com/embed/${videoId}`);
+  embedUrl.searchParams.set("origin", "https://github.com");
+  embedUrl.searchParams.set(
+    "widget_referrer",
+    "https://github.com/bpwhelan/GameSentenceMiner/"
+  );
+  return embedUrl.toString();
 }
 
 type ChangelogSettingAction = {
@@ -109,6 +153,117 @@ export function WhatsChangedDialog({
     }
   }, []);
 
+  const settingEnabledLabel = t("changelog.settingChoice.enabled");
+  const settingDisabledLabel = t("changelog.settingChoice.disabled");
+  const youtubeVideoLabel = t("changelog.youtubeVideo");
+  const imageAltLabel = t("changelog.imageAlt");
+
+  // Install progress updates rerender this dialog frequently. Keep the Markdown
+  // renderer component identities stable so embedded iframes are not remounted.
+  const markdownComponents = useMemo<Components>(
+    () => ({
+      a: ({ href, children }) => (
+        (() => {
+          const action = parseChangelogSettingAction(href);
+          if (action) {
+            const selectedChoice = appliedSettingChoices[action.setting];
+            if (selectedChoice === action.choice) {
+              return (
+                <span
+                  className="changelog-setting-choice-result"
+                  data-changelog-setting={action.setting}
+                >
+                  {action.choice === "enable" ? settingEnabledLabel : settingDisabledLabel}
+                </span>
+              );
+            }
+            return (
+              <button
+                type="button"
+                className="changelog-setting-choice"
+                data-changelog-setting={action.setting}
+                onClick={() => void applySettingChoice(action)}
+                disabled={!canApplySettingChoices || pendingSetting === action.setting}
+              >
+                {children}
+              </button>
+            );
+          }
+
+          const youtubeEmbedUrl = getYouTubeEmbedUrl(href);
+          if (youtubeEmbedUrl) {
+            return (
+              <span className="changelog-youtube-embed">
+                <iframe
+                  src={youtubeEmbedUrl}
+                  title={youtubeVideoLabel}
+                  loading="lazy"
+                  referrerPolicy="strict-origin-when-cross-origin"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                />
+                <a
+                  className="changelog-youtube-link"
+                  href={href}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    if (href && /^https?:\/\//i.test(href)) {
+                      void window.ipcRenderer.invoke("open-external", href);
+                    }
+                  }}
+                >
+                  {children}
+                </a>
+              </span>
+            );
+          }
+
+          return (
+            <a
+              href={href}
+              onClick={(event) => {
+                event.preventDefault();
+                if (href && /^https?:\/\//i.test(href)) {
+                  void window.ipcRenderer.invoke("open-external", href);
+                }
+              }}
+            >
+              {children}
+            </a>
+          );
+        })()
+      ),
+      img: ({ src, alt }) => {
+        const resolvedSrc = resolveAssetUrl(src, changelog.assetBaseUrl);
+        return isVideoAsset(src) ? (
+          <video
+            src={resolvedSrc}
+            aria-label={alt || undefined}
+            controls
+            preload="metadata"
+          />
+        ) : (
+          <img
+            src={resolvedSrc}
+            alt={alt || imageAltLabel}
+            loading="lazy"
+          />
+        );
+      }
+    }),
+    [
+      appliedSettingChoices,
+      applySettingChoice,
+      canApplySettingChoices,
+      changelog.assetBaseUrl,
+      imageAltLabel,
+      pendingSetting,
+      settingDisabledLabel,
+      settingEnabledLabel,
+      youtubeVideoLabel
+    ]
+  );
+
   return (
     <div className="whats-changed-overlay">
       <div className="whats-changed-dialog" role="dialog" aria-modal="true">
@@ -156,72 +311,9 @@ export function WhatsChangedDialog({
             </div>
           ) : (
             <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              rehypePlugins={[rehypeSanitize]}
-              components={{
-                a: ({ href, children }) => (
-                  (() => {
-                    const action = parseChangelogSettingAction(href);
-                    if (action) {
-                      const selectedChoice = appliedSettingChoices[action.setting];
-                      if (selectedChoice === action.choice) {
-                        return (
-                          <span
-                            className="changelog-setting-choice-result"
-                            data-changelog-setting={action.setting}
-                          >
-                            {action.choice === "enable"
-                              ? t("changelog.settingChoice.enabled")
-                              : t("changelog.settingChoice.disabled")}
-                          </span>
-                        );
-                      }
-                      return (
-                        <button
-                          type="button"
-                          className="changelog-setting-choice"
-                          data-changelog-setting={action.setting}
-                          onClick={() => void applySettingChoice(action)}
-                          disabled={!canApplySettingChoices || pendingSetting === action.setting}
-                        >
-                          {children}
-                        </button>
-                      );
-                    }
-
-                    return (
-                      <a
-                        href={href}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          if (href && /^https?:\/\//i.test(href)) {
-                            void window.ipcRenderer.invoke("open-external", href);
-                          }
-                        }}
-                      >
-                        {children}
-                      </a>
-                    );
-                  })()
-                ),
-                img: ({ src, alt }) => {
-                  const resolvedSrc = resolveAssetUrl(src, changelog.assetBaseUrl);
-                  return isVideoAsset(src) ? (
-                    <video
-                      src={resolvedSrc}
-                      aria-label={alt || undefined}
-                      controls
-                      preload="metadata"
-                    />
-                  ) : (
-                    <img
-                      src={resolvedSrc}
-                      alt={alt || t("changelog.imageAlt")}
-                      loading="lazy"
-                    />
-                  );
-                }
-              }}
+              remarkPlugins={CHANGELOG_REMARK_PLUGINS}
+              rehypePlugins={CHANGELOG_REHYPE_PLUGINS}
+              components={markdownComponents}
             >
               {changelog.markdown || t("changelog.empty")}
             </ReactMarkdown>

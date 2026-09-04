@@ -283,13 +283,13 @@ export function registerPythonIPC() {
             updateInstallStage('lock_sync', 'running', 'estimated', 0.1, 'Syncing dependencies from the lockfile...');
             await syncLockedEnvironment(pythonPath, selectedExtras, false, (event) => {
                 updateInstallStage('lock_sync', 'running', 'estimated', event.progress, event.message);
-            });
+            }, { deferValidation: true });
             updateInstallStage('lock_sync', 'completed', 'estimated', 1, 'Dependencies synced from the lockfile.');
             const packageSpecifier = getBundledBackendSpecifier();
             updateInstallStage('gsm_package', 'running', 'estimated', 0.1, `Reinstalling ${packageSpecifier}...`);
             await installPackageNoDeps(pythonPath, packageSpecifier, true, (event) => {
                 updateInstallStage('gsm_package', 'running', 'estimated', event.progress, event.message);
-            });
+            }, selectedExtras);
             updateInstallStage('gsm_package', 'completed', 'estimated', 1, 'GSM backend package reinstalled.');
 
             const { ensureAndRunGSM } = await import('../main.js');

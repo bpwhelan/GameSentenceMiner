@@ -143,6 +143,8 @@ function createChangelogSnapshot(
             '',
             'A **bold** change with [a link](https://example.com).',
             '',
+            '[Speech recognition demo](https://youtu.be/oqyFCUAVFag)',
+            '',
             '[Enable disappearance invalidation](https://gsm-setting.invalid/overlay-presence-invalidation/enable)',
             '',
             '[Keep disappearance invalidation disabled](https://gsm-setting.invalid/overlay-presence-invalidation/disable)',
@@ -626,6 +628,10 @@ describe('App install-session integration', () => {
         );
         expect(container.querySelector('video')?.getAttribute('src')).toBe(
             'gsm-changelog://images/1.0.1/demo.mp4'
+        );
+        expect(container.querySelectorAll('iframe')).toHaveLength(1);
+        expect(container.querySelector('iframe')?.getAttribute('src')).toBe(
+            'https://www.youtube-nocookie.com/embed/oqyFCUAVFag?origin=https%3A%2F%2Fgithub.com&widget_referrer=https%3A%2F%2Fgithub.com%2Fbpwhelan%2FGameSentenceMiner%2F'
         );
         const markdownLink = container.querySelector('.whats-changed-body a');
         expect(markdownLink?.getAttribute('href')).toBe('https://example.com');

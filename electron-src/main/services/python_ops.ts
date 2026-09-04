@@ -523,12 +523,15 @@ export function resolveRequestedExtras(
  * release and syncs the venv to match it, including any requested extras.
  *
  * @param checkOnly  When true adds `--check` (dry-run, throws on mismatch).
+ * @param options.deferValidation  When replacing the backend next, validate and
+ * stamp only after installPackageNoDeps replaces its old dependency metadata.
  */
 export async function syncLockedEnvironment(
     pythonPath: string,
     extras: string[] = [],
     checkOnly: boolean = false,
-    onProgress?: (event: UvCommandProgressEvent) => void
+    onProgress?: (event: UvCommandProgressEvent) => void,
+    options: { deferValidation?: boolean } = {}
 ): Promise<void> {
     const projectPath = getProjectPath();
     const normalizedExtras = normalizeExtras(extras);
@@ -562,19 +565,30 @@ export async function syncLockedEnvironment(
         onProgress,
     };
     await runCommand(pythonPath, args, true, true, 'Sync: ', commandOptions);
+
+    if (!options.deferValidation) {
+        await validateLockedEnvironment(pythonPath, normalizedExtras, onProgress);
+    }
+}
+
+async function validateLockedEnvironment(
+    pythonPath: string,
+    extras: string[],
+    onProgress?: (event: UvCommandProgressEvent) => void
+): Promise<void> {
     await runCommand(
         pythonPath,
         ['-m', 'pip', 'check'],
         true,
         true,
         'Verify: ',
-        commandOptions
+        { suppressOutput: true, onProgress }
     );
 
     const syncState = getDevPyprojectSyncState(
-        projectPath,
+        getProjectPath(),
         getVenvDirFromPythonPath(pythonPath),
-        normalizedExtras
+        extras
     );
     markDevPyprojectSynced(
         getVenvDirFromPythonPath(pythonPath),
@@ -590,7 +604,8 @@ export async function installPackageNoDeps(
     pythonPath: string,
     packageSpecifier: string,
     forceReinstall: boolean = false,
-    onProgress?: (event: UvCommandProgressEvent) => void
+    onProgress?: (event: UvCommandProgressEvent) => void,
+    extras: string[] = []
 ): Promise<void> {
     const args = ['-m', 'uv', 'pip', 'install', '--no-deps', '--upgrade'];
     if (forceReinstall) {
@@ -601,4 +616,5 @@ export async function installPackageNoDeps(
         suppressOutput: true,
         onProgress,
     });
+    await validateLockedEnvironment(pythonPath, extras, onProgress);
 }
