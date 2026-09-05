@@ -46,7 +46,7 @@ for ($i = 0; $i -lt $cmd.Count; $i++) {
         }
         "sync" {
             Write-Host "Syncing environment..." -ForegroundColor Cyan
-            uv lock --check
+            uv lock
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             uv sync --frozen --extra dev
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

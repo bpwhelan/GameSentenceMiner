@@ -334,6 +334,7 @@ def test_windows_speech_cumulative_hypotheses_remain_one_line():
                 "merge_fragments": True,
                 "revision_window_ms": 2500,
                 "metadata": {"speech_final": index == len(hypotheses) - 1},
+                "remove_matching_prefix": True,
             }
         )
         latest = state.ingest(

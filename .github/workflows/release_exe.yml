@@ -414,15 +414,10 @@ jobs:
 
           Copy-Item -Path $signedExe.FullName -Destination $distExePath -Force
 
-          $appBuilder = node -e "process.stdout.write(require('app-builder-bin').appBuilderPath)"
-          if (-not $appBuilder) {
-            throw "Unable to resolve app-builder path."
-          }
-
           $blockmapOutput = "$distExePath.blockmap"
-          $blockmapJson = & $appBuilder blockmap --input "$distExePath" --output "$blockmapOutput"
+          $blockmapJson = node -e "const { buildBlockMap } = require('app-builder-lib/out/targets/blockmap/blockmap'); const [input, output] = process.argv.slice(1); buildBlockMap(input, 'gzip', output).then((info) => process.stdout.write(JSON.stringify(info))).catch((error) => { console.error(error); process.exitCode = 1; });" -- "$distExePath" "$blockmapOutput"
           if ($LASTEXITCODE -ne 0) {
-            throw "app-builder failed to generate blockmap."
+            throw "Electron Builder failed to generate blockmap."
           }
           $blockmapInfo = $blockmapJson | ConvertFrom-Json
 

@@ -1,7 +1,7 @@
 {
   "name": "gamesentenceminer",
   "productName": "GameSentenceMiner",
-  "version": "2026.9.0",
+  "version": "2026.9.1",
   "description": "GameSentenceMiner",
   "main": "dist/main/bootstrap.js",
   "desktopName": "com.beangate.gamesentenceminer.desktop",
@@ -45,6 +45,7 @@
       "dist/preload/**/*",
       "dist/shared/**/*",
       "dist/renderer/**/*",
+      "!dist/renderer/legacy/changelog/**/*",
       "assets/*"
     ],
     "extraFiles": [

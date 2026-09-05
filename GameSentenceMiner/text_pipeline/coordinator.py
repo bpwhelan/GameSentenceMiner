@@ -144,7 +144,11 @@ class TextCoordinatorState:
         processed = full_processed
         source_text_key = self._source_text_key(observation)
         previous_full_text = self._last_full_text_by_source.get(source_text_key)
-        if observation.remove_matching_prefix and previous_full_text is not None:
+        if (
+            observation.remove_matching_prefix
+            and observation.source_kind is not SourceKind.SPEECH_RECOGNITION
+            and previous_full_text is not None
+        ):
             if full_processed == previous_full_text.text:
                 previous_record = self._by_id.get(previous_full_text.line_id)
                 if previous_record is not None and newest is not None and previous_record.line_id == newest.line_id:

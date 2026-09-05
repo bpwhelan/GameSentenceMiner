@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GameSentenceMiner"
-version = "2026.9.0"
+version = "2026.9.1"
 description = "A tool for mining sentences from games. Update: Dependencies, replay buffer based line searching, and bug fixes."
 readme = "README.md"
 requires-python = ">=3.10, <3.14"
@@ -40,7 +40,12 @@ dependencies = [
   "faster-whisper~=1.2.1",
   "kaldi-native-fbank>=1.15.0",
   "regex>=2026.7.10,<2026.8.0",
-  "opencv-python>=5.0.0.93,<5.0.1.0",
+  # windows-capture requires the regular distribution while MeikiOCR requires
+  # the headless distribution. Both provide the same cv2 package, so their
+  # versions must stay identical or installation order can mix Python files
+  # from one release with the native extension from the other.
+  "opencv-python==4.13.0.92",
+  "opencv-python-headless==4.13.0.92",
   "oneocr==1.0.12",
   "sounddevice~=0.5.2",
   "groq~=0.33.0",
