@@ -19,7 +19,6 @@
                 <span id="connectionLabel">Disconnected</span>
             </div>
             <div class="topbar-actions">
-                <button id="shareButton" class="text-button" type="button">Copy session code</button>
                 <button id="fullscreenButton" class="icon-button" type="button" title="Fullscreen" aria-label="Fullscreen">
                     <span aria-hidden="true">⛶</span>
                 </button>
@@ -35,16 +34,25 @@
                 <div id="emptyState" class="empty-state">
                     <div class="empty-signal" aria-hidden="true"><span></span><span></span><span></span></div>
                     <h1>OBS Remote Play</h1>
-                    <p>Stream the active OBS program view with browser input disabled until you explicitly enable it.</p>
+                    <p>Stream the active OBS program view, control your game, and click text to look it up. Remote input starts automatically.</p>
                     <button id="connectButton" class="primary-button" type="button">Connect to stream</button>
-                    <button id="enterTokenButton" class="link-button" type="button">Enter a session code</button>
                 </div>
 
                 <div id="streamNotice" class="stream-notice" role="status" aria-live="polite" hidden></div>
-                <div id="inputBadge" class="input-badge" hidden>Input active</div>
             </div>
         </section>
 
+        <div class="media-controls" aria-label="Stream settings">
+            <label for="qualitySelect">Quality</label>
+            <select id="qualitySelect" title="Disconnect to change quality. Bitrate adapts to your connection.">
+                <option value="balanced">Balanced · up to 4 Mbps</option>
+                <option value="high" selected>High · up to 8 Mbps</option>
+                <option value="ultra">Ultra · up to 16 Mbps</option>
+            </select>
+            <button id="audioButton" class="text-button" type="button" disabled>Mute</button>
+            <span id="audioStatus" role="status">Game audio disconnected</span>
+            <span id="streamStats" aria-label="Received stream quality"></span>
+        </div>
         <footer class="control-dock">
             <div class="control-copy">
                 <strong id="inputTitle">Remote input is off</strong>
@@ -57,19 +65,6 @@
             </label>
         </footer>
     </main>
-
-    <dialog id="tokenDialog">
-        <form id="tokenForm" method="dialog">
-            <div class="dialog-heading">
-                <h2>Join remote session</h2>
-                <button id="closeTokenDialog" class="icon-button" type="button" aria-label="Close" title="Close">×</button>
-            </div>
-            <p>Enter the short-lived session code created on the GSM computer.</p>
-            <label for="tokenInput">Session code</label>
-            <input id="tokenInput" type="password" autocomplete="off" spellcheck="false" required>
-            <button class="primary-button" value="default" type="submit">Connect</button>
-        </form>
-    </dialog>
 
     <dialog id="lookupDialog" class="lookup-dialog">
         <div class="dialog-heading">

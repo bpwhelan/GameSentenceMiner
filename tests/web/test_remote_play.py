@@ -14,7 +14,6 @@ from GameSentenceMiner.web.gsm_websocket import (
 )
 from GameSentenceMiner.web.remote_play import (
     RemoteInputGate,
-    RemotePlayAccess,
     RemotePlaySessionManager,
     is_remote_play_origin_allowed,
     map_letterboxed_pointer,
@@ -37,19 +36,6 @@ def test_map_letterboxed_pointer_clamps_to_source(pointer, display, source, expe
     assert result.x == pytest.approx(expected[0])
     assert result.y == pytest.approx(expected[1])
     assert result.inside_video is expected[2]
-
-
-def test_remote_play_access_uses_an_expiring_token(monkeypatch):
-    clock = [100.0]
-    monkeypatch.setattr("GameSentenceMiner.web.remote_play.time.monotonic", lambda: clock[0])
-    access = RemotePlayAccess(token_ttl_seconds=30)
-
-    token = access.issue_token()
-
-    assert access.validate(token) is True
-    assert access.validate("wrong-token") is False
-    clock[0] = 131.0
-    assert access.validate(token) is False
 
 
 @dataclass
@@ -129,22 +115,27 @@ def test_remote_play_origin_must_match_the_public_host():
     assert is_remote_play_origin_allowed(None, "localhost:7275") is False
 
 
-def test_signaling_rejects_an_invalid_token():
-    manager = RemotePlaySessionManager()
-    websocket = FakeWebsocket([json.dumps({"type": "authenticate", "token": "invalid"})])
-
+def test_signaling_accepts_phone_without_a_code():
+    manager = RemotePlaySessionManager(input_backend_factory=FakeInputBackend)
+    websocket = FakeWebsocket(origin="http://192.168.1.10:7275", host="192.168.1.10:7275")
     asyncio.run(manager.handle_connection(websocket))
-
-    assert websocket.closed == (1008, "Authentication failed")
+    assert websocket.closed is None
+    assert websocket.sent == [{"type": "ready", "input_available": True}]
     assert manager.has_client() is False
+
+
+def test_signaling_rejects_unrelated_website():
+    manager = RemotePlaySessionManager(input_backend_factory=FakeInputBackend)
+    websocket = FakeWebsocket(origin="https://unrelated.example", host="192.168.1.10:7275")
+    asyncio.run(manager.handle_connection(websocket))
+    assert websocket.closed == (1008, "Origin not allowed")
 
 
 def test_signaling_rejects_a_second_client():
     manager = RemotePlaySessionManager()
-    token = manager.access.issue_token()
     existing_client = object()
     manager._active_websocket = existing_client
-    websocket = FakeWebsocket([json.dumps({"type": "authenticate", "token": token})])
+    websocket = FakeWebsocket()
 
     asyncio.run(manager.handle_connection(websocket))
 

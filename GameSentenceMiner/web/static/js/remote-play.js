@@ -7,6 +7,10 @@
 
     const elements = {
         video: document.getElementById("remoteVideo"),
+        quality: document.getElementById("qualitySelect"),
+        audio: document.getElementById("audioButton"),
+        audioStatus: document.getElementById("audioStatus"),
+        stats: document.getElementById("streamStats"),
         stage: document.getElementById("videoStage"),
         overlay: document.getElementById("ocrOverlay"),
         empty: document.getElementById("emptyState"),
@@ -16,16 +20,9 @@
         connect: document.getElementById("connectButton"),
         disconnect: document.getElementById("disconnectButton"),
         fullscreen: document.getElementById("fullscreenButton"),
-        share: document.getElementById("shareButton"),
         inputToggle: document.getElementById("inputToggle"),
-        inputBadge: document.getElementById("inputBadge"),
         inputTitle: document.getElementById("inputTitle"),
         inputDescription: document.getElementById("inputDescription"),
-        tokenDialog: document.getElementById("tokenDialog"),
-        tokenForm: document.getElementById("tokenForm"),
-        tokenInput: document.getElementById("tokenInput"),
-        enterToken: document.getElementById("enterTokenButton"),
-        closeTokenDialog: document.getElementById("closeTokenDialog"),
         lookupDialog: document.getElementById("lookupDialog"),
         lookupHeading: document.getElementById("lookupHeading"),
         lookupContent: document.getElementById("lookupContent"),
@@ -35,7 +32,6 @@
     const state = {
         socket: null,
         peer: null,
-        token: "",
         inputAvailable: false,
         inputEnabled: false,
         overlayLines: [],
@@ -58,20 +54,6 @@
     function clearNotice() {
         elements.notice.hidden = true;
         elements.notice.textContent = "";
-    }
-
-    async function requestLocalToken() {
-        const response = await fetch("/api/remote-play/session", {
-            method: "POST",
-            cache: "no-store",
-            headers: { Accept: "application/json" },
-        });
-        if (response.status === 403) return null;
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok || !payload.token) {
-            throw new Error(payload.error || "Could not create a remote-play session.");
-        }
-        return payload.token;
     }
 
     function websocketUrl() {
@@ -106,10 +88,21 @@
         state.peer?.close();
         const peer = new RTCPeerConnection({ iceServers: ICE_SERVERS });
         state.peer = peer;
+        elements.quality.disabled = true;
+        elements.audio.disabled = true;
+        elements.audioStatus.textContent = "Starting game audio…";
+        const stream = new MediaStream();
+        elements.video.srcObject = stream;
         peer.addTransceiver("video", { direction: "recvonly" });
+        peer.addTransceiver("audio", { direction: "recvonly" });
         peer.addEventListener("track", (event) => {
-            elements.video.srcObject = event.streams[0] || new MediaStream([event.track]);
-            elements.video.play().catch(() => undefined);
+            if (state.peer !== peer) return;
+            stream.addTrack(event.track);
+            elements.video.play().catch(() => {
+                elements.video.muted = true;
+                elements.audio.textContent = "Enable sound";
+                elements.video.play().catch(() => showNotice("Select Enable sound to start playback."));
+            });
         });
         peer.addEventListener("connectionstatechange", () => {
             if (state.peer !== peer) return;
@@ -118,6 +111,7 @@
                 setConnection("Live", "live");
                 elements.empty.hidden = true;
                 elements.inputToggle.disabled = !state.inputAvailable;
+                if (state.inputAvailable) send({ type: "input_enabled", enabled: true });
                 clearNotice();
             } else if (["failed", "disconnected", "closed"].includes(status)) {
                 stopInput(`peer-${status}`);
@@ -130,7 +124,7 @@
         const offer = await peer.createOffer();
         await peer.setLocalDescription(offer);
         await waitForIceGathering(peer);
-        send({ type: "offer", sdp: peer.localDescription.sdp });
+        send({ type: "offer", sdp: peer.localDescription.sdp, quality: elements.quality.value });
     }
 
     async function handleSocketMessage(event) {
@@ -140,11 +134,10 @@
         } catch (_error) {
             return;
         }
-        if (message.type === "authenticated") {
+        if (message.type === "ready") {
             state.inputAvailable = Boolean(message.input_available);
             elements.inputToggle.disabled = true;
             elements.disconnect.disabled = false;
-            elements.share.disabled = !state.token;
             setConnection("Starting OBS", "connecting");
             await startPeerConnection();
             return;
@@ -155,6 +148,12 @@
         }
         if (message.type === "stream_state") {
             if (message.state === "connecting") setConnection("Opening camera", "connecting");
+            return;
+        }
+        if (message.type === "audio_state") {
+            elements.audio.disabled = !message.available;
+            elements.audioStatus.textContent = message.available ? "Game audio" : (message.message || "Game audio unavailable");
+            elements.audio.textContent = elements.video.muted ? "Enable sound" : "Mute";
             return;
         }
         if (message.type === "input_state") {
@@ -169,37 +168,22 @@
             return;
         }
         if (message.type === "error") {
+            disconnect();
             elements.inputToggle.disabled = true;
             showNotice(message.message || "Remote play reported an error.", true);
             setConnection("Unavailable", "error");
         }
     }
 
-    function openTokenDialog() {
-        if (!elements.tokenDialog.open) elements.tokenDialog.showModal();
-        window.setTimeout(() => elements.tokenInput.focus(), 0);
-    }
-
-    async function connect(token = "") {
+    async function connect() {
         if (state.socket && state.socket.readyState < WebSocket.CLOSING) return;
         clearNotice();
-        setConnection("Authorizing", "connecting");
+        setConnection("Connecting", "connecting");
         elements.connect.disabled = true;
         state.intentionalClose = false;
         try {
-            state.token = token || await requestLocalToken() || "";
-            if (!state.token) {
-                setConnection("Session code required", "idle");
-                openTokenDialog();
-                return;
-            }
-
             const socket = new WebSocket(websocketUrl());
             state.socket = socket;
-            socket.addEventListener("open", () => {
-                if (state.socket !== socket) return;
-                socket.send(JSON.stringify({ type: "authenticate", token: state.token }));
-            });
             socket.addEventListener("message", (event) => {
                 handleSocketMessage(event).catch((error) => {
                     showNotice(error.message || "Could not negotiate the stream.", true);
@@ -212,6 +196,7 @@
                 state.peer?.close();
                 state.peer = null;
                 elements.video.srcObject = null;
+                resetMediaControls();
                 elements.empty.hidden = false;
                 elements.disconnect.disabled = true;
                 elements.inputToggle.disabled = true;
@@ -224,7 +209,6 @@
             });
             socket.addEventListener("error", () => showNotice("Could not reach GSM's signaling server.", true));
         } catch (error) {
-            state.token = "";
             setConnection("Unavailable", "error");
             showNotice(error.message || "Could not connect.", true);
         } finally {
@@ -240,21 +224,70 @@
         state.socket?.close(1000, "Client disconnected");
         state.socket = null;
         elements.video.srcObject = null;
+        resetMediaControls();
         elements.empty.hidden = false;
         elements.disconnect.disabled = true;
         elements.inputToggle.disabled = true;
         setConnection("Disconnected", "idle");
     }
 
+    function resetMediaControls() {
+        elements.quality.disabled = false;
+        elements.audio.disabled = true;
+        elements.audioStatus.textContent = "Game audio disconnected";
+        elements.stats.textContent = "";
+    }
+
+    elements.audio.addEventListener("click", async () => {
+        elements.video.muted = !elements.video.muted;
+        try {
+            await elements.video.play();
+            elements.audio.textContent = elements.video.muted ? "Enable sound" : "Mute";
+        } catch (_error) {
+            elements.video.muted = true;
+            elements.audio.textContent = "Enable sound";
+            showNotice("Playback was blocked. Select Enable sound to try again.", true);
+        }
+    });
+
+    let previousVideoStats = null;
+    let statsBusy = false;
+    window.setInterval(async () => {
+        const peer = state.peer;
+        if (!peer || peer.connectionState !== "connected") {
+            previousVideoStats = null;
+            return;
+        }
+        if (statsBusy) return;
+        statsBusy = true;
+        try {
+            const stats = await peer.getStats();
+            if (state.peer !== peer) return;
+            stats.forEach((report) => {
+                if (report.type !== "inbound-rtp" || report.kind !== "video") return;
+                const previous = previousVideoStats;
+                const elapsed = previous?.peer === peer ? report.timestamp - previous.timestamp : 0;
+                const mbps = elapsed > 0 ? (report.bytesReceived - previous.bytesReceived) * 8 / elapsed / 1000 : 0;
+                elements.stats.textContent = [
+                    `${report.frameWidth || elements.video.videoWidth} × ${report.frameHeight || elements.video.videoHeight}`,
+                    `${Math.round(report.framesPerSecond || 0)} fps`,
+                    elapsed > 0 ? `${mbps.toFixed(1)} Mbps` : "Measuring…",
+                ].join(" · ");
+                previousVideoStats = { peer, timestamp: report.timestamp, bytesReceived: report.bytesReceived };
+            });
+        } catch (_error) {
+            // A peer may close while its statistics request is pending.
+        } finally {
+            statsBusy = false;
+        }
+    }, 1000);
+
     function applyInputState(enabled) {
         state.inputEnabled = enabled;
         elements.inputToggle.checked = enabled;
-        elements.inputBadge.hidden = !enabled;
-        elements.overlay.classList.toggle("input-enabled", enabled);
-        elements.stage.classList.toggle("input-enabled", enabled);
         elements.inputTitle.textContent = enabled ? "Remote input is active" : "Remote input is off";
         elements.inputDescription.textContent = enabled
-            ? "Keyboard and pointer events are being sent to the configured game window. Press Escape to stop."
+            ? "Control the game or click text to look it up. Press Escape to stop input."
             : "Video and OCR lookup are available without controlling the game.";
         if (enabled) elements.stage.focus({ preventScroll: true });
     }
@@ -294,12 +327,12 @@
     }
 
     function queuePointerMove(event) {
-        if (!state.inputEnabled) return;
+        if (!state.inputEnabled || isLookupEvent(event)) return;
         state.pendingPointer = normalizedPointer(event);
         if (state.pointerFrame) return;
         state.pointerFrame = window.requestAnimationFrame(() => {
             state.pointerFrame = 0;
-            if (state.pendingPointer?.inside) {
+            if (state.inputEnabled && state.pendingPointer?.inside) {
                 send({ type: "pointer_move", x: state.pendingPointer.x, y: state.pendingPointer.y });
             }
         });
@@ -307,6 +340,10 @@
 
     function pointerButtonName(button) {
         return ["left", "middle", "right"][button] || "left";
+    }
+
+    function isLookupEvent(event) {
+        return event.target instanceof Element && Boolean(event.target.closest(".ocr-region, dialog"));
     }
 
     function updateOverlay(payload) {
@@ -376,7 +413,6 @@
                 cache: "no-store",
                 headers: {
                     "Content-Type": "application/json",
-                    "X-GSM-Remote-Play-Token": state.token,
                 },
                 body: JSON.stringify({ text, scan_length: 20 }),
             });
@@ -410,31 +446,8 @@
     }
 
     elements.connect.addEventListener("click", () => connect());
-    elements.enterToken.addEventListener("click", openTokenDialog);
     elements.disconnect.addEventListener("click", disconnect);
-    elements.tokenForm.addEventListener("submit", (event) => {
-        event.preventDefault();
-        const token = elements.tokenInput.value.trim();
-        if (!token) return;
-        elements.tokenDialog.close();
-        elements.tokenInput.value = "";
-        connect(token);
-    });
-    elements.closeTokenDialog.addEventListener("click", () => elements.tokenDialog.close());
     elements.closeLookupDialog.addEventListener("click", () => elements.lookupDialog.close());
-    elements.share.addEventListener("click", async () => {
-        try {
-            state.token = state.token || await requestLocalToken() || "";
-            if (!state.token) {
-                showNotice("Session codes can only be created on the GSM computer.", true);
-                return;
-            }
-            await navigator.clipboard.writeText(state.token);
-            showNotice("Session code copied. It expires in 15 minutes.");
-        } catch (_error) {
-            showNotice("The session code could not be copied. Allow clipboard access and try again.", true);
-        }
-    });
     elements.fullscreen.addEventListener("click", () => {
         if (document.fullscreenElement) document.exitFullscreen();
         else elements.stage.requestFullscreen();
@@ -445,16 +458,17 @@
     });
     elements.stage.addEventListener("pointermove", queuePointerMove);
     elements.stage.addEventListener("pointerdown", (event) => {
-        if (!state.inputEnabled) return;
+        if (!state.inputEnabled || isLookupEvent(event)) return;
         const pointer = normalizedPointer(event);
         if (!pointer.inside) return;
         event.preventDefault();
+        elements.stage.focus({ preventScroll: true });
         elements.stage.setPointerCapture(event.pointerId);
         send({ type: "pointer_move", x: pointer.x, y: pointer.y });
         send({ type: "pointer_button", button: pointerButtonName(event.button), pressed: true });
     });
     elements.stage.addEventListener("pointerup", (event) => {
-        if (!state.inputEnabled) return;
+        if (!state.inputEnabled || isLookupEvent(event)) return;
         event.preventDefault();
         send({ type: "pointer_button", button: pointerButtonName(event.button), pressed: false });
     });
@@ -463,7 +477,7 @@
         if (state.inputEnabled) event.preventDefault();
     });
     elements.stage.addEventListener("wheel", (event) => {
-        if (!state.inputEnabled) return;
+        if (!state.inputEnabled || isLookupEvent(event)) return;
         event.preventDefault();
         send({ type: "wheel", delta_x: event.deltaX, delta_y: event.deltaY });
     }, { passive: false });
@@ -491,5 +505,4 @@
 
     setConnection("Disconnected", "idle");
     applyInputState(false);
-    elements.share.disabled = false;
 })();

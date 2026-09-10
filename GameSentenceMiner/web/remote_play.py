@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import hmac
 import json
-import secrets
-import threading
-import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 from urllib.parse import urlsplit
 
 from GameSentenceMiner.util.config.configuration import logger
@@ -48,27 +45,6 @@ def map_letterboxed_pointer(
         y=max(0.0, min(1.0, normalized_y)),
         inside_video=inside_video,
     )
-
-
-class RemotePlayAccess:
-    def __init__(self, token_ttl_seconds: float = 15 * 60):
-        self._token_ttl_seconds = token_ttl_seconds
-        self._token: str | None = None
-        self._expires_at = 0.0
-        self._lock = threading.Lock()
-
-    def issue_token(self) -> str:
-        token = secrets.token_urlsafe(32)
-        with self._lock:
-            self._token = token
-            self._expires_at = time.monotonic() + self._token_ttl_seconds
-        return token
-
-    def validate(self, candidate: str | None) -> bool:
-        with self._lock:
-            token = self._token
-            expires_at = self._expires_at
-        return bool(token and candidate and time.monotonic() <= expires_at and hmac.compare_digest(token, candidate))
 
 
 class InputBackend(Protocol):
@@ -123,18 +99,25 @@ class ObsVirtualCameraSession:
     def __init__(self):
         self.player = None
         self.track = None
+        self.audio_track = None
+        self.audio_error = ""
         self._started_virtual_camera = False
 
     async def start(self):
         import asyncio
 
-        from aiortc.contrib.media import MediaPlayer
+        from aiortc.contrib.media import MediaPlayer, MediaRelay
+
         from GameSentenceMiner import obs
 
         service = obs.obs_service
         if service is None or service.connection_pool is None:
             raise RuntimeError("OBS is not connected.")
 
+        video_settings = await asyncio.to_thread(
+            service.connection_pool.call, lambda client: client.get_video_settings(), 1
+        )
+        video_size = f"{video_settings.output_width}x{video_settings.output_height}"
         status = await asyncio.to_thread(
             service.connection_pool.call,
             lambda client: client.get_virtual_cam_status(),
@@ -156,11 +139,20 @@ class ObsVirtualCameraSession:
                     MediaPlayer,
                     "video=OBS Virtual Camera",
                     format="dshow",
-                    options={"framerate": "30", "rtbufsize": "100M"},
+                    options={"framerate": "30", "video_size": video_size, "rtbufsize": "100M"},
                 )
-                self.track = self.player.video
-                if self.track is None:
+                if self.player.video is None:
                     raise RuntimeError("OBS Virtual Camera did not expose a video track.")
+                # Consume capture continuously but send only the latest frame
+                # when encoding/network throughput falls behind the camera.
+                self.track = MediaRelay().subscribe(self.player.video, buffered=False)
+                from GameSentenceMiner.web.remote_play_media import open_game_audio
+
+                try:
+                    self.audio_track = await open_game_audio()
+                except Exception as error:
+                    self.audio_error = str(error)
+                    logger.warning(f"Remote play game audio unavailable: {error}")
                 return self.track
             except Exception as error:
                 last_error = error
@@ -173,8 +165,13 @@ class ObsVirtualCameraSession:
 
         from GameSentenceMiner import obs
 
+        if self.audio_track is not None:
+            await asyncio.to_thread(self.audio_track.stop)
+        self.audio_track = None
         if self.track is not None:
             self.track.stop()
+        if self.player is not None and self.player.video is not None:
+            await asyncio.to_thread(self.player.video.stop)
         self.track = None
         self.player = None
         if self._started_virtual_camera:
@@ -196,12 +193,10 @@ class RemotePlaySessionManager:
 
     def __init__(
         self,
-        access: RemotePlayAccess | None = None,
         input_backend_factory: Callable[[], InputBackend] | None = None,
         media_factory: Callable[[], ObsVirtualCameraSession] = ObsVirtualCameraSession,
         peer_factory: Callable[[], Any] | None = None,
     ):
-        self.access = access or RemotePlayAccess()
         self._input_backend_factory = input_backend_factory or self._default_input_backend_factory
         self._media_factory = media_factory
         self._peer_factory = peer_factory
@@ -225,19 +220,6 @@ class RemotePlaySessionManager:
             await websocket.close(code=1008, reason="Origin not allowed")
             return
 
-        try:
-            raw_auth = await asyncio.wait_for(websocket.recv(), timeout=5)
-            auth = json.loads(raw_auth)
-        except (asyncio.TimeoutError, TypeError, json.JSONDecodeError):
-            await websocket.close(code=1008, reason="Authentication required")
-            return
-        if (
-            not isinstance(auth, dict)
-            or auth.get("type") != "authenticate"
-            or not self.access.validate(auth.get("token"))
-        ):
-            await websocket.close(code=1008, reason="Authentication failed")
-            return
         if self._active_websocket is not None:
             await websocket.close(code=1013, reason="Remote play already has an active client")
             return
@@ -250,7 +232,7 @@ class RemotePlaySessionManager:
         await self._send_json(
             websocket,
             {
-                "type": "authenticated",
+                "type": "ready",
                 "input_available": bool(getattr(backend, "available", False)),
             },
         )
@@ -304,6 +286,7 @@ class RemotePlaySessionManager:
         await self._send_json(websocket, {"type": "stream_state", "state": "connecting"})
         try:
             media = self._media_factory()
+            self._media = media
             track = await media.start()
             peer = self._peer_factory() if self._peer_factory else self._create_peer()
             self._media = media
@@ -316,13 +299,48 @@ class RemotePlaySessionManager:
                 if state in {"disconnected", "failed", "closed"} and self._input_gate is not None:
                     self._input_gate.stop(f"peer-{state}")
 
-            peer.addTrack(track)
+            from GameSentenceMiner.web.remote_play_media import configure_video_sender
+
+            sender = peer.addTrack(track)
+            quality = message.get("quality", "high")
+            configure_video_sender(peer, sender, quality if isinstance(quality, str) else "high")
+            audio_track = getattr(media, "audio_track", None)
+            if audio_track is not None:
+                peer.addTrack(audio_track)
+
+                import asyncio
+
+                loop = asyncio.get_running_loop()
+
+                async def report_audio_ended():
+                    if self._peer is peer:
+                        await self._send_json(
+                            websocket,
+                            {
+                                "type": "audio_state",
+                                "available": False,
+                                "message": "Game audio capture stopped. Reconnect to try again.",
+                            },
+                        )
+
+                @audio_track.on("ended")
+                def on_audio_ended():
+                    asyncio.run_coroutine_threadsafe(report_audio_ended(), loop)
+
             await peer.setRemoteDescription(RTCSessionDescription(sdp=message["sdp"], type="offer"))
             answer = await peer.createAnswer()
             await peer.setLocalDescription(answer)
             await self._send_json(
                 websocket,
                 {"type": "answer", "sdp": peer.localDescription.sdp},
+            )
+            await self._send_json(
+                websocket,
+                {
+                    "type": "audio_state",
+                    "available": audio_track is not None,
+                    "message": getattr(media, "audio_error", ""),
+                },
             )
         except Exception as error:
             await self._close_peer_and_media()
